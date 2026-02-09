@@ -1,7 +1,31 @@
 import * as soundManager from './soundManager.js';
 
 const mutedSessions = new Set();
-export function isMuted(sessionId) { return mutedSessions.has(sessionId); }
+let globalMuted = false;
+export function isMuted(sessionId) { return globalMuted || mutedSessions.has(sessionId); }
+
+export function toggleMuteAll() {
+  globalMuted = !globalMuted;
+  // Update all per-session mute buttons to reflect global state
+  document.querySelectorAll('.session-card .mute-btn').forEach(btn => {
+    if (globalMuted) {
+      btn.classList.add('muted');
+      btn.innerHTML = 'M';
+    } else {
+      // Restore per-session state
+      const card = btn.closest('.session-card');
+      const sid = card?.dataset?.sessionId;
+      if (sid && mutedSessions.has(sid)) {
+        btn.classList.add('muted');
+        btn.innerHTML = 'M';
+      } else {
+        btn.classList.remove('muted');
+        btn.innerHTML = '&#9835;';
+      }
+    }
+  });
+  return globalMuted;
+}
 
 const sessionsData = new Map(); // sessionId -> session object (for duration updates + detail panel)
 let selectedSessionId = null;
@@ -18,6 +42,7 @@ export function createOrUpdateCard(session) {
     card.className = 'session-card';
     card.dataset.sessionId = session.sessionId;
     card.innerHTML = `
+      <button class="close-btn" title="Dismiss card">&times;</button>
       <button class="mute-btn" title="Mute sounds">&#9835;</button>
       <div class="robot-viewport"></div>
       <div class="card-info">
@@ -53,6 +78,20 @@ export function createOrUpdateCard(session) {
         btn.innerHTML = 'M';
         btn.title = 'Unmute sounds';
       }
+    });
+    // Close button — dismiss card from live view
+    card.querySelector('.close-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const sid = session.sessionId;
+      card.style.transition = 'opacity 0.3s, transform 0.3s';
+      card.style.opacity = '0';
+      card.style.transform = 'scale(0.9)';
+      setTimeout(() => {
+        removeCard(sid);
+        // Also remove the robot
+        const event = new CustomEvent('card-dismissed', { detail: { sessionId: sid } });
+        document.dispatchEvent(event);
+      }, 300);
     });
     document.getElementById('sessions-grid').appendChild(card);
   }
@@ -98,12 +137,25 @@ export function createOrUpdateCard(session) {
   }
 }
 
-export function removeCard(sessionId) {
+export function removeCard(sessionId, animate = false) {
   const card = document.querySelector(`.session-card[data-session-id="${sessionId}"]`);
-  if (card) card.remove();
-  sessionsData.delete(sessionId);
-  if (selectedSessionId === sessionId) {
-    deselectSession();
+  if (!card) {
+    sessionsData.delete(sessionId);
+    return;
+  }
+  if (animate) {
+    card.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+    card.style.opacity = '0';
+    card.style.transform = 'scale(0.9)';
+    setTimeout(() => {
+      card.remove();
+      sessionsData.delete(sessionId);
+      if (selectedSessionId === sessionId) deselectSession();
+    }, 500);
+  } else {
+    card.remove();
+    sessionsData.delete(sessionId);
+    if (selectedSessionId === sessionId) deselectSession();
   }
 }
 

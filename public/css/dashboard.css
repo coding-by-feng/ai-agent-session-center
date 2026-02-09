@@ -977,7 +977,25 @@ body::after {
   display: block;
   grid-area: main;
   position: relative;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.view-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.view-panel::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+.view-panel::-webkit-scrollbar-thumb {
+  background: var(--border-accent);
+  border-radius: 4px;
+}
+
+.view-panel::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
 }
 
 /* ============================================================
@@ -2549,6 +2567,12 @@ body[data-theme="blonde"] .toast {
   border-color: var(--border-accent);
 }
 
+.qa-btn.active {
+  background: rgba(255, 51, 85, 0.15);
+  color: var(--accent-red);
+  border-color: var(--accent-red);
+}
+
 .qa-separator {
   width: 1px;
   height: 20px;
@@ -3263,6 +3287,42 @@ body[data-theme="blonde"] .toast {
 /* ============================================================
    Mute Button (per-session card)
    ============================================================ */
+
+.close-btn {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 5;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border-subtle);
+  background: var(--mute-bg);
+  backdrop-filter: blur(4px);
+  color: var(--text-dim);
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  opacity: 0;
+  pointer-events: none;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  line-height: 1;
+  padding: 0;
+}
+
+.session-card:hover .close-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.close-btn:hover {
+  background: rgba(255, 51, 85, 0.15);
+  color: var(--accent-red);
+  border-color: var(--accent-red);
+}
 
 .mute-btn {
   position: absolute;
