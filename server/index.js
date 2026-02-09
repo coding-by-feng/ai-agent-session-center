@@ -16,7 +16,7 @@ const app = express();
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static(join(__dirname, '..', 'public')));
 app.use('/api', apiRouter);
 app.use('/api/hooks', hookRouter);

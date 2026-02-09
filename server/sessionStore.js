@@ -184,9 +184,13 @@ export function handleEvent(hookData) {
       if (session.promptHistory.length > 50) session.promptHistory.shift();
       eventEntry.detail = (hookData.prompt || '').substring(0, 80);
 
-      // Auto-generate title from project name + session counter
+      // Auto-generate title from project name + counter + short prompt summary
       if (!session.title) {
-        session.title = `${session.projectName} — Session #${projectSessionCounters.get(session.projectName) || 1}`;
+        const counter = projectSessionCounters.get(session.projectName) || 1;
+        const shortPrompt = makeShortTitle(hookData.prompt || '');
+        session.title = shortPrompt
+          ? `${session.projectName} #${counter} — ${shortPrompt}`
+          : `${session.projectName} — Session #${counter}`;
         try {
           updateSessionTitle.run(session.title, session_id);
         } catch (err) {
@@ -326,6 +330,19 @@ export function getAllSessions() {
     result[id] = { ...session };
   }
   return result;
+}
+
+// Extract a short title from the first prompt (first sentence or first ~60 chars)
+function makeShortTitle(prompt) {
+  if (!prompt) return '';
+  // Strip leading whitespace and common prefixes
+  let text = prompt.trim().replace(/^(please|can you|could you|help me|i want to|i need to)\s+/i, '');
+  if (!text) return '';
+  // Take first sentence (up to . ! ? or newline)
+  const match = text.match(/^[^\n.!?]{1,60}/);
+  if (match) text = match[0].trim();
+  // Capitalize first letter
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 // Summarize tool input for the tool log detail panel
