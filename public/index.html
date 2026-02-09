@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Session Command Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/dashboard.css">
+</head>
+<body>
+  <!-- Header -->
+  <header id="header">
+    <div class="header-title">
+      <span class="logo">&#9670;</span> CLAUDE SESSION COMMAND CENTER
+    </div>
+    <div id="global-stats"></div>
+    <div id="connection-status">
+      <span id="conn-dot" class="conn-dot disconnected"></span>
+      <span id="conn-label">Connecting...</span>
+    </div>
+    <button id="open-settings" class="settings-gear" title="Settings (S)">&#9881;</button>
+  </header>
+
+  <!-- Navigation Bar -->
+  <nav id="main-nav">
+    <button class="nav-btn active" data-view="live">LIVE SESSIONS</button>
+    <button class="nav-btn" data-view="history">SESSION HISTORY</button>
+    <button class="nav-btn" data-view="timeline">TIMELINE</button>
+    <button class="nav-btn" data-view="analytics">ANALYTICS</button>
+  </nav>
+
+  <!-- Live Sessions View -->
+  <div id="view-live" class="view-panel active">
+    <!-- Live Search -->
+    <div id="live-search-bar">
+      <input type="text" id="live-search" placeholder="Filter sessions... ( / )">
+    </div>
+
+    <!-- Session Cards Grid -->
+    <main id="sessions-grid"></main>
+
+    <!-- Empty State -->
+    <div id="empty-state">
+      <div class="empty-icon">&#9679;</div>
+      <h2>No Active Sessions</h2>
+      <p>Open a Claude Code session to see it appear here</p>
+    </div>
+
+    <!-- Quick Actions Toolbar -->
+    <div id="quick-actions">
+      <button id="qa-refresh" class="qa-btn" title="Refresh page">&#8635; REFRESH</button>
+      <button id="qa-archive-ended" class="qa-btn" title="Archive all ended sessions">&#8681; ARCHIVE ENDED</button>
+      <div class="qa-separator"></div>
+      <button id="qa-shortcuts" class="qa-btn" title="Keyboard shortcuts">? SHORTCUTS</button>
+    </div>
+  </div>
+
+  <!-- Session History View -->
+  <div id="view-history" class="view-panel hidden">
+    <div id="history-controls">
+      <input type="text" id="search-input" placeholder="Search sessions...">
+      <select id="history-project-filter">
+        <option value="">All Projects</option>
+      </select>
+      <select id="history-status-filter">
+        <option value="">All Statuses</option>
+        <option value="ended">Ended</option>
+        <option value="idle">Idle</option>
+        <option value="working">Working</option>
+        <option value="archived">Archived</option>
+      </select>
+      <input type="date" id="history-date-from" placeholder="From">
+      <input type="date" id="history-date-to" placeholder="To">
+      <select id="history-sort-by">
+        <option value="date">Date</option>
+        <option value="duration">Duration</option>
+        <option value="prompts">Prompts</option>
+        <option value="tools">Tools</option>
+      </select>
+      <button id="history-sort-dir" class="nav-btn" title="Toggle sort direction">DESC</button>
+    </div>
+    <div id="history-results"></div>
+    <div id="history-pagination"></div>
+  </div>
+
+  <!-- Timeline View -->
+  <div id="view-timeline" class="view-panel hidden">
+    <div id="timeline-controls">
+      <select id="timeline-granularity">
+        <option value="hour">Hourly</option>
+        <option value="day">Daily</option>
+        <option value="week">Weekly</option>
+      </select>
+      <select id="timeline-project-filter">
+        <option value="">All Projects</option>
+      </select>
+      <input type="date" id="timeline-date-from" placeholder="From">
+      <input type="date" id="timeline-date-to" placeholder="To">
+    </div>
+    <div id="timeline-chart"></div>
+  </div>
+
+  <!-- Analytics View -->
+  <div id="view-analytics" class="view-panel hidden">
+    <div id="analytics-summary"></div>
+    <div id="analytics-grid">
+      <div class="analytics-card">
+        <h4>Tool Usage</h4>
+        <div id="tool-usage-chart"></div>
+      </div>
+      <div class="analytics-card">
+        <h4>Duration Trends</h4>
+        <div id="duration-trends-chart"></div>
+      </div>
+      <div class="analytics-card">
+        <h4>Active Projects</h4>
+        <div id="active-projects-chart"></div>
+      </div>
+      <div class="analytics-card">
+        <h4>Daily Heatmap</h4>
+        <div id="daily-heatmap-chart"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Activity Feed -->
+  <footer id="activity-feed">
+    <div class="feed-header">ACTIVITY FEED</div>
+    <div id="feed-entries"></div>
+  </footer>
+
+  <!-- Click-to-Select Detail Panel (slides in from right) -->
+  <div id="session-detail-overlay" class="hidden">
+    <div id="session-detail-panel">
+      <button id="close-detail">&times;</button>
+      <div class="detail-header">
+        <h3 id="detail-project-name"></h3>
+        <span id="detail-status-badge"></span>
+        <span id="detail-model"></span>
+        <span id="detail-duration"></span>
+      </div>
+      <div class="detail-title-row">
+        <input type="text" id="detail-title" placeholder="Add session title..." class="detail-title-input">
+      </div>
+
+      <!-- Control buttons -->
+      <div class="ctrl-bar">
+        <button class="ctrl-btn kill" id="ctrl-kill" title="Kill Process">KILL</button>
+        <button class="ctrl-btn archive" id="ctrl-archive" title="Archive Session">ARCHIVE</button>
+        <button class="ctrl-btn export" id="ctrl-export" title="Export Transcript">EXPORT</button>
+        <button class="ctrl-btn notes" id="ctrl-notes" title="Session Notes">NOTES</button>
+        <button class="ctrl-btn alert" id="ctrl-alert" title="Duration Alert">ALERT</button>
+      </div>
+
+      <!-- Tab navigation -->
+      <div class="detail-tabs">
+        <button class="tab active" data-tab="prompts">Prompts</button>
+        <button class="tab" data-tab="responses">Responses</button>
+        <button class="tab" data-tab="tools">Tool Log</button>
+        <button class="tab" data-tab="events">Events</button>
+        <button class="tab" data-tab="notes">Notes</button>
+      </div>
+
+      <!-- Prompt History Tab -->
+      <div class="tab-content active" id="tab-prompts">
+        <div id="detail-prompt-history"></div>
+      </div>
+
+      <!-- Response History Tab -->
+      <div class="tab-content" id="tab-responses">
+        <div id="detail-response-history"></div>
+      </div>
+
+      <!-- Tool Call Log Tab -->
+      <div class="tab-content" id="tab-tools">
+        <div id="detail-tool-log"></div>
+      </div>
+
+      <!-- Raw Events Tab -->
+      <div class="tab-content" id="tab-events">
+        <div id="detail-events-log"></div>
+      </div>
+
+      <!-- Notes Tab -->
+      <div class="tab-content" id="tab-notes">
+        <div class="notes-compose">
+          <textarea id="note-textarea" placeholder="Add a note..." rows="3"></textarea>
+          <button id="save-note" class="ctrl-btn notes">Save Note</button>
+        </div>
+        <div id="notes-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Kill Confirmation Modal -->
+  <div id="kill-modal" class="modal-overlay hidden">
+    <div class="modal-panel">
+      <h3>Confirm Kill</h3>
+      <p id="kill-modal-msg">Are you sure you want to kill this session?</p>
+      <p style="font-size:10px;color:var(--accent-red);margin-bottom:12px;">This will send SIGTERM to the Claude process. Unsaved work may be lost.</p>
+      <div class="modal-actions">
+        <button id="kill-cancel" class="ctrl-btn">Cancel</button>
+        <button id="kill-confirm" class="ctrl-btn kill">Kill Process</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Alert Configuration Modal -->
+  <div id="alert-modal" class="modal-overlay hidden">
+    <div class="modal-panel">
+      <h3>Set Duration Alert</h3>
+      <p>Alert when session exceeds:</p>
+      <div class="alert-input-row">
+        <input type="number" id="alert-minutes" min="1" value="30" class="alert-input">
+        <span>minutes</span>
+      </div>
+      <div class="modal-actions">
+        <button id="alert-cancel" class="ctrl-btn">Cancel</button>
+        <button id="alert-confirm" class="ctrl-btn alert">Set Alert</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="modal-overlay hidden">
+    <div class="modal-panel settings-panel">
+      <div class="settings-header">
+        <h3>Settings</h3>
+        <span id="settings-autosave" class="autosave-indicator">Saved</span>
+        <button id="close-settings" class="modal-close">&times;</button>
+      </div>
+
+      <!-- Settings Tab Bar -->
+      <div class="settings-tabs">
+        <button class="settings-tab active" data-settings-tab="appearance">Appearance</button>
+        <button class="settings-tab" data-settings-tab="sounds">Sounds</button>
+        <button class="settings-tab" data-settings-tab="advanced">Advanced</button>
+      </div>
+
+      <!-- Appearance Tab -->
+      <div class="settings-tab-content active" id="settings-tab-appearance">
+        <div class="settings-section">
+          <h4>Theme</h4>
+          <div class="theme-grid" id="theme-grid">
+            <button class="theme-swatch active" data-theme="command-center" title="Command Center">
+              <div class="swatch-colors"><span style="background:#0a0a1a"></span><span style="background:#00e5ff"></span><span style="background:#ff9100"></span></div>
+              <span class="swatch-label">Command Center</span>
+            </button>
+            <button class="theme-swatch" data-theme="cyberpunk" title="Cyberpunk">
+              <div class="swatch-colors"><span style="background:#0d0221"></span><span style="background:#ff00ff"></span><span style="background:#00ffff"></span></div>
+              <span class="swatch-label">Cyberpunk</span>
+            </button>
+            <button class="theme-swatch" data-theme="dracula" title="Dracula">
+              <div class="swatch-colors"><span style="background:#282a36"></span><span style="background:#bd93f9"></span><span style="background:#50fa7b"></span></div>
+              <span class="swatch-label">Dracula</span>
+            </button>
+            <button class="theme-swatch" data-theme="solarized" title="Solarized">
+              <div class="swatch-colors"><span style="background:#002b36"></span><span style="background:#2aa198"></span><span style="background:#cb4b16"></span></div>
+              <span class="swatch-label">Solarized</span>
+            </button>
+            <button class="theme-swatch" data-theme="nord" title="Nord">
+              <div class="swatch-colors"><span style="background:#2e3440"></span><span style="background:#88c0d0"></span><span style="background:#d08770"></span></div>
+              <span class="swatch-label">Nord</span>
+            </button>
+            <button class="theme-swatch" data-theme="monokai" title="Monokai">
+              <div class="swatch-colors"><span style="background:#272822"></span><span style="background:#66d9ef"></span><span style="background:#f92672"></span></div>
+              <span class="swatch-label">Monokai</span>
+            </button>
+            <button class="theme-swatch" data-theme="light" title="Light">
+              <div class="swatch-colors"><span style="background:#f0f2f5"></span><span style="background:#0ea5e9"></span><span style="background:#3b82f6"></span></div>
+              <span class="swatch-label">Light</span>
+            </button>
+            <button class="theme-swatch" data-theme="warm" title="Warm">
+              <div class="swatch-colors"><span style="background:#faf6f1"></span><span style="background:#d97706"></span><span style="background:#b87333"></span></div>
+              <span class="swatch-label">Warm</span>
+            </button>
+            <button class="theme-swatch" data-theme="blonde" title="Blonde">
+              <div class="swatch-colors"><span style="background:#fdf8ef"></span><span style="background:#ca8a04"></span><span style="background:#a16207"></span></div>
+              <span class="swatch-label">Blonde</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>Font Size</h4>
+          <div class="font-size-control">
+            <button class="font-btn" id="font-decrease">A-</button>
+            <span id="font-size-display">13px</span>
+            <button class="font-btn" id="font-increase">A+</button>
+            <input type="range" id="font-size-slider" min="10" max="20" value="13" step="1">
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>Scanline Effect</h4>
+          <label class="toggle-label">
+            <input type="checkbox" id="scanline-enabled" checked>
+            <span class="toggle-switch"></span>
+            Enable scanline overlay
+          </label>
+        </div>
+
+        <div class="settings-section">
+          <h4>Card Size</h4>
+          <div class="card-size-control" id="card-size-control">
+            <button class="card-size-btn" data-size="small">Small</button>
+            <button class="card-size-btn" data-size="compact">Compact</button>
+            <button class="card-size-btn active" data-size="normal">Normal</button>
+            <button class="card-size-btn" data-size="large">Large</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sounds Tab -->
+      <div class="settings-tab-content" id="settings-tab-sounds">
+        <div class="settings-section">
+          <h4>Master Controls</h4>
+          <div class="sound-controls">
+            <label class="toggle-label">
+              <input type="checkbox" id="sound-enabled" checked>
+              <span class="toggle-switch"></span>
+              Enable Sounds
+            </label>
+            <div class="volume-control">
+              <span>Volume</span>
+              <input type="range" id="sound-volume" min="0" max="1" step="0.1" value="0.5">
+              <span id="volume-display">50%</span>
+            </div>
+          </div>
+        </div>
+        <div class="settings-section">
+          <h4>Per-Action Sounds</h4>
+          <div id="sound-action-grid" class="sound-action-grid"></div>
+        </div>
+      </div>
+
+      <!-- Advanced Tab -->
+      <div class="settings-tab-content" id="settings-tab-advanced">
+        <div class="settings-section">
+          <h4>Import / Export</h4>
+          <div class="advanced-actions">
+            <button id="export-settings" class="ctrl-btn export">Export Settings</button>
+            <button id="import-settings-btn" class="ctrl-btn notes">Import Settings</button>
+            <input type="file" id="import-settings-file" accept=".json" class="hidden">
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>Reset</h4>
+          <button id="reset-defaults" class="ctrl-btn kill">Reset All to Defaults</button>
+        </div>
+
+        <div class="settings-section">
+          <h4>Display</h4>
+          <label class="toggle-label">
+            <input type="checkbox" id="activity-feed-visible" checked>
+            <span class="toggle-switch"></span>
+            Show activity feed
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Keyboard Shortcuts Modal -->
+  <div id="shortcuts-modal" class="modal-overlay hidden">
+    <div class="modal-panel shortcuts-panel">
+      <h3>Keyboard Shortcuts</h3>
+      <div class="shortcut-list">
+        <div class="shortcut-row"><kbd>/</kbd><span>Focus search</span></div>
+        <div class="shortcut-row"><kbd>Esc</kbd><span>Close panel / modal</span></div>
+        <div class="shortcut-row"><kbd>S</kbd><span>Open settings</span></div>
+        <div class="shortcut-row"><kbd>K</kbd><span>Kill selected session</span></div>
+        <div class="shortcut-row"><kbd>A</kbd><span>Archive selected session</span></div>
+        <div class="shortcut-row"><kbd>E</kbd><span>Export selected session</span></div>
+        <div class="shortcut-row"><kbd>N</kbd><span>Session notes</span></div>
+        <div class="shortcut-row"><kbd>?</kbd><span>Show this help</span></div>
+      </div>
+      <div class="modal-actions">
+        <button id="shortcuts-close" class="ctrl-btn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toast-container"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
