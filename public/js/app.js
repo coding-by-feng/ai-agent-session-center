@@ -1,5 +1,5 @@
 import * as robotManager from './robotManager.js';
-import { createOrUpdateCard, removeCard, updateDurations, showToast, getSelectedSessionId, deselectSession, archiveAllEnded, isMuted } from './sessionPanel.js';
+import { createOrUpdateCard, removeCard, updateDurations, showToast, getSelectedSessionId, deselectSession, archiveAllEnded, isMuted, toggleMuteAll } from './sessionPanel.js';
 import * as statsPanel from './statsPanel.js';
 import * as wsClient from './wsClient.js';
 import * as navController from './navController.js';
@@ -84,14 +84,15 @@ async function init() {
       toggleEmptyState(Object.keys(allSessions).length === 0);
 
       if (session.status === 'ended') {
+        // Auto-remove ended sessions after a brief delay with fade-out
         setTimeout(() => {
-          removeCard(session.sessionId);
+          removeCard(session.sessionId, true);
           robotManager.removeRobot(session.sessionId);
           delete allSessions[session.sessionId];
           statsPanel.update(allSessions);
           updateTabTitle(allSessions);
           toggleEmptyState(Object.keys(allSessions).length === 0);
-        }, 3000);
+        }, 2000);
       }
     },
     onDurationAlertCb(data) {
@@ -115,6 +116,16 @@ async function init() {
   navController.onViewChange('history', () => historyPanel.refresh());
   navController.onViewChange('timeline', () => timelinePanel.refresh());
   navController.onViewChange('analytics', () => analyticsPanel.refresh());
+
+  // Handle card dismiss — remove robot too
+  document.addEventListener('card-dismissed', (e) => {
+    const sid = e.detail.sessionId;
+    robotManager.removeRobot(sid);
+    delete allSessions[sid];
+    statsPanel.update(allSessions);
+    updateTabTitle(allSessions);
+    toggleEmptyState(Object.keys(allSessions).length === 0);
+  });
 
   // Load historical stats after WS connects
   statsPanel.loadHistoricalStats();
@@ -149,7 +160,7 @@ function initConnectionStatus() {
   document.addEventListener('ws-status', (e) => {
     if (e.detail === 'connected') {
       dot.className = 'conn-dot connected';
-      label.textContent = 'Live';
+      label.textContent = 'Connected';
     } else {
       dot.className = 'conn-dot disconnected';
       label.textContent = 'Disconnected';
@@ -249,6 +260,11 @@ function initKeyboardShortcuts() {
         }
         break;
       }
+      case 'm':
+      case 'M': {
+        document.getElementById('qa-mute-all')?.click();
+        break;
+      }
       case '?': {
         e.preventDefault();
         const shortcutsModal = document.getElementById('shortcuts-modal');
@@ -277,6 +293,16 @@ function initKeyboardShortcuts() {
 
 // ---- Quick Actions ----
 function initQuickActions() {
+  const muteAllBtn = document.getElementById('qa-mute-all');
+  if (muteAllBtn) {
+    muteAllBtn.addEventListener('click', () => {
+      const muted = toggleMuteAll();
+      muteAllBtn.innerHTML = muted ? '&#9835; UNMUTE ALL' : '&#9835; MUTE ALL';
+      muteAllBtn.title = muted ? 'Unmute all sessions' : 'Mute all sessions';
+      muteAllBtn.classList.toggle('active', muted);
+    });
+  }
+
   const refreshBtn = document.getElementById('qa-refresh');
   if (refreshBtn) {
     refreshBtn.addEventListener('click', () => window.location.reload());

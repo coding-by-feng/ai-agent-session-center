@@ -226,24 +226,37 @@ export function handleEvent(hookData) {
       if (session.toolLog.length > 200) session.toolLog.shift();
       eventEntry.detail = `${toolName}`;
 
-      // Approval detection: if PostToolUse doesn't arrive within 3s,
-      // the tool is likely pending user approval
+      // Approval detection: if PostToolUse doesn't arrive within the timeout,
+      // the tool is likely pending user approval.
+      //
+      // Only tools that are ALWAYS fast when auto-approved can reliably trigger
+      // approval detection. Tools like Bash, Task, WebSearch etc. can legitimately
+      // run for minutes, so we can't distinguish "slow execution" from "waiting
+      // for approval" — applying the timer would cause false positives.
+      const fastTools = new Set([
+        'Read', 'Write', 'Edit', 'Grep', 'Glob', 'NotebookEdit',
+        'EnterPlanMode', 'ExitPlanMode', 'AskUserQuestion',
+        'TodoWrite', 'TodoRead'
+      ]);
       clearTimeout(pendingToolTimers.get(session_id));
-      session.pendingTool = toolName;
-      const timer = setTimeout(async () => {
-        pendingToolTimers.delete(session_id);
-        if (session.status === 'working' && session.pendingTool) {
-          session.status = 'approval';
-          session.animationState = 'Waiting';
-          session.waitingDetail = `Approve: ${session.pendingTool}`;
-          // Broadcast the status change so dashboard updates live
-          try {
-            const { broadcast } = await import('./wsManager.js');
-            broadcast({ type: 'session_update', session: { ...session } });
-          } catch(e) {}
-        }
-      }, 3000);
-      pendingToolTimers.set(session_id, timer);
+      if (fastTools.has(toolName)) {
+        session.pendingTool = toolName;
+        const timer = setTimeout(async () => {
+          pendingToolTimers.delete(session_id);
+          if (session.status === 'working' && session.pendingTool) {
+            session.status = 'approval';
+            session.animationState = 'Waiting';
+            session.waitingDetail = `Approve: ${session.pendingTool}`;
+            try {
+              const { broadcast } = await import('./wsManager.js');
+              broadcast({ type: 'session_update', session: { ...session } });
+            } catch(e) {}
+          }
+        }, 3000);
+        pendingToolTimers.set(session_id, timer);
+      } else {
+        session.pendingTool = null;
+      }
 
       // Dual-write: insert tool call into DB
       try {
@@ -338,8 +351,8 @@ export function handleEvent(hookData) {
         console.error('[sessionStore] DB updateSessionEnded error:', err.message);
       }
 
-      // Schedule removal after 60s
-      setTimeout(() => sessions.delete(session_id), 60000);
+      // Schedule removal from memory after 10s (client auto-removes cards sooner)
+      setTimeout(() => sessions.delete(session_id), 10000);
       break;
   }
 
@@ -408,7 +421,7 @@ export function killSession(sessionId) {
   try { updateSessionArchived.run(1, sessionId); } catch(e) {}
   session.lastActivityAt = Date.now();
   try { updateSessionEnded.run(Date.now(), Date.now(), sessionId); } catch(e) {}
-  setTimeout(() => sessions.delete(sessionId), 60000);
+  setTimeout(() => sessions.delete(sessionId), 10000);
   return { ...session };
 }
 
