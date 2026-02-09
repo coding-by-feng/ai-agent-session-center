@@ -24,6 +24,15 @@ function summarizeToolInput(toolInput, toolName) {
   }
 }
 
+function makeShortTitle(prompt) {
+  if (!prompt) return '';
+  let text = prompt.trim().replace(/^(please|can you|could you|help me|i want to|i need to)\s+/i, '');
+  if (!text) return '';
+  const match = text.match(/^[^\n.!?]{1,60}/);
+  if (match) text = match[0].trim();
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 function toEpochMs(ts) {
   if (ts == null) return null;
   if (typeof ts === 'number') return ts;
@@ -160,11 +169,14 @@ function processSession(sessionId, messages) {
       totalPrompts++;
       events.push({ type: 'prompt', detail: promptText.substring(0, 200), timestamp: ts });
 
-      // Auto-generate title from project name + session counter
+      // Auto-generate title from project name + counter + short prompt summary
       if (!title && projectName) {
         const cnt = (importProjectCounters.get(projectName) || 0) + 1;
         importProjectCounters.set(projectName, cnt);
-        title = `${projectName} — Session #${cnt}`;
+        const shortPrompt = makeShortTitle(promptText);
+        title = shortPrompt
+          ? `${projectName} #${cnt} — ${shortPrompt}`
+          : `${projectName} — Session #${cnt}`;
       }
     }
 
