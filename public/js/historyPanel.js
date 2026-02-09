@@ -161,9 +161,10 @@ async function openHistoryDetail(sessionId) {
     ? formatDuration(s.ended_at - s.started_at)
     : formatDuration(Date.now() - s.started_at);
 
-  // Prompt history tab
+  // Prompt history tab (newest first)
   const promptHist = document.getElementById('detail-prompt-history');
-  promptHist.innerHTML = (s.prompts || []).map(p => `
+  const prompts = (s.prompts || []).slice().reverse();
+  promptHist.innerHTML = prompts.map(p => `
     <div class="prompt-entry">
       <span class="prompt-time">${formatTime(p.timestamp)}</span>
       <div class="prompt-text">${escapeHtml(p.text)}</div>

@@ -97,6 +97,39 @@ const soundLibrary = {
     osc.start(ctx.currentTime);
     osc.stop(ctx.currentTime + 0.35);
   },
+  urgentAlarm: () => {
+    // Loud 3-burst urgent alarm — impossible to miss
+    const ctx = getCtx();
+    const t = ctx.currentTime;
+    for (let burst = 0; burst < 3; burst++) {
+      const offset = burst * 0.4;
+      // High tone
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'square';
+      osc1.frequency.setValueAtTime(1000, t + offset);
+      osc1.frequency.setValueAtTime(800, t + offset + 0.1);
+      osc1.frequency.setValueAtTime(1000, t + offset + 0.2);
+      gain1.gain.setValueAtTime(volume * 0.5, t + offset);
+      gain1.gain.setValueAtTime(volume * 0.5, t + offset + 0.25);
+      gain1.gain.exponentialRampToValueAtTime(0.001, t + offset + 0.3);
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start(t + offset);
+      osc1.stop(t + offset + 0.3);
+      // Low undertone
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'sawtooth';
+      osc2.frequency.setValueAtTime(200, t + offset);
+      gain2.gain.setValueAtTime(volume * 0.3, t + offset);
+      gain2.gain.exponentialRampToValueAtTime(0.001, t + offset + 0.3);
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(t + offset);
+      osc2.stop(t + offset + 0.3);
+    }
+  },
   none:     () => {}
 };
 
@@ -119,6 +152,7 @@ const defaultActionSounds = {
   toolTask:       'ding',
   toolOther:      'click',
   // System
+  approvalNeeded: 'urgentAlarm',
   alert:          'alarm',
   kill:           'thud',
   archive:        'ding',
@@ -140,6 +174,7 @@ const actionLabels = {
   toolWebFetch:   'Tool: WebFetch',
   toolTask:       'Tool: Task',
   toolOther:      'Tool: Other',
+  approvalNeeded: 'Approval Needed',
   alert:          'Alert',
   kill:           'Kill',
   archive:        'Archive',
@@ -150,7 +185,7 @@ const actionLabels = {
 const actionCategories = {
   'Session Events': ['sessionStart', 'sessionEnd', 'promptSubmit', 'taskComplete'],
   'Tool Calls':     ['toolRead', 'toolWrite', 'toolEdit', 'toolBash', 'toolGrep', 'toolGlob', 'toolWebFetch', 'toolTask', 'toolOther'],
-  'System':         ['alert', 'kill', 'archive', 'subagentStart', 'subagentStop']
+  'System':         ['approvalNeeded', 'alert', 'kill', 'archive', 'subagentStart', 'subagentStop']
 };
 
 // ---- Public API ----
