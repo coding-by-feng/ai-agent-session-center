@@ -10,6 +10,7 @@ import * as settingsManager from './settingsManager.js';
 import * as soundManager from './soundManager.js';
 
 let allSessions = {};
+const approvalAlarmTimers = new Map(); // sessionId -> intervalId for repeating alarm
 
 async function init() {
   // Load settings first
@@ -54,6 +55,29 @@ async function init() {
           case 'Stop': soundManager.play('taskComplete'); break;
           case 'SessionEnd': soundManager.play('sessionEnd'); break;
         }
+      }
+
+      // Approval alarm: play urgent sound when session enters approval state
+      if (session.status === 'approval' && !isMuted(session.sessionId)) {
+        if (!approvalAlarmTimers.has(session.sessionId)) {
+          // Play immediately
+          soundManager.play('approvalNeeded');
+          // Repeat every 10s until cleared
+          const intervalId = setInterval(() => {
+            const current = allSessions[session.sessionId];
+            if (!current || current.status !== 'approval' || isMuted(session.sessionId)) {
+              clearInterval(intervalId);
+              approvalAlarmTimers.delete(session.sessionId);
+              return;
+            }
+            soundManager.play('approvalNeeded');
+          }, 10000);
+          approvalAlarmTimers.set(session.sessionId, intervalId);
+        }
+      } else if (session.status !== 'approval' && approvalAlarmTimers.has(session.sessionId)) {
+        // Session left approval state — stop the alarm
+        clearInterval(approvalAlarmTimers.get(session.sessionId));
+        approvalAlarmTimers.delete(session.sessionId);
       }
 
       addActivityEntry(session);

@@ -4,6 +4,7 @@ import { execSync } from 'child_process';
 
 const sessions = new Map();
 const projectSessionCounters = new Map();
+const pendingToolTimers = new Map(); // session_id -> timeout for tool approval detection
 
 // Prepared statements for SQLite dual-write
 const insertSession = db.prepare(
@@ -129,7 +130,9 @@ export function handleEvent(hookData) {
       toolLog: [],
       responseLog: [],
       events: [],
-      archived: 0
+      archived: 0,
+      pendingTool: null,
+      waitingDetail: null
     };
     sessions.set(session_id, session);
 
@@ -223,6 +226,25 @@ export function handleEvent(hookData) {
       if (session.toolLog.length > 200) session.toolLog.shift();
       eventEntry.detail = `${toolName}`;
 
+      // Approval detection: if PostToolUse doesn't arrive within 3s,
+      // the tool is likely pending user approval
+      clearTimeout(pendingToolTimers.get(session_id));
+      session.pendingTool = toolName;
+      const timer = setTimeout(async () => {
+        pendingToolTimers.delete(session_id);
+        if (session.status === 'working' && session.pendingTool) {
+          session.status = 'approval';
+          session.animationState = 'Waiting';
+          session.waitingDetail = `Approve: ${session.pendingTool}`;
+          // Broadcast the status change so dashboard updates live
+          try {
+            const { broadcast } = await import('./wsManager.js');
+            broadcast({ type: 'session_update', session: { ...session } });
+          } catch(e) {}
+        }
+      }, 3000);
+      pendingToolTimers.set(session_id, timer);
+
       // Dual-write: insert tool call into DB
       try {
         insertToolCall.run(session_id, toolName, toolInputSummary, Date.now());
@@ -233,23 +255,34 @@ export function handleEvent(hookData) {
     }
 
     case 'PostToolUse':
-      // Stay working, just update stats
+      // Tool completed — cancel approval timer, stay working
+      clearTimeout(pendingToolTimers.get(session_id));
+      pendingToolTimers.delete(session_id);
+      session.pendingTool = null;
+      session.waitingDetail = null;
       session.status = 'working';
       eventEntry.detail = `${hookData.tool_name || 'Tool'} completed`;
       break;
 
     case 'Stop': {
+      // Clear any pending tool approval timer
+      clearTimeout(pendingToolTimers.get(session_id));
+      pendingToolTimers.delete(session_id);
+      session.pendingTool = null;
+      session.waitingDetail = null;
+
       const wasHeavyWork = session.totalToolCalls > 10 &&
         session.status === 'working';
-      session.status = 'idle';
+      // Session finished its turn — waiting for user's next prompt
+      session.status = 'waiting';
       if (wasHeavyWork) {
         session.animationState = 'Dance';
         session.emote = null;
       } else {
-        session.animationState = 'Idle';
+        session.animationState = 'Waiting';
         session.emote = 'ThumbsUp';
       }
-      eventEntry.detail = wasHeavyWork ? 'Heavy work done!' : 'Response complete';
+      eventEntry.detail = wasHeavyWork ? 'Heavy work done — ready for input' : 'Ready for your input';
 
       // Store response if present — try multiple possible field names
       const responseText = hookData.response || hookData.message || hookData.stop_reason_str || '';
@@ -268,7 +301,7 @@ export function handleEvent(hookData) {
 
       // Dual-write: update session status in DB
       try {
-        updateSessionStatus.run('idle', Date.now(), session.totalToolCalls, session_id);
+        updateSessionStatus.run('waiting', Date.now(), session.totalToolCalls, session_id);
       } catch (err) {
         console.error('[sessionStore] DB updateSessionStatus error:', err.message);
       }
@@ -394,12 +427,20 @@ export function archiveSession(sessionId, archived) {
   return session ? { ...session } : null;
 }
 
-// Auto-idle: mark sessions as idle if no activity for 30s
+// Auto-idle: mark sessions as idle if no activity for a while
 setInterval(() => {
   const now = Date.now();
   for (const [id, session] of sessions) {
-    if (session.status !== 'idle' && session.status !== 'ended' &&
-        now - session.lastActivityAt > 30000) {
+    if (session.status === 'ended' || session.status === 'idle') continue;
+    // 'approval' stays visible — never auto-clear (user must act)
+    if (session.status === 'approval') continue;
+    // 'waiting' (ready for next prompt) goes idle after 2 min of no activity
+    if (session.status === 'waiting' && now - session.lastActivityAt > 120000) {
+      session.status = 'idle';
+      session.animationState = 'Idle';
+      session.emote = null;
+    // Other active states (prompting/working) go idle after 30s of silence
+    } else if (session.status !== 'waiting' && now - session.lastActivityAt > 30000) {
       session.status = 'idle';
       session.animationState = 'Idle';
       session.emote = null;

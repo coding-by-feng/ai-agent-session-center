@@ -25,6 +25,7 @@ export function createOrUpdateCard(session) {
           <span class="project-name"></span>
           <span class="status-badge"></span>
         </div>
+        <div class="waiting-banner">NEEDS YOUR INPUT</div>
         <div class="card-title"></div>
         <div class="card-prompt"></div>
         <div class="card-stats">
@@ -67,10 +68,20 @@ export function createOrUpdateCard(session) {
     cardTitle.style.display = session.title ? '' : 'none';
   }
   const badge = card.querySelector('.status-badge');
-  badge.textContent = session.status.toUpperCase();
+  const statusLabel = session.status === 'approval' ? 'APPROVAL NEEDED'
+    : session.status === 'waiting' ? 'WAITING'
+    : session.status.toUpperCase();
+  badge.textContent = statusLabel;
   badge.className = `status-badge ${session.status}`;
 
-  const prompt = session.currentPrompt || '';
+  // Update approval banner with detail about what needs approval
+  const banner = card.querySelector('.waiting-banner');
+  if (banner) {
+    banner.textContent = session.waitingDetail || 'NEEDS YOUR APPROVAL';
+  }
+
+  const promptArr = session.promptHistory || [];
+  const prompt = session.currentPrompt || (promptArr.length > 0 ? promptArr[promptArr.length - 1].text : '');
   card.querySelector('.card-prompt').textContent =
     prompt.length > 120 ? prompt.substring(0, 120) + '...' : prompt;
 
@@ -160,7 +171,10 @@ function deselectSession() {
 function populateDetailPanel(session) {
   document.getElementById('detail-project-name').textContent = session.projectName;
   const badge = document.getElementById('detail-status-badge');
-  badge.textContent = session.status.toUpperCase();
+  const detailLabel = session.status === 'approval' ? 'APPROVAL NEEDED'
+    : session.status === 'waiting' ? 'WAITING'
+    : session.status.toUpperCase();
+  badge.textContent = detailLabel;
   badge.className = `status-badge ${session.status}`;
   document.getElementById('detail-model').textContent = session.model || '';
   document.getElementById('detail-duration').textContent = formatDuration(Date.now() - session.startedAt);
@@ -172,9 +186,10 @@ function populateDetailPanel(session) {
     titleInput.dataset.sessionId = session.sessionId;
   }
 
-  // Prompt history tab
+  // Prompt history tab (newest first)
   const promptHist = document.getElementById('detail-prompt-history');
-  promptHist.innerHTML = (session.promptHistory || []).map(p => `
+  const prompts = (session.promptHistory || []).slice().reverse();
+  promptHist.innerHTML = prompts.map(p => `
     <div class="prompt-entry">
       <span class="prompt-time">${formatTime(p.timestamp)}</span>
       <div class="prompt-text">${escapeHtml(p.text)}</div>
