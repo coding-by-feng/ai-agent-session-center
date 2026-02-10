@@ -1,5 +1,22 @@
 import * as soundManager from './soundManager.js';
 
+// Map TERM_PROGRAM env values to friendly display names
+function resolveTermName(termProgram) {
+  if (!termProgram) return 'Terminal';
+  const tp = termProgram.toLowerCase();
+  if (tp === 'iterm.app' || tp === 'iterm2') return 'iTerm2';
+  if (tp === 'apple_terminal') return 'Terminal';
+  if (tp === 'ghostty') return 'Ghostty';
+  if (tp === 'kitty') return 'Kitty';
+  if (tp === 'warpterminal' || tp === 'warp') return 'Warp';
+  if (tp === 'alacritty') return 'Alacritty';
+  if (tp === 'hyper') return 'Hyper';
+  if (tp === 'wezterm') return 'WezTerm';
+  if (tp === 'tabby') return 'Tabby';
+  if (tp === 'tmux') return 'tmux';
+  return 'Terminal';
+}
+
 const mutedSessions = new Set();
 let globalMuted = false;
 export function isMuted(sessionId) { return globalMuted || mutedSessions.has(sessionId); }
@@ -537,6 +554,7 @@ export function createOrUpdateCard(session) {
         <div class="card-title" title="Double-click to rename"></div>
         <div class="card-header">
           <span class="project-name"></span>
+          <span class="source-badge"></span>
           <span class="status-badge"></span>
         </div>
         <div class="waiting-banner">NEEDS YOUR INPUT</div>
@@ -608,7 +626,7 @@ export function createOrUpdateCard(session) {
       reorderPinnedCards();
     });
 
-    // Open in editor button
+    // Open in editor button — focuses the exact window/tab where the session is running
     card.querySelector('.open-editor-btn').addEventListener('click', async (e) => {
       e.stopPropagation();
       const sid = session.sessionId;
@@ -621,7 +639,13 @@ export function createOrUpdateCard(session) {
           headers: { 'Content-Type': 'application/json' }
         });
         const data = await resp.json();
-        if (!data.ok) showToast('OPEN FAILED', data.error || 'Unknown error');
+        if (data.ok) {
+          const editorLabel = data.editor || 'editor';
+          const methodHint = data.method === 'tty' ? ' (tab)' : data.method === 'window_match' ? ' (window)' : '';
+          showToast('FOCUSED', `${editorLabel}${methodHint}`);
+        } else {
+          showToast('OPEN FAILED', data.error || 'Unknown error');
+        }
       } catch(err) {
         showToast('OPEN ERROR', err.message);
       }
@@ -796,6 +820,27 @@ export function createOrUpdateCard(session) {
     : session.status.toUpperCase();
   badge.textContent = statusLabel;
   badge.className = `status-badge ${session.status}`;
+
+  // Update source badge (VS Code / Terminal / JetBrains)
+  const sourceBadge = card.querySelector('.source-badge');
+  if (sourceBadge) {
+    const src = session.source;
+    if (src === 'vscode') {
+      sourceBadge.textContent = 'VS Code';
+      sourceBadge.className = 'source-badge source-vscode';
+    } else if (src === 'jetbrains') {
+      sourceBadge.textContent = 'JetBrains';
+      sourceBadge.className = 'source-badge source-jetbrains';
+    } else if (src === 'terminal') {
+      // Show the specific terminal app name if available
+      const termName = resolveTermName(session.termProgram);
+      sourceBadge.textContent = termName;
+      sourceBadge.className = 'source-badge source-terminal';
+    } else {
+      sourceBadge.textContent = '';
+      sourceBadge.className = 'source-badge';
+    }
+  }
 
   // Update open-editor button tooltip based on source
   const editorBtn = card.querySelector('.open-editor-btn');
@@ -1504,7 +1549,7 @@ document.getElementById('detail-prompt-input').addEventListener('input', (e) => 
   el.style.height = Math.min(el.scrollHeight, 120) + 'px';
 });
 
-// Open in editor button (detail panel)
+// Open in editor button (detail panel) — focuses the exact window/tab
 document.getElementById('ctrl-open-editor').addEventListener('click', async (e) => {
   e.stopPropagation();
   if (!selectedSessionId) return;
@@ -1515,9 +1560,9 @@ document.getElementById('ctrl-open-editor').addEventListener('click', async (e) 
     });
     const data = await resp.json();
     if (data.ok) {
-      const editorName = { vscode: 'VS Code', jetbrains: 'JetBrains', terminal: 'Terminal' };
-      const s = sessionsData.get(selectedSessionId);
-      showToast('EDITOR', `Opening in ${editorName[s?.source] || 'editor'}...`);
+      const editorLabel = data.editor || 'editor';
+      const methodHint = data.method === 'tty' ? ' (tab)' : data.method === 'window_match' ? ' (window)' : '';
+      showToast('FOCUSED', `${editorLabel}${methodHint}`);
     } else {
       showToast('OPEN FAILED', data.error || 'Unknown error');
     }
