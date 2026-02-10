@@ -435,6 +435,32 @@ body::after {
   max-width: 170px;
 }
 
+.session-card .source-badge {
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.session-card .source-badge:empty { display: none; }
+.session-card .source-badge.source-vscode {
+  color: #3ba0ff;
+  border: 1px solid rgba(59, 160, 255, 0.35);
+  background: rgba(59, 160, 255, 0.1);
+}
+.session-card .source-badge.source-terminal {
+  color: #a0e8af;
+  border: 1px solid rgba(160, 232, 175, 0.35);
+  background: rgba(160, 232, 175, 0.1);
+}
+.session-card .source-badge.source-jetbrains {
+  color: #f77;
+  border: 1px solid rgba(255, 119, 119, 0.35);
+  background: rgba(255, 119, 119, 0.1);
+}
+
 .session-card .status-badge {
   font-size: 9px;
   font-weight: 700;
@@ -7700,16 +7726,36 @@ body[data-theme="blonde"] .qa-btn.active {
    Status Effects — Sweat (working) + Eye Cycling (prompting)
    ============================================================ */
 
-/* ---- WORKING: 40 sweat drops (20 left + 20 right) ---- */
+/* ---- WORKING: 40 sweat drops from each character's face ---- */
+/* Drops originate from the actual head/face element of each character */
 
-/* Right side — 20 drops */
-.css-robot[data-status="working"]::after {
+/* Right-side drops (::after on head) — all characters */
+.css-robot[data-status="working"] .robot-head::after,
+.char-cat[data-status="working"] .cat-head::after,
+.char-alien[data-status="working"] .alien-dome::after,
+.char-ghost[data-status="working"] .ghost-body::after,
+.char-orb[data-status="working"] .orb-core::after,
+.char-dragon[data-status="working"] .dragon-head::after,
+.char-penguin[data-status="working"] .penguin-head::after,
+.char-octopus[data-status="working"] .octo-head::after,
+.char-mushroom[data-status="working"] .mush-cap::after,
+.char-fox[data-status="working"] .fox-head::after,
+.char-unicorn[data-status="working"] .unicorn-head::after,
+.char-jellyfish[data-status="working"] .jelly-bell::after,
+.char-owl[data-status="working"] .owl-head::after,
+.char-bat[data-status="working"] .bat-head::after,
+.char-cactus[data-status="working"] .cactus-body::after,
+.char-slime[data-status="working"] .slime-body::after,
+.char-pumpkin[data-status="working"] .pumpkin-body::after,
+.char-yeti[data-status="working"] .yeti-head::after,
+.char-crystal[data-status="working"] .crystal-body::after,
+.char-bee[data-status="working"] .bee-head::after {
   content: '';
   position: absolute;
   z-index: 12;
   pointer-events: none;
-  right: 2px;
-  top: 6px;
+  right: -6px;
+  top: 8px;
   width: 5px;
   height: 7px;
   border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
@@ -7738,14 +7784,33 @@ body[data-theme="blonde"] .qa-btn.active {
   animation: sweat-stream-right calc(1.2s * var(--anim-speed, 1)) ease-in infinite;
 }
 
-/* Left side — 20 drops */
-.css-robot[data-status="working"]::before {
+/* Left-side drops (::before on head) — all characters */
+.css-robot[data-status="working"] .robot-head::before,
+.char-cat[data-status="working"] .cat-head::before,
+.char-alien[data-status="working"] .alien-dome::before,
+.char-ghost[data-status="working"] .ghost-body::before,
+.char-orb[data-status="working"] .orb-core::before,
+.char-dragon[data-status="working"] .dragon-head::before,
+.char-penguin[data-status="working"] .penguin-head::before,
+.char-octopus[data-status="working"] .octo-head::before,
+.char-mushroom[data-status="working"] .mush-cap::before,
+.char-fox[data-status="working"] .fox-head::before,
+.char-unicorn[data-status="working"] .unicorn-head::before,
+.char-jellyfish[data-status="working"] .jelly-bell::before,
+.char-owl[data-status="working"] .owl-head::before,
+.char-bat[data-status="working"] .bat-head::before,
+.char-cactus[data-status="working"] .cactus-body::before,
+.char-slime[data-status="working"] .slime-body::before,
+.char-pumpkin[data-status="working"] .pumpkin-body::before,
+.char-yeti[data-status="working"] .yeti-head::before,
+.char-crystal[data-status="working"] .crystal-body::before,
+.char-bee[data-status="working"] .bee-head::before {
   content: '';
   position: absolute;
   z-index: 12;
   pointer-events: none;
-  left: 2px;
-  top: 6px;
+  left: -6px;
+  top: 8px;
   width: 5px;
   height: 7px;
   border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;

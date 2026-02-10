@@ -5,6 +5,7 @@ import { execSync } from 'child_process';
 const sessions = new Map();
 const projectSessionCounters = new Map();
 const pendingToolTimers = new Map(); // session_id -> timeout for tool approval detection
+const pidToSession = new Map();      // pid -> sessionId — ensures each PID is only assigned to one session
 
 // Team mode structures
 const teams = new Map();            // teamId -> { teamId, parentSessionId, childSessionIds: Set, teamName, createdAt }
@@ -165,10 +166,57 @@ export function handleEvent(hookData) {
   const { session_id, hook_event_name, cwd } = hookData;
   if (!session_id) return null;
 
+  if (hookData.claude_pid) {
+    const env = [
+      `pid=${hookData.claude_pid}`,
+      hookData.tty_path ? `tty=${hookData.tty_path}` : null,
+      hookData.term_program ? `term=${hookData.term_program}` : null,
+      hookData.tab_id ? `tab=${hookData.tab_id}` : null,
+      hookData.vscode_pid ? `vscode_pid=${hookData.vscode_pid}` : null,
+      hookData.tmux ? `tmux=${hookData.tmux.pane}` : null,
+      hookData.window_id ? `x11win=${hookData.window_id}` : null,
+    ].filter(Boolean).join(' ');
+    console.log(`[hook] event=${hook_event_name} session=${session_id?.slice(0,8)} ${env}`);
+  } else {
+    console.log(`[hook] event=${hook_event_name} session=${session_id?.slice(0,8)} cwd=${cwd || 'none'} (no env enrichment)`);
+  }
+
   let session = sessions.get(session_id);
+
+  // Cache all process/tab info from hook's enriched environment data
+  if (hookData.claude_pid) {
+    const pid = Number(hookData.claude_pid);
+    if (pid > 0 && session && session.cachedPid !== pid) {
+      if (session.cachedPid) pidToSession.delete(session.cachedPid);
+      session.cachedPid = pid;
+      pidToSession.set(pid, session_id);
+      console.log(`[hook] CACHED pid=${pid} → session=${session_id?.slice(0,8)}`);
+    }
+    if (session) {
+      // Detect source from hook env — much more reliable than process tree walking
+      if (session.source === 'unknown' || session.source === 'startup' || session.source === 'hook') {
+        const detectedSource = detectSourceFromHookEnv(hookData);
+        if (detectedSource) {
+          session.source = detectedSource;
+          console.log(`[hook] SOURCE session=${session_id?.slice(0,8)} → ${detectedSource} (from hook env)`);
+        }
+      }
+      // Cache tab/window identifiers for exact focus
+      if (hookData.tty_path) session.ttyPath = hookData.tty_path;
+      if (hookData.tab_id) session.tabId = hookData.tab_id;
+      if (hookData.term_program) session.termProgram = hookData.term_program;
+      if (hookData.vscode_pid) session.vscodePid = Number(hookData.vscode_pid);
+      if (hookData.window_id) session.windowId = hookData.window_id;
+      if (hookData.tmux) session.tmux = hookData.tmux;
+      if (hookData.kitty_pid) session.kittyPid = Number(hookData.kitty_pid);
+    }
+  }
 
   // Create session if new
   if (!session) {
+    const pid = hookData.claude_pid ? Number(hookData.claude_pid) : null;
+    const detectedSource = detectSourceFromHookEnv(hookData);
+    console.log(`[hook] NEW SESSION ${session_id?.slice(0,8)} — project=${cwd ? cwd.split('/').filter(Boolean).pop() : 'Unknown'} pid=${pid || 'none'} source=${detectedSource || hookData.source || 'unknown'}`);
     session = {
       sessionId: session_id,
       projectPath: cwd || '',
@@ -189,11 +237,26 @@ export function handleEvent(hookData) {
       responseLog: [],
       events: [],
       archived: 0,
-      source: hookData.source || 'unknown',
+      source: detectedSource || hookData.source || 'unknown',
       pendingTool: null,
-      waitingDetail: null
+      waitingDetail: null,
+      cachedPid: null,
+      ttyPath: hookData.tty_path || null,
+      tabId: hookData.tab_id || null,
+      termProgram: hookData.term_program || null,
+      vscodePid: hookData.vscode_pid ? Number(hookData.vscode_pid) : null,
+      windowId: hookData.window_id || null,
+      tmux: hookData.tmux || null,
+      kittyPid: hookData.kitty_pid ? Number(hookData.kitty_pid) : null
     };
     sessions.set(session_id, session);
+
+    // Cache PID from hook
+    if (pid && pid > 0) {
+      session.cachedPid = pid;
+      pidToSession.set(pid, session_id);
+      console.log(`[hook] CACHED pid=${pid} → session=${session_id?.slice(0,8)} (new session)`);
+    }
 
     // Increment per-project session counter
     const projectKey = session.projectName;
@@ -434,6 +497,13 @@ export function handleEvent(hookData) {
       session.status = 'ended';
       session.animationState = 'Death';
       eventEntry.detail = `Session ended (${hookData.reason || 'unknown'})`;
+
+      // Release PID cache for this session
+      if (session.cachedPid) {
+        console.log(`[findProcess] releasing pid=${session.cachedPid} from session=${session_id?.slice(0,8)}`);
+        pidToSession.delete(session.cachedPid);
+        session.cachedPid = null;
+      }
 
       // Dual-write: mark session ended in DB
       try {
@@ -721,15 +791,44 @@ setInterval(() => {
 }, 10000);
 
 // Detect whether session is from VS Code, JetBrains, or terminal, cache result
+// Detect source directly from hook environment variables (no process tree walking needed)
+function detectSourceFromHookEnv(hookData) {
+  // VS Code extension sets VSCODE_PID env var
+  if (hookData.vscode_pid) return 'vscode';
+  // TERM_PROGRAM tells us the terminal app directly
+  const tp = (hookData.term_program || '').toLowerCase();
+  if (tp === 'vscode') return 'vscode';
+  if (tp) {
+    // Check for JetBrains terminals
+    const jbNames = ['idea', 'webstorm', 'pycharm', 'goland', 'clion', 'rider',
+      'phpstorm', 'rubymine', 'datagrip', 'fleet', 'jetbrains'];
+    if (jbNames.some(n => tp.includes(n))) return 'jetbrains';
+    // Any other TERM_PROGRAM means a real terminal
+    return 'terminal';
+  }
+  // If there's a TTY, it's a terminal session
+  if (hookData.tty_path) return 'terminal';
+  // No TTY and no TERM_PROGRAM — likely VS Code extension (not a terminal)
+  if (hookData.claude_pid && !hookData.tty_path && !hookData.term_program) return 'vscode';
+  return null;
+}
+
 export function detectSessionSource(sessionId) {
   const session = sessions.get(sessionId);
-  if (!session) return 'unknown';
-  if (session.source === 'vscode' || session.source === 'terminal' || session.source === 'jetbrains') return session.source;
+  if (!session) {
+    console.log(`[detectSource] session=${sessionId?.slice(0,8)} not in memory → unknown`);
+    return 'unknown';
+  }
+  if (session.source === 'vscode' || session.source === 'terminal' || session.source === 'jetbrains') {
+    console.log(`[detectSource] session=${sessionId?.slice(0,8)} cached=${session.source}`);
+    return session.source;
+  }
 
   const pid = findClaudeProcess(sessionId, session.projectPath);
   if (pid) {
     try {
       const cmd = execSync(`ps -o args= -p ${pid}`, { encoding: 'utf-8', timeout: 3000 }).trim();
+      console.log(`[detectSource] session=${sessionId?.slice(0,8)} pid=${pid} cmd="${cmd.slice(0, 120)}"`);
       if (cmd.includes('.vscode') || cmd.includes('--no-chrome') || cmd.includes('stream-json')) {
         session.source = 'vscode';
       } else if (isJetBrainsProcess(pid)) {
@@ -737,7 +836,10 @@ export function detectSessionSource(sessionId) {
       } else {
         session.source = 'terminal';
       }
+      console.log(`[detectSource] session=${sessionId?.slice(0,8)} → ${session.source}`);
     } catch(e) { /* keep existing */ }
+  } else {
+    console.log(`[detectSource] session=${sessionId?.slice(0,8)} no pid found, source=${session.source || 'unknown'}`);
   }
   return session.source || 'unknown';
 }
@@ -761,10 +863,35 @@ function isJetBrainsProcess(pid) {
 }
 
 export function findClaudeProcess(sessionId, projectPath) {
+  // Return cached PID if we already matched one for this session (and it's still alive)
+  const session = sessionId ? sessions.get(sessionId) : null;
+  if (session?.cachedPid) {
+    try {
+      execSync(`kill -0 ${session.cachedPid} 2>/dev/null`, { timeout: 1000 });
+      console.log(`[findProcess] session=${sessionId?.slice(0,8)} → cached pid=${session.cachedPid}`);
+      return session.cachedPid;
+    } catch {
+      // Process died, clear cache
+      console.log(`[findProcess] session=${sessionId?.slice(0,8)} cached pid=${session.cachedPid} is dead, re-scanning`);
+      pidToSession.delete(session.cachedPid);
+      session.cachedPid = null;
+    }
+  }
+
   const myPid = process.pid;
+  console.log(`[findProcess] ── session=${sessionId?.slice(0,8)} projectPath=${projectPath}`);
+
+  // Collect PIDs already claimed by OTHER sessions
+  const claimedPids = new Set();
+  for (const [pid, sid] of pidToSession) {
+    if (sid !== sessionId) claimedPids.add(pid);
+  }
+  if (claimedPids.size > 0) {
+    console.log(`[findProcess] PIDs claimed by other sessions: [${[...claimedPids].join(', ')}]`);
+  }
+
   try {
     if (process.platform === 'win32') {
-      // Windows: find Claude processes by cwd matching
       if (!projectPath) return null;
       const psScript = `
         $procs = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*claude*' -and $_.ProcessId -ne ${myPid} }
@@ -776,7 +903,6 @@ export function findClaudeProcess(sessionId, projectPath) {
             }
           } catch {}
         }
-        # Fallback: return first claude process
         if ($procs.Count -gt 0) { $procs[0].ProcessId }
       `;
       const out = execSync(
@@ -784,6 +910,7 @@ export function findClaudeProcess(sessionId, projectPath) {
         { encoding: 'utf-8', timeout: 5000 }
       );
       const pid = parseInt(out.trim(), 10);
+      if (pid > 0) cachePid(pid, sessionId, session);
       return pid > 0 ? pid : null;
     } else {
       // Unix (macOS / Linux): find Claude processes and match by cwd
@@ -792,35 +919,67 @@ export function findClaudeProcess(sessionId, projectPath) {
         .map(p => parseInt(p.trim(), 10))
         .filter(p => p > 0 && p !== myPid);
 
+      console.log(`[findProcess] pgrep found ${pids.length} claude pids: [${pids.join(', ')}]`);
+
       if (pids.length === 0) return null;
 
-      // If we have a projectPath, match by cwd
+      // Match by cwd, skipping PIDs already claimed by other sessions
       if (projectPath) {
         for (const pid of pids) {
+          if (claimedPids.has(pid)) {
+            console.log(`[findProcess] pid=${pid} SKIP (claimed by session ${pidToSession.get(pid)?.slice(0,8)})`);
+            continue;
+          }
           try {
             let cwd;
             if (process.platform === 'darwin') {
               const out = execSync(`lsof -a -d cwd -Fn -p ${pid} 2>/dev/null | grep '^n'`, { encoding: 'utf-8', timeout: 3000 });
               cwd = out.trim().replace(/^n/, '');
             } else {
-              // Linux: read /proc/PID/cwd symlink
               cwd = execSync(`readlink /proc/${pid}/cwd 2>/dev/null`, { encoding: 'utf-8', timeout: 3000 }).trim();
             }
-            if (cwd === projectPath) return pid;
-          } catch(e) { continue; }
+            const match = cwd === projectPath;
+            console.log(`[findProcess] pid=${pid} cwd="${cwd}" ${match ? '✓ MATCH' : '✗ no match'}`);
+            if (match) {
+              cachePid(pid, sessionId, session);
+              return pid;
+            }
+          } catch(e) {
+            console.log(`[findProcess] pid=${pid} cwd lookup failed: ${e.message?.split('\n')[0]}`);
+            continue;
+          }
         }
+        console.log(`[findProcess] no cwd match found, trying tty fallback`);
       }
 
-      // Fallback: return first terminal-attached Claude process
+      // Fallback: return first unclaimed terminal-attached Claude process
       for (const pid of pids) {
+        if (claimedPids.has(pid)) continue;
         try {
           const tty = execSync(`ps -o tty= -p ${pid}`, { encoding: 'utf-8', timeout: 3000 }).trim();
-          if (tty && tty !== '??' && tty !== '?') return pid;
+          console.log(`[findProcess] fallback pid=${pid} tty=${tty || 'NONE'}`);
+          if (tty && tty !== '??' && tty !== '?') {
+            console.log(`[findProcess] FALLBACK returning pid=${pid} (first unclaimed with tty)`);
+            cachePid(pid, sessionId, session);
+            return pid;
+          }
         } catch(e) { continue; }
       }
 
-      return pids[0] || null;
+      // Last resort: first unclaimed pid
+      const unclaimed = pids.find(p => !claimedPids.has(p));
+      console.log(`[findProcess] last resort returning pid=${unclaimed || 'null'}`);
+      if (unclaimed) cachePid(unclaimed, sessionId, session);
+      return unclaimed || null;
     }
-  } catch(e) {}
+  } catch(e) {
+    console.log(`[findProcess] ERROR: ${e.message}`);
+  }
   return null;
+}
+
+function cachePid(pid, sessionId, session) {
+  pidToSession.set(pid, sessionId);
+  if (session) session.cachedPid = pid;
+  console.log(`[findProcess] CACHED pid=${pid} → session=${sessionId?.slice(0,8)}`);
 }
