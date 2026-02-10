@@ -1,5 +1,5 @@
 import * as robotManager from './robotManager.js';
-import { createOrUpdateCard, removeCard, updateDurations, showToast, getSelectedSessionId, deselectSession, archiveAllEnded, isMuted, toggleMuteAll, initGroups } from './sessionPanel.js';
+import { createOrUpdateCard, removeCard, updateDurations, showToast, getSelectedSessionId, deselectSession, archiveAllEnded, isMuted, toggleMuteAll, initGroups, createOrUpdateTeamCard, removeTeamCard, getTeamsData, getSessionsData } from './sessionPanel.js';
 import * as statsPanel from './statsPanel.js';
 import * as wsClient from './wsClient.js';
 import * as navController from './navController.js';
@@ -20,22 +20,36 @@ async function init() {
 
   // Connect WebSocket
   wsClient.connect({
-    onSnapshotCb(sessions) {
+    onSnapshotCb(sessions, teams) {
       allSessions = sessions;
       for (const session of Object.values(sessions)) {
         createOrUpdateCard(session);
         robotManager.updateRobot(session);
       }
+      // Process teams from snapshot
+      if (teams) {
+        for (const team of Object.values(teams)) {
+          createOrUpdateTeamCard(team);
+        }
+      }
       statsPanel.update(sessions);
       updateTabTitle(sessions);
       toggleEmptyState(Object.keys(sessions).length === 0);
     },
-    onSessionUpdateCb(session) {
+    onSessionUpdateCb(session, team) {
       allSessions[session.sessionId] = session;
       createOrUpdateCard(session);
       robotManager.updateRobot(session);
       statsPanel.update(allSessions);
       updateTabTitle(allSessions);
+
+      // If session belongs to a team, refresh the team card
+      if (team) {
+        createOrUpdateTeamCard(team);
+      } else if (session.teamId) {
+        const existingTeam = getTeamsData().get(session.teamId);
+        if (existingTeam) createOrUpdateTeamCard(existingTeam);
+      }
 
       const lastEvt = session.events[session.events.length - 1];
       if (lastEvt && !isMuted(session.sessionId)) {
@@ -95,6 +109,20 @@ async function init() {
         }, 2000);
       }
     },
+    onTeamUpdateCb(team) {
+      if (team) {
+        createOrUpdateTeamCard(team);
+        // Check if all members ended — remove team card
+        const allIds = [team.parentSessionId, ...(team.childSessionIds || [])];
+        const allEnded = allIds.every(sid => {
+          const s = allSessions[sid];
+          return !s || s.status === 'ended';
+        });
+        if (allEnded) {
+          setTimeout(() => removeTeamCard(team.teamId), 3000);
+        }
+      }
+    },
     onDurationAlertCb(data) {
       showToast('DURATION ALERT', `Session "${data.projectName}" exceeded ${Math.round(data.thresholdMs / 60000)} min (running: ${Math.round(data.elapsedMs / 60000)} min)`);
     }
@@ -148,9 +176,9 @@ function updateTabTitle(sessions) {
   const list = Object.values(sessions);
   const activeCount = list.filter(s => s.status !== 'ended').length;
   if (activeCount > 0) {
-    document.title = `(${activeCount}) Claude Command Center`;
+    document.title = `(${activeCount}) Claude Session Center`;
   } else {
-    document.title = 'Claude Command Center';
+    document.title = 'Claude Session Center';
   }
 }
 
@@ -208,19 +236,22 @@ function initKeyboardShortcuts() {
         break;
       }
       case 'Escape': {
-        // Close in priority order: shortcuts modal, kill modal, alert modal, settings modal, detail panel
-        const shortcuts = document.getElementById('shortcuts-modal');
+        // Close in priority order: kill, alert, summarize, team, settings, detail
         const kill = document.getElementById('kill-modal');
         const alert = document.getElementById('alert-modal');
+        const summarizeModal = document.getElementById('summarize-modal');
+        const teamModal = document.getElementById('team-modal');
         const settings = document.getElementById('settings-modal');
         const detail = document.getElementById('session-detail-overlay');
 
-        if (shortcuts && !shortcuts.classList.contains('hidden')) {
-          shortcuts.classList.add('hidden');
-        } else if (kill && !kill.classList.contains('hidden')) {
+        if (kill && !kill.classList.contains('hidden')) {
           kill.classList.add('hidden');
         } else if (alert && !alert.classList.contains('hidden')) {
           alert.classList.add('hidden');
+        } else if (summarizeModal && !summarizeModal.classList.contains('hidden')) {
+          summarizeModal.classList.add('hidden');
+        } else if (teamModal && !teamModal.classList.contains('hidden')) {
+          teamModal.classList.add('hidden');
         } else if (settings && !settings.classList.contains('hidden')) {
           settings.classList.add('hidden');
         } else if (detail && !detail.classList.contains('hidden')) {
@@ -268,33 +299,12 @@ function initKeyboardShortcuts() {
         document.getElementById('qa-mute-all')?.click();
         break;
       }
-      case '?': {
-        e.preventDefault();
-        const shortcutsModal = document.getElementById('shortcuts-modal');
-        if (shortcutsModal) shortcutsModal.classList.toggle('hidden');
-        break;
-      }
     }
   });
 
-  // Shortcuts modal close button
-  const shortcutsClose = document.getElementById('shortcuts-close');
-  if (shortcutsClose) {
-    shortcutsClose.addEventListener('click', () => {
-      document.getElementById('shortcuts-modal').classList.add('hidden');
-    });
-  }
-
-  // Close shortcuts modal on backdrop click
-  const shortcutsModal = document.getElementById('shortcuts-modal');
-  if (shortcutsModal) {
-    shortcutsModal.addEventListener('click', (e) => {
-      if (e.target === shortcutsModal) shortcutsModal.classList.add('hidden');
-    });
-  }
 }
 
-// ---- Quick Actions ----
+// ---- Quick Actions (in nav bar) ----
 function initQuickActions() {
   const muteAllBtn = document.getElementById('qa-mute-all');
   if (muteAllBtn) {
@@ -306,21 +316,26 @@ function initQuickActions() {
     });
   }
 
-  const refreshBtn = document.getElementById('qa-refresh');
-  if (refreshBtn) {
-    refreshBtn.addEventListener('click', () => window.location.reload());
-  }
-
   const archiveBtn = document.getElementById('qa-archive-ended');
   if (archiveBtn) {
     archiveBtn.addEventListener('click', () => archiveAllEnded());
   }
 
-  const shortcutsBtn = document.getElementById('qa-shortcuts');
-  if (shortcutsBtn) {
-    shortcutsBtn.addEventListener('click', () => {
-      const modal = document.getElementById('shortcuts-modal');
-      if (modal) modal.classList.remove('hidden');
+  // Nav actions collapse/expand toggle
+  const navActionsToggle = document.getElementById('nav-actions-toggle');
+  const navActions = document.getElementById('nav-actions');
+  if (navActionsToggle && navActions) {
+    navActionsToggle.addEventListener('click', () => {
+      navActions.classList.toggle('collapsed');
+    });
+  }
+
+  // Activity feed collapse/expand toggle
+  const feedCollapseBtn = document.getElementById('feed-collapse-btn');
+  const feedEl = document.getElementById('activity-feed');
+  if (feedCollapseBtn && feedEl) {
+    feedCollapseBtn.addEventListener('click', () => {
+      feedEl.classList.toggle('collapsed');
     });
   }
 }
@@ -336,10 +351,18 @@ function addActivityEntry(session) {
   if (!lastEvent) return;
 
   const time = new Date(lastEvent.timestamp).toLocaleTimeString('en-US', { hour12: false });
+  // Team role prefix
+  let rolePrefix = '';
+  if (session.teamRole === 'leader') {
+    rolePrefix = '<span class="feed-role">[Leader]</span>';
+  } else if (session.teamRole === 'member' && session.agentType) {
+    rolePrefix = `<span class="feed-role">[${session.agentType}]</span>`;
+  }
   const entry = document.createElement('div');
   entry.className = 'feed-entry';
   entry.innerHTML = `<span class="feed-time">${time}</span> ` +
     `<span class="feed-project">[${session.projectName}]</span> ` +
+    `${rolePrefix}` +
     `<span class="feed-detail">${lastEvent.type}: ${lastEvent.detail}</span>`;
   feed.appendChild(entry);
 

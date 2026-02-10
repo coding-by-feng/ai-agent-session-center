@@ -4,6 +4,7 @@ let reconnectDelay = 1000;
 let onSnapshot = null;
 let onSessionUpdate = null;
 let onDurationAlert = null;
+let onTeamUpdate = null;
 let reconnectTimer = null;
 let reconnectTarget = 0; // timestamp when reconnect fires
 
@@ -14,10 +15,11 @@ export function getReconnectRemaining() {
   return Math.max(0, Math.ceil((reconnectTarget - Date.now()) / 1000));
 }
 
-export function connect({ onSnapshotCb, onSessionUpdateCb, onDurationAlertCb }) {
+export function connect({ onSnapshotCb, onSessionUpdateCb, onDurationAlertCb, onTeamUpdateCb }) {
   onSnapshot = onSnapshotCb;
   onSessionUpdate = onSessionUpdateCb;
   onDurationAlert = onDurationAlertCb;
+  onTeamUpdate = onTeamUpdateCb;
   _connect();
 }
 
@@ -35,9 +37,11 @@ function _connect() {
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
     if (data.type === 'snapshot' && onSnapshot) {
-      onSnapshot(data.sessions);
+      onSnapshot(data.sessions, data.teams);
     } else if (data.type === 'session_update' && onSessionUpdate) {
-      onSessionUpdate(data.session);
+      onSessionUpdate(data.session, data.team);
+    } else if (data.type === 'team_update' && onTeamUpdate) {
+      onTeamUpdate(data.team);
     } else if (data.type === 'duration_alert' && onDurationAlert) {
       onDurationAlert(data);
     }

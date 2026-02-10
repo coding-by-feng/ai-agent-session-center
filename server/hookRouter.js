@@ -13,6 +13,10 @@ router.post('/', (req, res) => {
   const delta = handleEvent(hookData);
   if (delta) {
     broadcast({ type: 'session_update', ...delta });
+    // If this event created or modified a team, broadcast team update
+    if (delta.team) {
+      broadcast({ type: 'team_update', team: delta.team });
+    }
   }
   res.json({ ok: true });
 });

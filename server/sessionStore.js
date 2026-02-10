@@ -6,6 +6,11 @@ const sessions = new Map();
 const projectSessionCounters = new Map();
 const pendingToolTimers = new Map(); // session_id -> timeout for tool approval detection
 
+// Team mode structures
+const teams = new Map();            // teamId -> { teamId, parentSessionId, childSessionIds: Set, teamName, createdAt }
+const sessionToTeam = new Map();    // sessionId -> teamId
+const pendingSubagents = [];        // { parentSessionId, parentCwd, agentType, timestamp }
+
 // Prepared statements for SQLite dual-write
 const insertSession = db.prepare(
   `INSERT OR IGNORE INTO sessions (id, project_path, project_name, model, status, git_branch, started_at, last_activity_at, source)
@@ -34,6 +39,22 @@ const updateSessionPromptCount = db.prepare(
 );
 const updateSessionTitle = db.prepare(
   `UPDATE sessions SET title=? WHERE id=?`
+);
+
+// Team mode prepared statements
+const insertTeam = db.prepare(
+  `INSERT OR IGNORE INTO teams (id, parent_session_id, team_name, created_at) VALUES (?, ?, ?, ?)`
+);
+const updateSessionTeam = db.prepare(
+  `UPDATE sessions SET team_id=?, team_role=?, parent_session_id=? WHERE id=?`
+);
+const selectActiveTeams = db.prepare(
+  `SELECT t.id, t.parent_session_id, t.team_name, t.created_at
+   FROM teams t
+   WHERE EXISTS (SELECT 1 FROM sessions s WHERE s.team_id = t.id AND s.status != 'ended')`
+);
+const selectTeamMembers = db.prepare(
+  `SELECT id, team_role FROM sessions WHERE team_id = ? AND status != 'ended'`
 );
 
 // Startup recovery: reload active sessions from DB into the Map
@@ -101,6 +122,39 @@ export function loadActiveSessions() {
     }
   } catch (err) {
     console.error('[sessionStore] Failed to load active sessions from DB:', err.message);
+  }
+
+  // Rebuild teams from DB
+  try {
+    const teamRows = selectActiveTeams.all();
+    for (const tRow of teamRows) {
+      const team = {
+        teamId: tRow.id,
+        parentSessionId: tRow.parent_session_id,
+        childSessionIds: new Set(),
+        teamName: tRow.team_name,
+        createdAt: tRow.created_at
+      };
+      const memberRows = selectTeamMembers.all(tRow.id);
+      for (const m of memberRows) {
+        if (m.team_role === 'leader') {
+          sessionToTeam.set(m.id, tRow.id);
+          const s = sessions.get(m.id);
+          if (s) { s.teamId = tRow.id; s.teamRole = 'leader'; }
+        } else {
+          team.childSessionIds.add(m.id);
+          sessionToTeam.set(m.id, tRow.id);
+          const s = sessions.get(m.id);
+          if (s) { s.teamId = tRow.id; s.teamRole = 'member'; }
+        }
+      }
+      teams.set(tRow.id, team);
+    }
+    if (teamRows.length > 0) {
+      console.log(`[sessionStore] Rebuilt ${teamRows.length} active teams from DB`);
+    }
+  } catch (err) {
+    console.error('[sessionStore] Failed to rebuild teams from DB:', err.message);
   }
 }
 
@@ -172,12 +226,18 @@ export function handleEvent(hookData) {
   };
 
   switch (hook_event_name) {
-    case 'SessionStart':
+    case 'SessionStart': {
       session.status = 'idle';
       session.animationState = 'Idle';
       session.model = hookData.model || session.model;
       eventEntry.detail = `Session started (${hookData.source || 'startup'})`;
+      // Try to match this new session as a subagent child
+      const teamResult = findPendingSubagentMatch(session_id, session.projectPath);
+      if (teamResult) {
+        eventEntry.detail += ` [Team: ${teamResult.teamId}]`;
+      }
       break;
+    }
 
     case 'UserPromptSubmit':
       session.status = 'prompting';
@@ -347,6 +407,18 @@ export function handleEvent(hookData) {
       session.subagentCount++;
       session.emote = 'Jump';
       eventEntry.detail = `Subagent spawned (${hookData.agent_type || 'unknown'})`;
+      // Track pending subagent for team auto-detection
+      pendingSubagents.push({
+        parentSessionId: session_id,
+        parentCwd: session.projectPath,
+        agentType: hookData.agent_type || 'unknown',
+        timestamp: Date.now()
+      });
+      // Prune stale entries (>30s old)
+      const now_sub = Date.now();
+      while (pendingSubagents.length > 0 && now_sub - pendingSubagents[0].timestamp > 30000) {
+        pendingSubagents.shift();
+      }
       break;
 
     case 'SubagentStop':
@@ -370,6 +442,9 @@ export function handleEvent(hookData) {
         console.error('[sessionStore] DB updateSessionEnded error:', err.message);
       }
 
+      // Team cleanup: remove from team, clean up if empty
+      handleTeamMemberEnd(session_id);
+
       // Schedule removal from memory after 10s (client auto-removes cards sooner)
       setTimeout(() => sessions.delete(session_id), 10000);
       break;
@@ -386,7 +461,13 @@ export function handleEvent(hookData) {
     console.error('[sessionStore] DB insertEvent error:', err.message);
   }
 
-  return { session: { ...session } };
+  const result = { session: { ...session } };
+  // Include team info if session belongs to a team
+  const teamId = sessionToTeam.get(session_id);
+  if (teamId) {
+    result.team = serializeTeam(teams.get(teamId));
+  }
+  return result;
 }
 
 export function getAllSessions() {
@@ -424,6 +505,135 @@ function summarizeToolInput(toolInput, toolName) {
     case 'Task': return toolInput.description || '';
     default: return JSON.stringify(toolInput).substring(0, 100);
   }
+}
+
+// ---- Team Mode Functions ----
+
+function findPendingSubagentMatch(childSessionId, childCwd) {
+  const now = Date.now();
+  // Clean stale entries (>10s old)
+  while (pendingSubagents.length > 0 && now - pendingSubagents[0].timestamp > 10000) {
+    pendingSubagents.shift();
+  }
+  if (!childCwd || pendingSubagents.length === 0) return null;
+
+  // Match by cwd — exact match or parent/child path relationship
+  for (let i = pendingSubagents.length - 1; i >= 0; i--) {
+    const pending = pendingSubagents[i];
+    if (pending.parentSessionId === childSessionId) continue; // skip self
+    const parentCwd = pending.parentCwd;
+    if (parentCwd && (childCwd === parentCwd || childCwd.startsWith(parentCwd + '/') || parentCwd.startsWith(childCwd + '/'))) {
+      // Found match — consume it
+      pendingSubagents.splice(i, 1);
+      return linkSessionToTeam(pending.parentSessionId, childSessionId, pending.agentType);
+    }
+  }
+  return null;
+}
+
+function linkSessionToTeam(parentId, childId, agentType) {
+  const teamId = `team-${parentId}`;
+  let team = teams.get(teamId);
+
+  if (!team) {
+    team = {
+      teamId,
+      parentSessionId: parentId,
+      childSessionIds: new Set(),
+      teamName: null,
+      createdAt: Date.now()
+    };
+    teams.set(teamId, team);
+
+    // Set team name from parent's project name
+    const parentSession = sessions.get(parentId);
+    if (parentSession) {
+      team.teamName = `${parentSession.projectName} Team`;
+      parentSession.teamId = teamId;
+      parentSession.teamRole = 'leader';
+      sessionToTeam.set(parentId, teamId);
+      try { updateSessionTeam.run(teamId, 'leader', null, parentId); } catch(e) {}
+    }
+
+    // DB insert team
+    try { insertTeam.run(teamId, parentId, team.teamName, team.createdAt); } catch(e) {}
+  }
+
+  // Link child
+  team.childSessionIds.add(childId);
+  const childSession = sessions.get(childId);
+  if (childSession) {
+    childSession.teamId = teamId;
+    childSession.teamRole = 'member';
+    childSession.agentType = agentType;
+  }
+  sessionToTeam.set(childId, teamId);
+  try { updateSessionTeam.run(teamId, 'member', parentId, childId); } catch(e) {}
+
+  console.log(`[sessionStore] Linked session ${childId} to team ${teamId} as ${agentType}`);
+  return { teamId, team: serializeTeam(team) };
+}
+
+function handleTeamMemberEnd(sessionId) {
+  const teamId = sessionToTeam.get(sessionId);
+  if (!teamId) return null;
+
+  const team = teams.get(teamId);
+  if (!team) return null;
+
+  team.childSessionIds.delete(sessionId);
+  sessionToTeam.delete(sessionId);
+
+  // If parent ended and all children ended, clean up the team
+  if (sessionId === team.parentSessionId) {
+    const parentSession = sessions.get(sessionId);
+    const allChildrenEnded = [...team.childSessionIds].every(cid => {
+      const s = sessions.get(cid);
+      return !s || s.status === 'ended';
+    });
+    if (allChildrenEnded) {
+      // Clean up team after a delay
+      setTimeout(() => {
+        teams.delete(teamId);
+        sessionToTeam.delete(team.parentSessionId);
+        for (const cid of team.childSessionIds) {
+          sessionToTeam.delete(cid);
+        }
+      }, 15000);
+    }
+  }
+
+  return { teamId, team: serializeTeam(team) };
+}
+
+function serializeTeam(team) {
+  if (!team) return null;
+  return {
+    teamId: team.teamId,
+    parentSessionId: team.parentSessionId,
+    childSessionIds: [...team.childSessionIds],
+    teamName: team.teamName,
+    createdAt: team.createdAt
+  };
+}
+
+export function getTeam(teamId) {
+  const team = teams.get(teamId);
+  return team ? serializeTeam(team) : null;
+}
+
+export function getAllTeams() {
+  const result = {};
+  for (const [id, team] of teams) {
+    result[id] = serializeTeam(team);
+  }
+  return result;
+}
+
+export function getTeamForSession(sessionId) {
+  const teamId = sessionToTeam.get(sessionId);
+  if (!teamId) return null;
+  return getTeam(teamId);
 }
 
 export function getSession(sessionId) {
@@ -510,21 +720,44 @@ setInterval(() => {
   }
 }, 10000);
 
-// Detect whether session is from VS Code or terminal, cache result
+// Detect whether session is from VS Code, JetBrains, or terminal, cache result
 export function detectSessionSource(sessionId) {
   const session = sessions.get(sessionId);
   if (!session) return 'unknown';
-  if (session.source === 'vscode' || session.source === 'terminal') return session.source;
+  if (session.source === 'vscode' || session.source === 'terminal' || session.source === 'jetbrains') return session.source;
 
   const pid = findClaudeProcess(sessionId, session.projectPath);
   if (pid) {
     try {
       const cmd = execSync(`ps -o args= -p ${pid}`, { encoding: 'utf-8', timeout: 3000 }).trim();
-      session.source = (cmd.includes('.vscode') || cmd.includes('--no-chrome') || cmd.includes('stream-json'))
-        ? 'vscode' : 'terminal';
+      if (cmd.includes('.vscode') || cmd.includes('--no-chrome') || cmd.includes('stream-json')) {
+        session.source = 'vscode';
+      } else if (isJetBrainsProcess(pid)) {
+        session.source = 'jetbrains';
+      } else {
+        session.source = 'terminal';
+      }
     } catch(e) { /* keep existing */ }
   }
   return session.source || 'unknown';
+}
+
+// Check if a process is spawned from a JetBrains IDE by walking the process tree
+function isJetBrainsProcess(pid) {
+  const jbNames = ['idea', 'webstorm', 'pycharm', 'goland', 'clion', 'rider',
+    'phpstorm', 'rubymine', 'datagrip', 'dataspell', 'fleet', 'jetbrains',
+    'appcode', 'aqua', 'writerside'];
+  try {
+    let current = String(pid);
+    for (let i = 0; i < 10; i++) {
+      const ppid = execSync(`ps -o ppid= -p ${current}`, { encoding: 'utf-8', timeout: 3000 }).trim();
+      if (!ppid || ppid === '0' || ppid === '1') break;
+      const cmd = execSync(`ps -o comm= -p ${ppid}`, { encoding: 'utf-8', timeout: 3000 }).trim().toLowerCase();
+      if (jbNames.some(n => cmd.includes(n))) return true;
+      current = ppid;
+    }
+  } catch(e) {}
+  return false;
 }
 
 export function findClaudeProcess(sessionId, projectPath) {

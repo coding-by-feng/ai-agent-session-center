@@ -154,6 +154,118 @@ try {
   console.error('[db] Title backfill error:', e.message);
 }
 
+// Team mode schema migrations
+try { db.exec('ALTER TABLE sessions ADD COLUMN team_id TEXT'); } catch(e) { /* column may already exist */ }
+try { db.exec('ALTER TABLE sessions ADD COLUMN team_role TEXT'); } catch(e) { /* column may already exist */ }
+try { db.exec('ALTER TABLE sessions ADD COLUMN parent_session_id TEXT'); } catch(e) { /* column may already exist */ }
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS teams (
+    id TEXT PRIMARY KEY,
+    parent_session_id TEXT NOT NULL,
+    team_name TEXT,
+    created_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_sessions_team_id ON sessions(team_id);
+`);
+
+// Summary prompt templates
+db.exec(`
+  CREATE TABLE IF NOT EXISTS summary_prompts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    is_default INTEGER DEFAULT 0,
+    created_at INTEGER,
+    updated_at INTEGER
+  );
+`);
+
+// Seed default summary prompts if table is empty
+{
+  const count = db.prepare('SELECT COUNT(*) AS c FROM summary_prompts').get().c;
+  if (count === 0) {
+    const seedPrompt = db.prepare('INSERT INTO summary_prompts (name, prompt, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?)');
+    const now = Date.now();
+    seedPrompt.run('Detailed Technical Summary', `You are summarizing a Claude Code coding session. Produce a detailed summary with these sections:
+
+## Overview
+One paragraph describing the overall goal and outcome of the session.
+
+## What Was Accomplished
+- List every concrete change, feature, or fix completed (be specific — mention file names, function names, components)
+- Group related changes together
+
+## Key Decisions & Approach
+- Architectural choices made (e.g. data structures, algorithms, patterns chosen)
+- Trade-offs considered
+- Why certain approaches were chosen over alternatives
+
+## Files Modified
+List each file touched and a brief note on what changed in it.
+
+## Issues & Blockers
+- Any errors encountered and how they were resolved
+- Workarounds applied
+- Things left unfinished or requiring follow-up
+
+## Technical Details
+- Notable implementation details worth remembering
+- Dependencies added or updated
+- Configuration changes
+
+Be thorough and specific. Include file paths, function names, and concrete details. This summary should allow someone to fully understand what happened in this session without reading the transcript.`, 1, now, now);
+
+    seedPrompt.run('Quick Bullet Points', `Summarize this Claude Code session in 5-8 bullet points. Focus on what was accomplished, key files changed, and any issues encountered.`, 0, now, now);
+
+    seedPrompt.run('Changelog Entry', `Generate a changelog entry for this Claude Code session. Format it as:
+
+### [Feature/Fix/Refactor]: <title>
+
+**Changes:**
+- List each change with the affected file path
+- Be specific about what was added, modified, or removed
+
+**Breaking Changes:** (if any)
+**Migration Notes:** (if any)`, 0, now, now);
+
+    seedPrompt.run('Handoff Notes', `Write detailed handoff notes for another developer picking up this work. Include:
+
+## Context
+What was the developer trying to accomplish? What's the current state of things?
+
+## What's Done
+List completed changes with file paths and implementation details.
+
+## What's Left / Next Steps
+Any unfinished work, TODOs, or follow-up tasks.
+
+## Gotchas & Important Notes
+Anything the next developer needs to be aware of — edge cases, workarounds, architectural decisions that might not be obvious.
+
+## How to Test
+Steps to verify the changes work correctly.`, 0, now, now);
+
+    seedPrompt.run('PR Description', `Generate a pull request description for the changes made in this session. Format:
+
+## Summary
+1-3 sentences describing what this PR does.
+
+## Changes
+- Bullet list of every change, organized by file or feature area
+- Include file paths
+
+## Testing
+- How to test these changes
+- Any edge cases to watch for
+
+## Screenshots / Notes
+Any additional context for reviewers.`, 0, now, now);
+
+    console.log('[db] Seeded 5 default summary prompt templates');
+  }
+}
+
 // User settings table
 db.exec(`
   CREATE TABLE IF NOT EXISTS user_settings (

@@ -92,21 +92,6 @@ const CHARACTER_TEMPLATES = {
     </div>`;
   },
 
-  skull(color) {
-    return `
-    <div class="robot-shadow"></div>
-    <div class="robot-body-wrap">
-      <div class="skull-head">
-        <div class="skull-eye skull-eye-left"></div>
-        <div class="skull-eye skull-eye-right"></div>
-        <div class="skull-nose"></div>
-        <div class="skull-jaw">
-          <div class="skull-teeth"></div>
-        </div>
-      </div>
-    </div>`;
-  },
-
   orb(color) {
     return `
     <div class="robot-shadow"></div>
@@ -196,6 +181,193 @@ const CHARACTER_TEMPLATES = {
         <div class="mush-mouth"></div>
       </div>
       <div class="mush-stem"></div>
+    </div>`;
+  },
+
+  fox(color) {
+    return `
+    <div class="robot-shadow"></div>
+    <div class="robot-body-wrap">
+      <div class="fox-head">
+        <div class="fox-ear fox-ear-left"></div>
+        <div class="fox-ear fox-ear-right"></div>
+        <div class="fox-eye fox-eye-left"></div>
+        <div class="fox-eye fox-eye-right"></div>
+        <div class="fox-snout"></div>
+        <div class="fox-nose"></div>
+      </div>
+      <div class="fox-body">
+        <div class="fox-chest"></div>
+      </div>
+      <div class="fox-tail"></div>
+    </div>`;
+  },
+
+  unicorn(color) {
+    return `
+    <div class="robot-shadow"></div>
+    <div class="robot-body-wrap">
+      <div class="unicorn-head">
+        <div class="unicorn-horn"></div>
+        <div class="unicorn-eye unicorn-eye-left"></div>
+        <div class="unicorn-eye unicorn-eye-right"></div>
+        <div class="unicorn-mane"></div>
+      </div>
+      <div class="unicorn-body">
+        <div class="unicorn-chest"></div>
+      </div>
+    </div>`;
+  },
+
+  jellyfish(color) {
+    return `
+    <div class="robot-shadow"></div>
+    <div class="robot-body-wrap">
+      <div class="jelly-bell">
+        <div class="jelly-eye jelly-eye-left"></div>
+        <div class="jelly-eye jelly-eye-right"></div>
+        <div class="jelly-mouth"></div>
+      </div>
+      <div class="jelly-tentacles">
+        <div class="jelly-tent jelly-tent-1"></div>
+        <div class="jelly-tent jelly-tent-2"></div>
+        <div class="jelly-tent jelly-tent-3"></div>
+        <div class="jelly-tent jelly-tent-4"></div>
+        <div class="jelly-tent jelly-tent-5"></div>
+      </div>
+    </div>`;
+  },
+
+  owl(color) {
+    return `
+    <div class="robot-shadow"></div>
+    <div class="robot-body-wrap">
+      <div class="owl-head">
+        <div class="owl-tuft owl-tuft-left"></div>
+        <div class="owl-tuft owl-tuft-right"></div>
+        <div class="owl-eye owl-eye-left"><div class="owl-pupil"></div></div>
+        <div class="owl-eye owl-eye-right"><div class="owl-pupil"></div></div>
+        <div class="owl-beak"></div>
+      </div>
+      <div class="owl-body">
+        <div class="owl-wing owl-wing-left"></div>
+        <div class="owl-wing owl-wing-right"></div>
+        <div class="owl-chest"></div>
+      </div>
+    </div>`;
+  },
+
+  bat(color) {
+    return `
+    <div class="robot-shadow"></div>
+    <div class="robot-body-wrap">
+      <div class="bat-head">
+        <div class="bat-ear bat-ear-left"></div>
+        <div class="bat-ear bat-ear-right"></div>
+        <div class="bat-eye bat-eye-left"></div>
+        <div class="bat-eye bat-eye-right"></div>
+        <div class="bat-fang bat-fang-left"></div>
+        <div class="bat-fang bat-fang-right"></div>
+      </div>
+      <div class="bat-body">
+        <div class="bat-wing bat-wing-left"></div>
+        <div class="bat-wing bat-wing-right"></div>
+      </div>
+    </div>`;
+  },
+
+  cactus(color) {
+    return `
+    <div class="robot-shadow"></div>
+    <div class="robot-body-wrap">
+      <div class="cactus-flower"></div>
+      <div class="cactus-body">
+        <div class="cactus-eye cactus-eye-left"></div>
+        <div class="cactus-eye cactus-eye-right"></div>
+        <div class="cactus-mouth"></div>
+        <div class="cactus-arm cactus-arm-left"></div>
+        <div class="cactus-arm cactus-arm-right"></div>
+      </div>
+    </div>`;
+  },
+
+  slime(color) {
+    return `
+    <div class="robot-shadow"></div>
+    <div class="robot-body-wrap">
+      <div class="slime-body">
+        <div class="slime-eye slime-eye-left"></div>
+        <div class="slime-eye slime-eye-right"></div>
+        <div class="slime-mouth"></div>
+        <div class="slime-shine"></div>
+      </div>
+    </div>`;
+  },
+
+  pumpkin(color) {
+    return `
+    <div class="robot-shadow"></div>
+    <div class="robot-body-wrap">
+      <div class="pumpkin-stem"></div>
+      <div class="pumpkin-body">
+        <div class="pumpkin-eye pumpkin-eye-left"></div>
+        <div class="pumpkin-eye pumpkin-eye-right"></div>
+        <div class="pumpkin-mouth"></div>
+        <div class="pumpkin-groove pumpkin-groove-left"></div>
+        <div class="pumpkin-groove pumpkin-groove-right"></div>
+      </div>
+    </div>`;
+  },
+
+  yeti(color) {
+    return `
+    <div class="robot-shadow"></div>
+    <div class="robot-body-wrap">
+      <div class="yeti-head">
+        <div class="yeti-horn yeti-horn-left"></div>
+        <div class="yeti-horn yeti-horn-right"></div>
+        <div class="yeti-eye yeti-eye-left"></div>
+        <div class="yeti-eye yeti-eye-right"></div>
+        <div class="yeti-mouth"></div>
+      </div>
+      <div class="yeti-body">
+        <div class="yeti-belly"></div>
+        <div class="yeti-fur"></div>
+      </div>
+    </div>`;
+  },
+
+  crystal(color) {
+    return `
+    <div class="robot-shadow"></div>
+    <div class="robot-body-wrap">
+      <div class="crystal-body">
+        <div class="crystal-facet crystal-facet-left"></div>
+        <div class="crystal-facet crystal-facet-right"></div>
+        <div class="crystal-eye crystal-eye-left"></div>
+        <div class="crystal-eye crystal-eye-right"></div>
+        <div class="crystal-core"></div>
+      </div>
+    </div>`;
+  },
+
+  bee(color) {
+    return `
+    <div class="robot-shadow"></div>
+    <div class="robot-body-wrap">
+      <div class="bee-antenna bee-antenna-left"></div>
+      <div class="bee-antenna bee-antenna-right"></div>
+      <div class="bee-head">
+        <div class="bee-eye bee-eye-left"></div>
+        <div class="bee-eye bee-eye-right"></div>
+      </div>
+      <div class="bee-body">
+        <div class="bee-stripe bee-stripe-1"></div>
+        <div class="bee-stripe bee-stripe-2"></div>
+        <div class="bee-wing bee-wing-left"></div>
+        <div class="bee-wing bee-wing-right"></div>
+        <div class="bee-stinger"></div>
+      </div>
     </div>`;
   }
 };

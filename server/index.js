@@ -26,7 +26,7 @@ wss.on('connection', handleConnection);
 
 const PORT = 3333;
 server.listen(PORT, () => {
-  console.log(`\n  Claude Session Command Center`);
+  console.log(`\n  Claude Session Center`);
   console.log(`  Dashboard: http://localhost:${PORT}\n`);
 
   // Start background JSONL import

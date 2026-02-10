@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Robotic Command Center</title>
+  <title>Claude Code Session Center</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230a0a1a'/%3E%3Ccircle cx='16' cy='13' r='7' fill='none' stroke='%2300e5ff' stroke-width='2'/%3E%3Ccircle cx='13.5' cy='12' r='1.5' fill='%2300e5ff'/%3E%3Ccircle cx='18.5' cy='12' r='1.5' fill='%2300e5ff'/%3E%3Cpath d='M13 16 Q16 19 19 16' fill='none' stroke='%2300e5ff' stroke-width='1' stroke-linecap='round'/%3E%3Crect x='14.5' y='4' width='3' height='3' rx='1' fill='%2300e5ff'/%3E%3Cline x1='16' y1='7' x2='16' y2='6' stroke='%2300e5ff' stroke-width='1.5'/%3E%3Crect x='9' y='22' width='14' height='6' rx='2' fill='none' stroke='%23ff9100' stroke-width='1.5'/%3E%3Cline x1='12' y1='24' x2='12' y2='26' stroke='%23ff9100' stroke-width='1' stroke-linecap='round'/%3E%3Cline x1='16' y1='24' x2='16' y2='26' stroke='%23ff9100' stroke-width='1' stroke-linecap='round'/%3E%3Cline x1='20' y1='24' x2='20' y2='26' stroke='%23ff9100' stroke-width='1' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
@@ -13,7 +13,10 @@
   <!-- Header -->
   <header id="header">
     <div class="header-title">
-      <span class="logo">&#9670;</span> ROBOTIC COMMAND CENTER
+      CLAUDE CODE SESSION CENTER
+    </div>
+    <div id="live-search-bar">
+      <input type="text" id="live-search" placeholder="Filter sessions... ( / )">
     </div>
     <div id="global-stats"></div>
     <div id="connection-status">
@@ -29,15 +32,20 @@
     <button class="nav-btn" data-view="history">SESSION HISTORY</button>
     <button class="nav-btn" data-view="timeline">TIMELINE</button>
     <button class="nav-btn" data-view="analytics">ANALYTICS</button>
+    <div class="nav-spacer"></div>
+    <div id="nav-actions">
+      <button id="nav-actions-toggle" class="nav-actions-toggle" title="Toggle actions">&#9776;</button>
+      <div id="nav-actions-items">
+        <button id="qa-new-group" class="qa-btn" title="Create a new group">+ NEW GROUP</button>
+        <div class="qa-separator"></div>
+        <button id="qa-mute-all" class="qa-btn" title="Mute all sessions">&#9835; MUTE ALL</button>
+        <button id="qa-archive-ended" class="qa-btn" title="Archive all ended sessions">&#8681; ARCHIVE ENDED</button>
+      </div>
+    </div>
   </nav>
 
   <!-- Live Sessions View -->
   <div id="view-live" class="view-panel active">
-    <!-- Live Search -->
-    <div id="live-search-bar">
-      <input type="text" id="live-search" placeholder="Filter sessions... ( / )">
-    </div>
-
     <!-- Group containers injected here -->
     <div id="groups-container"></div>
 
@@ -51,16 +59,6 @@
       <p>Open a Claude Code session to see it appear here</p>
     </div>
 
-    <!-- Quick Actions Toolbar -->
-    <div id="quick-actions">
-      <button id="qa-new-group" class="qa-btn" title="Create a new group">+ NEW GROUP</button>
-      <div class="qa-separator"></div>
-      <button id="qa-mute-all" class="qa-btn" title="Mute all sessions">&#9835; MUTE ALL</button>
-      <button id="qa-refresh" class="qa-btn" title="Refresh page">&#8635; REFRESH</button>
-      <button id="qa-archive-ended" class="qa-btn" title="Archive all ended sessions">&#8681; ARCHIVE ENDED</button>
-      <div class="qa-separator"></div>
-      <button id="qa-shortcuts" class="qa-btn" title="Keyboard shortcuts">? SHORTCUTS</button>
-    </div>
   </div>
 
   <!-- Session History View -->
@@ -134,7 +132,10 @@
 
   <!-- Activity Feed -->
   <footer id="activity-feed">
-    <div class="feed-header">ACTIVITY FEED</div>
+    <div class="feed-header">
+      <span>ACTIVITY FEED</span>
+      <button id="feed-collapse-btn" class="feed-collapse-btn" title="Collapse activity feed">&#9660;</button>
+    </div>
     <div id="feed-entries"></div>
   </footer>
 
@@ -162,12 +163,22 @@
           <option value="cat">Cat</option>
           <option value="alien">Alien</option>
           <option value="ghost">Ghost</option>
-          <option value="skull">Skull</option>
           <option value="orb">Orb</option>
           <option value="dragon">Dragon</option>
           <option value="penguin">Penguin</option>
           <option value="octopus">Octopus</option>
           <option value="mushroom">Mushroom</option>
+          <option value="fox">Fox</option>
+          <option value="unicorn">Unicorn</option>
+          <option value="jellyfish">Jellyfish</option>
+          <option value="owl">Owl</option>
+          <option value="bat">Bat</option>
+          <option value="cactus">Cactus</option>
+          <option value="slime">Slime</option>
+          <option value="pumpkin">Pumpkin</option>
+          <option value="yeti">Yeti</option>
+          <option value="crystal">Crystal</option>
+          <option value="bee">Bee</option>
         </select>
       </div>
       <div class="detail-title-row">
@@ -176,7 +187,7 @@
 
       <!-- Control buttons -->
       <div class="ctrl-bar">
-        <button class="ctrl-btn open-editor" id="ctrl-open-editor" title="Open in VS Code">OPEN IN EDITOR</button>
+        <button class="ctrl-btn open-editor" id="ctrl-open-editor" title="Open in Editor">OPEN IN EDITOR</button>
         <button class="ctrl-btn kill" id="ctrl-kill" title="Kill Process">KILL</button>
         <button class="ctrl-btn archive" id="ctrl-archive" title="Archive Session">ARCHIVE</button>
         <button class="ctrl-btn summarize" id="ctrl-summarize" title="Summarize & Archive">SUMMARIZE</button>
@@ -196,22 +207,16 @@
 
       <!-- Tab navigation -->
       <div class="detail-tabs">
-        <button class="tab active" data-tab="prompts">Prompts</button>
-        <button class="tab" data-tab="responses">Responses</button>
+        <button class="tab active" data-tab="conversation">Conversation</button>
         <button class="tab" data-tab="tools">Tool Log</button>
         <button class="tab" data-tab="events">Events</button>
         <button class="tab" data-tab="notes">Notes</button>
         <button class="tab" data-tab="summary">Summary</button>
       </div>
 
-      <!-- Prompt History Tab -->
-      <div class="tab-content active" id="tab-prompts">
-        <div id="detail-prompt-history"></div>
-      </div>
-
-      <!-- Response History Tab -->
-      <div class="tab-content" id="tab-responses">
-        <div id="detail-response-history"></div>
+      <!-- Conversation Tab (unified prompts + tools + responses) -->
+      <div class="tab-content active" id="tab-conversation">
+        <div id="detail-conversation"></div>
       </div>
 
       <!-- Tool Call Log Tab -->
@@ -238,6 +243,47 @@
         <div id="summary-content">
           <div class="tab-empty">No summary yet — click SUMMARIZE to generate one with AI</div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Team Detail Modal -->
+  <div id="team-modal" class="modal-overlay hidden">
+    <div class="modal-panel team-modal-panel">
+      <div class="team-modal-header">
+        <h3 id="team-modal-name">Team</h3>
+        <span id="team-modal-count" class="team-modal-count">0 members</span>
+        <button id="team-modal-close" class="modal-close">&times;</button>
+      </div>
+      <div id="team-modal-grid" class="team-modal-grid"></div>
+    </div>
+  </div>
+
+  <!-- Summarize Prompt Selector Modal -->
+  <div id="summarize-modal" class="modal-overlay hidden">
+    <div class="modal-panel summarize-modal-panel">
+      <div class="summarize-modal-header">
+        <h3>Summarize Session</h3>
+        <button id="summarize-modal-close" class="modal-close">&times;</button>
+      </div>
+      <div class="summarize-modal-body">
+        <label class="summarize-label">Select a prompt template:</label>
+        <div id="summarize-prompt-list" class="summarize-prompt-list"></div>
+        <div class="summarize-custom-section">
+          <button id="summarize-toggle-custom" class="summarize-toggle-custom">+ Custom prompt</button>
+          <div id="summarize-custom-form" class="summarize-custom-form hidden">
+            <input type="text" id="summarize-custom-name" placeholder="Template name (e.g. Sprint Review)" class="summarize-custom-name">
+            <textarea id="summarize-custom-prompt" placeholder="Write your summary prompt instructions here..." class="summarize-custom-prompt" rows="8"></textarea>
+            <div class="summarize-custom-actions">
+              <button id="summarize-save-template" class="ctrl-btn notes">Save as Template</button>
+              <button id="summarize-use-once" class="ctrl-btn summarize">Use Once</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="summarize-modal-footer">
+        <button id="summarize-cancel" class="ctrl-btn">Cancel</button>
+        <button id="summarize-run" class="ctrl-btn summarize" disabled>Summarize</button>
       </div>
     </div>
   </div>
@@ -353,10 +399,26 @@
         <div class="settings-section">
           <h4>Card Size</h4>
           <div class="card-size-control" id="card-size-control">
-            <button class="card-size-btn" data-size="small">Small</button>
+            <button class="card-size-btn active" data-size="small">Small</button>
             <button class="card-size-btn" data-size="compact">Compact</button>
-            <button class="card-size-btn active" data-size="normal">Normal</button>
+            <button class="card-size-btn" data-size="normal">Normal</button>
             <button class="card-size-btn" data-size="large">Large</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>Animation</h4>
+          <label style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;display:block;">Intensity (range of movement)</label>
+          <div class="anim-intensity-control">
+            <span>Low</span>
+            <input type="range" id="anim-intensity-slider" min="0" max="200" value="100" step="10">
+            <span id="anim-intensity-display">100%</span>
+          </div>
+          <label style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;margin-top:8px;display:block;">Speed</label>
+          <div class="anim-intensity-control">
+            <span>Slow</span>
+            <input type="range" id="anim-speed-slider" min="30" max="200" value="100" step="10">
+            <span id="anim-speed-display">100%</span>
           </div>
         </div>
 
@@ -393,13 +455,6 @@
                 <div class="cp-tail"></div>
               </div>
               <span class="char-label">Ghost</span>
-            </button>
-            <button class="char-swatch" data-model="skull" title="Skull">
-              <div class="char-preview char-preview-skull">
-                <div class="cp-head"><div class="cp-eye"></div><div class="cp-eye"></div></div>
-                <div class="cp-jaw"></div>
-              </div>
-              <span class="char-label">Skull</span>
             </button>
             <button class="char-swatch" data-model="orb" title="Orb">
               <div class="char-preview char-preview-orb">
@@ -438,6 +493,90 @@
               </div>
               <span class="char-label">Mushroom</span>
             </button>
+            <button class="char-swatch" data-model="fox" title="Fox">
+              <div class="char-preview char-preview-fox">
+                <div class="cp-ear cp-ear-l"></div><div class="cp-ear cp-ear-r"></div>
+                <div class="cp-head"><div class="cp-eye"></div><div class="cp-eye"></div></div>
+                <div class="cp-body"></div>
+                <div class="cp-tail"></div>
+              </div>
+              <span class="char-label">Fox</span>
+            </button>
+            <button class="char-swatch" data-model="unicorn" title="Unicorn">
+              <div class="char-preview char-preview-unicorn">
+                <div class="cp-horn"></div>
+                <div class="cp-head"><div class="cp-eye"></div><div class="cp-eye"></div></div>
+                <div class="cp-body"></div>
+              </div>
+              <span class="char-label">Unicorn</span>
+            </button>
+            <button class="char-swatch" data-model="jellyfish" title="Jellyfish">
+              <div class="char-preview char-preview-jellyfish">
+                <div class="cp-head"><div class="cp-eye"></div><div class="cp-eye"></div></div>
+                <div class="cp-tentacles"></div>
+              </div>
+              <span class="char-label">Jellyfish</span>
+            </button>
+            <button class="char-swatch" data-model="owl" title="Owl">
+              <div class="char-preview char-preview-owl">
+                <div class="cp-tuft cp-tuft-l"></div><div class="cp-tuft cp-tuft-r"></div>
+                <div class="cp-head"><div class="cp-eye"></div><div class="cp-eye"></div></div>
+                <div class="cp-beak"></div>
+              </div>
+              <span class="char-label">Owl</span>
+            </button>
+            <button class="char-swatch" data-model="bat" title="Bat">
+              <div class="char-preview char-preview-bat">
+                <div class="cp-ear cp-ear-l"></div><div class="cp-ear cp-ear-r"></div>
+                <div class="cp-head"><div class="cp-eye"></div><div class="cp-eye"></div></div>
+                <div class="cp-wing"></div>
+              </div>
+              <span class="char-label">Bat</span>
+            </button>
+            <button class="char-swatch" data-model="cactus" title="Cactus">
+              <div class="char-preview char-preview-cactus">
+                <div class="cp-flower"></div>
+                <div class="cp-body"><div class="cp-eye"></div><div class="cp-eye"></div></div>
+                <div class="cp-arm"></div>
+              </div>
+              <span class="char-label">Cactus</span>
+            </button>
+            <button class="char-swatch" data-model="slime" title="Slime">
+              <div class="char-preview char-preview-slime">
+                <div class="cp-body"><div class="cp-eye"></div><div class="cp-eye"></div></div>
+              </div>
+              <span class="char-label">Slime</span>
+            </button>
+            <button class="char-swatch" data-model="pumpkin" title="Pumpkin">
+              <div class="char-preview char-preview-pumpkin">
+                <div class="cp-stem"></div>
+                <div class="cp-body"><div class="cp-eye"></div><div class="cp-eye"></div></div>
+              </div>
+              <span class="char-label">Pumpkin</span>
+            </button>
+            <button class="char-swatch" data-model="yeti" title="Yeti">
+              <div class="char-preview char-preview-yeti">
+                <div class="cp-horn cp-horn-l"></div><div class="cp-horn cp-horn-r"></div>
+                <div class="cp-head"><div class="cp-eye"></div><div class="cp-eye"></div></div>
+                <div class="cp-body"></div>
+              </div>
+              <span class="char-label">Yeti</span>
+            </button>
+            <button class="char-swatch" data-model="crystal" title="Crystal">
+              <div class="char-preview char-preview-crystal">
+                <div class="cp-body"><div class="cp-eye"></div><div class="cp-eye"></div></div>
+              </div>
+              <span class="char-label">Crystal</span>
+            </button>
+            <button class="char-swatch" data-model="bee" title="Bee">
+              <div class="char-preview char-preview-bee">
+                <div class="cp-antenna"></div>
+                <div class="cp-head"><div class="cp-eye"></div><div class="cp-eye"></div></div>
+                <div class="cp-body"></div>
+                <div class="cp-wing"></div>
+              </div>
+              <span class="char-label">Bee</span>
+            </button>
           </div>
         </div>
       </div>
@@ -468,6 +607,20 @@
       <!-- Advanced Tab -->
       <div class="settings-tab-content" id="settings-tab-advanced">
         <div class="settings-section">
+          <h4>Summary Prompt Templates</h4>
+          <p class="settings-hint">Manage prompt templates used when summarizing sessions. Click the star to set as default.</p>
+          <div id="settings-prompt-list" class="settings-prompt-list"></div>
+          <div class="settings-prompt-form">
+            <input type="text" id="settings-prompt-name" placeholder="Template name" class="settings-prompt-input">
+            <textarea id="settings-prompt-text" placeholder="Write your summary instructions..." class="settings-prompt-textarea" rows="6"></textarea>
+            <div class="settings-prompt-form-actions">
+              <button id="settings-prompt-save" class="ctrl-btn notes">Add Template</button>
+              <button id="settings-prompt-cancel-edit" class="ctrl-btn hidden">Cancel Edit</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
           <h4>Import / Export</h4>
           <div class="advanced-actions">
             <button id="export-settings" class="ctrl-btn export">Export Settings</button>
@@ -493,25 +646,6 @@
     </div>
   </div>
 
-  <!-- Keyboard Shortcuts Modal -->
-  <div id="shortcuts-modal" class="modal-overlay hidden">
-    <div class="modal-panel shortcuts-panel">
-      <h3>Keyboard Shortcuts</h3>
-      <div class="shortcut-list">
-        <div class="shortcut-row"><kbd>/</kbd><span>Focus search</span></div>
-        <div class="shortcut-row"><kbd>Esc</kbd><span>Close panel / modal</span></div>
-        <div class="shortcut-row"><kbd>S</kbd><span>Open settings</span></div>
-        <div class="shortcut-row"><kbd>K</kbd><span>Kill selected session</span></div>
-        <div class="shortcut-row"><kbd>A</kbd><span>Archive selected session</span></div>
-        <div class="shortcut-row"><kbd>E</kbd><span>Export selected session</span></div>
-        <div class="shortcut-row"><kbd>N</kbd><span>Session notes</span></div>
-        <div class="shortcut-row"><kbd>?</kbd><span>Show this help</span></div>
-      </div>
-      <div class="modal-actions">
-        <button id="shortcuts-close" class="ctrl-btn">Close</button>
-      </div>
-    </div>
-  </div>
 
   <!-- Toast Container -->
   <div id="toast-container"></div>

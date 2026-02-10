@@ -65,42 +65,62 @@ async function loadTimeline() {
 }
 
 function formatTimeLabel(bucket, granularity) {
-  const ts = bucket.timestamp || bucket.date || bucket.label;
-  if (typeof ts === 'string' && isNaN(Number(ts))) {
-    // If already a formatted string label, try to parse it
-    const date = new Date(ts);
-    if (isNaN(date.getTime())) return ts;
-    return formatDateByGranularity(date, granularity);
-  }
-  const date = new Date(ts);
-  if (isNaN(date.getTime())) return String(ts);
-  return formatDateByGranularity(date, granularity);
-}
+  const ts = bucket.period || bucket.timestamp || bucket.date || bucket.label;
+  if (!ts) return '';
 
-function formatDateByGranularity(date, granularity) {
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  switch (granularity) {
-    case 'hour': {
-      return date.getHours().toString().padStart(2, '0') + ':00';
+  // Week format from SQLite: "2026-W06" — parse manually
+  if (granularity === 'week') {
+    const weekMatch = String(ts).match(/^(\d{4})-W(\d{1,2})$/);
+    if (weekMatch) {
+      const year = parseInt(weekMatch[1], 10);
+      const week = parseInt(weekMatch[2], 10);
+      // Approximate: week 1 starts around Jan 1
+      const jan1 = new Date(year, 0, 1);
+      const dayOffset = (week - 1) * 7 - jan1.getDay() + 1;
+      const weekStart = new Date(year, 0, 1 + dayOffset);
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return months[weekStart.getMonth()] + ' ' + weekStart.getDate();
     }
-    case 'week': {
-      const oneJan = new Date(date.getFullYear(), 0, 1);
-      const weekNum = Math.ceil(((date - oneJan) / 86400000 + oneJan.getDay() + 1) / 7);
-      return 'W' + weekNum.toString().padStart(2, '0');
+  }
+
+  // Hour format from SQLite: "2026-02-10 14:00" — parse with T separator
+  if (granularity === 'hour' && typeof ts === 'string') {
+    const hourMatch = ts.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})$/);
+    if (hourMatch) {
+      const date = new Date(hourMatch[1] + 'T' + hourMatch[2] + ':' + hourMatch[3] + ':00');
+      if (!isNaN(date.getTime())) {
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        return months[date.getMonth()] + ' ' + date.getDate() + ' ' + date.getHours().toString().padStart(2, '0') + ':00';
+      }
     }
-    default: {
+  }
+
+  // Day format from SQLite: "2026-02-10"
+  if (typeof ts === 'string') {
+    const date = new Date(ts + (ts.includes('T') ? '' : 'T00:00:00'));
+    if (!isNaN(date.getTime())) {
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       return months[date.getMonth()] + ' ' + date.getDate();
     }
+    return ts; // Fallback: show raw string
   }
+
+  // Numeric timestamp
+  const date = new Date(ts);
+  if (!isNaN(date.getTime())) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return months[date.getMonth()] + ' ' + date.getDate();
+  }
+  return String(ts);
 }
 
 function renderTimelineChart(container, buckets, granularity) {
   const svgWidth = container.clientWidth || 700;
-  const svgHeight = 300;
   const paddingLeft = 50;
   const paddingRight = 15;
   const paddingTop = 15;
-  const paddingBottom = 50;
+  const paddingBottom = granularity === 'hour' ? 70 : 50;
+  const svgHeight = 300 + (granularity === 'hour' ? 20 : 0);
   const chartW = svgWidth - paddingLeft - paddingRight;
   const chartH = svgHeight - paddingTop - paddingBottom;
 
@@ -203,15 +223,21 @@ function renderTimelineChart(container, buckets, granularity) {
     });
 
     // X-axis label (show subset to avoid overlap)
-    const labelStep = Math.max(1, Math.floor(groupCount / 15));
+    const maxLabels = granularity === 'hour' ? 12 : granularity === 'week' ? 12 : 15;
+    const labelStep = Math.max(1, Math.ceil(groupCount / maxLabels));
     if (i % labelStep === 0 || i === groupCount - 1) {
-      const label = bucket.label || formatTimeLabel(bucket, granularity);
+      const label = formatTimeLabel(bucket, granularity);
+      const lx = groupX + groupWidth / 2;
+      const ly = paddingTop + chartH + 14;
+      // Rotate labels when there are many buckets to prevent overlap
+      const shouldRotate = groupCount > 10 || granularity === 'hour';
       const text = createEl('text', {
-        x: groupX + groupWidth / 2,
-        y: svgHeight - 28,
+        x: lx,
+        y: ly,
         fill: '#8892b0',
         'font-size': '9',
-        'text-anchor': 'middle',
+        'text-anchor': shouldRotate ? 'end' : 'middle',
+        ...(shouldRotate ? { transform: `rotate(-40 ${lx} ${ly})` } : {}),
       });
       text.textContent = label;
       svg.appendChild(text);

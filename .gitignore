@@ -1,3 +1,5 @@
 node_modules/
 .DS_Store
 data/
+PLAN.md
+TEAM_PROMPT.md

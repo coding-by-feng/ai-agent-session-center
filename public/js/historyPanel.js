@@ -187,24 +187,19 @@ async function openHistoryDetail(sessionId) {
     });
   }
 
-  // Prompt history tab (newest first)
-  const promptHist = document.getElementById('detail-prompt-history');
-  const prompts = (s.prompts || []).slice().reverse();
-  promptHist.innerHTML = prompts.map(p => `
-    <div class="prompt-entry">
-      <span class="prompt-time">${formatTime(p.timestamp)}</span>
-      <div class="prompt-text">${escapeHtml(p.text)}</div>
-    </div>
-  `).join('');
-
-  // Response history tab
-  const responseHist = document.getElementById('detail-response-history');
-  responseHist.innerHTML = (s.responses || []).map(r => `
-    <div class="response-entry">
-      <span class="response-time">${formatTime(r.timestamp)}</span>
-      <div class="response-text">${escapeHtml(r.text)}</div>
-    </div>
-  `).join('');
+  // Conversation tab (interleaved prompts + responses, newest first)
+  const convoEl = document.getElementById('detail-conversation');
+  const allEntries = [
+    ...(s.prompts || []).map(p => ({ type: 'prompt', timestamp: p.timestamp, text: p.text })),
+    ...(s.responses || []).map(r => ({ type: 'response', timestamp: r.timestamp, text: r.text })),
+  ].sort((a, b) => a.timestamp - b.timestamp);
+  convoEl.innerHTML = allEntries.map(e => {
+    const cls = e.type === 'prompt' ? 'prompt-entry' : 'response-entry';
+    return `<div class="${cls}">
+      <span class="${e.type}-time">${formatTime(e.timestamp)}</span>
+      <div class="${e.type}-text">${escapeHtml(e.text)}</div>
+    </div>`;
+  }).join('');
 
   // Tool log tab
   const toolLog = document.getElementById('detail-tool-log');
