@@ -152,7 +152,7 @@ const defaultActionSounds = {
   toolTask:       'ding',
   toolOther:      'click',
   // System
-  approvalNeeded: 'urgentAlarm',
+  approvalNeeded: 'alarm',
   alert:          'alarm',
   kill:           'thud',
   archive:        'ding',

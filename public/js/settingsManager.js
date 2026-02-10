@@ -8,7 +8,8 @@ const defaults = {
   soundActions: '',
   scanlineEnabled: 'true',
   cardSize: 'normal',
-  activityFeedVisible: 'true'
+  activityFeedVisible: 'true',
+  characterModel: 'robot'
 };
 
 let settings = { ...defaults };
@@ -175,6 +176,12 @@ function syncUIToSettings() {
   const feedEl = document.getElementById('activity-feed-visible');
   if (feedEl) feedEl.checked = get('activityFeedVisible') === 'true';
   applyActivityFeed(get('activityFeedVisible'));
+
+  // Character model
+  const currentModel = get('characterModel');
+  document.querySelectorAll('.char-swatch').forEach(s => {
+    s.classList.toggle('active', s.dataset.model === currentModel);
+  });
 }
 
 // Initialize settings UI bindings
@@ -301,6 +308,19 @@ export function initSettingsUI() {
   if (resetBtn) {
     resetBtn.addEventListener('click', async () => {
       await resetDefaults();
+    });
+  }
+
+  // --- Character model ---
+  const charGrid = document.getElementById('char-model-grid');
+  if (charGrid) {
+    charGrid.addEventListener('click', async (e) => {
+      const swatch = e.target.closest('.char-swatch');
+      if (!swatch) return;
+      const model = swatch.dataset.model;
+      document.querySelectorAll('.char-swatch').forEach(s => s.classList.remove('active'));
+      swatch.classList.add('active');
+      await set('characterModel', model);
     });
   }
 
