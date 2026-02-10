@@ -152,14 +152,40 @@ async function openHistoryDetail(sessionId) {
   const s = data;
 
   // Populate header
-  document.getElementById('detail-project-name').textContent = s.project_name || '';
+  const sess = s.session || s;
+  document.getElementById('detail-project-name').textContent = sess.project_name || '';
   const badge = document.getElementById('detail-status-badge');
-  badge.textContent = (s.status || '').toUpperCase();
-  badge.className = `status-badge ${s.status}`;
-  document.getElementById('detail-model').textContent = s.model || '';
-  document.getElementById('detail-duration').textContent = s.ended_at
-    ? formatDuration(s.ended_at - s.started_at)
-    : formatDuration(Date.now() - s.started_at);
+  badge.textContent = (sess.status || '').toUpperCase();
+  badge.className = `status-badge ${sess.status}`;
+  document.getElementById('detail-model').textContent = sess.model || '';
+  document.getElementById('detail-duration').textContent = sess.ended_at
+    ? formatDuration(sess.ended_at - sess.started_at)
+    : formatDuration(Date.now() - sess.started_at);
+
+  // Character model selector + preview
+  const charSelect = document.getElementById('detail-char-model');
+  if (charSelect) {
+    charSelect.value = sess.character_model || '';
+    charSelect.dataset.sessionId = sessionId;
+  }
+  // Mini preview with session's accent color
+  const previewEl = document.getElementById('detail-char-preview');
+  if (previewEl) {
+    const model = sess.character_model || 'robot';
+    const accentColor = sess.accent_color || 'var(--accent-cyan)';
+    import('./robotManager.js').then(rm => {
+      previewEl.innerHTML = '';
+      const mini = document.createElement('div');
+      mini.className = `css-robot char-${model}`;
+      mini.dataset.status = sess.status || 'ended';
+      mini.style.setProperty('--robot-color', accentColor);
+      if (rm._getTemplates) {
+        const templates = rm._getTemplates();
+        if (templates[model]) mini.innerHTML = templates[model](accentColor);
+      }
+      previewEl.appendChild(mini);
+    });
+  }
 
   // Prompt history tab (newest first)
   const promptHist = document.getElementById('detail-prompt-history');

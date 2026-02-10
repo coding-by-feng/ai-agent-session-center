@@ -38,7 +38,7 @@ const updateSessionTitle = db.prepare(
 
 // Startup recovery: reload active sessions from DB into the Map
 const selectActiveSessions = db.prepare(
-  `SELECT id, project_path, project_name, model, status, started_at, last_activity_at, total_tool_calls, total_prompts, source, title
+  `SELECT id, project_path, project_name, model, status, started_at, last_activity_at, total_tool_calls, total_prompts, source, title, summary, character_model, accent_color
    FROM sessions WHERE status != 'ended' AND last_activity_at > ?`
 );
 const selectSessionPrompts = db.prepare(
@@ -78,6 +78,7 @@ export function loadActiveSessions() {
         projectPath: row.project_path || '',
         projectName: row.project_name || 'Unknown',
         title: row.title || '',
+        source: row.source || 'unknown',
         status: row.status || 'idle',
         animationState: 'Idle',
         emote: null,
@@ -92,7 +93,10 @@ export function loadActiveSessions() {
         toolLog: toolRows.map(t => ({ tool: t.tool_name, input: t.tool_input_summary, timestamp: t.timestamp })),
         responseLog: responseRows.map(r => ({ text: r.text_excerpt, timestamp: r.timestamp })),
         events: eventRows.map(e => ({ type: e.type, detail: e.detail, timestamp: e.timestamp })),
-        archived: 0
+        archived: 0,
+        summary: row.summary || null,
+        characterModel: row.character_model || null,
+        accentColor: row.accent_color || null
       });
     }
   } catch (err) {
@@ -131,6 +135,7 @@ export function handleEvent(hookData) {
       responseLog: [],
       events: [],
       archived: 0,
+      source: hookData.source || 'unknown',
       pendingTool: null,
       waitingDetail: null
     };
@@ -233,29 +238,41 @@ export function handleEvent(hookData) {
       // approval detection. Tools like Bash, Task, WebSearch etc. can legitimately
       // run for minutes, so we can't distinguish "slow execution" from "waiting
       // for approval" — applying the timer would cause false positives.
+      // Tools that complete near-instantly when auto-approved (3s timeout)
       const fastTools = new Set([
         'Read', 'Write', 'Edit', 'Grep', 'Glob', 'NotebookEdit',
-        'EnterPlanMode', 'ExitPlanMode', 'AskUserQuestion',
-        'TodoWrite', 'TodoRead'
+        'EnterPlanMode', 'ExitPlanMode', 'AskUserQuestion'
+      ]);
+      // Tools that may take longer but still indicate approval if stalled (15s timeout)
+      const mediumTools = new Set([
+        'WebFetch', 'WebSearch'
       ]);
       clearTimeout(pendingToolTimers.get(session_id));
-      if (fastTools.has(toolName)) {
+      const approvalTimeout = fastTools.has(toolName) ? 3000
+        : mediumTools.has(toolName) ? 15000
+        : 0;
+      if (approvalTimeout > 0) {
         session.pendingTool = toolName;
+        session.pendingToolDetail = toolInputSummary;
         const timer = setTimeout(async () => {
           pendingToolTimers.delete(session_id);
           if (session.status === 'working' && session.pendingTool) {
             session.status = 'approval';
             session.animationState = 'Waiting';
-            session.waitingDetail = `Approve: ${session.pendingTool}`;
+            const detail = session.pendingToolDetail
+              ? `${session.pendingTool}: ${session.pendingToolDetail}`
+              : session.pendingTool;
+            session.waitingDetail = `Approve ${detail}`;
             try {
               const { broadcast } = await import('./wsManager.js');
               broadcast({ type: 'session_update', session: { ...session } });
             } catch(e) {}
           }
-        }, 3000);
+        }, approvalTimeout);
         pendingToolTimers.set(session_id, timer);
       } else {
         session.pendingTool = null;
+        session.pendingToolDetail = null;
       }
 
       // Dual-write: insert tool call into DB
@@ -272,6 +289,7 @@ export function handleEvent(hookData) {
       clearTimeout(pendingToolTimers.get(session_id));
       pendingToolTimers.delete(session_id);
       session.pendingTool = null;
+      session.pendingToolDetail = null;
       session.waitingDetail = null;
       session.status = 'working';
       eventEntry.detail = `${hookData.tool_name || 'Tool'} completed`;
@@ -282,6 +300,7 @@ export function handleEvent(hookData) {
       clearTimeout(pendingToolTimers.get(session_id));
       pendingToolTimers.delete(session_id);
       session.pendingTool = null;
+      session.pendingToolDetail = null;
       session.waitingDetail = null;
 
       const wasHeavyWork = session.totalToolCalls > 10 &&
@@ -432,6 +451,29 @@ export function setSessionTitle(sessionId, title) {
   return session ? { ...session } : null;
 }
 
+const updateSessionSummary = db.prepare('UPDATE sessions SET summary=? WHERE id=?');
+export function setSummary(sessionId, summary) {
+  const session = sessions.get(sessionId);
+  if (session) session.summary = summary;
+  try { updateSessionSummary.run(summary, sessionId); } catch(e) {}
+  return session ? { ...session } : null;
+}
+
+const updateSessionAccentColor = db.prepare('UPDATE sessions SET accent_color=? WHERE id=?');
+export function setSessionAccentColor(sessionId, color) {
+  const session = sessions.get(sessionId);
+  if (session) session.accentColor = color;
+  try { updateSessionAccentColor.run(color, sessionId); } catch(e) {}
+}
+
+const updateSessionCharModel = db.prepare('UPDATE sessions SET character_model=? WHERE id=?');
+export function setSessionCharacterModel(sessionId, model) {
+  const session = sessions.get(sessionId);
+  if (session) session.characterModel = model;
+  try { updateSessionCharModel.run(model, sessionId); } catch(e) {}
+  return session ? { ...session } : null;
+}
+
 const updateSessionArchived = db.prepare('UPDATE sessions SET archived=? WHERE id=?');
 export function archiveSession(sessionId, archived) {
   const session = sessions.get(sessionId);
@@ -447,13 +489,20 @@ setInterval(() => {
     if (session.status === 'ended' || session.status === 'idle') continue;
     // 'approval' stays visible — never auto-clear (user must act)
     if (session.status === 'approval') continue;
+    // 'prompting' is a brief transitional state — if stuck for 30s, user likely
+    // pressed Esc/cancelled before Claude started processing (no Stop hook fires)
+    if (session.status === 'prompting' && now - session.lastActivityAt > 30000) {
+      session.status = 'waiting';
+      session.animationState = 'Waiting';
+      session.emote = null;
     // 'waiting' (ready for next prompt) goes idle after 2 min of no activity
-    if (session.status === 'waiting' && now - session.lastActivityAt > 120000) {
+    } else if (session.status === 'waiting' && now - session.lastActivityAt > 120000) {
       session.status = 'idle';
       session.animationState = 'Idle';
       session.emote = null;
-    // Other active states (prompting/working) go idle after 30s of silence
-    } else if (session.status !== 'waiting' && now - session.lastActivityAt > 30000) {
+    // Other active states (working) go idle after 3 min of silence
+    // Claude can think/generate text for a long time between tool calls
+    } else if (session.status !== 'waiting' && session.status !== 'prompting' && now - session.lastActivityAt > 180000) {
       session.status = 'idle';
       session.animationState = 'Idle';
       session.emote = null;
@@ -461,14 +510,83 @@ setInterval(() => {
   }
 }, 10000);
 
-export function findClaudeProcess(sessionId) {
+// Detect whether session is from VS Code or terminal, cache result
+export function detectSessionSource(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session) return 'unknown';
+  if (session.source === 'vscode' || session.source === 'terminal') return session.source;
+
+  const pid = findClaudeProcess(sessionId, session.projectPath);
+  if (pid) {
+    try {
+      const cmd = execSync(`ps -o args= -p ${pid}`, { encoding: 'utf-8', timeout: 3000 }).trim();
+      session.source = (cmd.includes('.vscode') || cmd.includes('--no-chrome') || cmd.includes('stream-json'))
+        ? 'vscode' : 'terminal';
+    } catch(e) { /* keep existing */ }
+  }
+  return session.source || 'unknown';
+}
+
+export function findClaudeProcess(sessionId, projectPath) {
+  const myPid = process.pid;
   try {
-    const out = execSync(`ps aux | grep -v grep | grep claude | grep "${sessionId}"`, { encoding: 'utf-8', timeout: 5000 });
-    const lines = out.trim().split('\n').filter(Boolean);
-    if (lines.length > 0) {
-      const parts = lines[0].trim().split(/\s+/);
-      const pid = parseInt(parts[1], 10);
-      if (pid > 0) return pid;
+    if (process.platform === 'win32') {
+      // Windows: find Claude processes by cwd matching
+      if (!projectPath) return null;
+      const psScript = `
+        $procs = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*claude*' -and $_.ProcessId -ne ${myPid} }
+        foreach ($p in $procs) {
+          try {
+            $proc = Get-Process -Id $p.ProcessId -ErrorAction Stop
+            if ($proc.Path) {
+              $cwd = (Get-Process -Id $p.ProcessId).Path | Split-Path
+            }
+          } catch {}
+        }
+        # Fallback: return first claude process
+        if ($procs.Count -gt 0) { $procs[0].ProcessId }
+      `;
+      const out = execSync(
+        `powershell -NoProfile -Command "${psScript.replace(/"/g, '\\"')}"`,
+        { encoding: 'utf-8', timeout: 5000 }
+      );
+      const pid = parseInt(out.trim(), 10);
+      return pid > 0 ? pid : null;
+    } else {
+      // Unix (macOS / Linux): find Claude processes and match by cwd
+      const pidsOut = execSync(`pgrep -f claude 2>/dev/null || true`, { encoding: 'utf-8', timeout: 5000 });
+      const pids = pidsOut.trim().split('\n')
+        .map(p => parseInt(p.trim(), 10))
+        .filter(p => p > 0 && p !== myPid);
+
+      if (pids.length === 0) return null;
+
+      // If we have a projectPath, match by cwd
+      if (projectPath) {
+        for (const pid of pids) {
+          try {
+            let cwd;
+            if (process.platform === 'darwin') {
+              const out = execSync(`lsof -a -d cwd -Fn -p ${pid} 2>/dev/null | grep '^n'`, { encoding: 'utf-8', timeout: 3000 });
+              cwd = out.trim().replace(/^n/, '');
+            } else {
+              // Linux: read /proc/PID/cwd symlink
+              cwd = execSync(`readlink /proc/${pid}/cwd 2>/dev/null`, { encoding: 'utf-8', timeout: 3000 }).trim();
+            }
+            if (cwd === projectPath) return pid;
+          } catch(e) { continue; }
+        }
+      }
+
+      // Fallback: return first terminal-attached Claude process
+      for (const pid of pids) {
+        try {
+          const tty = execSync(`ps -o tty= -p ${pid}`, { encoding: 'utf-8', timeout: 3000 }).trim();
+          if (tty && tty !== '??' && tty !== '?') return pid;
+        } catch(e) { continue; }
+      }
+
+      return pids[0] || null;
     }
   } catch(e) {}
   return null;

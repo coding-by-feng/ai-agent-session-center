@@ -107,6 +107,9 @@ db.exec(`
 // Schema migrations for session controls
 try { db.exec('ALTER TABLE sessions ADD COLUMN archived INTEGER DEFAULT 0'); } catch(e) { /* column may already exist */ }
 try { db.exec('ALTER TABLE sessions ADD COLUMN title TEXT'); } catch(e) { /* column may already exist */ }
+try { db.exec('ALTER TABLE sessions ADD COLUMN summary TEXT'); } catch(e) { /* column may already exist */ }
+try { db.exec('ALTER TABLE sessions ADD COLUMN character_model TEXT'); } catch(e) { /* column may already exist */ }
+try { db.exec('ALTER TABLE sessions ADD COLUMN accent_color TEXT'); } catch(e) { /* column may already exist */ }
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS session_notes (

@@ -1,5 +1,5 @@
 import * as robotManager from './robotManager.js';
-import { createOrUpdateCard, removeCard, updateDurations, showToast, getSelectedSessionId, deselectSession, archiveAllEnded, isMuted, toggleMuteAll } from './sessionPanel.js';
+import { createOrUpdateCard, removeCard, updateDurations, showToast, getSelectedSessionId, deselectSession, archiveAllEnded, isMuted, toggleMuteAll, initGroups } from './sessionPanel.js';
 import * as statsPanel from './statsPanel.js';
 import * as wsClient from './wsClient.js';
 import * as navController from './navController.js';
@@ -108,6 +108,9 @@ async function init() {
 
   // Initialize navigation
   navController.init();
+
+  // Initialize session groups (localStorage-based, drag-and-drop)
+  initGroups();
 
   // Initialize history panel (populate project filter, wire event listeners)
   historyPanel.init();

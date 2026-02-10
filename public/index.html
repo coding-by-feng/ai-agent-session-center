@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Claude Session Command Center</title>
+  <title>Robotic Command Center</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230a0a1a'/%3E%3Ccircle cx='16' cy='13' r='7' fill='none' stroke='%2300e5ff' stroke-width='2'/%3E%3Ccircle cx='13.5' cy='12' r='1.5' fill='%2300e5ff'/%3E%3Ccircle cx='18.5' cy='12' r='1.5' fill='%2300e5ff'/%3E%3Cpath d='M13 16 Q16 19 19 16' fill='none' stroke='%2300e5ff' stroke-width='1' stroke-linecap='round'/%3E%3Crect x='14.5' y='4' width='3' height='3' rx='1' fill='%2300e5ff'/%3E%3Cline x1='16' y1='7' x2='16' y2='6' stroke='%2300e5ff' stroke-width='1.5'/%3E%3Crect x='9' y='22' width='14' height='6' rx='2' fill='none' stroke='%23ff9100' stroke-width='1.5'/%3E%3Cline x1='12' y1='24' x2='12' y2='26' stroke='%23ff9100' stroke-width='1' stroke-linecap='round'/%3E%3Cline x1='16' y1='24' x2='16' y2='26' stroke='%23ff9100' stroke-width='1' stroke-linecap='round'/%3E%3Cline x1='20' y1='24' x2='20' y2='26' stroke='%23ff9100' stroke-width='1' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/dashboard.css">
@@ -12,7 +13,7 @@
   <!-- Header -->
   <header id="header">
     <div class="header-title">
-      <span class="logo">&#9670;</span> CLAUDE SESSION COMMAND CENTER
+      <span class="logo">&#9670;</span> ROBOTIC COMMAND CENTER
     </div>
     <div id="global-stats"></div>
     <div id="connection-status">
@@ -37,7 +38,10 @@
       <input type="text" id="live-search" placeholder="Filter sessions... ( / )">
     </div>
 
-    <!-- Session Cards Grid -->
+    <!-- Group containers injected here -->
+    <div id="groups-container"></div>
+
+    <!-- Ungrouped Session Cards Grid -->
     <main id="sessions-grid"></main>
 
     <!-- Empty State -->
@@ -49,6 +53,8 @@
 
     <!-- Quick Actions Toolbar -->
     <div id="quick-actions">
+      <button id="qa-new-group" class="qa-btn" title="Create a new group">+ NEW GROUP</button>
+      <div class="qa-separator"></div>
       <button id="qa-mute-all" class="qa-btn" title="Mute all sessions">&#9835; MUTE ALL</button>
       <button id="qa-refresh" class="qa-btn" title="Refresh page">&#8635; REFRESH</button>
       <button id="qa-archive-ended" class="qa-btn" title="Archive all ended sessions">&#8681; ARCHIVE ENDED</button>
@@ -135,12 +141,34 @@
   <!-- Click-to-Select Detail Panel (slides in from right) -->
   <div id="session-detail-overlay" class="hidden">
     <div id="session-detail-panel">
+      <div class="detail-resize-handle" id="detail-resize-handle"></div>
       <button id="close-detail">&times;</button>
       <div class="detail-header">
-        <h3 id="detail-project-name"></h3>
-        <span id="detail-status-badge"></span>
-        <span id="detail-model"></span>
-        <span id="detail-duration"></span>
+        <div class="detail-char-preview" id="detail-char-preview"></div>
+        <div class="detail-header-text">
+          <h3 id="detail-project-name"></h3>
+          <div class="detail-meta">
+            <span id="detail-status-badge"></span>
+            <span id="detail-model"></span>
+            <span id="detail-duration"></span>
+          </div>
+        </div>
+      </div>
+      <div class="detail-char-selector">
+        <label>Character:</label>
+        <select id="detail-char-model" class="ctrl-select">
+          <option value="">Default (global)</option>
+          <option value="robot">Robot</option>
+          <option value="cat">Cat</option>
+          <option value="alien">Alien</option>
+          <option value="ghost">Ghost</option>
+          <option value="skull">Skull</option>
+          <option value="orb">Orb</option>
+          <option value="dragon">Dragon</option>
+          <option value="penguin">Penguin</option>
+          <option value="octopus">Octopus</option>
+          <option value="mushroom">Mushroom</option>
+        </select>
       </div>
       <div class="detail-title-row">
         <input type="text" id="detail-title" placeholder="Add session title..." class="detail-title-input">
@@ -148,11 +176,22 @@
 
       <!-- Control buttons -->
       <div class="ctrl-bar">
+        <button class="ctrl-btn open-editor" id="ctrl-open-editor" title="Open in VS Code">OPEN IN EDITOR</button>
         <button class="ctrl-btn kill" id="ctrl-kill" title="Kill Process">KILL</button>
         <button class="ctrl-btn archive" id="ctrl-archive" title="Archive Session">ARCHIVE</button>
+        <button class="ctrl-btn summarize" id="ctrl-summarize" title="Summarize & Archive">SUMMARIZE</button>
         <button class="ctrl-btn export" id="ctrl-export" title="Export Transcript">EXPORT</button>
         <button class="ctrl-btn notes" id="ctrl-notes" title="Session Notes">NOTES</button>
         <button class="ctrl-btn alert" id="ctrl-alert" title="Duration Alert">ALERT</button>
+        <select id="detail-group-select" class="ctrl-select" title="Assign to group">
+          <option value="">No group</option>
+        </select>
+      </div>
+
+      <!-- Send prompt to session -->
+      <div class="prompt-input-bar">
+        <textarea id="detail-prompt-input" placeholder="Type prompt to send to session... (Enter to send)" class="prompt-input" rows="1"></textarea>
+        <button id="detail-prompt-send" class="ctrl-btn prompt-send" title="Send prompt (Enter)">SEND</button>
       </div>
 
       <!-- Tab navigation -->
@@ -162,6 +201,7 @@
         <button class="tab" data-tab="tools">Tool Log</button>
         <button class="tab" data-tab="events">Events</button>
         <button class="tab" data-tab="notes">Notes</button>
+        <button class="tab" data-tab="summary">Summary</button>
       </div>
 
       <!-- Prompt History Tab -->
@@ -191,6 +231,13 @@
           <button id="save-note" class="ctrl-btn notes">Save Note</button>
         </div>
         <div id="notes-list"></div>
+      </div>
+
+      <!-- Summary Tab -->
+      <div class="tab-content" id="tab-summary">
+        <div id="summary-content">
+          <div class="tab-empty">No summary yet — click SUMMARIZE to generate one with AI</div>
+        </div>
       </div>
     </div>
   </div>
@@ -310,6 +357,87 @@
             <button class="card-size-btn" data-size="compact">Compact</button>
             <button class="card-size-btn active" data-size="normal">Normal</button>
             <button class="card-size-btn" data-size="large">Large</button>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h4>Character Model</h4>
+          <div class="char-grid" id="char-model-grid">
+            <button class="char-swatch active" data-model="robot" title="Robot">
+              <div class="char-preview char-preview-robot">
+                <div class="cp-antenna"></div>
+                <div class="cp-head"><div class="cp-eye"></div><div class="cp-eye"></div></div>
+                <div class="cp-body"></div>
+              </div>
+              <span class="char-label">Robot</span>
+            </button>
+            <button class="char-swatch" data-model="cat" title="Cat">
+              <div class="char-preview char-preview-cat">
+                <div class="cp-ear cp-ear-l"></div><div class="cp-ear cp-ear-r"></div>
+                <div class="cp-head"><div class="cp-eye"></div><div class="cp-eye"></div></div>
+                <div class="cp-body"></div>
+                <div class="cp-tail"></div>
+              </div>
+              <span class="char-label">Cat</span>
+            </button>
+            <button class="char-swatch" data-model="alien" title="Alien">
+              <div class="char-preview char-preview-alien">
+                <div class="cp-dome"><div class="cp-eye"></div><div class="cp-eye"></div><div class="cp-eye"></div></div>
+                <div class="cp-body"></div>
+              </div>
+              <span class="char-label">Alien</span>
+            </button>
+            <button class="char-swatch" data-model="ghost" title="Ghost">
+              <div class="char-preview char-preview-ghost">
+                <div class="cp-head"><div class="cp-eye"></div><div class="cp-eye"></div></div>
+                <div class="cp-tail"></div>
+              </div>
+              <span class="char-label">Ghost</span>
+            </button>
+            <button class="char-swatch" data-model="skull" title="Skull">
+              <div class="char-preview char-preview-skull">
+                <div class="cp-head"><div class="cp-eye"></div><div class="cp-eye"></div></div>
+                <div class="cp-jaw"></div>
+              </div>
+              <span class="char-label">Skull</span>
+            </button>
+            <button class="char-swatch" data-model="orb" title="Orb">
+              <div class="char-preview char-preview-orb">
+                <div class="cp-core"></div>
+                <div class="cp-ring"></div>
+              </div>
+              <span class="char-label">Orb</span>
+            </button>
+            <button class="char-swatch" data-model="dragon" title="Dragon">
+              <div class="char-preview char-preview-dragon">
+                <div class="cp-horn cp-horn-l"></div><div class="cp-horn cp-horn-r"></div>
+                <div class="cp-head"><div class="cp-eye"></div><div class="cp-eye"></div></div>
+                <div class="cp-body"><div class="cp-wing"></div></div>
+              </div>
+              <span class="char-label">Dragon</span>
+            </button>
+            <button class="char-swatch" data-model="penguin" title="Penguin">
+              <div class="char-preview char-preview-penguin">
+                <div class="cp-head"><div class="cp-eye"></div><div class="cp-eye"></div></div>
+                <div class="cp-beak"></div>
+                <div class="cp-body"></div>
+              </div>
+              <span class="char-label">Penguin</span>
+            </button>
+            <button class="char-swatch" data-model="octopus" title="Octopus">
+              <div class="char-preview char-preview-octopus">
+                <div class="cp-head"><div class="cp-eye"></div><div class="cp-eye"></div></div>
+                <div class="cp-tentacles"></div>
+              </div>
+              <span class="char-label">Octopus</span>
+            </button>
+            <button class="char-swatch" data-model="mushroom" title="Mushroom">
+              <div class="char-preview char-preview-mushroom">
+                <div class="cp-cap"><div class="cp-spot"></div><div class="cp-spot"></div></div>
+                <div class="cp-stem"></div>
+              </div>
+              <span class="char-label">Mushroom</span>
+            </button>
           </div>
         </div>
       </div>

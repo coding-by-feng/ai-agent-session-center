@@ -27,11 +27,270 @@ export function toggleMuteAll() {
   return globalMuted;
 }
 
+function clearAllDropIndicators() {
+  document.querySelectorAll('.session-card.drag-over-left, .session-card.drag-over-right').forEach(c => {
+    c.classList.remove('drag-over-left', 'drag-over-right');
+  });
+  document.querySelectorAll('.group-grid.drag-over').forEach(g => g.classList.remove('drag-over'));
+  document.getElementById('sessions-grid')?.classList.remove('drag-over');
+}
+
+// ---- Pinned Sessions (persisted in localStorage) ----
+function loadPinned() {
+  try { return new Set(JSON.parse(localStorage.getItem('pinned-sessions') || '[]')); } catch { return new Set(); }
+}
+function savePinned(pinned) {
+  localStorage.setItem('pinned-sessions', JSON.stringify([...pinned]));
+}
+const pinnedSessions = loadPinned();
+
+function reorderPinnedCards() {
+  // Move pinned cards to the front of their parent grid
+  for (const grid of [document.getElementById('sessions-grid'), ...document.querySelectorAll('.group-grid')]) {
+    if (!grid) continue;
+    const cards = [...grid.querySelectorAll('.session-card')];
+    const pinned = cards.filter(c => c.classList.contains('pinned'));
+    for (const card of pinned.reverse()) {
+      grid.insertBefore(card, grid.firstElementChild);
+    }
+  }
+}
+
 const sessionsData = new Map(); // sessionId -> session object (for duration updates + detail panel)
 let selectedSessionId = null;
 export function getSelectedSessionId() { return selectedSessionId; }
 export function getSessionsData() { return sessionsData; }
 export { deselectSession };
+
+// ---- Session Groups (persisted in localStorage) ----
+// Structure: [{ id, name, sessionIds: [] }, ...]
+function loadGroups() {
+  try { return JSON.parse(localStorage.getItem('session-groups') || '[]'); } catch { return []; }
+}
+function saveGroups(groups) {
+  localStorage.setItem('session-groups', JSON.stringify(groups));
+}
+function findGroupForSession(sessionId) {
+  return loadGroups().find(g => g.sessionIds.includes(sessionId));
+}
+
+export function createGroup(name) {
+  const groups = loadGroups();
+  const id = 'grp-' + Date.now();
+  groups.push({ id, name: name || 'New Group', sessionIds: [] });
+  saveGroups(groups);
+  renderGroups();
+  return id;
+}
+
+function renameGroup(groupId, newName) {
+  const groups = loadGroups();
+  const g = groups.find(g => g.id === groupId);
+  if (g) { g.name = newName; saveGroups(groups); }
+}
+
+function deleteGroup(groupId) {
+  const groups = loadGroups().filter(g => g.id !== groupId);
+  saveGroups(groups);
+  // Move cards back to ungrouped grid
+  const container = document.getElementById(groupId);
+  if (container) {
+    const grid = document.getElementById('sessions-grid');
+    container.querySelectorAll('.session-card').forEach(card => grid.appendChild(card));
+    container.remove();
+  }
+  refreshAllGroupSelects();
+}
+
+function addSessionToGroup(groupId, sessionId) {
+  const groups = loadGroups();
+  // Remove from any existing group first
+  for (const g of groups) {
+    g.sessionIds = g.sessionIds.filter(id => id !== sessionId);
+  }
+  const target = groups.find(g => g.id === groupId);
+  if (target) target.sessionIds.push(sessionId);
+  saveGroups(groups);
+}
+
+function removeSessionFromGroup(sessionId) {
+  const groups = loadGroups();
+  for (const g of groups) {
+    g.sessionIds = g.sessionIds.filter(id => id !== sessionId);
+  }
+  saveGroups(groups);
+}
+
+export function renderGroups() {
+  const container = document.getElementById('groups-container');
+  if (!container) return;
+  const groups = loadGroups();
+  // Remove stale group elements
+  container.querySelectorAll('.session-group').forEach(el => {
+    if (!groups.find(g => g.id === el.id)) el.remove();
+  });
+  for (const group of groups) {
+    let groupEl = document.getElementById(group.id);
+    if (!groupEl) {
+      groupEl = document.createElement('div');
+      groupEl.className = 'session-group';
+      groupEl.id = group.id;
+      groupEl.innerHTML = `
+        <div class="group-header">
+          <span class="group-collapse" title="Collapse/expand">&#9660;</span>
+          <span class="group-name">${group.name}</span>
+          <span class="group-count">0</span>
+          <button class="group-delete" title="Delete group">&times;</button>
+        </div>
+        <div class="group-grid"></div>
+      `;
+      // Collapse/expand
+      groupEl.querySelector('.group-collapse').addEventListener('click', () => {
+        groupEl.classList.toggle('collapsed');
+        groupEl.querySelector('.group-collapse').innerHTML =
+          groupEl.classList.contains('collapsed') ? '&#9654;' : '&#9660;';
+      });
+      // Rename on double-click
+      groupEl.querySelector('.group-name').addEventListener('dblclick', (e) => {
+        const nameEl = e.currentTarget;
+        nameEl.contentEditable = 'true';
+        nameEl.classList.add('editing');
+        nameEl.focus();
+        const range = document.createRange();
+        range.selectNodeContents(nameEl);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        const save = () => {
+          nameEl.contentEditable = 'false';
+          nameEl.classList.remove('editing');
+          const newName = nameEl.textContent.trim();
+          if (newName) renameGroup(group.id, newName);
+        };
+        nameEl.addEventListener('blur', save, { once: true });
+        nameEl.addEventListener('keydown', (ke) => {
+          if (ke.key === 'Enter') { ke.preventDefault(); nameEl.blur(); }
+          if (ke.key === 'Escape') { nameEl.textContent = group.name; nameEl.blur(); }
+        });
+      });
+      // Delete group
+      groupEl.querySelector('.group-delete').addEventListener('click', () => {
+        deleteGroup(group.id);
+      });
+      // Drop zone: group grid accepts card drops (only when not dropped on a specific card)
+      const groupGrid = groupEl.querySelector('.group-grid');
+      groupGrid.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (!e.target.closest('.session-card')) {
+          groupGrid.classList.add('drag-over');
+        }
+      });
+      groupGrid.addEventListener('dragleave', (e) => {
+        if (!groupGrid.contains(e.relatedTarget)) {
+          groupGrid.classList.remove('drag-over');
+        }
+      });
+      groupGrid.addEventListener('drop', (e) => {
+        if (e.target.closest('.session-card')) return; // card handles its own drop
+        e.preventDefault();
+        groupGrid.classList.remove('drag-over');
+        const draggedId = e.dataTransfer.getData('text/plain');
+        const card = document.querySelector(`.session-card[data-session-id="${draggedId}"]`);
+        if (card) {
+          groupGrid.appendChild(card);
+          addSessionToGroup(group.id, draggedId);
+          updateGroupCounts();
+        }
+      });
+      container.appendChild(groupEl);
+    }
+    // Move cards that belong to this group into it
+    const groupGrid = groupEl.querySelector('.group-grid');
+    for (const sid of group.sessionIds) {
+      const card = document.querySelector(`.session-card[data-session-id="${sid}"]`);
+      if (card && card.parentElement !== groupGrid) {
+        groupGrid.appendChild(card);
+      }
+    }
+  }
+  updateGroupCounts();
+  refreshAllGroupSelects();
+}
+
+function updateGroupCounts() {
+  document.querySelectorAll('.session-group').forEach(groupEl => {
+    const count = groupEl.querySelectorAll('.session-card').length;
+    const countEl = groupEl.querySelector('.group-count');
+    if (countEl) countEl.textContent = count;
+  });
+}
+
+function refreshAllGroupSelects() {
+  // Update the detail panel group select if it exists
+  const sel = document.getElementById('detail-group-select');
+  if (!sel) return;
+  const groups = loadGroups();
+  const sid = selectedSessionId;
+  const currentGroup = sid ? groups.find(g => g.sessionIds.includes(sid)) : null;
+  const currentValue = currentGroup ? currentGroup.id : '';
+  sel.innerHTML = '<option value="">No group</option>' +
+    groups.map(g => `<option value="${g.id}"${g.id === currentValue ? ' selected' : ''}>${g.name}</option>`).join('');
+}
+
+export function initGroups() {
+  // Make ungrouped grid a drop zone to pull cards out of groups
+  const grid = document.getElementById('sessions-grid');
+  grid.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    grid.classList.add('drag-over');
+  });
+  grid.addEventListener('dragleave', (e) => {
+    if (!grid.contains(e.relatedTarget)) grid.classList.remove('drag-over');
+  });
+  grid.addEventListener('drop', (e) => {
+    // Only handle if dropped on the grid itself, not on a card (card has its own drop)
+    if (e.target.closest('.session-card')) return;
+    e.preventDefault();
+    grid.classList.remove('drag-over');
+    const draggedId = e.dataTransfer.getData('text/plain');
+    const card = document.querySelector(`.session-card[data-session-id="${draggedId}"]`);
+    if (card) {
+      grid.appendChild(card);
+      removeSessionFromGroup(draggedId);
+      updateGroupCounts();
+    }
+  });
+
+  // Auto-scroll while dragging near edges of the view panel
+  const viewPanel = document.getElementById('view-live');
+  if (viewPanel) {
+    let scrollRaf = null;
+    viewPanel.addEventListener('dragover', (e) => {
+      const rect = viewPanel.getBoundingClientRect();
+      const edgeZone = 60;
+      const topDist = e.clientY - rect.top;
+      const bottomDist = rect.bottom - e.clientY;
+      cancelAnimationFrame(scrollRaf);
+      if (topDist < edgeZone) {
+        const speed = ((edgeZone - topDist) / edgeZone) * 12;
+        scrollRaf = requestAnimationFrame(() => { viewPanel.scrollTop -= speed; });
+      } else if (bottomDist < edgeZone) {
+        const speed = ((edgeZone - bottomDist) / edgeZone) * 12;
+        scrollRaf = requestAnimationFrame(() => { viewPanel.scrollTop += speed; });
+      }
+    });
+    viewPanel.addEventListener('dragend', () => cancelAnimationFrame(scrollRaf));
+  }
+
+  // Wire up "New Group" button
+  const btn = document.getElementById('qa-new-group');
+  if (btn) btn.addEventListener('click', () => createGroup());
+
+  // Render existing groups from localStorage
+  renderGroups();
+}
 
 export function createOrUpdateCard(session) {
   sessionsData.set(session.sessionId, session);
@@ -41,17 +300,21 @@ export function createOrUpdateCard(session) {
     card = document.createElement('div');
     card.className = 'session-card';
     card.dataset.sessionId = session.sessionId;
+    card.draggable = true;
     card.innerHTML = `
       <button class="close-btn" title="Dismiss card">&times;</button>
+      <button class="pin-btn" title="Pin to top">&#9650;</button>
+      <button class="open-editor-btn" title="Open in VS Code">&#9998;</button>
+      <button class="summarize-card-btn" title="Summarize & Archive">&#8681;AI</button>
       <button class="mute-btn" title="Mute sounds">&#9835;</button>
       <div class="robot-viewport"></div>
       <div class="card-info">
+        <div class="card-title" title="Double-click to rename"></div>
         <div class="card-header">
           <span class="project-name"></span>
           <span class="status-badge"></span>
         </div>
         <div class="waiting-banner">NEEDS YOUR INPUT</div>
-        <div class="card-title"></div>
         <div class="card-prompt"></div>
         <div class="card-stats">
           <span class="duration"></span>
@@ -61,7 +324,9 @@ export function createOrUpdateCard(session) {
         <div class="tool-bars"></div>
       </div>
     `;
-    card.addEventListener('click', () => selectSession(session.sessionId));
+    card.addEventListener('click', (e) => {
+      selectSession(session.sessionId);
+    });
     // Mute button toggle
     card.querySelector('.mute-btn').addEventListener('click', (e) => {
       e.stopPropagation();
@@ -93,16 +358,210 @@ export function createOrUpdateCard(session) {
         document.dispatchEvent(event);
       }, 300);
     });
-    document.getElementById('sessions-grid').appendChild(card);
+    // Pin button — pin card to top of its grid
+    const pinBtn = card.querySelector('.pin-btn');
+    if (pinnedSessions.has(session.sessionId)) {
+      card.classList.add('pinned');
+      pinBtn.classList.add('active');
+      pinBtn.title = 'Unpin';
+    }
+    pinBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const sid = session.sessionId;
+      if (pinnedSessions.has(sid)) {
+        pinnedSessions.delete(sid);
+        card.classList.remove('pinned');
+        pinBtn.classList.remove('active');
+        pinBtn.title = 'Pin to top';
+      } else {
+        pinnedSessions.add(sid);
+        card.classList.add('pinned');
+        pinBtn.classList.add('active');
+        pinBtn.title = 'Unpin';
+      }
+      savePinned(pinnedSessions);
+      reorderPinnedCards();
+    });
+
+    // Open in editor button
+    card.querySelector('.open-editor-btn').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const sid = session.sessionId;
+      const s = sessionsData.get(sid);
+      const path = s?.projectPath;
+      if (!path) { showToast('OPEN', 'No project path available'); return; }
+      try {
+        const resp = await fetch(`/api/sessions/${sid}/open-editor`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await resp.json();
+        if (!data.ok) showToast('OPEN FAILED', data.error || 'Unknown error');
+      } catch(err) {
+        showToast('OPEN ERROR', err.message);
+      }
+    });
+
+    // Summarize & archive button on card
+    card.querySelector('.summarize-card-btn').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const btn = e.currentTarget;
+      const sid = session.sessionId;
+      btn.disabled = true;
+      btn.textContent = '...';
+      btn.classList.add('loading');
+      try {
+        const resp = await fetch(`/api/sessions/${sid}/summarize`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await resp.json();
+        if (data.ok) {
+          const s = sessionsData.get(sid);
+          if (s) { s.archived = 1; s.summary = data.summary; }
+          showToast('SUMMARIZED', 'Session summarized & archived');
+          btn.textContent = '\u2713';
+          btn.classList.remove('loading');
+          btn.classList.add('done');
+        } else {
+          showToast('SUMMARIZE FAILED', data.error || 'Unknown error');
+          btn.textContent = '\u2193AI';
+          btn.classList.remove('loading');
+          btn.disabled = false;
+        }
+      } catch(err) {
+        showToast('SUMMARIZE ERROR', err.message);
+        btn.textContent = '\u2193AI';
+        btn.classList.remove('loading');
+        btn.disabled = false;
+      }
+    });
+
+    // Inline rename on double-click
+    card.querySelector('.card-title').addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      const titleEl = e.currentTarget;
+      if (titleEl.contentEditable === 'true') return;
+      titleEl.contentEditable = 'true';
+      titleEl.classList.add('editing');
+      titleEl.focus();
+      // Select all text
+      const range = document.createRange();
+      range.selectNodeContents(titleEl);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+
+      const save = () => {
+        titleEl.contentEditable = 'false';
+        titleEl.classList.remove('editing');
+        const newTitle = titleEl.textContent.trim();
+        if (newTitle) {
+          fetch(`/api/sessions/${session.sessionId}/title`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: newTitle })
+          });
+        }
+      };
+      titleEl.addEventListener('blur', save, { once: true });
+      titleEl.addEventListener('keydown', (ke) => {
+        if (ke.key === 'Enter') { ke.preventDefault(); titleEl.blur(); }
+        if (ke.key === 'Escape') { titleEl.textContent = session.title || ''; titleEl.blur(); }
+      });
+    });
+
+    // Drag-and-drop reordering
+    card.addEventListener('dragstart', (e) => {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', session.sessionId);
+      // Use setTimeout so the browser captures the un-shrunk card as drag image
+      setTimeout(() => card.classList.add('dragging'), 0);
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      clearAllDropIndicators();
+    });
+    card.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      const dragging = document.querySelector('.session-card.dragging');
+      if (!dragging || dragging === card) return;
+      // Determine left vs right half
+      const rect = card.getBoundingClientRect();
+      const midX = rect.left + rect.width / 2;
+      if (e.clientX < midX) {
+        card.classList.add('drag-over-left');
+        card.classList.remove('drag-over-right');
+      } else {
+        card.classList.add('drag-over-right');
+        card.classList.remove('drag-over-left');
+      }
+    });
+    card.addEventListener('dragleave', () => {
+      card.classList.remove('drag-over-left', 'drag-over-right');
+    });
+    card.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const dropLeft = card.classList.contains('drag-over-left');
+      card.classList.remove('drag-over-left', 'drag-over-right');
+      const draggedId = e.dataTransfer.getData('text/plain');
+      const draggedCard = document.querySelector(`.session-card[data-session-id="${draggedId}"]`);
+      if (!draggedCard || draggedCard === card) return;
+      // Insert into the same parent grid as the target card
+      const parentGrid = card.parentElement;
+      if (dropLeft) {
+        parentGrid.insertBefore(draggedCard, card);
+      } else {
+        parentGrid.insertBefore(draggedCard, card.nextSibling);
+      }
+      // Sync group membership
+      const groupEl = parentGrid.closest('.session-group');
+      if (groupEl) {
+        addSessionToGroup(groupEl.id, draggedId);
+      } else {
+        removeSessionFromGroup(draggedId);
+      }
+      updateGroupCounts();
+    });
+    // Place card into its group or ungrouped grid
+    const group = findGroupForSession(session.sessionId);
+    if (group) {
+      const groupGrid = document.querySelector(`#${group.id} .group-grid`);
+      if (groupGrid) { groupGrid.appendChild(card); updateGroupCounts(); }
+      else document.getElementById('sessions-grid').appendChild(card);
+    } else {
+      document.getElementById('sessions-grid').appendChild(card);
+    }
+    // Ensure pinned cards stay at top
+    if (pinnedSessions.has(session.sessionId)) {
+      reorderPinnedCards();
+    }
   }
 
-  // Update status attribute
+  // Update status attribute — promote active cards to front
+  const prevStatus = card.dataset.status;
   card.dataset.status = session.status;
+  const activeStatuses = new Set(['working', 'prompting', 'approval']);
+  if (activeStatuses.has(session.status) && prevStatus !== session.status) {
+    const grid = card.parentElement;
+    if (grid) {
+      // Insert after pinned cards
+      const firstUnpinned = [...grid.children].find(c => !c.classList.contains('pinned'));
+      if (firstUnpinned && firstUnpinned !== card) {
+        grid.insertBefore(card, firstUnpinned);
+      } else if (!firstUnpinned) {
+        grid.appendChild(card);
+      }
+    }
+  }
 
   // Update fields
   card.querySelector('.project-name').textContent = session.projectName;
   const cardTitle = card.querySelector('.card-title');
-  if (cardTitle) {
+  if (cardTitle && cardTitle.contentEditable !== 'true') {
     cardTitle.textContent = session.title || '';
     cardTitle.style.display = session.title ? '' : 'none';
   }
@@ -124,7 +583,10 @@ export function createOrUpdateCard(session) {
   card.querySelector('.card-prompt').textContent =
     prompt.length > 120 ? prompt.substring(0, 120) + '...' : prompt;
 
-  card.querySelector('.duration').textContent = formatDuration(Date.now() - session.startedAt);
+  const durText = formatDuration(Date.now() - session.startedAt);
+  const durCard = card.querySelector('.duration');
+  durCard.textContent = durText;
+  durCard.style.display = durText ? '' : 'none';
   card.querySelector('.tool-count').textContent = `Tools: ${session.totalToolCalls}`;
   card.querySelector('.subagent-count').textContent =
     session.subagentCount > 0 ? `Agents: ${session.subagentCount}` : '';
@@ -229,7 +691,23 @@ function populateDetailPanel(session) {
   badge.textContent = detailLabel;
   badge.className = `status-badge ${session.status}`;
   document.getElementById('detail-model').textContent = session.model || '';
-  document.getElementById('detail-duration').textContent = formatDuration(Date.now() - session.startedAt);
+  const durationText = formatDuration(Date.now() - session.startedAt);
+  const durationEl = document.getElementById('detail-duration');
+  durationEl.textContent = durationText;
+  durationEl.style.display = durationText ? '' : 'none';
+
+  // Character model selector
+  const charSelect = document.getElementById('detail-char-model');
+  if (charSelect) {
+    charSelect.value = session.characterModel || '';
+    charSelect.dataset.sessionId = session.sessionId;
+  }
+
+  // Mini character preview in header — use the session's actual accent color
+  import('./robotManager.js').then(rm => {
+    const color = rm.getSessionColor(session.sessionId) || session.accentColor || null;
+    updateDetailCharPreview(session.characterModel || '', session.status, color);
+  });
 
   // Session title
   const titleInput = document.getElementById('detail-title');
@@ -280,11 +758,34 @@ function populateDetailPanel(session) {
     </div>
   `).join('');
 
+  // Summary tab
+  const summaryEl = document.getElementById('summary-content');
+  if (summaryEl) {
+    if (session.summary) {
+      summaryEl.innerHTML = `<div class="summary-text">${escapeHtml(session.summary).replace(/\n/g, '<br>')}</div>`;
+    } else {
+      summaryEl.innerHTML = '<div class="tab-empty">No summary yet — click SUMMARIZE to generate one with AI</div>';
+    }
+  }
+
+  // Update summarize button state
+  const sumBtn = document.getElementById('ctrl-summarize');
+  if (sumBtn) {
+    sumBtn.disabled = false;
+    sumBtn.textContent = session.summary ? 'RE-SUMMARIZE' : 'SUMMARIZE';
+  }
+
+  // Group select — populate with all groups, highlight current
+  refreshAllGroupSelects();
+
   // Load notes
   loadNotes(session.sessionId);
   // Update archive button
   const archBtn = document.getElementById('ctrl-archive');
   if (archBtn) archBtn.textContent = session.archived ? 'UNARCHIVE' : 'ARCHIVE';
+
+  // Detect session source and update prompt input
+  updatePromptSource(session.sessionId, session.source);
 }
 
 function renderToolBars(toolUsage) {
@@ -303,6 +804,7 @@ function renderToolBars(toolUsage) {
 }
 
 function formatDuration(ms) {
+  if (!ms || isNaN(ms) || ms < 0) return '';
   const s = Math.floor(ms / 1000);
   const m = Math.floor(s / 60);
   const h = Math.floor(m / 60);
@@ -333,7 +835,9 @@ export async function openSessionDetailFromHistory(sessionId) {
   const duration = data.session.ended_at
     ? formatDuration(data.session.ended_at - data.session.started_at)
     : formatDuration(Date.now() - data.session.started_at);
-  document.getElementById('detail-duration').textContent = duration;
+  const durEl = document.getElementById('detail-duration');
+  durEl.textContent = duration;
+  durEl.style.display = duration ? '' : 'none';
 
   // Session title
   const titleInput = document.getElementById('detail-title');
@@ -341,6 +845,18 @@ export async function openSessionDetailFromHistory(sessionId) {
     titleInput.value = data.session.title || '';
     titleInput.dataset.sessionId = sessionId;
   }
+
+  // Character model selector + preview
+  const charSelect = document.getElementById('detail-char-model');
+  if (charSelect) {
+    charSelect.value = data.session.character_model || '';
+    charSelect.dataset.sessionId = sessionId;
+  }
+  updateDetailCharPreview(
+    data.session.character_model || '',
+    data.session.status,
+    data.session.accent_color || null
+  );
 
   // Populate prompt history tab
   document.getElementById('detail-prompt-history').innerHTML = (data.prompts || []).map(p => `
@@ -376,14 +892,132 @@ export async function openSessionDetailFromHistory(sessionId) {
     </div>
   `).join('') || '<div class="tab-empty">No events recorded</div>';
 
+  // Summary tab
+  const summaryEl = document.getElementById('summary-content');
+  if (summaryEl) {
+    if (data.session.summary) {
+      summaryEl.innerHTML = `<div class="summary-text">${escapeHtml(data.session.summary).replace(/\n/g, '<br>')}</div>`;
+    } else {
+      summaryEl.innerHTML = '<div class="tab-empty">No summary yet — click SUMMARIZE to generate one with AI</div>';
+    }
+  }
+
+  // Update summarize button state
+  const sumBtn = document.getElementById('ctrl-summarize');
+  if (sumBtn) {
+    sumBtn.disabled = false;
+    sumBtn.textContent = data.session.summary ? 'RE-SUMMARIZE' : 'SUMMARIZE';
+  }
+
+  // Store sessionId for the summarize button handler
+  selectedSessionId = sessionId;
+
+  // Group select — populate with all groups, highlight current
+  refreshAllGroupSelects();
+
   // Load notes for this session
   loadNotes(sessionId);
   // Update archive button text
   const archBtn = document.getElementById('ctrl-archive');
   if (archBtn) archBtn.textContent = data.session.archived ? 'UNARCHIVE' : 'ARCHIVE';
 
+  // Detect session source and update prompt input
+  updatePromptSource(sessionId, data.session.source);
+
   // Show overlay
   document.getElementById('session-detail-overlay').classList.remove('hidden');
+}
+
+// Detect session source (vscode/terminal) and update prompt input UI
+async function updatePromptSource(sessionId, knownSource) {
+  const input = document.getElementById('detail-prompt-input');
+  const sendBtn = document.getElementById('detail-prompt-send');
+  if (!input || !sendBtn) return;
+
+  let source = knownSource;
+  if (!source || source === 'unknown' || source === 'hook') {
+    try {
+      const resp = await fetch(`/api/sessions/${sessionId}/source`);
+      const data = await resp.json();
+      source = data.source;
+      // Cache in sessionsData
+      const s = sessionsData.get(sessionId);
+      if (s) s.source = source;
+    } catch(e) { source = 'unknown'; }
+  }
+
+  if (source === 'vscode') {
+    input.placeholder = 'Type prompt to send to VS Code... (Enter to send)';
+    sendBtn.textContent = 'SEND TO VSCODE';
+  } else if (source === 'terminal') {
+    input.placeholder = 'Type prompt to send to Terminal... (Enter to send)';
+    sendBtn.textContent = 'SEND TO TERMINAL';
+  } else {
+    input.placeholder = 'Type prompt to send to session... (Enter to send)';
+    sendBtn.textContent = 'SEND';
+  }
+}
+
+// Character model mini preview in detail panel
+function updateDetailCharPreview(modelName, status, color) {
+  const container = document.getElementById('detail-char-preview');
+  if (!container) return;
+  const model = modelName || 'robot';
+  const accentColor = color || 'var(--accent-cyan)';
+  // Dynamically import to get the template
+  import('./robotManager.js').then(rm => {
+    // Build a mini robot element
+    container.innerHTML = '';
+    const mini = document.createElement('div');
+    mini.className = `css-robot char-${model}`;
+    mini.dataset.status = status || 'idle';
+    mini.style.setProperty('--robot-color', accentColor);
+    // Use the template from robotManager
+    const templates = rm._getTemplates ? rm._getTemplates() : null;
+    if (templates && templates[model]) {
+      mini.innerHTML = templates[model](accentColor);
+    } else {
+      // Fallback - just show model name
+      mini.textContent = model;
+    }
+    container.appendChild(mini);
+  });
+}
+
+// Per-session character model change
+const charModelSelect = document.getElementById('detail-char-model');
+if (charModelSelect) {
+  charModelSelect.addEventListener('change', async (e) => {
+    const model = e.target.value;
+    const sessionId = e.target.dataset.sessionId;
+    if (!sessionId) return;
+
+    // Update in-memory session data
+    const session = sessionsData.get(sessionId);
+    if (session) session.characterModel = model;
+
+    // Save to server
+    try {
+      await fetch(`/api/sessions/${sessionId}/character-model`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model })
+      });
+    } catch(e) {
+      console.error('[sessionPanel] Failed to save character model:', e.message);
+    }
+
+    // Update the robot on the card
+    import('./robotManager.js').then(rm => {
+      rm.switchSessionCharacter(sessionId, model);
+    });
+
+    // Update mini preview with session's accent color
+    import('./robotManager.js').then(rm => {
+      const color = rm.getSessionColor(sessionId) || session?.accentColor || null;
+      updateDetailCharPreview(model, session?.status || 'idle', color);
+    });
+  });
 }
 
 // Wire up close button and overlay backdrop click
@@ -408,6 +1042,92 @@ document.querySelector('.detail-tabs').addEventListener('click', (e) => {
 });
 
 // ---- Control Button Handlers ----
+
+// Send prompt to session
+async function sendPromptToSession() {
+  const input = document.getElementById('detail-prompt-input');
+  const btn = document.getElementById('detail-prompt-send');
+  const text = input.value.trim();
+  if (!text || !selectedSessionId) return;
+  btn.disabled = true;
+  btn.textContent = 'SENDING...';
+  btn.classList.add('sending');
+  try {
+    const resp = await fetch(`/api/sessions/${selectedSessionId}/prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: text })
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      input.value = '';
+      input.style.height = 'auto';
+      const methodNames = {
+        iterm2: 'via iTerm2', terminal: 'via Terminal.app',
+        vscode: 'via VS Code',
+        xdotool: 'via xdotool', 'xdotool-paste': 'via xdotool',
+        powershell: 'via PowerShell', 'powershell-paste': 'via PowerShell'
+      };
+      const via = methodNames[data.method] || '';
+      showToast('PROMPT SENT', `Typed into session ${via}`);
+    } else if (data.fallback === 'clipboard') {
+      // Backend couldn't inject keystrokes — copy to clipboard as fallback
+      const session = sessionsData.get(selectedSessionId);
+      const src = session?.source === 'vscode' ? 'VS Code' : 'your session';
+      try {
+        await navigator.clipboard.writeText(text);
+        input.value = '';
+        input.style.height = 'auto';
+        showToast('COPIED', `Paste into ${src} with Cmd+V`);
+      } catch(clipErr) {
+        showToast('SEND FAILED', data.error || 'Could not send or copy prompt');
+      }
+    } else {
+      showToast('SEND FAILED', data.error || 'Unknown error');
+    }
+  } catch(e) {
+    showToast('SEND ERROR', e.message);
+  }
+  btn.disabled = false;
+  btn.textContent = 'SEND';
+  btn.classList.remove('sending');
+}
+
+document.getElementById('detail-prompt-send').addEventListener('click', sendPromptToSession);
+
+document.getElementById('detail-prompt-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendPromptToSession();
+  }
+});
+
+// Auto-resize textarea
+document.getElementById('detail-prompt-input').addEventListener('input', (e) => {
+  const el = e.target;
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+});
+
+// Open in editor button (detail panel)
+document.getElementById('ctrl-open-editor').addEventListener('click', async (e) => {
+  e.stopPropagation();
+  if (!selectedSessionId) return;
+  try {
+    const resp = await fetch(`/api/sessions/${selectedSessionId}/open-editor`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      showToast('EDITOR', 'Opening in VS Code...');
+    } else {
+      showToast('OPEN FAILED', data.error || 'Unknown error');
+    }
+  } catch(err) {
+    showToast('OPEN ERROR', err.message);
+  }
+});
 
 // Kill button
 document.getElementById('ctrl-kill').addEventListener('click', (e) => {
@@ -446,6 +1166,27 @@ document.getElementById('kill-confirm').addEventListener('click', async () => {
   }
 });
 
+// Group select (detail panel)
+document.getElementById('detail-group-select').addEventListener('change', (e) => {
+  if (!selectedSessionId) return;
+  const groupId = e.target.value;
+  const card = document.querySelector(`.session-card[data-session-id="${selectedSessionId}"]`);
+  if (!card) return;
+  if (groupId) {
+    const groupGrid = document.querySelector(`#${groupId} .group-grid`);
+    if (groupGrid) {
+      groupGrid.appendChild(card);
+      addSessionToGroup(groupId, selectedSessionId);
+    }
+  } else {
+    document.getElementById('sessions-grid').appendChild(card);
+    removeSessionFromGroup(selectedSessionId);
+  }
+  updateGroupCounts();
+  if (pinnedSessions.has(selectedSessionId)) reorderPinnedCards();
+  showToast('GROUP', groupId ? `Moved to group` : 'Removed from group');
+});
+
 // Archive button
 document.getElementById('ctrl-archive').addEventListener('click', async (e) => {
   e.stopPropagation();
@@ -463,6 +1204,51 @@ document.getElementById('ctrl-archive').addEventListener('click', async (e) => {
     showToast('ARCHIVE', newArchived ? 'Session archived' : 'Session unarchived');
   } catch(err) {
     showToast('ARCHIVE ERROR', err.message);
+  }
+});
+
+// Summarize & archive button (detail panel)
+document.getElementById('ctrl-summarize').addEventListener('click', async (e) => {
+  e.stopPropagation();
+  if (!selectedSessionId) return;
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  btn.textContent = 'SUMMARIZING...';
+  try {
+    const resp = await fetch(`/api/sessions/${selectedSessionId}/summarize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      const session = sessionsData.get(selectedSessionId);
+      if (session) { session.archived = 1; session.summary = data.summary; }
+      // Update summary tab content
+      const summaryEl = document.getElementById('summary-content');
+      if (summaryEl) {
+        summaryEl.innerHTML = `<div class="summary-text">${escapeHtml(data.summary).replace(/\n/g, '<br>')}</div>`;
+      }
+      // Switch to summary tab
+      document.querySelectorAll('.detail-tabs .tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+      const summaryTab = document.querySelector('.detail-tabs .tab[data-tab="summary"]');
+      if (summaryTab) summaryTab.classList.add('active');
+      document.getElementById('tab-summary').classList.add('active');
+      // Update archive button
+      const archBtn = document.getElementById('ctrl-archive');
+      if (archBtn) archBtn.textContent = 'UNARCHIVE';
+      btn.textContent = 'RE-SUMMARIZE';
+      btn.disabled = false;
+      showToast('SUMMARIZED', 'AI summary generated & session archived');
+    } else {
+      showToast('SUMMARIZE FAILED', data.error || 'Unknown error');
+      btn.textContent = 'SUMMARIZE';
+      btn.disabled = false;
+    }
+  } catch(err) {
+    showToast('SUMMARIZE ERROR', err.message);
+    btn.textContent = 'SUMMARIZE';
+    btn.disabled = false;
   }
 });
 
@@ -586,6 +1372,45 @@ if (detailTitleInput) {
   });
 }
 
+// ---- Detail Panel Resize Handle ----
+{
+  const handle = document.getElementById('detail-resize-handle');
+  const panel = document.getElementById('session-detail-panel');
+  let startX = 0;
+  let startWidth = 0;
+
+  handle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    startX = e.clientX;
+    startWidth = panel.offsetWidth;
+    panel.classList.add('resizing');
+    handle.classList.add('active');
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  });
+
+  function onMouseMove(e) {
+    const dx = startX - e.clientX;
+    const newWidth = Math.max(320, Math.min(window.innerWidth * 0.95, startWidth + dx));
+    panel.style.width = newWidth + 'px';
+  }
+
+  function onMouseUp() {
+    panel.classList.remove('resizing');
+    handle.classList.remove('active');
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+    // Persist width preference
+    try { localStorage.setItem('detail-panel-width', panel.style.width); } catch(e) {}
+  }
+
+  // Restore saved width
+  try {
+    const saved = localStorage.getItem('detail-panel-width');
+    if (saved) panel.style.width = saved;
+  } catch(e) {}
+}
+
 // ---- Live Search Filter ----
 const liveSearchInput = document.getElementById('live-search');
 if (liveSearchInput) {
@@ -593,15 +1418,78 @@ if (liveSearchInput) {
     const query = liveSearchInput.value.toLowerCase().trim();
     const cards = document.querySelectorAll('.session-card');
     cards.forEach(card => {
+      const sid = card.dataset.sessionId;
       const projectName = card.querySelector('.project-name')?.textContent?.toLowerCase() || '';
       const cardTitle = card.querySelector('.card-title')?.textContent?.toLowerCase() || '';
-      if (!query || projectName.includes(query) || cardTitle.includes(query)) {
+
+      // Also search prompts and responses
+      let matchInContent = false;
+      if (query && sid) {
+        const session = sessionsData.get(sid);
+        if (session) {
+          matchInContent = (session.promptHistory || []).some(p => p.text?.toLowerCase().includes(query))
+            || (session.responseLog || []).some(r => r.text?.toLowerCase().includes(query));
+        }
+      }
+
+      if (!query || projectName.includes(query) || cardTitle.includes(query) || matchInContent) {
         card.classList.remove('filtered');
       } else {
         card.classList.add('filtered');
       }
     });
+
+    // If detail panel is open, highlight matches inside it
+    if (query && selectedSessionId) {
+      highlightInDetailPanel(query);
+    } else {
+      clearDetailHighlights();
+    }
   });
+}
+
+function highlightInDetailPanel(query) {
+  clearDetailHighlights();
+  if (!query) return;
+
+  const tabContents = ['detail-prompt-history', 'detail-response-history', 'detail-tool-log'];
+  let firstMatch = null;
+  let matchTab = null;
+
+  for (const containerId of tabContents) {
+    const container = document.getElementById(containerId);
+    if (!container) continue;
+
+    const entries = container.querySelectorAll('.prompt-entry, .response-entry, .tool-entry');
+    for (const entry of entries) {
+      const text = entry.textContent.toLowerCase();
+      if (text.includes(query)) {
+        entry.classList.add('search-highlight');
+        if (!firstMatch) {
+          firstMatch = entry;
+          matchTab = containerId === 'detail-prompt-history' ? 'prompts'
+            : containerId === 'detail-response-history' ? 'responses'
+            : 'tools';
+        }
+      }
+    }
+  }
+
+  // Switch to the tab with the first match and scroll to it
+  if (firstMatch && matchTab) {
+    const tabBtn = document.querySelector(`.detail-tabs .tab[data-tab="${matchTab}"]`);
+    if (tabBtn && !tabBtn.classList.contains('active')) {
+      document.querySelectorAll('.detail-tabs .tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+      tabBtn.classList.add('active');
+      document.getElementById(`tab-${matchTab}`).classList.add('active');
+    }
+    firstMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function clearDetailHighlights() {
+  document.querySelectorAll('.search-highlight').forEach(el => el.classList.remove('search-highlight'));
 }
 
 // ---- Archive All Ended Sessions ----
