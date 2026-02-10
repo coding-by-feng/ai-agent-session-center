@@ -1,12 +1,16 @@
 // wsManager.js — WebSocket broadcast manager
-import { getAllSessions } from './sessionStore.js';
+import { getAllSessions, getAllTeams } from './sessionStore.js';
 
 const clients = new Set();
 
 export function handleConnection(ws) {
   clients.add(ws);
-  // Send full snapshot on connect
-  ws.send(JSON.stringify({ type: 'snapshot', sessions: getAllSessions() }));
+  // Send full snapshot on connect (includes teams)
+  ws.send(JSON.stringify({
+    type: 'snapshot',
+    sessions: getAllSessions(),
+    teams: getAllTeams()
+  }));
   ws.on('close', () => clients.delete(ws));
   ws.on('error', () => clients.delete(ws));
 }

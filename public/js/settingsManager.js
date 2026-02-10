@@ -7,9 +7,11 @@ const defaults = {
   soundVolume: '0.5',
   soundActions: '',
   scanlineEnabled: 'true',
-  cardSize: 'normal',
+  cardSize: 'small',
   activityFeedVisible: 'true',
-  characterModel: 'robot'
+  characterModel: 'robot',
+  animationIntensity: '100',
+  animationSpeed: '100'
 };
 
 let settings = { ...defaults };
@@ -84,6 +86,18 @@ export function applyCardSize(size) {
   }
 }
 
+// Apply animation intensity (0-200, default 100)
+export function applyAnimationIntensity(value) {
+  const v = parseFloat(value) / 100;
+  document.documentElement.style.setProperty('--anim-intensity', v);
+}
+
+// Apply animation speed (30-200, default 100 → lower = faster)
+export function applyAnimationSpeed(value) {
+  const v = parseFloat(value) / 100;
+  document.documentElement.style.setProperty('--anim-speed', v);
+}
+
 // Apply activity feed visibility
 export function applyActivityFeed(visible) {
   const feed = document.getElementById('activity-feed');
@@ -124,6 +138,8 @@ export async function importSettings(file) {
   applyScanline(get('scanlineEnabled'));
   applyCardSize(get('cardSize'));
   applyActivityFeed(get('activityFeedVisible'));
+  applyAnimationIntensity(get('animationIntensity'));
+  applyAnimationSpeed(get('animationSpeed'));
   // Refresh the UI to reflect imported values
   syncUIToSettings();
 }
@@ -138,6 +154,8 @@ export async function resetDefaults() {
   applyScanline(defaults.scanlineEnabled);
   applyCardSize(defaults.cardSize);
   applyActivityFeed(defaults.activityFeedVisible);
+  applyAnimationIntensity(defaults.animationIntensity);
+  applyAnimationSpeed(defaults.animationSpeed);
   syncUIToSettings();
 }
 
@@ -182,6 +200,22 @@ function syncUIToSettings() {
   document.querySelectorAll('.char-swatch').forEach(s => {
     s.classList.toggle('active', s.dataset.model === currentModel);
   });
+
+  // Animation intensity
+  const animIntensity = get('animationIntensity');
+  applyAnimationIntensity(animIntensity);
+  const intSlider = document.getElementById('anim-intensity-slider');
+  const intDisplay = document.getElementById('anim-intensity-display');
+  if (intSlider) intSlider.value = animIntensity;
+  if (intDisplay) intDisplay.textContent = animIntensity + '%';
+
+  // Animation speed
+  const animSpeed = get('animationSpeed');
+  applyAnimationSpeed(animSpeed);
+  const spdSlider = document.getElementById('anim-speed-slider');
+  const spdDisplay = document.getElementById('anim-speed-display');
+  if (spdSlider) spdSlider.value = animSpeed;
+  if (spdDisplay) spdDisplay.textContent = animSpeed + '%';
 }
 
 // Initialize settings UI bindings
@@ -311,6 +345,30 @@ export function initSettingsUI() {
     });
   }
 
+  // --- Animation intensity slider ---
+  const intensitySlider = document.getElementById('anim-intensity-slider');
+  const intensityDisplay = document.getElementById('anim-intensity-display');
+  if (intensitySlider && intensityDisplay) {
+    intensitySlider.addEventListener('input', () => {
+      const val = intensitySlider.value;
+      intensityDisplay.textContent = val + '%';
+      applyAnimationIntensity(val);
+      set('animationIntensity', val);
+    });
+  }
+
+  // --- Animation speed slider ---
+  const speedSlider = document.getElementById('anim-speed-slider');
+  const speedDisplay = document.getElementById('anim-speed-display');
+  if (speedSlider && speedDisplay) {
+    speedSlider.addEventListener('input', () => {
+      const val = speedSlider.value;
+      speedDisplay.textContent = val + '%';
+      applyAnimationSpeed(val);
+      set('animationSpeed', val);
+    });
+  }
+
   // --- Character model ---
   const charGrid = document.getElementById('char-model-grid');
   if (charGrid) {
@@ -339,6 +397,9 @@ export function initSettingsUI() {
 
   // Build per-action sound config grid (deferred import to avoid circular)
   initSoundGrid();
+
+  // Build summary prompt template management
+  initSummaryPromptSettings();
 }
 
 async function initSoundGrid() {
@@ -383,4 +444,121 @@ async function initSoundGrid() {
     const sel = grid.querySelector(`.sound-action-select[data-action="${action}"]`);
     if (sel) soundManager.previewSound(sel.value);
   });
+}
+
+// ---- Summary Prompt Template Settings ----
+
+async function initSummaryPromptSettings() {
+  const list = document.getElementById('settings-prompt-list');
+  const nameInput = document.getElementById('settings-prompt-name');
+  const textInput = document.getElementById('settings-prompt-text');
+  const saveBtn = document.getElementById('settings-prompt-save');
+  const cancelEditBtn = document.getElementById('settings-prompt-cancel-edit');
+  if (!list || !nameInput || !textInput || !saveBtn) return;
+
+  let editingId = null;
+
+  async function loadAndRender() {
+    try {
+      const resp = await fetch('/api/summary-prompts');
+      const data = await resp.json();
+      renderList(data.prompts || []);
+    } catch(e) {
+      list.innerHTML = '<div style="color:var(--text-dim);padding:8px">Failed to load prompts</div>';
+    }
+  }
+
+  function renderList(prompts) {
+    list.innerHTML = prompts.map(p => `
+      <div class="settings-prompt-item${p.is_default ? ' default' : ''}" data-id="${p.id}">
+        <div class="settings-prompt-item-row">
+          <button class="settings-prompt-star${p.is_default ? ' active' : ''}" data-id="${p.id}" title="${p.is_default ? 'Default' : 'Set as default'}">&#9733;</button>
+          <span class="settings-prompt-item-name">${escapeHtml(p.name)}</span>
+          ${p.is_default ? '<span class="settings-prompt-badge">DEFAULT</span>' : ''}
+          <button class="settings-prompt-edit" data-id="${p.id}" title="Edit">&#9998;</button>
+          <button class="settings-prompt-del" data-id="${p.id}" title="Delete">&times;</button>
+        </div>
+        <div class="settings-prompt-item-preview">${escapeHtml(p.prompt).substring(0, 120)}${p.prompt.length > 120 ? '...' : ''}</div>
+      </div>
+    `).join('') || '<div style="color:var(--text-dim);padding:8px">No prompt templates</div>';
+
+    // Star (set default)
+    list.querySelectorAll('.settings-prompt-star').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        await fetch(`/api/summary-prompts/${btn.dataset.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ is_default: true })
+        });
+        loadAndRender();
+      });
+    });
+
+    // Edit
+    list.querySelectorAll('.settings-prompt-edit').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = parseInt(btn.dataset.id, 10);
+        const resp = await fetch('/api/summary-prompts');
+        const data = await resp.json();
+        const p = (data.prompts || []).find(x => x.id === id);
+        if (!p) return;
+        editingId = id;
+        nameInput.value = p.name;
+        textInput.value = p.prompt;
+        saveBtn.textContent = 'Update Template';
+        cancelEditBtn.classList.remove('hidden');
+      });
+    });
+
+    // Delete
+    list.querySelectorAll('.settings-prompt-del').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        await fetch(`/api/summary-prompts/${btn.dataset.id}`, { method: 'DELETE' });
+        loadAndRender();
+      });
+    });
+  }
+
+  // Save / Update
+  saveBtn.addEventListener('click', async () => {
+    const name = nameInput.value.trim();
+    const prompt = textInput.value.trim();
+    if (!name || !prompt) return;
+
+    if (editingId) {
+      await fetch(`/api/summary-prompts/${editingId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, prompt })
+      });
+    } else {
+      await fetch('/api/summary-prompts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, prompt })
+      });
+    }
+    nameInput.value = '';
+    textInput.value = '';
+    editingId = null;
+    saveBtn.textContent = 'Add Template';
+    cancelEditBtn.classList.add('hidden');
+    loadAndRender();
+  });
+
+  // Cancel edit
+  cancelEditBtn.addEventListener('click', () => {
+    editingId = null;
+    nameInput.value = '';
+    textInput.value = '';
+    saveBtn.textContent = 'Add Template';
+    cancelEditBtn.classList.add('hidden');
+  });
+
+  loadAndRender();
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

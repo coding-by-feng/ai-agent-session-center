@@ -113,7 +113,7 @@ router.put('/settings/bulk', (req, res) => {
 
 // ---- Session Control Endpoints ----
 
-// Kill session process
+// Kill session process — sends SIGTERM, then SIGKILL after 3s if still alive
 router.post('/sessions/:id/kill', (req, res) => {
   if (!req.body.confirm) {
     return res.status(400).json({ error: 'Must send {confirm: true} to kill a session' });
@@ -121,9 +121,17 @@ router.post('/sessions/:id/kill', (req, res) => {
   const sessionId = req.params.id;
   const mem = getSession(sessionId);
   const pid = findClaudeProcess(sessionId, mem?.projectPath);
+  const source = detectSessionSource(sessionId);
   if (pid) {
     try {
       process.kill(pid, 'SIGTERM');
+      // Follow up with SIGKILL after 3s if process is still alive
+      setTimeout(() => {
+        try {
+          process.kill(pid, 0); // Check if still alive
+          process.kill(pid, 'SIGKILL');
+        } catch(e) { /* already dead — good */ }
+      }, 3000);
     } catch (e) {
       return res.status(500).json({ error: `Failed to kill PID ${pid}: ${e.message}` });
     }
@@ -133,7 +141,7 @@ router.post('/sessions/:id/kill', (req, res) => {
   if (!session && !pid) {
     return res.status(404).json({ error: 'Session not found and no matching process' });
   }
-  res.json({ ok: true, pid: pid || null });
+  res.json({ ok: true, pid: pid || null, source });
 });
 
 // Detect session source (vscode / terminal)
@@ -237,10 +245,61 @@ router.post('/sessions/:id/prompt', async (req, res) => {
           if (result.trim() === 'ok') {
             return res.json({ ok: true, method: 'terminal' });
           }
-        } catch(e) { /* Terminal.app not available */ }
+        } catch(e) {
+          if (e.message && (e.message.includes('1002') || e.message.includes('not allowed to send keystrokes') || e.message.includes('not allowed assistive access'))) {
+            return res.status(403).json({
+              error: 'Accessibility permission required',
+              reason: 'accessibility',
+              platform: 'macos',
+              terminalApp: detectTerminalApp(pid) || 'Terminal',
+              fallback: 'clipboard'
+            });
+          }
+        }
       }
 
-      // Strategy 3: VS Code session (no TTY) — activate VS Code, paste into Claude chat
+      // Strategy 3: JetBrains session — activate IDE, paste into terminal
+      if (!tty || isJetBrainsProcess(pid)) {
+        const jbApp = detectTerminalApp(pid);
+        if (jbApp && !['Terminal', 'iTerm2', 'Ghostty', 'Alacritty', 'Kitty', 'Warp', 'WezTerm', 'Hyper', 'Tabby', 'Visual Studio Code'].includes(jbApp)) {
+          try {
+            await runShellScript('osascript', ['-e', [
+              `set promptText to read POSIX file "${tmpFile}"`,
+              'set savedClip to ""',
+              'try',
+              '  set savedClip to the clipboard as text',
+              'end try',
+              'set the clipboard to promptText',
+              `tell application "${jbApp}"`,
+              '  activate',
+              'end tell',
+              'delay 0.5',
+              'tell application "System Events"',
+              '  tell (first process whose frontmost is true)',
+              '    keystroke "v" using command down',
+              '    delay 0.2',
+              '    keystroke return',
+              '  end tell',
+              'end tell',
+              'delay 0.3',
+              'set the clipboard to savedClip',
+            ].join('\n')]);
+            return res.json({ ok: true, method: 'jetbrains' });
+          } catch(e) {
+            if (e.message && (e.message.includes('1002') || e.message.includes('not allowed to send keystrokes') || e.message.includes('not allowed assistive access'))) {
+              return res.status(403).json({
+                error: 'Accessibility permission required',
+                reason: 'accessibility',
+                platform: 'macos',
+                terminalApp: jbApp,
+                fallback: 'clipboard'
+              });
+            }
+          }
+        }
+      }
+
+      // Strategy 4: VS Code session (no TTY) — activate VS Code, paste into Claude chat
       if (!tty || isVSCodeProcess(pid)) {
         try {
           await runShellScript('osascript', ['-e', [
@@ -268,6 +327,15 @@ router.post('/sessions/:id/prompt', async (req, res) => {
           return res.json({ ok: true, method: 'vscode' });
         } catch(e) {
           console.error('[apiRouter] VS Code AppleScript error:', e.message);
+          if (e.message && (e.message.includes('1002') || e.message.includes('not allowed to send keystrokes') || e.message.includes('not allowed assistive access'))) {
+            return res.status(403).json({
+              error: 'Accessibility permission required',
+              reason: 'accessibility',
+              platform: 'macos',
+              terminalApp: detectTerminalApp(pid) || 'Visual Studio Code',
+              fallback: 'clipboard'
+            });
+          }
         }
       }
 
@@ -304,8 +372,11 @@ router.post('/sessions/:id/prompt', async (req, res) => {
         }
       } catch(e) { /* fallthrough */ }
 
-      return res.status(404).json({
-        error: 'Could not send prompt. Install xdotool: sudo apt install xdotool',
+      return res.status(403).json({
+        error: 'Could not send prompt. Install xdotool and xclip.',
+        reason: 'accessibility',
+        platform: 'linux',
+        terminalApp: null,
         fallback: 'clipboard'
       });
 
@@ -354,8 +425,11 @@ router.post('/sessions/:id/prompt', async (req, res) => {
         }
       } catch(e) { /* fallthrough */ }
 
-      return res.status(404).json({
-        error: 'Could not find terminal window for this session.',
+      return res.status(403).json({
+        error: 'Could not send keystrokes to terminal window.',
+        reason: 'accessibility',
+        platform: 'windows',
+        terminalApp: null,
         fallback: 'clipboard'
       });
 
@@ -378,6 +452,23 @@ function isVSCodeProcess(pid) {
   } catch(e) { return false; }
 }
 
+// Helper: check if a PID is a JetBrains-spawned Claude process
+function isJetBrainsProcess(pid) {
+  const jbNames = ['idea', 'webstorm', 'pycharm', 'goland', 'clion', 'rider',
+    'phpstorm', 'rubymine', 'datagrip', 'fleet', 'jetbrains'];
+  try {
+    let current = String(pid);
+    for (let i = 0; i < 10; i++) {
+      const ppid = execSync(`ps -o ppid= -p ${current}`, { encoding: 'utf-8', timeout: 3000 }).trim();
+      if (!ppid || ppid === '0' || ppid === '1') break;
+      const cmd = execSync(`ps -o comm= -p ${ppid}`, { encoding: 'utf-8', timeout: 3000 }).trim().toLowerCase();
+      if (jbNames.some(n => cmd.includes(n))) return true;
+      current = ppid;
+    }
+  } catch(e) {}
+  return false;
+}
+
 // Helper: get TTY for a process (Unix only)
 function getProcessTty(pid) {
   try {
@@ -386,6 +477,45 @@ function getProcessTty(pid) {
   } catch(e) {
     return null;
   }
+}
+
+// Helper: detect which terminal app owns a process (macOS only)
+function detectTerminalApp(pid) {
+  if (process.platform !== 'darwin') return null;
+  try {
+    // Walk up the process tree to find the terminal application
+    let current = pid;
+    for (let i = 0; i < 10; i++) {
+      const ppid = execSync(`ps -o ppid= -p ${current}`, { encoding: 'utf-8', timeout: 3000 }).trim();
+      if (!ppid || ppid === '0' || ppid === '1') break;
+      const cmd = execSync(`ps -o comm= -p ${ppid}`, { encoding: 'utf-8', timeout: 3000 }).trim();
+      const lower = cmd.toLowerCase();
+      if (lower.includes('ghostty')) return 'Ghostty';
+      if (lower.includes('iterm2') || lower.includes('iterm')) return 'iTerm2';
+      if (lower.includes('terminal') && !lower.includes('node')) return 'Terminal';
+      if (lower.includes('alacritty')) return 'Alacritty';
+      if (lower.includes('kitty')) return 'Kitty';
+      if (lower.includes('warp')) return 'Warp';
+      if (lower.includes('hyper')) return 'Hyper';
+      if (lower.includes('wezterm')) return 'WezTerm';
+      if (lower.includes('tabby')) return 'Tabby';
+      if (lower.includes('code') || lower.includes('electron')) return 'Visual Studio Code';
+      // JetBrains IDEs
+      if (lower.includes('idea')) return 'IntelliJ IDEA';
+      if (lower.includes('webstorm')) return 'WebStorm';
+      if (lower.includes('pycharm')) return 'PyCharm';
+      if (lower.includes('goland')) return 'GoLand';
+      if (lower.includes('clion')) return 'CLion';
+      if (lower.includes('rider')) return 'Rider';
+      if (lower.includes('phpstorm')) return 'PhpStorm';
+      if (lower.includes('rubymine')) return 'RubyMine';
+      if (lower.includes('datagrip')) return 'DataGrip';
+      if (lower.includes('fleet')) return 'Fleet';
+      if (lower.includes('jetbrains')) return 'JetBrains';
+      current = ppid;
+    }
+  } catch(e) {}
+  return null;
 }
 
 // Helper: run a shell command and return stdout
@@ -398,7 +528,7 @@ function runShellScript(cmd, args) {
   });
 }
 
-// Open session project in VS Code
+// Open session project in the appropriate editor (VS Code, JetBrains, or fallback)
 router.post('/sessions/:id/open-editor', (req, res) => {
   const sessionId = req.params.id;
   let projectPath;
@@ -412,24 +542,98 @@ router.post('/sessions/:id/open-editor', (req, res) => {
   if (!projectPath) {
     return res.status(404).json({ error: 'No project path for this session' });
   }
-  // Cross-platform: open project in VS Code
-  const platform = process.platform;
-  let cmd, args;
-  if (platform === 'darwin') {
-    cmd = 'open'; args = ['-a', 'Visual Studio Code', projectPath];
-  } else if (platform === 'win32') {
-    cmd = 'cmd'; args = ['/c', 'code', projectPath];
-  } else {
-    cmd = 'code'; args = [projectPath];
-  }
-  execFile(cmd, args, { timeout: 5000 }, (err) => {
-    if (err) {
-      console.error('[apiRouter] open-editor error:', err.message);
-      return res.status(500).json({ error: `Failed to open editor: ${err.message}` });
+
+  const source = detectSessionSource(sessionId);
+
+  // Try JetBrains first if detected as JetBrains session
+  if (source === 'jetbrains') {
+    const jbCli = findJetBrainsCli();
+    if (jbCli) {
+      execFile(jbCli.cli, [jbCli.openArg || 'open', projectPath].filter(Boolean), { timeout: 5000 }, (err) => {
+        if (err) {
+          console.error('[apiRouter] open-editor JetBrains error:', err.message);
+          // Fall through to VS Code / generic
+          openWithVSCodeOrFallback(projectPath, res);
+          return;
+        }
+        res.json({ ok: true, editor: jbCli.name });
+      });
+      return;
     }
-    res.json({ ok: true });
-  });
+  }
+
+  openWithVSCodeOrFallback(projectPath, res);
 });
+
+// Resolve VS Code CLI path
+function findCodeCli() {
+  const candidates = process.platform === 'darwin'
+    ? ['/usr/local/bin/code', '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code']
+    : process.platform === 'win32'
+      ? [process.env.LOCALAPPDATA + '\\Programs\\Microsoft VS Code\\bin\\code.cmd']
+      : ['/usr/bin/code', '/usr/local/bin/code', '/snap/bin/code'];
+  for (const p of candidates) {
+    try { execSync(`test -x "${p}"`, { timeout: 1000 }); return p; } catch {}
+  }
+  try {
+    return execSync('which code 2>/dev/null || where code 2>nul', { encoding: 'utf-8', timeout: 2000 }).trim().split('\n')[0];
+  } catch { return null; }
+}
+
+// Resolve JetBrains CLI path — tries common CLI launchers
+function findJetBrainsCli() {
+  // JetBrains Toolbox installs CLI scripts; also check standard names
+  const ides = [
+    { name: 'IntelliJ IDEA', cmds: ['idea'] },
+    { name: 'WebStorm', cmds: ['webstorm'] },
+    { name: 'PyCharm', cmds: ['pycharm'] },
+    { name: 'GoLand', cmds: ['goland'] },
+    { name: 'CLion', cmds: ['clion'] },
+    { name: 'Rider', cmds: ['rider'] },
+    { name: 'PhpStorm', cmds: ['phpstorm'] },
+    { name: 'RubyMine', cmds: ['rubymine'] },
+    { name: 'DataGrip', cmds: ['datagrip'] },
+    { name: 'Fleet', cmds: ['fleet'] },
+  ];
+  for (const ide of ides) {
+    for (const cmd of ide.cmds) {
+      try {
+        const path = execSync(`which ${cmd} 2>/dev/null`, { encoding: 'utf-8', timeout: 2000 }).trim();
+        if (path) return { cli: path, name: ide.name, openArg: null };
+      } catch {}
+    }
+  }
+  return null;
+}
+
+function openWithVSCodeOrFallback(projectPath, res) {
+  const codeCli = findCodeCli();
+  if (codeCli) {
+    execFile(codeCli, ['--reuse-window', projectPath], { timeout: 5000 }, (err) => {
+      if (err) {
+        console.error('[apiRouter] open-editor error:', err.message);
+        return res.status(500).json({ error: `Failed to open editor: ${err.message}` });
+      }
+      res.json({ ok: true, editor: 'VS Code' });
+    });
+  } else {
+    let cmd, args;
+    if (process.platform === 'darwin') {
+      cmd = 'open'; args = ['-a', 'Visual Studio Code', projectPath];
+    } else if (process.platform === 'win32') {
+      cmd = 'cmd'; args = ['/c', 'code', projectPath];
+    } else {
+      cmd = 'xdg-open'; args = [projectPath];
+    }
+    execFile(cmd, args, { timeout: 5000 }, (err) => {
+      if (err) {
+        console.error('[apiRouter] open-editor error:', err.message);
+        return res.status(500).json({ error: `Failed to open editor: ${err.message}` });
+      }
+      res.json({ ok: true });
+    });
+  }
+}
 
 // Archive/unarchive session
 router.post('/sessions/:id/archive', (req, res) => {
@@ -508,7 +712,21 @@ router.post('/sessions/:id/summarize', async (req, res) => {
     context = context.substring(0, 100000) + '\n... (truncated)';
   }
 
-  const summaryPrompt = `Summarize this Claude Code session in 3-5 bullet points. Focus on what was accomplished, key decisions, and any issues encountered. Be concise.\n\n${context}`;
+  // Get the summary prompt template (custom_prompt > prompt_id > default)
+  const { prompt_id: promptId, custom_prompt: customPrompt } = req.body;
+  let promptTemplate;
+  if (customPrompt) {
+    promptTemplate = customPrompt;
+  } else if (promptId) {
+    const row = db.prepare('SELECT prompt FROM summary_prompts WHERE id = ?').get(promptId);
+    promptTemplate = row?.prompt;
+  }
+  if (!promptTemplate) {
+    const row = db.prepare('SELECT prompt FROM summary_prompts WHERE is_default = 1 LIMIT 1').get();
+    promptTemplate = row?.prompt || 'Summarize this Claude Code session in detail.';
+  }
+
+  const summaryPrompt = `${promptTemplate}\n\n--- SESSION TRANSCRIPT ---\n${context}`;
 
   try {
     const summary = await new Promise((resolve, reject) => {
@@ -539,6 +757,52 @@ router.get('/sessions/:id/summary', (req, res) => {
   const row = db.prepare('SELECT summary FROM sessions WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Session not found' });
   res.json({ summary: row.summary || null });
+});
+
+// ---- Summary Prompt Templates ----
+
+// List all summary prompts
+router.get('/summary-prompts', (req, res) => {
+  const rows = db.prepare('SELECT * FROM summary_prompts ORDER BY is_default DESC, name ASC').all();
+  res.json({ prompts: rows });
+});
+
+// Create a new summary prompt
+router.post('/summary-prompts', (req, res) => {
+  const { name, prompt, is_default } = req.body;
+  if (!name || !prompt) return res.status(400).json({ error: 'name and prompt are required' });
+  const now = Date.now();
+  // If setting as default, clear other defaults
+  if (is_default) {
+    db.prepare('UPDATE summary_prompts SET is_default = 0').run();
+  }
+  const result = db.prepare('INSERT INTO summary_prompts (name, prompt, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(name, prompt, is_default ? 1 : 0, now, now);
+  res.json({ ok: true, id: result.lastInsertRowid });
+});
+
+// Update a summary prompt
+router.put('/summary-prompts/:id', (req, res) => {
+  const { name, prompt, is_default } = req.body;
+  const id = req.params.id;
+  const now = Date.now();
+  if (is_default) {
+    db.prepare('UPDATE summary_prompts SET is_default = 0').run();
+  }
+  const sets = [];
+  const params = [];
+  if (name !== undefined) { sets.push('name = ?'); params.push(name); }
+  if (prompt !== undefined) { sets.push('prompt = ?'); params.push(prompt); }
+  if (is_default !== undefined) { sets.push('is_default = ?'); params.push(is_default ? 1 : 0); }
+  sets.push('updated_at = ?'); params.push(now);
+  params.push(id);
+  db.prepare(`UPDATE summary_prompts SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+  res.json({ ok: true });
+});
+
+// Delete a summary prompt
+router.delete('/summary-prompts/:id', (req, res) => {
+  db.prepare('DELETE FROM summary_prompts WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
 });
 
 // Notes - list
@@ -585,6 +849,14 @@ router.post('/sessions/:id/alerts', (req, res) => {
 router.delete('/sessions/:id/alerts/:alertId', (req, res) => {
   db.prepare('DELETE FROM duration_alerts WHERE id = ? AND session_id = ?').run(req.params.alertId, req.params.id);
   res.json({ ok: true });
+});
+
+// Open macOS Accessibility settings pane
+router.post('/open-accessibility-settings', (req, res) => {
+  execFile('open', ['x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ ok: true });
+  });
 });
 
 export default router;

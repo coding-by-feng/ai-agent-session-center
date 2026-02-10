@@ -39,9 +39,5 @@ export function update(sessions) {
       <span class="stat-label">Sessions</span>
       <span class="stat-value">${activeCount}</span>
     </span>
-    <span class="stat">
-      <span class="stat-label">Tool Calls</span>
-      <span class="stat-value">${totalTools}</span>
-    </span>
   `;
 }

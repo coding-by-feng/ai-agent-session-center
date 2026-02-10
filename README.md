@@ -1,8 +1,6 @@
 # Claude Command Center
 
-A real-time dashboard for monitoring all active Claude Code sessions. Each session gets an animated CSS robot that reacts to what Claude is doing — and screams at you when it needs your approval.
-
-Zero build tools. Pure vanilla JS, Express, and WebSocket.
+See all your Claude Code sessions at a glance. Get screamed at when one needs your approval.
 
 ![Node.js](https://img.shields.io/badge/Node.js-18+-green)
 ![Express](https://img.shields.io/badge/Express-5.0-blue)
@@ -10,86 +8,117 @@ Zero build tools. Pure vanilla JS, Express, and WebSocket.
 
 ---
 
-## Quick Start
+## Setup
 
 ```bash
-git clone <repo-url>
-cd claude-command-center
-npm install
-npm run install-hooks   # registers hooks in ~/.claude/settings.json
-npm start               # http://localhost:3333
+npm run setup   # installs deps, registers hooks, starts the server
 ```
+
+Opens at **http://localhost:3333**. Every Claude Code session you open will now show up on the dashboard automatically.
 
 ---
 
-## Key Features
+## Never Miss an Approval Again
 
-### Approval Detection
+This is the main reason this exists. When Claude proposes a tool that needs your yes/no:
 
-When Claude proposes a tool that needs your yes/no, the dashboard detects it automatically:
+- The card turns **screaming yellow** with a pulsing "NEEDS YOUR APPROVAL" banner
+- The character starts **bouncing** with a floating **"!"** above its head
+- A **3-burst alarm** plays and **repeats every 10 seconds** until you act
+- No false alarms — auto-approved tools (Read, Grep, etc.) resolve instantly and never trigger it
 
-- **How**: if `PreToolUse` fires and `PostToolUse` doesn't arrive within 3 seconds, the tool is blocked waiting for you
-- **Card**: solid yellow border, pulsing glow, **"NEEDS YOUR APPROVAL"** banner with the tool name
-- **Robot**: bouncing body, floating **"!"** above its head, huge yellow eyes, tilting head
-- **Sound**: 3-burst urgent alarm, **repeats every 10 seconds** until you approve/deny
-- **No false alarms**: auto-approved tools (Read, Grep, etc.) clear in milliseconds and never trigger it
+Detection works by timing: if `PreToolUse` fires and `PostToolUse` doesn't arrive within 3 seconds, the tool is blocked waiting for you.
 
-### 3-Tier Session Status
+---
 
-| Status | Meaning | Card | Robot |
-|--------|---------|------|-------|
-| **idle** | No activity for a while | Green border, calm | Gentle float, green glow |
-| **prompting** | User just submitted a prompt | Cyan pulse | Antenna pulse, eyes widen |
-| **working** | Claude is using tools | Orange pulse | Eyes scanning, typing dots |
-| **waiting** | Claude finished, ready for next prompt | Soft blue border | Blue eyes, gentle chest pulse |
-| **approval** | Tool blocked — needs your yes/no | Screaming yellow, banner, scale-up | Bouncing, "!" emote, yellow glow |
-| **ended** | Session closed | Red, faded | Grey, dash eyes, fade out |
+## Live Session Dashboard
 
-### Live Robot Characters
+Every active Claude Code session appears as an animated character card. At a glance you can see:
 
-Every session gets an animated robot built entirely in CSS:
+- **What each session is doing** — idle, prompting, working, waiting, or needing approval
+- **Project name and working directory** for each session
+- **Live duration timer** counting up since session start
+- **Prompt count and tool call count** updating in real time
+- **Activity feed** at the bottom showing events as they happen
 
-- **Head** with LED eyes and mouth
-- **Antenna** with glowing ball
-- **Torso** with chest light and typing dots
-- **Ground shadow** responding to animations
-- Unique accent color per session (8-color palette)
-- Status-dependent animations that change in real time
+### Status Colors
 
-### Session Detail Panel
+| Status | What it means | Visual |
+|--------|---------------|--------|
+| **Idle** | No activity | Green border, calm character |
+| **Prompting** | You just sent a prompt | Cyan pulse, antenna blink |
+| **Working** | Claude is calling tools | Orange pulse, typing dots |
+| **Waiting** | Claude finished, your turn | Soft blue, gentle pulse |
+| **Approval** | Tool blocked, needs your yes/no | Yellow screaming, alarm sound |
+| **Ended** | Session closed | Red, faded, auto-removed |
 
-Click any session card to open a full detail panel:
+---
 
-- **Prompts** tab — full prompt history (newest first)
-- **Responses** tab — Claude's responses with timestamps
-- **Tool Log** tab — every tool call with input summary
-- **Events** tab — all session events chronologically
-- **Notes** tab — add persistent notes to any session
-- Editable session title, model info, live duration timer
+## 20 Character Models
+
+Pick a character for your sessions — globally or per-session. Each one has unique animations that react to session status.
+
+**Robot** / **Cat** / **Alien** / **Ghost** / **Orb** / **Dragon** / **Penguin** / **Octopus** / **Mushroom** / **Fox** / **Unicorn** / **Jellyfish** / **Owl** / **Bat** / **Cactus** / **Slime** / **Pumpkin** / **Yeti** / **Crystal** / **Bee**
+
+Set a global default in Settings > Character Model, or override per-session in the detail panel.
+
+---
+
+## Session Detail Panel
+
+Click any session card to open a slide-in panel with everything about that session:
+
+- **Conversation** — full prompt/response history in order, with tool calls inline
+- **Tool Log** — every tool call with input summaries and timestamps
+- **Events** — raw session event stream
+- **Notes** — attach persistent notes to any session
+- **Summary** — AI-generated session summaries (uses prompt templates you can customize)
 
 ### Session Controls
 
-| Button | Action |
-|--------|--------|
-| **KILL** | Send SIGTERM to the Claude process (with confirmation modal) |
-| **ARCHIVE** | Hide session from live view, visible in history |
-| **EXPORT** | Download full session data as JSON |
-| **NOTES** | Add/delete persistent notes |
-| **ALERT** | Set duration alerts (e.g., notify after 30 min) |
+| Button | What it does |
+|--------|-------------|
+| **OPEN IN EDITOR** | Jump to the project in your editor |
+| **KILL** | Send SIGTERM to the Claude process (with confirmation) |
+| **ARCHIVE** | Hide from live view, still accessible in history |
+| **SUMMARIZE** | Generate an AI summary using a prompt template |
+| **EXPORT** | Download the full session transcript as JSON |
+| **NOTES** | Add/view persistent notes |
+| **ALERT** | Get notified when a session exceeds a duration (e.g. 30 min) |
+
+You can also **send prompts** directly to a session from the detail panel.
 
 ---
 
-## All Features
+## Session Groups
 
-### Sound System
-- 16 synthesized tones via Web Audio API (no audio files)
-- 19 configurable actions across 3 categories (Session, Tools, System)
-- `urgentAlarm` — loud 3-burst alarm for approval detection, repeats every 10s
-- Per-action sound selection with live preview in settings
-- Master volume control, enable/disable toggle
-- Per-session mute button on each card
+Organize sessions into named groups. Drag-and-drop or assign from the detail panel. Useful when running many sessions across different projects.
 
-### 9 Themes
+Create groups with the **+ NEW GROUP** button in the nav bar.
+
+---
+
+## Team Detection
+
+When Claude Code spawns agent teams (via the Agent SDK), the dashboard detects team relationships and shows them together. Click the team badge to see all members in a modal.
+
+---
+
+## Sound System
+
+16 synthesized tones (no audio files needed) mapped to 19 configurable actions:
+
+- **Session events** — start, end, prompt, response
+- **Tool events** — tool use, approval needed, approval cleared
+- **System events** — connection, error, alert
+
+The `urgentAlarm` tone is the approval screamer — a loud 3-burst alarm that repeats every 10 seconds.
+
+Configure in **Settings > Sounds**: pick which tone plays for each action, adjust master volume, or mute individual sessions.
+
+---
+
+## 9 Themes
 
 | Dark | Light |
 |------|-------|
@@ -100,41 +129,41 @@ Click any session card to open a full detail panel:
 | Monokai | |
 | Solarized | |
 
-Full CSS variable system — every element respects the active theme.
+Switch in **Settings > Appearance**. Every element respects the active theme.
 
-### Analytics Dashboard
-- **Tool Usage** — horizontal bar chart of all tool types
-- **Duration Trends** — session duration over time
-- **Active Projects** — ranked project activity
-- **Daily Heatmap** — hour-by-day activity grid
-- Summary stats: total sessions, avg duration, busiest project, most-used tool
+---
 
-### Session History
+## Session History
+
+All sessions are persisted to a local SQLite database. The **History** tab gives you:
+
 - Full-text search across all sessions
-- Filter by project, status (idle/waiting/working/approval/ended/archived), date range
-- Sort by date, duration, prompts, or tool calls
-- Pagination
+- Filter by project, status, or date range
+- Sort by date, duration, prompt count, or tool calls
+- Pagination for large histories
 
-### Timeline View
-- Visual timeline of session activity
-- Granularity: hourly, daily, or weekly
-- Filter by project and date range
+Historical sessions from `~/.claude/projects/` are auto-imported on startup.
 
-### JSONL Import
-- Auto-imports historical sessions from `~/.claude/projects/` on startup
-- Parses JSONL transcripts into prompts, responses, tool calls, and events
-- Generates session titles from project name + prompt summary
+---
 
-### Settings
-- Theme selection with live preview
-- Font size adjustment (10px–20px)
-- Card size: Small, Compact, Normal, Large
-- Scanline overlay toggle
-- Activity feed visibility
-- Import/Export settings as JSON
-- Reset to defaults
+## Timeline View
 
-### Keyboard Shortcuts
+Visual timeline showing when sessions were active. Switch between hourly, daily, or weekly granularity. Filter by project and date range.
+
+---
+
+## Analytics
+
+The **Analytics** tab shows usage patterns:
+
+- **Tool Usage** — bar chart of which tools Claude uses most
+- **Duration Trends** — how long your sessions run over time
+- **Active Projects** — ranked by activity
+- **Daily Heatmap** — hour-by-day grid showing when you use Claude most
+
+---
+
+## Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
@@ -149,131 +178,31 @@ Full CSS variable system — every element respects the active theme.
 
 ---
 
+## Settings
+
+**Appearance** — theme, font size (10–20px), card size (small/compact/normal/large), scanline effect, animation intensity and speed, character model
+
+**Sounds** — enable/disable, master volume, per-action tone selection with live preview
+
+**Advanced** — summary prompt template editor, import/export settings as JSON, reset to defaults, activity feed toggle
+
+---
+
 ## How It Works
 
 ```
-Claude Code Sessions ──(hooks POST)──> Express Server ──(WebSocket)──> Browser
-                                            │
-                                       SQLite DB
-                                    (session history)
+Claude Code ──(hooks)──> Express Server ──(WebSocket)──> Browser Dashboard
+                              │
+                         SQLite DB
 ```
 
 1. Claude Code fires hook events (session start, prompt, tool use, stop, etc.)
-2. `dashboard-hook.sh` POSTs event JSON to `localhost:3333`
-3. Express processes events, updates in-memory state + SQLite
-4. WebSocket broadcasts to all connected browsers
-5. Dashboard renders animated robots and live session data
+2. A bash hook script POSTs the event JSON to `localhost:3333`
+3. The server processes events, updates state + database
+4. WebSocket pushes updates to all connected browsers
+5. The dashboard renders everything in real time
 
-All hooks run asynchronously (`async: true`) — they never block Claude.
-
----
-
-## Architecture
-
-```
-server/
-├── index.js              # Express + WebSocket server, alert checking
-├── db.js                 # SQLite schema + migrations
-├── sessionStore.js       # In-memory state machine with DB dual-write
-├── hookRouter.js         # POST /api/hooks endpoint
-├── apiRouter.js          # REST API (sessions, notes, alerts, export)
-├── analytics.js          # Analytics queries (tool usage, trends, heatmap)
-├── queryEngine.js        # Session search/filter/pagination
-├── importer.js           # JSONL transcript import
-└── wsManager.js          # WebSocket broadcast
-
-public/
-├── index.html            # Dashboard (zero build, vanilla JS modules)
-├── css/dashboard.css     # 9 themes + robot animations + all styles
-└── js/
-    ├── app.js            # Bootstrap, WS wiring, approval alarm logic
-    ├── robotManager.js   # CSS robot lifecycle
-    ├── sessionPanel.js   # Cards, detail panel, controls
-    ├── soundManager.js   # Web Audio synthesized tones
-    ├── settingsManager.js # Settings persistence + theme/font application
-    ├── statsPanel.js     # Global stats header
-    ├── wsClient.js       # WebSocket client with auto-reconnect
-    ├── navController.js  # View navigation
-    ├── historyPanel.js   # Session history search/filter
-    ├── timelinePanel.js  # Timeline visualization
-    ├── analyticsPanel.js # Analytics charts
-    └── chartUtils.js     # Shared chart utilities
-
-hooks/
-├── dashboard-hook.sh     # Bash: reads stdin, POSTs to localhost:3333
-└── install-hooks.js      # Merges hooks into ~/.claude/settings.json
-```
-
-### Tech Stack
-
-| Component | Technology |
-|-----------|-----------|
-| Backend | Node.js (ESM) + Express 5 |
-| WebSocket | ws 8 |
-| Database | better-sqlite3 (WAL mode) |
-| Frontend | Vanilla JS modules (zero build) |
-| Characters | Pure CSS animated robots |
-| Sounds | Web Audio API (oscillator synthesis) |
-| Font | JetBrains Mono (Google Fonts CDN) |
-| Hooks | Bash script (curl POST) |
-| Port | 3333 |
-
----
-
-## API Endpoints
-
-### Hooks
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/hooks` | Receive hook events from Claude Code |
-
-### Sessions
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/sessions` | List all active sessions |
-| GET | `/api/sessions/search` | Search/filter session history |
-| GET | `/api/sessions/:id/detail` | Full session detail with history |
-| GET | `/api/sessions/:id/export` | Download session as JSON |
-| POST | `/api/sessions/:id/kill` | Kill session process (requires `{confirm:true}`) |
-| POST | `/api/sessions/:id/archive` | Toggle archive status |
-| PUT | `/api/sessions/:id/title` | Update session title |
-
-### Notes
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/sessions/:id/notes` | List session notes |
-| POST | `/api/sessions/:id/notes` | Add a note |
-| DELETE | `/api/sessions/:id/notes/:noteId` | Delete a note |
-
-### Alerts
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/sessions/:id/alerts` | Get alert config |
-| POST | `/api/sessions/:id/alerts` | Set duration alert |
-| DELETE | `/api/sessions/:id/alerts/:alertId` | Remove alert |
-
-### Analytics
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/analytics/summary` | Summary stats |
-| GET | `/api/analytics/tool-usage` | Tool usage breakdown |
-| GET | `/api/analytics/duration-trends` | Duration over time |
-| GET | `/api/analytics/active-projects` | Project activity ranking |
-| GET | `/api/analytics/daily-heatmap` | Hour-by-day heatmap |
-
-### Settings
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/settings` | Get all settings |
-| PUT | `/api/settings` | Update a setting |
-
----
-
-## Database
-
-SQLite auto-created at `data/sessions.db` (WAL mode). Schema migrations run on startup.
-
-Tables: `sessions`, `prompts`, `tool_calls`, `responses`, `events`, `session_notes`, `duration_alerts`, `settings`, `import_meta`
+All hooks run with `async: true` — they never slow down Claude.
 
 ---
 

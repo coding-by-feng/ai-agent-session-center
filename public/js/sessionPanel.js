@@ -57,9 +57,11 @@ function reorderPinnedCards() {
 }
 
 const sessionsData = new Map(); // sessionId -> session object (for duration updates + detail panel)
+const teamsData = new Map();    // teamId -> team object (for team cards)
 let selectedSessionId = null;
 export function getSelectedSessionId() { return selectedSessionId; }
 export function getSessionsData() { return sessionsData; }
+export function getTeamsData() { return teamsData; }
 export { deselectSession };
 
 // ---- Session Groups (persisted in localStorage) ----
@@ -292,6 +294,229 @@ export function initGroups() {
   renderGroups();
 }
 
+// ---- Team Card Functions ----
+
+export function createOrUpdateTeamCard(team) {
+  if (!team || !team.teamId) return;
+  teamsData.set(team.teamId, team);
+
+  const allMemberIds = [team.parentSessionId, ...team.childSessionIds];
+
+  // Hide individual session cards for team members
+  for (const sid of allMemberIds) {
+    const card = document.querySelector(`.session-card[data-session-id="${sid}"]`);
+    if (card) card.classList.add('in-team');
+  }
+
+  let teamCard = document.querySelector(`.team-card[data-team-id="${team.teamId}"]`);
+  if (!teamCard) {
+    teamCard = document.createElement('div');
+    teamCard.className = 'team-card';
+    teamCard.dataset.teamId = team.teamId;
+    teamCard.innerHTML = `
+      <div class="team-card-header">
+        <span class="team-icon">&#9733;</span>
+        <span class="team-name"></span>
+        <span class="team-member-count"></span>
+        <span class="status-badge team-status-badge"></span>
+      </div>
+      <div class="team-characters"></div>
+      <div class="team-card-footer">
+        <span class="team-duration"></span>
+        <span class="team-tools"></span>
+      </div>
+    `;
+    teamCard.addEventListener('click', () => openTeamModal(team.teamId));
+    document.getElementById('sessions-grid').prepend(teamCard);
+  }
+
+  // Update team card info
+  teamCard.querySelector('.team-name').textContent = team.teamName || 'Team';
+  teamCard.querySelector('.team-member-count').textContent = `${allMemberIds.length} member${allMemberIds.length !== 1 ? 's' : ''}`;
+
+  // Compute aggregate status (worst wins)
+  const statusPriority = { approval: 5, working: 4, prompting: 3, waiting: 2, idle: 1, ended: 0 };
+  let worstStatus = 'idle';
+  let totalTools = 0;
+  let earliestStart = Infinity;
+  for (const sid of allMemberIds) {
+    const s = sessionsData.get(sid);
+    if (!s) continue;
+    if ((statusPriority[s.status] || 0) > (statusPriority[worstStatus] || 0)) {
+      worstStatus = s.status;
+    }
+    totalTools += s.totalToolCalls || 0;
+    if (s.startedAt < earliestStart) earliestStart = s.startedAt;
+  }
+  teamCard.dataset.status = worstStatus;
+  const badge = teamCard.querySelector('.team-status-badge');
+  badge.textContent = worstStatus === 'approval' ? 'APPROVAL NEEDED' : worstStatus.toUpperCase();
+  badge.className = `status-badge team-status-badge ${worstStatus}`;
+  teamCard.querySelector('.team-duration').textContent = earliestStart < Infinity ? formatDuration(Date.now() - earliestStart) : '';
+  teamCard.querySelector('.team-tools').textContent = `Tools: ${totalTools}`;
+
+  // Render mini character previews
+  renderTeamCharacters(teamCard, allMemberIds);
+}
+
+function renderTeamCharacters(teamCard, sessionIds) {
+  const container = teamCard.querySelector('.team-characters');
+  container.innerHTML = '';
+  const count = sessionIds.length;
+  // Layout: 1-3 single row, 4-6 two rows, 7+ three rows
+  const rows = count <= 3 ? 1 : count <= 6 ? 2 : 3;
+  const perRow = Math.ceil(count / rows);
+
+  sessionIds.forEach((sid, i) => {
+    const s = sessionsData.get(sid);
+    const row = Math.floor(i / perRow);
+    const col = i % perRow;
+    const itemsInRow = Math.min(perRow, count - row * perRow);
+
+    const charEl = document.createElement('div');
+    charEl.className = 'team-member-char';
+    charEl.dataset.status = s?.status || 'idle';
+
+    // Position in grid
+    const leftPct = itemsInRow > 1 ? (col / (itemsInRow - 1)) * 80 + 10 : 50;
+    const topPct = rows > 1 ? (row / (rows - 1)) * 60 + 10 : 30;
+    const scale = count > 4 ? 0.7 : count > 2 ? 0.85 : 1;
+    charEl.style.left = `${leftPct}%`;
+    charEl.style.top = `${topPct}%`;
+    charEl.style.transform = `translate(-50%, -50%) scale(${scale})`;
+
+    // Build mini character using robotManager templates
+    const model = s?.characterModel || 'robot';
+    const accentColor = s?.accentColor || 'var(--accent-cyan)';
+    charEl.innerHTML = `<div class="css-robot char-${model} mini" data-status="${s?.status || 'idle'}" style="--robot-color:${accentColor}"></div>`;
+
+    // Role badge
+    const badge = document.createElement('div');
+    badge.className = 'team-role-badge';
+    if (s?.teamRole === 'leader') {
+      badge.textContent = 'L';
+      badge.classList.add('leader');
+    } else {
+      badge.textContent = (s?.agentType || 'M').charAt(0).toUpperCase();
+    }
+    charEl.appendChild(badge);
+
+    container.appendChild(charEl);
+  });
+
+  // Also fill in the mini robot content from templates
+  import('./robotManager.js').then(rm => {
+    const templates = rm._getTemplates ? rm._getTemplates() : null;
+    if (!templates) return;
+    container.querySelectorAll('.css-robot').forEach(el => {
+      const model = [...el.classList].find(c => c.startsWith('char-'))?.replace('char-', '') || 'robot';
+      const color = el.style.getPropertyValue('--robot-color') || 'var(--accent-cyan)';
+      if (templates[model]) {
+        el.innerHTML = templates[model](color);
+      }
+    });
+  });
+}
+
+export function removeTeamCard(teamId) {
+  const card = document.querySelector(`.team-card[data-team-id="${teamId}"]`);
+  if (card) {
+    card.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+    card.style.opacity = '0';
+    card.style.transform = 'scale(0.9)';
+    setTimeout(() => card.remove(), 500);
+  }
+  // Unhide member cards
+  const team = teamsData.get(teamId);
+  if (team) {
+    const allIds = [team.parentSessionId, ...team.childSessionIds];
+    for (const sid of allIds) {
+      const sCard = document.querySelector(`.session-card[data-session-id="${sid}"]`);
+      if (sCard) sCard.classList.remove('in-team');
+    }
+  }
+  teamsData.delete(teamId);
+}
+
+function openTeamModal(teamId) {
+  const team = teamsData.get(teamId);
+  if (!team) return;
+
+  const modal = document.getElementById('team-modal');
+  const nameEl = document.getElementById('team-modal-name');
+  const countEl = document.getElementById('team-modal-count');
+  const grid = document.getElementById('team-modal-grid');
+
+  const allMemberIds = [team.parentSessionId, ...team.childSessionIds];
+  nameEl.textContent = team.teamName || 'Team';
+  countEl.textContent = `${allMemberIds.length} member${allMemberIds.length !== 1 ? 's' : ''}`;
+
+  grid.innerHTML = '';
+  for (const sid of allMemberIds) {
+    const s = sessionsData.get(sid);
+    if (!s) continue;
+
+    const card = document.createElement('div');
+    card.className = 'team-modal-card';
+    card.dataset.status = s.status;
+
+    const roleLabel = s.teamRole === 'leader'
+      ? '<span class="team-role-label leader">TEAM LEAD</span>'
+      : `<span class="team-role-label">${escapeHtml(s.agentType || 'member').toUpperCase()}</span>`;
+
+    const prompt = s.currentPrompt || '';
+    const promptExcerpt = prompt.length > 100 ? prompt.substring(0, 100) + '...' : prompt;
+
+    card.innerHTML = `
+      <div class="team-modal-card-header">
+        <div class="team-modal-char-preview">
+          <div class="css-robot char-${s.characterModel || 'robot'} mini" data-status="${s.status}" style="--robot-color:${s.accentColor || 'var(--accent-cyan)'}"></div>
+        </div>
+        <div class="team-modal-card-info">
+          <div class="team-modal-card-title">${escapeHtml(s.projectName)}</div>
+          ${roleLabel}
+          <span class="status-badge ${s.status}">${s.status === 'approval' ? 'APPROVAL NEEDED' : s.status.toUpperCase()}</span>
+        </div>
+      </div>
+      <div class="team-modal-card-prompt">${escapeHtml(promptExcerpt)}</div>
+      <div class="team-modal-card-stats">
+        <span>${formatDuration(Date.now() - s.startedAt)}</span>
+        <span>Tools: ${s.totalToolCalls || 0}</span>
+      </div>
+    `;
+
+    card.addEventListener('click', () => {
+      modal.classList.add('hidden');
+      selectSession(sid);
+    });
+
+    grid.appendChild(card);
+  }
+
+  // Fill in robot templates
+  import('./robotManager.js').then(rm => {
+    const templates = rm._getTemplates ? rm._getTemplates() : null;
+    if (!templates) return;
+    grid.querySelectorAll('.css-robot').forEach(el => {
+      const model = [...el.classList].find(c => c.startsWith('char-'))?.replace('char-', '') || 'robot';
+      const color = el.style.getPropertyValue('--robot-color') || 'var(--accent-cyan)';
+      if (templates[model]) {
+        el.innerHTML = templates[model](color);
+      }
+    });
+  });
+
+  modal.classList.remove('hidden');
+}
+
+// Wire up team modal close
+document.getElementById('team-modal-close')?.addEventListener('click', () => {
+  document.getElementById('team-modal').classList.add('hidden');
+});
+document.getElementById('team-modal')?.addEventListener('click', (e) => {
+  if (e.target.id === 'team-modal') document.getElementById('team-modal').classList.add('hidden');
+});
+
 export function createOrUpdateCard(session) {
   sessionsData.set(session.sessionId, session);
 
@@ -304,7 +529,7 @@ export function createOrUpdateCard(session) {
     card.innerHTML = `
       <button class="close-btn" title="Dismiss card">&times;</button>
       <button class="pin-btn" title="Pin to top">&#9650;</button>
-      <button class="open-editor-btn" title="Open in VS Code">&#9998;</button>
+      <button class="open-editor-btn" title="Open in Editor">&#9998;</button>
       <button class="summarize-card-btn" title="Summarize & Archive">&#8681;AI</button>
       <button class="mute-btn" title="Mute sounds">&#9835;</button>
       <div class="robot-viewport"></div>
@@ -572,6 +797,13 @@ export function createOrUpdateCard(session) {
   badge.textContent = statusLabel;
   badge.className = `status-badge ${session.status}`;
 
+  // Update open-editor button tooltip based on source
+  const editorBtn = card.querySelector('.open-editor-btn');
+  if (editorBtn) {
+    const editorLabels = { vscode: 'Open in VS Code', jetbrains: 'Open in JetBrains', terminal: 'Open in Terminal' };
+    editorBtn.title = editorLabels[session.source] || 'Open in Editor';
+  }
+
   // Update approval banner with detail about what needs approval
   const banner = card.querySelector('.waiting-banner');
   if (banner) {
@@ -716,27 +948,40 @@ function populateDetailPanel(session) {
     titleInput.dataset.sessionId = session.sessionId;
   }
 
-  // Prompt history tab (newest first)
-  const promptHist = document.getElementById('detail-prompt-history');
-  const prompts = (session.promptHistory || []).slice().reverse();
-  promptHist.innerHTML = prompts.map(p => `
-    <div class="prompt-entry">
-      <span class="prompt-time">${formatTime(p.timestamp)}</span>
-      <div class="prompt-text">${escapeHtml(p.text)}</div>
-    </div>
-  `).join('');
-
-  // Response history tab
-  const responseHist = document.getElementById('detail-response-history');
-  const responses = session.responseLog || [];
-  responseHist.innerHTML = responses.length > 0
-    ? responses.map(r => `
-      <div class="response-entry">
-        <span class="response-time">${formatTime(r.timestamp)}</span>
-        <div class="response-text">${escapeHtml(r.text)}</div>
-      </div>
-    `).join('')
-    : '<div class="tab-empty">Responses will appear as the session progresses</div>';
+  // Conversation tab — interleave prompts, tool calls, and responses chronologically
+  const convContainer = document.getElementById('detail-conversation');
+  const convItems = [];
+  for (const p of (session.promptHistory || [])) {
+    convItems.push({ type: 'user', text: p.text, timestamp: p.timestamp });
+  }
+  for (const t of (session.toolLog || [])) {
+    convItems.push({ type: 'tool', tool: t.tool, input: t.input, timestamp: t.timestamp });
+  }
+  for (const r of (session.responseLog || [])) {
+    convItems.push({ type: 'claude', text: r.text, timestamp: r.timestamp });
+  }
+  convItems.sort((a, b) => b.timestamp - a.timestamp);
+  convContainer.innerHTML = convItems.length > 0
+    ? convItems.map(item => {
+        if (item.type === 'user') {
+          return `<div class="conv-entry conv-user">
+            <div class="conv-header"><span class="conv-role">USER</span><span class="conv-time">${formatTime(item.timestamp)}</span><button class="conv-copy" title="Copy">COPY</button></div>
+            <div class="conv-text">${escapeHtml(item.text)}</div>
+          </div>`;
+        } else if (item.type === 'tool') {
+          return `<div class="conv-entry conv-tool">
+            <div class="conv-header"><span class="conv-role">TOOL</span><span class="conv-time">${formatTime(item.timestamp)}</span><button class="conv-copy" title="Copy">COPY</button></div>
+            <span class="conv-tool-name">${escapeHtml(item.tool)}</span>
+            <span class="conv-tool-input">${escapeHtml(item.input)}</span>
+          </div>`;
+        } else {
+          return `<div class="conv-entry conv-claude">
+            <div class="conv-header"><span class="conv-role">CLAUDE</span><span class="conv-time">${formatTime(item.timestamp)}</span><button class="conv-copy" title="Copy">COPY</button></div>
+            <div class="conv-text">${escapeHtml(item.text)}</div>
+          </div>`;
+        }
+      }).join('')
+    : '<div class="tab-empty">Conversation will appear as the session progresses</div>';
 
   // Tool log tab
   const toolLog = document.getElementById('detail-tool-log');
@@ -858,21 +1103,40 @@ export async function openSessionDetailFromHistory(sessionId) {
     data.session.accent_color || null
   );
 
-  // Populate prompt history tab
-  document.getElementById('detail-prompt-history').innerHTML = (data.prompts || []).map(p => `
-    <div class="prompt-entry">
-      <span class="prompt-time">${formatTime(p.timestamp)}</span>
-      <div class="prompt-text">${escapeHtml(p.text)}</div>
-    </div>
-  `).join('') || '<div class="tab-empty">No prompts recorded</div>';
-
-  // Populate response history tab
-  document.getElementById('detail-response-history').innerHTML = (data.responses || []).map(r => `
-    <div class="response-entry">
-      <span class="response-time">${formatTime(r.timestamp)}</span>
-      <div class="response-text">${escapeHtml(r.text_excerpt)}</div>
-    </div>
-  `).join('') || '<div class="tab-empty">No responses recorded</div>';
+  // Populate conversation tab — interleave prompts, tool calls, and responses
+  const histConvItems = [];
+  for (const p of (data.prompts || [])) {
+    histConvItems.push({ type: 'user', text: p.text, timestamp: p.timestamp });
+  }
+  for (const t of (data.tool_calls || [])) {
+    histConvItems.push({ type: 'tool', tool: t.tool_name, input: t.tool_input_summary, timestamp: t.timestamp });
+  }
+  for (const r of (data.responses || [])) {
+    histConvItems.push({ type: 'claude', text: r.text_excerpt, timestamp: r.timestamp });
+  }
+  histConvItems.sort((a, b) => b.timestamp - a.timestamp);
+  const histConvContainer = document.getElementById('detail-conversation');
+  histConvContainer.innerHTML = histConvItems.length > 0
+    ? histConvItems.map(item => {
+        if (item.type === 'user') {
+          return `<div class="conv-entry conv-user">
+            <div class="conv-header"><span class="conv-role">USER</span><span class="conv-time">${formatTime(item.timestamp)}</span><button class="conv-copy" title="Copy">COPY</button></div>
+            <div class="conv-text">${escapeHtml(item.text)}</div>
+          </div>`;
+        } else if (item.type === 'tool') {
+          return `<div class="conv-entry conv-tool">
+            <div class="conv-header"><span class="conv-role">TOOL</span><span class="conv-time">${formatTime(item.timestamp)}</span><button class="conv-copy" title="Copy">COPY</button></div>
+            <span class="conv-tool-name">${escapeHtml(item.tool)}</span>
+            <span class="conv-tool-input">${escapeHtml(item.input)}</span>
+          </div>`;
+        } else {
+          return `<div class="conv-entry conv-claude">
+            <div class="conv-header"><span class="conv-role">CLAUDE</span><span class="conv-time">${formatTime(item.timestamp)}</span><button class="conv-copy" title="Copy">COPY</button></div>
+            <div class="conv-text">${escapeHtml(item.text)}</div>
+          </div>`;
+        }
+      }).join('')
+    : '<div class="tab-empty">No conversation recorded</div>';
 
   // Populate tool log tab
   document.getElementById('detail-tool-log').innerHTML = (data.tool_calls || []).map(t => `
@@ -949,6 +1213,9 @@ async function updatePromptSource(sessionId, knownSource) {
   if (source === 'vscode') {
     input.placeholder = 'Type prompt to send to VS Code... (Enter to send)';
     sendBtn.textContent = 'SEND TO VSCODE';
+  } else if (source === 'jetbrains') {
+    input.placeholder = 'Type prompt to send to JetBrains... (Enter to send)';
+    sendBtn.textContent = 'SEND TO JETBRAINS';
   } else if (source === 'terminal') {
     input.placeholder = 'Type prompt to send to Terminal... (Enter to send)';
     sendBtn.textContent = 'SEND TO TERMINAL';
@@ -1026,6 +1293,26 @@ document.getElementById('session-detail-overlay').addEventListener('click', (e) 
   if (e.target.id === 'session-detail-overlay') deselectSession();
 });
 
+// Conversation copy button (event delegation)
+document.getElementById('detail-conversation').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.conv-copy');
+  if (!btn) return;
+  const entry = btn.closest('.conv-entry');
+  if (!entry) return;
+  // Extract text content from the entry (skip the header row)
+  const textEl = entry.querySelector('.conv-text');
+  const text = textEl
+    ? textEl.textContent
+    : (entry.querySelector('.conv-tool-name')?.textContent || '') + ' ' + (entry.querySelector('.conv-tool-input')?.textContent || '');
+  try {
+    await navigator.clipboard.writeText(text.trim());
+    btn.textContent = 'COPIED';
+    setTimeout(() => { btn.textContent = 'COPY'; }, 1500);
+  } catch {
+    showToast('COPY', 'Failed to copy to clipboard');
+  }
+});
+
 // Tab switching
 document.querySelector('.detail-tabs').addEventListener('click', (e) => {
   const btn = e.target.closest('.tab');
@@ -1064,16 +1351,24 @@ async function sendPromptToSession() {
       input.style.height = 'auto';
       const methodNames = {
         iterm2: 'via iTerm2', terminal: 'via Terminal.app',
-        vscode: 'via VS Code',
+        vscode: 'via VS Code', jetbrains: 'via JetBrains',
         xdotool: 'via xdotool', 'xdotool-paste': 'via xdotool',
         powershell: 'via PowerShell', 'powershell-paste': 'via PowerShell'
       };
       const via = methodNames[data.method] || '';
       showToast('PROMPT SENT', `Typed into session ${via}`);
+    } else if (data.reason === 'accessibility') {
+      // Accessibility permission missing — show hint popup and copy to clipboard
+      try {
+        await navigator.clipboard.writeText(text);
+        input.value = '';
+        input.style.height = 'auto';
+      } catch(_) {}
+      showAccessibilityHint(data.platform, data.terminalApp);
     } else if (data.fallback === 'clipboard') {
       // Backend couldn't inject keystrokes — copy to clipboard as fallback
       const session = sessionsData.get(selectedSessionId);
-      const src = session?.source === 'vscode' ? 'VS Code' : 'your session';
+      const src = session?.source === 'vscode' ? 'VS Code' : session?.source === 'jetbrains' ? 'JetBrains' : 'your session';
       try {
         await navigator.clipboard.writeText(text);
         input.value = '';
@@ -1091,6 +1386,106 @@ async function sendPromptToSession() {
   btn.disabled = false;
   btn.textContent = 'SEND';
   btn.classList.remove('sending');
+}
+
+function showAccessibilityHint(platform, terminalApp) {
+  // Remove existing hint if any
+  document.getElementById('accessibility-hint-modal')?.remove();
+
+  const app = terminalApp || 'your terminal app';
+  const isMac = platform === 'macos';
+  const isLinux = platform === 'linux';
+  const isWindows = platform === 'windows';
+  const pasteKey = isMac ? 'Cmd+V' : 'Ctrl+V';
+
+  let stepsHtml = '';
+  let actionBtnHtml = '';
+
+  if (isMac) {
+    stepsHtml = `
+      <p style="margin:0 0 12px;color:var(--text-secondary)">
+        macOS blocked keystroke injection. Add <strong style="color:var(--robot-color,#00e5ff)">${app}</strong> to Accessibility access:
+      </p>
+      <ol style="margin:0 0 14px;padding-left:20px;color:var(--text-primary)">
+        <li>Open <strong>System Settings</strong> &rarr; <strong>Privacy &amp; Security</strong> &rarr; <strong>Accessibility</strong></li>
+        <li>Click <strong>+</strong> and add <strong style="color:var(--robot-color,#00e5ff)">${app}</strong></li>
+        <li>Make sure the toggle is <strong style="color:#00ff88">ON</strong></li>
+        <li><strong>Restart ${app}</strong> for changes to take effect</li>
+      </ol>
+    `;
+    actionBtnHtml = `
+      <button id="accessibility-hint-open-settings" class="qa-btn" style="width:100%;justify-content:center;padding:8px 0;font-size:13px">
+        Open Accessibility Settings
+      </button>
+    `;
+  } else if (isLinux) {
+    stepsHtml = `
+      <p style="margin:0 0 12px;color:var(--text-secondary)">
+        Could not send keystrokes to <strong style="color:var(--robot-color,#00e5ff)">${app}</strong>. Install the required tools:
+      </p>
+      <div style="margin:0 0 14px;color:var(--text-primary)">
+        <p style="margin:0 0 6px"><strong>X11</strong> (most distros):</p>
+        <code style="display:block;background:var(--bg-card);padding:8px 12px;border-radius:4px;border:1px solid var(--border-color);font-size:12px;margin:0 0 10px">sudo apt install xdotool xclip</code>
+        <p style="margin:0 0 6px"><strong>Wayland</strong> (GNOME 41+, Sway):</p>
+        <code style="display:block;background:var(--bg-card);padding:8px 12px;border-radius:4px;border:1px solid var(--border-color);font-size:12px">sudo apt install wtype wl-clipboard</code>
+      </div>
+    `;
+  } else if (isWindows) {
+    stepsHtml = `
+      <p style="margin:0 0 12px;color:var(--text-secondary)">
+        Could not send keystrokes to <strong style="color:var(--robot-color,#00e5ff)">${app}</strong>.
+      </p>
+      <ol style="margin:0 0 14px;padding-left:20px;color:var(--text-primary)">
+        <li>Make sure <strong>${app}</strong> is not running as Administrator while this dashboard runs as a normal user (or vice versa)</li>
+        <li>Check that PowerShell execution policy allows scripts:<br>
+          <code style="background:var(--bg-card);padding:2px 6px;border-radius:3px;border:1px solid var(--border-color);font-size:12px">Set-ExecutionPolicy RemoteSigned -Scope CurrentUser</code>
+        </li>
+        <li>Try running both as the <strong>same</strong> user privilege level</li>
+      </ol>
+    `;
+  } else {
+    stepsHtml = `
+      <p style="margin:0 0 12px;color:var(--text-secondary)">
+        Could not send keystrokes to <strong style="color:var(--robot-color,#00e5ff)">${app}</strong>. Permission was denied.
+      </p>
+    `;
+  }
+
+  const modal = document.createElement('div');
+  modal.id = 'accessibility-hint-modal';
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal-box" style="max-width:480px">
+      <div class="modal-header">
+        <span class="modal-title" style="color:#ffdd00">&#9888; Permission Required</span>
+        <button class="modal-close" id="accessibility-hint-close">&times;</button>
+      </div>
+      <div class="modal-body" style="font-size:13px;line-height:1.6">
+        ${stepsHtml}
+        <p style="margin:0 0 14px;color:var(--text-dim);font-size:12px">
+          Your prompt has been copied to the clipboard &mdash; paste it manually with
+          <kbd style="background:var(--bg-card);padding:1px 6px;border-radius:3px;border:1px solid var(--border-color)">${pasteKey}</kbd> for now.
+        </p>
+        ${actionBtnHtml}
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  // Close handlers
+  const close = () => modal.remove();
+  document.getElementById('accessibility-hint-close').addEventListener('click', close);
+  modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+
+  // Open macOS Accessibility settings
+  const openBtn = document.getElementById('accessibility-hint-open-settings');
+  if (openBtn) {
+    openBtn.addEventListener('click', async () => {
+      try {
+        await fetch('/api/open-accessibility-settings', { method: 'POST' });
+      } catch(_) {}
+    });
+  }
 }
 
 document.getElementById('detail-prompt-send').addEventListener('click', sendPromptToSession);
@@ -1120,7 +1515,9 @@ document.getElementById('ctrl-open-editor').addEventListener('click', async (e) 
     });
     const data = await resp.json();
     if (data.ok) {
-      showToast('EDITOR', 'Opening in VS Code...');
+      const editorName = { vscode: 'VS Code', jetbrains: 'JetBrains', terminal: 'Terminal' };
+      const s = sessionsData.get(selectedSessionId);
+      showToast('EDITOR', `Opening in ${editorName[s?.source] || 'editor'}...`);
     } else {
       showToast('OPEN FAILED', data.error || 'Unknown error');
     }
@@ -1135,7 +1532,8 @@ document.getElementById('ctrl-kill').addEventListener('click', (e) => {
   if (!selectedSessionId) return;
   const session = sessionsData.get(selectedSessionId);
   const msg = document.getElementById('kill-modal-msg');
-  msg.textContent = `Kill session for "${session ? session.projectName : selectedSessionId}"? This will send SIGTERM to the Claude process.`;
+  const sourceLabel = session?.source === 'vscode' ? ' (VS Code)' : session?.source === 'jetbrains' ? ' (JetBrains)' : session?.source === 'terminal' ? ' (Terminal)' : '';
+  msg.textContent = `Kill session for "${session ? session.projectName : selectedSessionId}"${sourceLabel}? This will terminate the Claude process (SIGTERM → SIGKILL).`;
   document.getElementById('kill-modal').classList.remove('hidden');
 });
 
@@ -1207,34 +1605,154 @@ document.getElementById('ctrl-archive').addEventListener('click', async (e) => {
   }
 });
 
-// Summarize & archive button (detail panel)
-document.getElementById('ctrl-summarize').addEventListener('click', async (e) => {
-  e.stopPropagation();
-  if (!selectedSessionId) return;
-  const btn = e.currentTarget;
+// ---- Summarize Prompt Selector Modal ----
+
+let selectedPromptId = null;
+let summaryPromptsCache = [];
+
+async function loadSummaryPrompts() {
+  try {
+    const resp = await fetch('/api/summary-prompts');
+    const data = await resp.json();
+    summaryPromptsCache = data.prompts || [];
+    return summaryPromptsCache;
+  } catch(e) {
+    return [];
+  }
+}
+
+function renderSummaryPromptList(prompts) {
+  const list = document.getElementById('summarize-prompt-list');
+  if (!list) return;
+  selectedPromptId = null;
+  const runBtn = document.getElementById('summarize-run');
+  if (runBtn) runBtn.disabled = true;
+
+  list.innerHTML = prompts.map(p => `
+    <div class="summarize-prompt-item${p.is_default ? ' default' : ''}" data-prompt-id="${p.id}">
+      <div class="summarize-prompt-item-header">
+        <span class="summarize-prompt-name">${escapeHtml(p.name)}</span>
+        ${p.is_default ? '<span class="summarize-prompt-default-badge">DEFAULT</span>' : ''}
+        <div class="summarize-prompt-actions">
+          <button class="summarize-prompt-default-btn" data-id="${p.id}" title="Set as default">&#9733;</button>
+          <button class="summarize-prompt-edit-btn" data-id="${p.id}" title="Edit">&#9998;</button>
+          <button class="summarize-prompt-delete-btn" data-id="${p.id}" title="Delete">&times;</button>
+        </div>
+      </div>
+      <div class="summarize-prompt-preview">${escapeHtml(p.prompt).substring(0, 150)}${p.prompt.length > 150 ? '...' : ''}</div>
+    </div>
+  `).join('');
+
+  // Select handler
+  list.querySelectorAll('.summarize-prompt-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      if (e.target.closest('.summarize-prompt-actions')) return;
+      list.querySelectorAll('.summarize-prompt-item').forEach(i => i.classList.remove('selected'));
+      item.classList.add('selected');
+      selectedPromptId = parseInt(item.dataset.promptId, 10);
+      if (runBtn) runBtn.disabled = false;
+    });
+  });
+
+  // Set default button
+  list.querySelectorAll('.summarize-prompt-default-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      await fetch(`/api/summary-prompts/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_default: true })
+      });
+      const prompts = await loadSummaryPrompts();
+      renderSummaryPromptList(prompts);
+      showToast('DEFAULT SET', 'Summary prompt set as default');
+    });
+  });
+
+  // Edit button
+  list.querySelectorAll('.summarize-prompt-edit-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.id, 10);
+      const p = summaryPromptsCache.find(x => x.id === id);
+      if (!p) return;
+      const nameInput = document.getElementById('summarize-custom-name');
+      const promptInput = document.getElementById('summarize-custom-prompt');
+      const form = document.getElementById('summarize-custom-form');
+      nameInput.value = p.name;
+      promptInput.value = p.prompt;
+      form.classList.remove('hidden');
+      form.dataset.editId = id;
+    });
+  });
+
+  // Delete button
+  list.querySelectorAll('.summarize-prompt-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      await fetch(`/api/summary-prompts/${id}`, { method: 'DELETE' });
+      const prompts = await loadSummaryPrompts();
+      renderSummaryPromptList(prompts);
+      showToast('DELETED', 'Prompt template removed');
+    });
+  });
+
+  // Auto-select the default prompt
+  const defaultPrompt = prompts.find(p => p.is_default);
+  if (defaultPrompt) {
+    const defaultItem = list.querySelector(`[data-prompt-id="${defaultPrompt.id}"]`);
+    if (defaultItem) {
+      defaultItem.classList.add('selected');
+      selectedPromptId = defaultPrompt.id;
+      if (runBtn) runBtn.disabled = false;
+    }
+  }
+}
+
+async function openSummarizeModal() {
+  const prompts = await loadSummaryPrompts();
+  renderSummaryPromptList(prompts);
+  // Reset custom form
+  const form = document.getElementById('summarize-custom-form');
+  form.classList.add('hidden');
+  delete form.dataset.editId;
+  document.getElementById('summarize-custom-name').value = '';
+  document.getElementById('summarize-custom-prompt').value = '';
+  document.getElementById('summarize-modal').classList.remove('hidden');
+}
+
+async function runSummarize(promptId, customPrompt) {
+  const modal = document.getElementById('summarize-modal');
+  modal.classList.add('hidden');
+  const btn = document.getElementById('ctrl-summarize');
   btn.disabled = true;
   btn.textContent = 'SUMMARIZING...';
+
+  const body = {};
+  if (promptId) body.prompt_id = promptId;
+  if (customPrompt) body.custom_prompt = customPrompt;
+
   try {
     const resp = await fetch(`/api/sessions/${selectedSessionId}/summarize`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
     });
     const data = await resp.json();
     if (data.ok) {
       const session = sessionsData.get(selectedSessionId);
       if (session) { session.archived = 1; session.summary = data.summary; }
-      // Update summary tab content
       const summaryEl = document.getElementById('summary-content');
       if (summaryEl) {
         summaryEl.innerHTML = `<div class="summary-text">${escapeHtml(data.summary).replace(/\n/g, '<br>')}</div>`;
       }
-      // Switch to summary tab
       document.querySelectorAll('.detail-tabs .tab').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
       const summaryTab = document.querySelector('.detail-tabs .tab[data-tab="summary"]');
       if (summaryTab) summaryTab.classList.add('active');
       document.getElementById('tab-summary').classList.add('active');
-      // Update archive button
       const archBtn = document.getElementById('ctrl-archive');
       if (archBtn) archBtn.textContent = 'UNARCHIVE';
       btn.textContent = 'RE-SUMMARIZE';
@@ -1250,6 +1768,80 @@ document.getElementById('ctrl-summarize').addEventListener('click', async (e) =>
     btn.textContent = 'SUMMARIZE';
     btn.disabled = false;
   }
+}
+
+// Summarize button → opens prompt selector modal
+document.getElementById('ctrl-summarize').addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (!selectedSessionId) return;
+  openSummarizeModal();
+});
+
+// Modal close
+document.getElementById('summarize-modal-close')?.addEventListener('click', () => {
+  document.getElementById('summarize-modal').classList.add('hidden');
+});
+document.getElementById('summarize-cancel')?.addEventListener('click', () => {
+  document.getElementById('summarize-modal').classList.add('hidden');
+});
+document.getElementById('summarize-modal')?.addEventListener('click', (e) => {
+  if (e.target.id === 'summarize-modal') document.getElementById('summarize-modal').classList.add('hidden');
+});
+
+// Run summarize with selected prompt
+document.getElementById('summarize-run')?.addEventListener('click', () => {
+  if (selectedPromptId) runSummarize(selectedPromptId, null);
+});
+
+// Toggle custom prompt form
+document.getElementById('summarize-toggle-custom')?.addEventListener('click', () => {
+  const form = document.getElementById('summarize-custom-form');
+  form.classList.toggle('hidden');
+  if (!form.classList.contains('hidden')) {
+    delete form.dataset.editId;
+    document.getElementById('summarize-custom-name').value = '';
+    document.getElementById('summarize-custom-prompt').value = '';
+  }
+});
+
+// Save as template
+document.getElementById('summarize-save-template')?.addEventListener('click', async () => {
+  const nameInput = document.getElementById('summarize-custom-name');
+  const promptInput = document.getElementById('summarize-custom-prompt');
+  const form = document.getElementById('summarize-custom-form');
+  const name = nameInput.value.trim();
+  const prompt = promptInput.value.trim();
+  if (!name || !prompt) { showToast('MISSING', 'Name and prompt are required'); return; }
+
+  const editId = form.dataset.editId;
+  if (editId) {
+    await fetch(`/api/summary-prompts/${editId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, prompt })
+    });
+    showToast('UPDATED', 'Template updated');
+  } else {
+    await fetch('/api/summary-prompts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, prompt })
+    });
+    showToast('SAVED', 'Template saved');
+  }
+  form.classList.add('hidden');
+  delete form.dataset.editId;
+  nameInput.value = '';
+  promptInput.value = '';
+  const prompts = await loadSummaryPrompts();
+  renderSummaryPromptList(prompts);
+});
+
+// Use once (custom prompt without saving)
+document.getElementById('summarize-use-once')?.addEventListener('click', () => {
+  const prompt = document.getElementById('summarize-custom-prompt').value.trim();
+  if (!prompt) { showToast('MISSING', 'Write a prompt first'); return; }
+  runSummarize(null, prompt);
 });
 
 // Export button
@@ -1452,7 +2044,7 @@ function highlightInDetailPanel(query) {
   clearDetailHighlights();
   if (!query) return;
 
-  const tabContents = ['detail-prompt-history', 'detail-response-history', 'detail-tool-log'];
+  const tabContents = ['detail-conversation', 'detail-tool-log'];
   let firstMatch = null;
   let matchTab = null;
 
@@ -1460,16 +2052,14 @@ function highlightInDetailPanel(query) {
     const container = document.getElementById(containerId);
     if (!container) continue;
 
-    const entries = container.querySelectorAll('.prompt-entry, .response-entry, .tool-entry');
+    const entries = container.querySelectorAll('.conv-entry, .tool-entry');
     for (const entry of entries) {
       const text = entry.textContent.toLowerCase();
       if (text.includes(query)) {
         entry.classList.add('search-highlight');
         if (!firstMatch) {
           firstMatch = entry;
-          matchTab = containerId === 'detail-prompt-history' ? 'prompts'
-            : containerId === 'detail-response-history' ? 'responses'
-            : 'tools';
+          matchTab = containerId === 'detail-conversation' ? 'conversation' : 'tools';
         }
       }
     }
