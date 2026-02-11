@@ -3,3 +3,5 @@ node_modules/
 data/
 PLAN.md
 TEAM_PROMPT.md
+CLAUDE.md
+.claude
