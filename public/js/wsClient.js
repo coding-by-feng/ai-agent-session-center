@@ -6,6 +6,9 @@ let onSessionUpdate = null;
 let onDurationAlert = null;
 let onTeamUpdate = null;
 let onHookStats = null;
+let onTerminalOutput = null;
+let onTerminalReady = null;
+let onTerminalClosed = null;
 let reconnectTimer = null;
 let reconnectTarget = 0; // timestamp when reconnect fires
 
@@ -16,13 +19,20 @@ export function getReconnectRemaining() {
   return Math.max(0, Math.ceil((reconnectTarget - Date.now()) / 1000));
 }
 
-export function connect({ onSnapshotCb, onSessionUpdateCb, onDurationAlertCb, onTeamUpdateCb, onHookStatsCb }) {
+export function connect({ onSnapshotCb, onSessionUpdateCb, onDurationAlertCb, onTeamUpdateCb, onHookStatsCb, onTerminalOutputCb, onTerminalReadyCb, onTerminalClosedCb }) {
   onSnapshot = onSnapshotCb;
   onSessionUpdate = onSessionUpdateCb;
   onDurationAlert = onDurationAlertCb;
   onTeamUpdate = onTeamUpdateCb;
   onHookStats = onHookStatsCb;
+  onTerminalOutput = onTerminalOutputCb || null;
+  onTerminalReady = onTerminalReadyCb || null;
+  onTerminalClosed = onTerminalClosedCb || null;
   _connect();
+}
+
+export function getWs() {
+  return ws;
 }
 
 function _connect() {
@@ -48,6 +58,12 @@ function _connect() {
       onHookStats(data.stats);
     } else if (data.type === 'duration_alert' && onDurationAlert) {
       onDurationAlert(data);
+    } else if (data.type === 'terminal_output' && onTerminalOutput) {
+      onTerminalOutput(data.terminalId, data.data);
+    } else if (data.type === 'terminal_ready' && onTerminalReady) {
+      onTerminalReady(data.terminalId);
+    } else if (data.type === 'terminal_closed' && onTerminalClosed) {
+      onTerminalClosed(data.terminalId, data.reason);
     }
   };
 

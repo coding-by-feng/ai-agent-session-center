@@ -588,6 +588,18 @@ body::after {
   background: rgba(0, 255, 136, 0.08);
 }
 
+.session-card .status-badge.connecting {
+  color: #4caf50;
+  border: 1px solid rgba(76, 175, 80, 0.3);
+  background: rgba(76, 175, 80, 0.08);
+  animation: pulse-text 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-text {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 .session-card .status-badge.prompting {
   color: var(--accent-cyan);
   border: 1px solid var(--border-accent-strong);
@@ -1374,74 +1386,79 @@ body::after {
 }
 
 /* Tool log entries */
-.tool-entry {
+/* Activity log entries (unified tool calls + events + responses) */
+.activity-entry {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border-faint);
-  font-size: 11px;
-}
-
-.tool-entry .tool-time {
-  font-size: 9px;
-  color: var(--text-dim);
-  flex-shrink: 0;
-  width: 60px;
-}
-
-.tool-entry .tool-name-badge {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: var(--bg-accent);
-  color: var(--accent-cyan);
-  border: 1px solid var(--border-accent);
-  flex-shrink: 0;
-}
-
-.tool-entry .tool-detail {
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 1;
-}
-
-/* Event log entries */
-.event-entry {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: flex-start;
+  gap: 8px;
   padding: 5px 0;
   border-bottom: 1px solid var(--border-faint);
   font-size: 11px;
+  border-left: 3px solid transparent;
+  padding-left: 8px;
 }
 
-.event-entry .event-time {
+.activity-entry.activity-tool {
+  border-left-color: var(--accent-orange, #ff9100);
+}
+
+.activity-entry.activity-event {
+  border-left-color: var(--accent-purple, #bb86fc);
+}
+
+.activity-entry.activity-response {
+  border-left-color: var(--accent-green, #00ff88);
+}
+
+.activity-time {
   font-size: 9px;
   color: var(--text-dim);
   flex-shrink: 0;
-  width: 60px;
+  width: 55px;
+  padding-top: 1px;
 }
 
-.event-entry .event-type {
+.activity-badge {
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.5px;
-  color: var(--accent-purple);
+  padding: 1px 6px;
+  border-radius: 3px;
   flex-shrink: 0;
-  width: 120px;
+  white-space: nowrap;
 }
 
-.event-entry .event-detail {
+.activity-badge-tool {
+  background: var(--bg-accent);
+  color: var(--accent-orange, #ff9100);
+  border: 1px solid var(--accent-orange, #ff9100);
+}
+
+.activity-badge-event {
+  background: var(--bg-accent);
+  color: var(--accent-purple, #bb86fc);
+  border: 1px solid var(--border-accent);
+}
+
+.activity-badge-response {
+  background: var(--bg-accent);
+  color: var(--accent-green, #00ff88);
+  border: 1px solid var(--accent-green, #00ff88);
+}
+
+.activity-detail {
   color: var(--text-secondary);
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   flex: 1;
+  white-space: nowrap;
+}
+
+.activity-entry.activity-response .activity-detail {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 80px;
+  overflow-y: auto;
 }
 
 /* Empty state inside tabs */
@@ -2303,6 +2320,287 @@ body::after {
 }
 
 /* ============================================================
+   Terminal Tab
+   ============================================================ */
+
+.terminal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px;
+  margin-bottom: 4px;
+}
+
+#terminal-container {
+  width: 100%;
+  height: calc(100vh - 400px);
+  min-height: 300px;
+  background: #0a0a1a;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+#terminal-container .xterm {
+  padding: 6px;
+  height: 100%;
+}
+
+#terminal-container .xterm-viewport {
+  overflow-y: auto !important;
+}
+
+.terminal-status {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 4px 8px;
+  color: var(--text-secondary);
+}
+
+.terminal-status.connected {
+  color: var(--accent-green, #4caf50);
+}
+
+.terminal-status.disconnected {
+  color: var(--accent-red, #ff5555);
+}
+
+
+.ctrl-btn.terminal {
+  color: #4caf50;
+  border-color: rgba(76, 175, 80, 0.3);
+}
+
+.ctrl-btn.terminal:hover {
+  background: rgba(76, 175, 80, 0.15);
+  border-color: #4caf50;
+}
+
+.session-card.has-terminal {
+  border-color: rgba(76, 175, 80, 0.4) !important;
+}
+
+.session-card.has-terminal:not(.has-queue) {
+  animation: pulse-glow-terminal 3s ease-in-out infinite;
+}
+
+@keyframes pulse-glow-terminal {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(76, 175, 80, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(76, 175, 80, 0.2), 0 0 40px rgba(76, 175, 80, 0.06);
+  }
+}
+
+/* ============================================================
+   New Session Modal
+   ============================================================ */
+
+.new-session-panel {
+  width: 420px;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.new-session-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.new-session-header h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.new-session-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ssh-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ssh-field label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+.ssh-field input,
+.ssh-field select {
+  background: var(--card-bg, rgba(255,255,255,0.04));
+  border: 1px solid var(--border-color, rgba(255,255,255,0.08));
+  color: var(--text-primary);
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+
+.ssh-field input:focus,
+.ssh-field select:focus {
+  outline: none;
+  border-color: var(--accent-cyan, #00e5ff);
+}
+
+.ssh-field-row {
+  display: flex;
+  gap: 8px;
+}
+
+.ssh-field-grow {
+  flex: 1;
+}
+
+.ssh-field-small {
+  width: 80px;
+}
+
+.new-session-footer {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+
+.qa-btn-terminal {
+  color: #4caf50 !important;
+}
+
+.qa-btn-terminal:hover {
+  background: rgba(76, 175, 80, 0.15) !important;
+}
+
+/* Session mode toggle */
+.ssh-mode-toggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border-accent, #1a1a3a);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.ssh-mode-btn {
+  flex: 1;
+  padding: 6px 10px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  background: transparent;
+  color: var(--text-secondary, #888);
+  border: none;
+  border-right: 1px solid var(--border-accent, #1a1a3a);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.ssh-mode-btn:last-child {
+  border-right: none;
+}
+
+.ssh-mode-btn:hover {
+  background: rgba(255,255,255,0.04);
+  color: var(--text-primary, #e0e0e0);
+}
+
+.ssh-mode-btn.active {
+  background: rgba(0,229,255,0.12);
+  color: var(--accent-cyan, #00e5ff);
+}
+
+/* Tmux session list */
+.ssh-tmux-refresh {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 14px;
+  background: transparent;
+  color: var(--accent-cyan, #00e5ff);
+  border: 1px solid var(--border-accent, #1a1a3a);
+  border-radius: 3px;
+  cursor: pointer;
+  vertical-align: middle;
+  line-height: 1;
+}
+
+.ssh-tmux-refresh:hover {
+  background: rgba(0,229,255,0.1);
+  border-color: var(--accent-cyan, #00e5ff);
+}
+
+.ssh-tmux-list {
+  max-height: 160px;
+  overflow-y: auto;
+  border: 1px solid var(--border-accent, #1a1a3a);
+  border-radius: 4px;
+  background: rgba(0,0,0,0.2);
+}
+
+.ssh-tmux-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  transition: background 0.12s;
+}
+
+.ssh-tmux-item:last-child {
+  border-bottom: none;
+}
+
+.ssh-tmux-item:hover {
+  background: rgba(255,255,255,0.04);
+}
+
+.ssh-tmux-item.selected {
+  background: rgba(0,229,255,0.12);
+  border-color: rgba(0,229,255,0.2);
+}
+
+.ssh-tmux-name {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--text-primary, #e0e0e0);
+  font-weight: 500;
+}
+
+.ssh-tmux-meta {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--text-secondary, #888);
+  letter-spacing: 0.3px;
+}
+
+.ssh-tmux-empty,
+.ssh-tmux-loading {
+  padding: 12px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-secondary, #888);
+  font-family: var(--font-mono, monospace);
+}
+
+.ssh-tmux-error {
+  color: #ff5555;
+}
+
+.ssh-field-hint {
+  font-size: 10px;
+  color: var(--text-secondary, #888);
+  font-weight: 400;
+}
+
+/* ============================================================
    Toast Notifications
    ============================================================ */
 
@@ -3013,6 +3311,46 @@ body[data-card-size="small"] .group-grid {
   color: var(--text-dim);
   margin-bottom: 10px;
   line-height: 1.5;
+}
+
+/* API Key row */
+.api-key-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.api-key-input {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 6px 10px;
+  background: var(--bg-primary, #0a0a1a);
+  color: var(--text-primary, #e0e0e0);
+  border: 1px solid var(--border-accent, #1a1a3a);
+  border-radius: 4px;
+  outline: none;
+}
+
+.api-key-input:focus {
+  border-color: var(--accent-cyan, #00e5ff);
+}
+
+.api-key-toggle {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 6px 10px;
+  background: transparent;
+  color: var(--text-secondary, #888);
+  border: 1px solid var(--border-accent, #1a1a3a);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.api-key-toggle:hover {
+  color: var(--text-primary, #e0e0e0);
+  border-color: var(--text-secondary, #888);
 }
 
 /* ============================================================
@@ -8917,6 +9255,44 @@ body[data-effect-ended="none"] .css-robot[data-status="ended"] {
   0%, 100% { transform: translateX(0) rotate(0deg); }
   25%      { transform: translateX(-8px) rotate(-3deg); }
   75%      { transform: translateX(8px) rotate(3deg); }
+}
+
+/* questions — floating ??? above the character */
+.css-robot[data-movement="questions"]::before {
+  content: '???'; position: absolute; z-index: 12; pointer-events: none;
+  top: -8px; left: 50%; transform: translateX(-50%);
+  font-size: 18px; font-weight: 900; font-family: var(--font-mono);
+  color: #ffcc00;
+  text-shadow: 0 0 8px rgba(255,204,0,0.8), 0 0 20px rgba(255,204,0,0.4);
+  animation: trig-questions-float 0.7s ease-in-out 4;
+}
+.css-robot[data-movement="questions"]::after {
+  content: '?'; position: absolute; z-index: 12; pointer-events: none;
+  top: -2px; right: 2px;
+  font-size: 12px; font-weight: 900; font-family: var(--font-mono);
+  color: rgba(255,204,0,0.6);
+  text-shadow: 0 0 6px rgba(255,204,0,0.5);
+  animation: trig-questions-drift 0.9s ease-in-out 3;
+  animation-delay: 0.2s;
+}
+.css-robot[data-movement="questions"] .robot-body-wrap {
+  animation: trig-questions-tilt 0.6s ease-in-out 4 !important;
+}
+@keyframes trig-questions-float {
+  0%, 100% { opacity: 0; transform: translateX(-50%) translateY(0) scale(0.5); }
+  20%      { opacity: 1; transform: translateX(-50%) translateY(-6px) scale(1.1); }
+  50%      { opacity: 1; transform: translateX(-50%) translateY(-12px) scale(1); }
+  80%      { opacity: 0.6; transform: translateX(-50%) translateY(-16px) scale(0.9); }
+}
+@keyframes trig-questions-drift {
+  0%, 100% { opacity: 0; transform: translateY(0) rotate(0deg); }
+  30%      { opacity: 0.8; transform: translateY(-10px) rotate(10deg); }
+  70%      { opacity: 0.5; transform: translateY(-18px) rotate(-5deg); }
+}
+@keyframes trig-questions-tilt {
+  0%, 100% { transform: rotate(0deg); }
+  30%      { transform: rotate(5deg); }
+  70%      { transform: rotate(-5deg); }
 }
 
 /* fade — dramatic ghost-out */

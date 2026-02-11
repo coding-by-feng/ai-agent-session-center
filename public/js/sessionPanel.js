@@ -77,6 +77,7 @@ const sessionsData = new Map(); // sessionId -> session object (for duration upd
 const teamsData = new Map();    // teamId -> team object (for team cards)
 let selectedSessionId = null;
 export function getSelectedSessionId() { return selectedSessionId; }
+export function setSelectedSessionId(id) { selectedSessionId = id; }
 export function getSessionsData() { return sessionsData; }
 export function getTeamsData() { return teamsData; }
 export { deselectSession };
@@ -846,6 +847,9 @@ export function createOrUpdateCard(session) {
     } else if (src === 'jetbrains') {
       sourceBadge.textContent = 'JetBrains';
       sourceBadge.className = 'source-badge source-jetbrains';
+    } else if (src === 'ssh') {
+      sourceBadge.textContent = 'SSH';
+      sourceBadge.className = 'source-badge source-ssh';
     } else if (src === 'terminal') {
       // Show the specific terminal app name if available
       const termName = resolveTermName(session.termProgram);
@@ -899,6 +903,7 @@ export function createOrUpdateCard(session) {
     qBadge.style.display = qCount > 0 ? '' : 'none';
   }
   card.classList.toggle('has-queue', qCount > 0);
+  card.classList.toggle('has-terminal', !!session.terminalId);
 
   // If this session is selected, update the detail panel too
   if (selectedSessionId === session.sessionId) {
@@ -1047,6 +1052,7 @@ function selectSession(sessionId) {
 function deselectSession() {
   selectedSessionId = null;
   document.getElementById('session-detail-overlay').classList.add('hidden');
+  // Keep terminal alive — content is preserved when panel reopens
 }
 
 function populateDetailPanel(session) {
@@ -1084,60 +1090,52 @@ function populateDetailPanel(session) {
     titleInput.dataset.sessionId = session.sessionId;
   }
 
-  // Conversation tab — interleave prompts, tool calls, and responses chronologically
+  // Prompt History tab — show only user prompts in chronological order
   const convContainer = document.getElementById('detail-conversation');
-  const convItems = [];
-  for (const p of (session.promptHistory || [])) {
-    convItems.push({ type: 'user', text: p.text, timestamp: p.timestamp });
+  const prompts = (session.promptHistory || []).slice().sort((a, b) => b.timestamp - a.timestamp);
+  convContainer.innerHTML = prompts.length > 0
+    ? prompts.map((p, i) => `<div class="conv-entry conv-user">
+        <div class="conv-header"><span class="conv-role">#${prompts.length - i}</span><span class="conv-time">${formatTime(p.timestamp)}</span><button class="conv-copy" title="Copy">COPY</button></div>
+        <div class="conv-text">${escapeHtml(p.text)}</div>
+      </div>`).join('')
+    : '<div class="tab-empty">No prompts yet</div>';
+
+  // Activity tab — merge events, tool calls, and responses chronologically
+  const activityLog = document.getElementById('detail-activity-log');
+  const activityItems = [];
+  for (const e of (session.events || [])) {
+    activityItems.push({ kind: 'event', type: e.type, detail: e.detail, timestamp: e.timestamp });
   }
   for (const t of (session.toolLog || [])) {
-    convItems.push({ type: 'tool', tool: t.tool, input: t.input, timestamp: t.timestamp });
+    activityItems.push({ kind: 'tool', tool: t.tool, input: t.input, timestamp: t.timestamp });
   }
   for (const r of (session.responseLog || [])) {
-    convItems.push({ type: 'claude', text: r.text, timestamp: r.timestamp });
+    activityItems.push({ kind: 'response', text: r.text, timestamp: r.timestamp });
   }
-  convItems.sort((a, b) => b.timestamp - a.timestamp);
-  convContainer.innerHTML = convItems.length > 0
-    ? convItems.map(item => {
-        if (item.type === 'user') {
-          return `<div class="conv-entry conv-user">
-            <div class="conv-header"><span class="conv-role">USER</span><span class="conv-time">${formatTime(item.timestamp)}</span><button class="conv-copy" title="Copy">COPY</button></div>
-            <div class="conv-text">${escapeHtml(item.text)}</div>
+  activityItems.sort((a, b) => b.timestamp - a.timestamp);
+  activityLog.innerHTML = activityItems.length > 0
+    ? activityItems.map(item => {
+        if (item.kind === 'tool') {
+          return `<div class="activity-entry activity-tool">
+            <span class="activity-time">${formatTime(item.timestamp)}</span>
+            <span class="activity-badge activity-badge-tool">${escapeHtml(item.tool)}</span>
+            <span class="activity-detail">${escapeHtml(item.input)}</span>
           </div>`;
-        } else if (item.type === 'tool') {
-          return `<div class="conv-entry conv-tool">
-            <div class="conv-header"><span class="conv-role">TOOL</span><span class="conv-time">${formatTime(item.timestamp)}</span><button class="conv-copy" title="Copy">COPY</button></div>
-            <span class="conv-tool-name">${escapeHtml(item.tool)}</span>
-            <span class="conv-tool-input">${escapeHtml(item.input)}</span>
+        } else if (item.kind === 'response') {
+          return `<div class="activity-entry activity-response">
+            <span class="activity-time">${formatTime(item.timestamp)}</span>
+            <span class="activity-badge activity-badge-response">RESPONSE</span>
+            <span class="activity-detail">${escapeHtml(item.text)}</span>
           </div>`;
         } else {
-          return `<div class="conv-entry conv-claude">
-            <div class="conv-header"><span class="conv-role">CLAUDE</span><span class="conv-time">${formatTime(item.timestamp)}</span><button class="conv-copy" title="Copy">COPY</button></div>
-            <div class="conv-text">${escapeHtml(item.text)}</div>
+          return `<div class="activity-entry activity-event">
+            <span class="activity-time">${formatTime(item.timestamp)}</span>
+            <span class="activity-badge activity-badge-event">${escapeHtml(item.type)}</span>
+            <span class="activity-detail">${escapeHtml(item.detail)}</span>
           </div>`;
         }
       }).join('')
-    : '<div class="tab-empty">Conversation will appear as the session progresses</div>';
-
-  // Tool log tab
-  const toolLog = document.getElementById('detail-tool-log');
-  toolLog.innerHTML = (session.toolLog || []).map(t => `
-    <div class="tool-entry">
-      <span class="tool-time">${formatTime(t.timestamp)}</span>
-      <span class="tool-name-badge">${escapeHtml(t.tool)}</span>
-      <span class="tool-detail">${escapeHtml(t.input)}</span>
-    </div>
-  `).join('');
-
-  // Events tab
-  const eventsLog = document.getElementById('detail-events-log');
-  eventsLog.innerHTML = (session.events || []).map(e => `
-    <div class="event-entry">
-      <span class="event-time">${formatTime(e.timestamp)}</span>
-      <span class="event-type">${escapeHtml(e.type)}</span>
-      <span class="event-detail">${escapeHtml(e.detail)}</span>
-    </div>
-  `).join('');
+    : '<div class="tab-empty">No activity yet</div>';
 
   // Summary tab
   const summaryEl = document.getElementById('summary-content');
@@ -1174,6 +1172,22 @@ function populateDetailPanel(session) {
     } else {
       ctrlOpenBtn.style.display = '';
     }
+  }
+
+  // Auto-attach terminal if Terminal tab is the default active tab
+  const activeTab = document.querySelector('.detail-tabs .tab.active');
+  if (activeTab && activeTab.dataset.tab === 'terminal' && session.terminalId) {
+    import('./terminalManager.js').then(tm => {
+      if (tm.getActiveTerminalId() === session.terminalId) {
+        // Same terminal already active — just refit after panel becomes visible
+        requestAnimationFrame(() => tm.refitTerminal());
+      } else {
+        tm.attachToSession(session.sessionId, session.terminalId);
+      }
+    });
+  } else if (activeTab && activeTab.dataset.tab === 'terminal' && !session.terminalId) {
+    // Switching to a session with no terminal — detach the old one
+    import('./terminalManager.js').then(tm => tm.detachTerminal());
   }
 
 }
@@ -1283,23 +1297,44 @@ export async function openSessionDetailFromHistory(sessionId) {
       }).join('')
     : '<div class="tab-empty">No conversation recorded</div>';
 
-  // Populate tool log tab
-  document.getElementById('detail-tool-log').innerHTML = (data.tool_calls || []).map(t => `
-    <div class="tool-entry">
-      <span class="tool-time">${formatTime(t.timestamp)}</span>
-      <span class="tool-name-badge">${escapeHtml(t.tool_name)}</span>
-      <span class="tool-detail">${escapeHtml(t.tool_input_summary)}</span>
-    </div>
-  `).join('') || '<div class="tab-empty">No tool calls recorded</div>';
-
-  // Populate events tab
-  document.getElementById('detail-events-log').innerHTML = (data.events || []).map(e => `
-    <div class="event-entry">
-      <span class="event-time">${formatTime(e.timestamp)}</span>
-      <span class="event-type">${escapeHtml(e.event_type)}</span>
-      <span class="event-detail">${escapeHtml(e.detail)}</span>
-    </div>
-  `).join('') || '<div class="tab-empty">No events recorded</div>';
+  // Populate activity tab (merged tool calls + events + responses)
+  const histActivityItems = [];
+  for (const t of (data.tool_calls || [])) {
+    histActivityItems.push({ kind: 'tool', tool: t.tool_name, input: t.tool_input_summary, timestamp: t.timestamp });
+  }
+  for (const e of (data.events || [])) {
+    histActivityItems.push({ kind: 'event', type: e.event_type, detail: e.detail, timestamp: e.timestamp });
+  }
+  for (const r of (data.responses || [])) {
+    histActivityItems.push({ kind: 'response', text: r.text_excerpt || r.text, timestamp: r.timestamp });
+  }
+  histActivityItems.sort((a, b) => b.timestamp - a.timestamp);
+  const actEl = document.getElementById('detail-activity-log');
+  if (actEl) {
+    actEl.innerHTML = histActivityItems.length > 0
+      ? histActivityItems.map(item => {
+          if (item.kind === 'tool') {
+            return `<div class="activity-entry activity-tool">
+              <span class="activity-time">${formatTime(item.timestamp)}</span>
+              <span class="activity-badge activity-badge-tool">${escapeHtml(item.tool)}</span>
+              <span class="activity-detail">${escapeHtml(item.input)}</span>
+            </div>`;
+          } else if (item.kind === 'response') {
+            return `<div class="activity-entry activity-response">
+              <span class="activity-time">${formatTime(item.timestamp)}</span>
+              <span class="activity-badge activity-badge-response">RESPONSE</span>
+              <span class="activity-detail">${escapeHtml(item.text)}</span>
+            </div>`;
+          } else {
+            return `<div class="activity-entry activity-event">
+              <span class="activity-time">${formatTime(item.timestamp)}</span>
+              <span class="activity-badge activity-badge-event">${escapeHtml(item.type)}</span>
+              <span class="activity-detail">${escapeHtml(item.detail)}</span>
+            </div>`;
+          }
+        }).join('')
+      : '<div class="tab-empty">No activity recorded</div>';
+  }
 
   // Summary tab
   const summaryEl = document.getElementById('summary-content');
@@ -1435,6 +1470,20 @@ document.querySelector('.detail-tabs').addEventListener('click', (e) => {
   // Toggle active on content
   document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
   document.getElementById(`tab-${tabName}`).classList.add('active');
+
+  // Terminal tab: refit or attach; switching away just leaves terminal in background
+  if (tabName === 'terminal' && selectedSessionId) {
+    const session = sessionsData.get(selectedSessionId);
+    if (session && session.terminalId) {
+      import('./terminalManager.js').then(tm => {
+        if (tm.getActiveTerminalId() === session.terminalId) {
+          requestAnimationFrame(() => tm.refitTerminal());
+        } else {
+          tm.attachToSession(selectedSessionId, session.terminalId);
+        }
+      });
+    }
+  }
 });
 
 // ---- Control Button Handlers ----
@@ -1847,6 +1896,29 @@ document.getElementById('ctrl-queue')?.addEventListener('click', (e) => {
   document.getElementById('tab-queue')?.classList.add('active');
 });
 
+// Terminal button — switch to terminal tab
+document.getElementById('ctrl-terminal')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (!selectedSessionId) return;
+  const session = sessionsData.get(selectedSessionId);
+  if (!session || !session.terminalId) {
+    showToast('TERMINAL', 'No terminal attached to this session');
+    return;
+  }
+  document.querySelectorAll('.detail-tabs .tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+  const tTab = document.querySelector('.detail-tabs .tab[data-tab="terminal"]');
+  if (tTab) tTab.classList.add('active');
+  document.getElementById('tab-terminal')?.classList.add('active');
+  import('./terminalManager.js').then(tm => {
+    if (tm.getActiveTerminalId() === session.terminalId) {
+      requestAnimationFrame(() => tm.refitTerminal());
+    } else {
+      tm.attachToSession(selectedSessionId, session.terminalId);
+    }
+  });
+});
+
 // Add to Queue
 document.getElementById('queue-add-btn')?.addEventListener('click', async () => {
   if (!selectedSessionId) return;
@@ -2085,7 +2157,7 @@ function highlightInDetailPanel(query) {
   clearDetailHighlights();
   if (!query) return;
 
-  const tabContents = ['detail-conversation', 'detail-tool-log'];
+  const tabContents = ['detail-conversation', 'detail-activity-log'];
   let firstMatch = null;
   let matchTab = null;
 
@@ -2093,14 +2165,14 @@ function highlightInDetailPanel(query) {
     const container = document.getElementById(containerId);
     if (!container) continue;
 
-    const entries = container.querySelectorAll('.conv-entry, .tool-entry');
+    const entries = container.querySelectorAll('.conv-entry, .activity-entry');
     for (const entry of entries) {
       const text = entry.textContent.toLowerCase();
       if (text.includes(query)) {
         entry.classList.add('search-highlight');
         if (!firstMatch) {
           firstMatch = entry;
-          matchTab = containerId === 'detail-conversation' ? 'conversation' : 'tools';
+          matchTab = containerId === 'detail-conversation' ? 'conversation' : 'activity';
         }
       }
     }

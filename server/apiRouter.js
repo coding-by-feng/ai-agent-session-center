@@ -3,8 +3,9 @@ import { Router } from 'express';
 import { searchSessions, getSessionDetail, getDistinctProjects, getTimeline, fullTextSearch } from './queryEngine.js';
 import { getToolUsageBreakdown, getDurationTrends, getActiveProjects, getDailyHeatmap, getSummaryStats } from './analytics.js';
 import { startImport, getImportStatus } from './importer.js';
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSummary, getSession, detectSessionSource, setSessionCharacterModel, setSessionAccentColor, updateQueueCount } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSummary, getSession, detectSessionSource, setSessionCharacterModel, setSessionAccentColor, updateQueueCount, createTerminalSession } from './sessionStore.js';
 import { broadcast } from './wsManager.js';
+import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions } from './sshManager.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
 import { getMqStats } from './mqReader.js';
 import { execFile, execSync } from 'child_process';
@@ -1546,6 +1547,122 @@ router.post('/sessions/:id/alerts', (req, res) => {
 // Alerts - delete
 router.delete('/sessions/:id/alerts/:alertId', (req, res) => {
   db.prepare('DELETE FROM duration_alerts WHERE id = ? AND session_id = ?').run(req.params.alertId, req.params.id);
+  res.json({ ok: true });
+});
+
+// ── SSH Keys ──
+
+router.get('/ssh-keys', (req, res) => {
+  res.json({ keys: listSshKeys() });
+});
+
+// ── SSH Profiles ──
+
+router.get('/ssh-profiles', (req, res) => {
+  const profiles = db.prepare('SELECT * FROM ssh_profiles ORDER BY updated_at DESC').all();
+  res.json({ profiles });
+});
+
+router.post('/ssh-profiles', (req, res) => {
+  const { name, host, port, username, authMethod, privateKeyPath, workingDir, defaultCommand } = req.body;
+  if (!name || !username) return res.status(400).json({ error: 'name and username required' });
+  const now = Date.now();
+  const result = db.prepare(
+    'INSERT INTO ssh_profiles (name, host, port, username, auth_method, private_key_path, working_dir, default_command, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(name, host || 'localhost', port || 22, username, authMethod || 'key', privateKeyPath || null, workingDir || '~', defaultCommand || 'claude', now, now);
+  res.json({ ok: true, id: result.lastInsertRowid });
+});
+
+router.put('/ssh-profiles/:id', (req, res) => {
+  const { name, host, port, username, authMethod, privateKeyPath, workingDir, defaultCommand } = req.body;
+  const now = Date.now();
+  db.prepare(
+    'UPDATE ssh_profiles SET name = COALESCE(?, name), host = COALESCE(?, host), port = COALESCE(?, port), username = COALESCE(?, username), auth_method = COALESCE(?, auth_method), private_key_path = COALESCE(?, private_key_path), working_dir = COALESCE(?, working_dir), default_command = COALESCE(?, default_command), updated_at = ? WHERE id = ?'
+  ).run(name, host, port, username, authMethod, privateKeyPath, workingDir, defaultCommand, now, req.params.id);
+  res.json({ ok: true });
+});
+
+router.delete('/ssh-profiles/:id', (req, res) => {
+  db.prepare('DELETE FROM ssh_profiles WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ── Tmux Sessions ──
+
+router.post('/tmux-sessions', async (req, res) => {
+  try {
+    const { host, port, username, password, privateKeyPath, authMethod, passphrase } = req.body;
+    if (!username) return res.status(400).json({ error: 'username required' });
+    const config = {
+      host: host || 'localhost',
+      port: port || 22,
+      username,
+      authMethod: authMethod || 'key',
+      privateKeyPath,
+      password,
+      passphrase,
+    };
+    const sessions = await listTmuxSessions(config);
+    res.json({ sessions });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Terminals ──
+
+router.post('/terminals', async (req, res) => {
+  try {
+    const { profileId, host, port, username, password, privateKeyPath, authMethod, workingDir, command, apiKey, tmuxSession, useTmux } = req.body;
+
+    let config;
+    if (profileId) {
+      const profile = db.prepare('SELECT * FROM ssh_profiles WHERE id = ?').get(profileId);
+      if (!profile) return res.status(404).json({ error: 'Profile not found' });
+      config = {
+        host: host || profile.host,
+        port: port || profile.port,
+        username: username || profile.username,
+        authMethod: authMethod || profile.auth_method,
+        privateKeyPath: privateKeyPath || profile.private_key_path,
+        workingDir: workingDir || profile.working_dir,
+        command: command || profile.default_command,
+        password,
+      };
+    } else {
+      if (!username) return res.status(400).json({ error: 'username required' });
+      config = { host: host || 'localhost', port: port || 22, username, authMethod: authMethod || 'key', privateKeyPath, workingDir: workingDir || '~', command: command || 'claude', password };
+    }
+
+    // Tmux modes
+    if (tmuxSession) config.tmuxSession = tmuxSession; // attach to existing
+    if (useTmux) config.useTmux = true; // wrap in new tmux session
+
+    // Resolve API key: per-session override > global setting
+    let resolvedApiKey = apiKey || '';
+    if (!resolvedApiKey) {
+      const row = db.prepare('SELECT value FROM user_settings WHERE key = ?').get('anthropicApiKey');
+      if (row && row.value) resolvedApiKey = row.value;
+    }
+    if (resolvedApiKey) {
+      config.apiKey = resolvedApiKey;
+    }
+
+    const terminalId = await createTerminal(config, null);
+    // Create session card immediately so it appears in the dashboard
+    await createTerminalSession(terminalId, config);
+    res.json({ ok: true, terminalId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/terminals', (req, res) => {
+  res.json({ terminals: getTerminals() });
+});
+
+router.delete('/terminals/:id', (req, res) => {
+  closeTerminal(req.params.id);
   res.json({ ok: true });
 });
 

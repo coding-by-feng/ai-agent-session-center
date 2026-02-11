@@ -201,25 +201,35 @@ async function openHistoryDetail(sessionId) {
     </div>`;
   }).join('');
 
-  // Tool log tab
-  const toolLog = document.getElementById('detail-tool-log');
-  toolLog.innerHTML = (s.tools || []).map(t => `
-    <div class="tool-entry">
-      <span class="tool-time">${formatTime(t.timestamp)}</span>
-      <span class="tool-name-badge">${escapeHtml(t.tool)}</span>
-      <span class="tool-detail">${escapeHtml(t.input)}</span>
-    </div>
-  `).join('');
-
-  // Events tab
-  const eventsLog = document.getElementById('detail-events-log');
-  eventsLog.innerHTML = (s.events || []).map(e => `
-    <div class="event-entry">
-      <span class="event-time">${formatTime(e.timestamp)}</span>
-      <span class="event-type">${escapeHtml(e.type)}</span>
-      <span class="event-detail">${escapeHtml(e.detail)}</span>
-    </div>
-  `).join('');
+  // Activity tab (merged tool calls + events)
+  const histItems = [];
+  for (const t of (s.tools || [])) {
+    histItems.push({ kind: 'tool', tool: t.tool, input: t.input, timestamp: t.timestamp });
+  }
+  for (const e of (s.events || [])) {
+    histItems.push({ kind: 'event', type: e.type, detail: e.detail, timestamp: e.timestamp });
+  }
+  histItems.sort((a, b) => b.timestamp - a.timestamp);
+  const actEl = document.getElementById('detail-activity-log');
+  if (actEl) {
+    actEl.innerHTML = histItems.length > 0
+      ? histItems.map(item => {
+          if (item.kind === 'tool') {
+            return `<div class="activity-entry activity-tool">
+              <span class="activity-time">${formatTime(item.timestamp)}</span>
+              <span class="activity-badge activity-badge-tool">${escapeHtml(item.tool)}</span>
+              <span class="activity-detail">${escapeHtml(item.input)}</span>
+            </div>`;
+          } else {
+            return `<div class="activity-entry activity-event">
+              <span class="activity-time">${formatTime(item.timestamp)}</span>
+              <span class="activity-badge activity-badge-event">${escapeHtml(item.type)}</span>
+              <span class="activity-detail">${escapeHtml(item.detail)}</span>
+            </div>`;
+          }
+        }).join('')
+      : '<div class="tab-empty">No activity recorded</div>';
+  }
 
   document.getElementById('session-detail-overlay').classList.remove('hidden');
 }

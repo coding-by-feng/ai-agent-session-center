@@ -23,6 +23,7 @@ const effectLibrary = {
   fade:         'Fade Out',
   shrink:       'Shrink',
   dissolve:     'Dissolve',
+  questions:    'Question Marks',
 };
 
 // Default effect for each action
