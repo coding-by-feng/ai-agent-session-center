@@ -39,6 +39,64 @@ try {
     $enriched = $input_json
 }
 
+# ---- Tab title management ----
+# Keep the terminal tab/window title set to "Claude: <project>" so the dashboard can find it.
+# On SessionStart: resolve project name and cache to temp file.
+# On every other event: read cache and refresh the title.
+# Uses console title (works on Windows Terminal, ConEmu, cmd, PowerShell, VS Code, JetBrains).
+# Works in all terminals including VS Code and JetBrains integrated terminals.
+try {
+    $hookEvent = ($input_json | ConvertFrom-Json).hook_event_name
+    $sessionId = ($input_json | ConvertFrom-Json).session_id
+} catch {
+    $hookEvent = $null
+    $sessionId = $null
+}
+
+$cacheDir = "$env:TEMP\claude-tab-titles"
+if ($sessionId) {
+    $cacheFile = "$cacheDir\$sessionId"
+
+    if ($hookEvent -eq 'SessionStart') {
+        # Resolve project name from cwd in JSON or from Claude process cwd
+        $project = $null
+        try {
+            $cwd = ($input_json | ConvertFrom-Json).cwd
+            if ($cwd) { $project = Split-Path $cwd -Leaf }
+        } catch {}
+        if (-not $project -and $claude_pid) {
+            try {
+                $proc = Get-Process -Id $claude_pid -ErrorAction Stop
+                $project = Split-Path $proc.Path -Leaf
+                # Try to get actual working directory via CIM
+                $wmiProc = Get-CimInstance Win32_Process -Filter "ProcessId=$claude_pid" -ErrorAction Stop
+                if ($wmiProc.CommandLine -match '([A-Z]:\\[^\s"]+)') {
+                    $possiblePath = $Matches[1]
+                    if (Test-Path $possiblePath -PathType Container) {
+                        $project = Split-Path $possiblePath -Leaf
+                    }
+                }
+            } catch {}
+        }
+        if ($project) {
+            if (-not (Test-Path $cacheDir)) { New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null }
+            $project | Out-File -FilePath $cacheFile -Encoding utf8 -NoNewline
+        }
+    } elseif ($hookEvent -eq 'SessionEnd') {
+        # Clean up
+        if (Test-Path $cacheFile) { Remove-Item $cacheFile -Force }
+    } else {
+        # Read cached project name
+        $project = $null
+        if (Test-Path $cacheFile) { $project = Get-Content $cacheFile -Raw -ErrorAction SilentlyContinue }
+    }
+
+    # Set/refresh the console window title on every event (except SessionEnd)
+    if ($hookEvent -ne 'SessionEnd' -and $project) {
+        $Host.UI.RawUI.WindowTitle = "Claude: $project"
+    }
+}
+
 # POST to dashboard server (fire-and-forget)
 try {
     $job = Start-Job -ScriptBlock {

@@ -11,7 +11,8 @@ const defaults = {
   activityFeedVisible: 'true',
   characterModel: 'robot',
   animationIntensity: '100',
-  animationSpeed: '100'
+  animationSpeed: '100',
+  movementActions: ''
 };
 
 let settings = { ...defaults };
@@ -216,6 +217,7 @@ function syncUIToSettings() {
   const spdDisplay = document.getElementById('anim-speed-display');
   if (spdSlider) spdSlider.value = animSpeed;
   if (spdDisplay) spdDisplay.textContent = animSpeed + '%';
+
 }
 
 // Initialize settings UI bindings
@@ -398,8 +400,139 @@ export function initSettingsUI() {
   // Build per-action sound config grid (deferred import to avoid circular)
   initSoundGrid();
 
+  // Build per-action movement effect grid
+  initMovementGrid();
+
   // Build summary prompt template management
   initSummaryPromptSettings();
+}
+
+/**
+ * Shared per-action config grid component.
+ * Used by both sound and movement settings.
+ *
+ * @param {HTMLElement} grid - container element
+ * @param {Object} opts
+ * @param {Object|string[]} opts.library - available options: { key: label } or [name, ...]
+ * @param {Object} opts.currentMapping - action -> current value
+ * @param {Object} opts.labels - action -> display label
+ * @param {Object} opts.categories - category -> [action, ...]
+ * @param {Function} opts.onChange - (action, value) => void
+ * @param {Function} [opts.onPreview] - (value) => void (adds preview button if provided)
+ */
+function buildActionGrid(grid, opts) {
+  const { library, currentMapping, labels, categories, onChange, onPreview } = opts;
+
+  // Normalize library to [{ value, label }]
+  let options;
+  if (Array.isArray(library)) {
+    options = library.map(s => ({ value: s, label: s }));
+  } else {
+    options = Object.entries(library).map(([val, lbl]) => ({ value: val, label: lbl }));
+  }
+
+  let html = '';
+  for (const [category, actions] of Object.entries(categories)) {
+    html += `<div class="sound-category-label">${category}</div>`;
+    for (const action of actions) {
+      const current = currentMapping[action] || 'none';
+      const optionsHtml = options.map(o =>
+        `<option value="${o.value}"${o.value === current ? ' selected' : ''}>${o.label}</option>`
+      ).join('');
+      html += `<div class="sound-action-row">` +
+        `<span class="sound-action-label">${labels[action] || action}</span>` +
+        `<select class="sound-action-select" data-action="${action}">${optionsHtml}</select>` +
+        (onPreview ? `<button class="sound-preview-btn" data-action="${action}" title="Preview">&#9654;</button>` : '') +
+        `</div>`;
+    }
+  }
+  grid.innerHTML = html;
+
+  grid.addEventListener('change', (e) => {
+    const sel = e.target.closest('.sound-action-select');
+    if (!sel) return;
+    onChange(sel.dataset.action, sel.value);
+  });
+
+  if (onPreview) {
+    grid.addEventListener('click', (e) => {
+      const btn = e.target.closest('.sound-preview-btn');
+      if (!btn) return;
+      const action = btn.dataset.action;
+      const sel = grid.querySelector(`.sound-action-select[data-action="${action}"]`);
+      if (sel) onPreview(sel.value);
+    });
+  }
+}
+
+async function initMovementGrid() {
+  const movementManager = await import('./movementManager.js');
+  const robotManager = await import('./robotManager.js');
+  const grid = document.getElementById('movement-action-grid');
+  if (!grid) return;
+
+  // Render preview character in the viewport
+  const viewport = document.getElementById('movement-preview-viewport');
+  if (viewport) {
+    const templates = robotManager._getTemplates();
+    const currentModel = get('characterModel') || 'robot';
+    const templateFn = templates[currentModel] || templates.robot;
+
+    // Clear placeholder label, render character
+    viewport.innerHTML = '';
+    const previewChar = document.createElement('div');
+    previewChar.className = `css-robot char-${currentModel}`;
+    previewChar.dataset.status = 'idle';
+    previewChar.style.setProperty('--robot-color', '#00e5ff');
+    previewChar.innerHTML = templateFn('#00e5ff');
+    viewport.appendChild(previewChar);
+
+    // Effect name label
+    const nameLabel = document.createElement('div');
+    nameLabel.className = 'movement-preview-effect-name';
+    viewport.appendChild(nameLabel);
+
+    // Store ref for preview callback
+    viewport._previewChar = previewChar;
+    viewport._nameLabel = nameLabel;
+    viewport._clearTimer = null;
+  }
+
+  buildActionGrid(grid, {
+    library: movementManager.getEffectLibrary(),
+    currentMapping: movementManager.getActionEffects(),
+    labels: movementManager.getActionLabels(),
+    categories: movementManager.getActionCategories(),
+    onChange: (action, value) => movementManager.setActionEffect(action, value),
+    onPreview: (effectName) => {
+      if (!viewport || !viewport._previewChar) return;
+      const char = viewport._previewChar;
+      const label = viewport._nameLabel;
+
+      // Clear previous
+      if (viewport._clearTimer) clearTimeout(viewport._clearTimer);
+      char.removeAttribute('data-movement');
+      void char.offsetWidth; // force reflow for re-trigger
+
+      if (effectName === 'none') {
+        label.textContent = '';
+        label.classList.remove('visible');
+        return;
+      }
+
+      // Apply effect
+      char.setAttribute('data-movement', effectName);
+      const lib = movementManager.getEffectLibrary();
+      label.textContent = lib[effectName] || effectName;
+      label.classList.add('visible');
+
+      // Auto-clear after 3.5s
+      viewport._clearTimer = setTimeout(() => {
+        char.removeAttribute('data-movement');
+        label.classList.remove('visible');
+      }, 3500);
+    },
+  });
 }
 
 async function initSoundGrid() {
@@ -407,42 +540,13 @@ async function initSoundGrid() {
   const grid = document.getElementById('sound-action-grid');
   if (!grid) return;
 
-  const library = soundManager.getSoundLibrary();
-  const currentMapping = soundManager.getActionSounds();
-  const labels = soundManager.getActionLabels();
-  const categories = soundManager.getActionCategories();
-
-  let html = '';
-  for (const [category, actions] of Object.entries(categories)) {
-    html += `<div class="sound-category-label">${category}</div>`;
-    for (const action of actions) {
-      const current = currentMapping[action] || 'none';
-      const options = library.map(s =>
-        `<option value="${s}"${s === current ? ' selected' : ''}>${s}</option>`
-      ).join('');
-      html += `<div class="sound-action-row">` +
-        `<span class="sound-action-label">${labels[action] || action}</span>` +
-        `<select class="sound-action-select" data-action="${action}">${options}</select>` +
-        `<button class="sound-preview-btn" data-action="${action}" title="Preview">&#9654;</button>` +
-        `</div>`;
-    }
-  }
-  grid.innerHTML = html;
-
-  // Wire dropdowns
-  grid.addEventListener('change', (e) => {
-    const sel = e.target.closest('.sound-action-select');
-    if (!sel) return;
-    soundManager.setActionSound(sel.dataset.action, sel.value);
-  });
-
-  // Wire preview buttons
-  grid.addEventListener('click', (e) => {
-    const btn = e.target.closest('.sound-preview-btn');
-    if (!btn) return;
-    const action = btn.dataset.action;
-    const sel = grid.querySelector(`.sound-action-select[data-action="${action}"]`);
-    if (sel) soundManager.previewSound(sel.value);
+  buildActionGrid(grid, {
+    library: soundManager.getSoundLibrary(),
+    currentMapping: soundManager.getActionSounds(),
+    labels: soundManager.getActionLabels(),
+    categories: soundManager.getActionCategories(),
+    onChange: (action, value) => soundManager.setActionSound(action, value),
+    onPreview: (value) => soundManager.previewSound(value),
   });
 }
 

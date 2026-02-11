@@ -5,9 +5,7 @@ import { getToolUsageBreakdown, getDurationTrends, getActiveProjects, getDailyHe
 import { startImport, getImportStatus } from './importer.js';
 import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSummary, getSession, detectSessionSource, setSessionCharacterModel, setSessionAccentColor } from './sessionStore.js';
 import { execFile, execSync } from 'child_process';
-import { writeFileSync, unlinkSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
+import { writeFileSync } from 'fs';
 import db from './db.js';
 
 const router = Router();
@@ -150,325 +148,6 @@ router.get('/sessions/:id/source', (req, res) => {
   res.json({ source });
 });
 
-// Send prompt to running Claude session by typing into its terminal
-router.post('/sessions/:id/prompt', async (req, res) => {
-  const sessionId = req.params.id;
-  const { prompt } = req.body;
-  if (!prompt || !prompt.trim()) {
-    return res.status(400).json({ error: 'prompt is required' });
-  }
-
-  // Get the session's project path for process matching
-  const memSession = getSession(sessionId);
-  const dbRow = !memSession ? db.prepare('SELECT project_path FROM sessions WHERE id = ?').get(sessionId) : null;
-  const projectPath = memSession?.projectPath || dbRow?.project_path;
-
-  // Find the running Claude process for this session (matches by cwd)
-  const pid = findClaudeProcess(sessionId, projectPath);
-  if (!pid) {
-    return res.status(404).json({ error: 'No running Claude process found for this session', fallback: 'clipboard' });
-  }
-
-  const promptText = prompt.trim();
-  const tmpFile = join(tmpdir(), `claude-prompt-${Date.now()}.txt`);
-  try {
-    writeFileSync(tmpFile, promptText, 'utf-8');
-  } catch(e) {
-    return res.status(500).json({ error: 'Failed to create temp file' });
-  }
-
-  try {
-    const platform = process.platform;
-
-    if (platform === 'darwin') {
-      // ---- macOS ----
-      const tty = getProcessTty(pid);
-
-      // Strategy 1: iTerm2 (best — uses write text, no focus needed)
-      if (tty) {
-        const ttyPath = tty.startsWith('/dev/') ? tty : `/dev/tty${tty}`;
-        try {
-          const result = await runShellScript('osascript', ['-e', [
-            `set promptText to read POSIX file "${tmpFile}"`,
-            'tell application "iTerm2"',
-            '  repeat with w in windows',
-            '    repeat with t in tabs of w',
-            '      repeat with s in sessions of t',
-            `        if tty of s is "${ttyPath}" then`,
-            '          tell s to write text promptText',
-            '          return "ok"',
-            '        end if',
-            '      end repeat',
-            '    end repeat',
-            '  end repeat',
-            'end tell',
-            'return "not_found"'
-          ].join('\n')]);
-          if (result.trim() === 'ok') {
-            return res.json({ ok: true, method: 'iterm2' });
-          }
-        } catch(e) { /* iTerm2 not available */ }
-
-        // Strategy 2: Terminal.app (paste via clipboard)
-        try {
-          const result = await runShellScript('osascript', ['-e', [
-            `set promptText to read POSIX file "${tmpFile}"`,
-            'tell application "Terminal"',
-            '  repeat with w in windows',
-            '    repeat with t in tabs of w',
-            `      if tty of t is "${ttyPath}" then`,
-            '        set frontmost of w to true',
-            '        set selected tab of w to t',
-            '        activate',
-            '        delay 0.3',
-            '        set savedClip to ""',
-            '        try',
-            '          set savedClip to the clipboard as text',
-            '        end try',
-            '        set the clipboard to promptText',
-            '        tell application "System Events"',
-            '          tell process "Terminal"',
-            '            keystroke "v" using command down',
-            '            delay 0.1',
-            '            keystroke return',
-            '          end tell',
-            '        end tell',
-            '        delay 0.3',
-            '        set the clipboard to savedClip',
-            '        return "ok"',
-            '      end if',
-            '    end repeat',
-            '  end repeat',
-            'end tell',
-            'return "not_found"'
-          ].join('\n')]);
-          if (result.trim() === 'ok') {
-            return res.json({ ok: true, method: 'terminal' });
-          }
-        } catch(e) {
-          if (e.message && (e.message.includes('1002') || e.message.includes('not allowed to send keystrokes') || e.message.includes('not allowed assistive access'))) {
-            return res.status(403).json({
-              error: 'Accessibility permission required',
-              reason: 'accessibility',
-              platform: 'macos',
-              terminalApp: detectTerminalApp(pid) || 'Terminal',
-              fallback: 'clipboard'
-            });
-          }
-        }
-      }
-
-      // Strategy 3: JetBrains session — activate IDE, paste into terminal
-      if (!tty || isJetBrainsProcess(pid)) {
-        const jbApp = detectTerminalApp(pid);
-        if (jbApp && !['Terminal', 'iTerm2', 'Ghostty', 'Alacritty', 'Kitty', 'Warp', 'WezTerm', 'Hyper', 'Tabby', 'Visual Studio Code'].includes(jbApp)) {
-          try {
-            await runShellScript('osascript', ['-e', [
-              `set promptText to read POSIX file "${tmpFile}"`,
-              'set savedClip to ""',
-              'try',
-              '  set savedClip to the clipboard as text',
-              'end try',
-              'set the clipboard to promptText',
-              `tell application "${jbApp}"`,
-              '  activate',
-              'end tell',
-              'delay 0.5',
-              'tell application "System Events"',
-              '  tell (first process whose frontmost is true)',
-              '    keystroke "v" using command down',
-              '    delay 0.2',
-              '    keystroke return',
-              '  end tell',
-              'end tell',
-              'delay 0.3',
-              'set the clipboard to savedClip',
-            ].join('\n')]);
-            return res.json({ ok: true, method: 'jetbrains' });
-          } catch(e) {
-            if (e.message && (e.message.includes('1002') || e.message.includes('not allowed to send keystrokes') || e.message.includes('not allowed assistive access'))) {
-              return res.status(403).json({
-                error: 'Accessibility permission required',
-                reason: 'accessibility',
-                platform: 'macos',
-                terminalApp: jbApp,
-                fallback: 'clipboard'
-              });
-            }
-          }
-        }
-      }
-
-      // Strategy 4: VS Code session (no TTY) — activate VS Code, paste into Claude chat
-      if (!tty || isVSCodeProcess(pid)) {
-        try {
-          await runShellScript('osascript', ['-e', [
-            `set promptText to read POSIX file "${tmpFile}"`,
-            'set savedClip to ""',
-            'try',
-            '  set savedClip to the clipboard as text',
-            'end try',
-            'set the clipboard to promptText',
-            'tell application "Visual Studio Code"',
-            '  activate',
-            'end tell',
-            'delay 0.5',
-            // After activate, VS Code is the frontmost process — use that
-            'tell application "System Events"',
-            '  tell (first process whose frontmost is true)',
-            '    keystroke "v" using command down',
-            '    delay 0.2',
-            '    keystroke return',
-            '  end tell',
-            'end tell',
-            'delay 0.3',
-            'set the clipboard to savedClip',
-          ].join('\n')]);
-          return res.json({ ok: true, method: 'vscode' });
-        } catch(e) {
-          console.error('[apiRouter] VS Code AppleScript error:', e.message);
-          if (e.message && (e.message.includes('1002') || e.message.includes('not allowed to send keystrokes') || e.message.includes('not allowed assistive access'))) {
-            return res.status(403).json({
-              error: 'Accessibility permission required',
-              reason: 'accessibility',
-              platform: 'macos',
-              terminalApp: detectTerminalApp(pid) || 'Visual Studio Code',
-              fallback: 'clipboard'
-            });
-          }
-        }
-      }
-
-      return res.status(404).json({
-        error: 'Could not find terminal or VS Code session.',
-        fallback: 'clipboard'
-      });
-
-    } else if (platform === 'linux') {
-      // ---- Linux: xdotool (X11) or wtype (Wayland) ----
-      // Try xdotool first (X11)
-      try {
-        // Find window by PID
-        const wid = await runShellScript('xdotool', ['search', '--pid', String(pid)]);
-        const windowId = wid.trim().split('\n')[0];
-        if (windowId) {
-          await runShellScript('xdotool', ['windowactivate', '--sync', windowId]);
-          await runShellScript('xdotool', ['type', '--delay', '5', '--clearmodifiers', '--file', tmpFile]);
-          await runShellScript('xdotool', ['key', 'Return']);
-          return res.json({ ok: true, method: 'xdotool' });
-        }
-      } catch(e) { /* xdotool not available */ }
-
-      // Try xclip to set clipboard + xdotool paste
-      try {
-        await runShellScript('bash', ['-c', `xclip -selection clipboard < "${tmpFile}"`]);
-        const wid = await runShellScript('xdotool', ['search', '--pid', String(pid)]);
-        const windowId = wid.trim().split('\n')[0];
-        if (windowId) {
-          await runShellScript('xdotool', ['windowactivate', '--sync', windowId]);
-          await runShellScript('xdotool', ['key', 'ctrl+shift+v']);
-          await runShellScript('xdotool', ['key', 'Return']);
-          return res.json({ ok: true, method: 'xdotool-paste' });
-        }
-      } catch(e) { /* fallthrough */ }
-
-      return res.status(403).json({
-        error: 'Could not send prompt. Install xdotool and xclip.',
-        reason: 'accessibility',
-        platform: 'linux',
-        terminalApp: null,
-        fallback: 'clipboard'
-      });
-
-    } else if (platform === 'win32') {
-      // ---- Windows: PowerShell SendKeys ----
-      try {
-        const psScript = `
-          Add-Type -AssemblyName Microsoft.VisualBasic
-          Add-Type -AssemblyName System.Windows.Forms
-          $promptText = [IO.File]::ReadAllText('${tmpFile.replace(/\\/g, '\\\\')}')
-          $proc = Get-Process -Id ${pid} -ErrorAction Stop
-          if ($proc.MainWindowHandle -ne [IntPtr]::Zero) {
-            [Microsoft.VisualBasic.Interaction]::AppActivate($proc.Id)
-            Start-Sleep -Milliseconds 300
-            [System.Windows.Forms.SendKeys]::SendWait($promptText)
-            Start-Sleep -Milliseconds 100
-            [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-            Write-Output "ok"
-          } else {
-            Write-Output "no_window"
-          }
-        `;
-        const result = await runShellScript('powershell', ['-NoProfile', '-Command', psScript]);
-        if (result.trim() === 'ok') {
-          return res.json({ ok: true, method: 'powershell' });
-        }
-      } catch(e) { /* PowerShell not available or failed */ }
-
-      // Try Windows Terminal via clipboard
-      try {
-        const psClip = `
-          $promptText = [IO.File]::ReadAllText('${tmpFile.replace(/\\/g, '\\\\')}')
-          Set-Clipboard -Value $promptText
-          $proc = Get-Process -Id ${pid} -ErrorAction Stop
-          [Microsoft.VisualBasic.Interaction]::AppActivate($proc.Id)
-          Start-Sleep -Milliseconds 300
-          Add-Type -AssemblyName System.Windows.Forms
-          [System.Windows.Forms.SendKeys]::SendWait('^v')
-          Start-Sleep -Milliseconds 100
-          [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
-          Write-Output "ok"
-        `;
-        const result = await runShellScript('powershell', ['-NoProfile', '-Command', psClip]);
-        if (result.trim() === 'ok') {
-          return res.json({ ok: true, method: 'powershell-paste' });
-        }
-      } catch(e) { /* fallthrough */ }
-
-      return res.status(403).json({
-        error: 'Could not send keystrokes to terminal window.',
-        reason: 'accessibility',
-        platform: 'windows',
-        terminalApp: null,
-        fallback: 'clipboard'
-      });
-
-    } else {
-      return res.status(400).json({
-        error: `Unsupported platform: ${platform}`,
-        fallback: 'clipboard'
-      });
-    }
-  } finally {
-    try { unlinkSync(tmpFile); } catch(e) {}
-  }
-});
-
-// Helper: check if a PID is a VS Code-spawned Claude process
-function isVSCodeProcess(pid) {
-  try {
-    const cmd = execSync(`ps -o args= -p ${pid}`, { encoding: 'utf-8', timeout: 3000 }).trim();
-    return cmd.includes('.vscode') || cmd.includes('stream-json') || cmd.includes('--no-chrome');
-  } catch(e) { return false; }
-}
-
-// Helper: check if a PID is a JetBrains-spawned Claude process
-function isJetBrainsProcess(pid) {
-  const jbNames = ['idea', 'webstorm', 'pycharm', 'goland', 'clion', 'rider',
-    'phpstorm', 'rubymine', 'datagrip', 'fleet', 'jetbrains'];
-  try {
-    let current = String(pid);
-    for (let i = 0; i < 10; i++) {
-      const ppid = execSync(`ps -o ppid= -p ${current}`, { encoding: 'utf-8', timeout: 3000 }).trim();
-      if (!ppid || ppid === '0' || ppid === '1') break;
-      const cmd = execSync(`ps -o comm= -p ${ppid}`, { encoding: 'utf-8', timeout: 3000 }).trim().toLowerCase();
-      if (jbNames.some(n => cmd.includes(n))) return true;
-      current = ppid;
-    }
-  } catch(e) {}
-  return false;
-}
-
 // Helper: get TTY for a process (Unix only)
 function getProcessTty(pid) {
   try {
@@ -607,9 +286,9 @@ router.post('/sessions/:id/open-editor', async (req, res) => {
     if (platform === 'darwin') {
       result = await focusSessionMacOS(sessionId, source, pid, projectPath, projectName, tabInfo);
     } else if (platform === 'linux') {
-      result = await focusSessionLinux(pid, projectPath, source);
+      result = await focusSessionLinux(pid, projectPath, source, projectName);
     } else if (platform === 'win32') {
-      result = await focusSessionWindows(pid, projectPath, source);
+      result = await focusSessionWindows(pid, projectPath, source, projectName);
     } else {
       return res.status(400).json({ error: `Unsupported platform: ${platform}` });
     }
@@ -628,11 +307,27 @@ async function focusSessionMacOS(sessionId, source, pid, projectPath, projectNam
   // === Terminal sessions: find and activate the exact tab ===
   if (source === 'terminal') {
     const tty = tabInfo.tty || (pid ? getProcessTty(pid) : null);
-    const ttyPath = tty ? (tty.startsWith('/dev/') ? tty : `/dev/tty${tty}`) : null;
+    const ttyPath = tty ? (tty.startsWith('/dev/') ? tty : `/dev/${tty}`) : null;
     // Resolve terminal app: from hook env (term_program) or process tree walk
     const termFromEnv = resolveTermAppFromEnv(tabInfo.termProgram);
     const termApp = termFromEnv || (pid ? detectTerminalApp(pid) : null);
     console.log(`[open-editor] TERMINAL: pid=${pid || 'none'} tty=${ttyPath || 'NONE'} termApp=${termApp || 'unknown'} tabId=${tabInfo.tabId || 'none'} (term_program=${tabInfo.termProgram || '-'})`);
+
+    // Pre-refresh: set the tab title to "Claude: project" via OSC escape before matching.
+    // Claude Code overwrites tab titles with task descriptions (e.g. "⠐ Reading file").
+    // OSC 0 sets both icon name + window title; OSC 1/2 are icon name and window title separately.
+    if (ttyPath && projectName) {
+      try {
+        const oscTitle = `\x1b]0;Claude: ${projectName}\x07`;
+        writeFileSync(ttyPath, oscTitle);
+        // Write again after a short gap — if Claude Code writes output between our writes,
+        // the second write ensures the title sticks.
+        await new Promise(r => setTimeout(r, 50));
+        writeFileSync(ttyPath, oscTitle);
+        console.log(`[open-editor] refreshed tab title to "Claude: ${projectName}" via ${ttyPath}`);
+        await new Promise(r => setTimeout(r, 250));
+      } catch (e) { console.log(`[open-editor] title refresh failed: ${e.message}`); }
+    }
 
     // iTerm2: match by ITERM_SESSION_ID → TTY → tab title ("Claude: project" / project name / unique "Claude")
     if (termApp === 'iTerm2' || (!termApp && ttyPath)) {
@@ -968,6 +663,10 @@ async function focusSessionMacOS(sessionId, source, pid, projectPath, projectNam
             console.log(`[open-editor] TERMINAL: clicked tab "${parts[1]}" in ${procName} (${status})`);
             const allTabs = parts.slice(2);
             if (allTabs.length) console.log(`[open-editor] TERMINAL: all tabs: [${allTabs.map(t => `"${t}"`).join(', ')}]`);
+            // Explicitly activate the terminal app to bring it to the foreground.
+            // set frontmost to true via System Events isn't always sufficient when
+            // another app (e.g. the browser showing the dashboard) has focus.
+            try { await runShellScript('osascript', ['-e', `tell application "${procName}" to activate`]); } catch(e) {}
             return { ok: true, editor: termApp, method };
           }
           const allTabs = parts.slice(1);
@@ -979,6 +678,44 @@ async function focusSessionMacOS(sessionId, source, pid, projectPath, projectNam
           }
         }
       } catch (e) { console.log(`[open-editor] System Events tab match error: ${e.message?.split('\n')[0]}`); }
+
+      // Retry once: re-write tab title and try tab match again.
+      // Claude Code may have overwritten the title between our pre-refresh and the search.
+      if (ttyPath && projectName) {
+        try {
+          console.log(`[open-editor] RETRY: re-writing tab title and trying tab match again`);
+          writeFileSync(ttyPath, `\x1b]0;Claude: ${projectName}\x07`);
+          await new Promise(r => setTimeout(r, 300));
+          const r = await runShellScript('osascript', ['-e', [
+            'tell application "System Events"',
+            `  if not (exists process "${procName}") then return "not_running"`,
+            `  tell process "${procName}"`,
+            '    repeat with w in windows',
+            '      try',
+            '        repeat with tg in tab groups of w',
+            '          repeat with rb in radio buttons of tg',
+            `            if name of rb contains "Claude: ${escapedProject}" then`,
+            '              click rb',
+            '              perform action "AXRaise" of w',
+            '              set frontmost to true',
+            '              return "ok_retry"',
+            '            end if',
+            '          end repeat',
+            '        end repeat',
+            '      end try',
+            '    end repeat',
+            '    return "no_match"',
+            '  end tell',
+            'end tell',
+          ].join('\n')]);
+          if (r.trim() === 'ok_retry') {
+            console.log(`[open-editor] TERMINAL: RETRY succeeded — clicked tab in ${procName}`);
+            try { await runShellScript('osascript', ['-e', `tell application "${procName}" to activate`]); } catch(e) {}
+            return { ok: true, editor: termApp, method: 'tab_match_retry' };
+          }
+          console.log(`[open-editor] TERMINAL: RETRY also failed`);
+        } catch (e) { console.log(`[open-editor] RETRY error: ${e.message?.split('\n')[0]}`); }
+      }
 
       // Strategy B: Fall back to window title matching (works when correct tab is already active)
       try {
@@ -1021,6 +758,8 @@ async function focusSessionMacOS(sessionId, source, pid, projectPath, projectNam
         if (trimmed !== 'not_running') {
           const parts = trimmed.split('||').filter(Boolean);
           const status = parts[0];
+          // Activate the app to bring it to foreground
+          try { await runShellScript('osascript', ['-e', `tell application "${procName}" to activate`]); } catch(e) {}
           if (status === 'ok') {
             console.log(`[open-editor] TERMINAL: matched window "${parts[1]}" by project name in ${procName}`);
             return { ok: true, editor: termApp, method: 'window_match' };
@@ -1054,8 +793,6 @@ async function focusSessionMacOS(sessionId, source, pid, projectPath, projectNam
       processNames = ['Code', 'Code - Insiders', 'Cursor'];
     } else {
       const jbApp = pid ? detectTerminalApp(pid) : null;
-      // detectTerminalApp returns the app name, but System Events uses the process name
-      // which is usually the same for JetBrains IDEs
       processNames = jbApp ? [jbApp] : [
         'WebStorm', 'IntelliJ IDEA', 'PyCharm', 'GoLand', 'CLion',
         'Rider', 'PhpStorm', 'RubyMine', 'DataGrip', 'Fleet'
@@ -1063,27 +800,42 @@ async function focusSessionMacOS(sessionId, source, pid, projectPath, projectNam
     }
     console.log(`[open-editor] ${source.toUpperCase()}: trying processes=[${processNames.join(', ')}] projectName="${projectName}"`);
 
+    const escapedProject = projectName.replace(/"/g, '\\"');
     for (const procName of processNames) {
       try {
+        // Step 1: Find and raise the correct window (by project name or "Claude" keyword)
         const r = await runShellScript('osascript', ['-e', [
           'tell application "System Events"',
           `  if not (exists process "${procName}") then return "not_running"`,
           `  tell process "${procName}"`,
-          // Collect all window titles for logging
           '    set allTitles to ""',
+          '    set claudeWinRef to missing value',
+          '    set claudeWinTitle to ""',
+          '    set claudeWinCount to 0',
           '    repeat with w in windows',
-          '      set allTitles to allTitles & name of w & "||"',
-          '    end repeat',
-          // Find and raise the window matching projectName
-          '    set targetName to "' + projectName.replace(/"/g, '\\"') + '"',
-          '    repeat with w in windows',
-          '      if name of w contains targetName then',
+          '      set wTitle to name of w',
+          '      set allTitles to allTitles & wTitle & "||"',
+          `      if wTitle contains ("Claude: " & "${escapedProject}") then`,
           '        perform action "AXRaise" of w',
           '        set frontmost to true',
-          '        return "ok||" & name of w & "||" & allTitles',
+          '        return "ok||" & wTitle & "||" & allTitles',
+          '      end if',
+          `      if wTitle contains "${escapedProject}" then`,
+          '        perform action "AXRaise" of w',
+          '        set frontmost to true',
+          '        return "ok||" & wTitle & "||" & allTitles',
+          '      end if',
+          '      if wTitle contains "Claude" then',
+          '        set claudeWinRef to w',
+          '        set claudeWinTitle to wTitle',
+          '        set claudeWinCount to claudeWinCount + 1',
           '      end if',
           '    end repeat',
-          // No match — just bring to front
+          '    if claudeWinCount is 1 and claudeWinRef is not missing value then',
+          '      perform action "AXRaise" of claudeWinRef',
+          '      set frontmost to true',
+          '      return "ok_claude||" & claudeWinTitle & "||" & allTitles',
+          '    end if',
           '    set frontmost to true',
           '    return "no_match||" & allTitles',
           '  end tell',
@@ -1095,13 +847,43 @@ async function focusSessionMacOS(sessionId, source, pid, projectPath, projectNam
           continue;
         }
         const parts = trimmed.split('||').filter(Boolean);
-        const status = parts[0]; // "ok" or "no_match"
-        if (status === 'ok') {
+        const status = parts[0];
+        if (status === 'ok' || status === 'ok_claude') {
           const matchedWindow = parts[1] || '';
           const allWindows = parts.slice(2);
-          console.log(`[open-editor] ${source.toUpperCase()}: MATCHED window "${matchedWindow}" (process="${procName}")`);
+          const method = status === 'ok_claude' ? 'window_claude_match' : 'window_match';
+          console.log(`[open-editor] ${source.toUpperCase()}: MATCHED window "${matchedWindow}" (process="${procName}", ${status})`);
           console.log(`[open-editor] ${source.toUpperCase()}: all windows: [${allWindows.map(w => `"${w}"`).join(', ')}]`);
-          return { ok: true, editor: source === 'vscode' ? 'VS Code' : procName, method: 'window_match' };
+
+          // Step 2: Focus the terminal panel via keyboard shortcut.
+          // VS Code (Electron) and JetBrains (Java/Swing) don't expose internal terminal
+          // tabs via macOS accessibility API, so AX search won't work. Instead, send a
+          // keyboard shortcut to open/focus the terminal panel within the IDE.
+          try {
+            if (source === 'vscode') {
+              console.log(`[open-editor] ${source.toUpperCase()}: sending Ctrl+\` to focus terminal panel`);
+              await runShellScript('osascript', ['-e', [
+                'tell application "System Events"',
+                `  tell process "${procName}"`,
+                '    keystroke "`" using control down',
+                '  end tell',
+                'end tell',
+              ].join('\n')]);
+            } else {
+              console.log(`[open-editor] ${source.toUpperCase()}: sending Alt+F12 to focus terminal tool window`);
+              await runShellScript('osascript', ['-e', [
+                'tell application "System Events"',
+                `  tell process "${procName}"`,
+                '    key code 111 using option down',
+                '  end tell',
+                'end tell',
+              ].join('\n')]);
+            }
+          } catch (e) {
+            console.log(`[open-editor] ${source.toUpperCase()}: keyboard shortcut error: ${e.message?.split('\n')[0]}`);
+          }
+
+          return { ok: true, editor: source === 'vscode' ? 'VS Code' : procName, method: method + '+term_focus' };
         } else {
           const allWindows = parts.slice(1);
           console.log(`[open-editor] ${source.toUpperCase()}: no window matched "${projectName}" in process "${procName}"`);
@@ -1120,31 +902,106 @@ async function focusSessionMacOS(sessionId, source, pid, projectPath, projectNam
   return fallbackOpenEditor(source, projectPath);
 }
 
-// ---- Linux: focus session window by PID via xdotool ----
-async function focusSessionLinux(pid, projectPath, source) {
+// ---- Linux: focus session window by PID or title via xdotool ----
+async function focusSessionLinux(pid, projectPath, source, projectName) {
+  // Helper: after activating a VS Code/JetBrains window, focus the terminal panel
+  async function focusTerminalPanel(windowId) {
+    if (source === 'vscode') {
+      try {
+        console.log(`[open-editor] Linux: sending Ctrl+\` to focus VS Code terminal panel`);
+        await runShellScript('xdotool', ['key', '--window', windowId, '--delay', '100', 'ctrl+grave']);
+      } catch {}
+    } else if (source === 'jetbrains') {
+      try {
+        console.log(`[open-editor] Linux: sending Alt+F12 to focus JetBrains terminal`);
+        await runShellScript('xdotool', ['key', '--window', windowId, '--delay', '100', 'alt+F12']);
+      } catch {}
+    }
+  }
+
+  // Strategy 1: find window by PID
   if (pid) {
     try {
-      // xdotool can find a window by the PID of the process
       const wid = await runShellScript('xdotool', ['search', '--pid', String(pid)]);
       const windowId = wid.trim().split('\n')[0];
       if (windowId) {
         await runShellScript('xdotool', ['windowactivate', '--sync', windowId]);
+        await focusTerminalPanel(windowId);
         return { ok: true, method: 'xdotool_pid' };
       }
     } catch {}
   }
+
+  // Strategy 2: find window by title "Claude: project"
+  if (projectName) {
+    try {
+      console.log(`[open-editor] Linux: trying xdotool --name "Claude: ${projectName}"`);
+      const wid = await runShellScript('xdotool', ['search', '--name', `Claude: ${projectName}`]);
+      const windowId = wid.trim().split('\n')[0];
+      if (windowId) {
+        await runShellScript('xdotool', ['windowactivate', '--sync', windowId]);
+        await focusTerminalPanel(windowId);
+        return { ok: true, method: 'xdotool_title' };
+      }
+    } catch {}
+
+    // Strategy 3: find window by project name in title
+    try {
+      console.log(`[open-editor] Linux: trying xdotool --name "${projectName}"`);
+      const wid = await runShellScript('xdotool', ['search', '--name', projectName]);
+      const windowId = wid.trim().split('\n')[0];
+      if (windowId) {
+        await runShellScript('xdotool', ['windowactivate', '--sync', windowId]);
+        await focusTerminalPanel(windowId);
+        return { ok: true, method: 'xdotool_project' };
+      }
+    } catch {}
+
+    // Strategy 4: find any window with "Claude" in title (if unique)
+    try {
+      const wid = await runShellScript('xdotool', ['search', '--name', 'Claude']);
+      const windowIds = wid.trim().split('\n').filter(Boolean);
+      if (windowIds.length === 1) {
+        console.log(`[open-editor] Linux: unique "Claude" window found`);
+        await runShellScript('xdotool', ['windowactivate', '--sync', windowIds[0]]);
+        await focusTerminalPanel(windowIds[0]);
+        return { ok: true, method: 'xdotool_claude' };
+      } else if (windowIds.length > 1) {
+        console.log(`[open-editor] Linux: ${windowIds.length} "Claude" windows — ambiguous, skipping`);
+      }
+    } catch {}
+  }
+
   // Fallback: open in editor
   return fallbackOpenEditor(source, projectPath);
 }
 
-// ---- Windows: focus session window by PID via PowerShell ----
-async function focusSessionWindows(pid, projectPath, source) {
+// ---- Windows: focus session window by PID or title via PowerShell ----
+async function focusSessionWindows(pid, projectPath, source, projectName) {
+  // Helper: after activating a VS Code/JetBrains window, focus the terminal panel via SendKeys
+  async function focusTerminalPanel() {
+    if (source === 'vscode') {
+      try {
+        console.log(`[open-editor] Windows: sending Ctrl+\` to focus VS Code terminal panel`);
+        // SendKeys: ^ = Ctrl, ` needs to be sent directly
+        await runShellScript('powershell', ['-NoProfile', '-Command',
+          'Add-Type -AssemblyName System.Windows.Forms; Start-Sleep -Milliseconds 300; [System.Windows.Forms.SendKeys]::SendWait("^``")']);
+      } catch {}
+    } else if (source === 'jetbrains') {
+      try {
+        console.log(`[open-editor] Windows: sending Alt+F12 to focus JetBrains terminal`);
+        await runShellScript('powershell', ['-NoProfile', '-Command',
+          'Add-Type -AssemblyName System.Windows.Forms; Start-Sleep -Milliseconds 300; [System.Windows.Forms.SendKeys]::SendWait("%{F12}")']);
+      } catch {}
+    }
+  }
+
+  // Strategy 1: activate by PID (parent process = terminal/IDE)
   if (pid) {
     try {
       const psScript = `
         Add-Type -AssemblyName Microsoft.VisualBasic
         $proc = Get-Process -Id ${pid} -ErrorAction Stop
-        # Walk up to the parent (the terminal/IDE hosting this process)
         $parent = (Get-CimInstance Win32_Process -Filter "ProcessId=$pid").ParentProcessId
         if ($parent) {
           $parentProc = Get-Process -Id $parent -ErrorAction SilentlyContinue
@@ -1162,9 +1019,55 @@ async function focusSessionWindows(pid, projectPath, source) {
         }
       `;
       const r = await runShellScript('powershell', ['-NoProfile', '-Command', psScript]);
-      if (r.trim() === 'ok') return { ok: true, method: 'powershell_activate' };
+      if (r.trim() === 'ok') {
+        await focusTerminalPanel();
+        return { ok: true, method: 'powershell_activate' };
+      }
     } catch {}
   }
+
+  // Strategy 2: find window by title "Claude: project" or project name or unique "Claude"
+  if (projectName) {
+    const escapedName = projectName.replace(/'/g, "''");
+    try {
+      console.log(`[open-editor] Windows: trying window title match for "${projectName}"`);
+      const psScript = `
+        Add-Type -AssemblyName Microsoft.VisualBasic
+        $allProcs = Get-Process | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero -and $_.MainWindowTitle }
+        $allTitles = $allProcs | ForEach-Object { $_.MainWindowTitle }
+        # Best: "Claude: project"
+        $match = $allProcs | Where-Object { $_.MainWindowTitle -like "*Claude: ${escapedName}*" } | Select-Object -First 1
+        if ($match) {
+          [Microsoft.VisualBasic.Interaction]::AppActivate($match.Id)
+          Write-Output "ok_claude_project"
+          return
+        }
+        # Good: project name
+        $match = $allProcs | Where-Object { $_.MainWindowTitle -like "*${escapedName}*" } | Select-Object -First 1
+        if ($match) {
+          [Microsoft.VisualBasic.Interaction]::AppActivate($match.Id)
+          Write-Output "ok_project"
+          return
+        }
+        # Fallback: unique "Claude" window
+        $claudeMatches = $allProcs | Where-Object { $_.MainWindowTitle -like "*Claude*" }
+        if ($claudeMatches.Count -eq 1) {
+          [Microsoft.VisualBasic.Interaction]::AppActivate($claudeMatches[0].Id)
+          Write-Output "ok_claude"
+          return
+        }
+        Write-Output "no_match"
+      `;
+      const r = await runShellScript('powershell', ['-NoProfile', '-Command', psScript]);
+      const result = r.trim();
+      if (result.startsWith('ok')) {
+        console.log(`[open-editor] Windows: window title match result: ${result}`);
+        await focusTerminalPanel();
+        return { ok: true, method: `powershell_${result}` };
+      }
+    } catch {}
+  }
+
   return fallbackOpenEditor(source, projectPath);
 }
 
@@ -1459,14 +1362,6 @@ router.post('/sessions/:id/alerts', (req, res) => {
 router.delete('/sessions/:id/alerts/:alertId', (req, res) => {
   db.prepare('DELETE FROM duration_alerts WHERE id = ? AND session_id = ?').run(req.params.alertId, req.params.id);
   res.json({ ok: true });
-});
-
-// Open macOS Accessibility settings pane
-router.post('/open-accessibility-settings', (req, res) => {
-  execFile('open', ['x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'], (err) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ ok: true });
-  });
 });
 
 export default router;

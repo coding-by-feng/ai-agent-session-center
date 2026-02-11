@@ -1,6 +1,8 @@
 // sessionStore.js — In-memory session state machine with SQLite dual-write
 import db from './db.js';
 import { execSync } from 'child_process';
+import log from './logger.js';
+import { getToolTimeout, getWaitingStatus, getWaitingLabel, AUTO_IDLE_TIMEOUTS } from './config.js';
 
 const sessions = new Map();
 const projectSessionCounters = new Map();
@@ -176,10 +178,11 @@ export function handleEvent(hookData) {
       hookData.tmux ? `tmux=${hookData.tmux.pane}` : null,
       hookData.window_id ? `x11win=${hookData.window_id}` : null,
     ].filter(Boolean).join(' ');
-    console.log(`[hook] event=${hook_event_name} session=${session_id?.slice(0,8)} ${env}`);
+    log.info('session', `event=${hook_event_name} session=${session_id?.slice(0,8)} ${env}`);
   } else {
-    console.log(`[hook] event=${hook_event_name} session=${session_id?.slice(0,8)} cwd=${cwd || 'none'} (no env enrichment)`);
+    log.info('session', `event=${hook_event_name} session=${session_id?.slice(0,8)} cwd=${cwd || 'none'}`);
   }
+  log.debugJson('session', 'Full hook data', hookData);
 
   let session = sessions.get(session_id);
 
@@ -294,10 +297,12 @@ export function handleEvent(hookData) {
       session.animationState = 'Idle';
       session.model = hookData.model || session.model;
       eventEntry.detail = `Session started (${hookData.source || 'startup'})`;
+      log.debug('session', `SessionStart: ${session_id?.slice(0,8)} project=${session.projectName} model=${session.model}`);
       // Try to match this new session as a subagent child
       const teamResult = findPendingSubagentMatch(session_id, session.projectPath);
       if (teamResult) {
         eventEntry.detail += ` [Team: ${teamResult.teamId}]`;
+        log.debug('session', `Subagent matched to team ${teamResult.teamId}`);
       }
       break;
     }
@@ -354,38 +359,21 @@ export function handleEvent(hookData) {
       if (session.toolLog.length > 200) session.toolLog.shift();
       eventEntry.detail = `${toolName}`;
 
-      // Approval detection: if PostToolUse doesn't arrive within the timeout,
-      // the tool is likely pending user approval.
-      //
-      // Only tools that are ALWAYS fast when auto-approved can reliably trigger
-      // approval detection. Tools like Bash, Task, WebSearch etc. can legitimately
-      // run for minutes, so we can't distinguish "slow execution" from "waiting
-      // for approval" — applying the timer would cause false positives.
-      // Tools that complete near-instantly when auto-approved (3s timeout)
-      const fastTools = new Set([
-        'Read', 'Write', 'Edit', 'Grep', 'Glob', 'NotebookEdit',
-        'EnterPlanMode', 'ExitPlanMode', 'AskUserQuestion'
-      ]);
-      // Tools that may take longer but still indicate approval if stalled (15s timeout)
-      const mediumTools = new Set([
-        'WebFetch', 'WebSearch'
-      ]);
+      // Approval/input detection: if PostToolUse doesn't arrive within the
+      // timeout, the tool is likely pending user interaction.
+      // Tool timeouts and categories are defined in config.js.
       clearTimeout(pendingToolTimers.get(session_id));
-      const approvalTimeout = fastTools.has(toolName) ? 3000
-        : mediumTools.has(toolName) ? 15000
-        : 0;
+      const approvalTimeout = getToolTimeout(toolName);
       if (approvalTimeout > 0) {
         session.pendingTool = toolName;
         session.pendingToolDetail = toolInputSummary;
         const timer = setTimeout(async () => {
           pendingToolTimers.delete(session_id);
           if (session.status === 'working' && session.pendingTool) {
-            session.status = 'approval';
+            const waitingStatus = getWaitingStatus(session.pendingTool) || 'approval';
+            session.status = waitingStatus;
             session.animationState = 'Waiting';
-            const detail = session.pendingToolDetail
-              ? `${session.pendingTool}: ${session.pendingToolDetail}`
-              : session.pendingTool;
-            session.waitingDetail = `Approve ${detail}`;
+            session.waitingDetail = getWaitingLabel(session.pendingTool, session.pendingToolDetail);
             try {
               const { broadcast } = await import('./wsManager.js');
               broadcast({ type: 'session_update', session: { ...session } });
@@ -763,26 +751,45 @@ export function archiveSession(sessionId, archived) {
 }
 
 // Auto-idle: mark sessions as idle if no activity for a while
+// Timeouts are defined in config.js (AUTO_IDLE_TIMEOUTS)
 setInterval(() => {
   const now = Date.now();
   for (const [id, session] of sessions) {
     if (session.status === 'ended' || session.status === 'idle') continue;
-    // 'approval' stays visible — never auto-clear (user must act)
-    if (session.status === 'approval') continue;
+    const elapsed = now - session.lastActivityAt;
+
+    // 'approval' / 'input' — safety net timeout (10 min default)
+    // Prevents stuck sessions if PostToolUse hook is lost (server restart, hook failure)
+    if (session.status === 'approval' && elapsed > AUTO_IDLE_TIMEOUTS.approval) {
+      session.status = 'idle';
+      session.animationState = 'Idle';
+      session.emote = null;
+      session.pendingTool = null;
+      session.pendingToolDetail = null;
+      session.waitingDetail = null;
+    } else if (session.status === 'input' && elapsed > AUTO_IDLE_TIMEOUTS.input) {
+      session.status = 'idle';
+      session.animationState = 'Idle';
+      session.emote = null;
+      session.pendingTool = null;
+      session.pendingToolDetail = null;
+      session.waitingDetail = null;
     // 'prompting' is a brief transitional state — if stuck for 30s, user likely
     // pressed Esc/cancelled before Claude started processing (no Stop hook fires)
-    if (session.status === 'prompting' && now - session.lastActivityAt > 30000) {
+    } else if (session.status === 'prompting' && elapsed > AUTO_IDLE_TIMEOUTS.prompting) {
       session.status = 'waiting';
       session.animationState = 'Waiting';
       session.emote = null;
     // 'waiting' (ready for next prompt) goes idle after 2 min of no activity
-    } else if (session.status === 'waiting' && now - session.lastActivityAt > 120000) {
+    } else if (session.status === 'waiting' && elapsed > AUTO_IDLE_TIMEOUTS.waiting) {
       session.status = 'idle';
       session.animationState = 'Idle';
       session.emote = null;
     // Other active states (working) go idle after 3 min of silence
     // Claude can think/generate text for a long time between tool calls
-    } else if (session.status !== 'waiting' && session.status !== 'prompting' && now - session.lastActivityAt > 180000) {
+    } else if (session.status !== 'waiting' && session.status !== 'prompting'
+      && session.status !== 'approval' && session.status !== 'input'
+      && elapsed > AUTO_IDLE_TIMEOUTS.working) {
       session.status = 'idle';
       session.animationState = 'Idle';
       session.emote = null;

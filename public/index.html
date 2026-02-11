@@ -199,12 +199,6 @@
         </select>
       </div>
 
-      <!-- Send prompt to session -->
-      <div class="prompt-input-bar">
-        <textarea id="detail-prompt-input" placeholder="Type prompt to send to session... (Enter to send)" class="prompt-input" rows="1"></textarea>
-        <button id="detail-prompt-send" class="ctrl-btn prompt-send" title="Send prompt (Enter)">SEND</button>
-      </div>
-
       <!-- Tab navigation -->
       <div class="detail-tabs">
         <button class="tab active" data-tab="conversation">Conversation</button>
@@ -420,6 +414,14 @@
             <input type="range" id="anim-speed-slider" min="30" max="200" value="100" step="10">
             <span id="anim-speed-display">100%</span>
           </div>
+
+          <h4 style="margin-top:16px;">Per-Action Movement Effects</h4>
+          <div class="movement-preview-section">
+            <div class="movement-preview-viewport" id="movement-preview-viewport">
+              <div class="movement-preview-label">Select an effect and click <strong>&#9654;</strong> to preview</div>
+            </div>
+          </div>
+          <div id="movement-action-grid" class="sound-action-grid"></div>
         </div>
 
         <div class="settings-section">
