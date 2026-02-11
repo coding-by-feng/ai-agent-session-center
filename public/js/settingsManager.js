@@ -14,7 +14,12 @@ const defaults = {
   animationIntensity: '100',
   animationSpeed: '100',
   movementActions: '',
-  hookDensity: 'off'
+  hookDensity: 'off',
+  labelSettings: JSON.stringify({
+    ONEOFF:    { sound: 'alarm',       movement: 'shake',  frame: 'fire' },
+    HEAVY:     { sound: 'urgentAlarm', movement: 'flash',  frame: 'electric' },
+    IMPORTANT: { sound: 'fanfare',     movement: 'bounce', frame: 'liquid' },
+  })
 };
 
 let settings = { ...defaults };
@@ -73,15 +78,6 @@ export function applyFontSize(size) {
 // Apply scanline setting
 export function applyScanline(enabled) {
   document.body.classList.toggle('no-scanlines', enabled !== 'true');
-}
-
-// Apply card size
-export function applyCardSize(size) {
-  if (size === 'normal') {
-    document.body.removeAttribute('data-card-size');
-  } else {
-    document.body.setAttribute('data-card-size', size);
-  }
 }
 
 // Apply animation intensity (0-200, default 100)
@@ -213,7 +209,6 @@ export async function importSettings(file) {
   applyTheme(get('theme'));
   applyFontSize(get('fontSize'));
   applyScanline(get('scanlineEnabled'));
-  applyCardSize(get('cardSize'));
   applyActivityFeed(get('activityFeedVisible'));
   applyAnimationIntensity(get('animationIntensity'));
   applyAnimationSpeed(get('animationSpeed'));
@@ -229,7 +224,6 @@ export async function resetDefaults() {
   applyTheme(defaults.theme);
   applyFontSize(defaults.fontSize);
   applyScanline(defaults.scanlineEnabled);
-  applyCardSize(defaults.cardSize);
   applyActivityFeed(defaults.activityFeedVisible);
   applyAnimationIntensity(defaults.animationIntensity);
   applyAnimationSpeed(defaults.animationSpeed);
@@ -262,12 +256,6 @@ function syncUIToSettings() {
   if (scanlineEl) scanlineEl.checked = get('scanlineEnabled') === 'true';
   applyScanline(get('scanlineEnabled'));
 
-  const cardSize = get('cardSize');
-  applyCardSize(cardSize);
-  document.querySelectorAll('.card-size-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.size === cardSize);
-  });
-
   const feedEl = document.getElementById('activity-feed-visible');
   if (feedEl) feedEl.checked = get('activityFeedVisible') === 'true';
   applyActivityFeed(get('activityFeedVisible'));
@@ -294,6 +282,46 @@ function syncUIToSettings() {
   if (spdSlider) spdSlider.value = animSpeed;
   if (spdDisplay) spdDisplay.textContent = animSpeed + '%';
 
+}
+
+// Reusable API key field wiring (toggle, save, load)
+function setupApiKeyField(inputId, settingKey) {
+  const input = document.getElementById(inputId);
+  const toggle = document.getElementById(inputId + '-toggle');
+  const saveBtn = document.getElementById(inputId + '-save');
+  const status = document.getElementById(inputId + '-status');
+  if (!input) return;
+
+  // Load stored value
+  const stored = get(settingKey);
+  if (stored) {
+    input.value = stored;
+    if (status) status.textContent = 'Key saved in browser';
+  }
+
+  // Toggle show/hide
+  if (toggle) {
+    toggle.addEventListener('click', () => {
+      const isPassword = input.type === 'password';
+      input.type = isPassword ? 'text' : 'password';
+      toggle.textContent = isPassword ? 'HIDE' : 'SHOW';
+    });
+  }
+
+  // Save
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async () => {
+      const val = input.value.trim();
+      if (val) {
+        await set(settingKey, val);
+        if (status) { status.textContent = 'Saved'; status.style.color = 'var(--accent-green, #4caf50)'; }
+      } else {
+        await set(settingKey, '');
+        if (status) { status.textContent = 'Cleared'; status.style.color = 'var(--text-dim)'; }
+      }
+      setTimeout(() => { if (status) { status.textContent = val ? 'Key saved in browser' : ''; status.style.color = ''; } }, 2000);
+    });
+  }
 }
 
 // Initialize settings UI bindings
@@ -367,20 +395,6 @@ export function initSettingsUI() {
       const enabled = String(e.target.checked);
       applyScanline(enabled);
       set('scanlineEnabled', enabled);
-    });
-  }
-
-  // --- Card size ---
-  const cardSizeControl = document.getElementById('card-size-control');
-  if (cardSizeControl) {
-    cardSizeControl.addEventListener('click', (e) => {
-      const btn = e.target.closest('.card-size-btn');
-      if (!btn) return;
-      const size = btn.dataset.size;
-      document.querySelectorAll('.card-size-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      applyCardSize(size);
-      set('cardSize', size);
     });
   }
 
@@ -495,33 +509,10 @@ export function initSettingsUI() {
   // Fetch live hook status on settings init
   syncHookDensityUI();
 
-  // --- API Key ---
-  const apiKeyInput = document.getElementById('settings-api-key');
-  const apiKeyToggle = document.getElementById('settings-api-key-toggle');
-  const apiKeySave = document.getElementById('settings-api-key-save');
-  const apiKeyStatus = document.getElementById('settings-api-key-status');
-  if (apiKeyInput) {
-    // Load current value (masked)
-    const stored = get('anthropicApiKey');
-    if (stored) {
-      apiKeyInput.value = stored;
-      if (apiKeyStatus) apiKeyStatus.textContent = 'Key saved';
-    }
-    if (apiKeyToggle) {
-      apiKeyToggle.addEventListener('click', () => {
-        const isPassword = apiKeyInput.type === 'password';
-        apiKeyInput.type = isPassword ? 'text' : 'password';
-        apiKeyToggle.textContent = isPassword ? 'HIDE' : 'SHOW';
-      });
-    }
-    if (apiKeySave) {
-      apiKeySave.addEventListener('click', async () => {
-        const val = apiKeyInput.value.trim();
-        await set('anthropicApiKey', val);
-        if (apiKeyStatus) apiKeyStatus.textContent = val ? 'Key saved' : 'Key cleared';
-      });
-    }
-  }
+  // --- API Keys (Anthropic, OpenAI, Gemini) ---
+  setupApiKeyField('settings-api-key', 'anthropicApiKey');
+  setupApiKeyField('settings-openai-key', 'openaiApiKey');
+  setupApiKeyField('settings-gemini-key', 'geminiApiKey');
 
   // --- Apply all current settings to UI ---
   syncUIToSettings();
@@ -531,6 +522,9 @@ export function initSettingsUI() {
 
   // Build per-action movement effect grid
   initMovementGrid();
+
+  // Build label completion alerts grid
+  initLabelGrid();
 
   // Build summary prompt template management
   initSummaryPromptSettings();
@@ -788,6 +782,140 @@ async function initSummaryPromptSettings() {
   });
 
   loadAndRender();
+}
+
+// ---- Label Settings (per-label completion alerts) ----
+
+export function getLabelSettings() {
+  const raw = get('labelSettings');
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return JSON.parse(defaults.labelSettings);
+  }
+}
+
+export async function setLabelSetting(label, field, value) {
+  const current = getLabelSettings();
+  if (!current[label]) current[label] = { sound: 'none', movement: 'none' };
+  current[label] = { ...current[label], [field]: value };
+  await set('labelSettings', JSON.stringify(current));
+}
+
+// Frame effect library for label cards
+const FRAME_EFFECTS = {
+  none:     'None',
+  fire:     'Burning Fire',
+  electric: 'Electric Current',
+  chains:   'Golden Chains',
+  liquid:   'Liquid Flow',
+  plasma:   'Plasma Ring',
+};
+
+export function getFrameEffects() {
+  return { ...FRAME_EFFECTS };
+}
+
+async function initLabelGrid() {
+  const container = document.getElementById('label-settings-grid');
+  if (!container) return;
+
+  const soundManager = await import('./soundManager.js');
+  const movementManager = await import('./movementManager.js');
+
+  const sounds = soundManager.getSoundLibrary(); // string[]
+  const effects = movementManager.getEffectLibrary(); // { key: label }
+  const labelConfig = getLabelSettings();
+
+  const LABELS = ['ONEOFF', 'HEAVY', 'IMPORTANT'];
+  const LABEL_COLORS = { ONEOFF: '#ff9100', HEAVY: '#ff3355', IMPORTANT: '#aa66ff' };
+  const LABEL_ICONS = { ONEOFF: '&#128293;', HEAVY: '&#9733;', IMPORTANT: '&#9888;' };
+
+  let html = '';
+  for (const label of LABELS) {
+    const cfg = labelConfig[label] || { sound: 'none', movement: 'none', frame: 'none' };
+    const color = LABEL_COLORS[label];
+
+    const soundOpts = sounds.map(s =>
+      `<option value="${s}"${s === cfg.sound ? ' selected' : ''}>${s}</option>`
+    ).join('');
+
+    const effectOpts = Object.entries(effects).map(([key, name]) =>
+      `<option value="${key}"${key === cfg.movement ? ' selected' : ''}>${name}</option>`
+    ).join('');
+
+    const frameOpts = Object.entries(FRAME_EFFECTS).map(([key, name]) =>
+      `<option value="${key}"${key === (cfg.frame || 'none') ? ' selected' : ''}>${name}</option>`
+    ).join('');
+
+    html += `
+      <div class="label-config-card" style="--label-color: ${color}" data-frame="${cfg.frame || 'none'}">
+        <div class="label-config-header">
+          <span class="label-config-icon">${LABEL_ICONS[label]}</span>
+          <span class="label-config-name">${label}</span>
+        </div>
+        <div class="label-config-row">
+          <span class="label-config-field">Card Frame</span>
+          <select class="label-config-select" data-label="${label}" data-field="frame">${frameOpts}</select>
+        </div>
+        <div class="label-config-row">
+          <span class="label-config-field">Sound</span>
+          <select class="label-config-select" data-label="${label}" data-field="sound">${soundOpts}</select>
+          <button class="sound-preview-btn label-preview-btn" data-label="${label}" data-field="sound" title="Preview">&#9654;</button>
+        </div>
+        <div class="label-config-row">
+          <span class="label-config-field">Movement</span>
+          <select class="label-config-select" data-label="${label}" data-field="movement">${effectOpts}</select>
+          <button class="sound-preview-btn label-preview-btn" data-label="${label}" data-field="movement" title="Preview">&#9654;</button>
+        </div>
+      </div>`;
+  }
+  container.innerHTML = html;
+
+  // Change handler
+  container.addEventListener('change', (e) => {
+    const sel = e.target.closest('.label-config-select');
+    if (!sel) return;
+    const field = sel.dataset.field;
+    const label = sel.dataset.label;
+    setLabelSetting(label, field, sel.value);
+
+    // Live-preview frame effect on the config card itself
+    if (field === 'frame') {
+      const configCard = sel.closest('.label-config-card');
+      if (configCard) configCard.dataset.frame = sel.value;
+      // Also update any live session cards with this label
+      document.querySelectorAll(`.session-card.${label.toLowerCase()}-session`).forEach(card => {
+        if (sel.value && sel.value !== 'none') {
+          card.dataset.frame = sel.value;
+        } else {
+          delete card.dataset.frame;
+        }
+      });
+    }
+  });
+
+  // Preview handler
+  container.addEventListener('click', (e) => {
+    const btn = e.target.closest('.label-preview-btn');
+    if (!btn) return;
+    const label = btn.dataset.label;
+    const field = btn.dataset.field;
+    const sel = container.querySelector(`.label-config-select[data-label="${label}"][data-field="${field}"]`);
+    if (!sel) return;
+    if (field === 'sound') {
+      soundManager.previewSound(sel.value);
+    } else {
+      // Preview movement on the first session card character
+      const card = document.querySelector('.session-card .css-robot');
+      if (card && sel.value !== 'none') {
+        card.removeAttribute('data-movement');
+        void card.offsetWidth;
+        card.setAttribute('data-movement', sel.value);
+        setTimeout(() => card.removeAttribute('data-movement'), 3500);
+      }
+    }
+  });
 }
 
 function escapeHtml(str) {

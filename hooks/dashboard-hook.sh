@@ -1,5 +1,5 @@
 #!/bin/bash
-# Claude Session Command Center - Hook relay (macOS / Linux)
+# AI Agent Session Center - Hook relay (macOS / Linux)
 # Reads hook JSON from stdin, enriches with process/env info, POSTs to dashboard server
 #
 # Performance notes:
@@ -52,6 +52,8 @@ JQ_OUT=$(echo "$INPUT" | jq -c \
   --arg wezterm_pane "${WEZTERM_PANE:-}" \
   --arg tmux "${TMUX:-}" \
   --arg tmux_pane "${TMUX_PANE:-}" \
+  --arg agent_terminal_id "${AGENT_MANAGER_TERMINAL_ID:-}" \
+  --arg claude_project_dir "${CLAUDE_PROJECT_DIR:-}" \
   '
   (. + {
     claude_pid: ($pid | tonumber),
@@ -72,7 +74,9 @@ JQ_OUT=$(echo "$INPUT" | jq -c \
     window_id: (if $windowid != "" then ($windowid | tonumber) else null end),
     tmux: (if $tmux != "" then {session: $tmux, pane: $tmux_pane} else null end),
     is_ghostty: (if $ghostty_resources != "" then true else null end),
-    kitty_pid: (if $kitty_pid != "" then ($kitty_pid | tonumber) else null end)
+    kitty_pid: (if $kitty_pid != "" then ($kitty_pid | tonumber) else null end),
+    agent_terminal_id: (if $agent_terminal_id != "" then $agent_terminal_id else null end),
+    claude_project_dir: (if $claude_project_dir != "" then $claude_project_dir else null end)
   }),
   "\(.hook_event_name // "")",
   "\(.session_id // "")",
@@ -109,7 +113,7 @@ if [ -n "$HOOK_TTY" ] && [ -n "$SESSION_ID" ]; then
     SessionEnd)
       rm -f "$CACHE_FILE" 2>/dev/null
       ;;
-    UserPromptSubmit|Stop|Notification)
+    UserPromptSubmit|PermissionRequest|Stop|Notification)
       PROJECT=""
       [ -f "$CACHE_FILE" ] && PROJECT=$(cat "$CACHE_FILE" 2>/dev/null)
       [ -n "$PROJECT" ] && printf '\033]0;Claude: %s\007' "$PROJECT" > "$HOOK_TTY" 2>/dev/null

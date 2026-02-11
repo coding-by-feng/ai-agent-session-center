@@ -4,6 +4,8 @@ import { config as serverConfig } from './serverConfig.js';
 // ---- Tool Categories for Approval Detection ----
 // When PreToolUse fires, we start a timer. If PostToolUse doesn't arrive
 // within the timeout, the tool is likely pending user interaction.
+// NOTE: PermissionRequest event (when available at medium+ density) provides
+// a direct signal for approval-needed state, replacing the timeout heuristic.
 
 export const TOOL_CATEGORIES = {
   // Tools that complete instantly when auto-approved (3s timeout)

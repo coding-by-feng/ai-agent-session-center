@@ -4,12 +4,13 @@
   "type": "module",
   "scripts": {
     "start": "node server/index.js",
+    "start:no-open": "node server/index.js --no-open",
+    "setup": "npm install --ignore-scripts && node hooks/setup-wizard.js && node server/index.js",
     "debug": "node server/index.js --debug",
+    "reset": "node hooks/reset.js",
     "install-hooks": "node hooks/install-hooks.js",
     "uninstall-hooks": "node hooks/install-hooks.js --uninstall",
-    "reset": "node hooks/reset.js",
-    "setup": "npm install --ignore-scripts && node hooks/setup-wizard.js && node server/index.js",
-    "postinstall": "node hooks/install-hooks.js && chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true"
+    "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true"
   },
   "dependencies": {
     "express": "^5.0.0",

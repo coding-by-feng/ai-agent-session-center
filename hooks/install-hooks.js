@@ -32,29 +32,33 @@ const HOOK_COMMAND = isWindows
   ? `powershell -NoProfile -ExecutionPolicy Bypass -File "${HOOK_DEST}"`
   : '~/.claude/hooks/dashboard-hook.sh';
 const HOOK_PATTERN = 'dashboard-hook.';
+const HOOK_SOURCE = 'ai-agent-session-center'; // Marker to identify our hooks in settings
 
 const SETTINGS_PATH = join(homedir(), '.claude', 'settings.json');
 
-// All possible hook events
+// All possible hook events (Claude Code supports 14 lifecycle events)
 const ALL_EVENTS = [
-  'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse',
-  'Stop', 'Notification', 'SubagentStart', 'SubagentStop', 'SessionEnd'
+  'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure',
+  'PermissionRequest', 'Stop', 'Notification', 'SubagentStart', 'SubagentStop',
+  'TeammateIdle', 'TaskCompleted', 'PreCompact', 'SessionEnd'
 ];
 
 // Density levels: which events to register
 const DENSITY_EVENTS = {
   high: ALL_EVENTS,
   medium: [
-    'SessionStart', 'UserPromptSubmit', 'Stop',
-    'Notification', 'SubagentStart', 'SubagentStop', 'SessionEnd'
+    'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure',
+    'PermissionRequest', 'Stop', 'Notification', 'SubagentStart', 'SubagentStop',
+    'TaskCompleted', 'SessionEnd'
   ],
   low: [
-    'SessionStart', 'UserPromptSubmit', 'Stop', 'SessionEnd'
+    'SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Stop', 'SessionEnd'
   ]
 };
 
 // Parse CLI flags, then fall back to saved config
 let density = 'medium';
+let enabledClis = ['claude'];
 const densityArgIdx = process.argv.indexOf('--density');
 if (densityArgIdx >= 0 && process.argv[densityArgIdx + 1]) {
   const val = process.argv[densityArgIdx + 1].toLowerCase();
@@ -72,7 +76,14 @@ if (densityArgIdx >= 0 && process.argv[densityArgIdx + 1]) {
     if (savedConfig.hookDensity && DENSITY_EVENTS[savedConfig.hookDensity]) {
       density = savedConfig.hookDensity;
     }
+    if (savedConfig.enabledClis) enabledClis = savedConfig.enabledClis;
   } catch { /* no saved config, use default */ }
+}
+
+// Parse --clis flag (e.g., --clis claude,gemini,codex)
+const clisArgIdx = process.argv.indexOf('--clis');
+if (clisArgIdx >= 0 && process.argv[clisArgIdx + 1]) {
+  enabledClis = process.argv[clisArgIdx + 1].split(',').map(s => s.trim().toLowerCase());
 }
 
 const uninstallMode = process.argv.includes('--uninstall');
@@ -81,10 +92,18 @@ const quietMode = process.argv.includes('--quiet');
 const EVENTS = DENSITY_EVENTS[density];
 const TOTAL_STEPS = uninstallMode ? 4 : 6;
 
+// Gemini events by density
+const GEMINI_DENSITY_EVENTS = {
+  high: ['SessionStart', 'BeforeAgent', 'BeforeTool', 'AfterTool', 'AfterAgent', 'SessionEnd', 'Notification'],
+  medium: ['SessionStart', 'BeforeAgent', 'AfterAgent', 'SessionEnd', 'Notification'],
+  low: ['SessionStart', 'AfterAgent', 'SessionEnd'],
+};
+const GEMINI_EVENTS = GEMINI_DENSITY_EVENTS[density] || GEMINI_DENSITY_EVENTS.medium;
+
 // ── Banner ──
 if (!quietMode) {
   console.log(`\n${CYAN}╭──────────────────────────────────────────────╮${RESET}`);
-  console.log(`${CYAN}│${RESET}  ${BOLD}Claude Session Center — Hook Setup${RESET}          ${CYAN}│${RESET}`);
+  console.log(`${CYAN}│${RESET}  ${BOLD}AI Agent Session Center — Hook Setup${RESET}          ${CYAN}│${RESET}`);
   console.log(`${CYAN}╰──────────────────────────────────────────────╯${RESET}`);
 }
 
@@ -102,11 +121,18 @@ info(`Hooks directory: ${HOOKS_DIR}`);
 if (uninstallMode) {
   info(`Mode: ${YELLOW}UNINSTALL${RESET} (removing all dashboard hooks)`);
 } else {
-  info(`Density: ${BOLD}${density}${RESET} → ${EVENTS.length} of ${ALL_EVENTS.length} events`);
-  info(`Events: ${EVENTS.join(', ')}`);
+  info(`Enabled CLIs: ${BOLD}${enabledClis.join(', ')}${RESET}`);
+  info(`Density: ${BOLD}${density}${RESET} → ${EVENTS.length} of ${ALL_EVENTS.length} Claude events`);
+  info(`Claude events: ${EVENTS.join(', ')}`);
+  if (enabledClis.includes('gemini')) {
+    info(`Gemini events: ${GEMINI_EVENTS.join(', ')}`);
+  }
+  if (enabledClis.includes('codex')) {
+    info(`Codex: agent-turn-complete (only event)`);
+  }
   const excluded = ALL_EVENTS.filter(e => !EVENTS.includes(e));
   if (excluded.length > 0) {
-    info(`Excluded: ${DIM}${excluded.join(', ')}${RESET}`);
+    info(`Excluded (Claude): ${DIM}${excluded.join(', ')}${RESET}`);
   }
 }
 
@@ -281,6 +307,7 @@ for (const event of EVENTS) {
     }
   } else {
     settings.hooks[event].push({
+      _source: HOOK_SOURCE,
       hooks: [{
         type: 'command',
         command: HOOK_COMMAND,
@@ -346,6 +373,85 @@ if (existsSync(altSrc)) {
   info(`Alternate hook ${altScript} not found ${DIM}(skipped)${RESET}`);
 }
 
+// Deploy Gemini hook script
+if (enabledClis.includes('gemini')) {
+  const geminiSrc = join(__dirname, 'dashboard-hook-gemini.sh');
+  const geminiHooksDir = join(homedir(), '.gemini', 'hooks');
+  const geminiDest = join(geminiHooksDir, 'dashboard-hook.sh');
+  if (existsSync(geminiSrc)) {
+    mkdirSync(geminiHooksDir, { recursive: true });
+    copyFileSync(geminiSrc, geminiDest);
+    chmodSync(geminiDest, 0o755);
+    ok(`Deployed dashboard-hook-gemini.sh → ${geminiDest}`);
+  } else {
+    fail(`Gemini hook script not found: ${geminiSrc}`);
+  }
+
+  // Register in ~/.gemini/settings.json
+  const geminiSettingsPath = join(homedir(), '.gemini', 'settings.json');
+  try {
+    let gs;
+    try { gs = JSON.parse(readFileSync(geminiSettingsPath, 'utf8')); } catch { gs = {}; }
+    if (!gs.hooks) gs.hooks = {};
+    let gChanged = 0;
+    for (const event of GEMINI_EVENTS) {
+      if (!gs.hooks[event]) gs.hooks[event] = [];
+      const has = gs.hooks[event].some(g => g.hooks?.some(h => h.command?.includes('dashboard-hook')));
+      if (!has) {
+        gs.hooks[event].push({
+          _source: HOOK_SOURCE,
+          hooks: [{ type: 'command', command: `~/.gemini/hooks/dashboard-hook.sh ${event}` }]
+        });
+        gChanged++;
+      }
+    }
+    if (gChanged) {
+      mkdirSync(join(homedir(), '.gemini'), { recursive: true });
+      writeFileSync(geminiSettingsPath, JSON.stringify(gs, null, 2) + '\n');
+      ok(`Registered ${gChanged} Gemini hook events in ~/.gemini/settings.json`);
+    } else {
+      info('Gemini hooks already registered');
+    }
+  } catch (e) {
+    warn(`Gemini hook registration: ${e.message}`);
+  }
+}
+
+// Deploy Codex hook script
+if (enabledClis.includes('codex')) {
+  const codexSrc = join(__dirname, 'dashboard-hook-codex.sh');
+  const codexHooksDir = join(homedir(), '.codex', 'hooks');
+  const codexDest = join(codexHooksDir, 'dashboard-hook.sh');
+  if (existsSync(codexSrc)) {
+    mkdirSync(codexHooksDir, { recursive: true });
+    copyFileSync(codexSrc, codexDest);
+    chmodSync(codexDest, 0o755);
+    ok(`Deployed dashboard-hook-codex.sh → ${codexDest}`);
+  } else {
+    fail(`Codex hook script not found: ${codexSrc}`);
+  }
+
+  // Register in ~/.codex/config.toml
+  const codexConfigPath = join(homedir(), '.codex', 'config.toml');
+  try {
+    let toml = '';
+    try { toml = readFileSync(codexConfigPath, 'utf8'); } catch {}
+    if (!toml.includes('dashboard-hook')) {
+      mkdirSync(join(homedir(), '.codex'), { recursive: true });
+      const commentLine = `# [${HOOK_SOURCE}] Dashboard hook — safe to remove with "npm run reset"`;
+      const notifyLine = 'notify = ["~/.codex/hooks/dashboard-hook.sh"]';
+      if (toml && !toml.endsWith('\n')) toml += '\n';
+      toml += commentLine + '\n' + notifyLine + '\n';
+      writeFileSync(codexConfigPath, toml);
+      ok('Registered Codex notify hook in ~/.codex/config.toml');
+    } else {
+      info('Codex hook already registered');
+    }
+  } catch (e) {
+    warn(`Codex hook registration: ${e.message}`);
+  }
+}
+
 // ═══════════════════════════════════════════════
 // STEP 6: Verify Installation
 // ═══════════════════════════════════════════════
@@ -383,10 +489,32 @@ try {
 
 // Check hook destination exists
 if (existsSync(HOOK_DEST)) {
-  ok(`Hook file exists at ${HOOK_DEST}`);
+  ok(`Claude hook file exists at ${HOOK_DEST}`);
 } else {
-  fail(`Hook file missing: ${HOOK_DEST}`);
+  fail(`Claude hook file missing: ${HOOK_DEST}`);
   verifyOk = false;
+}
+
+// Verify Gemini hooks
+if (enabledClis.includes('gemini')) {
+  const geminiDest = join(homedir(), '.gemini', 'hooks', 'dashboard-hook.sh');
+  if (existsSync(geminiDest)) {
+    ok(`Gemini hook file exists at ${geminiDest}`);
+  } else {
+    fail(`Gemini hook file missing: ${geminiDest}`);
+    verifyOk = false;
+  }
+}
+
+// Verify Codex hooks
+if (enabledClis.includes('codex')) {
+  const codexDest = join(homedir(), '.codex', 'hooks', 'dashboard-hook.sh');
+  if (existsSync(codexDest)) {
+    ok(`Codex hook file exists at ${codexDest}`);
+  } else {
+    fail(`Codex hook file missing: ${codexDest}`);
+    verifyOk = false;
+  }
 }
 
 // ═══════════════════════════════════════════════
