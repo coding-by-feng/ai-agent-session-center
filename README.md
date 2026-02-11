@@ -1,20 +1,55 @@
-# Claude Command Center
+# AI Agent Session Center
 
 A real-time dashboard for monitoring and managing all your AI coding agent sessions. Launch, monitor, and control Claude Code, Codex CLI, and Gemini CLI sessions from a unified interface with embedded SSH terminals, approval alerts, and comprehensive analytics.
 
-![Node.js](https://img.shields.io/badge/Node.js-18+-green)
-![Express](https://img.shields.io/badge/Express-5.0-blue)
-![License](https://img.shields.io/badge/License-MIT-yellow)
+[![npm version](https://img.shields.io/npm/v/ai-agent-session-center.svg)](https://www.npmjs.com/package/ai-agent-session-center)
+[![Node.js](https://img.shields.io/badge/Node.js-18+-green)](https://nodejs.org)
+[![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
 ---
 
 ## Quick Start
 
+### Using npx (Recommended - No Install Required)
+
 ```bash
-npm run setup   # installs deps, registers hooks, starts the server
+npx ai-agent-session-center
 ```
 
-Opens at **http://localhost:3333**. All active AI agent sessions appear automatically as animated character cards with live status updates.
+That's it! The dashboard will start at **http://localhost:3333** and automatically configure hooks.
+
+### Global Install
+
+```bash
+npm install -g ai-agent-session-center
+ai-agent-session-center
+```
+
+### From Source
+
+```bash
+git clone https://github.com/coding-by-feng/ai-agent-session-center.git
+cd ai-agent-session-center
+npm install
+npm start
+```
+
+### CLI Options
+
+```bash
+ai-agent-session-center [options]
+
+Options:
+  --port <number>    Server port (default: 3333)
+  --no-open          Don't auto-open browser
+  --debug            Enable verbose logging
+
+Examples:
+  npx ai-agent-session-center --port 8080
+  ai-agent-session-center --no-open --debug
+```
+
+All active AI agent sessions appear automatically as animated character cards with live status updates.
 
 ---
 

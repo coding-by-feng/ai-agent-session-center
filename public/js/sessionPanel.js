@@ -597,28 +597,27 @@ export function createOrUpdateCard(session) {
       });
     }
 
-    // Only enable interactive buttons for SSH (manually created) sessions
-    if (!isDisplayOnly) {
-      // Mute button toggle
-      card.querySelector('.mute-btn').addEventListener('click', (e) => {
-        e.stopPropagation();
-        const sid = session.sessionId;
-        const btn = e.currentTarget;
-        if (mutedSessions.has(sid)) {
-          mutedSessions.delete(sid);
-          btn.classList.remove('muted');
-          btn.innerHTML = '&#9835;';
-          btn.title = 'Mute sounds';
-        } else {
-          mutedSessions.add(sid);
-          btn.classList.add('muted');
-          btn.innerHTML = 'M';
-          btn.title = 'Unmute sounds';
-        }
-        saveMuted(mutedSessions);
-      });
-      // Close button — dismiss card from live view (preserves IndexedDB history)
-      card.querySelector('.close-btn').addEventListener('click', (e) => {
+    // Mute button toggle (works for all sessions)
+    card.querySelector('.mute-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const sid = session.sessionId;
+      const btn = e.currentTarget;
+      if (mutedSessions.has(sid)) {
+        mutedSessions.delete(sid);
+        btn.classList.remove('muted');
+        btn.innerHTML = '&#9835;';
+        btn.title = 'Mute sounds';
+      } else {
+        mutedSessions.add(sid);
+        btn.classList.add('muted');
+        btn.innerHTML = 'M';
+        btn.title = 'Unmute sounds';
+      }
+      saveMuted(mutedSessions);
+    });
+
+    // Close button — dismiss card from live view (works for all sessions)
+    card.querySelector('.close-btn').addEventListener('click', (e) => {
       e.stopPropagation();
       const sid = session.sessionId;
       const sess = sessionsData.get(sid);
@@ -652,6 +651,9 @@ export function createOrUpdateCard(session) {
         document.dispatchEvent(event);
       }, 300);
     });
+
+    // Only enable interactive buttons for SSH (manually created) sessions
+    if (!isDisplayOnly) {
       // Pin button — pin card to top of its grid
       const pinBtn = card.querySelector('.pin-btn');
       if (pinnedSessions.has(session.sessionId)) {

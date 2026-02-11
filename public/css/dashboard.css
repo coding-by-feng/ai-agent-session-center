@@ -574,10 +574,9 @@ body::after {
   cursor: default;
   opacity: 0.85;
 }
-.session-card.display-only .close-btn,
+/* Hide only pin and summarize buttons for display-only cards, keep mute and close visible */
 .session-card.display-only .pin-btn,
-.session-card.display-only .summarize-card-btn,
-.session-card.display-only .mute-btn {
+.session-card.display-only .summarize-card-btn {
   display: none;
 }
 
