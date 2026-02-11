@@ -1,4 +1,5 @@
 import { drawBarChart, drawLineChart, drawHeatmapGrid, formatNumber, showTooltip, hideTooltip } from './chartUtils.js';
+import * as db from './browserDb.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -17,11 +18,11 @@ export async function refresh() {
 
 async function loadAll() {
   const [summary, tools, trends, projects, heatmap] = await Promise.all([
-    fetch('/api/analytics/summary').then(r => r.json()),
-    fetch('/api/analytics/tools').then(r => r.json()),
-    fetch('/api/analytics/duration-trends?granularity=day').then(r => r.json()),
-    fetch('/api/analytics/projects').then(r => r.json()),
-    fetch('/api/analytics/heatmap').then(r => r.json()),
+    db.getSummaryStats(),
+    db.getToolBreakdown(),
+    db.getDurationTrends({ period: 'day' }),
+    db.getActiveProjects(),
+    db.getHeatmap(),
   ]);
 
   renderSummary(summary);
@@ -44,16 +45,16 @@ function renderSummary(data) {
     { label: 'Total Sessions', value: formatNumber(data.total_sessions || 0), detail: 'all time' },
     { label: 'Total Prompts', value: formatNumber(data.total_prompts || 0), detail: 'all time' },
     { label: 'Total Tool Calls', value: formatNumber(data.total_tool_calls || 0), detail: 'all time' },
-    { label: 'Avg Duration', value: formatDuration(data.avg_session_duration_ms || 0), detail: 'per session' },
+    { label: 'Avg Duration', value: formatDuration(data.avg_duration || data.avg_session_duration_ms || 0), detail: 'per session' },
     {
       label: 'Most Used Tool',
-      value: mostTool ? mostTool.name : 'N/A',
+      value: mostTool ? (mostTool.tool_name || mostTool.name) : 'N/A',
       detail: mostTool ? formatNumber(mostTool.count) + ' calls' : '',
     },
     {
       label: 'Busiest Project',
-      value: busiestProj ? busiestProj.name : 'N/A',
-      detail: busiestProj ? formatNumber(busiestProj.sessions) + ' sessions' : '',
+      value: busiestProj ? (busiestProj.project_path || busiestProj.name) : 'N/A',
+      detail: busiestProj ? formatNumber(busiestProj.count || busiestProj.sessions) + ' sessions' : '',
     },
   ];
 
@@ -78,7 +79,7 @@ function renderToolUsage(data) {
   heading.textContent = 'TOOL USAGE';
   container.appendChild(heading);
 
-  const tools = (data.tools || []).slice(0, 15);
+  const tools = (Array.isArray(data) ? data : data.tools || []).slice(0, 15);
   if (tools.length === 0) {
     container.insertAdjacentHTML('beforeend', '<div class="tab-empty">No tool data</div>');
     return;
@@ -155,7 +156,7 @@ function renderDurationTrends(data) {
   heading.textContent = 'SESSION DURATION TRENDS';
   container.appendChild(heading);
 
-  const points = data.buckets || data.trends || [];
+  const points = Array.isArray(data) ? data : (data.buckets || data.trends || []);
   if (points.length === 0) {
     container.insertAdjacentHTML('beforeend', '<div class="tab-empty">No duration data</div>');
     return;
@@ -184,7 +185,7 @@ function renderDurationTrends(data) {
         label = months[date.getMonth()] + ' ' + date.getDate();
       }
     }
-    return { label, value: p.avg_duration_ms || 0 };
+    return { label, value: p.avg_duration || p.avg_duration_ms || 0 };
   });
 
   const maxVal = Math.max(...lineData.map(d => d.value), 1);
@@ -276,7 +277,7 @@ function renderActiveProjects(data) {
   heading.textContent = 'PROJECTS BY ACTIVITY';
   container.appendChild(heading);
 
-  const projects = (data.projects || [])
+  const projects = (Array.isArray(data) ? data : data.projects || [])
     .sort((a, b) => (b.session_count || 0) - (a.session_count || 0));
 
   if (projects.length === 0) {
@@ -306,7 +307,7 @@ function renderActiveProjects(data) {
     const count = p.session_count || 0;
     const barW = Math.max(1, (count / maxVal) * barAreaWidth);
     const name = p.project_name || p.name || p.project_path || '';
-    const lastActive = p.last_active_at ? formatDate(p.last_active_at) : '';
+    const lastActive = (p.last_activity || p.last_active_at) ? formatDate(p.last_activity || p.last_active_at) : '';
 
     // Project name
     const text = createSvgText(labelWidth - 6, y + barHeight / 2 + 4, name, {
@@ -352,7 +353,7 @@ function renderHeatmap(data) {
   heading.textContent = 'ACTIVITY HEATMAP';
   container.appendChild(heading);
 
-  const rawData = data.cells || data.heatmap || [];
+  const rawData = Array.isArray(data) ? data : (data.cells || data.heatmap || []);
   if (rawData.length === 0) {
     container.insertAdjacentHTML('beforeend', '<div class="tab-empty">No heatmap data</div>');
     return;

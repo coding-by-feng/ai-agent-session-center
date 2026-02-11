@@ -1,9 +1,7 @@
-// sessionStore.js — In-memory session state machine with SQLite dual-write
-import db from './db.js';
+// sessionStore.js — In-memory session state machine (no database)
 import { execSync } from 'child_process';
 import log from './logger.js';
 import { getToolTimeout, getToolCategory, getWaitingStatus, getWaitingLabel, AUTO_IDLE_TIMEOUTS, PROCESS_CHECK_INTERVAL } from './config.js';
-import { config as serverConfig } from './serverConfig.js';
 import { tryLinkByWorkDir, getTerminalForSession } from './sshManager.js';
 
 const sessions = new Map();
@@ -11,162 +9,34 @@ const projectSessionCounters = new Map();
 const pendingToolTimers = new Map(); // session_id -> timeout for tool approval detection
 const pidToSession = new Map();      // pid -> sessionId — ensures each PID is only assigned to one session
 
-// Prompt queue count helper
-const selectQueueCount = db.prepare('SELECT COUNT(*) AS c FROM prompt_queue WHERE session_id = ?');
-
 // Team mode structures
 const teams = new Map();            // teamId -> { teamId, parentSessionId, childSessionIds: Set, teamName, createdAt }
 const sessionToTeam = new Map();    // sessionId -> teamId
 const pendingSubagents = [];        // { parentSessionId, parentCwd, agentType, timestamp }
 
-// Prepared statements for SQLite dual-write
-const insertSession = db.prepare(
-  `INSERT OR IGNORE INTO sessions (id, project_path, project_name, model, status, git_branch, started_at, last_activity_at, source)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-);
-const updateSessionStatus = db.prepare(
-  `UPDATE sessions SET status=?, last_activity_at=?, total_tool_calls=? WHERE id=?`
-);
-const updateSessionEnded = db.prepare(
-  `UPDATE sessions SET status='ended', ended_at=?, last_activity_at=? WHERE id=?`
-);
-const insertPrompt = db.prepare(
-  `INSERT INTO prompts (session_id, text, timestamp) VALUES (?, ?, ?)`
-);
-const insertToolCall = db.prepare(
-  `INSERT INTO tool_calls (session_id, tool_name, tool_input_summary, timestamp) VALUES (?, ?, ?, ?)`
-);
-const insertEvent = db.prepare(
-  `INSERT INTO events (session_id, event_type, detail, timestamp) VALUES (?, ?, ?, ?)`
-);
-const insertResponse = db.prepare(
-  `INSERT INTO responses (session_id, text_excerpt, timestamp) VALUES (?, ?, ?)`
-);
-const updateSessionPromptCount = db.prepare(
-  `UPDATE sessions SET total_prompts = total_prompts + 1 WHERE id=?`
-);
-const updateSessionTitle = db.prepare(
-  `UPDATE sessions SET title=? WHERE id=?`
-);
+// Event ring buffer for reconnect replay
+const EVENT_BUFFER_MAX = 500;
+let eventSeq = 0;
+const eventBuffer = []; // { seq, type, data, timestamp }
 
-// Team mode prepared statements
-const insertTeam = db.prepare(
-  `INSERT OR IGNORE INTO teams (id, parent_session_id, team_name, created_at) VALUES (?, ?, ?, ?)`
-);
-const updateSessionTeam = db.prepare(
-  `UPDATE sessions SET team_id=?, team_role=?, parent_session_id=? WHERE id=?`
-);
-const selectActiveTeams = db.prepare(
-  `SELECT t.id, t.parent_session_id, t.team_name, t.created_at
-   FROM teams t
-   WHERE EXISTS (SELECT 1 FROM sessions s WHERE s.team_id = t.id AND s.status != 'ended')`
-);
-const selectTeamMembers = db.prepare(
-  `SELECT id, team_role FROM sessions WHERE team_id = ? AND status != 'ended'`
-);
+export function pushEvent(type, data) {
+  eventSeq++;
+  eventBuffer.push({ seq: eventSeq, type, data, timestamp: Date.now() });
+  if (eventBuffer.length > EVENT_BUFFER_MAX) eventBuffer.shift();
+  return eventSeq;
+}
 
-// Startup recovery: reload active sessions from DB into the Map
-const selectActiveSessions = db.prepare(
-  `SELECT id, project_path, project_name, model, status, started_at, last_activity_at, total_tool_calls, total_prompts, source, title, summary, character_model, accent_color
-   FROM sessions WHERE status != 'ended' AND last_activity_at > ?`
-);
-const selectSessionPrompts = db.prepare(
-  `SELECT text, timestamp FROM prompts WHERE session_id = ? ORDER BY timestamp DESC LIMIT 50`
-);
-const selectSessionToolLog = db.prepare(
-  `SELECT tool_name, tool_input_summary, timestamp FROM tool_calls WHERE session_id = ? ORDER BY timestamp DESC LIMIT 200`
-);
-const selectSessionResponses = db.prepare(
-  `SELECT text_excerpt, timestamp FROM responses WHERE session_id = ? ORDER BY timestamp DESC LIMIT 50`
-);
-const selectSessionEvents = db.prepare(
-  `SELECT event_type AS type, detail, timestamp FROM events WHERE session_id = ? ORDER BY timestamp DESC LIMIT 50`
-);
+export function getEventsSince(sinceSeq) {
+  return eventBuffer.filter(e => e.seq > sinceSeq);
+}
+
+export function getEventSeq() {
+  return eventSeq;
+}
 
 export function loadActiveSessions() {
-  const historyHours = serverConfig.sessionHistoryHours || 24;
-  const cutoff = Date.now() - historyHours * 60 * 60 * 1000;
-  try {
-    const rows = selectActiveSessions.all(cutoff);
-    for (const row of rows) {
-      if (sessions.has(row.id)) continue;
-
-      // Reload history from DB (reverse to get chronological order)
-      const promptRows = selectSessionPrompts.all(row.id).reverse();
-      const toolRows = selectSessionToolLog.all(row.id).reverse();
-      const responseRows = selectSessionResponses.all(row.id).reverse();
-      const eventRows = selectSessionEvents.all(row.id).reverse();
-
-      // Build toolUsage map from tool log
-      const toolUsage = {};
-      for (const t of toolRows) {
-        toolUsage[t.tool_name] = (toolUsage[t.tool_name] || 0) + 1;
-      }
-
-      sessions.set(row.id, {
-        sessionId: row.id,
-        projectPath: row.project_path || '',
-        projectName: row.project_name || 'Unknown',
-        title: row.title || '',
-        source: row.source || 'unknown',
-        status: row.status || 'idle',
-        animationState: 'Idle',
-        emote: null,
-        startedAt: row.started_at || Date.now(),
-        lastActivityAt: row.last_activity_at || Date.now(),
-        currentPrompt: promptRows.length > 0 ? promptRows[promptRows.length - 1].text : '',
-        promptHistory: promptRows.map(p => ({ text: p.text, timestamp: p.timestamp })),
-        toolUsage,
-        totalToolCalls: row.total_tool_calls || 0,
-        model: row.model || '',
-        subagentCount: 0,
-        toolLog: toolRows.map(t => ({ tool: t.tool_name, input: t.tool_input_summary, timestamp: t.timestamp })),
-        responseLog: responseRows.map(r => ({ text: r.text_excerpt, timestamp: r.timestamp })),
-        events: eventRows.map(e => ({ type: e.type, detail: e.detail, timestamp: e.timestamp })),
-        archived: 0,
-        summary: row.summary || null,
-        characterModel: row.character_model || null,
-        accentColor: row.accent_color || null,
-        queueCount: selectQueueCount.get(row.id)?.c || 0,
-        terminalId: null
-      });
-    }
-  } catch (err) {
-    console.error('[sessionStore] Failed to load active sessions from DB:', err.message);
-  }
-
-  // Rebuild teams from DB
-  try {
-    const teamRows = selectActiveTeams.all();
-    for (const tRow of teamRows) {
-      const team = {
-        teamId: tRow.id,
-        parentSessionId: tRow.parent_session_id,
-        childSessionIds: new Set(),
-        teamName: tRow.team_name,
-        createdAt: tRow.created_at
-      };
-      const memberRows = selectTeamMembers.all(tRow.id);
-      for (const m of memberRows) {
-        if (m.team_role === 'leader') {
-          sessionToTeam.set(m.id, tRow.id);
-          const s = sessions.get(m.id);
-          if (s) { s.teamId = tRow.id; s.teamRole = 'leader'; }
-        } else {
-          team.childSessionIds.add(m.id);
-          sessionToTeam.set(m.id, tRow.id);
-          const s = sessions.get(m.id);
-          if (s) { s.teamId = tRow.id; s.teamRole = 'member'; }
-        }
-      }
-      teams.set(tRow.id, team);
-    }
-    if (teamRows.length > 0) {
-      console.log(`[sessionStore] Rebuilt ${teamRows.length} active teams from DB`);
-    }
-  } catch (err) {
-    console.error('[sessionStore] Failed to rebuild teams from DB:', err.message);
-  }
+  // No-op: no database to load from. Sessions are populated from hooks at runtime.
+  // Browser IndexedDB is the persistence layer — it loads history on page open.
 }
 
 // Load active sessions at module init
@@ -281,6 +151,7 @@ export function handleEvent(hookData) {
     }
 
     // Cache PID from hook
+    const pid = hookData.claude_pid ? Number(hookData.claude_pid) : null;
     if (pid && pid > 0) {
       session.cachedPid = pid;
       pidToSession.set(pid, session_id);
@@ -291,23 +162,6 @@ export function handleEvent(hookData) {
     const projectKey = session.projectName;
     const count = (projectSessionCounters.get(projectKey) || 0) + 1;
     projectSessionCounters.set(projectKey, count);
-
-    // Dual-write: insert new session into DB
-    try {
-      insertSession.run(
-        session_id,
-        session.projectPath,
-        session.projectName,
-        session.model,
-        session.status,
-        hookData.git_branch || null,
-        session.startedAt,
-        session.lastActivityAt,
-        hookData.source || 'hook'
-      );
-    } catch (err) {
-      console.error('[sessionStore] DB insertSession error:', err.message);
-    }
   }
 
   session.lastActivityAt = Date.now();
@@ -353,19 +207,6 @@ export function handleEvent(hookData) {
         session.title = shortPrompt
           ? `${session.projectName} #${counter} — ${shortPrompt}`
           : `${session.projectName} — Session #${counter}`;
-        try {
-          updateSessionTitle.run(session.title, session_id);
-        } catch (err) {
-          console.error('[sessionStore] DB updateSessionTitle error:', err.message);
-        }
-      }
-
-      // Dual-write: insert prompt into DB
-      try {
-        insertPrompt.run(session_id, hookData.prompt || '', Date.now());
-        updateSessionPromptCount.run(session_id);
-      } catch (err) {
-        console.error('[sessionStore] DB insertPrompt error:', err.message);
       }
       break;
 
@@ -396,10 +237,6 @@ export function handleEvent(hookData) {
         const timer = setTimeout(async () => {
           pendingToolTimers.delete(session_id);
           if (session.status === 'working' && session.pendingTool) {
-            // For slow tools (Bash, Task): check if the command is actually
-            // running by looking for child processes of the Claude PID.
-            // If children exist → command was auto-approved and is executing.
-            // If no children → process is blocked on the approval dialog.
             const category = getToolCategory(session.pendingTool);
             if (category === 'slow' && session.cachedPid && hasChildProcesses(session.cachedPid)) {
               return; // Command is running, not waiting for approval
@@ -419,13 +256,6 @@ export function handleEvent(hookData) {
       } else {
         session.pendingTool = null;
         session.pendingToolDetail = null;
-      }
-
-      // Dual-write: insert tool call into DB
-      try {
-        insertToolCall.run(session_id, toolName, toolInputSummary, Date.now());
-      } catch (err) {
-        console.error('[sessionStore] DB insertToolCall error:', err.message);
       }
       break;
     }
@@ -468,20 +298,6 @@ export function handleEvent(hookData) {
         const excerpt = responseText.substring(0, 2000);
         session.responseLog.push({ text: excerpt, timestamp: Date.now() });
         if (session.responseLog.length > 50) session.responseLog.shift();
-
-        // Dual-write: insert response into DB
-        try {
-          insertResponse.run(session_id, excerpt, Date.now());
-        } catch (err) {
-          console.error('[sessionStore] DB insertResponse error:', err.message);
-        }
-      }
-
-      // Dual-write: update session status in DB
-      try {
-        updateSessionStatus.run('waiting', Date.now(), session.totalToolCalls, session_id);
-      } catch (err) {
-        console.error('[sessionStore] DB updateSessionStatus error:', err.message);
       }
 
       // Reset tool counter for next turn
@@ -519,6 +335,7 @@ export function handleEvent(hookData) {
     case 'SessionEnd':
       session.status = 'ended';
       session.animationState = 'Death';
+      session.endedAt = Date.now();
       eventEntry.detail = `Session ended (${hookData.reason || 'unknown'})`;
 
       // Release PID cache for this session
@@ -528,31 +345,22 @@ export function handleEvent(hookData) {
         session.cachedPid = null;
       }
 
-      // Dual-write: mark session ended in DB
-      try {
-        updateSessionEnded.run(Date.now(), Date.now(), session_id);
-      } catch (err) {
-        console.error('[sessionStore] DB updateSessionEnded error:', err.message);
-      }
-
       // Team cleanup: remove from team, clean up if empty
       handleTeamMemberEnd(session_id);
 
-      // Schedule removal from memory after 10s (client auto-removes cards sooner)
-      setTimeout(() => sessions.delete(session_id), 10000);
+      // SSH sessions: keep in memory as historical (disconnected), clear terminal link
+      if (session.source === 'ssh') {
+        session.isHistorical = true;
+        session.terminalId = null;
+      } else {
+        setTimeout(() => sessions.delete(session_id), 10000);
+      }
       break;
   }
 
   // Keep last 50 events
   session.events.push(eventEntry);
   if (session.events.length > 50) session.events.shift();
-
-  // Dual-write: insert event into DB
-  try {
-    insertEvent.run(session_id, hook_event_name, eventEntry.detail, eventEntry.timestamp);
-  } catch (err) {
-    console.error('[sessionStore] DB insertEvent error:', err.message);
-  }
 
   const result = { session: { ...session } };
   // Clean up one-time re-key flag
@@ -562,14 +370,18 @@ export function handleEvent(hookData) {
   if (teamId) {
     result.team = serializeTeam(teams.get(teamId));
   }
+
+  // Push to ring buffer for reconnect replay
+  pushEvent('session_update', result);
+
   return result;
 }
 
 export function getAllSessions() {
   const result = {};
   for (const [id, session] of sessions) {
-    // Only return sessions linked to an SSH terminal
-    if (session.terminalId) {
+    // Return all SSH sessions (active + historical/disconnected)
+    if (session.source === 'ssh') {
       result[id] = { ...session };
     }
   }
@@ -650,11 +462,7 @@ function linkSessionToTeam(parentId, childId, agentType) {
       parentSession.teamId = teamId;
       parentSession.teamRole = 'leader';
       sessionToTeam.set(parentId, teamId);
-      try { updateSessionTeam.run(teamId, 'leader', null, parentId); } catch(e) {}
     }
-
-    // DB insert team
-    try { insertTeam.run(teamId, parentId, team.teamName, team.createdAt); } catch(e) {}
   }
 
   // Link child
@@ -666,7 +474,6 @@ function linkSessionToTeam(parentId, childId, agentType) {
     childSession.agentType = agentType;
   }
   sessionToTeam.set(childId, teamId);
-  try { updateSessionTeam.run(teamId, 'member', parentId, childId); } catch(e) {}
 
   console.log(`[sessionStore] Linked session ${childId} to team ${teamId} as ${agentType}`);
   return { teamId, team: serializeTeam(team) };
@@ -684,7 +491,6 @@ function handleTeamMemberEnd(sessionId) {
 
   // If parent ended and all children ended, clean up the team
   if (sessionId === team.parentSessionId) {
-    const parentSession = sessions.get(sessionId);
     const allChildrenEnded = [...team.childSessionIds].every(cid => {
       const s = sessions.get(cid);
       return !s || s.status === 'ended';
@@ -747,7 +553,7 @@ export async function createTerminalSession(terminalId, config) {
     sessionId: terminalId,
     projectPath: workDir,
     projectName,
-    title: `${config.host || 'localhost'}:${workDir}`,
+    title: config.sessionTitle || `${config.host || 'localhost'}:${workDir}`,
     status: 'connecting',
     animationState: 'Walking',
     emote: 'Wave',
@@ -773,6 +579,7 @@ export async function createTerminalSession(terminalId, config) {
     sshCommand: config.command || 'claude',
   };
   sessions.set(terminalId, session);
+
   log.info('session', `Created terminal session ${terminalId} → ${config.host}:${workDir}`);
 
   const { broadcast } = await import('./wsManager.js');
@@ -787,10 +594,10 @@ export function linkTerminalToSession(sessionId, terminalId) {
   return { ...session };
 }
 
-export function updateQueueCount(sessionId) {
+export function updateQueueCount(sessionId, count) {
   const session = sessions.get(sessionId);
   if (!session) return null;
-  session.queueCount = selectQueueCount.get(sessionId)?.c || 0;
+  session.queueCount = count || 0;
   return { ...session };
 }
 
@@ -800,48 +607,57 @@ export function killSession(sessionId) {
   session.status = 'ended';
   session.animationState = 'Death';
   session.archived = 1;
-  try { updateSessionArchived.run(1, sessionId); } catch(e) {}
   session.lastActivityAt = Date.now();
-  try { updateSessionEnded.run(Date.now(), Date.now(), sessionId); } catch(e) {}
-  setTimeout(() => sessions.delete(sessionId), 10000);
+  session.endedAt = Date.now();
+  // SSH sessions: keep in memory as historical (disconnected)
+  if (session.source === 'ssh') {
+    session.isHistorical = true;
+    session.terminalId = null;
+  } else {
+    setTimeout(() => sessions.delete(sessionId), 10000);
+  }
   return { ...session };
+}
+
+export function deleteSessionFromMemory(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session) return false;
+  // Release PID cache
+  if (session.cachedPid) {
+    pidToSession.delete(session.cachedPid);
+  }
+  // Team cleanup
+  handleTeamMemberEnd(sessionId);
+  sessions.delete(sessionId);
+  return true;
 }
 
 export function setSessionTitle(sessionId, title) {
   const session = sessions.get(sessionId);
   if (session) session.title = title;
-  try { updateSessionTitle.run(title, sessionId); } catch(e) {}
   return session ? { ...session } : null;
 }
 
-const updateSessionSummary = db.prepare('UPDATE sessions SET summary=? WHERE id=?');
 export function setSummary(sessionId, summary) {
   const session = sessions.get(sessionId);
   if (session) session.summary = summary;
-  try { updateSessionSummary.run(summary, sessionId); } catch(e) {}
   return session ? { ...session } : null;
 }
 
-const updateSessionAccentColor = db.prepare('UPDATE sessions SET accent_color=? WHERE id=?');
 export function setSessionAccentColor(sessionId, color) {
   const session = sessions.get(sessionId);
   if (session) session.accentColor = color;
-  try { updateSessionAccentColor.run(color, sessionId); } catch(e) {}
 }
 
-const updateSessionCharModel = db.prepare('UPDATE sessions SET character_model=? WHERE id=?');
 export function setSessionCharacterModel(sessionId, model) {
   const session = sessions.get(sessionId);
   if (session) session.characterModel = model;
-  try { updateSessionCharModel.run(model, sessionId); } catch(e) {}
   return session ? { ...session } : null;
 }
 
-const updateSessionArchived = db.prepare('UPDATE sessions SET archived=? WHERE id=?');
 export function archiveSession(sessionId, archived) {
   const session = sessions.get(sessionId);
   if (session) session.archived = archived ? 1 : 0;
-  try { updateSessionArchived.run(archived ? 1 : 0, sessionId); } catch(e) {}
   return session ? { ...session } : null;
 }
 
@@ -853,8 +669,6 @@ setInterval(() => {
     if (session.status === 'ended' || session.status === 'idle') continue;
     const elapsed = now - session.lastActivityAt;
 
-    // 'approval' / 'input' — safety net timeout (10 min default)
-    // Prevents stuck sessions if PostToolUse hook is lost (server restart, hook failure)
     if (session.status === 'approval' && elapsed > AUTO_IDLE_TIMEOUTS.approval) {
       session.status = 'idle';
       session.animationState = 'Idle';
@@ -869,19 +683,14 @@ setInterval(() => {
       session.pendingTool = null;
       session.pendingToolDetail = null;
       session.waitingDetail = null;
-    // 'prompting' is a brief transitional state — if stuck for 30s, user likely
-    // pressed Esc/cancelled before Claude started processing (no Stop hook fires)
     } else if (session.status === 'prompting' && elapsed > AUTO_IDLE_TIMEOUTS.prompting) {
       session.status = 'waiting';
       session.animationState = 'Waiting';
       session.emote = null;
-    // 'waiting' (ready for next prompt) goes idle after 2 min of no activity
     } else if (session.status === 'waiting' && elapsed > AUTO_IDLE_TIMEOUTS.waiting) {
       session.status = 'idle';
       session.animationState = 'Idle';
       session.emote = null;
-    // Other active states (working) go idle after 3 min of silence
-    // Claude can think/generate text for a long time between tool calls
     } else if (session.status !== 'waiting' && session.status !== 'prompting'
       && session.status !== 'approval' && session.status !== 'input'
       && elapsed > AUTO_IDLE_TIMEOUTS.working) {
@@ -893,9 +702,6 @@ setInterval(() => {
 }, 10000);
 
 // ---- Process Liveness Monitor ----
-// When VS Code, JetBrains, or a terminal is closed abruptly, the SessionEnd hook
-// never fires. This monitor checks if each session's cached PID is still alive
-// and auto-ends sessions whose process has died.
 setInterval(async () => {
   for (const [id, session] of sessions) {
     if (session.status === 'ended') continue;
@@ -913,6 +719,7 @@ setInterval(async () => {
       session.status = 'ended';
       session.animationState = 'Death';
       session.lastActivityAt = Date.now();
+      session.endedAt = Date.now();
 
       session.events.push({
         type: 'SessionEnd',
@@ -932,14 +739,6 @@ setInterval(async () => {
       session.pendingToolDetail = null;
       session.waitingDetail = null;
 
-      // Dual-write to DB
-      try {
-        insertEvent.run(id, 'SessionEnd', 'Session ended (process exited)', Date.now());
-        updateSessionEnded.run(Date.now(), Date.now(), id);
-      } catch (err) {
-        console.error('[processMonitor] DB error:', err.message);
-      }
-
       // Team cleanup
       handleTeamMemberEnd(id);
 
@@ -949,86 +748,25 @@ setInterval(async () => {
         broadcast({ type: 'session_update', session: { ...session } });
       } catch(e) {}
 
-      // Schedule removal from memory
-      setTimeout(() => sessions.delete(id), 10000);
+      // SSH sessions: keep in memory as historical (disconnected)
+      if (session.source === 'ssh') {
+        session.isHistorical = true;
+        session.terminalId = null;
+      } else {
+        setTimeout(() => sessions.delete(id), 10000);
+      }
     }
   }
 }, PROCESS_CHECK_INTERVAL);
 
-// Detect whether session is from VS Code, JetBrains, or terminal, cache result
-// Detect source directly from hook environment variables (no process tree walking needed)
-function detectSourceFromHookEnv(hookData) {
-  // VS Code extension sets VSCODE_PID env var
-  if (hookData.vscode_pid) return 'vscode';
-  // TERM_PROGRAM tells us the terminal app directly
-  const tp = (hookData.term_program || '').toLowerCase();
-  if (tp === 'vscode') return 'vscode';
-  if (tp) {
-    // Check for JetBrains terminals
-    const jbNames = ['idea', 'webstorm', 'pycharm', 'goland', 'clion', 'rider',
-      'phpstorm', 'rubymine', 'datagrip', 'fleet', 'jetbrains'];
-    if (jbNames.some(n => tp.includes(n))) return 'jetbrains';
-    // Any other TERM_PROGRAM means a real terminal
-    return 'terminal';
-  }
-  // If there's a TTY, it's a terminal session
-  if (hookData.tty_path) return 'terminal';
-  // No TTY and no TERM_PROGRAM — likely VS Code extension (not a terminal)
-  if (hookData.claude_pid && !hookData.tty_path && !hookData.term_program) return 'vscode';
-  return null;
-}
-
+// All sessions are SSH-only — source is always 'ssh'
 export function detectSessionSource(sessionId) {
   const session = sessions.get(sessionId);
-  if (!session) {
-    console.log(`[detectSource] session=${sessionId?.slice(0,8)} not in memory → unknown`);
-    return 'unknown';
-  }
-  if (session.source === 'vscode' || session.source === 'terminal' || session.source === 'jetbrains') {
-    console.log(`[detectSource] session=${sessionId?.slice(0,8)} cached=${session.source}`);
-    return session.source;
-  }
-
-  const pid = findClaudeProcess(sessionId, session.projectPath);
-  if (pid) {
-    try {
-      const cmd = execSync(`ps -o args= -p ${pid}`, { encoding: 'utf-8', timeout: 3000 }).trim();
-      console.log(`[detectSource] session=${sessionId?.slice(0,8)} pid=${pid} cmd="${cmd.slice(0, 120)}"`);
-      if (cmd.includes('.vscode') || cmd.includes('--no-chrome') || cmd.includes('stream-json')) {
-        session.source = 'vscode';
-      } else if (isJetBrainsProcess(pid)) {
-        session.source = 'jetbrains';
-      } else {
-        session.source = 'terminal';
-      }
-      console.log(`[detectSource] session=${sessionId?.slice(0,8)} → ${session.source}`);
-    } catch(e) { /* keep existing */ }
-  } else {
-    console.log(`[detectSource] session=${sessionId?.slice(0,8)} no pid found, source=${session.source || 'unknown'}`);
-  }
-  return session.source || 'unknown';
-}
-
-// Check if a process is spawned from a JetBrains IDE by walking the process tree
-function isJetBrainsProcess(pid) {
-  const jbNames = ['idea', 'webstorm', 'pycharm', 'goland', 'clion', 'rider',
-    'phpstorm', 'rubymine', 'datagrip', 'dataspell', 'fleet', 'jetbrains',
-    'appcode', 'aqua', 'writerside'];
-  try {
-    let current = String(pid);
-    for (let i = 0; i < 10; i++) {
-      const ppid = execSync(`ps -o ppid= -p ${current}`, { encoding: 'utf-8', timeout: 3000 }).trim();
-      if (!ppid || ppid === '0' || ppid === '1') break;
-      const cmd = execSync(`ps -o comm= -p ${ppid}`, { encoding: 'utf-8', timeout: 3000 }).trim().toLowerCase();
-      if (jbNames.some(n => cmd.includes(n))) return true;
-      current = ppid;
-    }
-  } catch(e) {}
-  return false;
+  if (!session) return 'unknown';
+  return session.source || 'ssh';
 }
 
 export function findClaudeProcess(sessionId, projectPath) {
-  // Return cached PID if we already matched one for this session (and it's still alive)
   const session = sessionId ? sessions.get(sessionId) : null;
   if (session?.cachedPid) {
     try {
@@ -1036,7 +774,6 @@ export function findClaudeProcess(sessionId, projectPath) {
       console.log(`[findProcess] session=${sessionId?.slice(0,8)} → cached pid=${session.cachedPid}`);
       return session.cachedPid;
     } catch {
-      // Process died, clear cache
       console.log(`[findProcess] session=${sessionId?.slice(0,8)} cached pid=${session.cachedPid} is dead, re-scanning`);
       pidToSession.delete(session.cachedPid);
       session.cachedPid = null;
@@ -1046,7 +783,6 @@ export function findClaudeProcess(sessionId, projectPath) {
   const myPid = process.pid;
   console.log(`[findProcess] ── session=${sessionId?.slice(0,8)} projectPath=${projectPath}`);
 
-  // Collect PIDs already claimed by OTHER sessions
   const claimedPids = new Set();
   for (const [pid, sid] of pidToSession) {
     if (sid !== sessionId) claimedPids.add(pid);
@@ -1078,7 +814,6 @@ export function findClaudeProcess(sessionId, projectPath) {
       if (pid > 0) cachePid(pid, sessionId, session);
       return pid > 0 ? pid : null;
     } else {
-      // Unix (macOS / Linux): find Claude processes and match by cwd
       const pidsOut = execSync(`pgrep -f claude 2>/dev/null || true`, { encoding: 'utf-8', timeout: 5000 });
       const pids = pidsOut.trim().split('\n')
         .map(p => parseInt(p.trim(), 10))
@@ -1088,7 +823,6 @@ export function findClaudeProcess(sessionId, projectPath) {
 
       if (pids.length === 0) return null;
 
-      // Match by cwd, skipping PIDs already claimed by other sessions
       if (projectPath) {
         for (const pid of pids) {
           if (claimedPids.has(pid)) {
@@ -1117,7 +851,6 @@ export function findClaudeProcess(sessionId, projectPath) {
         console.log(`[findProcess] no cwd match found, trying tty fallback`);
       }
 
-      // Fallback: return first unclaimed terminal-attached Claude process
       for (const pid of pids) {
         if (claimedPids.has(pid)) continue;
         try {
@@ -1131,7 +864,6 @@ export function findClaudeProcess(sessionId, projectPath) {
         } catch(e) { continue; }
       }
 
-      // Last resort: first unclaimed pid
       const unclaimed = pids.find(p => !claimedPids.has(p));
       console.log(`[findProcess] last resort returning pid=${unclaimed || 'null'}`);
       if (unclaimed) cachePid(unclaimed, sessionId, session);
@@ -1143,14 +875,12 @@ export function findClaudeProcess(sessionId, projectPath) {
   return null;
 }
 
-// Check if a process has any child processes (i.e. a command is actively running).
-// Used to distinguish "waiting for approval" (no children) from "command executing" (has children).
 function hasChildProcesses(pid) {
   try {
     const out = execSync(`pgrep -P ${pid} 2>/dev/null`, { encoding: 'utf-8', timeout: 2000 });
     return out.trim().length > 0;
   } catch {
-    return false; // pgrep exits 1 when no children found
+    return false;
   }
 }
 

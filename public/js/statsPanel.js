@@ -10,39 +10,13 @@ let lastHookStats = null;
 let hookStatsVisible = false;
 
 export async function loadHistoricalStats() {
-  if (historicalLoaded) return;
-  try {
-    const resp = await fetch('/api/analytics/summary');
-    const stats = await resp.json();
-    historicalLoaded = true;
-
-    const el = document.getElementById('global-stats');
-    // Append historical summary after the existing live stats
-    const histSpan = document.createElement('span');
-    histSpan.className = 'stat historical-stat';
-    histSpan.innerHTML = `
-      <span class="stat-label">History</span>
-      <span class="stat-value">${stats.total_sessions} sessions</span>
-    `;
-    el.appendChild(histSpan);
-  } catch (e) {
-    // Server may not have /api/analytics/summary yet
-  }
+  // no-op: historical stats display removed from header
 }
 
 export function update(sessions) {
-  const list = Object.values(sessions);
-  const activeCount = list.filter(s => s.status !== 'ended').length;
-
   const el = document.getElementById('global-stats');
-
-  el.innerHTML = `
-    <span class="stat">
-      <span class="stat-label">Sessions</span>
-      <span class="stat-value">${activeCount}</span>
-    </span>
-  `;
-
+  if (!el) return;
+  el.innerHTML = '';
   // Re-add hook stats elements
   if (lastHookStats) {
     renderHookStatsBadge(el);

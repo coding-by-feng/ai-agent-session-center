@@ -8,9 +8,7 @@ import { execSync } from 'child_process';
 import hookRouter from './hookRouter.js';
 import { handleConnection, broadcast } from './wsManager.js';
 import { getAllSessions } from './sessionStore.js';
-import db from './db.js';
 import apiRouter from './apiRouter.js';
-import { startImport } from './importer.js';
 import { startMqReader, stopMqReader } from './mqReader.js';
 import log from './logger.js';
 import { config } from './serverConfig.js';
@@ -82,39 +80,6 @@ function onReady() {
 
   // Start file-based message queue reader
   startMqReader();
-
-  // Start background JSONL import
-  startImport().catch(err => {
-    log.error('import', err.message);
-  });
-
-  // Duration alert checking — every 10 seconds
-  setInterval(() => {
-    try {
-      const alerts = db.prepare(
-        'SELECT * FROM duration_alerts WHERE enabled = 1 AND triggered_at IS NULL'
-      ).all();
-      const currentSessions = getAllSessions();
-      for (const alert of alerts) {
-        const session = currentSessions[alert.session_id];
-        if (!session) continue;
-        const elapsed = Date.now() - session.startedAt;
-        if (elapsed >= alert.threshold_ms) {
-          db.prepare('UPDATE duration_alerts SET triggered_at = ? WHERE id = ?').run(Date.now(), alert.id);
-          log.info('alerts', `Duration alert triggered for ${session.projectName}: ${Math.round(elapsed/60000)}min >= ${Math.round(alert.threshold_ms/60000)}min`);
-          broadcast({
-            type: 'duration_alert',
-            sessionId: alert.session_id,
-            projectName: session.projectName,
-            thresholdMs: alert.threshold_ms,
-            elapsedMs: elapsed
-          });
-        }
-      }
-    } catch(e) {
-      log.error('alerts', 'Error checking duration alerts:', e.message);
-    }
-  }, 10000);
 }
 
 let retried = false;

@@ -12,7 +12,6 @@
     "postinstall": "node hooks/install-hooks.js && chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true"
   },
   "dependencies": {
-    "better-sqlite3": "^12.6.2",
     "express": "^5.0.0",
     "node-pty": "^1.1.0",
     "ws": "^8.18.0"

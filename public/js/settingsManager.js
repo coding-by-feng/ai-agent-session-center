@@ -1,4 +1,5 @@
 // settingsManager.js — Settings persistence and event system
+import * as db from './browserDb.js';
 
 const defaults = {
   theme: 'command-center',
@@ -21,9 +22,8 @@ const listeners = new Map(); // key -> Set of callbacks
 
 export async function loadSettings() {
   try {
-    const resp = await fetch('/api/settings');
-    const data = await resp.json();
-    settings = { ...defaults, ...data.settings };
+    const data = await db.getAllSettings();
+    settings = { ...defaults, ...data };
   } catch (e) {
     console.error('[settings] Failed to load:', e.message);
   }
@@ -41,11 +41,7 @@ export function getAll() {
 export async function set(key, value) {
   settings[key] = value;
   try {
-    await fetch('/api/settings', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, value: String(value) })
-    });
+    await db.setSetting(key, String(value));
     flashAutosave();
   } catch (e) {
     console.error('[settings] Failed to save:', e.message);
@@ -697,9 +693,9 @@ async function initSummaryPromptSettings() {
 
   async function loadAndRender() {
     try {
-      const resp = await fetch('/api/summary-prompts');
-      const data = await resp.json();
-      renderList(data.prompts || []);
+      const all = await db.getAll('summaryPrompts');
+      const prompts = all.map(p => ({ ...p, is_default: p.isDefault }));
+      renderList(prompts);
     } catch(e) {
       list.innerHTML = '<div style="color:var(--text-dim);padding:8px">Failed to load prompts</div>';
     }
@@ -722,11 +718,18 @@ async function initSummaryPromptSettings() {
     // Star (set default)
     list.querySelectorAll('.settings-prompt-star').forEach(btn => {
       btn.addEventListener('click', async () => {
-        await fetch(`/api/summary-prompts/${btn.dataset.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ is_default: true })
-        });
+        const id = parseInt(btn.dataset.id, 10);
+        // Clear all defaults first, then set the selected one
+        const all = await db.getAll('summaryPrompts');
+        for (const p of all) {
+          if (p.isDefault && p.id !== id) {
+            await db.put('summaryPrompts', { ...p, isDefault: 0, updatedAt: Date.now() });
+          }
+        }
+        const target = all.find(p => p.id === id);
+        if (target) {
+          await db.put('summaryPrompts', { ...target, isDefault: 1, updatedAt: Date.now() });
+        }
         loadAndRender();
       });
     });
@@ -735,9 +738,7 @@ async function initSummaryPromptSettings() {
     list.querySelectorAll('.settings-prompt-edit').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = parseInt(btn.dataset.id, 10);
-        const resp = await fetch('/api/summary-prompts');
-        const data = await resp.json();
-        const p = (data.prompts || []).find(x => x.id === id);
+        const p = await db.get('summaryPrompts', id);
         if (!p) return;
         editingId = id;
         nameInput.value = p.name;
@@ -750,7 +751,7 @@ async function initSummaryPromptSettings() {
     // Delete
     list.querySelectorAll('.settings-prompt-del').forEach(btn => {
       btn.addEventListener('click', async () => {
-        await fetch(`/api/summary-prompts/${btn.dataset.id}`, { method: 'DELETE' });
+        await db.del('summaryPrompts', parseInt(btn.dataset.id, 10));
         loadAndRender();
       });
     });
@@ -762,18 +763,12 @@ async function initSummaryPromptSettings() {
     const prompt = textInput.value.trim();
     if (!name || !prompt) return;
 
+    const now = Date.now();
     if (editingId) {
-      await fetch(`/api/summary-prompts/${editingId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, prompt })
-      });
+      const existing = await db.get('summaryPrompts', editingId);
+      await db.put('summaryPrompts', { ...existing, name, prompt, updatedAt: now });
     } else {
-      await fetch('/api/summary-prompts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, prompt })
-      });
+      await db.put('summaryPrompts', { name, prompt, isDefault: 0, createdAt: now, updatedAt: now });
     }
     nameInput.value = '';
     textInput.value = '';
