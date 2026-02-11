@@ -1,8 +1,9 @@
 // sessionStore.js — In-memory session state machine (no database)
 import { execSync } from 'child_process';
+import { homedir } from 'os';
 import log from './logger.js';
 import { getToolTimeout, getToolCategory, getWaitingStatus, getWaitingLabel, AUTO_IDLE_TIMEOUTS, PROCESS_CHECK_INTERVAL } from './config.js';
-import { tryLinkByWorkDir, getTerminalForSession } from './sshManager.js';
+import { tryLinkByWorkDir, getTerminalForSession, getTerminalByPtyChild } from './sshManager.js';
 
 const sessions = new Map();
 const projectSessionCounters = new Map();
@@ -77,76 +78,131 @@ export function handleEvent(hookData) {
 
   // Create session if new — ONLY when linked to an SSH terminal
   if (!session) {
-    // Check if this session matches a pending SSH terminal
-    const linkedTerminalId = tryLinkByWorkDir(cwd || '', session_id);
-    if (!linkedTerminalId) {
-      // Maybe there's a pre-created terminal session for this workDir — scan by path
-      let found = false;
-      for (const [key, s] of sessions) {
-        if (s.terminalId && s.status === 'connecting' && s.projectPath) {
-          const normalizedSessionPath = s.projectPath.replace(/\/$/, '');
-          const normalizedCwd = (cwd || '').replace(/\/$/, '');
-          if (normalizedSessionPath === normalizedCwd || s.projectPath === cwd) {
-            // Found a pre-created terminal session — re-key it
-            sessions.delete(key);
-            s.sessionId = session_id;
-            s.replacesId = key; // Tell frontend to remove old card
-            session = s;
-            sessions.set(session_id, session);
-            log.info('session', `Re-keyed terminal session ${key} → ${session_id?.slice(0,8)}`);
-            found = true;
-            break;
-          }
-        }
-      }
-      if (!found) {
-        log.debug('session', `Ignoring session ${session_id?.slice(0,8)} — no SSH terminal match (cwd=${cwd})`);
-        return null;
+    // Priority 1: Direct match via AGENT_MANAGER_TERMINAL_ID (injected into pty env)
+    if (hookData.agent_terminal_id) {
+      const preSession = sessions.get(hookData.agent_terminal_id);
+      if (preSession && preSession.terminalId) {
+        sessions.delete(hookData.agent_terminal_id);
+        preSession.sessionId = session_id;
+        preSession.replacesId = hookData.agent_terminal_id;
+        session = preSession;
+        sessions.set(session_id, session);
+        log.info('session', `Re-keyed terminal session ${hookData.agent_terminal_id} → ${session_id?.slice(0,8)} (via terminal ID)`);
       }
     }
 
-    // If we matched via tryLinkByWorkDir but don't have a session yet (no pre-session found)
-    if (!session && linkedTerminalId) {
-      // Check if there's a pre-created terminal session with this terminalId
-      const preSession = sessions.get(linkedTerminalId);
-      if (preSession) {
-        sessions.delete(linkedTerminalId);
-        preSession.sessionId = session_id;
-        preSession.replacesId = linkedTerminalId;
-        session = preSession;
-        sessions.set(session_id, session);
-        log.info('session', `Re-keyed terminal session ${linkedTerminalId} → ${session_id?.slice(0,8)}`);
+    // Priority 2: Match via pending workDir link
+    if (!session) {
+      const linkedTerminalId = tryLinkByWorkDir(cwd || '', session_id);
+      if (linkedTerminalId) {
+        // Check if there's a pre-created terminal session with this terminalId
+        const preSession = sessions.get(linkedTerminalId);
+        if (preSession) {
+          sessions.delete(linkedTerminalId);
+          preSession.sessionId = session_id;
+          preSession.replacesId = linkedTerminalId;
+          session = preSession;
+          sessions.set(session_id, session);
+          log.info('session', `Re-keyed terminal session ${linkedTerminalId} → ${session_id?.slice(0,8)} (via workDir link)`);
+        } else {
+          console.log(`[hook] NEW SSH SESSION ${session_id?.slice(0,8)} — terminal=${linkedTerminalId}`);
+          session = {
+            sessionId: session_id,
+            projectPath: cwd || '',
+            projectName: cwd ? cwd.split('/').filter(Boolean).pop() : 'Unknown',
+            title: '',
+            status: 'idle',
+            animationState: 'Idle',
+            emote: null,
+            startedAt: Date.now(),
+            lastActivityAt: Date.now(),
+            currentPrompt: '',
+            promptHistory: [],
+            toolUsage: {},
+            totalToolCalls: 0,
+            model: hookData.model || '',
+            subagentCount: 0,
+            toolLog: [],
+            responseLog: [],
+            events: [],
+            archived: 0,
+            source: 'ssh',
+            pendingTool: null,
+            waitingDetail: null,
+            cachedPid: null,
+            queueCount: 0,
+            terminalId: linkedTerminalId
+          };
+          sessions.set(session_id, session);
+        }
       } else {
-        const pid = hookData.claude_pid ? Number(hookData.claude_pid) : null;
-        console.log(`[hook] NEW SSH SESSION ${session_id?.slice(0,8)} — terminal=${linkedTerminalId}`);
-        session = {
-          sessionId: session_id,
-          projectPath: cwd || '',
-          projectName: cwd ? cwd.split('/').filter(Boolean).pop() : 'Unknown',
-          title: '',
-          status: 'idle',
-          animationState: 'Idle',
-          emote: null,
-          startedAt: Date.now(),
-          lastActivityAt: Date.now(),
-          currentPrompt: '',
-          promptHistory: [],
-          toolUsage: {},
-          totalToolCalls: 0,
-          model: hookData.model || '',
-          subagentCount: 0,
-          toolLog: [],
-          responseLog: [],
-          events: [],
-          archived: 0,
-          source: 'ssh',
-          pendingTool: null,
-          waitingDetail: null,
-          cachedPid: null,
-          queueCount: 0,
-          terminalId: linkedTerminalId
-        };
-        sessions.set(session_id, session);
+        // Priority 3: Scan pre-created sessions by normalized path
+        let found = false;
+        for (const [key, s] of sessions) {
+          if (s.terminalId && s.status === 'connecting' && s.projectPath) {
+            const normalizedSessionPath = s.projectPath.replace(/\/$/, '');
+            const normalizedCwd = (cwd || '').replace(/\/$/, '');
+            if (normalizedSessionPath === normalizedCwd || s.projectPath === cwd) {
+              sessions.delete(key);
+              s.sessionId = session_id;
+              s.replacesId = key;
+              session = s;
+              sessions.set(session_id, session);
+              log.info('session', `Re-keyed terminal session ${key} → ${session_id?.slice(0,8)} (via path scan)`);
+              found = true;
+              break;
+            }
+          }
+        }
+        // Priority 4: PID-based fallback — check if Claude's parent is a known pty
+        if (!found && hookData.claude_pid) {
+          const pidTerminalId = getTerminalByPtyChild(Number(hookData.claude_pid));
+          if (pidTerminalId) {
+            const preSession = sessions.get(pidTerminalId);
+            if (preSession && preSession.terminalId) {
+              sessions.delete(pidTerminalId);
+              preSession.sessionId = session_id;
+              preSession.replacesId = pidTerminalId;
+              session = preSession;
+              sessions.set(session_id, session);
+              log.info('session', `Re-keyed terminal session ${pidTerminalId} → ${session_id?.slice(0,8)} (via PID fallback)`);
+              found = true;
+            }
+          }
+        }
+        if (!found) {
+          // No SSH terminal match — create a display-only card with detected source
+          const detectedSource = detectHookSource(hookData);
+          log.info('session', `Creating display-only session ${session_id?.slice(0,8)} source=${detectedSource} cwd=${cwd}`);
+          session = {
+            sessionId: session_id,
+            projectPath: cwd || '',
+            projectName: cwd ? cwd.split('/').filter(Boolean).pop() : 'Unknown',
+            title: '',
+            status: 'idle',
+            animationState: 'Idle',
+            emote: null,
+            startedAt: Date.now(),
+            lastActivityAt: Date.now(),
+            currentPrompt: '',
+            promptHistory: [],
+            toolUsage: {},
+            totalToolCalls: 0,
+            model: hookData.model || '',
+            subagentCount: 0,
+            toolLog: [],
+            responseLog: [],
+            events: [],
+            archived: 0,
+            source: detectedSource,
+            pendingTool: null,
+            waitingDetail: null,
+            cachedPid: null,
+            queueCount: 0,
+            terminalId: null,
+          };
+          sessions.set(session_id, session);
+        }
       }
     }
 
@@ -176,6 +232,8 @@ export function handleEvent(hookData) {
       session.status = 'idle';
       session.animationState = 'Idle';
       session.model = hookData.model || session.model;
+      if (hookData.transcript_path) session.transcriptPath = hookData.transcript_path;
+      if (hookData.permission_mode) session.permissionMode = hookData.permission_mode;
       eventEntry.detail = `Session started (${hookData.source || 'startup'})`;
       log.debug('session', `SessionStart: ${session_id?.slice(0,8)} project=${session.projectName} model=${session.model}`);
       // Try to match this new session as a subagent child
@@ -200,13 +258,14 @@ export function handleEvent(hookData) {
       if (session.promptHistory.length > 50) session.promptHistory.shift();
       eventEntry.detail = (hookData.prompt || '').substring(0, 80);
 
-      // Auto-generate title from project name + counter + short prompt summary
+      // Auto-generate title from project name + label + counter + short prompt summary
       if (!session.title) {
         const counter = projectSessionCounters.get(session.projectName) || 1;
+        const labelPart = session.label ? ` ${session.label}` : '';
         const shortPrompt = makeShortTitle(hookData.prompt || '');
         session.title = shortPrompt
-          ? `${session.projectName} #${counter} — ${shortPrompt}`
-          : `${session.projectName} — Session #${counter}`;
+          ? `${session.projectName}${labelPart} #${counter} — ${shortPrompt}`
+          : `${session.projectName}${labelPart} — Session #${counter}`;
       }
       break;
 
@@ -308,12 +367,13 @@ export function handleEvent(hookData) {
     case 'SubagentStart':
       session.subagentCount++;
       session.emote = 'Jump';
-      eventEntry.detail = `Subagent spawned (${hookData.agent_type || 'unknown'})`;
+      eventEntry.detail = `Subagent spawned (${hookData.agent_type || 'unknown'}${hookData.agent_id ? ' #' + hookData.agent_id.slice(0, 8) : ''})`;
       // Track pending subagent for team auto-detection
       pendingSubagents.push({
         parentSessionId: session_id,
         parentCwd: session.projectPath,
         agentType: hookData.agent_type || 'unknown',
+        agentId: hookData.agent_id || null,
         timestamp: Date.now()
       });
       // Prune stale entries (>30s old)
@@ -326,6 +386,55 @@ export function handleEvent(hookData) {
     case 'SubagentStop':
       session.subagentCount = Math.max(0, session.subagentCount - 1);
       eventEntry.detail = `Subagent finished`;
+      break;
+
+    case 'PermissionRequest': {
+      // Real signal that user approval is needed — replaces timeout-based heuristic
+      clearTimeout(pendingToolTimers.get(session_id));
+      pendingToolTimers.delete(session_id);
+      const permTool = hookData.tool_name || session.pendingTool || 'Unknown';
+      session.status = 'approval';
+      session.animationState = 'Waiting';
+      session.waitingDetail = hookData.tool_input
+        ? `Approve ${permTool}: ${summarizeToolInput(hookData.tool_input, permTool)}`
+        : `Approve ${permTool}`;
+      session.permissionMode = hookData.permission_mode || null;
+      eventEntry.detail = `Permission request: ${permTool}`;
+      break;
+    }
+
+    case 'PostToolUseFailure': {
+      // Tool call failed — cancel approval timer, mark the failure in tool log
+      clearTimeout(pendingToolTimers.get(session_id));
+      pendingToolTimers.delete(session_id);
+      session.pendingTool = null;
+      session.pendingToolDetail = null;
+      session.waitingDetail = null;
+      session.status = 'working';
+      const failedTool = hookData.tool_name || 'Tool';
+      // Mark last tool log entry as failed if it matches
+      if (session.toolLog.length > 0) {
+        const lastEntry = session.toolLog[session.toolLog.length - 1];
+        if (lastEntry.tool === failedTool && !lastEntry.failed) {
+          lastEntry.failed = true;
+          lastEntry.error = hookData.error || hookData.message || 'Failed';
+        }
+      }
+      eventEntry.detail = `${failedTool} failed${hookData.error ? ': ' + hookData.error.substring(0, 80) : ''}`;
+      break;
+    }
+
+    case 'TeammateIdle':
+      eventEntry.detail = `Teammate idle: ${hookData.agent_name || hookData.agent_id || 'unknown'}`;
+      break;
+
+    case 'TaskCompleted':
+      eventEntry.detail = `Task completed: ${hookData.task_description || hookData.task_id || 'unknown'}`;
+      session.emote = 'ThumbsUp';
+      break;
+
+    case 'PreCompact':
+      eventEntry.detail = 'Context compaction starting';
       break;
 
     case 'Notification':
@@ -380,10 +489,7 @@ export function handleEvent(hookData) {
 export function getAllSessions() {
   const result = {};
   for (const [id, session] of sessions) {
-    // Return all SSH sessions (active + historical/disconnected)
-    if (session.source === 'ssh') {
-      result[id] = { ...session };
-    }
+    result[id] = { ...session };
   }
   return result;
 }
@@ -547,13 +653,23 @@ export function getSession(sessionId) {
 
 // Create a session card immediately when SSH terminal connects (before hooks arrive)
 export async function createTerminalSession(terminalId, config) {
-  const workDir = config.workingDir || '~';
-  const projectName = workDir === '~' ? 'Home' : workDir.split('/').filter(Boolean).pop() || 'SSH Session';
+  const workDir = config.workingDir
+    ? (config.workingDir.startsWith('~') ? config.workingDir.replace(/^~/, homedir()) : config.workingDir)
+    : homedir();
+  const projectName = workDir === homedir() ? 'Home' : workDir.split('/').filter(Boolean).pop() || 'SSH Session';
+  // Build default title: projectName + label + counter
+  let defaultTitle = `${config.host || 'localhost'}:${workDir}`;
+  if (!config.sessionTitle && config.label) {
+    const counter = (projectSessionCounters.get(projectName) || 0) + 1;
+    projectSessionCounters.set(projectName, counter);
+    defaultTitle = `${projectName} ${config.label} #${counter}`;
+  }
   const session = {
     sessionId: terminalId,
     projectPath: workDir,
     projectName,
-    title: config.sessionTitle || `${config.host || 'localhost'}:${workDir}`,
+    label: config.label || '',
+    title: config.sessionTitle || defaultTitle,
     status: 'connecting',
     animationState: 'Walking',
     emote: 'Wave',
@@ -584,6 +700,24 @@ export async function createTerminalSession(terminalId, config) {
 
   const { broadcast } = await import('./wsManager.js');
   broadcast({ type: 'session_update', session: { ...session } });
+
+  // Non-Claude CLIs (codex, gemini, etc.) don't send hooks — auto-transition to idle
+  const command = config.command || 'claude';
+  if (!command.startsWith('claude')) {
+    setTimeout(async () => {
+      const s = sessions.get(terminalId);
+      if (s && s.status === 'connecting') {
+        s.status = 'idle';
+        s.animationState = 'Idle';
+        s.emote = null;
+        s.model = command; // Show command name as model
+        const { broadcast: bc } = await import('./wsManager.js');
+        bc({ type: 'session_update', session: { ...s } });
+        log.info('session', `Auto-transitioned non-Claude session ${terminalId} to idle (${command})`);
+      }
+    }, 3000);
+  }
+
   return session;
 }
 
@@ -635,6 +769,12 @@ export function deleteSessionFromMemory(sessionId) {
 export function setSessionTitle(sessionId, title) {
   const session = sessions.get(sessionId);
   if (session) session.title = title;
+  return session ? { ...session } : null;
+}
+
+export function setSessionLabel(sessionId, label) {
+  const session = sessions.get(sessionId);
+  if (session) session.label = label;
   return session ? { ...session } : null;
 }
 
@@ -759,7 +899,25 @@ setInterval(async () => {
   }
 }, PROCESS_CHECK_INTERVAL);
 
-// All sessions are SSH-only — source is always 'ssh'
+// Detect where a hook-only session originated from environment variables
+function detectHookSource(hookData) {
+  if (hookData.vscode_pid) return 'vscode';
+  const tp = (hookData.term_program || '').toLowerCase();
+  if (tp.includes('vscode') || tp.includes('code')) return 'vscode';
+  if (tp.includes('jetbrains') || tp.includes('intellij') || tp.includes('idea') || tp.includes('webstorm') || tp.includes('pycharm') || tp.includes('goland') || tp.includes('clion') || tp.includes('phpstorm') || tp.includes('rider') || tp.includes('rubymine') || tp.includes('datagrip')) return 'jetbrains';
+  if (tp.includes('iterm')) return 'iterm';
+  if (tp.includes('warp')) return 'warp';
+  if (tp.includes('kitty')) return 'kitty';
+  if (tp.includes('ghostty') || hookData.is_ghostty) return 'ghostty';
+  if (tp.includes('alacritty')) return 'alacritty';
+  if (tp.includes('wezterm') || hookData.wezterm_pane) return 'wezterm';
+  if (tp.includes('hyper')) return 'hyper';
+  if (tp.includes('apple_terminal') || tp === 'apple_terminal') return 'terminal';
+  if (hookData.tmux) return 'tmux';
+  if (tp) return tp;
+  return 'terminal';
+}
+
 export function detectSessionSource(sessionId) {
   const session = sessions.get(sessionId);
   if (!session) return 'unknown';

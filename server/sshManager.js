@@ -3,7 +3,7 @@
 // Terminal I/O is relayed through WebSocket to xterm.js in the browser.
 
 import pty from 'node-pty';
-import { execFile } from 'child_process';
+import { execFile, execSync } from 'child_process';
 import { readdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
@@ -137,7 +137,7 @@ export function createTerminal(config, wsClient) {
         cols: 120,
         rows: 40,
         cwd,
-        env: { ...process.env },
+        env: { ...process.env, AGENT_MANAGER_TERMINAL_ID: terminalId },
       });
 
       log.info('pty', `Spawned ${local ? 'local' : `remote (${config.host})`} terminal ${terminalId} (pid: ${ptyProcess.pid})`);
@@ -187,7 +187,10 @@ export function createTerminal(config, wsClient) {
           const tmuxName = `claude-${Date.now().toString(36)}`;
           let innerCmd = local ? '' : `cd "${workDir}" && `;
           if (config.apiKey) {
-            innerCmd += `export ANTHROPIC_API_KEY='${config.apiKey.replace(/'/g, "'\\''")}' && `;
+            const envVar = command.startsWith('codex') ? 'OPENAI_API_KEY'
+              : command.startsWith('gemini') ? 'GEMINI_API_KEY'
+              : 'ANTHROPIC_API_KEY';
+            innerCmd += `export ${envVar}='${config.apiKey.replace(/'/g, "'\\''")}' && `;
           }
           innerCmd += command;
           launchCmd = `tmux new-session -s "${tmuxName}" '${innerCmd.replace(/'/g, "'\\''")}'`;
@@ -196,7 +199,10 @@ export function createTerminal(config, wsClient) {
           launchCmd = local ? '' : `cd "${workDir}"`;
           if (config.apiKey) {
             if (launchCmd) launchCmd += ' && ';
-            launchCmd += `export ANTHROPIC_API_KEY="${config.apiKey}"`;
+            const envVar = command.startsWith('codex') ? 'OPENAI_API_KEY'
+              : command.startsWith('gemini') ? 'GEMINI_API_KEY'
+              : 'ANTHROPIC_API_KEY';
+            launchCmd += `export ${envVar}="${config.apiKey}"`;
           }
           if (launchCmd) launchCmd += ' && ';
           launchCmd += command;
@@ -277,6 +283,19 @@ export function getTerminalForSession(sessionId) {
   for (const [terminalId, term] of terminals) {
     if (term.sessionId === sessionId) return terminalId;
   }
+  return null;
+}
+
+// Find terminal whose pty is the parent of the given child PID
+export function getTerminalByPtyChild(childPid) {
+  if (!childPid || childPid <= 0) return null;
+  try {
+    const ppid = parseInt(execSync(`ps -o ppid= -p ${childPid} 2>/dev/null`, { encoding: 'utf-8' }).trim(), 10);
+    if (!ppid || ppid <= 0) return null;
+    for (const [terminalId, term] of terminals) {
+      if (term.pty && term.pty.pid === ppid) return terminalId;
+    }
+  } catch {}
   return null;
 }
 

@@ -188,6 +188,7 @@ export async function persistSessionUpdate(session) {
     teamRole: session.teamRole || null,
     terminalId: session.terminalId || null,
     queueCount: session.queueCount || 0,
+    label: session.label || null,
   };
   await put('sessions', record);
 
@@ -303,6 +304,19 @@ export async function getSessionDetail(sessionId) {
   return { session, prompts, responses, tool_calls: toolCalls, events, notes };
 }
 
+export async function deleteSession(sessionId) {
+  // Remove session record
+  await del('sessions', sessionId);
+  // Remove all related records from child stores
+  const childStores = ['prompts', 'responses', 'toolCalls', 'events', 'notes', 'promptQueue', 'alerts'];
+  for (const storeName of childStores) {
+    const records = await getByIndex(storeName, 'sessionId', sessionId);
+    for (const r of records) {
+      await del(storeName, r.id);
+    }
+  }
+}
+
 export async function getDistinctProjects() {
   const sessions = await getAll('sessions');
   const seen = new Map();
@@ -401,10 +415,14 @@ export async function getSummaryStats() {
   }
   const mostUsedTool = Object.entries(toolCounts).sort((a, b) => b[1] - a[1])[0];
 
-  // Busiest project
+  // Busiest project (track name alongside path)
   const projectCounts = {};
+  const projectNames = {};
   for (const s of sessions) {
-    if (s.projectPath) projectCounts[s.projectPath] = (projectCounts[s.projectPath] || 0) + 1;
+    if (s.projectPath) {
+      projectCounts[s.projectPath] = (projectCounts[s.projectPath] || 0) + 1;
+      if (s.projectName) projectNames[s.projectPath] = s.projectName;
+    }
   }
   const busiestProject = Object.entries(projectCounts).sort((a, b) => b[1] - a[1])[0];
 
@@ -415,7 +433,9 @@ export async function getSummaryStats() {
     active_sessions: activeSessions,
     avg_duration: avgDuration,
     most_used_tool: mostUsedTool ? { tool_name: mostUsedTool[0], count: mostUsedTool[1] } : null,
-    busiest_project: busiestProject ? { project_path: busiestProject[0], count: busiestProject[1] } : null,
+    busiest_project: busiestProject
+      ? { project_path: busiestProject[0], name: projectNames[busiestProject[0]] || busiestProject[0], count: busiestProject[1] }
+      : null,
   };
 }
 
@@ -480,10 +500,12 @@ export async function getActiveProjects() {
 
 export async function getHeatmap() {
   const events = await getAll('events');
-  const grid = {}; // "day-hour" -> count
+  const grid = {}; // "day-hour" -> count (day: 0=Mon, 6=Sun)
   for (const e of events) {
     const d = new Date(e.timestamp);
-    const day = d.getDay(); // 0=Sun
+    // Convert JS getDay (0=Sun) to Mon-first (0=Mon, 6=Sun)
+    const jsDay = d.getDay();
+    const day = jsDay === 0 ? 6 : jsDay - 1;
     const hour = d.getHours();
     const key = `${day}-${hour}`;
     grid[key] = (grid[key] || 0) + 1;
@@ -494,7 +516,7 @@ export async function getHeatmap() {
     for (let hour = 0; hour < 24; hour++) {
       const key = `${day}-${hour}`;
       if (grid[key]) {
-        result.push({ day, hour, count: grid[key] });
+        result.push({ day_of_week: day, hour, count: grid[key] });
       }
     }
   }
@@ -508,13 +530,42 @@ export async function getTimeline({ dateFrom, dateTo, granularity = 'day', proje
   if (dateFrom) sessions = sessions.filter(s => s.startedAt >= dateFrom);
   if (dateTo) sessions = sessions.filter(s => s.startedAt <= dateTo);
 
+  // Build a set of matching session IDs for filtering prompts/tools
+  const sessionIds = new Set(sessions.map(s => s.id));
+
+  // Count actual prompts and tool calls by their own timestamps for accurate per-period data
+  const [allPrompts, allToolCalls] = await Promise.all([
+    getAll('prompts'),
+    getAll('toolCalls'),
+  ]);
+
   const buckets = {};
+
+  // Count sessions by startedAt
   for (const s of sessions) {
     const key = formatPeriod(s.startedAt, granularity);
     if (!buckets[key]) buckets[key] = { session_count: 0, prompt_count: 0, tool_call_count: 0 };
     buckets[key].session_count++;
-    buckets[key].prompt_count += s.totalPrompts || 0;
-    buckets[key].tool_call_count += s.totalToolCalls || 0;
+  }
+
+  // Count prompts by their own timestamp
+  for (const p of allPrompts) {
+    if (!sessionIds.has(p.sessionId)) continue;
+    if (dateFrom && p.timestamp < dateFrom) continue;
+    if (dateTo && p.timestamp > dateTo) continue;
+    const key = formatPeriod(p.timestamp, granularity);
+    if (!buckets[key]) buckets[key] = { session_count: 0, prompt_count: 0, tool_call_count: 0 };
+    buckets[key].prompt_count++;
+  }
+
+  // Count tool calls by their own timestamp
+  for (const t of allToolCalls) {
+    if (!sessionIds.has(t.sessionId)) continue;
+    if (dateFrom && t.timestamp < dateFrom) continue;
+    if (dateTo && t.timestamp > dateTo) continue;
+    const key = formatPeriod(t.timestamp, granularity);
+    if (!buckets[key]) buckets[key] = { session_count: 0, prompt_count: 0, tool_call_count: 0 };
+    buckets[key].tool_call_count++;
   }
 
   return {
@@ -753,10 +804,3 @@ Any additional context for reviewers.`,
   }
 }
 
-// ---- Export for session export ----
-
-export async function exportSession(sessionId) {
-  const data = await getSessionDetail(sessionId);
-  if (!data) return null;
-  return data;
-}

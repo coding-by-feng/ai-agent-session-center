@@ -53,7 +53,7 @@ function renderSummary(data) {
     },
     {
       label: 'Busiest Project',
-      value: busiestProj ? (busiestProj.project_path || busiestProj.name) : 'N/A',
+      value: busiestProj ? (busiestProj.name || busiestProj.project_path) : 'N/A',
       detail: busiestProj ? formatNumber(busiestProj.count || busiestProj.sessions) + ' sessions' : '',
     },
   ];
@@ -62,9 +62,9 @@ function renderSummary(data) {
     const card = document.createElement('div');
     card.className = 'summary-stat';
     card.innerHTML =
-      '<span class="stat-label">' + escapeHtml(s.label) + '</span>' +
-      '<span class="stat-value">' + escapeHtml(s.value) + '</span>' +
-      '<span class="stat-detail">' + escapeHtml(s.detail) + '</span>';
+      '<div class="stat-label">' + escapeHtml(s.label) + '</div>' +
+      '<div class="stat-value">' + escapeHtml(s.value) + '</div>' +
+      '<div class="stat-detail">' + escapeHtml(s.detail) + '</div>';
     container.appendChild(card);
   });
 }
@@ -74,10 +74,6 @@ function renderSummary(data) {
 function renderToolUsage(data) {
   const container = document.getElementById('tool-usage-chart');
   container.innerHTML = '';
-
-  const heading = document.createElement('h4');
-  heading.textContent = 'TOOL USAGE';
-  container.appendChild(heading);
 
   const tools = (Array.isArray(data) ? data : data.tools || []).slice(0, 15);
   if (tools.length === 0) {
@@ -151,10 +147,6 @@ function renderToolUsage(data) {
 function renderDurationTrends(data) {
   const container = document.getElementById('duration-trends-chart');
   container.innerHTML = '';
-
-  const heading = document.createElement('h4');
-  heading.textContent = 'SESSION DURATION TRENDS';
-  container.appendChild(heading);
 
   const points = Array.isArray(data) ? data : (data.buckets || data.trends || []);
   if (points.length === 0) {
@@ -273,10 +265,6 @@ function renderActiveProjects(data) {
   const container = document.getElementById('active-projects-chart');
   container.innerHTML = '';
 
-  const heading = document.createElement('h4');
-  heading.textContent = 'PROJECTS BY ACTIVITY';
-  container.appendChild(heading);
-
   const projects = (Array.isArray(data) ? data : data.projects || [])
     .sort((a, b) => (b.session_count || 0) - (a.session_count || 0));
 
@@ -348,10 +336,6 @@ function renderActiveProjects(data) {
 function renderHeatmap(data) {
   const container = document.getElementById('daily-heatmap-chart');
   container.innerHTML = '';
-
-  const heading = document.createElement('h4');
-  heading.textContent = 'ACTIVITY HEATMAP';
-  container.appendChild(heading);
 
   const rawData = Array.isArray(data) ? data : (data.cells || data.heatmap || []);
   if (rawData.length === 0) {

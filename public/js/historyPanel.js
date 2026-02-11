@@ -96,12 +96,34 @@ function renderResults(sessions, total, page, pageSize) {
       <span class="history-prompts">${s.total_prompts} prompts</span>
       <span class="history-tools">${s.total_tool_calls} tools</span>
       <span class="history-branch">${escapeHtml(s.git_branch || '')}</span>
+      <button class="history-delete" title="Delete session">&times;</button>
     </div>`;
   }).join('');
 
   // Click handler for rows
   container.querySelectorAll('.history-row').forEach(row => {
-    row.addEventListener('click', () => openHistoryDetail(row.dataset.sessionId));
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('.history-delete')) return;
+      openHistoryDetail(row.dataset.sessionId);
+    });
+  });
+
+  // Delete button handler
+  container.querySelectorAll('.history-delete').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const row = btn.closest('.history-row');
+      const sid = row.dataset.sessionId;
+      if (!confirm('Delete this session from history? This cannot be undone.')) return;
+      await db.deleteSession(sid);
+      row.style.transition = 'opacity 0.3s';
+      row.style.opacity = '0';
+      setTimeout(() => {
+        row.remove();
+        // Reload if the page is now empty
+        if (container.querySelectorAll('.history-row').length === 0) loadSessions();
+      }, 300);
+    });
   });
 
   // Pagination

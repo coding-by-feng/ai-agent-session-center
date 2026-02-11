@@ -58,7 +58,7 @@ async function askValue(stepNum, totalSteps, label, defaultVal) {
 const TOTAL = 5;
 
 console.log(`\n${CYAN}╭──────────────────────────────────────────────╮${RESET}`);
-console.log(`${CYAN}│${RESET}  ${BOLD}Claude Session Center — Setup Wizard${RESET}        ${CYAN}│${RESET}`);
+console.log(`${CYAN}│${RESET}  ${BOLD}AI Agent Session Center — Setup Wizard${RESET}        ${CYAN}│${RESET}`);
 console.log(`${CYAN}╰──────────────────────────────────────────────╯${RESET}`);
 
 if (Object.keys(existing).length > 0) {
@@ -69,31 +69,39 @@ if (Object.keys(existing).length > 0) {
 const portStr = await askValue(1, TOTAL, 'Server port', existing.port || 3333);
 const port = parseInt(portStr, 10) || 3333;
 
-// 2. Hook density
+// 2. AI CLI selection
+const cliOptions = [
+  { label: `Claude Code only`, value: ['claude'] },
+  { label: `Claude Code + Gemini CLI`, value: ['claude', 'gemini'] },
+  { label: `Claude Code + Codex CLI`, value: ['claude', 'codex'] },
+  { label: `All (Claude + Gemini + Codex)`, value: ['claude', 'gemini', 'codex'] },
+];
+const currentCliIdx = (() => {
+  const ec = existing.enabledClis || ['claude'];
+  if (ec.length === 1 && ec[0] === 'claude') return 0;
+  if (ec.length === 2 && ec.includes('gemini')) return 1;
+  if (ec.length === 2 && ec.includes('codex')) return 2;
+  if (ec.length === 3) return 3;
+  return 0;
+})();
+const cliChoice = await choose(2, TOTAL, 'Which AI CLIs do you want to hook?', cliOptions, currentCliIdx);
+
+// 3. Hook density
 const densityOptions = [
-  { label: `high    ${DIM}— All 9 events (PreToolUse, PostToolUse, etc.)${RESET}`, value: 'high' },
-  { label: `medium  ${DIM}— 7 events (skip Pre/PostToolUse)${RESET}`, value: 'medium' },
-  { label: `low     ${DIM}— 4 events (minimal: start, prompt, stop, end)${RESET}`, value: 'low' },
+  { label: `high    ${DIM}— All 14 events (includes TeammateIdle, PreCompact)${RESET}`, value: 'high' },
+  { label: `medium  ${DIM}— 12 events (best balance of detail vs overhead)${RESET}`, value: 'medium' },
+  { label: `low     ${DIM}— 5 events (minimal: start, prompt, permission, stop, end)${RESET}`, value: 'low' },
 ];
 const currentDensityIdx = densityOptions.findIndex(o => o.value === (existing.hookDensity || 'medium'));
-const density = await choose(2, TOTAL, 'Hook trace density', densityOptions, currentDensityIdx >= 0 ? currentDensityIdx : 1);
+const density = await choose(3, TOTAL, 'Hook trace density', densityOptions, currentDensityIdx >= 0 ? currentDensityIdx : 1);
 
-// 3. Debug mode
+// 4. Debug mode
 const debugOptions = [
   { label: `Off`, value: false },
   { label: `On  ${DIM}— Verbose logging for troubleshooting${RESET}`, value: true },
 ];
 const currentDebugIdx = existing.debug ? 1 : 0;
-const debug = await choose(3, TOTAL, 'Debug mode?', debugOptions, currentDebugIdx);
-
-// 4. Process liveness check interval
-const processOptions = [
-  { label: `Fast    ${DIM}— Every 5 seconds (more responsive, slightly more CPU)${RESET}`, value: 5000 },
-  { label: `Normal  ${DIM}— Every 15 seconds${RESET}`, value: 15000 },
-  { label: `Relaxed ${DIM}— Every 30 seconds (less CPU)${RESET}`, value: 30000 },
-];
-const currentProcIdx = processOptions.findIndex(o => o.value === (existing.processCheckInterval || 15000));
-const procCheck = await choose(4, TOTAL, 'Process liveness check interval', processOptions, currentProcIdx >= 0 ? currentProcIdx : 1);
+const debug = await choose(4, TOTAL, 'Debug mode?', debugOptions, currentDebugIdx);
 
 // 5. Session history retention
 const historyOptions = [
@@ -110,9 +118,9 @@ rl.close();
 // ── Save config ──
 const configData = {
   port,
+  enabledClis: cliChoice.value,
   hookDensity: density.value,
   debug: debug.value,
-  processCheckInterval: procCheck.value,
   sessionHistoryHours: history.value,
 };
 
@@ -124,16 +132,16 @@ ok(`Config saved to ${DIM}data/server-config.json${RESET}`);
 
 // ── Print chosen config ──
 info(`Port: ${BOLD}${configData.port}${RESET}`);
+info(`Enabled CLIs: ${BOLD}${configData.enabledClis.join(', ')}${RESET}`);
 info(`Hook density: ${BOLD}${configData.hookDensity}${RESET}`);
 info(`Debug: ${BOLD}${configData.debug ? 'ON' : 'OFF'}${RESET}`);
-info(`Process check: ${BOLD}${configData.processCheckInterval / 1000}s${RESET}`);
 info(`History retention: ${BOLD}${configData.sessionHistoryHours}h${RESET}`);
 
 // ── Install hooks with chosen density ──
 console.log('');
 info('Installing hooks...');
 try {
-  execSync(`node "${join(__dirname, 'install-hooks.js')}" --density ${configData.hookDensity}`, {
+  execSync(`node "${join(__dirname, 'install-hooks.js')}" --density ${configData.hookDensity} --clis ${configData.enabledClis.join(',')}`, {
     stdio: 'inherit',
     cwd: PROJECT_ROOT,
   });
@@ -142,5 +150,7 @@ try {
 }
 
 console.log(`\n${GREEN}────────────────────────────────────────────────${RESET}`);
-console.log(`  ${GREEN}✓ Setup complete! Starting server...${RESET}`);
-console.log(`${GREEN}────────────────────────────────────────────────${RESET}\n`);
+console.log(`  ${GREEN}✓ Setup complete!${RESET}`);
+console.log(`${GREEN}────────────────────────────────────────────────${RESET}`);
+console.log(`\n  Starting server on port ${BOLD}${configData.port}${RESET}...`);
+console.log(`  Browser will open automatically.\n`);

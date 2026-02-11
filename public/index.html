@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Claude Code Session Center</title>
+  <title>AI Agent Session Center</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230a0a1a'/%3E%3Ccircle cx='16' cy='13' r='7' fill='none' stroke='%2300e5ff' stroke-width='2'/%3E%3Ccircle cx='13.5' cy='12' r='1.5' fill='%2300e5ff'/%3E%3Ccircle cx='18.5' cy='12' r='1.5' fill='%2300e5ff'/%3E%3Cpath d='M13 16 Q16 19 19 16' fill='none' stroke='%2300e5ff' stroke-width='1' stroke-linecap='round'/%3E%3Crect x='14.5' y='4' width='3' height='3' rx='1' fill='%2300e5ff'/%3E%3Cline x1='16' y1='7' x2='16' y2='6' stroke='%2300e5ff' stroke-width='1.5'/%3E%3Crect x='9' y='22' width='14' height='6' rx='2' fill='none' stroke='%23ff9100' stroke-width='1.5'/%3E%3Cline x1='12' y1='24' x2='12' y2='26' stroke='%23ff9100' stroke-width='1' stroke-linecap='round'/%3E%3Cline x1='16' y1='24' x2='16' y2='26' stroke='%23ff9100' stroke-width='1' stroke-linecap='round'/%3E%3Cline x1='20' y1='24' x2='20' y2='26' stroke='%23ff9100' stroke-width='1' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
@@ -18,7 +18,7 @@
   <!-- Header -->
   <header id="header">
     <div class="header-title">
-      CLAUDE CODE SESSION CENTER
+      AI AGENT SESSION CENTER
     </div>
     <div id="live-search-bar">
       <input type="text" id="live-search" placeholder="Filter sessions... ( / )">
@@ -38,13 +38,17 @@
       <button id="nav-actions-toggle" class="nav-actions-toggle" title="Toggle actions">&#9776;</button>
       <div id="nav-actions-items">
         <button id="qa-new-session" class="qa-btn qa-btn-terminal" title="Launch a new Claude session via SSH">+ NEW SESSION</button>
+        <button id="qa-quick-session" class="qa-btn qa-btn-quick" title="Quick launch with last config + label">&#9889; QUICK</button>
+        <button id="qa-oneoff" class="qa-btn qa-btn-oneoff" title="Launch a one-off session (auto-review reminder)">ONEOFF</button>
+        <button id="qa-heavy" class="qa-btn qa-btn-heavy" title="Launch a high-priority session (auto-pinned, bold frame)">&#9733; HEAVY</button>
+        <button id="qa-important" class="qa-btn qa-btn-important" title="Launch an important session (alert on completion)">&#9888; IMPORTANT</button>
         <button id="qa-new-group" class="qa-btn" title="Create a new group">+ NEW GROUP</button>
         <div class="qa-separator"></div>
         <button id="qa-mute-all" class="qa-btn" title="Mute all sessions">&#9835; MUTE ALL</button>
         <button id="qa-archive-ended" class="qa-btn" title="Archive all ended sessions">&#8681; ARCHIVE ENDED</button>
       </div>
+      <button id="shortcuts-btn" class="nav-shortcuts-btn" title="Keyboard Shortcuts (?)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="3" width="14" height="10" rx="2"/><line x1="4" y1="6" x2="5" y2="6"/><line x1="7" y1="6" x2="9" y2="6"/><line x1="11" y1="6" x2="12" y2="6"/><line x1="4" y1="9" x2="12" y2="9"/></svg></button>
     </div>
-    <button id="shortcuts-btn" class="nav-shortcuts-btn" title="Keyboard Shortcuts (?)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="3" width="14" height="10" rx="2"/><line x1="4" y1="6" x2="5" y2="6"/><line x1="7" y1="6" x2="9" y2="6"/><line x1="11" y1="6" x2="12" y2="6"/><line x1="4" y1="9" x2="12" y2="9"/></svg></button>
   </nav>
 
   <!-- Keyboard Shortcuts Panel -->
@@ -68,9 +72,6 @@
           <h4>Selected Session</h4>
           <div class="shortcut-row"><kbd>K</kbd><span>Kill process</span></div>
           <div class="shortcut-row"><kbd>A</kbd><span>Archive session</span></div>
-          <div class="shortcut-row"><kbd>E</kbd><span>Export transcript</span></div>
-          <div class="shortcut-row"><kbd>N</kbd><span>Session notes</span></div>
-          <div class="shortcut-row"><kbd>T</kbd><span>Open terminal</span></div>
         </div>
         <div class="shortcuts-section">
           <h4>Terminal</h4>
@@ -168,7 +169,7 @@
   </div>
 
   <!-- Activity Feed -->
-  <footer id="activity-feed">
+  <footer id="activity-feed" class="collapsed">
     <div class="feed-header">
       <span>ACTIVITY FEED</span>
       <button id="feed-collapse-btn" class="feed-collapse-btn" title="Collapse activity feed">&#9660;</button>
@@ -187,7 +188,11 @@
           <div class="detail-header-top">
             <div class="detail-header-titles">
               <h3 id="detail-project-name"></h3>
-              <input type="text" id="detail-title" placeholder="Add session title..." class="detail-title-input">
+              <div class="detail-title-row">
+                <input type="text" id="detail-title" placeholder="Add session title..." class="detail-title-input">
+                <input type="text" id="detail-label" list="detail-label-suggestions" placeholder="Label..." class="detail-label-input" autocomplete="off">
+                <datalist id="detail-label-suggestions"></datalist>
+              </div>
             </div>
             <select id="detail-char-model" class="detail-char-select">
               <option value="">Default (global)</option>
@@ -223,14 +228,10 @@
 
       <!-- Control buttons -->
       <div class="ctrl-bar">
-        <button class="ctrl-btn open-editor" id="ctrl-open-editor" title="Open in Editor">OPEN IN EDITOR</button>
         <button class="ctrl-btn kill" id="ctrl-kill" title="Kill Process">KILL</button>
-        <button class="ctrl-btn archive" id="ctrl-archive" title="Archive Session">ARCHIVE</button>
+        <button class="ctrl-btn archive" id="ctrl-archive" title="Move to History">ARCHIVE</button>
         <button class="ctrl-btn summarize" id="ctrl-summarize" title="Summarize & Archive">SUMMARIZE</button>
-        <button class="ctrl-btn export" id="ctrl-export" title="Export Transcript">EXPORT</button>
         <button class="ctrl-btn delete" id="ctrl-delete" title="Permanently Delete Session">DELETE</button>
-        <button class="ctrl-btn notes" id="ctrl-notes" title="Session Notes">NOTES</button>
-        <button class="ctrl-btn terminal" id="ctrl-terminal" title="Open Terminal">TERMINAL</button>
         <button class="ctrl-btn alert" id="ctrl-alert" title="Duration Alert">ALERT</button>
         <select id="detail-group-select" class="ctrl-select" title="Assign to group">
           <option value="">No group</option>
@@ -380,6 +381,7 @@
       <div class="settings-tabs">
         <button class="settings-tab active" data-settings-tab="appearance">Appearance</button>
         <button class="settings-tab" data-settings-tab="sounds">Sounds</button>
+        <button class="settings-tab" data-settings-tab="labels">Labels</button>
         <button class="settings-tab" data-settings-tab="advanced">Advanced</button>
       </div>
 
@@ -395,6 +397,10 @@
             <button class="theme-swatch" data-theme="cyberpunk" title="Cyberpunk">
               <div class="swatch-colors"><span style="background:#0d0221"></span><span style="background:#ff00ff"></span><span style="background:#00ffff"></span></div>
               <span class="swatch-label">Cyberpunk</span>
+            </button>
+            <button class="theme-swatch" data-theme="warm" title="Warm">
+              <div class="swatch-colors"><span style="background:#faf6f1"></span><span style="background:#d97706"></span><span style="background:#b87333"></span></div>
+              <span class="swatch-label">Warm</span>
             </button>
             <button class="theme-swatch" data-theme="dracula" title="Dracula">
               <div class="swatch-colors"><span style="background:#282a36"></span><span style="background:#bd93f9"></span><span style="background:#50fa7b"></span></div>
@@ -415,10 +421,6 @@
             <button class="theme-swatch" data-theme="light" title="Light">
               <div class="swatch-colors"><span style="background:#f0f2f5"></span><span style="background:#0ea5e9"></span><span style="background:#3b82f6"></span></div>
               <span class="swatch-label">Light</span>
-            </button>
-            <button class="theme-swatch" data-theme="warm" title="Warm">
-              <div class="swatch-colors"><span style="background:#faf6f1"></span><span style="background:#d97706"></span><span style="background:#b87333"></span></div>
-              <span class="swatch-label">Warm</span>
             </button>
             <button class="theme-swatch" data-theme="blonde" title="Blonde">
               <div class="swatch-colors"><span style="background:#fdf8ef"></span><span style="background:#ca8a04"></span><span style="background:#a16207"></span></div>
@@ -444,16 +446,6 @@
             <span class="toggle-switch"></span>
             Enable scanline overlay
           </label>
-        </div>
-
-        <div class="settings-section">
-          <h4>Card Size</h4>
-          <div class="card-size-control" id="card-size-control">
-            <button class="card-size-btn active" data-size="small">Small</button>
-            <button class="card-size-btn" data-size="compact">Compact</button>
-            <button class="card-size-btn" data-size="normal">Normal</button>
-            <button class="card-size-btn" data-size="large">Large</button>
-          </div>
         </div>
 
         <div class="settings-section">
@@ -662,17 +654,46 @@
         </div>
       </div>
 
+      <!-- Labels Tab -->
+      <div class="settings-tab-content" id="settings-tab-labels">
+        <div class="settings-section">
+          <h4>Built-in Label Alerts</h4>
+          <p class="settings-hint">Configure which sound and movement effect plays when a labeled session completes. These alerts fire on session end for ONEOFF, HEAVY, and IMPORTANT sessions.</p>
+          <div id="label-settings-grid" class="label-settings-grid"></div>
+        </div>
+      </div>
+
       <!-- Advanced Tab -->
       <div class="settings-tab-content" id="settings-tab-advanced">
         <div class="settings-section">
-          <h4>Anthropic API Key</h4>
-          <p class="settings-hint">Set once — automatically used for all SSH sessions so Claude doesn't ask you to login each time.</p>
+          <h4>Anthropic API Key <span class="settings-hint">(Claude Code)</span></h4>
+          <p class="settings-hint">Set once — automatically used for all Claude sessions.</p>
           <div class="api-key-row">
             <input type="password" id="settings-api-key" placeholder="sk-ant-..." class="settings-input api-key-input">
             <button id="settings-api-key-toggle" class="api-key-toggle" title="Show/hide">SHOW</button>
             <button id="settings-api-key-save" class="ctrl-btn notes">Save</button>
           </div>
           <div id="settings-api-key-status" class="settings-hint" style="margin-top:4px;"></div>
+        </div>
+        <div class="settings-section">
+          <h4>OpenAI API Key <span class="settings-hint">(Codex CLI)</span></h4>
+          <p class="settings-hint">Used when launching Codex CLI sessions.</p>
+          <div class="api-key-row">
+            <input type="password" id="settings-openai-key" placeholder="sk-..." class="settings-input api-key-input">
+            <button id="settings-openai-key-toggle" class="api-key-toggle" title="Show/hide">SHOW</button>
+            <button id="settings-openai-key-save" class="ctrl-btn notes">Save</button>
+          </div>
+          <div id="settings-openai-key-status" class="settings-hint" style="margin-top:4px;"></div>
+        </div>
+        <div class="settings-section">
+          <h4>Google API Key <span class="settings-hint">(Gemini CLI)</span></h4>
+          <p class="settings-hint">Used when launching Gemini CLI sessions.</p>
+          <div class="api-key-row">
+            <input type="password" id="settings-gemini-key" placeholder="AIza..." class="settings-input api-key-input">
+            <button id="settings-gemini-key-toggle" class="api-key-toggle" title="Show/hide">SHOW</button>
+            <button id="settings-gemini-key-save" class="ctrl-btn notes">Save</button>
+          </div>
+          <div id="settings-gemini-key-status" class="settings-hint" style="margin-top:4px;"></div>
         </div>
 
         <div class="settings-section">
@@ -750,9 +771,16 @@
         <button id="new-session-close" class="modal-close">&times;</button>
       </div>
       <div class="new-session-body">
-        <div class="ssh-field">
-          <label>Session Title <span class="ssh-field-hint">(optional)</span></label>
-          <input id="ssh-session-title" placeholder="e.g. Frontend Dev, API Server...">
+        <div class="ssh-field-row">
+          <div class="ssh-field ssh-field-grow">
+            <label>Session Label <span class="ssh-field-hint">(reusable tag)</span></label>
+            <input id="ssh-session-label" list="label-suggestions" placeholder="e.g. frontend, api, debug..." autocomplete="off">
+            <datalist id="label-suggestions"></datalist>
+          </div>
+          <div class="ssh-field ssh-field-grow">
+            <label>Session Title <span class="ssh-field-hint">(optional override)</span></label>
+            <input id="ssh-session-title" placeholder="Auto: project + label + #">
+          </div>
         </div>
         <div class="ssh-field-row">
           <div class="ssh-field ssh-field-grow">
@@ -842,6 +870,32 @@
     </div>
   </div>
 
+
+  <!-- Quick Session Modal -->
+  <div id="quick-session-modal" class="modal-overlay hidden">
+    <div class="modal-panel quick-session-panel">
+      <div class="quick-session-header">
+        <h3>Quick Session</h3>
+        <button id="quick-session-close" class="modal-close">&times;</button>
+      </div>
+      <div class="quick-session-body">
+        <p class="quick-session-hint">Pick a label and launch with your last saved config.</p>
+        <div class="quick-label-chips" id="quick-label-chips"></div>
+        <div class="quick-label-input-row">
+          <input id="quick-label-input" list="quick-label-suggestions" placeholder="Or type a new label..." autocomplete="off">
+          <datalist id="quick-label-suggestions"></datalist>
+        </div>
+        <div class="quick-workdir-row">
+          <label for="quick-workdir">Working Directory:</label>
+          <input id="quick-workdir" type="text" placeholder="~/project" autocomplete="off">
+        </div>
+      </div>
+      <div class="quick-session-footer">
+        <button id="quick-session-launch" class="ctrl-btn terminal">LAUNCH</button>
+        <button id="quick-session-cancel" class="ctrl-btn">CANCEL</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Terminal Fullscreen Overlay -->
   <div id="terminal-fullscreen-overlay" class="terminal-fullscreen-overlay hidden">

@@ -10,6 +10,7 @@ let onSessionRemoved = null;
 let onTerminalOutput = null;
 let onTerminalReady = null;
 let onTerminalClosed = null;
+let onClearBrowserDb = null;
 let reconnectTimer = null;
 let reconnectTarget = 0; // timestamp when reconnect fires
 
@@ -20,7 +21,7 @@ export function getReconnectRemaining() {
   return Math.max(0, Math.ceil((reconnectTarget - Date.now()) / 1000));
 }
 
-export function connect({ onSnapshotCb, onSessionUpdateCb, onSessionRemovedCb, onDurationAlertCb, onTeamUpdateCb, onHookStatsCb, onTerminalOutputCb, onTerminalReadyCb, onTerminalClosedCb }) {
+export function connect({ onSnapshotCb, onSessionUpdateCb, onSessionRemovedCb, onDurationAlertCb, onTeamUpdateCb, onHookStatsCb, onTerminalOutputCb, onTerminalReadyCb, onTerminalClosedCb, onClearBrowserDbCb }) {
   onSnapshot = onSnapshotCb;
   onSessionUpdate = onSessionUpdateCb;
   onSessionRemoved = onSessionRemovedCb || null;
@@ -30,6 +31,7 @@ export function connect({ onSnapshotCb, onSessionUpdateCb, onSessionRemovedCb, o
   onTerminalOutput = onTerminalOutputCb || null;
   onTerminalReady = onTerminalReadyCb || null;
   onTerminalClosed = onTerminalClosedCb || null;
+  onClearBrowserDb = onClearBrowserDbCb || null;
   _connect();
 }
 
@@ -68,6 +70,8 @@ function _connect() {
       onTerminalReady(data.terminalId);
     } else if (data.type === 'terminal_closed' && onTerminalClosed) {
       onTerminalClosed(data.terminalId, data.reason);
+    } else if (data.type === 'clearBrowserDb' && onClearBrowserDb) {
+      onClearBrowserDb();
     }
   };
 

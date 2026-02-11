@@ -23,8 +23,13 @@ const step = (n, total, label) => console.log(`\n${CYAN}[${n}/${total}]${RESET} 
 
 // ── Paths ──
 const SETTINGS_PATH = join(homedir(), '.claude', 'settings.json');
+const GEMINI_SETTINGS_PATH = join(homedir(), '.gemini', 'settings.json');
+const CODEX_CONFIG_PATH = join(homedir(), '.codex', 'config.toml');
 const HOOKS_DIR = join(homedir(), '.claude', 'hooks');
-const HOOK_PATTERN = 'dashboard-hook.';
+const GEMINI_HOOKS_DIR = join(homedir(), '.gemini', 'hooks');
+const CODEX_HOOKS_DIR = join(homedir(), '.codex', 'hooks');
+const HOOK_PATTERN = 'dashboard-hook';
+const HOOK_SOURCE = 'ai-agent-session-center'; // Must match the _source marker in hook groups
 const DATA_DIR = join(PROJECT_ROOT, 'data');
 const BACKUP_DIR = join(PROJECT_ROOT, 'data', 'backups');
 const MQ_DIR = isWindows
@@ -32,15 +37,21 @@ const MQ_DIR = isWindows
   : '/tmp/claude-session-center';
 
 const ALL_EVENTS = [
-  'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse',
-  'Stop', 'Notification', 'SubagentStart', 'SubagentStop', 'SessionEnd'
+  'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure',
+  'PermissionRequest', 'Stop', 'Notification', 'SubagentStart', 'SubagentStop',
+  'TeammateIdle', 'TaskCompleted', 'PreCompact', 'SessionEnd'
 ];
 
-const TOTAL_STEPS = 5;
+const GEMINI_ALL_EVENTS = [
+  'SessionStart', 'BeforeAgent', 'BeforeTool', 'AfterTool',
+  'AfterAgent', 'SessionEnd', 'Notification'
+];
+
+const TOTAL_STEPS = 6;
 
 // ── Banner ──
 console.log(`\n${RED}╭──────────────────────────────────────────────╮${RESET}`);
-console.log(`${RED}│${RESET}  ${BOLD}Claude Session Center — Full Reset${RESET}          ${RED}│${RESET}`);
+console.log(`${RED}│${RESET}  ${BOLD}AI Agent Session Center — Full Reset${RESET}          ${RED}│${RESET}`);
 console.log(`${RED}╰──────────────────────────────────────────────╯${RESET}`);
 
 // ═══════════════════════════════════════════════
@@ -78,69 +89,167 @@ if (existsSync(SETTINGS_PATH)) {
   backedUp++;
 }
 
-// Backup deployed hook scripts
+// Backup deployed hook scripts (Claude)
 for (const script of ['dashboard-hook.sh', 'dashboard-hook.ps1']) {
   const deployed = join(HOOKS_DIR, script);
   if (existsSync(deployed)) {
-    copyFileSync(deployed, join(backupPath, script));
-    ok(`Backed up ${script}`);
+    copyFileSync(deployed, join(backupPath, `claude-${script}`));
+    ok(`Backed up Claude ${script}`);
     backedUp++;
   }
+}
+
+// Backup ~/.gemini/settings.json
+if (existsSync(GEMINI_SETTINGS_PATH)) {
+  copyFileSync(GEMINI_SETTINGS_PATH, join(backupPath, 'gemini-settings.json'));
+  ok('Backed up ~/.gemini/settings.json');
+  backedUp++;
+}
+
+// Backup Gemini hook script
+const geminiHook = join(GEMINI_HOOKS_DIR, 'dashboard-hook.sh');
+if (existsSync(geminiHook)) {
+  copyFileSync(geminiHook, join(backupPath, 'gemini-dashboard-hook.sh'));
+  ok('Backed up Gemini dashboard-hook.sh');
+  backedUp++;
+}
+
+// Backup ~/.codex/config.toml
+if (existsSync(CODEX_CONFIG_PATH)) {
+  copyFileSync(CODEX_CONFIG_PATH, join(backupPath, 'codex-config.toml'));
+  ok('Backed up ~/.codex/config.toml');
+  backedUp++;
+}
+
+// Backup Codex hook script
+const codexHook = join(CODEX_HOOKS_DIR, 'dashboard-hook.sh');
+if (existsSync(codexHook)) {
+  copyFileSync(codexHook, join(backupPath, 'codex-dashboard-hook.sh'));
+  ok('Backed up Codex dashboard-hook.sh');
+  backedUp++;
 }
 
 info(`${backedUp} file(s) backed up`);
 
 // ═══════════════════════════════════════════════
-// STEP 2: Remove hooks from ~/.claude/settings.json
+// STEP 2: Remove hooks from all CLI settings
 // ═══════════════════════════════════════════════
 step(2, TOTAL_STEPS, 'Removing dashboard hooks from settings...');
 
-if (existsSync(SETTINGS_PATH)) {
+// Helper: check if a hook group belongs to this project
+// Uses dual matching: _source marker (preferred) OR command pattern (legacy/fallback)
+function isOurHookGroup(group) {
+  if (group._source === HOOK_SOURCE) return true;
+  return group.hooks?.some(h => h.command?.includes(HOOK_PATTERN));
+}
+
+// Helper: clean dashboard hooks from a JSON settings file
+// SAFETY: Only removes hook groups that match our _source marker or command pattern.
+//         All other hooks (user's custom hooks, other tools) are preserved untouched.
+function cleanJsonSettings(path, events, label) {
+  if (!existsSync(path)) {
+    info(`${label} settings not found — skipping`);
+    return;
+  }
   try {
-    const settings = JSON.parse(readFileSync(SETTINGS_PATH, 'utf8'));
+    const settings = JSON.parse(readFileSync(path, 'utf8'));
     let removed = 0;
+    let preserved = 0;
 
     if (settings.hooks) {
-      for (const event of ALL_EVENTS) {
+      // Only iterate events we know about — never touch unknown event keys
+      for (const event of events) {
         if (!settings.hooks[event]) continue;
         const before = settings.hooks[event].length;
-        settings.hooks[event] = settings.hooks[event].filter(group =>
-          !group.hooks?.some(h => h.command?.includes(HOOK_PATTERN))
-        );
-        if (settings.hooks[event].length === 0) {
-          delete settings.hooks[event];
+        const kept = [];
+        for (const group of settings.hooks[event]) {
+          if (isOurHookGroup(group)) {
+            ok(`[${label}] Removing hook for ${event}${group._source ? ' (source: ' + group._source + ')' : ''}`);
+          } else {
+            kept.push(group);
+            preserved++;
+          }
         }
-        const diff = before - (settings.hooks[event]?.length ?? 0);
-        if (diff > 0) {
-          removed += diff;
-          ok(`Removed hook for ${event}`);
+        const diff = before - kept.length;
+        if (diff > 0) removed += diff;
+        if (kept.length === 0) {
+          delete settings.hooks[event];
+        } else {
+          settings.hooks[event] = kept;
         }
       }
 
-      // Clean up empty hooks object
       if (Object.keys(settings.hooks).length === 0) {
         delete settings.hooks;
       }
     }
 
-    writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n');
+    writeFileSync(path, JSON.stringify(settings, null, 2) + '\n');
 
     if (removed > 0) {
-      ok(`${removed} dashboard hook(s) removed from settings`);
+      ok(`[${label}] ${removed} dashboard hook(s) removed`);
     } else {
-      info('No dashboard hooks found in settings');
+      info(`[${label}] No dashboard hooks found`);
     }
 
-    // Report preserved hooks
+    // Report all preserved hooks in detail so user can verify nothing was touched
     const remainingEvents = Object.keys(settings.hooks || {});
     if (remainingEvents.length > 0) {
-      info(`${YELLOW}Preserved${RESET} ${remainingEvents.length} non-dashboard hook event(s): ${remainingEvents.join(', ')}`);
+      info(`${YELLOW}Preserved${RESET} ${preserved} non-dashboard hook(s) across ${remainingEvents.length} event(s) in ${label}:`);
+      for (const event of remainingEvents) {
+        const groups = settings.hooks[event] || [];
+        for (const group of groups) {
+          const cmds = (group.hooks || []).map(h => h.command || h.type || '?').join(', ');
+          info(`  ${DIM}${event}: ${cmds}${RESET}`);
+        }
+      }
     }
   } catch (e) {
-    warn(`Could not parse settings: ${e.message}`);
+    warn(`Could not parse ${label} settings: ${e.message}`);
+  }
+}
+
+// Claude
+cleanJsonSettings(SETTINGS_PATH, ALL_EVENTS, 'Claude');
+
+// Gemini
+cleanJsonSettings(GEMINI_SETTINGS_PATH, GEMINI_ALL_EVENTS, 'Gemini');
+
+// Codex (TOML — remove only our comment + notify lines)
+// SAFETY: Only removes lines matching our comment marker or the specific dashboard-hook notify.
+//         All other Codex config lines are preserved untouched.
+if (existsSync(CODEX_CONFIG_PATH)) {
+  try {
+    const toml = readFileSync(CODEX_CONFIG_PATH, 'utf8');
+    const lines = toml.split('\n');
+    const kept = [];
+    let removed = 0;
+    for (const line of lines) {
+      const isOurComment = line.includes(`[${HOOK_SOURCE}]`);
+      const isOurNotify = line.includes(HOOK_PATTERN) && line.trimStart().startsWith('notify');
+      if (isOurComment || isOurNotify) {
+        ok(`[Codex] Removing line: ${DIM}${line.trim()}${RESET}`);
+        removed++;
+      } else {
+        kept.push(line);
+      }
+    }
+    if (removed > 0) {
+      writeFileSync(CODEX_CONFIG_PATH, kept.join('\n'));
+      ok(`[Codex] ${removed} line(s) removed from config.toml`);
+      // Show what's left
+      const remaining = kept.filter(l => l.trim()).length;
+      if (remaining > 0) {
+        info(`${YELLOW}Preserved${RESET} ${remaining} other line(s) in Codex config.toml`);
+      }
+    } else {
+      info('[Codex] No dashboard hooks found in config.toml');
+    }
+  } catch (e) {
+    warn(`Could not parse Codex config: ${e.message}`);
   }
 } else {
-  info('No settings file found');
+  info('Codex config.toml not found');
 }
 
 // ═══════════════════════════════════════════════
@@ -148,15 +257,39 @@ if (existsSync(SETTINGS_PATH)) {
 // ═══════════════════════════════════════════════
 step(3, TOTAL_STEPS, 'Removing deployed hook scripts...');
 
-for (const script of ['dashboard-hook.sh', 'dashboard-hook.ps1']) {
-  const deployed = join(HOOKS_DIR, script);
-  if (existsSync(deployed)) {
-    unlinkSync(deployed);
-    ok(`Removed ${deployed}`);
-  } else {
-    info(`${script} not found ${DIM}(already clean)${RESET}`);
+// SAFETY: Verify file content belongs to our project before deleting.
+// Only remove scripts that contain "AI Agent Session Center" or "claude-session-center" identifiers.
+function safeRemoveHookScript(filePath, label) {
+  if (!existsSync(filePath)) {
+    info(`${label} not found ${DIM}(already clean)${RESET}`);
+    return;
+  }
+  try {
+    const content = readFileSync(filePath, 'utf8');
+    const isOurs = content.includes('AI Agent Session Center')
+      || content.includes('claude-session-center')
+      || content.includes(HOOK_SOURCE);
+    if (isOurs) {
+      unlinkSync(filePath);
+      ok(`Removed ${label}: ${DIM}${filePath}${RESET}`);
+    } else {
+      warn(`${YELLOW}SKIPPED${RESET} ${label}: ${filePath} — file does not contain our project marker, may belong to another tool`);
+    }
+  } catch (e) {
+    warn(`Could not verify ${label}: ${e.message}`);
   }
 }
+
+// Claude hooks
+for (const script of ['dashboard-hook.sh', 'dashboard-hook.ps1']) {
+  safeRemoveHookScript(join(HOOKS_DIR, script), `Claude ${script}`);
+}
+
+// Gemini hook
+safeRemoveHookScript(join(GEMINI_HOOKS_DIR, 'dashboard-hook.sh'), 'Gemini dashboard-hook.sh');
+
+// Codex hook
+safeRemoveHookScript(join(CODEX_HOOKS_DIR, 'dashboard-hook.sh'), 'Codex dashboard-hook.sh');
 
 // ═══════════════════════════════════════════════
 // STEP 4: Clean local data
@@ -189,9 +322,25 @@ if (existsSync(MQ_DIR)) {
 }
 
 // ═══════════════════════════════════════════════
-// STEP 5: Summary
+// STEP 5: Clear browser IndexedDB (if server is running)
 // ═══════════════════════════════════════════════
-step(5, TOTAL_STEPS, 'Summary');
+step(5, TOTAL_STEPS, 'Clearing browser IndexedDB...');
+
+try {
+  const resp = await fetch('http://localhost:3333/api/reset', { method: 'POST', signal: AbortSignal.timeout(2000) });
+  if (resp.ok) {
+    ok('Sent clearBrowserDb signal to all connected browsers');
+  } else {
+    warn(`Server responded with ${resp.status}`);
+  }
+} catch {
+  info('Server not running — browser DB will be cleared on next connect (empty snapshot)');
+}
+
+// ═══════════════════════════════════════════════
+// STEP 6: Summary
+// ═══════════════════════════════════════════════
+step(6, TOTAL_STEPS, 'Summary');
 
 // List backup contents
 const backupFiles = readdirSync(backupPath);
@@ -203,5 +352,6 @@ for (const f of backupFiles) {
 console.log(`\n${GREEN}────────────────────────────────────────────────${RESET}`);
 console.log(`  ${GREEN}✓ Reset complete${RESET}`);
 console.log(`${GREEN}────────────────────────────────────────────────${RESET}`);
-console.log(`\n  To set up again: ${BOLD}npm run setup${RESET}`);
-console.log(`  To restore backup: ${DIM}cp ${backupPath}/* data/${RESET}\n`);
+console.log(`\n  To set up again:    ${BOLD}npm run setup${RESET}  ${DIM}(interactive wizard)${RESET}`);
+console.log(`  To quick start:     ${BOLD}npm start${RESET}      ${DIM}(uses defaults)${RESET}`);
+console.log(`  To restore backup:  ${DIM}cp ${backupPath}/* data/${RESET}\n`);

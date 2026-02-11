@@ -1,5 +1,5 @@
 /* ============================================================
-   Claude Session Command Center - Dark Command Center Theme
+   AI Agent Session Center - Dark Command Center Theme
    ============================================================ */
 
 :root {
@@ -378,8 +378,8 @@ body::after {
 
 .group-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
   padding: 16px;
   min-height: 60px;
   transition: background 0.2s, border-color 0.2s;
@@ -437,8 +437,8 @@ body::after {
   z-index: 1;
   pointer-events: auto;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-  gap: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
   padding: 24px;
   overflow-y: auto;
   align-content: start;
@@ -503,7 +503,7 @@ body::after {
 
 /* Robot viewport — houses CSS robot character */
 .session-card .robot-viewport {
-  min-height: 200px;
+  min-height: 120px;
   position: relative;
   overflow: hidden;
   padding-top: 180px;
@@ -527,13 +527,13 @@ body::after {
 /* Card info - solid background */
 .session-card .card-info {
   background: var(--bg-card);
-  padding: 16px 20px;
+  padding: 8px 12px;
 }
 
 .session-card .card-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 4px;
   margin-bottom: 8px;
 }
 
@@ -555,8 +555,46 @@ body::after {
   border-radius: 3px;
   text-transform: uppercase;
   flex-shrink: 0;
+  color: #aaa;
+  border: 1px solid rgba(170, 170, 170, 0.3);
+  background: rgba(170, 170, 170, 0.08);
 }
 .session-card .source-badge:empty { display: none; }
+.session-card .source-badge.source-vscode { color: #0098ff; border-color: rgba(0,152,255,0.4); background: rgba(0,152,255,0.1); }
+.session-card .source-badge.source-jetbrains { color: #fc801d; border-color: rgba(252,128,29,0.4); background: rgba(252,128,29,0.1); }
+.session-card .source-badge.source-iterm { color: #34c759; border-color: rgba(52,199,89,0.4); background: rgba(52,199,89,0.1); }
+.session-card .source-badge.source-warp { color: #01a4ff; border-color: rgba(1,164,255,0.4); background: rgba(1,164,255,0.1); }
+.session-card .source-badge.source-ghostty { color: #b48ead; border-color: rgba(180,142,173,0.4); background: rgba(180,142,173,0.1); }
+.session-card .source-badge.source-kitty { color: #f0c674; border-color: rgba(240,198,116,0.4); background: rgba(240,198,116,0.1); }
+.session-card .source-badge.source-terminal { color: #999; border-color: rgba(153,153,153,0.3); background: rgba(153,153,153,0.08); }
+.session-card .source-badge.source-tmux { color: #5faf5f; border-color: rgba(95,175,95,0.4); background: rgba(95,175,95,0.1); }
+
+/* Display-only cards (non-SSH, hook-sourced) — no click interaction */
+.session-card.display-only {
+  cursor: default;
+  opacity: 0.85;
+}
+.session-card.display-only .close-btn,
+.session-card.display-only .pin-btn,
+.session-card.display-only .summarize-card-btn,
+.session-card.display-only .mute-btn {
+  display: none;
+}
+
+.session-card .card-label-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  color: var(--accent-cyan);
+  border: 1px solid var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.1);
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.session-card .card-label-badge:empty { display: none; }
 
 .session-card .status-badge {
   font-size: 9px;
@@ -565,6 +603,7 @@ body::after {
   padding: 2px 8px;
   border-radius: 3px;
   text-transform: uppercase;
+  margin-left: auto;
 }
 
 .session-card .status-badge.idle {
@@ -653,32 +692,30 @@ body::after {
 }
 
 .session-card .card-prompt {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-secondary);
   margin-bottom: 10px;
   overflow: hidden;
   text-overflow: ellipsis;
   font-style: italic;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   line-height: 1.5;
 }
 
 .session-card .card-stats {
   display: flex;
-  gap: 12px;
-  font-size: 10px;
+  gap: 8px;
+  font-size: 9px;
   color: var(--text-dim);
   letter-spacing: 0.5px;
   margin-bottom: 10px;
 }
 
-/* Tool usage bars */
+/* Tool usage bars (hidden in small card layout) */
 .session-card .tool-bars {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+  display: none;
 }
 
 .session-card .tool-bar {
@@ -1134,10 +1171,17 @@ body::after {
   line-height: 1.3;
 }
 
+.detail-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .detail-header .detail-title-input {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   background: transparent;
-  border: 1px solid transparent;
+  border: 2px solid transparent;
   color: var(--text-secondary);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -1159,6 +1203,35 @@ body::after {
   background: var(--bg-card);
   color: var(--text-primary);
   font-style: normal;
+}
+
+.detail-header .detail-label-input {
+  width: 140px;
+  background: transparent;
+  border: 2px solid transparent;
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  margin-top: 2px;
+  border-radius: 3px;
+  outline: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+.detail-header .detail-label-input::placeholder {
+  color: var(--text-dim);
+  font-weight: 400;
+  font-style: italic;
+}
+.detail-header .detail-label-input:hover {
+  border-color: var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.05);
+}
+.detail-header .detail-label-input:focus {
+  border-color: var(--accent-cyan);
+  background: var(--bg-card);
+  box-shadow: 0 0 6px rgba(0, 229, 255, 0.2);
 }
 
 .detail-char-select {
@@ -1691,7 +1764,7 @@ body::after {
 
 .history-row {
   display: grid;
-  grid-template-columns: 1.5fr 1fr auto auto auto auto auto auto;
+  grid-template-columns: 1.5fr 1fr auto auto auto auto auto auto 24px;
   gap: 12px;
   padding: 12px 16px;
   background: var(--bg-card);
@@ -1776,6 +1849,26 @@ body::after {
 .history-branch {
   color: var(--accent-purple);
   font-size: 10px;
+}
+
+.history-delete {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.2s, color 0.2s;
+}
+
+.history-row:hover .history-delete {
+  opacity: 1;
+}
+
+.history-delete:hover {
+  color: var(--accent-red);
 }
 
 #history-pagination {
@@ -1993,18 +2086,12 @@ body::after {
   color: var(--text-primary);
 }
 
-.ctrl-btn.open-editor { color: var(--accent-green); border-color: rgba(0, 255, 136, 0.3); }
-.ctrl-btn.open-editor:hover { background: rgba(0, 255, 136, 0.15); }
 .ctrl-btn.kill { color: var(--accent-red); border-color: rgba(255, 51, 85, 0.3); }
 .ctrl-btn.kill:hover { background: rgba(255, 51, 85, 0.15); }
 .ctrl-btn.archive { color: var(--accent-purple); border-color: rgba(170, 102, 255, 0.3); }
 .ctrl-btn.archive:hover { background: rgba(170, 102, 255, 0.15); }
-.ctrl-btn.export { color: var(--accent-green); border-color: rgba(0, 255, 136, 0.3); }
-.ctrl-btn.export:hover { background: rgba(0, 255, 136, 0.15); }
 .ctrl-btn.delete { color: #ff4444; border-color: rgba(255, 68, 68, 0.3); }
 .ctrl-btn.delete:hover { background: rgba(255, 68, 68, 0.2); }
-.ctrl-btn.notes { color: var(--accent-cyan); border-color: var(--border-accent-strong); }
-.ctrl-btn.notes:hover { background: var(--bg-accent-strong); }
 .ctrl-btn.queue { color: #00e5ff; border-color: rgba(0, 229, 255, 0.4); }
 .ctrl-btn.queue:hover { background: rgba(0, 229, 255, 0.15); }
 .ctrl-btn.alert { color: var(--accent-orange); border-color: rgba(255, 145, 0, 0.3); }
@@ -2065,7 +2152,7 @@ body::after {
 
 .modal-panel {
   background: var(--bg-panel);
-  border: 1px solid var(--border-accent);
+  border: 2px solid var(--border-accent);
   border-radius: 12px;
   padding: 24px;
   max-width: 400px;
@@ -2257,7 +2344,7 @@ body::after {
   margin-bottom: 4px;
 }
 
-#tab-terminal {
+#tab-terminal.active {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -2678,7 +2765,7 @@ body::after {
 .ssh-field input,
 .ssh-field select {
   background: var(--card-bg, rgba(255,255,255,0.04));
-  border: 1px solid var(--border-color, rgba(255,255,255,0.08));
+  border: 2px solid var(--border-accent, rgba(255,255,255,0.15));
   color: var(--text-primary);
   padding: 6px 8px;
   border-radius: 4px;
@@ -2690,6 +2777,7 @@ body::after {
 .ssh-field select:focus {
   outline: none;
   border-color: var(--accent-cyan, #00e5ff);
+  box-shadow: 0 0 6px var(--glow-accent, rgba(0, 229, 255, 0.3));
 }
 
 .ssh-field-row {
@@ -2718,6 +2806,183 @@ body::after {
 
 .qa-btn-terminal:hover {
   background: rgba(76, 175, 80, 0.15) !important;
+}
+
+.qa-btn-quick {
+  color: var(--accent-cyan) !important;
+  border-color: var(--accent-cyan) !important;
+}
+.qa-btn-quick:hover {
+  background: rgba(0, 229, 255, 0.12) !important;
+}
+
+.qa-btn-oneoff {
+  color: #ff9100 !important;
+  border-color: rgba(255, 145, 0, 0.4) !important;
+}
+.qa-btn-oneoff:hover {
+  background: rgba(255, 145, 0, 0.12) !important;
+}
+
+.qa-btn-heavy {
+  color: #ff3355 !important;
+  border-color: rgba(255, 51, 85, 0.5) !important;
+  font-weight: 700 !important;
+}
+.qa-btn-heavy:hover {
+  background: rgba(255, 51, 85, 0.15) !important;
+}
+
+.qa-btn-important {
+  color: #aa66ff !important;
+  border-color: rgba(170, 102, 255, 0.5) !important;
+  font-weight: 700 !important;
+}
+.qa-btn-important:hover {
+  background: rgba(170, 102, 255, 0.15) !important;
+}
+
+/* ---- Quick Session Modal ---- */
+
+.quick-session-panel {
+  max-width: 400px;
+  width: 100%;
+}
+
+.quick-session-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.quick-session-header h3 {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--accent-cyan);
+}
+
+.quick-session-body {
+  padding: 16px 20px;
+}
+
+.quick-session-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin: 0 0 12px;
+}
+
+.quick-label-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.quick-label-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+.quick-label-chip:hover {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+.quick-label-chip.active {
+  background: rgba(0, 229, 255, 0.15);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+.quick-label-chip .label-text {
+  flex: 1;
+}
+.quick-label-chip .label-delete {
+  display: none;
+  font-size: 14px;
+  font-weight: bold;
+  color: var(--accent-red);
+  cursor: pointer;
+  line-height: 1;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+.quick-label-chip:hover .label-delete {
+  display: block;
+}
+.quick-label-chip .label-delete:hover {
+  opacity: 1;
+}
+
+.quick-label-empty {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.quick-label-input-row {
+  margin-bottom: 4px;
+}
+.quick-label-input-row input {
+  width: 100%;
+  background: var(--bg-secondary);
+  border: 2px solid var(--border-accent);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  outline: none;
+}
+.quick-label-input-row input:focus {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 6px var(--glow-accent);
+}
+
+.quick-workdir-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+.quick-workdir-row label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.quick-workdir-row input {
+  width: 100%;
+  background: var(--bg-secondary);
+  border: 2px solid var(--border-accent);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  outline: none;
+}
+.quick-workdir-row input:focus {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 6px var(--glow-accent);
+}
+
+.quick-session-footer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 20px;
+  justify-content: flex-end;
+  border-top: 1px solid var(--border-subtle);
 }
 
 /* Session mode toggle */
@@ -2865,6 +3130,24 @@ body::after {
   box-shadow: 0 0 30px rgba(255, 145, 0, 0.15);
   animation: toast-in 0.3s ease;
   pointer-events: auto;
+  position: relative;
+}
+
+.toast-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.toast-close:hover {
+  color: var(--text-primary);
 }
 
 .toast.fade-out {
@@ -3301,6 +3584,141 @@ body::after {
   background: var(--bg-accent);
 }
 
+/* ---- Label Settings Grid ---- */
+
+.label-settings-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.label-config-card {
+  background: var(--bg-card);
+  border: 2px solid var(--label-color, var(--border-subtle));
+  border-radius: 8px;
+  padding: 12px 14px;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--label-color) 20%, transparent);
+  position: relative;
+  overflow: visible;
+}
+/* Live frame preview on config cards */
+.label-config-card[data-frame]:not([data-frame="none"])  {
+  border: none;
+  z-index: 1;
+}
+.label-config-card[data-frame]:not([data-frame="none"])::before,
+.label-config-card[data-frame]:not([data-frame="none"])::after {
+  content: '';
+  position: absolute;
+  border-radius: 10px;
+  z-index: -1;
+  pointer-events: none;
+}
+.label-config-card[data-frame]:not([data-frame="none"])::before {
+  inset: -3px;
+}
+.label-config-card[data-frame]:not([data-frame="none"])::after {
+  inset: 0;
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+.label-config-card[data-frame="fire"]::before {
+  background: conic-gradient(from var(--frame-angle, 0deg), #ff2200, #ff6600, #ffaa00, #ffdd00, #ffaa00, #ff6600, #ff2200, #ff4400, #ff8800, #ffcc00, #ff8800, #ff4400, #ff2200);
+  animation: frame-rotate 3s linear infinite, fire-flicker 0.15s ease-in-out infinite alternate;
+  filter: blur(1px);
+  box-shadow: 0 0 12px rgba(255, 68, 0, 0.4);
+}
+.label-config-card[data-frame="electric"]::before {
+  background: conic-gradient(from var(--frame-angle, 0deg), #00ccff, #0044ff, #00eeff 15%, transparent 25%, #0088ff 35%, #00ccff 45%, transparent 55%, #00aaff 65%, #00eeff 75%, transparent 85%, #0066ff 95%, #00ccff);
+  animation: frame-rotate 2s linear infinite, electric-spark 0.08s steps(2) infinite;
+  filter: blur(0.5px);
+  box-shadow: 0 0 12px rgba(0, 200, 255, 0.35);
+}
+.label-config-card[data-frame="chains"]::before {
+  background: repeating-conic-gradient(from var(--frame-angle, 0deg), #c8962e 0deg, #f5d37a 10deg, #a07828 20deg, #f5d37a 30deg, transparent 30deg, transparent 40deg);
+  animation: frame-rotate 6s linear infinite;
+  filter: blur(0.5px);
+  box-shadow: 0 0 12px rgba(200, 150, 46, 0.3);
+}
+.label-config-card[data-frame="liquid"]::before {
+  background: conic-gradient(from var(--frame-angle, 0deg), #aa44ff, #ff44aa, #44aaff, #44ffaa, #ffaa44, #aa44ff);
+  animation: frame-rotate 4s linear infinite, liquid-morph 3s ease-in-out infinite alternate;
+  filter: blur(2px);
+  box-shadow: 0 0 14px rgba(170, 68, 255, 0.35);
+}
+.label-config-card[data-frame="plasma"]::before {
+  background: conic-gradient(from var(--frame-angle, 0deg), #ff0080, #ff00ff, #8000ff, #0040ff, #00ffff, #00ff80, #80ff00, #ffff00, #ff8000, #ff0080);
+  animation: frame-rotate 2.5s linear infinite;
+  filter: blur(1.5px) saturate(1.5);
+  box-shadow: 0 0 14px rgba(255, 0, 128, 0.35);
+}
+
+.label-config-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.label-config-icon {
+  font-size: 16px;
+}
+
+.label-config-name {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: var(--label-color, var(--text-primary));
+  text-transform: uppercase;
+}
+
+.label-config-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.label-config-row:last-child {
+  margin-bottom: 0;
+}
+
+.label-config-field {
+  font-size: 11px;
+  color: var(--text-secondary);
+  width: 70px;
+  flex-shrink: 0;
+}
+
+.label-config-select {
+  flex: 1;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.label-config-select:focus {
+  border-color: var(--label-color, var(--accent-cyan));
+  outline: none;
+}
+
+.label-config-select option {
+  background-color: var(--bg-card, #0d1b2a);
+  color: var(--text-primary, #ccd6f6);
+}
+
+.label-preview-btn {
+  flex-shrink: 0;
+}
+
 /* ============================================================
    Settings Tabs
    ============================================================ */
@@ -3384,86 +3802,6 @@ body::after {
 /* Scanline toggle */
 body.no-scanlines::after {
   display: none;
-}
-
-/* Card size variants */
-body[data-card-size="compact"] .session-card .robot-viewport {
-  min-height: 140px;
-}
-
-body[data-card-size="compact"] .session-card .card-info {
-  padding: 10px 14px;
-}
-
-body[data-card-size="compact"] .session-card .card-prompt {
-  -webkit-line-clamp: 2;
-}
-
-body[data-card-size="large"] .session-card .robot-viewport {
-  min-height: 280px;
-}
-
-body[data-card-size="small"] .session-card .robot-viewport {
-  min-height: 120px;
-}
-
-body[data-card-size="small"] .session-card .card-info {
-  padding: 8px 12px;
-}
-
-body[data-card-size="small"] .session-card .card-prompt {
-  -webkit-line-clamp: 1;
-  font-size: 10px;
-}
-
-body[data-card-size="small"] .session-card .card-stats {
-  font-size: 9px;
-  gap: 8px;
-}
-
-body[data-card-size="small"] .session-card .tool-bars {
-  display: none;
-}
-
-body[data-card-size="small"] .session-card .css-robot {
-  transform: scale(0.65);
-  transform-origin: center center;
-}
-
-body[data-card-size="small"] #sessions-grid,
-body[data-card-size="small"] .group-grid {
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 14px;
-}
-
-/* tiny card size removed */
-
-/* Card size control buttons */
-.card-size-control {
-  display: flex;
-  gap: 8px;
-}
-
-.card-size-btn {
-  background: var(--bg-card);
-  border: 2px solid var(--border-subtle);
-  color: var(--text-secondary);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.card-size-btn:hover {
-  border-color: var(--border-subtle-strong);
-}
-
-.card-size-btn.active {
-  border-color: var(--accent-cyan);
-  color: var(--accent-cyan);
-  box-shadow: 0 0 10px var(--glow-accent);
 }
 
 /* ---- Hook Density Controls ---- */
@@ -4077,11 +4415,12 @@ body[data-theme="blonde"] .qa-btn.active {
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  margin-left: 8px;
+  margin-left: 4px;
+  vertical-align: middle;
 }
 
 .nav-shortcuts-btn:hover {
@@ -4263,6 +4602,7 @@ body[data-theme="blonde"] .qa-btn.active {
   align-items: center;
   justify-content: center;
   pointer-events: none;
+  transform: scale(0.65);
   transform-origin: center center;
 }
 
@@ -5607,38 +5947,230 @@ body[data-theme="blonde"] .qa-btn.active {
   box-shadow: 0 0 8px rgba(0, 229, 255, 0.1);
 }
 
-.open-editor-btn {
+/* HEAVY session — label badge styling */
+.session-card.heavy-session .card-label-badge {
+  background: rgba(255, 51, 85, 0.2);
+  color: #ff3355;
+  border-color: rgba(255, 51, 85, 0.5);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ONEOFF session — subtle orange accent */
+.session-card.oneoff-session .card-label-badge {
+  background: rgba(255, 145, 0, 0.15);
+  color: #ff9100;
+  border-color: rgba(255, 145, 0, 0.4);
+}
+
+/* IMPORTANT session — purple label badge */
+.session-card.important-session .card-label-badge {
+  background: rgba(170, 102, 255, 0.2);
+  color: #aa66ff;
+  border-color: rgba(170, 102, 255, 0.5);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ============================================================
+   Card Frame Effects — persistent animated borders
+   Applied via data-frame attribute on .session-card
+   ============================================================ */
+
+.session-card[data-frame] {
+  overflow: visible;
+  border: none !important;
+  background: var(--bg-card);
+  z-index: 1;
+}
+.session-card[data-frame]::before,
+.session-card[data-frame]::after {
+  content: '';
   position: absolute;
-  top: 8px;
-  right: 72px;
-  z-index: 5;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  border: 1px solid var(--border-subtle);
-  background: var(--mute-bg);
-  backdrop-filter: blur(4px);
-  color: var(--text-dim);
-  font-size: 13px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  opacity: 0;
+  inset: -3px;
+  border-radius: 14px;
+  z-index: -1;
   pointer-events: none;
-  transition: all 0.2s;
+}
+/* Inner mask so only the border ring is visible */
+.session-card[data-frame]::after {
+  inset: 0;
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+.session-card[data-frame]:hover::after {
+  background: var(--bg-card-hover);
 }
 
-.session-card:hover .open-editor-btn {
-  opacity: 1;
-  pointer-events: auto;
+/* ---------- 1. FIRE — burning ember border ---------- */
+.session-card[data-frame="fire"]::before {
+  background: conic-gradient(
+    from var(--frame-angle, 0deg),
+    #ff2200, #ff6600, #ffaa00, #ffdd00, #ffaa00, #ff6600, #ff2200,
+    #ff4400, #ff8800, #ffcc00, #ff8800, #ff4400, #ff2200
+  );
+  animation: frame-rotate 3s linear infinite, fire-flicker 0.15s ease-in-out infinite alternate;
+  filter: blur(1px);
+  box-shadow: 0 0 20px rgba(255, 68, 0, 0.5), 0 0 40px rgba(255, 100, 0, 0.25);
+}
+@keyframes fire-flicker {
+  0%   { opacity: 0.85; filter: blur(1px) brightness(1); }
+  100% { opacity: 1;    filter: blur(2px) brightness(1.2); }
 }
 
-.open-editor-btn:hover {
-  background: rgba(0, 255, 136, 0.15);
-  color: var(--accent-green);
-  border-color: var(--accent-green);
+/* ---------- 2. ELECTRIC — crackling lightning border ---------- */
+.session-card[data-frame="electric"]::before {
+  background: conic-gradient(
+    from var(--frame-angle, 0deg),
+    #00ccff, #0044ff, #00eeff 15%, transparent 25%,
+    #0088ff 35%, #00ccff 45%, transparent 55%,
+    #00aaff 65%, #00eeff 75%, transparent 85%,
+    #0066ff 95%, #00ccff
+  );
+  animation: frame-rotate 2s linear infinite, electric-spark 0.08s steps(2) infinite;
+  filter: blur(0.5px);
+  box-shadow: 0 0 18px rgba(0, 200, 255, 0.45), 0 0 36px rgba(0, 100, 255, 0.2);
 }
+@keyframes electric-spark {
+  0%   { opacity: 0.8;  filter: blur(0.5px) brightness(1); }
+  50%  { opacity: 1;    filter: blur(1.5px) brightness(1.6); }
+  100% { opacity: 0.9;  filter: blur(0.5px) brightness(1.1); }
+}
+
+/* ---------- 3. CHAINS — flowing golden chain links ---------- */
+.session-card[data-frame="chains"]::before {
+  background:
+    repeating-conic-gradient(
+      from var(--frame-angle, 0deg),
+      #c8962e 0deg, #f5d37a 10deg, #a07828 20deg, #f5d37a 30deg,
+      transparent 30deg, transparent 40deg
+    );
+  animation: frame-rotate 6s linear infinite;
+  filter: blur(0.5px);
+  box-shadow: 0 0 16px rgba(200, 150, 46, 0.4), 0 0 32px rgba(200, 150, 46, 0.15);
+}
+/* metallic inner edge highlight */
+.session-card[data-frame="chains"]::after {
+  box-shadow: inset 0 0 6px rgba(245, 211, 122, 0.12);
+}
+
+/* ---------- 4. LIQUID — flowing irregular organic border ---------- */
+.session-card[data-frame="liquid"]::before {
+  background: conic-gradient(
+    from var(--frame-angle, 0deg),
+    #aa44ff, #ff44aa, #44aaff, #44ffaa, #ffaa44, #aa44ff
+  );
+  animation: frame-rotate 4s linear infinite, liquid-morph 3s ease-in-out infinite alternate;
+  filter: blur(2px);
+  box-shadow: 0 0 22px rgba(170, 68, 255, 0.4), 0 0 44px rgba(255, 68, 170, 0.15);
+}
+@keyframes liquid-morph {
+  0%   { inset: -3px; border-radius: 14px 16px 12px 18px; filter: blur(2px); }
+  33%  { inset: -4px -2px -3px -5px; border-radius: 18px 12px 16px 14px; filter: blur(3px); }
+  66%  { inset: -2px -5px -4px -3px; border-radius: 12px 18px 14px 16px; filter: blur(2px); }
+  100% { inset: -5px -3px -2px -4px; border-radius: 16px 14px 18px 12px; filter: blur(3px); }
+}
+
+/* ---------- 5. PLASMA — intense neon plasma ring ---------- */
+.session-card[data-frame="plasma"]::before {
+  background: conic-gradient(
+    from var(--frame-angle, 0deg),
+    #ff0080, #ff00ff, #8000ff, #0040ff, #00ffff, #00ff80,
+    #80ff00, #ffff00, #ff8000, #ff0080
+  );
+  animation: frame-rotate 2.5s linear infinite;
+  filter: blur(1.5px) saturate(1.5);
+  box-shadow: 0 0 24px rgba(255, 0, 128, 0.4), 0 0 48px rgba(128, 0, 255, 0.2);
+}
+
+/* ---------- 6. NONE — no frame effect ---------- */
+.session-card[data-frame="none"]::before,
+.session-card[data-frame="none"]::after {
+  display: none;
+}
+.session-card[data-frame="none"] {
+  border: 1px solid var(--border-subtle) !important;
+  overflow: hidden;
+}
+
+/* Shared rotation animation using @property for smooth conic rotation */
+@property --frame-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes frame-rotate {
+  from { --frame-angle: 0deg; }
+  to   { --frame-angle: 360deg; }
+}
+
+/* ONEOFF review toast (persistent with action buttons) */
+.oneoff-review-toast {
+  background: var(--bg-card);
+  border: 2px solid #ff9100;
+  border-radius: 8px;
+  padding: 12px 16px;
+  min-width: 280px;
+  animation: toast-in 0.3s ease-out;
+}
+.oneoff-review-toast .toast-title {
+  color: #ff9100;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+.oneoff-review-toast .toast-msg {
+  color: var(--text-secondary);
+  font-size: 11px;
+  margin-bottom: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+.oneoff-review-actions {
+  display: flex;
+  gap: 6px;
+}
+.oneoff-review-btn,
+.oneoff-delete-btn,
+.oneoff-dismiss-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  transition: all 0.15s;
+}
+.oneoff-review-btn {
+  color: var(--accent-cyan);
+  border-color: rgba(0, 229, 255, 0.3);
+}
+.oneoff-review-btn:hover {
+  background: rgba(0, 229, 255, 0.12);
+}
+.oneoff-delete-btn {
+  color: #ff3355;
+  border-color: rgba(255, 51, 85, 0.3);
+}
+.oneoff-delete-btn:hover {
+  background: rgba(255, 51, 85, 0.12);
+}
+.oneoff-dismiss-btn {
+  color: var(--text-dim);
+}
+.oneoff-dismiss-btn:hover {
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+}
+
 
 .summarize-card-btn {
   position: absolute;

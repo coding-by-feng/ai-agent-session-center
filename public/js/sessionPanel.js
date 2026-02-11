@@ -1,7 +1,19 @@
 import * as soundManager from './soundManager.js';
+import * as settingsManager from './settingsManager.js';
 import * as db from './browserDb.js';
 
-const mutedSessions = new Set();
+// Load muted sessions from localStorage
+function loadMuted() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('muted-sessions') || '[]');
+    return new Set(saved);
+  } catch { return new Set(); }
+}
+function saveMuted(muted) {
+  localStorage.setItem('muted-sessions', JSON.stringify([...muted]));
+}
+
+const mutedSessions = loadMuted();
 let globalMuted = false;
 export function isMuted(sessionId) { return globalMuted || mutedSessions.has(sessionId); }
 
@@ -65,6 +77,19 @@ export function setSelectedSessionId(id) { selectedSessionId = id; }
 export function getSessionsData() { return sessionsData; }
 export function getTeamsData() { return teamsData; }
 export { deselectSession };
+
+export function pinSession(sessionId) {
+  if (pinnedSessions.has(sessionId)) return;
+  pinnedSessions.add(sessionId);
+  savePinned(pinnedSessions);
+  const card = document.querySelector(`.session-card[data-session-id="${sessionId}"]`);
+  if (card) {
+    card.classList.add('pinned');
+    const pinBtn = card.querySelector('.pin-btn');
+    if (pinBtn) { pinBtn.classList.add('active'); pinBtn.title = 'Unpin'; }
+  }
+  reorderPinnedCards();
+}
 
 // ---- Session Groups (persisted in localStorage) ----
 // Structure: [{ id, name, sessionIds: [] }, ...]
@@ -526,10 +551,11 @@ export function createOrUpdateCard(session) {
 
   let card = document.querySelector(`.session-card[data-session-id="${session.sessionId}"]`);
   if (!card) {
+    const isDisplayOnly = session.source && session.source !== 'ssh';
     card = document.createElement('div');
-    card.className = 'session-card';
+    card.className = 'session-card' + (isDisplayOnly ? ' display-only' : '');
     card.dataset.sessionId = session.sessionId;
-    card.draggable = true;
+    card.draggable = !isDisplayOnly;
     card.innerHTML = `
       <button class="close-btn" title="Dismiss card">&times;</button>
       <button class="pin-btn" title="Pin to top">&#9650;</button>
@@ -540,6 +566,7 @@ export function createOrUpdateCard(session) {
         <div class="card-title" title="Double-click to rename"></div>
         <div class="card-header">
           <span class="project-name"></span>
+          <span class="card-label-badge"></span>
           <span class="source-badge"></span>
           <span class="status-badge"></span>
         </div>
@@ -553,9 +580,12 @@ export function createOrUpdateCard(session) {
         <div class="tool-bars"></div>
       </div>
     `;
-    card.addEventListener('click', (e) => {
-      selectSession(session.sessionId);
-    });
+    // Only allow click-to-detail for SSH (manually created) sessions
+    if (!isDisplayOnly) {
+      card.addEventListener('click', (e) => {
+        selectSession(session.sessionId);
+      });
+    }
     // Mute button toggle
     card.querySelector('.mute-btn').addEventListener('click', (e) => {
       e.stopPropagation();
@@ -572,6 +602,7 @@ export function createOrUpdateCard(session) {
         btn.innerHTML = 'M';
         btn.title = 'Unmute sounds';
       }
+      saveMuted(mutedSessions);
     });
     // Close button — dismiss card from live view (preserves IndexedDB history)
     card.querySelector('.close-btn').addEventListener('click', (e) => {
@@ -590,11 +621,15 @@ export function createOrUpdateCard(session) {
           db.put('sessions', record);
         }
       }).catch(() => {});
+      // Remove from server memory so it won't come back on WS reconnect
+      fetch(`/api/sessions/${sid}`, { method: 'DELETE' }).catch(() => {});
       // Clean up runtime caches (IndexedDB data preserved for history)
       mutedSessions.delete(sid);
+      saveMuted(mutedSessions);
       pinnedSessions.delete(sid);
       savePinned(pinnedSessions);
       removeSessionFromGroup(sid);
+      updateGroupCounts();
       card.style.transition = 'opacity 0.3s, transform 0.3s';
       card.style.opacity = '0';
       card.style.transform = 'scale(0.9)';
@@ -839,11 +874,57 @@ export function createOrUpdateCard(session) {
   // Add/remove disconnected class on card for dimming
   card.classList.toggle('disconnected', isDisconnected);
 
-  // Source badge hidden — all sessions are SSH now
+  // Label badge
+  const labelBadge = card.querySelector('.card-label-badge');
+  if (labelBadge) {
+    const lbl = session.label || '';
+    labelBadge.textContent = lbl;
+    labelBadge.style.display = lbl ? '' : 'none';
+  }
+
+  // HEAVY card styling — bold highlighted frame
+  const isHeavy = (session.label || '').toUpperCase() === 'HEAVY';
+  card.classList.toggle('heavy-session', isHeavy);
+
+  // ONEOFF card styling
+  const isOneoff = (session.label || '').toUpperCase() === 'ONEOFF';
+  card.classList.toggle('oneoff-session', isOneoff);
+
+  // IMPORTANT card styling — purple bold frame
+  const isImportant = (session.label || '').toUpperCase() === 'IMPORTANT';
+  card.classList.toggle('important-session', isImportant);
+
+  // Apply card frame effect from label settings (persistent animated border)
+  const labelUpper = (session.label || '').toUpperCase();
+  if (labelUpper === 'ONEOFF' || labelUpper === 'HEAVY' || labelUpper === 'IMPORTANT') {
+    const labelCfg = settingsManager.getLabelSettings();
+    const frameName = labelCfg[labelUpper]?.frame || 'none';
+    if (frameName && frameName !== 'none') {
+      card.dataset.frame = frameName;
+    } else {
+      delete card.dataset.frame;
+    }
+  } else {
+    delete card.dataset.frame;
+  }
+
+  // Source badge — show for non-SSH (display-only) sessions
   const sourceBadge = card.querySelector('.source-badge');
   if (sourceBadge) {
-    sourceBadge.textContent = '';
-    sourceBadge.className = 'source-badge';
+    const src = session.source || 'ssh';
+    if (src !== 'ssh') {
+      const sourceLabels = {
+        vscode: 'VS Code', jetbrains: 'JetBrains', iterm: 'iTerm',
+        warp: 'Warp', kitty: 'Kitty', ghostty: 'Ghostty',
+        alacritty: 'Alacritty', wezterm: 'WezTerm', hyper: 'Hyper',
+        terminal: 'Terminal', tmux: 'tmux',
+      };
+      sourceBadge.textContent = sourceLabels[src] || src;
+      sourceBadge.className = `source-badge source-${src}`;
+    } else {
+      sourceBadge.textContent = '';
+      sourceBadge.className = 'source-badge';
+    }
   }
 
 
@@ -892,11 +973,13 @@ export function removeCard(sessionId, animate = false) {
       card.remove();
       sessionsData.delete(sessionId);
       if (selectedSessionId === sessionId) deselectSession();
+      updateGroupCounts();
     }, 500);
   } else {
     card.remove();
     sessionsData.delete(sessionId);
     if (selectedSessionId === sessionId) deselectSession();
+    updateGroupCounts();
   }
 }
 
@@ -921,9 +1004,13 @@ export function showToast(title, message) {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
   toast.className = 'toast';
-  toast.innerHTML = `<div class="toast-title">${escapeHtml(title)}</div><div class="toast-msg">${escapeHtml(message)}</div>`;
+  toast.innerHTML = `<button class="toast-close">&times;</button><div class="toast-title">${escapeHtml(title)}</div><div class="toast-msg">${escapeHtml(message)}</div>`;
+  toast.querySelector('.toast-close').addEventListener('click', () => {
+    toast.classList.add('fade-out');
+    setTimeout(() => toast.remove(), 300);
+  });
   container.appendChild(toast);
-  setTimeout(() => { toast.classList.add('fade-out'); setTimeout(() => toast.remove(), 300); }, 5000);
+  setTimeout(() => { if (toast.parentNode) { toast.classList.add('fade-out'); setTimeout(() => toast.remove(), 300); } }, 5000);
 }
 
 async function loadNotes(sessionId) {
@@ -1069,6 +1156,13 @@ function populateDetailPanel(session) {
     titleInput.dataset.sessionId = session.sessionId;
   }
 
+  // Session label
+  const labelInput = document.getElementById('detail-label');
+  if (labelInput) {
+    labelInput.value = session.label || '';
+    labelInput.dataset.sessionId = session.sessionId;
+  }
+
   // Prompt History tab — show only user prompts in chronological order
   const convContainer = document.getElementById('detail-conversation');
   const prompts = (session.promptHistory || []).slice().sort((a, b) => b.timestamp - a.timestamp);
@@ -1139,13 +1233,6 @@ function populateDetailPanel(session) {
   // Load notes & queue
   loadNotes(session.sessionId);
   loadQueue(session.sessionId);
-  // Update archive button
-  const archBtn = document.getElementById('ctrl-archive');
-  if (archBtn) archBtn.textContent = session.archived ? 'UNARCHIVE' : 'ARCHIVE';
-
-  const ctrlOpenBtn = document.getElementById('ctrl-open-editor');
-  if (ctrlOpenBtn) ctrlOpenBtn.style.display = '';
-
   // Auto-attach terminal if Terminal tab is the default active tab
   const activeTab = document.querySelector('.detail-tabs .tab.active');
   if (activeTab && activeTab.dataset.tab === 'terminal' && session.terminalId) {
@@ -1333,10 +1420,6 @@ export async function openSessionDetailFromHistory(sessionId) {
 
   // Load notes for this session
   loadNotes(sessionId);
-  // Update archive button text
-  const archBtn = document.getElementById('ctrl-archive');
-  if (archBtn) archBtn.textContent = data.session.archived ? 'UNARCHIVE' : 'ARCHIVE';
-
   // Show overlay
   document.getElementById('session-detail-overlay').classList.remove('hidden');
 }
@@ -1457,28 +1540,6 @@ document.querySelector('.detail-tabs').addEventListener('click', (e) => {
 
 // ---- Control Button Handlers ----
 
-// Open in editor button (detail panel) — focuses the exact window/tab
-document.getElementById('ctrl-open-editor').addEventListener('click', async (e) => {
-  e.stopPropagation();
-  if (!selectedSessionId) return;
-  try {
-    const resp = await fetch(`/api/sessions/${selectedSessionId}/open-editor`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
-    });
-    const data = await resp.json();
-    if (data.ok) {
-      const editorLabel = data.editor || 'editor';
-      const methodHint = data.method === 'tty' ? ' (tab)' : data.method === 'window_match' ? ' (window)' : '';
-      showToast('FOCUSED', `${editorLabel}${methodHint}`);
-    } else {
-      showToast('OPEN FAILED', data.error || 'Unknown error');
-    }
-  } catch(err) {
-    showToast('OPEN ERROR', err.message);
-  }
-});
-
 // Kill button
 document.getElementById('ctrl-kill').addEventListener('click', (e) => {
   e.stopPropagation();
@@ -1542,18 +1603,30 @@ document.getElementById('detail-group-select').addEventListener('change', (e) =>
   showToast('GROUP', groupId ? `Moved to group` : 'Removed from group');
 });
 
-// Archive button
+// Archive button — move session from live dashboard to history
 document.getElementById('ctrl-archive').addEventListener('click', async (e) => {
   e.stopPropagation();
   if (!selectedSessionId) return;
-  const session = sessionsData.get(selectedSessionId);
-  const newArchived = !(session && session.archived);
+  const sid = selectedSessionId;
   try {
-    if (session) session.archived = newArchived ? 1 : 0;
-    const s = await db.get('sessions', selectedSessionId);
-    if (s) { s.archived = newArchived ? 1 : 0; await db.put('sessions', s); }
-    e.target.textContent = newArchived ? 'UNARCHIVE' : 'ARCHIVE';
-    showToast('ARCHIVE', newArchived ? 'Session archived' : 'Session unarchived');
+    // Mark as ended + archived in IndexedDB
+    const s = await db.get('sessions', sid);
+    if (s) {
+      s.status = 'ended';
+      s.archived = 1;
+      if (!s.endedAt) s.endedAt = Date.now();
+      await db.put('sessions', s);
+    }
+    // Remove from server memory
+    await fetch(`/api/sessions/${sid}`, { method: 'DELETE' }).catch(() => {});
+    // Close detail panel and remove live card
+    deselectSession();
+    removeCard(sid);
+    sessionsData.delete(sid);
+    import('./robotManager.js').then(rm => rm.removeRobot(sid));
+    // Dispatch card-dismissed for group count update
+    document.dispatchEvent(new CustomEvent('card-dismissed', { detail: { sessionId: sid } }));
+    showToast('ARCHIVED', 'Session moved to history');
   } catch(err) {
     showToast('ARCHIVE ERROR', err.message);
   }
@@ -1762,8 +1835,6 @@ async function runSummarize(promptId, customPrompt) {
       const summaryTab = document.querySelector('.detail-tabs .tab[data-tab="summary"]');
       if (summaryTab) summaryTab.classList.add('active');
       document.getElementById('tab-summary').classList.add('active');
-      const archBtn = document.getElementById('ctrl-archive');
-      if (archBtn) archBtn.textContent = 'UNARCHIVE';
       btn.textContent = 'RE-SUMMARIZE';
       btn.disabled = false;
       showToast('SUMMARIZED', 'AI summary generated & session archived');
@@ -1852,37 +1923,6 @@ document.getElementById('summarize-use-once')?.addEventListener('click', () => {
   runSummarize(null, prompt);
 });
 
-// Export button
-document.getElementById('ctrl-export').addEventListener('click', async (e) => {
-  e.stopPropagation();
-  if (!selectedSessionId) return;
-  try {
-    const data = await db.exportSession(selectedSessionId);
-    if (!data) { showToast('EXPORT', 'Session not found in local database'); return; }
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `session-${selectedSessionId}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    showToast('EXPORT', 'Downloading session transcript...');
-  } catch(err) {
-    showToast('EXPORT ERROR', err.message);
-  }
-});
-
-// Notes button — switch to notes tab
-document.getElementById('ctrl-notes').addEventListener('click', (e) => {
-  e.stopPropagation();
-  document.querySelectorAll('.detail-tabs .tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
-  const notesTab = document.querySelector('.detail-tabs .tab[data-tab="notes"]');
-  if (notesTab) notesTab.classList.add('active');
-  document.getElementById('tab-notes').classList.add('active');
-});
 
 // Save note
 document.getElementById('save-note').addEventListener('click', async () => {
@@ -1927,28 +1967,6 @@ document.getElementById('terminal-queue-toggle')?.addEventListener('click', () =
   }
 });
 
-// Terminal button — switch to terminal tab
-document.getElementById('ctrl-terminal')?.addEventListener('click', (e) => {
-  e.stopPropagation();
-  if (!selectedSessionId) return;
-  const session = sessionsData.get(selectedSessionId);
-  if (!session || !session.terminalId) {
-    showToast('TERMINAL', 'No terminal attached to this session');
-    return;
-  }
-  document.querySelectorAll('.detail-tabs .tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
-  const tTab = document.querySelector('.detail-tabs .tab[data-tab="terminal"]');
-  if (tTab) tTab.classList.add('active');
-  document.getElementById('tab-terminal')?.classList.add('active');
-  import('./terminalManager.js').then(tm => {
-    if (tm.getActiveTerminalId() === session.terminalId) {
-      requestAnimationFrame(() => tm.refitTerminal());
-    } else {
-      tm.attachToSession(selectedSessionId, session.terminalId);
-    }
-  });
-});
 
 // Add to Queue
 document.getElementById('queue-add-btn')?.addEventListener('click', async () => {
@@ -2149,6 +2167,67 @@ if (detailTitleInput) {
       e.preventDefault();
       detailTitleInput.blur();
     }
+  });
+}
+
+// ---- Session Label Save (blur/Enter) ----
+const detailLabelInput = document.getElementById('detail-label');
+if (detailLabelInput) {
+  async function saveLabel() {
+    const sessionId = detailLabelInput.dataset.sessionId;
+    const label = detailLabelInput.value.trim();
+    if (!sessionId) return;
+    const session = sessionsData.get(sessionId);
+    if (session) session.label = label;
+    // Update card label badge
+    const badge = document.querySelector(`.session-card[data-session-id="${sessionId}"] .card-label-badge`);
+    if (badge) {
+      badge.textContent = label;
+      badge.style.display = label ? '' : 'none';
+    }
+    try {
+      await fetch(`/api/sessions/${sessionId}/label`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label })
+      });
+      // Also update IndexedDB
+      const s = await db.get('sessions', sessionId);
+      if (s) { s.label = label; await db.put('sessions', s); }
+    } catch(e) {
+      // silent fail
+    }
+    // Save to global label list for suggestions
+    if (label) {
+      try {
+        const labels = JSON.parse(localStorage.getItem('sessionLabels') || '[]');
+        const idx = labels.indexOf(label);
+        if (idx !== -1) labels.splice(idx, 1);
+        labels.unshift(label);
+        localStorage.setItem('sessionLabels', JSON.stringify(labels.slice(0, 30)));
+      } catch(_) {}
+    }
+  }
+  detailLabelInput.addEventListener('blur', saveLabel);
+  detailLabelInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      detailLabelInput.blur();
+    }
+  });
+  // Populate datalist when input is focused
+  detailLabelInput.addEventListener('focus', () => {
+    const dl = document.getElementById('detail-label-suggestions');
+    if (!dl) return;
+    dl.innerHTML = '';
+    try {
+      const labels = JSON.parse(localStorage.getItem('sessionLabels') || '[]');
+      for (const lbl of labels) {
+        const opt = document.createElement('option');
+        opt.value = lbl;
+        dl.appendChild(opt);
+      }
+    } catch(_) {}
   });
 }
 

@@ -1,4 +1,4 @@
-# Claude Session Command Center - Hook relay (Windows)
+# AI Agent Session Center - Hook relay (Windows)
 # Reads hook JSON from stdin, enriches with process/env info, POSTs to dashboard server
 # Runs in background, fails silently if server is not running
 

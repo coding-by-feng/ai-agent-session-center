@@ -1,5 +1,5 @@
 import * as robotManager from './robotManager.js';
-import { createOrUpdateCard, removeCard, updateDurations, showToast, getSelectedSessionId, setSelectedSessionId, deselectSession, archiveAllEnded, isMuted, toggleMuteAll, initGroups, createOrUpdateTeamCard, removeTeamCard, getTeamsData, getSessionsData, loadQueue } from './sessionPanel.js';
+import { createOrUpdateCard, removeCard, updateDurations, showToast, getSelectedSessionId, setSelectedSessionId, deselectSession, archiveAllEnded, isMuted, toggleMuteAll, initGroups, createOrUpdateTeamCard, removeTeamCard, getTeamsData, getSessionsData, loadQueue, pinSession } from './sessionPanel.js';
 import * as statsPanel from './statsPanel.js';
 import * as wsClient from './wsClient.js';
 import * as navController from './navController.js';
@@ -10,7 +10,7 @@ import * as settingsManager from './settingsManager.js';
 import * as soundManager from './soundManager.js';
 import * as movementManager from './movementManager.js';
 import * as terminalManager from './terminalManager.js';
-import { openDB, persistSessionUpdate, put, del, getAll } from './browserDb.js';
+import { openDB, persistSessionUpdate, put, del, getAll, clear } from './browserDb.js';
 
 let allSessions = {};
 const approvalAlarmTimers = new Map(); // sessionId -> intervalId for repeating alarm
@@ -71,6 +71,7 @@ async function init() {
           teamId: cached.teamId,
           terminalId: cached.terminalId,
           queueCount: cached.queueCount || 0,
+          label: cached.label || null,
           // Historical sessions have no live data
           promptHistory: [],
           toolUsage: {},
@@ -112,7 +113,17 @@ async function init() {
       terminalManager.onTerminalClosed(terminalId, reason);
     },
     onSnapshotCb(sessions, teams) {
-      // Merge live sessions into allSessions (preserves cached/historical sessions)
+      // Server snapshot is the source of truth — remove any cached sessions
+      // that no longer exist on the server (e.g. stale re-keyed terminal IDs)
+      const serverIds = new Set(Object.keys(sessions));
+      for (const cachedId of Object.keys(allSessions)) {
+        if (!serverIds.has(cachedId)) {
+          removeCard(cachedId);
+          robotManager.removeRobot(cachedId);
+          del('sessions', cachedId).catch(() => {});
+          delete allSessions[cachedId];
+        }
+      }
       for (const [id, session] of Object.entries(sessions)) {
         allSessions[id] = session;
       }
@@ -129,9 +140,9 @@ async function init() {
           put('teams', team).catch(() => {});
         }
       }
-      statsPanel.update(sessions);
-      updateTabTitle(sessions);
-      toggleEmptyState(Object.keys(sessions).length === 0);
+      statsPanel.update(allSessions);
+      updateTabTitle(allSessions);
+      toggleEmptyState(Object.keys(allSessions).length === 0);
     },
     onSessionUpdateCb(session, team) {
       // Handle re-keyed terminal sessions (pre-session → real Claude session)
@@ -142,6 +153,8 @@ async function init() {
         delete allSessions[session.replacesId];
         removeCard(session.replacesId);
         robotManager.removeRobot(session.replacesId);
+        // Clean up the old IndexedDB record so it doesn't resurrect on refresh
+        del('sessions', session.replacesId).catch(() => {});
       }
       allSessions[session.sessionId] = session;
       createOrUpdateCard(session);
@@ -235,6 +248,29 @@ async function init() {
       addActivityEntry(session);
       toggleEmptyState(Object.keys(allSessions).length === 0);
 
+      // Label completion alerts — fire configured sound + movement for ONEOFF / HEAVY / IMPORTANT
+      if (session.status === 'ended' && !isMuted(session.sessionId)) {
+        const labelUpper = (session.label || '').toUpperCase();
+        const labelCfg = settingsManager.getLabelSettings();
+        if (labelCfg[labelUpper]) {
+          const cfg = labelCfg[labelUpper];
+          if (cfg.sound && cfg.sound !== 'none') soundManager.previewSound(cfg.sound);
+          if (cfg.movement && cfg.movement !== 'none') movementManager.trigger('alert', session.sessionId);
+          // Also apply the specific movement directly to the card character
+          const card = document.querySelector(`.session-card[data-session-id="${session.sessionId}"] .css-robot`);
+          if (card && cfg.movement && cfg.movement !== 'none') {
+            card.removeAttribute('data-movement');
+            void card.offsetWidth;
+            card.setAttribute('data-movement', cfg.movement);
+            setTimeout(() => card.removeAttribute('data-movement'), 5000);
+          }
+        }
+        // ONEOFF — also show review reminder toast
+        if (labelUpper === 'ONEOFF') {
+          showOneoffReviewToast(session);
+        }
+      }
+
       // SSH sessions persist as disconnected cards — don't auto-remove
       // Non-SSH sessions auto-remove after a brief delay
       if (session.status === 'ended' && session.source !== 'ssh') {
@@ -278,6 +314,22 @@ async function init() {
     },
     onDurationAlertCb(data) {
       showToast('DURATION ALERT', `Session "${data.projectName}" exceeded ${Math.round(data.thresholdMs / 60000)} min (running: ${Math.round(data.elapsedMs / 60000)} min)`);
+    },
+    async onClearBrowserDbCb() {
+      // Server reset — clear all IndexedDB stores and remove all cards
+      for (const id of Object.keys(allSessions)) {
+        removeCard(id, true);
+        robotManager.removeRobot(id);
+      }
+      allSessions = {};
+      const stores = ['sessions', 'prompts', 'responses', 'toolCalls', 'events', 'notes', 'promptQueue', 'alerts', 'teams'];
+      for (const store of stores) {
+        await clear(store).catch(() => {});
+      }
+      statsPanel.update(allSessions);
+      updateTabTitle(allSessions);
+      toggleEmptyState(true);
+      showToast('RESET', 'All browser data cleared');
     }
   });
 
@@ -335,9 +387,9 @@ function updateTabTitle(sessions) {
   const list = Object.values(sessions);
   const activeCount = list.filter(s => s.status !== 'ended').length;
   if (activeCount > 0) {
-    document.title = `(${activeCount}) Claude Session Center`;
+    document.title = `(${activeCount}) AI Agent Session Center`;
   } else {
-    document.title = 'Claude Session Center';
+    document.title = 'AI Agent Session Center';
   }
 }
 
@@ -383,6 +435,7 @@ function initKeyboardShortcuts() {
         const summarizeModal = document.getElementById('summarize-modal');
         const teamModal = document.getElementById('team-modal');
         const newSessionModal = document.getElementById('new-session-modal');
+        const quickSessionModal = document.getElementById('quick-session-modal');
         const shortcutsModal = document.getElementById('shortcuts-modal');
         const settings = document.getElementById('settings-modal');
         const detail = document.getElementById('session-detail-overlay');
@@ -395,6 +448,8 @@ function initKeyboardShortcuts() {
           summarizeModal.classList.add('hidden');
         } else if (newSessionModal && !newSessionModal.classList.contains('hidden')) {
           newSessionModal.classList.add('hidden');
+        } else if (quickSessionModal && !quickSessionModal.classList.contains('hidden')) {
+          quickSessionModal.classList.add('hidden');
         } else if (teamModal && !teamModal.classList.contains('hidden')) {
           teamModal.classList.add('hidden');
         } else if (shortcutsModal && !shortcutsModal.classList.contains('hidden')) {
@@ -433,28 +488,10 @@ function initKeyboardShortcuts() {
         }
         break;
       }
-      case 'e':
-      case 'E': {
-        if (getSelectedSessionId()) {
-          document.getElementById('ctrl-export')?.click();
-        }
-        break;
-      }
-      case 'n':
-      case 'N': {
-        if (getSelectedSessionId()) {
-          document.getElementById('ctrl-notes')?.click();
-        }
-        break;
-      }
       case 't':
       case 'T': {
-        if (getSelectedSessionId()) {
-          document.getElementById('ctrl-terminal')?.click();
-        } else {
-          // No session selected — open New Session modal
-          document.getElementById('new-session-modal')?.classList.remove('hidden');
-        }
+        // Open New Session modal
+        document.getElementById('new-session-modal')?.classList.remove('hidden');
         break;
       }
       case 'm':
@@ -491,8 +528,83 @@ function initQuickActions() {
       const modal = document.getElementById('new-session-modal');
       modal.classList.remove('hidden');
       loadSshKeysOnInit().then(restoreLastSession);
+      populateLabelSuggestions('label-suggestions');
     });
   }
+
+  // QUICK SESSION button
+  const quickBtn = document.getElementById('qa-quick-session');
+  if (quickBtn) {
+    quickBtn.addEventListener('click', () => {
+      const modal = document.getElementById('quick-session-modal');
+      modal.classList.remove('hidden');
+      populateQuickLabelChips();
+      populateLabelSuggestions('quick-label-suggestions');
+      // Restore last working directory
+      const saved = (() => {
+        try { return JSON.parse(localStorage.getItem('lastSession') || '{}'); } catch { return {}; }
+      })();
+      const workdirInput = document.getElementById('quick-workdir');
+      if (workdirInput) workdirInput.value = saved.workingDir || '~';
+    });
+  }
+
+  // ONEOFF button — open quick modal with ONEOFF label pre-filled
+  const oneoffBtn = document.getElementById('qa-oneoff');
+  if (oneoffBtn) {
+    oneoffBtn.addEventListener('click', () => {
+      const modal = document.getElementById('quick-session-modal');
+      modal.classList.remove('hidden');
+      document.getElementById('quick-label-input').value = 'ONEOFF';
+      populateQuickLabelChips();
+      populateLabelSuggestions('quick-label-suggestions');
+      // Restore last working directory
+      const saved = (() => {
+        try { return JSON.parse(localStorage.getItem('lastSession') || '{}'); } catch { return {}; }
+      })();
+      const workdirInput = document.getElementById('quick-workdir');
+      if (workdirInput) workdirInput.value = saved.workingDir || '~';
+    });
+  }
+
+  // HEAVY button — open quick modal with HEAVY label pre-filled
+  const heavyBtn = document.getElementById('qa-heavy');
+  if (heavyBtn) {
+    heavyBtn.addEventListener('click', () => {
+      const modal = document.getElementById('quick-session-modal');
+      modal.classList.remove('hidden');
+      document.getElementById('quick-label-input').value = 'HEAVY';
+      populateQuickLabelChips();
+      populateLabelSuggestions('quick-label-suggestions');
+      // Restore last working directory
+      const saved = (() => {
+        try { return JSON.parse(localStorage.getItem('lastSession') || '{}'); } catch { return {}; }
+      })();
+      const workdirInput = document.getElementById('quick-workdir');
+      if (workdirInput) workdirInput.value = saved.workingDir || '~';
+    });
+  }
+
+  // IMPORTANT button — open quick modal with IMPORTANT label pre-filled
+  const importantBtn = document.getElementById('qa-important');
+  if (importantBtn) {
+    importantBtn.addEventListener('click', () => {
+      const modal = document.getElementById('quick-session-modal');
+      modal.classList.remove('hidden');
+      document.getElementById('quick-label-input').value = 'IMPORTANT';
+      populateQuickLabelChips();
+      populateLabelSuggestions('quick-label-suggestions');
+      // Restore last working directory
+      const saved = (() => {
+        try { return JSON.parse(localStorage.getItem('lastSession') || '{}'); } catch { return {}; }
+      })();
+      const workdirInput = document.getElementById('quick-workdir');
+      if (workdirInput) workdirInput.value = saved.workingDir || '~';
+    });
+  }
+
+  // Quick Session modal buttons
+  initQuickSessionModal();
 
   // New Session modal buttons
   initNewSessionModal();
@@ -528,6 +640,53 @@ function initShortcutsPanel() {
   modal.addEventListener('click', (e) => {
     if (e.target === modal) modal.classList.add('hidden');
   });
+}
+
+function showOneoffReviewToast(session) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = 'toast oneoff-review-toast';
+  const title = session.title || session.projectName || 'ONEOFF session';
+  toast.innerHTML = `
+    <div class="toast-title">ONEOFF DONE — Review needed</div>
+    <div class="toast-msg">${title.replace(/</g, '&lt;')}</div>
+    <div class="oneoff-review-actions">
+      <button class="oneoff-review-btn" data-action="review">REVIEW</button>
+      <button class="oneoff-delete-btn" data-action="delete">DELETE</button>
+      <button class="oneoff-dismiss-btn" data-action="dismiss">DISMISS</button>
+    </div>
+  `;
+  container.appendChild(toast);
+
+  toast.querySelector('[data-action="review"]').addEventListener('click', () => {
+    // Select the session card to open detail panel
+    import('./sessionPanel.js').then(sp => {
+      const card = document.querySelector(`.session-card[data-session-id="${session.sessionId}"]`);
+      if (card) card.click();
+    });
+    toast.remove();
+  });
+
+  toast.querySelector('[data-action="delete"]').addEventListener('click', async () => {
+    const sid = session.sessionId;
+    await fetch(`/api/sessions/${sid}`, { method: 'DELETE' }).catch(() => {});
+    await del('sessions', sid).catch(() => {});
+    removeCard(sid, true);
+    robotManager.removeRobot(sid);
+    delete allSessions[sid];
+    statsPanel.update(allSessions);
+    updateTabTitle(allSessions);
+    toggleEmptyState(Object.keys(allSessions).length === 0);
+    showToast('DELETED', 'ONEOFF session removed');
+    toast.remove();
+  });
+
+  toast.querySelector('[data-action="dismiss"]').addEventListener('click', () => {
+    toast.remove();
+  });
+
+  // Auto-dismiss after 30s
+  setTimeout(() => { if (toast.parentNode) toast.remove(); }, 30000);
 }
 
 function toggleEmptyState(show) {
@@ -747,6 +906,7 @@ function initNewSessionModal() {
     connectBtn.disabled = true;
     connectBtn.textContent = 'CONNECTING...';
     try {
+      const labelVal = document.getElementById('ssh-session-label')?.value.trim() || undefined;
       const body = {
         host: document.getElementById('ssh-host').value,
         port: parseInt(document.getElementById('ssh-port').value) || 22,
@@ -756,9 +916,10 @@ function initNewSessionModal() {
         privateKeyPath: document.getElementById('ssh-key-select').value,
         workingDir: document.getElementById('ssh-workdir').value,
         command: getSelectedCommand(),
-        apiKey: document.getElementById('ssh-api-key')?.value || undefined,
+        apiKey: document.getElementById('ssh-api-key')?.value || getApiKeyForCommand(getSelectedCommand()) || undefined,
         terminalTheme: document.getElementById('ssh-terminal-theme')?.value || 'default',
         sessionTitle: document.getElementById('ssh-session-title')?.value || undefined,
+        label: labelVal,
       };
 
       // Add tmux params based on mode
@@ -789,6 +950,9 @@ function initNewSessionModal() {
         }));
       } catch (_) {}
 
+      // Save label to localStorage for future suggestions
+      if (labelVal) saveLabel(labelVal);
+
       modal.classList.add('hidden');
       showToast('CONNECTED', `Terminal ${result.terminalId} launched`);
 
@@ -810,6 +974,175 @@ function getSelectedCommand() {
     return document.getElementById('ssh-custom-command').value || 'claude';
   }
   return preset;
+}
+
+function getApiKeyForCommand(command) {
+  if (!command) return settingsManager.get('anthropicApiKey');
+  if (command.startsWith('codex')) return settingsManager.get('openaiApiKey');
+  if (command.startsWith('gemini')) return settingsManager.get('geminiApiKey');
+  return settingsManager.get('anthropicApiKey');
+}
+
+// ---- Label Persistence ----
+function getSavedLabels() {
+  try {
+    return JSON.parse(localStorage.getItem('sessionLabels') || '[]');
+  } catch { return []; }
+}
+
+function saveLabel(label) {
+  if (!label) return;
+  const labels = getSavedLabels();
+  // Move to front if exists, otherwise prepend
+  const idx = labels.indexOf(label);
+  if (idx !== -1) labels.splice(idx, 1);
+  labels.unshift(label);
+  // Keep max 30
+  localStorage.setItem('sessionLabels', JSON.stringify(labels.slice(0, 30)));
+}
+
+function populateLabelSuggestions(datalistId) {
+  const dl = document.getElementById(datalistId);
+  if (!dl) return;
+  dl.innerHTML = '';
+  for (const label of getSavedLabels()) {
+    const opt = document.createElement('option');
+    opt.value = label;
+    dl.appendChild(opt);
+  }
+}
+
+function populateQuickLabelChips() {
+  const container = document.getElementById('quick-label-chips');
+  if (!container) return;
+  container.innerHTML = '';
+  const labels = getSavedLabels();
+  if (labels.length === 0) {
+    container.innerHTML = '<span class="quick-label-empty">No labels yet — type one below</span>';
+    return;
+  }
+  for (const label of labels) {
+    const chip = document.createElement('button');
+    chip.className = 'quick-label-chip';
+
+    const labelText = document.createElement('span');
+    labelText.className = 'label-text';
+    labelText.textContent = label;
+
+    const deleteIcon = document.createElement('span');
+    deleteIcon.className = 'label-delete';
+    deleteIcon.textContent = '×';
+    deleteIcon.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteLabel(label);
+      populateQuickLabelChips();
+      populateLabelSuggestions('quick-label-suggestions');
+    });
+
+    chip.appendChild(labelText);
+    chip.appendChild(deleteIcon);
+
+    chip.addEventListener('click', () => {
+      container.querySelectorAll('.quick-label-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      document.getElementById('quick-label-input').value = label;
+    });
+    container.appendChild(chip);
+  }
+}
+
+function deleteLabel(label) {
+  const labels = getSavedLabels();
+  const idx = labels.indexOf(label);
+  if (idx !== -1) {
+    labels.splice(idx, 1);
+    localStorage.setItem('sessionLabels', JSON.stringify(labels));
+  }
+}
+
+// ---- Quick Session Modal ----
+function initQuickSessionModal() {
+  const modal = document.getElementById('quick-session-modal');
+  if (!modal) return;
+
+  document.getElementById('quick-session-close')?.addEventListener('click', () => modal.classList.add('hidden'));
+  document.getElementById('quick-session-cancel')?.addEventListener('click', () => modal.classList.add('hidden'));
+
+  document.getElementById('quick-session-launch')?.addEventListener('click', async () => {
+    const launchBtn = document.getElementById('quick-session-launch');
+    const label = document.getElementById('quick-label-input').value.trim();
+    const workingDir = document.getElementById('quick-workdir')?.value.trim() || '~';
+
+    // Need saved session config
+    const saved = (() => {
+      try { return JSON.parse(localStorage.getItem('lastSession') || '{}'); } catch { return {}; }
+    })();
+
+    if (!saved.username) {
+      showToast('ERROR', 'No saved session config. Use "+ NEW SESSION" first.');
+      return;
+    }
+
+    launchBtn.disabled = true;
+    launchBtn.textContent = 'LAUNCHING...';
+    try {
+      const body = {
+        host: saved.host || 'localhost',
+        port: saved.port || 22,
+        username: saved.username,
+        authMethod: saved.authMethod || 'key',
+        privateKeyPath: saved.privateKeyPath,
+        workingDir: workingDir,
+        command: saved.command || 'claude',
+        terminalTheme: saved.terminalTheme || 'default',
+        label: label || undefined,
+      };
+
+      // Use global API key matching the CLI command
+      const globalKey = getApiKeyForCommand(body.command);
+      if (globalKey) body.apiKey = globalKey;
+
+      const resp = await fetch('/api/terminals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const result = await resp.json();
+      if (!resp.ok) throw new Error(result.error || 'Connection failed');
+
+      if (label) saveLabel(label);
+
+      // Save last used working directory
+      try {
+        const lastSession = JSON.parse(localStorage.getItem('lastSession') || '{}');
+        lastSession.workingDir = workingDir;
+        localStorage.setItem('lastSession', JSON.stringify(lastSession));
+      } catch (_) {}
+
+      modal.classList.add('hidden');
+
+      // Store theme preference for this terminal
+      terminalManager.setTerminalTheme(result.terminalId, body.terminalTheme);
+
+      // Auto-pin HEAVY and IMPORTANT sessions
+      if (label === 'HEAVY') {
+        setTimeout(() => pinSession(result.terminalId), 500);
+        showToast('HEAVY SESSION', 'High-priority session launched & pinned');
+      } else if (label === 'IMPORTANT') {
+        setTimeout(() => pinSession(result.terminalId), 500);
+        showToast('IMPORTANT SESSION', 'Important session launched & pinned — alert on completion');
+      } else if (label === 'ONEOFF') {
+        showToast('ONEOFF SESSION', 'One-off session launched — review when done');
+      } else {
+        showToast('CONNECTED', `Quick session launched`);
+      }
+    } catch (e) {
+      showToast('ERROR', e.message);
+    } finally {
+      launchBtn.disabled = false;
+      launchBtn.textContent = 'LAUNCH';
+    }
+  });
 }
 
 init().catch(console.error);
