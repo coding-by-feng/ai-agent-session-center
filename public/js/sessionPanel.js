@@ -516,7 +516,12 @@ function openTeamModal(teamId) {
 
     card.addEventListener('click', () => {
       modal.classList.add('hidden');
-      selectSession(sid);
+      // Toggle: close if already selected, otherwise open
+      if (selectedSessionId === sid) {
+        deselectSession();
+      } else {
+        selectSession(sid);
+      }
     });
 
     grid.appendChild(card);
@@ -583,7 +588,12 @@ export function createOrUpdateCard(session) {
     // Only allow click-to-detail for SSH (manually created) sessions
     if (!isDisplayOnly) {
       card.addEventListener('click', (e) => {
-        selectSession(session.sessionId);
+        // Toggle: close if already selected, otherwise open
+        if (selectedSessionId === session.sessionId) {
+          deselectSession();
+        } else {
+          selectSession(session.sessionId);
+        }
       });
     }
     // Mute button toggle
@@ -1162,6 +1172,9 @@ function populateDetailPanel(session) {
     labelInput.value = session.label || '';
     labelInput.dataset.sessionId = session.sessionId;
   }
+
+  // Label quick-select chips
+  populateDetailLabelChips(session);
 
   // Prompt History tab — show only user prompts in chronological order
   const convContainer = document.getElementById('detail-conversation');
@@ -2172,43 +2185,48 @@ if (detailTitleInput) {
 
 // ---- Session Label Save (blur/Enter) ----
 const detailLabelInput = document.getElementById('detail-label');
-if (detailLabelInput) {
-  async function saveLabel() {
-    const sessionId = detailLabelInput.dataset.sessionId;
-    const label = detailLabelInput.value.trim();
-    if (!sessionId) return;
-    const session = sessionsData.get(sessionId);
-    if (session) session.label = label;
-    // Update card label badge
-    const badge = document.querySelector(`.session-card[data-session-id="${sessionId}"] .card-label-badge`);
-    if (badge) {
-      badge.textContent = label;
-      badge.style.display = label ? '' : 'none';
-    }
-    try {
-      await fetch(`/api/sessions/${sessionId}/label`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label })
-      });
-      // Also update IndexedDB
-      const s = await db.get('sessions', sessionId);
-      if (s) { s.label = label; await db.put('sessions', s); }
-    } catch(e) {
-      // silent fail
-    }
-    // Save to global label list for suggestions
-    if (label) {
-      try {
-        const labels = JSON.parse(localStorage.getItem('sessionLabels') || '[]');
-        const idx = labels.indexOf(label);
-        if (idx !== -1) labels.splice(idx, 1);
-        labels.unshift(label);
-        localStorage.setItem('sessionLabels', JSON.stringify(labels.slice(0, 30)));
-      } catch(_) {}
-    }
+
+async function saveDetailLabel() {
+  if (!detailLabelInput) return;
+  const sessionId = detailLabelInput.dataset.sessionId;
+  const label = detailLabelInput.value.trim();
+  if (!sessionId) return;
+  const session = sessionsData.get(sessionId);
+  if (session) session.label = label;
+  // Update card label badge
+  const badge = document.querySelector(`.session-card[data-session-id="${sessionId}"] .card-label-badge`);
+  if (badge) {
+    badge.textContent = label;
+    badge.style.display = label ? '' : 'none';
   }
-  detailLabelInput.addEventListener('blur', saveLabel);
+  // Update chip active states
+  updateDetailLabelChipStates(label);
+  try {
+    await fetch(`/api/sessions/${sessionId}/label`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label })
+    });
+    // Also update IndexedDB
+    const s = await db.get('sessions', sessionId);
+    if (s) { s.label = label; await db.put('sessions', s); }
+  } catch(e) {
+    // silent fail
+  }
+  // Save to global label list for suggestions
+  if (label) {
+    try {
+      const labels = JSON.parse(localStorage.getItem('sessionLabels') || '[]');
+      const idx = labels.indexOf(label);
+      if (idx !== -1) labels.splice(idx, 1);
+      labels.unshift(label);
+      localStorage.setItem('sessionLabels', JSON.stringify(labels.slice(0, 30)));
+    } catch(_) {}
+  }
+}
+
+if (detailLabelInput) {
+  detailLabelInput.addEventListener('blur', saveDetailLabel);
   detailLabelInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -2229,6 +2247,91 @@ if (detailLabelInput) {
       }
     } catch(_) {}
   });
+}
+
+// ---- Detail Label Quick-Select Chips ----
+const DETAIL_LABEL_COLORS = { ONEOFF: '#ff9100', HEAVY: '#ff3355', IMPORTANT: '#aa66ff' };
+const DETAIL_LABEL_ICONS = { ONEOFF: '\u{1F525}', HEAVY: '\u2605', IMPORTANT: '\u26A0' };
+
+function updateDetailLabelChipStates(currentLabel) {
+  const container = document.getElementById('detail-label-chips');
+  if (!container) return;
+  container.querySelectorAll('.detail-label-chip').forEach(chip => {
+    const isActive = chip.dataset.label === currentLabel;
+    chip.classList.toggle('active', isActive);
+    const color = DETAIL_LABEL_COLORS[chip.dataset.label];
+    if (isActive && color) {
+      chip.style.borderColor = color;
+      chip.style.color = color;
+      chip.style.background = color + '1a';
+    } else {
+      chip.style.borderColor = '';
+      chip.style.color = '';
+      chip.style.background = '';
+    }
+  });
+}
+
+function populateDetailLabelChips(session) {
+  const container = document.getElementById('detail-label-chips');
+  if (!container) return;
+  container.innerHTML = '';
+
+  // Built-in labels
+  const builtins = ['ONEOFF', 'HEAVY', 'IMPORTANT'];
+
+  // Also include saved custom labels (up to 5)
+  let customLabels = [];
+  try {
+    const saved = JSON.parse(localStorage.getItem('sessionLabels') || '[]');
+    customLabels = saved.filter(l => !builtins.includes(l)).slice(0, 5);
+  } catch(_) {}
+
+  const allLabels = [...builtins, ...customLabels];
+  const currentLabel = session.label || '';
+
+  for (const label of allLabels) {
+    const chip = document.createElement('button');
+    chip.className = 'detail-label-chip';
+    chip.dataset.label = label;
+
+    const icon = DETAIL_LABEL_ICONS[label];
+    if (icon) {
+      const iconSpan = document.createElement('span');
+      iconSpan.className = 'chip-icon';
+      iconSpan.textContent = icon;
+      chip.appendChild(iconSpan);
+    }
+
+    const text = document.createElement('span');
+    text.textContent = label;
+    chip.appendChild(text);
+
+    // Highlight if active
+    const isActive = label === currentLabel;
+    if (isActive) {
+      chip.classList.add('active');
+      const color = DETAIL_LABEL_COLORS[label];
+      if (color) {
+        chip.style.borderColor = color;
+        chip.style.color = color;
+        chip.style.background = color + '1a';
+      }
+    }
+
+    chip.addEventListener('click', () => {
+      if (!detailLabelInput) return;
+      // Toggle: clicking active chip clears the label
+      if (detailLabelInput.value.trim() === label) {
+        detailLabelInput.value = '';
+      } else {
+        detailLabelInput.value = label;
+      }
+      saveDetailLabel();
+    });
+
+    container.appendChild(chip);
+  }
 }
 
 // ---- Detail Panel Resize Handle ----

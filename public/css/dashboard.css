@@ -1234,6 +1234,42 @@ body::after {
   box-shadow: 0 0 6px rgba(0, 229, 255, 0.2);
 }
 
+.detail-label-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 4px;
+}
+.detail-label-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--border-faint);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.detail-label-chip:hover {
+  border-color: var(--accent-cyan);
+  color: var(--text-primary);
+}
+.detail-label-chip.active {
+  border-color: var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.12);
+  color: var(--accent-cyan);
+}
+.detail-label-chip .chip-icon {
+  font-size: 11px;
+}
+
 .detail-char-select {
   font-family: var(--font-mono);
   font-size: 10px;
