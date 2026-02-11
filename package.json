@@ -1,7 +1,12 @@
 {
-  "name": "claude-command-center",
+  "name": "ai-agent-session-center",
   "version": "1.0.0",
+  "description": "A real-time dashboard for monitoring AI agent sessions (Claude Code, Gemini CLI, Codex) with 3D visualization",
   "type": "module",
+  "main": "server/index.js",
+  "bin": {
+    "ai-agent-session-center": "./bin/cli.js"
+  },
   "scripts": {
     "start": "node server/index.js",
     "start:no-open": "node server/index.js --no-open",
@@ -12,9 +17,36 @@
     "uninstall-hooks": "node hooks/install-hooks.js --uninstall",
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true"
   },
+  "keywords": [
+    "claude-code",
+    "gemini-cli",
+    "codex",
+    "ai-agent",
+    "dashboard",
+    "monitoring",
+    "three.js",
+    "websocket",
+    "developer-tools"
+  ],
+  "author": "Kason Zhan",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/coding-by-feng/ai-agent-session-center"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "express": "^5.0.0",
     "node-pty": "^1.1.0",
     "ws": "^8.18.0"
-  }
+  },
+  "files": [
+    "server/**/*",
+    "public/**/*",
+    "hooks/**/*",
+    "bin/**/*",
+    "data/.gitkeep"
+  ]
 }
