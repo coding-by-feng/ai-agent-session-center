@@ -1,4 +1,4 @@
-# Claude Session Command Center
+# AI Agent Session Center
 
 ## Project Overview
 
