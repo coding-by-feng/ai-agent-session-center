@@ -147,6 +147,9 @@ async function init() {
         }
       }
     },
+    onHookStatsCb(stats) {
+      statsPanel.updateHookStats(stats);
+    },
     onDurationAlertCb(data) {
       showToast('DURATION ALERT', `Session "${data.projectName}" exceeded ${Math.round(data.thresholdMs / 60000)} min (running: ${Math.round(data.elapsedMs / 60000)} min)`);
     }
@@ -315,6 +318,13 @@ function initKeyboardShortcuts() {
       case 'N': {
         if (getSelectedSessionId()) {
           document.getElementById('ctrl-notes')?.click();
+        }
+        break;
+      }
+      case 'q':
+      case 'Q': {
+        if (getSelectedSessionId()) {
+          document.getElementById('ctrl-queue')?.click();
         }
         break;
       }

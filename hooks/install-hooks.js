@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, copyFileSync, chmodSync, mkdirSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, copyFileSync, chmodSync, mkdirSync, existsSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
@@ -7,75 +7,277 @@ import { execSync } from 'child_process';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isWindows = process.platform === 'win32';
 
-// Platform-specific hook config
+// ── ANSI colors ──
+const RESET   = '\x1b[0m';
+const BOLD    = '\x1b[1m';
+const DIM     = '\x1b[2m';
+const GREEN   = '\x1b[32m';
+const YELLOW  = '\x1b[33m';
+const RED     = '\x1b[31m';
+const CYAN    = '\x1b[36m';
+const MAGENTA = '\x1b[35m';
+
+// ── Log helpers ──
+const ok    = (msg) => console.log(`  ${GREEN}✓${RESET} ${msg}`);
+const warn  = (msg) => console.log(`  ${YELLOW}⚠${RESET} ${msg}`);
+const fail  = (msg) => console.log(`  ${RED}✗${RESET} ${msg}`);
+const info  = (msg) => console.log(`  ${DIM}→${RESET} ${msg}`);
+const step  = (n, total, label) => console.log(`\n${CYAN}[${n}/${total}]${RESET} ${BOLD}${label}${RESET}`);
+
+// ── Platform-specific hook config ──
 const HOOK_SCRIPT = isWindows ? 'dashboard-hook.ps1' : 'dashboard-hook.sh';
 const HOOKS_DIR = join(homedir(), '.claude', 'hooks');
 const HOOK_DEST = join(HOOKS_DIR, HOOK_SCRIPT);
-// On Windows: call PowerShell; on Unix: call the shell script directly
 const HOOK_COMMAND = isWindows
   ? `powershell -NoProfile -ExecutionPolicy Bypass -File "${HOOK_DEST}"`
   : '~/.claude/hooks/dashboard-hook.sh';
-// Match both .sh and .ps1 when checking for existing hooks
 const HOOK_PATTERN = 'dashboard-hook.';
 
 const SETTINGS_PATH = join(homedir(), '.claude', 'settings.json');
-const EVENTS = [
+
+// All possible hook events
+const ALL_EVENTS = [
   'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse',
   'Stop', 'Notification', 'SubagentStart', 'SubagentStop', 'SessionEnd'
 ];
 
-console.log(`\n  Platform: ${process.platform} (${isWindows ? 'PowerShell' : 'Bash'} hook)`);
+// Density levels: which events to register
+const DENSITY_EVENTS = {
+  high: ALL_EVENTS,
+  medium: [
+    'SessionStart', 'UserPromptSubmit', 'Stop',
+    'Notification', 'SubagentStart', 'SubagentStop', 'SessionEnd'
+  ],
+  low: [
+    'SessionStart', 'UserPromptSubmit', 'Stop', 'SessionEnd'
+  ]
+};
 
-// Check for jq on macOS/Linux (used by bash hook for JSON enrichment)
-if (!isWindows) {
+// Parse CLI flags, then fall back to saved config
+let density = 'medium';
+const densityArgIdx = process.argv.indexOf('--density');
+if (densityArgIdx >= 0 && process.argv[densityArgIdx + 1]) {
+  const val = process.argv[densityArgIdx + 1].toLowerCase();
+  if (DENSITY_EVENTS[val]) {
+    density = val;
+  } else {
+    console.error(`${RED}ERROR${RESET} Invalid density: "${val}" (use: high, medium, low)`);
+    process.exit(1);
+  }
+} else {
+  // Read from saved config if no CLI flag
   try {
-    execSync('which jq', { stdio: 'ignore' });
-    console.log('  jq: found');
-  } catch {
-    console.warn('  jq: NOT FOUND — install for full session detection:');
-    console.warn('     brew install jq   (macOS)');
-    console.warn('     apt install jq    (Linux)');
-    console.warn('     Hook will still work but without PID/TTY/tab enrichment.');
+    const configPath = join(__dirname, '..', 'data', 'server-config.json');
+    const savedConfig = JSON.parse(readFileSync(configPath, 'utf8'));
+    if (savedConfig.hookDensity && DENSITY_EVENTS[savedConfig.hookDensity]) {
+      density = savedConfig.hookDensity;
+    }
+  } catch { /* no saved config, use default */ }
+}
+
+const uninstallMode = process.argv.includes('--uninstall');
+const quietMode = process.argv.includes('--quiet');
+
+const EVENTS = DENSITY_EVENTS[density];
+const TOTAL_STEPS = uninstallMode ? 4 : 6;
+
+// ── Banner ──
+if (!quietMode) {
+  console.log(`\n${CYAN}╭──────────────────────────────────────────────╮${RESET}`);
+  console.log(`${CYAN}│${RESET}  ${BOLD}Claude Session Center — Hook Setup${RESET}          ${CYAN}│${RESET}`);
+  console.log(`${CYAN}╰──────────────────────────────────────────────╯${RESET}`);
+}
+
+// ═══════════════════════════════════════════════
+// STEP 1: Platform Detection
+// ═══════════════════════════════════════════════
+step(1, TOTAL_STEPS, 'Detecting platform...');
+ok(`Platform: ${process.platform} (${isWindows ? 'PowerShell' : 'Bash'} hook)`);
+ok(`Architecture: ${process.arch}`);
+ok(`Node.js: ${process.version}`);
+ok(`Home directory: ${homedir()}`);
+info(`Settings path: ${SETTINGS_PATH}`);
+info(`Hooks directory: ${HOOKS_DIR}`);
+
+if (uninstallMode) {
+  info(`Mode: ${YELLOW}UNINSTALL${RESET} (removing all dashboard hooks)`);
+} else {
+  info(`Density: ${BOLD}${density}${RESET} → ${EVENTS.length} of ${ALL_EVENTS.length} events`);
+  info(`Events: ${EVENTS.join(', ')}`);
+  const excluded = ALL_EVENTS.filter(e => !EVENTS.includes(e));
+  if (excluded.length > 0) {
+    info(`Excluded: ${DIM}${excluded.join(', ')}${RESET}`);
   }
 }
 
-// Ensure ~/.claude/hooks/ directory exists
-mkdirSync(HOOKS_DIR, { recursive: true });
+// ═══════════════════════════════════════════════
+// STEP 2: Dependency Check
+// ═══════════════════════════════════════════════
+step(2, TOTAL_STEPS, 'Checking dependencies...');
+
+if (!isWindows && !uninstallMode) {
+  // Check jq
+  try {
+    const jqPath = execSync('which jq', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+    const jqVersion = execSync('jq --version', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+    ok(`jq: ${jqVersion} (${jqPath})`);
+  } catch {
+    warn(`jq: ${YELLOW}NOT FOUND${RESET} — hook will work but without PID/TTY/tab enrichment`);
+    info(`Install jq for full session detection:`);
+    info(`  ${DIM}brew install jq${RESET}   (macOS)`);
+    info(`  ${DIM}apt install jq${RESET}    (Linux)`);
+  }
+
+  // Check curl
+  try {
+    const curlPath = execSync('which curl', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+    ok(`curl: found (${curlPath})`);
+  } catch {
+    fail(`curl: ${RED}NOT FOUND${RESET} — hook cannot send data to dashboard!`);
+    info('Install curl to enable hook communication');
+  }
+
+  // Check bash version
+  try {
+    const bashVersion = execSync('bash --version', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] })
+      .split('\n')[0].replace(/.*version\s+/, '').replace(/\(.*/, '').trim();
+    ok(`bash: ${bashVersion}`);
+  } catch {
+    info('bash: version unknown');
+  }
+} else if (isWindows) {
+  try {
+    const psVersion = execSync('powershell -NoProfile -Command "$PSVersionTable.PSVersion.ToString()"',
+      { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+    ok(`PowerShell: ${psVersion}`);
+  } catch {
+    warn('PowerShell: version unknown');
+  }
+} else {
+  info('Dependency check skipped (uninstall mode)');
+}
+
+// ═══════════════════════════════════════════════
+// STEP 3: Prepare Directories & Read Settings
+// ═══════════════════════════════════════════════
+step(3, TOTAL_STEPS, 'Preparing directories & reading settings...');
+
+// Ensure ~/.claude/hooks/ exists
+if (existsSync(HOOKS_DIR)) {
+  ok(`Hooks directory exists: ${HOOKS_DIR}`);
+} else {
+  mkdirSync(HOOKS_DIR, { recursive: true });
+  ok(`Created hooks directory: ${HOOKS_DIR}`);
+}
+
+// Ensure ~/.claude/ exists
+const claudeDir = join(homedir(), '.claude');
+if (!existsSync(claudeDir)) {
+  mkdirSync(claudeDir, { recursive: true });
+  ok(`Created ~/.claude/ directory`);
+}
 
 // Read current settings
 let settings;
 try {
-  settings = JSON.parse(readFileSync(SETTINGS_PATH, 'utf8'));
+  const raw = readFileSync(SETTINGS_PATH, 'utf8');
+  settings = JSON.parse(raw);
+  const size = statSync(SETTINGS_PATH).size;
+  ok(`Settings file loaded: ${SETTINGS_PATH} (${formatBytes(size)})`);
+
+  // Report existing hooks
+  const existingHookEvents = Object.keys(settings.hooks || {});
+  if (existingHookEvents.length > 0) {
+    info(`Existing hook events in settings: ${existingHookEvents.join(', ')}`);
+    // Check for non-dashboard hooks
+    for (const event of existingHookEvents) {
+      const groups = settings.hooks[event] || [];
+      const otherHooks = groups.filter(g => !g.hooks?.some(h => h.command?.includes(HOOK_PATTERN)));
+      if (otherHooks.length > 0) {
+        info(`  ${event}: ${otherHooks.length} non-dashboard hook(s) will be preserved`);
+      }
+    }
+  } else {
+    info('No existing hooks registered');
+  }
 } catch (err) {
   if (err.code === 'ENOENT') {
     settings = {};
-    console.log('  Creating new settings.json');
+    ok(`Creating new settings file: ${SETTINGS_PATH}`);
   } else {
+    fail(`Failed to read settings: ${err.message}`);
     throw err;
   }
 }
 
 if (!settings.hooks) settings.hooks = {};
 
+// ═══════════════════════════════════════════════
+// UNINSTALL MODE
+// ═══════════════════════════════════════════════
+if (uninstallMode) {
+  step(4, TOTAL_STEPS, 'Removing dashboard hooks...');
+
+  let removed = 0;
+  for (const event of ALL_EVENTS) {
+    if (!settings.hooks[event]) continue;
+    const before = settings.hooks[event].length;
+    settings.hooks[event] = settings.hooks[event].filter(group =>
+      !group.hooks?.some(h => h.command?.includes(HOOK_PATTERN))
+    );
+    if (settings.hooks[event].length === 0) {
+      delete settings.hooks[event];
+    }
+    if (before !== (settings.hooks[event]?.length ?? 0)) {
+      removed++;
+      ok(`Removed hook for ${event}`);
+    }
+  }
+
+  if (removed === 0) {
+    info('No dashboard hooks were found to remove');
+  }
+
+  if (Object.keys(settings.hooks).length === 0) {
+    settings.hooks = {};
+  }
+
+  writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n');
+  ok(`Saved settings: ${removed} hook(s) removed`);
+
+  // Summary
+  printSummary(`Uninstall complete — ${removed} hook(s) removed`);
+  process.exit(0);
+}
+
+// ═══════════════════════════════════════════════
+// STEP 4: Configure Hook Events
+// ═══════════════════════════════════════════════
+step(4, TOTAL_STEPS, `Configuring hook events (density: ${density})...`);
+
 let added = 0;
+let updated = 0;
+let unchanged = 0;
+let removedCount = 0;
+
+// Add/update hooks for events in the selected density
 for (const event of EVENTS) {
   if (!settings.hooks[event]) settings.hooks[event] = [];
 
-  // Find existing dashboard hook entry (either .sh or .ps1)
   const existingIdx = settings.hooks[event].findIndex(group =>
     group.hooks?.some(h => h.command?.includes(HOOK_PATTERN))
   );
 
   if (existingIdx >= 0) {
-    // Update existing entry to use current platform's command
     const group = settings.hooks[event][existingIdx];
     const hookEntry = group.hooks.find(h => h.command?.includes(HOOK_PATTERN));
     if (hookEntry && hookEntry.command !== HOOK_COMMAND) {
       hookEntry.command = HOOK_COMMAND;
-      console.log(`  ~ Updated hook command for ${event}`);
-      added++;
+      ok(`Updated hook command for ${event}`);
+      updated++;
     } else {
-      console.log(`  = ${event} already registered`);
+      info(`${event}: already registered ${DIM}(no change)${RESET}`);
+      unchanged++;
     }
   } else {
     settings.hooks[event].push({
@@ -85,35 +287,129 @@ for (const event of EVENTS) {
         async: true
       }]
     });
+    ok(`Added hook for ${GREEN}${event}${RESET}`);
     added++;
-    console.log(`  + Added hook for ${event}`);
   }
 }
 
-// Write settings back (preserves all existing keys and hooks)
-writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n');
-console.log(`\n  Updated ${SETTINGS_PATH} (${added} changes)`);
+// Remove hooks for events NOT in the selected density
+const excludedEvents = ALL_EVENTS.filter(e => !EVENTS.includes(e));
+for (const event of excludedEvents) {
+  if (!settings.hooks[event]) continue;
+  const before = settings.hooks[event].length;
+  settings.hooks[event] = settings.hooks[event].filter(group =>
+    !group.hooks?.some(h => h.command?.includes(HOOK_PATTERN))
+  );
+  if (settings.hooks[event].length === 0) {
+    delete settings.hooks[event];
+  }
+  if (before !== (settings.hooks[event]?.length ?? 0)) {
+    removedCount++;
+    ok(`Removed hook for ${YELLOW}${event}${RESET} ${DIM}(not in ${density} density)${RESET}`);
+  }
+}
 
-// Copy the platform-specific hook script to ~/.claude/hooks/
+// Write settings
+writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n');
+info(`Settings saved: ${GREEN}${added} added${RESET}, ${CYAN}${updated} updated${RESET}, ${YELLOW}${removedCount} removed${RESET}, ${DIM}${unchanged} unchanged${RESET}`);
+
+// ═══════════════════════════════════════════════
+// STEP 5: Deploy Hook Scripts
+// ═══════════════════════════════════════════════
+step(5, TOTAL_STEPS, 'Deploying hook scripts...');
+
+// Copy primary hook script
 const src = join(__dirname, HOOK_SCRIPT);
 if (!existsSync(src)) {
-  console.error(`\n  ERROR: Hook script not found: ${src}`);
+  fail(`Hook script not found: ${src}`);
+  console.error(`\n${RED}ERROR${RESET}: Expected hook script at ${src}`);
+  console.error('Make sure you are running this from the project directory.');
   process.exit(1);
 }
+
+const srcSize = statSync(src).size;
 copyFileSync(src, HOOK_DEST);
 if (!isWindows) {
   chmodSync(HOOK_DEST, 0o755);
 }
-console.log(`  Installed ${HOOK_DEST}`);
+ok(`Deployed ${HOOK_SCRIPT} → ${HOOK_DEST} (${formatBytes(srcSize)}, ${isWindows ? 'standard' : 'chmod 755'})`);
 
-// Also copy the other platform's hook (for reference / dual-boot setups)
+// Copy alternate platform hook (for reference / dual-boot)
 const altScript = isWindows ? 'dashboard-hook.sh' : 'dashboard-hook.ps1';
 const altSrc = join(__dirname, altScript);
 if (existsSync(altSrc)) {
   const altDest = join(HOOKS_DIR, altScript);
   copyFileSync(altSrc, altDest);
   if (!isWindows && altScript.endsWith('.sh')) chmodSync(altDest, 0o755);
+  info(`Also copied ${altScript} → ${altDest} ${DIM}(reference copy)${RESET}`);
+} else {
+  info(`Alternate hook ${altScript} not found ${DIM}(skipped)${RESET}`);
 }
 
-console.log(`\n  Hook captures: claude_pid, tty_path, term_program, tab_id, vscode_pid, tmux, window_id`);
-console.log('  Done! Start the dashboard with: npm start\n');
+// ═══════════════════════════════════════════════
+// STEP 6: Verify Installation
+// ═══════════════════════════════════════════════
+step(6, TOTAL_STEPS, 'Verifying installation...');
+
+let verifyOk = true;
+
+// Check hook script is executable
+if (!isWindows) {
+  try {
+    execSync(`test -x "${HOOK_DEST}"`, { stdio: 'ignore' });
+    ok('Hook script is executable');
+  } catch {
+    fail('Hook script is NOT executable');
+    verifyOk = false;
+  }
+}
+
+// Verify settings file is valid JSON
+try {
+  const check = JSON.parse(readFileSync(SETTINGS_PATH, 'utf8'));
+  const registeredEvents = Object.keys(check.hooks || {}).filter(event =>
+    check.hooks[event]?.some(g => g.hooks?.some(h => h.command?.includes(HOOK_PATTERN)))
+  );
+  ok(`Settings file: valid JSON`);
+  ok(`Dashboard hooks registered: ${registeredEvents.length} event(s)`);
+  if (registeredEvents.length !== EVENTS.length) {
+    warn(`Expected ${EVENTS.length} events but found ${registeredEvents.length}`);
+    verifyOk = false;
+  }
+} catch (err) {
+  fail(`Settings file invalid: ${err.message}`);
+  verifyOk = false;
+}
+
+// Check hook destination exists
+if (existsSync(HOOK_DEST)) {
+  ok(`Hook file exists at ${HOOK_DEST}`);
+} else {
+  fail(`Hook file missing: ${HOOK_DEST}`);
+  verifyOk = false;
+}
+
+// ═══════════════════════════════════════════════
+// Summary
+// ═══════════════════════════════════════════════
+if (verifyOk) {
+  printSummary(`Setup complete! (density: ${density}, ${EVENTS.length} events)`);
+  info('Hook captures: claude_pid, tty_path, term_program, tab_id, vscode_pid, tmux, window_id');
+  console.log(`\n  Start the dashboard: ${BOLD}npm start${RESET}\n`);
+} else {
+  console.log(`\n${YELLOW}────────────────────────────────────────────────${RESET}`);
+  console.log(`  ${YELLOW}⚠ Setup completed with warnings${RESET}`);
+  console.log(`${YELLOW}────────────────────────────────────────────────${RESET}\n`);
+}
+
+// ── Utility functions ──
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  return `${(bytes / 1024).toFixed(1)} KB`;
+}
+
+function printSummary(msg) {
+  console.log(`\n${GREEN}────────────────────────────────────────────────${RESET}`);
+  console.log(`  ${GREEN}✓ ${msg}${RESET}`);
+  console.log(`${GREEN}────────────────────────────────────────────────${RESET}`);
+}

@@ -193,6 +193,7 @@
         <button class="ctrl-btn summarize" id="ctrl-summarize" title="Summarize & Archive">SUMMARIZE</button>
         <button class="ctrl-btn export" id="ctrl-export" title="Export Transcript">EXPORT</button>
         <button class="ctrl-btn notes" id="ctrl-notes" title="Session Notes">NOTES</button>
+        <button class="ctrl-btn queue" id="ctrl-queue" title="Prompt Queue">QUEUE</button>
         <button class="ctrl-btn alert" id="ctrl-alert" title="Duration Alert">ALERT</button>
         <select id="detail-group-select" class="ctrl-select" title="Assign to group">
           <option value="">No group</option>
@@ -205,6 +206,7 @@
         <button class="tab" data-tab="tools">Tool Log</button>
         <button class="tab" data-tab="events">Events</button>
         <button class="tab" data-tab="notes">Notes</button>
+        <button class="tab" data-tab="queue">Queue</button>
         <button class="tab" data-tab="summary">Summary</button>
       </div>
 
@@ -230,6 +232,19 @@
           <button id="save-note" class="ctrl-btn notes">Save Note</button>
         </div>
         <div id="notes-list"></div>
+      </div>
+
+      <!-- Queue Tab -->
+      <div class="tab-content" id="tab-queue">
+        <div class="queue-pop-bar">
+          <button id="queue-pop-btn" class="queue-pop-btn" title="Pop next prompt and copy to clipboard">POP NEXT &rarr; CLIPBOARD</button>
+          <span id="queue-count-label" class="queue-count-label"></span>
+        </div>
+        <div class="queue-compose">
+          <textarea id="queue-textarea" placeholder="Add a prompt to the queue..." rows="3"></textarea>
+          <button id="queue-add-btn" class="ctrl-btn queue">Add to Queue</button>
+        </div>
+        <div id="queue-list"></div>
       </div>
 
       <!-- Summary Tab -->
@@ -608,6 +623,32 @@
 
       <!-- Advanced Tab -->
       <div class="settings-tab-content" id="settings-tab-advanced">
+        <div class="settings-section">
+          <h4>Hook Trace Density</h4>
+          <p class="settings-hint">Controls which Claude Code events are tracked. Higher density = more detail but more overhead.</p>
+          <div id="hook-density-control" class="density-control">
+            <button class="density-btn" data-density="low">
+              <span class="density-btn-label">Low</span>
+              <span class="density-btn-desc">4 events: start, prompt, stop, end</span>
+            </button>
+            <button class="density-btn" data-density="medium">
+              <span class="density-btn-label">Medium</span>
+              <span class="density-btn-desc">7 events: + notifications, subagents</span>
+            </button>
+            <button class="density-btn" data-density="high">
+              <span class="density-btn-label">High</span>
+              <span class="density-btn-desc">9 events: + every tool call</span>
+            </button>
+          </div>
+          <div class="density-actions">
+            <button id="hook-install-btn" class="ctrl-btn notes">Install</button>
+            <button id="hook-uninstall-btn" class="ctrl-btn kill hidden">Uninstall</button>
+          </div>
+          <div id="hook-density-status" class="density-status">
+            <span class="hook-status-dot"></span> Checking...
+          </div>
+        </div>
+
         <div class="settings-section">
           <h4>Summary Prompt Templates</h4>
           <p class="settings-hint">Manage prompt templates used when summarizing sessions. Click the star to set as default.</p>

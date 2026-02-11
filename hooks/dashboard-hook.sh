@@ -1,28 +1,43 @@
 #!/bin/bash
 # Claude Session Command Center - Hook relay (macOS / Linux)
 # Reads hook JSON from stdin, enriches with process/env info, POSTs to dashboard server
-# Runs in background, fails silently if server is not running
+#
+# Performance notes:
+# - stdin read (cat) is synchronous; everything else runs in a background subshell
+# - Single jq invocation for all JSON parsing + enrichment
+# - TTY lookup cached per PID in /tmp to avoid `ps` on every event
+# - Tab title only refreshed on state-changing events, not rapid tool calls
+# - curl fails fast (1s connect timeout) so dead server doesn't pile up processes
+# - hook_sent_at timestamp lets the server measure delivery latency
 
+SENT_AT=$(date +%s)
 INPUT=$(cat)
 
-# Get TTY: the hook's stdin is piped (JSON), so `tty` won't work.
-# Instead, get the TTY of the parent process (Claude) via ps.
-# macOS `ps -o tty=` returns "ttys003" — prepend /dev/ to get "/dev/ttys003".
-# Linux `ps -o tty=` returns "pts/0" — prepend /dev/ to get "/dev/pts/0".
+# --- Everything below runs in background so the hook returns instantly ---
+{
+
+# ── TTY detection (cached per Claude PID) ──
 HOOK_TTY=""
 if [ -n "$PPID" ] && [ "$PPID" != "0" ]; then
-  RAW_TTY=$(ps -o tty= -p "$PPID" 2>/dev/null | tr -d ' ')
-  if [ -n "$RAW_TTY" ] && [ "$RAW_TTY" != "??" ] && [ "$RAW_TTY" != "?" ]; then
-    HOOK_TTY="/dev/${RAW_TTY}"
+  TTY_CACHE="/tmp/claude-tty-cache"
+  TTY_CACHE_FILE="$TTY_CACHE/$PPID"
+  if [ -f "$TTY_CACHE_FILE" ]; then
+    HOOK_TTY=$(cat "$TTY_CACHE_FILE" 2>/dev/null)
+  else
+    RAW_TTY=$(ps -o tty= -p "$PPID" 2>/dev/null | tr -d ' ')
+    if [ -n "$RAW_TTY" ] && [ "$RAW_TTY" != "??" ] && [ "$RAW_TTY" != "?" ]; then
+      HOOK_TTY="/dev/${RAW_TTY}"
+      mkdir -p "$TTY_CACHE" 2>/dev/null
+      echo "$HOOK_TTY" > "$TTY_CACHE_FILE" 2>/dev/null
+    fi
   fi
 fi
 
-# Enrich the JSON with environment info for accurate session & tab detection.
-# The hook runs as a child of the Claude process, so $PPID = Claude PID.
-# Terminal emulators set identifiable env vars we can capture.
-ENRICHED=$(echo "$INPUT" | jq -c \
+# ── Single jq pass: enrich JSON + extract event/session_id/cwd ──
+JQ_OUT=$(echo "$INPUT" | jq -c \
   --arg pid "$PPID" \
   --arg tty "$HOOK_TTY" \
+  --arg sent_at "$SENT_AT" \
   --arg term_program "${TERM_PROGRAM:-}" \
   --arg term_program_version "${TERM_PROGRAM_VERSION:-}" \
   --arg vscode_pid "${VSCODE_PID:-}" \
@@ -37,8 +52,10 @@ ENRICHED=$(echo "$INPUT" | jq -c \
   --arg wezterm_pane "${WEZTERM_PANE:-}" \
   --arg tmux "${TMUX:-}" \
   --arg tmux_pane "${TMUX_PANE:-}" \
-  '. + {
+  '
+  (. + {
     claude_pid: ($pid | tonumber),
+    hook_sent_at: (($sent_at | tonumber) * 1000),
     tty_path: (if $tty != "" then $tty else null end),
     term_program: (if $term_program != "" then $term_program else null end),
     term_program_version: (if $term_program_version != "" then $term_program_version else null end),
@@ -56,50 +73,66 @@ ENRICHED=$(echo "$INPUT" | jq -c \
     tmux: (if $tmux != "" then {session: $tmux, pane: $tmux_pane} else null end),
     is_ghostty: (if $ghostty_resources != "" then true else null end),
     kitty_pid: (if $kitty_pid != "" then ($kitty_pid | tonumber) else null end)
-  }' 2>/dev/null || echo "$INPUT")
+  }),
+  "\(.hook_event_name // "")",
+  "\(.session_id // "")",
+  "\(.cwd // "")"
+  ' 2>/dev/null)
 
-# ---- Tab title management ----
-# Keep the terminal tab title set to "Claude: <project>" so the dashboard can find and focus it.
-# On SessionStart: resolve the project name and cache it in /tmp for fast access on later events.
-# On every other event: read the cached name and refresh the title (tools/commands may overwrite it).
-# Uses OSC escape sequences (Ghostty, iTerm2, Kitty, WezTerm, Warp, VS Code, JetBrains, most terminals).
-# Works in all terminals including VS Code and JetBrains integrated terminals.
-EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
-SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
-TTY_PATH="$HOOK_TTY"
+ENRICHED=$(echo "$JQ_OUT" | head -1)
+EVENT=$(echo "$JQ_OUT" | sed -n '2p' | tr -d '"')
+SESSION_ID=$(echo "$JQ_OUT" | sed -n '3p' | tr -d '"')
+CWD=$(echo "$JQ_OUT" | sed -n '4p' | tr -d '"')
+
+[ -z "$ENRICHED" ] && ENRICHED="$INPUT"
+
+# ── Tab title management ──
+# Only refresh on state-changing events — skip rapid PreToolUse/PostToolUse
 CACHE_DIR="/tmp/claude-tab-titles"
 
-if [ -n "$TTY_PATH" ] && [ -n "$SESSION_ID" ]; then
+if [ -n "$HOOK_TTY" ] && [ -n "$SESSION_ID" ]; then
   CACHE_FILE="$CACHE_DIR/$SESSION_ID"
 
-  if [ "$EVENT" = "SessionStart" ]; then
-    # Resolve project name from hook JSON cwd or Claude process cwd
-    PROJECT=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null | xargs basename 2>/dev/null)
-    if [ -z "$PROJECT" ] && [ -n "$PPID" ]; then
-      PROJECT=$(lsof -a -d cwd -p "$PPID" -Fn 2>/dev/null | grep '^n/' | head -1 | sed 's|^n||' | xargs basename 2>/dev/null)
-    fi
-    # Cache the project name for this session
-    if [ -n "$PROJECT" ]; then
-      mkdir -p "$CACHE_DIR" 2>/dev/null
-      echo "$PROJECT" > "$CACHE_FILE" 2>/dev/null
-    fi
-  elif [ "$EVENT" = "SessionEnd" ]; then
-    # Clean up cache file when session ends
-    rm -f "$CACHE_FILE" 2>/dev/null
-  else
-    # Read cached project name (fast — no lsof needed)
-    PROJECT=""
-    [ -f "$CACHE_FILE" ] && PROJECT=$(cat "$CACHE_FILE" 2>/dev/null)
-  fi
-
-  # Set/refresh the tab title on every event (except SessionEnd)
-  if [ "$EVENT" != "SessionEnd" ] && [ -n "$PROJECT" ]; then
-    printf '\033]0;Claude: %s\007' "$PROJECT" > "$TTY_PATH" 2>/dev/null
-  fi
+  case "$EVENT" in
+    SessionStart)
+      PROJECT=""
+      [ -n "$CWD" ] && PROJECT=$(basename "$CWD" 2>/dev/null)
+      if [ -z "$PROJECT" ] && [ -n "$PPID" ]; then
+        PROJECT=$(lsof -a -d cwd -p "$PPID" -Fn 2>/dev/null | grep '^n/' | head -1 | sed 's|^n||' | xargs basename 2>/dev/null)
+      fi
+      if [ -n "$PROJECT" ]; then
+        mkdir -p "$CACHE_DIR" 2>/dev/null
+        echo "$PROJECT" > "$CACHE_FILE" 2>/dev/null
+        printf '\033]0;Claude: %s\007' "$PROJECT" > "$HOOK_TTY" 2>/dev/null
+      fi
+      ;;
+    SessionEnd)
+      rm -f "$CACHE_FILE" 2>/dev/null
+      ;;
+    UserPromptSubmit|Stop|Notification)
+      PROJECT=""
+      [ -f "$CACHE_FILE" ] && PROJECT=$(cat "$CACHE_FILE" 2>/dev/null)
+      [ -n "$PROJECT" ] && printf '\033]0;Claude: %s\007' "$PROJECT" > "$HOOK_TTY" 2>/dev/null
+      ;;
+  esac
 fi
 
-echo "$ENRICHED" | curl -s -m 5 -X POST \
-  -H "Content-Type: application/json" \
-  --data-binary @- \
-  http://localhost:3333/api/hooks &>/dev/null &
+# ── Deliver to dashboard via file-based MQ (primary) or HTTP (fallback) ──
+MQ_DIR="/tmp/claude-session-center"
+MQ_FILE="$MQ_DIR/queue.jsonl"
+
+if [ -d "$MQ_DIR" ]; then
+  # Atomic append: POSIX guarantees atomicity for writes <= PIPE_BUF (4096 bytes).
+  # Our enriched JSON is typically 300-800 bytes — no process spawn, ~0.1ms.
+  echo "$ENRICHED" >> "$MQ_FILE" 2>/dev/null
+else
+  # Fallback: HTTP POST when MQ dir doesn't exist (server not started yet)
+  echo "$ENRICHED" | curl -s --connect-timeout 1 -m 3 -X POST \
+    -H "Content-Type: application/json" \
+    --data-binary @- \
+    http://localhost:3333/api/hooks &>/dev/null
+fi
+
+} &>/dev/null &
+disown
 exit 0

@@ -1,12 +1,9 @@
 // config.js — Extracted session status & approval detection configuration
+import { config as serverConfig } from './serverConfig.js';
 
 // ---- Tool Categories for Approval Detection ----
 // When PreToolUse fires, we start a timer. If PostToolUse doesn't arrive
 // within the timeout, the tool is likely pending user interaction.
-//
-// Only tools that complete near-instantly when auto-approved can reliably
-// trigger detection. Tools like Bash/Task can legitimately run for minutes,
-// so we can't distinguish "slow execution" from "waiting for approval".
 
 export const TOOL_CATEGORIES = {
   // Tools that complete instantly when auto-approved (3s timeout)
@@ -15,13 +12,17 @@ export const TOOL_CATEGORIES = {
   userInput: ['AskUserQuestion', 'EnterPlanMode', 'ExitPlanMode'],
   // Tools that can be slow but not minutes-slow (15s timeout)
   medium: ['WebFetch', 'WebSearch'],
-  // Everything else (Bash, Task, TodoWrite, Skill, etc.) — no timeout
+  // Tools that can run for minutes but still need approval detection (8s timeout).
+  // Tradeoff: auto-approved long-running commands (npm install, builds) will
+  // briefly show as "approval" after 8s until PostToolUse clears it.
+  slow: ['Bash', 'Task'],
 };
 
 export const TOOL_TIMEOUTS = {
   fast: 3000,
   userInput: 3000,
   medium: 15000,
+  slow: 8000,
 };
 
 // Status to set when each category's timeout fires
@@ -29,6 +30,7 @@ export const WAITING_REASONS = {
   fast: 'approval',     // "NEEDS YOUR APPROVAL"
   userInput: 'input',   // "WAITING FOR YOUR ANSWER"
   medium: 'approval',   // "NEEDS YOUR APPROVAL"
+  slow: 'approval',     // "NEEDS YOUR APPROVAL"
 };
 
 // Human-readable labels for waitingDetail per category
@@ -53,6 +55,12 @@ export const AUTO_IDLE_TIMEOUTS = {
   input: 600_000,       // input → idle (10 min safety net)
 };
 
+// ---- Process Liveness Check ----
+// How often to check if session PIDs are still alive (ms).
+// When a user closes VS Code, JetBrains, or terminal abruptly, the SessionEnd
+// hook never fires. This monitor detects dead processes and auto-ends sessions.
+export const PROCESS_CHECK_INTERVAL = serverConfig.processCheckInterval || 15_000;
+
 // ---- Animation State Mappings ----
 export const STATUS_ANIMATIONS = {
   idle:      { animationState: 'Idle',    emote: null },
@@ -75,7 +83,7 @@ for (const [category, tools] of Object.entries(TOOL_CATEGORIES)) {
 
 /**
  * Get the category for a tool name.
- * @returns {string|null} 'fast' | 'userInput' | 'medium' | null (no timeout)
+ * @returns {string|null} 'fast' | 'userInput' | 'medium' | 'slow' | null (no timeout)
  */
 export function getToolCategory(toolName) {
   return _toolToCategory.get(toolName) || null;

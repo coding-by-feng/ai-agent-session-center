@@ -2,12 +2,16 @@
 import db from './db.js';
 import { execSync } from 'child_process';
 import log from './logger.js';
-import { getToolTimeout, getWaitingStatus, getWaitingLabel, AUTO_IDLE_TIMEOUTS } from './config.js';
+import { getToolTimeout, getToolCategory, getWaitingStatus, getWaitingLabel, AUTO_IDLE_TIMEOUTS, PROCESS_CHECK_INTERVAL } from './config.js';
+import { config as serverConfig } from './serverConfig.js';
 
 const sessions = new Map();
 const projectSessionCounters = new Map();
 const pendingToolTimers = new Map(); // session_id -> timeout for tool approval detection
 const pidToSession = new Map();      // pid -> sessionId — ensures each PID is only assigned to one session
+
+// Prompt queue count helper
+const selectQueueCount = db.prepare('SELECT COUNT(*) AS c FROM prompt_queue WHERE session_id = ?');
 
 // Team mode structures
 const teams = new Map();            // teamId -> { teamId, parentSessionId, childSessionIds: Set, teamName, createdAt }
@@ -79,7 +83,8 @@ const selectSessionEvents = db.prepare(
 );
 
 export function loadActiveSessions() {
-  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  const historyHours = serverConfig.sessionHistoryHours || 24;
+  const cutoff = Date.now() - historyHours * 60 * 60 * 1000;
   try {
     const rows = selectActiveSessions.all(cutoff);
     for (const row of rows) {
@@ -120,7 +125,8 @@ export function loadActiveSessions() {
         archived: 0,
         summary: row.summary || null,
         characterModel: row.character_model || null,
-        accentColor: row.accent_color || null
+        accentColor: row.accent_color || null,
+        queueCount: selectQueueCount.get(row.id)?.c || 0
       });
     }
   } catch (err) {
@@ -250,7 +256,8 @@ export function handleEvent(hookData) {
       vscodePid: hookData.vscode_pid ? Number(hookData.vscode_pid) : null,
       windowId: hookData.window_id || null,
       tmux: hookData.tmux || null,
-      kittyPid: hookData.kitty_pid ? Number(hookData.kitty_pid) : null
+      kittyPid: hookData.kitty_pid ? Number(hookData.kitty_pid) : null,
+      queueCount: 0
     };
     sessions.set(session_id, session);
 
@@ -370,6 +377,15 @@ export function handleEvent(hookData) {
         const timer = setTimeout(async () => {
           pendingToolTimers.delete(session_id);
           if (session.status === 'working' && session.pendingTool) {
+            // For slow tools (Bash, Task): check if the command is actually
+            // running by looking for child processes of the Claude PID.
+            // If children exist → command was auto-approved and is executing.
+            // If no children → process is blocked on the approval dialog.
+            const category = getToolCategory(session.pendingTool);
+            if (category === 'slow' && session.cachedPid && hasChildProcesses(session.cachedPid)) {
+              return; // Command is running, not waiting for approval
+            }
+
             const waitingStatus = getWaitingStatus(session.pendingTool) || 'approval';
             session.status = waitingStatus;
             session.animationState = 'Waiting';
@@ -699,6 +715,13 @@ export function getSession(sessionId) {
   return s ? { ...s } : null;
 }
 
+export function updateQueueCount(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session) return null;
+  session.queueCount = selectQueueCount.get(sessionId)?.c || 0;
+  return { ...session };
+}
+
 export function killSession(sessionId) {
   const session = sessions.get(sessionId);
   if (!session) return null;
@@ -796,6 +819,66 @@ setInterval(() => {
     }
   }
 }, 10000);
+
+// ---- Process Liveness Monitor ----
+// When VS Code, JetBrains, or a terminal is closed abruptly, the SessionEnd hook
+// never fires. This monitor checks if each session's cached PID is still alive
+// and auto-ends sessions whose process has died.
+setInterval(async () => {
+  for (const [id, session] of sessions) {
+    if (session.status === 'ended') continue;
+    if (!session.cachedPid) continue;
+
+    try {
+      process.kill(session.cachedPid, 0); // signal 0 = liveness check, doesn't kill
+    } catch {
+      // Process is dead — auto-end this session
+      console.log(`[processMonitor] pid=${session.cachedPid} is dead → ending session=${id.slice(0,8)}`);
+
+      session.status = 'ended';
+      session.animationState = 'Death';
+      session.lastActivityAt = Date.now();
+
+      session.events.push({
+        type: 'SessionEnd',
+        timestamp: Date.now(),
+        detail: 'Session ended (process exited)'
+      });
+      if (session.events.length > 50) session.events.shift();
+
+      // Release PID cache
+      pidToSession.delete(session.cachedPid);
+      session.cachedPid = null;
+
+      // Clear any pending tool timer
+      clearTimeout(pendingToolTimers.get(id));
+      pendingToolTimers.delete(id);
+      session.pendingTool = null;
+      session.pendingToolDetail = null;
+      session.waitingDetail = null;
+
+      // Dual-write to DB
+      try {
+        insertEvent.run(id, 'SessionEnd', 'Session ended (process exited)', Date.now());
+        updateSessionEnded.run(Date.now(), Date.now(), id);
+      } catch (err) {
+        console.error('[processMonitor] DB error:', err.message);
+      }
+
+      // Team cleanup
+      handleTeamMemberEnd(id);
+
+      // Broadcast to connected browsers
+      try {
+        const { broadcast } = await import('./wsManager.js');
+        broadcast({ type: 'session_update', session: { ...session } });
+      } catch(e) {}
+
+      // Schedule removal from memory
+      setTimeout(() => sessions.delete(id), 10000);
+    }
+  }
+}, PROCESS_CHECK_INTERVAL);
 
 // Detect whether session is from VS Code, JetBrains, or terminal, cache result
 // Detect source directly from hook environment variables (no process tree walking needed)
@@ -983,6 +1066,17 @@ export function findClaudeProcess(sessionId, projectPath) {
     console.log(`[findProcess] ERROR: ${e.message}`);
   }
   return null;
+}
+
+// Check if a process has any child processes (i.e. a command is actively running).
+// Used to distinguish "waiting for approval" (no children) from "command executing" (has children).
+function hasChildProcesses(pid) {
+  try {
+    const out = execSync(`pgrep -P ${pid} 2>/dev/null`, { encoding: 'utf-8', timeout: 2000 });
+    return out.trim().length > 0;
+  } catch {
+    return false; // pgrep exits 1 when no children found
+  }
 }
 
 function cachePid(pid, sessionId, session) {

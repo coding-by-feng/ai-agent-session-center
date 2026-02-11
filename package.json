@@ -6,7 +6,9 @@
     "start": "node server/index.js",
     "debug": "node server/index.js --debug",
     "install-hooks": "node hooks/install-hooks.js",
-    "setup": "npm install && node hooks/install-hooks.js && node server/index.js",
+    "uninstall-hooks": "node hooks/install-hooks.js --uninstall",
+    "reset": "node hooks/reset.js",
+    "setup": "npm install --ignore-scripts && node hooks/setup-wizard.js && node server/index.js",
     "postinstall": "node hooks/install-hooks.js"
   },
   "dependencies": {

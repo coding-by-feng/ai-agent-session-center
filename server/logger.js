@@ -1,7 +1,19 @@
 // logger.js — Debug-aware logging utility
 // Usage: node server/index.js --debug   OR   npm start -- --debug
 
-const isDebug = process.argv.includes('--debug') || process.argv.includes('-debug');
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+// Check CLI flag first, then fall back to config file
+let isDebug = process.argv.includes('--debug') || process.argv.includes('-debug');
+if (!isDebug) {
+  try {
+    const __dir = dirname(fileURLToPath(import.meta.url));
+    const cfg = JSON.parse(readFileSync(join(__dir, '..', 'data', 'server-config.json'), 'utf8'));
+    if (cfg.debug) isDebug = true;
+  } catch { /* no config file yet */ }
+}
 
 const RESET = '\x1b[0m';
 const DIM   = '\x1b[2m';
