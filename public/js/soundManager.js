@@ -153,6 +153,7 @@ const defaultActionSounds = {
   toolOther:      'click',
   // System
   approvalNeeded: 'alarm',
+  inputNeeded:    'chime',
   alert:          'alarm',
   kill:           'thud',
   archive:        'ding',
@@ -175,6 +176,7 @@ const actionLabels = {
   toolTask:       'Tool: Task',
   toolOther:      'Tool: Other',
   approvalNeeded: 'Approval Needed',
+  inputNeeded:    'Input Needed',
   alert:          'Alert',
   kill:           'Kill',
   archive:        'Archive',
@@ -185,7 +187,7 @@ const actionLabels = {
 const actionCategories = {
   'Session Events': ['sessionStart', 'sessionEnd', 'promptSubmit', 'taskComplete'],
   'Tool Calls':     ['toolRead', 'toolWrite', 'toolEdit', 'toolBash', 'toolGrep', 'toolGlob', 'toolWebFetch', 'toolTask', 'toolOther'],
-  'System':         ['approvalNeeded', 'alert', 'kill', 'archive', 'subagentStart', 'subagentStop']
+  'System':         ['approvalNeeded', 'inputNeeded', 'alert', 'kill', 'archive', 'subagentStart', 'subagentStop']
 };
 
 // ---- Public API ----

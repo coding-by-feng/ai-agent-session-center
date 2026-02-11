@@ -5,12 +5,24 @@
 
 INPUT=$(cat)
 
+# Get TTY: the hook's stdin is piped (JSON), so `tty` won't work.
+# Instead, get the TTY of the parent process (Claude) via ps.
+# macOS `ps -o tty=` returns "ttys003" — prepend /dev/ to get "/dev/ttys003".
+# Linux `ps -o tty=` returns "pts/0" — prepend /dev/ to get "/dev/pts/0".
+HOOK_TTY=""
+if [ -n "$PPID" ] && [ "$PPID" != "0" ]; then
+  RAW_TTY=$(ps -o tty= -p "$PPID" 2>/dev/null | tr -d ' ')
+  if [ -n "$RAW_TTY" ] && [ "$RAW_TTY" != "??" ] && [ "$RAW_TTY" != "?" ]; then
+    HOOK_TTY="/dev/${RAW_TTY}"
+  fi
+fi
+
 # Enrich the JSON with environment info for accurate session & tab detection.
 # The hook runs as a child of the Claude process, so $PPID = Claude PID.
 # Terminal emulators set identifiable env vars we can capture.
 ENRICHED=$(echo "$INPUT" | jq -c \
   --arg pid "$PPID" \
-  --arg tty "$(tty 2>/dev/null || echo '')" \
+  --arg tty "$HOOK_TTY" \
   --arg term_program "${TERM_PROGRAM:-}" \
   --arg term_program_version "${TERM_PROGRAM_VERSION:-}" \
   --arg vscode_pid "${VSCODE_PID:-}" \
@@ -27,7 +39,7 @@ ENRICHED=$(echo "$INPUT" | jq -c \
   --arg tmux_pane "${TMUX_PANE:-}" \
   '. + {
     claude_pid: ($pid | tonumber),
-    tty_path: (if $tty != "" and $tty != "not a tty" then $tty else null end),
+    tty_path: (if $tty != "" then $tty else null end),
     term_program: (if $term_program != "" then $term_program else null end),
     term_program_version: (if $term_program_version != "" then $term_program_version else null end),
     vscode_pid: (if $vscode_pid != "" then ($vscode_pid | tonumber) else null end),
@@ -50,14 +62,14 @@ ENRICHED=$(echo "$INPUT" | jq -c \
 # Keep the terminal tab title set to "Claude: <project>" so the dashboard can find and focus it.
 # On SessionStart: resolve the project name and cache it in /tmp for fast access on later events.
 # On every other event: read the cached name and refresh the title (tools/commands may overwrite it).
-# Uses OSC escape sequences (Ghostty, iTerm2, Kitty, WezTerm, Warp, most modern terminals).
-# Skipped for VS Code sessions (no visible tab to label).
+# Uses OSC escape sequences (Ghostty, iTerm2, Kitty, WezTerm, Warp, VS Code, JetBrains, most terminals).
+# Works in all terminals including VS Code and JetBrains integrated terminals.
 EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // empty' 2>/dev/null)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)
-TTY_PATH=$(tty 2>/dev/null)
+TTY_PATH="$HOOK_TTY"
 CACHE_DIR="/tmp/claude-tab-titles"
 
-if [ -n "$TTY_PATH" ] && [ "$TTY_PATH" != "not a tty" ] && [ -z "${VSCODE_PID:-}" ] && [ -n "$SESSION_ID" ]; then
+if [ -n "$TTY_PATH" ] && [ -n "$SESSION_ID" ]; then
   CACHE_FILE="$CACHE_DIR/$SESSION_ID"
 
   if [ "$EVENT" = "SessionStart" ]; then
@@ -82,8 +94,7 @@ if [ -n "$TTY_PATH" ] && [ "$TTY_PATH" != "not a tty" ] && [ -z "${VSCODE_PID:-}
 
   # Set/refresh the tab title on every event (except SessionEnd)
   if [ "$EVENT" != "SessionEnd" ] && [ -n "$PROJECT" ]; then
-    printf '\033]1;Claude: %s\007' "$PROJECT" > "$TTY_PATH" 2>/dev/null
-    printf '\033]2;Claude: %s\007' "$PROJECT" > "$TTY_PATH" 2>/dev/null
+    printf '\033]0;Claude: %s\007' "$PROJECT" > "$TTY_PATH" 2>/dev/null
   fi
 fi
 

@@ -352,7 +352,7 @@ export function createOrUpdateTeamCard(team) {
   teamCard.querySelector('.team-member-count').textContent = `${allMemberIds.length} member${allMemberIds.length !== 1 ? 's' : ''}`;
 
   // Compute aggregate status (worst wins)
-  const statusPriority = { approval: 5, working: 4, prompting: 3, waiting: 2, idle: 1, ended: 0 };
+  const statusPriority = { approval: 6, input: 5, working: 4, prompting: 3, waiting: 2, idle: 1, ended: 0 };
   let worstStatus = 'idle';
   let totalTools = 0;
   let earliestStart = Infinity;
@@ -367,7 +367,9 @@ export function createOrUpdateTeamCard(team) {
   }
   teamCard.dataset.status = worstStatus;
   const badge = teamCard.querySelector('.team-status-badge');
-  badge.textContent = worstStatus === 'approval' ? 'APPROVAL NEEDED' : worstStatus.toUpperCase();
+  badge.textContent = worstStatus === 'approval' ? 'APPROVAL NEEDED'
+    : worstStatus === 'input' ? 'WAITING FOR INPUT'
+    : worstStatus.toUpperCase();
   badge.className = `status-badge team-status-badge ${worstStatus}`;
   teamCard.querySelector('.team-duration').textContent = earliestStart < Infinity ? formatDuration(Date.now() - earliestStart) : '';
   teamCard.querySelector('.team-tools').textContent = `Tools: ${totalTools}`;
@@ -492,7 +494,7 @@ function openTeamModal(teamId) {
         <div class="team-modal-card-info">
           <div class="team-modal-card-title">${escapeHtml(s.projectName)}</div>
           ${roleLabel}
-          <span class="status-badge ${s.status}">${s.status === 'approval' ? 'APPROVAL NEEDED' : s.status.toUpperCase()}</span>
+          <span class="status-badge ${s.status}">${s.status === 'approval' ? 'APPROVAL NEEDED' : s.status === 'input' ? 'WAITING FOR INPUT' : s.status.toUpperCase()}</span>
         </div>
       </div>
       <div class="team-modal-card-prompt">${escapeHtml(promptExcerpt)}</div>
@@ -793,7 +795,7 @@ export function createOrUpdateCard(session) {
   // Update status attribute — promote active cards to front
   const prevStatus = card.dataset.status;
   card.dataset.status = session.status;
-  const activeStatuses = new Set(['working', 'prompting', 'approval']);
+  const activeStatuses = new Set(['working', 'prompting', 'approval', 'input']);
   if (activeStatuses.has(session.status) && prevStatus !== session.status) {
     const grid = card.parentElement;
     if (grid) {
@@ -816,6 +818,7 @@ export function createOrUpdateCard(session) {
   }
   const badge = card.querySelector('.status-badge');
   const statusLabel = session.status === 'approval' ? 'APPROVAL NEEDED'
+    : session.status === 'input' ? 'WAITING FOR INPUT'
     : session.status === 'waiting' ? 'WAITING'
     : session.status.toUpperCase();
   badge.textContent = statusLabel;
@@ -842,17 +845,23 @@ export function createOrUpdateCard(session) {
     }
   }
 
-  // Update open-editor button tooltip based on source
+  // Update open-editor button tooltip based on source — hide for VS Code/JetBrains (no separate window to open)
   const editorBtn = card.querySelector('.open-editor-btn');
   if (editorBtn) {
-    const editorLabels = { vscode: 'Open in VS Code', jetbrains: 'Open in JetBrains', terminal: 'Open in Terminal' };
-    editorBtn.title = editorLabels[session.source] || 'Open in Editor';
+    if (session.source === 'vscode' || session.source === 'jetbrains') {
+      editorBtn.style.display = 'none';
+    } else {
+      editorBtn.style.display = '';
+      const editorLabels = { terminal: 'Open in Terminal' };
+      editorBtn.title = editorLabels[session.source] || 'Open in Editor';
+    }
   }
 
   // Update approval banner with detail about what needs approval
   const banner = card.querySelector('.waiting-banner');
   if (banner) {
-    banner.textContent = session.waitingDetail || 'NEEDS YOUR APPROVAL';
+    banner.textContent = session.waitingDetail
+      || (session.status === 'input' ? 'WAITING FOR YOUR ANSWER' : 'NEEDS YOUR APPROVAL');
   }
 
   const promptArr = session.promptHistory || [];
@@ -963,6 +972,7 @@ function populateDetailPanel(session) {
   document.getElementById('detail-project-name').textContent = session.projectName;
   const badge = document.getElementById('detail-status-badge');
   const detailLabel = session.status === 'approval' ? 'APPROVAL NEEDED'
+    : session.status === 'input' ? 'WAITING FOR INPUT'
     : session.status === 'waiting' ? 'WAITING'
     : session.status.toUpperCase();
   badge.textContent = detailLabel;
@@ -1074,8 +1084,16 @@ function populateDetailPanel(session) {
   const archBtn = document.getElementById('ctrl-archive');
   if (archBtn) archBtn.textContent = session.archived ? 'UNARCHIVE' : 'ARCHIVE';
 
-  // Detect session source and update prompt input
-  updatePromptSource(session.sessionId, session.source);
+  // Hide OPEN IN EDITOR button for VS Code/JetBrains sessions (no separate window to jump to)
+  const ctrlOpenBtn = document.getElementById('ctrl-open-editor');
+  if (ctrlOpenBtn) {
+    if (session.source === 'vscode' || session.source === 'jetbrains') {
+      ctrlOpenBtn.style.display = 'none';
+    } else {
+      ctrlOpenBtn.style.display = '';
+    }
+  }
+
 }
 
 function renderToolBars(toolUsage) {
@@ -1230,44 +1248,8 @@ export async function openSessionDetailFromHistory(sessionId) {
   const archBtn = document.getElementById('ctrl-archive');
   if (archBtn) archBtn.textContent = data.session.archived ? 'UNARCHIVE' : 'ARCHIVE';
 
-  // Detect session source and update prompt input
-  updatePromptSource(sessionId, data.session.source);
-
   // Show overlay
   document.getElementById('session-detail-overlay').classList.remove('hidden');
-}
-
-// Detect session source (vscode/terminal) and update prompt input UI
-async function updatePromptSource(sessionId, knownSource) {
-  const input = document.getElementById('detail-prompt-input');
-  const sendBtn = document.getElementById('detail-prompt-send');
-  if (!input || !sendBtn) return;
-
-  let source = knownSource;
-  if (!source || source === 'unknown' || source === 'hook') {
-    try {
-      const resp = await fetch(`/api/sessions/${sessionId}/source`);
-      const data = await resp.json();
-      source = data.source;
-      // Cache in sessionsData
-      const s = sessionsData.get(sessionId);
-      if (s) s.source = source;
-    } catch(e) { source = 'unknown'; }
-  }
-
-  if (source === 'vscode') {
-    input.placeholder = 'Type prompt to send to VS Code... (Enter to send)';
-    sendBtn.textContent = 'SEND TO VSCODE';
-  } else if (source === 'jetbrains') {
-    input.placeholder = 'Type prompt to send to JetBrains... (Enter to send)';
-    sendBtn.textContent = 'SEND TO JETBRAINS';
-  } else if (source === 'terminal') {
-    input.placeholder = 'Type prompt to send to Terminal... (Enter to send)';
-    sendBtn.textContent = 'SEND TO TERMINAL';
-  } else {
-    input.placeholder = 'Type prompt to send to session... (Enter to send)';
-    sendBtn.textContent = 'SEND';
-  }
 }
 
 // Character model mini preview in detail panel
@@ -1374,180 +1356,6 @@ document.querySelector('.detail-tabs').addEventListener('click', (e) => {
 });
 
 // ---- Control Button Handlers ----
-
-// Send prompt to session
-async function sendPromptToSession() {
-  const input = document.getElementById('detail-prompt-input');
-  const btn = document.getElementById('detail-prompt-send');
-  const text = input.value.trim();
-  if (!text || !selectedSessionId) return;
-  btn.disabled = true;
-  btn.textContent = 'SENDING...';
-  btn.classList.add('sending');
-  try {
-    const resp = await fetch(`/api/sessions/${selectedSessionId}/prompt`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: text })
-    });
-    const data = await resp.json();
-    if (data.ok) {
-      input.value = '';
-      input.style.height = 'auto';
-      const methodNames = {
-        iterm2: 'via iTerm2', terminal: 'via Terminal.app',
-        vscode: 'via VS Code', jetbrains: 'via JetBrains',
-        xdotool: 'via xdotool', 'xdotool-paste': 'via xdotool',
-        powershell: 'via PowerShell', 'powershell-paste': 'via PowerShell'
-      };
-      const via = methodNames[data.method] || '';
-      showToast('PROMPT SENT', `Typed into session ${via}`);
-    } else if (data.reason === 'accessibility') {
-      // Accessibility permission missing — show hint popup and copy to clipboard
-      try {
-        await navigator.clipboard.writeText(text);
-        input.value = '';
-        input.style.height = 'auto';
-      } catch(_) {}
-      showAccessibilityHint(data.platform, data.terminalApp);
-    } else if (data.fallback === 'clipboard') {
-      // Backend couldn't inject keystrokes — copy to clipboard as fallback
-      const session = sessionsData.get(selectedSessionId);
-      const src = session?.source === 'vscode' ? 'VS Code' : session?.source === 'jetbrains' ? 'JetBrains' : 'your session';
-      try {
-        await navigator.clipboard.writeText(text);
-        input.value = '';
-        input.style.height = 'auto';
-        showToast('COPIED', `Paste into ${src} with Cmd+V`);
-      } catch(clipErr) {
-        showToast('SEND FAILED', data.error || 'Could not send or copy prompt');
-      }
-    } else {
-      showToast('SEND FAILED', data.error || 'Unknown error');
-    }
-  } catch(e) {
-    showToast('SEND ERROR', e.message);
-  }
-  btn.disabled = false;
-  btn.textContent = 'SEND';
-  btn.classList.remove('sending');
-}
-
-function showAccessibilityHint(platform, terminalApp) {
-  // Remove existing hint if any
-  document.getElementById('accessibility-hint-modal')?.remove();
-
-  const app = terminalApp || 'your terminal app';
-  const isMac = platform === 'macos';
-  const isLinux = platform === 'linux';
-  const isWindows = platform === 'windows';
-  const pasteKey = isMac ? 'Cmd+V' : 'Ctrl+V';
-
-  let stepsHtml = '';
-  let actionBtnHtml = '';
-
-  if (isMac) {
-    stepsHtml = `
-      <p style="margin:0 0 12px;color:var(--text-secondary)">
-        macOS blocked keystroke injection. Add <strong style="color:var(--robot-color,#00e5ff)">${app}</strong> to Accessibility access:
-      </p>
-      <ol style="margin:0 0 14px;padding-left:20px;color:var(--text-primary)">
-        <li>Open <strong>System Settings</strong> &rarr; <strong>Privacy &amp; Security</strong> &rarr; <strong>Accessibility</strong></li>
-        <li>Click <strong>+</strong> and add <strong style="color:var(--robot-color,#00e5ff)">${app}</strong></li>
-        <li>Make sure the toggle is <strong style="color:#00ff88">ON</strong></li>
-        <li><strong>Restart ${app}</strong> for changes to take effect</li>
-      </ol>
-    `;
-    actionBtnHtml = `
-      <button id="accessibility-hint-open-settings" class="qa-btn" style="width:100%;justify-content:center;padding:8px 0;font-size:13px">
-        Open Accessibility Settings
-      </button>
-    `;
-  } else if (isLinux) {
-    stepsHtml = `
-      <p style="margin:0 0 12px;color:var(--text-secondary)">
-        Could not send keystrokes to <strong style="color:var(--robot-color,#00e5ff)">${app}</strong>. Install the required tools:
-      </p>
-      <div style="margin:0 0 14px;color:var(--text-primary)">
-        <p style="margin:0 0 6px"><strong>X11</strong> (most distros):</p>
-        <code style="display:block;background:var(--bg-card);padding:8px 12px;border-radius:4px;border:1px solid var(--border-color);font-size:12px;margin:0 0 10px">sudo apt install xdotool xclip</code>
-        <p style="margin:0 0 6px"><strong>Wayland</strong> (GNOME 41+, Sway):</p>
-        <code style="display:block;background:var(--bg-card);padding:8px 12px;border-radius:4px;border:1px solid var(--border-color);font-size:12px">sudo apt install wtype wl-clipboard</code>
-      </div>
-    `;
-  } else if (isWindows) {
-    stepsHtml = `
-      <p style="margin:0 0 12px;color:var(--text-secondary)">
-        Could not send keystrokes to <strong style="color:var(--robot-color,#00e5ff)">${app}</strong>.
-      </p>
-      <ol style="margin:0 0 14px;padding-left:20px;color:var(--text-primary)">
-        <li>Make sure <strong>${app}</strong> is not running as Administrator while this dashboard runs as a normal user (or vice versa)</li>
-        <li>Check that PowerShell execution policy allows scripts:<br>
-          <code style="background:var(--bg-card);padding:2px 6px;border-radius:3px;border:1px solid var(--border-color);font-size:12px">Set-ExecutionPolicy RemoteSigned -Scope CurrentUser</code>
-        </li>
-        <li>Try running both as the <strong>same</strong> user privilege level</li>
-      </ol>
-    `;
-  } else {
-    stepsHtml = `
-      <p style="margin:0 0 12px;color:var(--text-secondary)">
-        Could not send keystrokes to <strong style="color:var(--robot-color,#00e5ff)">${app}</strong>. Permission was denied.
-      </p>
-    `;
-  }
-
-  const modal = document.createElement('div');
-  modal.id = 'accessibility-hint-modal';
-  modal.className = 'modal-overlay';
-  modal.innerHTML = `
-    <div class="modal-box" style="max-width:480px">
-      <div class="modal-header">
-        <span class="modal-title" style="color:#ffdd00">&#9888; Permission Required</span>
-        <button class="modal-close" id="accessibility-hint-close">&times;</button>
-      </div>
-      <div class="modal-body" style="font-size:13px;line-height:1.6">
-        ${stepsHtml}
-        <p style="margin:0 0 14px;color:var(--text-dim);font-size:12px">
-          Your prompt has been copied to the clipboard &mdash; paste it manually with
-          <kbd style="background:var(--bg-card);padding:1px 6px;border-radius:3px;border:1px solid var(--border-color)">${pasteKey}</kbd> for now.
-        </p>
-        ${actionBtnHtml}
-      </div>
-    </div>
-  `;
-  document.body.appendChild(modal);
-
-  // Close handlers
-  const close = () => modal.remove();
-  document.getElementById('accessibility-hint-close').addEventListener('click', close);
-  modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
-
-  // Open macOS Accessibility settings
-  const openBtn = document.getElementById('accessibility-hint-open-settings');
-  if (openBtn) {
-    openBtn.addEventListener('click', async () => {
-      try {
-        await fetch('/api/open-accessibility-settings', { method: 'POST' });
-      } catch(_) {}
-    });
-  }
-}
-
-document.getElementById('detail-prompt-send').addEventListener('click', sendPromptToSession);
-
-document.getElementById('detail-prompt-input').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendPromptToSession();
-  }
-});
-
-// Auto-resize textarea
-document.getElementById('detail-prompt-input').addEventListener('input', (e) => {
-  const el = e.target;
-  el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
-});
 
 // Open in editor button (detail panel) — focuses the exact window/tab
 document.getElementById('ctrl-open-editor').addEventListener('click', async (e) => {

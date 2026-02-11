@@ -8,6 +8,7 @@ import * as timelinePanel from './timelinePanel.js';
 import * as analyticsPanel from './analyticsPanel.js';
 import * as settingsManager from './settingsManager.js';
 import * as soundManager from './soundManager.js';
+import * as movementManager from './movementManager.js';
 
 let allSessions = {};
 const approvalAlarmTimers = new Map(); // sessionId -> intervalId for repeating alarm
@@ -17,6 +18,7 @@ async function init() {
   await settingsManager.loadSettings();
   settingsManager.initSettingsUI();
   soundManager.init();
+  movementManager.init();
 
   // Connect WebSocket
   wsClient.connect({
@@ -54,8 +56,14 @@ async function init() {
       const lastEvt = session.events[session.events.length - 1];
       if (lastEvt && !isMuted(session.sessionId)) {
         switch (lastEvt.type) {
-          case 'SessionStart': soundManager.play('sessionStart'); break;
-          case 'UserPromptSubmit': soundManager.play('promptSubmit'); break;
+          case 'SessionStart':
+            soundManager.play('sessionStart');
+            movementManager.trigger('sessionStart', session.sessionId);
+            break;
+          case 'UserPromptSubmit':
+            soundManager.play('promptSubmit');
+            movementManager.trigger('promptSubmit', session.sessionId);
+            break;
           case 'PreToolUse': {
             const toolMap = {
               Read: 'toolRead', Write: 'toolWrite', Edit: 'toolEdit',
@@ -63,20 +71,27 @@ async function init() {
               WebFetch: 'toolWebFetch', Task: 'toolTask'
             };
             const toolName = lastEvt.tool_name || '';
-            soundManager.play(toolMap[toolName] || 'toolOther');
+            const action = toolMap[toolName] || 'toolOther';
+            soundManager.play(action);
+            movementManager.trigger(action, session.sessionId);
             break;
           }
-          case 'Stop': soundManager.play('taskComplete'); break;
-          case 'SessionEnd': soundManager.play('sessionEnd'); break;
+          case 'Stop':
+            soundManager.play('taskComplete');
+            movementManager.trigger('taskComplete', session.sessionId);
+            break;
+          case 'SessionEnd':
+            soundManager.play('sessionEnd');
+            movementManager.trigger('sessionEnd', session.sessionId);
+            break;
         }
       }
 
-      // Approval alarm: play urgent sound when session enters approval state
+      // Approval alarm: play urgent sound when session enters approval state (repeats every 10s)
       if (session.status === 'approval' && !isMuted(session.sessionId)) {
         if (!approvalAlarmTimers.has(session.sessionId)) {
-          // Play immediately
           soundManager.play('approvalNeeded');
-          // Repeat every 10s until cleared
+          movementManager.trigger('approvalNeeded', session.sessionId);
           const intervalId = setInterval(() => {
             const current = allSessions[session.sessionId];
             if (!current || current.status !== 'approval' || isMuted(session.sessionId)) {
@@ -89,9 +104,18 @@ async function init() {
           approvalAlarmTimers.set(session.sessionId, intervalId);
         }
       } else if (session.status !== 'approval' && approvalAlarmTimers.has(session.sessionId)) {
-        // Session left approval state — stop the alarm
         clearInterval(approvalAlarmTimers.get(session.sessionId));
         approvalAlarmTimers.delete(session.sessionId);
+      }
+
+      // Input notification: play a softer sound once when Claude is asking a question (no repeat)
+      if (session.status === 'input' && !isMuted(session.sessionId)) {
+        if (!approvalAlarmTimers.has('input-' + session.sessionId)) {
+          soundManager.play('inputNeeded');
+          approvalAlarmTimers.set('input-' + session.sessionId, true);
+        }
+      } else if (session.status !== 'input' && approvalAlarmTimers.has('input-' + session.sessionId)) {
+        approvalAlarmTimers.delete('input-' + session.sessionId);
       }
 
       addActivityEntry(session);
