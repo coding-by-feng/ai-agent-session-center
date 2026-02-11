@@ -1,10 +1,6 @@
-// apiRouter.js — Express router for all API endpoints
+// apiRouter.js — Express router for all API endpoints (no SQLite/database dependencies)
 import { Router } from 'express';
-import { searchSessions, getSessionDetail, getDistinctProjects, getTimeline, fullTextSearch } from './queryEngine.js';
-import { getToolUsageBreakdown, getDurationTrends, getActiveProjects, getDailyHeatmap, getSummaryStats } from './analytics.js';
-import { startImport, getImportStatus } from './importer.js';
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSummary, getSession, detectSessionSource, setSessionCharacterModel, setSessionAccentColor, updateQueueCount, createTerminalSession } from './sessionStore.js';
-import { broadcast } from './wsManager.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSummary, getSession, detectSessionSource, createTerminalSession, deleteSessionFromMemory } from './sessionStore.js';
 import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions } from './sshManager.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
 import { getMqStats } from './mqReader.js';
@@ -13,72 +9,10 @@ import { readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
-import db from './db.js';
 
 const __apiDirname = dirname(fileURLToPath(import.meta.url));
 
 const router = Router();
-
-// Session endpoints
-router.get('/sessions/history', (req, res) => {
-  const result = searchSessions(req.query);
-  res.json(result);
-});
-
-router.get('/sessions/:id/detail', (req, res) => {
-  const result = getSessionDetail(req.params.id);
-  res.json(result);
-});
-
-// Full-text search
-router.get('/search', (req, res) => {
-  const result = fullTextSearch({
-    query: req.query.q,
-    type: req.query.type,
-    page: req.query.page,
-    pageSize: req.query.pageSize
-  });
-  res.json(result);
-});
-
-// Analytics endpoints
-router.get('/analytics/summary', (req, res) => {
-  const { dateFrom, dateTo } = req.query;
-  const result = getSummaryStats({ dateFrom, dateTo });
-  res.json(result);
-});
-
-router.get('/analytics/tools', (req, res) => {
-  const result = getToolUsageBreakdown(req.query);
-  res.json(result);
-});
-
-router.get('/analytics/duration-trends', (req, res) => {
-  const result = getDurationTrends(req.query);
-  res.json(result);
-});
-
-router.get('/analytics/projects', (req, res) => {
-  const result = getActiveProjects(req.query);
-  res.json(result);
-});
-
-router.get('/analytics/heatmap', (req, res) => {
-  const result = getDailyHeatmap(req.query);
-  res.json(result);
-});
-
-// Timeline
-router.get('/timeline', (req, res) => {
-  const result = getTimeline(req.query);
-  res.json(result);
-});
-
-// Projects
-router.get('/projects', (req, res) => {
-  const projects = getDistinctProjects();
-  res.json({ projects });
-});
 
 // Hook performance stats
 router.get('/hook-stats', (req, res) => {
@@ -153,9 +87,6 @@ router.post('/hooks/install', (req, res) => {
     return res.status(400).json({ error: 'density must be one of: high, medium, low' });
   }
 
-  // Save density preference to dashboard settings
-  db.prepare('INSERT OR REPLACE INTO user_settings (key, value, updated_at) VALUES (?, ?, ?)').run('hookDensity', density, Date.now());
-
   // Run install-hooks.js with --density flag
   execFile('node', [INSTALL_HOOKS_SCRIPT, '--density', density], { timeout: 15000 }, (err, stdout, stderr) => {
     if (err) {
@@ -169,9 +100,6 @@ router.post('/hooks/install', (req, res) => {
 
 // Uninstall all dashboard hooks
 router.post('/hooks/uninstall', (req, res) => {
-  // Save density as 'off'
-  db.prepare('INSERT OR REPLACE INTO user_settings (key, value, updated_at) VALUES (?, ?, ?)').run('hookDensity', 'off', Date.now());
-
   // Run install-hooks.js with --uninstall flag
   execFile('node', [INSTALL_HOOKS_SCRIPT, '--uninstall'], { timeout: 15000 }, (err, stdout, stderr) => {
     if (err) {
@@ -181,44 +109,6 @@ router.post('/hooks/uninstall', (req, res) => {
     console.log('[hooks/uninstall]', stdout);
     res.json({ ok: true, output: stdout });
   });
-});
-
-// Import endpoints
-router.post('/import/trigger', (req, res) => {
-  startImport();
-  res.json({ status: 'started' });
-});
-
-router.get('/import/status', (req, res) => {
-  const result = getImportStatus();
-  res.json(result);
-});
-
-// ---- Settings Endpoints ----
-
-router.get('/settings', (req, res) => {
-  const rows = db.prepare('SELECT key, value FROM user_settings').all();
-  const settings = {};
-  for (const row of rows) settings[row.key] = row.value;
-  res.json({ settings });
-});
-
-router.put('/settings', (req, res) => {
-  const { key, value } = req.body;
-  if (!key) return res.status(400).json({ error: 'key is required' });
-  db.prepare('INSERT OR REPLACE INTO user_settings (key, value, updated_at) VALUES (?, ?, ?)').run(key, String(value), Date.now());
-  res.json({ ok: true });
-});
-
-router.put('/settings/bulk', (req, res) => {
-  const { settings } = req.body;
-  if (!settings) return res.status(400).json({ error: 'settings object is required' });
-  const stmt = db.prepare('INSERT OR REPLACE INTO user_settings (key, value, updated_at) VALUES (?, ?, ?)');
-  const now = Date.now();
-  for (const [key, value] of Object.entries(settings)) {
-    stmt.run(key, String(value), now);
-  }
-  res.json({ ok: true });
 });
 
 // ---- Session Control Endpoints ----
@@ -248,10 +138,33 @@ router.post('/sessions/:id/kill', (req, res) => {
   }
   const session = killSession(sessionId);
   archiveSession(sessionId, true);
+  // Close associated SSH terminal if present
+  if (session && session.terminalId) {
+    closeTerminal(session.terminalId);
+  } else if (mem && mem.terminalId) {
+    closeTerminal(mem.terminalId);
+  }
   if (!session && !pid) {
     return res.status(404).json({ error: 'Session not found and no matching process' });
   }
   res.json({ ok: true, pid: pid || null, source });
+});
+
+// Permanently delete a session — removes from memory, broadcasts removal to clients
+router.delete('/sessions/:id', async (req, res) => {
+  const sessionId = req.params.id;
+  const session = getSession(sessionId);
+  // Close terminal if still active
+  if (session && session.terminalId) {
+    closeTerminal(session.terminalId);
+  }
+  const removed = deleteSessionFromMemory(sessionId);
+  // Broadcast session_removed so all connected browsers remove the card
+  try {
+    const { broadcast } = await import('./wsManager.js');
+    broadcast({ type: 'session_removed', sessionId });
+  } catch (e) {}
+  res.json({ ok: true, removed });
 });
 
 // Detect session source (vscode / terminal)
@@ -355,7 +268,7 @@ function runShellScript(cmd, args) {
 router.post('/sessions/:id/open-editor', async (req, res) => {
   const sessionId = req.params.id;
   const memSession = getSession(sessionId);
-  const dbRow = !memSession ? db.prepare('SELECT project_path, project_name FROM sessions WHERE id = ?').get(sessionId) : null;
+  const dbRow = null; // No DB fallback — in-memory only
   const projectPath = memSession?.projectPath || dbRow?.project_path;
   const projectName = memSession?.projectName || dbRow?.project_name || projectPath?.split('/').pop() || '';
 
@@ -374,7 +287,7 @@ router.post('/sessions/:id/open-editor', async (req, res) => {
   console.log(`[open-editor] sessionId:    ${sessionId}`);
   console.log(`[open-editor] projectName:  ${projectName}`);
   console.log(`[open-editor] projectPath:  ${projectPath}`);
-  console.log(`[open-editor] fromMemory:   ${!!memSession}  fromDB: ${!!dbRow}`);
+  console.log(`[open-editor] fromMemory:   ${!!memSession}`);
   const tabStr = Object.entries(tabInfo).filter(([,v]) => v).map(([k,v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' ');
   if (tabStr) console.log(`[open-editor] tabInfo:      ${tabStr}`);
 
@@ -1260,14 +1173,7 @@ function findJetBrainsCli() {
   return null;
 }
 
-// Archive/unarchive session
-router.post('/sessions/:id/archive', (req, res) => {
-  const archived = req.body.archived !== undefined ? req.body.archived : true;
-  const session = archiveSession(req.params.id, archived);
-  res.json({ ok: true, archived: archived ? 1 : 0 });
-});
-
-// Update session title
+// Update session title (in-memory only, no DB write)
 router.put('/sessions/:id/title', (req, res) => {
   const { title } = req.body;
   if (title === undefined) return res.status(400).json({ error: 'title is required' });
@@ -1275,81 +1181,19 @@ router.put('/sessions/:id/title', (req, res) => {
   res.json({ ok: true });
 });
 
-// Update session character model
-router.put('/sessions/:id/character-model', (req, res) => {
-  const { model } = req.body;
-  if (!model) return res.status(400).json({ error: 'model is required' });
-  setSessionCharacterModel(req.params.id, model);
-  res.json({ ok: true });
-});
-
-// Update session accent color
-router.put('/sessions/:id/accent-color', (req, res) => {
-  const { color } = req.body;
-  if (!color) return res.status(400).json({ error: 'color is required' });
-  setSessionAccentColor(req.params.id, color);
-  res.json({ ok: true });
-});
-
-// Export session as JSON download
-router.get('/sessions/:id/export', (req, res) => {
-  const data = getSessionDetail(req.params.id);
-  if (!data) {
-    return res.status(404).json({ error: 'Session not found' });
-  }
-  res.setHeader('Content-Type', 'application/json');
-  res.setHeader('Content-Disposition', `attachment; filename="session-${req.params.id}.json"`);
-  res.json(data);
-});
-
-// Summarize & archive session using Claude CLI
+// Summarize session using Claude CLI
+// The frontend sends { context, promptTemplate } from IndexedDB data.
+// If custom_prompt is provided, use it directly as the prompt template.
 router.post('/sessions/:id/summarize', async (req, res) => {
   const sessionId = req.params.id;
-  const data = getSessionDetail(sessionId);
-  if (!data) {
-    return res.status(404).json({ error: 'Session not found' });
+  const { context, promptTemplate: bodyPromptTemplate, custom_prompt: customPrompt } = req.body;
+
+  if (!context) {
+    return res.status(400).json({ error: 'context is required in request body (prepared from IndexedDB data)' });
   }
 
-  // Build context string from session data
-  const { session, prompts, responses, tool_calls } = data;
-  const durationMin = session.ended_at
-    ? Math.round((session.ended_at - session.started_at) / 60000)
-    : Math.round((Date.now() - session.started_at) / 60000);
-
-  let context = `Session: ${session.project_name || 'Unknown'} | Model: ${session.model || 'Unknown'} | Duration: ${durationMin} min\n\n`;
-  context += `=== PROMPTS & RESPONSES ===\n`;
-
-  // Interleave prompts, responses, and tool calls chronologically
-  const allItems = [
-    ...prompts.map(p => ({ type: 'user', text: p.text, ts: p.timestamp })),
-    ...responses.map(r => ({ type: 'claude', text: r.text_excerpt || r.full_text || '', ts: r.timestamp })),
-    ...tool_calls.map(t => ({ type: 'tool', text: `${t.tool_name}: ${t.tool_input_summary || ''}`, ts: t.timestamp }))
-  ].sort((a, b) => a.ts - b.ts);
-
-  for (const item of allItems) {
-    if (item.type === 'user') context += `[User] ${item.text}\n`;
-    else if (item.type === 'claude') context += `[Claude] ${item.text}\n`;
-    else context += `[Tool] ${item.text}\n`;
-  }
-
-  // Truncate context to avoid exceeding CLI limits (~100k chars)
-  if (context.length > 100000) {
-    context = context.substring(0, 100000) + '\n... (truncated)';
-  }
-
-  // Get the summary prompt template (custom_prompt > prompt_id > default)
-  const { prompt_id: promptId, custom_prompt: customPrompt } = req.body;
-  let promptTemplate;
-  if (customPrompt) {
-    promptTemplate = customPrompt;
-  } else if (promptId) {
-    const row = db.prepare('SELECT prompt FROM summary_prompts WHERE id = ?').get(promptId);
-    promptTemplate = row?.prompt;
-  }
-  if (!promptTemplate) {
-    const row = db.prepare('SELECT prompt FROM summary_prompts WHERE is_default = 1 LIMIT 1').get();
-    promptTemplate = row?.prompt || 'Summarize this Claude Code session in detail.';
-  }
+  // Determine prompt template: custom_prompt > bodyPromptTemplate > default
+  const promptTemplate = customPrompt || bodyPromptTemplate || 'Summarize this Claude Code session in detail.';
 
   const summaryPrompt = `${promptTemplate}\n\n--- SESSION TRANSCRIPT ---\n${context}`;
 
@@ -1366,7 +1210,7 @@ router.post('/sessions/:id/summarize', async (req, res) => {
       child.stdin.end();
     });
 
-    // Store summary and archive
+    // Store summary in memory
     setSummary(sessionId, summary);
     archiveSession(sessionId, true);
 
@@ -1377,214 +1221,10 @@ router.post('/sessions/:id/summarize', async (req, res) => {
   }
 });
 
-// Get stored summary
-router.get('/sessions/:id/summary', (req, res) => {
-  const row = db.prepare('SELECT summary FROM sessions WHERE id = ?').get(req.params.id);
-  if (!row) return res.status(404).json({ error: 'Session not found' });
-  res.json({ summary: row.summary || null });
-});
-
-// ---- Summary Prompt Templates ----
-
-// List all summary prompts
-router.get('/summary-prompts', (req, res) => {
-  const rows = db.prepare('SELECT * FROM summary_prompts ORDER BY is_default DESC, name ASC').all();
-  res.json({ prompts: rows });
-});
-
-// Create a new summary prompt
-router.post('/summary-prompts', (req, res) => {
-  const { name, prompt, is_default } = req.body;
-  if (!name || !prompt) return res.status(400).json({ error: 'name and prompt are required' });
-  const now = Date.now();
-  // If setting as default, clear other defaults
-  if (is_default) {
-    db.prepare('UPDATE summary_prompts SET is_default = 0').run();
-  }
-  const result = db.prepare('INSERT INTO summary_prompts (name, prompt, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(name, prompt, is_default ? 1 : 0, now, now);
-  res.json({ ok: true, id: result.lastInsertRowid });
-});
-
-// Update a summary prompt
-router.put('/summary-prompts/:id', (req, res) => {
-  const { name, prompt, is_default } = req.body;
-  const id = req.params.id;
-  const now = Date.now();
-  if (is_default) {
-    db.prepare('UPDATE summary_prompts SET is_default = 0').run();
-  }
-  const sets = [];
-  const params = [];
-  if (name !== undefined) { sets.push('name = ?'); params.push(name); }
-  if (prompt !== undefined) { sets.push('prompt = ?'); params.push(prompt); }
-  if (is_default !== undefined) { sets.push('is_default = ?'); params.push(is_default ? 1 : 0); }
-  sets.push('updated_at = ?'); params.push(now);
-  params.push(id);
-  db.prepare(`UPDATE summary_prompts SET ${sets.join(', ')} WHERE id = ?`).run(...params);
-  res.json({ ok: true });
-});
-
-// Delete a summary prompt
-router.delete('/summary-prompts/:id', (req, res) => {
-  db.prepare('DELETE FROM summary_prompts WHERE id = ?').run(req.params.id);
-  res.json({ ok: true });
-});
-
-// Notes - list
-router.get('/sessions/:id/notes', (req, res) => {
-  const notes = db.prepare('SELECT * FROM session_notes WHERE session_id = ? ORDER BY created_at DESC').all(req.params.id);
-  res.json({ notes });
-});
-
-// Notes - create
-router.post('/sessions/:id/notes', (req, res) => {
-  const { text } = req.body;
-  if (!text || !text.trim()) {
-    return res.status(400).json({ error: 'Note text is required' });
-  }
-  const now = Date.now();
-  const result = db.prepare('INSERT INTO session_notes (session_id, text, created_at, updated_at) VALUES (?, ?, ?, ?)').run(req.params.id, text.trim(), now, now);
-  res.json({ ok: true, note: { id: result.lastInsertRowid, session_id: req.params.id, text: text.trim(), created_at: now } });
-});
-
-// Notes - delete
-router.delete('/sessions/:id/notes/:noteId', (req, res) => {
-  db.prepare('DELETE FROM session_notes WHERE id = ? AND session_id = ?').run(req.params.noteId, req.params.id);
-  res.json({ ok: true });
-});
-
-// ---- Prompt Queue ----
-
-// Helper: re-number positions after delete/pop
-function renumberQueue(sessionId) {
-  const rows = db.prepare('SELECT id FROM prompt_queue WHERE session_id = ? ORDER BY position ASC').all(sessionId);
-  const stmt = db.prepare('UPDATE prompt_queue SET position = ? WHERE id = ?');
-  for (let i = 0; i < rows.length; i++) {
-    stmt.run(i, rows[i].id);
-  }
-}
-
-// Helper: broadcast updated session with new queueCount
-function broadcastQueueChange(sessionId) {
-  const session = updateQueueCount(sessionId);
-  if (session) {
-    broadcast({ type: 'session_update', session });
-  }
-}
-
-// List queued prompts
-router.get('/sessions/:id/prompt-queue', (req, res) => {
-  const items = db.prepare('SELECT * FROM prompt_queue WHERE session_id = ? ORDER BY position ASC').all(req.params.id);
-  res.json({ items });
-});
-
-// Add prompt to queue
-router.post('/sessions/:id/prompt-queue', (req, res) => {
-  const { text } = req.body;
-  if (!text || !text.trim()) return res.status(400).json({ error: 'Prompt text is required' });
-  const now = Date.now();
-  const maxPos = db.prepare('SELECT MAX(position) AS m FROM prompt_queue WHERE session_id = ?').get(req.params.id);
-  const position = (maxPos?.m ?? -1) + 1;
-  const result = db.prepare('INSERT INTO prompt_queue (session_id, text, position, created_at) VALUES (?, ?, ?, ?)').run(req.params.id, text.trim(), position, now);
-  broadcastQueueChange(req.params.id);
-  res.json({ ok: true, item: { id: result.lastInsertRowid, session_id: req.params.id, text: text.trim(), position, created_at: now } });
-});
-
-// Edit prompt text
-router.put('/sessions/:id/prompt-queue/:itemId', (req, res) => {
-  const { text } = req.body;
-  if (!text || !text.trim()) return res.status(400).json({ error: 'Prompt text is required' });
-  db.prepare('UPDATE prompt_queue SET text = ? WHERE id = ? AND session_id = ?').run(text.trim(), req.params.itemId, req.params.id);
-  res.json({ ok: true });
-});
-
-// Delete prompt from queue
-router.delete('/sessions/:id/prompt-queue/:itemId', (req, res) => {
-  db.prepare('DELETE FROM prompt_queue WHERE id = ? AND session_id = ?').run(req.params.itemId, req.params.id);
-  renumberQueue(req.params.id);
-  broadcastQueueChange(req.params.id);
-  res.json({ ok: true });
-});
-
-// Pop top prompt (position=0) — returns text for clipboard copy
-router.post('/sessions/:id/prompt-queue/pop', (req, res) => {
-  const top = db.prepare('SELECT * FROM prompt_queue WHERE session_id = ? ORDER BY position ASC LIMIT 1').get(req.params.id);
-  if (!top) return res.status(404).json({ error: 'Queue is empty' });
-  db.prepare('DELETE FROM prompt_queue WHERE id = ?').run(top.id);
-  renumberQueue(req.params.id);
-  broadcastQueueChange(req.params.id);
-  res.json({ ok: true, text: top.text });
-});
-
-// Reorder queue — accepts { order: [id, id, id] }
-router.put('/sessions/:id/prompt-queue/reorder', (req, res) => {
-  const { order } = req.body;
-  if (!Array.isArray(order)) return res.status(400).json({ error: 'order must be an array of item IDs' });
-  const stmt = db.prepare('UPDATE prompt_queue SET position = ? WHERE id = ? AND session_id = ?');
-  for (let i = 0; i < order.length; i++) {
-    stmt.run(i, order[i], req.params.id);
-  }
-  res.json({ ok: true });
-});
-
-// Alerts - list
-router.get('/sessions/:id/alerts', (req, res) => {
-  const alerts = db.prepare('SELECT * FROM duration_alerts WHERE session_id = ? ORDER BY created_at DESC').all(req.params.id);
-  res.json({ alerts });
-});
-
-// Alerts - create
-router.post('/sessions/:id/alerts', (req, res) => {
-  const { threshold_ms } = req.body;
-  if (!threshold_ms || threshold_ms < 1) {
-    return res.status(400).json({ error: 'threshold_ms must be a positive number' });
-  }
-  const now = Date.now();
-  const result = db.prepare('INSERT INTO duration_alerts (session_id, threshold_ms, enabled, created_at) VALUES (?, ?, 1, ?)').run(req.params.id, threshold_ms, now);
-  res.json({ ok: true, alert: { id: result.lastInsertRowid, session_id: req.params.id, threshold_ms, enabled: 1, created_at: now } });
-});
-
-// Alerts - delete
-router.delete('/sessions/:id/alerts/:alertId', (req, res) => {
-  db.prepare('DELETE FROM duration_alerts WHERE id = ? AND session_id = ?').run(req.params.alertId, req.params.id);
-  res.json({ ok: true });
-});
-
 // ── SSH Keys ──
 
 router.get('/ssh-keys', (req, res) => {
   res.json({ keys: listSshKeys() });
-});
-
-// ── SSH Profiles ──
-
-router.get('/ssh-profiles', (req, res) => {
-  const profiles = db.prepare('SELECT * FROM ssh_profiles ORDER BY updated_at DESC').all();
-  res.json({ profiles });
-});
-
-router.post('/ssh-profiles', (req, res) => {
-  const { name, host, port, username, authMethod, privateKeyPath, workingDir, defaultCommand } = req.body;
-  if (!name || !username) return res.status(400).json({ error: 'name and username required' });
-  const now = Date.now();
-  const result = db.prepare(
-    'INSERT INTO ssh_profiles (name, host, port, username, auth_method, private_key_path, working_dir, default_command, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(name, host || 'localhost', port || 22, username, authMethod || 'key', privateKeyPath || null, workingDir || '~', defaultCommand || 'claude', now, now);
-  res.json({ ok: true, id: result.lastInsertRowid });
-});
-
-router.put('/ssh-profiles/:id', (req, res) => {
-  const { name, host, port, username, authMethod, privateKeyPath, workingDir, defaultCommand } = req.body;
-  const now = Date.now();
-  db.prepare(
-    'UPDATE ssh_profiles SET name = COALESCE(?, name), host = COALESCE(?, host), port = COALESCE(?, port), username = COALESCE(?, username), auth_method = COALESCE(?, auth_method), private_key_path = COALESCE(?, private_key_path), working_dir = COALESCE(?, working_dir), default_command = COALESCE(?, default_command), updated_at = ? WHERE id = ?'
-  ).run(name, host, port, username, authMethod, privateKeyPath, workingDir, defaultCommand, now, req.params.id);
-  res.json({ ok: true });
-});
-
-router.delete('/ssh-profiles/:id', (req, res) => {
-  db.prepare('DELETE FROM ssh_profiles WHERE id = ?').run(req.params.id);
-  res.json({ ok: true });
 });
 
 // ── Tmux Sessions ──
@@ -1613,39 +1253,28 @@ router.post('/tmux-sessions', async (req, res) => {
 
 router.post('/terminals', async (req, res) => {
   try {
-    const { profileId, host, port, username, password, privateKeyPath, authMethod, workingDir, command, apiKey, tmuxSession, useTmux } = req.body;
+    const { host, port, username, password, privateKeyPath, authMethod, workingDir, command, apiKey, tmuxSession, useTmux, sessionTitle } = req.body;
 
-    let config;
-    if (profileId) {
-      const profile = db.prepare('SELECT * FROM ssh_profiles WHERE id = ?').get(profileId);
-      if (!profile) return res.status(404).json({ error: 'Profile not found' });
-      config = {
-        host: host || profile.host,
-        port: port || profile.port,
-        username: username || profile.username,
-        authMethod: authMethod || profile.auth_method,
-        privateKeyPath: privateKeyPath || profile.private_key_path,
-        workingDir: workingDir || profile.working_dir,
-        command: command || profile.default_command,
-        password,
-      };
-    } else {
-      if (!username) return res.status(400).json({ error: 'username required' });
-      config = { host: host || 'localhost', port: port || 22, username, authMethod: authMethod || 'key', privateKeyPath, workingDir: workingDir || '~', command: command || 'claude', password };
-    }
+    if (!username) return res.status(400).json({ error: 'username required' });
+    const config = {
+      host: host || 'localhost',
+      port: port || 22,
+      username,
+      authMethod: authMethod || 'key',
+      privateKeyPath,
+      workingDir: workingDir || '~',
+      command: command || 'claude',
+      password,
+    };
 
     // Tmux modes
     if (tmuxSession) config.tmuxSession = tmuxSession; // attach to existing
     if (useTmux) config.useTmux = true; // wrap in new tmux session
+    if (sessionTitle) config.sessionTitle = sessionTitle;
 
-    // Resolve API key: per-session override > global setting
-    let resolvedApiKey = apiKey || '';
-    if (!resolvedApiKey) {
-      const row = db.prepare('SELECT value FROM user_settings WHERE key = ?').get('anthropicApiKey');
-      if (row && row.value) resolvedApiKey = row.value;
-    }
-    if (resolvedApiKey) {
-      config.apiKey = resolvedApiKey;
+    // Resolve API key from request body only (no DB lookup)
+    if (apiKey) {
+      config.apiKey = apiKey;
     }
 
     const terminalId = await createTerminal(config, null);

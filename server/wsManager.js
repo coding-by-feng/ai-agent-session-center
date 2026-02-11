@@ -1,5 +1,5 @@
 // wsManager.js — WebSocket broadcast manager with bidirectional terminal support
-import { getAllSessions, getAllTeams } from './sessionStore.js';
+import { getAllSessions, getAllTeams, getEventSeq, getEventsSince } from './sessionStore.js';
 import { writeToTerminal, resizeTerminal, closeTerminal, setWsClient } from './sshManager.js';
 import log from './logger.js';
 
@@ -10,11 +10,12 @@ export function handleConnection(ws) {
   ws._terminalIds = new Set(); // Track subscribed terminals
   log.info('ws', `Client connected (total: ${clients.size})`);
 
-  // Send full snapshot on connect (includes teams)
+  // Send full snapshot on connect (includes teams + event sequence for replay)
   const sessions = getAllSessions();
   const teams = getAllTeams();
-  log.debug('ws', `Sending snapshot: ${Object.keys(sessions).length} sessions, ${Object.keys(teams).length} teams`);
-  ws.send(JSON.stringify({ type: 'snapshot', sessions, teams }));
+  const seq = getEventSeq();
+  log.debug('ws', `Sending snapshot: ${Object.keys(sessions).length} sessions, ${Object.keys(teams).length} teams, seq=${seq}`);
+  ws.send(JSON.stringify({ type: 'snapshot', sessions, teams, seq }));
 
   // Handle incoming messages (terminal input, resize, etc.)
   ws.on('message', (raw) => {
@@ -41,6 +42,16 @@ export function handleConnection(ws) {
           if (msg.terminalId) {
             ws._terminalIds.add(msg.terminalId);
             setWsClient(msg.terminalId, ws);
+          }
+          break;
+        case 'replay':
+          // Client reconnected and wants events since a certain sequence number
+          if (typeof msg.sinceSeq === 'number') {
+            const missed = getEventsSince(msg.sinceSeq);
+            log.debug('ws', `Replaying ${missed.length} events since seq=${msg.sinceSeq}`);
+            for (const evt of missed) {
+              ws.send(JSON.stringify(evt.data));
+            }
           }
           break;
         default:

@@ -1,4 +1,5 @@
 import { formatNumber, showTooltip, hideTooltip } from './chartUtils.js';
+import { getDistinctProjects, getTimeline } from './browserDb.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -8,9 +9,8 @@ export async function init() {
   if (initialized) return;
   initialized = true;
 
-  // Populate project filter
-  const resp = await fetch('/api/projects');
-  const { projects } = await resp.json();
+  // Populate project filter from IndexedDB
+  const projects = await getDistinctProjects();
   const select = document.getElementById('timeline-project-filter');
   projects.forEach(p => {
     const opt = document.createElement('option');
@@ -39,18 +39,17 @@ export async function refresh() {
 }
 
 async function loadTimeline() {
-  const params = new URLSearchParams();
-  const granularity = document.getElementById('timeline-granularity').value;
-  if (granularity) params.set('granularity', granularity);
+  const granularity = document.getElementById('timeline-granularity').value || 'day';
   const project = document.getElementById('timeline-project-filter').value;
-  if (project) params.set('project', project);
   const dateFrom = document.getElementById('timeline-date-from').value;
-  if (dateFrom) params.set('dateFrom', new Date(dateFrom).getTime());
   const dateTo = document.getElementById('timeline-date-to').value;
-  if (dateTo) params.set('dateTo', new Date(dateTo + 'T23:59:59').getTime());
 
-  const resp = await fetch(`/api/timeline?${params}`);
-  const data = await resp.json();
+  const data = await getTimeline({
+    granularity,
+    project: project || undefined,
+    dateFrom: dateFrom ? new Date(dateFrom).getTime() : undefined,
+    dateTo: dateTo ? new Date(dateTo + 'T23:59:59').getTime() : undefined,
+  });
   const buckets = data.buckets || [];
 
   const container = document.getElementById('timeline-chart');
@@ -61,20 +60,19 @@ async function loadTimeline() {
     return;
   }
 
-  renderTimelineChart(container, buckets, granularity || 'day');
+  renderTimelineChart(container, buckets, granularity);
 }
 
 function formatTimeLabel(bucket, granularity) {
   const ts = bucket.period || bucket.timestamp || bucket.date || bucket.label;
   if (!ts) return '';
 
-  // Week format from SQLite: "2026-W06" — parse manually
+  // Week format: "2026-W06"
   if (granularity === 'week') {
     const weekMatch = String(ts).match(/^(\d{4})-W(\d{1,2})$/);
     if (weekMatch) {
       const year = parseInt(weekMatch[1], 10);
       const week = parseInt(weekMatch[2], 10);
-      // Approximate: week 1 starts around Jan 1
       const jan1 = new Date(year, 0, 1);
       const dayOffset = (week - 1) * 7 - jan1.getDay() + 1;
       const weekStart = new Date(year, 0, 1 + dayOffset);
@@ -83,7 +81,7 @@ function formatTimeLabel(bucket, granularity) {
     }
   }
 
-  // Hour format from SQLite: "2026-02-10 14:00" — parse with T separator
+  // Hour format: "2026-02-10 14:00"
   if (granularity === 'hour' && typeof ts === 'string') {
     const hourMatch = ts.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})$/);
     if (hourMatch) {
@@ -95,14 +93,14 @@ function formatTimeLabel(bucket, granularity) {
     }
   }
 
-  // Day format from SQLite: "2026-02-10"
+  // Day format: "2026-02-10"
   if (typeof ts === 'string') {
     const date = new Date(ts + (ts.includes('T') ? '' : 'T00:00:00'));
     if (!isNaN(date.getTime())) {
       const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       return months[date.getMonth()] + ' ' + date.getDate();
     }
-    return ts; // Fallback: show raw string
+    return ts;
   }
 
   // Numeric timestamp

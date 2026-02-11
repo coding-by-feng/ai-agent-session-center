@@ -7,6 +7,7 @@ let activeTerminal = null;  // { terminalId, term, fitAddon, resizeObserver }
 let terminalSessions = {};  // terminalId -> sessionId mapping
 let terminalThemes = {};    // terminalId -> theme name
 let pendingOutput = {};     // terminalId -> [base64Data] — buffer output before terminal is ready
+let isFullscreen = false;
 
 const THEMES = {
   default: {
@@ -253,6 +254,7 @@ export function attachToSession(sessionId, terminalId) {
 }
 
 export function detachTerminal() {
+  if (isFullscreen) exitFullscreen();
   if (activeTerminal) {
     if (activeTerminal.resizeObserver) {
       activeTerminal.resizeObserver.disconnect();
@@ -275,6 +277,84 @@ export function refitTerminal() {
   }
 }
 
+function getContainer() {
+  return isFullscreen
+    ? document.getElementById('terminal-fullscreen-container')
+    : document.getElementById('terminal-container');
+}
+
+export function toggleFullscreen() {
+  if (isFullscreen) {
+    exitFullscreen();
+  } else {
+    enterFullscreen();
+  }
+}
+
+export function enterFullscreen() {
+  if (isFullscreen || !activeTerminal) return;
+  isFullscreen = true;
+
+  const overlay = document.getElementById('terminal-fullscreen-overlay');
+  const fsContainer = document.getElementById('terminal-fullscreen-container');
+  if (!overlay || !fsContainer) return;
+
+  // Move the .xterm element into fullscreen container
+  const xtermEl = activeTerminal.term.element;
+  if (xtermEl) {
+    fsContainer.appendChild(xtermEl);
+  }
+
+  overlay.classList.remove('hidden');
+
+  // Observe fullscreen container for resize (e.g. window resize while fullscreen)
+  if (activeTerminal.resizeObserver) {
+    activeTerminal.resizeObserver.observe(fsContainer);
+  }
+
+  // Refit after DOM move
+  requestAnimationFrame(() => {
+    if (activeTerminal && activeTerminal.fitAddon) {
+      activeTerminal.fitAddon.fit();
+      sendResize(activeTerminal.terminalId, activeTerminal.term.cols, activeTerminal.term.rows);
+      activeTerminal.term.focus();
+    }
+  });
+}
+
+export function exitFullscreen() {
+  if (!isFullscreen) return;
+  isFullscreen = false;
+
+  const overlay = document.getElementById('terminal-fullscreen-overlay');
+  const fsContainer = document.getElementById('terminal-fullscreen-container');
+  const inlineContainer = document.getElementById('terminal-container');
+  if (!overlay || !inlineContainer) return;
+
+  overlay.classList.add('hidden');
+
+  // Stop observing fullscreen container
+  if (activeTerminal && activeTerminal.resizeObserver && fsContainer) {
+    activeTerminal.resizeObserver.unobserve(fsContainer);
+  }
+
+  // Move the .xterm element back to inline container
+  if (activeTerminal) {
+    const xtermEl = activeTerminal.term.element;
+    if (xtermEl) {
+      inlineContainer.appendChild(xtermEl);
+    }
+    // Refit after DOM move
+    requestAnimationFrame(() => {
+      if (activeTerminal && activeTerminal.fitAddon) {
+        activeTerminal.fitAddon.fit();
+        sendResize(activeTerminal.terminalId, activeTerminal.term.cols, activeTerminal.term.rows);
+        activeTerminal.term.focus();
+      }
+    });
+  }
+}
+
 function updateStatus(text, className) {
   const status = document.getElementById('terminal-status');
   if (status) {
@@ -291,4 +371,21 @@ document.addEventListener('visibilitychange', () => {
       activeTerminal.fitAddon.fit();
     });
   }
+});
+
+// F11 toggles fullscreen (no Escape — it's a valid terminal key)
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'F11' && activeTerminal) {
+    e.preventDefault();
+    toggleFullscreen();
+  }
+});
+
+// Wire up fullscreen buttons when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+  const fsBtn = document.getElementById('terminal-fullscreen-btn');
+  if (fsBtn) fsBtn.addEventListener('click', () => toggleFullscreen());
+
+  const exitBtn = document.getElementById('terminal-fullscreen-exit');
+  if (exitBtn) exitBtn.addEventListener('click', () => exitFullscreen());
 });

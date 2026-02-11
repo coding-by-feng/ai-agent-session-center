@@ -6,6 +6,7 @@ let onSessionUpdate = null;
 let onDurationAlert = null;
 let onTeamUpdate = null;
 let onHookStats = null;
+let onSessionRemoved = null;
 let onTerminalOutput = null;
 let onTerminalReady = null;
 let onTerminalClosed = null;
@@ -19,9 +20,10 @@ export function getReconnectRemaining() {
   return Math.max(0, Math.ceil((reconnectTarget - Date.now()) / 1000));
 }
 
-export function connect({ onSnapshotCb, onSessionUpdateCb, onDurationAlertCb, onTeamUpdateCb, onHookStatsCb, onTerminalOutputCb, onTerminalReadyCb, onTerminalClosedCb }) {
+export function connect({ onSnapshotCb, onSessionUpdateCb, onSessionRemovedCb, onDurationAlertCb, onTeamUpdateCb, onHookStatsCb, onTerminalOutputCb, onTerminalReadyCb, onTerminalClosedCb }) {
   onSnapshot = onSnapshotCb;
   onSessionUpdate = onSessionUpdateCb;
+  onSessionRemoved = onSessionRemovedCb || null;
   onDurationAlert = onDurationAlertCb;
   onTeamUpdate = onTeamUpdateCb;
   onHookStats = onHookStatsCb;
@@ -52,6 +54,8 @@ function _connect() {
       onSnapshot(data.sessions, data.teams);
     } else if (data.type === 'session_update' && onSessionUpdate) {
       onSessionUpdate(data.session, data.team);
+    } else if (data.type === 'session_removed' && onSessionRemoved) {
+      onSessionRemoved(data.sessionId);
     } else if (data.type === 'team_update' && onTeamUpdate) {
       onTeamUpdate(data.team);
     } else if (data.type === 'hook_stats' && onHookStats) {

@@ -1,21 +1,5 @@
 import * as soundManager from './soundManager.js';
-
-// Map TERM_PROGRAM env values to friendly display names
-function resolveTermName(termProgram) {
-  if (!termProgram) return 'Terminal';
-  const tp = termProgram.toLowerCase();
-  if (tp === 'iterm.app' || tp === 'iterm2') return 'iTerm2';
-  if (tp === 'apple_terminal') return 'Terminal';
-  if (tp === 'ghostty') return 'Ghostty';
-  if (tp === 'kitty') return 'Kitty';
-  if (tp === 'warpterminal' || tp === 'warp') return 'Warp';
-  if (tp === 'alacritty') return 'Alacritty';
-  if (tp === 'hyper') return 'Hyper';
-  if (tp === 'wezterm') return 'WezTerm';
-  if (tp === 'tabby') return 'Tabby';
-  if (tp === 'tmux') return 'tmux';
-  return 'Terminal';
-}
+import * as db from './browserDb.js';
 
 const mutedSessions = new Set();
 let globalMuted = false;
@@ -549,7 +533,6 @@ export function createOrUpdateCard(session) {
     card.innerHTML = `
       <button class="close-btn" title="Dismiss card">&times;</button>
       <button class="pin-btn" title="Pin to top">&#9650;</button>
-      <button class="open-editor-btn" title="Open in Editor">&#9998;</button>
       <button class="summarize-card-btn" title="Summarize & Archive">&#8681;AI</button>
       <button class="mute-btn" title="Mute sounds">&#9835;</button>
       <div class="robot-viewport"></div>
@@ -569,7 +552,6 @@ export function createOrUpdateCard(session) {
         </div>
         <div class="tool-bars"></div>
       </div>
-      <button class="queue-badge-btn" title="Prompt Queue">Q:0</button>
     `;
     card.addEventListener('click', (e) => {
       selectSession(session.sessionId);
@@ -591,27 +573,33 @@ export function createOrUpdateCard(session) {
         btn.title = 'Unmute sounds';
       }
     });
-    // Queue badge button — select session + open queue tab
-    card.querySelector('.queue-badge-btn').addEventListener('click', (e) => {
-      e.stopPropagation();
-      selectSession(session.sessionId);
-      // Switch to queue tab
-      document.querySelectorAll('.detail-tabs .tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
-      const qTab = document.querySelector('.detail-tabs .tab[data-tab="queue"]');
-      if (qTab) qTab.classList.add('active');
-      document.getElementById('tab-queue')?.classList.add('active');
-    });
-    // Close button — dismiss card from live view
+    // Close button — dismiss card from live view (preserves IndexedDB history)
     card.querySelector('.close-btn').addEventListener('click', (e) => {
       e.stopPropagation();
       const sid = session.sessionId;
+      const sess = sessionsData.get(sid);
+      // Close associated SSH terminal if present
+      if (sess && sess.terminalId) {
+        fetch(`/api/terminals/${sess.terminalId}`, { method: 'DELETE' }).catch(() => {});
+      }
+      // Mark as ended in IndexedDB so it won't reload as a live card
+      db.get('sessions', sid).then(record => {
+        if (record && record.status !== 'ended') {
+          record.status = 'ended';
+          record.endedAt = record.endedAt || Date.now();
+          db.put('sessions', record);
+        }
+      }).catch(() => {});
+      // Clean up runtime caches (IndexedDB data preserved for history)
+      mutedSessions.delete(sid);
+      pinnedSessions.delete(sid);
+      savePinned(pinnedSessions);
+      removeSessionFromGroup(sid);
       card.style.transition = 'opacity 0.3s, transform 0.3s';
       card.style.opacity = '0';
       card.style.transform = 'scale(0.9)';
       setTimeout(() => {
         removeCard(sid);
-        // Also remove the robot
         const event = new CustomEvent('card-dismissed', { detail: { sessionId: sid } });
         document.dispatchEvent(event);
       }, 300);
@@ -641,30 +629,7 @@ export function createOrUpdateCard(session) {
       reorderPinnedCards();
     });
 
-    // Open in editor button — focuses the exact window/tab where the session is running
-    card.querySelector('.open-editor-btn').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const sid = session.sessionId;
-      const s = sessionsData.get(sid);
-      const path = s?.projectPath;
-      if (!path) { showToast('OPEN', 'No project path available'); return; }
-      try {
-        const resp = await fetch(`/api/sessions/${sid}/open-editor`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
-        const data = await resp.json();
-        if (data.ok) {
-          const editorLabel = data.editor || 'editor';
-          const methodHint = data.method === 'tty' ? ' (tab)' : data.method === 'window_match' ? ' (window)' : '';
-          showToast('FOCUSED', `${editorLabel}${methodHint}`);
-        } else {
-          showToast('OPEN FAILED', data.error || 'Unknown error');
-        }
-      } catch(err) {
-        showToast('OPEN ERROR', err.message);
-      }
-    });
+
 
     // Summarize & archive button on card
     card.querySelector('.summarize-card-btn').addEventListener('click', async (e) => {
@@ -675,14 +640,44 @@ export function createOrUpdateCard(session) {
       btn.textContent = '...';
       btn.classList.add('loading');
       try {
+        // Build context client-side from IndexedDB
+        const detail = await db.getSessionDetail(sid);
+        let context = '';
+        if (detail) {
+          context += `Project: ${detail.session.projectName || detail.session.projectPath || 'Unknown'}\n`;
+          context += `Status: ${detail.session.status}\n`;
+          context += `Started: ${new Date(detail.session.startedAt).toISOString()}\n`;
+          if (detail.session.endedAt) context += `Ended: ${new Date(detail.session.endedAt).toISOString()}\n`;
+          context += `\n--- PROMPTS ---\n`;
+          for (const p of detail.prompts) {
+            context += `[${new Date(p.timestamp).toISOString()}] ${p.text}\n\n`;
+          }
+          context += `\n--- TOOL CALLS ---\n`;
+          for (const t of detail.tool_calls) {
+            context += `[${new Date(t.timestamp).toISOString()}] ${t.toolName}: ${t.toolInputSummary || ''}\n`;
+          }
+          context += `\n--- RESPONSES ---\n`;
+          for (const r of detail.responses) {
+            context += `[${new Date(r.timestamp).toISOString()}] ${r.textExcerpt || ''}\n\n`;
+          }
+        }
+        // Use default summary prompt template
+        const allPrompts = await db.getAll('summaryPrompts');
+        const defaultTmpl = allPrompts.find(p => p.isDefault);
+        const promptTemplate = defaultTmpl ? defaultTmpl.prompt : '';
+
         const resp = await fetch(`/api/sessions/${sid}/summarize`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ context, promptTemplate })
         });
         const data = await resp.json();
         if (data.ok) {
           const s = sessionsData.get(sid);
           if (s) { s.archived = 1; s.summary = data.summary; }
+          // Store in IndexedDB
+          const dbSession = await db.get('sessions', sid);
+          if (dbSession) { dbSession.summary = data.summary; dbSession.archived = 1; await db.put('sessions', dbSession); }
           showToast('SUMMARIZED', 'Session summarized & archived');
           btn.textContent = '\u2713';
           btn.classList.remove('loading');
@@ -716,7 +711,7 @@ export function createOrUpdateCard(session) {
       sel.removeAllRanges();
       sel.addRange(range);
 
-      const save = () => {
+      const save = async () => {
         titleEl.contentEditable = 'false';
         titleEl.classList.remove('editing');
         const newTitle = titleEl.textContent.trim();
@@ -726,6 +721,9 @@ export function createOrUpdateCard(session) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ title: newTitle })
           });
+          // Also update IndexedDB
+          const s = await db.get('sessions', session.sessionId);
+          if (s) { s.title = newTitle; await db.put('sessions', s); }
         }
       };
       titleEl.addEventListener('blur', save, { once: true });
@@ -830,48 +828,24 @@ export function createOrUpdateCard(session) {
     cardTitle.style.display = session.title ? '' : 'none';
   }
   const badge = card.querySelector('.status-badge');
-  const statusLabel = session.status === 'approval' ? 'APPROVAL NEEDED'
+  const isDisconnected = session.source === 'ssh' && session.status === 'ended';
+  const statusLabel = isDisconnected ? 'DISCONNECTED'
+    : session.status === 'approval' ? 'APPROVAL NEEDED'
     : session.status === 'input' ? 'WAITING FOR INPUT'
     : session.status === 'waiting' ? 'WAITING'
     : session.status.toUpperCase();
   badge.textContent = statusLabel;
-  badge.className = `status-badge ${session.status}`;
+  badge.className = `status-badge ${isDisconnected ? 'disconnected' : session.status}`;
+  // Add/remove disconnected class on card for dimming
+  card.classList.toggle('disconnected', isDisconnected);
 
-  // Update source badge (VS Code / Terminal / JetBrains)
+  // Source badge hidden — all sessions are SSH now
   const sourceBadge = card.querySelector('.source-badge');
   if (sourceBadge) {
-    const src = session.source;
-    if (src === 'vscode') {
-      sourceBadge.textContent = 'VS Code';
-      sourceBadge.className = 'source-badge source-vscode';
-    } else if (src === 'jetbrains') {
-      sourceBadge.textContent = 'JetBrains';
-      sourceBadge.className = 'source-badge source-jetbrains';
-    } else if (src === 'ssh') {
-      sourceBadge.textContent = 'SSH';
-      sourceBadge.className = 'source-badge source-ssh';
-    } else if (src === 'terminal') {
-      // Show the specific terminal app name if available
-      const termName = resolveTermName(session.termProgram);
-      sourceBadge.textContent = termName;
-      sourceBadge.className = 'source-badge source-terminal';
-    } else {
-      sourceBadge.textContent = '';
-      sourceBadge.className = 'source-badge';
-    }
+    sourceBadge.textContent = '';
+    sourceBadge.className = 'source-badge';
   }
 
-  // Update open-editor button tooltip based on source — hide for VS Code/JetBrains (no separate window to open)
-  const editorBtn = card.querySelector('.open-editor-btn');
-  if (editorBtn) {
-    if (session.source === 'vscode' || session.source === 'jetbrains') {
-      editorBtn.style.display = 'none';
-    } else {
-      editorBtn.style.display = '';
-      const editorLabels = { terminal: 'Open in Terminal' };
-      editorBtn.title = editorLabels[session.source] || 'Open in Editor';
-    }
-  }
 
   // Update approval banner with detail about what needs approval
   const banner = card.querySelector('.waiting-banner');
@@ -895,14 +869,7 @@ export function createOrUpdateCard(session) {
 
   card.querySelector('.tool-bars').innerHTML = renderToolBars(session.toolUsage);
 
-  // Queue badge + card highlight
-  const qCount = session.queueCount || 0;
-  const qBadge = card.querySelector('.queue-badge-btn');
-  if (qBadge) {
-    qBadge.textContent = `Q:${qCount}`;
-    qBadge.style.display = qCount > 0 ? '' : 'none';
-  }
-  card.classList.toggle('has-queue', qCount > 0);
+  card.classList.toggle('has-queue', (session.queueCount || 0) > 0);
   card.classList.toggle('has-terminal', !!session.terminalId);
 
   // If this session is selected, update the detail panel too
@@ -962,12 +929,11 @@ export function showToast(title, message) {
 async function loadNotes(sessionId) {
   const list = document.getElementById('notes-list');
   try {
-    const resp = await fetch(`/api/sessions/${sessionId}/notes`);
-    const { notes } = await resp.json();
+    const notes = await db.getNotes(sessionId);
     list.innerHTML = notes.map(n => `
       <div class="note-entry">
         <div class="note-meta">
-          <span class="note-time">${formatTime(n.created_at)}</span>
+          <span class="note-time">${formatTime(n.createdAt)}</span>
           <button class="note-delete" data-note-id="${n.id}">DELETE</button>
         </div>
         <div class="note-text">${escapeHtml(n.text)}</div>
@@ -978,25 +944,37 @@ async function loadNotes(sessionId) {
   }
 }
 
-async function loadQueue(sessionId) {
+// Track known queue item IDs to detect newly added items
+let _knownQueueIds = new Set();
+
+export async function loadQueue(sessionId) {
   const list = document.getElementById('queue-list');
-  const countLabel = document.getElementById('queue-count-label');
-  const popBtn = document.getElementById('queue-pop-btn');
+  const countBadge = document.getElementById('terminal-queue-count');
   try {
-    const resp = await fetch(`/api/sessions/${sessionId}/prompt-queue`);
-    const { items } = await resp.json();
-    if (countLabel) countLabel.textContent = items.length > 0 ? `${items.length} queued` : '';
-    if (popBtn) popBtn.disabled = items.length === 0;
-    list.innerHTML = items.map((item, i) => `
-      <div class="queue-item" draggable="true" data-queue-id="${item.id}">
+    const items = await db.getQueue(sessionId);
+    if (countBadge) countBadge.textContent = items.length > 0 ? `(${items.length})` : '';
+
+    const newIds = new Set(items.map(item => item.id));
+    list.innerHTML = items.map((item, i) => {
+      const isNew = !_knownQueueIds.has(item.id);
+      return `
+      <div class="queue-item${isNew ? ' entering' : ''}" draggable="true" data-queue-id="${item.id}">
         <span class="queue-pos">${i + 1}</span>
         <div class="queue-text">${escapeHtml(item.text)}</div>
         <div class="queue-actions">
+          <button class="queue-send" data-queue-id="${item.id}" title="Send to terminal">SEND</button>
           <button class="queue-edit" data-queue-id="${item.id}" title="Edit">EDIT</button>
           <button class="queue-delete" data-queue-id="${item.id}" title="Delete">DEL</button>
         </div>
-      </div>
-    `).join('') || '<div class="tab-empty">No prompts queued</div>';
+      </div>`;
+    }).join('') || '<div class="tab-empty">No prompts queued</div>';
+    _knownQueueIds = newIds;
+
+    // Remove entering class after animation completes
+    list.querySelectorAll('.queue-item.entering').forEach(el => {
+      el.addEventListener('animationend', () => el.classList.remove('entering'), { once: true });
+    });
+
     // Wire up drag-to-reorder
     wireQueueDrag(sessionId);
   } catch(e) {
@@ -1011,18 +989,19 @@ function wireQueueDrag(sessionId) {
     item.addEventListener('dragstart', (e) => {
       dragItem = item;
       item.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.effectAllowed = 'copyMove';
+      // Set data for drag-to-terminal
+      const text = item.querySelector('.queue-text')?.textContent || '';
+      e.dataTransfer.setData('text/queue-prompt', text);
+      e.dataTransfer.setData('text/queue-id', item.dataset.queueId);
     });
-    item.addEventListener('dragend', () => {
+    item.addEventListener('dragend', async () => {
       item.classList.remove('dragging');
       dragItem = null;
-      // Collect new order and send to server
-      const order = [...list.querySelectorAll('.queue-item')].map(el => parseInt(el.dataset.queueId));
-      fetch(`/api/sessions/${sessionId}/prompt-queue/reorder`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order })
-      }).then(() => loadQueue(sessionId));
+      // Collect new order and persist to IndexedDB
+      const orderedIds = [...list.querySelectorAll('.queue-item')].map(el => parseInt(el.dataset.queueId));
+      await db.reorderQueue(sessionId, orderedIds);
+      loadQueue(sessionId);
     });
     item.addEventListener('dragover', (e) => {
       e.preventDefault();
@@ -1164,15 +1143,8 @@ function populateDetailPanel(session) {
   const archBtn = document.getElementById('ctrl-archive');
   if (archBtn) archBtn.textContent = session.archived ? 'UNARCHIVE' : 'ARCHIVE';
 
-  // Hide OPEN IN EDITOR button for VS Code/JetBrains sessions (no separate window to jump to)
   const ctrlOpenBtn = document.getElementById('ctrl-open-editor');
-  if (ctrlOpenBtn) {
-    if (session.source === 'vscode' || session.source === 'jetbrains') {
-      ctrlOpenBtn.style.display = 'none';
-    } else {
-      ctrlOpenBtn.style.display = '';
-    }
-  }
+  if (ctrlOpenBtn) ctrlOpenBtn.style.display = '';
 
   // Auto-attach terminal if Terminal tab is the default active tab
   const activeTab = document.querySelector('.detail-tabs .tab.active');
@@ -1227,18 +1199,18 @@ function escapeHtml(str) {
 }
 
 export async function openSessionDetailFromHistory(sessionId) {
-  const resp = await fetch(`/api/sessions/${sessionId}/detail`);
-  const data = await resp.json();
+  const data = await db.getSessionDetail(sessionId);
+  if (!data) { showToast('ERROR', 'Session not found in local database'); return; }
 
   // Populate detail header
-  document.getElementById('detail-project-name').textContent = data.session.project_name;
+  document.getElementById('detail-project-name').textContent = data.session.projectName || data.session.projectPath || 'Unknown';
   const badge = document.getElementById('detail-status-badge');
   badge.textContent = data.session.status.toUpperCase();
   badge.className = `status-badge ${data.session.status}`;
   document.getElementById('detail-model').textContent = data.session.model || '';
-  const duration = data.session.ended_at
-    ? formatDuration(data.session.ended_at - data.session.started_at)
-    : formatDuration(Date.now() - data.session.started_at);
+  const duration = data.session.endedAt
+    ? formatDuration(data.session.endedAt - data.session.startedAt)
+    : formatDuration(Date.now() - data.session.startedAt);
   const durEl = document.getElementById('detail-duration');
   durEl.textContent = duration;
   durEl.style.display = duration ? '' : 'none';
@@ -1253,13 +1225,13 @@ export async function openSessionDetailFromHistory(sessionId) {
   // Character model selector + preview
   const charSelect = document.getElementById('detail-char-model');
   if (charSelect) {
-    charSelect.value = data.session.character_model || '';
+    charSelect.value = data.session.characterModel || '';
     charSelect.dataset.sessionId = sessionId;
   }
   updateDetailCharPreview(
-    data.session.character_model || '',
+    data.session.characterModel || '',
     data.session.status,
-    data.session.accent_color || null
+    data.session.accentColor || null
   );
 
   // Populate conversation tab — interleave prompts, tool calls, and responses
@@ -1268,10 +1240,10 @@ export async function openSessionDetailFromHistory(sessionId) {
     histConvItems.push({ type: 'user', text: p.text, timestamp: p.timestamp });
   }
   for (const t of (data.tool_calls || [])) {
-    histConvItems.push({ type: 'tool', tool: t.tool_name, input: t.tool_input_summary, timestamp: t.timestamp });
+    histConvItems.push({ type: 'tool', tool: t.toolName, input: t.toolInputSummary, timestamp: t.timestamp });
   }
   for (const r of (data.responses || [])) {
-    histConvItems.push({ type: 'claude', text: r.text_excerpt, timestamp: r.timestamp });
+    histConvItems.push({ type: 'claude', text: r.textExcerpt, timestamp: r.timestamp });
   }
   histConvItems.sort((a, b) => b.timestamp - a.timestamp);
   const histConvContainer = document.getElementById('detail-conversation');
@@ -1300,13 +1272,13 @@ export async function openSessionDetailFromHistory(sessionId) {
   // Populate activity tab (merged tool calls + events + responses)
   const histActivityItems = [];
   for (const t of (data.tool_calls || [])) {
-    histActivityItems.push({ kind: 'tool', tool: t.tool_name, input: t.tool_input_summary, timestamp: t.timestamp });
+    histActivityItems.push({ kind: 'tool', tool: t.toolName, input: t.toolInputSummary, timestamp: t.timestamp });
   }
   for (const e of (data.events || [])) {
-    histActivityItems.push({ kind: 'event', type: e.event_type, detail: e.detail, timestamp: e.timestamp });
+    histActivityItems.push({ kind: 'event', type: e.eventType, detail: e.detail, timestamp: e.timestamp });
   }
   for (const r of (data.responses || [])) {
-    histActivityItems.push({ kind: 'response', text: r.text_excerpt || r.text, timestamp: r.timestamp });
+    histActivityItems.push({ kind: 'response', text: r.textExcerpt || r.text, timestamp: r.timestamp });
   }
   histActivityItems.sort((a, b) => b.timestamp - a.timestamp);
   const actEl = document.getElementById('detail-activity-log');
@@ -1407,13 +1379,10 @@ if (charModelSelect) {
     const session = sessionsData.get(sessionId);
     if (session) session.characterModel = model;
 
-    // Save to server
+    // Save to IndexedDB
     try {
-      await fetch(`/api/sessions/${sessionId}/character-model`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model })
-      });
+      const s = await db.get('sessions', sessionId);
+      if (s) { s.characterModel = model; await db.put('sessions', s); }
     } catch(e) {
       console.error('[sessionPanel] Failed to save character model:', e.message);
     }
@@ -1516,8 +1485,7 @@ document.getElementById('ctrl-kill').addEventListener('click', (e) => {
   if (!selectedSessionId) return;
   const session = sessionsData.get(selectedSessionId);
   const msg = document.getElementById('kill-modal-msg');
-  const sourceLabel = session?.source === 'vscode' ? ' (VS Code)' : session?.source === 'jetbrains' ? ' (JetBrains)' : session?.source === 'terminal' ? ' (Terminal)' : '';
-  msg.textContent = `Kill session for "${session ? session.projectName : selectedSessionId}"${sourceLabel}? This will terminate the Claude process (SIGTERM → SIGKILL).`;
+  msg.textContent = `Kill session for "${session ? session.projectName : selectedSessionId}"? This will terminate the Claude process (SIGTERM → SIGKILL).`;
   document.getElementById('kill-modal').classList.remove('hidden');
 });
 
@@ -1528,6 +1496,7 @@ document.getElementById('kill-cancel').addEventListener('click', () => {
 document.getElementById('kill-confirm').addEventListener('click', async () => {
   document.getElementById('kill-modal').classList.add('hidden');
   if (!selectedSessionId) return;
+  const session = sessionsData.get(selectedSessionId);
   try {
     const resp = await fetch(`/api/sessions/${selectedSessionId}/kill`, {
       method: 'POST',
@@ -1536,6 +1505,10 @@ document.getElementById('kill-confirm').addEventListener('click', async () => {
     });
     const data = await resp.json();
     if (data.ok) {
+      // Close associated SSH terminal if present
+      if (session && session.terminalId) {
+        fetch(`/api/terminals/${session.terminalId}`, { method: 'DELETE' }).catch(() => {});
+      }
       showToast('PROCESS KILLED', `PID ${data.pid || 'N/A'} terminated`);
       soundManager.play('kill');
       // Auto-close detail panel and remove card
@@ -1576,16 +1549,33 @@ document.getElementById('ctrl-archive').addEventListener('click', async (e) => {
   const session = sessionsData.get(selectedSessionId);
   const newArchived = !(session && session.archived);
   try {
-    await fetch(`/api/sessions/${selectedSessionId}/archive`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ archived: newArchived })
-    });
     if (session) session.archived = newArchived ? 1 : 0;
+    const s = await db.get('sessions', selectedSessionId);
+    if (s) { s.archived = newArchived ? 1 : 0; await db.put('sessions', s); }
     e.target.textContent = newArchived ? 'UNARCHIVE' : 'ARCHIVE';
     showToast('ARCHIVE', newArchived ? 'Session archived' : 'Session unarchived');
   } catch(err) {
     showToast('ARCHIVE ERROR', err.message);
+  }
+});
+
+// ---- Permanent Delete ----
+document.getElementById('ctrl-delete').addEventListener('click', async (e) => {
+  e.stopPropagation();
+  if (!selectedSessionId) return;
+  const session = sessionsData.get(selectedSessionId);
+  const label = session?.title || session?.projectName || selectedSessionId.slice(0, 8);
+  if (!confirm(`Permanently delete session "${label}"?\nThis cannot be undone.`)) return;
+  const sid = selectedSessionId;
+  try {
+    // Server-side removal (closes terminal if active, broadcasts session_removed)
+    await fetch(`/api/sessions/${sid}`, { method: 'DELETE' });
+    // Also remove from browser IndexedDB
+    await db.del('sessions', sid);
+    deselectSession();
+    showToast('DELETED', `Session "${label}" permanently removed`);
+  } catch (err) {
+    showToast('DELETE ERROR', err.message);
   }
 });
 
@@ -1596,9 +1586,8 @@ let summaryPromptsCache = [];
 
 async function loadSummaryPrompts() {
   try {
-    const resp = await fetch('/api/summary-prompts');
-    const data = await resp.json();
-    summaryPromptsCache = data.prompts || [];
+    const prompts = await db.getAll('summaryPrompts');
+    summaryPromptsCache = prompts || [];
     return summaryPromptsCache;
   } catch(e) {
     return [];
@@ -1613,10 +1602,10 @@ function renderSummaryPromptList(prompts) {
   if (runBtn) runBtn.disabled = true;
 
   list.innerHTML = prompts.map(p => `
-    <div class="summarize-prompt-item${p.is_default ? ' default' : ''}" data-prompt-id="${p.id}">
+    <div class="summarize-prompt-item${p.isDefault ? ' default' : ''}" data-prompt-id="${p.id}">
       <div class="summarize-prompt-item-header">
         <span class="summarize-prompt-name">${escapeHtml(p.name)}</span>
-        ${p.is_default ? '<span class="summarize-prompt-default-badge">DEFAULT</span>' : ''}
+        ${p.isDefault ? '<span class="summarize-prompt-default-badge">DEFAULT</span>' : ''}
         <div class="summarize-prompt-actions">
           <button class="summarize-prompt-default-btn" data-id="${p.id}" title="Set as default">&#9733;</button>
           <button class="summarize-prompt-edit-btn" data-id="${p.id}" title="Edit">&#9998;</button>
@@ -1642,12 +1631,20 @@ function renderSummaryPromptList(prompts) {
   list.querySelectorAll('.summarize-prompt-default-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      const id = btn.dataset.id;
-      await fetch(`/api/summary-prompts/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_default: true })
-      });
+      const id = parseInt(btn.dataset.id, 10);
+      // Clear isDefault on all prompts, then set on the chosen one
+      const allPrompts = await db.getAll('summaryPrompts');
+      for (const p of allPrompts) {
+        if (p.isDefault && p.id !== id) {
+          p.isDefault = 0;
+          await db.put('summaryPrompts', p);
+        }
+      }
+      const item = await db.get('summaryPrompts', id);
+      if (item) {
+        item.isDefault = 1;
+        await db.put('summaryPrompts', item);
+      }
       const prompts = await loadSummaryPrompts();
       renderSummaryPromptList(prompts);
       showToast('DEFAULT SET', 'Summary prompt set as default');
@@ -1675,8 +1672,8 @@ function renderSummaryPromptList(prompts) {
   list.querySelectorAll('.summarize-prompt-delete-btn').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      const id = btn.dataset.id;
-      await fetch(`/api/summary-prompts/${id}`, { method: 'DELETE' });
+      const id = parseInt(btn.dataset.id, 10);
+      await db.del('summaryPrompts', id);
       const prompts = await loadSummaryPrompts();
       renderSummaryPromptList(prompts);
       showToast('DELETED', 'Prompt template removed');
@@ -1684,7 +1681,7 @@ function renderSummaryPromptList(prompts) {
   });
 
   // Auto-select the default prompt
-  const defaultPrompt = prompts.find(p => p.is_default);
+  const defaultPrompt = prompts.find(p => p.isDefault);
   if (defaultPrompt) {
     const defaultItem = list.querySelector(`[data-prompt-id="${defaultPrompt.id}"]`);
     if (defaultItem) {
@@ -1714,20 +1711,48 @@ async function runSummarize(promptId, customPrompt) {
   btn.disabled = true;
   btn.textContent = 'SUMMARIZING...';
 
-  const body = {};
-  if (promptId) body.prompt_id = promptId;
-  if (customPrompt) body.custom_prompt = customPrompt;
-
   try {
+    // Build context client-side from IndexedDB
+    const detail = await db.getSessionDetail(selectedSessionId);
+    if (!detail) throw new Error('Session not found in local database');
+
+    // Build context string (same logic the server used)
+    let context = `Project: ${detail.session.projectName || detail.session.projectPath || 'Unknown'}\n`;
+    context += `Status: ${detail.session.status}\n`;
+    context += `Started: ${new Date(detail.session.startedAt).toISOString()}\n`;
+    if (detail.session.endedAt) context += `Ended: ${new Date(detail.session.endedAt).toISOString()}\n`;
+    context += `\n--- PROMPTS ---\n`;
+    for (const p of detail.prompts) {
+      context += `[${new Date(p.timestamp).toISOString()}] ${p.text}\n\n`;
+    }
+    context += `\n--- TOOL CALLS ---\n`;
+    for (const t of detail.tool_calls) {
+      context += `[${new Date(t.timestamp).toISOString()}] ${t.toolName}: ${t.toolInputSummary || ''}\n`;
+    }
+    context += `\n--- RESPONSES ---\n`;
+    for (const r of detail.responses) {
+      context += `[${new Date(r.timestamp).toISOString()}] ${r.textExcerpt || ''}\n\n`;
+    }
+
+    // Resolve prompt template
+    let promptTemplate = customPrompt || '';
+    if (!promptTemplate && promptId) {
+      const tmpl = await db.get('summaryPrompts', promptId);
+      if (tmpl) promptTemplate = tmpl.prompt;
+    }
+
     const resp = await fetch(`/api/sessions/${selectedSessionId}/summarize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify({ context, promptTemplate })
     });
     const data = await resp.json();
     if (data.ok) {
       const session = sessionsData.get(selectedSessionId);
       if (session) { session.archived = 1; session.summary = data.summary; }
+      // Store summary in IndexedDB
+      const s = await db.get('sessions', selectedSessionId);
+      if (s) { s.summary = data.summary; s.archived = 1; await db.put('sessions', s); }
       const summaryEl = document.getElementById('summary-content');
       if (summaryEl) {
         summaryEl.innerHTML = `<div class="summary-text">${escapeHtml(data.summary).replace(/\n/g, '<br>')}</div>`;
@@ -1799,18 +1824,17 @@ document.getElementById('summarize-save-template')?.addEventListener('click', as
 
   const editId = form.dataset.editId;
   if (editId) {
-    await fetch(`/api/summary-prompts/${editId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, prompt })
-    });
+    const item = await db.get('summaryPrompts', parseInt(editId, 10));
+    if (item) {
+      item.name = name;
+      item.prompt = prompt;
+      item.updatedAt = Date.now();
+      await db.put('summaryPrompts', item);
+    }
     showToast('UPDATED', 'Template updated');
   } else {
-    await fetch('/api/summary-prompts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, prompt })
-    });
+    const now = Date.now();
+    await db.put('summaryPrompts', { name, prompt, isDefault: 0, createdAt: now, updatedAt: now });
     showToast('SAVED', 'Template saved');
   }
   form.classList.add('hidden');
@@ -1829,16 +1853,25 @@ document.getElementById('summarize-use-once')?.addEventListener('click', () => {
 });
 
 // Export button
-document.getElementById('ctrl-export').addEventListener('click', (e) => {
+document.getElementById('ctrl-export').addEventListener('click', async (e) => {
   e.stopPropagation();
   if (!selectedSessionId) return;
-  const a = document.createElement('a');
-  a.href = `/api/sessions/${selectedSessionId}/export`;
-  a.download = `session-${selectedSessionId}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  showToast('EXPORT', 'Downloading session transcript...');
+  try {
+    const data = await db.exportSession(selectedSessionId);
+    if (!data) { showToast('EXPORT', 'Session not found in local database'); return; }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `session-${selectedSessionId}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast('EXPORT', 'Downloading session transcript...');
+  } catch(err) {
+    showToast('EXPORT ERROR', err.message);
+  }
 });
 
 // Notes button — switch to notes tab
@@ -1858,11 +1891,7 @@ document.getElementById('save-note').addEventListener('click', async () => {
   const text = textarea.value.trim();
   if (!text) return;
   try {
-    await fetch(`/api/sessions/${selectedSessionId}/notes`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text })
-    });
+    await db.addNote(selectedSessionId, text);
     textarea.value = '';
     loadNotes(selectedSessionId);
     showToast('NOTE SAVED', 'Note added successfully');
@@ -1877,7 +1906,7 @@ document.getElementById('notes-list').addEventListener('click', async (e) => {
   if (!btn || !selectedSessionId) return;
   const noteId = btn.dataset.noteId;
   try {
-    await fetch(`/api/sessions/${selectedSessionId}/notes/${noteId}`, { method: 'DELETE' });
+    await db.del('notes', Number(noteId));
     loadNotes(selectedSessionId);
   } catch(e) {
     showToast('DELETE ERROR', e.message);
@@ -1886,14 +1915,16 @@ document.getElementById('notes-list').addEventListener('click', async (e) => {
 
 // ---- Prompt Queue Handlers ----
 
-// QUEUE ctrl-btn — switch to queue tab
-document.getElementById('ctrl-queue')?.addEventListener('click', (e) => {
-  e.stopPropagation();
-  document.querySelectorAll('.detail-tabs .tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
-  const qTab = document.querySelector('.detail-tabs .tab[data-tab="queue"]');
-  if (qTab) qTab.classList.add('active');
-  document.getElementById('tab-queue')?.classList.add('active');
+// Collapsible queue panel toggle
+document.getElementById('terminal-queue-toggle')?.addEventListener('click', () => {
+  const panel = document.getElementById('terminal-queue-panel');
+  if (panel) {
+    panel.classList.toggle('collapsed');
+    // Refit terminal after toggle since container height changes
+    import('./terminalManager.js').then(tm => {
+      requestAnimationFrame(() => tm.refitTerminal());
+    });
+  }
 });
 
 // Terminal button — switch to terminal tab
@@ -1926,11 +1957,7 @@ document.getElementById('queue-add-btn')?.addEventListener('click', async () => 
   const text = textarea.value.trim();
   if (!text) return;
   try {
-    await fetch(`/api/sessions/${selectedSessionId}/prompt-queue`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text })
-    });
+    await db.addToQueue(selectedSessionId, text);
     textarea.value = '';
     loadQueue(selectedSessionId);
     showToast('QUEUED', 'Prompt added to queue');
@@ -1939,34 +1966,49 @@ document.getElementById('queue-add-btn')?.addEventListener('click', async () => 
   }
 });
 
-// Pop Next — remove top item, copy to clipboard
-document.getElementById('queue-pop-btn')?.addEventListener('click', async () => {
-  if (!selectedSessionId) return;
-  try {
-    const resp = await fetch(`/api/sessions/${selectedSessionId}/prompt-queue/pop`, { method: 'POST' });
-    const data = await resp.json();
-    if (data.text) {
-      await navigator.clipboard.writeText(data.text);
-      showToast('COPIED', 'Next prompt copied to clipboard');
-    } else {
-      showToast('QUEUE', 'Queue is empty');
-    }
-    loadQueue(selectedSessionId);
-  } catch(e) {
-    showToast('POP ERROR', e.message);
+// Send prompt text to terminal as input
+async function sendToTerminal(text) {
+  const tm = await import('./terminalManager.js');
+  const { getWs } = await import('./wsClient.js');
+  const ws = getWs();
+  const terminalId = tm.getActiveTerminalId();
+  if (!terminalId || !ws || ws.readyState !== 1) {
+    showToast('TERMINAL', 'No active terminal connection');
+    return false;
   }
-});
+  // Send the text + Enter to the terminal
+  ws.send(JSON.stringify({ type: 'terminal_input', terminalId, data: text + '\n' }));
+  return true;
+}
 
-// Delete / Edit queue items (event delegation)
+// Delete / Edit / Send queue items (event delegation)
 document.getElementById('queue-list')?.addEventListener('click', async (e) => {
   const delBtn = e.target.closest('.queue-delete');
   const editBtn = e.target.closest('.queue-edit');
+  const sendBtn = e.target.closest('.queue-send');
   if (!selectedSessionId) return;
+
+  if (sendBtn) {
+    const itemId = sendBtn.dataset.queueId;
+    const itemEl = sendBtn.closest('.queue-item');
+    const text = itemEl?.querySelector('.queue-text')?.textContent;
+    if (text) {
+      const sent = await sendToTerminal(text);
+      if (sent) {
+        // Remove from queue after sending
+        try {
+          await db.del('promptQueue', Number(itemId));
+          loadQueue(selectedSessionId);
+        } catch(e) {}
+        showToast('SENT', 'Prompt sent to terminal');
+      }
+    }
+  }
 
   if (delBtn) {
     const itemId = delBtn.dataset.queueId;
     try {
-      await fetch(`/api/sessions/${selectedSessionId}/prompt-queue/${itemId}`, { method: 'DELETE' });
+      await db.del('promptQueue', Number(itemId));
       loadQueue(selectedSessionId);
     } catch(e) {
       showToast('DELETE ERROR', e.message);
@@ -1993,11 +2035,11 @@ document.getElementById('queue-list')?.addEventListener('click', async (e) => {
       const newText = ta.value.trim();
       if (newText && newText !== currentText) {
         try {
-          await fetch(`/api/sessions/${selectedSessionId}/prompt-queue/${itemId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: newText })
-          });
+          const existing = await db.get('promptQueue', Number(itemId));
+          if (existing) {
+            existing.text = newText;
+            await db.put('promptQueue', existing);
+          }
         } catch(e) {
           showToast('EDIT ERROR', e.message);
         }
@@ -2010,6 +2052,34 @@ document.getElementById('queue-list')?.addEventListener('click', async (e) => {
       if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); saveEdit(); }
       if (ev.key === 'Escape') loadQueue(selectedSessionId);
     });
+  }
+});
+
+// Enable drag-to-terminal: drop a queue item onto the terminal to send it
+document.getElementById('terminal-container')?.addEventListener('dragover', (e) => {
+  if (e.dataTransfer.types.includes('text/queue-prompt')) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    e.currentTarget.classList.add('drop-target');
+  }
+});
+document.getElementById('terminal-container')?.addEventListener('dragleave', (e) => {
+  e.currentTarget.classList.remove('drop-target');
+});
+document.getElementById('terminal-container')?.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drop-target');
+  const text = e.dataTransfer.getData('text/queue-prompt');
+  const itemId = e.dataTransfer.getData('text/queue-id');
+  if (text) {
+    const sent = await sendToTerminal(text);
+    if (sent && itemId && selectedSessionId) {
+      try {
+        await db.del('promptQueue', Number(itemId));
+        loadQueue(selectedSessionId);
+      } catch(e) {}
+      showToast('SENT', 'Prompt dropped into terminal');
+    }
   }
 });
 
@@ -2030,10 +2100,12 @@ document.getElementById('alert-confirm').addEventListener('click', async () => {
   const minutes = parseInt(document.getElementById('alert-minutes').value, 10);
   if (!minutes || minutes < 1) return;
   try {
-    await fetch(`/api/sessions/${selectedSessionId}/alerts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ threshold_ms: minutes * 60000 })
+    const now = Date.now();
+    await db.put('alerts', {
+      sessionId: selectedSessionId,
+      thresholdMs: minutes * 60000,
+      createdAt: now,
+      triggerAt: now + minutes * 60000
     });
     showToast('ALERT SET', `Will alert after ${minutes} minutes`);
     soundManager.play('click');
@@ -2064,6 +2136,9 @@ if (detailTitleInput) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title })
       });
+      // Also update IndexedDB
+      const s = await db.get('sessions', sessionId);
+      if (s) { s.title = title; await db.put('sessions', s); }
     } catch(e) {
       // silent fail
     }
@@ -2201,12 +2276,9 @@ export async function archiveAllEnded() {
   for (const [sessionId, session] of sessionsData) {
     if (session.status === 'ended' && !session.archived) {
       try {
-        await fetch(`/api/sessions/${sessionId}/archive`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ archived: true })
-        });
         session.archived = 1;
+        const s = await db.get('sessions', sessionId);
+        if (s) { s.archived = 1; await db.put('sessions', s); }
         count++;
       } catch(e) { /* continue */ }
     }

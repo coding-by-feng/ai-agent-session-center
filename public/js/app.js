@@ -1,5 +1,5 @@
 import * as robotManager from './robotManager.js';
-import { createOrUpdateCard, removeCard, updateDurations, showToast, getSelectedSessionId, setSelectedSessionId, deselectSession, archiveAllEnded, isMuted, toggleMuteAll, initGroups, createOrUpdateTeamCard, removeTeamCard, getTeamsData, getSessionsData } from './sessionPanel.js';
+import { createOrUpdateCard, removeCard, updateDurations, showToast, getSelectedSessionId, setSelectedSessionId, deselectSession, archiveAllEnded, isMuted, toggleMuteAll, initGroups, createOrUpdateTeamCard, removeTeamCard, getTeamsData, getSessionsData, loadQueue } from './sessionPanel.js';
 import * as statsPanel from './statsPanel.js';
 import * as wsClient from './wsClient.js';
 import * as navController from './navController.js';
@@ -10,16 +10,88 @@ import * as settingsManager from './settingsManager.js';
 import * as soundManager from './soundManager.js';
 import * as movementManager from './movementManager.js';
 import * as terminalManager from './terminalManager.js';
+import { openDB, persistSessionUpdate, put, del, getAll } from './browserDb.js';
 
 let allSessions = {};
 const approvalAlarmTimers = new Map(); // sessionId -> intervalId for repeating alarm
 
+// Block accidental refresh/close when terminal sessions are active
+window.addEventListener('beforeunload', (e) => {
+  if (terminalManager.getActiveTerminalId()) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
+// Block refresh keyboard shortcuts (Cmd+R, Ctrl+R, F5) entirely
+window.addEventListener('keydown', (e) => {
+  const isRefresh =
+    e.key === 'F5' ||
+    ((e.metaKey || e.ctrlKey) && e.key === 'r');
+  if (isRefresh) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+}, true);
+
 async function init() {
+  // Initialize browser IndexedDB (persistence layer)
+  await openDB();
+
   // Load settings first
   await settingsManager.loadSettings();
   settingsManager.initSettingsUI();
   soundManager.init();
   movementManager.init();
+
+  // Load cached sessions from IndexedDB for instant display (before WS connects)
+  try {
+    const cachedSessions = await getAll('sessions');
+    // Only restore non-ended sessions as live cards; ended ones live in history only
+    const liveSessions = (cachedSessions || []).filter(s => s.status && s.status !== 'ended');
+    if (liveSessions.length > 0) {
+      for (const cached of liveSessions) {
+        // Convert IndexedDB record to session-like object for createOrUpdateCard
+        const session = {
+          sessionId: cached.id,
+          projectPath: cached.projectPath,
+          projectName: cached.projectName || 'Unknown',
+          title: cached.title || '',
+          status: cached.status || 'ended',
+          model: cached.model || '',
+          source: cached.source || 'ssh',
+          startedAt: cached.startedAt,
+          lastActivityAt: cached.lastActivityAt,
+          endedAt: cached.endedAt,
+          totalToolCalls: cached.totalToolCalls || 0,
+          totalPrompts: cached.totalPrompts || 0,
+          archived: cached.archived || 0,
+          characterModel: cached.characterModel,
+          accentColor: cached.accentColor,
+          teamId: cached.teamId,
+          terminalId: cached.terminalId,
+          queueCount: cached.queueCount || 0,
+          // Historical sessions have no live data
+          promptHistory: [],
+          toolUsage: {},
+          toolLog: [],
+          responseLog: [],
+          events: [],
+          subagentCount: 0,
+          animationState: cached.status === 'ended' ? 'Death' : 'Idle',
+          isHistorical: true,
+        };
+        allSessions[session.sessionId] = session;
+        createOrUpdateCard(session);
+        robotManager.updateRobot(session);
+      }
+      statsPanel.update(allSessions);
+      updateTabTitle(allSessions);
+      toggleEmptyState(Object.keys(allSessions).length === 0);
+    }
+  } catch (e) {
+    console.warn('[app] Failed to load cached sessions:', e);
+  }
 
   // Connect WebSocket
   // Pass WS reference to terminal manager once connected
@@ -40,15 +112,21 @@ async function init() {
       terminalManager.onTerminalClosed(terminalId, reason);
     },
     onSnapshotCb(sessions, teams) {
-      allSessions = sessions;
+      // Merge live sessions into allSessions (preserves cached/historical sessions)
+      for (const [id, session] of Object.entries(sessions)) {
+        allSessions[id] = session;
+      }
       for (const session of Object.values(sessions)) {
         createOrUpdateCard(session);
         robotManager.updateRobot(session);
+        // Persist to IndexedDB (fire-and-forget)
+        persistSessionUpdate(session).catch(() => {});
       }
       // Process teams from snapshot
       if (teams) {
         for (const team of Object.values(teams)) {
           createOrUpdateTeamCard(team);
+          put('teams', team).catch(() => {});
         }
       }
       statsPanel.update(sessions);
@@ -70,6 +148,16 @@ async function init() {
       robotManager.updateRobot(session);
       statsPanel.update(allSessions);
       updateTabTitle(allSessions);
+      // Persist to IndexedDB (fire-and-forget)
+      persistSessionUpdate(session).catch(() => {});
+
+      // Auto-refresh queue panel if this session's detail panel is open on the terminal tab
+      if (session.sessionId === getSelectedSessionId()) {
+        const activeTab = document.querySelector('.detail-tabs .tab.active');
+        if (activeTab && activeTab.dataset.tab === 'terminal') {
+          loadQueue(session.sessionId);
+        }
+      }
 
       // If session belongs to a team, refresh the team card
       if (team) {
@@ -147,8 +235,9 @@ async function init() {
       addActivityEntry(session);
       toggleEmptyState(Object.keys(allSessions).length === 0);
 
-      if (session.status === 'ended') {
-        // Auto-remove ended sessions after a brief delay with fade-out
+      // SSH sessions persist as disconnected cards — don't auto-remove
+      // Non-SSH sessions auto-remove after a brief delay
+      if (session.status === 'ended' && session.source !== 'ssh') {
         setTimeout(() => {
           removeCard(session.sessionId, true);
           robotManager.removeRobot(session.sessionId);
@@ -158,6 +247,17 @@ async function init() {
           toggleEmptyState(Object.keys(allSessions).length === 0);
         }, 2000);
       }
+    },
+    onSessionRemovedCb(sessionId) {
+      // Permanent deletion — remove card, robot, and IndexedDB cache
+      removeCard(sessionId, true);
+      robotManager.removeRobot(sessionId);
+      delete allSessions[sessionId];
+      // Remove from IndexedDB
+      del('sessions', sessionId).catch(() => {});
+      statsPanel.update(allSessions);
+      updateTabTitle(allSessions);
+      toggleEmptyState(Object.keys(allSessions).length === 0);
     },
     onTeamUpdateCb(team) {
       if (team) {
@@ -181,10 +281,9 @@ async function init() {
     }
   });
 
-  // Duration timer + connection status update
+  // Duration timer
   setInterval(() => {
     updateDurations();
-    updateConnectionStatus();
   }, 1000);
 
   // Initialize navigation
@@ -201,10 +300,16 @@ async function init() {
   navController.onViewChange('timeline', () => timelinePanel.refresh());
   navController.onViewChange('analytics', () => analyticsPanel.refresh());
 
-  // Handle card dismiss — remove robot too
+  // Handle card dismiss — clean runtime state, preserve IndexedDB for history
   document.addEventListener('card-dismissed', (e) => {
     const sid = e.detail.sessionId;
     robotManager.removeRobot(sid);
+    // Clear approval/input alarm timers
+    if (approvalAlarmTimers.has(sid)) {
+      clearInterval(approvalAlarmTimers.get(sid));
+      approvalAlarmTimers.delete(sid);
+    }
+    approvalAlarmTimers.delete('input-' + sid);
     delete allSessions[sid];
     statsPanel.update(allSessions);
     updateTabTitle(allSessions);
@@ -220,8 +325,9 @@ async function init() {
   // Wire up quick actions
   initQuickActions();
 
-  // Wire up connection status listener
-  initConnectionStatus();
+  // Wire up shortcuts panel
+  initShortcutsPanel();
+
 }
 
 // ---- Tab Title ----
@@ -235,45 +341,25 @@ function updateTabTitle(sessions) {
   }
 }
 
-// ---- Connection Status Indicator ----
-function initConnectionStatus() {
-  const dot = document.getElementById('conn-dot');
-  const label = document.getElementById('conn-label');
-  if (!dot || !label) return;
-
-  document.addEventListener('ws-status', (e) => {
-    if (e.detail === 'connected') {
-      dot.className = 'conn-dot connected';
-      label.textContent = 'Connected';
-    } else {
-      dot.className = 'conn-dot disconnected';
-      label.textContent = 'Disconnected';
-    }
-  });
-}
-
-function updateConnectionStatus() {
-  const label = document.getElementById('conn-label');
-  if (!label) return;
-  if (!wsClient.connected) {
-    const remaining = wsClient.getReconnectRemaining();
-    if (remaining > 0) {
-      label.textContent = `Reconnecting in ${remaining}s...`;
-    } else {
-      label.textContent = 'Reconnecting...';
-    }
-  }
-}
-
 // ---- Keyboard Shortcuts ----
 function initKeyboardShortcuts() {
   document.addEventListener('keydown', (e) => {
+    // Cmd+Enter (Mac) / Ctrl+Enter (Win/Linux) / Alt+Enter → open New Session modal (works even in terminal)
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || e.altKey)) {
+      e.preventDefault();
+      const modal = document.getElementById('new-session-modal');
+      if (modal) {
+        modal.classList.remove('hidden');
+        loadSshKeysOnInit().then(restoreLastSession);
+      }
+      return;
+    }
+
     // Skip if user is typing in an input/textarea
     const tag = e.target.tagName;
     // Never intercept xterm terminal keypresses (xterm uses a hidden textarea)
     if (e.target.classList.contains('xterm-helper-textarea')) return;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) {
-      // Only handle Escape in inputs
       if (e.key === 'Escape') {
         e.target.blur();
       }
@@ -291,12 +377,13 @@ function initKeyboardShortcuts() {
         break;
       }
       case 'Escape': {
-        // Close in priority order: kill, alert, summarize, team, settings, detail
+        // Close in priority order: kill, alert, summarize, team, shortcuts, settings, detail
         const kill = document.getElementById('kill-modal');
         const alert = document.getElementById('alert-modal');
         const summarizeModal = document.getElementById('summarize-modal');
         const teamModal = document.getElementById('team-modal');
         const newSessionModal = document.getElementById('new-session-modal');
+        const shortcutsModal = document.getElementById('shortcuts-modal');
         const settings = document.getElementById('settings-modal');
         const detail = document.getElementById('session-detail-overlay');
 
@@ -310,11 +397,19 @@ function initKeyboardShortcuts() {
           newSessionModal.classList.add('hidden');
         } else if (teamModal && !teamModal.classList.contains('hidden')) {
           teamModal.classList.add('hidden');
+        } else if (shortcutsModal && !shortcutsModal.classList.contains('hidden')) {
+          shortcutsModal.classList.add('hidden');
         } else if (settings && !settings.classList.contains('hidden')) {
           settings.classList.add('hidden');
         } else if (detail && !detail.classList.contains('hidden')) {
           deselectSession();
         }
+        break;
+      }
+      case '?': {
+        e.preventDefault();
+        const scModal = document.getElementById('shortcuts-modal');
+        if (scModal) scModal.classList.toggle('hidden');
         break;
       }
       case 's':
@@ -349,13 +444,6 @@ function initKeyboardShortcuts() {
       case 'N': {
         if (getSelectedSessionId()) {
           document.getElementById('ctrl-notes')?.click();
-        }
-        break;
-      }
-      case 'q':
-      case 'Q': {
-        if (getSelectedSessionId()) {
-          document.getElementById('ctrl-queue')?.click();
         }
         break;
       }
@@ -402,7 +490,7 @@ function initQuickActions() {
     newSessionBtn.addEventListener('click', () => {
       const modal = document.getElementById('new-session-modal');
       modal.classList.remove('hidden');
-      loadSshProfiles().then(restoreLastSession);
+      loadSshKeysOnInit().then(restoreLastSession);
     });
   }
 
@@ -426,6 +514,20 @@ function initQuickActions() {
       feedEl.classList.toggle('collapsed');
     });
   }
+}
+
+// ---- Keyboard Shortcuts Panel ----
+function initShortcutsPanel() {
+  const btn = document.getElementById('shortcuts-btn');
+  const modal = document.getElementById('shortcuts-modal');
+  const closeBtn = document.getElementById('shortcuts-close');
+  if (!btn || !modal) return;
+
+  btn.addEventListener('click', () => modal.classList.toggle('hidden'));
+  if (closeBtn) closeBtn.addEventListener('click', () => modal.classList.add('hidden'));
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) modal.classList.add('hidden');
+  });
 }
 
 function toggleEmptyState(show) {
@@ -460,23 +562,7 @@ function addActivityEntry(session) {
 }
 
 // ---- New Session Modal ----
-async function loadSshProfiles() {
-  try {
-    const resp = await fetch('/api/ssh-profiles');
-    const { profiles } = await resp.json();
-    const select = document.getElementById('ssh-profile-select');
-    while (select.options.length > 1) select.remove(1);
-    for (const p of profiles) {
-      const opt = document.createElement('option');
-      opt.value = p.id;
-      opt.textContent = `${p.name} (${p.username}@${p.host}:${p.port})`;
-      opt.dataset.profile = JSON.stringify(p);
-      select.appendChild(opt);
-    }
-  } catch (e) {
-    console.error('[app] Failed to load SSH profiles:', e);
-  }
-  // Also load available keys
+async function loadSshKeysOnInit() {
   loadSshKeys();
 }
 
@@ -509,20 +595,7 @@ function restoreLastSession() {
     if (!saved) return;
     const s = JSON.parse(saved);
 
-    // If a saved profile was used, select it in the dropdown
-    if (s.profileId) {
-      const profileSelect = document.getElementById('ssh-profile-select');
-      for (const opt of profileSelect.options) {
-        if (opt.value === String(s.profileId)) {
-          profileSelect.value = opt.value;
-          // Trigger the profile-fill logic
-          profileSelect.dispatchEvent(new Event('change'));
-          return; // profile change handler fills all fields
-        }
-      }
-    }
-
-    // Otherwise restore individual fields
+    // Restore individual fields
     if (s.host) document.getElementById('ssh-host').value = s.host;
     if (s.port) document.getElementById('ssh-port').value = s.port;
     if (s.username) document.getElementById('ssh-username').value = s.username;
@@ -661,62 +734,6 @@ function initNewSessionModal() {
     return d.innerHTML;
   }
 
-  // Profile selector — fill fields
-  document.getElementById('ssh-profile-select')?.addEventListener('change', (e) => {
-    const opt = e.target.selectedOptions[0];
-    if (!opt || !opt.dataset.profile) return;
-    const p = JSON.parse(opt.dataset.profile);
-    document.getElementById('ssh-host').value = p.host || 'localhost';
-    document.getElementById('ssh-port').value = p.port || 22;
-    document.getElementById('ssh-username').value = p.username || '';
-    document.getElementById('ssh-auth-method').value = p.auth_method || 'key';
-    const keySelect = document.getElementById('ssh-key-select');
-    if (p.private_key_path && keySelect) {
-      keySelect.value = p.private_key_path;
-    }
-    document.getElementById('ssh-workdir').value = p.working_dir || '~';
-    if (p.default_command && p.default_command !== 'claude') {
-      const preset = document.getElementById('ssh-command-preset');
-      const match = [...preset.options].find(o => o.value === p.default_command);
-      if (match) {
-        preset.value = p.default_command;
-      } else {
-        preset.value = 'custom';
-        document.getElementById('ssh-custom-command').value = p.default_command;
-        document.getElementById('ssh-custom-row').classList.remove('hidden');
-      }
-    }
-    // Trigger auth toggle
-    document.getElementById('ssh-auth-method').dispatchEvent(new Event('change'));
-  });
-
-  // Save Profile
-  document.getElementById('ssh-save-profile')?.addEventListener('click', async () => {
-    const name = prompt('Profile name:');
-    if (!name) return;
-    const body = {
-      name,
-      host: document.getElementById('ssh-host').value,
-      port: parseInt(document.getElementById('ssh-port').value) || 22,
-      username: document.getElementById('ssh-username').value,
-      authMethod: document.getElementById('ssh-auth-method').value,
-      privateKeyPath: document.getElementById('ssh-key-select').value,
-      workingDir: document.getElementById('ssh-workdir').value,
-      defaultCommand: getSelectedCommand(),
-    };
-    try {
-      await fetch('/api/ssh-profiles', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      showToast('SAVED', `Profile "${name}" saved`);
-      loadSshProfiles();
-    } catch (e) {
-      showToast('ERROR', e.message);
-    }
-  });
-
   // Connect & Launch
   document.getElementById('ssh-connect')?.addEventListener('click', async () => {
     const connectBtn = document.getElementById('ssh-connect');
@@ -730,9 +747,7 @@ function initNewSessionModal() {
     connectBtn.disabled = true;
     connectBtn.textContent = 'CONNECTING...';
     try {
-      const profileSelect = document.getElementById('ssh-profile-select');
       const body = {
-        profileId: profileSelect.value || undefined,
         host: document.getElementById('ssh-host').value,
         port: parseInt(document.getElementById('ssh-port').value) || 22,
         username: document.getElementById('ssh-username').value,
@@ -743,6 +758,7 @@ function initNewSessionModal() {
         command: getSelectedCommand(),
         apiKey: document.getElementById('ssh-api-key')?.value || undefined,
         terminalTheme: document.getElementById('ssh-terminal-theme')?.value || 'default',
+        sessionTitle: document.getElementById('ssh-session-title')?.value || undefined,
       };
 
       // Add tmux params based on mode
@@ -762,7 +778,6 @@ function initNewSessionModal() {
       // Save last used settings to localStorage for next time
       try {
         localStorage.setItem('lastSession', JSON.stringify({
-          profileId: body.profileId,
           host: body.host,
           port: body.port,
           username: body.username,

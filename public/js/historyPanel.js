@@ -1,10 +1,11 @@
+import * as db from './browserDb.js';
+
 let currentPage = 1;
 let debounceTimer = null;
 
 export async function init() {
   // Fetch projects for dropdown
-  const resp = await fetch('/api/projects');
-  const { projects } = await resp.json();
+  const projects = await db.getDistinctProjects();
   const select = document.getElementById('history-project-filter');
   projects.forEach(p => {
     const opt = document.createElement('option');
@@ -33,31 +34,41 @@ export async function refresh() {
 }
 
 async function loadSessions() {
-  const params = new URLSearchParams();
-  const q = document.getElementById('search-input').value;
-  if (q) params.set('query', q);
-  const project = document.getElementById('history-project-filter').value;
-  if (project) params.set('project', project);
-  const status = document.getElementById('history-status-filter').value;
-  if (status === 'archived') {
-    params.set('archived', 'true');
-  } else if (status) {
-    params.set('status', status);
+  const query = document.getElementById('search-input').value || undefined;
+  const project = document.getElementById('history-project-filter').value || undefined;
+  const statusVal = document.getElementById('history-status-filter').value;
+  let status, archived;
+  if (statusVal === 'archived') {
+    archived = 'true';
+  } else if (statusVal) {
+    status = statusVal;
   }
-  const dateFrom = document.getElementById('history-date-from').value;
-  if (dateFrom) params.set('dateFrom', new Date(dateFrom).getTime());
-  const dateTo = document.getElementById('history-date-to').value;
-  if (dateTo) params.set('dateTo', new Date(dateTo + 'T23:59:59').getTime());
-  const sortByMap = { date: 'started_at', duration: 'ended_at', prompts: 'total_prompts', tools: 'total_tool_calls' };
+  const dateFromRaw = document.getElementById('history-date-from').value;
+  const dateFrom = dateFromRaw ? new Date(dateFromRaw).getTime() : undefined;
+  const dateToRaw = document.getElementById('history-date-to').value;
+  const dateTo = dateToRaw ? new Date(dateToRaw + 'T23:59:59').getTime() : undefined;
+  const sortByMap = { date: 'startedAt', duration: 'endedAt', prompts: 'totalPrompts', tools: 'totalToolCalls' };
   const rawSort = document.getElementById('history-sort-by').value;
-  params.set('sortBy', sortByMap[rawSort] || 'started_at');
-  params.set('sortDir', document.getElementById('history-sort-dir').textContent.toLowerCase());
-  params.set('page', currentPage);
-  params.set('pageSize', 50);
+  const sortBy = sortByMap[rawSort] || 'startedAt';
+  const sortDir = document.getElementById('history-sort-dir').textContent.toLowerCase();
+  const page = currentPage;
+  const pageSize = 50;
 
-  const resp = await fetch(`/api/sessions/history?${params}`);
-  const data = await resp.json();
-  renderResults(data.sessions, data.total, data.page, data.pageSize);
+  const result = await db.searchSessions({ query, project, status, dateFrom, dateTo, archived, sortBy, sortDir, page, pageSize });
+
+  // Map camelCase IndexedDB fields to snake_case expected by renderResults
+  const mapped = result.sessions.map(s => ({
+    id: s.id,
+    title: s.title || '',
+    project_name: s.projectName || '',
+    started_at: s.startedAt,
+    ended_at: s.endedAt,
+    status: s.status,
+    total_prompts: s.totalPrompts || 0,
+    total_tool_calls: s.totalToolCalls || 0,
+    git_branch: s.gitBranch || '',
+  }));
+  renderResults(mapped, result.total, result.page, result.pageSize);
 }
 
 function renderResults(sessions, total, page, pageSize) {
@@ -77,6 +88,7 @@ function renderResults(sessions, total, page, pageSize) {
       hour: '2-digit', minute: '2-digit', hour12: false,
     });
     return `<div class="history-row" data-session-id="${s.id}">
+      <span class="history-title">${escapeHtml(s.title)}</span>
       <span class="history-project">${escapeHtml(s.project_name)}</span>
       <span class="history-date">${date}</span>
       <span class="history-duration">${duration}</span>
@@ -147,32 +159,41 @@ function renderPagination(total, page, pageSize) {
 }
 
 async function openHistoryDetail(sessionId) {
-  const resp = await fetch(`/api/sessions/${sessionId}/detail`);
-  const data = await resp.json();
-  const s = data;
+  const data = await db.getSessionDetail(sessionId);
+  if (!data) return;
+  const s = {
+    session: data.session,
+    prompts: data.prompts,
+    responses: (data.responses || []).map(r => ({ ...r, text: r.textExcerpt || r.text || '' })),
+    tools: (data.tool_calls || []).map(t => ({ tool: t.toolName, input: t.toolInputSummary || '', timestamp: t.timestamp })),
+    events: data.events,
+    notes: data.notes,
+  };
 
   // Populate header
   const sess = s.session || s;
-  document.getElementById('detail-project-name').textContent = sess.project_name || '';
+  document.getElementById('detail-project-name').textContent = sess.projectName || sess.project_name || '';
   const badge = document.getElementById('detail-status-badge');
   badge.textContent = (sess.status || '').toUpperCase();
   badge.className = `status-badge ${sess.status}`;
   document.getElementById('detail-model').textContent = sess.model || '';
-  document.getElementById('detail-duration').textContent = sess.ended_at
-    ? formatDuration(sess.ended_at - sess.started_at)
-    : formatDuration(Date.now() - sess.started_at);
+  const startedAt = sess.startedAt || sess.started_at;
+  const endedAt = sess.endedAt || sess.ended_at;
+  document.getElementById('detail-duration').textContent = endedAt
+    ? formatDuration(endedAt - startedAt)
+    : formatDuration(Date.now() - startedAt);
 
   // Character model selector + preview
   const charSelect = document.getElementById('detail-char-model');
   if (charSelect) {
-    charSelect.value = sess.character_model || '';
+    charSelect.value = sess.characterModel || sess.character_model || '';
     charSelect.dataset.sessionId = sessionId;
   }
   // Mini preview with session's accent color
   const previewEl = document.getElementById('detail-char-preview');
   if (previewEl) {
-    const model = sess.character_model || 'robot';
-    const accentColor = sess.accent_color || 'var(--accent-cyan)';
+    const model = sess.characterModel || sess.character_model || 'robot';
+    const accentColor = sess.accentColor || sess.accent_color || 'var(--accent-cyan)';
     import('./robotManager.js').then(rm => {
       previewEl.innerHTML = '';
       const mini = document.createElement('div');
