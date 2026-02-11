@@ -9,11 +9,12 @@
     "uninstall-hooks": "node hooks/install-hooks.js --uninstall",
     "reset": "node hooks/reset.js",
     "setup": "npm install --ignore-scripts && node hooks/setup-wizard.js && node server/index.js",
-    "postinstall": "node hooks/install-hooks.js"
+    "postinstall": "node hooks/install-hooks.js && chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true"
   },
   "dependencies": {
     "better-sqlite3": "^12.6.2",
     "express": "^5.0.0",
+    "node-pty": "^1.1.0",
     "ws": "^8.18.0"
   }
 }

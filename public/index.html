@@ -8,6 +8,11 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/dashboard.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5/css/xterm.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0/lib/addon-fit.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-unicode11@0/lib/addon-unicode11.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0/lib/addon-web-links.js"></script>
 </head>
 <body>
   <!-- Header -->
@@ -36,6 +41,7 @@
     <div id="nav-actions">
       <button id="nav-actions-toggle" class="nav-actions-toggle" title="Toggle actions">&#9776;</button>
       <div id="nav-actions-items">
+        <button id="qa-new-session" class="qa-btn qa-btn-terminal" title="Launch a new Claude session via SSH">+ NEW SESSION</button>
         <button id="qa-new-group" class="qa-btn" title="Create a new group">+ NEW GROUP</button>
         <div class="qa-separator"></div>
         <button id="qa-mute-all" class="qa-btn" title="Mute all sessions">&#9835; MUTE ALL</button>
@@ -194,6 +200,7 @@
         <button class="ctrl-btn export" id="ctrl-export" title="Export Transcript">EXPORT</button>
         <button class="ctrl-btn notes" id="ctrl-notes" title="Session Notes">NOTES</button>
         <button class="ctrl-btn queue" id="ctrl-queue" title="Prompt Queue">QUEUE</button>
+        <button class="ctrl-btn terminal" id="ctrl-terminal" title="Open Terminal">TERMINAL</button>
         <button class="ctrl-btn alert" id="ctrl-alert" title="Duration Alert">ALERT</button>
         <select id="detail-group-select" class="ctrl-select" title="Assign to group">
           <option value="">No group</option>
@@ -202,36 +209,25 @@
 
       <!-- Tab navigation -->
       <div class="detail-tabs">
-        <button class="tab active" data-tab="conversation">Conversation</button>
-        <button class="tab" data-tab="tools">Tool Log</button>
-        <button class="tab" data-tab="events">Events</button>
-        <button class="tab" data-tab="notes">Notes</button>
+        <button class="tab active" data-tab="terminal">Terminal</button>
+        <button class="tab" data-tab="conversation">Prompt History</button>
         <button class="tab" data-tab="queue">Queue</button>
+        <button class="tab" data-tab="notes">Notes</button>
+        <button class="tab" data-tab="activity">Activity</button>
         <button class="tab" data-tab="summary">Summary</button>
       </div>
 
-      <!-- Conversation Tab (unified prompts + tools + responses) -->
-      <div class="tab-content active" id="tab-conversation">
-        <div id="detail-conversation"></div>
-      </div>
-
-      <!-- Tool Call Log Tab -->
-      <div class="tab-content" id="tab-tools">
-        <div id="detail-tool-log"></div>
-      </div>
-
-      <!-- Raw Events Tab -->
-      <div class="tab-content" id="tab-events">
-        <div id="detail-events-log"></div>
-      </div>
-
-      <!-- Notes Tab -->
-      <div class="tab-content" id="tab-notes">
-        <div class="notes-compose">
-          <textarea id="note-textarea" placeholder="Add a note..." rows="3"></textarea>
-          <button id="save-note" class="ctrl-btn notes">Save Note</button>
+      <!-- Terminal Tab -->
+      <div class="tab-content active" id="tab-terminal">
+        <div class="terminal-toolbar">
+          <div id="terminal-status" class="terminal-status">Not connected</div>
         </div>
-        <div id="notes-list"></div>
+        <div id="terminal-container"></div>
+      </div>
+
+      <!-- Prompt History Tab -->
+      <div class="tab-content" id="tab-conversation">
+        <div id="detail-conversation"></div>
       </div>
 
       <!-- Queue Tab -->
@@ -245,6 +241,20 @@
           <button id="queue-add-btn" class="ctrl-btn queue">Add to Queue</button>
         </div>
         <div id="queue-list"></div>
+      </div>
+
+      <!-- Notes Tab -->
+      <div class="tab-content" id="tab-notes">
+        <div class="notes-compose">
+          <textarea id="note-textarea" placeholder="Add a note..." rows="3"></textarea>
+          <button id="save-note" class="ctrl-btn notes">Save Note</button>
+        </div>
+        <div id="notes-list"></div>
+      </div>
+
+      <!-- Activity Tab (combined tool calls, events, responses) -->
+      <div class="tab-content" id="tab-activity">
+        <div id="detail-activity-log"></div>
       </div>
 
       <!-- Summary Tab -->
@@ -624,6 +634,17 @@
       <!-- Advanced Tab -->
       <div class="settings-tab-content" id="settings-tab-advanced">
         <div class="settings-section">
+          <h4>Anthropic API Key</h4>
+          <p class="settings-hint">Set once — automatically used for all SSH sessions so Claude doesn't ask you to login each time.</p>
+          <div class="api-key-row">
+            <input type="password" id="settings-api-key" placeholder="sk-ant-..." class="settings-input api-key-input">
+            <button id="settings-api-key-toggle" class="api-key-toggle" title="Show/hide">SHOW</button>
+            <button id="settings-api-key-save" class="ctrl-btn notes">Save</button>
+          </div>
+          <div id="settings-api-key-status" class="settings-hint" style="margin-top:4px;"></div>
+        </div>
+
+        <div class="settings-section">
           <h4>Hook Trace Density</h4>
           <p class="settings-hint">Controls which Claude Code events are tracked. Higher density = more detail but more overhead.</p>
           <div id="hook-density-control" class="density-control">
@@ -685,6 +706,109 @@
             Show activity feed
           </label>
         </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- New Session Modal -->
+  <div id="new-session-modal" class="modal-overlay hidden">
+    <div class="modal-panel new-session-panel">
+      <div class="new-session-header">
+        <h3>Launch Claude Session</h3>
+        <button id="new-session-close" class="modal-close">&times;</button>
+      </div>
+      <div class="new-session-body">
+        <div class="ssh-field">
+          <label>Profile</label>
+          <select id="ssh-profile-select">
+            <option value="">Custom connection...</option>
+          </select>
+        </div>
+        <div class="ssh-field-row">
+          <div class="ssh-field ssh-field-grow">
+            <label>Host</label>
+            <input id="ssh-host" value="localhost" placeholder="hostname or IP">
+          </div>
+          <div class="ssh-field ssh-field-small">
+            <label>Port</label>
+            <input id="ssh-port" type="number" value="22">
+          </div>
+        </div>
+        <div class="ssh-field">
+          <label>Username</label>
+          <input id="ssh-username" placeholder="your username">
+        </div>
+        <div class="ssh-field">
+          <label>Auth Method</label>
+          <select id="ssh-auth-method">
+            <option value="key">SSH Key (~/.ssh/id_rsa)</option>
+            <option value="agent">SSH Agent</option>
+            <option value="password">Password</option>
+          </select>
+        </div>
+        <div class="ssh-field hidden" id="ssh-password-row">
+          <label>Password</label>
+          <input id="ssh-password" type="password" placeholder="SSH password">
+        </div>
+        <div class="ssh-field" id="ssh-key-row">
+          <label>Key File</label>
+          <select id="ssh-key-select">
+            <option value="">Loading keys...</option>
+          </select>
+        </div>
+        <div class="ssh-field">
+          <label>Working Directory</label>
+          <input id="ssh-workdir" value="~" placeholder="~/projects/my-app">
+        </div>
+        <div class="ssh-field">
+          <label>Session Mode</label>
+          <div class="ssh-mode-toggle">
+            <button class="ssh-mode-btn active" data-mode="new">New Session</button>
+            <button class="ssh-mode-btn" data-mode="tmux-attach">Attach tmux</button>
+            <button class="ssh-mode-btn" data-mode="tmux-wrap">Wrap in tmux</button>
+          </div>
+        </div>
+        <div class="ssh-field hidden" id="ssh-tmux-row">
+          <label>tmux Sessions <button id="ssh-tmux-refresh" class="ssh-tmux-refresh" title="Refresh session list">&#8635;</button></label>
+          <div id="ssh-tmux-list" class="ssh-tmux-list">
+            <div class="ssh-tmux-empty">Click refresh to load sessions</div>
+          </div>
+        </div>
+        <div class="ssh-field">
+          <label>Command</label>
+          <select id="ssh-command-preset">
+            <option value="claude">claude</option>
+            <option value="claude --dangerously-skip-permissions">claude --dangerously-skip-permissions</option>
+            <option value="claude --model claude-sonnet-4-5-20250929">claude (Sonnet 4.5)</option>
+            <option value="custom">Custom command...</option>
+          </select>
+        </div>
+        <div class="ssh-field hidden" id="ssh-custom-row">
+          <label>Custom Command</label>
+          <input id="ssh-custom-command" placeholder="e.g. claude --verbose">
+        </div>
+        <div class="ssh-field">
+          <label>API Key <span class="ssh-field-hint">(optional — overrides global setting)</span></label>
+          <input id="ssh-api-key" type="password" placeholder="Uses global key if empty">
+        </div>
+        <div class="ssh-field">
+          <label>Terminal Theme</label>
+          <select id="ssh-terminal-theme">
+            <option value="default">Default (Dashboard)</option>
+            <option value="dark">Dark</option>
+            <option value="monokai">Monokai</option>
+            <option value="dracula">Dracula</option>
+            <option value="solarized-dark">Solarized Dark</option>
+            <option value="nord">Nord</option>
+            <option value="github-dark">GitHub Dark</option>
+          </select>
+        </div>
+      </div>
+      <div class="new-session-footer">
+        <button id="ssh-save-profile" class="ctrl-btn notes">SAVE PROFILE</button>
+        <button id="ssh-connect" class="ctrl-btn terminal">CONNECT & LAUNCH</button>
+        <button id="ssh-cancel" class="ctrl-btn kill">CANCEL</button>
       </div>
     </div>
   </div>

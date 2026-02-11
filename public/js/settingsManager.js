@@ -499,6 +499,34 @@ export function initSettingsUI() {
   // Fetch live hook status on settings init
   syncHookDensityUI();
 
+  // --- API Key ---
+  const apiKeyInput = document.getElementById('settings-api-key');
+  const apiKeyToggle = document.getElementById('settings-api-key-toggle');
+  const apiKeySave = document.getElementById('settings-api-key-save');
+  const apiKeyStatus = document.getElementById('settings-api-key-status');
+  if (apiKeyInput) {
+    // Load current value (masked)
+    const stored = get('anthropicApiKey');
+    if (stored) {
+      apiKeyInput.value = stored;
+      if (apiKeyStatus) apiKeyStatus.textContent = 'Key saved';
+    }
+    if (apiKeyToggle) {
+      apiKeyToggle.addEventListener('click', () => {
+        const isPassword = apiKeyInput.type === 'password';
+        apiKeyInput.type = isPassword ? 'text' : 'password';
+        apiKeyToggle.textContent = isPassword ? 'HIDE' : 'SHOW';
+      });
+    }
+    if (apiKeySave) {
+      apiKeySave.addEventListener('click', async () => {
+        const val = apiKeyInput.value.trim();
+        await set('anthropicApiKey', val);
+        if (apiKeyStatus) apiKeyStatus.textContent = val ? 'Key saved' : 'Key cleared';
+      });
+    }
+  }
+
   // --- Apply all current settings to UI ---
   syncUIToSettings();
 

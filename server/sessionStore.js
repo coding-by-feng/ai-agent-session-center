@@ -4,6 +4,7 @@ import { execSync } from 'child_process';
 import log from './logger.js';
 import { getToolTimeout, getToolCategory, getWaitingStatus, getWaitingLabel, AUTO_IDLE_TIMEOUTS, PROCESS_CHECK_INTERVAL } from './config.js';
 import { config as serverConfig } from './serverConfig.js';
+import { tryLinkByWorkDir, getTerminalForSession } from './sshManager.js';
 
 const sessions = new Map();
 const projectSessionCounters = new Map();
@@ -126,7 +127,8 @@ export function loadActiveSessions() {
         summary: row.summary || null,
         characterModel: row.character_model || null,
         accentColor: row.accent_color || null,
-        queueCount: selectQueueCount.get(row.id)?.c || 0
+        queueCount: selectQueueCount.get(row.id)?.c || 0,
+        terminalId: null
       });
     }
   } catch (err) {
@@ -201,65 +203,82 @@ export function handleEvent(hookData) {
       pidToSession.set(pid, session_id);
       console.log(`[hook] CACHED pid=${pid} → session=${session_id?.slice(0,8)}`);
     }
-    if (session) {
-      // Detect source from hook env — much more reliable than process tree walking
-      if (session.source === 'unknown' || session.source === 'startup' || session.source === 'hook') {
-        const detectedSource = detectSourceFromHookEnv(hookData);
-        if (detectedSource) {
-          session.source = detectedSource;
-          console.log(`[hook] SOURCE session=${session_id?.slice(0,8)} → ${detectedSource} (from hook env)`);
-        }
-      }
-      // Cache tab/window identifiers for exact focus
-      if (hookData.tty_path) session.ttyPath = hookData.tty_path;
-      if (hookData.tab_id) session.tabId = hookData.tab_id;
-      if (hookData.term_program) session.termProgram = hookData.term_program;
-      if (hookData.vscode_pid) session.vscodePid = Number(hookData.vscode_pid);
-      if (hookData.window_id) session.windowId = hookData.window_id;
-      if (hookData.tmux) session.tmux = hookData.tmux;
-      if (hookData.kitty_pid) session.kittyPid = Number(hookData.kitty_pid);
-    }
   }
 
-  // Create session if new
+  // Create session if new — ONLY when linked to an SSH terminal
   if (!session) {
-    const pid = hookData.claude_pid ? Number(hookData.claude_pid) : null;
-    const detectedSource = detectSourceFromHookEnv(hookData);
-    console.log(`[hook] NEW SESSION ${session_id?.slice(0,8)} — project=${cwd ? cwd.split('/').filter(Boolean).pop() : 'Unknown'} pid=${pid || 'none'} source=${detectedSource || hookData.source || 'unknown'}`);
-    session = {
-      sessionId: session_id,
-      projectPath: cwd || '',
-      projectName: cwd ? cwd.split('/').filter(Boolean).pop() : 'Unknown',
-      title: '',
-      status: 'idle',
-      animationState: 'Idle',
-      emote: null,
-      startedAt: Date.now(),
-      lastActivityAt: Date.now(),
-      currentPrompt: '',
-      promptHistory: [],
-      toolUsage: {},
-      totalToolCalls: 0,
-      model: hookData.model || '',
-      subagentCount: 0,
-      toolLog: [],
-      responseLog: [],
-      events: [],
-      archived: 0,
-      source: detectedSource || hookData.source || 'unknown',
-      pendingTool: null,
-      waitingDetail: null,
-      cachedPid: null,
-      ttyPath: hookData.tty_path || null,
-      tabId: hookData.tab_id || null,
-      termProgram: hookData.term_program || null,
-      vscodePid: hookData.vscode_pid ? Number(hookData.vscode_pid) : null,
-      windowId: hookData.window_id || null,
-      tmux: hookData.tmux || null,
-      kittyPid: hookData.kitty_pid ? Number(hookData.kitty_pid) : null,
-      queueCount: 0
-    };
-    sessions.set(session_id, session);
+    // Check if this session matches a pending SSH terminal
+    const linkedTerminalId = tryLinkByWorkDir(cwd || '', session_id);
+    if (!linkedTerminalId) {
+      // Maybe there's a pre-created terminal session for this workDir — scan by path
+      let found = false;
+      for (const [key, s] of sessions) {
+        if (s.terminalId && s.status === 'connecting' && s.projectPath) {
+          const normalizedSessionPath = s.projectPath.replace(/\/$/, '');
+          const normalizedCwd = (cwd || '').replace(/\/$/, '');
+          if (normalizedSessionPath === normalizedCwd || s.projectPath === cwd) {
+            // Found a pre-created terminal session — re-key it
+            sessions.delete(key);
+            s.sessionId = session_id;
+            s.replacesId = key; // Tell frontend to remove old card
+            session = s;
+            sessions.set(session_id, session);
+            log.info('session', `Re-keyed terminal session ${key} → ${session_id?.slice(0,8)}`);
+            found = true;
+            break;
+          }
+        }
+      }
+      if (!found) {
+        log.debug('session', `Ignoring session ${session_id?.slice(0,8)} — no SSH terminal match (cwd=${cwd})`);
+        return null;
+      }
+    }
+
+    // If we matched via tryLinkByWorkDir but don't have a session yet (no pre-session found)
+    if (!session && linkedTerminalId) {
+      // Check if there's a pre-created terminal session with this terminalId
+      const preSession = sessions.get(linkedTerminalId);
+      if (preSession) {
+        sessions.delete(linkedTerminalId);
+        preSession.sessionId = session_id;
+        preSession.replacesId = linkedTerminalId;
+        session = preSession;
+        sessions.set(session_id, session);
+        log.info('session', `Re-keyed terminal session ${linkedTerminalId} → ${session_id?.slice(0,8)}`);
+      } else {
+        const pid = hookData.claude_pid ? Number(hookData.claude_pid) : null;
+        console.log(`[hook] NEW SSH SESSION ${session_id?.slice(0,8)} — terminal=${linkedTerminalId}`);
+        session = {
+          sessionId: session_id,
+          projectPath: cwd || '',
+          projectName: cwd ? cwd.split('/').filter(Boolean).pop() : 'Unknown',
+          title: '',
+          status: 'idle',
+          animationState: 'Idle',
+          emote: null,
+          startedAt: Date.now(),
+          lastActivityAt: Date.now(),
+          currentPrompt: '',
+          promptHistory: [],
+          toolUsage: {},
+          totalToolCalls: 0,
+          model: hookData.model || '',
+          subagentCount: 0,
+          toolLog: [],
+          responseLog: [],
+          events: [],
+          archived: 0,
+          source: 'ssh',
+          pendingTool: null,
+          waitingDetail: null,
+          cachedPid: null,
+          queueCount: 0,
+          terminalId: linkedTerminalId
+        };
+        sessions.set(session_id, session);
+      }
+    }
 
     // Cache PID from hook
     if (pid && pid > 0) {
@@ -536,6 +555,8 @@ export function handleEvent(hookData) {
   }
 
   const result = { session: { ...session } };
+  // Clean up one-time re-key flag
+  delete session.replacesId;
   // Include team info if session belongs to a team
   const teamId = sessionToTeam.get(session_id);
   if (teamId) {
@@ -547,7 +568,10 @@ export function handleEvent(hookData) {
 export function getAllSessions() {
   const result = {};
   for (const [id, session] of sessions) {
-    result[id] = { ...session };
+    // Only return sessions linked to an SSH terminal
+    if (session.terminalId) {
+      result[id] = { ...session };
+    }
   }
   return result;
 }
@@ -715,6 +739,54 @@ export function getSession(sessionId) {
   return s ? { ...s } : null;
 }
 
+// Create a session card immediately when SSH terminal connects (before hooks arrive)
+export async function createTerminalSession(terminalId, config) {
+  const workDir = config.workingDir || '~';
+  const projectName = workDir === '~' ? 'Home' : workDir.split('/').filter(Boolean).pop() || 'SSH Session';
+  const session = {
+    sessionId: terminalId,
+    projectPath: workDir,
+    projectName,
+    title: `${config.host || 'localhost'}:${workDir}`,
+    status: 'connecting',
+    animationState: 'Walking',
+    emote: 'Wave',
+    startedAt: Date.now(),
+    lastActivityAt: Date.now(),
+    currentPrompt: '',
+    promptHistory: [],
+    toolUsage: {},
+    totalToolCalls: 0,
+    model: '',
+    subagentCount: 0,
+    toolLog: [],
+    responseLog: [],
+    events: [{ type: 'TerminalCreated', detail: `SSH → ${config.host || 'localhost'}`, timestamp: Date.now() }],
+    archived: 0,
+    source: 'ssh',
+    pendingTool: null,
+    waitingDetail: null,
+    cachedPid: null,
+    queueCount: 0,
+    terminalId,
+    sshHost: config.host || 'localhost',
+    sshCommand: config.command || 'claude',
+  };
+  sessions.set(terminalId, session);
+  log.info('session', `Created terminal session ${terminalId} → ${config.host}:${workDir}`);
+
+  const { broadcast } = await import('./wsManager.js');
+  broadcast({ type: 'session_update', session: { ...session } });
+  return session;
+}
+
+export function linkTerminalToSession(sessionId, terminalId) {
+  const session = sessions.get(sessionId);
+  if (!session) return null;
+  session.terminalId = terminalId;
+  return { ...session };
+}
+
 export function updateQueueCount(sessionId) {
   const session = sessions.get(sessionId);
   if (!session) return null;
@@ -828,6 +900,9 @@ setInterval(async () => {
   for (const [id, session] of sessions) {
     if (session.status === 'ended') continue;
     if (!session.cachedPid) continue;
+
+    // Skip sessions with active terminal — the PTY is the source of truth
+    if (session.terminalId && getTerminalForSession(id)) continue;
 
     try {
       process.kill(session.cachedPid, 0); // signal 0 = liveness check, doesn't kill

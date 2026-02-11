@@ -279,6 +279,23 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_prompt_queue_session ON prompt_queue(session_id, position);
 `);
 
+// SSH profiles table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ssh_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    host TEXT NOT NULL DEFAULT 'localhost',
+    port INTEGER NOT NULL DEFAULT 22,
+    username TEXT NOT NULL,
+    auth_method TEXT NOT NULL DEFAULT 'key',
+    private_key_path TEXT,
+    working_dir TEXT DEFAULT '~',
+    default_command TEXT DEFAULT 'claude',
+    created_at INTEGER,
+    updated_at INTEGER
+  );
+`);
+
 // User settings table
 db.exec(`
   CREATE TABLE IF NOT EXISTS user_settings (
