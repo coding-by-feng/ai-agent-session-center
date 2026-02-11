@@ -266,6 +266,19 @@ Any additional context for reviewers.`, 0, now, now);
   }
 }
 
+// Prompt queue table — per-session ordered prompt queue
+db.exec(`
+  CREATE TABLE IF NOT EXISTS prompt_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT,
+    text TEXT,
+    position INTEGER,
+    created_at INTEGER,
+    FOREIGN KEY (session_id) REFERENCES sessions(id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_prompt_queue_session ON prompt_queue(session_id, position);
+`);
+
 // User settings table
 db.exec(`
   CREATE TABLE IF NOT EXISTS user_settings (

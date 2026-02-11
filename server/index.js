@@ -11,7 +11,9 @@ import { getAllSessions } from './sessionStore.js';
 import db from './db.js';
 import apiRouter from './apiRouter.js';
 import { startImport } from './importer.js';
+import { startMqReader, stopMqReader } from './mqReader.js';
 import log from './logger.js';
+import { config } from './serverConfig.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -41,7 +43,7 @@ if (log.isDebug) {
 wss.on('connection', handleConnection);
 wss.on('error', () => {}); // Suppress WSS re-emit; handled on HTTP server
 
-const PORT = 3333;
+const PORT = config.port || 3333;
 
 function killPortProcess(port) {
   try {
@@ -77,6 +79,9 @@ function onReady() {
   if (log.isDebug) {
     log.info('server', 'Debug mode ENABLED — verbose logging active');
   }
+
+  // Start file-based message queue reader
+  startMqReader();
 
   // Start background JSONL import
   startImport().catch(err => {
@@ -125,3 +130,17 @@ server.on('error', (err) => {
 });
 
 server.listen(PORT, onReady);
+
+// Graceful shutdown
+function gracefulShutdown(signal) {
+  log.info('server', `Received ${signal}, shutting down...`);
+  stopMqReader();
+  server.close(() => {
+    log.info('server', 'Server closed');
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 5000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

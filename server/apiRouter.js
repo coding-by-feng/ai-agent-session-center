@@ -3,10 +3,18 @@ import { Router } from 'express';
 import { searchSessions, getSessionDetail, getDistinctProjects, getTimeline, fullTextSearch } from './queryEngine.js';
 import { getToolUsageBreakdown, getDurationTrends, getActiveProjects, getDailyHeatmap, getSummaryStats } from './analytics.js';
 import { startImport, getImportStatus } from './importer.js';
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSummary, getSession, detectSessionSource, setSessionCharacterModel, setSessionAccentColor } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSummary, getSession, detectSessionSource, setSessionCharacterModel, setSessionAccentColor, updateQueueCount } from './sessionStore.js';
+import { broadcast } from './wsManager.js';
+import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
+import { getMqStats } from './mqReader.js';
 import { execFile, execSync } from 'child_process';
-import { writeFileSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { homedir } from 'os';
+import { fileURLToPath } from 'url';
 import db from './db.js';
+
+const __apiDirname = dirname(fileURLToPath(import.meta.url));
 
 const router = Router();
 
@@ -69,6 +77,109 @@ router.get('/timeline', (req, res) => {
 router.get('/projects', (req, res) => {
   const projects = getDistinctProjects();
   res.json({ projects });
+});
+
+// Hook performance stats
+router.get('/hook-stats', (req, res) => {
+  res.json(getHookStats());
+});
+
+router.post('/hook-stats/reset', (req, res) => {
+  resetHookStats();
+  res.json({ ok: true });
+});
+
+// MQ reader stats
+router.get('/mq-stats', (req, res) => {
+  res.json(getMqStats());
+});
+
+// ---- Hook Density Management ----
+
+const CLAUDE_SETTINGS_PATH = join(homedir(), '.claude', 'settings.json');
+const INSTALL_HOOKS_SCRIPT = join(__apiDirname, '..', 'hooks', 'install-hooks.js');
+const HOOK_PATTERN = 'dashboard-hook.';
+const ALL_HOOK_EVENTS = [
+  'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse',
+  'Stop', 'Notification', 'SubagentStart', 'SubagentStop', 'SessionEnd'
+];
+const DENSITY_EVENTS = {
+  high: ALL_HOOK_EVENTS,
+  medium: ['SessionStart', 'UserPromptSubmit', 'Stop', 'Notification', 'SubagentStart', 'SubagentStop', 'SessionEnd'],
+  low: ['SessionStart', 'UserPromptSubmit', 'Stop', 'SessionEnd']
+};
+
+// Get current hooks status from ~/.claude/settings.json
+router.get('/hooks/status', (req, res) => {
+  try {
+    let claudeSettings = {};
+    try {
+      claudeSettings = JSON.parse(readFileSync(CLAUDE_SETTINGS_PATH, 'utf8'));
+    } catch { /* file doesn't exist yet */ }
+
+    const hooks = claudeSettings.hooks || {};
+    const installedEvents = ALL_HOOK_EVENTS.filter(event =>
+      hooks[event]?.some(group => group.hooks?.some(h => h.command?.includes(HOOK_PATTERN)))
+    );
+
+    // Infer density from installed events
+    let density = 'off';
+    if (installedEvents.length > 0) {
+      if (installedEvents.length === DENSITY_EVENTS.high.length &&
+          DENSITY_EVENTS.high.every(e => installedEvents.includes(e))) {
+        density = 'high';
+      } else if (installedEvents.length === DENSITY_EVENTS.medium.length &&
+                 DENSITY_EVENTS.medium.every(e => installedEvents.includes(e))) {
+        density = 'medium';
+      } else if (installedEvents.length === DENSITY_EVENTS.low.length &&
+                 DENSITY_EVENTS.low.every(e => installedEvents.includes(e))) {
+        density = 'low';
+      } else {
+        density = 'custom';
+      }
+    }
+
+    res.json({ installed: installedEvents.length > 0, density, events: installedEvents });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Install hooks with specified density
+router.post('/hooks/install', (req, res) => {
+  const { density } = req.body;
+  if (!density || !DENSITY_EVENTS[density]) {
+    return res.status(400).json({ error: 'density must be one of: high, medium, low' });
+  }
+
+  // Save density preference to dashboard settings
+  db.prepare('INSERT OR REPLACE INTO user_settings (key, value, updated_at) VALUES (?, ?, ?)').run('hookDensity', density, Date.now());
+
+  // Run install-hooks.js with --density flag
+  execFile('node', [INSTALL_HOOKS_SCRIPT, '--density', density], { timeout: 15000 }, (err, stdout, stderr) => {
+    if (err) {
+      console.error('[hooks/install] Error:', err.message);
+      return res.status(500).json({ error: err.message, stdout, stderr });
+    }
+    console.log('[hooks/install]', stdout);
+    res.json({ ok: true, density, events: DENSITY_EVENTS[density], output: stdout });
+  });
+});
+
+// Uninstall all dashboard hooks
+router.post('/hooks/uninstall', (req, res) => {
+  // Save density as 'off'
+  db.prepare('INSERT OR REPLACE INTO user_settings (key, value, updated_at) VALUES (?, ?, ?)').run('hookDensity', 'off', Date.now());
+
+  // Run install-hooks.js with --uninstall flag
+  execFile('node', [INSTALL_HOOKS_SCRIPT, '--uninstall'], { timeout: 15000 }, (err, stdout, stderr) => {
+    if (err) {
+      console.error('[hooks/uninstall] Error:', err.message);
+      return res.status(500).json({ error: err.message, stdout, stderr });
+    }
+    console.log('[hooks/uninstall]', stdout);
+    res.json({ ok: true, output: stdout });
+  });
 });
 
 // Import endpoints
@@ -1338,6 +1449,80 @@ router.post('/sessions/:id/notes', (req, res) => {
 // Notes - delete
 router.delete('/sessions/:id/notes/:noteId', (req, res) => {
   db.prepare('DELETE FROM session_notes WHERE id = ? AND session_id = ?').run(req.params.noteId, req.params.id);
+  res.json({ ok: true });
+});
+
+// ---- Prompt Queue ----
+
+// Helper: re-number positions after delete/pop
+function renumberQueue(sessionId) {
+  const rows = db.prepare('SELECT id FROM prompt_queue WHERE session_id = ? ORDER BY position ASC').all(sessionId);
+  const stmt = db.prepare('UPDATE prompt_queue SET position = ? WHERE id = ?');
+  for (let i = 0; i < rows.length; i++) {
+    stmt.run(i, rows[i].id);
+  }
+}
+
+// Helper: broadcast updated session with new queueCount
+function broadcastQueueChange(sessionId) {
+  const session = updateQueueCount(sessionId);
+  if (session) {
+    broadcast({ type: 'session_update', session });
+  }
+}
+
+// List queued prompts
+router.get('/sessions/:id/prompt-queue', (req, res) => {
+  const items = db.prepare('SELECT * FROM prompt_queue WHERE session_id = ? ORDER BY position ASC').all(req.params.id);
+  res.json({ items });
+});
+
+// Add prompt to queue
+router.post('/sessions/:id/prompt-queue', (req, res) => {
+  const { text } = req.body;
+  if (!text || !text.trim()) return res.status(400).json({ error: 'Prompt text is required' });
+  const now = Date.now();
+  const maxPos = db.prepare('SELECT MAX(position) AS m FROM prompt_queue WHERE session_id = ?').get(req.params.id);
+  const position = (maxPos?.m ?? -1) + 1;
+  const result = db.prepare('INSERT INTO prompt_queue (session_id, text, position, created_at) VALUES (?, ?, ?, ?)').run(req.params.id, text.trim(), position, now);
+  broadcastQueueChange(req.params.id);
+  res.json({ ok: true, item: { id: result.lastInsertRowid, session_id: req.params.id, text: text.trim(), position, created_at: now } });
+});
+
+// Edit prompt text
+router.put('/sessions/:id/prompt-queue/:itemId', (req, res) => {
+  const { text } = req.body;
+  if (!text || !text.trim()) return res.status(400).json({ error: 'Prompt text is required' });
+  db.prepare('UPDATE prompt_queue SET text = ? WHERE id = ? AND session_id = ?').run(text.trim(), req.params.itemId, req.params.id);
+  res.json({ ok: true });
+});
+
+// Delete prompt from queue
+router.delete('/sessions/:id/prompt-queue/:itemId', (req, res) => {
+  db.prepare('DELETE FROM prompt_queue WHERE id = ? AND session_id = ?').run(req.params.itemId, req.params.id);
+  renumberQueue(req.params.id);
+  broadcastQueueChange(req.params.id);
+  res.json({ ok: true });
+});
+
+// Pop top prompt (position=0) — returns text for clipboard copy
+router.post('/sessions/:id/prompt-queue/pop', (req, res) => {
+  const top = db.prepare('SELECT * FROM prompt_queue WHERE session_id = ? ORDER BY position ASC LIMIT 1').get(req.params.id);
+  if (!top) return res.status(404).json({ error: 'Queue is empty' });
+  db.prepare('DELETE FROM prompt_queue WHERE id = ?').run(top.id);
+  renumberQueue(req.params.id);
+  broadcastQueueChange(req.params.id);
+  res.json({ ok: true, text: top.text });
+});
+
+// Reorder queue — accepts { order: [id, id, id] }
+router.put('/sessions/:id/prompt-queue/reorder', (req, res) => {
+  const { order } = req.body;
+  if (!Array.isArray(order)) return res.status(400).json({ error: 'order must be an array of item IDs' });
+  const stmt = db.prepare('UPDATE prompt_queue SET position = ? WHERE id = ? AND session_id = ?');
+  for (let i = 0; i < order.length; i++) {
+    stmt.run(i, order[i], req.params.id);
+  }
   res.json({ ok: true });
 });
 

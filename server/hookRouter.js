@@ -1,7 +1,6 @@
-// hookRouter.js — POST /api/hooks endpoint
+// hookRouter.js — POST /api/hooks endpoint (HTTP transport adapter)
 import { Router } from 'express';
-import { handleEvent } from './sessionStore.js';
-import { broadcast } from './wsManager.js';
+import { processHookEvent } from './hookProcessor.js';
 import log from './logger.js';
 
 const router = Router();
@@ -12,17 +11,7 @@ router.post('/', (req, res) => {
     log.warn('hook', 'Received hook without session_id');
     return res.status(400).json({ error: 'Missing session_id' });
   }
-  log.debug('hook', `Event: ${hookData.type || 'unknown'} session=${hookData.session_id}`);
-  log.debugJson('hook', 'Hook payload', hookData);
-  const delta = handleEvent(hookData);
-  if (delta) {
-    log.debug('hook', `Broadcasting session_update for ${hookData.session_id} status=${delta.session?.status}`);
-    broadcast({ type: 'session_update', ...delta });
-    if (delta.team) {
-      log.debug('hook', `Broadcasting team_update for team=${delta.team.teamId}`);
-      broadcast({ type: 'team_update', team: delta.team });
-    }
-  }
+  processHookEvent(hookData, 'http');
   res.json({ ok: true });
 });
 

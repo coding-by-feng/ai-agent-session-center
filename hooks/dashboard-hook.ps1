@@ -97,19 +97,51 @@ if ($sessionId) {
     }
 }
 
-# POST to dashboard server (fire-and-forget)
-try {
-    $job = Start-Job -ScriptBlock {
-        param($body)
+# Deliver to dashboard via file-based MQ (primary) or HTTP (fallback)
+$mqDir = "$env:TEMP\claude-session-center"
+$mqFile = "$mqDir\queue.jsonl"
+
+if (Test-Path $mqDir -PathType Container) {
+    # File-based MQ: atomic append via .NET StreamWriter (no process spawn)
+    try {
+        $fs = [System.IO.File]::Open($mqFile,
+            [System.IO.FileMode]::Append,
+            [System.IO.FileAccess]::Write,
+            [System.IO.FileShare]::ReadWrite)
+        $writer = New-Object System.IO.StreamWriter($fs)
+        $writer.WriteLine($enriched)
+        $writer.Flush()
+        $writer.Close()
+        $fs.Close()
+    } catch {
+        # Fall through to HTTP on file error
         try {
-            Invoke-RestMethod -Uri 'http://localhost:3333/api/hooks' `
-                -Method POST `
-                -ContentType 'application/json' `
-                -Body $body `
-                -TimeoutSec 5 | Out-Null
+            $job = Start-Job -ScriptBlock {
+                param($body)
+                try {
+                    Invoke-RestMethod -Uri 'http://localhost:3333/api/hooks' `
+                        -Method POST `
+                        -ContentType 'application/json' `
+                        -Body $body `
+                        -TimeoutSec 5 | Out-Null
+                } catch {}
+            } -ArgumentList $enriched
         } catch {}
-    } -ArgumentList $enriched
-    # Don't wait for the job
-} catch {}
+    }
+} else {
+    # Fallback: HTTP POST when MQ dir doesn't exist (server not started yet)
+    try {
+        $job = Start-Job -ScriptBlock {
+            param($body)
+            try {
+                Invoke-RestMethod -Uri 'http://localhost:3333/api/hooks' `
+                    -Method POST `
+                    -ContentType 'application/json' `
+                    -Body $body `
+                    -TimeoutSec 5 | Out-Null
+            } catch {}
+        } -ArgumentList $enriched
+    } catch {}
+}
 
 exit 0

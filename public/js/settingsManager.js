@@ -12,7 +12,8 @@ const defaults = {
   characterModel: 'robot',
   animationIntensity: '100',
   animationSpeed: '100',
-  movementActions: ''
+  movementActions: '',
+  hookDensity: 'off'
 };
 
 let settings = { ...defaults };
@@ -103,6 +104,85 @@ export function applyAnimationSpeed(value) {
 export function applyActivityFeed(visible) {
   const feed = document.getElementById('activity-feed');
   if (feed) feed.style.display = visible === 'true' ? '' : 'none';
+}
+
+// ---- Hook Density ----
+
+const DENSITY_EVENTS = {
+  high: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop', 'Notification', 'SubagentStart', 'SubagentStop', 'SessionEnd'],
+  medium: ['SessionStart', 'UserPromptSubmit', 'Stop', 'Notification', 'SubagentStart', 'SubagentStop', 'SessionEnd'],
+  low: ['SessionStart', 'UserPromptSubmit', 'Stop', 'SessionEnd']
+};
+
+// Fetch live status from ~/.claude/settings.json and sync UI
+export async function syncHookDensityUI() {
+  const statusEl = document.getElementById('hook-density-status');
+  const btns = document.querySelectorAll('.density-btn');
+  const installBtn = document.getElementById('hook-install-btn');
+  const uninstallBtn = document.getElementById('hook-uninstall-btn');
+  if (!statusEl) return;
+
+  try {
+    const resp = await fetch('/api/hooks/status');
+    const data = await resp.json();
+
+    // Update button active state
+    btns.forEach(b => b.classList.toggle('active', b.dataset.density === data.density));
+
+    // Update status text
+    if (data.installed) {
+      statusEl.innerHTML = `<span class="hook-status-dot installed"></span> Installed: <strong>${data.density}</strong> (${data.events.length} events)`;
+      statusEl.title = data.events.join(', ');
+    } else {
+      statusEl.innerHTML = `<span class="hook-status-dot"></span> Not installed`;
+      statusEl.title = '';
+    }
+
+    if (installBtn) installBtn.textContent = data.installed ? 'Re-install' : 'Install';
+    if (uninstallBtn) uninstallBtn.classList.toggle('hidden', !data.installed);
+  } catch {
+    statusEl.innerHTML = '<span class="hook-status-dot"></span> Unable to check';
+  }
+}
+
+export async function installHookDensity(density) {
+  const statusEl = document.getElementById('hook-density-status');
+  const installBtn = document.getElementById('hook-install-btn');
+  if (installBtn) { installBtn.disabled = true; installBtn.textContent = 'Installing...'; }
+
+  try {
+    const resp = await fetch('/api/hooks/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ density })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Install failed');
+    await set('hookDensity', density);
+    await syncHookDensityUI();
+  } catch (err) {
+    if (statusEl) statusEl.innerHTML = `<span class="hook-status-dot"></span> Error: ${err.message}`;
+  } finally {
+    if (installBtn) installBtn.disabled = false;
+  }
+}
+
+export async function uninstallHooks() {
+  const statusEl = document.getElementById('hook-density-status');
+  const uninstallBtn = document.getElementById('hook-uninstall-btn');
+  if (uninstallBtn) { uninstallBtn.disabled = true; uninstallBtn.textContent = 'Removing...'; }
+
+  try {
+    const resp = await fetch('/api/hooks/uninstall', { method: 'POST' });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Uninstall failed');
+    await set('hookDensity', 'off');
+    await syncHookDensityUI();
+  } catch (err) {
+    if (statusEl) statusEl.innerHTML = `<span class="hook-status-dot"></span> Error: ${err.message}`;
+  } finally {
+    if (uninstallBtn) { uninstallBtn.disabled = false; uninstallBtn.textContent = 'Uninstall'; }
+  }
 }
 
 // Flash autosave indicator
@@ -393,6 +473,31 @@ export function initSettingsUI() {
       set('activityFeedVisible', visible);
     });
   }
+
+  // --- Hook density controls ---
+  const densityControl = document.getElementById('hook-density-control');
+  if (densityControl) {
+    densityControl.addEventListener('click', (e) => {
+      const btn = e.target.closest('.density-btn');
+      if (!btn) return;
+      document.querySelectorAll('.density-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  }
+  const installBtn = document.getElementById('hook-install-btn');
+  if (installBtn) {
+    installBtn.addEventListener('click', () => {
+      const activeBtn = document.querySelector('.density-btn.active');
+      const density = activeBtn?.dataset.density || 'medium';
+      installHookDensity(density);
+    });
+  }
+  const uninstallBtn = document.getElementById('hook-uninstall-btn');
+  if (uninstallBtn) {
+    uninstallBtn.addEventListener('click', () => uninstallHooks());
+  }
+  // Fetch live hook status on settings init
+  syncHookDensityUI();
 
   // --- Apply all current settings to UI ---
   syncUIToSettings();

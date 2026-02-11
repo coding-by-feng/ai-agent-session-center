@@ -5,6 +5,7 @@ let onSnapshot = null;
 let onSessionUpdate = null;
 let onDurationAlert = null;
 let onTeamUpdate = null;
+let onHookStats = null;
 let reconnectTimer = null;
 let reconnectTarget = 0; // timestamp when reconnect fires
 
@@ -15,11 +16,12 @@ export function getReconnectRemaining() {
   return Math.max(0, Math.ceil((reconnectTarget - Date.now()) / 1000));
 }
 
-export function connect({ onSnapshotCb, onSessionUpdateCb, onDurationAlertCb, onTeamUpdateCb }) {
+export function connect({ onSnapshotCb, onSessionUpdateCb, onDurationAlertCb, onTeamUpdateCb, onHookStatsCb }) {
   onSnapshot = onSnapshotCb;
   onSessionUpdate = onSessionUpdateCb;
   onDurationAlert = onDurationAlertCb;
   onTeamUpdate = onTeamUpdateCb;
+  onHookStats = onHookStatsCb;
   _connect();
 }
 
@@ -42,6 +44,8 @@ function _connect() {
       onSessionUpdate(data.session, data.team);
     } else if (data.type === 'team_update' && onTeamUpdate) {
       onTeamUpdate(data.team);
+    } else if (data.type === 'hook_stats' && onHookStats) {
+      onHookStats(data.stats);
     } else if (data.type === 'duration_alert' && onDurationAlert) {
       onDurationAlert(data);
     }

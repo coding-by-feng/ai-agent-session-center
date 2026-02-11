@@ -568,6 +568,7 @@ export function createOrUpdateCard(session) {
         </div>
         <div class="tool-bars"></div>
       </div>
+      <button class="queue-badge-btn" title="Prompt Queue">Q:0</button>
     `;
     card.addEventListener('click', (e) => {
       selectSession(session.sessionId);
@@ -588,6 +589,17 @@ export function createOrUpdateCard(session) {
         btn.innerHTML = 'M';
         btn.title = 'Unmute sounds';
       }
+    });
+    // Queue badge button — select session + open queue tab
+    card.querySelector('.queue-badge-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectSession(session.sessionId);
+      // Switch to queue tab
+      document.querySelectorAll('.detail-tabs .tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+      const qTab = document.querySelector('.detail-tabs .tab[data-tab="queue"]');
+      if (qTab) qTab.classList.add('active');
+      document.getElementById('tab-queue')?.classList.add('active');
     });
     // Close button — dismiss card from live view
     card.querySelector('.close-btn').addEventListener('click', (e) => {
@@ -879,6 +891,15 @@ export function createOrUpdateCard(session) {
 
   card.querySelector('.tool-bars').innerHTML = renderToolBars(session.toolUsage);
 
+  // Queue badge + card highlight
+  const qCount = session.queueCount || 0;
+  const qBadge = card.querySelector('.queue-badge-btn');
+  if (qBadge) {
+    qBadge.textContent = `Q:${qCount}`;
+    qBadge.style.display = qCount > 0 ? '' : 'none';
+  }
+  card.classList.toggle('has-queue', qCount > 0);
+
   // If this session is selected, update the detail panel too
   if (selectedSessionId === session.sessionId) {
     populateDetailPanel(session);
@@ -950,6 +971,66 @@ async function loadNotes(sessionId) {
   } catch(e) {
     list.innerHTML = '<div class="tab-empty">Failed to load notes</div>';
   }
+}
+
+async function loadQueue(sessionId) {
+  const list = document.getElementById('queue-list');
+  const countLabel = document.getElementById('queue-count-label');
+  const popBtn = document.getElementById('queue-pop-btn');
+  try {
+    const resp = await fetch(`/api/sessions/${sessionId}/prompt-queue`);
+    const { items } = await resp.json();
+    if (countLabel) countLabel.textContent = items.length > 0 ? `${items.length} queued` : '';
+    if (popBtn) popBtn.disabled = items.length === 0;
+    list.innerHTML = items.map((item, i) => `
+      <div class="queue-item" draggable="true" data-queue-id="${item.id}">
+        <span class="queue-pos">${i + 1}</span>
+        <div class="queue-text">${escapeHtml(item.text)}</div>
+        <div class="queue-actions">
+          <button class="queue-edit" data-queue-id="${item.id}" title="Edit">EDIT</button>
+          <button class="queue-delete" data-queue-id="${item.id}" title="Delete">DEL</button>
+        </div>
+      </div>
+    `).join('') || '<div class="tab-empty">No prompts queued</div>';
+    // Wire up drag-to-reorder
+    wireQueueDrag(sessionId);
+  } catch(e) {
+    list.innerHTML = '<div class="tab-empty">Failed to load queue</div>';
+  }
+}
+
+function wireQueueDrag(sessionId) {
+  const list = document.getElementById('queue-list');
+  let dragItem = null;
+  list.querySelectorAll('.queue-item').forEach(item => {
+    item.addEventListener('dragstart', (e) => {
+      dragItem = item;
+      item.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    item.addEventListener('dragend', () => {
+      item.classList.remove('dragging');
+      dragItem = null;
+      // Collect new order and send to server
+      const order = [...list.querySelectorAll('.queue-item')].map(el => parseInt(el.dataset.queueId));
+      fetch(`/api/sessions/${sessionId}/prompt-queue/reorder`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order })
+      }).then(() => loadQueue(sessionId));
+    });
+    item.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (!dragItem || dragItem === item) return;
+      const rect = item.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      if (e.clientY < midY) {
+        list.insertBefore(dragItem, item);
+      } else {
+        list.insertBefore(dragItem, item.nextSibling);
+      }
+    });
+  });
 }
 
 function selectSession(sessionId) {
@@ -1078,8 +1159,9 @@ function populateDetailPanel(session) {
   // Group select — populate with all groups, highlight current
   refreshAllGroupSelects();
 
-  // Load notes
+  // Load notes & queue
   loadNotes(session.sessionId);
+  loadQueue(session.sessionId);
   // Update archive button
   const archBtn = document.getElementById('ctrl-archive');
   if (archBtn) archBtn.textContent = session.archived ? 'UNARCHIVE' : 'ARCHIVE';
@@ -1750,6 +1832,112 @@ document.getElementById('notes-list').addEventListener('click', async (e) => {
     loadNotes(selectedSessionId);
   } catch(e) {
     showToast('DELETE ERROR', e.message);
+  }
+});
+
+// ---- Prompt Queue Handlers ----
+
+// QUEUE ctrl-btn — switch to queue tab
+document.getElementById('ctrl-queue')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  document.querySelectorAll('.detail-tabs .tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+  const qTab = document.querySelector('.detail-tabs .tab[data-tab="queue"]');
+  if (qTab) qTab.classList.add('active');
+  document.getElementById('tab-queue')?.classList.add('active');
+});
+
+// Add to Queue
+document.getElementById('queue-add-btn')?.addEventListener('click', async () => {
+  if (!selectedSessionId) return;
+  const textarea = document.getElementById('queue-textarea');
+  const text = textarea.value.trim();
+  if (!text) return;
+  try {
+    await fetch(`/api/sessions/${selectedSessionId}/prompt-queue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+    textarea.value = '';
+    loadQueue(selectedSessionId);
+    showToast('QUEUED', 'Prompt added to queue');
+  } catch(e) {
+    showToast('QUEUE ERROR', e.message);
+  }
+});
+
+// Pop Next — remove top item, copy to clipboard
+document.getElementById('queue-pop-btn')?.addEventListener('click', async () => {
+  if (!selectedSessionId) return;
+  try {
+    const resp = await fetch(`/api/sessions/${selectedSessionId}/prompt-queue/pop`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.text) {
+      await navigator.clipboard.writeText(data.text);
+      showToast('COPIED', 'Next prompt copied to clipboard');
+    } else {
+      showToast('QUEUE', 'Queue is empty');
+    }
+    loadQueue(selectedSessionId);
+  } catch(e) {
+    showToast('POP ERROR', e.message);
+  }
+});
+
+// Delete / Edit queue items (event delegation)
+document.getElementById('queue-list')?.addEventListener('click', async (e) => {
+  const delBtn = e.target.closest('.queue-delete');
+  const editBtn = e.target.closest('.queue-edit');
+  if (!selectedSessionId) return;
+
+  if (delBtn) {
+    const itemId = delBtn.dataset.queueId;
+    try {
+      await fetch(`/api/sessions/${selectedSessionId}/prompt-queue/${itemId}`, { method: 'DELETE' });
+      loadQueue(selectedSessionId);
+    } catch(e) {
+      showToast('DELETE ERROR', e.message);
+    }
+  }
+
+  if (editBtn) {
+    const itemId = editBtn.dataset.queueId;
+    const itemEl = editBtn.closest('.queue-item');
+    const textEl = itemEl?.querySelector('.queue-text');
+    if (!textEl) return;
+    const currentText = textEl.textContent;
+    // Inline edit: replace text with textarea
+    const ta = document.createElement('textarea');
+    ta.className = 'queue-edit-textarea';
+    ta.value = currentText;
+    ta.rows = 3;
+    textEl.replaceWith(ta);
+    ta.focus();
+    editBtn.textContent = 'SAVE';
+    editBtn.classList.add('saving');
+
+    const saveEdit = async () => {
+      const newText = ta.value.trim();
+      if (newText && newText !== currentText) {
+        try {
+          await fetch(`/api/sessions/${selectedSessionId}/prompt-queue/${itemId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: newText })
+          });
+        } catch(e) {
+          showToast('EDIT ERROR', e.message);
+        }
+      }
+      loadQueue(selectedSessionId);
+    };
+
+    editBtn.onclick = (ev) => { ev.stopPropagation(); saveEdit(); };
+    ta.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); saveEdit(); }
+      if (ev.key === 'Escape') loadQueue(selectedSessionId);
+    });
   }
 });
 

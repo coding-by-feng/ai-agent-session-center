@@ -165,6 +165,117 @@ body::after {
   box-shadow: 0 0 6px var(--accent-red);
 }
 
+/* ---- Hook Stats Panel ---- */
+
+#global-stats {
+  position: relative;
+}
+
+.hook-stats-toggle {
+  border-left: 1px solid var(--border-dim);
+  padding-left: 12px;
+}
+
+.hook-rate {
+  color: var(--text-secondary);
+  font-weight: 300;
+  font-size: 10px;
+}
+
+.hook-stats-panel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 8px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  padding: 12px 16px;
+  z-index: 1000;
+  min-width: 560px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+.hook-stats-panel.hidden {
+  display: none;
+}
+
+.hook-stats-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.hook-stats-reset {
+  background: none;
+  border: 1px solid var(--border-dim);
+  color: var(--text-secondary);
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  letter-spacing: 0.5px;
+}
+
+.hook-stats-reset:hover {
+  border-color: var(--accent-red);
+  color: var(--accent-red);
+}
+
+.hook-stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.hook-stats-table th {
+  text-align: left;
+  color: var(--text-secondary);
+  font-weight: 400;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-dim);
+  letter-spacing: 0.5px;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.hook-stats-table td {
+  padding: 4px 8px;
+  color: var(--text-primary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.hook-ev-name {
+  color: var(--accent-cyan);
+  font-weight: 500;
+}
+
+.hook-ev-count {
+  text-align: right;
+}
+
+.hook-ev-rate {
+  text-align: right;
+  color: var(--text-secondary);
+}
+
+.hook-ev-latency,
+.hook-ev-proc {
+  text-align: right;
+}
+
+.hook-stat-dim {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
 /* ---- (Three.js canvas removed — CSS robots used instead) ---- */
 
 /* ---- Session Groups ---- */
@@ -1823,6 +1934,8 @@ body::after {
 .ctrl-btn.export:hover { background: rgba(0, 255, 136, 0.15); }
 .ctrl-btn.notes { color: var(--accent-cyan); border-color: var(--border-accent-strong); }
 .ctrl-btn.notes:hover { background: var(--bg-accent-strong); }
+.ctrl-btn.queue { color: #00e5ff; border-color: rgba(0, 229, 255, 0.4); }
+.ctrl-btn.queue:hover { background: rgba(0, 229, 255, 0.15); }
 .ctrl-btn.alert { color: var(--accent-orange); border-color: rgba(255, 145, 0, 0.3); }
 .ctrl-btn.alert:hover { background: rgba(255, 145, 0, 0.15); }
 .ctrl-btn.summarize { color: #ffcc00; border-color: rgba(255, 204, 0, 0.3); }
@@ -2004,6 +2117,189 @@ body::after {
   color: var(--text-secondary);
   line-height: 1.6;
   white-space: pre-wrap;
+}
+
+/* ============================================================
+   Queue Tab
+   ============================================================ */
+
+.queue-pop-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.queue-pop-btn {
+  flex: 1;
+  padding: 10px 16px;
+  background: rgba(0, 255, 136, 0.1);
+  border: 1px solid rgba(0, 255, 136, 0.4);
+  color: var(--accent-green);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.queue-pop-btn:hover:not(:disabled) {
+  background: rgba(0, 255, 136, 0.2);
+  box-shadow: 0 0 16px rgba(0, 255, 136, 0.2);
+}
+
+.queue-pop-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.queue-count-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.queue-compose {
+  margin-bottom: 16px;
+}
+
+#queue-textarea {
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border-accent);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 10px;
+  border-radius: 6px;
+  resize: vertical;
+  outline: none;
+}
+
+#queue-textarea:focus {
+  border-color: var(--accent-cyan);
+}
+
+#queue-add-btn {
+  margin-top: 8px;
+}
+
+.queue-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--border-faint);
+  border: 1px solid var(--border-faint);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  cursor: grab;
+  transition: opacity 0.2s, background 0.2s;
+}
+
+.queue-item:hover {
+  background: var(--bg-subtle);
+  border-color: var(--border-subtle);
+}
+
+.queue-item.dragging {
+  opacity: 0.4;
+}
+
+.queue-pos {
+  min-width: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  text-align: center;
+  padding-top: 2px;
+}
+
+.queue-text {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.queue-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.queue-edit, .queue-delete {
+  background: none;
+  border: none;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  opacity: 0.5;
+  padding: 2px 4px;
+}
+
+.queue-edit { color: var(--accent-cyan); }
+.queue-delete { color: var(--accent-red); }
+.queue-edit:hover, .queue-delete:hover { opacity: 1; }
+.queue-edit.saving { color: var(--accent-green); opacity: 1; }
+
+.queue-edit-textarea {
+  width: 100%;
+  flex: 1;
+  background: var(--bg-card);
+  border: 1px solid var(--accent-cyan);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 8px;
+  border-radius: 4px;
+  resize: vertical;
+  outline: none;
+}
+
+/* ---- Queue Badge on Session Cards ---- */
+
+.queue-badge-btn {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(0, 229, 255, 0.15);
+  border: 1px solid rgba(0, 229, 255, 0.5);
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  display: none;
+  z-index: 5;
+  transition: all 0.2s;
+}
+
+.queue-badge-btn:hover {
+  background: rgba(0, 229, 255, 0.3);
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.3);
+}
+
+/* ---- Session Card Queue Highlight ---- */
+
+.session-card.has-queue {
+  border-color: rgba(0, 229, 255, 0.4) !important;
+  animation: pulse-glow-queue 2.5s ease-in-out infinite;
+}
+
+@keyframes pulse-glow-queue {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.1);
+  }
+  50% {
+    box-shadow: 0 0 25px rgba(0, 229, 255, 0.25), 0 0 50px rgba(0, 229, 255, 0.08);
+  }
 }
 
 /* ============================================================
@@ -2629,6 +2925,80 @@ body[data-card-size="small"] .group-grid {
   border-color: var(--accent-cyan);
   color: var(--accent-cyan);
   box-shadow: 0 0 10px var(--glow-accent);
+}
+
+/* ---- Hook Density Controls ---- */
+
+.density-control {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.density-btn {
+  flex: 1;
+  background: var(--bg-card);
+  border: 2px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+
+.density-btn:hover {
+  border-color: var(--border-subtle-strong);
+}
+
+.density-btn.active {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+  box-shadow: 0 0 10px var(--glow-accent);
+}
+
+.density-btn-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.density-btn-desc {
+  display: block;
+  font-size: 10px;
+  opacity: 0.6;
+  line-height: 1.3;
+}
+
+.density-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.density-status {
+  font-size: 11px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hook-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--text-secondary);
+  opacity: 0.4;
+}
+
+.hook-status-dot.installed {
+  background: var(--accent-green);
+  opacity: 1;
+  box-shadow: 0 0 6px var(--accent-green);
 }
 
 /* Advanced tab actions */
