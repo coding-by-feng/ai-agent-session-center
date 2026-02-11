@@ -596,26 +596,29 @@ export function createOrUpdateCard(session) {
         }
       });
     }
-    // Mute button toggle
-    card.querySelector('.mute-btn').addEventListener('click', (e) => {
-      e.stopPropagation();
-      const sid = session.sessionId;
-      const btn = e.currentTarget;
-      if (mutedSessions.has(sid)) {
-        mutedSessions.delete(sid);
-        btn.classList.remove('muted');
-        btn.innerHTML = '&#9835;';
-        btn.title = 'Mute sounds';
-      } else {
-        mutedSessions.add(sid);
-        btn.classList.add('muted');
-        btn.innerHTML = 'M';
-        btn.title = 'Unmute sounds';
-      }
-      saveMuted(mutedSessions);
-    });
-    // Close button — dismiss card from live view (preserves IndexedDB history)
-    card.querySelector('.close-btn').addEventListener('click', (e) => {
+
+    // Only enable interactive buttons for SSH (manually created) sessions
+    if (!isDisplayOnly) {
+      // Mute button toggle
+      card.querySelector('.mute-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        const sid = session.sessionId;
+        const btn = e.currentTarget;
+        if (mutedSessions.has(sid)) {
+          mutedSessions.delete(sid);
+          btn.classList.remove('muted');
+          btn.innerHTML = '&#9835;';
+          btn.title = 'Mute sounds';
+        } else {
+          mutedSessions.add(sid);
+          btn.classList.add('muted');
+          btn.innerHTML = 'M';
+          btn.title = 'Unmute sounds';
+        }
+        saveMuted(mutedSessions);
+      });
+      // Close button — dismiss card from live view (preserves IndexedDB history)
+      card.querySelector('.close-btn').addEventListener('click', (e) => {
       e.stopPropagation();
       const sid = session.sessionId;
       const sess = sessionsData.get(sid);
@@ -649,97 +652,96 @@ export function createOrUpdateCard(session) {
         document.dispatchEvent(event);
       }, 300);
     });
-    // Pin button — pin card to top of its grid
-    const pinBtn = card.querySelector('.pin-btn');
-    if (pinnedSessions.has(session.sessionId)) {
-      card.classList.add('pinned');
-      pinBtn.classList.add('active');
-      pinBtn.title = 'Unpin';
-    }
-    pinBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const sid = session.sessionId;
-      if (pinnedSessions.has(sid)) {
-        pinnedSessions.delete(sid);
-        card.classList.remove('pinned');
-        pinBtn.classList.remove('active');
-        pinBtn.title = 'Pin to top';
-      } else {
-        pinnedSessions.add(sid);
+      // Pin button — pin card to top of its grid
+      const pinBtn = card.querySelector('.pin-btn');
+      if (pinnedSessions.has(session.sessionId)) {
         card.classList.add('pinned');
         pinBtn.classList.add('active');
         pinBtn.title = 'Unpin';
       }
-      savePinned(pinnedSessions);
-      reorderPinnedCards();
-    });
-
-
-
-    // Summarize & archive button on card
-    card.querySelector('.summarize-card-btn').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const btn = e.currentTarget;
-      const sid = session.sessionId;
-      btn.disabled = true;
-      btn.textContent = '...';
-      btn.classList.add('loading');
-      try {
-        // Build context client-side from IndexedDB
-        const detail = await db.getSessionDetail(sid);
-        let context = '';
-        if (detail) {
-          context += `Project: ${detail.session.projectName || detail.session.projectPath || 'Unknown'}\n`;
-          context += `Status: ${detail.session.status}\n`;
-          context += `Started: ${new Date(detail.session.startedAt).toISOString()}\n`;
-          if (detail.session.endedAt) context += `Ended: ${new Date(detail.session.endedAt).toISOString()}\n`;
-          context += `\n--- PROMPTS ---\n`;
-          for (const p of detail.prompts) {
-            context += `[${new Date(p.timestamp).toISOString()}] ${p.text}\n\n`;
-          }
-          context += `\n--- TOOL CALLS ---\n`;
-          for (const t of detail.tool_calls) {
-            context += `[${new Date(t.timestamp).toISOString()}] ${t.toolName}: ${t.toolInputSummary || ''}\n`;
-          }
-          context += `\n--- RESPONSES ---\n`;
-          for (const r of detail.responses) {
-            context += `[${new Date(r.timestamp).toISOString()}] ${r.textExcerpt || ''}\n\n`;
-          }
-        }
-        // Use default summary prompt template
-        const allPrompts = await db.getAll('summaryPrompts');
-        const defaultTmpl = allPrompts.find(p => p.isDefault);
-        const promptTemplate = defaultTmpl ? defaultTmpl.prompt : '';
-
-        const resp = await fetch(`/api/sessions/${sid}/summarize`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ context, promptTemplate })
-        });
-        const data = await resp.json();
-        if (data.ok) {
-          const s = sessionsData.get(sid);
-          if (s) { s.archived = 1; s.summary = data.summary; }
-          // Store in IndexedDB
-          const dbSession = await db.get('sessions', sid);
-          if (dbSession) { dbSession.summary = data.summary; dbSession.archived = 1; await db.put('sessions', dbSession); }
-          showToast('SUMMARIZED', 'Session summarized & archived');
-          btn.textContent = '\u2713';
-          btn.classList.remove('loading');
-          btn.classList.add('done');
+      pinBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const sid = session.sessionId;
+        if (pinnedSessions.has(sid)) {
+          pinnedSessions.delete(sid);
+          card.classList.remove('pinned');
+          pinBtn.classList.remove('active');
+          pinBtn.title = 'Pin to top';
         } else {
-          showToast('SUMMARIZE FAILED', data.error || 'Unknown error');
+          pinnedSessions.add(sid);
+          card.classList.add('pinned');
+          pinBtn.classList.add('active');
+          pinBtn.title = 'Unpin';
+        }
+        savePinned(pinnedSessions);
+        reorderPinnedCards();
+      });
+
+      // Summarize & archive button on card
+      card.querySelector('.summarize-card-btn').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const btn = e.currentTarget;
+        const sid = session.sessionId;
+        btn.disabled = true;
+        btn.textContent = '...';
+        btn.classList.add('loading');
+        try {
+          // Build context client-side from IndexedDB
+          const detail = await db.getSessionDetail(sid);
+          let context = '';
+          if (detail) {
+            context += `Project: ${detail.session.projectName || detail.session.projectPath || 'Unknown'}\n`;
+            context += `Status: ${detail.session.status}\n`;
+            context += `Started: ${new Date(detail.session.startedAt).toISOString()}\n`;
+            if (detail.session.endedAt) context += `Ended: ${new Date(detail.session.endedAt).toISOString()}\n`;
+            context += `\n--- PROMPTS ---\n`;
+            for (const p of detail.prompts) {
+              context += `[${new Date(p.timestamp).toISOString()}] ${p.text}\n\n`;
+            }
+            context += `\n--- TOOL CALLS ---\n`;
+            for (const t of detail.tool_calls) {
+              context += `[${new Date(t.timestamp).toISOString()}] ${t.toolName}: ${t.toolInputSummary || ''}\n`;
+            }
+            context += `\n--- RESPONSES ---\n`;
+            for (const r of detail.responses) {
+              context += `[${new Date(r.timestamp).toISOString()}] ${r.textExcerpt || ''}\n\n`;
+            }
+          }
+          // Use default summary prompt template
+          const allPrompts = await db.getAll('summaryPrompts');
+          const defaultTmpl = allPrompts.find(p => p.isDefault);
+          const promptTemplate = defaultTmpl ? defaultTmpl.prompt : '';
+
+          const resp = await fetch(`/api/sessions/${sid}/summarize`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ context, promptTemplate })
+          });
+          const data = await resp.json();
+          if (data.ok) {
+            const s = sessionsData.get(sid);
+            if (s) { s.archived = 1; s.summary = data.summary; }
+            // Store in IndexedDB
+            const dbSession = await db.get('sessions', sid);
+            if (dbSession) { dbSession.summary = data.summary; dbSession.archived = 1; await db.put('sessions', dbSession); }
+            showToast('SUMMARIZED', 'Session summarized & archived');
+            btn.textContent = '\u2713';
+            btn.classList.remove('loading');
+            btn.classList.add('done');
+          } else {
+            showToast('SUMMARIZE FAILED', data.error || 'Unknown error');
+            btn.textContent = '\u2193AI';
+            btn.classList.remove('loading');
+            btn.disabled = false;
+          }
+        } catch(err) {
+          showToast('SUMMARIZE ERROR', err.message);
           btn.textContent = '\u2193AI';
           btn.classList.remove('loading');
           btn.disabled = false;
         }
-      } catch(err) {
-        showToast('SUMMARIZE ERROR', err.message);
-        btn.textContent = '\u2193AI';
-        btn.classList.remove('loading');
-        btn.disabled = false;
-      }
-    });
+      });
+    } // End of !isDisplayOnly block
 
     // Inline rename on double-click
     card.querySelector('.card-title').addEventListener('dblclick', (e) => {

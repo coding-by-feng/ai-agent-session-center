@@ -1206,18 +1206,7 @@ body::after {
 }
 
 .detail-header .detail-label-input {
-  width: 140px;
-  background: transparent;
-  border: 2px solid transparent;
-  color: var(--accent-cyan);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 6px;
-  margin-top: 2px;
-  border-radius: 3px;
-  outline: none;
-  transition: border-color 0.2s, background 0.2s;
+  display: none; /* Hidden: label already visible on session card */
 }
 .detail-header .detail-label-input::placeholder {
   color: var(--text-dim);
@@ -1235,10 +1224,7 @@ body::after {
 }
 
 .detail-label-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin-top: 4px;
+  display: none; /* Hidden: label already visible on session card */
 }
 .detail-label-chip {
   display: inline-flex;
