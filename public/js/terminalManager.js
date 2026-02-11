@@ -373,9 +373,9 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-// F11 toggles fullscreen (no Escape — it's a valid terminal key)
+// Alt+F11 toggles fullscreen (no Escape — it's a valid terminal key)
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'F11' && activeTerminal) {
+  if (e.key === 'F11' && e.altKey && activeTerminal) {
     e.preventDefault();
     toggleFullscreen();
   }

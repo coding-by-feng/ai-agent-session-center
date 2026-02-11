@@ -429,7 +429,7 @@ function initKeyboardShortcuts() {
         break;
       }
       case 'Escape': {
-        // Close in priority order: kill, alert, summarize, team, shortcuts, settings, detail
+        // Check if we should close modals first (highest priority)
         const kill = document.getElementById('kill-modal');
         const alert = document.getElementById('alert-modal');
         const summarizeModal = document.getElementById('summarize-modal');
@@ -438,25 +438,43 @@ function initKeyboardShortcuts() {
         const quickSessionModal = document.getElementById('quick-session-modal');
         const shortcutsModal = document.getElementById('shortcuts-modal');
         const settings = document.getElementById('settings-modal');
-        const detail = document.getElementById('session-detail-overlay');
 
+        // Close modals in priority order (always handle these first)
         if (kill && !kill.classList.contains('hidden')) {
           kill.classList.add('hidden');
+          break;
         } else if (alert && !alert.classList.contains('hidden')) {
           alert.classList.add('hidden');
+          break;
         } else if (summarizeModal && !summarizeModal.classList.contains('hidden')) {
           summarizeModal.classList.add('hidden');
+          break;
         } else if (newSessionModal && !newSessionModal.classList.contains('hidden')) {
           newSessionModal.classList.add('hidden');
+          break;
         } else if (quickSessionModal && !quickSessionModal.classList.contains('hidden')) {
           quickSessionModal.classList.add('hidden');
+          break;
         } else if (teamModal && !teamModal.classList.contains('hidden')) {
           teamModal.classList.add('hidden');
+          break;
         } else if (shortcutsModal && !shortcutsModal.classList.contains('hidden')) {
           shortcutsModal.classList.add('hidden');
+          break;
         } else if (settings && !settings.classList.contains('hidden')) {
           settings.classList.add('hidden');
-        } else if (detail && !detail.classList.contains('hidden')) {
+          break;
+        }
+
+        // Don't close detail panel if terminal tab is active - let terminal handle ESC
+        const detail = document.getElementById('session-detail-overlay');
+        if (detail && !detail.classList.contains('hidden')) {
+          const activeTab = document.querySelector('.detail-tabs .tab.active');
+          if (activeTab && activeTab.dataset.tab === 'terminal') {
+            // Don't do anything - let ESC pass through to terminal
+            return;
+          }
+          // Not on terminal tab, close the detail panel
           deselectSession();
         }
         break;

@@ -1,0 +1,14 @@
+# Development files
+.git
+.DS_Store
+*.log
+node_modules
+.claude
+
+# IDE
+.vscode
+.idea
+
+# Data directory (runtime files)
+data/*
+!data/.gitkeep
