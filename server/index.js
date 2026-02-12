@@ -15,6 +15,7 @@ import log from './logger.js';
 import { config } from './serverConfig.js';
 import { ensureHooksInstalled } from './hookInstaller.js';
 import { resolvePort, killPortProcess } from './portManager.js';
+import { networkInterfaces } from 'os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -64,9 +65,33 @@ function openBrowser(url) {
   }
 }
 
+function getLocalIP() {
+  const nets = networkInterfaces();
+  // Prefer en0 (Wi-Fi on macOS) for the most useful LAN address
+  const preferred = ['en0', 'en1', 'eth0', 'wlan0'];
+  for (const name of preferred) {
+    if (nets[name]) {
+      for (const cfg of nets[name]) {
+        if (cfg.family === 'IPv4' && !cfg.internal) return cfg.address;
+      }
+    }
+  }
+  // Fallback to first non-internal IPv4
+  for (const iface of Object.values(nets)) {
+    for (const cfg of iface) {
+      if (cfg.family === 'IPv4' && !cfg.internal) return cfg.address;
+    }
+  }
+  return null;
+}
+
 function onReady() {
+  const localIP = getLocalIP();
   log.info('server', `AI Agent Session Center`);
-  log.info('server', `Dashboard: http://localhost:${PORT}`);
+  log.info('server', `Local:   http://localhost:${PORT}`);
+  if (localIP) {
+    log.info('server', `Network: http://${localIP}:${PORT}`);
+  }
   if (log.isDebug) {
     log.info('server', 'Debug mode ENABLED — verbose logging active');
   }

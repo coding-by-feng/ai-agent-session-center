@@ -261,6 +261,8 @@ async function init() {
     const sid = e.detail.sessionId;
     const session = allSessions[sid];
     if (!session || session.isHistorical) return;
+    // Skip re-keyed sessions — the toast was already shown for the original terminal ID
+    if (session.replacesId) return;
     const group = findGroupForSession(sid);
     if (!group) {
       showGroupAssignToast(sid);

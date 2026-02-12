@@ -2,10 +2,41 @@
  * @module sessionGroups
  * Visual grouping of session cards. Groups are persisted in localStorage and rendered
  * as collapsible sections with drag-and-drop support for reordering sessions between groups.
+ * Enhanced with 12-column CSS Grid layout, resize handles, group drag-reorder, and preset layouts.
  */
-import * as settingsManager from './settingsManager.js';
 import { escapeHtml, escapeAttr, debugLog } from './utils.js';
 import { STORAGE_KEYS } from './constants.js';
+
+// ---- Default Groups (seeded on first use) ----
+const DEFAULT_GROUPS = [
+  { name: 'Priority', order: 0 },
+  { name: 'Active', order: 1 },
+  { name: 'Background', order: 2 },
+  { name: 'Review', order: 3 },
+];
+
+function seedDefaultGroups() {
+  if (localStorage.getItem(STORAGE_KEYS.GROUPS_SEEDED)) return;
+  localStorage.setItem(STORAGE_KEYS.GROUPS_SEEDED, '1');
+  const existing = loadGroups();
+  if (existing.length > 0) return;
+  const groups = DEFAULT_GROUPS.map((g, i) => ({
+    id: 'grp-default-' + i,
+    name: g.name,
+    sessionIds: [],
+    order: g.order,
+  }));
+  saveGroups(groups);
+}
+
+// ---- Layout Presets ----
+const LAYOUT_PRESETS = {
+  '1-col':    { label: '1 Column',   colSpans: [12] },
+  '2-col':    { label: '2 Columns',  colSpans: [6, 6] },
+  '3-col':    { label: '3 Columns',  colSpans: [4, 4, 4] },
+  '1-3-2-3':  { label: '1/3 + 2/3', colSpans: [4, 8] },
+  '2-3-1-3':  { label: '2/3 + 1/3', colSpans: [8, 4] },
+};
 
 // ---- Internal helpers ----
 
@@ -20,8 +51,41 @@ export function initDeps({ getSelectedSessionId, getSessionsData, showToast }) {
   _showToast = showToast;
 }
 
+// ---- Dashboard Layout (persisted in localStorage) ----
+
+export function loadDashboardLayout() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.DASHBOARD_LAYOUT) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+export function saveDashboardLayout(layout) {
+  localStorage.setItem(STORAGE_KEYS.DASHBOARD_LAYOUT, JSON.stringify(layout));
+}
+
+export function getLayoutPresets() {
+  return { ...LAYOUT_PRESETS };
+}
+
+export function applyLayoutPreset(presetKey) {
+  const preset = LAYOUT_PRESETS[presetKey];
+  if (!preset) return;
+  const groups = loadGroups();
+  if (groups.length === 0) return;
+  const spans = preset.colSpans;
+  for (let i = 0; i < groups.length; i++) {
+    groups[i].colSpan = spans[i % spans.length];
+  }
+  saveGroups(groups);
+  saveDashboardLayout({ preset: presetKey, columns: 12 });
+  renderGroups();
+  updatePresetButtons(presetKey);
+}
+
 // ---- Session Groups (persisted in localStorage) ----
-// Structure: [{ id, name, sessionIds: [], layout? }, ...]
+// Structure: [{ id, name, sessionIds: [], layout?, colSpan?: number(3-12), order?: number }, ...]
 
 export function loadGroups() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.SESSION_GROUPS) || '[]'); } catch { return []; }
@@ -38,7 +102,8 @@ export function findGroupForSession(sessionId) {
 export function createGroup(name) {
   const groups = loadGroups();
   const id = 'grp-' + Date.now();
-  groups.push({ id, name: name || 'New Group', sessionIds: [] });
+  const maxOrder = groups.reduce((max, g) => Math.max(max, g.order || 0), 0);
+  groups.push({ id, name: name || 'New Group', sessionIds: [], order: maxOrder + 1 });
   saveGroups(groups);
   renderGroups();
   return id;
@@ -82,10 +147,153 @@ export function removeSessionFromGroup(sessionId) {
   saveGroups(groups);
 }
 
+// ---- Preset Bar Rendering ----
+
+function renderPresetIcon(presetKey) {
+  const preset = LAYOUT_PRESETS[presetKey];
+  if (!preset) return '';
+  const spans = preset.colSpans;
+  const totalCols = 12;
+  const svgW = 28;
+  const svgH = 16;
+  const gap = 1;
+  let rects = '';
+  let x = 0;
+  for (let i = 0; i < spans.length; i++) {
+    const w = (spans[i] / totalCols) * svgW - gap;
+    rects += `<rect x="${x}" y="0" width="${Math.max(w, 1)}" height="${svgH}" rx="1" fill="currentColor" opacity="0.6"/>`;
+    x += (spans[i] / totalCols) * svgW;
+  }
+  return `<svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" xmlns="http://www.w3.org/2000/svg">${rects}</svg>`;
+}
+
+function renderLayoutPresetBar() {
+  const bar = document.getElementById('layout-presets');
+  if (!bar) return;
+  bar.innerHTML = '';
+  const label = document.createElement('span');
+  label.className = 'layout-presets-label';
+  label.textContent = 'Layout';
+  bar.appendChild(label);
+
+  const savedLayout = loadDashboardLayout();
+  const activePreset = savedLayout.preset || null;
+
+  for (const [key, preset] of Object.entries(LAYOUT_PRESETS)) {
+    const btn = document.createElement('button');
+    btn.className = 'layout-preset-btn';
+    btn.dataset.preset = key;
+    btn.title = preset.label;
+    btn.innerHTML = renderPresetIcon(key);
+    if (key === activePreset) btn.classList.add('active');
+    btn.addEventListener('click', () => {
+      applyLayoutPreset(key);
+    });
+    bar.appendChild(btn);
+  }
+}
+
+function updatePresetButtons(activePreset) {
+  const bar = document.getElementById('layout-presets');
+  if (!bar) return;
+  bar.querySelectorAll('.layout-preset-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.preset === activePreset);
+  });
+}
+
+// ---- Group ColSpan Helpers ----
+
+function applyGroupColSpan(groupEl, colSpan) {
+  groupEl.style.gridColumn = 'span ' + (colSpan || 12);
+}
+
+// ---- Group Resize ----
+
+function initGroupResize(handle, groupEl, groupId) {
+  let startX = 0;
+  let startColSpan = 12;
+  let containerWidth = 0;
+
+  function onMouseDown(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    startX = e.clientX;
+    const container = document.getElementById('groups-container');
+    if (container) containerWidth = container.getBoundingClientRect().width;
+    const groups = loadGroups();
+    const g = groups.find(g => g.id === groupId);
+    startColSpan = (g && g.colSpan) || 12;
+    groupEl.classList.add('resizing');
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }
+
+  function onMouseMove(e) {
+    if (containerWidth === 0) return;
+    const dx = e.clientX - startX;
+    const colWidth = containerWidth / 12;
+    const deltaCols = Math.round(dx / colWidth);
+    let newSpan = startColSpan + deltaCols;
+    newSpan = Math.max(3, Math.min(12, newSpan));
+    applyGroupColSpan(groupEl, newSpan);
+  }
+
+  function onMouseUp(e) {
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+    groupEl.classList.remove('resizing');
+    // Calculate final colSpan from current style
+    const currentSpan = parseInt(groupEl.style.gridColumn.replace('span ', ''), 10) || 12;
+    const groups = loadGroups();
+    const g = groups.find(g => g.id === groupId);
+    if (g) {
+      g.colSpan = currentSpan;
+      saveGroups(groups);
+    }
+    // Set preset to custom since user manually resized
+    saveDashboardLayout({ preset: 'custom', columns: 12 });
+    updatePresetButtons('custom');
+  }
+
+  handle.addEventListener('mousedown', onMouseDown);
+}
+
+// ---- Group Drag & Reorder ----
+
+function clearGroupDropIndicators() {
+  document.querySelectorAll('.session-group.group-drop-left, .session-group.group-drop-right').forEach(el => {
+    el.classList.remove('group-drop-left', 'group-drop-right');
+  });
+}
+
+function reorderGroups(draggedGroupId, targetGroupId, insertBefore) {
+  const groups = loadGroups();
+  const draggedIdx = groups.findIndex(g => g.id === draggedGroupId);
+  if (draggedIdx === -1) return;
+  const [dragged] = groups.splice(draggedIdx, 1);
+  let targetIdx = groups.findIndex(g => g.id === targetGroupId);
+  if (targetIdx === -1) {
+    groups.push(dragged);
+  } else {
+    if (!insertBefore) targetIdx += 1;
+    groups.splice(targetIdx, 0, dragged);
+  }
+  // Reassign order values
+  for (let i = 0; i < groups.length; i++) {
+    groups[i].order = i;
+  }
+  saveGroups(groups);
+  renderGroups();
+}
+
+// ---- Main Render ----
+
 export function renderGroups() {
   const container = document.getElementById('groups-container');
   if (!container) return;
   const groups = loadGroups();
+  // Sort by order
+  groups.sort((a, b) => (a.order || 0) - (b.order || 0));
   // Remove stale group elements
   container.querySelectorAll('.session-group').forEach(el => {
     if (!groups.find(g => g.id === el.id)) el.remove();
@@ -96,13 +304,11 @@ export function renderGroups() {
       groupEl = document.createElement('div');
       groupEl.className = 'session-group';
       groupEl.id = group.id;
-      const groupLayoutIcon = group.layout === 'horizontal' ? '&#9776;' : '&#9638;';
       groupEl.innerHTML = `
         <div class="group-header">
           <span class="group-collapse" title="Collapse/expand">&#9660;</span>
           <span class="group-name">${escapeHtml(group.name)}</span>
           <span class="group-count">0</span>
-          <button class="group-layout-toggle" title="Toggle layout">${groupLayoutIcon}</button>
           <button class="group-delete" title="Delete group">&times;</button>
         </div>
         <div class="group-grid"></div>
@@ -140,25 +346,11 @@ export function renderGroups() {
       groupEl.querySelector('.group-delete').addEventListener('click', () => {
         deleteGroup(group.id);
       });
-      // Per-group layout toggle
-      groupEl.querySelector('.group-layout-toggle').addEventListener('click', () => {
-        const groups = loadGroups();
-        const g = groups.find(g => g.id === group.id);
-        if (!g) return;
-        const globalLayout = settingsManager.get('groupLayout') || 'vertical';
-        const currentLayout = g.layout || globalLayout;
-        const newLayout = currentLayout === 'horizontal' ? 'vertical' : 'horizontal';
-        g.layout = newLayout;
-        saveGroups(groups);
-        const grid = groupEl.querySelector('.group-grid');
-        grid.dataset.layoutOverride = 'true';
-        grid.classList.toggle('layout-horizontal', newLayout === 'horizontal');
-        const toggleBtn = groupEl.querySelector('.group-layout-toggle');
-        toggleBtn.innerHTML = newLayout === 'horizontal' ? '&#9776;' : '&#9638;';
-      });
       // Drop zone: group grid accepts card drops (only when not dropped on a specific card)
       const groupGrid = groupEl.querySelector('.group-grid');
       groupGrid.addEventListener('dragover', (e) => {
+        // Ignore group drags — let group-level handler deal with those
+        if (e.dataTransfer.types.includes('application/group-id')) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
         if (!e.target.closest('.session-card')) {
@@ -171,10 +363,13 @@ export function renderGroups() {
         }
       });
       groupGrid.addEventListener('drop', (e) => {
+        // Ignore group drags
+        if (e.dataTransfer.types.includes('application/group-id')) return;
         if (e.target.closest('.session-card')) return; // card handles its own drop
         e.preventDefault();
         groupGrid.classList.remove('drag-over');
         const draggedId = e.dataTransfer.getData('text/plain');
+        if (!draggedId) return;
         const card = document.querySelector(`.session-card[data-session-id="${draggedId}"]`);
         if (card) {
           groupGrid.appendChild(card);
@@ -184,6 +379,86 @@ export function renderGroups() {
       });
       container.appendChild(groupEl);
     }
+
+    // ---- Apply colSpan ----
+    applyGroupColSpan(groupEl, group.colSpan || 12);
+
+    // ---- Resize handle ----
+    if (!groupEl.querySelector('.group-resize-handle')) {
+      const handle = document.createElement('div');
+      handle.className = 'group-resize-handle';
+      groupEl.appendChild(handle);
+      initGroupResize(handle, groupEl, group.id);
+    }
+
+    // ---- Group header drag (for reordering groups) ----
+    const header = groupEl.querySelector('.group-header');
+    if (!header.dataset.groupDragInit) {
+      header.draggable = true;
+      header.dataset.groupDragInit = 'true';
+
+      header.addEventListener('dragstart', (e) => {
+        // Set group-specific data type to distinguish from card drags
+        e.dataTransfer.setData('application/group-id', group.id);
+        e.dataTransfer.setData('text/plain', ''); // required for Firefox
+        e.dataTransfer.effectAllowed = 'move';
+        // Delay adding class so the drag image captures before opacity change
+        requestAnimationFrame(() => {
+          groupEl.classList.add('group-dragging');
+        });
+      });
+
+      header.addEventListener('dragend', () => {
+        groupEl.classList.remove('group-dragging');
+        clearGroupDropIndicators();
+      });
+    }
+
+    // ---- Group as drop target for other groups ----
+    if (!groupEl.dataset.groupDropInit) {
+      groupEl.dataset.groupDropInit = 'true';
+
+      groupEl.addEventListener('dragover', (e) => {
+        // Only respond to group drags
+        if (!e.dataTransfer.types.includes('application/group-id')) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+
+        // Show left/right indicator based on mouse position vs midpoint
+        const rect = groupEl.getBoundingClientRect();
+        const midX = rect.left + rect.width / 2;
+        clearGroupDropIndicators();
+        if (e.clientX < midX) {
+          groupEl.classList.add('group-drop-left');
+        } else {
+          groupEl.classList.add('group-drop-right');
+        }
+      });
+
+      groupEl.addEventListener('dragleave', (e) => {
+        if (!groupEl.contains(e.relatedTarget)) {
+          groupEl.classList.remove('group-drop-left', 'group-drop-right');
+        }
+      });
+
+      groupEl.addEventListener('drop', (e) => {
+        // Only handle group drops
+        if (!e.dataTransfer.types.includes('application/group-id')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const draggedGroupId = e.dataTransfer.getData('application/group-id');
+        if (!draggedGroupId || draggedGroupId === group.id) {
+          clearGroupDropIndicators();
+          return;
+        }
+        const rect = groupEl.getBoundingClientRect();
+        const midX = rect.left + rect.width / 2;
+        const insertBefore = e.clientX < midX;
+        clearGroupDropIndicators();
+        reorderGroups(draggedGroupId, group.id, insertBefore);
+      });
+    }
+
     // Move cards that belong to this group into it
     const groupGrid = groupEl.querySelector('.group-grid');
     for (const sid of group.sessionIds) {
@@ -193,21 +468,14 @@ export function renderGroups() {
       }
     }
   }
-  // Apply layout classes (per-group overrides + global fallback)
-  const globalLayout = settingsManager.get('groupLayout') || 'vertical';
-  for (const group of groups) {
-    const grid = document.querySelector(`#${group.id} .group-grid`);
-    if (!grid) continue;
-    if (group.layout) {
-      grid.dataset.layoutOverride = 'true';
-      grid.classList.toggle('layout-horizontal', group.layout === 'horizontal');
-    } else {
-      delete grid.dataset.layoutOverride;
-      grid.classList.toggle('layout-horizontal', globalLayout === 'horizontal');
-    }
+
+  // Sort group elements in DOM by order
+  const sortedIds = groups.map(g => g.id);
+  const groupEls = Array.from(container.querySelectorAll('.session-group'));
+  groupEls.sort((a, b) => sortedIds.indexOf(a.id) - sortedIds.indexOf(b.id));
+  for (const el of groupEls) {
+    container.appendChild(el);
   }
-  const sessionsGrid = document.getElementById('sessions-grid');
-  if (sessionsGrid) sessionsGrid.classList.toggle('layout-horizontal', globalLayout === 'horizontal');
 
   updateGroupCounts();
   refreshAllGroupSelects();
@@ -333,11 +601,13 @@ const MAX_GROUP_ASSIGN_TOASTS = 3;
 
 export function showGroupAssignToast(sessionId) {
   if (groupAssignToastCount >= MAX_GROUP_ASSIGN_TOASTS) return;
+  // Prevent duplicate toast for the same session
+  const container = document.getElementById('toast-container');
+  if (container.querySelector(`.group-assign-toast[data-session-id="${sessionId}"]`)) return;
   const sessionsData = _getSessionsData ? _getSessionsData() : new Map();
   const session = sessionsData.get(sessionId);
   if (!session) return;
   groupAssignToastCount++;
-  const container = document.getElementById('toast-container');
   const groups = loadGroups();
   const groupOptions = groups.map(g =>
     `<option value="${g.id}">${escapeHtml(g.name)}</option>`
@@ -352,11 +622,10 @@ export function showGroupAssignToast(sessionId) {
     <div class="toast-msg">${escapeHtml(title)}</div>
     <div class="group-assign-actions">
       <select class="group-assign-select">
-        <option value="">No group</option>
+        <option value="">Select group...</option>
         ${groupOptions}
         <option value="__new__">+ New Group</option>
       </select>
-      <button class="group-assign-btn">ASSIGN</button>
       <button class="group-dismiss-btn">SKIP</button>
     </div>
     <div class="group-assign-new-row hidden">
@@ -366,22 +635,21 @@ export function showGroupAssignToast(sessionId) {
   `;
   const sel = toast.querySelector('.group-assign-select');
   const newRow = toast.querySelector('.group-assign-new-row');
-  sel.addEventListener('change', () => {
-    newRow.classList.toggle('hidden', sel.value !== '__new__');
-    if (sel.value === '__new__') toast.querySelector('.group-new-name-input').focus();
-  });
   function dismissToast() {
     groupAssignToastCount--;
     toast.classList.add('fade-out');
     setTimeout(() => toast.remove(), 300);
   }
-  toast.querySelector('.group-assign-btn').addEventListener('click', () => {
+  sel.addEventListener('change', () => {
     const groupId = sel.value;
-    if (groupId && groupId !== '__new__') {
+    if (groupId === '__new__') {
+      newRow.classList.remove('hidden');
+      toast.querySelector('.group-new-name-input').focus();
+    } else if (groupId) {
       assignSessionToGroupAndMove(groupId, sessionId);
       if (_showToast) _showToast('GROUP', 'Assigned to group');
+      dismissToast();
     }
-    dismissToast();
   });
   toast.querySelector('.group-create-btn').addEventListener('click', () => {
     const name = toast.querySelector('.group-new-name-input').value.trim();
@@ -401,9 +669,14 @@ export function showGroupAssignToast(sessionId) {
 }
 
 export function initGroups() {
+  // Seed default groups on first ever launch
+  seedDefaultGroups();
+
   // Make ungrouped grid a drop zone to pull cards out of groups
   const grid = document.getElementById('sessions-grid');
   grid.addEventListener('dragover', (e) => {
+    // Ignore group drags
+    if (e.dataTransfer.types.includes('application/group-id')) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     grid.classList.add('drag-over');
@@ -412,10 +685,13 @@ export function initGroups() {
     if (!grid.contains(e.relatedTarget)) grid.classList.remove('drag-over');
   });
   grid.addEventListener('drop', (e) => {
+    // Ignore group drags
+    if (e.dataTransfer.types.includes('application/group-id')) return;
     if (e.target.closest('.session-card')) return;
     e.preventDefault();
     grid.classList.remove('drag-over');
     const draggedId = e.dataTransfer.getData('text/plain');
+    if (!draggedId) return;
     const card = document.querySelector(`.session-card[data-session-id="${draggedId}"]`);
     if (card) {
       grid.appendChild(card);
@@ -452,8 +728,28 @@ export function initGroups() {
   // Render existing groups from localStorage
   renderGroups();
 
-  // Listen for global layout changes and re-apply
-  settingsManager.onChange('groupLayout', (layout) => {
-    settingsManager.applyGroupLayout(layout);
-  });
+  // Render layout preset bar and apply saved layout
+  renderLayoutPresetBar();
+  const savedLayout = loadDashboardLayout();
+  if (savedLayout.preset && savedLayout.preset !== 'custom') {
+    // Re-apply saved preset to ensure colSpans are in sync
+    const groups = loadGroups();
+    const preset = LAYOUT_PRESETS[savedLayout.preset];
+    if (preset && groups.length > 0) {
+      const spans = preset.colSpans;
+      let needsUpdate = false;
+      for (let i = 0; i < groups.length; i++) {
+        const expectedSpan = spans[i % spans.length];
+        if (groups[i].colSpan !== expectedSpan) {
+          groups[i].colSpan = expectedSpan;
+          needsUpdate = true;
+        }
+      }
+      if (needsUpdate) {
+        saveGroups(groups);
+        renderGroups();
+      }
+    }
+  }
+
 }

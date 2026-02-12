@@ -91,10 +91,17 @@ export function populateDetailPanel(session) {
   if (_populateDetailLabelChips) _populateDetailLabelChips(session);
 
   // Resume button visibility
+  const canResume = session.status === 'ended' && session.source === 'ssh' && !!session.lastTerminalId;
   const resumeBtn = document.getElementById('ctrl-resume');
   if (resumeBtn) {
-    const canResume = session.status === 'ended' && session.source === 'ssh' && !!session.lastTerminalId;
     resumeBtn.classList.toggle('hidden', !canResume);
+  }
+  // Terminal tab reconnect button visibility
+  const reconnectBtn = document.getElementById('terminal-reconnect-btn');
+  if (reconnectBtn) {
+    reconnectBtn.classList.toggle('hidden', !canResume);
+    reconnectBtn.disabled = false;
+    reconnectBtn.textContent = '\u25B6 RECONNECT';
   }
 
   // Prompt History tab
@@ -430,7 +437,47 @@ export function initDetailPanelHandlers() {
             }
           });
         }
+        // Update reconnect button visibility
+        const rbtn = document.getElementById('terminal-reconnect-btn');
+        if (rbtn && session) {
+          const canResume = session.status === 'ended' && session.source === 'ssh' && !!session.lastTerminalId;
+          rbtn.classList.toggle('hidden', !canResume);
+        }
       }
+    }
+  });
+
+  // Terminal tab reconnect button
+  document.getElementById('terminal-reconnect-btn')?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const sid = _getSelectedSessionId ? _getSelectedSessionId() : null;
+    if (!sid) return;
+    const sessionsData = _getSessionsData ? _getSessionsData() : new Map();
+    const session = sessionsData.get(sid);
+    if (!session || session.status !== 'ended' || !session.lastTerminalId) {
+      if (_showToast) _showToast('RECONNECT', 'Session cannot be reconnected');
+      return;
+    }
+    const btn = document.getElementById('terminal-reconnect-btn');
+    btn.disabled = true;
+    btn.textContent = 'RECONNECTING...';
+    try {
+      const resp = await fetch(`/api/sessions/${sid}/resume`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        if (_showToast) _showToast('RECONNECTING', 'Resuming Claude session in terminal');
+        btn.classList.add('hidden');
+      } else {
+        if (_showToast) _showToast('RECONNECT FAILED', data.error || 'Unknown error');
+      }
+    } catch (err) {
+      if (_showToast) _showToast('RECONNECT ERROR', err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '\u25B6 RECONNECT';
     }
   });
 
