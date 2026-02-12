@@ -271,6 +271,14 @@
   background: var(--accent-cyan);
 }
 
+.setting-hint {
+  display: block;
+  font-size: 10px;
+  color: var(--text-dim, #666);
+  margin-left: 46px;
+  margin-top: 2px;
+}
+
 .volume-control {
   display: flex;
   align-items: center;

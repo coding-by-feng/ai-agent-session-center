@@ -9,9 +9,9 @@ const defaults = {
   soundVolume: '0.5',
   soundActions: '',
   scanlineEnabled: 'true',
-  groupLayout: 'vertical',
   cardSize: 'small',
   activityFeedVisible: 'true',
+  toastEnabled: 'true',
   characterModel: 'robot',
   animationIntensity: '100',
   animationSpeed: '100',
@@ -92,18 +92,6 @@ export function applyAnimationIntensity(value) {
 export function applyAnimationSpeed(value) {
   const v = parseFloat(value) / 100;
   document.documentElement.style.setProperty('--anim-speed', v);
-}
-
-// Apply group layout (vertical grid or horizontal row)
-export function applyGroupLayout(layout) {
-  const isHorizontal = layout === 'horizontal';
-  document.querySelectorAll('.group-grid').forEach(grid => {
-    // Skip grids with a per-group override
-    if (grid.dataset.layoutOverride) return;
-    grid.classList.toggle('layout-horizontal', isHorizontal);
-  });
-  const sessionsGrid = document.getElementById('sessions-grid');
-  if (sessionsGrid) sessionsGrid.classList.toggle('layout-horizontal', isHorizontal);
 }
 
 // Apply activity feed visibility
@@ -274,6 +262,9 @@ function syncUIToSettings() {
   if (feedEl) feedEl.checked = get('activityFeedVisible') === 'true';
   applyActivityFeed(get('activityFeedVisible'));
 
+  const toastEl = document.getElementById('toast-enabled');
+  if (toastEl) toastEl.checked = get('toastEnabled') === 'true';
+
   // Character model
   const currentModel = get('characterModel');
   document.querySelectorAll('.char-swatch').forEach(s => {
@@ -295,13 +286,6 @@ function syncUIToSettings() {
   const spdDisplay = document.getElementById('anim-speed-display');
   if (spdSlider) spdSlider.value = animSpeed;
   if (spdDisplay) spdDisplay.textContent = animSpeed + '%';
-
-  // Group layout
-  const groupLayout = get('groupLayout');
-  applyGroupLayout(groupLayout);
-  document.querySelectorAll('.layout-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.layout === groupLayout);
-  });
 
 }
 
@@ -419,20 +403,6 @@ export function initSettingsUI() {
     });
   }
 
-  // --- Group layout toggle ---
-  const layoutBtns = document.querySelectorAll('.layout-btn');
-  if (layoutBtns.length) {
-    layoutBtns.forEach(btn => {
-      btn.addEventListener('click', () => {
-        layoutBtns.forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        const layout = btn.dataset.layout;
-        applyGroupLayout(layout);
-        set('groupLayout', layout);
-      });
-    });
-  }
-
   // Sound controls
   document.getElementById('sound-enabled').addEventListener('change', (e) => {
     set('soundEnabled', String(e.target.checked));
@@ -516,6 +486,14 @@ export function initSettingsUI() {
       const visible = String(e.target.checked);
       applyActivityFeed(visible);
       set('activityFeedVisible', visible);
+    });
+  }
+
+  // --- Toast notifications toggle ---
+  const toastToggle = document.getElementById('toast-enabled');
+  if (toastToggle) {
+    toastToggle.addEventListener('change', (e) => {
+      set('toastEnabled', String(e.target.checked));
     });
   }
 

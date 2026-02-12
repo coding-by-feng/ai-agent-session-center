@@ -8,15 +8,101 @@
 /* ---- Session Groups ---- */
 
 #groups-container {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  grid-auto-flow: row dense;
+  gap: 16px;
   padding: 0 24px;
+  align-items: start;
 }
 
 .session-group {
-  margin-bottom: 16px;
+  grid-column: span 12;
+  min-width: 0;
+  position: relative;
+  margin-bottom: 0;
   border: 1px solid var(--border-subtle);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.02);
-  overflow: hidden;
+  overflow: visible;
+}
+
+/* ---- Group Resize Handle ---- */
+.group-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+  background: transparent;
+  transition: background 0.2s;
+}
+.group-resize-handle:hover,
+.session-group.resizing .group-resize-handle {
+  background: var(--accent-cyan);
+  opacity: 0.4;
+  border-radius: 4px;
+}
+.session-group.resizing {
+  outline: 2px dashed var(--accent-cyan);
+  outline-offset: 2px;
+  opacity: 0.9;
+}
+
+/* ---- Group Drag Indicators ---- */
+.session-group.group-dragging {
+  opacity: 0.4;
+  transform: scale(0.98);
+}
+.session-group.group-drop-left {
+  border-left: 3px solid var(--accent-cyan);
+  box-shadow: -4px 0 12px rgba(0, 229, 255, 0.4);
+}
+.session-group.group-drop-right {
+  border-right: 3px solid var(--accent-cyan);
+  box-shadow: 4px 0 12px rgba(0, 229, 255, 0.4);
+}
+
+/* ---- Layout Preset Bar ---- */
+.layout-presets-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 24px;
+  user-select: none;
+}
+.layout-presets-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  margin-right: 4px;
+}
+.layout-preset-btn {
+  background: none;
+  border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
+  color: var(--text-dim);
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.layout-preset-btn:hover {
+  color: var(--accent-cyan);
+  border-color: var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.08);
+}
+.layout-preset-btn.active {
+  color: var(--accent-cyan);
+  border-color: var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.12);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.15);
 }
 
 .group-header {
@@ -105,8 +191,8 @@
 
 .group-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
   padding: 16px;
   min-height: 60px;
   transition: background 0.2s, border-color 0.2s;
@@ -149,90 +235,6 @@
   display: none;
 }
 
-/* Horizontal layout for group grids */
-.group-grid.layout-horizontal {
-  grid-template-columns: none;
-  display: flex;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scroll-snap-type: x mandatory;
-  padding-bottom: 8px;
-}
-
-.group-grid.layout-horizontal > .session-card {
-  flex: 0 0 240px;
-  scroll-snap-align: start;
-}
-
-.group-grid.layout-horizontal::-webkit-scrollbar {
-  height: 4px;
-}
-.group-grid.layout-horizontal::-webkit-scrollbar-track {
-  background: transparent;
-}
-.group-grid.layout-horizontal::-webkit-scrollbar-thumb {
-  background: var(--border-accent);
-  border-radius: 2px;
-}
-
-/* Horizontal layout for ungrouped sessions grid */
-#sessions-grid.layout-horizontal {
-  display: flex;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scroll-snap-type: x mandatory;
-}
-#sessions-grid.layout-horizontal > .session-card,
-#sessions-grid.layout-horizontal > .team-card {
-  flex: 0 0 240px;
-  scroll-snap-align: start;
-}
-
-/* Layout toggle button in group header */
-.group-layout-toggle {
-  background: none;
-  border: 1px solid var(--border-subtle);
-  color: var(--text-dim);
-  font-size: 14px;
-  cursor: pointer;
-  border-radius: 4px;
-  width: 28px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
-  margin-left: 4px;
-}
-.group-layout-toggle:hover {
-  color: var(--accent-cyan);
-  border-color: var(--accent-cyan);
-}
-
-/* Settings layout toggle buttons */
-.layout-toggle-group {
-  display: flex;
-  gap: 8px;
-}
-.layout-btn {
-  padding: 6px 14px;
-  border: 1px solid var(--border-subtle);
-  background: transparent;
-  color: var(--text-secondary);
-  border-radius: 6px;
-  cursor: pointer;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  transition: all 0.2s;
-}
-.layout-btn.active {
-  border-color: var(--accent-cyan);
-  color: var(--accent-cyan);
-  background: rgba(0, 229, 255, 0.08);
-}
-
 #sessions-grid.drag-over {
   outline: 2px dashed var(--accent-cyan);
   outline-offset: -4px;
@@ -248,8 +250,8 @@
   z-index: 1;
   pointer-events: auto;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
   padding: 24px;
   overflow-y: auto;
   align-content: start;
@@ -339,14 +341,16 @@
 /* Card info - solid background */
 .session-card .card-info {
   background: var(--bg-card);
-  padding: 8px 12px;
+  padding: 10px 14px;
 }
 
 .session-card .card-header {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   margin-bottom: 8px;
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 
 .session-card .project-name {
@@ -356,7 +360,8 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 170px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .session-card .source-badge {
@@ -403,7 +408,6 @@
   background: rgba(0, 229, 255, 0.1);
   white-space: nowrap;
   flex-shrink: 0;
-  margin-left: auto;
 }
 .session-card .card-label-badge:empty { display: none; }
 
@@ -415,6 +419,7 @@
   border-radius: 3px;
   text-transform: uppercase;
   margin-left: auto;
+  flex-shrink: 0;
 }
 
 .session-card .status-badge.idle {
@@ -510,7 +515,7 @@
   text-overflow: ellipsis;
   font-style: italic;
   display: -webkit-box;
-  -webkit-line-clamp: 1;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   line-height: 1.5;
 }
@@ -768,11 +773,13 @@
   color: var(--accent-cyan);
   font-weight: 800;
   margin-bottom: 4px;
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   cursor: default;
   text-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
+  line-height: 1.4;
 }
 
 .session-card .card-title:hover {

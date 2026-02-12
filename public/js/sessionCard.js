@@ -149,7 +149,13 @@ function renderToolBars(toolUsage) {
 }
 
 // ---- Toast ----
+const ERROR_TOAST_PATTERN = /error|failed/i;
+
 export function showToast(title, message) {
+  // Always show error/failed toasts; skip info toasts when disabled
+  const isError = ERROR_TOAST_PATTERN.test(title);
+  if (!isError && settingsManager.get('toastEnabled') !== 'true') return;
+
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
   toast.className = 'toast';

@@ -218,8 +218,8 @@ router.post('/sessions/:id/resume', async (req, res) => {
     return res.status(400).json({ error: result.error });
   }
 
-  // Send `claude --resume` to the terminal
-  writeToTerminal(result.terminalId, 'claude --resume\r');
+  // Send `claude --resume <sessionId>` to the terminal to resume the specific session
+  writeToTerminal(result.terminalId, `claude --resume ${session.sessionId}\r`);
 
   // Broadcast updated session state
   const { broadcast } = await import('./wsManager.js');

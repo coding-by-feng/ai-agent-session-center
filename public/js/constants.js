@@ -42,6 +42,8 @@ export const STORAGE_KEYS = {
   SESSION_LABELS: 'sessionLabels',
   LAST_SESSION: 'lastSession',
   DETAIL_PANEL_WIDTH: 'detail-panel-width',
+  DASHBOARD_LAYOUT: 'dashboard-layout',
+  GROUPS_SEEDED: 'groups-seeded',
   DEBUG: 'debug',
 };
 

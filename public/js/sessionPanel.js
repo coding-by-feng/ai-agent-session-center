@@ -108,3 +108,6 @@ export const createGroup = sessionGroups.createGroup;
 export const renderGroups = sessionGroups.renderGroups;
 export const showGroupAssignToast = sessionGroups.showGroupAssignToast;
 export const initGroups = sessionGroups.initGroups;
+export const applyLayoutPreset = sessionGroups.applyLayoutPreset;
+export const getLayoutPresets = sessionGroups.getLayoutPresets;
+export const loadDashboardLayout = sessionGroups.loadDashboardLayout;
