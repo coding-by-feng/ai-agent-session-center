@@ -33,6 +33,7 @@
     <button class="nav-btn" data-view="history">SESSION HISTORY</button>
     <button class="nav-btn" data-view="timeline">TIMELINE</button>
     <button class="nav-btn" data-view="analytics">ANALYTICS</button>
+    <button class="nav-btn" data-view="queue">QUEUE</button>
     <div class="nav-spacer"></div>
     <div id="nav-actions">
       <button id="nav-actions-toggle" class="nav-actions-toggle" title="Toggle actions">&#9776;</button>
@@ -50,6 +51,12 @@
       <button id="shortcuts-btn" class="nav-shortcuts-btn" title="Keyboard Shortcuts (?)"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="3" width="14" height="10" rx="2"/><line x1="4" y1="6" x2="5" y2="6"/><line x1="7" y1="6" x2="9" y2="6"/><line x1="11" y1="6" x2="12" y2="6"/><line x1="4" y1="9" x2="12" y2="9"/></svg></button>
     </div>
   </nav>
+
+  <!-- Move Queue Mode Banner -->
+  <div id="move-mode-banner" class="move-mode-banner hidden">
+    <span id="move-mode-text"></span>
+    <button id="move-mode-cancel" class="ctrl-btn">CANCEL</button>
+  </div>
 
   <!-- Keyboard Shortcuts Panel -->
   <div id="shortcuts-modal" class="modal-overlay hidden">
@@ -168,6 +175,17 @@
     </div>
   </div>
 
+  <!-- Queue View -->
+  <div id="view-queue" class="view-panel hidden">
+    <div id="queue-view-controls">
+      <h3 class="queue-view-title">Prompt Queue</h3>
+      <button id="queue-view-refresh" class="ctrl-btn notes">Refresh</button>
+      <button id="queue-view-export" class="ctrl-btn export">Export JSON</button>
+    </div>
+    <div id="queue-view-stats" class="queue-view-stats"></div>
+    <div id="queue-view-content"></div>
+  </div>
+
   <!-- Activity Feed -->
   <footer id="activity-feed" class="collapsed">
     <div class="feed-header">
@@ -229,6 +247,7 @@
 
       <!-- Control buttons -->
       <div class="ctrl-bar">
+        <button class="ctrl-btn resume hidden" id="ctrl-resume" title="Resume Claude in Terminal">RESUME</button>
         <button class="ctrl-btn kill" id="ctrl-kill" title="Kill Process">KILL</button>
         <button class="ctrl-btn archive" id="ctrl-archive" title="Move to History">ARCHIVE</button>
         <button class="ctrl-btn summarize" id="ctrl-summarize" title="Summarize & Archive">SUMMARIZE</button>
@@ -257,10 +276,13 @@
         <div id="terminal-container"></div>
         <!-- Collapsible Prompt Queue below terminal -->
         <div id="terminal-queue-panel" class="terminal-queue-panel collapsed">
-          <button id="terminal-queue-toggle" class="terminal-queue-toggle">
-            <span class="terminal-queue-toggle-arrow">&#9654;</span>
-            PROMPT QUEUE <span id="terminal-queue-count" class="terminal-queue-count"></span>
-          </button>
+          <div class="terminal-queue-header">
+            <button id="terminal-queue-toggle" class="terminal-queue-toggle">
+              <span class="terminal-queue-toggle-arrow">&#9654;</span>
+              PROMPT QUEUE <span id="terminal-queue-count" class="terminal-queue-count"></span>
+            </button>
+            <button id="queue-move-all-btn" class="ctrl-btn queue-move-all hidden" title="Move all prompts to another session">MOVE ALL</button>
+          </div>
           <div class="terminal-queue-body">
             <div class="queue-compose">
               <textarea id="queue-textarea" placeholder="Add a prompt to the queue..." rows="2"></textarea>
@@ -447,6 +469,14 @@
             <span class="toggle-switch"></span>
             Enable scanline overlay
           </label>
+        </div>
+
+        <div class="settings-section">
+          <h4>Group Layout</h4>
+          <div class="layout-toggle-group">
+            <button class="layout-btn active" data-layout="vertical" title="Grid">&#9638; Grid</button>
+            <button class="layout-btn" data-layout="horizontal" title="Row">&#9776; Row</button>
+          </div>
         </div>
 
         <div class="settings-section">

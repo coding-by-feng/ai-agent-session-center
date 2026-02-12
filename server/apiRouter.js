@@ -1,7 +1,7 @@
 // apiRouter.js — Express router for all API endpoints (no SQLite/database dependencies)
 import { Router } from 'express';
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSummary, getSession, detectSessionSource, createTerminalSession, deleteSessionFromMemory } from './sessionStore.js';
-import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions } from './sshManager.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSummary, getSession, detectSessionSource, createTerminalSession, deleteSessionFromMemory, resumeSession } from './sessionStore.js';
+import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal } from './sshManager.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
 import { getMqStats } from './mqReader.js';
 import { execFile } from 'child_process';
@@ -124,6 +124,38 @@ router.post('/hooks/uninstall', (req, res) => {
 });
 
 // ---- Session Control Endpoints ----
+
+// Resume a disconnected SSH session — sends `claude --resume` to the terminal
+router.post('/sessions/:id/resume', async (req, res) => {
+  const sessionId = req.params.id;
+
+  // Pre-validate: check session state and terminal existence BEFORE mutating state
+  const session = getSession(sessionId);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+  if (session.status !== 'ended') return res.status(400).json({ error: 'Session is not ended' });
+  if (!session.lastTerminalId) return res.status(400).json({ error: 'No terminal associated with this session' });
+
+  const allTerminals = getTerminals();
+  const terminalExists = allTerminals.some(t => t.id === session.lastTerminalId);
+  if (!terminalExists) {
+    return res.status(400).json({ error: 'Terminal no longer exists' });
+  }
+
+  // Now safe to mutate session state
+  const result = resumeSession(sessionId);
+  if (result.error) {
+    return res.status(400).json({ error: result.error });
+  }
+
+  // Send `claude --resume` to the terminal
+  writeToTerminal(result.terminalId, 'claude --resume\r');
+
+  // Broadcast updated session state
+  const { broadcast } = await import('./wsManager.js');
+  broadcast({ type: 'session_update', session: result.session });
+
+  res.json({ ok: true, terminalId: result.terminalId });
+});
 
 // Kill session process — sends SIGTERM, then SIGKILL after 3s if still alive
 router.post('/sessions/:id/kill', (req, res) => {

@@ -8,6 +8,7 @@ const defaults = {
   soundVolume: '0.5',
   soundActions: '',
   scanlineEnabled: 'true',
+  groupLayout: 'vertical',
   cardSize: 'small',
   activityFeedVisible: 'true',
   characterModel: 'robot',
@@ -90,6 +91,18 @@ export function applyAnimationIntensity(value) {
 export function applyAnimationSpeed(value) {
   const v = parseFloat(value) / 100;
   document.documentElement.style.setProperty('--anim-speed', v);
+}
+
+// Apply group layout (vertical grid or horizontal row)
+export function applyGroupLayout(layout) {
+  const isHorizontal = layout === 'horizontal';
+  document.querySelectorAll('.group-grid').forEach(grid => {
+    // Skip grids with a per-group override
+    if (grid.dataset.layoutOverride) return;
+    grid.classList.toggle('layout-horizontal', isHorizontal);
+  });
+  const sessionsGrid = document.getElementById('sessions-grid');
+  if (sessionsGrid) sessionsGrid.classList.toggle('layout-horizontal', isHorizontal);
 }
 
 // Apply activity feed visibility
@@ -282,6 +295,13 @@ function syncUIToSettings() {
   if (spdSlider) spdSlider.value = animSpeed;
   if (spdDisplay) spdDisplay.textContent = animSpeed + '%';
 
+  // Group layout
+  const groupLayout = get('groupLayout');
+  applyGroupLayout(groupLayout);
+  document.querySelectorAll('.layout-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.layout === groupLayout);
+  });
+
 }
 
 // Reusable API key field wiring (toggle, save, load)
@@ -395,6 +415,20 @@ export function initSettingsUI() {
       const enabled = String(e.target.checked);
       applyScanline(enabled);
       set('scanlineEnabled', enabled);
+    });
+  }
+
+  // --- Group layout toggle ---
+  const layoutBtns = document.querySelectorAll('.layout-btn');
+  if (layoutBtns.length) {
+    layoutBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        layoutBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const layout = btn.dataset.layout;
+        applyGroupLayout(layout);
+        set('groupLayout', layout);
+      });
     });
   }
 
