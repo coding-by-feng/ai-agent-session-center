@@ -27,10 +27,14 @@ const TRUNCATE_THRESHOLD = 1 * 1024 * 1024; // 1 MB
 // Internal state
 let watcher = null;
 let pollTimer = null;
+let healthCheckTimer = null;
 let lastByteOffset = 0;
 let partialLine = '';
 let debounceTimer = null;
 let running = false;
+let lastWatchEventAt = 0;
+let lastKnownFileSize = 0;
+const HEALTH_CHECK_INTERVAL_MS = 5000;
 
 // Stats
 const mqStats = {
@@ -64,6 +68,7 @@ export function startMqReader() {
   try {
     watcher = watch(QUEUE_FILE, (eventType) => {
       if (eventType === 'change') {
+        lastWatchEventAt = Date.now();
         scheduleRead();
       }
     });
@@ -79,6 +84,27 @@ export function startMqReader() {
   pollTimer = setInterval(() => {
     readNewLines();
   }, POLL_INTERVAL_MS);
+
+  // Health check: detect when fs.watch silently stops delivering events
+  // If no watch events for HEALTH_CHECK_INTERVAL_MS but the file has grown, trigger a manual read
+  lastWatchEventAt = Date.now();
+  healthCheckTimer = setInterval(() => {
+    if (!watcher) return; // Already relying on poll only
+    try {
+      const fd = openSync(QUEUE_FILE, 'r');
+      const stat = fstatSync(fd);
+      closeSync(fd);
+      const currentSize = stat.size;
+      const timeSinceWatch = Date.now() - lastWatchEventAt;
+      if (timeSinceWatch > HEALTH_CHECK_INTERVAL_MS && currentSize > lastKnownFileSize) {
+        log.warn('mq', `fs.watch stale (${Math.round(timeSinceWatch / 1000)}s silent, file grew ${currentSize - lastKnownFileSize} bytes), triggering manual read`);
+        readNewLines();
+      }
+      lastKnownFileSize = currentSize;
+    } catch {
+      // File may not exist yet, ignore
+    }
+  }, HEALTH_CHECK_INTERVAL_MS);
 }
 
 /** Debounced read scheduler — coalesces rapid fs.watch events */
@@ -168,15 +194,51 @@ function readNewLines() {
   }
 }
 
-/** Truncate the queue file after all lines have been processed. */
+/** Truncate the queue file after all lines have been processed.
+ *  Checks if file grew since our last read to avoid losing events
+ *  written between the read and truncation.
+ */
 function truncateQueue() {
+  let fd;
   try {
-    writeFileSync(QUEUE_FILE, '');
-    lastByteOffset = 0;
+    fd = openSync(QUEUE_FILE, 'r+');
+    const stat = fstatSync(fd);
+    // If file grew since our last read, read the new data first
+    if (stat.size > lastByteOffset) {
+      const newBytes = stat.size - lastByteOffset;
+      const buffer = Buffer.alloc(newBytes);
+      const bytesRead = readSync(fd, buffer, 0, newBytes, lastByteOffset);
+      if (bytesRead > 0) {
+        const chunk = buffer.toString('utf-8', 0, bytesRead);
+        const combined = partialLine + chunk;
+        const lines = combined.split('\n');
+        partialLine = lines.pop();
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const hookData = JSON.parse(trimmed);
+            processHookEvent(hookData, 'mq');
+            mqStats.linesProcessed++;
+          } catch (err) {
+            mqStats.linesErrored++;
+            log.warn('mq', `Parse error during truncation: ${err.message}`);
+          }
+        }
+      }
+    }
+    // Now truncate — write remaining partial line (if any) to start of file
+    closeSync(fd);
+    fd = null;
+    writeFileSync(QUEUE_FILE, partialLine);
+    lastByteOffset = Buffer.byteLength(partialLine, 'utf-8');
     partialLine = '';
     mqStats.truncations++;
     log.info('mq', 'Queue file truncated (all events processed)');
   } catch (err) {
+    if (fd != null) {
+      try { closeSync(fd); } catch {}
+    }
     log.warn('mq', `Truncation error: ${err.message}`);
   }
 }
@@ -191,6 +253,10 @@ export function stopMqReader() {
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
+  }
+  if (healthCheckTimer) {
+    clearInterval(healthCheckTimer);
+    healthCheckTimer = null;
   }
   if (debounceTimer) {
     clearTimeout(debounceTimer);

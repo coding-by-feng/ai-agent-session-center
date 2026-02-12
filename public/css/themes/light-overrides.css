@@ -1,0 +1,78 @@
+/* Light Theme Overrides */
+/* Shared fixes for light, warm, blonde themes */
+
+/* Light themes: soften scanline overlay */
+body[data-theme="light"]::after,
+body[data-theme="warm"]::after,
+body[data-theme="blonde"]::after {
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.01) 2px, rgba(0,0,0,0.01) 4px);
+}
+
+/* Light themes: fix elements with hardcoded dark-theme colors */
+body[data-theme="light"] .header-title,
+body[data-theme="warm"] .header-title,
+body[data-theme="blonde"] .header-title {
+  text-shadow: none;
+}
+
+body[data-theme="light"] .session-card,
+body[data-theme="warm"] .session-card,
+body[data-theme="blonde"] .session-card {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+body[data-theme="light"] .session-card:hover,
+body[data-theme="warm"] .session-card:hover,
+body[data-theme="blonde"] .session-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+body[data-theme="light"] #session-detail-panel,
+body[data-theme="warm"] #session-detail-panel,
+body[data-theme="blonde"] #session-detail-panel {
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.1);
+}
+
+body[data-theme="light"] .modal-panel,
+body[data-theme="warm"] .modal-panel,
+body[data-theme="blonde"] .modal-panel {
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+}
+
+body[data-theme="light"] .status-badge,
+body[data-theme="warm"] .status-badge,
+body[data-theme="blonde"] .status-badge {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+body[data-theme="light"] .ctrl-btn,
+body[data-theme="warm"] .ctrl-btn,
+body[data-theme="blonde"] .ctrl-btn {
+  border-color: rgba(0, 0, 0, 0.15);
+}
+
+body[data-theme="light"] .ctrl-btn:hover,
+body[data-theme="warm"] .ctrl-btn:hover,
+body[data-theme="blonde"] .ctrl-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+body[data-theme="light"] .toast,
+body[data-theme="warm"] .toast,
+body[data-theme="blonde"] .toast {
+  background: var(--bg-card);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--border-subtle);
+}
+
+body[data-theme="blonde"] .search-highlight {
+  background: rgba(202, 138, 4, 0.15) !important;
+  border-left-color: #ca8a04 !important;
+}
+
+/* Light themes: nav actions */
+body[data-theme="light"] .qa-btn.active,
+body[data-theme="warm"] .qa-btn.active,
+body[data-theme="blonde"] .qa-btn.active {
+  background: rgba(255, 51, 85, 0.1);
+}

@@ -1,8 +1,21 @@
-import { readFileSync, writeFileSync, copyFileSync, chmodSync, mkdirSync, existsSync, statSync } from 'fs';
+import { readFileSync, writeFileSync, copyFileSync, chmodSync, mkdirSync, existsSync, statSync, renameSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
+import { randomBytes } from 'crypto';
+
+// Atomic JSON file write: writes to temp file, then renames
+function atomicWriteJSON(filePath, data) {
+  const tmpPath = filePath + '.tmp.' + randomBytes(4).toString('hex');
+  try {
+    writeFileSync(tmpPath, JSON.stringify(data, null, 2) + '\n');
+    renameSync(tmpPath, filePath);
+  } catch (err) {
+    try { unlinkSync(tmpPath); } catch {}
+    throw err;
+  }
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isWindows = process.platform === 'win32';
@@ -268,7 +281,7 @@ if (uninstallMode) {
     settings.hooks = {};
   }
 
-  writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n');
+  atomicWriteJSON(SETTINGS_PATH, settings);
   ok(`Saved settings: ${removed} hook(s) removed`);
 
   // Summary
@@ -337,7 +350,7 @@ for (const event of excludedEvents) {
 }
 
 // Write settings
-writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n');
+atomicWriteJSON(SETTINGS_PATH, settings);
 info(`Settings saved: ${GREEN}${added} added${RESET}, ${CYAN}${updated} updated${RESET}, ${YELLOW}${removedCount} removed${RESET}, ${DIM}${unchanged} unchanged${RESET}`);
 
 // ═══════════════════════════════════════════════
@@ -407,7 +420,7 @@ if (enabledClis.includes('gemini')) {
     }
     if (gChanged) {
       mkdirSync(join(homedir(), '.gemini'), { recursive: true });
-      writeFileSync(geminiSettingsPath, JSON.stringify(gs, null, 2) + '\n');
+      atomicWriteJSON(geminiSettingsPath, gs);
       ok(`Registered ${gChanged} Gemini hook events in ~/.gemini/settings.json`);
     } else {
       info('Gemini hooks already registered');

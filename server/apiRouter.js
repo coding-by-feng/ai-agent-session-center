@@ -1,3 +1,4 @@
+// @ts-check
 // apiRouter.js — Express router for all API endpoints (no SQLite/database dependencies)
 import { Router } from 'express';
 import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSummary, getSession, detectSessionSource, createTerminalSession, deleteSessionFromMemory, resumeSession } from './sessionStore.js';
@@ -9,10 +10,94 @@ import { readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
+import { ALL_CLAUDE_HOOK_EVENTS, DENSITY_EVENTS, SESSION_STATUS, WS_TYPES } from './constants.js';
+import log from './logger.js';
 
 const __apiDirname = dirname(fileURLToPath(import.meta.url));
 
 const router = Router();
+
+// ---- Input Validation Helpers ----
+
+const SHELL_META_RE = /[;|&$`\\!><()\n\r{}[\]]/;
+
+function isValidString(val, maxLen = 1024) {
+  return typeof val === 'string' && val.length <= maxLen;
+}
+
+function isValidPort(val) {
+  const n = Number(val);
+  return Number.isInteger(n) && n >= 1 && n <= 65535;
+}
+
+function isValidHost(val) {
+  if (!isValidString(val, 255)) return false;
+  // Reject shell metacharacters in hostnames
+  return !SHELL_META_RE.test(val);
+}
+
+function isValidUsername(val) {
+  if (!isValidString(val, 128)) return false;
+  return /^[a-zA-Z0-9_.\-]+$/.test(val);
+}
+
+function isValidWorkingDir(val) {
+  if (!isValidString(val, 1024)) return false;
+  return !SHELL_META_RE.test(val.replace(/^~/, ''));
+}
+
+function isValidCommand(val) {
+  if (!isValidString(val, 512)) return false;
+  return !SHELL_META_RE.test(val);
+}
+
+// ---- Rate Limiting (in-memory, no external deps) ----
+
+// Sliding window rate limiter: tracks request counts per key per second
+const rateLimitBuckets = new Map(); // key -> { count, windowStart }
+
+function isRateLimited(key, maxPerSecond) {
+  const now = Date.now();
+  const bucket = rateLimitBuckets.get(key);
+  if (!bucket || now - bucket.windowStart > 1000) {
+    rateLimitBuckets.set(key, { count: 1, windowStart: now });
+    return false;
+  }
+  bucket.count++;
+  return bucket.count > maxPerSecond;
+}
+
+// Clean up stale rate limit buckets every 30s
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of rateLimitBuckets) {
+    if (now - bucket.windowStart > 5000) {
+      rateLimitBuckets.delete(key);
+    }
+  }
+}, 30000);
+
+// Concurrent request limiter for summarize endpoint
+let activeSummarizeRequests = 0;
+const MAX_CONCURRENT_SUMMARIZE = 2;
+
+// Terminal creation cap
+const MAX_TERMINALS = 10;
+
+/**
+ * Hook ingestion rate limit middleware (applied to hookRouter externally).
+ * Limits to 100 requests/sec per IP.
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+export function hookRateLimitMiddleware(req, res, next) {
+  const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+  if (isRateLimited(`hook:${ip}`, 100)) {
+    return res.status(429).json({ success: false, error: 'Hook rate limit exceeded (100/sec)' });
+  }
+  next();
+}
 
 // Hook performance stats
 router.get('/hook-stats', (req, res) => {
@@ -27,7 +112,7 @@ router.post('/hook-stats/reset', (req, res) => {
 // Full reset — broadcast to all connected browsers to clear their IndexedDB
 router.post('/reset', async (req, res) => {
   const { broadcast } = await import('./wsManager.js');
-  broadcast({ type: 'clearBrowserDb' });
+  broadcast({ type: WS_TYPES.CLEAR_BROWSER_DB });
   res.json({ ok: true, message: 'Browser DB clear signal sent' });
 });
 
@@ -41,20 +126,6 @@ router.get('/mq-stats', (req, res) => {
 const CLAUDE_SETTINGS_PATH = join(homedir(), '.claude', 'settings.json');
 const INSTALL_HOOKS_SCRIPT = join(__apiDirname, '..', 'hooks', 'install-hooks.js');
 const HOOK_PATTERN = 'dashboard-hook.';
-const ALL_HOOK_EVENTS = [
-  'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure',
-  'PermissionRequest', 'Stop', 'Notification', 'SubagentStart', 'SubagentStop',
-  'TeammateIdle', 'TaskCompleted', 'PreCompact', 'SessionEnd'
-];
-const DENSITY_EVENTS = {
-  high: ALL_HOOK_EVENTS,
-  medium: [
-    'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure',
-    'PermissionRequest', 'Stop', 'Notification', 'SubagentStart', 'SubagentStop',
-    'TaskCompleted', 'SessionEnd'
-  ],
-  low: ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Stop', 'SessionEnd']
-};
 
 // Get current hooks status from ~/.claude/settings.json
 router.get('/hooks/status', (req, res) => {
@@ -65,7 +136,7 @@ router.get('/hooks/status', (req, res) => {
     } catch { /* file doesn't exist yet */ }
 
     const hooks = claudeSettings.hooks || {};
-    const installedEvents = ALL_HOOK_EVENTS.filter(event =>
+    const installedEvents = ALL_CLAUDE_HOOK_EVENTS.filter(event =>
       hooks[event]?.some(group => group.hooks?.some(h => h.command?.includes(HOOK_PATTERN)))
     );
 
@@ -102,10 +173,10 @@ router.post('/hooks/install', (req, res) => {
   // Run install-hooks.js with --density flag
   execFile('node', [INSTALL_HOOKS_SCRIPT, '--density', density], { timeout: 15000 }, (err, stdout, stderr) => {
     if (err) {
-      console.error('[hooks/install] Error:', err.message);
-      return res.status(500).json({ error: err.message, stdout, stderr });
+      log.error('api', `hooks/install failed: ${err.message}`);
+      return res.status(500).json({ success: false, error: err.message, stdout, stderr });
     }
-    console.log('[hooks/install]', stdout);
+    log.info('api', `hooks/install: ${stdout.trim()}`);
     res.json({ ok: true, density, events: DENSITY_EVENTS[density], output: stdout });
   });
 });
@@ -115,10 +186,10 @@ router.post('/hooks/uninstall', (req, res) => {
   // Run install-hooks.js with --uninstall flag
   execFile('node', [INSTALL_HOOKS_SCRIPT, '--uninstall'], { timeout: 15000 }, (err, stdout, stderr) => {
     if (err) {
-      console.error('[hooks/uninstall] Error:', err.message);
-      return res.status(500).json({ error: err.message, stdout, stderr });
+      log.error('api', `hooks/uninstall failed: ${err.message}`);
+      return res.status(500).json({ success: false, error: err.message, stdout, stderr });
     }
-    console.log('[hooks/uninstall]', stdout);
+    log.info('api', `hooks/uninstall: ${stdout.trim()}`);
     res.json({ ok: true, output: stdout });
   });
 });
@@ -132,7 +203,7 @@ router.post('/sessions/:id/resume', async (req, res) => {
   // Pre-validate: check session state and terminal existence BEFORE mutating state
   const session = getSession(sessionId);
   if (!session) return res.status(404).json({ error: 'Session not found' });
-  if (session.status !== 'ended') return res.status(400).json({ error: 'Session is not ended' });
+  if (session.status !== SESSION_STATUS.ENDED) return res.status(400).json({ error: 'Session is not ended' });
   if (!session.lastTerminalId) return res.status(400).json({ error: 'No terminal associated with this session' });
 
   const allTerminals = getTerminals();
@@ -152,7 +223,7 @@ router.post('/sessions/:id/resume', async (req, res) => {
 
   // Broadcast updated session state
   const { broadcast } = await import('./wsManager.js');
-  broadcast({ type: 'session_update', session: result.session });
+  broadcast({ type: WS_TYPES.SESSION_UPDATE, session: result.session });
 
   res.json({ ok: true, terminalId: result.terminalId });
 });
@@ -160,10 +231,13 @@ router.post('/sessions/:id/resume', async (req, res) => {
 // Kill session process — sends SIGTERM, then SIGKILL after 3s if still alive
 router.post('/sessions/:id/kill', (req, res) => {
   if (!req.body.confirm) {
-    return res.status(400).json({ error: 'Must send {confirm: true} to kill a session' });
+    return res.status(400).json({ success: false, error: 'Must send {confirm: true} to kill a session' });
   }
   const sessionId = req.params.id;
   const mem = getSession(sessionId);
+  if (!mem) {
+    return res.status(404).json({ success: false, error: 'Session not found' });
+  }
   const pid = findClaudeProcess(sessionId, mem?.projectPath);
   const source = detectSessionSource(sessionId);
   if (pid) {
@@ -206,8 +280,10 @@ router.delete('/sessions/:id', async (req, res) => {
   // Broadcast session_removed so all connected browsers remove the card
   try {
     const { broadcast } = await import('./wsManager.js');
-    broadcast({ type: 'session_removed', sessionId });
-  } catch (e) {}
+    broadcast({ type: WS_TYPES.SESSION_REMOVED, sessionId });
+  } catch (e) {
+    log.warn('api', `Failed to broadcast session_removed: ${e.message}`);
+  }
   res.json({ ok: true, removed });
 });
 
@@ -222,7 +298,10 @@ router.get('/sessions/:id/source', (req, res) => {
 // Update session title (in-memory only, no DB write)
 router.put('/sessions/:id/title', (req, res) => {
   const { title } = req.body;
-  if (title === undefined) return res.status(400).json({ error: 'title is required' });
+  if (title === undefined) return res.status(400).json({ success: false, error: 'title is required' });
+  if (typeof title !== 'string' || title.length > 500) {
+    return res.status(400).json({ success: false, error: 'title must be a string (max 500 chars)' });
+  }
   setSessionTitle(req.params.id, title);
   res.json({ ok: true });
 });
@@ -235,15 +314,39 @@ router.put('/sessions/:id/label', (req, res) => {
   res.json({ ok: true });
 });
 
-// Summarize session using Claude CLI
-// The frontend sends { context, promptTemplate } from IndexedDB data.
-// If custom_prompt is provided, use it directly as the prompt template.
+/**
+ * Summarize session using Claude CLI.
+ * The frontend sends { context, promptTemplate } from IndexedDB data.
+ * If custom_prompt is provided, use it directly as the prompt template.
+ * @type {import('express').RequestHandler<{id: string}, import('../types/api').SummarizeResponse, import('../types/api').SummarizeRequest>}
+ */
 router.post('/sessions/:id/summarize', async (req, res) => {
+  // Rate limit: max 2 concurrent summarize requests
+  if (activeSummarizeRequests >= MAX_CONCURRENT_SUMMARIZE) {
+    return res.status(429).json({ success: false, error: 'Too many concurrent summarize requests (max 2)' });
+  }
+  activeSummarizeRequests++;
+
   const sessionId = req.params.id;
   const { context, promptTemplate: bodyPromptTemplate, custom_prompt: customPrompt } = req.body;
 
   if (!context) {
-    return res.status(400).json({ error: 'context is required in request body (prepared from IndexedDB data)' });
+    activeSummarizeRequests--;
+    return res.status(400).json({ success: false, error: 'context is required in request body (prepared from IndexedDB data)' });
+  }
+  if (typeof context !== 'string') {
+    activeSummarizeRequests--;
+    return res.status(400).json({ success: false, error: 'context must be a string' });
+  }
+
+  // Validate custom_prompt if provided (will be passed to claude CLI stdin, not to shell)
+  if (customPrompt && typeof customPrompt !== 'string') {
+    activeSummarizeRequests--;
+    return res.status(400).json({ success: false, error: 'custom_prompt must be a string' });
+  }
+  if (customPrompt && customPrompt.length > 10000) {
+    activeSummarizeRequests--;
+    return res.status(400).json({ success: false, error: 'custom_prompt too long (max 10000 chars)' });
   }
 
   // Determine prompt template: custom_prompt > bodyPromptTemplate > default
@@ -268,10 +371,12 @@ router.post('/sessions/:id/summarize', async (req, res) => {
     setSummary(sessionId, summary);
     archiveSession(sessionId, true);
 
+    activeSummarizeRequests--;
     res.json({ ok: true, summary });
   } catch (err) {
-    console.error('[apiRouter] Summarize error:', err.message);
-    res.status(500).json({ error: `Summarize failed: ${err.message}` });
+    activeSummarizeRequests--;
+    log.error('api', `Summarize error: ${err.message}`);
+    res.status(500).json({ success: false, error: `Summarize failed: ${err.message}` });
   }
 });
 
@@ -305,11 +410,41 @@ router.post('/tmux-sessions', async (req, res) => {
 
 // ── Terminals ──
 
+/** @type {import('express').RequestHandler<{}, import('../types/api').CreateTerminalResponse, import('../types/api').CreateTerminalRequest>} */
 router.post('/terminals', async (req, res) => {
+  // Rate limit: max 10 terminals total
+  const currentTerminals = getTerminals();
+  if (currentTerminals.length >= MAX_TERMINALS) {
+    return res.status(429).json({ success: false, error: `Terminal limit reached (max ${MAX_TERMINALS})` });
+  }
+
   try {
     const { host, port, username, password, privateKeyPath, authMethod, workingDir, command, apiKey, tmuxSession, useTmux, sessionTitle, label } = req.body;
 
-    if (!username) return res.status(400).json({ error: 'username required' });
+    // Input validation
+    if (!username) return res.status(400).json({ success: false, error: 'username required' });
+    if (!isValidUsername(username)) {
+      return res.status(400).json({ success: false, error: 'username contains invalid characters' });
+    }
+    if (host && !isValidHost(host)) {
+      return res.status(400).json({ success: false, error: 'host contains invalid characters' });
+    }
+    if (port && !isValidPort(port)) {
+      return res.status(400).json({ success: false, error: 'port must be 1-65535' });
+    }
+    if (workingDir && !isValidWorkingDir(workingDir)) {
+      return res.status(400).json({ success: false, error: 'workingDir contains invalid characters' });
+    }
+    if (command && !isValidCommand(command)) {
+      return res.status(400).json({ success: false, error: 'command contains invalid shell characters' });
+    }
+    if (tmuxSession && (typeof tmuxSession !== 'string' || !/^[a-zA-Z0-9_.\-]+$/.test(tmuxSession))) {
+      return res.status(400).json({ success: false, error: 'tmuxSession must be alphanumeric, dash, underscore, or dot' });
+    }
+    if (sessionTitle && !isValidString(sessionTitle, 500)) {
+      return res.status(400).json({ success: false, error: 'sessionTitle must be a string (max 500 chars)' });
+    }
+
     const config = {
       host: host || 'localhost',
       port: port || 22,
@@ -337,7 +472,7 @@ router.post('/terminals', async (req, res) => {
     await createTerminalSession(terminalId, config);
     res.json({ ok: true, terminalId });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

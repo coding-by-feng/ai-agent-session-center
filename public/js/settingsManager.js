@@ -1,5 +1,6 @@
 // settingsManager.js — Settings persistence and event system
 import * as db from './browserDb.js';
+import { escapeHtml as _escapeHtml } from './utils.js';
 
 const defaults = {
   theme: 'command-center',
@@ -136,7 +137,7 @@ export async function syncHookDensityUI() {
 
     // Update status text
     if (data.installed) {
-      statusEl.innerHTML = `<span class="hook-status-dot installed"></span> Installed: <strong>${data.density}</strong> (${data.events.length} events)`;
+      statusEl.innerHTML = `<span class="hook-status-dot installed"></span> Installed: <strong>${escapeHtml(data.density)}</strong> (${parseInt(data.events.length, 10) || 0} events)`;
       statusEl.title = data.events.join(', ');
     } else {
       statusEl.innerHTML = `<span class="hook-status-dot"></span> Not installed`;
@@ -166,7 +167,7 @@ export async function installHookDensity(density) {
     await set('hookDensity', density);
     await syncHookDensityUI();
   } catch (err) {
-    if (statusEl) statusEl.innerHTML = `<span class="hook-status-dot"></span> Error: ${err.message}`;
+    if (statusEl) statusEl.innerHTML = `<span class="hook-status-dot"></span> Error: ${escapeHtml(err.message)}`;
   } finally {
     if (installBtn) installBtn.disabled = false;
   }
@@ -184,7 +185,7 @@ export async function uninstallHooks() {
     await set('hookDensity', 'off');
     await syncHookDensityUI();
   } catch (err) {
-    if (statusEl) statusEl.innerHTML = `<span class="hook-status-dot"></span> Error: ${err.message}`;
+    if (statusEl) statusEl.innerHTML = `<span class="hook-status-dot"></span> Error: ${escapeHtml(err.message)}`;
   } finally {
     if (uninstallBtn) { uninstallBtn.disabled = false; uninstallBtn.textContent = 'Uninstall'; }
   }
@@ -952,7 +953,4 @@ async function initLabelGrid() {
   });
 }
 
-function escapeHtml(str) {
-  if (!str) return '';
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
+const escapeHtml = _escapeHtml;

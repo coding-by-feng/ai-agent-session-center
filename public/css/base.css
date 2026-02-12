@@ -1,0 +1,101 @@
+/* ============================================================
+   AI Agent Session Center - Base Styles
+   Variables, Reset, Utility
+   ============================================================ */
+
+:root {
+  color-scheme: dark;
+  --bg-primary: #0a0a1a;
+  --bg-card: #12122a;
+  --bg-card-hover: #1a1a3a;
+  --bg-panel: #0e0e24;
+  --bg-header: #0e0e28;
+  --border-glow: #00ffcc;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-faint: rgba(255, 255, 255, 0.03);
+  --border-subtle-strong: rgba(255, 255, 255, 0.1);
+  --border-accent: rgba(0, 229, 255, 0.15);
+  --border-accent-strong: var(--border-accent-strong);
+  --bg-accent: rgba(0, 229, 255, 0.1);
+  --bg-accent-strong: rgba(0, 229, 255, 0.15);
+  --bg-subtle: rgba(255, 255, 255, 0.06);
+  --bg-subtle-strong: rgba(255, 255, 255, 0.1);
+  --glow-accent: rgba(0, 229, 255, 0.15);
+  --glow-accent-strong: var(--border-accent-strong);
+  --inset-highlight: rgba(255, 255, 255, 0.06);
+  --inset-highlight-faint: rgba(255, 255, 255, 0.04);
+  --accent-cyan: #00e5ff;
+  --accent-orange: #ff9100;
+  --accent-green: #00ff88;
+  --accent-red: #ff3355;
+  --accent-purple: #aa66ff;
+  --text-primary: #e0e0ff;
+  --text-secondary: #8888aa;
+  --text-dim: #555577;
+  --robot-body: #2a2a4a;
+  --robot-body-dark: #1a1a3a;
+  --robot-border: rgba(255, 255, 255, 0.08);
+  --mute-bg: rgba(10, 10, 26, 0.6);
+  --overlay-bg: rgba(0, 0, 0, 0.5);
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Animation control */
+  --anim-intensity: 1;
+  --anim-speed: 1;
+}
+
+/* ---- Reset & Base ---- */
+
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+body {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  grid-template-areas:
+    "header"
+    "nav"
+    "main"
+    "footer";
+  position: relative;
+}
+
+/* Scanline overlay on the whole viewport */
+body::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.04) 2px,
+    rgba(0, 0, 0, 0.04) 4px
+  );
+  animation: scanline 8s linear infinite;
+}
+
+/* ---- Utility ---- */
+
+.hidden {
+  display: none !important;
+}

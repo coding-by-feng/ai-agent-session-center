@@ -1,5 +1,6 @@
 // browserDb.js — IndexedDB wrapper for client-side persistence
 // Replaces server-side SQLite. All session data, notes, settings, profiles stored here.
+import { debugLog } from './utils.js';
 
 const DB_NAME = 'claude-dashboard';
 const DB_VERSION = 1;
@@ -160,6 +161,69 @@ export function putMany(storeName, items) {
   });
 }
 
+// ---- Batched Write Queue ----
+// Collects individual put() calls and flushes them in a single transaction per store.
+// Flush triggers: every 200ms or when queue reaches 20 items (whichever comes first).
+
+const WRITE_QUEUE_FLUSH_MS = 200;
+const WRITE_QUEUE_MAX_ITEMS = 20;
+
+// Map of storeName -> { items: Array<{data, resolve, reject}>, timerId }
+const writeQueues = new Map();
+
+export function putBatched(storeName, data) {
+  return new Promise((resolve, reject) => {
+    let queue = writeQueues.get(storeName);
+    if (!queue) {
+      queue = { items: [], timerId: null };
+      writeQueues.set(storeName, queue);
+    }
+    queue.items.push({ data, resolve, reject });
+
+    // Flush immediately if queue is full
+    if (queue.items.length >= WRITE_QUEUE_MAX_ITEMS) {
+      flushWriteQueue(storeName);
+      return;
+    }
+
+    // Schedule flush if not already scheduled
+    if (!queue.timerId) {
+      queue.timerId = setTimeout(() => flushWriteQueue(storeName), WRITE_QUEUE_FLUSH_MS);
+    }
+  });
+}
+
+function flushWriteQueue(storeName) {
+  const queue = writeQueues.get(storeName);
+  if (!queue || queue.items.length === 0) return;
+
+  const batch = queue.items;
+  queue.items = [];
+  if (queue.timerId) { clearTimeout(queue.timerId); queue.timerId = null; }
+
+  try {
+    const tx = getDB().transaction(storeName, 'readwrite');
+    const store = tx.objectStore(storeName);
+    for (const entry of batch) {
+      const req = store.put(entry.data);
+      req.onsuccess = () => entry.resolve(req.result);
+      req.onerror = () => entry.reject(req.error);
+    }
+    tx.onerror = () => {
+      for (const entry of batch) entry.reject(tx.error);
+    };
+  } catch (err) {
+    for (const entry of batch) entry.reject(err);
+  }
+}
+
+// Flush all pending write queues (call on page unload or when needed)
+export function flushAllWriteQueues() {
+  for (const storeName of writeQueues.keys()) {
+    flushWriteQueue(storeName);
+  }
+}
+
 // ---- Session-specific helpers ----
 
 // Persist a session snapshot from WebSocket (upsert into sessions store + child records)
@@ -190,7 +254,7 @@ export async function persistSessionUpdate(session) {
     queueCount: session.queueCount || 0,
     label: session.label || null,
   };
-  await put('sessions', record);
+  await putBatched('sessions', record);
 
   // Persist prompt history entries (deduplicate by timestamp)
   if (session.promptHistory?.length) {
@@ -719,7 +783,7 @@ async function seedDefaults() {
       soundPack: 'default',
     };
     await putMany('settings', Object.entries(defaults).map(([key, value]) => ({ key, value, updatedAt: now })));
-    console.log('[browserDb] Seeded default settings');
+    debugLog('[browserDb] Seeded default settings');
   }
 
   // Seed default summary prompts
@@ -829,7 +893,7 @@ Any additional context for reviewers.`,
       },
     ];
     await putMany('summaryPrompts', templates);
-    console.log('[browserDb] Seeded 5 default summary prompt templates');
+    debugLog('[browserDb] Seeded 5 default summary prompt templates');
   }
 }
 

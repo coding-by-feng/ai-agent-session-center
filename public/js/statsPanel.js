@@ -1,3 +1,5 @@
+import { escapeHtml, sanitizeNumber, debugLog } from './utils.js';
+
 let wsConnected = false;
 
 // Listen for WebSocket connection status events from wsClient
@@ -57,9 +59,9 @@ function renderHookStatsBadge(container) {
   badge.style.cursor = 'pointer';
   badge.innerHTML = `
     <span class="stat-label">Hooks</span>
-    <span class="stat-value">${totalHooks} <span class="hook-rate">(${hooksPerMin}/min)</span></span>
+    <span class="stat-value">${sanitizeNumber(totalHooks)} <span class="hook-rate">(${sanitizeNumber(hooksPerMin)}/min)</span></span>
     <span class="stat-label" style="margin-left:8px">Avg</span>
-    <span class="stat-value">${avgProcessing}ms</span>
+    <span class="stat-value">${sanitizeNumber(avgProcessing)}ms</span>
   `;
   badge.addEventListener('click', () => {
     hookStatsVisible = !hookStatsVisible;
@@ -75,15 +77,19 @@ function renderHookStatsBadge(container) {
   // Build table rows sorted by count descending
   const sortedEvents = Object.entries(events).sort((a, b) => b[1].count - a[1].count);
   const rows = sortedEvents.map(([name, ev]) => {
-    const latStr = ev.latency.avg > 0
-      ? `${ev.latency.avg}ms <span class="hook-stat-dim">(p95: ${ev.latency.p95}ms)</span>`
+    const latAvg = sanitizeNumber(ev.latency.avg);
+    const latP95 = sanitizeNumber(ev.latency.p95);
+    const procAvg = sanitizeNumber(ev.processing.avg);
+    const procP95 = sanitizeNumber(ev.processing.p95);
+    const latStr = latAvg > 0
+      ? `${latAvg}ms <span class="hook-stat-dim">(p95: ${latP95}ms)</span>`
       : '<span class="hook-stat-dim">n/a</span>';
     return `<tr>
-      <td class="hook-ev-name">${name}</td>
-      <td class="hook-ev-count">${ev.count}</td>
-      <td class="hook-ev-rate">${ev.rate}/min</td>
+      <td class="hook-ev-name">${escapeHtml(name)}</td>
+      <td class="hook-ev-count">${sanitizeNumber(ev.count)}</td>
+      <td class="hook-ev-rate">${sanitizeNumber(ev.rate)}/min</td>
       <td class="hook-ev-latency">${latStr}</td>
-      <td class="hook-ev-proc">${ev.processing.avg}ms <span class="hook-stat-dim">(p95: ${ev.processing.p95}ms)</span></td>
+      <td class="hook-ev-proc">${procAvg}ms <span class="hook-stat-dim">(p95: ${procP95}ms)</span></td>
     </tr>`;
   }).join('');
 

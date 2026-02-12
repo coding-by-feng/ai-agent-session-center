@@ -9,6 +9,50 @@ import { join } from 'path';
 import { homedir } from 'os';
 import log from './logger.js';
 
+// ---- Input Validation Helpers ----
+
+// Shell metacharacters that indicate injection attempts
+const SHELL_META_RE = /[;|&$`\\!><()\n\r{}[\]]/;
+
+// tmuxSession names: alphanumeric, dash, underscore, dot only
+const TMUX_SESSION_RE = /^[a-zA-Z0-9_.\-]+$/;
+
+function validateWorkingDir(dir) {
+  if (!dir) return null;
+  if (typeof dir !== 'string') return 'workingDir must be a string';
+  if (dir.length > 1024) return 'workingDir too long';
+  // Allow ~ at start, then normal path chars
+  if (SHELL_META_RE.test(dir.replace(/^~/, ''))) return 'workingDir contains invalid characters';
+  return null;
+}
+
+function validateCommand(cmd) {
+  if (!cmd) return null;
+  if (typeof cmd !== 'string') return 'command must be a string';
+  if (cmd.length > 512) return 'command too long';
+  // Allow known CLI commands with flags, but reject shell metacharacters
+  if (/[;|&$`\\!><()\n\r{}[\]]/.test(cmd)) return 'command contains invalid shell characters';
+  return null;
+}
+
+function validateTmuxSession(name) {
+  if (!name) return null;
+  if (typeof name !== 'string') return 'tmuxSession must be a string';
+  if (name.length > 128) return 'tmuxSession name too long';
+  if (!TMUX_SESSION_RE.test(name)) return 'tmuxSession must be alphanumeric, dash, underscore, or dot only';
+  return null;
+}
+
+function validatePid(pid) {
+  const n = parseInt(pid, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+// Escape a string for safe use inside single quotes in shell commands
+function shellEscapeSingleQuote(str) {
+  return str.replace(/'/g, "'\\''");
+}
+
 // List available SSH keys from ~/.ssh/
 export function listSshKeys() {
   const sshDir = join(homedir(), '.ssh');
@@ -113,6 +157,14 @@ export function listTmuxSessions(config) {
 
 export function createTerminal(config, wsClient) {
   return new Promise((resolve, reject) => {
+    // Validate inputs before any shell interaction
+    const wdErr = validateWorkingDir(config.workingDir);
+    if (wdErr) return reject(new Error(wdErr));
+    const cmdErr = validateCommand(config.command);
+    if (cmdErr) return reject(new Error(cmdErr));
+    const tmuxErr = validateTmuxSession(config.tmuxSession);
+    if (tmuxErr) return reject(new Error(tmuxErr));
+
     const terminalId = `term-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const workDir = resolveWorkDir(config.workingDir);
     const command = config.command || 'claude';
@@ -120,6 +172,15 @@ export function createTerminal(config, wsClient) {
 
     try {
       let shell, args, cwd;
+      // Build environment — API keys go here instead of shell command strings
+      const env = { ...process.env, AGENT_MANAGER_TERMINAL_ID: terminalId };
+
+      if (config.apiKey) {
+        const envVar = command.startsWith('codex') ? 'OPENAI_API_KEY'
+          : command.startsWith('gemini') ? 'GEMINI_API_KEY'
+          : 'ANTHROPIC_API_KEY';
+        env[envVar] = config.apiKey;
+      }
 
       if (local) {
         shell = getDefaultShell();
@@ -137,7 +198,7 @@ export function createTerminal(config, wsClient) {
         cols: 120,
         rows: 40,
         cwd,
-        env: { ...process.env, AGENT_MANAGER_TERMINAL_ID: terminalId },
+        env,
       });
 
       log.info('pty', `Spawned ${local ? 'local' : `remote (${config.host})`} terminal ${terminalId} (pid: ${ptyProcess.pid})`);
@@ -176,33 +237,36 @@ export function createTerminal(config, wsClient) {
       });
 
       // Send the launch command after shell/SSH init
+      // API keys are passed via env object to pty.spawn (above), not via shell commands.
+      // For remote SSH sessions, we export the env var in the shell since env doesn't
+      // propagate across SSH.
       setTimeout(() => {
         let launchCmd;
 
         if (config.tmuxSession) {
-          // Attach to existing tmux session
-          launchCmd = `tmux attach -t "${config.tmuxSession}"`;
+          // Attach to existing tmux session (validated above as alphanumeric+dash+underscore+dot)
+          launchCmd = `tmux attach -t '${shellEscapeSingleQuote(config.tmuxSession)}'`;
         } else if (config.useTmux) {
           // Wrap command in a new tmux session
           const tmuxName = `claude-${Date.now().toString(36)}`;
-          let innerCmd = local ? '' : `cd "${workDir}" && `;
-          if (config.apiKey) {
+          let innerCmd = local ? '' : `cd '${shellEscapeSingleQuote(workDir)}' && `;
+          if (!local && config.apiKey) {
             const envVar = command.startsWith('codex') ? 'OPENAI_API_KEY'
               : command.startsWith('gemini') ? 'GEMINI_API_KEY'
               : 'ANTHROPIC_API_KEY';
-            innerCmd += `export ${envVar}='${config.apiKey.replace(/'/g, "'\\''")}' && `;
+            innerCmd += `export ${envVar}='${shellEscapeSingleQuote(config.apiKey)}' && `;
           }
           innerCmd += command;
-          launchCmd = `tmux new-session -s "${tmuxName}" '${innerCmd.replace(/'/g, "'\\''")}'`;
+          launchCmd = `tmux new-session -s '${tmuxName}' '${shellEscapeSingleQuote(innerCmd)}'`;
         } else {
           // Direct launch
-          launchCmd = local ? '' : `cd "${workDir}"`;
-          if (config.apiKey) {
+          launchCmd = local ? '' : `cd '${shellEscapeSingleQuote(workDir)}'`;
+          if (!local && config.apiKey) {
             if (launchCmd) launchCmd += ' && ';
             const envVar = command.startsWith('codex') ? 'OPENAI_API_KEY'
               : command.startsWith('gemini') ? 'GEMINI_API_KEY'
               : 'ANTHROPIC_API_KEY';
-            launchCmd += `export ${envVar}="${config.apiKey}"`;
+            launchCmd += `export ${envVar}='${shellEscapeSingleQuote(config.apiKey)}'`;
           }
           if (launchCmd) launchCmd += ' && ';
           launchCmd += command;
@@ -236,8 +300,8 @@ export function resizeTerminal(terminalId, cols, rows) {
   if (term && term.pty) {
     try {
       term.pty.resize(cols, rows);
-    } catch {
-      // Process may already be dead
+    } catch (e) {
+      log.debug('pty', `Resize failed for ${terminalId} (process may be dead): ${e.message}`);
     }
   }
 }
@@ -246,7 +310,9 @@ export function closeTerminal(terminalId) {
   const term = terminals.get(terminalId);
   if (term) {
     if (term.pty) {
-      try { term.pty.kill(); } catch {}
+      try { term.pty.kill(); } catch (e) {
+        log.debug('pty', `Kill failed for ${terminalId}: ${e.message}`);
+      }
     }
     cleanup(terminalId);
   }
@@ -288,14 +354,17 @@ export function getTerminalForSession(sessionId) {
 
 // Find terminal whose pty is the parent of the given child PID
 export function getTerminalByPtyChild(childPid) {
-  if (!childPid || childPid <= 0) return null;
+  const validPid = validatePid(childPid);
+  if (!validPid) return null;
   try {
-    const ppid = parseInt(execSync(`ps -o ppid= -p ${childPid} 2>/dev/null`, { encoding: 'utf-8' }).trim(), 10);
+    const ppid = parseInt(execSync(`ps -o ppid= -p ${validPid} 2>/dev/null`, { encoding: 'utf-8' }).trim(), 10);
     if (!ppid || ppid <= 0) return null;
     for (const [terminalId, term] of terminals) {
       if (term.pty && term.pty.pid === ppid) return terminalId;
     }
-  } catch {}
+  } catch (e) {
+    log.debug('pty', `getTerminalByPtyChild failed for pid=${validPid}: ${e.message}`);
+  }
   return null;
 }
 

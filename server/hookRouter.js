@@ -7,11 +7,10 @@ const router = Router();
 
 router.post('/', (req, res) => {
   const hookData = req.body;
-  if (!hookData || !hookData.session_id) {
-    log.warn('hook', 'Received hook without session_id');
-    return res.status(400).json({ error: 'Missing session_id' });
+  const result = processHookEvent(hookData, 'http');
+  if (result && result.error) {
+    return res.status(400).json({ success: false, error: result.error });
   }
-  processHookEvent(hookData, 'http');
   res.json({ ok: true });
 });
 
