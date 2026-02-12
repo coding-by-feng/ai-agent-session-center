@@ -10,6 +10,14 @@ let terminalThemes = {};    // terminalId -> theme name
 let pendingOutput = {};     // terminalId -> [base64Data] — buffer output before terminal is ready
 let isFullscreen = false;
 
+/** Return appropriate font size based on viewport width */
+function getResponsiveFontSize() {
+  const width = window.innerWidth;
+  if (width <= 480) return 11;
+  if (width <= 640) return 12;
+  return 14;
+}
+
 const THEMES = {
   default: {
     background: '#0a0a1a', foreground: '#e0e0e0', cursor: '#0a0a1a', cursorAccent: '#0a0a1a',
@@ -125,7 +133,7 @@ export function initTerminal(terminalId) {
     const term = new Terminal({
       cursorBlink: false,
       cursorStyle: 'bar',
-      fontSize: 14,
+      fontSize: getResponsiveFontSize(),
       fontFamily: "'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Menlo', monospace",
       fontWeight: '400',
       fontWeightBold: '700',
@@ -390,3 +398,52 @@ document.addEventListener('DOMContentLoaded', () => {
   const exitBtn = document.getElementById('terminal-fullscreen-exit');
   if (exitBtn) exitBtn.addEventListener('click', () => exitFullscreen());
 });
+
+// Refit terminal and adjust font size on viewport resize / orientation change
+let viewportResizeTimer = null;
+function handleViewportResize() {
+  clearTimeout(viewportResizeTimer);
+  viewportResizeTimer = setTimeout(() => {
+    if (!activeTerminal) return;
+    const newFontSize = getResponsiveFontSize();
+    if (activeTerminal.term.options.fontSize !== newFontSize) {
+      activeTerminal.term.options.fontSize = newFontSize;
+    }
+    activeTerminal.fitAddon.fit();
+    sendResize(activeTerminal.terminalId, activeTerminal.term.cols, activeTerminal.term.rows);
+  }, 150);
+}
+
+window.addEventListener('resize', handleViewportResize);
+window.addEventListener('orientationchange', handleViewportResize);
+
+/**
+ * Open a tmux terminal for a team member.
+ * Calls the backend API to create/attach a tmux pane, then opens the
+ * detail panel terminal tab and subscribes to terminal output.
+ */
+export async function openTeamMemberTerminal(teamId, sessionId) {
+  const resp = await fetch(`/api/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(sessionId)}/terminal`, {
+    method: 'POST',
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(body.error || `Failed to open team terminal (${resp.status})`);
+  }
+  const data = await resp.json();
+  const terminalId = data.terminalId;
+  if (!terminalId) {
+    throw new Error('No terminalId returned from server');
+  }
+
+  // Select the session in the detail panel
+  const { selectSession } = await import('./detailPanel.js');
+  selectSession(sessionId);
+
+  // Switch to the terminal tab
+  const termTab = document.querySelector('.detail-tabs .tab[data-tab="terminal"]');
+  if (termTab) termTab.click();
+
+  // Attach and subscribe to the terminal
+  attachToSession(sessionId, terminalId);
+}

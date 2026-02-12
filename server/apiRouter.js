@@ -2,7 +2,8 @@
 // apiRouter.js — Express router for all API endpoints (no SQLite/database dependencies)
 import { Router } from 'express';
 import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSummary, getSession, detectSessionSource, createTerminalSession, deleteSessionFromMemory, resumeSession } from './sessionStore.js';
-import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal } from './sshManager.js';
+import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, attachToTmuxPane } from './sshManager.js';
+import { getTeam, readTeamConfig } from './teamManager.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
 import { getMqStats } from './mqReader.js';
 import { execFile } from 'child_process';
@@ -483,6 +484,66 @@ router.get('/terminals', (req, res) => {
 router.delete('/terminals/:id', (req, res) => {
   closeTerminal(req.params.id);
   res.json({ ok: true });
+});
+
+// ── Team Endpoints ──
+
+// Get team config from ~/.claude/teams/{teamName}/config.json
+router.get('/teams/:teamId/config', (req, res) => {
+  const team = getTeam(req.params.teamId);
+  if (!team) {
+    return res.status(404).json({ error: 'Team not found' });
+  }
+  if (!team.teamName) {
+    return res.status(404).json({ error: 'Team has no name — cannot locate config' });
+  }
+  const config = readTeamConfig(team.teamName);
+  if (!config) {
+    return res.json({ teamName: team.teamName, config: null });
+  }
+  res.json({ teamName: team.teamName, config });
+});
+
+// Attach to a team member's tmux pane terminal
+router.post('/teams/:teamId/members/:sessionId/terminal', async (req, res) => {
+  // Rate limit: max terminals
+  const currentTerminals = getTerminals();
+  if (currentTerminals.length >= MAX_TERMINALS) {
+    return res.status(429).json({ success: false, error: `Terminal limit reached (max ${MAX_TERMINALS})` });
+  }
+
+  const { teamId, sessionId } = req.params;
+
+  // Validate team exists
+  const team = getTeam(teamId);
+  if (!team) {
+    return res.status(404).json({ error: 'Team not found' });
+  }
+
+  // Validate session belongs to this team
+  const isMember = sessionId === team.parentSessionId || team.childSessionIds.includes(sessionId);
+  if (!isMember) {
+    return res.status(404).json({ error: 'Session is not a member of this team' });
+  }
+
+  // Get the member's session to find tmuxPaneId
+  const session = getSession(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const tmuxPaneId = session.tmuxPaneId;
+  if (!tmuxPaneId) {
+    return res.status(400).json({ error: 'Session does not have a tmux pane ID — member may not be running in tmux' });
+  }
+
+  try {
+    const terminalId = await attachToTmuxPane(tmuxPaneId, null);
+    res.json({ ok: true, terminalId, tmuxPaneId });
+  } catch (err) {
+    log.error('api', `Failed to attach to tmux pane ${tmuxPaneId}: ${err.message}`);
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 export default router;

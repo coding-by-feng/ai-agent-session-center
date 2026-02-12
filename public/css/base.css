@@ -99,3 +99,72 @@ body::after {
 .hidden {
   display: none !important;
 }
+
+
+/* ============================================================
+   Responsive: Fluid Typography, Reduced Motion, Touch
+   ============================================================ */
+
+/* ---- Fluid Typography ---- */
+
+@media screen {
+  html, body {
+    font-size: clamp(12px, 1.2vw + 8px, 16px);
+  }
+}
+
+/* ---- Prefers Reduced Motion ---- */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  :root {
+    --anim-intensity: 0;
+    --anim-speed: 0;
+  }
+
+  body::after {
+    animation: none;
+  }
+}
+
+/* ---- Touch Support for Mobile Scroll Areas ---- */
+
+@media (pointer: coarse) {
+  .view-panel.active,
+  #feed-entries,
+  #detail-conversation,
+  #detail-activity-log,
+  #notes-list,
+  #queue-list,
+  .terminal-queue-body,
+  .settings-tab-content,
+  .modal-panel {
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+  }
+
+  /* Ensure all interactive elements meet minimum 44px touch target */
+  .nav-btn,
+  .qa-btn,
+  .ctrl-btn,
+  .tab,
+  .nav-actions-toggle,
+  .nav-shortcuts-btn,
+  .settings-gear,
+  .modal-close,
+  .theme-swatch,
+  .char-swatch,
+  .density-btn,
+  .ssh-mode-btn,
+  .pagination-btn,
+  .feed-collapse-btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}

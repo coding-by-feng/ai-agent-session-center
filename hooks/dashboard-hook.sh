@@ -54,6 +54,12 @@ JQ_OUT=$(echo "$INPUT" | jq -c \
   --arg tmux_pane "${TMUX_PANE:-}" \
   --arg agent_terminal_id "${AGENT_MANAGER_TERMINAL_ID:-}" \
   --arg claude_project_dir "${CLAUDE_PROJECT_DIR:-}" \
+  --arg cc_parent_session "${CLAUDE_CODE_PARENT_SESSION_ID:-}" \
+  --arg cc_team_name "${CLAUDE_CODE_TEAM_NAME:-}" \
+  --arg cc_agent_name "${CLAUDE_CODE_AGENT_NAME:-}" \
+  --arg cc_agent_type "${CLAUDE_CODE_AGENT_TYPE:-}" \
+  --arg cc_agent_id "${CLAUDE_CODE_AGENT_ID:-}" \
+  --arg cc_agent_color "${CLAUDE_CODE_AGENT_COLOR:-}" \
   '
   (. + {
     claude_pid: ($pid | tonumber),
@@ -76,7 +82,13 @@ JQ_OUT=$(echo "$INPUT" | jq -c \
     is_ghostty: (if $ghostty_resources != "" then true else null end),
     kitty_pid: (if $kitty_pid != "" then ($kitty_pid | tonumber) else null end),
     agent_terminal_id: (if $agent_terminal_id != "" then $agent_terminal_id else null end),
-    claude_project_dir: (if $claude_project_dir != "" then $claude_project_dir else null end)
+    claude_project_dir: (if $claude_project_dir != "" then $claude_project_dir else null end),
+    parent_session_id: (if $cc_parent_session != "" then $cc_parent_session else null end),
+    team_name: (if $cc_team_name != "" then $cc_team_name else null end),
+    agent_name: (if $cc_agent_name != "" then $cc_agent_name else null end),
+    agent_type: (if $cc_agent_type != "" then $cc_agent_type else null end),
+    agent_id: (if $cc_agent_id != "" then $cc_agent_id else null end),
+    agent_color: (if $cc_agent_color != "" then $cc_agent_color else null end)
   }),
   "\(.hook_event_name // "")",
   "\(.session_id // "")",
