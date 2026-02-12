@@ -1,6 +1,7 @@
 // terminalManager.js — Frontend terminal module using xterm.js
 // Manages terminal lifecycle, I/O relay through WebSocket, and tab attachment.
 // Uses canvas renderer, Unicode11, WebLinks, and FitAddon (same stack as AWS/Azure Cloud Shell).
+import { debugWarn } from './utils.js';
 
 let ws = null;
 let activeTerminal = null;  // { terminalId, term, fitAddon, resizeObserver }
@@ -149,7 +150,7 @@ export function initTerminal(terminalId) {
       term.loadAddon(unicode11);
       term.unicode.activeVersion = '11';
     } catch (e) {
-      console.warn('[terminal] Unicode11 addon not available:', e.message);
+      debugWarn('[terminal] Unicode11 addon not available:', e.message);
     }
 
     // Load WebLinks for clickable URLs
@@ -157,7 +158,7 @@ export function initTerminal(terminalId) {
       const webLinks = new WebLinksAddon.WebLinksAddon();
       term.loadAddon(webLinks);
     } catch (e) {
-      console.warn('[terminal] WebLinks addon not available:', e.message);
+      debugWarn('[terminal] WebLinks addon not available:', e.message);
     }
 
     term.open(container);

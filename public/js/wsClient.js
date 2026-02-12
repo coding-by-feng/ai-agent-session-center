@@ -1,4 +1,6 @@
 // WebSocket client with auto-reconnect
+import { debugLog, debugWarn } from './utils.js';
+
 let ws;
 let reconnectDelay = 1000;
 let onSnapshot = null;
@@ -46,12 +48,24 @@ function _connect() {
     reconnectDelay = 1000;
     reconnectTarget = 0;
     connected = true;
-    console.log('[WS] Connected');
+    debugLog('[WS] Connected');
     document.dispatchEvent(new CustomEvent('ws-status', { detail: 'connected' }));
   };
 
   ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
+    let data;
+    try {
+      data = JSON.parse(event.data);
+    } catch (e) {
+      debugWarn('[WS] Malformed JSON message:', e.message);
+      return;
+    }
+
+    if (!data || typeof data.type !== 'string') {
+      debugWarn('[WS] Message missing type field:', data);
+      return;
+    }
+
     if (data.type === 'snapshot' && onSnapshot) {
       onSnapshot(data.sessions, data.teams);
     } else if (data.type === 'session_update' && onSessionUpdate) {
@@ -77,7 +91,7 @@ function _connect() {
 
   ws.onclose = () => {
     connected = false;
-    console.log(`[WS] Disconnected, reconnecting in ${reconnectDelay}ms`);
+    debugLog(`[WS] Disconnected, reconnecting in ${reconnectDelay}ms`);
     document.dispatchEvent(new CustomEvent('ws-status', { detail: 'disconnected' }));
     reconnectTarget = Date.now() + reconnectDelay;
     reconnectTimer = setTimeout(_connect, reconnectDelay);

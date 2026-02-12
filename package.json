@@ -1,6 +1,6 @@
 {
   "name": "ai-agent-session-center",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "description": "A real-time dashboard for monitoring AI agent sessions (Claude Code, Gemini CLI, Codex) with 3D visualization",
   "type": "module",
   "main": "server/index.js",
@@ -15,7 +15,9 @@
     "reset": "node hooks/reset.js",
     "install-hooks": "node hooks/install-hooks.js",
     "uninstall-hooks": "node hooks/install-hooks.js --uninstall",
-    "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true"
+    "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true",
+    "test": "node --test test/**/*.test.js",
+    "test:watch": "node --test --watch test/**/*.test.js"
   },
   "keywords": [
     "claude-code",
@@ -47,6 +49,8 @@
     "public/**/*",
     "hooks/**/*",
     "bin/**/*",
+    "types/**/*",
+    "docs/**/*",
     "data/.gitkeep"
   ]
 }

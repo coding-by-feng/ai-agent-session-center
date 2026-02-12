@@ -1,4 +1,5 @@
 import * as db from './browserDb.js';
+import { escapeHtml as _escapeHtml, formatDuration as _formatDuration, formatTime as _formatTime, sanitizeColor } from './utils.js';
 
 let currentPage = 1;
 let debounceTimer = null;
@@ -215,7 +216,7 @@ async function openHistoryDetail(sessionId) {
   const previewEl = document.getElementById('detail-char-preview');
   if (previewEl) {
     const model = sess.characterModel || sess.character_model || 'robot';
-    const accentColor = sess.accentColor || sess.accent_color || 'var(--accent-cyan)';
+    const accentColor = sanitizeColor(sess.accentColor || sess.accent_color);
     import('./robotManager.js').then(rm => {
       previewEl.innerHTML = '';
       const mini = document.createElement('div');
@@ -277,22 +278,7 @@ async function openHistoryDetail(sessionId) {
   document.getElementById('session-detail-overlay').classList.remove('hidden');
 }
 
-// -- Helpers (same as sessionPanel.js) --
-
-function formatDuration(ms) {
-  const s = Math.floor(ms / 1000);
-  const m = Math.floor(s / 60);
-  const h = Math.floor(m / 60);
-  if (h > 0) return `${h}h ${m % 60}m`;
-  if (m > 0) return `${m}m ${s % 60}s`;
-  return `${s}s`;
-}
-
-function formatTime(ts) {
-  return new Date(ts).toLocaleTimeString('en-US', { hour12: false });
-}
-
-function escapeHtml(str) {
-  if (!str) return '';
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
+// -- Helpers (imported from utils.js) --
+const formatDuration = _formatDuration;
+const formatTime = _formatTime;
+const escapeHtml = _escapeHtml;

@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "module": "es2022",
+    "moduleResolution": "node",
+    "target": "es2022",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "baseUrl": ".",
+    "paths": {
+      "./server/*": ["./server/*"],
+      "./public/js/*": ["./public/js/*"]
+    }
+  },
+  "include": ["server/**/*.js", "types/**/*.d.ts"],
+  "exclude": ["node_modules"]
+}

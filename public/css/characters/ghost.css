@@ -1,0 +1,122 @@
+/* Character: GHOST */
+
+/* ============================================================
+   Character: GHOST
+   ============================================================ */
+
+.char-ghost .ghost-body {
+  width: 72px;
+  height: 76px;
+  background: linear-gradient(145deg, var(--robot-body), var(--robot-body-dark));
+  border: 2px solid var(--robot-border);
+  border-radius: 50% 50% 40% 40%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.4), inset 0 1px 0 var(--inset-highlight);
+  opacity: 0.85;
+}
+
+.char-ghost .ghost-eye {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--robot-color);
+  box-shadow: 0 0 8px var(--robot-color), 0 0 16px var(--robot-color);
+  transition: all 0.3s ease;
+}
+
+.char-ghost .ghost-mouth {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--robot-color);
+  opacity: 0;
+  transition: all 0.3s ease;
+}
+
+.char-ghost .ghost-blush {
+  position: absolute;
+  bottom: 22px;
+  width: 10px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--robot-color);
+  opacity: 0.15;
+}
+.char-ghost .ghost-blush-left { left: 10px; }
+.char-ghost .ghost-blush-right { right: 10px; }
+
+.char-ghost .ghost-tail {
+  width: 72px;
+  height: 14px;
+  background: linear-gradient(to bottom, var(--robot-body-dark), transparent);
+  clip-path: polygon(0 0, 100% 0, 92% 100%, 75% 40%, 58% 100%, 42% 40%, 25% 100%, 8% 40%);
+  opacity: 0.85;
+  margin-top: -2px;
+}
+
+/* Ghost Status Animations */
+.char-ghost[data-status="idle"] .robot-body-wrap { animation: ghost-float 3s ease-in-out infinite; }
+.char-ghost[data-status="idle"] .ghost-eye { animation: robot-blink 4s ease-in-out infinite; }
+.char-ghost[data-status="idle"] .robot-shadow { animation: robot-shadow-float 3s ease-in-out infinite; }
+
+.char-ghost[data-status="prompting"] .robot-body-wrap { animation: ghost-float 2s ease-in-out infinite; }
+.char-ghost[data-status="prompting"] .ghost-eye {
+  width: 18px; height: 18px;
+  box-shadow: 0 0 10px var(--robot-color), 0 0 20px var(--robot-color);
+}
+.char-ghost[data-status="prompting"] .ghost-mouth { opacity: 0.4; }
+
+.char-ghost[data-status="working"] .robot-body-wrap { animation: ghost-work-multi 9s ease-in-out infinite; }
+.char-ghost[data-status="working"] .ghost-eye {
+  width: 18px; height: 10px; border-radius: 3px;
+  animation: robot-work-eye-scan 0.8s ease-in-out infinite;
+  box-shadow: 0 0 10px var(--robot-color), 0 0 20px var(--robot-color);
+}
+.char-ghost[data-status="working"] .ghost-body { animation: ghost-wobble 0.8s ease-in-out infinite; }
+
+.char-ghost[data-status="waiting"] { --robot-color: #a0c4ff; }
+.char-ghost[data-status="waiting"] .ghost-eye { background: #a0c4ff; box-shadow: 0 0 10px #a0c4ff; }
+
+.char-ghost[data-status="approval"] { --robot-color: #ffdd00; }
+.char-ghost[data-status="approval"]::after {
+  content: '!'; position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
+  font-size: 28px; font-weight: 900; color: #ffdd00;
+  text-shadow: 0 0 12px #ffdd00, 0 0 30px rgba(255, 221, 0, 0.6);
+  animation: robot-approval-emote-bounce 0.8s ease-in-out infinite; z-index: 10; pointer-events: none;
+}
+.char-ghost[data-status="approval"] .robot-body-wrap { animation: robot-approval-bounce 1s ease-in-out infinite; }
+.char-ghost[data-status="approval"] .ghost-eye {
+  width: 22px; height: 22px; background: #ffdd00;
+  box-shadow: 0 0 18px #ffdd00, 0 0 36px #ffdd00;
+}
+.char-ghost[data-status="approval"] .ghost-mouth { opacity: 0.8; width: 14px; height: 14px; }
+
+.char-ghost[data-status="ended"] { opacity: 0.35; }
+.char-ghost[data-status="ended"] .ghost-eye { width: 14px; height: 3px; border-radius: 2px; background: var(--text-dim); box-shadow: none; }
+.char-ghost[data-status="ended"] .ghost-body { opacity: 0.5; }
+
+.char-ghost.robot-emote .robot-body-wrap { animation: robot-emote-bounce 0.6s ease-out !important; }
+
+@keyframes ghost-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+@keyframes ghost-work {
+  0%, 100% { transform: translateY(0) translateX(0); }
+  25% { transform: translateY(-6px) translateX(-3px); }
+  75% { transform: translateY(-3px) translateX(3px); }
+}
+@keyframes ghost-wobble {
+  0%, 100% { transform: skewX(0deg); }
+  25% { transform: skewX(3deg); }
+  75% { transform: skewX(-3deg); }
+}
+

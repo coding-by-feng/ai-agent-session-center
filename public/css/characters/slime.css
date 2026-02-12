@@ -1,0 +1,71 @@
+/* Character: SLIME */
+
+/* ============================================================
+   Character: SLIME
+   ============================================================ */
+
+.char-slime .slime-body {
+  width: 76px; height: 54px;
+  background: linear-gradient(145deg, var(--robot-body), var(--robot-body-dark));
+  border: 2px solid var(--robot-border);
+  border-radius: 50% 50% 40% 40%;
+  position: relative;
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  box-shadow: 0 0 12px rgba(0,0,0,0.4), inset 0 1px 0 var(--inset-highlight);
+  transition: all 0.3s ease;
+}
+.char-slime .slime-eye {
+  width: 10px; height: 12px; border-radius: 50%;
+  background: var(--robot-color);
+  box-shadow: 0 0 6px var(--robot-color), 0 0 12px var(--robot-color);
+  transition: all 0.3s ease;
+}
+.char-slime .slime-mouth {
+  position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+  width: 12px; height: 6px; border-radius: 0 0 50% 50%;
+  border-bottom: 2px solid var(--robot-color); border-left: 1px solid var(--robot-color); border-right: 1px solid var(--robot-color);
+  opacity: 0.5;
+}
+.char-slime .slime-shine {
+  position: absolute; top: 10px; left: 14px;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+}
+
+/* Slime Status Animations */
+.char-slime[data-status="idle"] .robot-body-wrap { animation: robot-float 3s ease-in-out infinite; }
+.char-slime[data-status="idle"] .slime-eye { animation: robot-blink 4s ease-in-out infinite; }
+.char-slime[data-status="idle"] .slime-body { animation: slime-wobble 3s ease-in-out infinite; }
+.char-slime[data-status="idle"] .robot-shadow { animation: robot-shadow-float 3s ease-in-out infinite; }
+
+.char-slime[data-status="prompting"] .robot-body-wrap { animation: robot-float 2.5s ease-in-out infinite; }
+.char-slime[data-status="prompting"] .slime-eye { width: 12px; height: 14px; box-shadow: 0 0 10px var(--robot-color), 0 0 20px var(--robot-color); }
+.char-slime[data-status="prompting"] .slime-body { animation: slime-wobble 1.5s ease-in-out infinite; }
+
+.char-slime[data-status="working"] .robot-body-wrap { animation: slime-work-multi 8s ease-in-out infinite; }
+.char-slime[data-status="working"] .slime-eye { width: 12px; height: 6px; border-radius: 3px; animation: robot-work-eye-scan 0.8s ease-in-out infinite; box-shadow: 0 0 10px var(--robot-color), 0 0 20px var(--robot-color); }
+.char-slime[data-status="working"] .slime-body { animation: slime-squish 0.45s ease-in-out infinite; }
+
+.char-slime[data-status="waiting"] { --robot-color: #a0c4ff; }
+.char-slime[data-status="waiting"] .slime-eye { background: #a0c4ff; box-shadow: 0 0 8px #a0c4ff; }
+
+.char-slime[data-status="approval"] { --robot-color: #ffdd00; }
+.char-slime[data-status="approval"]::after { content: '!'; position: absolute; top: -8px; left: 50%; transform: translateX(-50%); font-size: 28px; font-weight: 900; color: #ffdd00; text-shadow: 0 0 12px #ffdd00, 0 0 30px rgba(255,221,0,0.6); animation: robot-approval-emote-bounce 0.8s ease-in-out infinite; z-index: 10; pointer-events: none; }
+.char-slime[data-status="approval"] .robot-body-wrap { animation: robot-approval-bounce 1s ease-in-out infinite; }
+.char-slime[data-status="approval"] .slime-eye { width: 14px; height: 14px; background: #ffdd00; box-shadow: 0 0 18px #ffdd00, 0 0 36px #ffdd00; }
+
+.char-slime[data-status="ended"] { opacity: 0.5; }
+.char-slime[data-status="ended"] .slime-eye { width: 10px; height: 3px; border-radius: 2px; background: var(--text-dim); box-shadow: none; }
+
+.char-slime.robot-emote .robot-body-wrap { animation: robot-emote-bounce 0.6s ease-out !important; }
+
+@keyframes slime-wobble {
+  0%, 100% { border-radius: 50% 50% 40% 40%; transform: scaleX(1) scaleY(1); }
+  25% { border-radius: 45% 55% 42% 38%; transform: scaleX(1.03) scaleY(0.97); }
+  75% { border-radius: 55% 45% 38% 42%; transform: scaleX(0.97) scaleY(1.03); }
+}
+@keyframes slime-squish {
+  0%, 100% { transform: scaleX(1) scaleY(1); }
+  50% { transform: scaleX(1.08) scaleY(0.92); }
+}
+

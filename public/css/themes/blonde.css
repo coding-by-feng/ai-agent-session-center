@@ -1,0 +1,37 @@
+/* Theme: Blonde */
+
+body[data-theme="blonde"] {
+  color-scheme: light;
+  --bg-primary: #fdf8ef;
+  --bg-card: #fffbf3;
+  --bg-card-hover: #f9f0e1;
+  --bg-panel: #fbf5ea;
+  --bg-header: #f0e8d8;
+  --border-glow: #ca8a04;
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-faint: rgba(0, 0, 0, 0.04);
+  --border-subtle-strong: rgba(0, 0, 0, 0.12);
+  --border-accent: rgba(161, 98, 7, 0.2);
+  --border-accent-strong: rgba(161, 98, 7, 0.35);
+  --bg-accent: rgba(161, 98, 7, 0.08);
+  --bg-accent-strong: rgba(161, 98, 7, 0.12);
+  --bg-subtle: rgba(0, 0, 0, 0.03);
+  --bg-subtle-strong: rgba(0, 0, 0, 0.06);
+  --glow-accent: rgba(161, 98, 7, 0.1);
+  --glow-accent-strong: rgba(161, 98, 7, 0.2);
+  --inset-highlight: rgba(255, 255, 255, 0.8);
+  --inset-highlight-faint: rgba(255, 255, 255, 0.5);
+  --accent-cyan: #854d0e;
+  --accent-orange: #b45309;
+  --accent-green: #3f6212;
+  --accent-red: #991b1b;
+  --accent-purple: #6b21a8;
+  --text-primary: #292420;
+  --text-secondary: #57524a;
+  --text-dim: #a09888;
+  --robot-body: #d9d0c2;
+  --robot-body-dark: #c7bdb0;
+  --robot-border: rgba(0, 0, 0, 0.1);
+  --mute-bg: rgba(255, 251, 243, 0.8);
+  --overlay-bg: rgba(0, 0, 0, 0.3);
+}

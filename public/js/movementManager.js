@@ -126,7 +126,7 @@ export function trigger(actionName, sessionId) {
   if (effectName === 'none') return;
 
   // Find the session card's character element
-  const card = document.querySelector(`.session-card[data-id="${sessionId}"] .css-robot`);
+  const card = document.querySelector(`.session-card[data-session-id="${sessionId}"] .css-robot`);
   if (!card) return;
 
   // Clear any previous triggered effect
@@ -150,6 +150,6 @@ export function clearEffect(sessionId) {
     clearTimeout(existing.timer);
     activeEffects.delete(sessionId);
   }
-  const card = document.querySelector(`.session-card[data-id="${sessionId}"] .css-robot`);
+  const card = document.querySelector(`.session-card[data-session-id="${sessionId}"] .css-robot`);
   if (card) card.removeAttribute('data-movement');
 }
