@@ -99,7 +99,7 @@ function loadGroups() {
 function saveGroups(groups) {
   localStorage.setItem('session-groups', JSON.stringify(groups));
 }
-function findGroupForSession(sessionId) {
+export function findGroupForSession(sessionId) {
   return loadGroups().find(g => g.sessionIds.includes(sessionId));
 }
 
@@ -164,11 +164,13 @@ export function renderGroups() {
       groupEl = document.createElement('div');
       groupEl.className = 'session-group';
       groupEl.id = group.id;
+      const groupLayoutIcon = group.layout === 'horizontal' ? '&#9776;' : '&#9638;';
       groupEl.innerHTML = `
         <div class="group-header">
           <span class="group-collapse" title="Collapse/expand">&#9660;</span>
           <span class="group-name">${group.name}</span>
           <span class="group-count">0</span>
+          <button class="group-layout-toggle" title="Toggle layout">${groupLayoutIcon}</button>
           <button class="group-delete" title="Delete group">&times;</button>
         </div>
         <div class="group-grid"></div>
@@ -205,6 +207,22 @@ export function renderGroups() {
       // Delete group
       groupEl.querySelector('.group-delete').addEventListener('click', () => {
         deleteGroup(group.id);
+      });
+      // Per-group layout toggle
+      groupEl.querySelector('.group-layout-toggle').addEventListener('click', () => {
+        const groups = loadGroups();
+        const g = groups.find(g => g.id === group.id);
+        if (!g) return;
+        const globalLayout = settingsManager.get('groupLayout') || 'vertical';
+        const currentLayout = g.layout || globalLayout;
+        const newLayout = currentLayout === 'horizontal' ? 'vertical' : 'horizontal';
+        g.layout = newLayout;
+        saveGroups(groups);
+        const grid = groupEl.querySelector('.group-grid');
+        grid.dataset.layoutOverride = 'true';
+        grid.classList.toggle('layout-horizontal', newLayout === 'horizontal');
+        const toggleBtn = groupEl.querySelector('.group-layout-toggle');
+        toggleBtn.innerHTML = newLayout === 'horizontal' ? '&#9776;' : '&#9638;';
       });
       // Drop zone: group grid accepts card drops (only when not dropped on a specific card)
       const groupGrid = groupEl.querySelector('.group-grid');
@@ -243,6 +261,22 @@ export function renderGroups() {
       }
     }
   }
+  // Apply layout classes (per-group overrides + global fallback)
+  const globalLayout = settingsManager.get('groupLayout') || 'vertical';
+  for (const group of groups) {
+    const grid = document.querySelector(`#${group.id} .group-grid`);
+    if (!grid) continue;
+    if (group.layout) {
+      grid.dataset.layoutOverride = 'true';
+      grid.classList.toggle('layout-horizontal', group.layout === 'horizontal');
+    } else {
+      delete grid.dataset.layoutOverride;
+      grid.classList.toggle('layout-horizontal', globalLayout === 'horizontal');
+    }
+  }
+  const sessionsGrid = document.getElementById('sessions-grid');
+  if (sessionsGrid) sessionsGrid.classList.toggle('layout-horizontal', globalLayout === 'horizontal');
+
   updateGroupCounts();
   refreshAllGroupSelects();
 }
@@ -264,7 +298,173 @@ function refreshAllGroupSelects() {
   const currentGroup = sid ? groups.find(g => g.sessionIds.includes(sid)) : null;
   const currentValue = currentGroup ? currentGroup.id : '';
   sel.innerHTML = '<option value="">No group</option>' +
-    groups.map(g => `<option value="${g.id}"${g.id === currentValue ? ' selected' : ''}>${g.name}</option>`).join('');
+    groups.map(g => `<option value="${g.id}"${g.id === currentValue ? ' selected' : ''}>${g.name}</option>`).join('') +
+    '<option value="__new__">+ New Group</option>';
+}
+
+function updateCardGroupBadge(sessionId) {
+  const card = document.querySelector(`.session-card[data-session-id="${sessionId}"]`);
+  if (!card) return;
+  const badgeEl = card.querySelector('.card-group-badge');
+  if (!badgeEl) return;
+  const group = findGroupForSession(sessionId);
+  if (group) {
+    badgeEl.textContent = group.name.length > 10 ? group.name.substring(0, 10) + '..' : group.name;
+    badgeEl.classList.add('has-group');
+    badgeEl.title = `Group: ${group.name} (click to change)`;
+  } else {
+    badgeEl.textContent = '+';
+    badgeEl.classList.remove('has-group');
+    badgeEl.title = 'Assign group';
+  }
+}
+
+function assignSessionToGroupAndMove(groupId, sessionId) {
+  addSessionToGroup(groupId, sessionId);
+  const card = document.querySelector(`.session-card[data-session-id="${sessionId}"]`);
+  if (card) {
+    const groupGrid = document.querySelector(`#${groupId} .group-grid`);
+    if (groupGrid) groupGrid.appendChild(card);
+  }
+  updateGroupCounts();
+  refreshAllGroupSelects();
+  updateCardGroupBadge(sessionId);
+}
+
+function showCardGroupDropdown(anchorEl, sessionId) {
+  document.querySelector('.card-group-dropdown')?.remove();
+  const groups = loadGroups();
+  const currentGroup = findGroupForSession(sessionId);
+  const dropdown = document.createElement('div');
+  dropdown.className = 'card-group-dropdown';
+  let html = '';
+  if (currentGroup) {
+    html += '<div class="cgd-item cgd-remove" data-value="">Remove from group</div>';
+  }
+  for (const g of groups) {
+    const active = currentGroup && currentGroup.id === g.id ? ' cgd-active' : '';
+    html += `<div class="cgd-item${active}" data-value="${g.id}">${escapeHtml(g.name)}</div>`;
+  }
+  html += '<div class="cgd-divider"></div>';
+  html += '<div class="cgd-item cgd-new">+ New Group</div>';
+  dropdown.innerHTML = html;
+  const rect = anchorEl.getBoundingClientRect();
+  dropdown.style.position = 'fixed';
+  dropdown.style.top = `${rect.bottom + 4}px`;
+  dropdown.style.left = `${rect.left}px`;
+  dropdown.style.zIndex = '500';
+  if (rect.bottom + 210 > window.innerHeight) {
+    dropdown.style.top = `${rect.top - 4}px`;
+    dropdown.style.transform = 'translateY(-100%)';
+  }
+  document.body.appendChild(dropdown);
+  dropdown.addEventListener('click', (e) => {
+    const item = e.target.closest('.cgd-item');
+    if (!item) return;
+    if (item.classList.contains('cgd-new')) {
+      dropdown.remove();
+      const name = prompt('Group name:');
+      if (name && name.trim()) {
+        const newGroupId = createGroup(name.trim());
+        assignSessionToGroupAndMove(newGroupId, sessionId);
+        showToast('GROUP', `Created "${name.trim()}" and assigned`);
+      }
+    } else {
+      const groupId = item.dataset.value;
+      if (groupId) {
+        assignSessionToGroupAndMove(groupId, sessionId);
+        showToast('GROUP', 'Moved to group');
+      } else {
+        removeSessionFromGroup(sessionId);
+        const card2 = document.querySelector(`.session-card[data-session-id="${sessionId}"]`);
+        if (card2) document.getElementById('sessions-grid').appendChild(card2);
+        updateGroupCounts();
+        refreshAllGroupSelects();
+        updateCardGroupBadge(sessionId);
+        showToast('GROUP', 'Removed from group');
+      }
+      dropdown.remove();
+    }
+  });
+  setTimeout(() => {
+    document.addEventListener('click', function handler(ev) {
+      if (!dropdown.contains(ev.target) && ev.target !== anchorEl) {
+        dropdown.remove();
+        document.removeEventListener('click', handler);
+      }
+    });
+  }, 0);
+}
+
+let groupAssignToastCount = 0;
+const MAX_GROUP_ASSIGN_TOASTS = 3;
+
+export function showGroupAssignToast(sessionId) {
+  if (groupAssignToastCount >= MAX_GROUP_ASSIGN_TOASTS) return;
+  const session = sessionsData.get(sessionId);
+  if (!session) return;
+  groupAssignToastCount++;
+  const container = document.getElementById('toast-container');
+  const groups = loadGroups();
+  const groupOptions = groups.map(g =>
+    `<option value="${g.id}">${escapeHtml(g.name)}</option>`
+  ).join('');
+  const title = session.title || session.projectName || 'New session';
+  const toast = document.createElement('div');
+  toast.className = 'toast group-assign-toast';
+  toast.dataset.sessionId = sessionId;
+  toast.innerHTML = `
+    <button class="toast-close">&times;</button>
+    <div class="toast-title">ASSIGN GROUP</div>
+    <div class="toast-msg">${escapeHtml(title)}</div>
+    <div class="group-assign-actions">
+      <select class="group-assign-select">
+        <option value="">No group</option>
+        ${groupOptions}
+        <option value="__new__">+ New Group</option>
+      </select>
+      <button class="group-assign-btn">ASSIGN</button>
+      <button class="group-dismiss-btn">SKIP</button>
+    </div>
+    <div class="group-assign-new-row hidden">
+      <input type="text" class="group-new-name-input" placeholder="Group name...">
+      <button class="group-create-btn">CREATE</button>
+    </div>
+  `;
+  const sel = toast.querySelector('.group-assign-select');
+  const newRow = toast.querySelector('.group-assign-new-row');
+  sel.addEventListener('change', () => {
+    newRow.classList.toggle('hidden', sel.value !== '__new__');
+    if (sel.value === '__new__') toast.querySelector('.group-new-name-input').focus();
+  });
+  function dismissToast() {
+    groupAssignToastCount--;
+    toast.classList.add('fade-out');
+    setTimeout(() => toast.remove(), 300);
+  }
+  toast.querySelector('.group-assign-btn').addEventListener('click', () => {
+    const groupId = sel.value;
+    if (groupId && groupId !== '__new__') {
+      assignSessionToGroupAndMove(groupId, sessionId);
+      showToast('GROUP', 'Assigned to group');
+    }
+    dismissToast();
+  });
+  toast.querySelector('.group-create-btn').addEventListener('click', () => {
+    const name = toast.querySelector('.group-new-name-input').value.trim();
+    if (!name) return;
+    const newGroupId = createGroup(name);
+    assignSessionToGroupAndMove(newGroupId, sessionId);
+    showToast('GROUP', `Created "${name}" and assigned`);
+    dismissToast();
+  });
+  toast.querySelector('.group-new-name-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') toast.querySelector('.group-create-btn').click();
+  });
+  toast.querySelector('.group-dismiss-btn').addEventListener('click', dismissToast);
+  toast.querySelector('.toast-close').addEventListener('click', dismissToast);
+  container.appendChild(toast);
+  setTimeout(() => { if (toast.parentNode) dismissToast(); }, 15000);
 }
 
 export function initGroups() {
@@ -319,6 +519,11 @@ export function initGroups() {
 
   // Render existing groups from localStorage
   renderGroups();
+
+  // Listen for global layout changes and re-apply
+  settingsManager.onChange('groupLayout', (layout) => {
+    settingsManager.applyGroupLayout(layout);
+  });
 }
 
 // ---- Team Card Functions ----
@@ -566,12 +771,14 @@ export function createOrUpdateCard(session) {
       <button class="pin-btn" title="Pin to top">&#9650;</button>
       <button class="summarize-card-btn" title="Summarize & Archive">&#8681;AI</button>
       <button class="mute-btn" title="Mute sounds">&#9835;</button>
+      <button class="resume-card-btn hidden" title="Resume Claude">&#9654; RESUME</button>
       <div class="robot-viewport"></div>
       <div class="card-info">
         <div class="card-title" title="Double-click to rename"></div>
         <div class="card-header">
           <span class="project-name"></span>
           <span class="card-label-badge"></span>
+          <span class="card-group-badge" title="Assign group"></span>
           <span class="source-badge"></span>
           <span class="status-badge"></span>
         </div>
@@ -581,6 +788,7 @@ export function createOrUpdateCard(session) {
           <span class="duration"></span>
           <span class="tool-count"></span>
           <span class="subagent-count" title="Active subagents"></span>
+          <span class="queue-count" title="Queued prompts"></span>
         </div>
         <div class="tool-bars"></div>
       </div>
@@ -588,6 +796,13 @@ export function createOrUpdateCard(session) {
     // Only allow click-to-detail for SSH (manually created) sessions
     if (!isDisplayOnly) {
       card.addEventListener('click', (e) => {
+        // Move mode: clicking a card completes the move
+        if (moveMode.active) {
+          if (session.sessionId !== moveMode.sourceSessionId) {
+            completeQueueMove(session.sessionId);
+          }
+          return;
+        }
         // Toggle: close if already selected, otherwise open
         if (selectedSessionId === session.sessionId) {
           deselectSession();
@@ -650,6 +865,39 @@ export function createOrUpdateCard(session) {
         const event = new CustomEvent('card-dismissed', { detail: { sessionId: sid } });
         document.dispatchEvent(event);
       }, 300);
+    });
+
+    // Group badge — assign session to a group (works for all sessions)
+    card.querySelector('.card-group-badge').addEventListener('click', (e) => {
+      e.stopPropagation();
+      showCardGroupDropdown(e.currentTarget, session.sessionId);
+    });
+
+    // Resume button — resume Claude in terminal for disconnected SSH sessions
+    card.querySelector('.resume-card-btn').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const sid = session.sessionId;
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      btn.textContent = 'RESUMING...';
+      try {
+        const resp = await fetch(`/api/sessions/${sid}/resume`, { method: 'POST' });
+        const data = await resp.json();
+        if (data.ok) {
+          showToast('RESUMING', 'Sending claude --resume to terminal');
+          selectSession(sid);
+          // Switch to terminal tab
+          const termTab = document.querySelector('.detail-tabs .tab[data-tab="terminal"]');
+          if (termTab) termTab.click();
+        } else {
+          showToast('RESUME FAILED', data.error || 'Unknown error');
+        }
+      } catch (err) {
+        showToast('RESUME ERROR', err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '\u25B6 RESUME';
+      }
     });
 
     // Only enable interactive buttons for SSH (manually created) sessions
@@ -850,6 +1098,10 @@ export function createOrUpdateCard(session) {
     if (pinnedSessions.has(session.sessionId)) {
       reorderPinnedCards();
     }
+    // Notify that a brand-new card was created (for group assignment popup)
+    document.dispatchEvent(new CustomEvent('session-card-created', {
+      detail: { sessionId: session.sessionId }
+    }));
   }
 
   // Update status attribute — promote active cards to front
@@ -888,6 +1140,13 @@ export function createOrUpdateCard(session) {
   // Add/remove disconnected class on card for dimming
   card.classList.toggle('disconnected', isDisconnected);
 
+  // Resume button visibility — only for disconnected SSH sessions with a terminal available
+  const resumeCardBtn = card.querySelector('.resume-card-btn');
+  if (resumeCardBtn) {
+    const canResume = isDisconnected && !!session.lastTerminalId;
+    resumeCardBtn.classList.toggle('hidden', !canResume);
+  }
+
   // Label badge
   const labelBadge = card.querySelector('.card-label-badge');
   if (labelBadge) {
@@ -895,6 +1154,9 @@ export function createOrUpdateCard(session) {
     labelBadge.textContent = lbl;
     labelBadge.style.display = lbl ? '' : 'none';
   }
+
+  // Group badge
+  updateCardGroupBadge(session.sessionId);
 
   // HEAVY card styling — bold highlighted frame
   const isHeavy = (session.label || '').toUpperCase() === 'HEAVY';
@@ -964,7 +1226,9 @@ export function createOrUpdateCard(session) {
 
   card.querySelector('.tool-bars').innerHTML = renderToolBars(session.toolUsage);
 
-  card.classList.toggle('has-queue', (session.queueCount || 0) > 0);
+  const queueN = session.queueCount || 0;
+  card.classList.toggle('has-queue', queueN > 0);
+  card.querySelector('.queue-count').textContent = queueN > 0 ? `Queue: ${queueN}` : '';
   card.classList.toggle('has-terminal', !!session.terminalId);
 
   // If this session is selected, update the detail panel too
@@ -1048,12 +1312,18 @@ async function loadNotes(sessionId) {
 // Track known queue item IDs to detect newly added items
 let _knownQueueIds = new Set();
 
+// Move-mode state for moving queue items between sessions
+let moveMode = { active: false, itemIds: [], sourceSessionId: null };
+export function isMoveModeActive() { return moveMode.active; }
+
 export async function loadQueue(sessionId) {
   const list = document.getElementById('queue-list');
   const countBadge = document.getElementById('terminal-queue-count');
   try {
     const items = await db.getQueue(sessionId);
     if (countBadge) countBadge.textContent = items.length > 0 ? `(${items.length})` : '';
+    const moveAllBtn = document.getElementById('queue-move-all-btn');
+    if (moveAllBtn) moveAllBtn.classList.toggle('hidden', items.length === 0);
 
     const newIds = new Set(items.map(item => item.id));
     list.innerHTML = items.map((item, i) => {
@@ -1065,6 +1335,7 @@ export async function loadQueue(sessionId) {
         <div class="queue-actions">
           <button class="queue-send" data-queue-id="${item.id}" title="Send to terminal">SEND</button>
           <button class="queue-edit" data-queue-id="${item.id}" title="Edit">EDIT</button>
+          <button class="queue-move" data-queue-id="${item.id}" title="Move to another session">MOVE</button>
           <button class="queue-delete" data-queue-id="${item.id}" title="Delete">DEL</button>
         </div>
       </div>`;
@@ -1116,6 +1387,105 @@ function wireQueueDrag(sessionId) {
       }
     });
   });
+}
+
+// ---- Queue View (global prompt queue inspector) ----
+
+export async function renderQueueView() {
+  const content = document.getElementById('queue-view-content');
+  const stats = document.getElementById('queue-view-stats');
+  if (!content) return;
+
+  content.innerHTML = '<div class="tab-empty">Loading queue data...</div>';
+
+  const allItems = await db.getAll('promptQueue');
+  const allSessions = await db.getAll('sessions');
+  const sessionMap = new Map(allSessions.map(s => [s.id, s]));
+
+  // Group by sessionId
+  const grouped = {};
+  for (const item of allItems) {
+    if (!grouped[item.sessionId]) grouped[item.sessionId] = [];
+    grouped[item.sessionId].push(item);
+  }
+  // Sort items within each group by position
+  for (const items of Object.values(grouped)) {
+    items.sort((a, b) => a.position - b.position);
+  }
+
+  const groupKeys = Object.keys(grouped);
+
+  if (stats) {
+    stats.innerHTML = `<span>${allItems.length} item${allItems.length !== 1 ? 's' : ''}</span> <span class="queue-view-stats-sep">across</span> <span>${groupKeys.length} session${groupKeys.length !== 1 ? 's' : ''}</span>`;
+  }
+
+  if (allItems.length === 0) {
+    content.innerHTML = '<div class="tab-empty">No prompt queue items found in IndexedDB</div>';
+    return;
+  }
+
+  let html = '';
+  for (const sessionId of groupKeys) {
+    const items = grouped[sessionId];
+    const session = sessionMap.get(sessionId);
+    const projectName = session?.projectName || 'Unknown';
+    const status = session?.status || 'unknown';
+    const label = session?.label || '';
+
+    html += `<div class="queue-view-group">
+      <div class="queue-view-group-header">
+        <span class="queue-view-session-name">${escapeHtml(projectName)}</span>
+        ${label ? `<span class="queue-view-label">${escapeHtml(label)}</span>` : ''}
+        <span class="status-badge ${status}">${status.toUpperCase()}</span>
+        <span class="queue-view-sid" title="${sessionId}">${sessionId.substring(0, 8)}...</span>
+        <span class="queue-view-item-count">${items.length} item${items.length !== 1 ? 's' : ''}</span>
+      </div>
+      <table class="queue-view-table">
+        <thead><tr><th>#</th><th>ID</th><th>Text</th><th>Position</th><th>Created</th><th>Actions</th></tr></thead>
+        <tbody>`;
+    for (const item of items) {
+      const created = item.createdAt ? new Date(item.createdAt).toLocaleString() : '—';
+      html += `<tr data-queue-id="${item.id}">
+        <td class="queue-view-pos">${item.position}</td>
+        <td class="queue-view-id">${item.id}</td>
+        <td class="queue-view-text">${escapeHtml(item.text)}</td>
+        <td>${item.position}</td>
+        <td class="queue-view-date">${created}</td>
+        <td><button class="queue-view-delete ctrl-btn kill" data-queue-id="${item.id}">DEL</button></td>
+      </tr>`;
+    }
+    html += `</tbody></table></div>`;
+  }
+
+  content.innerHTML = html;
+
+  // Wire delete buttons
+  content.querySelectorAll('.queue-view-delete').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = Number(btn.dataset.queueId);
+      await db.del('promptQueue', id);
+      renderQueueView();
+    });
+  });
+}
+
+export function initQueueView() {
+  const refreshBtn = document.getElementById('queue-view-refresh');
+  if (refreshBtn) refreshBtn.addEventListener('click', () => renderQueueView());
+
+  const exportBtn = document.getElementById('queue-view-export');
+  if (exportBtn) {
+    exportBtn.addEventListener('click', async () => {
+      const allItems = await db.getAll('promptQueue');
+      const blob = new Blob([JSON.stringify(allItems, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `prompt-queue-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  }
 }
 
 function selectSession(sessionId) {
@@ -1180,15 +1550,43 @@ function populateDetailPanel(session) {
   // Label quick-select chips
   populateDetailLabelChips(session);
 
+  // Resume button visibility — only for ended SSH sessions with an available terminal
+  const resumeBtn = document.getElementById('ctrl-resume');
+  if (resumeBtn) {
+    const canResume = session.status === 'ended' && session.source === 'ssh' && !!session.lastTerminalId;
+    resumeBtn.classList.toggle('hidden', !canResume);
+  }
+
   // Prompt History tab — show only user prompts in chronological order
   const convContainer = document.getElementById('detail-conversation');
   const prompts = (session.promptHistory || []).slice().sort((a, b) => b.timestamp - a.timestamp);
-  convContainer.innerHTML = prompts.length > 0
+  let prevSessionsHtml = '';
+  if (session.previousSessions && session.previousSessions.length > 0) {
+    for (let i = session.previousSessions.length - 1; i >= 0; i--) {
+      const prev = session.previousSessions[i];
+      const prevPrompts = (prev.promptHistory || []).slice().sort((a, b) => b.timestamp - a.timestamp);
+      const startTime = prev.startedAt ? formatTime(prev.startedAt) : '?';
+      const endTime = prev.endedAt ? formatTime(prev.endedAt) : '?';
+      prevSessionsHtml += `<div class="prev-session-section collapsed">
+        <div class="prev-session-header" data-idx="${i}">
+          <span class="prev-session-toggle">&#9654;</span>
+          Previous Session #${i + 1} (${startTime} - ${endTime}) &middot; ${prevPrompts.length} prompts
+        </div>
+        <div class="prev-session-content">
+          ${prevPrompts.length > 0 ? prevPrompts.map((p, j) => `<div class="conv-entry conv-user prev-session-entry">
+            <div class="conv-header"><span class="conv-role">#${prevPrompts.length - j}</span><span class="conv-time">${formatTime(p.timestamp)}</span></div>
+            <div class="conv-text">${escapeHtml(p.text)}</div>
+          </div>`).join('') : '<div class="tab-empty">No prompts in this session</div>'}
+        </div>
+      </div>`;
+    }
+  }
+  convContainer.innerHTML = prevSessionsHtml + (prompts.length > 0
     ? prompts.map((p, i) => `<div class="conv-entry conv-user">
         <div class="conv-header"><span class="conv-role">#${prompts.length - i}</span><span class="conv-time">${formatTime(p.timestamp)}</span><button class="conv-copy" title="Copy">COPY</button></div>
         <div class="conv-text">${escapeHtml(p.text)}</div>
       </div>`).join('')
-    : '<div class="tab-empty">No prompts yet</div>';
+    : (prevSessionsHtml ? '' : '<div class="tab-empty">No prompts yet</div>'));
 
   // Activity tab — merge events, tool calls, and responses chronologically
   const activityLog = document.getElementById('detail-activity-log');
@@ -1526,6 +1924,14 @@ document.getElementById('detail-conversation').addEventListener('click', async (
   }
 });
 
+// Previous session section toggle (expand/collapse)
+document.getElementById('detail-conversation').addEventListener('click', (e) => {
+  const header = e.target.closest('.prev-session-header');
+  if (!header) return;
+  const section = header.closest('.prev-session-section');
+  if (section) section.classList.toggle('collapsed');
+});
+
 // Tab switching
 document.querySelector('.detail-tabs').addEventListener('click', (e) => {
   const btn = e.target.closest('.tab');
@@ -1556,6 +1962,40 @@ document.querySelector('.detail-tabs').addEventListener('click', (e) => {
 });
 
 // ---- Control Button Handlers ----
+
+// Resume button — resume Claude in terminal for disconnected SSH sessions
+document.getElementById('ctrl-resume').addEventListener('click', async (e) => {
+  e.stopPropagation();
+  if (!selectedSessionId) return;
+  const session = sessionsData.get(selectedSessionId);
+  if (!session || session.status !== 'ended' || session.source !== 'ssh') {
+    showToast('RESUME', 'Session cannot be resumed');
+    return;
+  }
+  const btn = document.getElementById('ctrl-resume');
+  btn.disabled = true;
+  btn.textContent = 'RESUMING...';
+  try {
+    const resp = await fetch(`/api/sessions/${selectedSessionId}/resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      showToast('RESUMING', 'Sending claude --resume to terminal');
+      // Switch to terminal tab to see the resume picker
+      const termTab = document.querySelector('.detail-tabs .tab[data-tab="terminal"]');
+      if (termTab) termTab.click();
+    } else {
+      showToast('RESUME FAILED', data.error || 'Unknown error');
+    }
+  } catch (err) {
+    showToast('RESUME ERROR', err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'RESUME';
+  }
+});
 
 // Kill button
 document.getElementById('ctrl-kill').addEventListener('click', (e) => {
@@ -1603,6 +2043,18 @@ document.getElementById('kill-confirm').addEventListener('click', async () => {
 document.getElementById('detail-group-select').addEventListener('change', (e) => {
   if (!selectedSessionId) return;
   const groupId = e.target.value;
+  if (groupId === '__new__') {
+    const name = prompt('New group name:');
+    if (name && name.trim()) {
+      const newGroupId = createGroup(name.trim());
+      assignSessionToGroupAndMove(newGroupId, selectedSessionId);
+      if (pinnedSessions.has(selectedSessionId)) reorderPinnedCards();
+      showToast('GROUP', `Created and assigned to "${name.trim()}"`);
+    } else {
+      refreshAllGroupSelects();
+    }
+    return;
+  }
   const card = document.querySelector(`.session-card[data-session-id="${selectedSessionId}"]`);
   if (!card) return;
   if (groupId) {
@@ -1616,6 +2068,7 @@ document.getElementById('detail-group-select').addEventListener('change', (e) =>
     removeSessionFromGroup(selectedSessionId);
   }
   updateGroupCounts();
+  updateCardGroupBadge(selectedSessionId);
   if (pinnedSessions.has(selectedSessionId)) reorderPinnedCards();
   showToast('GROUP', groupId ? `Moved to group` : 'Removed from group');
 });
@@ -1972,6 +2425,18 @@ document.getElementById('notes-list').addEventListener('click', async (e) => {
 
 // ---- Prompt Queue Handlers ----
 
+// Sync queue count to server so session cards update
+async function syncQueueCount(sessionId) {
+  try {
+    const items = await db.getQueue(sessionId);
+    const { getWs } = await import('./wsClient.js');
+    const ws = getWs();
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'update_queue_count', sessionId, count: items.length }));
+    }
+  } catch {}
+}
+
 // Collapsible queue panel toggle
 document.getElementById('terminal-queue-toggle')?.addEventListener('click', () => {
   const panel = document.getElementById('terminal-queue-panel');
@@ -1995,6 +2460,7 @@ document.getElementById('queue-add-btn')?.addEventListener('click', async () => 
     await db.addToQueue(selectedSessionId, text);
     textarea.value = '';
     loadQueue(selectedSessionId);
+    syncQueueCount(selectedSessionId);
     showToast('QUEUED', 'Prompt added to queue');
   } catch(e) {
     showToast('QUEUE ERROR', e.message);
@@ -2016,11 +2482,80 @@ async function sendToTerminal(text) {
   return true;
 }
 
-// Delete / Edit / Send queue items (event delegation)
+// ---- Move Queue Mode ----
+
+function enterQueueMoveMode(itemIds, sourceSessionId) {
+  moveMode = { active: true, itemIds, sourceSessionId };
+  deselectSession();
+
+  const banner = document.getElementById('move-mode-banner');
+  const bannerText = document.getElementById('move-mode-text');
+  if (banner && bannerText) {
+    bannerText.textContent = `Click a session to move ${itemIds.length} prompt(s)`;
+    banner.classList.remove('hidden');
+  }
+
+  document.body.classList.add('move-mode');
+  document.querySelectorAll('.session-card').forEach(card => {
+    if (card.dataset.sessionId === sourceSessionId) {
+      card.classList.add('move-source');
+    } else {
+      card.classList.add('move-target');
+    }
+  });
+}
+
+export function exitQueueMoveMode(cancel = false) {
+  const source = moveMode.sourceSessionId;
+  moveMode = { active: false, itemIds: [], sourceSessionId: null };
+
+  const banner = document.getElementById('move-mode-banner');
+  if (banner) banner.classList.add('hidden');
+
+  document.body.classList.remove('move-mode');
+  document.querySelectorAll('.session-card').forEach(card => {
+    card.classList.remove('move-target', 'move-source');
+  });
+
+  if (cancel && source) selectSession(source);
+}
+
+async function completeQueueMove(targetSessionId) {
+  const { itemIds, sourceSessionId } = moveMode;
+  if (!itemIds.length || !sourceSessionId || targetSessionId === sourceSessionId) return;
+
+  try {
+    await db.moveQueueItems(itemIds, targetSessionId);
+    syncQueueCount(sourceSessionId);
+    syncQueueCount(targetSessionId);
+    const targetSession = sessionsData.get(targetSessionId);
+    const name = targetSession?.projectName || targetSession?.title || 'session';
+    showToast('MOVED', `Moved ${itemIds.length} prompt(s) to ${name}`);
+  } catch(err) {
+    showToast('MOVE ERROR', err.message);
+  }
+
+  exitQueueMoveMode();
+  selectSession(targetSessionId);
+}
+
+// Cancel move mode
+document.getElementById('move-mode-cancel')?.addEventListener('click', () => exitQueueMoveMode(true));
+
+// MOVE ALL button
+document.getElementById('queue-move-all-btn')?.addEventListener('click', async () => {
+  if (!selectedSessionId) return;
+  const items = await db.getQueue(selectedSessionId);
+  if (items.length === 0) return;
+  enterQueueMoveMode(items.map(i => i.id), selectedSessionId);
+});
+
+// Delete / Edit / Send / Move queue items (event delegation)
 document.getElementById('queue-list')?.addEventListener('click', async (e) => {
   const delBtn = e.target.closest('.queue-delete');
   const editBtn = e.target.closest('.queue-edit');
   const sendBtn = e.target.closest('.queue-send');
+  const moveBtn = e.target.closest('.queue-move');
   if (!selectedSessionId) return;
 
   if (sendBtn) {
@@ -2034,6 +2569,7 @@ document.getElementById('queue-list')?.addEventListener('click', async (e) => {
         try {
           await db.del('promptQueue', Number(itemId));
           loadQueue(selectedSessionId);
+          syncQueueCount(selectedSessionId);
         } catch(e) {}
         showToast('SENT', 'Prompt sent to terminal');
       }
@@ -2045,6 +2581,7 @@ document.getElementById('queue-list')?.addEventListener('click', async (e) => {
     try {
       await db.del('promptQueue', Number(itemId));
       loadQueue(selectedSessionId);
+      syncQueueCount(selectedSessionId);
     } catch(e) {
       showToast('DELETE ERROR', e.message);
     }
@@ -2088,6 +2625,11 @@ document.getElementById('queue-list')?.addEventListener('click', async (e) => {
       if (ev.key === 'Escape') loadQueue(selectedSessionId);
     });
   }
+
+  if (moveBtn) {
+    const itemId = Number(moveBtn.dataset.queueId);
+    enterQueueMoveMode([itemId], selectedSessionId);
+  }
 });
 
 // Enable drag-to-terminal: drop a queue item onto the terminal to send it
@@ -2112,6 +2654,7 @@ document.getElementById('terminal-container')?.addEventListener('drop', async (e
       try {
         await db.del('promptQueue', Number(itemId));
         loadQueue(selectedSessionId);
+        syncQueueCount(selectedSessionId);
       } catch(e) {}
       showToast('SENT', 'Prompt dropped into terminal');
     }

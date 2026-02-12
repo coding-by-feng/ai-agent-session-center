@@ -1,5 +1,5 @@
 // wsManager.js — WebSocket broadcast manager with bidirectional terminal support
-import { getAllSessions, getAllTeams, getEventSeq, getEventsSince } from './sessionStore.js';
+import { getAllSessions, getAllTeams, getEventSeq, getEventsSince, updateQueueCount } from './sessionStore.js';
 import { writeToTerminal, resizeTerminal, closeTerminal, setWsClient } from './sshManager.js';
 import log from './logger.js';
 
@@ -42,6 +42,14 @@ export function handleConnection(ws) {
           if (msg.terminalId) {
             ws._terminalIds.add(msg.terminalId);
             setWsClient(msg.terminalId, ws);
+          }
+          break;
+        case 'update_queue_count':
+          if (msg.sessionId != null && msg.count != null) {
+            const updated = updateQueueCount(msg.sessionId, msg.count);
+            if (updated) {
+              broadcast({ type: 'session_update', session: updated });
+            }
           }
           break;
         case 'replay':

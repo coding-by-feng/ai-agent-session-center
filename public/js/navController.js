@@ -1,4 +1,4 @@
-const views = ['live', 'history', 'timeline', 'analytics'];
+const views = ['live', 'history', 'timeline', 'analytics', 'queue'];
 const callbacks = {};
 
 export function init() {

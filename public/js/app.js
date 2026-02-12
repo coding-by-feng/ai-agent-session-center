@@ -1,5 +1,5 @@
 import * as robotManager from './robotManager.js';
-import { createOrUpdateCard, removeCard, updateDurations, showToast, getSelectedSessionId, setSelectedSessionId, deselectSession, archiveAllEnded, isMuted, toggleMuteAll, initGroups, createOrUpdateTeamCard, removeTeamCard, getTeamsData, getSessionsData, loadQueue, pinSession } from './sessionPanel.js';
+import { createOrUpdateCard, removeCard, updateDurations, showToast, getSelectedSessionId, setSelectedSessionId, deselectSession, archiveAllEnded, isMuted, toggleMuteAll, initGroups, createOrUpdateTeamCard, removeTeamCard, getTeamsData, getSessionsData, loadQueue, pinSession, isMoveModeActive, exitQueueMoveMode, findGroupForSession, showGroupAssignToast, renderQueueView, initQueueView } from './sessionPanel.js';
 import * as statsPanel from './statsPanel.js';
 import * as wsClient from './wsClient.js';
 import * as navController from './navController.js';
@@ -10,29 +10,35 @@ import * as settingsManager from './settingsManager.js';
 import * as soundManager from './soundManager.js';
 import * as movementManager from './movementManager.js';
 import * as terminalManager from './terminalManager.js';
-import { openDB, persistSessionUpdate, put, del, getAll, clear } from './browserDb.js';
+import { openDB, persistSessionUpdate, put, del, getAll, clear, getQueue } from './browserDb.js';
 
 let allSessions = {};
 const approvalAlarmTimers = new Map(); // sessionId -> intervalId for repeating alarm
 
-// Block accidental refresh/close when terminal sessions are active
+// Sync all queue counts from IndexedDB to server after WS snapshot
+async function syncAllQueueCounts(sessionIds) {
+  const ws = wsClient.getWs();
+  if (!ws || ws.readyState !== 1) return;
+  for (const sid of sessionIds) {
+    try {
+      const items = await getQueue(sid);
+      if (items.length > 0) {
+        ws.send(JSON.stringify({ type: 'update_queue_count', sessionId: sid, count: items.length }));
+      }
+    } catch {}
+  }
+}
+
+// Block accidental refresh/close when there are active sessions or terminals
 window.addEventListener('beforeunload', (e) => {
-  if (terminalManager.getActiveTerminalId()) {
+  const hasActiveSessions = Object.values(allSessions).some(s => s.status && s.status !== 'ended');
+  const hasActiveTerminal = terminalManager.getActiveTerminalId();
+  if (hasActiveSessions || hasActiveTerminal) {
     e.preventDefault();
     e.returnValue = '';
   }
 });
 
-// Block refresh keyboard shortcuts (Cmd+R, Ctrl+R, F5) entirely
-window.addEventListener('keydown', (e) => {
-  const isRefresh =
-    e.key === 'F5' ||
-    ((e.metaKey || e.ctrlKey) && e.key === 'r');
-  if (isRefresh) {
-    e.preventDefault();
-    e.stopPropagation();
-  }
-}, true);
 
 async function init() {
   // Initialize browser IndexedDB (persistence layer)
@@ -143,6 +149,9 @@ async function init() {
       statsPanel.update(allSessions);
       updateTabTitle(allSessions);
       toggleEmptyState(Object.keys(allSessions).length === 0);
+
+      // Sync IndexedDB queue counts to server (server loses them on restart)
+      syncAllQueueCounts(Object.keys(sessions));
     },
     onSessionUpdateCb(session, team) {
       // Handle re-keyed terminal sessions (pre-session → real Claude session)
@@ -344,6 +353,21 @@ async function init() {
   // Initialize session groups (localStorage-based, drag-and-drop)
   initGroups();
 
+  // Auto-popup group assignment toast when a new session card is created
+  let suppressGroupToast = true; // Suppress during initial cached session load
+  document.addEventListener('session-card-created', (e) => {
+    if (suppressGroupToast) return;
+    const sid = e.detail.sessionId;
+    const session = allSessions[sid];
+    if (!session || session.isHistorical) return;
+    const group = findGroupForSession(sid);
+    if (!group) {
+      showGroupAssignToast(sid);
+    }
+  });
+  // Enable toast after initial load + first WS snapshot settles
+  setTimeout(() => { suppressGroupToast = false; }, 3000);
+
   // Initialize history panel (populate project filter, wire event listeners)
   historyPanel.init();
 
@@ -351,6 +375,8 @@ async function init() {
   navController.onViewChange('history', () => historyPanel.refresh());
   navController.onViewChange('timeline', () => timelinePanel.refresh());
   navController.onViewChange('analytics', () => analyticsPanel.refresh());
+  navController.onViewChange('queue', () => renderQueueView());
+  initQueueView();
 
   // Handle card dismiss — clean runtime state, preserve IndexedDB for history
   document.addEventListener('card-dismissed', (e) => {
@@ -396,17 +422,6 @@ function updateTabTitle(sessions) {
 // ---- Keyboard Shortcuts ----
 function initKeyboardShortcuts() {
   document.addEventListener('keydown', (e) => {
-    // Cmd+Enter (Mac) / Ctrl+Enter (Win/Linux) / Alt+Enter → open New Session modal (works even in terminal)
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey || e.altKey)) {
-      e.preventDefault();
-      const modal = document.getElementById('new-session-modal');
-      if (modal) {
-        modal.classList.remove('hidden');
-        loadSshKeysOnInit().then(restoreLastSession);
-      }
-      return;
-    }
-
     // Skip if user is typing in an input/textarea
     const tag = e.target.tagName;
     // Never intercept xterm terminal keypresses (xterm uses a hidden textarea)
@@ -429,6 +444,11 @@ function initKeyboardShortcuts() {
         break;
       }
       case 'Escape': {
+        // Cancel move mode first (highest priority)
+        if (isMoveModeActive()) {
+          exitQueueMoveMode(true);
+          break;
+        }
         // Check if we should close modals first (highest priority)
         const kill = document.getElementById('kill-modal');
         const alert = document.getElementById('alert-modal');
@@ -471,7 +491,12 @@ function initKeyboardShortcuts() {
         if (detail && !detail.classList.contains('hidden')) {
           const activeTab = document.querySelector('.detail-tabs .tab.active');
           if (activeTab && activeTab.dataset.tab === 'terminal') {
-            // Don't do anything - let ESC pass through to terminal
+            // Focus the terminal so it can handle ESC (for vim, MCP, etc.)
+            const terminalContainer = document.querySelector('.xterm-screen');
+            if (terminalContainer) {
+              terminalContainer.focus();
+            }
+            // Don't close the detail panel - let terminal handle ESC
             return;
           }
           // Not on terminal tab, close the detail panel

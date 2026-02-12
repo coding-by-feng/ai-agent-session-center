@@ -637,6 +637,35 @@ export async function reorderQueue(sessionId, orderedIds) {
   });
 }
 
+export async function moveQueueItems(itemIds, targetSessionId) {
+  const targetItems = await getQueue(targetSessionId);
+  let maxPos = targetItems.length > 0 ? Math.max(...targetItems.map(i => i.position)) : -1;
+  const tx = getDB().transaction('promptQueue', 'readwrite');
+  const store = tx.objectStore('promptQueue');
+  for (const id of itemIds) {
+    const req = store.get(id);
+    req.onsuccess = () => {
+      const item = req.result;
+      if (item) {
+        item.sessionId = targetSessionId;
+        item.position = ++maxPos;
+        store.put(item);
+      }
+    };
+  }
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function moveAllQueue(sourceSessionId, targetSessionId) {
+  const sourceItems = await getQueue(sourceSessionId);
+  if (sourceItems.length === 0) return;
+  const ids = sourceItems.map(i => i.id);
+  return moveQueueItems(ids, targetSessionId);
+}
+
 // ---- Notes helpers ----
 
 export async function getNotes(sessionId) {

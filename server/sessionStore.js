@@ -9,6 +9,7 @@ const sessions = new Map();
 const projectSessionCounters = new Map();
 const pendingToolTimers = new Map(); // session_id -> timeout for tool approval detection
 const pidToSession = new Map();      // pid -> sessionId — ensures each PID is only assigned to one session
+const pendingResume = new Map();     // terminalId -> { oldSessionId, timestamp }
 
 // Team mode structures
 const teams = new Map();            // teamId -> { teamId, parentSessionId, childSessionIds: Set, teamName, createdAt }
@@ -42,6 +43,29 @@ export function loadActiveSessions() {
 
 // Load active sessions at module init
 loadActiveSessions();
+
+// Re-key a resumed session: transfer from old sessionId to new, reset state for fresh session.
+// Note: previousSessions is intentionally preserved (not reset) to maintain history chain.
+function reKeyResumedSession(oldSession, newSessionId, oldSessionId) {
+  sessions.delete(oldSessionId);
+  oldSession.replacesId = oldSessionId;
+  oldSession.sessionId = newSessionId;
+  oldSession.status = 'idle';
+  oldSession.animationState = 'Idle';
+  oldSession.emote = null;
+  oldSession.startedAt = Date.now();
+  oldSession.endedAt = null;
+  oldSession.isHistorical = false;
+  oldSession.currentPrompt = '';
+  oldSession.totalToolCalls = 0;
+  oldSession.toolUsage = {};
+  oldSession.promptHistory = [];
+  oldSession.toolLog = [];
+  oldSession.responseLog = [];
+  oldSession.events = [{ type: 'SessionResumed', timestamp: Date.now(), detail: `Resumed from ${oldSessionId?.slice(0,8)}` }];
+  sessions.set(newSessionId, oldSession);
+  return oldSession;
+}
 
 export function handleEvent(hookData) {
   const { session_id, hook_event_name, cwd } = hookData;
@@ -78,6 +102,37 @@ export function handleEvent(hookData) {
 
   // Create session if new — ONLY when linked to an SSH terminal
   if (!session) {
+    // Priority 0: Check if this new session matches a pending resume request
+    if (hook_event_name === 'SessionStart') {
+      const termId = hookData.agent_terminal_id;
+      // Match by agent_terminal_id
+      if (termId && pendingResume.has(termId)) {
+        const pending = pendingResume.get(termId);
+        pendingResume.delete(termId);
+        const oldSession = sessions.get(pending.oldSessionId);
+        if (oldSession) {
+          session = reKeyResumedSession(oldSession, session_id, pending.oldSessionId);
+          log.info('session', `RESUME: Re-keyed session ${pending.oldSessionId?.slice(0,8)} → ${session_id?.slice(0,8)} (via pending resume + terminal ID)`);
+        }
+      }
+      // Fallback: match by projectPath
+      if (!session) {
+        for (const [pTermId, pending] of pendingResume) {
+          const oldSession = sessions.get(pending.oldSessionId);
+          if (oldSession && oldSession.projectPath) {
+            const normalizedSessionPath = oldSession.projectPath.replace(/\/$/, '');
+            const normalizedCwd = (cwd || '').replace(/\/$/, '');
+            if (normalizedSessionPath === normalizedCwd) {
+              pendingResume.delete(pTermId);
+              session = reKeyResumedSession(oldSession, session_id, pending.oldSessionId);
+              log.info('session', `RESUME: Re-keyed session ${pending.oldSessionId?.slice(0,8)} → ${session_id?.slice(0,8)} (via pending resume + workDir match)`);
+              break;
+            }
+          }
+        }
+      }
+    }
+
     // Priority 1: Direct match via AGENT_MANAGER_TERMINAL_ID (injected into pty env)
     if (hookData.agent_terminal_id) {
       const preSession = sessions.get(hookData.agent_terminal_id);
@@ -457,9 +512,10 @@ export function handleEvent(hookData) {
       // Team cleanup: remove from team, clean up if empty
       handleTeamMemberEnd(session_id);
 
-      // SSH sessions: keep in memory as historical (disconnected), clear terminal link
+      // SSH sessions: keep in memory as historical (disconnected), preserve terminal ref for resume
       if (session.source === 'ssh') {
         session.isHistorical = true;
+        session.lastTerminalId = session.terminalId;
         session.terminalId = null;
       } else {
         setTimeout(() => sessions.delete(session_id), 10000);
@@ -743,9 +799,10 @@ export function killSession(sessionId) {
   session.archived = 1;
   session.lastActivityAt = Date.now();
   session.endedAt = Date.now();
-  // SSH sessions: keep in memory as historical (disconnected)
+  // SSH sessions: keep in memory as historical (disconnected), preserve terminal ref for resume
   if (session.source === 'ssh') {
     session.isHistorical = true;
+    session.lastTerminalId = session.terminalId;
     session.terminalId = null;
   } else {
     setTimeout(() => sessions.delete(sessionId), 10000);
@@ -833,6 +890,7 @@ setInterval(() => {
       session.emote = null;
     } else if (session.status !== 'waiting' && session.status !== 'prompting'
       && session.status !== 'approval' && session.status !== 'input'
+      && session.status !== 'connecting'
       && elapsed > AUTO_IDLE_TIMEOUTS.working) {
       session.status = 'idle';
       session.animationState = 'Idle';
@@ -888,9 +946,10 @@ setInterval(async () => {
         broadcast({ type: 'session_update', session: { ...session } });
       } catch(e) {}
 
-      // SSH sessions: keep in memory as historical (disconnected)
+      // SSH sessions: keep in memory as historical (disconnected), preserve terminal ref for resume
       if (session.source === 'ssh') {
         session.isHistorical = true;
+        session.lastTerminalId = session.terminalId;
         session.terminalId = null;
       } else {
         setTimeout(() => sessions.delete(id), 10000);
@@ -898,6 +957,75 @@ setInterval(async () => {
     }
   }
 }, PROCESS_CHECK_INTERVAL);
+
+// Clean up stale pendingResume entries every 30s
+setInterval(() => {
+  const now = Date.now();
+  for (const [termId, pending] of pendingResume) {
+    if (now - pending.timestamp > 120000) { // 2 minutes
+      pendingResume.delete(termId);
+      const session = sessions.get(pending.oldSessionId);
+      if (session && session.status === 'connecting') {
+        session.status = 'ended';
+        session.animationState = 'Death';
+        session.isHistorical = true;
+        session.terminalId = null;
+        log.info('session', `RESUME TIMEOUT: reverted session ${pending.oldSessionId?.slice(0,8)} back to ended`);
+        import('./wsManager.js').then(({ broadcast }) => {
+          broadcast({ type: 'session_update', session: { ...session } });
+        }).catch(() => {});
+      }
+    }
+  }
+}, 30000);
+
+// Resume a disconnected SSH session — sends claude --resume to its terminal
+export function resumeSession(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session) return { error: 'Session not found' };
+  if (session.status !== 'ended') return { error: 'Session is not ended' };
+  if (!session.lastTerminalId) return { error: 'No terminal associated with this session' };
+
+  // Archive current session data into previousSessions array
+  if (!session.previousSessions) session.previousSessions = [];
+  session.previousSessions.push({
+    sessionId: session.sessionId,
+    startedAt: session.startedAt,
+    endedAt: session.endedAt,
+    promptHistory: [...session.promptHistory],
+    toolLog: [...(session.toolLog || [])],
+    responseLog: [...(session.responseLog || [])],
+    events: [...session.events],
+    toolUsage: { ...session.toolUsage },
+    totalToolCalls: session.totalToolCalls,
+  });
+  // Cap to prevent unbounded growth (each entry can hold hundreds of log items)
+  if (session.previousSessions.length > 5) session.previousSessions.shift();
+
+  // Register pending resume
+  pendingResume.set(session.lastTerminalId, {
+    oldSessionId: sessionId,
+    timestamp: Date.now(),
+  });
+
+  // Restore terminal link and transition to connecting
+  session.terminalId = session.lastTerminalId;
+  session.status = 'connecting';
+  session.animationState = 'Walking';
+  session.emote = 'Wave';
+  session.isHistorical = false;
+  session.lastActivityAt = Date.now();
+
+  session.events.push({
+    type: 'ResumeRequested',
+    timestamp: Date.now(),
+    detail: 'Resume requested by user',
+  });
+
+  log.info('session', `RESUME: session ${sessionId?.slice(0,8)} → connecting (terminal=${session.lastTerminalId?.slice(0,8)})`);
+
+  return { ok: true, terminalId: session.lastTerminalId, session: { ...session } };
+}
 
 // Detect where a hook-only session originated from environment variables
 function detectHookSource(hookData) {
