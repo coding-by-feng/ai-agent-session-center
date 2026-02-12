@@ -738,7 +738,13 @@ export function createOrUpdateTeamCard(team) {
   }
 
   teamCard.querySelector('.team-name').textContent = team.teamName || 'Team';
-  teamCard.querySelector('.team-member-count').textContent = `${allMemberIds.length} member${allMemberIds.length !== 1 ? 's' : ''}`;
+  const memberNames = allMemberIds.map(sid => {
+    const s = sessionsData.get(sid);
+    return s?.agentName || s?.agentType || sid.slice(0, 8);
+  });
+  const countEl = teamCard.querySelector('.team-member-count');
+  countEl.textContent = `${allMemberIds.length} member${allMemberIds.length !== 1 ? 's' : ''}`;
+  countEl.title = memberNames.join(', ');
 
   const statusPriority = { approval: 6, input: 5, working: 4, prompting: 3, waiting: 2, idle: 1, ended: 0 };
   let worstStatus = 'idle';
@@ -768,26 +774,44 @@ export function createOrUpdateTeamCard(team) {
 function renderTeamCharacters(teamCard, sessionIds) {
   const container = teamCard.querySelector('.team-characters');
   container.innerHTML = '';
-  const count = sessionIds.length;
-  const rows = count <= 3 ? 1 : count <= 6 ? 2 : 3;
-  const perRow = Math.ceil(count / rows);
 
-  sessionIds.forEach((sid, i) => {
+  // Separate leader from members
+  const leaderSid = sessionIds.find(sid => {
     const s = sessionsData.get(sid);
-    const row = Math.floor(i / perRow);
-    const col = i % perRow;
-    const itemsInRow = Math.min(perRow, count - row * perRow);
+    return s?.teamRole === 'leader';
+  });
+  const memberSids = sessionIds.filter(sid => sid !== leaderSid);
 
+  // Render leader (large, left side)
+  if (leaderSid) {
+    const s = sessionsData.get(leaderSid);
     const charEl = document.createElement('div');
-    charEl.className = 'team-member-char';
+    charEl.className = 'team-member-char team-char-leader';
     charEl.dataset.status = s?.status || 'idle';
 
-    const leftPct = itemsInRow > 1 ? (col / (itemsInRow - 1)) * 80 + 10 : 50;
-    const topPct = rows > 1 ? (row / (rows - 1)) * 60 + 10 : 30;
-    const scale = count > 4 ? 0.7 : count > 2 ? 0.85 : 1;
-    charEl.style.left = `${leftPct}%`;
-    charEl.style.top = `${topPct}%`;
-    charEl.style.transform = `translate(-50%, -50%) scale(${scale})`;
+    const model = s?.characterModel || 'robot';
+    const accentColor = s?.accentColor || 'var(--accent-cyan)';
+    charEl.innerHTML = `<div class="css-robot char-${escapeAttr(model)} mini" data-status="${escapeAttr(s?.status || 'idle')}" style="--robot-color:${sanitizeColor(accentColor)}"></div>`;
+
+    const roleBadge = document.createElement('div');
+    roleBadge.className = 'team-role-badge leader';
+    roleBadge.textContent = 'LEAD';
+    charEl.appendChild(roleBadge);
+
+    const nameLabel = document.createElement('div');
+    nameLabel.className = 'team-member-name';
+    nameLabel.textContent = s?.agentName || s?.agentType || 'Leader';
+    charEl.appendChild(nameLabel);
+
+    container.appendChild(charEl);
+  }
+
+  // Render members (small, right side)
+  for (const sid of memberSids) {
+    const s = sessionsData.get(sid);
+    const charEl = document.createElement('div');
+    charEl.className = 'team-member-char team-char-member';
+    charEl.dataset.status = s?.status || 'idle';
 
     const model = s?.characterModel || 'robot';
     const accentColor = s?.accentColor || 'var(--accent-cyan)';
@@ -795,15 +819,16 @@ function renderTeamCharacters(teamCard, sessionIds) {
 
     const roleBadge = document.createElement('div');
     roleBadge.className = 'team-role-badge';
-    if (s?.teamRole === 'leader') {
-      roleBadge.textContent = 'L';
-      roleBadge.classList.add('leader');
-    } else {
-      roleBadge.textContent = (s?.agentType || 'M').charAt(0).toUpperCase();
-    }
+    roleBadge.textContent = (s?.agentName || s?.agentType || 'M').charAt(0).toUpperCase();
     charEl.appendChild(roleBadge);
+
+    const nameLabel = document.createElement('div');
+    nameLabel.className = 'team-member-name';
+    nameLabel.textContent = s?.agentName || s?.agentType || 'member';
+    charEl.appendChild(nameLabel);
+
     container.appendChild(charEl);
-  });
+  }
 
   import('./robotManager.js').then(rm => {
     const templates = rm._getTemplates ? rm._getTemplates() : null;
@@ -855,16 +880,22 @@ function openTeamModal(teamId) {
     const s = sessionsData.get(sid);
     if (!s) continue;
 
+    const isLeader = s.teamRole === 'leader';
     const cardEl = document.createElement('div');
-    cardEl.className = 'team-modal-card';
+    cardEl.className = `team-modal-card${isLeader ? ' is-leader' : ''}`;
     cardEl.dataset.status = s.status;
 
-    const roleLabel = s.teamRole === 'leader'
+    const agentDisplayName = s.agentName || s.agentType || (isLeader ? 'Team Lead' : 'member');
+    const roleLabel = isLeader
       ? '<span class="team-role-label leader">TEAM LEAD</span>'
       : `<span class="team-role-label">${escapeHtml(s.agentType || 'member').toUpperCase()}</span>`;
 
     const promptText = s.currentPrompt || '';
     const promptExcerpt = promptText.length > 100 ? promptText.substring(0, 100) + '...' : promptText;
+
+    const terminalBtn = s.backendType === 'tmux'
+      ? `<button class="team-terminal-btn" data-team-id="${escapeAttr(teamId)}" data-session-id="${escapeAttr(sid)}" title="Open tmux terminal">Terminal</button>`
+      : '';
 
     cardEl.innerHTML = `
       <div class="team-modal-card-header">
@@ -872,7 +903,8 @@ function openTeamModal(teamId) {
           <div class="css-robot char-${escapeAttr(s.characterModel || 'robot')} mini" data-status="${escapeAttr(s.status)}" style="--robot-color:${sanitizeColor(s.accentColor)}"></div>
         </div>
         <div class="team-modal-card-info">
-          <div class="team-modal-card-title">${escapeHtml(s.projectName)}</div>
+          <div class="team-modal-card-title">${escapeHtml(agentDisplayName)}</div>
+          <div class="team-modal-card-subtitle">${escapeHtml(s.projectName)}</div>
           ${roleLabel}
           <span class="status-badge ${s.status}">${s.status === 'approval' ? 'APPROVAL NEEDED' : s.status === 'input' ? 'WAITING FOR INPUT' : s.status.toUpperCase()}</span>
         </div>
@@ -881,9 +913,26 @@ function openTeamModal(teamId) {
       <div class="team-modal-card-stats">
         <span>${formatDuration(Date.now() - s.startedAt)}</span>
         <span>Tools: ${s.totalToolCalls || 0}</span>
+        ${terminalBtn}
       </div>
     `;
 
+    // Terminal button handler — opens tmux terminal for this member
+    const tBtn = cardEl.querySelector('.team-terminal-btn');
+    if (tBtn) {
+      tBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try {
+          const { openTeamMemberTerminal } = await import('./terminalManager.js');
+          await openTeamMemberTerminal(teamId, sid);
+          modal.classList.add('hidden');
+        } catch (err) {
+          if (_showToast) _showToast('TERMINAL ERROR', err.message);
+        }
+      });
+    }
+
+    // Click card to select the session
     cardEl.addEventListener('click', () => {
       modal.classList.add('hidden');
       if (selectedSessionId === sid) {

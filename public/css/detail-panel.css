@@ -792,62 +792,12 @@
   font-size: 10px !important;
 }
 
-/* ---- Responsive ---- */
-
-@media (max-width: 640px) {
-  #sessions-grid,
-  .group-grid {
-    grid-template-columns: 1fr;
-    gap: 14px;
-    padding: 14px;
-  }
-
-  .session-card .robot-viewport {
-    min-height: 170px;
-  }
-
-  #header {
-    flex-direction: column;
-    gap: 8px;
-    padding: 10px 16px;
-  }
-
-  .header-title {
-    font-size: 12px;
-    letter-spacing: 2px;
-  }
-
-  #global-stats {
-    font-size: 10px;
-    gap: 12px;
-  }
-
-  #session-detail-panel {
-    width: 100% !important;
-    max-width: 100vw;
-  }
-
-  .detail-resize-handle {
-    display: none;
-  }
-
-  #activity-feed {
-    max-height: 80px;
-  }
-}
-
-@media (max-width: 960px) and (min-width: 641px) {
-  #sessions-grid,
-  .group-grid {
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 20px;
-    padding: 20px;
-  }
-
-  .session-card .robot-viewport {
-    min-height: 190px;
-  }
-}
+/* ---- Responsive (original) ----
+   Original responsive rules for #sessions-grid, .group-grid,
+   .session-card .robot-viewport, #header, .header-title, #global-stats
+   have been migrated to their respective split CSS files (card.css,
+   layout.css). Detail-panel-specific mobile rules are below in the
+   new comprehensive responsive sections. */
 
 
 /* ============================================================
@@ -1053,5 +1003,304 @@
   color: var(--accent-green);
   border-color: rgba(0, 255, 136, 0.3);
   background: rgba(0, 255, 136, 0.1);
+}
+
+/* ============================================================
+   Responsive — Mobile (<640px)
+   ============================================================ */
+
+@media (max-width: 640px) {
+  /* Detail panel: full-screen overlay on mobile */
+  #session-detail-panel {
+    width: 100% !important;
+    max-width: 100vw;
+    min-width: 0;
+    border-left: none;
+    animation: none;
+  }
+
+  /* Close button: 44px touch target */
+  #close-detail {
+    width: 44px;
+    height: 44px;
+    font-size: 28px;
+    top: 8px;
+    right: 8px;
+  }
+
+  /* Resize handle: hidden on mobile (already verified, reinforced) */
+  .detail-resize-handle {
+    display: none;
+  }
+
+  /* Detail header: compact on mobile */
+  .detail-header {
+    padding: 14px 52px 12px 14px;
+    gap: 10px;
+  }
+
+  /* Character preview: slightly smaller on mobile */
+  .detail-char-preview {
+    width: 48px;
+    height: 64px;
+  }
+
+  .detail-char-preview .css-robot {
+    transform: translate(-50%, -50%) scale(0.32);
+  }
+
+  /* Detail header text: ensure wrapping */
+  .detail-header h3 {
+    font-size: 14px;
+    word-break: break-word;
+  }
+
+  /* Detail meta: wrap nicely */
+  .detail-meta {
+    gap: 6px;
+  }
+
+  /* Tabs: horizontally scrollable on mobile */
+  .detail-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding: 0 14px;
+  }
+
+  .detail-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .detail-tabs .tab {
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: 10px 12px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+
+  /* Tab content: reduced padding */
+  .tab-content {
+    padding: 12px 14px;
+  }
+
+  /* Conversation entries: tighter on mobile */
+  .conv-entry {
+    padding: 8px 10px;
+  }
+
+  .conv-text {
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  /* Activity entries: stack vertically on narrow screens */
+  .activity-entry {
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px 0 6px 6px;
+  }
+
+  .activity-time {
+    width: auto;
+    flex-basis: 100%;
+  }
+
+  .activity-detail {
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  /* Control bar: wrap buttons on mobile */
+  .ctrl-bar {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px 14px;
+  }
+
+  /* Control buttons: 44px touch targets */
+  .ctrl-btn {
+    min-height: 44px;
+    padding: 8px 12px;
+    font-size: 11px;
+  }
+
+  /* Control select: 44px touch target */
+  .ctrl-select {
+    min-height: 44px;
+    font-size: 11px;
+    margin-left: 0;
+    flex: 1 1 100%;
+  }
+
+  /* Notes textarea: full width, comfortable tap target */
+  #note-textarea {
+    font-size: 14px;
+    padding: 12px;
+    min-height: 80px;
+  }
+
+  /* Note delete: 44px touch target */
+  .note-delete {
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+  }
+
+  /* Queue view: reduced padding */
+  #queue-view-controls {
+    padding: 12px 14px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .queue-view-title {
+    font-size: 14px;
+  }
+
+  #queue-view-content {
+    padding: 10px 14px;
+  }
+
+  .queue-view-stats {
+    padding: 6px 14px;
+    flex-wrap: wrap;
+  }
+
+  /* Queue table: allow horizontal scroll on mobile */
+  .queue-view-table {
+    font-size: 11px;
+  }
+
+  .queue-view-text {
+    max-width: 200px;
+  }
+
+  /* Queue edit textarea: touch-friendly */
+  .queue-edit-textarea {
+    font-size: 14px;
+    padding: 10px;
+    min-height: 60px;
+  }
+
+  /* Search highlight inputs: touch-friendly */
+  .detail-header .detail-title-input {
+    font-size: 14px;
+    padding: 6px 8px;
+    min-height: 44px;
+  }
+
+  .detail-char-select {
+    min-height: 44px;
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+
+  /* Activity feed: compact on mobile */
+  #activity-feed {
+    max-height: 70px;
+  }
+
+  .feed-entry {
+    font-size: 10px;
+  }
+
+  /* Prompt and response entries: touch-friendly spacing */
+  .prompt-entry,
+  .response-entry {
+    padding: 8px 0;
+  }
+
+  /* Conv copy button: always visible and touch-friendly on mobile */
+  .conv-copy {
+    opacity: 1;
+    min-width: 44px;
+    min-height: 28px;
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+
+  /* Summary text: readable on mobile */
+  .summary-text {
+    padding: 12px;
+    font-size: 13px;
+  }
+
+  /* Tab empty state */
+  .tab-empty {
+    padding: 30px 14px;
+  }
+}
+
+/* ============================================================
+   Responsive — Tablet (641px–960px)
+   ============================================================ */
+
+@media (max-width: 960px) and (min-width: 641px) {
+  /* Detail panel: slightly wider proportion on tablet */
+  #session-detail-panel {
+    width: 55vw;
+    min-width: 380px;
+  }
+
+  /* Close button: 44px touch target on tablet */
+  #close-detail {
+    width: 44px;
+    height: 44px;
+    font-size: 26px;
+  }
+
+  /* Detail header: comfortable spacing */
+  .detail-header {
+    padding: 16px 50px 14px 16px;
+  }
+
+  /* Tabs: ensure scrollable if many tabs */
+  .detail-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .detail-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .detail-tabs .tab {
+    white-space: nowrap;
+    flex-shrink: 0;
+    min-height: 44px;
+  }
+
+  /* Control buttons: 44px touch targets */
+  .ctrl-btn {
+    min-height: 44px;
+    padding: 8px 14px;
+  }
+
+  .ctrl-select {
+    min-height: 44px;
+  }
+
+  /* Tab content: slightly reduced padding */
+  .tab-content {
+    padding: 14px 18px;
+  }
+
+  /* Queue view controls */
+  #queue-view-controls {
+    padding: 14px 18px;
+  }
+
+  #queue-view-content {
+    padding: 12px 18px;
+  }
 }
 

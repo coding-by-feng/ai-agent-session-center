@@ -1462,3 +1462,356 @@
   background: var(--border-subtle);
   margin: 4px 8px;
 }
+
+/* ============================================================
+   Team Card — Leader/Member Character Sizing & Layout
+   ============================================================ */
+
+/* Team characters container — leader left, members right */
+.team-characters {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 8px 12px 4px;
+}
+
+/* Leader character in team card — large and prominent */
+.team-char-leader {
+  z-index: 2;
+}
+.team-char-leader .css-robot {
+  transform: scale(1.2) !important;
+}
+.team-char-leader .team-role-badge {
+  background: var(--accent-orange);
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  color: var(--bg-primary);
+  font-weight: 700;
+  font-family: var(--font-mono);
+  letter-spacing: 0.3px;
+}
+
+/* Member characters in team card — small */
+.team-char-member {
+  z-index: 1;
+}
+.team-char-member .css-robot {
+  transform: scale(0.55) !important;
+}
+.team-char-member .team-role-badge {
+  font-size: 7px;
+  opacity: 0.8;
+  background: var(--bg-subtle);
+  padding: 1px 4px;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+/* Agent name labels under characters */
+.team-member-name {
+  font-size: 8px;
+  color: var(--text-secondary);
+  text-align: center;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 80px;
+  font-family: var(--font-mono);
+}
+
+/* In-team session card — subtle left border indicator */
+.session-card.in-team {
+  border-left: 3px solid var(--accent-orange);
+}
+
+/* ============================================================
+   Team Modal — Leader/Member Card Enhancements
+   ============================================================ */
+
+/* Leader card in team modal — larger, highlighted */
+.team-modal-card.is-leader {
+  border: 2px solid var(--accent-orange);
+  background: rgba(255, 165, 0, 0.05);
+  grid-column: 1 / -1;
+}
+.team-modal-card.is-leader .team-modal-char-preview {
+  width: 80px;
+  height: 80px;
+}
+
+/* Member cards — compact */
+.team-modal-card:not(.is-leader) .team-modal-char-preview {
+  width: 48px;
+  height: 48px;
+}
+
+/* Terminal button on member cards */
+.team-terminal-btn {
+  background: var(--accent-cyan);
+  color: var(--bg-primary);
+  border: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 10px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: background 0.2s;
+}
+.team-terminal-btn:hover {
+  background: var(--accent-green);
+}
+
+/* ============================================================
+   Responsive — Mobile (<640px)
+   ============================================================ */
+
+@media (max-width: 640px) {
+  /* Groups container: single column on phones */
+  #groups-container {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 0 12px;
+  }
+
+  /* Each group spans full width */
+  .session-group {
+    grid-column: span 1;
+  }
+
+  /* Session grid and group grid: lower min-width for phone screens */
+  #sessions-grid {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .group-grid {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+    padding: 12px;
+  }
+
+  /* Robot viewport: smaller on mobile to save vertical space */
+  .session-card .robot-viewport {
+    padding-top: 100px;
+    min-height: 80px;
+  }
+
+  /* Reduce card info padding on mobile */
+  .session-card .card-info {
+    padding: 8px 10px;
+  }
+
+  /* Smaller card header gap */
+  .session-card .card-header {
+    gap: 4px;
+    margin-bottom: 6px;
+  }
+
+  /* Reduce waiting banner margins for narrower cards */
+  .session-card[data-status="approval"] .waiting-banner,
+  .session-card[data-status="input"] .waiting-banner {
+    margin: -10px -10px 8px -10px;
+  }
+
+  /* Layout presets bar: wrap on mobile */
+  .layout-presets-bar {
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    gap: 6px;
+  }
+
+  /* Layout preset buttons: minimum 44px touch target */
+  .layout-preset-btn {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px 12px;
+  }
+
+  /* Group header padding reduced */
+  .group-header {
+    padding: 8px 12px;
+    gap: 8px;
+  }
+
+  /* Group delete button: 44px touch target, always visible on mobile */
+  .group-delete {
+    width: 44px;
+    height: 44px;
+    font-size: 18px;
+    opacity: 1;
+  }
+
+  /* Group collapse: larger touch target */
+  .group-collapse {
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+  }
+
+  /* Group resize handle: hidden on mobile (no column resize on single-column) */
+  .group-resize-handle {
+    display: none;
+  }
+
+  /* Card overlay buttons: always visible and 44px touch targets on mobile */
+  .session-card .close-btn,
+  .session-card .mute-btn,
+  .session-card .pin-btn,
+  .session-card .summarize-card-btn {
+    opacity: 1;
+    pointer-events: auto;
+    width: 44px;
+    height: 44px;
+  }
+
+  .close-btn {
+    font-size: 20px;
+  }
+
+  .mute-btn {
+    font-size: 16px;
+  }
+
+  .pin-btn {
+    left: 52px;
+    font-size: 14px;
+  }
+
+  .summarize-card-btn {
+    right: 52px;
+    font-size: 12px;
+  }
+
+  /* Resume button: 44px height touch target */
+  .resume-card-btn {
+    padding: 10px 18px;
+    font-size: 12px;
+    min-height: 44px;
+  }
+
+  /* Card group dropdown: adjust for small screens */
+  .card-group-dropdown {
+    min-width: 140px;
+    max-width: 90vw;
+  }
+
+  .cgd-item {
+    padding: 10px 12px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+
+  /* Group assign toast: constrain to viewport */
+  .group-assign-toast {
+    min-width: 240px;
+    max-width: 90vw;
+  }
+
+  .group-assign-select {
+    min-height: 44px;
+    font-size: 12px;
+  }
+
+  .group-assign-btn,
+  .group-dismiss-btn {
+    min-height: 44px;
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+
+  .group-create-btn {
+    min-height: 44px;
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+
+  .group-new-name-input {
+    min-height: 44px;
+    font-size: 12px;
+    padding: 8px 10px;
+  }
+
+  /* Oneoff review toast: constrain to viewport */
+  .oneoff-review-toast {
+    min-width: 240px;
+    max-width: 90vw;
+  }
+
+  .oneoff-review-btn,
+  .oneoff-delete-btn,
+  .oneoff-dismiss-btn {
+    min-height: 44px;
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+
+  /* Card stats: wrap on very narrow screens */
+  .session-card .card-stats {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+}
+
+/* ============================================================
+   Responsive — Tablet (641px–960px)
+   ============================================================ */
+
+@media (max-width: 960px) and (min-width: 641px) {
+  /* Groups container: 2-column on tablet */
+  #groups-container {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    padding: 0 16px;
+  }
+
+  /* Groups span single column on tablet */
+  .session-group {
+    grid-column: span 1;
+  }
+
+  /* Group grid on tablet */
+  .group-grid {
+    gap: 14px;
+    padding: 14px;
+  }
+
+  /* Layout presets bar: slightly reduced padding */
+  .layout-presets-bar {
+    padding: 8px 16px;
+  }
+
+  /* Layout preset buttons: 44px touch target */
+  .layout-preset-btn {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 6px 10px;
+  }
+
+  /* Group delete: always visible on touch, 44px target */
+  .group-delete {
+    width: 36px;
+    height: 36px;
+    opacity: 1;
+  }
+
+  /* Robot viewport: slightly reduced on tablet */
+  .session-card .robot-viewport {
+    padding-top: 140px;
+  }
+
+  /* Group resize handle hidden on tablet too (layout is auto-grid) */
+  .group-resize-handle {
+    display: none;
+  }
+}

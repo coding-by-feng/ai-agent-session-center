@@ -484,3 +484,242 @@ body.move-mode .session-card.move-source {
   }
 }
 
+/* ============================================================
+   Responsive: Terminal, Fullscreen, Queue, SSH Form
+   ============================================================ */
+
+/* --- Tablet and small screens (max-width: 640px) --- */
+@media (max-width: 640px) {
+  /* Terminal container: full-width, reduced min-height */
+  #terminal-container {
+    min-height: 160px;
+    border-radius: 4px;
+  }
+
+  /* Terminal toolbar: wrap actions onto next line if needed */
+  .terminal-toolbar {
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px 6px;
+  }
+
+  .terminal-toolbar-actions {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  /* Ensure toolbar buttons meet 44px touch targets */
+  .terminal-fullscreen-btn,
+  .ctrl-btn.terminal,
+  .ctrl-btn.resume {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 6px 12px;
+    font-size: 11px;
+  }
+
+  /* Terminal status text */
+  .terminal-status {
+    font-size: 9px;
+    padding: 4px 6px;
+  }
+
+  /* Fullscreen overlay: use dynamic viewport height for mobile keyboard */
+  .terminal-fullscreen-overlay {
+    height: 100dvh;
+  }
+
+  /* Fullscreen topbar: compact on mobile */
+  .terminal-fullscreen-topbar {
+    padding: 4px 10px;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .terminal-fullscreen-title {
+    font-size: 11px;
+  }
+
+  .terminal-fullscreen-exit {
+    min-height: 44px;
+    padding: 6px 12px;
+    font-size: 10px;
+  }
+
+  /* Note: .detail-tabs mobile rules are in detail-panel.css */
+
+  /* Queue panel: more padding, touch-friendly toggle */
+  .terminal-queue-toggle {
+    min-height: 44px;
+    padding: 8px 10px;
+    font-size: 11px;
+  }
+
+  .terminal-queue-body {
+    max-height: 200px;
+    padding: 0 6px 6px;
+  }
+
+  /* Queue compose: stack vertically on mobile */
+  .terminal-queue-panel .queue-compose {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .terminal-queue-panel #queue-textarea {
+    font-size: 14px;
+    min-height: 44px;
+    padding: 8px 10px;
+  }
+
+  .terminal-queue-panel #queue-add-btn {
+    align-self: stretch;
+    min-height: 44px;
+    font-size: 12px;
+    padding: 8px 12px;
+  }
+
+  /* Queue items: touch-friendly sizing */
+  .terminal-queue-list .queue-item,
+  #queue-list .queue-item {
+    padding: 8px 8px;
+    gap: 8px;
+    font-size: 12px;
+  }
+
+  /* Always show queue item actions on touch (no hover) */
+  .terminal-queue-list .queue-item .queue-actions,
+  #queue-list .queue-item .queue-actions {
+    display: flex;
+  }
+
+  .terminal-queue-list .queue-item .queue-actions button,
+  #queue-list .queue-item .queue-actions button {
+    min-height: 36px;
+    min-width: 36px;
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+
+  /* Queue move-all and move-mode banner */
+  .queue-move-all {
+    min-height: 44px;
+    padding: 6px 12px;
+    font-size: 11px;
+  }
+
+  .move-mode-banner {
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    font-size: 11px;
+    gap: 8px;
+  }
+
+  .move-mode-banner .ctrl-btn {
+    min-height: 44px;
+    padding: 6px 14px;
+  }
+
+  /* SSH connection form: touch-friendly inputs */
+  .ssh-field input,
+  .ssh-field select {
+    min-height: 44px;
+    font-size: 14px;
+    padding: 8px 10px;
+  }
+
+  .ssh-field label {
+    font-size: 11px;
+  }
+
+  /* SSH field rows: stack vertically */
+  .ssh-field-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .ssh-field-grow,
+  .ssh-field-small {
+    flex: none;
+    width: 100%;
+  }
+
+  /* SSH mode toggle: wrap buttons */
+  .ssh-mode-toggle {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .ssh-mode-btn {
+    min-height: 44px;
+    flex: 1 1 auto;
+    padding: 8px 12px;
+    font-size: 11px;
+  }
+
+  /* SSH connect/cancel buttons: touch-friendly */
+  #ssh-connect,
+  #ssh-cancel {
+    min-height: 44px;
+    padding: 10px 16px;
+    font-size: 12px;
+  }
+}
+
+/* --- Phone screens (max-width: 480px) --- */
+@media (max-width: 480px) {
+  /* Even more compact terminal */
+  #terminal-container {
+    min-height: 120px;
+    border-radius: 2px;
+  }
+
+  #terminal-container .xterm {
+    padding: 3px;
+  }
+
+  /* Fullscreen: full device viewport */
+  .terminal-fullscreen-overlay {
+    height: 100dvh;
+    height: -webkit-fill-available;
+  }
+
+  #terminal-fullscreen-container .xterm {
+    padding: 3px;
+  }
+
+  .terminal-fullscreen-topbar {
+    padding: 4px 8px;
+  }
+
+  .terminal-fullscreen-title {
+    font-size: 10px;
+  }
+
+  /* Terminal toolbar: stack vertically */
+  .terminal-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+
+  .terminal-toolbar-actions {
+    justify-content: flex-end;
+  }
+
+  /* Queue: reduce max-height */
+  .terminal-queue-body {
+    max-height: 150px;
+  }
+
+  /* SSH form: full-width layout with extra spacing */
+  .ssh-field {
+    margin-bottom: 8px;
+  }
+
+  .ssh-field input,
+  .ssh-field select {
+    font-size: 16px; /* prevents iOS zoom on focus */
+  }
+}
+

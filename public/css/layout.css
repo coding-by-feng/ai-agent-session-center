@@ -844,3 +844,325 @@ body[data-theme="blonde"] .qa-btn.active {
 #activity-feed.collapsed #feed-entries { display: none; }
 #activity-feed.collapsed { max-height: 24px; }
 
+
+/* ============================================================
+   Responsive Layout — Mobile & Tablet Breakpoints
+   Only new @media queries below. No existing rules modified.
+   ============================================================ */
+
+/* ---- 1280px: Large tablets / small desktops ---- */
+
+@media (max-width: 1280px) {
+  .hook-stats-panel {
+    min-width: 400px;
+  }
+}
+
+/* ---- 1024px: Tablets landscape ---- */
+
+@media (max-width: 1024px) {
+  #nav-actions-items {
+    max-width: 400px;
+  }
+
+  .hook-stats-panel {
+    min-width: 340px;
+    right: -20px;
+  }
+}
+
+/* ---- 960px: Tablets ---- */
+/* Existing 960px breakpoint for #analytics-grid is above.
+   Additional rules for this breakpoint: */
+
+@media (max-width: 960px) {
+  #header {
+    padding: 10px 16px;
+    gap: 8px;
+  }
+
+  #live-search-bar {
+    flex: 0 1 200px;
+    margin: 0 8px;
+  }
+
+  #global-stats {
+    gap: 12px;
+  }
+
+  #main-nav {
+    padding: 0 12px;
+  }
+
+  .hook-stats-panel {
+    min-width: 280px;
+    right: 0;
+    position: fixed;
+    top: auto;
+    margin-top: 4px;
+  }
+}
+
+/* ---- 768px: Tablets portrait ---- */
+
+@media (max-width: 768px) {
+  #header {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .header-title {
+    flex: 0 0 auto;
+    font-size: 12px;
+    letter-spacing: 2px;
+  }
+
+  #live-search-bar {
+    flex: 1 1 100%;
+    order: 3;
+    margin: 4px 0 0;
+  }
+
+  #live-search {
+    max-width: 100%;
+  }
+
+  #global-stats {
+    gap: 10px;
+    font-size: 10px;
+  }
+
+  .settings-gear {
+    order: 2;
+  }
+
+  /* Nav bar: horizontal scroll */
+  #main-nav {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding: 0 8px;
+    gap: 0;
+    flex-wrap: nowrap;
+  }
+
+  #main-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-btn {
+    flex-shrink: 0;
+    padding: 10px 14px;
+    font-size: 10px;
+  }
+
+  .nav-spacer {
+    flex: 0 0 8px;
+  }
+
+  #nav-actions {
+    flex-shrink: 0;
+  }
+
+  /* View panels: touch-friendly scrolling */
+  .view-panel.active {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* History: already handled by existing 640px breakpoint */
+
+  /* Timeline controls: wrap */
+  #timeline-controls {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* Stats bar: wrap items */
+  #global-stats {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+}
+
+/* ---- 640px: Large phones ---- */
+/* Existing 640px breakpoint for #history-controls and .history-row is above.
+   Additional rules: */
+
+@media (max-width: 640px) {
+  #header {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 8px 12px;
+    gap: 6px;
+  }
+
+  .header-title {
+    text-align: center;
+    font-size: 11px;
+    letter-spacing: 2px;
+  }
+
+  #live-search-bar {
+    flex: 1 1 100%;
+    order: 2;
+    margin: 0;
+  }
+
+  #live-search {
+    max-width: 100%;
+    width: 100%;
+    padding: 10px 14px;
+  }
+
+  #global-stats {
+    order: 3;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .settings-gear {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+  }
+
+  /* Body grid: allow natural flow on mobile */
+  body {
+    grid-template-rows: auto auto 1fr auto;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  /* Nav: scroll horizontally, tighter padding */
+  #main-nav {
+    padding: 0 4px;
+  }
+
+  .nav-btn {
+    padding: 10px 10px;
+    font-size: 9px;
+    letter-spacing: 1px;
+  }
+
+  /* Nav action items: collapse by default on mobile */
+  #nav-actions-items {
+    max-width: 300px;
+  }
+
+  .qa-btn {
+    padding: 8px 10px;
+    font-size: 9px;
+  }
+
+  /* View panels */
+  #view-history,
+  #view-timeline,
+  #view-analytics {
+    padding: 12px;
+  }
+
+  /* Analytics summary: stack vertically */
+  #analytics-summary {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .summary-stat {
+    min-width: unset;
+  }
+
+  /* Hook stats panel: full width */
+  .hook-stats-panel {
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    min-width: unset;
+    width: auto;
+  }
+
+  /* Shortcuts panel: full width */
+  .shortcuts-panel {
+    max-width: 100%;
+    margin: 0 8px;
+  }
+}
+
+/* ---- 480px: Small phones ---- */
+
+@media (max-width: 480px) {
+  #header {
+    padding: 6px 8px;
+  }
+
+  .header-title {
+    font-size: 10px;
+    letter-spacing: 1.5px;
+  }
+
+  .header-title .logo {
+    font-size: 14px;
+    margin-right: 4px;
+  }
+
+  #global-stats {
+    font-size: 9px;
+    gap: 8px;
+  }
+
+  #global-stats .stat {
+    gap: 4px;
+  }
+
+  .nav-btn {
+    padding: 10px 8px;
+    font-size: 8px;
+    letter-spacing: 0.5px;
+  }
+
+  #view-history,
+  #view-timeline,
+  #view-analytics {
+    padding: 8px;
+  }
+
+  #history-controls input,
+  #history-controls select,
+  #timeline-controls input,
+  #timeline-controls select {
+    font-size: 12px;
+    padding: 10px 12px;
+  }
+
+  /* Pagination: wrap on small screens */
+  #history-pagination {
+    flex-wrap: wrap;
+  }
+
+  .pagination-btn {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  /* Analytics grid: single column */
+  .analytics-card {
+    min-height: 200px;
+    padding: 12px;
+  }
+
+  /* Keyboard shortcuts: compact */
+  .shortcuts-body {
+    padding: 12px;
+  }
+
+  .shortcut-row {
+    padding: 4px 0;
+  }
+
+  .shortcut-row span {
+    font-size: 11px;
+  }
+}
+

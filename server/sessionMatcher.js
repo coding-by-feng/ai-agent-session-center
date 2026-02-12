@@ -251,6 +251,20 @@ export function matchSession(hookData, sessions, pendingResume, pidToSession, pr
     log.debug('session', `CACHED pid=${pid} → session=${session_id?.slice(0,8)} (new session)`);
   }
 
+  // Store team-related fields from enriched hook data
+  if (hookData.agent_name && !session.agentName) {
+    session.agentName = hookData.agent_name;
+  }
+  if (hookData.agent_type && !session.agentType) {
+    session.agentType = hookData.agent_type;
+  }
+  if (hookData.team_name && !session.teamName) {
+    session.teamName = hookData.team_name;
+  }
+  if (hookData.agent_color && !session.agentColor) {
+    session.agentColor = hookData.agent_color;
+  }
+
   // Increment per-project session counter
   const projectKey = session.projectName;
   const count = (projectSessionCounters.get(projectKey) || 0) + 1;

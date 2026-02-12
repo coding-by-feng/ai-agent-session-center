@@ -22,6 +22,7 @@ import { matchSession, detectHookSource } from './sessionMatcher.js';
 import { startApprovalTimer, clearApprovalTimer, hasChildProcesses } from './approvalDetector.js';
 import {
   findPendingSubagentMatch, handleTeamMemberEnd, addPendingSubagent,
+  linkByParentSessionId,
   getTeam, getAllTeams, getTeamForSession, getTeamIdForSession,
 } from './teamManager.js';
 import { startMonitoring, stopMonitoring, findClaudeProcess as _findClaudeProcess } from './processMonitor.js';
@@ -197,11 +198,31 @@ export function handleEvent(hookData) {
       if (hookData.permission_mode) session.permissionMode = hookData.permission_mode;
       eventEntry.detail = `Session started (${hookData.source || 'startup'})`;
       log.debug('session', `SessionStart: ${session_id?.slice(0,8)} project=${session.projectName} model=${session.model}`);
-      // Try to match this new session as a subagent child
-      const teamResult = findPendingSubagentMatch(session_id, session.projectPath, sessions);
-      if (teamResult) {
-        eventEntry.detail += ` [Team: ${teamResult.teamId}]`;
-        log.debug('session', `Subagent matched to team ${teamResult.teamId}`);
+
+      // Priority 0: Direct link via CLAUDE_CODE_PARENT_SESSION_ID env var
+      let teamResult = null;
+      if (hookData.parent_session_id) {
+        teamResult = linkByParentSessionId(
+          session_id,
+          hookData.parent_session_id,
+          hookData.agent_type || 'unknown',
+          hookData.agent_name || null,
+          hookData.team_name || null,
+          sessions
+        );
+        if (teamResult) {
+          eventEntry.detail += ` [Team: ${teamResult.teamId} via env]`;
+          log.debug('session', `Subagent linked to team ${teamResult.teamId} via parent_session_id`);
+        }
+      }
+
+      // Fallback: path-based pending subagent matching (backward compatible)
+      if (!teamResult) {
+        teamResult = findPendingSubagentMatch(session_id, session.projectPath, sessions);
+        if (teamResult) {
+          eventEntry.detail += ` [Team: ${teamResult.teamId}]`;
+          log.debug('session', `Subagent matched to team ${teamResult.teamId}`);
+        }
       }
       break;
     }
@@ -291,7 +312,11 @@ export function handleEvent(hookData) {
     case EVENT_TYPES.SUBAGENT_START:
       session.subagentCount++;
       session.emote = EMOTE.JUMP;
-      eventEntry.detail = `Subagent spawned (${hookData.agent_type || 'unknown'}${hookData.agent_id ? ' #' + hookData.agent_id.slice(0, 8) : ''})`;
+      eventEntry.detail = `Subagent spawned (${hookData.agent_type || 'unknown'}${hookData.agent_name ? ' ' + hookData.agent_name : ''}${hookData.agent_id ? ' #' + hookData.agent_id.slice(0, 8) : ''})`;
+      // Store agent name on session if available from enriched hook
+      if (hookData.agent_name) {
+        session.lastSubagentName = hookData.agent_name;
+      }
       // Track pending subagent for team auto-detection (delegated to teamManager)
       addPendingSubagent(session_id, session.projectPath, hookData.agent_type, hookData.agent_id);
       break;

@@ -288,6 +288,92 @@ export function createTerminal(config, wsClient) {
   });
 }
 
+/**
+ * Attach to an existing tmux pane, creating a terminal that views the pane's output.
+ * Uses `tmux attach -t {paneId}` to attach to the session containing the pane.
+ *
+ * @param {string} tmuxPaneId - The tmux pane ID (e.g. "%5")
+ * @param {object|null} wsClient - WebSocket client for output relay
+ * @returns {Promise<string>} The new terminal ID
+ */
+export function attachToTmuxPane(tmuxPaneId, wsClient) {
+  return new Promise((resolve, reject) => {
+    // Validate pane ID: must be % followed by digits
+    if (!tmuxPaneId || typeof tmuxPaneId !== 'string') {
+      return reject(new Error('tmuxPaneId is required'));
+    }
+    if (!/^%\d+$/.test(tmuxPaneId)) {
+      return reject(new Error('tmuxPaneId must be in format "%N" (e.g. "%5")'));
+    }
+
+    const terminalId = `term-tmux-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    try {
+      // First, resolve which tmux session this pane belongs to
+      // Then attach to that session targeting the specific pane
+      const shell = getDefaultShell();
+      const env = { ...process.env, AGENT_MANAGER_TERMINAL_ID: terminalId };
+
+      const ptyProcess = pty.spawn(shell, [], {
+        name: 'xterm-256color',
+        cols: 120,
+        rows: 40,
+        cwd: homedir(),
+        env,
+      });
+
+      log.info('pty', `Spawned tmux attach terminal ${terminalId} for pane ${tmuxPaneId} (pid: ${ptyProcess.pid})`);
+
+      terminals.set(terminalId, {
+        pty: ptyProcess,
+        sessionId: null,
+        config: { host: 'localhost', workingDir: homedir(), command: `tmux (pane ${tmuxPaneId})` },
+        wsClient,
+        createdAt: Date.now(),
+      });
+
+      // Stream output to WebSocket client
+      ptyProcess.onData((data) => {
+        const term = terminals.get(terminalId);
+        if (term && term.wsClient && term.wsClient.readyState === 1) {
+          term.wsClient.send(JSON.stringify({
+            type: 'terminal_output',
+            terminalId,
+            data: Buffer.from(data).toString('base64'),
+          }));
+        }
+      });
+
+      ptyProcess.onExit(({ exitCode, signal }) => {
+        log.info('pty', `Tmux terminal ${terminalId} exited (code: ${exitCode}, signal: ${signal})`);
+        broadcastToClient(terminalId, {
+          type: 'terminal_closed',
+          terminalId,
+          reason: signal ? `signal ${signal}` : 'exited',
+        });
+        cleanup(terminalId);
+      });
+
+      // Send the tmux attach command after shell init
+      // select-pane -t ensures we're looking at the right pane
+      setTimeout(() => {
+        // Pane ID is validated above as %N, safe to interpolate
+        ptyProcess.write(`tmux select-pane -t '${tmuxPaneId}' && tmux attach\r`);
+      }, 100);
+
+      // Notify client terminal is ready
+      if (wsClient && wsClient.readyState === 1) {
+        wsClient.send(JSON.stringify({ type: 'terminal_ready', terminalId }));
+      }
+
+      resolve(terminalId);
+    } catch (err) {
+      log.error('pty', `Failed to attach to tmux pane ${tmuxPaneId}: ${err.message}`);
+      reject(err);
+    }
+  });
+}
+
 export function writeToTerminal(terminalId, data) {
   const term = terminals.get(terminalId);
   if (term && term.pty) {

@@ -10663,3 +10663,207 @@ body[data-effect-ended="none"] .css-robot[data-status="ended"] {
   background: var(--border-subtle);
   margin: 4px 8px;
 }
+
+
+/* ============================================================
+   Responsive - Dashboard Legacy (Mobile < 640px)
+   ============================================================ */
+
+@media (max-width: 640px) {
+  /* Toast notifications: full-width at bottom on mobile */
+  #toast-container {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 0 8px 8px;
+  }
+
+  .toast,
+  .oneoff-review-toast,
+  .group-assign-toast {
+    min-width: 0;
+    width: 100%;
+    border-radius: 8px;
+  }
+
+  .toast-close {
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    top: 2px;
+    right: 2px;
+  }
+
+  /* Oneoff review toast action buttons: touch-friendly */
+  .oneoff-review-toast button {
+    min-height: 44px;
+  }
+
+  /* Group assign toast action buttons: touch-friendly */
+  .group-assign-toast button {
+    min-height: 44px;
+  }
+
+  /* Card group dropdown (context menu): full-width at bottom */
+  .card-group-dropdown {
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .cgd-item {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    padding: 10px 16px;
+    font-size: 13px;
+  }
+
+  /* Group assign dropdown items: touch-friendly */
+  .group-assign-item {
+    min-height: 44px;
+    padding: 10px 12px;
+  }
+
+  .group-assign-new-row {
+    flex-direction: column;
+  }
+
+  .group-new-name-input {
+    min-height: 44px;
+    font-size: 16px; /* prevents iOS zoom */
+  }
+
+  .group-create-btn {
+    min-height: 44px;
+    width: 100%;
+  }
+
+  /* Queue view controls: stack on mobile */
+  #queue-view-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 12px 16px;
+  }
+
+  .queue-view-stats {
+    padding: 6px 16px;
+    flex-wrap: wrap;
+  }
+
+  #queue-view-content {
+    padding: 10px 12px;
+  }
+
+  .queue-view-table {
+    font-size: 11px;
+  }
+
+  .queue-view-table th,
+  .queue-view-table td {
+    padding: 8px 6px;
+  }
+
+  .queue-view-text {
+    max-width: none;
+  }
+
+  /* Queue view delete buttons: touch-friendly */
+  .queue-view-delete {
+    min-height: 44px !important;
+    min-width: 44px !important;
+  }
+
+  /* Ctrl bar: wrap and touch-friendly */
+  .ctrl-bar {
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    gap: 6px;
+  }
+
+  .ctrl-btn {
+    min-height: 44px;
+    padding: 8px 12px;
+    font-size: 11px;
+    flex: 1 1 auto;
+  }
+
+  .ctrl-select {
+    min-height: 44px;
+    font-size: 12px;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  /* Hook stats panel: full-width on mobile */
+  .hook-stats-panel {
+    min-width: 0;
+    width: calc(100vw - 20px);
+    left: 10px;
+    right: 10px;
+  }
+
+  /* Group header: touch-friendly delete */
+  .group-delete {
+    opacity: 1;
+    min-width: 44px;
+    min-height: 44px;
+    width: 44px;
+    height: 44px;
+  }
+
+  .group-collapse {
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Card group badge: larger touch target */
+  .session-card .card-group-badge {
+    min-height: 28px;
+    padding: 4px 10px;
+    font-size: 10px;
+  }
+
+  /* Detail tabs: horizontal scroll for small screens */
+  .detail-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex-wrap: nowrap;
+    padding: 0 12px;
+  }
+
+  .detail-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .detail-tabs .tab {
+    white-space: nowrap;
+    flex-shrink: 0;
+    min-height: 44px;
+    padding: 10px 12px;
+  }
+
+  /* Close detail button: 44px touch target */
+  #close-detail {
+    min-width: 44px;
+    min-height: 44px;
+    width: 44px;
+    height: 44px;
+  }
+
+  /* Conv copy button: always visible on mobile */
+  .conv-copy {
+    opacity: 1;
+    min-width: 44px;
+    min-height: 28px;
+    padding: 4px 8px;
+  }
+}

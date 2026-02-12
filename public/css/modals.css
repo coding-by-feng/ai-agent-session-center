@@ -856,6 +856,15 @@
   font-weight: 500;
   font-size: 13px;
   color: var(--text-primary);
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.team-modal-card-subtitle {
+  font-size: 10px;
+  color: var(--text-secondary);
   margin-bottom: 4px;
   white-space: nowrap;
   overflow: hidden;
@@ -1083,5 +1092,159 @@
   gap: 8px;
   padding: 12px 20px;
   border-top: 1px solid var(--border-subtle);
+}
+
+
+/* ============================================================
+   Responsive - Modals (Mobile < 640px)
+   ============================================================ */
+
+@media (max-width: 640px) {
+  /* Full-screen modals on mobile */
+  .modal-panel,
+  .new-session-panel,
+  .quick-session-panel,
+  .shortcuts-panel,
+  .team-modal-panel,
+  .summarize-modal-panel {
+    width: 100% !important;
+    max-width: 100vw !important;
+    height: 100% !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+    margin: 0;
+  }
+
+  .modal-overlay {
+    align-items: stretch;
+    padding: 0;
+  }
+
+  /* Modal close buttons: 44px minimum touch target */
+  .modal-close,
+  .toast-close,
+  .team-modal-header .modal-close {
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+  }
+
+  /* Stack modal action buttons vertically */
+  .modal-actions,
+  .new-session-footer,
+  .quick-session-footer,
+  .summarize-modal-footer,
+  .summarize-custom-actions {
+    flex-direction: column;
+  }
+
+  .modal-actions button,
+  .new-session-footer button,
+  .quick-session-footer button,
+  .summarize-modal-footer button,
+  .summarize-custom-actions button {
+    min-height: 44px;
+    width: 100%;
+  }
+
+  /* Touch-friendly form inputs, selects, textareas */
+  .alert-input,
+  .ssh-field input,
+  .ssh-field select,
+  .quick-label-input-row input,
+  .quick-workdir-row input,
+  .summarize-custom-name,
+  .summarize-custom-prompt {
+    min-height: 44px;
+    font-size: 16px; /* prevents iOS zoom on focus */
+  }
+
+  /* SSH field rows stack vertically on mobile */
+  .ssh-field-row {
+    flex-direction: column;
+  }
+
+  .ssh-field-small {
+    width: 100%;
+  }
+
+  /* Quick label chips: larger touch targets */
+  .quick-label-chip {
+    min-height: 44px;
+    padding: 8px 14px;
+    font-size: 13px;
+  }
+
+  /* Always show label delete on mobile (no hover) */
+  .quick-label-chip .label-delete {
+    display: block;
+  }
+
+  /* SSH mode toggle buttons: touch-friendly */
+  .ssh-mode-btn {
+    min-height: 44px;
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+
+  /* SSH tmux items: touch-friendly */
+  .ssh-tmux-item {
+    min-height: 44px;
+    padding: 10px 12px;
+  }
+
+  /* Team modal grid: single column */
+  .team-modal-grid {
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
+
+  /* Summarize prompt items: larger touch targets */
+  .summarize-prompt-item {
+    padding: 14px 16px;
+  }
+
+  /* Always show summarize prompt actions on mobile (no hover) */
+  .summarize-prompt-actions {
+    opacity: 1;
+  }
+
+  .summarize-prompt-actions button {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 6px 10px;
+  }
+
+  .summarize-toggle-custom {
+    min-height: 44px;
+    font-size: 14px;
+  }
+
+  /* Alert input row: stack if needed */
+  .alert-input-row {
+    flex-wrap: wrap;
+  }
+
+  .alert-input {
+    width: 100%;
+  }
+}
+
+/* Responsive - Modals (Tablet 641px - 960px) */
+/* Enhance existing 960px query without replacing */
+
+@media (max-width: 960px) {
+  /* Team modal: slightly constrained */
+  .team-modal-grid {
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  }
+
+  /* Summarize modal: slight padding adjustment */
+  .summarize-modal-panel {
+    width: 95vw;
+  }
 }
 
