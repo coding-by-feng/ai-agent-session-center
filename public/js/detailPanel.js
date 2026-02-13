@@ -35,9 +35,11 @@ export function selectSession(sessionId) {
   const session = sessionsData.get(sessionId);
   if (!session) return;
 
-  populateDetailPanel(session);
+  // Make the overlay visible BEFORE populating so the terminal container
+  // has real dimensions when initTerminal polls for them.
   const overlay = document.getElementById('session-detail-overlay');
   overlay.classList.remove('hidden');
+  populateDetailPanel(session);
 }
 
 export function deselectSession() {
@@ -90,16 +92,17 @@ export function populateDetailPanel(session) {
   // Label quick-select chips
   if (_populateDetailLabelChips) _populateDetailLabelChips(session);
 
-  // Resume button visibility
-  const canResume = session.status === 'ended' && session.source === 'ssh' && !!session.lastTerminalId;
+  // Resume button visibility — show if session ended and came from SSH
+  const canResume = session.status === 'ended' && session.source === 'ssh';
   const resumeBtn = document.getElementById('ctrl-resume');
   if (resumeBtn) {
     resumeBtn.classList.toggle('hidden', !canResume);
   }
-  // Terminal tab reconnect button visibility
+  // Terminal tab reconnect button — show for SSH sessions or sessions with a terminal
+  const showReconnect = !!(session.terminalId || session.lastTerminalId || (session.source === 'ssh' && session.status === 'ended'));
   const reconnectBtn = document.getElementById('terminal-reconnect-btn');
   if (reconnectBtn) {
-    reconnectBtn.classList.toggle('hidden', !canResume);
+    reconnectBtn.classList.toggle('hidden', !showReconnect);
     reconnectBtn.disabled = false;
     reconnectBtn.textContent = '\u25B6 RECONNECT';
   }
@@ -201,7 +204,7 @@ export function populateDetailPanel(session) {
   if (activeTab && activeTab.dataset.tab === 'terminal' && session.terminalId) {
     import('./terminalManager.js').then(tm => {
       if (tm.getActiveTerminalId() === session.terminalId) {
-        requestAnimationFrame(() => tm.refitTerminal());
+        tm.refitTerminal();
       } else {
         tm.attachToSession(session.sessionId, session.terminalId);
       }
@@ -423,6 +426,10 @@ export function initDetailPanelHandlers() {
     document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
     document.getElementById(`tab-${tabName}`).classList.add('active');
 
+    if (tabName === 'agenda') {
+      import('./agendaManager.js').then(am => am.renderAgendaTab());
+    }
+
     if (tabName === 'terminal') {
       const sid = _getSelectedSessionId ? _getSelectedSessionId() : null;
       if (sid) {
@@ -431,7 +438,7 @@ export function initDetailPanelHandlers() {
         if (session && session.terminalId) {
           import('./terminalManager.js').then(tm => {
             if (tm.getActiveTerminalId() === session.terminalId) {
-              requestAnimationFrame(() => tm.refitTerminal());
+              tm.refitTerminal();
             } else {
               tm.attachToSession(sid, session.terminalId);
             }
@@ -440,38 +447,56 @@ export function initDetailPanelHandlers() {
         // Update reconnect button visibility
         const rbtn = document.getElementById('terminal-reconnect-btn');
         if (rbtn && session) {
-          const canResume = session.status === 'ended' && session.source === 'ssh' && !!session.lastTerminalId;
-          rbtn.classList.toggle('hidden', !canResume);
+          const hasTerminal = !!(session.terminalId || session.lastTerminalId);
+          rbtn.classList.toggle('hidden', !hasTerminal);
         }
       }
     }
   });
 
-  // Terminal tab reconnect button
+  // Terminal tab reconnect button — sends `claude --resume <sessionId>` to the terminal
   document.getElementById('terminal-reconnect-btn')?.addEventListener('click', async (e) => {
     e.stopPropagation();
     const sid = _getSelectedSessionId ? _getSelectedSessionId() : null;
     if (!sid) return;
     const sessionsData = _getSessionsData ? _getSessionsData() : new Map();
     const session = sessionsData.get(sid);
-    if (!session || session.status !== 'ended' || !session.lastTerminalId) {
-      if (_showToast) _showToast('RECONNECT', 'Session cannot be reconnected');
-      return;
-    }
+    if (!session) return;
+
     const btn = document.getElementById('terminal-reconnect-btn');
     btn.disabled = true;
     btn.textContent = 'RECONNECTING...';
+
     try {
-      const resp = await fetch(`/api/sessions/${sid}/resume`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      const data = await resp.json();
-      if (data.ok) {
-        if (_showToast) _showToast('RECONNECTING', 'Resuming Claude session in terminal');
-        btn.classList.add('hidden');
+      const tm = await import('./terminalManager.js');
+      const { getWs } = await import('./wsClient.js');
+      const ws = getWs();
+      const activeTermId = tm.getActiveTerminalId();
+
+      if (activeTermId && ws && ws.readyState === 1) {
+        // Terminal is live — send `claude --resume` directly
+        const resumeCmd = `claude --resume\r`;
+        ws.send(JSON.stringify({ type: 'terminal_input', terminalId: activeTermId, data: resumeCmd }));
+        if (_showToast) _showToast('RECONNECT', 'Sent claude --resume to terminal');
+      } else if (session.status === 'ended') {
+        // Terminal gone, session ended — use resume API to create new terminal
+        const resp = await fetch(`/api/sessions/${sid}/resume`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        const data = await resp.json();
+        if (data.ok) {
+          if (data.newTerminal) {
+            if (_showToast) _showToast('RECONNECTING', 'New terminal created, resuming Claude session');
+            tm.attachToSession(sid, data.terminalId);
+          } else {
+            if (_showToast) _showToast('RECONNECTING', 'Resuming Claude session in terminal');
+          }
+        } else {
+          if (_showToast) _showToast('RECONNECT FAILED', data.error || 'Unknown error');
+        }
       } else {
-        if (_showToast) _showToast('RECONNECT FAILED', data.error || 'Unknown error');
+        if (_showToast) _showToast('RECONNECT', 'No active terminal to send command');
       }
     } catch (err) {
       if (_showToast) _showToast('RECONNECT ERROR', err.message);

@@ -504,6 +504,7 @@ function _applyCardUpdate(session) {
         if (_removeSessionFromGroup) _removeSessionFromGroup(draggedId);
       }
       if (_updateGroupCounts) _updateGroupCounts();
+      if (pinnedSessions.size > 0) reorderPinnedCards();
     });
 
     // Place card into its group or ungrouped grid
@@ -527,7 +528,7 @@ function _applyCardUpdate(session) {
   const prevStatus = card.dataset.status;
   card.dataset.status = session.status;
   const activeStatuses = new Set(['working', 'prompting', 'approval', 'input']);
-  if (activeStatuses.has(session.status) && prevStatus !== session.status) {
+  if (activeStatuses.has(session.status) && prevStatus !== session.status && !card.classList.contains('pinned')) {
     const grid = card.parentElement;
     if (grid) {
       const firstUnpinned = [...grid.children].find(c => !c.classList.contains('pinned'));
@@ -537,6 +538,10 @@ function _applyCardUpdate(session) {
         grid.appendChild(card);
       }
     }
+  }
+  // Ensure pinned cards always stay at the top after any reorder
+  if (pinnedSessions.size > 0) {
+    reorderPinnedCards();
   }
 
   // Update fields

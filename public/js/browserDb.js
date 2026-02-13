@@ -3,7 +3,7 @@
 import { debugLog } from './utils.js';
 
 const DB_NAME = 'claude-dashboard';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbInstance = null;
 
@@ -20,6 +20,7 @@ const STORES = {
   settings:       { keyPath: 'key' },
   summaryPrompts: { keyPath: 'id', autoIncrement: true },
   teams:          { keyPath: 'id' },
+  agenda:         { keyPath: 'id', autoIncrement: true },
 };
 
 const INDEXES = {
@@ -33,6 +34,7 @@ const INDEXES = {
   alerts:         [['sessionId', 'sessionId']],
   sshProfiles:    [['name', 'name']],
   summaryPrompts: [['isDefault', 'isDefault']],
+  agenda:         [['project', 'project'], ['status', 'status'], ['priority', 'priority'], ['project_status', ['project', 'status']]],
 };
 
 // ---- Open / Initialize ----
@@ -45,6 +47,7 @@ export async function openDB() {
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
+      // Create any missing stores (handles both fresh installs and upgrades)
       for (const [name, opts] of Object.entries(STORES)) {
         if (!db.objectStoreNames.contains(name)) {
           const store = db.createObjectStore(name, opts);
@@ -895,5 +898,75 @@ Any additional context for reviewers.`,
     await putMany('summaryPrompts', templates);
     debugLog('[browserDb] Seeded 5 default summary prompt templates');
   }
+}
+
+// ---- Agenda helpers ----
+
+export async function getAgendaItems({ project, status, priority, tag } = {}) {
+  let items = await getAll('agenda');
+  if (project) items = items.filter(i => i.project === project);
+  if (status) items = items.filter(i => i.status === status);
+  if (priority) items = items.filter(i => i.priority === priority);
+  if (tag) items = items.filter(i => (i.tags || []).includes(tag));
+  return items.sort((a, b) => a.position - b.position);
+}
+
+export async function addAgendaItem({ project, text, priority = 'P1', status = 'todo', tags = [], dueDate = null, notes = '' }) {
+  const items = await getAgendaItems({ project });
+  const maxPos = items.length > 0 ? Math.max(...items.map(i => i.position)) : -1;
+  const now = Date.now();
+  const id = await put('agenda', {
+    project: project || 'Unassigned',
+    text: text.trim(),
+    priority,
+    status,
+    tags,
+    dueDate,
+    notes,
+    position: maxPos + 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return id;
+}
+
+export async function updateAgendaItem(id, updates) {
+  const item = await get('agenda', id);
+  if (!item) return null;
+  const updated = { ...item, ...updates, updatedAt: Date.now() };
+  await put('agenda', updated);
+  return updated;
+}
+
+export async function deleteAgendaItem(id) {
+  await del('agenda', id);
+}
+
+export async function reorderAgenda(project, orderedIds) {
+  const tx = getDB().transaction('agenda', 'readwrite');
+  const store = tx.objectStore('agenda');
+  for (let i = 0; i < orderedIds.length; i++) {
+    const req = store.get(orderedIds[i]);
+    req.onsuccess = () => {
+      const item = req.result;
+      if (item && item.project === project) {
+        item.position = i;
+        store.put(item);
+      }
+    };
+  }
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function getAgendaProjects() {
+  const items = await getAll('agenda');
+  const projects = new Set();
+  for (const item of items) {
+    if (item.project) projects.add(item.project);
+  }
+  return [...projects].sort();
 }
 

@@ -72,7 +72,7 @@
 /* ---- Hook Stats Panel ---- */
 
 #global-stats {
-  position: relative;
+  position: relative; /* anchor for toggle badge */
 }
 
 .hook-stats-toggle {
@@ -87,17 +87,16 @@
 }
 
 .hook-stats-panel {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 8px;
-  background: var(--card-bg);
-  border: 1px solid var(--border-dim);
+  position: fixed;
+  top: 56px;
+  right: 24px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle-strong);
   border-radius: 8px;
   padding: 12px 16px;
-  z-index: 1000;
+  z-index: 10000;
   min-width: 560px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
 }
 
 .hook-stats-panel.hidden {
@@ -867,7 +866,7 @@ body[data-theme="blonde"] .qa-btn.active {
 
   .hook-stats-panel {
     min-width: 340px;
-    right: -20px;
+    right: 16px;
   }
 }
 
@@ -896,10 +895,7 @@ body[data-theme="blonde"] .qa-btn.active {
 
   .hook-stats-panel {
     min-width: 280px;
-    right: 0;
-    position: fixed;
-    top: auto;
-    margin-top: 4px;
+    right: 12px;
   }
 }
 
@@ -1076,7 +1072,6 @@ body[data-theme="blonde"] .qa-btn.active {
 
   /* Hook stats panel: full width */
   .hook-stats-panel {
-    position: fixed;
     left: 8px;
     right: 8px;
     min-width: unset;

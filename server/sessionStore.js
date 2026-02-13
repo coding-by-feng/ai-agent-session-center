@@ -11,6 +11,8 @@
 //   Stop            → waiting  (ThumbsUp/Dance + Waiting)
 //   SessionEnd      → ended   (Death, removed after 10s)
 import { homedir } from 'os';
+import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from 'fs';
+import { join } from 'path';
 import log from './logger.js';
 import { getWaitingLabel } from './config.js';
 import {
@@ -77,13 +79,169 @@ export function getEventSeq() {
   return eventSeq;
 }
 
-export function loadActiveSessions() {
-  // No-op: no database to load from. Sessions are populated from hooks at runtime.
-  // Browser IndexedDB is the persistence layer — it loads history on page open.
+// ---- Snapshot persistence ----
+const SNAPSHOT_DIR = process.platform === 'win32'
+  ? join(process.env.TEMP || process.env.TMP || 'C:\\Temp', 'claude-session-center')
+  : '/tmp/claude-session-center';
+const SNAPSHOT_FILE = join(SNAPSHOT_DIR, 'sessions-snapshot.json');
+const SNAPSHOT_INTERVAL_MS = 10_000; // Save every 10s
+let snapshotTimer = null;
+let lastSnapshotMqOffset = 0; // Stores the MQ byte offset at snapshot time
+
+/**
+ * Check if a PID is still alive.
+ * @param {number} pid
+ * @returns {boolean}
+ */
+function isPidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-// Load active sessions at module init
-loadActiveSessions();
+/**
+ * Save current sessions to a snapshot file for persistence across restarts.
+ * Writes atomically (tmp file + rename).
+ * @param {number} [mqOffset] - Current MQ byte offset to save
+ */
+export function saveSnapshot(mqOffset) {
+  try {
+    if (typeof mqOffset === 'number') {
+      lastSnapshotMqOffset = mqOffset;
+    }
+    const sessionsObj = {};
+    for (const [id, session] of sessions) {
+      sessionsObj[id] = { ...session };
+    }
+    const countersObj = {};
+    for (const [name, count] of projectSessionCounters) {
+      countersObj[name] = count;
+    }
+    const snapshot = {
+      version: 1,
+      savedAt: Date.now(),
+      eventSeq,
+      mqOffset: lastSnapshotMqOffset,
+      sessions: sessionsObj,
+      projectSessionCounters: countersObj,
+    };
+    mkdirSync(SNAPSHOT_DIR, { recursive: true });
+    const tmpFile = SNAPSHOT_FILE + '.tmp';
+    writeFileSync(tmpFile, JSON.stringify(snapshot));
+    renameSync(tmpFile, SNAPSHOT_FILE);
+    log.debug('session', `Snapshot saved: ${Object.keys(sessionsObj).length} sessions`);
+  } catch (err) {
+    log.warn('session', `Snapshot save failed: ${err.message}`);
+  }
+}
+
+/**
+ * Load sessions from a snapshot file. Checks PID liveness and marks dead sessions as ended.
+ * @returns {{ mqOffset: number } | null} The saved MQ offset, or null if no snapshot
+ */
+export function loadSnapshot() {
+  if (!existsSync(SNAPSHOT_FILE)) {
+    log.info('session', 'No snapshot file found — starting fresh');
+    return null;
+  }
+  try {
+    const raw = readFileSync(SNAPSHOT_FILE, 'utf8');
+    const snapshot = JSON.parse(raw);
+    if (!snapshot || snapshot.version !== 1 || !snapshot.sessions) {
+      log.warn('session', 'Snapshot file has invalid format — starting fresh');
+      return null;
+    }
+
+    let restored = 0;
+    let ended = 0;
+    for (const [id, session] of Object.entries(snapshot.sessions)) {
+      // Skip sessions that were already ended
+      if (session.status === SESSION_STATUS.ENDED) {
+        // Still restore ended SSH sessions (historical)
+        if (session.source === 'ssh' && session.isHistorical) {
+          sessions.set(id, session);
+          restored++;
+        }
+        continue;
+      }
+      // Check PID liveness for active sessions
+      if (session.cachedPid) {
+        if (isPidAlive(session.cachedPid)) {
+          // Process still alive — restore as-is
+          sessions.set(id, session);
+          pidToSession.set(session.cachedPid, id);
+          restored++;
+        } else {
+          // Process died while server was down — mark as ended
+          session.status = SESSION_STATUS.ENDED;
+          session.animationState = ANIMATION_STATE.DEATH;
+          session.endedAt = Date.now();
+          session.events = session.events || [];
+          session.events.push({
+            type: 'ServerRestart',
+            detail: 'Process ended while server was down',
+            timestamp: Date.now(),
+          });
+          if (session.source === 'ssh') {
+            session.isHistorical = true;
+            session.lastTerminalId = session.terminalId;
+            session.terminalId = null;
+            sessions.set(id, session);
+          }
+          // Non-SSH sessions with dead PIDs are not worth restoring
+          ended++;
+        }
+      } else {
+        // No PID cached — restore as-is, processMonitor will handle it
+        sessions.set(id, session);
+        restored++;
+      }
+    }
+
+    // Restore project session counters
+    if (snapshot.projectSessionCounters) {
+      for (const [name, count] of Object.entries(snapshot.projectSessionCounters)) {
+        projectSessionCounters.set(name, count);
+      }
+    }
+
+    // Restore eventSeq
+    if (snapshot.eventSeq) {
+      eventSeq = snapshot.eventSeq;
+    }
+
+    invalidateSessionsCache();
+    log.info('session', `Snapshot loaded: ${restored} sessions restored, ${ended} ended (dead PID)`);
+
+    return { mqOffset: snapshot.mqOffset || 0 };
+  } catch (err) {
+    log.warn('session', `Snapshot load failed: ${err.message} — starting fresh`);
+    return null;
+  }
+}
+
+/**
+ * Start periodic snapshot saving.
+ * @param {function} [getMqOffset] - Function that returns the current MQ byte offset
+ */
+export function startPeriodicSave(getMqOffset) {
+  if (snapshotTimer) return;
+  snapshotTimer = setInterval(() => {
+    const offset = getMqOffset ? getMqOffset() : lastSnapshotMqOffset;
+    saveSnapshot(offset);
+  }, SNAPSHOT_INTERVAL_MS);
+}
+
+/** Stop periodic snapshot saving. */
+export function stopPeriodicSave() {
+  if (snapshotTimer) {
+    clearInterval(snapshotTimer);
+    snapshotTimer = null;
+  }
+}
 
 // Extract a short title from the first prompt (first sentence or first ~60 chars)
 function makeShortTitle(prompt) {
@@ -490,6 +648,15 @@ export async function createTerminalSession(terminalId, config) {
     terminalId,
     sshHost: config.host || 'localhost',
     sshCommand: config.command || 'claude',
+    sshConfig: {
+      host: config.host || 'localhost',
+      port: config.port || 22,
+      username: config.username,
+      authMethod: config.authMethod || 'key',
+      privateKeyPath: config.privateKeyPath,
+      workingDir: config.workingDir || '~',
+      command: config.command || 'claude',
+    },
   };
   sessions.set(terminalId, session);
   invalidateSessionsCache();

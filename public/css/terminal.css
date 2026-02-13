@@ -24,7 +24,28 @@
 #tab-terminal.active {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* Use flex: 1 instead of height: 100% — more reliable in flex layouts
+     because it doesn't depend on the parent having an explicit height.
+     min-height: 0 allows shrinking below content size in nested flex. */
+  flex: 1;
+  min-height: 0;
+}
+
+.terminal-refresh-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 184, 108, 0.3);
+  color: var(--accent-orange, #ffb86c);
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 2px 10px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.2s;
+}
+.terminal-refresh-btn:hover {
+  background: rgba(255, 184, 108, 0.15);
+  border-color: var(--accent-orange, #ffb86c);
 }
 
 #terminal-container {
@@ -49,6 +70,33 @@
 
 #terminal-container .xterm-viewport {
   overflow-y: auto !important;
+}
+
+/* Theme selector dropdown */
+.terminal-theme-select {
+  background: rgba(255, 255, 255, 0.04);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  color: var(--text-secondary, #888);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 2px 6px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.terminal-theme-select:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+  color: var(--text-primary, #e0e0e0);
+}
+.terminal-theme-select:focus {
+  border-color: var(--accent-cyan, #00e5ff);
+}
+.terminal-theme-select option {
+  background: var(--bg-panel, #12122a);
+  color: var(--text-primary, #e0e0e0);
 }
 
 .terminal-status {
@@ -383,6 +431,32 @@ body.move-mode .session-card.move-source {
   pointer-events: none;
 }
 
+/* Terminal reconnect button */
+.terminal-reconnect-btn {
+  background: transparent;
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  color: var(--accent-cyan, #00e5ff);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  padding: 2px 10px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.2s;
+}
+.terminal-reconnect-btn:hover {
+  background: rgba(0, 229, 255, 0.15);
+  border-color: var(--accent-cyan, #00e5ff);
+}
+.terminal-reconnect-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.terminal-reconnect-btn.hidden {
+  display: none;
+}
+
 /* Terminal fullscreen button */
 .terminal-fullscreen-btn {
   background: transparent;
@@ -485,6 +559,115 @@ body.move-mode .session-card.move-source {
 }
 
 /* ============================================================
+   Working Directory Dropdown
+   ============================================================ */
+
+.workdir-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.workdir-input-wrapper input {
+  flex: 1;
+  padding-right: 30px;
+}
+
+.workdir-dropdown-toggle {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--text-secondary, #888);
+  font-size: 10px;
+  cursor: pointer;
+  padding: 4px 8px;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.workdir-dropdown-toggle:hover {
+  color: var(--accent-cyan, #00e5ff);
+}
+
+.workdir-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--bg-panel, #12122a);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  margin-top: 2px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.workdir-dropdown.hidden {
+  display: none;
+}
+
+.workdir-dropdown-empty {
+  padding: 10px 12px;
+  color: var(--text-dim, #555);
+  font-size: 11px;
+  font-style: italic;
+  text-align: center;
+}
+
+.workdir-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.workdir-dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.workdir-dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.workdir-item-text {
+  flex: 1;
+  padding: 7px 10px;
+  color: var(--text-primary, #e0e0e0);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workdir-item-text:hover {
+  color: var(--accent-cyan, #00e5ff);
+}
+
+.workdir-item-delete {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-dim, #555);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 10px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+
+.workdir-item-delete:hover {
+  color: var(--accent-red, #ff5555);
+}
+
+/* ============================================================
    Responsive: Terminal, Fullscreen, Queue, SSH Form
    ============================================================ */
 
@@ -509,7 +692,9 @@ body.move-mode .session-card.move-source {
   }
 
   /* Ensure toolbar buttons meet 44px touch targets */
+  .terminal-theme-select,
   .terminal-fullscreen-btn,
+  .terminal-reconnect-btn,
   .ctrl-btn.terminal,
   .ctrl-btn.resume {
     min-height: 44px;

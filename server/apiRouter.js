@@ -201,32 +201,55 @@ router.post('/hooks/uninstall', (req, res) => {
 router.post('/sessions/:id/resume', async (req, res) => {
   const sessionId = req.params.id;
 
-  // Pre-validate: check session state and terminal existence BEFORE mutating state
   const session = getSession(sessionId);
   if (!session) return res.status(404).json({ error: 'Session not found' });
   if (session.status !== SESSION_STATUS.ENDED) return res.status(400).json({ error: 'Session is not ended' });
-  if (!session.lastTerminalId) return res.status(400).json({ error: 'No terminal associated with this session' });
 
   const allTerminals = getTerminals();
-  const terminalExists = allTerminals.some(t => t.id === session.lastTerminalId);
-  if (!terminalExists) {
-    return res.status(400).json({ error: 'Terminal no longer exists' });
+  const terminalExists = session.lastTerminalId && allTerminals.some(t => t.terminalId === session.lastTerminalId);
+
+  if (terminalExists) {
+    // Terminal still alive — send `claude --resume` to it
+    const result = resumeSession(sessionId);
+    if (result.error) return res.status(400).json({ error: result.error });
+
+    writeToTerminal(result.terminalId, `claude --resume\r`);
+
+    const { broadcast } = await import('./wsManager.js');
+    broadcast({ type: WS_TYPES.SESSION_UPDATE, session: result.session });
+
+    return res.json({ ok: true, terminalId: result.terminalId });
   }
 
-  // Now safe to mutate session state
-  const result = resumeSession(sessionId);
-  if (result.error) {
-    return res.status(400).json({ error: result.error });
+  // Terminal no longer exists — create a new one via SSH and run `claude --resume`
+  const cfg = session.sshConfig;
+  if (!cfg || !cfg.username) {
+    return res.status(400).json({ error: 'No SSH config stored for this session — cannot reconnect' });
   }
 
-  // Send `claude --resume <sessionId>` to the terminal to resume the specific session
-  writeToTerminal(result.terminalId, `claude --resume ${session.sessionId}\r`);
+  try {
+    const newConfig = {
+      ...cfg,
+      command: `claude --resume`,
+    };
+    const newTerminalId = await createTerminal(newConfig, null);
+    await createTerminalSession(newTerminalId, { ...newConfig, label: session.label || '' });
 
-  // Broadcast updated session state
-  const { broadcast } = await import('./wsManager.js');
-  broadcast({ type: WS_TYPES.SESSION_UPDATE, session: result.session });
+    // Link the old session to the new terminal for hook matching
+    session.lastTerminalId = newTerminalId;
+    session.terminalId = newTerminalId;
+    session.status = SESSION_STATUS.CONNECTING;
+    session.lastActivityAt = Date.now();
+    session.events.push({ type: 'ResumeNewTerminal', detail: `New SSH terminal for claude --resume`, timestamp: Date.now() });
 
-  res.json({ ok: true, terminalId: result.terminalId });
+    const { broadcast } = await import('./wsManager.js');
+    broadcast({ type: WS_TYPES.SESSION_UPDATE, session: { ...session } });
+
+    res.json({ ok: true, terminalId: newTerminalId, newTerminal: true });
+  } catch (err) {
+    log.error('api', `Resume with new terminal failed: ${err.message}`);
+    res.status(500).json({ error: `Failed to create new terminal: ${err.message}` });
+  }
 });
 
 // Kill session process — sends SIGTERM, then SIGKILL after 3s if still alive

@@ -47,9 +47,10 @@ const mqStats = {
 
 /**
  * Start the MQ reader. Called once from server startup.
- * Creates queue directory/file, truncates stale data, begins watching.
+ * Creates queue directory/file and begins watching.
+ * @param {{ resumeOffset?: number }} [options] - Optional resume offset from snapshot
  */
-export function startMqReader() {
+export function startMqReader(options) {
   if (running) return;
   running = true;
   mqStats.startedAt = Date.now();
@@ -57,9 +58,34 @@ export function startMqReader() {
   // Ensure queue directory exists
   mkdirSync(QUEUE_DIR, { recursive: true });
 
-  // Truncate (or create) the queue file — fresh start
-  writeFileSync(QUEUE_FILE, '');
-  lastByteOffset = 0;
+  // Create queue file if it doesn't exist (but don't truncate existing)
+  if (!existsSync(QUEUE_FILE)) {
+    writeFileSync(QUEUE_FILE, '');
+  }
+
+  // Resume from snapshot offset or start from current EOF
+  if (options?.resumeOffset != null && options.resumeOffset >= 0) {
+    // Clamp to file size in case file was truncated externally
+    try {
+      const fd = openSync(QUEUE_FILE, 'r');
+      const stat = fstatSync(fd);
+      closeSync(fd);
+      lastByteOffset = Math.min(options.resumeOffset, stat.size);
+    } catch {
+      lastByteOffset = 0;
+    }
+    log.info('mq', `Resuming from offset ${lastByteOffset} (snapshot)`);
+  } else {
+    // No snapshot — skip existing data (already stale), start from EOF
+    try {
+      const fd = openSync(QUEUE_FILE, 'r');
+      const stat = fstatSync(fd);
+      closeSync(fd);
+      lastByteOffset = stat.size;
+    } catch {
+      lastByteOffset = 0;
+    }
+  }
   partialLine = '';
 
   log.info('mq', `Queue reader started: ${QUEUE_FILE}`);
@@ -276,6 +302,11 @@ export function getMqStats() {
     currentOffset: lastByteOffset,
     hasPartialLine: partialLine.length > 0,
   };
+}
+
+/** Get the current byte offset (used by snapshot persistence). */
+export function getMqOffset() {
+  return lastByteOffset;
 }
 
 /** Get the queue file path (used by install-hooks logging). */

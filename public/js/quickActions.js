@@ -10,6 +10,92 @@ import * as terminalManager from './terminalManager.js';
 import { escapeHtml, debugWarn } from './utils.js';
 import { STORAGE_KEYS, LABELS } from './constants.js';
 
+// ---- Working Directory History ----
+function getWorkdirHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.WORKDIR_HISTORY) || '[]');
+  } catch { return []; }
+}
+
+function saveWorkdir(dir) {
+  if (!dir || dir === '~') return;
+  const history = getWorkdirHistory();
+  const idx = history.indexOf(dir);
+  if (idx !== -1) history.splice(idx, 1);
+  history.unshift(dir);
+  localStorage.setItem(STORAGE_KEYS.WORKDIR_HISTORY, JSON.stringify(history.slice(0, 20)));
+}
+
+function deleteWorkdir(dir) {
+  const history = getWorkdirHistory();
+  const idx = history.indexOf(dir);
+  if (idx !== -1) {
+    history.splice(idx, 1);
+    localStorage.setItem(STORAGE_KEYS.WORKDIR_HISTORY, JSON.stringify(history));
+  }
+}
+
+function populateWorkdirDropdown(dropdownId, inputId) {
+  const dropdown = document.getElementById(dropdownId);
+  if (!dropdown) return;
+  dropdown.innerHTML = '';
+  const history = getWorkdirHistory();
+  if (history.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'workdir-dropdown-empty';
+    empty.textContent = 'No history yet';
+    dropdown.appendChild(empty);
+    return;
+  }
+  for (const dir of history) {
+    const item = document.createElement('div');
+    item.className = 'workdir-dropdown-item';
+
+    const text = document.createElement('span');
+    text.className = 'workdir-item-text';
+    text.textContent = dir;
+    text.title = dir;
+    text.addEventListener('click', () => {
+      const input = document.getElementById(inputId);
+      if (input) input.value = dir;
+      dropdown.classList.add('hidden');
+    });
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'workdir-item-delete';
+    deleteBtn.textContent = '\u00D7';
+    deleteBtn.title = 'Remove from history';
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteWorkdir(dir);
+      populateWorkdirDropdown(dropdownId, inputId);
+    });
+
+    item.appendChild(text);
+    item.appendChild(deleteBtn);
+    dropdown.appendChild(item);
+  }
+}
+
+function toggleWorkdirDropdown(dropdownId, inputId) {
+  const dropdown = document.getElementById(dropdownId);
+  if (!dropdown) return;
+  const isHidden = dropdown.classList.contains('hidden');
+  // Close all open dropdowns first
+  document.querySelectorAll('.workdir-dropdown').forEach(d => d.classList.add('hidden'));
+  if (isHidden) {
+    populateWorkdirDropdown(dropdownId, inputId);
+    dropdown.classList.remove('hidden');
+  }
+}
+
+// Close workdir dropdowns on outside click
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.workdir-input-wrapper')) {
+    document.querySelectorAll('.workdir-dropdown').forEach(d => d.classList.add('hidden'));
+  }
+});
+
 // ---- Label Persistence ----
 function getSavedLabels() {
   try {
@@ -124,7 +210,15 @@ async function loadSshKeys() {
   }
 }
 
+function getDefaultTerminalTheme() {
+  return settingsManager.get('defaultTerminalTheme') || 'auto';
+}
+
 function restoreLastSession() {
+  // Apply default terminal theme from settings first
+  const themeSelect = document.getElementById('ssh-terminal-theme');
+  if (themeSelect) themeSelect.value = getDefaultTerminalTheme();
+
   try {
     const saved = localStorage.getItem(STORAGE_KEYS.LAST_SESSION);
     if (!saved) return;
@@ -158,7 +252,6 @@ function restoreLastSession() {
       presetSelect.dispatchEvent(new Event('change'));
     }
     if (s.terminalTheme) {
-      const themeSelect = document.getElementById('ssh-terminal-theme');
       if (themeSelect) themeSelect.value = s.terminalTheme;
     }
   } catch (e) {
@@ -189,6 +282,12 @@ function initQuickSessionModal() {
   document.getElementById('quick-session-close')?.addEventListener('click', () => modal.classList.add('hidden'));
   document.getElementById('quick-session-cancel')?.addEventListener('click', () => modal.classList.add('hidden'));
 
+  // Workdir dropdown toggle
+  modal.querySelector('.workdir-dropdown-toggle[data-target="quick-workdir-dropdown"]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleWorkdirDropdown('quick-workdir-dropdown', 'quick-workdir');
+  });
+
   document.getElementById('quick-session-launch')?.addEventListener('click', async () => {
     const launchBtn = document.getElementById('quick-session-launch');
     const label = document.getElementById('quick-label-input').value.trim();
@@ -214,7 +313,7 @@ function initQuickSessionModal() {
         privateKeyPath: saved.privateKeyPath,
         workingDir: workingDir,
         command: saved.command || 'claude',
-        terminalTheme: saved.terminalTheme || 'default',
+        terminalTheme: saved.terminalTheme || getDefaultTerminalTheme(),
         label: label || undefined,
       };
 
@@ -230,6 +329,7 @@ function initQuickSessionModal() {
       if (!resp.ok) throw new Error(result.error || 'Connection failed');
 
       if (label) saveLabel(label);
+      saveWorkdir(workingDir);
 
       try {
         const lastSession = JSON.parse(localStorage.getItem(STORAGE_KEYS.LAST_SESSION) || '{}');
@@ -268,6 +368,12 @@ function initNewSessionModal() {
 
   document.getElementById('new-session-close')?.addEventListener('click', () => modal.classList.add('hidden'));
   document.getElementById('ssh-cancel')?.addEventListener('click', () => modal.classList.add('hidden'));
+
+  // Workdir dropdown toggle
+  modal.querySelector('.workdir-dropdown-toggle[data-target="ssh-workdir-dropdown"]')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleWorkdirDropdown('ssh-workdir-dropdown', 'ssh-workdir');
+  });
 
   document.getElementById('ssh-auth-method')?.addEventListener('change', (e) => {
     const val = e.target.value;
@@ -367,7 +473,7 @@ function initNewSessionModal() {
         workingDir: document.getElementById('ssh-workdir').value,
         command: getSelectedCommand(),
         apiKey: document.getElementById('ssh-api-key')?.value || getApiKeyForCommand(getSelectedCommand()) || undefined,
-        terminalTheme: document.getElementById('ssh-terminal-theme')?.value || 'default',
+        terminalTheme: document.getElementById('ssh-terminal-theme')?.value || getDefaultTerminalTheme(),
         sessionTitle: document.getElementById('ssh-session-title')?.value || undefined,
         label: labelVal,
       };
@@ -399,11 +505,12 @@ function initNewSessionModal() {
       } catch (_) {}
 
       if (labelVal) saveLabel(labelVal);
+      saveWorkdir(body.workingDir);
 
       modal.classList.add('hidden');
       showToast('CONNECTED', `Terminal ${result.terminalId} launched`);
 
-      const theme = document.getElementById('ssh-terminal-theme')?.value || 'default';
+      const theme = document.getElementById('ssh-terminal-theme')?.value || getDefaultTerminalTheme();
       terminalManager.setTerminalTheme(result.terminalId, theme);
     } catch (e) {
       showToast('ERROR', e.message);

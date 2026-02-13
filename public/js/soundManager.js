@@ -6,8 +6,11 @@ let enabled = true;
 let volume = 0.5;
 let actionSounds = {}; // action -> soundName mapping
 
+let userHasInteracted = false;
+
 function getCtx() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
   return audioCtx;
 }
 
@@ -193,7 +196,7 @@ const actionCategories = {
 // ---- Public API ----
 
 export function play(actionName) {
-  if (!enabled) return;
+  if (!enabled || !userHasInteracted) return;
   const soundName = actionSounds[actionName] || defaultActionSounds[actionName] || 'none';
   const fn = soundLibrary[soundName];
   if (fn) fn();
@@ -242,8 +245,15 @@ export function init() {
   settingsManager.onChange('soundEnabled', (val) => { enabled = val === 'true'; });
   settingsManager.onChange('soundVolume', (val) => { volume = parseFloat(val) || 0.5; });
 
-  // Resume audio context on first user interaction
-  document.addEventListener('click', () => {
+  // Defer AudioContext creation until first user interaction
+  const unlockAudio = () => {
+    userHasInteracted = true;
     if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-  }, { once: true });
+    document.removeEventListener('click', unlockAudio);
+    document.removeEventListener('keydown', unlockAudio);
+    document.removeEventListener('touchstart', unlockAudio);
+  };
+  document.addEventListener('click', unlockAudio);
+  document.addEventListener('keydown', unlockAudio);
+  document.addEventListener('touchstart', unlockAudio);
 }

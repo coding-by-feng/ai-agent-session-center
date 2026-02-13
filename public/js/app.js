@@ -1,5 +1,5 @@
 import * as robotManager from './robotManager.js';
-import { createOrUpdateCard, removeCard, updateDurations, showToast, getSelectedSessionId, setSelectedSessionId, deselectSession, archiveAllEnded, isMuted, toggleMuteAll, initGroups, createOrUpdateTeamCard, removeTeamCard, getTeamsData, getSessionsData, loadQueue, pinSession, isMoveModeActive, exitQueueMoveMode, findGroupForSession, showGroupAssignToast, renderQueueView, initQueueView } from './sessionPanel.js';
+import { createOrUpdateCard, removeCard, updateDurations, showToast, getSelectedSessionId, setSelectedSessionId, deselectSession, archiveAllEnded, isMuted, toggleMuteAll, initGroups, createOrUpdateTeamCard, removeTeamCard, getTeamsData, getSessionsData, loadQueue, tryAutoSend, pinSession, isMoveModeActive, exitQueueMoveMode, renderQueueView, initQueueView } from './sessionPanel.js';
 import * as statsPanel from './statsPanel.js';
 import * as wsClient from './wsClient.js';
 import * as navController from './navController.js';
@@ -15,6 +15,7 @@ import { escapeHtml as utilEscapeHtml, debugLog, debugWarn } from './utils.js';
 import { initKeyboardShortcuts } from './keyboardShortcuts.js';
 import { initQuickActions, initShortcutsPanel } from './quickActions.js';
 import { handleEventSounds, checkAlarms, handleLabelAlerts, clearAlarm } from './alarmManager.js';
+import * as agendaManager from './agendaManager.js';
 
 let allSessions = {};
 
@@ -32,7 +33,35 @@ async function syncAllQueueCounts(sessionIds) {
   }
 }
 
-// Block accidental refresh/close when there are active sessions or terminals
+// Block all page refresh: keyboard shortcuts (F5, Cmd+R, Ctrl+R) and pull-to-refresh
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'F5' || (e.key === 'r' && (e.metaKey || e.ctrlKey))) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+}, true);
+
+document.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 1) {
+    window._pullToRefreshStartY = e.touches[0].clientY;
+  }
+}, { passive: true });
+
+document.addEventListener('touchmove', (e) => {
+  if (window._pullToRefreshStartY !== undefined) {
+    const y = e.touches[0].clientY;
+    const scrollTop = document.scrollingElement.scrollTop;
+    if (scrollTop <= 0 && y > window._pullToRefreshStartY) {
+      e.preventDefault();
+    }
+  }
+}, { passive: false });
+
+document.addEventListener('touchend', () => {
+  window._pullToRefreshStartY = undefined;
+}, { passive: true });
+
+// Block accidental close when there are active sessions or terminals
 window.addEventListener('beforeunload', (e) => {
   const hasActiveSessions = Object.values(allSessions).some(s => s.status && s.status !== 'ended');
   const hasActiveTerminal = terminalManager.getActiveTerminalId();
@@ -157,6 +186,8 @@ async function init() {
         robotManager.removeRobot(session.replacesId);
         del('sessions', session.replacesId).catch(() => {});
       }
+      const prevSession = allSessions[session.sessionId];
+      const prevStatus = prevSession ? prevSession.status : null;
       allSessions[session.sessionId] = session;
       createOrUpdateCard(session);
       robotManager.updateRobot(session);
@@ -183,6 +214,11 @@ async function init() {
 
       // Approval/input alarms
       checkAlarms(session, allSessions);
+
+      // Auto-send first queued prompt when session transitions TO waiting
+      if (session.status === 'waiting' && prevStatus && prevStatus !== 'waiting' && session.terminalId) {
+        tryAutoSend(session.sessionId, session.terminalId);
+      }
 
       addActivityEntry(session);
       toggleEmptyState(Object.keys(allSessions).length === 0);
@@ -258,21 +294,6 @@ async function init() {
   // Initialize session groups
   initGroups();
 
-  // Auto-popup group assignment toast when a new session card is created
-  let suppressGroupToast = true;
-  document.addEventListener('session-card-created', (e) => {
-    if (suppressGroupToast) return;
-    const sid = e.detail.sessionId;
-    const session = allSessions[sid];
-    if (!session || session.isHistorical) return;
-    // Skip re-keyed sessions — the toast was already shown for the original terminal ID
-    if (session.replacesId) return;
-    const group = findGroupForSession(sid);
-    if (!group) {
-      showGroupAssignToast(sid);
-    }
-  });
-  setTimeout(() => { suppressGroupToast = false; }, 3000);
 
   // Initialize history panel
   historyPanel.init();
@@ -281,8 +302,36 @@ async function init() {
   navController.onViewChange('history', () => historyPanel.refresh());
   navController.onViewChange('timeline', () => timelinePanel.refresh());
   navController.onViewChange('analytics', () => analyticsPanel.refresh());
-  navController.onViewChange('queue', () => renderQueueView());
+  navController.onViewChange('queue', () => {
+    // Render whichever sub-tab is active
+    const activeTab = document.querySelector('.qa-tab.active');
+    if (activeTab?.dataset.qaTab === 'agenda') {
+      agendaManager.renderAgendaView();
+    } else {
+      renderQueueView();
+    }
+  });
   initQueueView();
+
+  // Initialize agenda
+  agendaManager.initDeps({ showToast, getSelectedSessionId, getSessionsData });
+  agendaManager.initAgenda();
+
+  // Agenda/Queue sub-tab switching
+  document.querySelector('.queue-agenda-tabs')?.addEventListener('click', (e) => {
+    const tab = e.target.closest('.qa-tab');
+    if (!tab) return;
+    const tabName = tab.dataset.qaTab;
+    document.querySelectorAll('.qa-tab').forEach(t => t.classList.toggle('active', t === tab));
+    document.querySelectorAll('.qa-tab-content').forEach(tc => {
+      tc.classList.toggle('active', tc.id === `qa-tab-${tabName}`);
+    });
+    if (tabName === 'agenda') {
+      agendaManager.renderAgendaView();
+    } else {
+      renderQueueView();
+    }
+  });
 
   // Handle card dismiss
   document.addEventListener('card-dismissed', (e) => {

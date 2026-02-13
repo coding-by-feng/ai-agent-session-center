@@ -65,8 +65,11 @@ export function listSshKeys() {
   }
 }
 
-// Active terminals: terminalId -> { pty, sessionId, config, wsClient, createdAt }
+// Active terminals: terminalId -> { pty, sessionId, config, wsClient, createdAt, outputBuffer }
 const terminals = new Map();
+
+// Ring buffer size for PTY output replay (128KB — enough for ~2 full screens of scrollback)
+const OUTPUT_BUFFER_MAX = 128 * 1024;
 
 // Pending links: workingDir -> { terminalId, host, createdAt }
 // Used to match incoming SessionStart hooks to the terminal that launched Claude
@@ -209,19 +212,29 @@ export function createTerminal(config, wsClient) {
         config: { ...config, workingDir: workDir },
         wsClient,
         createdAt: Date.now(),
+        outputBuffer: Buffer.alloc(0),
       });
 
       // Register pending link for session matching
       pendingLinks.set(workDir, { terminalId, host: config.host || 'localhost', createdAt: Date.now() });
 
-      // Stream output to WebSocket client
+      // Stream output to WebSocket client + buffer for replay
       ptyProcess.onData((data) => {
         const term = terminals.get(terminalId);
-        if (term && term.wsClient && term.wsClient.readyState === 1) {
+        if (!term) return;
+
+        // Append to ring buffer for replay on (re)subscribe
+        const chunk = Buffer.from(data);
+        term.outputBuffer = Buffer.concat([term.outputBuffer, chunk]);
+        if (term.outputBuffer.length > OUTPUT_BUFFER_MAX) {
+          term.outputBuffer = term.outputBuffer.slice(term.outputBuffer.length - OUTPUT_BUFFER_MAX);
+        }
+
+        if (term.wsClient && term.wsClient.readyState === 1) {
           term.wsClient.send(JSON.stringify({
             type: 'terminal_output',
             terminalId,
-            data: Buffer.from(data).toString('base64'),
+            data: chunk.toString('base64'),
           }));
         }
       });
@@ -330,16 +343,25 @@ export function attachToTmuxPane(tmuxPaneId, wsClient) {
         config: { host: 'localhost', workingDir: homedir(), command: `tmux (pane ${tmuxPaneId})` },
         wsClient,
         createdAt: Date.now(),
+        outputBuffer: Buffer.alloc(0),
       });
 
-      // Stream output to WebSocket client
+      // Stream output to WebSocket client + buffer for replay
       ptyProcess.onData((data) => {
         const term = terminals.get(terminalId);
-        if (term && term.wsClient && term.wsClient.readyState === 1) {
+        if (!term) return;
+
+        const chunk = Buffer.from(data);
+        term.outputBuffer = Buffer.concat([term.outputBuffer, chunk]);
+        if (term.outputBuffer.length > OUTPUT_BUFFER_MAX) {
+          term.outputBuffer = term.outputBuffer.slice(term.outputBuffer.length - OUTPUT_BUFFER_MAX);
+        }
+
+        if (term.wsClient && term.wsClient.readyState === 1) {
           term.wsClient.send(JSON.stringify({
             type: 'terminal_output',
             terminalId,
-            data: Buffer.from(data).toString('base64'),
+            data: chunk.toString('base64'),
           }));
         }
       });
@@ -458,6 +480,23 @@ export function setWsClient(terminalId, wsClient) {
   const term = terminals.get(terminalId);
   if (term) {
     term.wsClient = wsClient;
+
+    if (wsClient && wsClient.readyState === 1) {
+      // Send terminal_ready so the frontend runs onTerminalReady (refit + resize sync).
+      // This is important for REST-API-created terminals where the original terminal_ready
+      // was sent to a null wsClient and never reached the browser.
+      wsClient.send(JSON.stringify({ type: 'terminal_ready', terminalId }));
+
+      // Replay buffered output so the client sees previous terminal content
+      if (term.outputBuffer.length > 0) {
+        wsClient.send(JSON.stringify({
+          type: 'terminal_output',
+          terminalId,
+          data: term.outputBuffer.toString('base64'),
+        }));
+        log.debug('pty', `Replayed ${term.outputBuffer.length} bytes to new client for ${terminalId}`);
+      }
+    }
   }
 }
 

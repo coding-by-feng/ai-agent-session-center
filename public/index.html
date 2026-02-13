@@ -33,7 +33,7 @@
     <button class="nav-btn" data-view="history">SESSION HISTORY</button>
     <button class="nav-btn" data-view="timeline">TIMELINE</button>
     <button class="nav-btn" data-view="analytics">ANALYTICS</button>
-    <button class="nav-btn" data-view="queue">QUEUE</button>
+    <button class="nav-btn" data-view="queue">AGENDA / QUEUE</button>
     <div class="nav-spacer"></div>
     <div id="nav-actions">
       <button id="nav-actions-toggle" class="nav-actions-toggle" title="Toggle actions">&#9776;</button>
@@ -72,8 +72,8 @@
           <div class="shortcut-row"><kbd>S</kbd><span>Toggle settings</span></div>
           <div class="shortcut-row"><kbd>M</kbd><span>Mute / unmute all</span></div>
           <div class="shortcut-row"><kbd>T</kbd><span>New session (none selected)</span></div>
-          <div class="shortcut-row"><kbd>Esc</kbd><span>Close modal / panel (except terminal tab)</span></div>
-          <div class="shortcut-row"><kbd>?</kbd><span>Toggle this panel</span></div>
+          <div class="shortcut-row"><kbd>N</kbd><span>New agenda item</span></div>
+<div class="shortcut-row"><kbd>?</kbd><span>Toggle this panel</span></div>
         </div>
         <div class="shortcuts-section">
           <h4>Selected Session</h4>
@@ -83,7 +83,7 @@
         <div class="shortcuts-section">
           <h4>Terminal</h4>
           <div class="shortcut-row"><kbd>Alt+F11</kbd><span>Toggle fullscreen</span></div>
-          <div class="shortcut-row"><kbd>Ctrl+Enter</kbd><span>Send queued prompt</span></div>
+          <div class="shortcut-row"><kbd>Ctrl/Cmd+Enter</kbd><span>Send queued prompt</span></div>
         </div>
       </div>
     </div>
@@ -177,15 +177,61 @@
     </div>
   </div>
 
-  <!-- Queue View -->
+  <!-- Queue / Agenda View -->
   <div id="view-queue" class="view-panel hidden">
-    <div id="queue-view-controls">
-      <h3 class="queue-view-title">Prompt Queue</h3>
-      <button id="queue-view-refresh" class="ctrl-btn notes">Refresh</button>
-      <button id="queue-view-export" class="ctrl-btn export">Export JSON</button>
+    <div class="queue-agenda-tabs">
+      <button class="qa-tab active" data-qa-tab="agenda">AGENDA</button>
+      <button class="qa-tab" data-qa-tab="session-queue">SESSION QUEUE</button>
     </div>
-    <div id="queue-view-stats" class="queue-view-stats"></div>
-    <div id="queue-view-content"></div>
+
+    <!-- Agenda Sub-tab -->
+    <div class="qa-tab-content active" id="qa-tab-agenda">
+      <div id="agenda-view-controls" class="agenda-view-controls">
+        <div id="agenda-filter-bar" class="agenda-filter-bar">
+          <select id="agenda-filter-project" class="agenda-filter-select"><option value="">All Projects</option></select>
+          <select id="agenda-filter-status" class="agenda-filter-select">
+            <option value="">All Statuses</option>
+            <option value="todo">Todo</option>
+            <option value="in-progress">In Progress</option>
+            <option value="done">Done</option>
+            <option value="blocked">Blocked</option>
+          </select>
+          <select id="agenda-filter-priority" class="agenda-filter-select">
+            <option value="">All Priorities</option>
+            <option value="P0">P0 (Critical)</option>
+            <option value="P1">P1 (Normal)</option>
+            <option value="P2">P2 (Low)</option>
+          </select>
+          <select id="agenda-filter-tag" class="agenda-filter-select">
+            <option value="">All Tags</option>
+            <option value="feature">feature</option>
+            <option value="bug">bug</option>
+            <option value="refactor">refactor</option>
+            <option value="research">research</option>
+            <option value="docs">docs</option>
+            <option value="test">test</option>
+          </select>
+        </div>
+        <div class="agenda-view-actions">
+          <button id="agenda-add-btn" class="ctrl-btn queue">ADD ITEM</button>
+          <button id="agenda-export-btn" class="ctrl-btn export">Export</button>
+          <button id="agenda-import-btn" class="ctrl-btn notes">Import</button>
+        </div>
+      </div>
+      <div id="agenda-view-stats" class="agenda-view-stats"></div>
+      <div id="agenda-view-content"></div>
+    </div>
+
+    <!-- Session Queue Sub-tab (original) -->
+    <div class="qa-tab-content" id="qa-tab-session-queue">
+      <div id="queue-view-controls">
+        <h3 class="queue-view-title">Session Prompt Queue</h3>
+        <button id="queue-view-refresh" class="ctrl-btn notes">Refresh</button>
+        <button id="queue-view-export" class="ctrl-btn export">Export JSON</button>
+      </div>
+      <div id="queue-view-stats" class="queue-view-stats"></div>
+      <div id="queue-view-content"></div>
+    </div>
   </div>
 
   <!-- Activity Feed -->
@@ -264,6 +310,7 @@
       <div class="detail-tabs">
         <button class="tab active" data-tab="terminal">Terminal</button>
         <button class="tab" data-tab="conversation">Prompt History</button>
+        <button class="tab" data-tab="agenda">Agenda</button>
         <button class="tab" data-tab="notes">Notes</button>
         <button class="tab" data-tab="activity">Activity</button>
         <button class="tab" data-tab="summary">Summary</button>
@@ -274,8 +321,19 @@
         <div class="terminal-toolbar">
           <div id="terminal-status" class="terminal-status">Not connected</div>
           <div class="terminal-toolbar-actions">
-            <button id="terminal-reconnect-btn" class="ctrl-btn resume hidden" title="Reconnect Claude session">&#x25B6; RECONNECT</button>
-            <button id="terminal-fullscreen-btn" class="terminal-fullscreen-btn" title="Fullscreen (F11)">&#x26F6; FULLSCREEN</button>
+            <select id="terminal-theme-select" class="terminal-theme-select" title="Terminal color theme">
+              <option value="auto">Auto (Match Site)</option>
+              <option value="default">Default</option>
+              <option value="dark">Dark</option>
+              <option value="monokai">Monokai</option>
+              <option value="dracula">Dracula</option>
+              <option value="solarized-dark">Solarized</option>
+              <option value="nord">Nord</option>
+              <option value="github-dark">GitHub Dark</option>
+            </select>
+            <button id="terminal-reconnect-btn" class="terminal-reconnect-btn hidden" title="Reconnect: creates new SSH terminal with claude --resume">&#x25B6; RECONNECT</button>
+            <button id="terminal-refresh-btn" class="terminal-refresh-btn" title="Fix display glitch (fullscreen round-trip)">&#x21BB; Display wrong? Click to fix</button>
+            <button id="terminal-fullscreen-btn" class="terminal-fullscreen-btn" title="Fullscreen (Alt+F11)">&#x26F6;</button>
           </div>
         </div>
         <div id="terminal-container"></div>
@@ -286,12 +344,12 @@
               <span class="terminal-queue-toggle-arrow">&#9654;</span>
               PROMPT QUEUE <span id="terminal-queue-count" class="terminal-queue-count"></span>
             </button>
-            <button id="queue-move-all-btn" class="ctrl-btn queue-move-all hidden" title="Move all prompts to another session">MOVE ALL</button>
           </div>
           <div class="terminal-queue-body">
             <div class="queue-compose">
               <textarea id="queue-textarea" placeholder="Add a prompt to the queue..." rows="2"></textarea>
               <button id="queue-add-btn" class="ctrl-btn queue">ADD</button>
+              <button id="queue-move-all-btn" class="ctrl-btn queue-move-all hidden" title="Move all prompts to another session">MOVE ALL</button>
             </div>
             <div id="queue-list" class="terminal-queue-list"></div>
           </div>
@@ -315,6 +373,11 @@
       <!-- Activity Tab (combined tool calls, events, responses) -->
       <div class="tab-content" id="tab-activity">
         <div id="detail-activity-log"></div>
+      </div>
+
+      <!-- Agenda Tab (per-session, filtered to project) -->
+      <div class="tab-content" id="tab-agenda">
+        <div id="agenda-tab-content"></div>
       </div>
 
       <!-- Summary Tab -->
@@ -472,7 +535,9 @@
           <label class="toggle-label">
             <input type="checkbox" id="scanline-enabled" checked>
             <span class="toggle-switch"></span>
-            Enable scanline overlay
+            <span class="toggle-text">
+              <span class="toggle-title">Enable scanline overlay</span>
+            </span>
           </label>
         </div>
 
@@ -667,7 +732,9 @@
             <label class="toggle-label">
               <input type="checkbox" id="sound-enabled" checked>
               <span class="toggle-switch"></span>
-              Enable Sounds
+              <span class="toggle-text">
+                <span class="toggle-title">Enable sounds</span>
+              </span>
             </label>
             <div class="volume-control">
               <span>Volume</span>
@@ -693,6 +760,20 @@
 
       <!-- Advanced Tab -->
       <div class="settings-tab-content" id="settings-tab-advanced">
+        <div class="settings-section">
+          <h4>Default Terminal Theme</h4>
+          <p class="settings-hint">Applied to all new sessions (New Session &amp; Quick Launch).</p>
+          <select id="settings-default-terminal-theme" class="settings-select">
+            <option value="auto">Auto (Match Site)</option>
+            <option value="default">Default</option>
+            <option value="dark">Dark</option>
+            <option value="monokai">Monokai</option>
+            <option value="dracula">Dracula</option>
+            <option value="solarized-dark">Solarized Dark</option>
+            <option value="nord">Nord</option>
+            <option value="github-dark">GitHub Dark</option>
+          </select>
+        </div>
         <div class="settings-section">
           <h4>Anthropic API Key <span class="settings-hint">(Claude Code)</span></h4>
           <p class="settings-hint">Set once — automatically used for all Claude sessions.</p>
@@ -783,13 +864,25 @@
           <label class="toggle-label">
             <input type="checkbox" id="activity-feed-visible" checked>
             <span class="toggle-switch"></span>
-            Show activity feed
+            <span class="toggle-text">
+              <span class="toggle-title">Show activity feed</span>
+            </span>
           </label>
           <label class="toggle-label">
             <input type="checkbox" id="toast-enabled" checked>
             <span class="toggle-switch"></span>
-            Show info notifications
-            <span class="setting-hint">Error messages always show</span>
+            <span class="toggle-text">
+              <span class="toggle-title">Show info notifications</span>
+              <span class="setting-hint">Error messages always show</span>
+            </span>
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" id="auto-send-queue">
+            <span class="toggle-switch"></span>
+            <span class="toggle-text">
+              <span class="toggle-title">Auto-send queue prompts</span>
+              <span class="setting-hint">Send the first queued prompt when session is ready</span>
+            </span>
           </label>
         </div>
       </div>
@@ -850,7 +943,11 @@
         </div>
         <div class="ssh-field">
           <label>Working Directory</label>
-          <input id="ssh-workdir" value="~" placeholder="~/projects/my-app">
+          <div class="workdir-input-wrapper">
+            <input id="ssh-workdir" value="~" placeholder="~/projects/my-app" autocomplete="off">
+            <button type="button" class="workdir-dropdown-toggle" data-target="ssh-workdir-dropdown" title="Browse history">&#9660;</button>
+            <div id="ssh-workdir-dropdown" class="workdir-dropdown hidden"></div>
+          </div>
         </div>
         <div class="ssh-field">
           <label>Session Mode</label>
@@ -887,7 +984,8 @@
         <div class="ssh-field">
           <label>Terminal Theme</label>
           <select id="ssh-terminal-theme">
-            <option value="default">Default (Dashboard)</option>
+            <option value="auto">Auto (Match Site)</option>
+            <option value="default">Default</option>
             <option value="dark">Dark</option>
             <option value="monokai">Monokai</option>
             <option value="dracula">Dracula</option>
@@ -921,7 +1019,11 @@
         </div>
         <div class="quick-workdir-row">
           <label for="quick-workdir">Working Directory:</label>
-          <input id="quick-workdir" type="text" placeholder="~/project" autocomplete="off">
+          <div class="workdir-input-wrapper">
+            <input id="quick-workdir" type="text" placeholder="~/project" autocomplete="off">
+            <button type="button" class="workdir-dropdown-toggle" data-target="quick-workdir-dropdown" title="Browse history">&#9660;</button>
+            <div id="quick-workdir-dropdown" class="workdir-dropdown hidden"></div>
+          </div>
         </div>
       </div>
       <div class="quick-session-footer">
@@ -931,11 +1033,95 @@
     </div>
   </div>
 
+  <!-- Queue Prompt Expand Modal -->
+  <div id="queue-expand-modal" class="modal-overlay hidden">
+    <div class="modal-panel queue-expand-panel">
+      <div class="queue-expand-header">
+        <h3>Prompt</h3>
+        <button id="queue-expand-close" class="modal-close">&times;</button>
+      </div>
+      <textarea id="queue-expand-textarea" class="queue-expand-textarea" rows="16"></textarea>
+      <div class="queue-expand-footer">
+        <button id="queue-expand-cancel" class="ctrl-btn">CLOSE</button>
+        <button id="queue-expand-save" class="ctrl-btn notes">SAVE</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Agenda Item Modal (Add / Edit) -->
+  <div id="agenda-item-modal" class="modal-overlay hidden">
+    <div class="modal-panel agenda-modal-panel">
+      <div class="agenda-modal-header">
+        <h3 id="agenda-modal-title">New Agenda Item</h3>
+        <button id="agenda-modal-close" class="modal-close">&times;</button>
+      </div>
+      <div class="agenda-modal-body">
+        <div class="agenda-modal-row">
+          <label for="agenda-modal-text">Prompt / Task</label>
+          <textarea id="agenda-modal-text" rows="3" placeholder="What needs to be done..."></textarea>
+        </div>
+        <div class="agenda-modal-row-inline">
+          <div class="agenda-modal-field">
+            <label for="agenda-modal-project">Project</label>
+            <input id="agenda-modal-project" list="agenda-modal-project-list" placeholder="Project name..." autocomplete="off">
+            <datalist id="agenda-modal-project-list"></datalist>
+          </div>
+          <div class="agenda-modal-field">
+            <label for="agenda-modal-priority">Priority</label>
+            <select id="agenda-modal-priority">
+              <option value="P0">P0 (Critical)</option>
+              <option value="P1" selected>P1 (Normal)</option>
+              <option value="P2">P2 (Low)</option>
+            </select>
+          </div>
+          <div class="agenda-modal-field">
+            <label for="agenda-modal-status">Status</label>
+            <select id="agenda-modal-status">
+              <option value="todo">Todo</option>
+              <option value="in-progress">In Progress</option>
+              <option value="done">Done</option>
+              <option value="blocked">Blocked</option>
+            </select>
+          </div>
+        </div>
+        <div class="agenda-modal-row-inline">
+          <div class="agenda-modal-field">
+            <label for="agenda-modal-due">Due Date</label>
+            <input id="agenda-modal-due" type="date">
+          </div>
+          <div class="agenda-modal-field agenda-modal-tags-field">
+            <label>Tags</label>
+            <div id="agenda-modal-tags" class="agenda-modal-tags"></div>
+          </div>
+        </div>
+        <div class="agenda-modal-row">
+          <label for="agenda-modal-notes">Notes</label>
+          <textarea id="agenda-modal-notes" rows="2" placeholder="Additional context..."></textarea>
+        </div>
+      </div>
+      <div class="agenda-modal-footer">
+        <button id="agenda-modal-cancel" class="ctrl-btn">CANCEL</button>
+        <button id="agenda-modal-save" class="ctrl-btn queue">SAVE</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Agenda Push-to-Session Modal -->
+  <div id="agenda-push-modal" class="modal-overlay hidden">
+    <div class="modal-panel agenda-push-panel">
+      <div class="agenda-push-header">
+        <h3>Push to Session Queue</h3>
+        <button id="agenda-push-close" class="modal-close">&times;</button>
+      </div>
+      <div id="agenda-push-session-list" class="agenda-push-session-list"></div>
+    </div>
+  </div>
+
   <!-- Terminal Fullscreen Overlay -->
   <div id="terminal-fullscreen-overlay" class="terminal-fullscreen-overlay hidden">
     <div class="terminal-fullscreen-topbar">
       <span class="terminal-fullscreen-title">Terminal</span>
-      <button id="terminal-fullscreen-exit" class="terminal-fullscreen-exit">EXIT FULLSCREEN (F11)</button>
+      <button id="terminal-fullscreen-exit" class="terminal-fullscreen-exit">EXIT (Alt+F11)</button>
     </div>
     <div id="terminal-fullscreen-container"></div>
   </div>

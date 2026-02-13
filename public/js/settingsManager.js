@@ -8,6 +8,7 @@ const defaults = {
   soundEnabled: 'true',
   soundVolume: '0.5',
   soundActions: '',
+  defaultTerminalTheme: 'auto',
   scanlineEnabled: 'true',
   cardSize: 'small',
   activityFeedVisible: 'true',
@@ -16,9 +17,10 @@ const defaults = {
   animationIntensity: '100',
   animationSpeed: '100',
   movementActions: '',
+  autoSendQueue: 'false',
   hookDensity: 'off',
   labelSettings: JSON.stringify({
-    ONEOFF:    { sound: 'alarm',       movement: 'shake',  frame: 'fire' },
+    ONEOFF:    { sound: 'alarm',       movement: 'shake',  frame: 'none' },
     HEAVY:     { sound: 'urgentAlarm', movement: 'flash',  frame: 'electric' },
     IMPORTANT: { sound: 'fanfare',     movement: 'bounce', frame: 'liquid' },
   })
@@ -265,6 +267,9 @@ function syncUIToSettings() {
   const toastEl = document.getElementById('toast-enabled');
   if (toastEl) toastEl.checked = get('toastEnabled') === 'true';
 
+  const autoSendEl = document.getElementById('auto-send-queue');
+  if (autoSendEl) autoSendEl.checked = get('autoSendQueue') === 'true';
+
   // Character model
   const currentModel = get('characterModel');
   document.querySelectorAll('.char-swatch').forEach(s => {
@@ -287,6 +292,9 @@ function syncUIToSettings() {
   if (spdSlider) spdSlider.value = animSpeed;
   if (spdDisplay) spdDisplay.textContent = animSpeed + '%';
 
+  // Default terminal theme
+  const defThemeSelect = document.getElementById('settings-default-terminal-theme');
+  if (defThemeSelect) defThemeSelect.value = get('defaultTerminalTheme');
 }
 
 // Reusable API key field wiring (toggle, save, load)
@@ -521,6 +529,23 @@ export function initSettingsUI() {
   }
   // Fetch live hook status on settings init
   syncHookDensityUI();
+
+  // --- Auto-send queue toggle ---
+  const autoSendToggle = document.getElementById('auto-send-queue');
+  if (autoSendToggle) {
+    autoSendToggle.addEventListener('change', (e) => {
+      set('autoSendQueue', String(e.target.checked));
+    });
+  }
+
+  // --- Default Terminal Theme ---
+  const defaultThemeSelect = document.getElementById('settings-default-terminal-theme');
+  if (defaultThemeSelect) {
+    defaultThemeSelect.value = get('defaultTerminalTheme');
+    defaultThemeSelect.addEventListener('change', (e) => {
+      set('defaultTerminalTheme', e.target.value);
+    });
+  }
 
   // --- API Keys (Anthropic, OpenAI, Gemini) ---
   setupApiKeyField('settings-api-key', 'anthropicApiKey');
