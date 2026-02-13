@@ -15,13 +15,13 @@
   --border-faint: rgba(255, 255, 255, 0.03);
   --border-subtle-strong: rgba(255, 255, 255, 0.1);
   --border-accent: rgba(0, 229, 255, 0.15);
-  --border-accent-strong: var(--border-accent-strong);
+  --border-accent-strong: rgba(0, 229, 255, 0.3);
   --bg-accent: rgba(0, 229, 255, 0.1);
   --bg-accent-strong: rgba(0, 229, 255, 0.15);
   --bg-subtle: rgba(255, 255, 255, 0.06);
   --bg-subtle-strong: rgba(255, 255, 255, 0.1);
   --glow-accent: rgba(0, 229, 255, 0.15);
-  --glow-accent-strong: var(--border-accent-strong);
+  --glow-accent-strong: rgba(0, 229, 255, 0.3);
   --inset-highlight: rgba(255, 255, 255, 0.06);
   --inset-highlight-faint: rgba(255, 255, 255, 0.04);
   --accent-cyan: #00e5ff;
@@ -56,6 +56,7 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  overscroll-behavior: none;
   background: var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--font-mono);

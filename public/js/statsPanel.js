@@ -11,6 +11,14 @@ let historicalLoaded = false;
 let lastHookStats = null;
 let hookStatsVisible = false;
 
+// Close hook stats panel when clicking outside
+document.addEventListener('click', () => {
+  if (hookStatsVisible) {
+    hookStatsVisible = false;
+    document.querySelector('.hook-stats-panel')?.classList.add('hidden');
+  }
+});
+
 export async function loadHistoricalStats() {
   // no-op: historical stats display removed from header
 }
@@ -37,7 +45,7 @@ function renderHookStatsBadge(container) {
 
   // Remove existing hook stats elements
   container.querySelector('.hook-stats-toggle')?.remove();
-  container.querySelector('.hook-stats-panel')?.remove();
+  document.querySelector('.hook-stats-panel')?.remove();
 
   const { totalHooks, hooksPerMin, events } = lastHookStats;
 
@@ -63,9 +71,10 @@ function renderHookStatsBadge(container) {
     <span class="stat-label" style="margin-left:8px">Avg</span>
     <span class="stat-value">${sanitizeNumber(avgProcessing)}ms</span>
   `;
-  badge.addEventListener('click', () => {
+  badge.addEventListener('click', (e) => {
+    e.stopPropagation();
     hookStatsVisible = !hookStatsVisible;
-    const panel = container.querySelector('.hook-stats-panel');
+    const panel = document.querySelector('.hook-stats-panel');
     if (panel) panel.classList.toggle('hidden', !hookStatsVisible);
   });
   container.appendChild(badge);
@@ -112,13 +121,18 @@ function renderHookStatsBadge(container) {
     </table>
   `;
 
+  panel.addEventListener('click', (e) => e.stopPropagation());
+
   panel.querySelector('.hook-stats-reset')?.addEventListener('click', async (e) => {
     e.stopPropagation();
     await fetch('/api/hook-stats/reset', { method: 'POST' });
     lastHookStats = null;
     container.querySelector('.hook-stats-toggle')?.remove();
     panel.remove();
+    hookStatsVisible = false;
   });
 
-  container.appendChild(panel);
+  // Append to body so it escapes all stacking contexts
+  document.querySelector('.hook-stats-panel')?.remove();
+  document.body.appendChild(panel);
 }

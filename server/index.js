@@ -8,9 +8,9 @@ import { dirname, join } from 'path';
 import { execSync } from 'child_process';
 import hookRouter from './hookRouter.js';
 import { handleConnection, stopHeartbeat } from './wsManager.js';
-import { getAllSessions } from './sessionStore.js';
+import { getAllSessions, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave } from './sessionStore.js';
 import apiRouter, { hookRateLimitMiddleware } from './apiRouter.js';
-import { startMqReader, stopMqReader } from './mqReader.js';
+import { startMqReader, stopMqReader, getMqOffset } from './mqReader.js';
 import log from './logger.js';
 import { config } from './serverConfig.js';
 import { ensureHooksInstalled } from './hookInstaller.js';
@@ -99,8 +99,14 @@ function onReady() {
   // Auto-install hooks (copy script + register in settings.json)
   ensureHooksInstalled(config);
 
-  // Start file-based message queue reader
-  startMqReader();
+  // Restore sessions from snapshot (before starting MQ reader)
+  const snapshotResult = loadSnapshot();
+
+  // Start file-based message queue reader (resume from snapshot offset if available)
+  startMqReader(snapshotResult ? { resumeOffset: snapshotResult.mqOffset } : undefined);
+
+  // Start periodic snapshot saving (every 10s)
+  startPeriodicSave(getMqOffset);
 
   // Open browser after a brief delay (let server fully initialize)
   setTimeout(() => openBrowser(`http://localhost:${PORT}`), 300);
@@ -123,8 +129,11 @@ server.listen(PORT, onReady);
 // Graceful shutdown
 function gracefulShutdown(signal) {
   log.info('server', `Received ${signal}, shutting down...`);
+  stopPeriodicSave();
   stopHeartbeat();
   stopMqReader();
+  // Save final snapshot before exiting
+  saveSnapshot(getMqOffset());
   server.close(() => {
     log.info('server', 'Server closed');
     process.exit(0);

@@ -965,6 +965,7 @@
 
 .session-card[data-frame] {
   overflow: visible;
+  contain: layout style; /* remove paint containment so frame pseudo-elements aren't clipped */
   border: none !important;
   background: var(--bg-card);
   z-index: 1;

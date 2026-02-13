@@ -48,7 +48,9 @@ export async function loadQueue(sessionId) {
         <div class="queue-text">${escapeHtml(item.text)}</div>
         <div class="queue-actions">
           <button class="queue-send" data-queue-id="${item.id}" title="Send to terminal">SEND</button>
-          <button class="queue-edit" data-queue-id="${item.id}" title="Edit">EDIT</button>
+          <button class="queue-expand" data-queue-id="${item.id}" title="Expand / view full prompt">&#x2922;</button>
+          <button class="queue-edit" data-queue-id="${item.id}" title="Edit inline">EDIT</button>
+          <button class="queue-promote" data-queue-id="${item.id}" title="Promote to agenda">AGENDA</button>
           <button class="queue-move" data-queue-id="${item.id}" title="Move to another session">MOVE</button>
           <button class="queue-delete" data-queue-id="${item.id}" title="Delete">DEL</button>
         </div>
@@ -225,6 +227,28 @@ async function sendToTerminal(text) {
   return true;
 }
 
+// ---- Auto-send first queued prompt to terminal ----
+
+export async function tryAutoSend(sessionId, terminalId) {
+  const settingsManager = await import('./settingsManager.js');
+  if (settingsManager.get('autoSendQueue') !== 'true') return;
+  if (!terminalId) return;
+
+  const items = await db.getQueue(sessionId);
+  if (items.length === 0) return;
+
+  const first = items[0];
+  const { getWs } = await import('./wsClient.js');
+  const ws = getWs();
+  if (!ws || ws.readyState !== 1) return;
+
+  ws.send(JSON.stringify({ type: 'terminal_input', terminalId, data: first.text + '\n' }));
+  await db.del('promptQueue', first.id);
+  loadQueue(sessionId);
+  syncQueueCount(sessionId);
+  if (_showToast) _showToast('AUTO-SENT', 'Queue prompt sent to terminal');
+}
+
 // ---- Move Queue Mode ----
 
 function enterQueueMoveMode(itemIds, sourceSessionId) {
@@ -325,14 +349,55 @@ export function initQueueHandlers() {
     }
   });
 
-  // Delete / Edit / Send / Move queue items (event delegation)
+  // Queue expand modal handlers
+  document.getElementById('queue-expand-close')?.addEventListener('click', () => {
+    document.getElementById('queue-expand-modal')?.classList.add('hidden');
+  });
+  document.getElementById('queue-expand-cancel')?.addEventListener('click', () => {
+    document.getElementById('queue-expand-modal')?.classList.add('hidden');
+  });
+  document.getElementById('queue-expand-modal')?.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) e.currentTarget.classList.add('hidden');
+  });
+  document.getElementById('queue-expand-save')?.addEventListener('click', async () => {
+    const modal = document.getElementById('queue-expand-modal');
+    const textarea = document.getElementById('queue-expand-textarea');
+    const itemId = Number(modal?.dataset.queueId);
+    const sid = _getSelectedSessionId ? _getSelectedSessionId() : null;
+    if (!itemId || !sid) return;
+    const newText = textarea.value.trim();
+    if (newText) {
+      try {
+        const existing = await db.get('promptQueue', itemId);
+        if (existing) {
+          existing.text = newText;
+          await db.put('promptQueue', existing);
+        }
+      } catch (err) {
+        if (_showToast) _showToast('EDIT ERROR', err.message);
+      }
+      loadQueue(sid);
+    }
+    modal.classList.add('hidden');
+  });
+
+  // Delete / Edit / Send / Move / Expand / Promote queue items (event delegation)
   document.getElementById('queue-list')?.addEventListener('click', async (e) => {
     const delBtn = e.target.closest('.queue-delete');
     const editBtn = e.target.closest('.queue-edit');
     const sendBtn = e.target.closest('.queue-send');
     const moveBtn = e.target.closest('.queue-move');
+    const expandBtn = e.target.closest('.queue-expand');
+    const promoteBtn = e.target.closest('.queue-promote');
     const sid = _getSelectedSessionId ? _getSelectedSessionId() : null;
     if (!sid) return;
+
+    if (promoteBtn) {
+      const itemId = Number(promoteBtn.dataset.queueId);
+      const am = await import('./agendaManager.js');
+      am.promoteToAgenda(itemId);
+      return;
+    }
 
     if (sendBtn) {
       const itemId = sendBtn.dataset.queueId;
@@ -400,6 +465,23 @@ export function initQueueHandlers() {
       });
     }
 
+    if (expandBtn) {
+      const itemId = Number(expandBtn.dataset.queueId);
+      try {
+        const existing = await db.get('promptQueue', itemId);
+        if (existing) {
+          const modal = document.getElementById('queue-expand-modal');
+          const textarea = document.getElementById('queue-expand-textarea');
+          modal.dataset.queueId = itemId;
+          textarea.value = existing.text;
+          modal.classList.remove('hidden');
+          textarea.focus();
+        }
+      } catch (err) {
+        if (_showToast) _showToast('ERROR', err.message);
+      }
+    }
+
     if (moveBtn) {
       const itemId = Number(moveBtn.dataset.queueId);
       enterQueueMoveMode([itemId], sid);
@@ -432,6 +514,25 @@ export function initQueueHandlers() {
           syncQueueCount(sid);
         } catch(e) {}
         if (_showToast) _showToast('SENT', 'Prompt dropped into terminal');
+      }
+    }
+  });
+
+  // Ctrl/Cmd+Enter: send first queued prompt to terminal
+  document.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      const sid = _getSelectedSessionId ? _getSelectedSessionId() : null;
+      if (!sid) return;
+      const items = await db.getQueue(sid);
+      if (items.length === 0) return;
+      const first = items[0];
+      const sent = await sendToTerminal(first.text);
+      if (sent) {
+        await db.del('promptQueue', first.id);
+        loadQueue(sid);
+        syncQueueCount(sid);
+        if (_showToast) _showToast('SENT', 'Queue prompt sent to terminal');
       }
     }
   });

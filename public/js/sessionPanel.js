@@ -99,6 +99,7 @@ export const removeTeamCard = sessionCard.removeTeamCard;
 export { deselectSession } from './detailPanel.js';
 export const openSessionDetailFromHistory = detailPanel.openSessionDetailFromHistory;
 export const loadQueue = promptQueue.loadQueue;
+export const tryAutoSend = promptQueue.tryAutoSend;
 export const isMoveModeActive = promptQueue.isMoveModeActive;
 export const exitQueueMoveMode = promptQueue.exitQueueMoveMode;
 export const renderQueueView = promptQueue.renderQueueView;
