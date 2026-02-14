@@ -16,6 +16,11 @@ import { config } from './serverConfig.js';
 import { ensureHooksInstalled } from './hookInstaller.js';
 import { resolvePort, killPortProcess } from './portManager.js';
 import { networkInterfaces } from 'os';
+import {
+  isPasswordEnabled, verifyPassword, createToken, validateToken,
+  removeToken, parseCookieToken, extractToken, authMiddleware,
+  startTokenCleanup, stopTokenCleanup,
+} from './authManager.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -26,10 +31,47 @@ const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
 app.use(express.json({ limit: '10mb' }));
+
+// ── Auth endpoints (no auth required) ──
+app.get('/api/auth/status', (req, res) => {
+  const passwordRequired = isPasswordEnabled();
+  const token = parseCookieToken(req.headers.cookie);
+  const authenticated = passwordRequired ? validateToken(token) : true;
+  res.json({ passwordRequired, authenticated });
+});
+
+app.post('/api/auth/login', (req, res) => {
+  if (!isPasswordEnabled()) {
+    return res.json({ success: true });
+  }
+  const { password } = req.body || {};
+  if (!password || typeof password !== 'string') {
+    return res.status(400).json({ error: 'Password is required' });
+  }
+  if (!verifyPassword(password, config.passwordHash)) {
+    return res.status(401).json({ error: 'Wrong password' });
+  }
+  const token = createToken();
+  res.setHeader('Set-Cookie', `auth_token=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${24 * 60 * 60}`);
+  res.json({ success: true, token });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const token = parseCookieToken(req.headers.cookie);
+  removeToken(token);
+  res.setHeader('Set-Cookie', 'auth_token=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
+  res.json({ success: true });
+});
+
+// ── Static files (always served — login page is part of SPA) ──
 app.use(express.static(join(__dirname, '..', 'public')));
-app.use('/api', apiRouter);
+
+// ── Hook endpoints (no auth — CLI hooks must work without login) ──
 app.use('/api/hooks', hookRateLimitMiddleware, hookRouter);
-app.get('/api/sessions', (req, res) => {
+
+// ── Protected API routes ──
+app.use('/api', authMiddleware, apiRouter);
+app.get('/api/sessions', authMiddleware, (req, res) => {
   log.debug('api', 'GET /api/sessions');
   res.json(getAllSessions());
 });
@@ -45,7 +87,19 @@ if (log.isDebug) {
   });
 }
 
-wss.on('connection', handleConnection);
+// ── WebSocket with auth validation ──
+wss.on('connection', (ws, req) => {
+  if (isPasswordEnabled()) {
+    const token = extractToken(req);
+    if (!validateToken(token)) {
+      log.debug('auth', 'Rejected unauthorized WebSocket connection');
+      ws.close(4001, 'Unauthorized');
+      return;
+    }
+  }
+  handleConnection(ws);
+});
+
 wss.on('error', (err) => {
   log.warn('ws', `WebSocket server error: ${err.message}`);
 });
@@ -92,6 +146,9 @@ function onReady() {
   if (localIP) {
     log.info('server', `Network: http://${localIP}:${PORT}`);
   }
+  if (isPasswordEnabled()) {
+    log.info('server', 'Password protection ENABLED — login required');
+  }
   if (log.isDebug) {
     log.info('server', 'Debug mode ENABLED — verbose logging active');
   }
@@ -107,6 +164,9 @@ function onReady() {
 
   // Start periodic snapshot saving (every 10s)
   startPeriodicSave(getMqOffset);
+
+  // Start auth token cleanup (every hour)
+  startTokenCleanup();
 
   // Open browser after a brief delay (let server fully initialize)
   setTimeout(() => openBrowser(`http://localhost:${PORT}`), 300);
@@ -132,6 +192,7 @@ function gracefulShutdown(signal) {
   stopPeriodicSave();
   stopHeartbeat();
   stopMqReader();
+  stopTokenCleanup();
   // Save final snapshot before exiting
   saveSnapshot(getMqOffset());
   server.close(() => {

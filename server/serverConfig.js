@@ -15,6 +15,7 @@ const DEFAULTS = {
   processCheckInterval: 15000,
   sessionHistoryHours: 24,
   enabledClis: ['claude'],
+  passwordHash: null,
 };
 
 let userConfig = {};

@@ -15,6 +15,22 @@
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0/lib/addon-web-links.js"></script>
 </head>
 <body>
+  <!-- Login Screen (shown when password is required) -->
+  <div id="login-screen" style="display: none;">
+    <div class="login-card">
+      <div class="login-icon">&#129302;</div>
+      <h2>SESSION CENTER</h2>
+      <p class="login-subtitle">Enter password to continue</p>
+      <div id="login-form">
+        <div class="login-field">
+          <input type="password" id="login-password" placeholder="Password" autofocus autocomplete="off">
+        </div>
+        <div id="login-error" class="login-error"></div>
+        <button type="button" class="login-btn" id="login-btn">Unlock</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Header -->
   <header id="header">
     <div class="header-title">
@@ -956,6 +972,10 @@
         <div class="quick-label-input-row">
           <input id="quick-label-input" list="quick-label-suggestions" placeholder="Or type a new label..." autocomplete="off">
           <datalist id="quick-label-suggestions"></datalist>
+        </div>
+        <div class="quick-title-row">
+          <label for="quick-title">Session Title: <span class="ssh-field-hint">(optional)</span></label>
+          <input id="quick-title" type="text" placeholder="Auto-generated if empty" autocomplete="off">
         </div>
         <div class="quick-workdir-row">
           <label for="quick-workdir">Working Directory:</label>
