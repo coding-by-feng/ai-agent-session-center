@@ -231,7 +231,7 @@ async function init() {
       toggleEmptyState(Object.keys(allSessions).length === 0);
 
       // Label completion alerts
-      handleLabelAlerts(session, allSessions, robotManager, removeCard, statsPanel, updateTabTitle, toggleEmptyState);
+      handleLabelAlerts(session);
 
       // SSH sessions persist as disconnected cards; non-SSH auto-remove
       if (session.status === 'ended' && session.source !== 'ssh') {
@@ -370,4 +370,132 @@ function addActivityEntry(session) {
   feed.scrollTop = feed.scrollHeight;
 }
 
-init().catch(console.error);
+// ---- Auth Gate ----
+let authToken = localStorage.getItem('auth_token');
+
+// Intercept all fetch calls to include auth token as Authorization header
+// This is more reliable than cookies (avoids SameSite/HttpOnly issues)
+const _originalFetch = window.fetch.bind(window);
+window.fetch = function(url, options = {}) {
+  if (authToken) {
+    const headers = new Headers(options.headers || {});
+    if (!headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${authToken}`);
+    }
+    options = { ...options, headers };
+  }
+  return _originalFetch(url, options);
+};
+
+// On WS auth failure (code 4001), show login screen without reloading
+// Reloading caused infinite loops; instead just overlay the login screen
+document.addEventListener('ws-auth-failed', () => {
+  authToken = null;
+  localStorage.removeItem('auth_token');
+  showLoginScreen();
+});
+
+function showLoginScreen() {
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('header').style.display = 'none';
+  document.getElementById('main-nav').style.display = 'none';
+  const viewport = document.querySelector('.main-viewport');
+  if (viewport) viewport.style.display = 'none';
+  const detailPanel = document.getElementById('detail-panel');
+  if (detailPanel) detailPanel.style.display = 'none';
+  const activityFeed = document.getElementById('activity-feed');
+  if (activityFeed) activityFeed.style.display = 'none';
+  const passwordInput = document.getElementById('login-password');
+  if (passwordInput) passwordInput.focus();
+}
+
+function hideDashboard() {
+  showLoginScreen();
+}
+
+function showDashboard() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('header').style.display = '';
+  document.getElementById('main-nav').style.display = '';
+  const viewport = document.querySelector('.main-viewport');
+  if (viewport) viewport.style.display = '';
+  const detailPanel = document.getElementById('detail-panel');
+  if (detailPanel) detailPanel.style.display = '';
+  const activityFeed = document.getElementById('activity-feed');
+  if (activityFeed) activityFeed.style.display = '';
+}
+
+export function getAuthToken() {
+  return authToken;
+}
+
+let initDone = false;
+
+async function checkAuthAndInit() {
+  try {
+    const res = await _originalFetch('/api/auth/status');
+    const { passwordRequired, authenticated } = await res.json();
+
+    if (!passwordRequired || authenticated) {
+      showDashboard();
+      if (!initDone) { initDone = true; await init(); }
+      return;
+    }
+
+    // Show login screen
+    showLoginScreen();
+  } catch {
+    // Server unreachable — show login screen (don't blindly init without auth)
+    showLoginScreen();
+  }
+}
+
+// Wire up login handlers (once, not on every auth check)
+const loginBtn = document.getElementById('login-btn');
+const passwordInput = document.getElementById('login-password');
+const errorEl = document.getElementById('login-error');
+
+async function doLogin() {
+  const password = passwordInput.value;
+  if (!password) {
+    errorEl.textContent = 'Please enter a password';
+    return;
+  }
+
+  passwordInput.value = '';
+  loginBtn.disabled = true;
+  errorEl.textContent = '';
+
+  try {
+    const loginRes = await _originalFetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    const data = await loginRes.json();
+
+    if (loginRes.ok && data.success) {
+      if (data.token) {
+        authToken = data.token;
+        localStorage.setItem('auth_token', data.token);
+      }
+
+      showDashboard();
+      if (!initDone) { initDone = true; await init(); }
+    } else {
+      errorEl.textContent = data.error || 'Authentication failed';
+      passwordInput.focus();
+    }
+  } catch {
+    errorEl.textContent = 'Connection error — is the server running?';
+  } finally {
+    loginBtn.disabled = false;
+  }
+}
+
+loginBtn.addEventListener('click', doLogin);
+passwordInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') doLogin();
+});
+
+checkAuthAndInit().catch(console.error);

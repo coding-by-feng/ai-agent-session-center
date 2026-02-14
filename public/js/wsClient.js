@@ -42,7 +42,12 @@ export function getWs() {
 }
 
 function _connect() {
-  ws = new WebSocket(`ws://${window.location.host}`);
+  // Include auth token in WS URL for authentication
+  const token = localStorage.getItem('auth_token');
+  const wsUrl = token
+    ? `ws://${window.location.host}?token=${encodeURIComponent(token)}`
+    : `ws://${window.location.host}`;
+  ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
     reconnectDelay = 1000;
@@ -89,8 +94,17 @@ function _connect() {
     }
   };
 
-  ws.onclose = () => {
+  ws.onclose = (event) => {
     connected = false;
+
+    // 4001 = Unauthorized — stop reconnecting, show login
+    if (event.code === 4001) {
+      debugWarn('[WS] Unauthorized — redirecting to login');
+      localStorage.removeItem('auth_token');
+      document.dispatchEvent(new CustomEvent('ws-auth-failed'));
+      return;
+    }
+
     debugLog(`[WS] Disconnected, reconnecting in ${reconnectDelay}ms`);
     document.dispatchEvent(new CustomEvent('ws-status', { detail: 'disconnected' }));
     reconnectTarget = Date.now() + reconnectDelay;

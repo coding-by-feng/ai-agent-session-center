@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
+import { scryptSync, randomBytes } from 'crypto';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..');
@@ -28,6 +29,7 @@ try {
 
 // ── readline helper ──
 const rl = createInterface({ input: process.stdin, output: process.stdout });
+let rlClosed = false;
 
 function ask(prompt) {
   return new Promise(resolve => rl.question(prompt, resolve));
@@ -54,8 +56,46 @@ async function askValue(stepNum, totalSteps, label, defaultVal) {
   return answer.trim() || String(defaultVal);
 }
 
+// ── Password helper ──
+function hashPassword(password) {
+  const salt = randomBytes(16).toString('hex');
+  const hash = scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+async function askPassword(prompt) {
+  return new Promise((resolve) => {
+    process.stdout.write(prompt);
+    const wasRaw = process.stdin.isRaw;
+    if (process.stdin.isTTY) process.stdin.setRawMode(true);
+    let input = '';
+    const onData = (ch) => {
+      const c = ch.toString();
+      if (c === '\n' || c === '\r') {
+        if (process.stdin.isTTY) process.stdin.setRawMode(wasRaw || false);
+        process.stdin.removeListener('data', onData);
+        process.stdout.write('\n');
+        resolve(input);
+      } else if (c === '\u007f' || c === '\b') {
+        if (input.length > 0) {
+          input = input.slice(0, -1);
+          process.stdout.write('\b \b');
+        }
+      } else if (c === '\u0003') {
+        // Ctrl+C
+        process.exit(1);
+      } else {
+        input += c;
+        process.stdout.write('*');
+      }
+    };
+    process.stdin.resume();
+    process.stdin.on('data', onData);
+  });
+}
+
 // ── Main ──
-const TOTAL = 5;
+const TOTAL = 6;
 
 console.log(`\n${CYAN}╭──────────────────────────────────────────────╮${RESET}`);
 console.log(`${CYAN}│${RESET}  ${BOLD}AI Agent Session Center — Setup Wizard${RESET}        ${CYAN}│${RESET}`);
@@ -113,7 +153,61 @@ const historyOptions = [
 const currentHistIdx = historyOptions.findIndex(o => o.value === (existing.sessionHistoryHours || 24));
 const history = await choose(5, TOTAL, 'Session history retention', historyOptions, currentHistIdx >= 0 ? currentHistIdx : 1);
 
-rl.close();
+// 6. Dashboard password
+const hasExistingPassword = Boolean(existing.passwordHash);
+let passwordHash = null;
+
+if (hasExistingPassword) {
+  const pwOptions = [
+    { label: `Keep current password`, value: 'keep' },
+    { label: `Change password`, value: 'change' },
+    { label: `Remove password ${DIM}— no login required${RESET}`, value: 'remove' },
+  ];
+  const pwChoice = await choose(6, TOTAL, 'Dashboard password', pwOptions, 0);
+  if (pwChoice.value === 'keep') {
+    passwordHash = existing.passwordHash;
+  } else if (pwChoice.value === 'change') {
+    rl.close(); rlClosed = true;
+    const pw = await askPassword(`  ${DIM}New password:${RESET} `);
+    if (pw.length < 4) {
+      console.log(`  ${RED}✗ Password must be at least 4 characters${RESET}`);
+      process.exit(1);
+    }
+    const confirm = await askPassword(`  ${DIM}Confirm password:${RESET} `);
+    if (pw !== confirm) {
+      console.log(`  ${RED}✗ Passwords do not match${RESET}`);
+      process.exit(1);
+    }
+    passwordHash = hashPassword(pw);
+    ok('Password updated');
+  } else {
+    passwordHash = null;
+    ok('Password removed — no login required');
+  }
+} else {
+  const pwOptions = [
+    { label: `No password ${DIM}— open access on localhost${RESET}`, value: 'none' },
+    { label: `Set a password ${DIM}— require login${RESET}`, value: 'set' },
+  ];
+  const pwChoice = await choose(6, TOTAL, 'Dashboard password (optional)', pwOptions, 0);
+  if (pwChoice.value === 'set') {
+    rl.close(); rlClosed = true;
+    const pw = await askPassword(`  ${DIM}Enter password:${RESET} `);
+    if (pw.length < 4) {
+      console.log(`  ${RED}✗ Password must be at least 4 characters${RESET}`);
+      process.exit(1);
+    }
+    const confirm = await askPassword(`  ${DIM}Confirm password:${RESET} `);
+    if (pw !== confirm) {
+      console.log(`  ${RED}✗ Passwords do not match${RESET}`);
+      process.exit(1);
+    }
+    passwordHash = hashPassword(pw);
+    ok('Password set — login will be required');
+  }
+}
+
+if (!rlClosed) { rl.close(); rlClosed = true; }
 
 // ── Save config ──
 const configData = {
@@ -122,6 +216,7 @@ const configData = {
   hookDensity: density.value,
   debug: debug.value,
   sessionHistoryHours: history.value,
+  ...(passwordHash ? { passwordHash } : {}),
 };
 
 const dataDir = join(PROJECT_ROOT, 'data');
@@ -136,6 +231,7 @@ info(`Enabled CLIs: ${BOLD}${configData.enabledClis.join(', ')}${RESET}`);
 info(`Hook density: ${BOLD}${configData.hookDensity}${RESET}`);
 info(`Debug: ${BOLD}${configData.debug ? 'ON' : 'OFF'}${RESET}`);
 info(`History retention: ${BOLD}${configData.sessionHistoryHours}h${RESET}`);
+info(`Password: ${BOLD}${configData.passwordHash ? 'Enabled' : 'Disabled'}${RESET}`);
 
 // ── Install hooks with chosen density ──
 console.log('');
@@ -154,3 +250,6 @@ console.log(`  ${GREEN}✓ Setup complete!${RESET}`);
 console.log(`${GREEN}────────────────────────────────────────────────${RESET}`);
 console.log(`\n  Starting server on port ${BOLD}${configData.port}${RESET}...`);
 console.log(`  Browser will open automatically.\n`);
+
+// Explicit exit — askPassword's process.stdin.resume() keeps the event loop alive
+process.exit(0);
