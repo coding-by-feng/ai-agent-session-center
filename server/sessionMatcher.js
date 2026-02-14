@@ -5,7 +5,7 @@
  * Priorities: pendingResume > agent_terminal_id > workDir link > path scan > PID fallback.
  * Also detects hook source (terminal type) from environment variables.
  */
-import { tryLinkByWorkDir, getTerminalByPtyChild } from './sshManager.js';
+import { tryLinkByWorkDir, getTerminalByPtyChild, consumePendingLink } from './sshManager.js';
 import { EVENT_TYPES, SESSION_STATUS, ANIMATION_STATE, EMOTE } from './constants.js';
 import log from './logger.js';
 
@@ -41,8 +41,15 @@ export function detectHookSource(hookData) {
  * @param {string} oldSessionId
  * @returns {import('../types/session').Session}
  */
-export function reKeyResumedSession(sessions, oldSession, newSessionId, oldSessionId) {
+export function reKeyResumedSession(sessions, oldSession, newSessionId, oldSessionId, pidToSession) {
   sessions.delete(oldSessionId);
+
+  // Clear stale PID mapping — next hook will re-cache with the new session ID
+  if (pidToSession && oldSession.cachedPid) {
+    pidToSession.delete(oldSession.cachedPid);
+    oldSession.cachedPid = null;
+  }
+
   oldSession.replacesId = oldSessionId;
   oldSession.sessionId = newSessionId;
   oldSession.status = SESSION_STATUS.IDLE;
@@ -71,8 +78,8 @@ export function reKeyResumedSession(sessions, oldSession, newSessionId, oldSessi
  * @param {string|null} terminalId
  * @returns {import('../types/session').Session}
  */
-function createDefaultSession(session_id, cwd, hookData, source, terminalId) {
-  return {
+function createDefaultSession(session_id, cwd, hookData, source, terminalId, sshConfig) {
+  const session = {
     sessionId: session_id,
     projectPath: cwd || '',
     projectName: cwd ? cwd.split('/').filter(Boolean).pop() : 'Unknown',
@@ -99,6 +106,33 @@ function createDefaultSession(session_id, cwd, hookData, source, terminalId) {
     queueCount: 0,
     terminalId: terminalId || null,
   };
+  if (sshConfig) session.sshConfig = { ...sshConfig };
+  return session;
+}
+
+/**
+ * Find the sshConfig from any existing session that shares the given terminalId or projectPath.
+ * Used to propagate SSH config when creating new sessions in already-known SSH terminals.
+ */
+function findSshConfig(sessions, terminalId, cwd) {
+  // Prefer exact terminal match first
+  if (terminalId) {
+    for (const s of sessions.values()) {
+      if (s.sshConfig && (s.terminalId === terminalId || s.lastTerminalId === terminalId)) {
+        return s.sshConfig;
+      }
+    }
+  }
+  // Fallback: match by projectPath + source=ssh
+  if (cwd) {
+    const normalizedCwd = cwd.replace(/\/$/, '');
+    for (const s of sessions.values()) {
+      if (s.sshConfig && s.source === 'ssh' && s.projectPath?.replace(/\/$/, '') === normalizedCwd) {
+        return s.sshConfig;
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -145,7 +179,7 @@ export function matchSession(hookData, sessions, pendingResume, pidToSession, pr
       pendingResume.delete(termId);
       const oldSession = sessions.get(pending.oldSessionId);
       if (oldSession) {
-        session = reKeyResumedSession(sessions, oldSession, session_id, pending.oldSessionId);
+        session = reKeyResumedSession(sessions, oldSession, session_id, pending.oldSessionId, pidToSession);
         log.info('session', `RESUME: Re-keyed session ${pending.oldSessionId?.slice(0,8)} → ${session_id?.slice(0,8)} (via pending resume + terminal ID)`);
       }
     }
@@ -158,12 +192,54 @@ export function matchSession(hookData, sessions, pendingResume, pidToSession, pr
           const normalizedCwd = (cwd || '').replace(/\/$/, '');
           if (normalizedSessionPath === normalizedCwd) {
             pendingResume.delete(pTermId);
-            session = reKeyResumedSession(sessions, oldSession, session_id, pending.oldSessionId);
+            session = reKeyResumedSession(sessions, oldSession, session_id, pending.oldSessionId, pidToSession);
             log.info('session', `RESUME: Re-keyed session ${pending.oldSessionId?.slice(0,8)} → ${session_id?.slice(0,8)} (via pending resume + workDir match)`);
             break;
           }
         }
       }
+    }
+    // Clean up stale pendingLinks from sshManager.createTerminal() so they
+    // don't create a duplicate session at Priority 2
+    if (session && session.projectPath) {
+      consumePendingLink(session.projectPath);
+    }
+  }
+
+  // Priority 0.5: Auto-link to snapshot-restored ended session by projectPath.
+  // After server restart, sessions with dead PIDs are marked ended with a
+  // 'ServerRestart' event.  When `claude --resume` sends a SessionStart with
+  // a NEW session_id in the same directory, re-key the old card instead of
+  // creating a duplicate.  Picks the most recently ended session to avoid
+  // re-keying the wrong card when multiple sessions share the same directory.
+  if (!session && hook_event_name === EVENT_TYPES.SESSION_START && cwd) {
+    const normalizedCwd = cwd.replace(/\/$/, '');
+    let bestMatch = null;
+    let bestEndedAt = 0;
+    for (const [oldId, s] of sessions) {
+      if (s.projectPath?.replace(/\/$/, '') !== normalizedCwd) continue;
+      // Match 1: Ended sessions with ServerRestart event (standard post-restart case)
+      if (s.status === SESSION_STATUS.ENDED
+          && s.events?.some(e => e.type === 'ServerRestart')
+          && (Date.now() - (s.endedAt || 0)) < 30 * 60 * 1000
+          && (s.endedAt || 0) > bestEndedAt) {
+        bestMatch = { oldId, s };
+        bestEndedAt = s.endedAt || 0;
+      }
+      // Match 2: Safety net — zombie SSH sessions that slipped through cleanup
+      // (non-ended, source=ssh, no terminalId, stale for >60s)
+      if (!bestMatch
+          && s.source === 'ssh'
+          && s.status !== SESSION_STATUS.ENDED
+          && !s.terminalId
+          && s.lastActivityAt && (Date.now() - s.lastActivityAt) > 60_000) {
+        bestMatch = { oldId, s };
+        bestEndedAt = s.lastActivityAt || 0;
+      }
+    }
+    if (bestMatch) {
+      session = reKeyResumedSession(sessions, bestMatch.s, session_id, bestMatch.oldId, pidToSession);
+      log.info('session', `AUTO-RESUME: Re-keyed ${bestMatch.oldId?.slice(0,8)} → ${session_id?.slice(0,8)} (snapshot restore + projectPath match)`);
     }
   }
 
@@ -184,8 +260,8 @@ export function matchSession(hookData, sessions, pendingResume, pidToSession, pr
   if (!session) {
     const linkedTerminalId = tryLinkByWorkDir(cwd || '', session_id);
     if (linkedTerminalId) {
-      // Check if there's a pre-created terminal session with this terminalId
-      const preSession = sessions.get(linkedTerminalId);
+      // Check if there's a pre-created terminal session with this terminalId as its key
+      let preSession = sessions.get(linkedTerminalId);
       if (preSession) {
         sessions.delete(linkedTerminalId);
         preSession.sessionId = session_id;
@@ -193,9 +269,26 @@ export function matchSession(hookData, sessions, pendingResume, pidToSession, pr
         session = preSession;
         sessions.set(session_id, session);
         log.info('session', `Re-keyed terminal session ${linkedTerminalId} → ${session_id?.slice(0,8)} (via workDir link)`);
-      } else {
+      }
+      // Fallback: scan for a session that owns this terminal (resume case —
+      // reconnectSessionTerminal keeps the session under its old ID, not the terminal ID)
+      if (!session) {
+        for (const [key, s] of sessions) {
+          if (s.terminalId === linkedTerminalId) {
+            sessions.delete(key);
+            s.sessionId = session_id;
+            s.replacesId = key;
+            session = s;
+            sessions.set(session_id, session);
+            log.info('session', `Re-keyed resumed session ${key?.slice(0,8)} → ${session_id?.slice(0,8)} (via workDir link + terminalId scan)`);
+            break;
+          }
+        }
+      }
+      if (!session) {
         log.info('session', `NEW SSH SESSION ${session_id?.slice(0,8)} — terminal=${linkedTerminalId}`);
-        session = createDefaultSession(session_id, cwd, hookData, 'ssh', linkedTerminalId);
+        const inheritedConfig = findSshConfig(sessions, linkedTerminalId, cwd);
+        session = createDefaultSession(session_id, cwd, hookData, 'ssh', linkedTerminalId, inheritedConfig);
         sessions.set(session_id, session);
       }
     } else {
@@ -237,7 +330,8 @@ export function matchSession(hookData, sessions, pendingResume, pidToSession, pr
         // No SSH terminal match — create a display-only card with detected source
         const detectedSource = detectHookSource(hookData);
         log.info('session', `Creating display-only session ${session_id?.slice(0,8)} source=${detectedSource} cwd=${cwd}`);
-        session = createDefaultSession(session_id, cwd, hookData, detectedSource, null);
+        const inheritedConfig = findSshConfig(sessions, hookData.agent_terminal_id, cwd);
+        session = createDefaultSession(session_id, cwd, hookData, inheritedConfig ? 'ssh' : detectedSource, hookData.agent_terminal_id || null, inheritedConfig);
         sessions.set(session_id, session);
       }
     }

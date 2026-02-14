@@ -41,10 +41,13 @@ export const STORAGE_KEYS = {
   SESSION_GROUPS: 'session-groups',
   SESSION_LABELS: 'sessionLabels',
   LAST_SESSION: 'lastSession',
+  SELECTED_SESSION: 'selected-session',
+  ACTIVE_TAB: 'active-tab',
   DETAIL_PANEL_WIDTH: 'detail-panel-width',
   DASHBOARD_LAYOUT: 'dashboard-layout',
   GROUPS_SEEDED: 'groups-seeded',
   WORKDIR_HISTORY: 'workdir-history',
+  LAST_USED_GROUP: 'last-used-group',
   DEBUG: 'debug',
 };
 
@@ -56,21 +59,6 @@ export const HOOK_EVENTS = {
   STOP: 'Stop',
   SESSION_END: 'SessionEnd',
 };
-
-export const AGENDA_PRIORITY = {
-  P0: 'P0',
-  P1: 'P1',
-  P2: 'P2',
-};
-
-export const AGENDA_STATUS = {
-  TODO: 'todo',
-  IN_PROGRESS: 'in-progress',
-  DONE: 'done',
-  BLOCKED: 'blocked',
-};
-
-export const AGENDA_TAGS = ['feature', 'bug', 'refactor', 'research', 'docs', 'test'];
 
 export const TOOL_SOUND_MAP = {
   Read: 'toolRead',

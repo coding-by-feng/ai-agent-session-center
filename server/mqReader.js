@@ -88,7 +88,20 @@ export function startMqReader(options) {
   }
   partialLine = '';
 
+  // Initialize lastKnownFileSize so the health check doesn't false-alarm
+  // on the first tick (file already has data from before the reader started).
+  try {
+    const initFd = openSync(QUEUE_FILE, 'r');
+    lastKnownFileSize = fstatSync(initFd).size;
+    closeSync(initFd);
+  } catch {
+    lastKnownFileSize = 0;
+  }
+
   log.info('mq', `Queue reader started: ${QUEUE_FILE}`);
+
+  // Do an immediate read to process any events written while the server was down
+  readNewLines();
 
   // Start fs.watch for instant notification
   try {

@@ -1,5 +1,5 @@
 import * as robotManager from './robotManager.js';
-import { createOrUpdateCard, removeCard, updateDurations, showToast, getSelectedSessionId, setSelectedSessionId, deselectSession, archiveAllEnded, isMuted, toggleMuteAll, initGroups, createOrUpdateTeamCard, removeTeamCard, getTeamsData, getSessionsData, loadQueue, tryAutoSend, pinSession, isMoveModeActive, exitQueueMoveMode, renderQueueView, initQueueView } from './sessionPanel.js';
+import { createOrUpdateCard, removeCard, updateDurations, showToast, getSelectedSessionId, setSelectedSessionId, deselectSession, archiveAllEnded, isMuted, toggleMuteAll, initGroups, updateTeamData, getTeamsData, getSessionsData, loadQueue, tryAutoSend, pinSession, isMoveModeActive, exitQueueMoveMode, renderQueueView, initQueueView, restoreSelection } from './sessionPanel.js';
 import * as statsPanel from './statsPanel.js';
 import * as wsClient from './wsClient.js';
 import * as navController from './navController.js';
@@ -10,14 +10,14 @@ import * as settingsManager from './settingsManager.js';
 import * as soundManager from './soundManager.js';
 import * as movementManager from './movementManager.js';
 import * as terminalManager from './terminalManager.js';
-import { openDB, persistSessionUpdate, put, del, getAll, clear, getQueue } from './browserDb.js';
+import { openDB, persistSessionUpdate, put, del, getAll, clear, getQueue, migrateSessionId } from './browserDb.js';
 import { escapeHtml as utilEscapeHtml, debugLog, debugWarn } from './utils.js';
 import { initKeyboardShortcuts } from './keyboardShortcuts.js';
 import { initQuickActions, initShortcutsPanel } from './quickActions.js';
 import { handleEventSounds, checkAlarms, handleLabelAlerts, clearAlarm } from './alarmManager.js';
-import * as agendaManager from './agendaManager.js';
 
 let allSessions = {};
+let hasRestoredSelection = false;
 
 // Sync all queue counts from IndexedDB to server after WS snapshot
 async function syncAllQueueCounts(sessionIds) {
@@ -168,7 +168,7 @@ async function init() {
       }
       if (teams) {
         for (const team of Object.values(teams)) {
-          createOrUpdateTeamCard(team);
+          updateTeamData(team);
           put('teams', team).catch(() => {});
         }
       }
@@ -176,6 +176,13 @@ async function init() {
       updateTabTitle(allSessions);
       toggleEmptyState(Object.keys(allSessions).length === 0);
       syncAllQueueCounts(Object.keys(sessions));
+
+      // Restore previously selected session + terminal tab after page refresh
+      // Only on the first snapshot (page load); WS reconnects use setWs() instead.
+      if (!hasRestoredSelection) {
+        hasRestoredSelection = true;
+        restoreSelection();
+      }
     },
     onSessionUpdateCb(session, team) {
       if (session.replacesId) {
@@ -184,6 +191,9 @@ async function init() {
         delete allSessions[session.replacesId];
         removeCard(session.replacesId);
         robotManager.removeRobot(session.replacesId);
+        // Migrate all child records (prompts, toolCalls, notes, queue, etc.)
+        // to the new session ID before deleting the old session record
+        migrateSessionId(session.replacesId, session.sessionId).catch(() => {});
         del('sessions', session.replacesId).catch(() => {});
       }
       const prevSession = allSessions[session.sessionId];
@@ -203,10 +213,7 @@ async function init() {
       }
 
       if (team) {
-        createOrUpdateTeamCard(team);
-      } else if (session.teamId) {
-        const existingTeam = getTeamsData().get(session.teamId);
-        if (existingTeam) createOrUpdateTeamCard(existingTeam);
+        updateTeamData(team);
       }
 
       // Event sounds and movement triggers
@@ -249,15 +256,7 @@ async function init() {
     },
     onTeamUpdateCb(team) {
       if (team) {
-        createOrUpdateTeamCard(team);
-        const allIds = [team.parentSessionId, ...(team.childSessionIds || [])];
-        const allEnded = allIds.every(sid => {
-          const s = allSessions[sid];
-          return !s || s.status === 'ended';
-        });
-        if (allEnded) {
-          setTimeout(() => removeTeamCard(team.teamId), 3000);
-        }
+        updateTeamData(team);
       }
     },
     onHookStatsCb(stats) {
@@ -303,35 +302,9 @@ async function init() {
   navController.onViewChange('timeline', () => timelinePanel.refresh());
   navController.onViewChange('analytics', () => analyticsPanel.refresh());
   navController.onViewChange('queue', () => {
-    // Render whichever sub-tab is active
-    const activeTab = document.querySelector('.qa-tab.active');
-    if (activeTab?.dataset.qaTab === 'agenda') {
-      agendaManager.renderAgendaView();
-    } else {
-      renderQueueView();
-    }
+    renderQueueView();
   });
   initQueueView();
-
-  // Initialize agenda
-  agendaManager.initDeps({ showToast, getSelectedSessionId, getSessionsData });
-  agendaManager.initAgenda();
-
-  // Agenda/Queue sub-tab switching
-  document.querySelector('.queue-agenda-tabs')?.addEventListener('click', (e) => {
-    const tab = e.target.closest('.qa-tab');
-    if (!tab) return;
-    const tabName = tab.dataset.qaTab;
-    document.querySelectorAll('.qa-tab').forEach(t => t.classList.toggle('active', t === tab));
-    document.querySelectorAll('.qa-tab-content').forEach(tc => {
-      tc.classList.toggle('active', tc.id === `qa-tab-${tabName}`);
-    });
-    if (tabName === 'agenda') {
-      agendaManager.renderAgendaView();
-    } else {
-      renderQueueView();
-    }
-  });
 
   // Handle card dismiss
   document.addEventListener('card-dismissed', (e) => {

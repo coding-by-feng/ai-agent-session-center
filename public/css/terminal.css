@@ -432,6 +432,105 @@ body.move-mode .session-card.move-source {
 }
 
 /* Terminal reconnect button */
+/* ESC button + hint wrapper */
+.terminal-esc-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+}
+
+/* Hint "?" badge */
+.terminal-esc-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: inherit;
+  color: rgba(255, 183, 77, 0.5);
+  background: transparent;
+  border: 1px solid rgba(255, 183, 77, 0.25);
+  border-radius: 50%;
+  cursor: pointer;
+  margin-left: 2px;
+  flex-shrink: 0;
+  padding: 0;
+  transition: all 0.2s;
+}
+.terminal-esc-hint:hover {
+  color: var(--accent-orange, #ffb74d);
+  border-color: var(--accent-orange, #ffb74d);
+  background: rgba(255, 183, 77, 0.1);
+}
+
+/* Click-to-show tooltip */
+.terminal-esc-tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 220px;
+  padding: 10px 12px;
+  background: var(--bg-secondary, #1a1a2e);
+  border: 1px solid rgba(255, 183, 77, 0.3);
+  border-radius: 6px;
+  color: var(--text-secondary, #b0b0b0);
+  font-size: 11px;
+  line-height: 1.5;
+  z-index: 100;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  pointer-events: auto;
+}
+.terminal-esc-tooltip::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  background: var(--bg-secondary, #1a1a2e);
+  border-top: 1px solid rgba(255, 183, 77, 0.3);
+  border-left: 1px solid rgba(255, 183, 77, 0.3);
+  transform: rotate(45deg);
+}
+.terminal-esc-tooltip kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-family: inherit;
+  color: var(--accent-orange, #ffb74d);
+  background: rgba(255, 183, 77, 0.1);
+  border: 1px solid rgba(255, 183, 77, 0.3);
+  border-radius: 3px;
+}
+.terminal-esc-tooltip b {
+  color: var(--accent-orange, #ffb74d);
+}
+.terminal-esc-tooltip.hidden {
+  display: none;
+}
+
+/* Send Escape key button */
+.terminal-send-esc-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 183, 77, 0.4);
+  color: var(--accent-orange, #ffb74d);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 2px 10px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.2s;
+}
+.terminal-send-esc-btn:hover {
+  background: rgba(255, 183, 77, 0.15);
+  border-color: var(--accent-orange, #ffb74d);
+}
+
 .terminal-reconnect-btn {
   background: transparent;
   border: 1px solid rgba(0, 229, 255, 0.3);
@@ -695,6 +794,7 @@ body.move-mode .session-card.move-source {
   .terminal-theme-select,
   .terminal-fullscreen-btn,
   .terminal-reconnect-btn,
+  .terminal-send-esc-btn,
   .ctrl-btn.terminal,
   .ctrl-btn.resume {
     min-height: 44px;
