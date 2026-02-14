@@ -393,6 +393,22 @@ body[data-effect-approval="none"] .css-robot[data-status="approval"]::after {
   display: none !important;
 }
 
+/* ---------- WAITING (TASK COMPLETE) BOUNCE ---------- */
+/* Persistent bounce until user clicks the session card to check */
+.css-robot[data-status="waiting"]:not([data-checked]) .robot-body-wrap {
+  animation: waiting-bounce calc(0.5s * var(--anim-speed, 1)) ease-in-out infinite !important;
+}
+@keyframes waiting-bounce {
+  0%, 100% { transform: translateY(0) scaleY(1); }
+  30%      { transform: translateY(calc(-14px * var(--anim-intensity, 1))) scaleY(1.08); }
+  70%      { transform: translateY(0) scaleY(0.92); }
+}
+
+/* Stop bounce once user has checked the session */
+.css-robot[data-status="waiting"][data-checked] .robot-body-wrap {
+  animation: none !important;
+}
+
 /* ---------- ENDED EFFECTS ---------- */
 
 /* ended: fade (default — already handled by base CSS opacity: 0.5) */

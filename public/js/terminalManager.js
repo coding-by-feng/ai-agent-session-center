@@ -472,6 +472,13 @@ export function focusTerminal() {
   return true;
 }
 
+/** Send \x1b (Escape) to the active terminal and refocus it */
+export function sendEscape() {
+  if (!activeTerminal || !ws || ws.readyState !== 1) return;
+  ws.send(JSON.stringify({ type: 'terminal_input', terminalId: activeTerminal.terminalId, data: '\x1b' }));
+  activeTerminal.term.focus();
+}
+
 /**
  * Refit terminal to its container and force a full canvas repaint.
  * Uses the same cols±1 resize cycle as forceCanvasRepaint() to guarantee
@@ -546,12 +553,17 @@ export function exitFullscreen() {
 
   // Move the .xterm element back to inline container
   if (activeTerminal) {
+    // Save scroll position before DOM move (appendChild triggers auto-scroll)
+    const tabTerminal = document.getElementById('tab-terminal');
+    const savedScrollTop = tabTerminal ? tabTerminal.scrollTop : 0;
+
     const xtermEl = activeTerminal.term.element;
     if (xtermEl) {
       inlineContainer.appendChild(xtermEl);
     }
-    // Refit after DOM move
+    // Refit after DOM move and restore scroll position
     requestAnimationFrame(() => {
+      if (tabTerminal) tabTerminal.scrollTop = savedScrollTop;
       if (activeTerminal && activeTerminal.fitAddon) {
         activeTerminal.fitAddon.fit();
         sendResize(activeTerminal.terminalId, activeTerminal.term.cols, activeTerminal.term.rows);
@@ -592,12 +604,33 @@ document.addEventListener('DOMContentLoaded', () => {
   const exitBtn = document.getElementById('terminal-fullscreen-exit');
   if (exitBtn) exitBtn.addEventListener('click', () => exitFullscreen());
 
+  // Send Escape button — sends \x1b to the active terminal and refocuses it
+  const escBtn = document.getElementById('terminal-send-esc-btn');
+  if (escBtn) escBtn.addEventListener('click', () => sendEscape());
+
+  // ESC hint tooltip — toggle on click, dismiss on click outside
+  const escHintBtn = document.getElementById('terminal-esc-hint-btn');
+  const escTooltip = document.getElementById('terminal-esc-tooltip');
+  if (escHintBtn && escTooltip) {
+    escHintBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      escTooltip.classList.toggle('hidden');
+    });
+    document.addEventListener('click', () => escTooltip.classList.add('hidden'));
+  }
+
   // Refresh button: enter fullscreen then exit after a short delay to force repaint
   const refreshBtn = document.getElementById('terminal-refresh-btn');
   if (refreshBtn) refreshBtn.addEventListener('click', () => {
     if (!activeTerminal) return;
     enterFullscreen();
-    setTimeout(() => exitFullscreen(), 300);
+    setTimeout(() => {
+      exitFullscreen();
+      // Scroll terminal to bottom so the latest output is visible
+      requestAnimationFrame(() => {
+        if (activeTerminal) activeTerminal.term.scrollToBottom();
+      });
+    }, 300);
   });
 
   // Theme selector

@@ -381,7 +381,7 @@ export function initControlHandlers() {
     if (!sid) return;
     const sessionsData = _getSessionsData ? _getSessionsData() : new Map();
     const session = sessionsData.get(sid);
-    if (!session || session.status !== 'ended' || session.source !== 'ssh') {
+    if (!session || session.status !== 'ended') {
       if (_showToast) _showToast('RESUME', 'Session cannot be resumed');
       return;
     }
@@ -395,7 +395,7 @@ export function initControlHandlers() {
       });
       const data = await resp.json();
       if (data.ok) {
-        if (_showToast) _showToast('RESUMING', 'Sending claude --resume to terminal');
+        if (_showToast) _showToast('RESUMING', 'Resuming Claude session in terminal');
         const termTab = document.querySelector('.detail-tabs .tab[data-tab="terminal"]');
         if (termTab) termTab.click();
       } else {

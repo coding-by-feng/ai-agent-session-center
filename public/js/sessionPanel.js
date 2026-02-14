@@ -72,6 +72,8 @@ sessionCard.initDeps({
   showCardGroupDropdown: sessionGroups.showCardGroupDropdown,
   isMoveModeActive: promptQueue.isMoveModeActive,
   completeQueueMove: promptQueue.completeQueueMove,
+  getLastUsedGroupId: sessionGroups.getLastUsedGroupId,
+  assignSessionToGroupAndMove: sessionGroups.assignSessionToGroupAndMove,
 });
 
 // ---- Initialize event handlers (module-level code that was in the original) ----
@@ -94,9 +96,9 @@ export const isMuted = sessionCard.isMuted;
 export const toggleMuteAll = sessionCard.toggleMuteAll;
 export const pinSession = sessionCard.pinSession;
 export const archiveAllEnded = sessionCard.archiveAllEnded;
-export const createOrUpdateTeamCard = sessionCard.createOrUpdateTeamCard;
-export const removeTeamCard = sessionCard.removeTeamCard;
+export const updateTeamData = sessionCard.updateTeamData;
 export { deselectSession } from './detailPanel.js';
+export const restoreSelection = detailPanel.restoreSelection;
 export const openSessionDetailFromHistory = detailPanel.openSessionDetailFromHistory;
 export const loadQueue = promptQueue.loadQueue;
 export const tryAutoSend = promptQueue.tryAutoSend;

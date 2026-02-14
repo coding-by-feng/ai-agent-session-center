@@ -171,6 +171,7 @@ export function createTerminal(config, wsClient) {
     const terminalId = `term-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const workDir = resolveWorkDir(config.workingDir);
     const command = config.command || 'claude';
+    const skipAutoLaunch = config.command === '';
     const local = isLocal(config.host);
 
     try {
@@ -253,40 +254,44 @@ export function createTerminal(config, wsClient) {
       // API keys are passed via env object to pty.spawn (above), not via shell commands.
       // For remote SSH sessions, we export the env var in the shell since env doesn't
       // propagate across SSH.
-      setTimeout(() => {
-        let launchCmd;
+      // When skipAutoLaunch is true, the caller will write the command itself
+      // (e.g., resume with || fallback that contains shell metacharacters).
+      if (!skipAutoLaunch) {
+        setTimeout(() => {
+          let launchCmd;
 
-        if (config.tmuxSession) {
-          // Attach to existing tmux session (validated above as alphanumeric+dash+underscore+dot)
-          launchCmd = `tmux attach -t '${shellEscapeSingleQuote(config.tmuxSession)}'`;
-        } else if (config.useTmux) {
-          // Wrap command in a new tmux session
-          const tmuxName = `claude-${Date.now().toString(36)}`;
-          let innerCmd = local ? '' : `cd '${shellEscapeSingleQuote(workDir)}' && `;
-          if (!local && config.apiKey) {
-            const envVar = command.startsWith('codex') ? 'OPENAI_API_KEY'
-              : command.startsWith('gemini') ? 'GEMINI_API_KEY'
-              : 'ANTHROPIC_API_KEY';
-            innerCmd += `export ${envVar}='${shellEscapeSingleQuote(config.apiKey)}' && `;
-          }
-          innerCmd += command;
-          launchCmd = `tmux new-session -s '${tmuxName}' '${shellEscapeSingleQuote(innerCmd)}'`;
-        } else {
-          // Direct launch
-          launchCmd = local ? '' : `cd '${shellEscapeSingleQuote(workDir)}'`;
-          if (!local && config.apiKey) {
+          if (config.tmuxSession) {
+            // Attach to existing tmux session (validated above as alphanumeric+dash+underscore+dot)
+            launchCmd = `tmux attach -t '${shellEscapeSingleQuote(config.tmuxSession)}'`;
+          } else if (config.useTmux) {
+            // Wrap command in a new tmux session
+            const tmuxName = `claude-${Date.now().toString(36)}`;
+            let innerCmd = local ? '' : `cd '${shellEscapeSingleQuote(workDir)}' && `;
+            if (!local && config.apiKey) {
+              const envVar = command.startsWith('codex') ? 'OPENAI_API_KEY'
+                : command.startsWith('gemini') ? 'GEMINI_API_KEY'
+                : 'ANTHROPIC_API_KEY';
+              innerCmd += `export ${envVar}='${shellEscapeSingleQuote(config.apiKey)}' && `;
+            }
+            innerCmd += command;
+            launchCmd = `tmux new-session -s '${tmuxName}' '${shellEscapeSingleQuote(innerCmd)}'`;
+          } else {
+            // Direct launch
+            launchCmd = local ? '' : `cd '${shellEscapeSingleQuote(workDir)}'`;
+            if (!local && config.apiKey) {
+              if (launchCmd) launchCmd += ' && ';
+              const envVar = command.startsWith('codex') ? 'OPENAI_API_KEY'
+                : command.startsWith('gemini') ? 'GEMINI_API_KEY'
+                : 'ANTHROPIC_API_KEY';
+              launchCmd += `export ${envVar}='${shellEscapeSingleQuote(config.apiKey)}'`;
+            }
             if (launchCmd) launchCmd += ' && ';
-            const envVar = command.startsWith('codex') ? 'OPENAI_API_KEY'
-              : command.startsWith('gemini') ? 'GEMINI_API_KEY'
-              : 'ANTHROPIC_API_KEY';
-            launchCmd += `export ${envVar}='${shellEscapeSingleQuote(config.apiKey)}'`;
+            launchCmd += command;
           }
-          if (launchCmd) launchCmd += ' && ';
-          launchCmd += command;
-        }
 
-        ptyProcess.write(launchCmd + '\r');
-      }, local ? 100 : 500);
+          ptyProcess.write(launchCmd + '\r');
+        }, local ? 100 : 500);
+      }
 
       // Notify client terminal is ready
       if (wsClient && wsClient.readyState === 1) {
@@ -451,6 +456,24 @@ export function tryLinkByWorkDir(workDir, sessionId) {
     }
   }
   return null;
+}
+
+/**
+ * Consume (remove) a pending link for a given workDir.
+ * Called after Priority 0 resume match to prevent stale links from
+ * creating duplicate sessions at Priority 2.
+ * @param {string} workDir
+ */
+export function consumePendingLink(workDir) {
+  if (!workDir) return;
+  if (pendingLinks.delete(workDir)) return;
+  const normalized = workDir.replace(/\/$/, '');
+  for (const [dir] of pendingLinks) {
+    if (dir.replace(/\/$/, '') === normalized) {
+      pendingLinks.delete(dir);
+      return;
+    }
+  }
 }
 
 export function getTerminalForSession(sessionId) {

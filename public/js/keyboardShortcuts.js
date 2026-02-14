@@ -1,11 +1,28 @@
 /**
  * @module keyboardShortcuts
- * Global keyboard shortcut handlers. Maps keys to actions: / (search), Escape (close modals/panel),
+ * Global keyboard shortcut handlers. Maps keys to actions: / (search), Escape (send to terminal),
  * ? (shortcuts help), S (settings), K (kill), A (archive), T (new session), M (mute all).
  */
 import { getSelectedSessionId } from './sessionPanel.js';
+import { sendEscape as terminalSendEscape } from './terminalManager.js';
 
 export function initKeyboardShortcuts() {
+  // Capture-phase Escape handler — fires BEFORE the browser can blur the
+  // xterm textarea, so a single Escape press reliably sends \x1b to SSH.
+  // Capture phase runs before bubble phase and before default browser actions.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    const activeTab = document.querySelector('.detail-tabs .tab.active');
+    if (activeTab && activeTab.dataset.tab === 'terminal') {
+      e.preventDefault();
+      e.stopPropagation();
+      terminalSendEscape();
+    }
+  }, true); // <-- capture phase
+
+  // Bubble-phase handler for all other shortcuts
   document.addEventListener('keydown', (e) => {
     // Skip if user is typing in an input/textarea
     const tag = e.target.tagName;
@@ -60,12 +77,6 @@ export function initKeyboardShortcuts() {
       case 'm':
       case 'M': {
         document.getElementById('qa-mute-all')?.click();
-        break;
-      }
-      case 'n':
-      case 'N': {
-        e.preventDefault();
-        import('./agendaManager.js').then(am => am.openAgendaItemModal());
         break;
       }
     }

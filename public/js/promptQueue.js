@@ -50,7 +50,6 @@ export async function loadQueue(sessionId) {
           <button class="queue-send" data-queue-id="${item.id}" title="Send to terminal">SEND</button>
           <button class="queue-expand" data-queue-id="${item.id}" title="Expand / view full prompt">&#x2922;</button>
           <button class="queue-edit" data-queue-id="${item.id}" title="Edit inline">EDIT</button>
-          <button class="queue-promote" data-queue-id="${item.id}" title="Promote to agenda">AGENDA</button>
           <button class="queue-move" data-queue-id="${item.id}" title="Move to another session">MOVE</button>
           <button class="queue-delete" data-queue-id="${item.id}" title="Delete">DEL</button>
         </div>
@@ -223,7 +222,7 @@ async function sendToTerminal(text) {
     if (_showToast) _showToast('TERMINAL', 'No active terminal connection');
     return false;
   }
-  ws.send(JSON.stringify({ type: 'terminal_input', terminalId, data: text + '\n' }));
+  ws.send(JSON.stringify({ type: 'terminal_input', terminalId, data: text + '\r' }));
   return true;
 }
 
@@ -242,7 +241,7 @@ export async function tryAutoSend(sessionId, terminalId) {
   const ws = getWs();
   if (!ws || ws.readyState !== 1) return;
 
-  ws.send(JSON.stringify({ type: 'terminal_input', terminalId, data: first.text + '\n' }));
+  ws.send(JSON.stringify({ type: 'terminal_input', terminalId, data: first.text + '\r' }));
   await db.del('promptQueue', first.id);
   loadQueue(sessionId);
   syncQueueCount(sessionId);
@@ -388,16 +387,8 @@ export function initQueueHandlers() {
     const sendBtn = e.target.closest('.queue-send');
     const moveBtn = e.target.closest('.queue-move');
     const expandBtn = e.target.closest('.queue-expand');
-    const promoteBtn = e.target.closest('.queue-promote');
     const sid = _getSelectedSessionId ? _getSelectedSessionId() : null;
     if (!sid) return;
-
-    if (promoteBtn) {
-      const itemId = Number(promoteBtn.dataset.queueId);
-      const am = await import('./agendaManager.js');
-      am.promoteToAgenda(itemId);
-      return;
-    }
 
     if (sendBtn) {
       const itemId = sendBtn.dataset.queueId;

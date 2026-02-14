@@ -120,6 +120,8 @@ export function saveSnapshot(mqOffset) {
     for (const [name, count] of projectSessionCounters) {
       countersObj[name] = count;
     }
+    const pidObj = {};
+    for (const [pid, sid] of pidToSession) pidObj[pid] = sid;
     const snapshot = {
       version: 1,
       savedAt: Date.now(),
@@ -127,6 +129,7 @@ export function saveSnapshot(mqOffset) {
       mqOffset: lastSnapshotMqOffset,
       sessions: sessionsObj,
       projectSessionCounters: countersObj,
+      pidToSession: pidObj,
     };
     mkdirSync(SNAPSHOT_DIR, { recursive: true });
     const tmpFile = SNAPSHOT_FILE + '.tmp';
@@ -189,9 +192,10 @@ export function loadSnapshot() {
             session.isHistorical = true;
             session.lastTerminalId = session.terminalId;
             session.terminalId = null;
-            sessions.set(id, session);
           }
-          // Non-SSH sessions with dead PIDs are not worth restoring
+          // Keep all dead-PID sessions so they can be auto-linked
+          // when `claude --resume` sends a SessionStart with a new session_id
+          sessions.set(id, session);
           ended++;
         }
       } else {
@@ -201,10 +205,86 @@ export function loadSnapshot() {
       }
     }
 
+    // Post-restoration cleanup: handle stale terminal references and zombie sessions.
+    // After a server restart, ALL PTY terminals are dead (children of the old node process).
+    // sshManager.terminals Map is always empty on fresh start.
+    let sshCleaned = 0;
+    const nonSshCleanupIds = [];
+    for (const [id, session] of sessions) {
+      // SSH sessions: clear stale terminalId + handle zombies
+      if (session.source === 'ssh') {
+        // Clear stale terminalId on ALL SSH sessions — terminals never survive restart
+        if (session.terminalId) {
+          if (!session.lastTerminalId) {
+            session.lastTerminalId = session.terminalId;
+          }
+          session.terminalId = null;
+        }
+
+        // SSH sessions without cachedPid in non-ended status are zombies — mark as ended
+        if (!session.cachedPid && session.status !== SESSION_STATUS.ENDED) {
+          session.status = SESSION_STATUS.ENDED;
+          session.animationState = ANIMATION_STATE.DEATH;
+          session.endedAt = Date.now();
+          session.events = session.events || [];
+          session.events.push({
+            type: 'ServerRestart',
+            detail: 'SSH session ended — no cached PID and terminal lost on restart',
+            timestamp: Date.now(),
+          });
+          session.isHistorical = true;
+          sshCleaned++;
+          ended++;
+        }
+      } else if (session.status === SESSION_STATUS.ENDED) {
+        // Non-SSH ended sessions: schedule cleanup after 5 min (gives Priority 0.5 time to match)
+        nonSshCleanupIds.push(id);
+      }
+    }
+    if (sshCleaned > 0) {
+      log.info('session', `Post-restart cleanup: ${sshCleaned} SSH sessions marked ended (no PID, dead terminal)`);
+    }
+    // Defer non-SSH cleanup — keep for 30 min so Priority 0.5 auto-linking and
+    // manual Resume/Reconnect have time to match.  Mark them with ServerRestart
+    // so they're eligible for auto-linking.
+    if (nonSshCleanupIds.length > 0) {
+      for (const id of nonSshCleanupIds) {
+        const s = sessions.get(id);
+        if (s && !s.events?.some(e => e.type === 'ServerRestart')) {
+          s.events = s.events || [];
+          s.events.push({
+            type: 'ServerRestart',
+            detail: 'Process ended while server was down',
+            timestamp: Date.now(),
+          });
+        }
+      }
+      setTimeout(() => {
+        for (const id of nonSshCleanupIds) {
+          if (sessions.has(id) && sessions.get(id).status === SESSION_STATUS.ENDED) {
+            sessions.delete(id);
+            invalidateSessionsCache();
+          }
+        }
+        log.info('session', `Deferred cleanup: removed ${nonSshCleanupIds.length} stale non-SSH sessions`);
+      }, 30 * 60 * 1000);
+    }
+
     // Restore project session counters
     if (snapshot.projectSessionCounters) {
       for (const [name, count] of Object.entries(snapshot.projectSessionCounters)) {
         projectSessionCounters.set(name, count);
+      }
+    }
+
+    // Restore pidToSession map (supplements per-session PID caching above)
+    if (snapshot.pidToSession) {
+      for (const [pid, sid] of Object.entries(snapshot.pidToSession)) {
+        const numPid = Number(pid);
+        // Only restore if the session exists and the PID is still alive
+        if (sessions.has(sid) && isPidAlive(numPid)) {
+          pidToSession.set(numPid, sid);
+        }
       }
     }
 
@@ -214,7 +294,7 @@ export function loadSnapshot() {
     }
 
     invalidateSessionsCache();
-    log.info('session', `Snapshot loaded: ${restored} sessions restored, ${ended} ended (dead PID)`);
+    log.info('session', `Snapshot loaded: ${restored} sessions restored, ${ended} ended (dead PID), ${pidToSession.size} PIDs tracked`);
 
     return { mqOffset: snapshot.mqOffset || 0 };
   } catch (err) {
@@ -338,6 +418,26 @@ export function handleEvent(hookData) {
 
   // Match or create session (delegated to sessionMatcher)
   const session = matchSession(hookData, sessions, pendingResume, pidToSession, projectSessionCounters);
+
+  // Auto-revive sessions that were marked ended by ServerRestart but whose Claude process survived.
+  // This happens when Claude runs in tmux/screen and keeps sending hooks after server restart.
+  const REVIVABLE_EVENTS = new Set([
+    EVENT_TYPES.SESSION_START, EVENT_TYPES.USER_PROMPT_SUBMIT,
+    EVENT_TYPES.PRE_TOOL_USE, EVENT_TYPES.POST_TOOL_USE,
+    EVENT_TYPES.PERMISSION_REQUEST, EVENT_TYPES.STOP,
+  ]);
+  if (session.status === SESSION_STATUS.ENDED
+      && session.events?.some(e => e.type === 'ServerRestart')
+      && REVIVABLE_EVENTS.has(hook_event_name)) {
+    session.endedAt = null;
+    session.isHistorical = false;
+    session.events.push({
+      type: 'AutoRevived',
+      detail: `Session auto-revived on ${hook_event_name} — process survived server restart`,
+      timestamp: Date.now(),
+    });
+    log.info('session', `AUTO-REVIVE: session ${session_id?.slice(0,8)} revived on ${hook_event_name}`);
+  }
 
   invalidateSessionsCache();
   session.lastActivityAt = Date.now();
@@ -779,14 +879,13 @@ export function archiveSession(sessionId, archived) {
 }
 
 /**
- * Resume a disconnected SSH session — sends claude --resume to its terminal.
+ * Resume a disconnected SSH session — sends claude --resume with --continue fallback.
  * @param {string} sessionId
  * @returns {{ error: string } | { ok: true, terminalId: string, session: import('../types/session').Session }}
  */
 export function resumeSession(sessionId) {
   const session = sessions.get(sessionId);
   if (!session) return { error: 'Session not found' };
-  if (session.status !== SESSION_STATUS.ENDED) return { error: 'Session is not ended' };
   if (!session.lastTerminalId) return { error: 'No terminal associated with this session' };
 
   // Archive current session data into previousSessions array
@@ -829,6 +928,60 @@ export function resumeSession(sessionId) {
   log.info('session', `RESUME: session ${sessionId?.slice(0,8)} → connecting (terminal=${session.lastTerminalId?.slice(0,8)})`);
 
   return { ok: true, terminalId: session.lastTerminalId, session: { ...session } };
+}
+
+/**
+ * Reconnect an ended SSH session to a newly created terminal.
+ * Used when the original terminal died (server restart) and a new one was created.
+ * Updates the REAL session in the Map and registers pendingResume for hook matching.
+ * @param {string} sessionId
+ * @param {string} newTerminalId
+ * @returns {{ error: string } | { ok: true, session: import('../types/session').Session }}
+ */
+export function reconnectSessionTerminal(sessionId, newTerminalId) {
+  const session = sessions.get(sessionId);
+  if (!session) return { error: 'Session not found' };
+
+  // Archive current session data (same as resumeSession)
+  if (!session.previousSessions) session.previousSessions = [];
+  session.previousSessions.push({
+    sessionId: session.sessionId,
+    startedAt: session.startedAt,
+    endedAt: session.endedAt,
+    promptHistory: [...session.promptHistory],
+    toolLog: [...(session.toolLog || [])],
+    responseLog: [...(session.responseLog || [])],
+    events: [...session.events],
+    toolUsage: { ...session.toolUsage },
+    totalToolCalls: session.totalToolCalls,
+  });
+  if (session.previousSessions.length > 5) session.previousSessions.shift();
+
+  // Register pending resume so session matching can link new Claude hooks
+  pendingResume.set(newTerminalId, {
+    oldSessionId: sessionId,
+    timestamp: Date.now(),
+  });
+
+  // Update the REAL session (not a copy)
+  session.terminalId = newTerminalId;
+  session.lastTerminalId = newTerminalId;
+  session.status = SESSION_STATUS.CONNECTING;
+  session.animationState = ANIMATION_STATE.WALKING;
+  session.emote = EMOTE.WAVE;
+  session.isHistorical = false;
+  session.endedAt = null;
+  session.lastActivityAt = Date.now();
+  session.events.push({
+    type: 'ResumeNewTerminal',
+    timestamp: Date.now(),
+    detail: `New terminal ${newTerminalId?.slice(0, 8)} for claude --resume || --continue`,
+  });
+
+  invalidateSessionsCache();
+  log.info('session', `RECONNECT: session ${sessionId?.slice(0, 8)} → new terminal ${newTerminalId?.slice(0, 8)}`);
+
+  return { ok: true, session: { ...session } };
 }
 
 export function detectSessionSource(sessionId) {

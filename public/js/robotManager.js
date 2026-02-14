@@ -461,6 +461,10 @@ export function updateRobot(session) {
   // Update status
   const newStatus = session.status || 'idle';
   if (robot.status !== newStatus) {
+    // Clear checked flag when entering waiting so bounce starts fresh
+    if (newStatus === 'waiting') {
+      delete robot.el.dataset.checked;
+    }
     robot.status = newStatus;
     robot.el.dataset.status = newStatus;
   }
@@ -468,6 +472,14 @@ export function updateRobot(session) {
   // Play emote if requested
   if (session.emote) {
     robot.playEmote(session.emote);
+  }
+}
+
+// Mark a session's character as checked (stops the waiting bounce)
+export function markChecked(sessionId) {
+  const robot = robots.get(sessionId);
+  if (robot && robot.el) {
+    robot.el.dataset.checked = 'true';
   }
 }
 

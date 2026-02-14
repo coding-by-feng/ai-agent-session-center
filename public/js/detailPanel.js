@@ -35,6 +35,14 @@ export function selectSession(sessionId) {
   const session = sessionsData.get(sessionId);
   if (!session) return;
 
+  // Persist selection so we can restore after page refresh
+  try { localStorage.setItem(STORAGE_KEYS.SELECTED_SESSION, sessionId); } catch {}
+
+  // Stop the waiting bounce when user checks the session
+  if (session.status === 'waiting') {
+    import('./robotManager.js').then(rm => rm.markChecked(sessionId));
+  }
+
   // Make the overlay visible BEFORE populating so the terminal container
   // has real dimensions when initTerminal polls for them.
   const overlay = document.getElementById('session-detail-overlay');
@@ -44,6 +52,7 @@ export function selectSession(sessionId) {
 
 export function deselectSession() {
   if (_setSelectedSessionId) _setSelectedSessionId(null);
+  try { localStorage.removeItem(STORAGE_KEYS.SELECTED_SESSION); } catch {}
   document.getElementById('session-detail-overlay').classList.add('hidden');
 }
 
@@ -92,14 +101,14 @@ export function populateDetailPanel(session) {
   // Label quick-select chips
   if (_populateDetailLabelChips) _populateDetailLabelChips(session);
 
-  // Resume button visibility — show if session ended and came from SSH
-  const canResume = session.status === 'ended' && session.source === 'ssh';
+  // Resume button visibility — show for any ended session (SSH or display-only)
+  const canResume = session.status === 'ended';
   const resumeBtn = document.getElementById('ctrl-resume');
   if (resumeBtn) {
     resumeBtn.classList.toggle('hidden', !canResume);
   }
-  // Terminal tab reconnect button — show for SSH sessions or sessions with a terminal
-  const showReconnect = !!(session.terminalId || session.lastTerminalId || (session.source === 'ssh' && session.status === 'ended'));
+  // Terminal tab reconnect button — show for any ended session or sessions with a terminal
+  const showReconnect = !!(session.terminalId || session.lastTerminalId || session.status === 'ended');
   const reconnectBtn = document.getElementById('terminal-reconnect-btn');
   if (reconnectBtn) {
     reconnectBtn.classList.toggle('hidden', !showReconnect);
@@ -212,6 +221,40 @@ export function populateDetailPanel(session) {
   } else if (activeTab && activeTab.dataset.tab === 'terminal' && !session.terminalId) {
     import('./terminalManager.js').then(tm => tm.detachTerminal());
   }
+}
+
+/**
+ * Restore the previously selected session + active tab after a page refresh.
+ * Called from app.js after the snapshot arrives and sessions are populated.
+ */
+export function restoreSelection() {
+  try {
+    const savedId = localStorage.getItem(STORAGE_KEYS.SELECTED_SESSION);
+    if (!savedId) return;
+
+    const sessionsData = _getSessionsData ? _getSessionsData() : new Map();
+    const session = sessionsData.get(savedId);
+    if (!session) {
+      localStorage.removeItem(STORAGE_KEYS.SELECTED_SESSION);
+      return;
+    }
+
+    // Restore saved tab before selecting so the terminal tab is active when
+    // selectSession → populateDetailPanel triggers initTerminal.
+    const savedTab = localStorage.getItem(STORAGE_KEYS.ACTIVE_TAB);
+    if (savedTab) {
+      const tabBtn = document.querySelector(`.detail-tabs .tab[data-tab="${savedTab}"]`);
+      if (tabBtn) {
+        document.querySelectorAll('.detail-tabs .tab').forEach(t => t.classList.remove('active'));
+        tabBtn.classList.add('active');
+        document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+        const tabContent = document.getElementById(`tab-${savedTab}`);
+        if (tabContent) tabContent.classList.add('active');
+      }
+    }
+
+    selectSession(savedId);
+  } catch {}
 }
 
 function renderToolBars(toolUsage) {
@@ -426,9 +469,8 @@ export function initDetailPanelHandlers() {
     document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
     document.getElementById(`tab-${tabName}`).classList.add('active');
 
-    if (tabName === 'agenda') {
-      import('./agendaManager.js').then(am => am.renderAgendaTab());
-    }
+    // Persist active tab for restore after refresh
+    try { localStorage.setItem(STORAGE_KEYS.ACTIVE_TAB, tabName); } catch {}
 
     if (tabName === 'terminal') {
       const sid = _getSelectedSessionId ? _getSelectedSessionId() : null;
@@ -447,14 +489,14 @@ export function initDetailPanelHandlers() {
         // Update reconnect button visibility
         const rbtn = document.getElementById('terminal-reconnect-btn');
         if (rbtn && session) {
-          const hasTerminal = !!(session.terminalId || session.lastTerminalId);
-          rbtn.classList.toggle('hidden', !hasTerminal);
+          const showBtn = !!(session.terminalId || session.lastTerminalId || session.status === 'ended');
+          rbtn.classList.toggle('hidden', !showBtn);
         }
       }
     }
   });
 
-  // Terminal tab reconnect button — sends `claude --resume <sessionId>` to the terminal
+  // Terminal tab reconnect button — tries `claude --resume <id>`, falls back to `--continue`
   document.getElementById('terminal-reconnect-btn')?.addEventListener('click', async (e) => {
     e.stopPropagation();
     const sid = _getSelectedSessionId ? _getSelectedSessionId() : null;
@@ -467,6 +509,9 @@ export function initDetailPanelHandlers() {
     btn.disabled = true;
     btn.textContent = 'RECONNECTING...';
 
+    // Try exact session ID first, fall back to most recent in same directory
+    const resumeCmd = `claude --resume ${sid} || claude --continue`;
+
     try {
       const tm = await import('./terminalManager.js');
       const { getWs } = await import('./wsClient.js');
@@ -474,12 +519,12 @@ export function initDetailPanelHandlers() {
       const activeTermId = tm.getActiveTerminalId();
 
       if (activeTermId && ws && ws.readyState === 1) {
-        // Terminal is live — send `claude --resume` directly
-        const resumeCmd = `claude --resume\r`;
-        ws.send(JSON.stringify({ type: 'terminal_input', terminalId: activeTermId, data: resumeCmd }));
-        if (_showToast) _showToast('RECONNECT', 'Sent claude --resume to terminal');
-      } else if (session.status === 'ended') {
-        // Terminal gone, session ended — use resume API to create new terminal
+        // Terminal is live — send resume command directly
+        ws.send(JSON.stringify({ type: 'terminal_input', terminalId: activeTermId, data: `${resumeCmd}\r` }));
+        if (_showToast) _showToast('RECONNECT', `Sent claude --resume to terminal`);
+      } else {
+        // No active terminal — call resume API to create a new terminal
+        // and run the resume command (works regardless of session status)
         const resp = await fetch(`/api/sessions/${sid}/resume`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -491,12 +536,12 @@ export function initDetailPanelHandlers() {
             tm.attachToSession(sid, data.terminalId);
           } else {
             if (_showToast) _showToast('RECONNECTING', 'Resuming Claude session in terminal');
+            // Terminal was still alive on server — attach to it
+            if (data.terminalId) tm.attachToSession(sid, data.terminalId);
           }
         } else {
           if (_showToast) _showToast('RECONNECT FAILED', data.error || 'Unknown error');
         }
-      } else {
-        if (_showToast) _showToast('RECONNECT', 'No active terminal to send command');
       }
     } catch (err) {
       if (_showToast) _showToast('RECONNECT ERROR', err.message);
@@ -574,13 +619,6 @@ export function initDetailPanelHandlers() {
     } catch(e) {}
   }
 
-  // Team modal close
-  document.getElementById('team-modal-close')?.addEventListener('click', () => {
-    document.getElementById('team-modal').classList.add('hidden');
-  });
-  document.getElementById('team-modal')?.addEventListener('click', (e) => {
-    if (e.target.id === 'team-modal') document.getElementById('team-modal').classList.add('hidden');
-  });
 }
 
 // ---- Live Search Filter ----

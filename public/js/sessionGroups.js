@@ -99,6 +99,14 @@ export function findGroupForSession(sessionId) {
   return loadGroups().find(g => g.sessionIds.includes(sessionId));
 }
 
+export function getLastUsedGroupId() {
+  const groupId = localStorage.getItem(STORAGE_KEYS.LAST_USED_GROUP);
+  if (!groupId) return null;
+  // Verify the group still exists
+  const groups = loadGroups();
+  return groups.find(g => g.id === groupId) ? groupId : null;
+}
+
 export function createGroup(name) {
   const groups = loadGroups();
   const id = 'grp-' + Date.now();
@@ -135,7 +143,10 @@ export function addSessionToGroup(groupId, sessionId) {
     g.sessionIds = g.sessionIds.filter(id => id !== sessionId);
   }
   const target = groups.find(g => g.id === groupId);
-  if (target) target.sessionIds.push(sessionId);
+  if (target) {
+    target.sessionIds.push(sessionId);
+    localStorage.setItem(STORAGE_KEYS.LAST_USED_GROUP, groupId);
+  }
   saveGroups(groups);
 }
 

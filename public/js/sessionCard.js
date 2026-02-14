@@ -23,6 +23,8 @@ let _updateCardGroupBadge = null;
 let _showCardGroupDropdown = null;
 let _isMoveModeActive = null;
 let _completeQueueMove = null;
+let _getLastUsedGroupId = null;
+let _assignSessionToGroupAndMove = null;
 
 export function initDeps(deps) {
   _selectSession = deps.selectSession;
@@ -39,6 +41,8 @@ export function initDeps(deps) {
   _showCardGroupDropdown = deps.showCardGroupDropdown;
   _isMoveModeActive = deps.isMoveModeActive;
   _completeQueueMove = deps.completeQueueMove;
+  _getLastUsedGroupId = deps.getLastUsedGroupId;
+  _assignSessionToGroupAndMove = deps.assignSessionToGroupAndMove;
 }
 
 // Shared state
@@ -212,7 +216,7 @@ function _applyCardUpdate(session) {
       <button class="resume-card-btn hidden" title="Resume Claude">&#9654; RESUME</button>
       <div class="robot-viewport"></div>
       <div class="card-info">
-        <div class="card-title" title="Double-click to rename"></div>
+        <div class="card-title" title="Click to rename"></div>
         <div class="card-header">
           <span class="project-name"></span>
           <span class="card-label-badge"></span>
@@ -315,7 +319,7 @@ function _applyCardUpdate(session) {
         const resp = await fetch(`/api/sessions/${sid}/resume`, { method: 'POST' });
         const data = await resp.json();
         if (data.ok) {
-          showToast('RESUMING', 'Sending claude --resume to terminal');
+          showToast('RESUMING', 'Resuming Claude session in terminal');
           if (_selectSession) _selectSession(sid);
           const termTab = document.querySelector('.detail-tabs .tab[data-tab="terminal"]');
           if (termTab) termTab.click();
@@ -419,8 +423,8 @@ function _applyCardUpdate(session) {
       });
     }
 
-    // Inline rename on double-click
-    card.querySelector('.card-title').addEventListener('dblclick', (e) => {
+    // Inline rename on click (stop propagation to prevent opening detail panel)
+    card.querySelector('.card-title').addEventListener('click', (e) => {
       e.stopPropagation();
       const titleEl = e.currentTarget;
       if (titleEl.contentEditable === 'true') return;
@@ -514,7 +518,14 @@ function _applyCardUpdate(session) {
       if (groupGrid) { groupGrid.appendChild(card); if (_updateGroupCounts) _updateGroupCounts(); }
       else document.getElementById('sessions-grid').appendChild(card);
     } else {
-      document.getElementById('sessions-grid').appendChild(card);
+      // Auto-assign to last used group for non-historical sessions
+      const lastGroupId = _getLastUsedGroupId ? _getLastUsedGroupId() : null;
+      if (lastGroupId && !session.isHistorical && _assignSessionToGroupAndMove) {
+        document.getElementById('sessions-grid').appendChild(card);
+        _assignSessionToGroupAndMove(lastGroupId, session.sessionId);
+      } else {
+        document.getElementById('sessions-grid').appendChild(card);
+      }
     }
     if (pinnedSessions.has(session.sessionId)) {
       reorderPinnedCards();
@@ -552,7 +563,7 @@ function _applyCardUpdate(session) {
     cardTitle.style.display = session.title ? '' : 'none';
   }
   const badge = card.querySelector('.status-badge');
-  const isDisconnected = session.source === 'ssh' && session.status === 'ended';
+  const isDisconnected = session.status === 'ended';
   const statusLabel = isDisconnected ? 'DISCONNECTED'
     : session.status === 'approval' ? 'APPROVAL NEEDED'
     : session.status === 'input' ? 'WAITING FOR INPUT'
@@ -564,7 +575,7 @@ function _applyCardUpdate(session) {
 
   const resumeCardBtn = card.querySelector('.resume-card-btn');
   if (resumeCardBtn) {
-    const canResume = isDisconnected && !!session.lastTerminalId;
+    const canResume = isDisconnected;
     resumeCardBtn.classList.toggle('hidden', !canResume);
   }
 
@@ -707,260 +718,9 @@ export async function archiveAllEnded() {
   }
 }
 
-// ---- Team Card Functions ----
+// ---- Team Data (kept for team context) ----
 
-export function createOrUpdateTeamCard(team) {
+export function updateTeamData(team) {
   if (!team || !team.teamId) return;
   teamsData.set(team.teamId, team);
-
-  const allMemberIds = [team.parentSessionId, ...team.childSessionIds];
-
-  for (const sid of allMemberIds) {
-    const card = document.querySelector(`.session-card[data-session-id="${sid}"]`);
-    if (card) card.classList.add('in-team');
-  }
-
-  let teamCard = document.querySelector(`.team-card[data-team-id="${team.teamId}"]`);
-  if (!teamCard) {
-    teamCard = document.createElement('div');
-    teamCard.className = 'team-card';
-    teamCard.dataset.teamId = team.teamId;
-    teamCard.innerHTML = `
-      <div class="team-card-header">
-        <span class="team-icon">&#9733;</span>
-        <span class="team-name"></span>
-        <span class="team-member-count"></span>
-        <span class="status-badge team-status-badge"></span>
-      </div>
-      <div class="team-characters"></div>
-      <div class="team-card-footer">
-        <span class="team-duration"></span>
-        <span class="team-tools"></span>
-      </div>
-    `;
-    teamCard.addEventListener('click', () => openTeamModal(team.teamId));
-    document.getElementById('sessions-grid').prepend(teamCard);
-  }
-
-  teamCard.querySelector('.team-name').textContent = team.teamName || 'Team';
-  const memberNames = allMemberIds.map(sid => {
-    const s = sessionsData.get(sid);
-    return s?.agentName || s?.agentType || sid.slice(0, 8);
-  });
-  const countEl = teamCard.querySelector('.team-member-count');
-  countEl.textContent = `${allMemberIds.length} member${allMemberIds.length !== 1 ? 's' : ''}`;
-  countEl.title = memberNames.join(', ');
-
-  const statusPriority = { approval: 6, input: 5, working: 4, prompting: 3, waiting: 2, idle: 1, ended: 0 };
-  let worstStatus = 'idle';
-  let totalTools = 0;
-  let earliestStart = Infinity;
-  for (const sid of allMemberIds) {
-    const s = sessionsData.get(sid);
-    if (!s) continue;
-    if ((statusPriority[s.status] || 0) > (statusPriority[worstStatus] || 0)) {
-      worstStatus = s.status;
-    }
-    totalTools += s.totalToolCalls || 0;
-    if (s.startedAt < earliestStart) earliestStart = s.startedAt;
-  }
-  teamCard.dataset.status = worstStatus;
-  const tbadge = teamCard.querySelector('.team-status-badge');
-  tbadge.textContent = worstStatus === 'approval' ? 'APPROVAL NEEDED'
-    : worstStatus === 'input' ? 'WAITING FOR INPUT'
-    : worstStatus.toUpperCase();
-  tbadge.className = `status-badge team-status-badge ${worstStatus}`;
-  teamCard.querySelector('.team-duration').textContent = earliestStart < Infinity ? formatDuration(Date.now() - earliestStart) : '';
-  teamCard.querySelector('.team-tools').textContent = `Tools: ${totalTools}`;
-
-  renderTeamCharacters(teamCard, allMemberIds);
-}
-
-function renderTeamCharacters(teamCard, sessionIds) {
-  const container = teamCard.querySelector('.team-characters');
-  container.innerHTML = '';
-
-  // Separate leader from members
-  const leaderSid = sessionIds.find(sid => {
-    const s = sessionsData.get(sid);
-    return s?.teamRole === 'leader';
-  });
-  const memberSids = sessionIds.filter(sid => sid !== leaderSid);
-
-  // Render leader (large, left side)
-  if (leaderSid) {
-    const s = sessionsData.get(leaderSid);
-    const charEl = document.createElement('div');
-    charEl.className = 'team-member-char team-char-leader';
-    charEl.dataset.status = s?.status || 'idle';
-
-    const model = s?.characterModel || 'robot';
-    const accentColor = s?.accentColor || 'var(--accent-cyan)';
-    charEl.innerHTML = `<div class="css-robot char-${escapeAttr(model)} mini" data-status="${escapeAttr(s?.status || 'idle')}" style="--robot-color:${sanitizeColor(accentColor)}"></div>`;
-
-    const roleBadge = document.createElement('div');
-    roleBadge.className = 'team-role-badge leader';
-    roleBadge.textContent = 'LEAD';
-    charEl.appendChild(roleBadge);
-
-    const nameLabel = document.createElement('div');
-    nameLabel.className = 'team-member-name';
-    nameLabel.textContent = s?.agentName || s?.agentType || 'Leader';
-    charEl.appendChild(nameLabel);
-
-    container.appendChild(charEl);
-  }
-
-  // Render members (small, right side)
-  for (const sid of memberSids) {
-    const s = sessionsData.get(sid);
-    const charEl = document.createElement('div');
-    charEl.className = 'team-member-char team-char-member';
-    charEl.dataset.status = s?.status || 'idle';
-
-    const model = s?.characterModel || 'robot';
-    const accentColor = s?.accentColor || 'var(--accent-cyan)';
-    charEl.innerHTML = `<div class="css-robot char-${escapeAttr(model)} mini" data-status="${escapeAttr(s?.status || 'idle')}" style="--robot-color:${sanitizeColor(accentColor)}"></div>`;
-
-    const roleBadge = document.createElement('div');
-    roleBadge.className = 'team-role-badge';
-    roleBadge.textContent = (s?.agentName || s?.agentType || 'M').charAt(0).toUpperCase();
-    charEl.appendChild(roleBadge);
-
-    const nameLabel = document.createElement('div');
-    nameLabel.className = 'team-member-name';
-    nameLabel.textContent = s?.agentName || s?.agentType || 'member';
-    charEl.appendChild(nameLabel);
-
-    container.appendChild(charEl);
-  }
-
-  import('./robotManager.js').then(rm => {
-    const templates = rm._getTemplates ? rm._getTemplates() : null;
-    if (!templates) return;
-    container.querySelectorAll('.css-robot').forEach(el => {
-      const model = [...el.classList].find(c => c.startsWith('char-'))?.replace('char-', '') || 'robot';
-      const color = el.style.getPropertyValue('--robot-color') || 'var(--accent-cyan)';
-      if (templates[model]) {
-        el.innerHTML = templates[model](color);
-      }
-    });
-  });
-}
-
-export function removeTeamCard(teamId) {
-  const card = document.querySelector(`.team-card[data-team-id="${teamId}"]`);
-  if (card) {
-    card.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
-    card.style.opacity = '0';
-    card.style.transform = 'scale(0.9)';
-    setTimeout(() => card.remove(), 500);
-  }
-  const team = teamsData.get(teamId);
-  if (team) {
-    const allIds = [team.parentSessionId, ...team.childSessionIds];
-    for (const sid of allIds) {
-      const sCard = document.querySelector(`.session-card[data-session-id="${sid}"]`);
-      if (sCard) sCard.classList.remove('in-team');
-    }
-  }
-  teamsData.delete(teamId);
-}
-
-function openTeamModal(teamId) {
-  const team = teamsData.get(teamId);
-  if (!team) return;
-
-  const modal = document.getElementById('team-modal');
-  const nameEl = document.getElementById('team-modal-name');
-  const countEl = document.getElementById('team-modal-count');
-  const grid = document.getElementById('team-modal-grid');
-
-  const allMemberIds = [team.parentSessionId, ...team.childSessionIds];
-  nameEl.textContent = team.teamName || 'Team';
-  countEl.textContent = `${allMemberIds.length} member${allMemberIds.length !== 1 ? 's' : ''}`;
-
-  grid.innerHTML = '';
-  for (const sid of allMemberIds) {
-    const s = sessionsData.get(sid);
-    if (!s) continue;
-
-    const isLeader = s.teamRole === 'leader';
-    const cardEl = document.createElement('div');
-    cardEl.className = `team-modal-card${isLeader ? ' is-leader' : ''}`;
-    cardEl.dataset.status = s.status;
-
-    const agentDisplayName = s.agentName || s.agentType || (isLeader ? 'Team Lead' : 'member');
-    const roleLabel = isLeader
-      ? '<span class="team-role-label leader">TEAM LEAD</span>'
-      : `<span class="team-role-label">${escapeHtml(s.agentType || 'member').toUpperCase()}</span>`;
-
-    const promptText = s.currentPrompt || '';
-    const promptExcerpt = promptText.length > 100 ? promptText.substring(0, 100) + '...' : promptText;
-
-    const terminalBtn = s.backendType === 'tmux'
-      ? `<button class="team-terminal-btn" data-team-id="${escapeAttr(teamId)}" data-session-id="${escapeAttr(sid)}" title="Open tmux terminal">Terminal</button>`
-      : '';
-
-    cardEl.innerHTML = `
-      <div class="team-modal-card-header">
-        <div class="team-modal-char-preview">
-          <div class="css-robot char-${escapeAttr(s.characterModel || 'robot')} mini" data-status="${escapeAttr(s.status)}" style="--robot-color:${sanitizeColor(s.accentColor)}"></div>
-        </div>
-        <div class="team-modal-card-info">
-          <div class="team-modal-card-title">${escapeHtml(agentDisplayName)}</div>
-          <div class="team-modal-card-subtitle">${escapeHtml(s.projectName)}</div>
-          ${roleLabel}
-          <span class="status-badge ${s.status}">${s.status === 'approval' ? 'APPROVAL NEEDED' : s.status === 'input' ? 'WAITING FOR INPUT' : s.status.toUpperCase()}</span>
-        </div>
-      </div>
-      <div class="team-modal-card-prompt">${escapeHtml(promptExcerpt)}</div>
-      <div class="team-modal-card-stats">
-        <span>${formatDuration(Date.now() - s.startedAt)}</span>
-        <span>Tools: ${s.totalToolCalls || 0}</span>
-        ${terminalBtn}
-      </div>
-    `;
-
-    // Terminal button handler — opens tmux terminal for this member
-    const tBtn = cardEl.querySelector('.team-terminal-btn');
-    if (tBtn) {
-      tBtn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        try {
-          const { openTeamMemberTerminal } = await import('./terminalManager.js');
-          await openTeamMemberTerminal(teamId, sid);
-          modal.classList.add('hidden');
-        } catch (err) {
-          if (_showToast) _showToast('TERMINAL ERROR', err.message);
-        }
-      });
-    }
-
-    // Click card to select the session
-    cardEl.addEventListener('click', () => {
-      modal.classList.add('hidden');
-      if (selectedSessionId === sid) {
-        if (_deselectSession) _deselectSession();
-      } else {
-        if (_selectSession) _selectSession(sid);
-      }
-    });
-
-    grid.appendChild(cardEl);
-  }
-
-  import('./robotManager.js').then(rm => {
-    const templates = rm._getTemplates ? rm._getTemplates() : null;
-    if (!templates) return;
-    grid.querySelectorAll('.css-robot').forEach(el => {
-      const model = [...el.classList].find(c => c.startsWith('char-'))?.replace('char-', '') || 'robot';
-      const color = el.style.getPropertyValue('--robot-color') || 'var(--accent-cyan)';
-      if (templates[model]) {
-        el.innerHTML = templates[model](color);
-      }
-    });
-  });
-
-  modal.classList.remove('hidden');
 }
