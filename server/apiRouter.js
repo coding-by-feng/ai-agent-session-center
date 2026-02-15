@@ -1,10 +1,11 @@
 // @ts-check
-// apiRouter.js — Express router for all API endpoints (no SQLite/database dependencies)
+// apiRouter.js — Express router for all API endpoints
 import { Router } from 'express';
 import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSummary, getSession, detectSessionSource, createTerminalSession, deleteSessionFromMemory, resumeSession, reconnectSessionTerminal } from './sessionStore.js';
 import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, attachToTmuxPane } from './sshManager.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
+import * as db from './db.js';
 import { getMqStats } from './mqReader.js';
 import { execFile } from 'child_process';
 import { readFileSync, writeFileSync } from 'fs';
@@ -581,6 +582,105 @@ router.post('/teams/:teamId/members/:sessionId/terminal', async (req, res) => {
     log.error('api', `Failed to attach to tmux pane ${tmuxPaneId}: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// ---- Session History & DB endpoints (SQLite) ----
+
+// Search/list sessions from DB (used by history panel, replaces IndexedDB reads)
+router.get('/db/sessions', (req, res) => {
+  const { query, project, status, dateFrom, dateTo, archived, sortBy, sortDir, page, pageSize } = req.query;
+  const result = db.searchSessions({
+    query: query || undefined,
+    project: project || undefined,
+    status: status || undefined,
+    dateFrom: dateFrom ? Number(dateFrom) : undefined,
+    dateTo: dateTo ? Number(dateTo) : undefined,
+    archived: archived || undefined,
+    sortBy: sortBy || 'started_at',
+    sortDir: sortDir || 'desc',
+    page: page ? Number(page) : 1,
+    pageSize: pageSize ? Number(pageSize) : 50,
+  });
+  res.json(result);
+});
+
+// Get single session detail with all child records
+router.get('/db/sessions/:id', (req, res) => {
+  const detail = db.getSessionDetail(req.params.id);
+  if (!detail) return res.status(404).json({ error: 'Session not found' });
+  res.json(detail);
+});
+
+// Delete session from DB (cascade)
+router.delete('/db/sessions/:id', (req, res) => {
+  db.deleteSessionCascade(req.params.id);
+  res.json({ ok: true });
+});
+
+// Get distinct projects
+router.get('/db/projects', (req, res) => {
+  res.json(db.getDistinctProjects());
+});
+
+// Full-text search across prompts and responses
+router.get('/db/search', (req, res) => {
+  const { query, type, page, pageSize } = req.query;
+  res.json(db.fullTextSearch({
+    query: query || '',
+    type: type || 'all',
+    page: page ? Number(page) : 1,
+    pageSize: pageSize ? Number(pageSize) : 50,
+  }));
+});
+
+// ---- Notes (server-side, shared across all clients) ----
+
+router.get('/db/sessions/:id/notes', (req, res) => {
+  res.json(db.getNotes(req.params.id));
+});
+
+router.post('/db/sessions/:id/notes', (req, res) => {
+  const { text } = req.body || {};
+  if (!text || !isValidString(text, 10000)) {
+    return res.status(400).json({ error: 'Invalid note text' });
+  }
+  const note = db.addNote(req.params.id, text.trim());
+  res.json(note);
+});
+
+router.delete('/db/notes/:id', (req, res) => {
+  db.deleteNote(Number(req.params.id));
+  res.json({ ok: true });
+});
+
+// ---- Analytics (server-side, shared across all clients) ----
+
+router.get('/db/analytics/summary', (req, res) => {
+  res.json(db.getSummaryStats());
+});
+
+router.get('/db/analytics/tools', (req, res) => {
+  res.json(db.getToolBreakdown());
+});
+
+router.get('/db/analytics/projects', (req, res) => {
+  res.json(db.getActiveProjects());
+});
+
+router.get('/db/analytics/heatmap', (req, res) => {
+  res.json(db.getHeatmap());
+});
+
+// Legacy endpoint (kept for backward compatibility)
+router.get('/sessions/history', (req, res) => {
+  const { projectPath } = req.query;
+  if (projectPath) {
+    if (!isValidString(projectPath, 1024)) {
+      return res.status(400).json({ error: 'Invalid projectPath' });
+    }
+    return res.json(db.getSessionsByProjectPath(projectPath));
+  }
+  res.json(db.getAllPersistedSessions());
 });
 
 export default router;

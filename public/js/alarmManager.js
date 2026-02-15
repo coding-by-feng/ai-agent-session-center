@@ -6,10 +6,8 @@
 import * as soundManager from './soundManager.js';
 import * as movementManager from './movementManager.js';
 import * as settingsManager from './settingsManager.js';
-import { isMuted, showToast, pinSession } from './sessionPanel.js';
-import { escapeHtml as utilEscapeHtml } from './utils.js';
-import { HOOK_EVENTS, TOOL_SOUND_MAP, LABELS } from './constants.js';
-import { del } from './browserDb.js';
+import { isMuted } from './sessionPanel.js';
+import { HOOK_EVENTS, TOOL_SOUND_MAP } from './constants.js';
 
 const approvalAlarmTimers = new Map(); // sessionId -> intervalId for repeating alarm
 
@@ -90,7 +88,7 @@ export function checkAlarms(session, allSessions) {
 }
 
 // Label completion alerts
-export function handleLabelAlerts(session, allSessions, robotManager, removeCard, statsPanel, updateTabTitle, toggleEmptyState) {
+export function handleLabelAlerts(session) {
   if (session.status !== 'ended' || isMuted(session.sessionId)) return;
 
   const labelUpper = (session.label || '').toUpperCase();
@@ -108,50 +106,4 @@ export function handleLabelAlerts(session, allSessions, robotManager, removeCard
     }
   }
 
-  if (labelUpper === LABELS.ONEOFF) {
-    showOneoffReviewToast(session, allSessions, robotManager, removeCard, statsPanel, updateTabTitle, toggleEmptyState);
-  }
-}
-
-function showOneoffReviewToast(session, allSessions, robotManager, removeCard, statsPanel, updateTabTitle, toggleEmptyState) {
-  const container = document.getElementById('toast-container');
-  const toast = document.createElement('div');
-  toast.className = 'toast oneoff-review-toast';
-  const title = session.title || session.projectName || 'ONEOFF session';
-  toast.innerHTML = `
-    <div class="toast-title">ONEOFF DONE \u2014 Review needed</div>
-    <div class="toast-msg">${utilEscapeHtml(title)}</div>
-    <div class="oneoff-review-actions">
-      <button class="oneoff-review-btn" data-action="review">REVIEW</button>
-      <button class="oneoff-delete-btn" data-action="delete">DELETE</button>
-      <button class="oneoff-dismiss-btn" data-action="dismiss">DISMISS</button>
-    </div>
-  `;
-  container.appendChild(toast);
-
-  toast.querySelector('[data-action="review"]').addEventListener('click', () => {
-    const card = document.querySelector(`.session-card[data-session-id="${session.sessionId}"]`);
-    if (card) card.click();
-    toast.remove();
-  });
-
-  toast.querySelector('[data-action="delete"]').addEventListener('click', async () => {
-    const sid = session.sessionId;
-    await fetch(`/api/sessions/${sid}`, { method: 'DELETE' }).catch(() => {});
-    await del('sessions', sid).catch(() => {});
-    removeCard(sid, true);
-    robotManager.removeRobot(sid);
-    delete allSessions[sid];
-    statsPanel.update(allSessions);
-    updateTabTitle(allSessions);
-    toggleEmptyState(Object.keys(allSessions).length === 0);
-    showToast('DELETED', 'ONEOFF session removed');
-    toast.remove();
-  });
-
-  toast.querySelector('[data-action="dismiss"]').addEventListener('click', () => {
-    toast.remove();
-  });
-
-  setTimeout(() => { if (toast.parentNode) toast.remove(); }, 30000);
 }

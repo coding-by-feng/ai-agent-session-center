@@ -1,12 +1,18 @@
-import * as db from './browserDb.js';
 import { escapeHtml as _escapeHtml, formatDuration as _formatDuration, formatTime as _formatTime, sanitizeColor } from './utils.js';
 
 let currentPage = 1;
 let debounceTimer = null;
 
+// Fetch helper for server-side DB API
+async function apiFetch(path) {
+  const res = await fetch(path);
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
 export async function init() {
-  // Fetch projects for dropdown
-  const projects = await db.getDistinctProjects();
+  // Fetch projects from server DB
+  const projects = await apiFetch('/api/db/projects');
   const select = document.getElementById('history-project-filter');
   projects.forEach(p => {
     const opt = document.createElement('option');
@@ -35,39 +41,49 @@ export async function refresh() {
 }
 
 async function loadSessions() {
-  const query = document.getElementById('search-input').value || undefined;
-  const project = document.getElementById('history-project-filter').value || undefined;
+  const query = document.getElementById('search-input').value || '';
+  const project = document.getElementById('history-project-filter').value || '';
   const statusVal = document.getElementById('history-status-filter').value;
-  let status, archived;
+  let status = '', archived = '';
   if (statusVal === 'archived') {
     archived = 'true';
   } else if (statusVal) {
     status = statusVal;
   }
   const dateFromRaw = document.getElementById('history-date-from').value;
-  const dateFrom = dateFromRaw ? new Date(dateFromRaw).getTime() : undefined;
+  const dateFrom = dateFromRaw ? new Date(dateFromRaw).getTime() : '';
   const dateToRaw = document.getElementById('history-date-to').value;
-  const dateTo = dateToRaw ? new Date(dateToRaw + 'T23:59:59').getTime() : undefined;
-  const sortByMap = { date: 'startedAt', duration: 'endedAt', prompts: 'totalPrompts', tools: 'totalToolCalls' };
+  const dateTo = dateToRaw ? new Date(dateToRaw + 'T23:59:59').getTime() : '';
+  const sortByMap = { date: 'started_at', duration: 'last_activity_at', prompts: 'started_at', tools: 'started_at' };
   const rawSort = document.getElementById('history-sort-by').value;
-  const sortBy = sortByMap[rawSort] || 'startedAt';
+  const sortBy = sortByMap[rawSort] || 'started_at';
   const sortDir = document.getElementById('history-sort-dir').textContent.toLowerCase();
-  const page = currentPage;
-  const pageSize = 50;
 
-  const result = await db.searchSessions({ query, project, status, dateFrom, dateTo, archived, sortBy, sortDir, page, pageSize });
+  const params = new URLSearchParams();
+  if (query) params.set('query', query);
+  if (project) params.set('project', project);
+  if (status) params.set('status', status);
+  if (dateFrom) params.set('dateFrom', dateFrom);
+  if (dateTo) params.set('dateTo', dateTo);
+  if (archived) params.set('archived', archived);
+  params.set('sortBy', sortBy);
+  params.set('sortDir', sortDir);
+  params.set('page', currentPage);
+  params.set('pageSize', 50);
 
-  // Map camelCase IndexedDB fields to snake_case expected by renderResults
+  const result = await apiFetch(`/api/db/sessions?${params}`);
+
+  // DB returns snake_case fields directly
   const mapped = result.sessions.map(s => ({
     id: s.id,
     title: s.title || '',
-    project_name: s.projectName || '',
-    started_at: s.startedAt,
-    ended_at: s.endedAt,
+    project_name: s.project_name || '',
+    started_at: s.started_at,
+    ended_at: s.ended_at,
     status: s.status,
-    total_prompts: s.totalPrompts || 0,
-    total_tool_calls: s.totalToolCalls || 0,
-    git_branch: s.gitBranch || '',
+    total_prompts: s.total_prompts || 0,
+    total_tool_calls: s.total_tool_calls || 0,
+    git_branch: '',
   }));
   renderResults(mapped, result.total, result.page, result.pageSize);
 }
@@ -109,25 +125,23 @@ function renderResults(sessions, total, page, pageSize) {
     });
   });
 
-  // Delete button handler
+  // Delete button handler — delete from server DB
   container.querySelectorAll('.history-delete').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const row = btn.closest('.history-row');
       const sid = row.dataset.sessionId;
       if (!confirm('Delete this session from history? This cannot be undone.')) return;
-      await db.deleteSession(sid);
+      await fetch(`/api/db/sessions/${encodeURIComponent(sid)}`, { method: 'DELETE' });
       row.style.transition = 'opacity 0.3s';
       row.style.opacity = '0';
       setTimeout(() => {
         row.remove();
-        // Reload if the page is now empty
         if (container.querySelectorAll('.history-row').length === 0) loadSessions();
       }, 300);
     });
   });
 
-  // Pagination
   renderPagination(total, page, pageSize);
 }
 
@@ -140,13 +154,10 @@ function renderPagination(total, page, pageSize) {
   }
 
   const buttons = [];
-
-  // Previous button
   buttons.push(
     `<button class="page-btn${page <= 1 ? ' disabled' : ''}" data-page="${page - 1}"${page <= 1 ? ' disabled' : ''}>&laquo; Prev</button>`
   );
 
-  // Page number buttons: show first, last, current +/- 2, with ellipses
   const range = [];
   for (let i = 1; i <= totalPages; i++) {
     if (i === 1 || i === totalPages || (i >= page - 2 && i <= page + 2)) {
@@ -165,14 +176,12 @@ function renderPagination(total, page, pageSize) {
     lastShown = i;
   });
 
-  // Next button
   buttons.push(
     `<button class="page-btn${page >= totalPages ? ' disabled' : ''}" data-page="${page + 1}"${page >= totalPages ? ' disabled' : ''}>Next &raquo;</button>`
   );
 
   container.innerHTML = buttons.join('');
 
-  // Wire click handlers
   container.querySelectorAll('.page-btn:not(.disabled)').forEach(btn => {
     btn.addEventListener('click', () => {
       currentPage = parseInt(btn.dataset.page, 10);
@@ -182,26 +191,23 @@ function renderPagination(total, page, pageSize) {
 }
 
 async function openHistoryDetail(sessionId) {
-  const data = await db.getSessionDetail(sessionId);
+  const data = await apiFetch(`/api/db/sessions/${encodeURIComponent(sessionId)}`);
   if (!data) return;
-  const s = {
-    session: data.session,
-    prompts: data.prompts,
-    responses: (data.responses || []).map(r => ({ ...r, text: r.textExcerpt || r.text || '' })),
-    tools: (data.tool_calls || []).map(t => ({ tool: t.toolName, input: t.toolInputSummary || '', timestamp: t.timestamp })),
-    events: data.events,
-    notes: data.notes,
-  };
+
+  const sess = data.session;
+  const prompts = data.prompts || [];
+  const responses = (data.responses || []).map(r => ({ ...r, text: r.text_excerpt || r.text || '' }));
+  const tools = (data.tool_calls || []).map(t => ({ tool: t.tool_name, input: t.tool_input_summary || '', timestamp: t.timestamp }));
+  const events = data.events || [];
 
   // Populate header
-  const sess = s.session || s;
-  document.getElementById('detail-project-name').textContent = sess.projectName || sess.project_name || '';
+  document.getElementById('detail-project-name').textContent = sess.project_name || '';
   const badge = document.getElementById('detail-status-badge');
   badge.textContent = (sess.status || '').toUpperCase();
   badge.className = `status-badge ${sess.status}`;
   document.getElementById('detail-model').textContent = sess.model || '';
-  const startedAt = sess.startedAt || sess.started_at;
-  const endedAt = sess.endedAt || sess.ended_at;
+  const startedAt = sess.started_at;
+  const endedAt = sess.ended_at;
   document.getElementById('detail-duration').textContent = endedAt
     ? formatDuration(endedAt - startedAt)
     : formatDuration(Date.now() - startedAt);
@@ -209,14 +215,13 @@ async function openHistoryDetail(sessionId) {
   // Character model selector + preview
   const charSelect = document.getElementById('detail-char-model');
   if (charSelect) {
-    charSelect.value = sess.characterModel || sess.character_model || '';
+    charSelect.value = sess.character_model || '';
     charSelect.dataset.sessionId = sessionId;
   }
-  // Mini preview with session's accent color
   const previewEl = document.getElementById('detail-char-preview');
   if (previewEl) {
-    const model = sess.characterModel || sess.character_model || 'robot';
-    const accentColor = sanitizeColor(sess.accentColor || sess.accent_color);
+    const model = sess.character_model || 'robot';
+    const accentColor = sanitizeColor(sess.accent_color);
     import('./robotManager.js').then(rm => {
       previewEl.innerHTML = '';
       const mini = document.createElement('div');
@@ -231,11 +236,11 @@ async function openHistoryDetail(sessionId) {
     });
   }
 
-  // Conversation tab (interleaved prompts + responses, newest first)
+  // Conversation tab (interleaved prompts + responses)
   const convoEl = document.getElementById('detail-conversation');
   const allEntries = [
-    ...(s.prompts || []).map(p => ({ type: 'prompt', timestamp: p.timestamp, text: p.text })),
-    ...(s.responses || []).map(r => ({ type: 'response', timestamp: r.timestamp, text: r.text })),
+    ...prompts.map(p => ({ type: 'prompt', timestamp: p.timestamp, text: p.text })),
+    ...responses.map(r => ({ type: 'response', timestamp: r.timestamp, text: r.text })),
   ].sort((a, b) => a.timestamp - b.timestamp);
   convoEl.innerHTML = allEntries.map(e => {
     const cls = e.type === 'prompt' ? 'prompt-entry' : 'response-entry';
@@ -247,11 +252,11 @@ async function openHistoryDetail(sessionId) {
 
   // Activity tab (merged tool calls + events)
   const histItems = [];
-  for (const t of (s.tools || [])) {
+  for (const t of tools) {
     histItems.push({ kind: 'tool', tool: t.tool, input: t.input, timestamp: t.timestamp });
   }
-  for (const e of (s.events || [])) {
-    histItems.push({ kind: 'event', type: e.type, detail: e.detail, timestamp: e.timestamp });
+  for (const e of events) {
+    histItems.push({ kind: 'event', type: e.event_type, detail: e.detail, timestamp: e.timestamp });
   }
   histItems.sort((a, b) => b.timestamp - a.timestamp);
   const actEl = document.getElementById('detail-activity-log');

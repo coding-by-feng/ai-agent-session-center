@@ -911,15 +911,37 @@ body.no-scanlines::after {
     width: 100%;
     max-height: 100vh;
     border-radius: 0;
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
-  /* Settings tabs: horizontal scroll on overflow */
+  /* Sticky settings header */
+  .settings-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--bg-panel);
+    flex-shrink: 0;
+    padding: 16px 20px;
+    padding-top: calc(16px + env(safe-area-inset-top, 0px));
+    margin-bottom: 0;
+  }
+
+  /* Settings tabs: horizontal scroll on overflow, sticky below header */
   .settings-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 9;
+    background: var(--bg-panel);
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     padding: 0 12px;
     flex-wrap: nowrap;
+    flex-shrink: 0;
   }
 
   .settings-tabs::-webkit-scrollbar {
@@ -933,10 +955,14 @@ body.no-scanlines::after {
     padding: 10px 14px;
   }
 
-  /* Settings tab content: adjust padding */
+  /* Settings tab content: fill remaining space, scroll */
   .settings-tab-content {
     padding: 14px 16px;
-    max-height: 60vh;
+    padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    max-height: none;
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   /* Modal close button: 44px touch target */
@@ -946,6 +972,16 @@ body.no-scanlines::after {
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  /* Settings gear button: 44px touch target */
+  .settings-gear {
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 8px;
   }
 
   /* Toggle switches: 44px min height for touch */
@@ -1012,8 +1048,8 @@ body.no-scanlines::after {
 
   .sound-action-select {
     min-height: 44px;
-    font-size: 12px;
-    width: 120px;
+    font-size: 16px; /* prevents iOS zoom */
+    width: 100%;
   }
 
   .sound-preview-btn {
@@ -1023,7 +1059,14 @@ body.no-scanlines::after {
     font-size: 12px;
   }
 
-  /* Density buttons: stack if needed */
+  /* Sound action row: stack label above select on mobile */
+  .sound-action-label {
+    width: 100%;
+    white-space: normal;
+    margin-bottom: 4px;
+  }
+
+  /* Density buttons: stack vertically */
   .density-control {
     flex-direction: column;
   }
@@ -1037,7 +1080,12 @@ body.no-scanlines::after {
     flex-direction: column;
   }
 
-  /* Advanced actions: wrap */
+  .density-actions button {
+    min-height: 44px;
+    width: 100%;
+  }
+
+  /* Advanced actions: stack vertically */
   .advanced-actions {
     flex-direction: column;
   }
@@ -1055,9 +1103,15 @@ body.no-scanlines::after {
   .api-key-input {
     min-height: 44px;
     font-size: 16px; /* prevents iOS zoom */
+    width: 100%;
   }
 
   .api-key-toggle {
+    min-height: 44px;
+    width: 100%;
+  }
+
+  .api-key-row .ctrl-btn {
     min-height: 44px;
     width: 100%;
   }
@@ -1072,14 +1126,26 @@ body.no-scanlines::after {
     font-size: 16px; /* prevents iOS zoom */
   }
 
+  /* Settings select: 44px height and 16px font on mobile */
+  .settings-select {
+    min-height: 44px;
+    font-size: 16px; /* prevents iOS zoom */
+  }
+
   /* Label config cards: full width, touch-friendly selects */
   .label-config-row {
     flex-wrap: wrap;
   }
 
+  .label-config-field {
+    width: 100%;
+    margin-bottom: 2px;
+  }
+
   .label-config-select {
     min-height: 44px;
-    font-size: 12px;
+    font-size: 16px; /* prevents iOS zoom */
+    width: 100%;
   }
 
   .label-preview-btn {
@@ -1133,6 +1199,41 @@ body.no-scanlines::after {
 
   #font-size-slider {
     height: 44px;
+  }
+}
+
+/* ============================================================
+   Responsive - Settings Panel (Small mobile < 375px)
+   ============================================================ */
+
+@media (max-width: 375px) {
+  .settings-tab-content {
+    padding: 10px 12px;
+  }
+
+  .settings-section {
+    margin-bottom: 16px;
+    padding-bottom: 14px;
+  }
+
+  /* Theme grid: 2 columns on very small screens */
+  .theme-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* Model grid: 2 columns on very small screens */
+  .model-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ============================================================
+   Responsive - Settings Panel (Tablet < 768px)
+   ============================================================ */
+
+@media (max-width: 768px) {
+  .settings-panel {
+    max-width: 95vw;
   }
 }
 

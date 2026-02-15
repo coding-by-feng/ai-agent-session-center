@@ -2202,6 +2202,156 @@ body::after {
 }
 
 /* ============================================================
+   Responsive - Analytics/Charts/Stats Mobile (<640px)
+   ============================================================ */
+
+@media (max-width: 640px) {
+  /* Analytics grid: single column on mobile */
+  #analytics-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  /* Analytics cards: full-width, reduced padding and height */
+  .analytics-card {
+    padding: 14px;
+    min-height: 200px;
+  }
+
+  .analytics-card h4 {
+    font-size: 10px;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+  }
+
+  /* Analytics summary stats: 2x2 grid on mobile */
+  #analytics-summary {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .summary-stat {
+    min-width: 0;
+    padding: 10px 12px;
+  }
+
+  .summary-stat .stat-value {
+    font-size: 18px;
+  }
+
+  .summary-stat .stat-label {
+    font-size: 8px;
+    letter-spacing: 1px;
+  }
+
+  .summary-stat .stat-detail {
+    font-size: 9px;
+  }
+
+  /* View panels: reduced padding on mobile */
+  #view-analytics,
+  #view-timeline,
+  #view-history {
+    padding: 12px 10px;
+  }
+
+  /* Timeline chart: reduced padding */
+  #timeline-chart {
+    padding: 12px;
+    min-height: 250px;
+  }
+
+  /* Timeline controls: wrap on mobile */
+  #timeline-controls {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  #timeline-controls input,
+  #timeline-controls select {
+    min-height: 44px;
+    font-size: 12px;
+    flex: 1 1 auto;
+  }
+
+  /* History controls: touch-friendly inputs */
+  #history-controls input,
+  #history-controls select {
+    min-height: 44px;
+    font-size: 12px;
+  }
+
+  /* History row: compact card layout */
+  .history-row {
+    padding: 10px 12px;
+    gap: 6px;
+    font-size: 11px;
+  }
+
+  /* Heatmap cells: slightly larger for touch */
+  .heatmap-cell {
+    width: 12px;
+    height: 12px;
+  }
+}
+
+/* ============================================================
+   Responsive - Analytics/Charts Small Mobile (<480px)
+   ============================================================ */
+
+@media (max-width: 480px) {
+  #analytics-summary {
+    gap: 6px;
+  }
+
+  .summary-stat {
+    padding: 8px 10px;
+  }
+
+  .summary-stat .stat-value {
+    font-size: 16px;
+  }
+
+  .analytics-card {
+    padding: 10px;
+    min-height: 180px;
+  }
+
+  #view-analytics,
+  #view-timeline,
+  #view-history {
+    padding: 10px 8px;
+  }
+
+  #timeline-chart {
+    padding: 10px;
+    min-height: 200px;
+  }
+}
+
+/* ============================================================
+   Responsive - Analytics/Charts Extra Small (<375px)
+   ============================================================ */
+
+@media (max-width: 375px) {
+  /* Stats: single column on very narrow */
+  #analytics-summary {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .summary-stat {
+    padding: 6px 8px;
+  }
+
+  .summary-stat .stat-value {
+    font-size: 14px;
+  }
+}
+
+/* ============================================================
    Session Control Buttons
    ============================================================ */
 

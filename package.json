@@ -5,7 +5,7 @@
   "type": "module",
   "main": "server/index.js",
   "bin": {
-    "ai-agent-session-center": "./bin/cli.js"
+    "ai-agent-session-center": "bin/cli.js"
   },
   "scripts": {
     "start": "node server/index.js",
@@ -34,12 +34,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/coding-by-feng/ai-agent-session-center"
+    "url": "git+https://github.com/coding-by-feng/ai-agent-session-center.git"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "better-sqlite3": "^12.6.2",
     "express": "^5.0.0",
     "node-pty": "^1.1.0",
     "ws": "^8.18.0"

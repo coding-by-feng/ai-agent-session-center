@@ -183,20 +183,28 @@ export function matchSession(hookData, sessions, pendingResume, pidToSession, pr
         log.info('session', `RESUME: Re-keyed session ${pending.oldSessionId?.slice(0,8)} → ${session_id?.slice(0,8)} (via pending resume + terminal ID)`);
       }
     }
-    // Fallback: match by projectPath
+    // Fallback: match by projectPath — only if exactly one pendingResume matches.
+    // When multiple pending resumes share the same projectPath, path alone is
+    // ambiguous and we'd link the wrong session.
     if (!session) {
+      const pathMatches = [];
+      const normalizedCwd = (cwd || '').replace(/\/$/, '');
       for (const [pTermId, pending] of pendingResume) {
         const oldSession = sessions.get(pending.oldSessionId);
         if (oldSession && oldSession.projectPath) {
           const normalizedSessionPath = oldSession.projectPath.replace(/\/$/, '');
-          const normalizedCwd = (cwd || '').replace(/\/$/, '');
           if (normalizedSessionPath === normalizedCwd) {
-            pendingResume.delete(pTermId);
-            session = reKeyResumedSession(sessions, oldSession, session_id, pending.oldSessionId, pidToSession);
-            log.info('session', `RESUME: Re-keyed session ${pending.oldSessionId?.slice(0,8)} → ${session_id?.slice(0,8)} (via pending resume + workDir match)`);
-            break;
+            pathMatches.push({ pTermId, pending, oldSession });
           }
         }
+      }
+      if (pathMatches.length === 1) {
+        const { pTermId, pending, oldSession } = pathMatches[0];
+        pendingResume.delete(pTermId);
+        session = reKeyResumedSession(sessions, oldSession, session_id, pending.oldSessionId, pidToSession);
+        log.info('session', `RESUME: Re-keyed session ${pending.oldSessionId?.slice(0,8)} → ${session_id?.slice(0,8)} (via pending resume + workDir match, 1 candidate)`);
+      } else if (pathMatches.length > 1) {
+        log.info('session', `SKIP RESUME path match: ${pathMatches.length} pending resumes for cwd=${normalizedCwd} — ambiguous`);
       }
     }
     // Clean up stale pendingLinks from sshManager.createTerminal() so they
@@ -210,36 +218,37 @@ export function matchSession(hookData, sessions, pendingResume, pidToSession, pr
   // After server restart, sessions with dead PIDs are marked ended with a
   // 'ServerRestart' event.  When `claude --resume` sends a SessionStart with
   // a NEW session_id in the same directory, re-key the old card instead of
-  // creating a duplicate.  Picks the most recently ended session to avoid
-  // re-keying the wrong card when multiple sessions share the same directory.
+  // creating a duplicate.
+  // IMPORTANT: Only auto-link when there is exactly ONE candidate.  When
+  // multiple sessions share the same projectPath, path alone is ambiguous
+  // and we'd link the wrong card.  In that case, skip and let a new card
+  // be created — the user can manually resume/reconnect.
   if (!session && hook_event_name === EVENT_TYPES.SESSION_START && cwd) {
     const normalizedCwd = cwd.replace(/\/$/, '');
-    let bestMatch = null;
-    let bestEndedAt = 0;
+    const candidates = [];
     for (const [oldId, s] of sessions) {
       if (s.projectPath?.replace(/\/$/, '') !== normalizedCwd) continue;
       // Match 1: Ended sessions with ServerRestart event (standard post-restart case)
       if (s.status === SESSION_STATUS.ENDED
           && s.events?.some(e => e.type === 'ServerRestart')
-          && (Date.now() - (s.endedAt || 0)) < 30 * 60 * 1000
-          && (s.endedAt || 0) > bestEndedAt) {
-        bestMatch = { oldId, s };
-        bestEndedAt = s.endedAt || 0;
+          && (Date.now() - (s.endedAt || 0)) < 30 * 60 * 1000) {
+        candidates.push({ oldId, s, endedAt: s.endedAt || 0 });
       }
       // Match 2: Safety net — zombie SSH sessions that slipped through cleanup
       // (non-ended, source=ssh, no terminalId, stale for >60s)
-      if (!bestMatch
-          && s.source === 'ssh'
+      if (s.source === 'ssh'
           && s.status !== SESSION_STATUS.ENDED
           && !s.terminalId
           && s.lastActivityAt && (Date.now() - s.lastActivityAt) > 60_000) {
-        bestMatch = { oldId, s };
-        bestEndedAt = s.lastActivityAt || 0;
+        candidates.push({ oldId, s, endedAt: s.lastActivityAt || 0 });
       }
     }
-    if (bestMatch) {
-      session = reKeyResumedSession(sessions, bestMatch.s, session_id, bestMatch.oldId, pidToSession);
-      log.info('session', `AUTO-RESUME: Re-keyed ${bestMatch.oldId?.slice(0,8)} → ${session_id?.slice(0,8)} (snapshot restore + projectPath match)`);
+    if (candidates.length === 1) {
+      const match = candidates[0];
+      session = reKeyResumedSession(sessions, match.s, session_id, match.oldId, pidToSession);
+      log.info('session', `AUTO-RESUME: Re-keyed ${match.oldId?.slice(0,8)} → ${session_id?.slice(0,8)} (snapshot restore + projectPath match, 1 candidate)`);
+    } else if (candidates.length > 1) {
+      log.info('session', `SKIP AUTO-RESUME: ${candidates.length} candidates for cwd=${normalizedCwd} — ambiguous, creating new card`);
     }
   }
 
@@ -292,23 +301,31 @@ export function matchSession(hookData, sessions, pendingResume, pidToSession, pr
         sessions.set(session_id, session);
       }
     } else {
-      // Priority 3: Scan pre-created sessions by normalized path
+      // Priority 3: Scan pre-created sessions by normalized path.
+      // Only match when exactly one CONNECTING session shares the path —
+      // multiple CONNECTING sessions in the same dir means ambiguity.
       let found = false;
+      const normalizedCwd = (cwd || '').replace(/\/$/, '');
+      const connectingMatches = [];
       for (const [key, s] of sessions) {
         if (s.terminalId && s.status === SESSION_STATUS.CONNECTING && s.projectPath) {
           const normalizedSessionPath = s.projectPath.replace(/\/$/, '');
-          const normalizedCwd = (cwd || '').replace(/\/$/, '');
           if (normalizedSessionPath === normalizedCwd || s.projectPath === cwd) {
-            sessions.delete(key);
-            s.sessionId = session_id;
-            s.replacesId = key;
-            session = s;
-            sessions.set(session_id, session);
-            log.info('session', `Re-keyed terminal session ${key} → ${session_id?.slice(0,8)} (via path scan)`);
-            found = true;
-            break;
+            connectingMatches.push({ key, s });
           }
         }
+      }
+      if (connectingMatches.length === 1) {
+        const { key, s } = connectingMatches[0];
+        sessions.delete(key);
+        s.sessionId = session_id;
+        s.replacesId = key;
+        session = s;
+        sessions.set(session_id, session);
+        log.info('session', `Re-keyed terminal session ${key} → ${session_id?.slice(0,8)} (via path scan, 1 candidate)`);
+        found = true;
+      } else if (connectingMatches.length > 1) {
+        log.info('session', `SKIP path scan: ${connectingMatches.length} CONNECTING sessions for cwd=${normalizedCwd} — ambiguous`);
       }
       // Priority 4: PID-based fallback — check if Claude's parent is a known pty
       if (!found && hookData.claude_pid) {

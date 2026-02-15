@@ -1,9 +1,14 @@
 import { drawBarChart, drawLineChart, drawHeatmapGrid, formatNumber, showTooltip, hideTooltip } from './chartUtils.js';
-import * as db from './browserDb.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 let initialized = false;
+
+async function apiFetch(path) {
+  const res = await fetch(path);
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
 
 export async function init() {
   if (initialized) return;
@@ -17,13 +22,14 @@ export async function refresh() {
 }
 
 async function loadAll() {
-  const [summary, tools, trends, projects, heatmap] = await Promise.all([
-    db.getSummaryStats(),
-    db.getToolBreakdown(),
-    db.getDurationTrends({ period: 'day' }),
-    db.getActiveProjects(),
-    db.getHeatmap(),
+  const [summary, tools, projects, heatmap] = await Promise.all([
+    apiFetch('/api/db/analytics/summary'),
+    apiFetch('/api/db/analytics/tools'),
+    apiFetch('/api/db/analytics/projects'),
+    apiFetch('/api/db/analytics/heatmap'),
   ]);
+  // Duration trends not available from server yet — pass empty
+  const trends = [];
 
   renderSummary(summary);
   renderToolUsage(tools);
