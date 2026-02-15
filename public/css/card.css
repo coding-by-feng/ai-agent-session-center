@@ -1469,35 +1469,64 @@
    ============================================================ */
 
 @media (max-width: 640px) {
-  /* Groups container: single column on phones */
+  /* ---- Flatten groups into simple single-column list on phone ---- */
+
+  /* Hide layout presets bar (useless on single column) */
+  .layout-presets-bar {
+    display: none;
+  }
+
+  /* Groups container: simple vertical stack, no grid */
   #groups-container {
-    grid-template-columns: 1fr;
-    gap: 12px;
-    padding: 0 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0 8px;
   }
 
-  /* Each group spans full width */
+  /* Remove group visual chrome: no border, no background, no rounded corners */
   .session-group {
-    grid-column: span 1;
+    border: none;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
   }
 
-  /* Session grid and group grid: lower min-width for phone screens */
-  #sessions-grid {
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 12px;
-    padding: 12px;
+  /* Hide group header (collapse, name, count, delete) */
+  .group-header {
+    display: none;
   }
 
+  /* Hide group resize handle and drag indicators */
+  .group-resize-handle {
+    display: none;
+  }
+
+  /* Hide drag-and-drop empty placeholders on touch devices */
+  .group-grid:empty::after,
+  .group-grid.drag-over:empty::after {
+    display: none;
+  }
+
+  /* Group grid: single column, no padding, tight gap */
   .group-grid {
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 12px;
-    padding: 12px;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 0;
+    min-height: 0;
   }
 
-  /* Robot viewport: smaller on mobile to save vertical space */
+  /* Ungrouped sessions grid: same single column */
+  #sessions-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  /* Robot viewport: enough room for character at scale(0.75) to show fully */
   .session-card .robot-viewport {
-    padding-top: 100px;
-    min-height: 80px;
+    padding-top: 150px;
+    min-height: 100px;
   }
 
   /* Reduce card info padding on mobile */
@@ -1517,47 +1546,11 @@
     margin: -10px -10px 8px -10px;
   }
 
-  /* Layout presets bar: wrap on mobile */
-  .layout-presets-bar {
-    flex-wrap: wrap;
-    padding: 8px 12px;
-    gap: 6px;
-  }
+  /* (Layout presets bar, group header, delete, collapse, resize all hidden via display:none above) */
 
-  /* Layout preset buttons: minimum 44px touch target */
-  .layout-preset-btn {
-    min-width: 44px;
-    min-height: 44px;
-    padding: 8px 12px;
-  }
-
-  /* Group header padding reduced */
-  .group-header {
-    padding: 8px 12px;
-    gap: 8px;
-  }
-
-  /* Group delete button: 44px touch target, always visible on mobile */
-  .group-delete {
-    width: 44px;
-    height: 44px;
-    font-size: 18px;
-    opacity: 1;
-  }
-
-  /* Group collapse: larger touch target */
-  .group-collapse {
-    width: 44px;
-    height: 44px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-  }
-
-  /* Group resize handle: hidden on mobile (no column resize on single-column) */
-  .group-resize-handle {
-    display: none;
+  /* Force collapsed groups to show their grid on mobile (no way to uncollapse since header is hidden) */
+  .session-group.collapsed .group-grid {
+    display: grid;
   }
 
   /* Card overlay buttons: always visible and 44px touch targets on mobile */
@@ -1661,6 +1654,160 @@
 }
 
 /* ============================================================
+   Responsive — Small Mobile (<480px)
+   ============================================================ */
+
+@media (max-width: 480px) {
+  /* Tighter gaps on small phones */
+  #sessions-grid {
+    gap: 6px;
+    padding: 6px;
+  }
+
+  .group-grid {
+    gap: 6px;
+    padding: 0;
+  }
+
+  #groups-container {
+    padding: 0 6px;
+    gap: 6px;
+  }
+
+  /* Robot viewport: enough room for character at scale(0.65) to show fully */
+  .session-card .robot-viewport {
+    padding-top: 130px;
+    min-height: 80px;
+  }
+
+  /* Compact card info */
+  .session-card .card-info {
+    padding: 6px 8px;
+  }
+
+  .session-card .card-header {
+    gap: 3px;
+    margin-bottom: 4px;
+  }
+
+  /* Truncate project name to single line with ellipsis */
+  .session-card .project-name {
+    font-size: 12px;
+  }
+
+  /* Card stats: single line with ellipsis */
+  .session-card .card-stats {
+    flex-wrap: nowrap;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .session-card .card-stats > span {
+    flex-shrink: 0;
+  }
+
+  /* Status badge: smaller but still readable (min 10px) */
+  .session-card .status-badge {
+    font-size: 8px;
+    padding: 1px 5px;
+    letter-spacing: 1px;
+  }
+
+  /* Card title: single line with ellipsis */
+  .session-card .card-title {
+    font-size: 12px;
+    -webkit-line-clamp: 1;
+  }
+
+  /* Card prompt: single line */
+  .session-card .card-prompt {
+    -webkit-line-clamp: 1;
+    font-size: 9px;
+    margin-bottom: 6px;
+  }
+
+  /* Waiting banners: compact */
+  .session-card[data-status="approval"] .waiting-banner {
+    font-size: 10px;
+    padding: 4px 0;
+    margin: -6px -8px 6px -8px;
+    letter-spacing: 1.5px;
+  }
+
+  .session-card[data-status="input"] .waiting-banner {
+    font-size: 9px;
+    padding: 3px 0;
+    margin: -6px -8px 6px -8px;
+    letter-spacing: 1px;
+  }
+
+  /* (Group header and layout presets already hidden at 640px) */
+}
+
+/* ============================================================
+   Responsive — Extra Small (<375px)
+   ============================================================ */
+
+@media (max-width: 375px) {
+  #sessions-grid {
+    padding: 4px;
+    gap: 6px;
+  }
+
+  .group-grid {
+    gap: 6px;
+    padding: 0;
+  }
+
+  #groups-container {
+    padding: 0 4px;
+    gap: 6px;
+  }
+
+  /* Robot viewport: enough room for character at scale(0.55) to show fully */
+  .session-card .robot-viewport {
+    padding-top: 110px;
+    min-height: 70px;
+  }
+
+  .session-card .card-info {
+    padding: 5px 6px;
+  }
+
+  .session-card .project-name {
+    font-size: 11px;
+  }
+
+  .session-card .status-badge {
+    font-size: 7px;
+    padding: 1px 4px;
+    letter-spacing: 0.8px;
+  }
+
+  .session-card .card-stats {
+    font-size: 8px;
+  }
+
+  /* Card overlay buttons: slightly smaller to fit narrow screens */
+  .session-card .close-btn,
+  .session-card .mute-btn,
+  .session-card .pin-btn,
+  .session-card .summarize-card-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .pin-btn {
+    left: 44px;
+  }
+
+  .summarize-card-btn {
+    right: 44px;
+  }
+}
+
+/* ============================================================
    Responsive — Tablet (641px–960px)
    ============================================================ */
 
@@ -1710,5 +1857,23 @@
   /* Group resize handle hidden on tablet too (layout is auto-grid) */
   .group-resize-handle {
     display: none;
+  }
+
+  /* Hide drag-and-drop empty placeholders on tablet (touch devices) */
+  .group-grid:empty::after,
+  .group-grid.drag-over:empty::after {
+    display: none;
+  }
+}
+
+/* ============================================================
+   Responsive — Medium screens (961px–1280px)
+   ============================================================ */
+
+@media (max-width: 1280px) and (min-width: 961px) {
+  /* Slightly reduce grid gap */
+  #sessions-grid {
+    gap: 14px;
+    padding: 20px;
   }
 }

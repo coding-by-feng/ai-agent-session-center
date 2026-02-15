@@ -46,11 +46,12 @@ export function initDeps(deps) {
 export async function loadNotes(sessionId) {
   const list = document.getElementById('notes-list');
   try {
-    const notes = await db.getNotes(sessionId);
+    const res = await fetch(`/api/db/sessions/${encodeURIComponent(sessionId)}/notes`);
+    const notes = res.ok ? await res.json() : [];
     list.innerHTML = notes.map(n => `
       <div class="note-entry">
         <div class="note-meta">
-          <span class="note-time">${formatTime(n.createdAt)}</span>
+          <span class="note-time">${formatTime(n.created_at)}</span>
           <button class="note-delete" data-note-id="${n.id}">DELETE</button>
         </div>
         <div class="note-text">${escapeHtml(n.text)}</div>
@@ -615,7 +616,11 @@ export function initControlHandlers() {
     const text = textarea.value.trim();
     if (!text) return;
     try {
-      await db.addNote(sid, text);
+      await fetch(`/api/db/sessions/${encodeURIComponent(sid)}/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
       textarea.value = '';
       loadNotes(sid);
       if (_showToast) _showToast('NOTE SAVED', 'Note added successfully');
@@ -631,7 +636,7 @@ export function initControlHandlers() {
     if (!btn || !sid) return;
     const noteId = btn.dataset.noteId;
     try {
-      await db.del('notes', Number(noteId));
+      await fetch(`/api/db/notes/${encodeURIComponent(noteId)}`, { method: 'DELETE' });
       loadNotes(sid);
     } catch(e) {
       if (_showToast) _showToast('DELETE ERROR', e.message);

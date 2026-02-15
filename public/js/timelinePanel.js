@@ -1,5 +1,5 @@
 import { formatNumber, showTooltip, hideTooltip } from './chartUtils.js';
-import { getDistinctProjects, getTimeline } from './browserDb.js';
+import { getTimeline } from './browserDb.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -9,8 +9,9 @@ export async function init() {
   if (initialized) return;
   initialized = true;
 
-  // Populate project filter from IndexedDB
-  const projects = await getDistinctProjects();
+  // Populate project filter from server DB
+  const res = await fetch('/api/db/projects');
+  const projects = res.ok ? await res.json() : [];
   const select = document.getElementById('timeline-project-filter');
   projects.forEach(p => {
     const opt = document.createElement('option');

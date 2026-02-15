@@ -29,6 +29,14 @@ import {
 } from './teamManager.js';
 import { startMonitoring, stopMonitoring, findClaudeProcess as _findClaudeProcess } from './processMonitor.js';
 import { startAutoIdle, stopAutoIdle, startPendingResumeCleanup, stopPendingResumeCleanup } from './autoIdleManager.js';
+import {
+  upsertSession as dbUpsertSession,
+  updateSessionTitle as dbUpdateTitle,
+  updateSessionLabel as dbUpdateLabel,
+  updateSessionSummary as dbUpdateSummary,
+  updateSessionArchived as dbUpdateArchived,
+  migrateSessionId as dbMigrateSessionId,
+} from './db.js';
 
 /** @type {Map<string, import('../types/session').Session>} */
 const sessions = new Map();
@@ -173,10 +181,32 @@ export function loadSnapshot() {
       // Check PID liveness for active sessions
       if (session.cachedPid) {
         if (isPidAlive(session.cachedPid)) {
-          // Process still alive — restore as-is
-          sessions.set(id, session);
-          pidToSession.set(session.cachedPid, id);
-          restored++;
+          if (session.source === 'ssh') {
+            // SSH sessions: terminal is ALWAYS dead after server restart (PTY was
+            // owned by the old node process). The Claude process is an orphan —
+            // alive but unreachable. Kill it and mark as ended.
+            try { process.kill(session.cachedPid, 'SIGTERM'); } catch {}
+            session.status = SESSION_STATUS.ENDED;
+            session.animationState = ANIMATION_STATE.DEATH;
+            session.endedAt = Date.now();
+            session.events = session.events || [];
+            session.events.push({
+              type: 'ServerRestart',
+              detail: 'Killed orphaned SSH process — terminal died with old server',
+              timestamp: Date.now(),
+            });
+            session.isHistorical = true;
+            session.lastTerminalId = session.terminalId;
+            session.terminalId = null;
+            sessions.set(id, session);
+            ended++;
+          } else {
+            // Non-SSH (VS Code, iTerm, etc.): process can legitimately survive
+            // server restart since the terminal is external
+            sessions.set(id, session);
+            pidToSession.set(session.cachedPid, id);
+            restored++;
+          }
         } else {
           // Process died while server was down — mark as ended
           session.status = SESSION_STATUS.ENDED;
@@ -663,7 +693,20 @@ export function handleEvent(hookData) {
   session.events.push(eventEntry);
   if (session.events.length > 50) session.events.shift();
 
+  // Persist to SQLite on key state transitions
+  const DB_PERSIST_EVENTS = new Set([
+    EVENT_TYPES.SESSION_START, EVENT_TYPES.USER_PROMPT_SUBMIT,
+    EVENT_TYPES.STOP, EVENT_TYPES.SESSION_END,
+  ]);
+  if (DB_PERSIST_EVENTS.has(hook_event_name)) {
+    dbUpsertSession(session);
+  }
+
   const result = { session: { ...session } };
+  // Migrate DB records when session is re-keyed (e.g., after claude --resume)
+  if (session.replacesId) {
+    dbMigrateSessionId(session.replacesId, session_id);
+  }
   // Clean up one-time re-key flag
   delete session.replacesId;
   // Include team info if session belongs to a team
@@ -760,6 +803,7 @@ export async function createTerminalSession(terminalId, config) {
   };
   sessions.set(terminalId, session);
   invalidateSessionsCache();
+  dbUpsertSession(session);
 
   log.info('session', `Created terminal session ${terminalId} → ${config.host}:${workDir}`);
 
@@ -845,19 +889,19 @@ export function deleteSessionFromMemory(sessionId) {
 
 export function setSessionTitle(sessionId, title) {
   const session = sessions.get(sessionId);
-  if (session) { session.title = title; invalidateSessionsCache(); }
+  if (session) { session.title = title; invalidateSessionsCache(); dbUpdateTitle(sessionId, title); }
   return session ? { ...session } : null;
 }
 
 export function setSessionLabel(sessionId, label) {
   const session = sessions.get(sessionId);
-  if (session) { session.label = label; invalidateSessionsCache(); }
+  if (session) { session.label = label; invalidateSessionsCache(); dbUpdateLabel(sessionId, label); }
   return session ? { ...session } : null;
 }
 
 export function setSummary(sessionId, summary) {
   const session = sessions.get(sessionId);
-  if (session) { session.summary = summary; invalidateSessionsCache(); }
+  if (session) { session.summary = summary; invalidateSessionsCache(); dbUpdateSummary(sessionId, summary); }
   return session ? { ...session } : null;
 }
 
@@ -874,7 +918,7 @@ export function setSessionCharacterModel(sessionId, model) {
 
 export function archiveSession(sessionId, archived) {
   const session = sessions.get(sessionId);
-  if (session) { session.archived = archived ? 1 : 0; invalidateSessionsCache(); }
+  if (session) { session.archived = archived ? 1 : 0; invalidateSessionsCache(); dbUpdateArchived(sessionId, archived); }
   return session ? { ...session } : null;
 }
 

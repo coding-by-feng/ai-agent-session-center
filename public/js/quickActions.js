@@ -219,6 +219,12 @@ function restoreLastSession() {
   const themeSelect = document.getElementById('ssh-terminal-theme');
   if (themeSelect) themeSelect.value = getDefaultTerminalTheme();
 
+  // Default host to current browser hostname (so localhost vs LAN IP matches)
+  const hostInput = document.getElementById('ssh-host');
+  if (hostInput && !hostInput.value) {
+    hostInput.value = window.location.hostname || 'localhost';
+  }
+
   try {
     const saved = localStorage.getItem(STORAGE_KEYS.LAST_SESSION);
     if (!saved) return;
@@ -291,6 +297,7 @@ function initQuickSessionModal() {
   document.getElementById('quick-session-launch')?.addEventListener('click', async () => {
     const launchBtn = document.getElementById('quick-session-launch');
     const label = document.getElementById('quick-label-input').value.trim();
+    const sessionTitle = document.getElementById('quick-title')?.value.trim() || undefined;
     const workingDir = document.getElementById('quick-workdir')?.value.trim() || '~';
 
     const saved = (() => {
@@ -306,7 +313,7 @@ function initQuickSessionModal() {
     launchBtn.textContent = 'LAUNCHING...';
     try {
       const body = {
-        host: saved.host || 'localhost',
+        host: saved.host || window.location.hostname || 'localhost',
         port: saved.port || 22,
         username: saved.username,
         authMethod: saved.authMethod || 'key',
@@ -314,6 +321,7 @@ function initQuickSessionModal() {
         workingDir: workingDir,
         command: saved.command || 'claude',
         terminalTheme: saved.terminalTheme || getDefaultTerminalTheme(),
+        sessionTitle: sessionTitle,
         label: label || undefined,
       };
 
@@ -348,7 +356,7 @@ function initQuickSessionModal() {
         setTimeout(() => pinSession(result.terminalId), 500);
         showToast('IMPORTANT SESSION', 'Important session launched & pinned \u2014 alert on completion');
       } else if (label === LABELS.ONEOFF) {
-        showToast('ONEOFF SESSION', 'One-off session launched \u2014 review when done');
+        showToast('ONEOFF SESSION', 'One-off session launched');
       } else {
         showToast('CONNECTED', 'Quick session launched');
       }
@@ -525,6 +533,8 @@ function openQuickModalWithLabel(label) {
   const modal = document.getElementById('quick-session-modal');
   modal.classList.remove('hidden');
   document.getElementById('quick-label-input').value = label;
+  const titleInput = document.getElementById('quick-title');
+  if (titleInput) titleInput.value = '';
   populateQuickLabelChips();
   populateLabelSuggestions('quick-label-suggestions');
   const saved = (() => {
@@ -532,6 +542,23 @@ function openQuickModalWithLabel(label) {
   })();
   const workdirInput = document.getElementById('quick-workdir');
   if (workdirInput) workdirInput.value = saved.workingDir || '~';
+}
+
+function openNewSessionModal() {
+  const modal = document.getElementById('new-session-modal');
+  modal.classList.remove('hidden');
+  loadSshKeys().then(restoreLastSession);
+  populateLabelSuggestions('label-suggestions');
+}
+
+function closeMobileQAPanel() {
+  document.getElementById('mobile-qa-panel')?.classList.add('hidden');
+  document.getElementById('mobile-qa-overlay')?.classList.add('hidden');
+}
+
+function openMobileQAPanel() {
+  document.getElementById('mobile-qa-panel')?.classList.remove('hidden');
+  document.getElementById('mobile-qa-overlay')?.classList.remove('hidden');
 }
 
 export function initQuickActions() {
@@ -553,12 +580,7 @@ export function initQuickActions() {
   // + NEW SESSION button
   const newSessionBtn = document.getElementById('qa-new-session');
   if (newSessionBtn) {
-    newSessionBtn.addEventListener('click', () => {
-      const modal = document.getElementById('new-session-modal');
-      modal.classList.remove('hidden');
-      loadSshKeys().then(restoreLastSession);
-      populateLabelSuggestions('label-suggestions');
-    });
+    newSessionBtn.addEventListener('click', openNewSessionModal);
   }
 
   // QUICK SESSION button
@@ -608,6 +630,61 @@ export function initQuickActions() {
       feedEl.classList.toggle('collapsed');
     });
   }
+
+  // Mobile Quick Actions FAB and Panel
+  const mobileFab = document.getElementById('mobile-qa-fab');
+  const mobilePanel = document.getElementById('mobile-qa-panel');
+  const mobileOverlay = document.getElementById('mobile-qa-overlay');
+  const mobileClose = document.getElementById('mobile-qa-close');
+
+  if (mobileFab) {
+    mobileFab.addEventListener('click', openMobileQAPanel);
+  }
+
+  if (mobileOverlay) {
+    mobileOverlay.addEventListener('click', closeMobileQAPanel);
+  }
+
+  if (mobileClose) {
+    mobileClose.addEventListener('click', closeMobileQAPanel);
+  }
+
+  // Mobile Quick Action Items
+  const mobileQaItems = document.querySelectorAll('.mobile-qa-item');
+  mobileQaItems.forEach(item => {
+    item.addEventListener('click', () => {
+      const action = item.dataset.action;
+      closeMobileQAPanel();
+
+      switch (action) {
+        case 'new-session':
+          openNewSessionModal();
+          break;
+        case 'quick-session':
+          openQuickModalWithLabel('');
+          break;
+        case 'oneoff':
+          openQuickModalWithLabel(LABELS.ONEOFF);
+          break;
+        case 'heavy':
+          openQuickModalWithLabel(LABELS.HEAVY);
+          break;
+        case 'important':
+          openQuickModalWithLabel(LABELS.IMPORTANT);
+          break;
+        case 'new-group':
+          // Trigger new group creation
+          document.getElementById('qa-new-group')?.click();
+          break;
+        case 'mute-all':
+          toggleMuteAll();
+          break;
+        case 'archive-ended':
+          archiveAllEnded();
+          break;
+      }
+    });
+  });
 }
 
 // Shortcuts panel

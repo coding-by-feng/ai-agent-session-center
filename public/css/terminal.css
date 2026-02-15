@@ -1008,3 +1008,262 @@ body.move-mode .session-card.move-source {
   }
 }
 
+/* ============================================================
+   Responsive: Mobile-First Touch & Layout Enhancements
+   ============================================================ */
+
+/* --- Touch device enhancements (pointer: coarse) --- */
+@media (pointer: coarse) {
+  /* Drag handles: larger touch targets on touch devices */
+  .detail-resize-handle {
+    width: 16px;
+    left: -8px;
+  }
+
+  /* Queue items: always show actions (no hover on touch) */
+  .terminal-queue-list .queue-item .queue-actions,
+  #queue-list .queue-item .queue-actions {
+    display: flex;
+  }
+
+  /* Queue item grab handles: more space for touch drag */
+  .terminal-queue-list .queue-item,
+  #queue-list .queue-item {
+    padding: 8px 10px;
+    min-height: 44px;
+  }
+
+  /* Terminal toolbar buttons: ensure 44px touch targets */
+  .terminal-refresh-btn,
+  .terminal-fullscreen-btn,
+  .terminal-reconnect-btn,
+  .terminal-send-esc-btn,
+  .terminal-theme-select,
+  .terminal-esc-hint {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Queue toggle: ensure touch target */
+  .terminal-queue-toggle {
+    min-height: 44px;
+  }
+
+  /* Move mode cancel button: touch-friendly */
+  .move-mode-banner .ctrl-btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Fullscreen exit: touch-friendly */
+  .terminal-fullscreen-exit {
+    min-height: 44px;
+    padding: 8px 16px;
+  }
+}
+
+/* --- :active touch feedback for terminal interactive elements --- */
+.terminal-refresh-btn:active,
+.terminal-fullscreen-btn:active,
+.terminal-reconnect-btn:active,
+.terminal-send-esc-btn:active,
+.terminal-esc-hint:active,
+.terminal-queue-toggle:active,
+.queue-move-all:active,
+.move-mode-banner .ctrl-btn:active,
+.terminal-fullscreen-exit:active {
+  opacity: 0.7;
+  transition: opacity 0.05s;
+}
+
+.terminal-queue-list .queue-item .queue-actions button:active,
+#queue-list .queue-item .queue-actions button:active {
+  opacity: 0.7;
+  transition: opacity 0.05s;
+}
+
+.terminal-theme-select:active {
+  opacity: 0.7;
+}
+
+.queue-send:active {
+  background: rgba(80, 250, 123, 0.25) !important;
+}
+
+.queue-delete:active {
+  background: rgba(255, 51, 85, 0.2) !important;
+}
+
+.queue-edit:active {
+  background: rgba(0, 229, 255, 0.2);
+}
+
+.queue-move:active {
+  background: rgba(255, 184, 108, 0.25);
+}
+
+/* --- touch-action on terminal: pan only, no zoom --- */
+#terminal-container {
+  touch-action: manipulation;
+}
+
+#terminal-fullscreen-container {
+  touch-action: manipulation;
+}
+
+/* --- Tablet (max-width: 768px) --- */
+@media (max-width: 768px) {
+  /* Terminal container: full viewport width, minimum 50vh height */
+  #terminal-container {
+    min-height: 50vh;
+    border-radius: 4px;
+  }
+
+  /* Terminal toolbar: horizontally scrollable */
+  .terminal-toolbar {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+    gap: 4px;
+  }
+
+  .terminal-toolbar-actions {
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Terminal font: 14px minimum for readability */
+  #terminal-container .xterm {
+    font-size: 14px !important;
+  }
+
+  /* Move mode banner: full-width on mobile */
+  .move-mode-banner {
+    padding: 8px 12px;
+    font-size: 11px;
+    gap: 8px;
+  }
+
+  /* ESC tooltip: full-width on mobile instead of positioned */
+  .terminal-esc-tooltip {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    border-radius: 8px 8px 0 0;
+    z-index: 200;
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+
+  .terminal-esc-tooltip::before {
+    display: none;
+  }
+}
+
+/* --- Small tablet / large phone (max-width: 640px) --- */
+@media (max-width: 640px) {
+  /* Terminal toolbar: icon-only buttons */
+  .terminal-refresh-btn {
+    font-size: 0;
+    padding: 6px 10px;
+  }
+  .terminal-refresh-btn::before {
+    content: '\21BB';
+    font-size: 16px;
+  }
+
+  .terminal-fullscreen-btn {
+    font-size: 0;
+    padding: 6px 10px;
+  }
+  .terminal-fullscreen-btn::before {
+    content: '\26F6';
+    font-size: 16px;
+  }
+
+  .terminal-reconnect-btn {
+    font-size: 0;
+    padding: 6px 10px;
+  }
+  .terminal-reconnect-btn::before {
+    content: '\25B6';
+    font-size: 16px;
+  }
+
+  /* Terminal status: smaller text */
+  .terminal-status {
+    font-size: 8px;
+    padding: 2px 4px;
+    flex-shrink: 0;
+  }
+
+  /* Workdir dropdown: ensure readable on mobile */
+  .workdir-dropdown {
+    max-height: 160px;
+  }
+
+  .workdir-item-text {
+    font-size: 12px;
+    padding: 8px 10px;
+  }
+
+  .workdir-item-delete {
+    padding: 8px 12px;
+    min-height: 44px;
+  }
+}
+
+/* --- Phone (max-width: 480px) --- */
+@media (max-width: 480px) {
+  /* Terminal container: full-width, generous height */
+  #terminal-container {
+    min-height: 45vh;
+    border-radius: 0;
+  }
+
+  /* Fullscreen topbar: more compact */
+  .terminal-fullscreen-topbar {
+    padding: 4px 6px;
+  }
+
+  /* Queue compose textarea: prevent iOS zoom */
+  .terminal-queue-panel #queue-textarea {
+    font-size: 16px;
+  }
+}
+
+/* --- Small phone (max-width: 375px) --- */
+@media (max-width: 375px) {
+  #terminal-container {
+    min-height: 40vh;
+  }
+
+  .terminal-toolbar {
+    padding: 2px;
+    gap: 2px;
+  }
+
+  .terminal-toolbar-actions {
+    gap: 3px;
+  }
+
+  .terminal-queue-body {
+    max-height: 120px;
+  }
+}
+
+/* --- Smallest phone (max-width: 320px) --- */
+@media (max-width: 320px) {
+  #terminal-container {
+    min-height: 35vh;
+  }
+
+  .terminal-theme-select {
+    max-width: 60px;
+    font-size: 9px;
+  }
+}
+

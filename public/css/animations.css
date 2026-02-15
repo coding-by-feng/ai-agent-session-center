@@ -846,3 +846,321 @@ body[data-effect-ended="none"] .css-robot[data-status="ended"] {
   flex: 1;
 }
 
+/* ============================================================
+   Responsive: Animation Mobile & Touch Enhancements
+   ============================================================ */
+
+/* --- Enhanced prefers-reduced-motion support --- */
+@media (prefers-reduced-motion: reduce) {
+  /* Override all animation effects with simpler alternatives */
+  .css-robot[data-status="working"] .robot-head::after,
+  .css-robot[data-status="working"] .robot-head::before,
+  .char-cat[data-status="working"] .cat-head::after,
+  .char-cat[data-status="working"] .cat-head::before,
+  .char-alien[data-status="working"] .alien-dome::after,
+  .char-alien[data-status="working"] .alien-dome::before,
+  .char-ghost[data-status="working"] .ghost-body::after,
+  .char-ghost[data-status="working"] .ghost-body::before,
+  .char-orb[data-status="working"] .orb-core::after,
+  .char-orb[data-status="working"] .orb-core::before,
+  .char-dragon[data-status="working"] .dragon-head::after,
+  .char-dragon[data-status="working"] .dragon-head::before {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+
+  /* Disable triggered movement effects */
+  .css-robot[data-movement]::before,
+  .css-robot[data-movement]::after {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+
+  .css-robot[data-movement] .robot-body-wrap {
+    animation: none !important;
+  }
+
+  /* Disable configurable status effects */
+  body[data-effect-working="energy-ring"] .css-robot[data-status="working"]::before,
+  body[data-effect-working="energy-ring"] .css-robot[data-status="working"]::after,
+  body[data-effect-working="sparks"] .css-robot[data-status="working"]::before,
+  body[data-effect-working="sparks"] .css-robot[data-status="working"]::after,
+  body[data-effect-working="steam"] .css-robot[data-status="working"]::before,
+  body[data-effect-working="steam"] .css-robot[data-status="working"]::after {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+
+  /* Show static indicators instead of animations for key states */
+  .css-robot[data-status="approval"] {
+    outline: 2px solid rgba(255, 221, 0, 0.6);
+    outline-offset: 4px;
+    border-radius: 8px;
+  }
+
+  .css-robot[data-status="working"] {
+    outline: 2px solid rgba(255, 152, 0, 0.4);
+    outline-offset: 4px;
+    border-radius: 8px;
+  }
+
+  /* Suppress movement preview animations */
+  .movement-preview-viewport .css-robot {
+    animation: none !important;
+  }
+  .movement-preview-viewport .css-robot::before,
+  .movement-preview-viewport .css-robot::after {
+    animation: none !important;
+  }
+}
+
+/* --- :active touch feedback on animation settings controls --- */
+.anim-intensity-control input[type="range"]:active {
+  opacity: 0.8;
+}
+
+.movement-preview-viewport:active {
+  opacity: 0.9;
+}
+
+/* --- Touch device enhancements (pointer: coarse) --- */
+@media (pointer: coarse) {
+  /* Animation sliders: larger hit area on touch devices */
+  .anim-intensity-control input[type="range"] {
+    height: 44px;
+    cursor: pointer;
+  }
+
+  .anim-intensity-control {
+    min-height: 44px;
+  }
+
+  /* Movement preview: larger tap targets */
+  .movement-preview-viewport {
+    min-height: 120px;
+  }
+}
+
+/* --- Tablet (max-width: 768px) --- */
+@media (max-width: 768px) {
+  /* Scale down characters proportionally on tablet */
+  .css-robot {
+    transform: scale(0.85);
+    transform-origin: center bottom;
+  }
+
+  /* Movement preview: slightly smaller */
+  .movement-preview-viewport {
+    height: 140px;
+  }
+
+  .movement-preview-viewport .css-robot {
+    transform: scale(0.75);
+  }
+}
+
+/* --- Small tablet / large phone (max-width: 640px) --- */
+@media (max-width: 640px) {
+  /* Scale down characters more on mobile */
+  .css-robot {
+    transform: scale(0.75);
+    transform-origin: center bottom;
+  }
+
+  /* Reduce sweat drops box-shadow complexity for performance */
+  .css-robot[data-status="working"] .robot-head::after,
+  .char-cat[data-status="working"] .cat-head::after,
+  .char-alien[data-status="working"] .alien-dome::after,
+  .char-ghost[data-status="working"] .ghost-body::after,
+  .char-orb[data-status="working"] .orb-core::after,
+  .char-dragon[data-status="working"] .dragon-head::after,
+  .char-penguin[data-status="working"] .penguin-head::after,
+  .char-octopus[data-status="working"] .octo-head::after,
+  .char-mushroom[data-status="working"] .mush-cap::after,
+  .char-fox[data-status="working"] .fox-head::after,
+  .char-unicorn[data-status="working"] .unicorn-head::after,
+  .char-jellyfish[data-status="working"] .jelly-bell::after,
+  .char-owl[data-status="working"] .owl-head::after,
+  .char-bat[data-status="working"] .bat-head::after,
+  .char-cactus[data-status="working"] .cactus-body::after,
+  .char-slime[data-status="working"] .slime-body::after,
+  .char-pumpkin[data-status="working"] .pumpkin-body::after,
+  .char-yeti[data-status="working"] .yeti-head::after,
+  .char-crystal[data-status="working"] .crystal-body::after,
+  .char-bee[data-status="working"] .bee-head::after {
+    /* Reduce from 19 box-shadow drops to 6 for mobile performance */
+    box-shadow:
+      -4px 4px 0 1px rgba(100,220,255,1),
+      2px 14px 0 0 rgba(80,200,255,0.9),
+      -2px 24px 0 1px rgba(80,200,255,0.85),
+      5px 34px 0 0 rgba(60,190,255,0.8),
+      -3px 44px 0 1px rgba(100,220,255,0.75),
+      1px 49px 0 0 rgba(80,200,255,0.7);
+  }
+
+  .css-robot[data-status="working"] .robot-head::before,
+  .char-cat[data-status="working"] .cat-head::before,
+  .char-alien[data-status="working"] .alien-dome::before,
+  .char-ghost[data-status="working"] .ghost-body::before,
+  .char-orb[data-status="working"] .orb-core::before,
+  .char-dragon[data-status="working"] .dragon-head::before,
+  .char-penguin[data-status="working"] .penguin-head::before,
+  .char-octopus[data-status="working"] .octo-head::before,
+  .char-mushroom[data-status="working"] .mush-cap::before,
+  .char-fox[data-status="working"] .fox-head::before,
+  .char-unicorn[data-status="working"] .unicorn-head::before,
+  .char-jellyfish[data-status="working"] .jelly-bell::before,
+  .char-owl[data-status="working"] .owl-head::before,
+  .char-bat[data-status="working"] .bat-head::before,
+  .char-cactus[data-status="working"] .cactus-body::before,
+  .char-slime[data-status="working"] .slime-body::before,
+  .char-pumpkin[data-status="working"] .pumpkin-body::before,
+  .char-yeti[data-status="working"] .yeti-head::before,
+  .char-crystal[data-status="working"] .crystal-body::before,
+  .char-bee[data-status="working"] .bee-head::before {
+    /* Reduce from 19 box-shadow drops to 6 for mobile performance */
+    box-shadow:
+      4px 4px 0 1px rgba(100,220,255,1),
+      -2px 14px 0 0 rgba(80,200,255,0.9),
+      2px 24px 0 1px rgba(80,200,255,0.85),
+      -5px 34px 0 0 rgba(60,190,255,0.8),
+      3px 44px 0 1px rgba(100,220,255,0.75),
+      -1px 49px 0 0 rgba(80,200,255,0.7);
+  }
+
+  /* Simplify triggered movement sparks (reduce box-shadow points) */
+  .css-robot[data-movement="sparks"]::before {
+    box-shadow:
+      12px -15px 0 1px #ffcc00,
+      -16px -10px 0 0 #ffa000,
+      20px 6px 0 1px #ff9800,
+      -12px 12px 0 0 #ffcc80;
+  }
+  .css-robot[data-movement="sparks"]::after {
+    box-shadow:
+      -10px -18px 0 1px #ffe082,
+      18px -12px 0 0 #ffca28,
+      -22px 4px 0 1px #ffc107,
+      10px 16px 0 0 #ffe082;
+  }
+
+  /* Simplify triggered sparkle effects */
+  .css-robot[data-movement="sparkle"]::before {
+    box-shadow:
+      25px -8px 0 1px rgba(255,255,255,1),
+      -15px 20px 0 0 rgba(255,255,255,0.95),
+      30px 25px 0 1px rgba(255,255,255,0.9),
+      8px 40px 0 0 rgba(255,255,255,0.85);
+  }
+  .css-robot[data-movement="sparkle"]::after {
+    box-shadow:
+      15px 10px 0 1px rgba(255,255,200,0.9),
+      35px 5px 0 0 rgba(255,255,200,0.85),
+      5px 30px 0 1px rgba(255,255,200,0.8);
+  }
+
+  /* Simplify energy-ring effects */
+  body[data-effect-working="energy-ring"] .css-robot[data-status="working"]::before {
+    box-shadow: 0 0 15px rgba(255, 152, 0, 0.5);
+  }
+  body[data-effect-working="energy-ring"] .css-robot[data-status="working"]::after {
+    box-shadow: 0 0 10px rgba(255, 200, 0, 0.3);
+  }
+
+  /* Simplify steam clouds */
+  body[data-effect-working="steam"] .css-robot[data-status="working"]::before {
+    box-shadow:
+      14px -6px 0 4px rgba(220,220,240,0.5),
+      -8px -12px 0 3px rgba(220,220,240,0.4);
+  }
+  body[data-effect-working="steam"] .css-robot[data-status="working"]::after {
+    box-shadow:
+      -12px -8px 0 4px rgba(220,220,240,0.45);
+  }
+
+  /* Movement preview: compact */
+  .movement-preview-viewport {
+    height: 120px;
+  }
+
+  .movement-preview-viewport .css-robot {
+    transform: scale(0.6);
+  }
+
+  /* Animation settings: compact */
+  .movement-preview-label {
+    font-size: 10px;
+  }
+
+  .movement-preview-effect-name {
+    font-size: 9px;
+  }
+}
+
+/* --- Phone (max-width: 480px) --- */
+@media (max-width: 480px) {
+  /* Scale down characters further */
+  .css-robot {
+    transform: scale(0.65);
+    transform-origin: center bottom;
+  }
+
+  /* Reduce animation speed on small screens for less jank */
+  .css-robot[data-status="working"] .robot-head::after,
+  .css-robot[data-status="working"] .robot-head::before {
+    animation-duration: 1.2s;
+  }
+
+  /* Movement preview: even more compact */
+  .movement-preview-viewport {
+    height: 100px;
+  }
+
+  .movement-preview-viewport .css-robot {
+    transform: scale(0.5);
+  }
+
+  /* Anim intensity control: compact layout */
+  .anim-intensity-control span {
+    font-size: 10px;
+    min-width: 24px;
+  }
+}
+
+/* --- Small phone (max-width: 375px) --- */
+@media (max-width: 375px) {
+  .css-robot {
+    transform: scale(0.55);
+    transform-origin: center bottom;
+  }
+
+  .movement-preview-viewport {
+    height: 90px;
+  }
+}
+
+/* --- Smallest phone (max-width: 320px) --- */
+@media (max-width: 320px) {
+  .css-robot {
+    transform: scale(0.5);
+    transform-origin: center bottom;
+  }
+
+  .movement-preview-viewport {
+    height: 80px;
+  }
+
+  .anim-intensity-control {
+    gap: 6px;
+  }
+}
+
+/* --- Scroll-snap for horizontally scrollable containers --- */
+.terminal-toolbar-actions {
+  scroll-snap-type: x proximity;
+}
+
+.terminal-toolbar-actions > * {
+  scroll-snap-align: start;
+}
+

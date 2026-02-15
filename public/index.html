@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>AI Agent Session Center</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230a0a1a'/%3E%3Ccircle cx='16' cy='13' r='7' fill='none' stroke='%2300e5ff' stroke-width='2'/%3E%3Ccircle cx='13.5' cy='12' r='1.5' fill='%2300e5ff'/%3E%3Ccircle cx='18.5' cy='12' r='1.5' fill='%2300e5ff'/%3E%3Cpath d='M13 16 Q16 19 19 16' fill='none' stroke='%2300e5ff' stroke-width='1' stroke-linecap='round'/%3E%3Crect x='14.5' y='4' width='3' height='3' rx='1' fill='%2300e5ff'/%3E%3Cline x1='16' y1='7' x2='16' y2='6' stroke='%2300e5ff' stroke-width='1.5'/%3E%3Crect x='9' y='22' width='14' height='6' rx='2' fill='none' stroke='%23ff9100' stroke-width='1.5'/%3E%3Cline x1='12' y1='24' x2='12' y2='26' stroke='%23ff9100' stroke-width='1' stroke-linecap='round'/%3E%3Cline x1='16' y1='24' x2='16' y2='26' stroke='%23ff9100' stroke-width='1' stroke-linecap='round'/%3E%3Cline x1='20' y1='24' x2='20' y2='26' stroke='%23ff9100' stroke-width='1' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -73,6 +73,58 @@
     <span id="move-mode-text"></span>
     <button id="move-mode-cancel" class="ctrl-btn">CANCEL</button>
   </div>
+
+  <!-- Mobile Quick Actions FAB -->
+  <button id="mobile-qa-fab" class="mobile-qa-fab hidden" title="Quick Actions">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="10"/>
+      <line x1="12" y1="8" x2="12" y2="16"/>
+      <line x1="8" y1="12" x2="16" y2="12"/>
+    </svg>
+  </button>
+
+  <!-- Mobile Quick Actions Panel -->
+  <div id="mobile-qa-panel" class="mobile-qa-panel hidden">
+    <div class="mobile-qa-header">
+      <span>QUICK ACTIONS</span>
+      <button id="mobile-qa-close" class="mobile-qa-close">&times;</button>
+    </div>
+    <div class="mobile-qa-grid">
+      <button class="mobile-qa-item" data-action="new-session" title="New Session">
+        <span class="mobile-qa-icon">&#10133;</span>
+        <span class="mobile-qa-label">NEW</span>
+      </button>
+      <button class="mobile-qa-item" data-action="quick-session" title="Quick Launch">
+        <span class="mobile-qa-icon">&#9889;</span>
+        <span class="mobile-qa-label">QUICK</span>
+      </button>
+      <button class="mobile-qa-item" data-action="oneoff" title="One-off Session">
+        <span class="mobile-qa-icon">&#128260;</span>
+        <span class="mobile-qa-label">ONEOFF</span>
+      </button>
+      <button class="mobile-qa-item" data-action="heavy" title="Heavy Session">
+        <span class="mobile-qa-icon">&#9733;</span>
+        <span class="mobile-qa-label">HEAVY</span>
+      </button>
+      <button class="mobile-qa-item" data-action="important" title="Important Session">
+        <span class="mobile-qa-icon">&#9888;</span>
+        <span class="mobile-qa-label">IMPORTANT</span>
+      </button>
+      <button class="mobile-qa-item" data-action="new-group" title="New Group">
+        <span class="mobile-qa-icon">&#128194;</span>
+        <span class="mobile-qa-label">GROUP</span>
+      </button>
+      <button class="mobile-qa-item" data-action="mute-all" title="Mute All">
+        <span class="mobile-qa-icon">&#9835;</span>
+        <span class="mobile-qa-label">MUTE</span>
+      </button>
+      <button class="mobile-qa-item" data-action="archive-ended" title="Archive Ended">
+        <span class="mobile-qa-icon">&#8681;</span>
+        <span class="mobile-qa-label">ARCHIVE</span>
+      </button>
+    </div>
+  </div>
+  <div id="mobile-qa-overlay" class="mobile-qa-overlay hidden"></div>
 
   <!-- Keyboard Shortcuts Panel -->
   <div id="shortcuts-modal" class="modal-overlay hidden">
@@ -217,6 +269,13 @@
     <div id="session-detail-panel">
       <div class="detail-resize-handle" id="detail-resize-handle"></div>
       <button id="close-detail">&times;</button>
+      <!-- Mobile: toggle to fold/unfold toolbar + tabs (before header for CSS ~ combinator) -->
+      <input type="checkbox" id="mobile-toolbar-toggle" class="mobile-toolbar-toggle-input" aria-hidden="true">
+      <label for="mobile-toolbar-toggle" class="mobile-toolbar-toggle-label" title="Toggle toolbar">
+        <span class="toggle-icon-expand">&#9660;</span>
+        <span class="toggle-icon-collapse">&#9650;</span>
+      </label>
+
       <div class="detail-header">
         <div class="detail-char-preview" id="detail-char-preview"></div>
         <div class="detail-header-text">
@@ -868,7 +927,7 @@
         <div class="ssh-field-row">
           <div class="ssh-field ssh-field-grow">
             <label>Host</label>
-            <input id="ssh-host" value="localhost" placeholder="hostname or IP">
+            <input id="ssh-host" placeholder="hostname or IP">
           </div>
           <div class="ssh-field ssh-field-small">
             <label>Port</label>

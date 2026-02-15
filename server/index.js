@@ -9,6 +9,7 @@ import { execSync } from 'child_process';
 import hookRouter from './hookRouter.js';
 import { handleConnection, stopHeartbeat } from './wsManager.js';
 import { getAllSessions, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave } from './sessionStore.js';
+import { closeDb } from './db.js';
 import apiRouter, { hookRateLimitMiddleware } from './apiRouter.js';
 import { startMqReader, stopMqReader, getMqOffset } from './mqReader.js';
 import log from './logger.js';
@@ -195,6 +196,7 @@ function gracefulShutdown(signal) {
   stopTokenCleanup();
   // Save final snapshot before exiting
   saveSnapshot(getMqOffset());
+  closeDb();
   server.close(() => {
     log.info('server', 'Server closed');
     process.exit(0);

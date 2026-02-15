@@ -1332,6 +1332,423 @@
 }
 
 /* ============================================================
+   Responsive — Detail Panel Full-Screen (<768px)
+   ============================================================ */
+
+@media (max-width: 768px) {
+  /* Detail panel: full-screen overlay */
+  #session-detail-panel {
+    width: 100vw !important;
+    max-width: 100vw;
+    min-width: 0;
+    height: 100vh;
+    height: 100dvh;
+    border-left: none;
+    animation: none;
+  }
+
+  /* Overlay: fully opaque background */
+  #session-detail-overlay {
+    background: rgba(0, 0, 0, 0.85);
+  }
+
+  /* ---- Reorder: active tab on top for keyboard usage ---- */
+  /* Terminal/active tab at the top of screen so the on-screen
+     keyboard doesn't push it out of view. Everything else below. */
+  .tab-content.active {
+    order: -10;
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* Non-active tab content hidden anyway, push to bottom */
+  .tab-content {
+    order: 20;
+  }
+
+  /* Toggle button right below terminal */
+  .mobile-toolbar-toggle-input {
+    order: 1;
+  }
+
+  .mobile-toolbar-toggle-label {
+    order: 2;
+  }
+
+  /* Header, controls, tabs below toggle */
+  .detail-header {
+    order: 3;
+    flex-shrink: 0;
+  }
+
+  .ctrl-bar {
+    order: 4;
+    flex-shrink: 0;
+  }
+
+  .detail-tabs {
+    order: 5;
+    flex-shrink: 0;
+  }
+
+  /* Detail header: compact bar below terminal */
+  .detail-header {
+    position: relative;
+    top: auto;
+    z-index: 20;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border-subtle);
+    border-top: 1px solid var(--border-subtle);
+    padding: 10px 48px 10px 12px;
+    gap: 8px;
+  }
+
+  /* Character preview: compact for mobile header */
+  .detail-char-preview {
+    width: 40px;
+    height: 52px;
+  }
+
+  .detail-char-preview .css-robot {
+    transform: translate(-50%, -50%) scale(0.28);
+  }
+
+  /* Truncated session name in header */
+  .detail-header h3 {
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    word-break: normal;
+  }
+
+  /* Detail header titles: compact */
+  .detail-header-titles {
+    overflow: hidden;
+  }
+
+  .detail-title-row {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  /* Detail meta: compact single line */
+  .detail-meta {
+    gap: 4px;
+    flex-wrap: nowrap;
+    overflow: hidden;
+  }
+
+  #detail-status-badge {
+    font-size: 8px;
+    padding: 1px 6px;
+  }
+
+  #detail-model {
+    font-size: 9px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  #detail-duration {
+    font-size: 10px;
+    padding: 1px 6px;
+    white-space: nowrap;
+  }
+
+  /* Resize handle: hidden */
+  .detail-resize-handle {
+    display: none;
+  }
+
+  /* Close button as back arrow style */
+  #close-detail {
+    width: 44px;
+    height: 44px;
+    font-size: 24px;
+    top: 6px;
+    right: 4px;
+  }
+
+  /* Control bar: compact icon row */
+  .ctrl-bar {
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 8px 12px;
+  }
+
+  .ctrl-btn {
+    min-height: 36px;
+    padding: 6px 10px;
+    font-size: 9px;
+    letter-spacing: 0.5px;
+    border-radius: 6px;
+  }
+
+  .ctrl-select {
+    min-height: 36px;
+    font-size: 10px;
+    margin-left: 0;
+    flex: 1 1 auto;
+  }
+
+  /* Tabs: scroll-snap with abbreviated text */
+  .detail-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding: 0 8px;
+    scroll-snap-type: x mandatory;
+  }
+
+  .detail-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .detail-tabs .tab {
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: 8px 10px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    scroll-snap-align: start;
+  }
+
+  /* Tab content: reduced padding */
+  .tab-content {
+    padding: 10px 12px;
+  }
+
+  /* Conversation text: readable on mobile */
+  .conv-text {
+    font-size: 13px;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+
+  /* Prompt/response text: 13px font with word-break */
+  .prompt-entry .prompt-text,
+  .response-entry .response-text {
+    font-size: 13px;
+    word-break: break-word;
+  }
+
+  /* Code blocks in conv-text: horizontal scroll, 11px */
+  .conv-text pre,
+  .conv-text code {
+    font-size: 11px;
+    overflow-x: auto;
+    white-space: pre;
+    word-break: normal;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Activity entries: compact with word-break */
+  .activity-entry {
+    flex-wrap: wrap;
+    gap: 3px;
+    padding: 5px 0 5px 6px;
+  }
+
+  .activity-time {
+    width: auto;
+    flex-basis: auto;
+    font-size: 8px;
+  }
+
+  .activity-badge {
+    font-size: 8px;
+    padding: 0px 4px;
+  }
+
+  .activity-detail {
+    white-space: normal;
+    word-break: break-word;
+    font-size: 10px;
+  }
+
+  .activity-entry.activity-response .activity-detail {
+    max-height: 60px;
+  }
+
+  /* Queue expand panel: full width on mobile */
+  .queue-expand-panel {
+    width: 100%;
+    max-width: 100vw;
+    border-radius: 0;
+  }
+
+  .queue-expand-textarea {
+    font-size: 14px;
+    min-height: 200px;
+  }
+}
+
+/* ============================================================
+   Responsive — Small Mobile (<480px)
+   ============================================================ */
+
+@media (max-width: 480px) {
+  /* Detail header: even more compact */
+  .detail-header {
+    padding: 8px 44px 8px 10px;
+    gap: 6px;
+  }
+
+  .detail-char-preview {
+    width: 32px;
+    height: 42px;
+  }
+
+  .detail-char-preview .css-robot {
+    transform: translate(-50%, -50%) scale(0.22);
+  }
+
+  .detail-header h3 {
+    font-size: 12px;
+  }
+
+  .detail-header-top {
+    gap: 6px;
+  }
+
+  /* Hide character select on very small screens to save space */
+  .detail-char-select {
+    display: none;
+  }
+
+  /* Control bar: tighter */
+  .ctrl-bar {
+    gap: 3px;
+    padding: 6px 8px;
+  }
+
+  .ctrl-btn {
+    min-height: 32px;
+    padding: 4px 8px;
+    font-size: 8px;
+  }
+
+  .ctrl-select {
+    min-height: 32px;
+    font-size: 9px;
+  }
+
+  /* Tabs: smaller text */
+  .detail-tabs .tab {
+    padding: 6px 8px;
+    font-size: 9px;
+    min-height: 40px;
+  }
+
+  /* Tab content: minimal padding */
+  .tab-content {
+    padding: 8px 10px;
+  }
+
+  /* Conversation entries: tight */
+  .conv-entry {
+    padding: 6px 8px;
+  }
+
+  .conv-role {
+    font-size: 8px;
+    padding: 0px 4px;
+  }
+
+  .conv-time {
+    font-size: 8px;
+  }
+
+  .conv-text {
+    font-size: 12px;
+  }
+
+  /* Summary text */
+  .summary-text {
+    padding: 10px;
+    font-size: 12px;
+  }
+
+  /* Notes */
+  .note-entry {
+    padding: 8px;
+  }
+
+  .note-text {
+    font-size: 11px;
+  }
+
+  /* Activity feed: hide on very small screens */
+  #activity-feed {
+    max-height: 50px;
+  }
+
+  .feed-entry {
+    font-size: 9px;
+  }
+
+  /* Queue text: tighter */
+  .queue-view-text {
+    max-width: 160px;
+    font-size: 11px;
+  }
+}
+
+/* ============================================================
+   Responsive — Extra Small (<375px)
+   ============================================================ */
+
+@media (max-width: 375px) {
+  .detail-header {
+    padding: 6px 40px 6px 8px;
+  }
+
+  /* Hide char preview on very narrow screens */
+  .detail-char-preview {
+    display: none;
+  }
+
+  .detail-header h3 {
+    font-size: 11px;
+  }
+
+  .detail-meta {
+    gap: 3px;
+  }
+
+  #detail-duration {
+    font-size: 9px;
+    padding: 1px 4px;
+  }
+
+  .ctrl-bar {
+    padding: 4px 6px;
+  }
+
+  .ctrl-btn {
+    font-size: 7px;
+    padding: 3px 6px;
+    letter-spacing: 0;
+  }
+
+  .detail-tabs .tab {
+    padding: 5px 6px;
+    font-size: 8px;
+    letter-spacing: 0;
+  }
+
+  .tab-content {
+    padding: 6px 8px;
+  }
+}
+
+/* ============================================================
    Responsive — Tablet (641px–960px)
    ============================================================ */
 
@@ -1394,6 +1811,139 @@
 
   #queue-view-content {
     padding: 12px 18px;
+  }
+
+  /* Activity entries: allow wrapping on tablet */
+  .activity-detail {
+    white-space: normal;
+    word-break: break-word;
+  }
+}
+
+/* ============================================================
+   Responsive — Small Desktop / Large Tablet (961px–1024px)
+   ============================================================ */
+
+@media (max-width: 1024px) and (min-width: 961px) {
+  #session-detail-panel {
+    width: 45vw;
+    min-width: 400px;
+  }
+}
+
+/* ============================================================
+   Mobile Toolbar Toggle — fold/unfold ctrl-bar + tabs
+   CSS-only: hidden checkbox drives the collapse via ~ combinator
+   ============================================================ */
+
+/* Hidden by default on desktop */
+.mobile-toolbar-toggle-input,
+.mobile-toolbar-toggle-label {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  /* The checkbox stays hidden but functional */
+  .mobile-toolbar-toggle-input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+  }
+
+  /* The toggle button: visible on mobile */
+  .mobile-toolbar-toggle-label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 36px;
+    background: var(--bg-header);
+    border-bottom: 1px solid var(--border-subtle);
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 12px;
+    letter-spacing: 1px;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: auto;
+    transition: background 0.15s;
+    position: sticky;
+    top: 0;
+    z-index: 21;
+  }
+
+  .mobile-toolbar-toggle-label:active {
+    background: var(--bg-elevated);
+  }
+
+  /* Show expand icon by default (toolbar is visible) */
+  .toggle-icon-collapse { display: none; }
+  .toggle-icon-expand { display: inline; }
+
+  /* When checked: toolbar is COLLAPSED (hidden) — focus mode */
+  .mobile-toolbar-toggle-input:checked ~ .mobile-toolbar-toggle-label {
+    background: var(--bg-panel);
+    border-bottom-color: var(--accent-cyan);
+  }
+
+  .mobile-toolbar-toggle-input:checked ~ .mobile-toolbar-toggle-label .toggle-icon-expand {
+    display: none;
+  }
+
+  .mobile-toolbar-toggle-input:checked ~ .mobile-toolbar-toggle-label .toggle-icon-collapse {
+    display: inline;
+  }
+
+  /* Collapse header, ctrl-bar, and detail-tabs when toggle is checked */
+  .mobile-toolbar-toggle-input:checked ~ .detail-header {
+    display: none;
+  }
+
+  .mobile-toolbar-toggle-input:checked ~ .ctrl-bar {
+    display: none;
+  }
+
+  .mobile-toolbar-toggle-input:checked ~ .detail-tabs {
+    display: none;
+  }
+
+  /* When collapsed, give active tab maximum height (terminal focus mode) */
+  .mobile-toolbar-toggle-input:checked ~ .tab-content.active {
+    flex: 1;
+    min-height: calc(100vh - 40px);
+    min-height: calc(100dvh - 40px);
+  }
+
+  /* Close button: more prominent on mobile */
+  #close-detail {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    z-index: 30;
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: 8px;
+    border: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+  }
+
+  #close-detail:active {
+    background: rgba(255, 50, 50, 0.3);
+  }
+}
+
+/* Smaller screens: even more compact toggle */
+@media (max-width: 480px) {
+  .mobile-toolbar-toggle-label {
+    height: 32px;
+    font-size: 10px;
   }
 }
 

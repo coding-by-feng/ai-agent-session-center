@@ -819,7 +819,7 @@
    ============================================================ */
 
 @media (max-width: 640px) {
-  /* Full-screen modals on mobile */
+  /* Full-screen modals on mobile with safe-area padding */
   .modal-panel,
   .new-session-panel,
   .quick-session-panel,
@@ -831,11 +831,37 @@
     max-height: 100vh !important;
     border-radius: 0 !important;
     margin: 0;
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
   .modal-overlay {
     align-items: stretch;
     padding: 0;
+  }
+
+  /* Sticky modal headers at top */
+  .new-session-header,
+  .quick-session-header,
+  .summarize-modal-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--bg-panel);
+    flex-shrink: 0;
+    padding-top: calc(16px + env(safe-area-inset-top, 0px));
+  }
+
+  /* Shortcuts header (inside .shortcuts-panel which uses padding) */
+  .shortcuts-panel .shortcuts-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--bg-panel);
+    padding-top: env(safe-area-inset-top, 0px);
   }
 
   /* Modal close buttons: 44px minimum touch target */
@@ -847,6 +873,19 @@
     align-items: center;
     justify-content: center;
     font-size: 24px;
+  }
+
+  /* Sticky modal footers for thumb reach */
+  .modal-actions,
+  .new-session-footer,
+  .quick-session-footer,
+  .summarize-modal-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    background: var(--bg-panel);
+    flex-shrink: 0;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   }
 
   /* Stack modal action buttons vertically */
@@ -867,6 +906,32 @@
     width: 100%;
   }
 
+  /* Scrollable modal body areas */
+  .new-session-body,
+  .quick-session-body,
+  .summarize-modal-body {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Shortcuts body scrollable */
+  .shortcuts-panel .shortcuts-body {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Kill/Alert confirmation dialogs: keep centered, wider */
+  #kill-modal .modal-panel,
+  #alert-modal .modal-panel {
+    height: auto !important;
+    max-height: 90vh !important;
+    width: 90vw !important;
+    border-radius: 12px !important;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  }
+
   /* Touch-friendly form inputs, selects, textareas */
   .alert-input,
   .ssh-field input,
@@ -878,6 +943,8 @@
   .summarize-custom-prompt {
     min-height: 44px;
     font-size: 16px; /* prevents iOS zoom on focus */
+    width: 100%;
+    box-sizing: border-box;
   }
 
   /* SSH field rows stack vertically on mobile */
@@ -914,6 +981,16 @@
     padding: 10px 12px;
   }
 
+  /* SSH tmux refresh: touch-friendly */
+  .ssh-tmux-refresh {
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   /* Summarize prompt items: larger touch targets */
   .summarize-prompt-item {
     padding: 14px 16px;
@@ -935,23 +1012,107 @@
     font-size: 14px;
   }
 
-  /* Alert input row: stack if needed */
+  /* Alert input row: stack vertically */
   .alert-input-row {
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .alert-input {
     width: 100%;
   }
+
+  .alert-input-row span {
+    font-size: 14px;
+  }
+
+  /* Toast container: full-width on mobile */
+  #toast-container {
+    left: 8px;
+    right: 8px;
+    width: auto;
+  }
+
+  .toast {
+    min-width: unset;
+    width: 100%;
+  }
 }
 
-/* Responsive - Modals (Tablet 641px - 960px) */
-/* Enhance existing 960px query without replacing */
+/* ============================================================
+   Responsive - Modals (Small mobile < 375px)
+   ============================================================ */
+
+@media (max-width: 375px) {
+  .modal-panel {
+    padding: 16px;
+  }
+
+  .new-session-header,
+  .quick-session-header {
+    padding: 12px 16px;
+  }
+
+  .quick-session-body {
+    padding: 12px 16px;
+  }
+
+  .quick-session-footer {
+    padding: 10px 16px;
+  }
+
+  .summarize-modal-header {
+    padding: 12px 14px;
+  }
+
+  .summarize-modal-body {
+    padding: 12px 14px;
+  }
+
+  .summarize-modal-footer {
+    padding: 10px 14px;
+  }
+
+  /* SSH mode toggle: stack vertically on very small screens */
+  .ssh-mode-toggle {
+    flex-direction: column;
+  }
+
+  .ssh-mode-btn {
+    border-right: none;
+    border-bottom: 1px solid var(--border-accent, #1a1a3a);
+  }
+
+  .ssh-mode-btn:last-child {
+    border-bottom: none;
+  }
+}
+
+/* ============================================================
+   Responsive - Modals (Tablet 641px - 960px)
+   ============================================================ */
 
 @media (max-width: 960px) {
   /* Summarize modal: slight padding adjustment */
   .summarize-modal-panel {
     width: 95vw;
+  }
+}
+
+/* ============================================================
+   Responsive - Modals (Tablet 641px - 768px)
+   ============================================================ */
+
+@media (max-width: 768px) {
+  /* Moderately sized modals for smaller tablets */
+  .new-session-panel {
+    width: 95vw;
+    max-width: 480px;
+  }
+
+  .quick-session-panel {
+    width: 95vw;
+    max-width: 420px;
   }
 }
 
