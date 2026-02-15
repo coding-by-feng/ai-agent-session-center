@@ -248,8 +248,7 @@ try {
 console.log(`\n${GREEN}────────────────────────────────────────────────${RESET}`);
 console.log(`  ${GREEN}✓ Setup complete!${RESET}`);
 console.log(`${GREEN}────────────────────────────────────────────────${RESET}`);
-console.log(`\n  Starting server on port ${BOLD}${configData.port}${RESET}...`);
-console.log(`  Browser will open automatically.\n`);
+console.log(`\n  Starting server on port ${BOLD}${configData.port}${RESET}...\n`);
 
-// Explicit exit — askPassword's process.stdin.resume() keeps the event loop alive
-process.exit(0);
+// Unref stdin so the event loop can exit naturally (askPassword's resume() keeps it alive)
+process.stdin.unref();

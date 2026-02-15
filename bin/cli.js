@@ -3,18 +3,41 @@
 
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { existsSync } from 'fs';
 import { spawn } from 'child_process';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const serverPath = join(__dirname, '..', 'server', 'index.js');
+const projectRoot = join(__dirname, '..');
+const serverPath = join(projectRoot, 'server', 'index.js');
+const setupPath = join(projectRoot, 'hooks', 'setup-wizard.js');
+const configPath = join(projectRoot, 'data', 'server-config.json');
 
-// Forward all args to the server
 const args = process.argv.slice(2);
-const child = spawn('node', [serverPath, ...args], {
-  stdio: 'inherit',
-  cwd: join(__dirname, '..')
-});
+const forceSetup = args.includes('--setup');
+const isFirstRun = !existsSync(configPath);
 
-child.on('exit', (code) => {
-  process.exit(code || 0);
-});
+function startServer() {
+  const serverArgs = args.filter(a => a !== '--setup');
+  const child = spawn('node', [serverPath, ...serverArgs], {
+    stdio: 'inherit',
+    cwd: projectRoot,
+  });
+  child.on('exit', (code) => process.exit(code || 0));
+}
+
+if (forceSetup || isFirstRun) {
+  // Run setup wizard, then start server on success
+  const setup = spawn('node', [setupPath], {
+    stdio: 'inherit',
+    cwd: projectRoot,
+  });
+  setup.on('exit', (code) => {
+    if (code === 0) {
+      startServer();
+    } else {
+      process.exit(code || 1);
+    }
+  });
+} else {
+  startServer();
+}
