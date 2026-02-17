@@ -1,0 +1,33 @@
+/* Theme: Cyberpunk */
+
+body[data-theme="cyberpunk"] {
+  --bg-primary: #0d0221;
+  --bg-card: #1a0533;
+  --bg-card-hover: #2a0845;
+  --bg-panel: #130330;
+  --bg-header: #0a0118;
+  --border-glow: #ff00ff;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-faint: rgba(255, 255, 255, 0.03);
+  --border-subtle-strong: rgba(255, 255, 255, 0.1);
+  --border-accent: rgba(255, 0, 255, 0.2);
+  --border-accent-strong: rgba(255, 0, 255, 0.35);
+  --bg-accent: rgba(255, 0, 255, 0.1);
+  --bg-accent-strong: rgba(255, 0, 255, 0.15);
+  --bg-subtle: rgba(255, 255, 255, 0.06);
+  --bg-subtle-strong: rgba(255, 255, 255, 0.1);
+  --glow-accent: rgba(255, 0, 255, 0.15);
+  --glow-accent-strong: rgba(255, 0, 255, 0.3);
+  --inset-highlight: rgba(255, 255, 255, 0.06);
+  --inset-highlight-faint: rgba(255, 255, 255, 0.04);
+  --accent-cyan: #00ffff;
+  --accent-orange: #ff00ff;
+  --accent-green: #39ff14;
+  --accent-red: #ff0055;
+  --accent-purple: #bf00ff;
+  --text-primary: #f0e0ff;
+  --text-secondary: #bb88ee;
+  --text-dim: #7755aa;
+  --robot-body: #2a1a4a;
+  --robot-body-dark: #1a0a3a;
+}

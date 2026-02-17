@@ -1,0 +1,77 @@
+/* ============================================================
+   ActivityFeed CSS Module
+   Global activity feed footer, empty state
+   ============================================================ */
+
+/* ---- Empty State ---- */
+
+.emptyState {
+  grid-area: main;
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; z-index: 1; text-align: center; gap: 12px;
+}
+
+.emptyIcon {
+  font-size: 48px; color: var(--text-dim); opacity: 0.4;
+  animation: pulse-empty 3s ease-in-out infinite;
+}
+
+@keyframes pulse-empty {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.05); }
+}
+
+.emptyState h2 { font-size: 18px; font-weight: 300; color: var(--text-secondary); letter-spacing: 2px; }
+.emptyState p { font-size: 12px; color: var(--text-dim); letter-spacing: 1px; }
+
+/* ---- Activity Feed ---- */
+
+.feed {
+  grid-area: footer;
+  background: linear-gradient(0deg, var(--bg-primary) 0%, var(--bg-primary) 100%);
+  border-top: 1px solid var(--border-accent);
+  max-height: 120px; z-index: 10; position: relative; overflow: hidden;
+}
+
+.feedHeader {
+  font-size: 9px; font-weight: 700; letter-spacing: 2px;
+  color: var(--text-dim); padding: 6px 16px 4px;
+  border-bottom: 1px solid var(--border-faint);
+  display: flex; align-items: center; justify-content: space-between;
+}
+
+.feedEntries { overflow-y: auto; max-height: 90px; padding: 4px 16px; }
+.feedEntries::-webkit-scrollbar { width: 4px; }
+.feedEntries::-webkit-scrollbar-track { background: transparent; }
+.feedEntries::-webkit-scrollbar-thumb { background: var(--bg-accent); border-radius: 2px; }
+
+.entry {
+  font-size: 11px; padding: 2px 0; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+  animation: fade-in 0.3s ease;
+}
+
+.feedTime { color: var(--text-dim); margin-right: 8px; }
+.feedProject { color: var(--accent-cyan); margin-right: 6px; }
+.feedDetail { color: var(--text-secondary); }
+
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* ---- Collapse ---- */
+
+.collapseBtn {
+  background: none; border: none; color: var(--text-dim);
+  cursor: pointer; font-size: 10px; padding: 2px 8px;
+  transition: transform 0.2s, color 0.2s;
+}
+.collapseBtn:hover { color: var(--accent-cyan); }
+
+.feed.collapsed .collapseBtn { transform: rotate(180deg); }
+.feed.collapsed .feedEntries { display: none; }
+.feed.collapsed { max-height: 24px; }
+
+/* ---- Responsive ---- */
+
+@media (max-width: 640px) {
+  .feed { max-height: 80px; }
+}

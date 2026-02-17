@@ -1,0 +1,31 @@
+/* Theme: Solarized */
+
+body[data-theme="solarized"] {
+  --bg-primary: #002b36;
+  --bg-card: #073642;
+  --bg-card-hover: #0a4050;
+  --bg-panel: #003847;
+  --bg-header: #001f28;
+  --border-glow: #2aa198;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-faint: rgba(255, 255, 255, 0.03);
+  --border-subtle-strong: rgba(255, 255, 255, 0.1);
+  --border-accent: rgba(42, 161, 152, 0.2);
+  --border-accent-strong: rgba(42, 161, 152, 0.35);
+  --bg-accent: rgba(42, 161, 152, 0.1);
+  --bg-accent-strong: rgba(42, 161, 152, 0.15);
+  --bg-subtle: rgba(255, 255, 255, 0.06);
+  --bg-subtle-strong: rgba(255, 255, 255, 0.1);
+  --glow-accent: rgba(42, 161, 152, 0.15);
+  --glow-accent-strong: rgba(42, 161, 152, 0.3);
+  --inset-highlight: rgba(255, 255, 255, 0.06);
+  --inset-highlight-faint: rgba(255, 255, 255, 0.04);
+  --accent-cyan: #2aa198;
+  --accent-orange: #cb4b16;
+  --accent-green: #859900;
+  --accent-red: #dc322f;
+  --accent-purple: #6c71c4;
+  --text-primary: #93a1a1;
+  --text-secondary: #657b83;
+  --text-dim: #4a6269;
+}

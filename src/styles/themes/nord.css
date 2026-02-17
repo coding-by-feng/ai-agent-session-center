@@ -1,0 +1,31 @@
+/* Theme: Nord */
+
+body[data-theme="nord"] {
+  --bg-primary: #2e3440;
+  --bg-card: #3b4252;
+  --bg-card-hover: #434c5e;
+  --bg-panel: #333b49;
+  --bg-header: #272d38;
+  --border-glow: #88c0d0;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-faint: rgba(255, 255, 255, 0.03);
+  --border-subtle-strong: rgba(255, 255, 255, 0.1);
+  --border-accent: rgba(136, 192, 208, 0.2);
+  --border-accent-strong: rgba(136, 192, 208, 0.35);
+  --bg-accent: rgba(136, 192, 208, 0.1);
+  --bg-accent-strong: rgba(136, 192, 208, 0.15);
+  --bg-subtle: rgba(255, 255, 255, 0.06);
+  --bg-subtle-strong: rgba(255, 255, 255, 0.1);
+  --glow-accent: rgba(136, 192, 208, 0.15);
+  --glow-accent-strong: rgba(136, 192, 208, 0.3);
+  --inset-highlight: rgba(255, 255, 255, 0.06);
+  --inset-highlight-faint: rgba(255, 255, 255, 0.04);
+  --accent-cyan: #88c0d0;
+  --accent-orange: #d08770;
+  --accent-green: #a3be8c;
+  --accent-red: #bf616a;
+  --accent-purple: #b48ead;
+  --text-primary: #eceff4;
+  --text-secondary: #81a1c1;
+  --text-dim: #616e88;
+}

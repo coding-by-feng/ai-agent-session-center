@@ -1,0 +1,76 @@
+/* Character: PUMPKIN */
+
+/* ============================================================
+   Character: PUMPKIN
+   ============================================================ */
+
+.char-pumpkin .robot-body-wrap { position: relative; }
+.char-pumpkin .pumpkin-stem {
+  width: 8px; height: 12px;
+  background: var(--robot-color); opacity: 0.5;
+  border-radius: 2px 2px 0 0;
+  margin: 0 auto -2px; z-index: 2; position: relative;
+}
+.char-pumpkin .pumpkin-body {
+  width: 74px; height: 62px;
+  background: linear-gradient(145deg, var(--robot-body), var(--robot-body-dark));
+  border: 2px solid var(--robot-border);
+  border-radius: 50%;
+  position: relative;
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  box-shadow: 0 0 12px rgba(0,0,0,0.4), inset 0 1px 0 var(--inset-highlight);
+}
+.char-pumpkin .pumpkin-eye {
+  width: 12px; height: 12px;
+  background: var(--robot-color);
+  clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+  box-shadow: 0 0 6px var(--robot-color);
+  transition: all 0.3s ease;
+}
+.char-pumpkin .pumpkin-mouth {
+  position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+  width: 22px; height: 10px;
+  background: var(--robot-color); opacity: 0.6;
+  clip-path: polygon(0% 0%, 15% 100%, 35% 50%, 50% 100%, 65% 50%, 85% 100%, 100% 0%);
+  transition: all 0.3s ease;
+}
+.char-pumpkin .pumpkin-groove {
+  position: absolute; top: 10%; height: 80%;
+  width: 2px; background: var(--robot-border); opacity: 0.3;
+}
+.char-pumpkin .pumpkin-groove-left { left: 30%; }
+.char-pumpkin .pumpkin-groove-right { right: 30%; }
+
+/* Pumpkin Status Animations */
+.char-pumpkin[data-status="idle"] .robot-body-wrap { animation: robot-float 3s ease-in-out infinite; }
+.char-pumpkin[data-status="idle"] .pumpkin-eye { animation: pumpkin-flicker 3s ease-in-out infinite; }
+.char-pumpkin[data-status="idle"] .pumpkin-mouth { animation: pumpkin-flicker 3s ease-in-out infinite 0.5s; }
+.char-pumpkin[data-status="idle"] .robot-shadow { animation: robot-shadow-float 3s ease-in-out infinite; }
+
+.char-pumpkin[data-status="prompting"] .robot-body-wrap { animation: robot-float 2.5s ease-in-out infinite; }
+.char-pumpkin[data-status="prompting"] .pumpkin-eye { width: 14px; height: 14px; box-shadow: 0 0 10px var(--robot-color), 0 0 20px var(--robot-color); }
+.char-pumpkin[data-status="prompting"] .pumpkin-mouth { opacity: 0.8; box-shadow: 0 0 8px var(--robot-color); }
+
+.char-pumpkin[data-status="working"] .robot-body-wrap { animation: ghost-work-multi 9s ease-in-out infinite; }
+.char-pumpkin[data-status="working"] .pumpkin-eye { animation: pumpkin-flicker 0.5s ease-in-out infinite; box-shadow: 0 0 10px var(--robot-color), 0 0 20px var(--robot-color); }
+.char-pumpkin[data-status="working"] .pumpkin-body { animation: robot-work-headbob 0.9s ease-in-out infinite; }
+
+.char-pumpkin[data-status="waiting"] { --robot-color: #a0c4ff; }
+.char-pumpkin[data-status="waiting"] .pumpkin-eye { background: #a0c4ff; box-shadow: 0 0 8px #a0c4ff; }
+
+.char-pumpkin[data-status="approval"] { --robot-color: #ffdd00; }
+.char-pumpkin[data-status="approval"]::after { content: '!'; position: absolute; top: -8px; left: 50%; transform: translateX(-50%); font-size: 28px; font-weight: 900; color: #ffdd00; text-shadow: 0 0 12px #ffdd00, 0 0 30px rgba(255,221,0,0.6); animation: robot-approval-emote-bounce 0.8s ease-in-out infinite; z-index: 10; pointer-events: none; }
+.char-pumpkin[data-status="approval"] .robot-body-wrap { animation: robot-approval-bounce 1s ease-in-out infinite; }
+.char-pumpkin[data-status="approval"] .pumpkin-eye { width: 16px; height: 16px; background: #ffdd00; box-shadow: 0 0 18px #ffdd00, 0 0 36px #ffdd00; }
+
+.char-pumpkin[data-status="ended"] { opacity: 0.5; }
+.char-pumpkin[data-status="ended"] .pumpkin-eye { background: var(--text-dim); box-shadow: none; }
+.char-pumpkin[data-status="ended"] .pumpkin-mouth { background: var(--text-dim); opacity: 0.2; }
+
+.char-pumpkin.robot-emote .robot-body-wrap { animation: robot-emote-bounce 0.6s ease-out !important; }
+
+@keyframes pumpkin-flicker {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+

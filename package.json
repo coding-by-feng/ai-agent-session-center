@@ -8,16 +8,25 @@
     "ai-agent-session-center": "bin/cli.js"
   },
   "scripts": {
+    "dev": "concurrently \"vite\" \"tsx watch server/index.js\"",
+    "build": "vite build",
     "start": "node server/index.js",
     "start:no-open": "node server/index.js --no-open",
+    "preview": "vite preview",
     "setup": "npm install --ignore-scripts && node hooks/setup-wizard.js && node server/index.js",
     "debug": "node server/index.js --debug",
     "reset": "node hooks/reset.js",
     "install-hooks": "node hooks/install-hooks.js",
     "uninstall-hooks": "node hooks/install-hooks.js --uninstall",
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true",
-    "test": "node --test test/**/*.test.js",
-    "test:watch": "node --test --watch test/**/*.test.js"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
+    "test": "vitest run",
+    "test:legacy": "node --test test/**/*.test.js",
+    "test:watch": "vitest",
+    "test:e2e": "npx playwright test",
+    "test:coverage": "vitest run --coverage"
   },
   "keywords": [
     "claude-code",
@@ -40,10 +49,27 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@tanstack/react-query": "^5.90.21",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-unicode11": "^0.9.0",
+    "@xterm/addon-web-links": "^0.12.0",
     "better-sqlite3": "^12.6.2",
+    "dexie": "^4.3.0",
     "express": "^5.0.0",
     "node-pty": "^1.1.0",
-    "ws": "^8.18.0"
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-hook-form": "^7.71.1",
+    "react-is": "^19.2.4",
+    "react-router": "^7.13.0",
+    "recharts": "^3.7.0",
+    "ws": "^8.18.0",
+    "xterm": "^5.3.0",
+    "zod": "^4.3.6",
+    "zustand": "^5.0.11"
   },
   "files": [
     "server/**/*",
@@ -53,5 +79,33 @@
     "types/**/*",
     "docs/**/*",
     "data/.gitkeep"
-  ]
+  ],
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.58.2",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.2.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^5.1.4",
+    "@vitest/coverage-v8": "^4.0.18",
+    "concurrently": "^9.2.1",
+    "eslint": "^10.0.0",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.5.0",
+    "globals": "^17.3.0",
+    "jsdom": "^28.1.0",
+    "prettier": "^3.8.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.0",
+    "vite": "^7.3.1",
+    "vitest": "^4.0.18"
+  }
 }

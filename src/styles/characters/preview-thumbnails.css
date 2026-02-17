@@ -1,0 +1,206 @@
+/* Character Preview Thumbnails: Dragon, Penguin, Octopus, Mushroom */
+
+/* ============================================================
+   Character Preview Thumbnails: Dragon, Penguin, Octopus, Mushroom
+   ============================================================ */
+
+/* Dragon preview */
+.char-preview-dragon { position: relative; }
+.char-preview-dragon .cp-horn {
+  position: absolute; top: 4px;
+  width: 0; height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 10px solid var(--accent-orange);
+}
+.char-preview-dragon .cp-horn-l { left: 6px; transform: rotate(-15deg); }
+.char-preview-dragon .cp-horn-r { right: 6px; transform: rotate(15deg); }
+.char-preview-dragon .cp-head {
+  width: 26px; height: 18px;
+  background: var(--robot-body);
+  border: 1px solid var(--robot-border);
+  border-radius: 6px 6px 4px 4px;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  margin-top: 10px;
+}
+.char-preview-dragon .cp-eye {
+  width: 5px; height: 6px;
+  border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 3px var(--accent-cyan);
+}
+.char-preview-dragon .cp-body {
+  width: 22px; height: 14px;
+  background: var(--robot-body);
+  border: 1px solid var(--robot-border);
+  border-radius: 4px 4px 6px 6px;
+  margin-top: 1px;
+  position: relative;
+}
+.char-preview-dragon .cp-wing {
+  position: absolute; top: -2px; right: -8px;
+  width: 0; height: 0;
+  border-bottom: 8px solid var(--robot-body);
+  border-right: 8px solid transparent;
+  opacity: 0.6;
+}
+
+/* Penguin preview */
+.char-preview-penguin .cp-head {
+  width: 22px; height: 20px;
+  background: var(--robot-body-dark);
+  border: 1px solid var(--robot-border);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+}
+.char-preview-penguin .cp-eye {
+  width: 4px; height: 5px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 3px var(--accent-cyan);
+}
+.char-preview-penguin .cp-beak {
+  width: 0; height: 0;
+  border-left: 5px solid var(--accent-orange);
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+  margin: -1px auto 0;
+}
+.char-preview-penguin .cp-body {
+  width: 20px; height: 16px;
+  background: var(--robot-body-dark);
+  border: 1px solid var(--robot-border);
+  border-radius: 30% 30% 50% 50%;
+  margin-top: 0;
+  position: relative;
+}
+.char-preview-penguin .cp-body::after {
+  content: '';
+  position: absolute; top: 2px; left: 50%; transform: translateX(-50%);
+  width: 10px; height: 10px;
+  background: var(--robot-body);
+  border-radius: 40%;
+}
+
+/* Octopus preview */
+.char-preview-octopus .cp-head {
+  width: 28px; height: 22px;
+  background: var(--robot-body);
+  border: 1px solid var(--robot-border);
+  border-radius: 50% 50% 30% 30%;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.char-preview-octopus .cp-eye {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 3px var(--accent-cyan);
+}
+.char-preview-octopus .cp-tentacles {
+  display: flex; gap: 2px; justify-content: center;
+}
+.char-preview-octopus .cp-tentacles::before,
+.char-preview-octopus .cp-tentacles::after {
+  content: '';
+  width: 3px; height: 10px;
+  background: var(--robot-body);
+  border-radius: 0 0 2px 2px;
+}
+.char-preview-octopus .cp-tentacles::before { margin-right: 2px; }
+
+/* Mushroom preview */
+.char-preview-mushroom .cp-cap {
+  width: 32px; height: 16px;
+  background: var(--robot-body);
+  border: 1px solid var(--robot-border);
+  border-radius: 50% 50% 10% 10%;
+  position: relative;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.char-preview-mushroom .cp-spot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  opacity: 0.5;
+}
+.char-preview-mushroom .cp-stem {
+  width: 12px; height: 14px;
+  background: var(--robot-body);
+  border: 1px solid var(--robot-border);
+  border-top: none;
+  border-radius: 0 0 4px 4px;
+  margin: 0 auto;
+}
+
+/* Fox preview */
+.char-preview-fox .cp-ear { position: absolute; top: -6px; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 8px solid var(--accent-orange); }
+.char-preview-fox .cp-ear-l { left: 2px; }
+.char-preview-fox .cp-ear-r { right: 2px; }
+.char-preview-fox .cp-head { width: 24px; height: 18px; background: var(--robot-body); border: 1px solid var(--robot-border); border-radius: 50%; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.char-preview-fox .cp-eye { width: 4px; height: 4px; border-radius: 50%; background: var(--accent-cyan); box-shadow: 0 0 3px var(--accent-cyan); }
+.char-preview-fox .cp-body { width: 18px; height: 12px; background: var(--robot-body); border: 1px solid var(--robot-border); border-radius: 4px; margin: -1px auto 0; }
+.char-preview-fox .cp-tail { width: 12px; height: 6px; background: var(--accent-orange); border-radius: 0 6px 6px 0; position: absolute; right: -4px; bottom: 8px; opacity: 0.6; }
+
+/* Unicorn preview */
+.char-preview-unicorn .cp-horn { width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 10px solid var(--accent-cyan); margin: 0 auto; }
+.char-preview-unicorn .cp-head { width: 22px; height: 18px; background: var(--robot-body); border: 1px solid var(--robot-border); border-radius: 50%; display: flex; align-items: center; justify-content: center; gap: 5px; margin-top: -2px; }
+.char-preview-unicorn .cp-eye { width: 4px; height: 5px; border-radius: 50%; background: var(--accent-cyan); box-shadow: 0 0 3px var(--accent-cyan); }
+.char-preview-unicorn .cp-body { width: 20px; height: 14px; background: var(--robot-body); border: 1px solid var(--robot-border); border-radius: 6px; margin: -1px auto 0; }
+
+/* Jellyfish preview */
+.char-preview-jellyfish .cp-head { width: 26px; height: 16px; background: var(--robot-body); border: 1px solid var(--robot-border); border-radius: 50% 50% 20% 20%; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.char-preview-jellyfish .cp-eye { width: 4px; height: 4px; border-radius: 50%; background: var(--accent-cyan); box-shadow: 0 0 3px var(--accent-cyan); }
+.char-preview-jellyfish .cp-tentacles { display: flex; justify-content: center; gap: 2px; margin-top: 1px; }
+.char-preview-jellyfish .cp-tentacles::before, .char-preview-jellyfish .cp-tentacles::after { content: ''; width: 2px; height: 10px; background: var(--accent-cyan); border-radius: 0 0 2px 2px; opacity: 0.5; }
+.char-preview-jellyfish .cp-tentacles::before { margin-right: 4px; }
+
+/* Owl preview */
+.char-preview-owl .cp-tuft { position: absolute; top: -4px; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 6px solid var(--robot-border); }
+.char-preview-owl .cp-tuft-l { left: 3px; }
+.char-preview-owl .cp-tuft-r { right: 3px; }
+.char-preview-owl .cp-head { width: 26px; height: 20px; background: var(--robot-body); border: 1px solid var(--robot-border); border-radius: 50%; display: flex; align-items: center; justify-content: center; gap: 4px; }
+.char-preview-owl .cp-eye { width: 7px; height: 7px; border-radius: 50%; background: rgba(0,0,0,0.4); border: 1px solid var(--accent-cyan); box-shadow: 0 0 3px var(--accent-cyan); }
+.char-preview-owl .cp-beak { width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--accent-orange); margin: -2px auto 0; }
+
+/* Bat preview */
+.char-preview-bat .cp-ear { position: absolute; top: -5px; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 7px solid var(--robot-body); }
+.char-preview-bat .cp-ear-l { left: 4px; }
+.char-preview-bat .cp-ear-r { right: 4px; }
+.char-preview-bat .cp-head { width: 22px; height: 16px; background: var(--robot-body); border: 1px solid var(--robot-border); border-radius: 50%; display: flex; align-items: center; justify-content: center; gap: 5px; }
+.char-preview-bat .cp-eye { width: 4px; height: 4px; border-radius: 50%; background: var(--accent-cyan); box-shadow: 0 0 3px var(--accent-cyan); }
+.char-preview-bat .cp-wing { width: 32px; height: 10px; background: var(--robot-body); border: 1px solid var(--robot-border); border-radius: 0 0 50% 50%; opacity: 0.6; margin: -2px auto 0; }
+
+/* Cactus preview */
+.char-preview-cactus .cp-flower { width: 6px; height: 6px; background: var(--accent-cyan); border-radius: 50%; margin: 0 auto 1px; box-shadow: 0 0 4px var(--accent-cyan); }
+.char-preview-cactus .cp-body { width: 16px; height: 22px; background: var(--robot-body); border: 1px solid var(--robot-border); border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 3px; flex-wrap: wrap; padding-top: 4px; }
+.char-preview-cactus .cp-eye { width: 3px; height: 3px; border-radius: 50%; background: var(--accent-cyan); box-shadow: 0 0 3px var(--accent-cyan); }
+.char-preview-cactus .cp-arm { width: 8px; height: 12px; background: var(--robot-body); border: 1px solid var(--robot-border); border-radius: 4px; position: absolute; right: -2px; top: 12px; }
+
+/* Slime preview */
+.char-preview-slime .cp-body { width: 28px; height: 20px; background: var(--robot-body); border: 1px solid var(--robot-border); border-radius: 50% 50% 40% 40%; display: flex; align-items: center; justify-content: center; gap: 6px; }
+.char-preview-slime .cp-eye { width: 4px; height: 5px; border-radius: 50%; background: var(--accent-cyan); box-shadow: 0 0 3px var(--accent-cyan); }
+
+/* Pumpkin preview */
+.char-preview-pumpkin .cp-stem { width: 4px; height: 5px; background: var(--accent-green); border-radius: 2px; margin: 0 auto; }
+.char-preview-pumpkin .cp-body { width: 26px; height: 20px; background: var(--robot-body); border: 1px solid var(--robot-border); border-radius: 50%; display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: -1px; }
+.char-preview-pumpkin .cp-eye { width: 5px; height: 5px; background: var(--accent-cyan); clip-path: polygon(50% 0%, 0% 100%, 100% 100%); }
+
+/* Yeti preview */
+.char-preview-yeti .cp-horn { position: absolute; top: -4px; width: 3px; height: 6px; background: var(--accent-cyan); border-radius: 2px; }
+.char-preview-yeti .cp-horn-l { left: 6px; }
+.char-preview-yeti .cp-horn-r { right: 6px; }
+.char-preview-yeti .cp-head { width: 24px; height: 18px; background: var(--robot-body); border: 1px solid var(--robot-border); border-radius: 50%; display: flex; align-items: center; justify-content: center; gap: 5px; }
+.char-preview-yeti .cp-eye { width: 4px; height: 4px; border-radius: 50%; background: var(--accent-cyan); box-shadow: 0 0 3px var(--accent-cyan); }
+.char-preview-yeti .cp-body { width: 26px; height: 14px; background: var(--robot-body); border: 1px solid var(--robot-border); border-radius: 6px; margin: -1px auto 0; }
+
+/* Crystal preview */
+.char-preview-crystal .cp-body { width: 22px; height: 28px; background: var(--robot-body); border: 1px solid var(--robot-border); clip-path: polygon(50% 0%, 100% 35%, 100% 70%, 50% 100%, 0% 70%, 0% 35%); display: flex; align-items: center; justify-content: center; gap: 4px; }
+.char-preview-crystal .cp-eye { width: 3px; height: 4px; border-radius: 50%; background: var(--accent-cyan); box-shadow: 0 0 4px var(--accent-cyan); }
+
+/* Bee preview */
+.char-preview-bee .cp-antenna { width: 12px; height: 4px; border-top: 1px solid var(--accent-cyan); border-radius: 4px 4px 0 0; margin: 0 auto; }
+.char-preview-bee .cp-head { width: 16px; height: 14px; background: var(--robot-body); border: 1px solid var(--robot-border); border-radius: 50%; display: flex; align-items: center; justify-content: center; gap: 3px; }
+.char-preview-bee .cp-eye { width: 3px; height: 3px; border-radius: 50%; background: var(--accent-cyan); box-shadow: 0 0 2px var(--accent-cyan); }
+.char-preview-bee .cp-body { width: 18px; height: 16px; background: repeating-linear-gradient(0deg, var(--robot-body) 0px, var(--robot-body) 3px, var(--accent-orange) 3px, var(--accent-orange) 6px); border: 1px solid var(--robot-border); border-radius: 50%; margin: -1px auto 0; }
+.char-preview-bee .cp-wing { width: 20px; height: 6px; background: var(--accent-cyan); border-radius: 50%; opacity: 0.3; margin: -8px auto 0; }
+

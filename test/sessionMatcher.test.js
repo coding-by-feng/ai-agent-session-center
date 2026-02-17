@@ -1,80 +1,79 @@
 // test/sessionMatcher.test.js — Tests for server/sessionMatcher.js
-import { describe, it, beforeEach } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, expect } from 'vitest';
 import { detectHookSource, reKeyResumedSession } from '../server/sessionMatcher.js';
 import { SESSION_STATUS, ANIMATION_STATE } from '../server/constants.js';
 
 describe('sessionMatcher', () => {
   describe('detectHookSource', () => {
     it('detects vscode from vscode_pid', () => {
-      assert.equal(detectHookSource({ vscode_pid: '12345' }), 'vscode');
+      expect(detectHookSource({ vscode_pid: '12345' })).toBe('vscode');
     });
 
     it('detects vscode from term_program', () => {
-      assert.equal(detectHookSource({ term_program: 'vscode-terminal' }), 'vscode');
+      expect(detectHookSource({ term_program: 'vscode-terminal' })).toBe('vscode');
     });
 
     it('detects vscode from "Code" in term_program', () => {
-      assert.equal(detectHookSource({ term_program: 'Code' }), 'vscode');
+      expect(detectHookSource({ term_program: 'Code' })).toBe('vscode');
     });
 
     it('detects jetbrains IDEs', () => {
       const ides = ['IntelliJ', 'WebStorm', 'PyCharm', 'GoLand', 'CLion', 'PhpStorm', 'Rider', 'RubyMine', 'DataGrip', 'IDEA'];
       for (const ide of ides) {
-        assert.equal(detectHookSource({ term_program: ide }), 'jetbrains', `Should detect ${ide} as jetbrains`);
+        expect(detectHookSource({ term_program: ide })).toBe('jetbrains');
       }
     });
 
     it('detects iTerm', () => {
-      assert.equal(detectHookSource({ term_program: 'iTerm.app' }), 'iterm');
+      expect(detectHookSource({ term_program: 'iTerm.app' })).toBe('iterm');
     });
 
     it('detects Warp', () => {
-      assert.equal(detectHookSource({ term_program: 'Warp' }), 'warp');
+      expect(detectHookSource({ term_program: 'Warp' })).toBe('warp');
     });
 
     it('detects Kitty', () => {
-      assert.equal(detectHookSource({ term_program: 'kitty' }), 'kitty');
+      expect(detectHookSource({ term_program: 'kitty' })).toBe('kitty');
     });
 
     it('detects Ghostty from term_program', () => {
-      assert.equal(detectHookSource({ term_program: 'ghostty' }), 'ghostty');
+      expect(detectHookSource({ term_program: 'ghostty' })).toBe('ghostty');
     });
 
     it('detects Ghostty from is_ghostty flag', () => {
-      assert.equal(detectHookSource({ is_ghostty: true, term_program: '' }), 'ghostty');
+      expect(detectHookSource({ is_ghostty: true, term_program: '' })).toBe('ghostty');
     });
 
     it('detects Alacritty', () => {
-      assert.equal(detectHookSource({ term_program: 'Alacritty' }), 'alacritty');
+      expect(detectHookSource({ term_program: 'Alacritty' })).toBe('alacritty');
     });
 
     it('detects WezTerm from term_program', () => {
-      assert.equal(detectHookSource({ term_program: 'WezTerm' }), 'wezterm');
+      expect(detectHookSource({ term_program: 'WezTerm' })).toBe('wezterm');
     });
 
     it('detects WezTerm from wezterm_pane', () => {
-      assert.equal(detectHookSource({ wezterm_pane: '1', term_program: '' }), 'wezterm');
+      expect(detectHookSource({ wezterm_pane: '1', term_program: '' })).toBe('wezterm');
     });
 
     it('detects Hyper', () => {
-      assert.equal(detectHookSource({ term_program: 'Hyper' }), 'hyper');
+      expect(detectHookSource({ term_program: 'Hyper' })).toBe('hyper');
     });
 
     it('detects Apple Terminal', () => {
-      assert.equal(detectHookSource({ term_program: 'Apple_Terminal' }), 'terminal');
+      expect(detectHookSource({ term_program: 'Apple_Terminal' })).toBe('terminal');
     });
 
     it('detects tmux', () => {
-      assert.equal(detectHookSource({ tmux: { pane: '%0' }, term_program: '' }), 'tmux');
+      expect(detectHookSource({ tmux: { pane: '%0' }, term_program: '' })).toBe('tmux');
     });
 
     it('returns term_program as-is for unknown terminal', () => {
-      assert.equal(detectHookSource({ term_program: 'SomeCustomTerm' }), 'somecustomterm');
+      expect(detectHookSource({ term_program: 'SomeCustomTerm' })).toBe('somecustomterm');
     });
 
     it('returns "terminal" for empty hook data', () => {
-      assert.equal(detectHookSource({}), 'terminal');
+      expect(detectHookSource({})).toBe('terminal');
     });
   });
 
@@ -101,32 +100,32 @@ describe('sessionMatcher', () => {
       const result = reKeyResumedSession(sessions, oldSession, 'new-id', 'old-id');
 
       // Old ID should be removed
-      assert.equal(sessions.has('old-id'), false);
+      expect(sessions.has('old-id')).toBe(false);
       // New ID should be set
-      assert.equal(sessions.has('new-id'), true);
-      assert.equal(sessions.get('new-id'), result);
+      expect(sessions.has('new-id')).toBe(true);
+      expect(sessions.get('new-id')).toBe(result);
 
       // Session should be reset
-      assert.equal(result.sessionId, 'new-id');
-      assert.equal(result.replacesId, 'old-id');
-      assert.equal(result.status, SESSION_STATUS.IDLE);
-      assert.equal(result.animationState, ANIMATION_STATE.IDLE);
-      assert.equal(result.emote, null);
-      assert.equal(result.isHistorical, false);
-      assert.equal(result.endedAt, null);
-      assert.equal(result.currentPrompt, '');
-      assert.equal(result.totalToolCalls, 0);
-      assert.deepEqual(result.toolUsage, {});
-      assert.deepEqual(result.promptHistory, []);
-      assert.deepEqual(result.toolLog, []);
-      assert.deepEqual(result.responseLog, []);
+      expect(result.sessionId).toBe('new-id');
+      expect(result.replacesId).toBe('old-id');
+      expect(result.status).toBe(SESSION_STATUS.IDLE);
+      expect(result.animationState).toBe(ANIMATION_STATE.IDLE);
+      expect(result.emote).toBe(null);
+      expect(result.isHistorical).toBe(false);
+      expect(result.endedAt).toBe(null);
+      expect(result.currentPrompt).toBe('');
+      expect(result.totalToolCalls).toBe(0);
+      expect(result.toolUsage).toEqual({});
+      expect(result.promptHistory).toEqual([]);
+      expect(result.toolLog).toEqual([]);
+      expect(result.responseLog).toEqual([]);
 
       // Should have a SessionResumed event
-      assert.equal(result.events.length, 1);
-      assert.equal(result.events[0].type, 'SessionResumed');
+      expect(result.events.length).toBe(1);
+      expect(result.events[0].type).toBe('SessionResumed');
 
       // previousSessions should be preserved (not reset)
-      assert.ok(Array.isArray(result.previousSessions));
+      expect(Array.isArray(result.previousSessions)).toBe(true);
     });
   });
 });

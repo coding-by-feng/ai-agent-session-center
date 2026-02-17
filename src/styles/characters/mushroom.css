@@ -1,0 +1,136 @@
+/* Character: MUSHROOM */
+
+/* ============================================================
+   Character: MUSHROOM
+   ============================================================ */
+
+.char-mushroom .mush-cap {
+  width: 86px;
+  height: 44px;
+  background: linear-gradient(145deg, var(--robot-body), var(--robot-body-dark));
+  border: 2px solid var(--robot-border);
+  border-radius: 50% 50% 10% 10%;
+  position: relative;
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.4), inset 0 1px 0 var(--inset-highlight);
+}
+
+.char-mushroom .mush-spot {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--robot-color);
+  opacity: 0.35;
+  box-shadow: 0 0 4px var(--robot-color);
+  transition: all 0.3s ease;
+}
+.char-mushroom .mush-spot-1 { width: 14px; height: 14px; top: 6px; left: 12px; }
+.char-mushroom .mush-spot-2 { width: 10px; height: 10px; top: 8px; right: 14px; }
+.char-mushroom .mush-spot-3 { width: 8px; height: 8px; top: 22px; left: 36px; }
+
+.char-mushroom .mush-face {
+  width: 50px;
+  height: 30px;
+  margin: -2px auto 0;
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.char-mushroom .mush-eye {
+  width: 10px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--robot-color);
+  box-shadow: 0 0 6px var(--robot-color), 0 0 12px var(--robot-color);
+  transition: all 0.3s ease;
+}
+
+.char-mushroom .mush-mouth {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 8px;
+  height: 4px;
+  border-radius: 0 0 50% 50%;
+  border-bottom: 2px solid var(--robot-color);
+  border-left: 1px solid var(--robot-color);
+  border-right: 1px solid var(--robot-color);
+  opacity: 0.5;
+  transition: all 0.3s ease;
+}
+
+.char-mushroom .mush-stem {
+  width: 28px;
+  height: 30px;
+  background: linear-gradient(180deg, var(--robot-body), var(--robot-body-dark));
+  border: 2px solid var(--robot-border);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  margin: 0 auto;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* Mushroom Status Animations */
+.char-mushroom[data-status="idle"] .robot-body-wrap { animation: robot-float 3s ease-in-out infinite; }
+.char-mushroom[data-status="idle"] .mush-eye { animation: robot-blink 4s ease-in-out infinite; }
+.char-mushroom[data-status="idle"] .mush-spot { animation: mush-spot-glow 3s ease-in-out infinite; }
+.char-mushroom[data-status="idle"] .robot-shadow { animation: robot-shadow-float 3s ease-in-out infinite; }
+
+.char-mushroom[data-status="prompting"] .robot-body-wrap { animation: robot-float 2.5s ease-in-out infinite; }
+.char-mushroom[data-status="prompting"] .mush-eye {
+  width: 12px; height: 14px;
+  box-shadow: 0 0 10px var(--robot-color), 0 0 20px var(--robot-color);
+}
+.char-mushroom[data-status="prompting"] .mush-spot { animation: mush-spot-glow 1.5s ease-in-out infinite; opacity: 0.5; }
+.char-mushroom[data-status="prompting"] .mush-cap { animation: mush-wobble 2s ease-in-out infinite; }
+
+.char-mushroom[data-status="working"] .robot-body-wrap { animation: mush-work-multi 8s ease-in-out infinite; }
+.char-mushroom[data-status="working"] .mush-eye {
+  width: 12px; height: 6px; border-radius: 3px;
+  animation: robot-work-eye-scan 0.8s ease-in-out infinite;
+  box-shadow: 0 0 10px var(--robot-color), 0 0 20px var(--robot-color);
+}
+.char-mushroom[data-status="working"] .mush-spot { animation: mush-spot-glow 0.5s ease-in-out infinite; opacity: 0.6; }
+.char-mushroom[data-status="working"] .mush-cap { animation: mush-bounce 0.5s ease-in-out infinite; }
+
+.char-mushroom[data-status="waiting"] { --robot-color: #a0c4ff; }
+.char-mushroom[data-status="waiting"] .mush-eye { background: #a0c4ff; box-shadow: 0 0 10px #a0c4ff; }
+.char-mushroom[data-status="waiting"] .mush-spot { background: #a0c4ff; box-shadow: 0 0 4px #a0c4ff; }
+
+.char-mushroom[data-status="approval"] { --robot-color: #ffdd00; }
+.char-mushroom[data-status="approval"]::after {
+  content: '!'; position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
+  font-size: 28px; font-weight: 900; color: #ffdd00;
+  text-shadow: 0 0 12px #ffdd00, 0 0 30px rgba(255, 221, 0, 0.6);
+  animation: robot-approval-emote-bounce 0.8s ease-in-out infinite; z-index: 10; pointer-events: none;
+}
+.char-mushroom[data-status="approval"] .robot-body-wrap { animation: robot-approval-bounce 1s ease-in-out infinite; }
+.char-mushroom[data-status="approval"] .mush-eye {
+  width: 16px; height: 16px; background: #ffdd00;
+  box-shadow: 0 0 18px #ffdd00, 0 0 36px #ffdd00;
+}
+.char-mushroom[data-status="approval"] .mush-spot { background: #ffdd00; opacity: 0.7; box-shadow: 0 0 8px #ffdd00; }
+
+.char-mushroom[data-status="ended"] { opacity: 0.5; }
+.char-mushroom[data-status="ended"] .mush-eye { width: 10px; height: 3px; border-radius: 2px; background: var(--text-dim); box-shadow: none; }
+.char-mushroom[data-status="ended"] .mush-spot { background: var(--text-dim); box-shadow: none; opacity: 0.15; }
+
+.char-mushroom.robot-emote .robot-body-wrap { animation: robot-emote-bounce 0.6s ease-out !important; }
+
+@keyframes mush-spot-glow {
+  0%, 100% { opacity: 0.3; box-shadow: 0 0 4px var(--robot-color); }
+  50% { opacity: 0.6; box-shadow: 0 0 10px var(--robot-color); }
+}
+@keyframes mush-wobble {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(2deg); }
+  75% { transform: rotate(-2deg); }
+}
+@keyframes mush-bounce {
+  0%, 100% { transform: scaleY(1) scaleX(1); }
+  50% { transform: scaleY(0.92) scaleX(1.04); }
+}
+

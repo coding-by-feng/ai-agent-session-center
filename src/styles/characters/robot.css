@@ -1,0 +1,1234 @@
+/* ============================================================
+   Character: ROBOT (base character)
+   Base structure, status animations, emote, selected state
+   ============================================================ */
+
+/* ============================================================
+   CSS Animated Robot Character
+   ============================================================ */
+
+.css-robot {
+  --robot-color: #00e5ff;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  transform: scale(0.65);
+  transform-origin: center center;
+}
+
+.robot-body-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+
+/* ---- Antenna ---- */
+.robot-antenna {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  z-index: 2;
+}
+
+.robot-antenna-stick {
+  width: 2px;
+  height: 18px;
+  background: linear-gradient(to top, var(--robot-body), var(--robot-color));
+  border-radius: 1px;
+}
+
+.robot-antenna-ball {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--robot-color);
+  box-shadow: 0 0 8px var(--robot-color), 0 0 16px var(--robot-color);
+  margin-bottom: -2px;
+  order: -1;
+}
+
+/* ---- Head ---- */
+.robot-head {
+  width: 80px;
+  height: 56px;
+  background: linear-gradient(145deg, var(--robot-body), var(--robot-body-dark));
+  border: 2px solid var(--robot-border);
+  border-radius: 16px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  box-shadow:
+    0 0 12px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 var(--inset-highlight);
+}
+
+/* ---- Eyes ---- */
+.robot-eye {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--robot-color);
+  box-shadow: 0 0 6px var(--robot-color), 0 0 12px var(--robot-color);
+  transition: all 0.3s ease;
+}
+
+/* ---- Mouth ---- */
+.robot-mouth {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 24px;
+  height: 3px;
+  background: var(--robot-color);
+  border-radius: 2px;
+  opacity: 0.5;
+  box-shadow: 0 0 4px var(--robot-color);
+  transition: all 0.3s ease;
+}
+
+/* ---- Neck ---- */
+.robot-neck {
+  width: 16px;
+  height: 8px;
+  background: linear-gradient(to bottom, var(--robot-body), var(--robot-body-dark));
+  border-left: 2px solid var(--robot-border);
+  border-right: 2px solid var(--robot-border);
+}
+
+/* ---- Torso ---- */
+.robot-torso {
+  width: 60px;
+  height: 52px;
+  background: linear-gradient(180deg, var(--robot-body), var(--robot-body-dark));
+  border: 2px solid var(--robot-border);
+  border-radius: 8px 8px 12px 12px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 var(--inset-highlight-faint);
+}
+
+/* ---- Chest Light ---- */
+.robot-chest-light {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--robot-color);
+  box-shadow: 0 0 6px var(--robot-color);
+  opacity: 0.7;
+  transition: all 0.3s ease;
+}
+
+/* ---- Typing Dots (visible only when working) ---- */
+.robot-typing-dots {
+  display: none;
+  gap: 3px;
+  margin-top: 6px;
+}
+
+.robot-typing-dots span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--robot-color);
+  opacity: 0.5;
+}
+
+/* ---- Shadow ---- */
+.robot-shadow {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 70px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--robot-color);
+  opacity: 0.12;
+  filter: blur(6px);
+  transition: all 0.3s ease;
+}
+
+/* ============================================================
+   Robot Status: IDLE — gentle float, slow blink, green glow
+   ============================================================ */
+
+.css-robot[data-status="idle"] .robot-body-wrap {
+  animation: robot-float calc(3s * var(--anim-speed, 1)) ease-in-out infinite;
+}
+
+.css-robot[data-status="idle"] .robot-eye {
+  animation: robot-blink calc(4s * var(--anim-speed, 1)) ease-in-out infinite;
+}
+
+.css-robot[data-status="idle"] .robot-chest-light {
+  animation: robot-chest-pulse-slow calc(3s * var(--anim-speed, 1)) ease-in-out infinite;
+}
+
+.css-robot[data-status="idle"] .robot-shadow {
+  animation: robot-shadow-float calc(3s * var(--anim-speed, 1)) ease-in-out infinite;
+}
+
+/* ============================================================
+   Robot Status: PROMPTING — antenna pulse, wider eyes, cyan glow
+   ============================================================ */
+
+.css-robot[data-status="prompting"] .robot-body-wrap {
+  animation: robot-float calc(2.5s * var(--anim-speed, 1)) ease-in-out infinite;
+}
+
+.css-robot[data-status="prompting"] .robot-antenna-ball {
+  animation: robot-antenna-pulse calc(0.8s * var(--anim-speed, 1)) ease-in-out infinite;
+}
+
+.css-robot[data-status="prompting"] .robot-eye {
+  width: 16px;
+  height: 16px;
+  box-shadow: 0 0 10px var(--robot-color), 0 0 20px var(--robot-color);
+}
+
+.css-robot[data-status="prompting"] .robot-mouth {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  opacity: 0.6;
+  bottom: 7px;
+}
+
+.css-robot[data-status="prompting"] .robot-head {
+  animation: robot-tilt calc(2s * var(--anim-speed, 1)) ease-in-out infinite;
+}
+
+.css-robot[data-status="prompting"] .robot-chest-light {
+  animation: robot-chest-pulse-slow calc(2s * var(--anim-speed, 1)) ease-in-out infinite;
+}
+
+/* ============================================================
+   Robot Status: WORKING — energetic bounce, scanning eyes,
+   head wobble, pulsing glow, typing dots, vibrant shadow
+   ============================================================ */
+
+.css-robot[data-status="working"] .robot-body-wrap {
+  animation: robot-work-multi calc(8s * var(--anim-speed, 1)) ease-in-out infinite;
+}
+
+.css-robot[data-status="working"] .robot-head {
+  animation: robot-work-head-multi calc(8s * var(--anim-speed, 1)) ease-in-out infinite;
+}
+
+.css-robot[data-status="working"] .robot-eye {
+  width: 16px;
+  height: 10px;
+  border-radius: 3px;
+  animation: robot-work-eye-scan 0.8s ease-in-out infinite;
+  box-shadow: 0 0 10px var(--robot-color), 0 0 20px var(--robot-color);
+}
+
+.css-robot[data-status="working"] .robot-antenna-ball {
+  animation: robot-work-antenna 0.5s ease-in-out infinite;
+}
+
+.css-robot[data-status="working"] .robot-chest-light {
+  animation: robot-work-chest-pulse 0.4s ease-in-out infinite;
+}
+
+.css-robot[data-status="working"] .robot-typing-dots {
+  display: flex;
+}
+
+.css-robot[data-status="working"] .robot-typing-dots span:nth-child(1) {
+  animation: robot-typing-dot 0.6s ease-in-out infinite 0s;
+}
+
+.css-robot[data-status="working"] .robot-typing-dots span:nth-child(2) {
+  animation: robot-typing-dot 0.6s ease-in-out infinite 0.15s;
+}
+
+.css-robot[data-status="working"] .robot-typing-dots span:nth-child(3) {
+  animation: robot-typing-dot 0.6s ease-in-out infinite 0.3s;
+}
+
+.css-robot[data-status="working"] .robot-mouth {
+  animation: robot-work-mouth 0.5s ease-in-out infinite;
+  opacity: 0.8;
+}
+
+.css-robot[data-status="working"] .robot-shadow {
+  animation: robot-work-shadow 0.45s ease-in-out infinite;
+  background: var(--robot-color);
+  opacity: 0.2;
+  filter: blur(8px);
+}
+
+.css-robot[data-status="working"] .robot-torso {
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.3),
+    0 0 12px color-mix(in srgb, var(--robot-color) 20%, transparent),
+    inset 0 1px 0 var(--inset-highlight-faint);
+}
+
+/* ============================================================
+   Robot Status: WAITING — calm blue, ready for next prompt
+   ============================================================ */
+
+.css-robot[data-status="waiting"] {
+  --robot-color: #a0c4ff;
+}
+
+.css-robot[data-status="waiting"] .robot-eye {
+  background: #a0c4ff;
+  box-shadow: 0 0 10px #a0c4ff;
+}
+
+.css-robot[data-status="waiting"] .robot-antenna-ball {
+  background: #a0c4ff;
+  box-shadow: 0 0 8px #a0c4ff;
+}
+
+.css-robot[data-status="waiting"] .robot-chest-light {
+  background: #a0c4ff;
+  box-shadow: 0 0 8px #a0c4ff;
+  animation: robot-waiting-chest 2s ease-in-out infinite;
+}
+
+/* ============================================================
+   Robot Status: APPROVAL — SUPER OBVIOUS! Floating "!" emote,
+   bouncing body, huge pulsing eyes, bright yellow everything
+   ============================================================ */
+
+.css-robot[data-status="approval"] {
+  --robot-color: #ffdd00;
+}
+
+/* Floating exclamation mark above robot */
+.css-robot[data-status="approval"]::after {
+  content: '!';
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 28px;
+  font-weight: 900;
+  color: #ffdd00;
+  text-shadow: 0 0 12px #ffdd00, 0 0 30px rgba(255, 221, 0, 0.6);
+  animation: robot-approval-emote-bounce 0.8s ease-in-out infinite;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.css-robot[data-status="approval"] .robot-body-wrap {
+  animation: robot-approval-bounce calc(1s * var(--anim-speed, 1)) ease-in-out infinite;
+}
+
+.css-robot[data-status="approval"] .robot-head {
+  animation: robot-approval-tilt calc(1.2s * var(--anim-speed, 1)) ease-in-out infinite;
+}
+
+.css-robot[data-status="approval"] .robot-eye {
+  width: 20px;
+  height: 20px;
+  background: #ffdd00;
+  box-shadow: 0 0 18px #ffdd00, 0 0 36px #ffdd00;
+  animation: robot-approval-blink 1s ease-in-out infinite;
+}
+
+.css-robot[data-status="approval"] .robot-antenna-ball {
+  background: #ffdd00;
+  animation: robot-approval-antenna 0.6s ease-in-out infinite;
+  box-shadow: 0 0 20px #ffdd00, 0 0 40px rgba(255, 221, 0, 0.6);
+}
+
+.css-robot[data-status="approval"] .robot-mouth {
+  width: 22px;
+  height: 10px;
+  border-radius: 10px;
+  background: #ffdd00;
+  opacity: 0.9;
+  animation: robot-approval-mouth 1.5s ease-in-out infinite;
+}
+
+.css-robot[data-status="approval"] .robot-chest-light {
+  background: #ffdd00;
+  animation: robot-approval-chest 0.6s ease-in-out infinite;
+  box-shadow: 0 0 16px #ffdd00, 0 0 32px rgba(255, 221, 0, 0.4);
+}
+
+.css-robot[data-status="approval"] .robot-shadow {
+  background: #ffdd00;
+  opacity: 0.3;
+  filter: blur(10px);
+  animation: robot-approval-shadow 1s ease-in-out infinite;
+}
+
+.css-robot[data-status="approval"] .robot-head,
+.css-robot[data-status="approval"] .robot-torso {
+  box-shadow:
+    0 0 30px rgba(255, 221, 0, 0.35),
+    0 0 60px rgba(255, 221, 0, 0.1),
+    inset 0 1px 0 var(--inset-highlight-faint);
+}
+
+/* ============================================================
+   Robot Status: INPUT — purple glow, ? emote, gentle pulse
+   (Claude is asking user a question / plan review)
+   ============================================================ */
+.css-robot[data-status="input"] {
+  --robot-color: #c77dff;
+}
+
+/* Floating question mark above robot */
+.css-robot[data-status="input"]::after {
+  content: '?';
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 26px;
+  font-weight: 900;
+  color: #c77dff;
+  text-shadow: 0 0 10px #c77dff, 0 0 24px rgba(199, 125, 255, 0.5);
+  animation: robot-input-emote-float 2s ease-in-out infinite;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.css-robot[data-status="input"] .robot-body-wrap {
+  animation: robot-input-sway calc(2s * var(--anim-speed, 1)) ease-in-out infinite;
+}
+
+.css-robot[data-status="input"] .robot-head {
+  animation: robot-input-tilt calc(2.5s * var(--anim-speed, 1)) ease-in-out infinite;
+}
+
+.css-robot[data-status="input"] .robot-eye {
+  width: 18px;
+  height: 18px;
+  background: #c77dff;
+  box-shadow: 0 0 14px #c77dff, 0 0 28px rgba(199, 125, 255, 0.5);
+}
+
+.css-robot[data-status="input"] .robot-antenna-ball {
+  background: #c77dff;
+  box-shadow: 0 0 14px #c77dff, 0 0 28px rgba(199, 125, 255, 0.4);
+  animation: robot-input-antenna 2s ease-in-out infinite;
+}
+
+.css-robot[data-status="input"] .robot-mouth {
+  width: 16px;
+  height: 8px;
+  border-radius: 10px;
+  background: #c77dff;
+  opacity: 0.7;
+}
+
+.css-robot[data-status="input"] .robot-chest-light {
+  background: #c77dff;
+  box-shadow: 0 0 12px #c77dff, 0 0 24px rgba(199, 125, 255, 0.3);
+  animation: robot-input-chest 2s ease-in-out infinite;
+}
+
+.css-robot[data-status="input"] .robot-shadow {
+  background: #c77dff;
+  opacity: 0.2;
+  filter: blur(10px);
+}
+
+.css-robot[data-status="input"] .robot-head,
+.css-robot[data-status="input"] .robot-torso {
+  box-shadow:
+    0 0 20px rgba(199, 125, 255, 0.2),
+    0 0 40px rgba(199, 125, 255, 0.07),
+    inset 0 1px 0 var(--inset-highlight-faint);
+}
+
+@keyframes robot-input-emote-float {
+  0%, 100% { transform: translateX(-50%) translateY(0); opacity: 1; }
+  50% { transform: translateX(-50%) translateY(-6px); opacity: 0.7; }
+}
+
+@keyframes robot-input-sway {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(2px); }
+}
+
+@keyframes robot-input-tilt {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(5deg); }
+  75% { transform: rotate(-5deg); }
+}
+
+@keyframes robot-input-antenna {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+@keyframes robot-input-chest {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* ============================================================
+   Robot Status: ENDED — dashes for eyes, grey, no animation
+   ============================================================ */
+
+.css-robot[data-status="ended"] {
+  opacity: 0.5;
+}
+
+.css-robot[data-status="ended"] .robot-eye {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--text-dim);
+  box-shadow: none;
+}
+
+.css-robot[data-status="ended"] .robot-mouth {
+  background: var(--text-dim);
+  box-shadow: none;
+  opacity: 0.3;
+}
+
+.css-robot[data-status="ended"] .robot-antenna-ball {
+  background: var(--text-dim);
+  box-shadow: none;
+}
+
+.css-robot[data-status="ended"] .robot-chest-light {
+  background: var(--text-dim);
+  box-shadow: none;
+  opacity: 0.3;
+}
+
+.css-robot[data-status="ended"] .robot-shadow {
+  background: var(--text-dim);
+  opacity: 0.06;
+}
+
+.css-robot[data-status="ended"] .robot-head,
+.css-robot[data-status="ended"] .robot-torso {
+  border-color: var(--border-subtle);
+}
+
+/* ============================================================
+   Robot Emote (click acknowledgment)
+   ============================================================ */
+
+.css-robot.robot-emote .robot-body-wrap {
+  animation: robot-emote-bounce 0.6s ease-out !important;
+}
+
+.css-robot.robot-emote .robot-eye {
+  box-shadow: 0 0 14px var(--robot-color), 0 0 28px var(--robot-color) !important;
+}
+
+.css-robot.robot-emote .robot-antenna-ball {
+  box-shadow: 0 0 14px var(--robot-color), 0 0 28px var(--robot-color) !important;
+}
+
+/* ============================================================
+   Robot Keyframe Animations
+   ============================================================ */
+
+@keyframes robot-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(calc(-6px * var(--anim-intensity, 1))); }
+}
+
+@keyframes robot-shadow-float {
+  0%, 100% { transform: translateX(-50%) scale(1); opacity: 0.12; }
+  50% { transform: translateX(-50%) scale(calc(1 - 0.15 * var(--anim-intensity, 1))); opacity: 0.08; }
+}
+
+@keyframes robot-blink {
+  0%, 42%, 46%, 100% { height: 14px; }
+  44% { height: 2px; }
+}
+
+@keyframes robot-chest-pulse-slow {
+  0%, 100% { opacity: 0.5; box-shadow: 0 0 6px var(--robot-color); }
+  50% { opacity: 1; box-shadow: 0 0 12px var(--robot-color); }
+}
+
+@keyframes robot-antenna-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 8px var(--robot-color), 0 0 16px var(--robot-color);
+  }
+  50% {
+    transform: scale(1.4);
+    box-shadow: 0 0 16px var(--robot-color), 0 0 32px var(--robot-color);
+  }
+}
+
+@keyframes robot-tilt {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(calc(3deg * var(--anim-intensity, 1))); }
+  75% { transform: rotate(calc(-3deg * var(--anim-intensity, 1))); }
+}
+
+/* --- Working-state keyframes (energetic, obvious) --- */
+
+@keyframes robot-work-bounce {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25% { transform: translateY(-10px) rotate(-1.5deg); }
+  75% { transform: translateY(-2px) rotate(1.5deg); }
+}
+
+/* --- Multi-phase working animations (varied action types per character) --- */
+
+/* Robot: type-think-stretch-scan cycle (8s) */
+@keyframes robot-work-multi {
+  0%, 5%    { transform: translateY(0) rotate(0deg); }
+  /* Phase 1: rapid typing bounce */
+  8%        { transform: translateY(calc(-8px * var(--anim-intensity, 1))) rotate(calc(-1deg * var(--anim-intensity, 1))); }
+  11%       { transform: translateY(calc(-2px * var(--anim-intensity, 1))) rotate(calc(1deg * var(--anim-intensity, 1))); }
+  14%       { transform: translateY(calc(-10px * var(--anim-intensity, 1))) rotate(calc(-1.5deg * var(--anim-intensity, 1))); }
+  17%       { transform: translateY(calc(-1px * var(--anim-intensity, 1))) rotate(calc(0.5deg * var(--anim-intensity, 1))); }
+  20%       { transform: translateY(calc(-7px * var(--anim-intensity, 1))) rotate(calc(-1deg * var(--anim-intensity, 1))); }
+  25%       { transform: translateY(0) rotate(0deg); }
+  /* Phase 2: lean and think */
+  30%       { transform: translateY(calc(-3px * var(--anim-intensity, 1))) rotate(calc(-4deg * var(--anim-intensity, 1))) translateX(calc(-4px * var(--anim-intensity, 1))); }
+  38%       { transform: translateY(calc(-5px * var(--anim-intensity, 1))) rotate(calc(3deg * var(--anim-intensity, 1))) translateX(calc(3px * var(--anim-intensity, 1))); }
+  45%       { transform: translateY(calc(-2px * var(--anim-intensity, 1))) rotate(calc(-2deg * var(--anim-intensity, 1))) translateX(calc(-2px * var(--anim-intensity, 1))); }
+  50%       { transform: translateY(0) rotate(0deg) translateX(0); }
+  /* Phase 3: big stretch upward */
+  55%       { transform: translateY(calc(-20px * var(--anim-intensity, 1))) rotate(0deg) scaleY(calc(1 + 0.05 * var(--anim-intensity, 1))); }
+  60%       { transform: translateY(calc(-18px * var(--anim-intensity, 1))) rotate(calc(2deg * var(--anim-intensity, 1))) scaleY(calc(1 + 0.02 * var(--anim-intensity, 1))); }
+  65%       { transform: translateY(calc(2px * var(--anim-intensity, 1))) rotate(0deg) scaleY(calc(1 - 0.03 * var(--anim-intensity, 1))); }
+  70%       { transform: translateY(0) rotate(0deg) scaleY(1); }
+  /* Phase 4: quick side-to-side scan */
+  75%       { transform: translateY(calc(-4px * var(--anim-intensity, 1))) translateX(calc(-8px * var(--anim-intensity, 1))) rotate(calc(-3deg * var(--anim-intensity, 1))); }
+  80%       { transform: translateY(calc(-6px * var(--anim-intensity, 1))) translateX(calc(8px * var(--anim-intensity, 1))) rotate(calc(3deg * var(--anim-intensity, 1))); }
+  85%       { transform: translateY(calc(-3px * var(--anim-intensity, 1))) translateX(calc(-4px * var(--anim-intensity, 1))) rotate(calc(-1deg * var(--anim-intensity, 1))); }
+  90%       { transform: translateY(calc(-5px * var(--anim-intensity, 1))) translateX(calc(4px * var(--anim-intensity, 1))) rotate(calc(2deg * var(--anim-intensity, 1))); }
+  95%       { transform: translateY(calc(-2px * var(--anim-intensity, 1))) translateX(0) rotate(0deg); }
+}
+
+@keyframes robot-work-head-multi {
+  0%, 25%   { transform: rotate(0deg) translateX(0); }
+  /* Typing: rapid small nods */
+  5%        { transform: rotate(-2deg) translateX(-1px); }
+  10%       { transform: rotate(2deg) translateX(1px); }
+  15%       { transform: rotate(-1deg); }
+  20%       { transform: rotate(1deg); }
+  /* Thinking: slow tilt */
+  30%       { transform: rotate(-8deg) translateX(-3px); }
+  40%       { transform: rotate(6deg) translateX(2px); }
+  50%       { transform: rotate(0deg) translateX(0); }
+  /* Stretch: look up */
+  55%       { transform: rotate(-12deg); }
+  65%       { transform: rotate(0deg); }
+  /* Scanning: look side to side */
+  75%       { transform: rotate(0deg) translateX(-6px); }
+  80%       { transform: rotate(0deg) translateX(6px); }
+  85%       { transform: rotate(0deg) translateX(-3px); }
+  90%       { transform: rotate(0deg) translateX(3px); }
+  95%, 100% { transform: rotate(0deg) translateX(0); }
+}
+
+/* Cat: pounce-groom-stalk-swat cycle (10s) */
+@keyframes cat-work-multi {
+  0%, 5%    { transform: translateY(0) rotate(0deg); }
+  /* Phase 1: pouncing (bouncy typing) */
+  8%        { transform: translateY(-14px) rotate(-2deg) scaleY(1.05); }
+  11%       { transform: translateY(2px) rotate(1deg) scaleY(0.95); }
+  14%       { transform: translateY(-12px) rotate(-1deg) scaleY(1.03); }
+  17%       { transform: translateY(0) rotate(0deg); }
+  22%       { transform: translateY(-8px) rotate(1deg); }
+  25%       { transform: translateY(0) rotate(0deg); }
+  /* Phase 2: grooming (small rotations, licking paw) */
+  30%       { transform: rotate(-8deg) translateX(-5px); }
+  35%       { transform: rotate(-10deg) translateX(-6px) translateY(-2px); }
+  40%       { transform: rotate(-6deg) translateX(-4px); }
+  45%       { transform: rotate(-9deg) translateX(-5px) translateY(-3px); }
+  50%       { transform: rotate(0deg) translateX(0) translateY(0); }
+  /* Phase 3: stalking (low crouch, slow creep) */
+  55%       { transform: translateY(5px) scaleY(0.9) scaleX(1.05); }
+  60%       { transform: translateY(4px) scaleY(0.9) scaleX(1.05) translateX(6px); }
+  65%       { transform: translateY(5px) scaleY(0.9) scaleX(1.05) translateX(10px); }
+  70%       { transform: translateY(0) scaleY(1) scaleX(1) translateX(0); }
+  /* Phase 4: swatting (quick jabs) */
+  73%       { transform: translateX(5px) rotate(5deg); }
+  76%       { transform: translateX(-5px) rotate(-5deg); }
+  79%       { transform: translateX(8px) rotate(8deg) translateY(-6px); }
+  82%       { transform: translateX(-3px) rotate(-3deg) translateY(-2px); }
+  85%       { transform: translateX(0) rotate(0deg) translateY(0); }
+  90%, 100% { transform: translateY(0) rotate(0deg); }
+}
+
+@keyframes cat-tail-work-multi {
+  0%, 25%   { transform: rotate(0deg); }
+  /* Pouncing: excited fast wag */
+  8%        { transform: rotate(25deg); }
+  12%       { transform: rotate(-20deg); }
+  16%       { transform: rotate(15deg); }
+  20%       { transform: rotate(-10deg); }
+  /* Grooming: gentle sway */
+  30%       { transform: rotate(10deg); }
+  40%       { transform: rotate(-8deg); }
+  50%       { transform: rotate(0deg); }
+  /* Stalking: stiff, low */
+  55%       { transform: rotate(-5deg); }
+  65%       { transform: rotate(-3deg); }
+  70%       { transform: rotate(0deg); }
+  /* Swatting: whip motion */
+  73%       { transform: rotate(-30deg); }
+  76%       { transform: rotate(25deg); }
+  79%       { transform: rotate(-35deg); }
+  82%       { transform: rotate(20deg); }
+  85%, 100% { transform: rotate(0deg); }
+}
+
+/* Ghost: phase-haunt-spin-flicker cycle (9s) */
+@keyframes ghost-work-multi {
+  0%, 5%    { transform: translateY(0) rotate(0deg) scale(1); opacity: 1; }
+  /* Phase 1: rapid float-typing */
+  8%        { transform: translateY(-15px) rotate(-2deg); }
+  12%       { transform: translateY(-5px) rotate(2deg); }
+  16%       { transform: translateY(-12px) rotate(-1deg); }
+  20%       { transform: translateY(-3px) rotate(1deg); }
+  25%       { transform: translateY(0) rotate(0deg); }
+  /* Phase 2: phasing through (flicker transparency) */
+  30%       { opacity: 0.3; transform: scale(1.1); }
+  33%       { opacity: 1; transform: scale(1); }
+  36%       { opacity: 0.2; transform: scale(0.95); }
+  39%       { opacity: 1; transform: scale(1.05); }
+  42%       { opacity: 0.4; }
+  45%       { opacity: 1; transform: scale(1); }
+  50%       { transform: translateY(0) rotate(0deg) scale(1); opacity: 1; }
+  /* Phase 3: slow spooky spin */
+  55%       { transform: rotate(15deg) translateY(-8px); }
+  60%       { transform: rotate(-10deg) translateY(-12px); }
+  65%       { transform: rotate(20deg) translateY(-5px); }
+  70%       { transform: rotate(0deg) translateY(0); }
+  /* Phase 4: haunting sway */
+  75%       { transform: translateX(-12px) translateY(-8px) skewX(-3deg); }
+  80%       { transform: translateX(10px) translateY(-10px) skewX(3deg); }
+  85%       { transform: translateX(-6px) translateY(-5px) skewX(-2deg); }
+  90%       { transform: translateX(4px) translateY(-3px) skewX(1deg); }
+  95%, 100% { transform: translateY(0) rotate(0deg) scale(1); opacity: 1; }
+}
+
+/* Dragon: breathe-fire-fly-roar-stomp cycle (10s) */
+@keyframes dragon-work-multi {
+  0%, 5%    { transform: translateY(0) rotate(0deg); }
+  /* Phase 1: intense coding bounce */
+  8%        { transform: translateY(-12px) rotate(-2deg); }
+  12%       { transform: translateY(-2px) rotate(2deg); }
+  16%       { transform: translateY(-10px) rotate(-1deg); }
+  20%       { transform: translateY(-1px) rotate(1deg); }
+  25%       { transform: translateY(0) rotate(0deg); }
+  /* Phase 2: rearing up (fire breathing stance) */
+  30%       { transform: translateY(-25px) rotate(-5deg) scaleY(1.08); }
+  35%       { transform: translateY(-22px) rotate(-3deg) scaleY(1.05); }
+  40%       { transform: translateY(-20px) rotate(-4deg) scaleY(1.06); }
+  45%       { transform: translateY(3px) rotate(0deg) scaleY(0.95); }
+  50%       { transform: translateY(0) rotate(0deg) scaleY(1); }
+  /* Phase 3: wing-flap fly hover */
+  55%       { transform: translateY(-18px) rotate(2deg); }
+  58%       { transform: translateY(-14px) rotate(-2deg); }
+  61%       { transform: translateY(-20px) rotate(3deg); }
+  64%       { transform: translateY(-12px) rotate(-3deg); }
+  67%       { transform: translateY(-16px) rotate(1deg); }
+  70%       { transform: translateY(0) rotate(0deg); }
+  /* Phase 4: stomp/slam */
+  75%       { transform: translateY(-15px) scaleX(0.95); }
+  78%       { transform: translateY(5px) scaleX(1.1) scaleY(0.92); }
+  81%       { transform: translateY(-3px) scaleX(1.02); }
+  84%       { transform: translateY(2px) scaleX(1.05) scaleY(0.97); }
+  87%       { transform: translateY(0) scaleX(1) scaleY(1); }
+  92%, 100% { transform: translateY(0) rotate(0deg); }
+}
+
+@keyframes dragon-wing-work-multi {
+  0%, 25%   { transform: rotate(0deg) scaleY(1); }
+  /* Coding: small flutters */
+  8%        { transform: rotate(-15deg); }
+  16%       { transform: rotate(10deg); }
+  /* Fire breathing: spread wide */
+  30%       { transform: rotate(-40deg) scaleY(1.1); }
+  40%       { transform: rotate(-35deg) scaleY(1.15); }
+  50%       { transform: rotate(0deg) scaleY(1); }
+  /* Flying: rapid flaps */
+  55%       { transform: rotate(-45deg); }
+  58%       { transform: rotate(10deg); }
+  61%       { transform: rotate(-40deg); }
+  64%       { transform: rotate(5deg); }
+  67%       { transform: rotate(-30deg); }
+  70%       { transform: rotate(0deg); }
+  /* Stomp: fold in */
+  75%       { transform: rotate(-5deg); }
+  85%, 100% { transform: rotate(0deg); }
+}
+
+/* Octopus: type-ink-swim-grab cycle (9s) */
+@keyframes octo-work-multi {
+  0%, 5%    { transform: translateY(0) rotate(0deg); }
+  /* Phase 1: rapid multi-arm typing */
+  8%        { transform: translateY(-8px) rotate(-2deg) scaleX(1.05); }
+  11%       { transform: translateY(-2px) rotate(2deg) scaleX(0.97); }
+  14%       { transform: translateY(-10px) rotate(-1deg) scaleX(1.03); }
+  17%       { transform: translateY(-1px) rotate(1deg); }
+  22%       { transform: translateY(-6px) rotate(-1deg); }
+  25%       { transform: translateY(0) rotate(0deg) scaleX(1); }
+  /* Phase 2: ink squirt (squeeze and expand) */
+  30%       { transform: scaleX(0.85) scaleY(1.15) translateY(-5px); }
+  35%       { transform: scaleX(1.2) scaleY(0.85) translateY(3px); }
+  40%       { transform: scaleX(0.9) scaleY(1.1) translateY(-3px); }
+  45%       { transform: scaleX(1.1) scaleY(0.9); }
+  50%       { transform: scaleX(1) scaleY(1) translateY(0); }
+  /* Phase 3: swimming glide */
+  55%       { transform: translateX(-10px) translateY(-8px) rotate(-5deg); }
+  60%       { transform: translateX(8px) translateY(-12px) rotate(3deg); }
+  65%       { transform: translateX(-5px) translateY(-6px) rotate(-2deg); }
+  70%       { transform: translateX(0) translateY(0) rotate(0deg); }
+  /* Phase 4: grabbing/reaching */
+  75%       { transform: scaleY(1.1) translateY(-10px); }
+  80%       { transform: scaleY(0.95) translateY(2px); }
+  85%       { transform: scaleY(1.08) translateY(-6px); }
+  90%       { transform: scaleY(1) translateY(0); }
+  95%, 100% { transform: translateY(0) rotate(0deg); }
+}
+
+@keyframes octo-tent-work-multi {
+  0%, 25%   { transform: rotate(0deg) scaleY(1); }
+  /* Typing: rapid wiggles */
+  8%        { transform: rotate(20deg); }
+  12%       { transform: rotate(-15deg); }
+  16%       { transform: rotate(12deg); }
+  20%       { transform: rotate(-8deg); }
+  /* Ink: curl inward */
+  30%       { transform: rotate(30deg) scaleY(0.8); }
+  40%       { transform: rotate(-25deg) scaleY(0.7); }
+  50%       { transform: rotate(0deg) scaleY(1); }
+  /* Swimming: flowing wave */
+  55%       { transform: rotate(35deg); }
+  60%       { transform: rotate(-30deg); }
+  65%       { transform: rotate(20deg); }
+  70%       { transform: rotate(0deg); }
+  /* Grabbing: reach out */
+  75%       { transform: rotate(-40deg) scaleY(1.15); }
+  80%       { transform: rotate(35deg) scaleY(1.1); }
+  85%       { transform: rotate(-20deg); }
+  90%, 100% { transform: rotate(0deg) scaleY(1); }
+}
+
+/* Penguin: waddle-slide-flap-fish cycle (9s) */
+@keyframes penguin-work-multi {
+  0%, 5%    { transform: translateY(0) rotate(0deg); }
+  /* Phase 1: waddle-typing */
+  8%        { transform: translateY(-6px) rotate(-4deg) translateX(-3px); }
+  11%       { transform: translateY(-2px) rotate(4deg) translateX(3px); }
+  14%       { transform: translateY(-8px) rotate(-3deg) translateX(-2px); }
+  17%       { transform: translateY(-1px) rotate(3deg) translateX(2px); }
+  20%       { transform: translateY(-5px) rotate(-2deg) translateX(-1px); }
+  25%       { transform: translateY(0) rotate(0deg) translateX(0); }
+  /* Phase 2: belly slide */
+  30%       { transform: rotate(15deg) translateY(5px) scaleY(0.85) scaleX(1.1); }
+  35%       { transform: rotate(12deg) translateY(4px) scaleY(0.85) scaleX(1.1) translateX(8px); }
+  40%       { transform: rotate(10deg) translateY(3px) scaleY(0.87) scaleX(1.08) translateX(14px); }
+  45%       { transform: rotate(0deg) translateY(0) scaleY(1) scaleX(1) translateX(0); }
+  50%       { transform: translateY(0) rotate(0deg); }
+  /* Phase 3: excited flapping */
+  53%       { transform: translateY(-12px); }
+  56%       { transform: translateY(-8px); }
+  59%       { transform: translateY(-14px); }
+  62%       { transform: translateY(-6px); }
+  65%       { transform: translateY(-10px); }
+  68%       { transform: translateY(-4px); }
+  70%       { transform: translateY(0); }
+  /* Phase 4: happy hop */
+  75%       { transform: translateY(-20px) rotate(5deg); }
+  78%       { transform: translateY(3px) rotate(0deg) scaleY(0.92); }
+  81%       { transform: translateY(-15px) rotate(-3deg); }
+  84%       { transform: translateY(2px) scaleY(0.95); }
+  87%       { transform: translateY(0) rotate(0deg) scaleY(1); }
+  92%, 100% { transform: translateY(0) rotate(0deg); }
+}
+
+@keyframes penguin-flipper-work-multi {
+  0%, 25%   { transform: rotate(0deg); }
+  /* Waddle typing */
+  8%        { transform: rotate(-20deg); }
+  14%       { transform: rotate(15deg); }
+  20%       { transform: rotate(-10deg); }
+  /* Belly slide: tucked */
+  30%       { transform: rotate(30deg); }
+  45%       { transform: rotate(0deg); }
+  /* Excited flapping */
+  53%       { transform: rotate(-45deg); }
+  56%       { transform: rotate(20deg); }
+  59%       { transform: rotate(-40deg); }
+  62%       { transform: rotate(15deg); }
+  65%       { transform: rotate(-35deg); }
+  70%       { transform: rotate(0deg); }
+  /* Happy hop */
+  75%       { transform: rotate(-30deg); }
+  81%       { transform: rotate(25deg); }
+  87%, 100% { transform: rotate(0deg); }
+}
+
+/* Alien: scan-transmit-levitate-probe cycle (9s) */
+@keyframes alien-work-multi {
+  0%, 5%    { transform: translateY(0) rotate(0deg) scale(1); }
+  /* Phase 1: rapid data processing */
+  8%        { transform: translateY(-8px) rotate(-2deg); }
+  12%       { transform: translateY(-2px) rotate(2deg); }
+  16%       { transform: translateY(-10px) rotate(-1deg); }
+  20%       { transform: translateY(-1px) rotate(1deg); }
+  25%       { transform: translateY(0) rotate(0deg); }
+  /* Phase 2: transmitting (pulse/vibrate) */
+  30%       { transform: translateX(-2px) scale(1.03); }
+  32%       { transform: translateX(2px) scale(0.98); }
+  34%       { transform: translateX(-3px) scale(1.04); }
+  36%       { transform: translateX(3px) scale(0.97); }
+  38%       { transform: translateX(-1px) scale(1.02); }
+  40%       { transform: translateX(1px) scale(0.99); }
+  45%       { transform: translateX(0) scale(1); }
+  /* Phase 3: levitation (slow high float) */
+  50%       { transform: translateY(-25px) rotate(3deg); }
+  55%       { transform: translateY(-22px) rotate(-2deg); }
+  60%       { transform: translateY(-28px) rotate(2deg); }
+  65%       { transform: translateY(-20px) rotate(-1deg); }
+  70%       { transform: translateY(0) rotate(0deg); }
+  /* Phase 4: probing (lean and reach) */
+  75%       { transform: rotate(-6deg) translateX(-8px) translateY(-5px); }
+  80%       { transform: rotate(5deg) translateX(6px) translateY(-3px); }
+  85%       { transform: rotate(-3deg) translateX(-4px) translateY(-6px); }
+  90%       { transform: rotate(0deg) translateX(0) translateY(0); }
+  95%, 100% { transform: translateY(0) rotate(0deg) scale(1); }
+}
+
+/* Orb: pulse-orbit-shatter-reform cycle (8s) */
+@keyframes orb-work-multi {
+  0%, 5%    { transform: translateY(0) scale(1); }
+  /* Phase 1: intense pulsing */
+  8%        { transform: scale(1.15); }
+  11%       { transform: scale(0.9); }
+  14%       { transform: scale(1.2); }
+  17%       { transform: scale(0.88); }
+  20%       { transform: scale(1.1); }
+  25%       { transform: scale(1); }
+  /* Phase 2: orbital drift */
+  30%       { transform: translateX(-10px) translateY(-8px) rotate(15deg); }
+  37%       { transform: translateX(8px) translateY(-12px) rotate(-10deg); }
+  44%       { transform: translateX(-6px) translateY(-5px) rotate(8deg); }
+  50%       { transform: translateX(0) translateY(0) rotate(0deg) scale(1); }
+  /* Phase 3: shatter-vibrate */
+  53%       { transform: scale(1.3) rotate(5deg); }
+  55%       { transform: translateX(-4px) scale(0.85); }
+  57%       { transform: translateX(5px) scale(1.1) rotate(-3deg); }
+  59%       { transform: translateX(-3px) scale(0.9) rotate(2deg); }
+  61%       { transform: translateX(2px) scale(1.05); }
+  65%       { transform: scale(1) rotate(0deg) translateX(0); }
+  /* Phase 4: gentle float */
+  70%       { transform: translateY(-15px) scale(1.05); }
+  80%       { transform: translateY(-10px) scale(1.02); }
+  90%       { transform: translateY(-5px) scale(1.01); }
+  95%, 100% { transform: translateY(0) scale(1); }
+}
+
+/* Bee: buzz-pollinate-dance-zoom cycle (8s) */
+@keyframes bee-work-multi {
+  0%, 5%    { transform: translateY(0) rotate(0deg); }
+  /* Phase 1: busy buzzing work */
+  7%        { transform: translateY(-6px) translateX(-3px) rotate(-2deg); }
+  9%        { transform: translateY(-10px) translateX(2px) rotate(2deg); }
+  11%       { transform: translateY(-4px) translateX(-4px) rotate(-3deg); }
+  13%       { transform: translateY(-8px) translateX(3px) rotate(1deg); }
+  15%       { transform: translateY(-5px) translateX(-2px) rotate(-1deg); }
+  17%       { transform: translateY(-9px) translateX(4px) rotate(2deg); }
+  20%       { transform: translateY(-3px) translateX(-1px); }
+  25%       { transform: translateY(0) rotate(0deg) translateX(0); }
+  /* Phase 2: waggle dance (figure 8 communication) */
+  30%       { transform: translateX(-8px) translateY(-5px) rotate(-10deg); }
+  33%       { transform: translateX(0px) translateY(-10px) rotate(0deg); }
+  36%       { transform: translateX(8px) translateY(-5px) rotate(10deg); }
+  39%       { transform: translateX(0px) translateY(0px) rotate(0deg); }
+  42%       { transform: translateX(-6px) translateY(-4px) rotate(-8deg); }
+  45%       { transform: translateX(0px) translateY(-8px) rotate(0deg); }
+  48%       { transform: translateX(6px) translateY(-4px) rotate(8deg); }
+  50%       { transform: translateX(0) translateY(0) rotate(0deg); }
+  /* Phase 3: zoom dash */
+  55%       { transform: translateX(-20px) translateY(-10px) rotate(-5deg) scaleX(1.1); }
+  58%       { transform: translateX(15px) translateY(-5px) rotate(3deg); }
+  61%       { transform: translateX(-10px) translateY(-12px) rotate(-3deg); }
+  65%       { transform: translateX(0) translateY(0) rotate(0deg) scaleX(1); }
+  /* Phase 4: hovering inspection */
+  70%       { transform: translateY(-14px); }
+  73%       { transform: translateY(-12px) rotate(5deg); }
+  76%       { transform: translateY(-16px) rotate(-3deg); }
+  79%       { transform: translateY(-11px) rotate(4deg); }
+  82%       { transform: translateY(-13px) rotate(-2deg); }
+  85%       { transform: translateY(-8px) rotate(0deg); }
+  90%       { transform: translateY(-3px); }
+  95%, 100% { transform: translateY(0) rotate(0deg); }
+}
+
+/* Slime: bounce-split-squish-roll cycle (8s) */
+@keyframes slime-work-multi {
+  0%, 5%    { transform: translateY(0) scaleX(1) scaleY(1); }
+  /* Phase 1: jelly typing bounce */
+  8%        { transform: translateY(-10px) scaleX(0.9) scaleY(1.15); }
+  11%       { transform: translateY(3px) scaleX(1.15) scaleY(0.85); }
+  14%       { transform: translateY(-8px) scaleX(0.92) scaleY(1.1); }
+  17%       { transform: translateY(2px) scaleX(1.12) scaleY(0.88); }
+  20%       { transform: translateY(-5px) scaleX(0.95) scaleY(1.05); }
+  25%       { transform: translateY(0) scaleX(1) scaleY(1); }
+  /* Phase 2: expanding blob */
+  30%       { transform: scaleX(1.3) scaleY(0.75); }
+  35%       { transform: scaleX(0.8) scaleY(1.25); }
+  40%       { transform: scaleX(1.25) scaleY(0.8); }
+  45%       { transform: scaleX(0.85) scaleY(1.2); }
+  50%       { transform: scaleX(1) scaleY(1); }
+  /* Phase 3: rolling */
+  55%       { transform: translateX(-8px) rotate(-20deg); }
+  60%       { transform: translateX(6px) rotate(15deg); }
+  65%       { transform: translateX(-4px) rotate(-10deg); }
+  70%       { transform: translateX(0) rotate(0deg); }
+  /* Phase 4: vibrating excited */
+  73%       { transform: translateX(-2px) scaleX(1.05); }
+  75%       { transform: translateX(2px) scaleX(0.96); }
+  77%       { transform: translateX(-3px) scaleX(1.06); }
+  79%       { transform: translateX(3px) scaleX(0.95); }
+  81%       { transform: translateX(-1px) scaleX(1.03); }
+  83%       { transform: translateX(1px) scaleX(0.98); }
+  85%       { transform: translateX(0) scaleX(1); }
+  90%, 100% { transform: translateY(0) scaleX(1) scaleY(1); }
+}
+
+/* Mushroom: bounce-spore-wiggle-grow cycle (8s) */
+@keyframes mush-work-multi {
+  0%, 5%    { transform: translateY(0) rotate(0deg); }
+  /* Phase 1: bouncy work */
+  8%        { transform: translateY(-10px) rotate(-2deg); }
+  12%       { transform: translateY(-2px) rotate(2deg); }
+  16%       { transform: translateY(-8px) rotate(-1deg); }
+  20%       { transform: translateY(-1px) rotate(1deg); }
+  25%       { transform: translateY(0) rotate(0deg); }
+  /* Phase 2: spore release (shake and puff up) */
+  30%       { transform: scaleY(1.1) scaleX(0.93) translateY(-5px); }
+  33%       { transform: translateX(-3px) scaleY(1.05); }
+  36%       { transform: translateX(3px) scaleY(1.08) scaleX(0.95); }
+  39%       { transform: translateX(-2px) scaleY(1.12) scaleX(0.9); }
+  42%       { transform: translateX(2px) scaleY(1.06); }
+  45%       { transform: scaleY(1) scaleX(1) translateX(0) translateY(0); }
+  50%       { transform: translateY(0) rotate(0deg); }
+  /* Phase 3: happy wiggle dance */
+  55%       { transform: rotate(-8deg) translateX(-4px); }
+  58%       { transform: rotate(8deg) translateX(4px); }
+  61%       { transform: rotate(-10deg) translateX(-5px); }
+  64%       { transform: rotate(10deg) translateX(5px); }
+  67%       { transform: rotate(-6deg) translateX(-3px); }
+  70%       { transform: rotate(0deg) translateX(0); }
+  /* Phase 4: growing taller */
+  75%       { transform: scaleY(1.15) scaleX(0.92) translateY(-8px); }
+  80%       { transform: scaleY(1.2) scaleX(0.9) translateY(-12px); }
+  85%       { transform: scaleY(0.95) scaleX(1.05) translateY(3px); }
+  90%       { transform: scaleY(1) scaleX(1) translateY(0); }
+  95%, 100% { transform: translateY(0) rotate(0deg); }
+}
+
+/* Fox: type-sniff-pounce-trot cycle (9s) */
+@keyframes fox-work-multi {
+  0%, 5%    { transform: translateY(0) rotate(0deg); }
+  /* Phase 1: typing */
+  8%        { transform: translateY(-8px) rotate(-2deg); }
+  12%       { transform: translateY(-2px) rotate(2deg); }
+  16%       { transform: translateY(-10px) rotate(-1deg); }
+  20%       { transform: translateY(-1px) rotate(1deg); }
+  25%       { transform: translateY(0) rotate(0deg); }
+  /* Phase 2: sniffing (quick head bobs forward) */
+  30%       { transform: translateY(-3px) rotate(-5deg) translateX(-3px); }
+  33%       { transform: translateY(-1px) rotate(-2deg) translateX(-2px); }
+  36%       { transform: translateY(-4px) rotate(-6deg) translateX(-4px); }
+  39%       { transform: translateY(-1px) rotate(-3deg) translateX(-2px); }
+  42%       { transform: translateY(-5px) rotate(-7deg) translateX(-5px); }
+  45%       { transform: translateY(0) rotate(0deg) translateX(0); }
+  50%       { transform: translateY(0) rotate(0deg); }
+  /* Phase 3: pounce */
+  53%       { transform: translateY(3px) scaleY(0.9); }
+  56%       { transform: translateY(-22px) scaleY(1.05) rotate(-3deg); }
+  59%       { transform: translateY(4px) scaleY(0.88) scaleX(1.1); }
+  62%       { transform: translateY(-5px) scaleY(1.02); }
+  65%       { transform: translateY(0) scaleY(1) scaleX(1) rotate(0deg); }
+  /* Phase 4: trotting */
+  70%       { transform: translateX(-6px) translateY(-4px) rotate(-3deg); }
+  73%       { transform: translateX(-2px) translateY(-1px) rotate(2deg); }
+  76%       { transform: translateX(4px) translateY(-5px) rotate(-2deg); }
+  79%       { transform: translateX(8px) translateY(-2px) rotate(3deg); }
+  82%       { transform: translateX(4px) translateY(-4px) rotate(-1deg); }
+  85%       { transform: translateX(0) translateY(0) rotate(0deg); }
+  90%, 100% { transform: translateY(0) rotate(0deg); }
+}
+
+@keyframes fox-tail-work-multi {
+  0%, 25%   { transform: rotate(0deg); }
+  /* Typing */
+  8%        { transform: rotate(15deg); }
+  16%       { transform: rotate(-10deg); }
+  /* Sniffing: low steady */
+  30%       { transform: rotate(5deg); }
+  42%       { transform: rotate(-3deg); }
+  50%       { transform: rotate(0deg); }
+  /* Pounce: whip */
+  53%       { transform: rotate(-25deg); }
+  56%       { transform: rotate(35deg); }
+  59%       { transform: rotate(-20deg); }
+  65%       { transform: rotate(0deg); }
+  /* Trotting: rhythmic sway */
+  70%       { transform: rotate(20deg); }
+  73%       { transform: rotate(-15deg); }
+  76%       { transform: rotate(18deg); }
+  79%       { transform: rotate(-12deg); }
+  82%       { transform: rotate(10deg); }
+  85%, 100% { transform: rotate(0deg); }
+}
+
+@keyframes robot-work-headbob {
+  0%, 100% { transform: rotate(0deg) translateX(0); }
+  20% { transform: rotate(-4deg) translateX(-2px); }
+  40% { transform: rotate(3deg) translateX(2px); }
+  60% { transform: rotate(-2deg) translateX(-1px); }
+  80% { transform: rotate(4deg) translateX(1px); }
+}
+
+@keyframes robot-work-eye-scan {
+  0%, 100% { transform: translateX(0) scaleX(1); }
+  15% { transform: translateX(-5px) scaleX(1.2); }
+  50% { transform: translateX(5px) scaleX(0.9); }
+  85% { transform: translateX(-2px) scaleX(1.1); }
+}
+
+@keyframes robot-work-antenna {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 8px var(--robot-color), 0 0 16px var(--robot-color);
+  }
+  50% {
+    transform: scale(1.6);
+    box-shadow: 0 0 20px var(--robot-color), 0 0 40px var(--robot-color);
+  }
+}
+
+@keyframes robot-work-chest-pulse {
+  0%, 100% { opacity: 0.5; box-shadow: 0 0 4px var(--robot-color); transform: scale(1); }
+  50% { opacity: 1; box-shadow: 0 0 20px var(--robot-color), 0 0 30px var(--robot-color); transform: scale(1.2); }
+}
+
+@keyframes robot-work-shadow {
+  0%, 100% { transform: translateX(-50%) scale(1); opacity: 0.2; }
+  25% { transform: translateX(-50%) scale(0.7); opacity: 0.1; }
+  75% { transform: translateX(-50%) scale(1.1); opacity: 0.25; }
+}
+
+@keyframes robot-work-mouth {
+  0%, 100% { width: 24px; height: 3px; border-radius: 2px; }
+  30% { width: 14px; height: 6px; border-radius: 3px; }
+  70% { width: 20px; height: 4px; border-radius: 2px; }
+}
+
+@keyframes robot-typing-dot {
+  0%, 100% { opacity: 0.3; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-5px); }
+}
+
+/* --- Idle-state bounce (kept gentle for contrast) --- */
+
+@keyframes robot-shadow-bounce {
+  0%, 100% { transform: translateX(-50%) scale(1); opacity: 0.12; }
+  50% { transform: translateX(-50%) scale(0.92); opacity: 0.09; }
+}
+
+@keyframes robot-emote-bounce {
+  0% { transform: scale(1) translateY(0); }
+  30% { transform: scale(1.08) translateY(-8px); }
+  60% { transform: scale(0.98) translateY(0); }
+  100% { transform: scale(1) translateY(0); }
+}
+
+/* --- Waiting-state keyframe (calm blue pulse) --- */
+
+@keyframes robot-waiting-chest {
+  0%, 100% { opacity: 0.5; box-shadow: 0 0 6px #a0c4ff; }
+  50% { opacity: 1; box-shadow: 0 0 14px #a0c4ff; }
+}
+
+/* --- Approval-state keyframes (attention-seeking, obvious) --- */
+
+/* Whole body bouncing up/down — "hey look at me!" */
+@keyframes robot-approval-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(calc(-10px * var(--anim-intensity, 1))); }
+}
+
+/* Head tilting side to side — curious / questioning */
+@keyframes robot-approval-tilt {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(calc(10deg * var(--anim-intensity, 1))); }
+  75% { transform: rotate(calc(-10deg * var(--anim-intensity, 1))); }
+}
+
+/* Big expressive blink */
+@keyframes robot-approval-blink {
+  0%, 30%, 50%, 100% { height: 20px; opacity: 1; transform: scale(1); }
+  40% { height: 3px; opacity: 0.7; transform: scale(1, 0.1); }
+  55% { transform: scale(1.3); }
+  65% { transform: scale(1); }
+}
+
+/* Antenna pulsing urgently */
+@keyframes robot-approval-antenna {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 16px #ffdd00, 0 0 32px #ffdd00;
+  }
+  50% {
+    transform: scale(2);
+    box-shadow: 0 0 30px #ffdd00, 0 0 60px rgba(255, 221, 0, 0.6);
+  }
+}
+
+/* Mouth opening and closing like talking */
+@keyframes robot-approval-mouth {
+  0%, 100% { width: 22px; height: 6px; border-radius: 0 0 10px 10px; }
+  25% { width: 18px; height: 14px; border-radius: 50%; }
+  75% { width: 14px; height: 10px; border-radius: 50%; }
+}
+
+/* Chest light rapid pulsing */
+@keyframes robot-approval-chest {
+  0%, 100% { opacity: 0.5; transform: scale(1); box-shadow: 0 0 8px #ffdd00; }
+  50% { opacity: 1; transform: scale(1.5); box-shadow: 0 0 28px #ffdd00, 0 0 50px rgba(255, 221, 0, 0.5); }
+}
+
+/* Shadow bobbing with body */
+@keyframes robot-approval-shadow {
+  0%, 100% { transform: translateX(-50%) scale(1); opacity: 0.2; }
+  50% { transform: translateX(-50%) scale(0.8); opacity: 0.35; }
+}
+
+/* "!" emote bouncing above head */
+@keyframes robot-approval-emote-bounce {
+  0%, 100% { transform: translateX(-50%) translateY(0) scale(1); opacity: 1; }
+  50% { transform: translateX(-50%) translateY(calc(-8px * var(--anim-intensity, 1))) scale(calc(1 + 0.2 * var(--anim-intensity, 1))); opacity: 0.8; }
+}
+
+

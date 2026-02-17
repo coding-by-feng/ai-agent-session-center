@@ -1,8 +1,7 @@
 // test/mqReader.test.js — Tests for JSONL parsing logic
 // Since mqReader.js has heavy side effects (fs.watch, file I/O, process-level state),
 // we test the JSONL parsing and line-splitting logic in isolation.
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, expect } from 'vitest';
 
 // Simulate the core JSONL line-splitting logic from mqReader.readNewLines
 function parseJsonlChunk(partialLine, chunk) {
@@ -29,30 +28,30 @@ describe('mqReader - JSONL parsing', () => {
   describe('parseJsonlChunk', () => {
     it('parses a single complete JSONL line', () => {
       const { parsed, errors, partial } = parseJsonlChunk('', '{"session_id":"abc","hook_event_name":"SessionStart"}\n');
-      assert.equal(parsed.length, 1);
-      assert.equal(parsed[0].session_id, 'abc');
-      assert.equal(errors.length, 0);
-      assert.equal(partial, '');
+      expect(parsed.length).toBe(1);
+      expect(parsed[0].session_id).toBe('abc');
+      expect(errors.length).toBe(0);
+      expect(partial).toBe('');
     });
 
     it('parses multiple JSONL lines', () => {
       const chunk = '{"a":1}\n{"b":2}\n{"c":3}\n';
       const { parsed, errors, partial } = parseJsonlChunk('', chunk);
-      assert.equal(parsed.length, 3);
-      assert.equal(parsed[0].a, 1);
-      assert.equal(parsed[1].b, 2);
-      assert.equal(parsed[2].c, 3);
-      assert.equal(errors.length, 0);
-      assert.equal(partial, '');
+      expect(parsed.length).toBe(3);
+      expect(parsed[0].a).toBe(1);
+      expect(parsed[1].b).toBe(2);
+      expect(parsed[2].c).toBe(3);
+      expect(errors.length).toBe(0);
+      expect(partial).toBe('');
     });
 
     it('handles partial line at end of buffer', () => {
       const chunk = '{"a":1}\n{"b":2}\n{"c":';
       const { parsed, errors, partial } = parseJsonlChunk('', chunk);
-      assert.equal(parsed.length, 2);
-      assert.equal(parsed[0].a, 1);
-      assert.equal(parsed[1].b, 2);
-      assert.equal(partial, '{"c":');
+      expect(parsed.length).toBe(2);
+      expect(parsed[0].a).toBe(1);
+      expect(parsed[1].b).toBe(2);
+      expect(partial).toBe('{"c":');
     });
 
     it('completes a partial line from previous read', () => {
@@ -61,39 +60,39 @@ describe('mqReader - JSONL parsing', () => {
       // Second read completes it
       const chunk = '"hook_event_name":"Stop"}\n';
       const { parsed, errors, partial } = parseJsonlChunk(partial1, chunk);
-      assert.equal(parsed.length, 1);
-      assert.equal(parsed[0].session_id, 'x');
-      assert.equal(parsed[0].hook_event_name, 'Stop');
-      assert.equal(partial, '');
+      expect(parsed.length).toBe(1);
+      expect(parsed[0].session_id).toBe('x');
+      expect(parsed[0].hook_event_name).toBe('Stop');
+      expect(partial).toBe('');
     });
 
     it('handles empty chunk', () => {
       const { parsed, errors, partial } = parseJsonlChunk('', '');
-      assert.equal(parsed.length, 0);
-      assert.equal(errors.length, 0);
-      assert.equal(partial, '');
+      expect(parsed.length).toBe(0);
+      expect(errors.length).toBe(0);
+      expect(partial).toBe('');
     });
 
     it('handles chunk with only newlines', () => {
       const { parsed, errors, partial } = parseJsonlChunk('', '\n\n\n');
-      assert.equal(parsed.length, 0);
-      assert.equal(errors.length, 0);
-      assert.equal(partial, '');
+      expect(parsed.length).toBe(0);
+      expect(errors.length).toBe(0);
+      expect(partial).toBe('');
     });
 
     it('records errors for invalid JSON lines', () => {
       const chunk = '{"a":1}\nnot-json\n{"b":2}\n';
       const { parsed, errors, partial } = parseJsonlChunk('', chunk);
-      assert.equal(parsed.length, 2);
-      assert.equal(errors.length, 1);
-      assert.ok(errors[0].line.includes('not-json'));
+      expect(parsed.length).toBe(2);
+      expect(errors.length).toBe(1);
+      expect(errors[0].line).toContain('not-json');
     });
 
     it('handles lines with extra whitespace', () => {
       const chunk = '  {"a":1}  \n  {"b":2}  \n';
       const { parsed, errors, partial } = parseJsonlChunk('', chunk);
-      assert.equal(parsed.length, 2);
-      assert.equal(errors.length, 0);
+      expect(parsed.length).toBe(2);
+      expect(errors.length).toBe(0);
     });
   });
 });
@@ -101,19 +100,19 @@ describe('mqReader - JSONL parsing', () => {
 describe('mqReader - module exports', () => {
   it('exports getMqStats', async () => {
     const { getMqStats } = await import('../server/mqReader.js');
-    assert.equal(typeof getMqStats, 'function');
+    expect(typeof getMqStats).toBe('function');
     const stats = getMqStats();
-    assert.equal(typeof stats.linesProcessed, 'number');
-    assert.equal(typeof stats.linesErrored, 'number');
-    assert.equal(typeof stats.truncations, 'number');
-    assert.equal(typeof stats.running, 'boolean');
-    assert.equal(typeof stats.queueFile, 'string');
+    expect(typeof stats.linesProcessed).toBe('number');
+    expect(typeof stats.linesErrored).toBe('number');
+    expect(typeof stats.truncations).toBe('number');
+    expect(typeof stats.running).toBe('boolean');
+    expect(typeof stats.queueFile).toBe('string');
   });
 
   it('exports getQueueFilePath', async () => {
     const { getQueueFilePath } = await import('../server/mqReader.js');
-    assert.equal(typeof getQueueFilePath, 'function');
+    expect(typeof getQueueFilePath).toBe('function');
     const path = getQueueFilePath();
-    assert.ok(path.includes('queue.jsonl'));
+    expect(path).toContain('queue.jsonl');
   });
 });

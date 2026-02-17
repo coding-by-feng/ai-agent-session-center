@@ -1,0 +1,153 @@
+/* ============================================================
+   Modal CSS Module
+   Modal overlays, panels, new session modal, quick session modal,
+   SSH fields, tmux session list, keyboard shortcuts modal,
+   toast notifications, oneoff review toast, summarize prompt modal
+   ============================================================ */
+
+/* ---- Base Modal ---- */
+
+.overlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: var(--overlay-bg); z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  animation: fade-in 0.2s ease;
+}
+
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+.panel {
+  background: var(--bg-panel); border: 2px solid var(--border-accent);
+  border-radius: 12px; padding: 24px; max-width: 400px; width: 90%;
+  box-shadow: 0 0 60px rgba(0, 0, 0, 0.5);
+}
+.panel h3 { font-size: 14px; color: var(--text-primary); margin-bottom: 12px; }
+.panel p { font-size: 12px; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.6; }
+
+.actions { display: flex; gap: 12px; justify-content: flex-end; }
+
+.closeBtn { background: none; border: none; color: var(--text-secondary); font-size: 22px; cursor: pointer; padding: 4px 8px; border-radius: 4px; }
+.closeBtn:hover { color: var(--text-primary); background: var(--bg-subtle); }
+
+/* Alert input */
+.alertInputRow { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+.alertInput { background: var(--bg-card); border: 1px solid var(--border-accent); color: var(--text-primary); font-family: var(--font-mono); font-size: 14px; padding: 8px 12px; border-radius: 4px; width: 80px; outline: none; }
+.alertInput:focus { border-color: var(--accent-orange); }
+.alertInputRow span { color: var(--text-secondary); font-size: 12px; }
+
+/* ---- New Session Modal ---- */
+
+.newSessionPanel { width: 420px; max-height: 85vh; overflow-y: auto; }
+.newSessionHeader { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.newSessionHeader h3 { margin: 0; font-size: 14px; }
+.newSessionBody { display: flex; flex-direction: column; gap: 10px; }
+.newSessionFooter { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; }
+
+/* SSH fields */
+.sshField { display: flex; flex-direction: column; gap: 3px; }
+.sshField label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); }
+.sshField input, .sshField select { background: var(--card-bg, rgba(255,255,255,0.04)); border: 2px solid var(--border-accent, rgba(255,255,255,0.15)); color: var(--text-primary); padding: 6px 8px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.sshField input:focus, .sshField select:focus { outline: none; border-color: var(--accent-cyan, #00e5ff); box-shadow: 0 0 6px var(--glow-accent, rgba(0, 229, 255, 0.3)); }
+.sshFieldRow { display: flex; gap: 8px; }
+.sshFieldGrow { flex: 1; }
+.sshFieldSmall { width: 80px; }
+.sshFieldHint { font-size: 10px; color: var(--text-secondary, #888); font-weight: 400; }
+
+/* Session mode toggle */
+.sshModeToggle { display: flex; gap: 0; border: 1px solid var(--border-accent, #1a1a3a); border-radius: 4px; overflow: hidden; }
+.sshModeBtn { flex: 1; padding: 6px 10px; font-family: var(--font-mono, monospace); font-size: 11px; letter-spacing: 0.5px; background: transparent; color: var(--text-secondary, #888); border: none; border-right: 1px solid var(--border-accent, #1a1a3a); cursor: pointer; transition: background 0.15s, color 0.15s; }
+.sshModeBtn:last-child { border-right: none; }
+.sshModeBtn:hover { background: rgba(255,255,255,0.04); color: var(--text-primary, #e0e0e0); }
+.sshModeBtn.active { background: rgba(0,229,255,0.12); color: var(--accent-cyan, #00e5ff); }
+
+/* Tmux session list */
+.sshTmuxRefresh { display: inline-block; margin-left: 6px; padding: 1px 6px; font-size: 14px; background: transparent; color: var(--accent-cyan, #00e5ff); border: 1px solid var(--border-accent, #1a1a3a); border-radius: 3px; cursor: pointer; vertical-align: middle; line-height: 1; }
+.sshTmuxRefresh:hover { background: rgba(0,229,255,0.1); border-color: var(--accent-cyan, #00e5ff); }
+.sshTmuxList { max-height: 160px; overflow-y: auto; border: 1px solid var(--border-accent, #1a1a3a); border-radius: 4px; background: rgba(0,0,0,0.2); }
+.sshTmuxItem { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.12s; }
+.sshTmuxItem:last-child { border-bottom: none; }
+.sshTmuxItem:hover { background: rgba(255,255,255,0.04); }
+.sshTmuxItem.selected { background: rgba(0,229,255,0.12); border-color: rgba(0,229,255,0.2); }
+.sshTmuxName { font-family: var(--font-mono, monospace); font-size: 12px; color: var(--text-primary, #e0e0e0); font-weight: 500; }
+.sshTmuxMeta { font-family: var(--font-mono, monospace); font-size: 10px; color: var(--text-secondary, #888); letter-spacing: 0.3px; }
+.sshTmuxEmpty, .sshTmuxLoading { padding: 12px; text-align: center; font-size: 11px; color: var(--text-secondary, #888); font-family: var(--font-mono, monospace); }
+.sshTmuxError { color: #ff5555; }
+
+/* ---- Quick Session Modal ---- */
+
+.quickSessionPanel { max-width: 400px; width: 100%; }
+.quickSessionHeader { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border-subtle); }
+.quickSessionHeader h3 { font-size: 13px; font-weight: 700; letter-spacing: 1.5px; color: var(--accent-cyan); }
+.quickSessionBody { padding: 16px 20px; }
+.quickSessionHint { font-size: 11px; color: var(--text-dim); margin: 0 0 12px; }
+.quickSessionFooter { display: flex; gap: 8px; padding: 12px 20px; justify-content: flex-end; border-top: 1px solid var(--border-subtle); }
+
+/* Quick label chips */
+.quickLabelChips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.quickLabelChip { display: flex; align-items: center; gap: 6px; background: var(--bg-subtle); border: 1px solid var(--border-subtle); color: var(--text-secondary); font-family: var(--font-mono); font-size: 11px; padding: 4px 10px; border-radius: 12px; cursor: pointer; transition: all 0.2s; position: relative; }
+.quickLabelChip:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
+.quickLabelChip.active { background: rgba(0, 229, 255, 0.15); border-color: var(--accent-cyan); color: var(--accent-cyan); }
+.labelText { flex: 1; }
+.labelDelete { display: none; font-size: 14px; font-weight: bold; color: var(--accent-red); cursor: pointer; line-height: 1; opacity: 0.7; transition: opacity 0.2s; }
+.quickLabelChip:hover .labelDelete { display: block; }
+.labelDelete:hover { opacity: 1; }
+.quickLabelEmpty { font-size: 11px; color: var(--text-dim); font-style: italic; }
+
+.quickLabelInputRow { margin-bottom: 4px; }
+.quickLabelInputRow input { width: 100%; background: var(--bg-secondary); border: 2px solid var(--border-accent); color: var(--text-primary); font-family: var(--font-mono); font-size: 12px; padding: 8px 10px; border-radius: 4px; outline: none; }
+.quickLabelInputRow input:focus { border-color: var(--accent-cyan); box-shadow: 0 0 6px var(--glow-accent); }
+
+.quickWorkdirRow { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.quickWorkdirRow label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.quickWorkdirRow input { width: 100%; background: var(--bg-secondary); border: 2px solid var(--border-accent); color: var(--text-primary); font-family: var(--font-mono); font-size: 12px; padding: 8px 10px; border-radius: 4px; outline: none; }
+.quickWorkdirRow input:focus { border-color: var(--accent-cyan); box-shadow: 0 0 6px var(--glow-accent); }
+
+/* ---- Keyboard Shortcuts Modal ---- */
+
+.shortcutsPanel { max-width: 420px; width: 100%; }
+.shortcutsHeader { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border-subtle); }
+.shortcutsHeader h3 { font-size: 13px; font-weight: 700; letter-spacing: 1.5px; color: var(--accent-cyan); }
+.shortcutsBody { padding: 16px 20px; display: flex; flex-direction: column; gap: 18px; }
+.shortcutsSection h4 { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px; }
+.shortcutList { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+.shortcutRow { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; }
+.shortcutRow kbd { display: inline-block; min-width: 32px; text-align: center; padding: 3px 8px; font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--text-primary); background: var(--bg-card); border: 1px solid var(--border-subtle-strong); border-radius: 4px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); }
+.shortcutRow span { font-size: 12px; color: var(--text-secondary); }
+
+/* ---- Toast Notifications ---- */
+
+.toastContainer { position: fixed; top: 20px; right: 20px; z-index: 300; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+
+.toast { background: var(--bg-panel); border: 1px solid var(--accent-orange); border-radius: 8px; padding: 12px 16px; min-width: 280px; box-shadow: 0 0 30px rgba(255, 145, 0, 0.15); animation: toast-in 0.3s ease; pointer-events: auto; position: relative; }
+.toastClose { position: absolute; top: 6px; right: 8px; background: none; border: none; color: var(--text-dim); font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1; transition: color 0.15s; }
+.toastClose:hover { color: var(--text-primary); }
+.toast.fadeOut { animation: toast-out 0.3s ease forwards; }
+.toastTitle { font-size: 11px; font-weight: 700; color: var(--accent-orange); letter-spacing: 1px; margin-bottom: 4px; }
+.toastMsg { font-size: 11px; color: var(--text-secondary); }
+
+@keyframes toast-in { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes toast-out { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }
+
+/* Oneoff review toast */
+.oneoffReviewToast { background: var(--bg-card); border: 2px solid #ff9100; border-radius: 8px; padding: 12px 16px; min-width: 280px; animation: toast-in 0.3s ease-out; }
+.oneoffReviewToast .toastTitle { color: #ff9100; font-weight: 700; font-size: 12px; letter-spacing: 0.5px; margin-bottom: 4px; }
+.oneoffReviewToast .toastMsg { color: var(--text-secondary); font-size: 11px; margin-bottom: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.oneoffReviewActions { display: flex; gap: 6px; }
+.oneoffReviewBtn, .oneoffDeleteBtn, .oneoffDismissBtn { padding: 4px 10px; border: 1px solid var(--border-subtle); border-radius: 4px; background: transparent; cursor: pointer; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; transition: all 0.15s; }
+.oneoffReviewBtn { color: var(--accent-cyan); border-color: rgba(0, 229, 255, 0.3); }
+.oneoffReviewBtn:hover { background: rgba(0, 229, 255, 0.12); }
+.oneoffDeleteBtn { color: #ff3355; border-color: rgba(255, 51, 85, 0.3); }
+.oneoffDeleteBtn:hover { background: rgba(255, 51, 85, 0.12); }
+.oneoffDismissBtn { color: var(--text-dim); }
+.oneoffDismissBtn:hover { color: var(--text-secondary); background: var(--bg-subtle); }
+
+/* Archived badge */
+.archivedBadge { font-size: 9px; font-weight: 700; letter-spacing: 1px; padding: 2px 8px; border-radius: 3px; color: var(--accent-purple); border: 1px solid rgba(170, 102, 255, 0.3); background: rgba(170, 102, 255, 0.08); margin-left: 8px; }
+
+/* ---- Responsive ---- */
+
+@media (max-width: 640px) {
+  .panel { max-width: 95vw; padding: 16px; }
+  .newSessionPanel { width: 95vw; }
+  .shortcutsPanel { max-width: 95vw; }
+}

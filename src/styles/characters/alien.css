@@ -1,0 +1,152 @@
+/* Character: ALIEN */
+
+/* ============================================================
+   Character: ALIEN
+   ============================================================ */
+
+.char-alien .alien-dome {
+  width: 90px;
+  height: 58px;
+  background: linear-gradient(145deg, var(--robot-body), var(--robot-body-dark));
+  border: 2px solid var(--robot-border);
+  border-radius: 50% 50% 30% 30%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.4), inset 0 1px 0 var(--inset-highlight);
+}
+
+.char-alien .alien-eye {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--robot-color);
+  box-shadow: 0 0 6px var(--robot-color), 0 0 12px var(--robot-color);
+  transition: all 0.3s ease;
+}
+
+.char-alien .alien-comm-dots {
+  display: none;
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  gap: 3px;
+}
+.char-alien .alien-comm-dots span {
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--robot-color);
+  opacity: 0.5;
+}
+
+.char-alien .alien-neck {
+  width: 12px; height: 6px;
+  background: linear-gradient(to bottom, var(--robot-body), var(--robot-body-dark));
+  border-left: 2px solid var(--robot-border);
+  border-right: 2px solid var(--robot-border);
+}
+
+.char-alien .alien-body {
+  width: 44px;
+  height: 40px;
+  background: linear-gradient(180deg, var(--robot-body), var(--robot-body-dark));
+  border: 2px solid var(--robot-border);
+  border-radius: 6px 6px 16px 16px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.char-alien .alien-core {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: var(--robot-color);
+  box-shadow: 0 0 6px var(--robot-color);
+  opacity: 0.7;
+  transition: all 0.3s ease;
+}
+
+.char-alien .alien-tentacle {
+  position: absolute;
+  bottom: 4px;
+  width: 6px;
+  height: 24px;
+  background: linear-gradient(to bottom, var(--robot-body-dark), var(--robot-color));
+  border-radius: 3px;
+  transform-origin: top center;
+  transition: all 0.3s ease;
+}
+.char-alien .alien-tentacle-left { left: -10px; transform: rotate(10deg); }
+.char-alien .alien-tentacle-right { right: -10px; transform: rotate(-10deg); }
+
+/* Alien Status Animations */
+.char-alien[data-status="idle"] .robot-body-wrap { animation: robot-float 3s ease-in-out infinite; }
+.char-alien[data-status="idle"] .alien-eye { animation: alien-blink 4s ease-in-out infinite; }
+.char-alien[data-status="idle"] .alien-core { animation: robot-chest-pulse-slow 3s ease-in-out infinite; }
+.char-alien[data-status="idle"] .alien-tentacle { animation: alien-tentacle-sway 2s ease-in-out infinite; }
+
+.char-alien[data-status="prompting"] .robot-body-wrap { animation: robot-float 2.5s ease-in-out infinite; }
+.char-alien[data-status="prompting"] .alien-eye {
+  width: 14px; height: 14px;
+  box-shadow: 0 0 10px var(--robot-color), 0 0 20px var(--robot-color);
+}
+.char-alien[data-status="prompting"] .alien-dome { animation: robot-tilt 2s ease-in-out infinite; }
+.char-alien[data-status="prompting"] .alien-core { animation: robot-chest-pulse-slow 2s ease-in-out infinite; }
+
+.char-alien[data-status="working"] .robot-body-wrap { animation: alien-work-multi 9s ease-in-out infinite; }
+.char-alien[data-status="working"] .alien-eye {
+  width: 14px; height: 8px; border-radius: 3px;
+  animation: robot-work-eye-scan 0.8s ease-in-out infinite;
+  box-shadow: 0 0 10px var(--robot-color), 0 0 20px var(--robot-color);
+}
+.char-alien[data-status="working"] .alien-comm-dots { display: flex; }
+.char-alien[data-status="working"] .alien-comm-dots span:nth-child(1) { animation: robot-typing-dot 0.6s ease-in-out infinite 0s; }
+.char-alien[data-status="working"] .alien-comm-dots span:nth-child(2) { animation: robot-typing-dot 0.6s ease-in-out infinite 0.15s; }
+.char-alien[data-status="working"] .alien-comm-dots span:nth-child(3) { animation: robot-typing-dot 0.6s ease-in-out infinite 0.3s; }
+.char-alien[data-status="working"] .alien-core { animation: robot-work-chest-pulse 0.4s ease-in-out infinite; }
+.char-alien[data-status="working"] .alien-tentacle { animation: alien-tentacle-wave 0.5s ease-in-out infinite; }
+
+.char-alien[data-status="waiting"] { --robot-color: #a0c4ff; }
+.char-alien[data-status="waiting"] .alien-eye { background: #a0c4ff; box-shadow: 0 0 10px #a0c4ff; }
+.char-alien[data-status="waiting"] .alien-core { background: #a0c4ff; animation: robot-waiting-chest 2s ease-in-out infinite; }
+
+.char-alien[data-status="approval"] { --robot-color: #ffdd00; }
+.char-alien[data-status="approval"]::after {
+  content: '!'; position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
+  font-size: 28px; font-weight: 900; color: #ffdd00;
+  text-shadow: 0 0 12px #ffdd00, 0 0 30px rgba(255, 221, 0, 0.6);
+  animation: robot-approval-emote-bounce 0.8s ease-in-out infinite; z-index: 10; pointer-events: none;
+}
+.char-alien[data-status="approval"] .robot-body-wrap { animation: robot-approval-bounce 1s ease-in-out infinite; }
+.char-alien[data-status="approval"] .alien-eye {
+  width: 16px; height: 16px; background: #ffdd00;
+  box-shadow: 0 0 18px #ffdd00, 0 0 36px #ffdd00;
+}
+.char-alien[data-status="approval"] .alien-core { animation: robot-approval-chest 0.6s ease-in-out infinite; }
+.char-alien[data-status="approval"] .alien-tentacle { animation: alien-tentacle-wave 0.3s ease-in-out infinite; }
+
+.char-alien[data-status="ended"] { opacity: 0.5; }
+.char-alien[data-status="ended"] .alien-eye { width: 12px; height: 3px; border-radius: 2px; background: var(--text-dim); box-shadow: none; }
+.char-alien[data-status="ended"] .alien-core { background: var(--text-dim); box-shadow: none; opacity: 0.3; }
+
+.char-alien.robot-emote .robot-body-wrap { animation: robot-emote-bounce 0.6s ease-out !important; }
+
+@keyframes alien-blink {
+  0%, 42%, 46%, 100% { height: 12px; }
+  44% { height: 2px; }
+}
+@keyframes alien-tentacle-sway {
+  0%, 100% { transform: rotate(10deg); }
+  50% { transform: rotate(-10deg); }
+}
+@keyframes alien-tentacle-wave {
+  0%, 100% { transform: rotate(15deg) scaleY(0.9); }
+  50% { transform: rotate(-15deg) scaleY(1.1); }
+}
+

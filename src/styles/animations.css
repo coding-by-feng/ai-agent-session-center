@@ -1,0 +1,1166 @@
+/* ============================================================
+   AI Agent Session Center - Animation Styles
+   Status Effects, Triggered Movements, Movement Preview
+   ============================================================ */
+
+/* ============================================================
+   Configurable Status Effects — selected via body[data-effect-*]
+   ============================================================ */
+
+/* Helper: all character head selectors for working effects */
+/* Uses a macro approach: define once, scope by body attribute */
+
+/* ---------- IDLE EFFECTS ---------- */
+
+/* idle: float (default — already applied via base status CSS) */
+/* idle: breathe — scale pulse */
+body[data-effect-idle="breathe"] .css-robot[data-status="idle"] .robot-body-wrap {
+  animation: effect-breathe calc(3s * var(--anim-speed, 1)) ease-in-out infinite !important;
+}
+@keyframes effect-breathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(calc(1 + 0.15 * var(--anim-intensity, 1))); }
+}
+
+/* idle: sway — gentle left-right rocking */
+body[data-effect-idle="sway"] .css-robot[data-status="idle"] .robot-body-wrap {
+  animation: effect-sway calc(3s * var(--anim-speed, 1)) ease-in-out infinite !important;
+}
+@keyframes effect-sway {
+  0%, 100% { transform: rotate(0deg) translateX(0); }
+  25%      { transform: rotate(calc(8deg * var(--anim-intensity, 1))) translateX(calc(4px * var(--anim-intensity, 1))); }
+  75%      { transform: rotate(calc(-8deg * var(--anim-intensity, 1))) translateX(calc(-4px * var(--anim-intensity, 1))); }
+}
+
+/* idle: sparkle — tiny sparkle particles on character */
+body[data-effect-idle="sparkle"] .css-robot[data-status="idle"]::before {
+  content: '';
+  position: absolute;
+  z-index: 12;
+  pointer-events: none;
+  top: 20%;
+  left: 30%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow:
+    20px -5px 0 0px rgba(255,255,255,0.9),
+    -10px 15px 0 -1px rgba(255,255,255,0.7),
+    25px 20px 0 0px rgba(255,255,255,0.8),
+    5px 30px 0 -1px rgba(255,255,255,0.6),
+    30px 10px 0 0px rgba(255,255,255,0.75),
+    -5px 40px 0 -1px rgba(255,255,255,0.65),
+    15px 45px 0 0px rgba(255,255,255,0.7);
+  animation: effect-sparkle calc(2s * var(--anim-speed, 1)) ease-in-out infinite;
+}
+@keyframes effect-sparkle {
+  0%, 100% { opacity: 0; transform: scale(0.3); }
+  30%      { opacity: 1; transform: scale(1.5); }
+  70%      { opacity: 0.8; transform: scale(1.2); }
+}
+
+/* idle: none — override float with nothing */
+body[data-effect-idle="none"] .css-robot[data-status="idle"] .robot-body-wrap {
+  animation: none !important;
+}
+
+/* ---------- PROMPTING EFFECTS ---------- */
+
+/* prompting: eye-cycle (default) */
+@keyframes eye-cycle {
+  0%       { transform: translate(0, 0) scale(1); }
+  12.5%    { transform: translate(calc(4px * var(--anim-intensity, 1)), calc(-2px * var(--anim-intensity, 1))) scale(1.15); }
+  25%      { transform: translate(calc(5px * var(--anim-intensity, 1)), 0) scale(1); }
+  37.5%    { transform: translate(calc(3px * var(--anim-intensity, 1)), calc(2px * var(--anim-intensity, 1))) scale(1.1); }
+  50%      { transform: translate(0, calc(3px * var(--anim-intensity, 1))) scale(0.9); }
+  62.5%    { transform: translate(calc(-3px * var(--anim-intensity, 1)), calc(2px * var(--anim-intensity, 1))) scale(1.1); }
+  75%      { transform: translate(calc(-5px * var(--anim-intensity, 1)), 0) scale(1); }
+  87.5%    { transform: translate(calc(-4px * var(--anim-intensity, 1)), calc(-2px * var(--anim-intensity, 1))) scale(1.15); }
+  100%     { transform: translate(0, 0) scale(1); }
+}
+
+body[data-effect-prompting="eye-cycle"] .css-robot[data-status="prompting"] .robot-eye,
+body[data-effect-prompting="eye-cycle"] .css-robot[data-status="prompting"] .cat-eye,
+body[data-effect-prompting="eye-cycle"] .css-robot[data-status="prompting"] .alien-eye,
+body[data-effect-prompting="eye-cycle"] .css-robot[data-status="prompting"] .ghost-eye,
+body[data-effect-prompting="eye-cycle"] .css-robot[data-status="prompting"] .dragon-eye,
+body[data-effect-prompting="eye-cycle"] .css-robot[data-status="prompting"] .penguin-eye,
+body[data-effect-prompting="eye-cycle"] .css-robot[data-status="prompting"] .octo-eye,
+body[data-effect-prompting="eye-cycle"] .css-robot[data-status="prompting"] .mush-eye,
+body[data-effect-prompting="eye-cycle"] .css-robot[data-status="prompting"] .fox-eye,
+body[data-effect-prompting="eye-cycle"] .css-robot[data-status="prompting"] .unicorn-eye,
+body[data-effect-prompting="eye-cycle"] .css-robot[data-status="prompting"] .jelly-eye,
+body[data-effect-prompting="eye-cycle"] .css-robot[data-status="prompting"] .owl-pupil,
+body[data-effect-prompting="eye-cycle"] .css-robot[data-status="prompting"] .bat-eye,
+body[data-effect-prompting="eye-cycle"] .css-robot[data-status="prompting"] .cactus-eye,
+body[data-effect-prompting="eye-cycle"] .css-robot[data-status="prompting"] .slime-eye,
+body[data-effect-prompting="eye-cycle"] .css-robot[data-status="prompting"] .pumpkin-eye,
+body[data-effect-prompting="eye-cycle"] .css-robot[data-status="prompting"] .yeti-eye,
+body[data-effect-prompting="eye-cycle"] .css-robot[data-status="prompting"] .crystal-eye,
+body[data-effect-prompting="eye-cycle"] .css-robot[data-status="prompting"] .bee-eye {
+  animation: eye-cycle calc(1.5s * var(--anim-speed, 1)) ease-in-out infinite !important;
+}
+
+/* prompting: think-pulse — pulsing glow around the whole character */
+body[data-effect-prompting="think-pulse"] .css-robot[data-status="prompting"]::before {
+  content: '';
+  position: absolute;
+  z-index: 11;
+  pointer-events: none;
+  top: 50%;
+  left: 50%;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(0,229,255,0.25) 0%, transparent 70%);
+  transform: translate(-50%, -50%);
+  animation: effect-think-pulse calc(1.5s * var(--anim-speed, 1)) ease-in-out infinite;
+}
+@keyframes effect-think-pulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(0.5); opacity: 0.2; }
+  50%      { transform: translate(-50%, -50%) scale(calc(1.8 * var(--anim-intensity, 1))); opacity: 1; }
+}
+
+/* prompting: head-tilt — head tilts side to side thinking */
+body[data-effect-prompting="head-tilt"] .css-robot[data-status="prompting"] .robot-head,
+body[data-effect-prompting="head-tilt"] .css-robot[data-status="prompting"] .cat-head,
+body[data-effect-prompting="head-tilt"] .css-robot[data-status="prompting"] .alien-dome,
+body[data-effect-prompting="head-tilt"] .css-robot[data-status="prompting"] .ghost-body,
+body[data-effect-prompting="head-tilt"] .css-robot[data-status="prompting"] .orb-core,
+body[data-effect-prompting="head-tilt"] .css-robot[data-status="prompting"] .dragon-head,
+body[data-effect-prompting="head-tilt"] .css-robot[data-status="prompting"] .penguin-head,
+body[data-effect-prompting="head-tilt"] .css-robot[data-status="prompting"] .octo-head,
+body[data-effect-prompting="head-tilt"] .css-robot[data-status="prompting"] .mush-cap,
+body[data-effect-prompting="head-tilt"] .css-robot[data-status="prompting"] .fox-head,
+body[data-effect-prompting="head-tilt"] .css-robot[data-status="prompting"] .unicorn-head,
+body[data-effect-prompting="head-tilt"] .css-robot[data-status="prompting"] .jelly-bell,
+body[data-effect-prompting="head-tilt"] .css-robot[data-status="prompting"] .owl-head,
+body[data-effect-prompting="head-tilt"] .css-robot[data-status="prompting"] .bat-head,
+body[data-effect-prompting="head-tilt"] .css-robot[data-status="prompting"] .cactus-body,
+body[data-effect-prompting="head-tilt"] .css-robot[data-status="prompting"] .slime-body,
+body[data-effect-prompting="head-tilt"] .css-robot[data-status="prompting"] .pumpkin-body,
+body[data-effect-prompting="head-tilt"] .css-robot[data-status="prompting"] .yeti-head,
+body[data-effect-prompting="head-tilt"] .css-robot[data-status="prompting"] .crystal-body,
+body[data-effect-prompting="head-tilt"] .css-robot[data-status="prompting"] .bee-head {
+  animation: effect-head-tilt calc(2s * var(--anim-speed, 1)) ease-in-out infinite !important;
+}
+@keyframes effect-head-tilt {
+  0%, 100% { transform: rotate(0deg); }
+  25%      { transform: rotate(calc(15deg * var(--anim-intensity, 1))); }
+  75%      { transform: rotate(calc(-15deg * var(--anim-intensity, 1))); }
+}
+
+/* ---------- WORKING EFFECTS ---------- */
+
+/* working: sweat — ALWAYS ON, not configurable — 40 drops from face, 20 left + 20 right */
+/* Right side: 20 drops streaming down from right of face */
+.css-robot[data-status="working"] .robot-head::after,
+.char-cat[data-status="working"] .cat-head::after,
+.char-alien[data-status="working"] .alien-dome::after,
+.char-ghost[data-status="working"] .ghost-body::after,
+.char-orb[data-status="working"] .orb-core::after,
+.char-dragon[data-status="working"] .dragon-head::after,
+.char-penguin[data-status="working"] .penguin-head::after,
+.char-octopus[data-status="working"] .octo-head::after,
+.char-mushroom[data-status="working"] .mush-cap::after,
+.char-fox[data-status="working"] .fox-head::after,
+.char-unicorn[data-status="working"] .unicorn-head::after,
+.char-jellyfish[data-status="working"] .jelly-bell::after,
+.char-owl[data-status="working"] .owl-head::after,
+.char-bat[data-status="working"] .bat-head::after,
+.char-cactus[data-status="working"] .cactus-body::after,
+.char-slime[data-status="working"] .slime-body::after,
+.char-pumpkin[data-status="working"] .pumpkin-body::after,
+.char-yeti[data-status="working"] .yeti-head::after,
+.char-crystal[data-status="working"] .crystal-body::after,
+.char-bee[data-status="working"] .bee-head::after {
+  content: '';
+  position: absolute; z-index: 12; pointer-events: none;
+  right: -6px; top: 6px; width: 6px; height: 9px;
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  background: rgba(80, 200, 255, 1);
+  box-shadow:
+    -4px 4px 0 1px rgba(100,220,255,1), 2px 9px 0 0 rgba(80,200,255,0.95),
+    -7px 14px 0 1px rgba(60,190,255,0.92), 4px 19px 0 0 rgba(100,220,255,0.88),
+    -2px 24px 0 1px rgba(80,200,255,0.9), 5px 29px 0 0 rgba(60,190,255,0.85),
+    -6px 34px 0 1px rgba(100,220,255,0.88), 3px 39px 0 0 rgba(80,200,255,0.82),
+    -3px 44px 0 1px rgba(100,220,255,0.85), 1px 49px 0 0 rgba(80,200,255,0.8),
+    -8px 8px 0 1px rgba(90,215,255,0.95), 6px 16px 0 0 rgba(70,195,255,0.9),
+    -1px 22px 0 1px rgba(100,215,255,0.92), -9px 28px 0 0 rgba(80,190,255,0.85),
+    7px 33px 0 1px rgba(90,210,255,0.88), -5px 38px 0 0 rgba(70,195,255,0.85),
+    3px 43px 0 1px rgba(100,215,255,0.82), -7px 48px 0 0 rgba(80,200,255,0.78),
+    5px 53px 0 1px rgba(100,220,255,0.82);
+  opacity: 0;
+  animation: sweat-stream-right calc(0.8s * var(--anim-speed, 1)) ease-in infinite;
+}
+
+/* Left side: 20 drops streaming down from left of face */
+.css-robot[data-status="working"] .robot-head::before,
+.char-cat[data-status="working"] .cat-head::before,
+.char-alien[data-status="working"] .alien-dome::before,
+.char-ghost[data-status="working"] .ghost-body::before,
+.char-orb[data-status="working"] .orb-core::before,
+.char-dragon[data-status="working"] .dragon-head::before,
+.char-penguin[data-status="working"] .penguin-head::before,
+.char-octopus[data-status="working"] .octo-head::before,
+.char-mushroom[data-status="working"] .mush-cap::before,
+.char-fox[data-status="working"] .fox-head::before,
+.char-unicorn[data-status="working"] .unicorn-head::before,
+.char-jellyfish[data-status="working"] .jelly-bell::before,
+.char-owl[data-status="working"] .owl-head::before,
+.char-bat[data-status="working"] .bat-head::before,
+.char-cactus[data-status="working"] .cactus-body::before,
+.char-slime[data-status="working"] .slime-body::before,
+.char-pumpkin[data-status="working"] .pumpkin-body::before,
+.char-yeti[data-status="working"] .yeti-head::before,
+.char-crystal[data-status="working"] .crystal-body::before,
+.char-bee[data-status="working"] .bee-head::before {
+  content: '';
+  position: absolute; z-index: 12; pointer-events: none;
+  left: -6px; top: 6px; width: 6px; height: 9px;
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  background: rgba(80, 200, 255, 1);
+  box-shadow:
+    4px 4px 0 1px rgba(100,220,255,1), -2px 9px 0 0 rgba(80,200,255,0.95),
+    7px 14px 0 1px rgba(60,190,255,0.92), -4px 19px 0 0 rgba(100,220,255,0.88),
+    2px 24px 0 1px rgba(80,200,255,0.9), -5px 29px 0 0 rgba(60,190,255,0.85),
+    6px 34px 0 1px rgba(100,220,255,0.88), -3px 39px 0 0 rgba(80,200,255,0.82),
+    3px 44px 0 1px rgba(100,220,255,0.85), -1px 49px 0 0 rgba(80,200,255,0.8),
+    8px 8px 0 1px rgba(90,215,255,0.95), -6px 16px 0 0 rgba(70,195,255,0.9),
+    1px 22px 0 1px rgba(100,215,255,0.92), 9px 28px 0 0 rgba(80,190,255,0.85),
+    -7px 33px 0 1px rgba(90,210,255,0.88), 5px 38px 0 0 rgba(70,195,255,0.85),
+    -3px 43px 0 1px rgba(100,215,255,0.82), 7px 48px 0 0 rgba(80,200,255,0.78),
+    -5px 53px 0 1px rgba(100,220,255,0.82);
+  opacity: 0;
+  animation: sweat-stream-left calc(0.8s * var(--anim-speed, 1)) ease-in infinite;
+  animation-delay: calc(0.25s * var(--anim-speed, 1));
+}
+
+@keyframes sweat-stream-right {
+  0%   { opacity: 0; transform: translateY(-5px) scale(0.5); }
+  12%  { opacity: 1; transform: translateY(0) scale(1.1); }
+  70%  { opacity: 0.9; transform: translateY(calc(35px * var(--anim-intensity, 1))) scale(0.8); }
+  100% { opacity: 0; transform: translateY(calc(55px * var(--anim-intensity, 1))) scale(0.3); }
+}
+@keyframes sweat-stream-left {
+  0%   { opacity: 0; transform: translateY(-5px) scale(0.5); }
+  12%  { opacity: 1; transform: translateY(0) scale(1.1); }
+  70%  { opacity: 0.9; transform: translateY(calc(35px * var(--anim-intensity, 1))) scale(0.8); }
+  100% { opacity: 0; transform: translateY(calc(55px * var(--anim-intensity, 1))) scale(0.3); }
+}
+
+/* working: energy-ring — massive sonar blast from character center */
+body[data-effect-working="energy-ring"] .css-robot[data-status="working"]::before {
+  content: '';
+  position: absolute; z-index: 11; pointer-events: none;
+  top: 50%; left: 50%;
+  width: calc(100px * var(--anim-intensity, 1));
+  height: calc(100px * var(--anim-intensity, 1));
+  border-radius: 50%;
+  border: 3px solid rgba(255, 152, 0, 0.95);
+  box-shadow: 0 0 20px rgba(255, 152, 0, 0.6), 0 0 40px rgba(255, 152, 0, 0.3), inset 0 0 15px rgba(255, 152, 0, 0.3);
+  transform: translate(-50%, -50%) scale(0.2);
+  opacity: 0;
+  animation: effect-energy-ring calc(0.9s * var(--anim-speed, 1)) ease-out infinite;
+}
+body[data-effect-working="energy-ring"] .css-robot[data-status="working"]::after {
+  content: '';
+  position: absolute; z-index: 11; pointer-events: none;
+  top: 50%; left: 50%;
+  width: calc(100px * var(--anim-intensity, 1));
+  height: calc(100px * var(--anim-intensity, 1));
+  border-radius: 50%;
+  border: 2px solid rgba(255, 200, 0, 0.7);
+  box-shadow: 0 0 15px rgba(255, 200, 0, 0.4), 0 0 30px rgba(255, 200, 0, 0.2);
+  transform: translate(-50%, -50%) scale(0.2);
+  opacity: 0;
+  animation: effect-energy-ring calc(0.9s * var(--anim-speed, 1)) ease-out infinite;
+  animation-delay: calc(0.45s * var(--anim-speed, 1));
+}
+@keyframes effect-energy-ring {
+  0%   { opacity: 1; transform: translate(-50%, -50%) scale(0.2); }
+  60%  { opacity: 0.3; transform: translate(-50%, -50%) scale(calc(1.8 * var(--anim-intensity, 1))); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(calc(2.2 * var(--anim-intensity, 1))); }
+}
+
+/* working: sparks — explosive spark burst flying off */
+body[data-effect-working="sparks"] .css-robot[data-status="working"]::before {
+  content: '';
+  position: absolute; z-index: 12; pointer-events: none;
+  top: 35%; left: 50%;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #ffab00;
+  box-shadow:
+    12px -15px 0 1px #ffcc00, -16px -10px 0 0 #ffa000,
+    20px 6px 0 1px #ff9800, -12px 12px 0 0 #ffcc80,
+    14px -22px 0 1px #ffb74d, -20px -16px 0 0 #ff9800,
+    24px 0px 0 1px #ffcc00, -14px 18px 0 0 #ffa726,
+    0px -20px 0 1px #ffd740, 18px 14px 0 0 #ffab00;
+  animation: effect-sparks calc(0.5s * var(--anim-speed, 1)) ease-out infinite;
+}
+body[data-effect-working="sparks"] .css-robot[data-status="working"]::after {
+  content: '';
+  position: absolute; z-index: 12; pointer-events: none;
+  top: 35%; left: 50%;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: #ffd740;
+  box-shadow:
+    -10px -18px 0 1px #ffe082, 18px -12px 0 0 #ffca28,
+    -22px 4px 0 1px #ffc107, 10px 16px 0 0 #ffe082,
+    -16px -24px 0 1px #ffca28, 22px -18px 0 0 #ffc107,
+    0px 22px 0 1px #ffd740, -20px 10px 0 0 #ffb300;
+  animation: effect-sparks calc(0.5s * var(--anim-speed, 1)) ease-out infinite;
+  animation-delay: calc(0.25s * var(--anim-speed, 1));
+}
+@keyframes effect-sparks {
+  0%   { opacity: 1; transform: translate(-50%, 0) scale(0.5) rotate(0deg); }
+  50%  { opacity: 0.8; transform: translate(-50%, 0) scale(calc(1.8 * var(--anim-intensity, 1))) rotate(90deg); }
+  100% { opacity: 0; transform: translate(-50%, 0) scale(calc(2.5 * var(--anim-intensity, 1))) rotate(180deg); }
+}
+
+/* working: steam — big billowing steam clouds from head */
+body[data-effect-working="steam"] .css-robot[data-status="working"]::before {
+  content: '';
+  position: absolute; z-index: 12; pointer-events: none;
+  top: 10%; left: 25%;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: rgba(220, 220, 240, 0.7);
+  box-shadow:
+    14px -6px 0 4px rgba(220,220,240,0.6),
+    -8px -12px 0 3px rgba(220,220,240,0.55),
+    20px -14px 0 5px rgba(220,220,240,0.5),
+    4px -20px 0 3px rgba(220,220,240,0.45);
+  animation: effect-steam calc(0.9s * var(--anim-speed, 1)) ease-out infinite;
+}
+body[data-effect-working="steam"] .css-robot[data-status="working"]::after {
+  content: '';
+  position: absolute; z-index: 12; pointer-events: none;
+  top: 10%; right: 25%;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: rgba(220, 220, 240, 0.65);
+  box-shadow:
+    -12px -8px 0 4px rgba(220,220,240,0.55),
+    8px -14px 0 3px rgba(220,220,240,0.5),
+    -16px -18px 0 5px rgba(220,220,240,0.4);
+  animation: effect-steam calc(0.9s * var(--anim-speed, 1)) ease-out infinite;
+  animation-delay: calc(0.45s * var(--anim-speed, 1));
+}
+@keyframes effect-steam {
+  0%   { opacity: 0; transform: translateY(0) scale(0.4); }
+  15%  { opacity: 0.9; transform: translateY(calc(-8px * var(--anim-intensity, 1))) scale(0.9); }
+  100% { opacity: 0; transform: translateY(calc(-50px * var(--anim-intensity, 1))) scale(calc(2 * var(--anim-intensity, 1))); }
+}
+
+/* ---------- APPROVAL EFFECTS ---------- */
+
+/* approval: bounce (default — already handled by base CSS) */
+/* approval: flash — pulsing warning glow */
+body[data-effect-approval="flash"] .css-robot[data-status="approval"]::before {
+  content: '';
+  position: absolute; z-index: 11; pointer-events: none;
+  top: 0; left: 0; right: 0; bottom: 0;
+  border-radius: 12px;
+  background: rgba(255, 221, 0, 0.15);
+  animation: effect-flash calc(0.5s * var(--anim-speed, 1)) ease-in-out infinite alternate;
+}
+@keyframes effect-flash {
+  0%   { opacity: 0; box-shadow: none; }
+  100% { opacity: 1; box-shadow: 0 0 40px rgba(255, 221, 0, 0.8), 0 0 80px rgba(255, 221, 0, 0.5), 0 0 120px rgba(255, 221, 0, 0.2); }
+}
+
+/* approval: shake — shaking urgently */
+body[data-effect-approval="shake"] .css-robot[data-status="approval"] .robot-body-wrap {
+  animation: effect-shake calc(0.4s * var(--anim-speed, 1)) ease-in-out infinite !important;
+}
+@keyframes effect-shake {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  20%      { transform: translateX(calc(-8px * var(--anim-intensity, 1))) rotate(calc(-3deg * var(--anim-intensity, 1))); }
+  40%      { transform: translateX(calc(8px * var(--anim-intensity, 1))) rotate(calc(3deg * var(--anim-intensity, 1))); }
+  60%      { transform: translateX(calc(-6px * var(--anim-intensity, 1))) rotate(calc(-2deg * var(--anim-intensity, 1))); }
+  80%      { transform: translateX(calc(6px * var(--anim-intensity, 1))) rotate(calc(2deg * var(--anim-intensity, 1))); }
+}
+
+/* approval: none — suppress bounce */
+body[data-effect-approval="none"] .css-robot[data-status="approval"] .robot-body-wrap {
+  animation: none !important;
+}
+body[data-effect-approval="none"] .css-robot[data-status="approval"]::after {
+  display: none !important;
+}
+
+/* ---------- WAITING (TASK COMPLETE) BOUNCE ---------- */
+/* Persistent bounce until user clicks the session card to check */
+.css-robot[data-status="waiting"]:not([data-checked]) .robot-body-wrap {
+  animation: waiting-bounce calc(0.5s * var(--anim-speed, 1)) ease-in-out infinite !important;
+}
+@keyframes waiting-bounce {
+  0%, 100% { transform: translateY(0) scaleY(1); }
+  30%      { transform: translateY(calc(-14px * var(--anim-intensity, 1))) scaleY(1.08); }
+  70%      { transform: translateY(0) scaleY(0.92); }
+}
+
+/* Stop bounce once user has checked the session */
+.css-robot[data-status="waiting"][data-checked] .robot-body-wrap {
+  animation: none !important;
+}
+
+/* ---------- ENDED EFFECTS ---------- */
+
+/* ended: fade (default — already handled by base CSS opacity: 0.5) */
+/* ended: shrink — shrink down */
+body[data-effect-ended="shrink"] .css-robot[data-status="ended"] .robot-body-wrap {
+  animation: effect-shrink 1s ease-out forwards !important;
+}
+@keyframes effect-shrink {
+  0%   { transform: scale(1) rotate(0deg); opacity: 1; }
+  100% { transform: scale(0.2) rotate(180deg); opacity: 0.1; }
+}
+
+/* ended: dissolve — dissolve effect with blur */
+body[data-effect-ended="dissolve"] .css-robot[data-status="ended"] .robot-body-wrap {
+  animation: effect-dissolve 1.5s ease-out forwards !important;
+}
+@keyframes effect-dissolve {
+  0%   { filter: blur(0); opacity: 1; transform: scale(1); }
+  50%  { filter: blur(4px); opacity: 0.4; transform: scale(1.1); }
+  100% { filter: blur(12px); opacity: 0; transform: scale(1.2); }
+}
+
+/* ended: none — just show normally with no fade */
+body[data-effect-ended="none"] .css-robot[data-status="ended"] {
+  opacity: 1 !important;
+}
+
+
+/* ---- Triggered movement effects (per-action, via data-movement attribute) ---- */
+/* ALL triggered effects are BOLD and OBVIOUS — big movements, bright particles, fast cycles */
+
+/* sweat — dramatic rain of drops from both sides */
+.css-robot[data-movement="sweat"]::after {
+  content: ''; position: absolute; z-index: 12; pointer-events: none;
+  right: -2px; top: 10px; width: 6px; height: 9px;
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  background: rgba(80, 200, 255, 1);
+  box-shadow:
+    -5px 5px 0 1px rgba(100,220,255,1), 3px 11px 0 0 rgba(80,200,255,0.95),
+    -7px 16px 0 1px rgba(60,190,255,0.9), 5px 22px 0 0 rgba(100,220,255,0.85),
+    -3px 27px 0 1px rgba(80,200,255,0.9), 6px 33px 0 0 rgba(60,190,255,0.85),
+    -6px 38px 0 1px rgba(100,220,255,0.8), 2px 44px 0 0 rgba(80,200,255,0.85),
+    -8px 9px 0 1px rgba(90,210,255,0.95), 7px 18px 0 0 rgba(70,195,255,0.9),
+    -2px 24px 0 1px rgba(100,215,255,0.92), -9px 30px 0 0 rgba(80,200,255,0.85),
+    8px 36px 0 1px rgba(90,210,255,0.88), -4px 42px 0 0 rgba(70,195,255,0.85);
+  animation: trig-sweat-right 0.7s ease-in infinite;
+}
+.css-robot[data-movement="sweat"]::before {
+  content: ''; position: absolute; z-index: 12; pointer-events: none;
+  left: -2px; top: 10px; width: 6px; height: 9px;
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  background: rgba(80, 200, 255, 1);
+  box-shadow:
+    5px 5px 0 1px rgba(100,220,255,1), -3px 11px 0 0 rgba(80,200,255,0.95),
+    7px 16px 0 1px rgba(60,190,255,0.9), -5px 22px 0 0 rgba(100,220,255,0.85),
+    3px 27px 0 1px rgba(80,200,255,0.9), -6px 33px 0 0 rgba(60,190,255,0.85),
+    6px 38px 0 1px rgba(100,220,255,0.8), -2px 44px 0 0 rgba(80,200,255,0.85),
+    8px 9px 0 1px rgba(90,210,255,0.95), -7px 18px 0 0 rgba(70,195,255,0.9),
+    2px 24px 0 1px rgba(100,215,255,0.92), 9px 30px 0 0 rgba(80,200,255,0.85),
+    -8px 36px 0 1px rgba(90,210,255,0.88), 4px 42px 0 0 rgba(70,195,255,0.85);
+  animation: trig-sweat-left 0.7s ease-in infinite;
+  animation-delay: 0.2s;
+}
+@keyframes trig-sweat-right {
+  0%   { opacity: 0; transform: translateY(-5px) scale(0.6); }
+  15%  { opacity: 1; transform: translateY(0) scale(1.1); }
+  70%  { opacity: 0.9; transform: translateY(35px) scale(0.8); }
+  100% { opacity: 0; transform: translateY(55px) scale(0.3); }
+}
+@keyframes trig-sweat-left {
+  0%   { opacity: 0; transform: translateY(-5px) scale(0.6); }
+  15%  { opacity: 1; transform: translateY(0) scale(1.1); }
+  70%  { opacity: 0.9; transform: translateY(35px) scale(0.8); }
+  100% { opacity: 0; transform: translateY(55px) scale(0.3); }
+}
+
+/* energy-ring — massive double sonar blast */
+.css-robot[data-movement="energy-ring"]::before {
+  content: ''; position: absolute; z-index: 11; pointer-events: none;
+  top: 50%; left: 50%; width: 100px; height: 100px; border-radius: 50%;
+  border: 3px solid rgba(255,152,0,0.95);
+  box-shadow: 0 0 20px rgba(255,152,0,0.6), 0 0 40px rgba(255,152,0,0.3), inset 0 0 15px rgba(255,152,0,0.3);
+  transform: translate(-50%,-50%) scale(0.2); opacity: 0;
+  animation: trig-energy-ring 0.8s ease-out infinite;
+}
+.css-robot[data-movement="energy-ring"]::after {
+  content: ''; position: absolute; z-index: 11; pointer-events: none;
+  top: 50%; left: 50%; width: 100px; height: 100px; border-radius: 50%;
+  border: 2px solid rgba(255,200,0,0.7);
+  box-shadow: 0 0 15px rgba(255,200,0,0.4), 0 0 30px rgba(255,200,0,0.2);
+  transform: translate(-50%,-50%) scale(0.2); opacity: 0;
+  animation: trig-energy-ring 0.8s ease-out infinite;
+  animation-delay: 0.4s;
+}
+@keyframes trig-energy-ring {
+  0%   { opacity: 1; transform: translate(-50%, -50%) scale(0.2); }
+  60%  { opacity: 0.4; transform: translate(-50%, -50%) scale(1.8); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(2.2); }
+}
+
+/* sparks — explosive spark burst from center */
+.css-robot[data-movement="sparks"]::before {
+  content: ''; position: absolute; z-index: 12; pointer-events: none;
+  top: 35%; left: 50%; width: 6px; height: 6px; border-radius: 50%;
+  background: #ffab00;
+  box-shadow:
+    12px -15px 0 1px #ffcc00, -16px -10px 0 0 #ffa000,
+    20px 6px 0 1px #ff9800, -12px 12px 0 0 #ffcc80,
+    14px -22px 0 1px #ffb74d, -20px -16px 0 0 #ff9800,
+    24px 0px 0 1px #ffcc00, -14px 18px 0 0 #ffa726,
+    0px -20px 0 1px #ffd740, 18px 14px 0 0 #ffab00;
+  animation: trig-sparks 0.5s ease-out infinite;
+}
+.css-robot[data-movement="sparks"]::after {
+  content: ''; position: absolute; z-index: 12; pointer-events: none;
+  top: 35%; left: 50%; width: 5px; height: 5px; border-radius: 50%;
+  background: #ffd740;
+  box-shadow:
+    -10px -18px 0 1px #ffe082, 18px -12px 0 0 #ffca28,
+    -22px 4px 0 1px #ffc107, 10px 16px 0 0 #ffe082,
+    -16px -24px 0 1px #ffca28, 22px -18px 0 0 #ffc107,
+    0px 22px 0 1px #ffd740, -20px 10px 0 0 #ffb300;
+  animation: trig-sparks 0.5s ease-out infinite;
+  animation-delay: 0.25s;
+}
+@keyframes trig-sparks {
+  0%   { opacity: 1; transform: translate(-50%, 0) scale(0.5) rotate(0deg); }
+  50%  { opacity: 0.8; transform: translate(-50%, 0) scale(1.8) rotate(90deg); }
+  100% { opacity: 0; transform: translate(-50%, 0) scale(2.5) rotate(180deg); }
+}
+
+/* steam — big rising steam clouds */
+.css-robot[data-movement="steam"]::before {
+  content: ''; position: absolute; z-index: 12; pointer-events: none;
+  top: 10%; left: 25%; width: 16px; height: 16px; border-radius: 50%;
+  background: rgba(220,220,240,0.7);
+  box-shadow:
+    14px -6px 0 4px rgba(220,220,240,0.6),
+    -8px -12px 0 3px rgba(220,220,240,0.55),
+    20px -14px 0 5px rgba(220,220,240,0.5),
+    4px -20px 0 3px rgba(220,220,240,0.45);
+  animation: trig-steam 0.9s ease-out infinite;
+}
+.css-robot[data-movement="steam"]::after {
+  content: ''; position: absolute; z-index: 12; pointer-events: none;
+  top: 10%; right: 25%; width: 14px; height: 14px; border-radius: 50%;
+  background: rgba(220,220,240,0.65);
+  box-shadow:
+    -12px -8px 0 4px rgba(220,220,240,0.55),
+    8px -14px 0 3px rgba(220,220,240,0.5),
+    -16px -18px 0 5px rgba(220,220,240,0.4);
+  animation: trig-steam 0.9s ease-out infinite;
+  animation-delay: 0.45s;
+}
+@keyframes trig-steam {
+  0%   { opacity: 0; transform: translateY(0) scale(0.4); }
+  15%  { opacity: 0.9; transform: translateY(-8px) scale(0.9); }
+  100% { opacity: 0; transform: translateY(-50px) scale(2); }
+}
+
+/* eye-cycle — dramatic fast eye darting */
+.css-robot[data-movement="eye-cycle"] .robot-eye,
+.css-robot[data-movement="eye-cycle"] .cat-eye,
+.css-robot[data-movement="eye-cycle"] .alien-eye,
+.css-robot[data-movement="eye-cycle"] .ghost-eye,
+.css-robot[data-movement="eye-cycle"] .dragon-eye,
+.css-robot[data-movement="eye-cycle"] .penguin-eye,
+.css-robot[data-movement="eye-cycle"] .octo-eye,
+.css-robot[data-movement="eye-cycle"] .mush-eye,
+.css-robot[data-movement="eye-cycle"] .fox-eye,
+.css-robot[data-movement="eye-cycle"] .unicorn-eye,
+.css-robot[data-movement="eye-cycle"] .jelly-eye,
+.css-robot[data-movement="eye-cycle"] .owl-pupil,
+.css-robot[data-movement="eye-cycle"] .bat-eye,
+.css-robot[data-movement="eye-cycle"] .cactus-eye,
+.css-robot[data-movement="eye-cycle"] .slime-eye,
+.css-robot[data-movement="eye-cycle"] .pumpkin-eye,
+.css-robot[data-movement="eye-cycle"] .yeti-eye,
+.css-robot[data-movement="eye-cycle"] .crystal-eye,
+.css-robot[data-movement="eye-cycle"] .bee-eye {
+  animation: trig-eye-dart 0.4s ease-in-out 6 !important;
+}
+@keyframes trig-eye-dart {
+  0%       { transform: translate(0, 0) scale(1); }
+  15%      { transform: translate(4px, -2px) scale(1.2); }
+  30%      { transform: translate(-4px, 1px) scale(0.9); }
+  50%      { transform: translate(3px, 2px) scale(1.15); }
+  70%      { transform: translate(-3px, -2px) scale(1.1); }
+  85%      { transform: translate(2px, 0) scale(1.05); }
+  100%     { transform: translate(0, 0) scale(1); }
+}
+
+/* think-pulse — large pulsating glow */
+.css-robot[data-movement="think-pulse"]::before {
+  content: ''; position: absolute; z-index: 11; pointer-events: none;
+  top: 50%; left: 50%; width: 120px; height: 120px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(0,229,255,0.45) 0%, rgba(0,229,255,0.15) 40%, transparent 70%);
+  transform: translate(-50%,-50%);
+  animation: trig-think-pulse 0.6s ease-in-out 4;
+}
+@keyframes trig-think-pulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(0.5); opacity: 0.3; }
+  50%      { transform: translate(-50%, -50%) scale(1.5); opacity: 1; }
+}
+
+/* head-tilt — dramatic head rocking */
+.css-robot[data-movement="head-tilt"] .robot-body-wrap {
+  animation: trig-head-rock 0.5s ease-in-out 5 !important;
+}
+@keyframes trig-head-rock {
+  0%, 100% { transform: rotate(0deg); }
+  25%      { transform: rotate(15deg); }
+  75%      { transform: rotate(-15deg); }
+}
+
+/* float — strong lift and drop */
+.css-robot[data-movement="float"] .robot-body-wrap {
+  animation: trig-float-lift 0.8s ease-in-out 3 !important;
+}
+@keyframes trig-float-lift {
+  0%, 100% { transform: translateY(0); }
+  40%      { transform: translateY(-20px); }
+  60%      { transform: translateY(-18px); }
+}
+
+/* breathe — big scale pulse */
+.css-robot[data-movement="breathe"] .robot-body-wrap {
+  animation: trig-breathe-big 0.7s ease-in-out 4 !important;
+}
+@keyframes trig-breathe-big {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.2); }
+}
+
+/* sway — wide rocking */
+.css-robot[data-movement="sway"] .robot-body-wrap {
+  animation: trig-sway-wide 0.6s ease-in-out 4 !important;
+}
+@keyframes trig-sway-wide {
+  0%, 100% { transform: rotate(0deg) translateX(0); }
+  25%      { transform: rotate(10deg) translateX(6px); }
+  75%      { transform: rotate(-10deg) translateX(-6px); }
+}
+
+/* sparkle — bright star burst */
+.css-robot[data-movement="sparkle"]::before {
+  content: ''; position: absolute; z-index: 12; pointer-events: none;
+  top: 10%; left: 15%; width: 6px; height: 6px; border-radius: 50%;
+  background: #fff;
+  box-shadow:
+    25px -8px 0 1px rgba(255,255,255,1), -15px 20px 0 0 rgba(255,255,255,0.95),
+    30px 25px 0 1px rgba(255,255,255,0.9), 8px 40px 0 0 rgba(255,255,255,0.85),
+    40px 12px 0 1px rgba(255,255,255,0.92), -8px 50px 0 0 rgba(255,255,255,0.8),
+    20px 55px 0 1px rgba(255,255,255,0.85), 45px 30px 0 0 rgba(255,255,255,0.9),
+    -12px 35px 0 1px rgba(255,255,255,0.88), 35px -3px 0 0 rgba(255,255,255,0.93);
+  animation: trig-sparkle-burst 0.6s ease-in-out 4;
+}
+.css-robot[data-movement="sparkle"]::after {
+  content: ''; position: absolute; z-index: 12; pointer-events: none;
+  top: 15%; left: 25%; width: 4px; height: 4px; border-radius: 50%;
+  background: rgba(255,255,200,0.9);
+  box-shadow:
+    15px 10px 0 1px rgba(255,255,200,0.9), 35px 5px 0 0 rgba(255,255,200,0.85),
+    5px 30px 0 1px rgba(255,255,200,0.8), 28px 35px 0 0 rgba(255,255,200,0.85),
+    42px 20px 0 1px rgba(255,255,200,0.9), 10px 48px 0 0 rgba(255,255,200,0.8);
+  animation: trig-sparkle-burst 0.6s ease-in-out 4;
+  animation-delay: 0.3s;
+}
+@keyframes trig-sparkle-burst {
+  0%, 100% { opacity: 0; transform: scale(0.3); }
+  30%      { opacity: 1; transform: scale(1.4); }
+  70%      { opacity: 0.8; transform: scale(1.1); }
+}
+
+/* bounce — vigorous bouncing */
+.css-robot[data-movement="bounce"] .robot-body-wrap {
+  animation: trig-bounce-hard 0.35s ease-in-out 7 !important;
+}
+@keyframes trig-bounce-hard {
+  0%, 100% { transform: translateY(0) scaleY(1); }
+  30%      { transform: translateY(-18px) scaleY(1.1); }
+  70%      { transform: translateY(0) scaleY(0.85); }
+}
+
+/* flash — intense strobe glow */
+.css-robot[data-movement="flash"]::before {
+  content: ''; position: absolute; z-index: 11; pointer-events: none;
+  top: -10px; left: -10px; right: -10px; bottom: -10px; border-radius: 16px;
+  background: rgba(255,221,0,0.25);
+  animation: trig-flash-strobe 0.2s ease-in-out 12 alternate;
+}
+@keyframes trig-flash-strobe {
+  0%   { opacity: 0; box-shadow: none; }
+  100% { opacity: 1; box-shadow: 0 0 40px rgba(255,221,0,0.8), 0 0 80px rgba(255,221,0,0.4), 0 0 120px rgba(255,221,0,0.2); }
+}
+
+/* shake — violent shaking */
+.css-robot[data-movement="shake"] .robot-body-wrap {
+  animation: trig-shake-violent 0.12s ease-in-out 20 !important;
+}
+@keyframes trig-shake-violent {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  25%      { transform: translateX(-8px) rotate(-3deg); }
+  75%      { transform: translateX(8px) rotate(3deg); }
+}
+
+/* questions — floating ??? above the character */
+.css-robot[data-movement="questions"]::before {
+  content: '???'; position: absolute; z-index: 12; pointer-events: none;
+  top: -8px; left: 50%; transform: translateX(-50%);
+  font-size: 18px; font-weight: 900; font-family: var(--font-mono);
+  color: #ffcc00;
+  text-shadow: 0 0 8px rgba(255,204,0,0.8), 0 0 20px rgba(255,204,0,0.4);
+  animation: trig-questions-float 0.7s ease-in-out 4;
+}
+.css-robot[data-movement="questions"]::after {
+  content: '?'; position: absolute; z-index: 12; pointer-events: none;
+  top: -2px; right: 2px;
+  font-size: 12px; font-weight: 900; font-family: var(--font-mono);
+  color: rgba(255,204,0,0.6);
+  text-shadow: 0 0 6px rgba(255,204,0,0.5);
+  animation: trig-questions-drift 0.9s ease-in-out 3;
+  animation-delay: 0.2s;
+}
+.css-robot[data-movement="questions"] .robot-body-wrap {
+  animation: trig-questions-tilt 0.6s ease-in-out 4 !important;
+}
+@keyframes trig-questions-float {
+  0%, 100% { opacity: 0; transform: translateX(-50%) translateY(0) scale(0.5); }
+  20%      { opacity: 1; transform: translateX(-50%) translateY(-6px) scale(1.1); }
+  50%      { opacity: 1; transform: translateX(-50%) translateY(-12px) scale(1); }
+  80%      { opacity: 0.6; transform: translateX(-50%) translateY(-16px) scale(0.9); }
+}
+@keyframes trig-questions-drift {
+  0%, 100% { opacity: 0; transform: translateY(0) rotate(0deg); }
+  30%      { opacity: 0.8; transform: translateY(-10px) rotate(10deg); }
+  70%      { opacity: 0.5; transform: translateY(-18px) rotate(-5deg); }
+}
+@keyframes trig-questions-tilt {
+  0%, 100% { transform: rotate(0deg); }
+  30%      { transform: rotate(5deg); }
+  70%      { transform: rotate(-5deg); }
+}
+
+/* fade — dramatic ghost-out */
+.css-robot[data-movement="fade"] {
+  animation: trig-fade-ghost 1.5s ease-out 1 forwards;
+}
+@keyframes trig-fade-ghost {
+  0%   { opacity: 1; transform: scale(1); filter: blur(0); }
+  50%  { opacity: 0.5; transform: scale(1.03); filter: blur(1px); }
+  100% { opacity: 0.15; transform: scale(0.95); filter: blur(3px); }
+}
+
+/* shrink — dramatic shrink with spin */
+.css-robot[data-movement="shrink"] .robot-body-wrap {
+  animation: trig-shrink-spin 1.2s ease-in 1 forwards !important;
+}
+@keyframes trig-shrink-spin {
+  0%   { transform: scale(1) rotate(0deg); opacity: 1; }
+  50%  { transform: scale(0.6) rotate(180deg); opacity: 0.6; }
+  100% { transform: scale(0.15) rotate(360deg); opacity: 0; }
+}
+
+/* dissolve — intense dissolve with blur and scatter */
+.css-robot[data-movement="dissolve"] .robot-body-wrap {
+  animation: trig-dissolve-blast 1.5s ease-out 1 forwards !important;
+}
+@keyframes trig-dissolve-blast {
+  0%   { filter: blur(0); opacity: 1; transform: scale(1); }
+  30%  { filter: blur(2px); opacity: 0.7; transform: scale(1.1); }
+  60%  { filter: blur(6px); opacity: 0.3; transform: scale(1.15); }
+  100% { filter: blur(12px); opacity: 0; transform: scale(1.2); }
+}
+
+/* ---- Movement preview in settings ---- */
+
+.movement-preview-section {
+  margin-bottom: 12px;
+}
+.movement-preview-viewport {
+  position: relative;
+  width: 100%;
+  height: 160px;
+  background: rgba(0,0,0,0.3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.movement-preview-viewport .css-robot {
+  transform: scale(0.9);
+  transform-origin: center center;
+}
+.movement-preview-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
+  pointer-events: none;
+}
+.movement-preview-effect-name {
+  position: absolute;
+  bottom: 6px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 10px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.movement-preview-effect-name.visible {
+  opacity: 1;
+}
+
+/* ---- Animation settings UI styles ---- */
+
+.anim-intensity-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.anim-intensity-control span {
+  font-size: 11px;
+  color: var(--text-secondary);
+  min-width: 32px;
+  text-align: right;
+}
+.anim-intensity-control input[type="range"] {
+  flex: 1;
+}
+
+/* ============================================================
+   Responsive: Animation Mobile & Touch Enhancements
+   ============================================================ */
+
+/* --- Enhanced prefers-reduced-motion support --- */
+@media (prefers-reduced-motion: reduce) {
+  /* Override all animation effects with simpler alternatives */
+  .css-robot[data-status="working"] .robot-head::after,
+  .css-robot[data-status="working"] .robot-head::before,
+  .char-cat[data-status="working"] .cat-head::after,
+  .char-cat[data-status="working"] .cat-head::before,
+  .char-alien[data-status="working"] .alien-dome::after,
+  .char-alien[data-status="working"] .alien-dome::before,
+  .char-ghost[data-status="working"] .ghost-body::after,
+  .char-ghost[data-status="working"] .ghost-body::before,
+  .char-orb[data-status="working"] .orb-core::after,
+  .char-orb[data-status="working"] .orb-core::before,
+  .char-dragon[data-status="working"] .dragon-head::after,
+  .char-dragon[data-status="working"] .dragon-head::before {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+
+  /* Disable triggered movement effects */
+  .css-robot[data-movement]::before,
+  .css-robot[data-movement]::after {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+
+  .css-robot[data-movement] .robot-body-wrap {
+    animation: none !important;
+  }
+
+  /* Disable configurable status effects */
+  body[data-effect-working="energy-ring"] .css-robot[data-status="working"]::before,
+  body[data-effect-working="energy-ring"] .css-robot[data-status="working"]::after,
+  body[data-effect-working="sparks"] .css-robot[data-status="working"]::before,
+  body[data-effect-working="sparks"] .css-robot[data-status="working"]::after,
+  body[data-effect-working="steam"] .css-robot[data-status="working"]::before,
+  body[data-effect-working="steam"] .css-robot[data-status="working"]::after {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+
+  /* Show static indicators instead of animations for key states */
+  .css-robot[data-status="approval"] {
+    outline: 2px solid rgba(255, 221, 0, 0.6);
+    outline-offset: 4px;
+    border-radius: 8px;
+  }
+
+  .css-robot[data-status="working"] {
+    outline: 2px solid rgba(255, 152, 0, 0.4);
+    outline-offset: 4px;
+    border-radius: 8px;
+  }
+
+  /* Suppress movement preview animations */
+  .movement-preview-viewport .css-robot {
+    animation: none !important;
+  }
+  .movement-preview-viewport .css-robot::before,
+  .movement-preview-viewport .css-robot::after {
+    animation: none !important;
+  }
+}
+
+/* --- :active touch feedback on animation settings controls --- */
+.anim-intensity-control input[type="range"]:active {
+  opacity: 0.8;
+}
+
+.movement-preview-viewport:active {
+  opacity: 0.9;
+}
+
+/* --- Touch device enhancements (pointer: coarse) --- */
+@media (pointer: coarse) {
+  /* Animation sliders: larger hit area on touch devices */
+  .anim-intensity-control input[type="range"] {
+    height: 44px;
+    cursor: pointer;
+  }
+
+  .anim-intensity-control {
+    min-height: 44px;
+  }
+
+  /* Movement preview: larger tap targets */
+  .movement-preview-viewport {
+    min-height: 120px;
+  }
+}
+
+/* --- Tablet (max-width: 768px) --- */
+@media (max-width: 768px) {
+  /* Scale down characters proportionally on tablet */
+  .css-robot {
+    transform: scale(0.85);
+    transform-origin: center bottom;
+  }
+
+  /* Movement preview: slightly smaller */
+  .movement-preview-viewport {
+    height: 140px;
+  }
+
+  .movement-preview-viewport .css-robot {
+    transform: scale(0.75);
+  }
+}
+
+/* --- Small tablet / large phone (max-width: 640px) --- */
+@media (max-width: 640px) {
+  /* Scale down characters more on mobile */
+  .css-robot {
+    transform: scale(0.75);
+    transform-origin: center bottom;
+  }
+
+  /* Reduce sweat drops box-shadow complexity for performance */
+  .css-robot[data-status="working"] .robot-head::after,
+  .char-cat[data-status="working"] .cat-head::after,
+  .char-alien[data-status="working"] .alien-dome::after,
+  .char-ghost[data-status="working"] .ghost-body::after,
+  .char-orb[data-status="working"] .orb-core::after,
+  .char-dragon[data-status="working"] .dragon-head::after,
+  .char-penguin[data-status="working"] .penguin-head::after,
+  .char-octopus[data-status="working"] .octo-head::after,
+  .char-mushroom[data-status="working"] .mush-cap::after,
+  .char-fox[data-status="working"] .fox-head::after,
+  .char-unicorn[data-status="working"] .unicorn-head::after,
+  .char-jellyfish[data-status="working"] .jelly-bell::after,
+  .char-owl[data-status="working"] .owl-head::after,
+  .char-bat[data-status="working"] .bat-head::after,
+  .char-cactus[data-status="working"] .cactus-body::after,
+  .char-slime[data-status="working"] .slime-body::after,
+  .char-pumpkin[data-status="working"] .pumpkin-body::after,
+  .char-yeti[data-status="working"] .yeti-head::after,
+  .char-crystal[data-status="working"] .crystal-body::after,
+  .char-bee[data-status="working"] .bee-head::after {
+    /* Reduce from 19 box-shadow drops to 6 for mobile performance */
+    box-shadow:
+      -4px 4px 0 1px rgba(100,220,255,1),
+      2px 14px 0 0 rgba(80,200,255,0.9),
+      -2px 24px 0 1px rgba(80,200,255,0.85),
+      5px 34px 0 0 rgba(60,190,255,0.8),
+      -3px 44px 0 1px rgba(100,220,255,0.75),
+      1px 49px 0 0 rgba(80,200,255,0.7);
+  }
+
+  .css-robot[data-status="working"] .robot-head::before,
+  .char-cat[data-status="working"] .cat-head::before,
+  .char-alien[data-status="working"] .alien-dome::before,
+  .char-ghost[data-status="working"] .ghost-body::before,
+  .char-orb[data-status="working"] .orb-core::before,
+  .char-dragon[data-status="working"] .dragon-head::before,
+  .char-penguin[data-status="working"] .penguin-head::before,
+  .char-octopus[data-status="working"] .octo-head::before,
+  .char-mushroom[data-status="working"] .mush-cap::before,
+  .char-fox[data-status="working"] .fox-head::before,
+  .char-unicorn[data-status="working"] .unicorn-head::before,
+  .char-jellyfish[data-status="working"] .jelly-bell::before,
+  .char-owl[data-status="working"] .owl-head::before,
+  .char-bat[data-status="working"] .bat-head::before,
+  .char-cactus[data-status="working"] .cactus-body::before,
+  .char-slime[data-status="working"] .slime-body::before,
+  .char-pumpkin[data-status="working"] .pumpkin-body::before,
+  .char-yeti[data-status="working"] .yeti-head::before,
+  .char-crystal[data-status="working"] .crystal-body::before,
+  .char-bee[data-status="working"] .bee-head::before {
+    /* Reduce from 19 box-shadow drops to 6 for mobile performance */
+    box-shadow:
+      4px 4px 0 1px rgba(100,220,255,1),
+      -2px 14px 0 0 rgba(80,200,255,0.9),
+      2px 24px 0 1px rgba(80,200,255,0.85),
+      -5px 34px 0 0 rgba(60,190,255,0.8),
+      3px 44px 0 1px rgba(100,220,255,0.75),
+      -1px 49px 0 0 rgba(80,200,255,0.7);
+  }
+
+  /* Simplify triggered movement sparks (reduce box-shadow points) */
+  .css-robot[data-movement="sparks"]::before {
+    box-shadow:
+      12px -15px 0 1px #ffcc00,
+      -16px -10px 0 0 #ffa000,
+      20px 6px 0 1px #ff9800,
+      -12px 12px 0 0 #ffcc80;
+  }
+  .css-robot[data-movement="sparks"]::after {
+    box-shadow:
+      -10px -18px 0 1px #ffe082,
+      18px -12px 0 0 #ffca28,
+      -22px 4px 0 1px #ffc107,
+      10px 16px 0 0 #ffe082;
+  }
+
+  /* Simplify triggered sparkle effects */
+  .css-robot[data-movement="sparkle"]::before {
+    box-shadow:
+      25px -8px 0 1px rgba(255,255,255,1),
+      -15px 20px 0 0 rgba(255,255,255,0.95),
+      30px 25px 0 1px rgba(255,255,255,0.9),
+      8px 40px 0 0 rgba(255,255,255,0.85);
+  }
+  .css-robot[data-movement="sparkle"]::after {
+    box-shadow:
+      15px 10px 0 1px rgba(255,255,200,0.9),
+      35px 5px 0 0 rgba(255,255,200,0.85),
+      5px 30px 0 1px rgba(255,255,200,0.8);
+  }
+
+  /* Simplify energy-ring effects */
+  body[data-effect-working="energy-ring"] .css-robot[data-status="working"]::before {
+    box-shadow: 0 0 15px rgba(255, 152, 0, 0.5);
+  }
+  body[data-effect-working="energy-ring"] .css-robot[data-status="working"]::after {
+    box-shadow: 0 0 10px rgba(255, 200, 0, 0.3);
+  }
+
+  /* Simplify steam clouds */
+  body[data-effect-working="steam"] .css-robot[data-status="working"]::before {
+    box-shadow:
+      14px -6px 0 4px rgba(220,220,240,0.5),
+      -8px -12px 0 3px rgba(220,220,240,0.4);
+  }
+  body[data-effect-working="steam"] .css-robot[data-status="working"]::after {
+    box-shadow:
+      -12px -8px 0 4px rgba(220,220,240,0.45);
+  }
+
+  /* Movement preview: compact */
+  .movement-preview-viewport {
+    height: 120px;
+  }
+
+  .movement-preview-viewport .css-robot {
+    transform: scale(0.6);
+  }
+
+  /* Animation settings: compact */
+  .movement-preview-label {
+    font-size: 10px;
+  }
+
+  .movement-preview-effect-name {
+    font-size: 9px;
+  }
+}
+
+/* --- Phone (max-width: 480px) --- */
+@media (max-width: 480px) {
+  /* Scale down characters further */
+  .css-robot {
+    transform: scale(0.65);
+    transform-origin: center bottom;
+  }
+
+  /* Reduce animation speed on small screens for less jank */
+  .css-robot[data-status="working"] .robot-head::after,
+  .css-robot[data-status="working"] .robot-head::before {
+    animation-duration: 1.2s;
+  }
+
+  /* Movement preview: even more compact */
+  .movement-preview-viewport {
+    height: 100px;
+  }
+
+  .movement-preview-viewport .css-robot {
+    transform: scale(0.5);
+  }
+
+  /* Anim intensity control: compact layout */
+  .anim-intensity-control span {
+    font-size: 10px;
+    min-width: 24px;
+  }
+}
+
+/* --- Small phone (max-width: 375px) --- */
+@media (max-width: 375px) {
+  .css-robot {
+    transform: scale(0.55);
+    transform-origin: center bottom;
+  }
+
+  .movement-preview-viewport {
+    height: 90px;
+  }
+}
+
+/* --- Smallest phone (max-width: 320px) --- */
+@media (max-width: 320px) {
+  .css-robot {
+    transform: scale(0.5);
+    transform-origin: center bottom;
+  }
+
+  .movement-preview-viewport {
+    height: 80px;
+  }
+
+  .anim-intensity-control {
+    gap: 6px;
+  }
+}
+
+/* --- Scroll-snap for horizontally scrollable containers --- */
+.terminal-toolbar-actions {
+  scroll-snap-type: x proximity;
+}
+
+.terminal-toolbar-actions > * {
+  scroll-snap-align: start;
+}
+

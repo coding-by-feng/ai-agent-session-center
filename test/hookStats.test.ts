@@ -1,6 +1,5 @@
-// test/hookStats.test.js — Tests for server/hookStats.js
-import { describe, it, beforeEach } from 'node:test';
-import assert from 'node:assert/strict';
+// test/hookStats.test.ts — Tests for server/hookStats.ts
+import { describe, it, beforeEach, expect } from 'vitest';
 import { recordHook, getStats, resetStats } from '../server/hookStats.js';
 
 describe('hookStats', () => {
@@ -13,7 +12,7 @@ describe('hookStats', () => {
       recordHook('PreToolUse', null, 5);
       recordHook('Stop', null, 3);
       const stats = getStats();
-      assert.equal(stats.totalHooks, 2);
+      expect(stats.totalHooks).toBe(2);
     });
 
     it('tracks per-event counts', () => {
@@ -21,33 +20,33 @@ describe('hookStats', () => {
       recordHook('PreToolUse', null, 3);
       recordHook('Stop', null, 2);
       const stats = getStats();
-      assert.equal(stats.events.PreToolUse.count, 2);
-      assert.equal(stats.events.Stop.count, 1);
+      expect(stats.events.PreToolUse.count).toBe(2);
+      expect(stats.events.Stop.count).toBe(1);
     });
 
     it('records delivery latency when provided', () => {
       recordHook('PreToolUse', 50, 5);
       recordHook('PreToolUse', 100, 3);
       const stats = getStats();
-      assert.equal(stats.events.PreToolUse.latency.min, 50);
-      assert.equal(stats.events.PreToolUse.latency.max, 100);
+      expect(stats.events.PreToolUse.latency.min).toBe(50);
+      expect(stats.events.PreToolUse.latency.max).toBe(100);
     });
 
     it('ignores null delivery latency', () => {
       recordHook('PreToolUse', null, 5);
       const stats = getStats();
       // No latency data should yield zeroes
-      assert.equal(stats.events.PreToolUse.latency.avg, 0);
-      assert.equal(stats.events.PreToolUse.latency.p95, 0);
+      expect(stats.events.PreToolUse.latency.avg).toBe(0);
+      expect(stats.events.PreToolUse.latency.p95).toBe(0);
     });
 
     it('records processing time', () => {
       recordHook('Stop', null, 10);
       recordHook('Stop', null, 20);
       const stats = getStats();
-      assert.equal(stats.events.Stop.processing.min, 10);
-      assert.equal(stats.events.Stop.processing.max, 20);
-      assert.equal(stats.events.Stop.processing.avg, 15);
+      expect(stats.events.Stop.processing.min).toBe(10);
+      expect(stats.events.Stop.processing.max).toBe(20);
+      expect(stats.events.Stop.processing.avg).toBe(15);
     });
   });
 
@@ -55,10 +54,10 @@ describe('hookStats', () => {
     it('returns correct structure', () => {
       recordHook('SessionStart', 10, 2);
       const stats = getStats();
-      assert.equal(typeof stats.totalHooks, 'number');
-      assert.equal(typeof stats.hooksPerMin, 'number');
-      assert.equal(typeof stats.events, 'object');
-      assert.equal(typeof stats.sampledAt, 'number');
+      expect(typeof stats.totalHooks).toBe('number');
+      expect(typeof stats.hooksPerMin).toBe('number');
+      expect(typeof stats.events).toBe('object');
+      expect(typeof stats.sampledAt).toBe('number');
     });
 
     it('returns per-event rate (hooks in last minute)', () => {
@@ -67,14 +66,14 @@ describe('hookStats', () => {
       recordHook('PreToolUse', null, 1);
       const stats = getStats();
       // All recorded just now, should be 3
-      assert.equal(stats.events.PreToolUse.rate, 3);
+      expect(stats.events.PreToolUse.rate).toBe(3);
     });
 
     it('returns global hooksPerMin', () => {
       recordHook('A', null, 1);
       recordHook('B', null, 1);
       const stats = getStats();
-      assert.equal(stats.hooksPerMin, 2);
+      expect(stats.hooksPerMin).toBe(2);
     });
   });
 
@@ -86,14 +85,14 @@ describe('hookStats', () => {
       }
       const stats = getStats();
       // p95 index = Math.floor(20 * 0.95) = 19, sorted[19] = 20
-      assert.equal(stats.events.Test.latency.p95, 20);
+      expect(stats.events.Test.latency.p95).toBe(20);
     });
 
     it('calculates p95 with single entry', () => {
       recordHook('Test', 42, 1);
       const stats = getStats();
       // p95 index = Math.floor(1 * 0.95) = 0, sorted[0] = 42
-      assert.equal(stats.events.Test.latency.p95, 42);
+      expect(stats.events.Test.latency.p95).toBe(42);
     });
   });
 
@@ -103,9 +102,9 @@ describe('hookStats', () => {
       recordHook('Stop', 30, 3);
       resetStats();
       const stats = getStats();
-      assert.equal(stats.totalHooks, 0);
-      assert.equal(stats.hooksPerMin, 0);
-      assert.deepEqual(stats.events, {});
+      expect(stats.totalHooks).toBe(0);
+      expect(stats.hooksPerMin).toBe(0);
+      expect(stats.events).toEqual({});
     });
   });
 });

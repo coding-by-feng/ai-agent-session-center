@@ -1,0 +1,93 @@
+/* Character: BAT */
+
+/* ============================================================
+   Character: BAT
+   ============================================================ */
+
+.char-bat .bat-head {
+  width: 56px; height: 48px;
+  background: linear-gradient(145deg, var(--robot-body), var(--robot-body-dark));
+  border: 2px solid var(--robot-border);
+  border-radius: 50%;
+  position: relative;
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  box-shadow: 0 0 12px rgba(0,0,0,0.4), inset 0 1px 0 var(--inset-highlight);
+}
+.char-bat .bat-ear {
+  position: absolute; top: -16px;
+  width: 0; height: 0;
+  border-left: 8px solid transparent; border-right: 8px solid transparent;
+  border-bottom: 20px solid var(--robot-body);
+  filter: drop-shadow(0 0 2px var(--robot-border));
+}
+.char-bat .bat-ear-left { left: 6px; }
+.char-bat .bat-ear-right { right: 6px; }
+.char-bat .bat-eye {
+  width: 10px; height: 8px; border-radius: 50%;
+  background: var(--robot-color);
+  box-shadow: 0 0 6px var(--robot-color), 0 0 12px var(--robot-color);
+  transition: all 0.3s ease;
+}
+.char-bat .bat-fang {
+  position: absolute; bottom: 6px;
+  width: 3px; height: 6px;
+  background: var(--robot-color); opacity: 0.5;
+  border-radius: 0 0 2px 2px;
+}
+.char-bat .bat-fang-left { left: 20px; }
+.char-bat .bat-fang-right { right: 20px; }
+.char-bat .bat-body {
+  width: 44px; height: 28px;
+  background: linear-gradient(180deg, var(--robot-body), var(--robot-body-dark));
+  border: 2px solid var(--robot-border); border-top: none;
+  border-radius: 0 0 18px 18px;
+  margin-top: -2px; position: relative;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+}
+.char-bat .bat-wing {
+  position: absolute; top: -8px;
+  width: 40px; height: 30px;
+  background: var(--robot-body-dark);
+  border: 1.5px solid var(--robot-border);
+  transition: all 0.3s ease;
+  transform-origin: top center;
+}
+.char-bat .bat-wing-left { left: -36px; border-radius: 50% 0 50% 50%; transform-origin: right top; }
+.char-bat .bat-wing-right { right: -36px; border-radius: 0 50% 50% 50%; transform-origin: left top; }
+
+/* Bat Status Animations */
+.char-bat[data-status="idle"] .robot-body-wrap { animation: robot-float 3s ease-in-out infinite; }
+.char-bat[data-status="idle"] .bat-eye { animation: robot-blink 4s ease-in-out infinite; }
+.char-bat[data-status="idle"] .bat-wing { animation: bat-wing-fold 3s ease-in-out infinite; }
+.char-bat[data-status="idle"] .robot-shadow { animation: robot-shadow-float 3s ease-in-out infinite; }
+
+.char-bat[data-status="prompting"] .robot-body-wrap { animation: robot-float 2.5s ease-in-out infinite; }
+.char-bat[data-status="prompting"] .bat-eye { width: 12px; height: 10px; box-shadow: 0 0 10px var(--robot-color), 0 0 20px var(--robot-color); }
+.char-bat[data-status="prompting"] .bat-wing { animation: bat-wing-flap 1.5s ease-in-out infinite; }
+
+.char-bat[data-status="working"] .robot-body-wrap { animation: dragon-work-multi 10s ease-in-out infinite; }
+.char-bat[data-status="working"] .bat-eye { width: 12px; height: 5px; border-radius: 3px; animation: robot-work-eye-scan 0.8s ease-in-out infinite; box-shadow: 0 0 10px var(--robot-color), 0 0 20px var(--robot-color); }
+.char-bat[data-status="working"] .bat-wing { animation: bat-wing-flap 0.4s ease-in-out infinite; }
+
+.char-bat[data-status="waiting"] { --robot-color: #a0c4ff; }
+.char-bat[data-status="waiting"] .bat-eye { background: #a0c4ff; box-shadow: 0 0 8px #a0c4ff; }
+
+.char-bat[data-status="approval"] { --robot-color: #ffdd00; }
+.char-bat[data-status="approval"]::after { content: '!'; position: absolute; top: -8px; left: 50%; transform: translateX(-50%); font-size: 28px; font-weight: 900; color: #ffdd00; text-shadow: 0 0 12px #ffdd00, 0 0 30px rgba(255,221,0,0.6); animation: robot-approval-emote-bounce 0.8s ease-in-out infinite; z-index: 10; pointer-events: none; }
+.char-bat[data-status="approval"] .robot-body-wrap { animation: robot-approval-bounce 1s ease-in-out infinite; }
+.char-bat[data-status="approval"] .bat-eye { width: 14px; height: 12px; background: #ffdd00; box-shadow: 0 0 18px #ffdd00, 0 0 36px #ffdd00; }
+
+.char-bat[data-status="ended"] { opacity: 0.5; }
+.char-bat[data-status="ended"] .bat-eye { width: 10px; height: 3px; border-radius: 2px; background: var(--text-dim); box-shadow: none; }
+
+.char-bat.robot-emote .robot-body-wrap { animation: robot-emote-bounce 0.6s ease-out !important; }
+
+@keyframes bat-wing-fold {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-5deg); }
+}
+@keyframes bat-wing-flap {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-15deg); }
+}
+

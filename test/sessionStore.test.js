@@ -1,6 +1,5 @@
 // test/sessionStore.test.js — Tests for server/sessionStore.js
-import { describe, it, beforeEach } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, expect } from 'vitest';
 import {
   handleEvent, getAllSessions, getSession, setSessionTitle, setSessionLabel,
   pushEvent, getEventsSince, getEventSeq,
@@ -24,15 +23,15 @@ describe('sessionStore', () => {
   describe('handleEvent - SessionStart', () => {
     it('creates a session with idle status', () => {
       const result = createSession('store-test-start-1');
-      assert.ok(result);
-      assert.equal(result.session.sessionId, 'store-test-start-1');
-      assert.equal(result.session.status, SESSION_STATUS.IDLE);
-      assert.equal(result.session.animationState, ANIMATION_STATE.IDLE);
+      expect(result).toBeTruthy();
+      expect(result.session.sessionId).toBe('store-test-start-1');
+      expect(result.session.status).toBe(SESSION_STATUS.IDLE);
+      expect(result.session.animationState).toBe(ANIMATION_STATE.IDLE);
     });
 
     it('stores the model from hook data', () => {
       const result = createSession('store-test-start-2');
-      assert.equal(result.session.model, 'claude-sonnet-4-5-20250514');
+      expect(result.session.model).toBe('claude-sonnet-4-5-20250514');
     });
 
     it('sets projectPath from cwd', () => {
@@ -41,8 +40,8 @@ describe('sessionStore', () => {
         hook_event_name: EVENT_TYPES.SESSION_START,
         cwd: '/home/user/my-project',
       });
-      assert.equal(result.session.projectPath, '/home/user/my-project');
-      assert.equal(result.session.projectName, 'my-project');
+      expect(result.session.projectPath).toBe('/home/user/my-project');
+      expect(result.session.projectName).toBe('my-project');
     });
   });
 
@@ -54,10 +53,10 @@ describe('sessionStore', () => {
         hook_event_name: EVENT_TYPES.USER_PROMPT_SUBMIT,
         prompt: 'Fix the bug in auth.js',
       });
-      assert.equal(result.session.status, SESSION_STATUS.PROMPTING);
-      assert.equal(result.session.animationState, ANIMATION_STATE.WALKING);
-      assert.equal(result.session.emote, EMOTE.WAVE);
-      assert.equal(result.session.currentPrompt, 'Fix the bug in auth.js');
+      expect(result.session.status).toBe(SESSION_STATUS.PROMPTING);
+      expect(result.session.animationState).toBe(ANIMATION_STATE.WALKING);
+      expect(result.session.emote).toBe(EMOTE.WAVE);
+      expect(result.session.currentPrompt).toBe('Fix the bug in auth.js');
     });
 
     it('transitions to working on PreToolUse', () => {
@@ -73,8 +72,8 @@ describe('sessionStore', () => {
         tool_name: 'Read',
         tool_input: { file_path: '/tmp/file.js' },
       });
-      assert.equal(result.session.status, SESSION_STATUS.WORKING);
-      assert.equal(result.session.animationState, ANIMATION_STATE.RUNNING);
+      expect(result.session.status).toBe(SESSION_STATUS.WORKING);
+      expect(result.session.animationState).toBe(ANIMATION_STATE.RUNNING);
     });
 
     it('stays working on PostToolUse', () => {
@@ -89,7 +88,7 @@ describe('sessionStore', () => {
         hook_event_name: EVENT_TYPES.POST_TOOL_USE,
         tool_name: 'Read',
       });
-      assert.equal(result.session.status, SESSION_STATUS.WORKING);
+      expect(result.session.status).toBe(SESSION_STATUS.WORKING);
     });
 
     it('transitions to waiting on Stop', () => {
@@ -98,7 +97,7 @@ describe('sessionStore', () => {
         session_id: 'store-test-stop-1',
         hook_event_name: EVENT_TYPES.STOP,
       });
-      assert.equal(result.session.status, SESSION_STATUS.WAITING);
+      expect(result.session.status).toBe(SESSION_STATUS.WAITING);
     });
 
     it('transitions to ended on SessionEnd', () => {
@@ -108,8 +107,8 @@ describe('sessionStore', () => {
         hook_event_name: EVENT_TYPES.SESSION_END,
         reason: 'user_exit',
       });
-      assert.equal(result.session.status, SESSION_STATUS.ENDED);
-      assert.equal(result.session.animationState, ANIMATION_STATE.DEATH);
+      expect(result.session.status).toBe(SESSION_STATUS.ENDED);
+      expect(result.session.animationState).toBe(ANIMATION_STATE.DEATH);
     });
 
     it('full lifecycle: idle -> prompting -> working -> waiting -> idle (via new prompt)', () => {
@@ -122,7 +121,7 @@ describe('sessionStore', () => {
         prompt: 'Do something',
       });
       let session = getSession('store-test-lifecycle');
-      assert.equal(session.status, SESSION_STATUS.PROMPTING);
+      expect(session.status).toBe(SESSION_STATUS.PROMPTING);
 
       // PreToolUse -> working
       handleEvent({
@@ -131,7 +130,7 @@ describe('sessionStore', () => {
         tool_name: 'Bash',
       });
       session = getSession('store-test-lifecycle');
-      assert.equal(session.status, SESSION_STATUS.WORKING);
+      expect(session.status).toBe(SESSION_STATUS.WORKING);
 
       // Stop -> waiting
       handleEvent({
@@ -139,7 +138,7 @@ describe('sessionStore', () => {
         hook_event_name: EVENT_TYPES.STOP,
       });
       session = getSession('store-test-lifecycle');
-      assert.equal(session.status, SESSION_STATUS.WAITING);
+      expect(session.status).toBe(SESSION_STATUS.WAITING);
     });
   });
 
@@ -165,8 +164,8 @@ describe('sessionStore', () => {
         tool_input: { file_path: '/tmp/c.js' },
       });
       const session = getSession('store-test-tools-1');
-      assert.equal(session.toolUsage.Read, 2);
-      assert.equal(session.toolUsage.Edit, 1);
+      expect(session.toolUsage.Read).toBe(2);
+      expect(session.toolUsage.Edit).toBe(1);
     });
 
     it('adds to tool log', () => {
@@ -178,9 +177,9 @@ describe('sessionStore', () => {
         tool_input: { command: 'npm install' },
       });
       const session = getSession('store-test-toollog');
-      assert.ok(session.toolLog.length > 0);
-      assert.equal(session.toolLog[0].tool, 'Bash');
-      assert.ok(session.toolLog[0].input.includes('npm install'));
+      expect(session.toolLog.length).toBeGreaterThan(0);
+      expect(session.toolLog[0].tool).toBe('Bash');
+      expect(session.toolLog[0].input).toContain('npm install');
     });
 
     it('caps tool log at 200 entries', () => {
@@ -194,7 +193,7 @@ describe('sessionStore', () => {
         });
       }
       const session = getSession('store-test-toollog-cap');
-      assert.ok(session.toolLog.length <= 200);
+      expect(session.toolLog.length).toBeLessThanOrEqual(200);
     });
   });
 
@@ -212,9 +211,9 @@ describe('sessionStore', () => {
         prompt: 'Second prompt',
       });
       const session = getSession('store-test-prompts');
-      assert.equal(session.promptHistory.length, 2);
-      assert.equal(session.promptHistory[0].text, 'First prompt');
-      assert.equal(session.promptHistory[1].text, 'Second prompt');
+      expect(session.promptHistory.length).toBe(2);
+      expect(session.promptHistory[0].text).toBe('First prompt');
+      expect(session.promptHistory[1].text).toBe('Second prompt');
     });
 
     it('caps prompt history at 50', () => {
@@ -227,7 +226,7 @@ describe('sessionStore', () => {
         });
       }
       const session = getSession('store-test-prompt-cap');
-      assert.ok(session.promptHistory.length <= 50);
+      expect(session.promptHistory.length).toBeLessThanOrEqual(50);
     });
   });
 
@@ -239,8 +238,8 @@ describe('sessionStore', () => {
         hook_event_name: EVENT_TYPES.SUBAGENT_START,
         agent_type: 'code-reviewer',
       });
-      assert.equal(result.session.subagentCount, 1);
-      assert.equal(result.session.emote, EMOTE.JUMP);
+      expect(result.session.subagentCount).toBe(1);
+      expect(result.session.emote).toBe(EMOTE.JUMP);
     });
 
     it('handles SubagentStop (decrements count)', () => {
@@ -253,7 +252,7 @@ describe('sessionStore', () => {
         session_id: 'store-test-subagent-stop',
         hook_event_name: EVENT_TYPES.SUBAGENT_STOP,
       });
-      assert.equal(result.session.subagentCount, 0);
+      expect(result.session.subagentCount).toBe(0);
     });
 
     it('SubagentStop does not go below 0', () => {
@@ -262,7 +261,7 @@ describe('sessionStore', () => {
         session_id: 'store-test-subagent-min',
         hook_event_name: EVENT_TYPES.SUBAGENT_STOP,
       });
-      assert.equal(result.session.subagentCount, 0);
+      expect(result.session.subagentCount).toBe(0);
     });
 
     it('handles PermissionRequest', () => {
@@ -277,7 +276,7 @@ describe('sessionStore', () => {
         hook_event_name: EVENT_TYPES.PERMISSION_REQUEST,
         tool_name: 'Bash',
       });
-      assert.equal(result.session.status, SESSION_STATUS.APPROVAL);
+      expect(result.session.status).toBe(SESSION_STATUS.APPROVAL);
     });
 
     it('handles PostToolUseFailure', () => {
@@ -294,7 +293,7 @@ describe('sessionStore', () => {
         tool_name: 'Bash',
         error: 'Permission denied',
       });
-      assert.equal(result.session.status, SESSION_STATUS.WORKING);
+      expect(result.session.status).toBe(SESSION_STATUS.WORKING);
     });
 
     it('handles TaskCompleted', () => {
@@ -304,7 +303,7 @@ describe('sessionStore', () => {
         hook_event_name: EVENT_TYPES.TASK_COMPLETED,
         task_description: 'Fix auth bug',
       });
-      assert.equal(result.session.emote, EMOTE.THUMBS_UP);
+      expect(result.session.emote).toBe(EMOTE.THUMBS_UP);
     });
 
     it('handles Notification', () => {
@@ -314,8 +313,8 @@ describe('sessionStore', () => {
         hook_event_name: EVENT_TYPES.NOTIFICATION,
         message: 'Build succeeded',
       });
-      assert.ok(result);
-      assert.ok(result.session);
+      expect(result).toBeTruthy();
+      expect(result.session).toBeTruthy();
     });
 
     it('handles PreCompact', () => {
@@ -324,14 +323,14 @@ describe('sessionStore', () => {
         session_id: 'store-test-compact',
         hook_event_name: EVENT_TYPES.PRE_COMPACT,
       });
-      assert.ok(result);
+      expect(result).toBeTruthy();
     });
   });
 
   describe('handleEvent - returns null for missing session_id', () => {
     it('returns null when session_id is missing', () => {
       const result = handleEvent({ hook_event_name: 'SessionStart' });
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
   });
 
@@ -347,7 +346,7 @@ describe('sessionStore', () => {
       }
       const session = getSession('store-test-events-cap');
       // SessionStart adds 1 event, plus 55 PreToolUse = 56 total, capped to 50
-      assert.ok(session.events.length <= 50);
+      expect(session.events.length).toBeLessThanOrEqual(50);
     });
   });
 
@@ -355,33 +354,33 @@ describe('sessionStore', () => {
     it('getAllSessions returns object with session data', () => {
       createSession('store-test-getall-1');
       const all = getAllSessions();
-      assert.ok(all['store-test-getall-1']);
-      assert.equal(all['store-test-getall-1'].sessionId, 'store-test-getall-1');
+      expect(all['store-test-getall-1']).toBeTruthy();
+      expect(all['store-test-getall-1'].sessionId).toBe('store-test-getall-1');
     });
 
     it('getSession returns session copy', () => {
       createSession('store-test-get-1');
       const session = getSession('store-test-get-1');
-      assert.ok(session);
-      assert.equal(session.sessionId, 'store-test-get-1');
+      expect(session).toBeTruthy();
+      expect(session.sessionId).toBe('store-test-get-1');
     });
 
     it('getSession returns null for non-existent session', () => {
       const session = getSession('non-existent-session-xyz');
-      assert.equal(session, null);
+      expect(session).toBe(null);
     });
 
     it('deleteSessionFromMemory removes session', () => {
       createSession('store-test-delete-1');
-      assert.ok(getSession('store-test-delete-1'));
+      expect(getSession('store-test-delete-1')).toBeTruthy();
       const removed = deleteSessionFromMemory('store-test-delete-1');
-      assert.equal(removed, true);
-      assert.equal(getSession('store-test-delete-1'), null);
+      expect(removed).toBe(true);
+      expect(getSession('store-test-delete-1')).toBe(null);
     });
 
     it('deleteSessionFromMemory returns false for non-existent session', () => {
       const removed = deleteSessionFromMemory('non-existent-delete-xyz');
-      assert.equal(removed, false);
+      expect(removed).toBe(false);
     });
   });
 
@@ -389,27 +388,27 @@ describe('sessionStore', () => {
     it('setSessionTitle updates title', () => {
       createSession('store-test-title-1');
       const result = setSessionTitle('store-test-title-1', 'My Custom Title');
-      assert.ok(result);
-      assert.equal(result.title, 'My Custom Title');
+      expect(result).toBeTruthy();
+      expect(result.title).toBe('My Custom Title');
     });
 
     it('setSessionTitle returns null for non-existent session', () => {
       const result = setSessionTitle('non-existent-title', 'title');
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
 
     it('setSessionLabel updates label', () => {
       createSession('store-test-label-1');
       const result = setSessionLabel('store-test-label-1', 'reviewer');
-      assert.ok(result);
-      assert.equal(result.label, 'reviewer');
+      expect(result).toBeTruthy();
+      expect(result.label).toBe('reviewer');
     });
 
     it('setSummary updates summary', () => {
       createSession('store-test-summary-1');
       const result = setSummary('store-test-summary-1', 'This session did X and Y');
-      assert.ok(result);
-      assert.equal(result.summary, 'This session did X and Y');
+      expect(result).toBeTruthy();
+      expect(result.summary).toBe('This session did X and Y');
     });
   });
 
@@ -417,15 +416,15 @@ describe('sessionStore', () => {
     it('marks session as ended', () => {
       createSession('store-test-kill-1');
       const result = killSession('store-test-kill-1');
-      assert.ok(result);
-      assert.equal(result.status, SESSION_STATUS.ENDED);
-      assert.equal(result.animationState, ANIMATION_STATE.DEATH);
-      assert.equal(result.archived, 1);
+      expect(result).toBeTruthy();
+      expect(result.status).toBe(SESSION_STATUS.ENDED);
+      expect(result.animationState).toBe(ANIMATION_STATE.DEATH);
+      expect(result.archived).toBe(1);
     });
 
     it('returns null for non-existent session', () => {
       const result = killSession('non-existent-kill');
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
   });
 
@@ -433,16 +432,16 @@ describe('sessionStore', () => {
     it('sets archived flag', () => {
       createSession('store-test-archive-1');
       const result = archiveSession('store-test-archive-1', true);
-      assert.ok(result);
-      assert.equal(result.archived, 1);
+      expect(result).toBeTruthy();
+      expect(result.archived).toBe(1);
     });
 
     it('unsets archived flag', () => {
       createSession('store-test-archive-2');
       archiveSession('store-test-archive-2', true);
       const result = archiveSession('store-test-archive-2', false);
-      assert.ok(result);
-      assert.equal(result.archived, 0);
+      expect(result).toBeTruthy();
+      expect(result.archived).toBe(0);
     });
   });
 
@@ -451,7 +450,7 @@ describe('sessionStore', () => {
       const seq1 = getEventSeq();
       pushEvent('test', { foo: 'bar' });
       const seq2 = getEventSeq();
-      assert.ok(seq2 > seq1);
+      expect(seq2).toBeGreaterThan(seq1);
     });
 
     it('getEventsSince returns events after given sequence', () => {
@@ -459,8 +458,8 @@ describe('sessionStore', () => {
       pushEvent('test_type', { data: 1 });
       pushEvent('test_type', { data: 2 });
       const events = getEventsSince(before);
-      assert.ok(events.length >= 2);
-      assert.ok(events.every(e => e.seq > before));
+      expect(events.length).toBeGreaterThanOrEqual(2);
+      expect(events.every(e => e.seq > before)).toBe(true);
     });
   });
 
@@ -468,13 +467,13 @@ describe('sessionStore', () => {
     it('updates queue count on session', () => {
       createSession('store-test-queue-1');
       const result = updateQueueCount('store-test-queue-1', 5);
-      assert.ok(result);
-      assert.equal(result.queueCount, 5);
+      expect(result).toBeTruthy();
+      expect(result.queueCount).toBe(5);
     });
 
     it('returns null for non-existent session', () => {
       const result = updateQueueCount('non-existent-queue', 5);
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
   });
 
@@ -483,7 +482,7 @@ describe('sessionStore', () => {
       createSession('store-test-color-1');
       setSessionAccentColor('store-test-color-1', '#ff0000');
       const session = getSession('store-test-color-1');
-      assert.equal(session.accentColor, '#ff0000');
+      expect(session.accentColor).toBe('#ff0000');
     });
   });
 
@@ -491,13 +490,13 @@ describe('sessionStore', () => {
     it('sets character model on session', () => {
       createSession('store-test-char-1');
       const result = setSessionCharacterModel('store-test-char-1', 'CustomRobot');
-      assert.ok(result);
-      assert.equal(result.characterModel, 'CustomRobot');
+      expect(result).toBeTruthy();
+      expect(result.characterModel).toBe('CustomRobot');
     });
 
     it('returns null for non-existent session', () => {
       const result = setSessionCharacterModel('non-existent-char', 'CustomRobot');
-      assert.equal(result, null);
+      expect(result).toBe(null);
     });
   });
 
@@ -516,7 +515,7 @@ describe('sessionStore', () => {
         session_id: 'store-test-heavy',
         hook_event_name: EVENT_TYPES.STOP,
       });
-      assert.equal(result.session.animationState, ANIMATION_STATE.DANCE);
+      expect(result.session.animationState).toBe(ANIMATION_STATE.DANCE);
     });
 
     it('plays Waiting animation for light work', () => {
@@ -530,8 +529,8 @@ describe('sessionStore', () => {
         session_id: 'store-test-light',
         hook_event_name: EVENT_TYPES.STOP,
       });
-      assert.equal(result.session.animationState, ANIMATION_STATE.WAITING);
-      assert.equal(result.session.emote, EMOTE.THUMBS_UP);
+      expect(result.session.animationState).toBe(ANIMATION_STATE.WAITING);
+      expect(result.session.emote).toBe(EMOTE.THUMBS_UP);
     });
   });
 
@@ -544,8 +543,8 @@ describe('sessionStore', () => {
         prompt: 'Fix the authentication bug',
       });
       const session = getSession('store-test-autotitle');
-      assert.ok(session.title.length > 0);
-      assert.ok(session.title.includes('test-project'));
+      expect(session.title.length).toBeGreaterThan(0);
+      expect(session.title).toContain('test-project');
     });
   });
 });

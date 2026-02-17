@@ -1,0 +1,195 @@
+/* Character Model Selector (Settings UI) */
+
+/* ============================================================
+   Character Model Selector (Settings UI)
+   ============================================================ */
+
+.char-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+
+.char-swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px 8px;
+  border: 2px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-card);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.char-swatch:hover {
+  border-color: var(--accent-cyan);
+  background: var(--bg-card-hover);
+}
+
+.char-swatch.active {
+  border-color: var(--accent-cyan);
+  background: var(--bg-accent);
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.2);
+}
+
+.char-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.char-swatch.active .char-label {
+  color: var(--accent-cyan);
+}
+
+/* Character preview thumbnails in settings */
+.char-preview {
+  width: 40px;
+  height: 48px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Robot preview */
+.char-preview-robot .cp-antenna {
+  width: 2px; height: 8px;
+  background: var(--accent-cyan);
+  border-radius: 1px;
+  position: relative;
+}
+.char-preview-robot .cp-antenna::after {
+  content: '';
+  position: absolute; top: -4px; left: -2px;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 4px var(--accent-cyan);
+}
+.char-preview-robot .cp-head {
+  width: 26px; height: 18px;
+  background: var(--robot-body);
+  border: 1px solid var(--robot-border);
+  border-radius: 5px;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.char-preview-robot .cp-eye {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 3px var(--accent-cyan);
+}
+.char-preview-robot .cp-body {
+  width: 20px; height: 14px;
+  background: var(--robot-body);
+  border: 1px solid var(--robot-border);
+  border-radius: 3px 3px 4px 4px;
+  margin-top: 1px;
+}
+
+/* Cat preview */
+.char-preview-cat {
+  position: relative;
+}
+.char-preview-cat .cp-ear {
+  position: absolute; top: 2px;
+  width: 0; height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 8px solid var(--robot-body);
+}
+.char-preview-cat .cp-ear-l { left: 6px; transform: rotate(-10deg); }
+.char-preview-cat .cp-ear-r { right: 6px; transform: rotate(10deg); }
+.char-preview-cat .cp-head {
+  width: 24px; height: 20px;
+  background: var(--robot-body);
+  border: 1px solid var(--robot-border);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  margin-top: 8px;
+}
+.char-preview-cat .cp-eye {
+  width: 5px; height: 6px;
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 3px var(--accent-cyan);
+}
+.char-preview-cat .cp-body {
+  width: 18px; height: 12px;
+  background: var(--robot-body);
+  border: 1px solid var(--robot-border);
+  border-radius: 40%;
+  margin-top: 1px;
+}
+.char-preview-cat .cp-tail {
+  position: absolute; bottom: 6px; right: 2px;
+  width: 14px; height: 3px;
+  background: var(--robot-body);
+  border-radius: 2px;
+  transform: rotate(-15deg);
+}
+
+/* Alien preview */
+.char-preview-alien .cp-dome {
+  width: 30px; height: 22px;
+  background: var(--robot-body);
+  border: 1px solid var(--robot-border);
+  border-radius: 50% 50% 30% 30%;
+  display: flex; align-items: center; justify-content: center; gap: 3px;
+}
+.char-preview-alien .cp-eye {
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 3px var(--accent-cyan);
+}
+.char-preview-alien .cp-body {
+  width: 16px; height: 14px;
+  background: var(--robot-body);
+  border: 1px solid var(--robot-border);
+  border-radius: 4px 4px 8px 8px;
+  margin-top: 1px;
+}
+
+/* Ghost preview */
+.char-preview-ghost .cp-head {
+  width: 26px; height: 26px;
+  background: var(--robot-body);
+  border: 1px solid var(--robot-border);
+  border-radius: 50% 50% 40% 40%;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.char-preview-ghost .cp-eye {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 3px var(--accent-cyan);
+}
+.char-preview-ghost .cp-tail {
+  width: 26px; height: 8px;
+  background: var(--robot-body);
+  border: 1px solid var(--robot-border);
+  border-top: none;
+  clip-path: polygon(0 0, 100% 0, 90% 100%, 70% 60%, 50% 100%, 30% 60%, 10% 100%);
+}
+
+/* Orb preview */
+.char-preview-orb .cp-core {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, var(--accent-cyan), var(--robot-body));
+  box-shadow: 0 0 6px var(--accent-cyan);
+}
+.char-preview-orb .cp-ring {
+  position: absolute;
+  width: 32px; height: 10px;
+  border: 1px solid var(--accent-cyan);
+  border-radius: 50%;
+  opacity: 0.5;
+}
+
