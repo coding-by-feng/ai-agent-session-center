@@ -2,7 +2,7 @@
 // apiRouter.js — Express router for all API endpoints
 import { Router } from 'express';
 import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSessionAccentColor, setSummary, getSession, detectSessionSource, createTerminalSession, deleteSessionFromMemory, resumeSession, reconnectSessionTerminal } from './sessionStore.js';
-import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, attachToTmuxPane } from './sshManager.js';
+import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, attachToTmuxPane, consumePendingLink } from './sshManager.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
 import * as db from './db.js';
@@ -244,6 +244,13 @@ router.post('/sessions/:id/resume', async (req, res) => {
       ? { ...cfg, command: '' }
       : { host: 'localhost', workingDir: session.projectPath || '~', command: '' };
     const newTerminalId = await createTerminal(newConfig, null);
+
+    // Immediately consume the pendingLink that createTerminal registered.
+    // The resume flow uses pendingResume (not pendingLinks) for session matching.
+    // If we leave the pendingLink alive, ANY other Claude session in the same
+    // working directory could match it via Priority 2 (tryLinkByWorkDir),
+    // stealing the terminal and creating a duplicate card.
+    consumePendingLink(newConfig.workingDir || session.projectPath || '');
 
     // Update the REAL session and register pendingResume (no duplicate session)
     const result = reconnectSessionTerminal(sessionId, newTerminalId);

@@ -567,17 +567,19 @@ export function handleEvent(hookData) {
       if (hookData.transcript_path) session.transcriptPath = hookData.transcript_path;
       if (hookData.permission_mode) session.permissionMode = hookData.permission_mode;
 
-      // Update projectPath from the hook's actual cwd.  This is critical for
-      // remote SSH where createTerminalSession resolves '~' to LOCAL homedir
+      // Update projectPath from the hook's actual cwd — ONLY for SSH sessions.
+      // For remote SSH, createTerminalSession resolves '~' to LOCAL homedir
       // (e.g. /Users/kason) but the hook reports the REMOTE cwd (e.g. /home/user/project).
-      // Without this, Priority 0 path matching fails on subsequent resume/reconnect.
-      if (cwd && cwd !== session.projectPath) {
+      // Without this correction, Priority 0 path matching fails on resume/reconnect.
+      // Display-only sessions (VS Code, Terminal, iTerm, etc.) already have the
+      // correct path from createDefaultSession — don't touch them to avoid
+      // overwriting their source-derived projectName.
+      if (cwd && cwd !== session.projectPath && session.source === 'ssh') {
         const oldPath = session.projectPath;
         session.projectPath = cwd;
         session.projectName = cwd.split('/').filter(Boolean).pop() || session.projectName;
-        if (oldPath && oldPath !== cwd) {
-          log.info('session', `Updated projectPath: ${oldPath} → ${cwd} (from hook cwd)`);
-        }
+        // Preserve source — NEVER overwrite (VS Code, Terminal, ssh, etc.)
+        log.info('session', `Updated SSH projectPath: ${oldPath} → ${cwd} (from hook cwd)`);
       }
 
       eventEntry.detail = `Session started (${hookData.source || 'startup'})`;
