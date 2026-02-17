@@ -53,6 +53,81 @@ function shellEscapeSingleQuote(str) {
   return str.replace(/'/g, "'\\''");
 }
 
+// ---- Shell Ready Detection ----
+
+// Match ANSI escape sequences (CSI + OSC) for stripping from PTY output
+const ANSI_ESC_RE = /\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?(?:\x07|\x1b\\)/g;
+
+// Common shell prompt endings: $ (bash/zsh), % (zsh), # (root), > (fish/powershell)
+const SHELL_PROMPT_RE = /[#$%>]\s*$/;
+
+/**
+ * Watch PTY output to detect when the shell is ready (prompt visible).
+ * Resolves `true` when a prompt is detected, `false` on timeout or PTY exit.
+ * Uses a 100ms settle timer to avoid false-matching mid-stream MOTD output —
+ * shell prompts are always the last thing printed before the shell waits for input.
+ *
+ * @param {import('node-pty').IPty} ptyProcess
+ * @param {string} terminalId - For logging
+ * @param {number} timeoutMs - Max wait time before fallback
+ * @returns {Promise<boolean>}
+ */
+function detectShellReady(ptyProcess, terminalId, timeoutMs) {
+  let resolveFn;
+  const promise = new Promise(r => { resolveFn = r; });
+  let buffer = '';
+  let done = false;
+  let settleTimer = null;
+
+  function finish(detected) {
+    if (done) return;
+    done = true;
+    clearTimeout(fallbackTimer);
+    clearTimeout(settleTimer);
+    dataDisp.dispose();
+    exitDisp.dispose();
+    resolveFn(detected);
+  }
+
+  function checkPrompt() {
+    const stripped = buffer.replace(ANSI_ESC_RE, '');
+    const lines = stripped.split(/[\r\n]+/);
+    // Find the last non-empty line
+    let lastLine = '';
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (lines[i].trim()) { lastLine = lines[i].trim(); break; }
+    }
+    // Shell prompts are short and end with $ % # >
+    if (lastLine && lastLine.length < 200 && SHELL_PROMPT_RE.test(lastLine)) {
+      log.debug('pty', `Shell prompt detected for ${terminalId}: "${lastLine.slice(-60)}"`);
+      finish(true);
+    }
+  }
+
+  const dataDisp = ptyProcess.onData((data) => {
+    if (done) return;
+    buffer += data;
+    // Cap buffer to avoid memory issues with large MOTD output
+    if (buffer.length > 4096) buffer = buffer.slice(-4096);
+    // Wait for output to settle (100ms of silence) before checking —
+    // MOTD lines arrive in bursts, but the final prompt is followed by silence
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(checkPrompt, 100);
+  });
+
+  const exitDisp = ptyProcess.onExit(() => {
+    log.debug('pty', `PTY ${terminalId} exited before shell ready detected`);
+    finish(false);
+  });
+
+  const fallbackTimer = setTimeout(() => {
+    log.warn('pty', `Shell ready detection timed out for ${terminalId} after ${timeoutMs}ms — sending command as fallback`);
+    finish(false);
+  }, timeoutMs);
+
+  return promise;
+}
+
 // List available SSH keys from ~/.ssh/
 export function listSshKeys() {
   const sshDir = join(homedir(), '.ssh');
@@ -207,6 +282,10 @@ export function createTerminal(config, wsClient) {
 
       log.info('pty', `Spawned ${local ? 'local' : `remote (${config.host})`} terminal ${terminalId} (pid: ${ptyProcess.pid})`);
 
+      // Detect when the shell is ready (prompt visible) before sending commands.
+      // Local shells init in ~100-300ms; remote SSH can take seconds for key exchange.
+      const shellReady = detectShellReady(ptyProcess, terminalId, local ? 5000 : 15000);
+
       terminals.set(terminalId, {
         pty: ptyProcess,
         sessionId: null,
@@ -214,6 +293,7 @@ export function createTerminal(config, wsClient) {
         wsClient,
         createdAt: Date.now(),
         outputBuffer: Buffer.alloc(0),
+        shellReady,
       });
 
       // Register pending link for session matching
@@ -250,47 +330,64 @@ export function createTerminal(config, wsClient) {
         cleanup(terminalId);
       });
 
-      // Send the launch command after shell/SSH init
+      // Send the launch command once the shell is ready (prompt detected).
       // API keys are passed via env object to pty.spawn (above), not via shell commands.
       // For remote SSH sessions, we export the env var in the shell since env doesn't
       // propagate across SSH.
       // When skipAutoLaunch is true, the caller will write the command itself
       // (e.g., resume with || fallback that contains shell metacharacters).
       if (!skipAutoLaunch) {
-        setTimeout(() => {
-          let launchCmd;
+        // Build the launch command eagerly — only the write is deferred
+        let launchCmd;
 
-          if (config.tmuxSession) {
-            // Attach to existing tmux session (validated above as alphanumeric+dash+underscore+dot)
-            launchCmd = `tmux attach -t '${shellEscapeSingleQuote(config.tmuxSession)}'`;
-          } else if (config.useTmux) {
-            // Wrap command in a new tmux session
-            const tmuxName = `claude-${Date.now().toString(36)}`;
-            let innerCmd = local ? '' : `cd '${shellEscapeSingleQuote(workDir)}' && `;
-            if (!local && config.apiKey) {
+        if (config.tmuxSession) {
+          // Attach to existing tmux session (validated above as alphanumeric+dash+underscore+dot)
+          launchCmd = `tmux attach -t '${shellEscapeSingleQuote(config.tmuxSession)}'`;
+        } else if (config.useTmux) {
+          // Wrap command in a new tmux session
+          const tmuxName = `claude-${Date.now().toString(36)}`;
+          let innerCmd = local ? '' : `cd '${shellEscapeSingleQuote(workDir)}' && `;
+          if (!local) {
+            // Export terminal ID for hook matching over SSH
+            innerCmd += `export AGENT_MANAGER_TERMINAL_ID='${shellEscapeSingleQuote(terminalId)}' && `;
+            if (config.apiKey) {
               const envVar = command.startsWith('codex') ? 'OPENAI_API_KEY'
                 : command.startsWith('gemini') ? 'GEMINI_API_KEY'
                 : 'ANTHROPIC_API_KEY';
               innerCmd += `export ${envVar}='${shellEscapeSingleQuote(config.apiKey)}' && `;
             }
-            innerCmd += command;
-            launchCmd = `tmux new-session -s '${tmuxName}' '${shellEscapeSingleQuote(innerCmd)}'`;
-          } else {
-            // Direct launch
-            launchCmd = local ? '' : `cd '${shellEscapeSingleQuote(workDir)}'`;
-            if (!local && config.apiKey) {
-              if (launchCmd) launchCmd += ' && ';
+          }
+          innerCmd += command;
+          launchCmd = `tmux new-session -s '${tmuxName}' '${shellEscapeSingleQuote(innerCmd)}'`;
+        } else {
+          // Direct launch
+          launchCmd = local ? '' : `cd '${shellEscapeSingleQuote(workDir)}'`;
+          if (!local) {
+            // Export AGENT_MANAGER_TERMINAL_ID on the remote side so hooks
+            // can include it for Priority 0/1 session matching (SSH doesn't
+            // forward env vars from the local PTY).
+            if (launchCmd) launchCmd += ' && ';
+            launchCmd += `export AGENT_MANAGER_TERMINAL_ID='${shellEscapeSingleQuote(terminalId)}'`;
+            if (config.apiKey) {
               const envVar = command.startsWith('codex') ? 'OPENAI_API_KEY'
                 : command.startsWith('gemini') ? 'GEMINI_API_KEY'
                 : 'ANTHROPIC_API_KEY';
-              launchCmd += `export ${envVar}='${shellEscapeSingleQuote(config.apiKey)}'`;
+              launchCmd += ` && export ${envVar}='${shellEscapeSingleQuote(config.apiKey)}'`;
             }
-            if (launchCmd) launchCmd += ' && ';
-            launchCmd += command;
           }
+          if (launchCmd) launchCmd += ' && ';
+          launchCmd += command;
+        }
 
-          ptyProcess.write(launchCmd + '\r');
-        }, local ? 100 : 500);
+        // Wait for shell prompt before writing — replaces the old blind setTimeout
+        shellReady.then((detected) => {
+          const term = terminals.get(terminalId);
+          if (!term || !term.pty) return;
+          if (!detected) {
+            log.warn('pty', `Sending launch command to ${terminalId} despite no prompt detected`);
+          }
+          term.pty.write(launchCmd + '\r');
+        });
       }
 
       // Notify client terminal is ready
@@ -406,6 +503,25 @@ export function writeToTerminal(terminalId, data) {
   if (term && term.pty) {
     term.pty.write(data);
   }
+}
+
+/**
+ * Write data to a terminal after its shell is ready.
+ * Awaits the shell prompt detection before writing, so commands aren't lost
+ * if SSH hasn't finished connecting yet.
+ * @param {string} terminalId
+ * @param {string} data
+ * @returns {Promise<boolean>} true if written, false if terminal was gone
+ */
+export async function writeWhenReady(terminalId, data) {
+  const term = terminals.get(terminalId);
+  if (!term) return false;
+  if (term.shellReady) await term.shellReady;
+  // Terminal might have been cleaned up while waiting
+  const termNow = terminals.get(terminalId);
+  if (!termNow || !termNow.pty) return false;
+  termNow.pty.write(data);
+  return true;
 }
 
 export function resizeTerminal(terminalId, cols, rows) {

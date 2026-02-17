@@ -150,18 +150,35 @@ async function init() {
     },
     onSnapshotCb(sessions, teams) {
       const serverIds = new Set(Object.keys(sessions));
+      // Also build a set of sessionId values to catch key/sessionId mismatches
+      const serverSessionIds = new Set();
+      for (const s of Object.values(sessions)) {
+        if (s.sessionId) serverSessionIds.add(s.sessionId);
+      }
       for (const cachedId of Object.keys(allSessions)) {
-        if (!serverIds.has(cachedId)) {
+        // Remove cached entries not on the server (by key OR by sessionId)
+        if (!serverIds.has(cachedId) && !serverSessionIds.has(cachedId)) {
           removeCard(cachedId);
           robotManager.removeRobot(cachedId);
           del('sessions', cachedId).catch(() => {});
           delete allSessions[cachedId];
         }
       }
+      // Deduplicate: if server sends entries with different keys but same sessionId,
+      // keep only the most recent one to prevent duplicate cards.
+      const deduped = new Map();
       for (const [id, session] of Object.entries(sessions)) {
-        allSessions[id] = session;
+        const sid = session.sessionId || id;
+        const existing = deduped.get(sid);
+        if (!existing || (session.lastActivityAt || 0) > (existing.lastActivityAt || 0)) {
+          deduped.set(sid, session);
+        }
       }
-      for (const session of Object.values(sessions)) {
+      // Use sessionId as the allSessions key (not the server's Map key) for consistency
+      for (const [sid, session] of deduped) {
+        allSessions[sid] = session;
+      }
+      for (const session of deduped.values()) {
         createOrUpdateCard(session);
         robotManager.updateRobot(session);
         persistSessionUpdate(session).catch(() => {});
