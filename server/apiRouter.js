@@ -1,8 +1,8 @@
 // @ts-check
 // apiRouter.js — Express router for all API endpoints
 import { Router } from 'express';
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSummary, getSession, detectSessionSource, createTerminalSession, deleteSessionFromMemory, resumeSession, reconnectSessionTerminal } from './sessionStore.js';
-import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, attachToTmuxPane } from './sshManager.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSessionAccentColor, setSummary, getSession, detectSessionSource, createTerminalSession, deleteSessionFromMemory, resumeSession, reconnectSessionTerminal } from './sessionStore.js';
+import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, attachToTmuxPane } from './sshManager.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
 import * as db from './db.js';
@@ -249,13 +249,15 @@ router.post('/sessions/:id/resume', async (req, res) => {
     const result = reconnectSessionTerminal(sessionId, newTerminalId);
     if (result.error) return res.status(500).json({ error: result.error });
 
-    // Write the resume command after the shell has initialized.
-    // For remote sessions, cd to workDir first.
-    const delay = isRemote ? 600 : 200;
-    setTimeout(() => {
-      const prefix = isRemote && cfg.workingDir ? `cd '${cfg.workingDir}' && ` : '';
-      writeToTerminal(newTerminalId, `${prefix}${resumeCmd}\r`);
-    }, delay);
+    // Write the resume command once the shell is ready (prompt detected).
+    // For remote sessions, export AGENT_MANAGER_TERMINAL_ID (SSH doesn't
+    // forward env vars) and cd to workDir first.
+    let prefix = '';
+    if (isRemote) {
+      prefix += `export AGENT_MANAGER_TERMINAL_ID='${newTerminalId}' && `;
+      if (cfg.workingDir) prefix += `cd '${cfg.workingDir}' && `;
+    }
+    writeWhenReady(newTerminalId, `${prefix}${resumeCmd}\r`);
 
     const { broadcast } = await import('./wsManager.js');
     broadcast({ type: WS_TYPES.SESSION_UPDATE, session: result.session });
@@ -350,6 +352,16 @@ router.put('/sessions/:id/label', (req, res) => {
   const { label } = req.body;
   if (label === undefined) return res.status(400).json({ error: 'label is required' });
   setSessionLabel(req.params.id, label);
+  res.json({ ok: true });
+});
+
+// Update session accent color
+router.put('/sessions/:id/accent-color', (req, res) => {
+  const { color } = req.body;
+  if (!color || typeof color !== 'string' || color.length > 50) {
+    return res.status(400).json({ error: 'color must be a string (max 50 chars)' });
+  }
+  setSessionAccentColor(req.params.id, color);
   res.json({ ok: true });
 });
 

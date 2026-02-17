@@ -122,7 +122,9 @@ export function saveSnapshot(mqOffset) {
     }
     const sessionsObj = {};
     for (const [id, session] of sessions) {
-      sessionsObj[id] = { ...session };
+      // Always key by sessionId to prevent Map key / sessionId divergence
+      const key = session.sessionId || id;
+      sessionsObj[key] = { ...session };
     }
     const countersObj = {};
     for (const [name, count] of projectSessionCounters) {
@@ -130,6 +132,10 @@ export function saveSnapshot(mqOffset) {
     }
     const pidObj = {};
     for (const [pid, sid] of pidToSession) pidObj[pid] = sid;
+    const pendingResumeObj = {};
+    for (const [termId, info] of pendingResume) {
+      pendingResumeObj[termId] = info;
+    }
     const snapshot = {
       version: 1,
       savedAt: Date.now(),
@@ -138,6 +144,7 @@ export function saveSnapshot(mqOffset) {
       sessions: sessionsObj,
       projectSessionCounters: countersObj,
       pidToSession: pidObj,
+      pendingResume: pendingResumeObj,
     };
     mkdirSync(SNAPSHOT_DIR, { recursive: true });
     const tmpFile = SNAPSHOT_FILE + '.tmp';
@@ -318,13 +325,88 @@ export function loadSnapshot() {
       }
     }
 
+    // Restore pendingResume entries — these survive Ctrl+C so Priority 0
+    // can disambiguate "which session was being resumed" on next start.
+    // Terminal IDs are stale (PTYs died), but the path-based fallback in
+    // Priority 0 only needs oldSessionId + projectPath to match.
+    let pendingResumeRestored = 0;
+    if (snapshot.pendingResume) {
+      for (const [termId, info] of Object.entries(snapshot.pendingResume)) {
+        // Only restore if the referenced session still exists in the map
+        if (info.oldSessionId && sessions.has(info.oldSessionId)) {
+          pendingResume.set(termId, {
+            ...info,
+            // Refresh timestamp so autoIdleManager's 2-minute cleanup
+            // doesn't immediately garbage-collect restored entries
+            timestamp: Date.now(),
+          });
+          pendingResumeRestored++;
+        }
+      }
+    }
+
     // Restore eventSeq
     if (snapshot.eventSeq) {
       eventSeq = snapshot.eventSeq;
     }
 
+    // Repair any Map key / sessionId mismatches (defensive — prevents duplicate cards)
+    let keyRepairs = 0;
+    const repairList = [];
+    for (const [id, session] of sessions) {
+      if (session.sessionId && id !== session.sessionId) {
+        repairList.push({ oldKey: id, newKey: session.sessionId, session });
+      }
+    }
+    for (const { oldKey, newKey, session } of repairList) {
+      sessions.delete(oldKey);
+      // If the correct key already exists, keep the newer session
+      if (sessions.has(newKey)) {
+        const existing = sessions.get(newKey);
+        if ((session.lastActivityAt || 0) > (existing.lastActivityAt || 0)) {
+          sessions.set(newKey, session);
+        }
+      } else {
+        sessions.set(newKey, session);
+      }
+      keyRepairs++;
+    }
+    if (keyRepairs > 0) {
+      log.warn('session', `Repaired ${keyRepairs} Map key/sessionId mismatches in snapshot`);
+    }
+
+    // Deduplicate: remove sessions with identical projectPath+source that are ended
+    // and whose sessionId differs (stale leftover from interrupted re-key)
+    const seenPaths = new Map(); // projectPath -> [sessionId, ...]
+    const dupsToRemove = [];
+    for (const [id, session] of sessions) {
+      if (session.status !== SESSION_STATUS.ENDED || !session.projectPath) continue;
+      const key = `${session.projectPath}|${session.source}`;
+      if (!seenPaths.has(key)) {
+        seenPaths.set(key, [id]);
+      } else {
+        seenPaths.get(key).push(id);
+      }
+    }
+    for (const [, ids] of seenPaths) {
+      if (ids.length <= 1) continue;
+      // Keep the one with the most recent activity, remove the rest
+      const sorted = ids
+        .map(id => ({ id, lastActivity: sessions.get(id).lastActivityAt || 0 }))
+        .sort((a, b) => b.lastActivity - a.lastActivity);
+      for (let i = 1; i < sorted.length; i++) {
+        dupsToRemove.push(sorted[i].id);
+      }
+    }
+    if (dupsToRemove.length > 0) {
+      for (const id of dupsToRemove) {
+        sessions.delete(id);
+      }
+      log.info('session', `Removed ${dupsToRemove.length} duplicate ended sessions (same path+source) during snapshot load`);
+    }
+
     invalidateSessionsCache();
-    log.info('session', `Snapshot loaded: ${restored} sessions restored, ${ended} ended (dead PID), ${pidToSession.size} PIDs tracked`);
+    log.info('session', `Snapshot loaded: ${restored} sessions restored, ${ended} ended (dead PID), ${pidToSession.size} PIDs tracked, ${pendingResumeRestored} pendingResume entries`);
 
     return { mqOffset: snapshot.mqOffset || 0 };
   } catch (err) {
@@ -484,6 +566,20 @@ export function handleEvent(hookData) {
       session.model = hookData.model || session.model;
       if (hookData.transcript_path) session.transcriptPath = hookData.transcript_path;
       if (hookData.permission_mode) session.permissionMode = hookData.permission_mode;
+
+      // Update projectPath from the hook's actual cwd.  This is critical for
+      // remote SSH where createTerminalSession resolves '~' to LOCAL homedir
+      // (e.g. /Users/kason) but the hook reports the REMOTE cwd (e.g. /home/user/project).
+      // Without this, Priority 0 path matching fails on subsequent resume/reconnect.
+      if (cwd && cwd !== session.projectPath) {
+        const oldPath = session.projectPath;
+        session.projectPath = cwd;
+        session.projectName = cwd.split('/').filter(Boolean).pop() || session.projectName;
+        if (oldPath && oldPath !== cwd) {
+          log.info('session', `Updated projectPath: ${oldPath} → ${cwd} (from hook cwd)`);
+        }
+      }
+
       eventEntry.detail = `Session started (${hookData.source || 'startup'})`;
       log.debug('session', `SessionStart: ${session_id?.slice(0,8)} project=${session.projectName} model=${session.model}`);
 
@@ -728,7 +824,13 @@ export function getAllSessions() {
   }
   const result = {};
   for (const [id, session] of sessions) {
-    result[id] = { ...session };
+    // Defensive: always key by session.sessionId to prevent key mismatch bugs.
+    // If Map key diverged from sessionId (e.g., after re-key edge case), fix it.
+    const key = session.sessionId || id;
+    if (id !== key) {
+      log.warn('session', `Key mismatch: Map key=${id?.slice(0,8)} vs sessionId=${key?.slice(0,8)} — using sessionId`);
+    }
+    result[key] = { ...session };
   }
   sessionsCache = result;
   sessionsCacheDirty = false;

@@ -278,13 +278,11 @@ function _applyCardUpdate(session) {
       if (sess && sess.terminalId) {
         fetch(`/api/terminals/${sess.terminalId}`, { method: 'DELETE' }).catch(() => {});
       }
-      db.get('sessions', sid).then(record => {
-        if (record && record.status !== 'ended') {
-          record.status = 'ended';
-          record.endedAt = record.endedAt || Date.now();
-          db.put('sessions', record);
-        }
-      }).catch(() => {});
+      // Delete from IndexedDB immediately — don't race with the server's
+      // session_removed broadcast which also calls del('sessions', sid).
+      // Previously this did a get→put (mark as ended) which could re-create
+      // the record AFTER the session_removed handler already deleted it.
+      db.del('sessions', sid).catch(() => {});
       fetch(`/api/sessions/${sid}`, { method: 'DELETE' }).catch(() => {});
       mutedSessions.delete(sid);
       saveMuted(mutedSessions);

@@ -166,7 +166,20 @@ export function matchSession(hookData, sessions, pendingResume, pidToSession, pr
     }
   }
 
-  if (session) return session;
+  if (session) {
+    // When `claude --resume` reuses the same session_id, the session is found
+    // by direct Map lookup and we return early.  But pendingResume/pendingLinks
+    // entries (registered by reconnectSessionTerminal / createTerminal) are left
+    // dangling.  Clean them up here to prevent stale matches for future hooks.
+    if (hook_event_name === EVENT_TYPES.SESSION_START && session.terminalId) {
+      if (pendingResume.has(session.terminalId)) {
+        pendingResume.delete(session.terminalId);
+        log.debug('session', `Cleaned stale pendingResume for terminal=${session.terminalId?.slice(0,8)} (session found by direct ID)`);
+      }
+      consumePendingLink(session.projectPath);
+    }
+    return session;
+  }
 
   // Session not found — try matching strategies
 
