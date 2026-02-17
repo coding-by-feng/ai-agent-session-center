@@ -1,7 +1,6 @@
 // test/apiRouter.test.js — Integration tests for API endpoints
 // Tests validation logic via actual HTTP requests to a test server
-import { describe, it, before, after } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, beforeAll, afterAll, expect } from 'vitest';
 import express from 'express';
 import { createServer } from 'http';
 import { handleEvent, getAllSessions, setSessionTitle } from '../server/sessionStore.js';
@@ -46,11 +45,11 @@ function stopTestServer() {
 }
 
 describe('apiRouter - integration tests', () => {
-  before(async () => {
+  beforeAll(async () => {
     await startTestServer();
   });
 
-  after(async () => {
+  afterAll(async () => {
     await stopTestServer();
   });
 
@@ -65,9 +64,9 @@ describe('apiRouter - integration tests', () => {
           cwd: '/tmp/test',
         }),
       });
-      assert.equal(res.status, 200);
+      expect(res.status).toBe(200);
       const body = await res.json();
-      assert.equal(body.ok, true);
+      expect(body.ok).toBe(true);
     });
 
     it('returns 400 for missing session_id', async () => {
@@ -78,10 +77,10 @@ describe('apiRouter - integration tests', () => {
           hook_event_name: 'SessionStart',
         }),
       });
-      assert.equal(res.status, 400);
+      expect(res.status).toBe(400);
       const body = await res.json();
-      assert.equal(body.success, false);
-      assert.ok(body.error.includes('session_id'));
+      expect(body.success).toBe(false);
+      expect(body.error).toContain('session_id');
     });
 
     it('returns 400 for unknown event type', async () => {
@@ -93,9 +92,9 @@ describe('apiRouter - integration tests', () => {
           hook_event_name: 'InvalidEvent',
         }),
       });
-      assert.equal(res.status, 400);
+      expect(res.status).toBe(400);
       const body = await res.json();
-      assert.ok(body.error.includes('unknown event type'));
+      expect(body.error).toContain('unknown event type');
     });
 
     it('returns 400 for invalid claude_pid', async () => {
@@ -108,9 +107,9 @@ describe('apiRouter - integration tests', () => {
           claude_pid: 'not-a-number',
         }),
       });
-      assert.equal(res.status, 400);
+      expect(res.status).toBe(400);
       const body = await res.json();
-      assert.ok(body.error.includes('claude_pid'));
+      expect(body.error).toContain('claude_pid');
     });
   });
 
@@ -123,10 +122,10 @@ describe('apiRouter - integration tests', () => {
         cwd: '/tmp/test',
       });
       const res = await fetch(`${baseUrl}/api/sessions`);
-      assert.equal(res.status, 200);
+      expect(res.status).toBe(200);
       const body = await res.json();
-      assert.equal(typeof body, 'object');
-      assert.ok(body['api-test-sessions-1']);
+      expect(typeof body).toBe('object');
+      expect(body['api-test-sessions-1']).toBeTruthy();
     });
   });
 
@@ -142,9 +141,9 @@ describe('apiRouter - integration tests', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: 'My Session Title' }),
       });
-      assert.equal(res.status, 200);
+      expect(res.status).toBe(200);
       const body = await res.json();
-      assert.equal(body.ok, true);
+      expect(body.ok).toBe(true);
     });
 
     it('returns 400 when title is missing', async () => {
@@ -153,9 +152,9 @@ describe('apiRouter - integration tests', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
-      assert.equal(res.status, 400);
+      expect(res.status).toBe(400);
       const body = await res.json();
-      assert.ok(body.error.includes('title'));
+      expect(body.error).toContain('title');
     });
 
     it('returns 400 for too-long title', async () => {
@@ -164,9 +163,9 @@ describe('apiRouter - integration tests', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: 'x'.repeat(501) }),
       });
-      assert.equal(res.status, 400);
+      expect(res.status).toBe(400);
       const body = await res.json();
-      assert.ok(body.error.includes('500'));
+      expect(body.error).toContain('500');
     });
 
     it('returns 400 for non-string title', async () => {
@@ -175,7 +174,7 @@ describe('apiRouter - integration tests', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: 12345 }),
       });
-      assert.equal(res.status, 400);
+      expect(res.status).toBe(400);
     });
   });
 
@@ -191,9 +190,9 @@ describe('apiRouter - integration tests', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ label: 'reviewer' }),
       });
-      assert.equal(res.status, 200);
+      expect(res.status).toBe(200);
       const body = await res.json();
-      assert.equal(body.ok, true);
+      expect(body.ok).toBe(true);
     });
 
     it('returns 400 when label is missing', async () => {
@@ -202,28 +201,28 @@ describe('apiRouter - integration tests', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
-      assert.equal(res.status, 400);
+      expect(res.status).toBe(400);
     });
   });
 
   describe('GET /api/hook-stats', () => {
     it('returns hook stats', async () => {
       const res = await fetch(`${baseUrl}/api/hook-stats`);
-      assert.equal(res.status, 200);
+      expect(res.status).toBe(200);
       const body = await res.json();
-      assert.equal(typeof body.totalHooks, 'number');
-      assert.equal(typeof body.hooksPerMin, 'number');
-      assert.equal(typeof body.events, 'object');
+      expect(typeof body.totalHooks).toBe('number');
+      expect(typeof body.hooksPerMin).toBe('number');
+      expect(typeof body.events).toBe('object');
     });
   });
 
   describe('GET /api/mq-stats', () => {
     it('returns MQ reader stats', async () => {
       const res = await fetch(`${baseUrl}/api/mq-stats`);
-      assert.equal(res.status, 200);
+      expect(res.status).toBe(200);
       const body = await res.json();
-      assert.equal(typeof body.linesProcessed, 'number');
-      assert.equal(typeof body.queueFile, 'string');
+      expect(typeof body.linesProcessed).toBe('number');
+      expect(typeof body.queueFile).toBe('string');
     });
   });
 
@@ -235,9 +234,9 @@ describe('apiRouter - integration tests', () => {
         cwd: '/tmp/test',
       });
       const res = await fetch(`${baseUrl}/api/sessions/api-test-source-1/source`);
-      assert.equal(res.status, 200);
+      expect(res.status).toBe(200);
       const body = await res.json();
-      assert.equal(typeof body.source, 'string');
+      expect(typeof body.source).toBe('string');
     });
   });
 
@@ -251,10 +250,10 @@ describe('apiRouter - integration tests', () => {
       const res = await fetch(`${baseUrl}/api/sessions/api-test-delete-1`, {
         method: 'DELETE',
       });
-      assert.equal(res.status, 200);
+      expect(res.status).toBe(200);
       const body = await res.json();
-      assert.equal(body.ok, true);
-      assert.equal(body.removed, true);
+      expect(body.ok).toBe(true);
+      expect(body.removed).toBe(true);
     });
   });
 });

@@ -1,0 +1,31 @@
+/* Theme: Monokai */
+
+body[data-theme="monokai"] {
+  --bg-primary: #272822;
+  --bg-card: #3e3d32;
+  --bg-card-hover: #49483e;
+  --bg-panel: #2f2e28;
+  --bg-header: #1e1f1a;
+  --border-glow: #66d9ef;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-faint: rgba(255, 255, 255, 0.03);
+  --border-subtle-strong: rgba(255, 255, 255, 0.1);
+  --border-accent: rgba(102, 217, 239, 0.2);
+  --border-accent-strong: rgba(102, 217, 239, 0.35);
+  --bg-accent: rgba(102, 217, 239, 0.1);
+  --bg-accent-strong: rgba(102, 217, 239, 0.15);
+  --bg-subtle: rgba(255, 255, 255, 0.06);
+  --bg-subtle-strong: rgba(255, 255, 255, 0.1);
+  --glow-accent: rgba(102, 217, 239, 0.15);
+  --glow-accent-strong: rgba(102, 217, 239, 0.3);
+  --inset-highlight: rgba(255, 255, 255, 0.06);
+  --inset-highlight-faint: rgba(255, 255, 255, 0.04);
+  --accent-cyan: #66d9ef;
+  --accent-orange: #fd971f;
+  --accent-green: #a6e22e;
+  --accent-red: #f92672;
+  --accent-purple: #ae81ff;
+  --text-primary: #f8f8f2;
+  --text-secondary: #a6a28c;
+  --text-dim: #75715e;
+}

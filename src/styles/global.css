@@ -1,0 +1,52 @@
+/* ============================================================
+   Global CSS Imports for Vite + React
+   Imports base variables, animations, characters, and themes.
+   Component-specific styles are in CSS Modules (./modules/).
+   ============================================================ */
+
+/* Base: CSS variables, reset, utility, responsive */
+@import './base.css';
+
+/* Animations: status effects, triggered movements */
+@import './animations.css';
+
+/* Themes */
+@import './themes/cyberpunk.css';
+@import './themes/dracula.css';
+@import './themes/solarized.css';
+@import './themes/nord.css';
+@import './themes/monokai.css';
+@import './themes/light.css';
+@import './themes/warm.css';
+@import './themes/blonde.css';
+@import './themes/light-overrides.css';
+
+/* Character: base robot */
+@import './characters/robot.css';
+
+/* Character: selector UI */
+@import './characters/selector.css';
+
+/* Character: individual models */
+@import './characters/cat.css';
+@import './characters/alien.css';
+@import './characters/ghost.css';
+@import './characters/orb.css';
+@import './characters/dragon.css';
+@import './characters/penguin.css';
+@import './characters/octopus.css';
+@import './characters/mushroom.css';
+@import './characters/fox.css';
+@import './characters/unicorn.css';
+@import './characters/jellyfish.css';
+@import './characters/owl.css';
+@import './characters/bat.css';
+@import './characters/cactus.css';
+@import './characters/slime.css';
+@import './characters/pumpkin.css';
+@import './characters/yeti.css';
+@import './characters/crystal.css';
+@import './characters/bee.css';
+
+/* Character: preview thumbnails */
+@import './characters/preview-thumbnails.css';

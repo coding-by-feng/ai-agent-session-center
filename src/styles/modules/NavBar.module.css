@@ -1,0 +1,85 @@
+/* ============================================================
+   NavBar CSS Module
+   Main navigation, nav actions, quick action buttons,
+   keyboard shortcuts button, view panels
+   ============================================================ */
+
+.nav {
+  grid-area: nav;
+  display: flex;
+  flex-direction: row;
+  background: linear-gradient(180deg, var(--bg-header) 0%, var(--bg-primary) 100%);
+  border-bottom: 1px solid var(--border-accent);
+  padding: 0 24px;
+  z-index: 10;
+  position: relative;
+  gap: 0;
+}
+
+.navBtn {
+  background: none; border: none; color: var(--text-dim);
+  font-family: var(--font-mono); font-size: 11px; font-weight: 500;
+  letter-spacing: 1.5px; padding: 10px 20px; cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.2s, border-color 0.2s;
+}
+.navBtn:hover { color: var(--text-secondary); }
+.navBtn.active { color: var(--accent-cyan); border-bottom-color: var(--accent-cyan); }
+
+.spacer { flex: 1; }
+
+/* ---- Nav Actions ---- */
+
+.actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.actionsItems { display: flex; align-items: center; gap: 8px; transition: opacity 0.2s, max-width 0.3s; overflow: hidden; max-width: 600px; }
+.actions.collapsed .actionsItems { max-width: 0; opacity: 0; padding: 0; gap: 0; }
+
+.actionsToggle {
+  background: none; border: none; color: var(--text-secondary);
+  font-size: 14px; cursor: pointer; padding: 4px 6px;
+  border-radius: 4px; transition: all 0.2s; flex-shrink: 0;
+}
+.actionsToggle:hover { color: var(--accent-cyan); background: var(--bg-subtle); }
+
+.qaBtn {
+  background: none; border: 1px solid var(--border-subtle);
+  color: var(--text-secondary); font-family: var(--font-mono);
+  font-size: 10px; font-weight: 700; letter-spacing: 1px;
+  padding: 5px 12px; border-radius: 4px; cursor: pointer;
+  transition: all 0.2s; white-space: nowrap;
+}
+.qaBtn:hover { background: var(--bg-subtle); color: var(--accent-cyan); border-color: var(--border-accent); }
+.qaBtn.active { background: rgba(255, 51, 85, 0.15); color: var(--accent-red); border-color: var(--accent-red); }
+.qaBtn.terminal { color: #4caf50 !important; }
+.qaBtn.terminal:hover { background: rgba(76, 175, 80, 0.15) !important; }
+.qaBtn.quick { color: var(--accent-cyan) !important; border-color: var(--accent-cyan) !important; }
+.qaBtn.quick:hover { background: rgba(0, 229, 255, 0.12) !important; }
+.qaBtn.oneoff { color: #ff9100 !important; border-color: rgba(255, 145, 0, 0.4) !important; }
+.qaBtn.oneoff:hover { background: rgba(255, 145, 0, 0.12) !important; }
+.qaBtn.heavy { color: #ff3355 !important; border-color: rgba(255, 51, 85, 0.5) !important; font-weight: 700 !important; }
+.qaBtn.heavy:hover { background: rgba(255, 51, 85, 0.15) !important; }
+.qaBtn.important { color: #aa66ff !important; border-color: rgba(170, 102, 255, 0.5) !important; font-weight: 700 !important; }
+.qaBtn.important:hover { background: rgba(170, 102, 255, 0.15) !important; }
+
+.separator { width: 1px; height: 20px; background: var(--bg-subtle); }
+
+/* ---- Keyboard Shortcuts Button ---- */
+
+.shortcutsBtn {
+  background: none; border: 1px solid var(--border-subtle);
+  color: var(--text-secondary); font-family: var(--font-mono);
+  font-size: 13px; font-weight: 700; width: 30px; height: 30px;
+  border-radius: 6px; cursor: pointer; transition: all 0.2s;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0; margin-left: 4px; vertical-align: middle;
+}
+.shortcutsBtn:hover { color: var(--accent-cyan); border-color: var(--accent-cyan); background: var(--bg-accent); box-shadow: 0 0 8px var(--glow-accent); }
+
+/* ---- View Panels ---- */
+
+.viewPanel { display: none; }
+.viewPanel.active { display: block; grid-area: main; position: relative; overflow-y: auto; overflow-x: hidden; }
+.viewPanel::-webkit-scrollbar { width: 8px; }
+.viewPanel::-webkit-scrollbar-track { background: var(--bg-primary); }
+.viewPanel::-webkit-scrollbar-thumb { background: var(--border-accent); border-radius: 4px; }
+.viewPanel::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }

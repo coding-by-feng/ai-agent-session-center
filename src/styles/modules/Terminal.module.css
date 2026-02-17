@@ -1,0 +1,159 @@
+/* ============================================================
+   Terminal CSS Module
+   Terminal tab, terminal container, xterm styles, fullscreen,
+   collapsible queue panel, working directory, move mode
+   ============================================================ */
+
+/* ---- Terminal Wrapper ---- */
+
+.wrapper {
+  display: flex; flex-direction: column; height: 100%;
+}
+
+.placeholder {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; min-height: 200px;
+  color: var(--text-dim, #555); font-size: 12px; font-style: italic;
+  text-align: center; padding: 20px;
+}
+
+/* ---- Terminal Tab ---- */
+
+.toolbar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 2px 4px; margin-bottom: 4px;
+}
+
+.themeSelect {
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text-primary, #e0e0e0); font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px; padding: 2px 6px; border-radius: 3px; cursor: pointer;
+}
+.themeSelect:focus { outline: none; border-color: var(--accent-cyan, #00e5ff); }
+
+.toolbarBtn {
+  background: transparent; border: 1px solid rgba(255,255,255,0.12);
+  color: var(--text-secondary, #888); font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px; font-weight: 600; letter-spacing: 0.5px;
+  padding: 2px 10px; border-radius: 3px; cursor: pointer; transition: all 0.2s;
+}
+.toolbarBtn:hover { background: rgba(255,255,255,0.06); color: var(--text-primary, #e0e0e0); border-color: rgba(255,255,255,0.2); }
+
+.reconnectBtn {
+  color: var(--accent-green, #50fa7b) !important;
+  border-color: rgba(80, 250, 123, 0.3) !important;
+}
+.reconnectBtn:hover {
+  background: rgba(80, 250, 123, 0.15) !important;
+  border-color: rgba(80, 250, 123, 0.5) !important;
+}
+
+.terminalTab.active {
+  display: flex; flex-direction: column; height: 100%;
+}
+
+.container {
+  width: 100%; flex: 1 1 auto; min-height: 200px;
+  background: #0a0a1a; border-radius: 6px;
+  overflow: hidden; transition: border-color 0.2s;
+}
+.container.dropTarget { border: 2px solid var(--accent-cyan); box-shadow: 0 0 15px rgba(0, 229, 255, 0.3); }
+.container :global(.xterm) { padding: 6px; height: 100%; }
+.container :global(.xterm-viewport) { overflow-y: auto !important; }
+
+.status { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; padding: 4px 8px; color: var(--text-secondary); }
+.status.connected { color: var(--accent-green, #4caf50); }
+.status.disconnected { color: var(--accent-red, #ff5555); }
+
+/* ---- Collapsible Queue Panel ---- */
+
+.queuePanel {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+  margin-top: 4px;
+}
+
+.queueToggle {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 6px 8px; background: transparent; border: none;
+  color: var(--text-secondary, #888); font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px; letter-spacing: 1px; cursor: pointer; text-align: left;
+}
+.queueToggle:hover { color: var(--text-primary, #e0e0e0); }
+
+.queueToggleArrow { display: inline-block; font-size: 8px; transition: transform 0.2s; }
+.queuePanel:not(.collapsed) .queueToggleArrow { transform: rotate(90deg); }
+.queueCount { color: var(--accent-cyan, #00e5ff); }
+
+.queueBody { max-height: 250px; overflow-y: auto; padding: 0 4px 4px; }
+.queuePanel.collapsed .queueBody { display: none !important; }
+
+/* Compose row */
+.queueCompose { display: flex; gap: 6px; margin-bottom: 6px; }
+.queueTextarea { flex: 1; width: auto; background: rgba(255,255,255,0.04); border: 1px solid var(--border-subtle, rgba(255,255,255,0.08)); border-radius: 4px; color: var(--text-primary, #e0e0e0); font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 11px; padding: 6px 8px; resize: vertical; line-height: 1.5; box-shadow: none; }
+.queueTextarea::placeholder { color: var(--text-dim); font-style: italic; }
+.queueTextarea:focus { outline: none; border-color: var(--accent-cyan, #00e5ff); box-shadow: none; }
+.queueAddBtn { align-self: flex-end; padding: 4px 10px; font-size: 10px; margin-top: 0; }
+
+/* Queue list */
+.queueList { position: relative; padding-left: 0; }
+.queueList::before { display: none; }
+.queueListEmpty { text-align: center; color: var(--text-dim); font-size: 11px; padding: 12px 0; font-style: italic; }
+
+/* Queue items */
+.queueItem { display: flex; align-items: center; gap: 6px; padding: 4px 6px; margin-bottom: 2px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 4px; cursor: grab; font-size: 11px; backdrop-filter: none; position: relative; }
+.queueItem::before, .queueItem::after { display: none; }
+.queueItem:hover { background: rgba(255,255,255,0.05); border-color: rgba(0,229,255,0.15); transform: none; box-shadow: none; }
+.queueItem:first-child { background: linear-gradient(135deg, rgba(0, 255, 136, 0.04), rgba(255,255,255,0.02)); border-color: rgba(0, 255, 136, 0.15); }
+
+.queuePos { color: var(--text-secondary, #666); font-size: 9px; font-weight: 600; min-width: 14px; height: auto; background: none; border-radius: 0; }
+.queueText { flex: 1; color: var(--text-primary, #e0e0e0); font-size: 11px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 1; }
+.queueActions { display: none; gap: 4px; opacity: 1; }
+.queueItem:hover .queueActions { display: flex; }
+.queueActionBtn { background: transparent; border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary, #888); font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 9px; font-weight: 600; letter-spacing: 0.5px; padding: 1px 5px; border-radius: 3px; cursor: pointer; }
+
+.queueSend { color: var(--accent-green, #50fa7b) !important; border-color: rgba(80, 250, 123, 0.3) !important; }
+.queueSend:hover { background: rgba(80, 250, 123, 0.15) !important; }
+.queueEdit { color: var(--accent-cyan); }
+.queueEdit:hover { background: rgba(0, 229, 255, 0.1); border-color: rgba(0, 229, 255, 0.3); }
+.queueDelete { color: var(--accent-red); }
+.queueDelete:hover { background: rgba(255, 51, 85, 0.1) !important; color: var(--accent-red, #ff5555) !important; border-color: rgba(255, 51, 85, 0.3) !important; }
+.queueMove { color: var(--accent-orange, #ffb86c); }
+.queueMove:hover { background: rgba(255, 184, 108, 0.15); border-color: rgba(255, 184, 108, 0.3); }
+
+/* Queue animations */
+.queueItem.entering { animation: queue-item-enter 0.3s ease-out forwards; }
+.queueItem.popping { animation: queue-item-pop 0.25s ease-in forwards; }
+.queueItem.dragging { opacity: 0.35; transform: scale(0.97); }
+
+@keyframes queue-item-enter { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes queue-item-pop { 0% { opacity: 1; transform: translateX(0); } 100% { opacity: 0; transform: translateX(30px); } }
+
+/* Queue edit textarea */
+.queueEditTextarea { width: 100%; flex: 1; background: rgba(10, 10, 26, 0.8); border: 1px solid rgba(0, 229, 255, 0.4); color: var(--text-primary); font-family: var(--font-mono); font-size: 11px; padding: 6px 8px; border-radius: 4px; resize: vertical; outline: none; transition: border-color 0.2s; }
+.queueEditTextarea:focus { border-color: rgba(0, 229, 255, 0.6); }
+.queueEdit.saving { color: var(--accent-green); border-color: rgba(0, 255, 136, 0.3); background: rgba(0, 255, 136, 0.1); }
+
+/* ---- Move Mode ---- */
+
+.moveModeHeader { display: flex; align-items: center; gap: 6px; }
+.moveAllBtn { font-size: 10px; padding: 2px 8px; color: var(--accent-orange, #ffb86c); border: 1px solid rgba(255, 184, 108, 0.3); background: rgba(255, 184, 108, 0.08); cursor: pointer; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px; font-family: var(--font-mono); }
+.moveAllBtn:hover { background: rgba(255, 184, 108, 0.2); border-color: rgba(255, 184, 108, 0.5); }
+
+.moveModeBanner { position: fixed; top: 0; left: 0; right: 0; z-index: 200; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 10px 20px; background: linear-gradient(135deg, rgba(255, 184, 108, 0.15), rgba(255, 184, 108, 0.08)); border-bottom: 1px solid rgba(255, 184, 108, 0.4); backdrop-filter: blur(12px); color: var(--accent-orange, #ffb86c); font-family: var(--font-mono); font-size: 13px; letter-spacing: 1px; text-transform: uppercase; animation: fade-in 0.2s ease; }
+
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* ---- Fullscreen ---- */
+
+.fullscreenBtn { background: transparent; border: 1px solid rgba(76, 175, 80, 0.3); color: #4caf50; font-family: inherit; font-size: 10px; letter-spacing: 1px; padding: 2px 10px; cursor: pointer; border-radius: 3px; transition: all 0.2s; }
+.fullscreenBtn:hover { background: rgba(76, 175, 80, 0.15); border-color: #4caf50; }
+
+.fullscreenOverlay { position: fixed; inset: 0; z-index: 10000; background: #0a0a1a; display: flex; flex-direction: column; }
+.fullscreenTopbar { display: flex; align-items: center; justify-content: space-between; padding: 6px 16px; background: rgba(255, 255, 255, 0.04); border-bottom: 1px solid rgba(255, 255, 255, 0.08); flex-shrink: 0; }
+.fullscreenTitle { font-size: 12px; font-weight: 500; color: var(--text-secondary, #888); letter-spacing: 1px; text-transform: uppercase; }
+.fullscreenExit { background: transparent; border: 1px solid rgba(255, 82, 82, 0.4); color: #ff5252; font-family: inherit; font-size: 10px; letter-spacing: 1px; padding: 4px 14px; cursor: pointer; border-radius: 3px; transition: all 0.2s; }
+.fullscreenExit:hover { background: rgba(255, 82, 82, 0.15); border-color: #ff5252; }
+.fullscreenContainer { flex: 1; overflow: hidden; }
+.fullscreenContainer :global(.xterm) { padding: 6px; height: 100%; }
+.fullscreenContainer :global(.xterm-viewport) { overflow-y: auto !important; }

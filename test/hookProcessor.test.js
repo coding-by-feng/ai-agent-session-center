@@ -1,8 +1,7 @@
 // test/hookProcessor.test.js — Tests for server/hookProcessor.js
 // NOTE: hookProcessor imports sessionStore, wsManager, hookStats — all have side effects.
 // We test the validation logic indirectly by calling processHookEvent and checking results.
-import { describe, it, beforeEach } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, beforeEach, expect } from 'vitest';
 import { processHookEvent } from '../server/hookProcessor.js';
 import { resetStats } from '../server/hookStats.js';
 
@@ -14,30 +13,30 @@ describe('hookProcessor', () => {
   describe('processHookEvent - validation', () => {
     it('rejects null payload', () => {
       const result = processHookEvent(null);
-      assert.ok(result);
-      assert.ok(result.error);
-      assert.match(result.error, /payload must be a JSON object/);
+      expect(result).toBeTruthy();
+      expect(result.error).toBeTruthy();
+      expect(result.error).toMatch(/payload must be a JSON object/);
     });
 
     it('rejects non-object payload', () => {
       const result = processHookEvent('not an object');
-      assert.ok(result);
-      assert.ok(result.error);
-      assert.match(result.error, /payload must be a JSON object/);
+      expect(result).toBeTruthy();
+      expect(result.error).toBeTruthy();
+      expect(result.error).toMatch(/payload must be a JSON object/);
     });
 
     it('rejects missing session_id', () => {
       const result = processHookEvent({ hook_event_name: 'SessionStart' });
-      assert.ok(result);
-      assert.ok(result.error);
-      assert.match(result.error, /missing session_id/);
+      expect(result).toBeTruthy();
+      expect(result.error).toBeTruthy();
+      expect(result.error).toMatch(/missing session_id/);
     });
 
     it('rejects non-string session_id', () => {
       const result = processHookEvent({ session_id: 123, hook_event_name: 'SessionStart' });
-      assert.ok(result);
-      assert.ok(result.error);
-      assert.match(result.error, /session_id must be a string/);
+      expect(result).toBeTruthy();
+      expect(result.error).toBeTruthy();
+      expect(result.error).toMatch(/session_id must be a string/);
     });
 
     it('rejects too-long session_id', () => {
@@ -45,16 +44,16 @@ describe('hookProcessor', () => {
         session_id: 'x'.repeat(257),
         hook_event_name: 'SessionStart',
       });
-      assert.ok(result);
-      assert.ok(result.error);
-      assert.match(result.error, /session_id too long/);
+      expect(result).toBeTruthy();
+      expect(result.error).toBeTruthy();
+      expect(result.error).toMatch(/session_id too long/);
     });
 
     it('rejects missing hook_event_name', () => {
       const result = processHookEvent({ session_id: 'test-123' });
-      assert.ok(result);
-      assert.ok(result.error);
-      assert.match(result.error, /missing hook_event_name/);
+      expect(result).toBeTruthy();
+      expect(result.error).toBeTruthy();
+      expect(result.error).toMatch(/missing hook_event_name/);
     });
 
     it('rejects unknown event type', () => {
@@ -62,9 +61,9 @@ describe('hookProcessor', () => {
         session_id: 'test-123',
         hook_event_name: 'FakeEvent',
       });
-      assert.ok(result);
-      assert.ok(result.error);
-      assert.match(result.error, /unknown event type/);
+      expect(result).toBeTruthy();
+      expect(result.error).toBeTruthy();
+      expect(result.error).toMatch(/unknown event type/);
     });
 
     it('rejects invalid claude_pid (non-number)', () => {
@@ -73,9 +72,9 @@ describe('hookProcessor', () => {
         hook_event_name: 'SessionStart',
         claude_pid: 'not-a-number',
       });
-      assert.ok(result);
-      assert.ok(result.error);
-      assert.match(result.error, /claude_pid must be a positive integer/);
+      expect(result).toBeTruthy();
+      expect(result.error).toBeTruthy();
+      expect(result.error).toMatch(/claude_pid must be a positive integer/);
     });
 
     it('rejects invalid claude_pid (negative)', () => {
@@ -84,9 +83,9 @@ describe('hookProcessor', () => {
         hook_event_name: 'SessionStart',
         claude_pid: -5,
       });
-      assert.ok(result);
-      assert.ok(result.error);
-      assert.match(result.error, /claude_pid must be a positive integer/);
+      expect(result).toBeTruthy();
+      expect(result.error).toBeTruthy();
+      expect(result.error).toMatch(/claude_pid must be a positive integer/);
     });
 
     it('rejects invalid claude_pid (floating point)', () => {
@@ -95,9 +94,9 @@ describe('hookProcessor', () => {
         hook_event_name: 'SessionStart',
         claude_pid: 3.14,
       });
-      assert.ok(result);
-      assert.ok(result.error);
-      assert.match(result.error, /claude_pid must be a positive integer/);
+      expect(result).toBeTruthy();
+      expect(result.error).toBeTruthy();
+      expect(result.error).toMatch(/claude_pid must be a positive integer/);
     });
 
     it('rejects invalid timestamp', () => {
@@ -106,9 +105,9 @@ describe('hookProcessor', () => {
         hook_event_name: 'SessionStart',
         timestamp: 'not-a-number',
       });
-      assert.ok(result);
-      assert.ok(result.error);
-      assert.match(result.error, /timestamp must be a valid number/);
+      expect(result).toBeTruthy();
+      expect(result.error).toBeTruthy();
+      expect(result.error).toMatch(/timestamp must be a valid number/);
     });
   });
 
@@ -119,10 +118,10 @@ describe('hookProcessor', () => {
         hook_event_name: 'SessionStart',
         cwd: '/tmp/test-project',
       });
-      assert.ok(result);
-      assert.ok(!result.error);
-      assert.ok(result.session);
-      assert.equal(result.session.sessionId, 'proc-test-session-1');
+      expect(result).toBeTruthy();
+      expect(result.error).toBeFalsy();
+      expect(result.session).toBeTruthy();
+      expect(result.session.sessionId).toBe('proc-test-session-1');
     });
 
     it('processes Stop event successfully', () => {
@@ -136,9 +135,9 @@ describe('hookProcessor', () => {
         session_id: 'proc-test-session-2',
         hook_event_name: 'Stop',
       });
-      assert.ok(result);
-      assert.ok(!result.error);
-      assert.equal(result.session.status, 'waiting');
+      expect(result).toBeTruthy();
+      expect(result.error).toBeFalsy();
+      expect(result.session.status).toBe('waiting');
     });
 
     it('calculates delivery latency when hook_sent_at present', () => {
@@ -149,8 +148,8 @@ describe('hookProcessor', () => {
         cwd: '/tmp/test',
         hook_sent_at: now - 100,
       });
-      assert.ok(result);
-      assert.ok(!result.error);
+      expect(result).toBeTruthy();
+      expect(result.error).toBeFalsy();
     });
 
     it('accepts valid claude_pid', () => {
@@ -160,8 +159,8 @@ describe('hookProcessor', () => {
         cwd: '/tmp/test',
         claude_pid: 12345,
       });
-      assert.ok(result);
-      assert.ok(!result.error);
+      expect(result).toBeTruthy();
+      expect(result.error).toBeFalsy();
     });
 
     it('accepts event via "event" field alias', () => {
@@ -174,7 +173,7 @@ describe('hookProcessor', () => {
       // But handleEvent reads hookData.hook_event_name — if event field is used,
       // the hook is validated but handleEvent may not recognize it.
       // Just check that validation passed
-      assert.ok(result);
+      expect(result).toBeTruthy();
       // The result may be null if handleEvent doesn't recognize the event
       // That's OK — validation passed
     });

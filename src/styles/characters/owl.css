@@ -1,0 +1,106 @@
+/* Character: OWL */
+
+/* ============================================================
+   Character: OWL
+   ============================================================ */
+
+.char-owl .owl-head {
+  width: 68px; height: 58px;
+  background: linear-gradient(145deg, var(--robot-body), var(--robot-body-dark));
+  border: 2px solid var(--robot-border);
+  border-radius: 50%;
+  position: relative;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  box-shadow: 0 0 12px rgba(0,0,0,0.4), inset 0 1px 0 var(--inset-highlight);
+}
+.char-owl .owl-tuft {
+  position: absolute; top: -10px;
+  width: 0; height: 0;
+  border-left: 8px solid transparent; border-right: 8px solid transparent;
+  border-bottom: 14px solid var(--robot-body);
+  filter: drop-shadow(0 0 2px var(--robot-border));
+}
+.char-owl .owl-tuft-left { left: 6px; transform: rotate(-15deg); }
+.char-owl .owl-tuft-right { right: 6px; transform: rotate(15deg); }
+.char-owl .owl-eye {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: rgba(0,0,0,0.5);
+  border: 2px solid var(--robot-color);
+  box-shadow: 0 0 6px var(--robot-color);
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.3s ease;
+}
+.char-owl .owl-pupil {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--robot-color);
+  box-shadow: 0 0 6px var(--robot-color), 0 0 12px var(--robot-color);
+  transition: all 0.3s ease;
+}
+.char-owl .owl-beak {
+  position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+  width: 0; height: 0;
+  border-left: 6px solid transparent; border-right: 6px solid transparent;
+  border-top: 8px solid var(--robot-color); opacity: 0.6;
+}
+.char-owl .owl-body {
+  width: 58px; height: 38px;
+  background: linear-gradient(180deg, var(--robot-body), var(--robot-body-dark));
+  border: 2px solid var(--robot-border); border-top: none;
+  border-radius: 0 0 24px 24px;
+  margin-top: -2px; position: relative;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+}
+.char-owl .owl-wing {
+  position: absolute; top: 4px;
+  width: 16px; height: 26px;
+  background: var(--robot-body-dark);
+  border: 1px solid var(--robot-border);
+  transition: all 0.3s ease;
+}
+.char-owl .owl-wing-left { left: -2px; border-radius: 50% 0 0 50%; transform-origin: right center; }
+.char-owl .owl-wing-right { right: -2px; border-radius: 0 50% 50% 0; transform-origin: left center; }
+.char-owl .owl-chest {
+  position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
+  width: 24px; height: 20px;
+  background: var(--robot-color); opacity: 0.08; border-radius: 50%;
+}
+
+/* Owl Status Animations */
+.char-owl[data-status="idle"] .robot-body-wrap { animation: robot-float 3s ease-in-out infinite; }
+.char-owl[data-status="idle"] .owl-pupil { animation: owl-look 4s ease-in-out infinite; }
+.char-owl[data-status="idle"] .robot-shadow { animation: robot-shadow-float 3s ease-in-out infinite; }
+
+.char-owl[data-status="prompting"] .robot-body-wrap { animation: robot-float 2.5s ease-in-out infinite; }
+.char-owl[data-status="prompting"] .owl-pupil { width: 10px; height: 10px; box-shadow: 0 0 10px var(--robot-color), 0 0 20px var(--robot-color); }
+.char-owl[data-status="prompting"] .owl-head { animation: robot-tilt 2s ease-in-out infinite; }
+
+.char-owl[data-status="working"] .robot-body-wrap { animation: alien-work-multi 9s ease-in-out infinite; }
+.char-owl[data-status="working"] .owl-pupil { animation: owl-look 0.8s ease-in-out infinite; box-shadow: 0 0 10px var(--robot-color), 0 0 20px var(--robot-color); }
+.char-owl[data-status="working"] .owl-head { animation: robot-work-headbob 0.9s ease-in-out infinite; }
+.char-owl[data-status="working"] .owl-wing { animation: owl-flap 0.5s ease-in-out infinite; }
+
+.char-owl[data-status="waiting"] { --robot-color: #a0c4ff; }
+.char-owl[data-status="waiting"] .owl-pupil { background: #a0c4ff; box-shadow: 0 0 8px #a0c4ff; }
+.char-owl[data-status="waiting"] .owl-eye { border-color: #a0c4ff; box-shadow: 0 0 6px #a0c4ff; }
+
+.char-owl[data-status="approval"] { --robot-color: #ffdd00; }
+.char-owl[data-status="approval"]::after { content: '!'; position: absolute; top: -8px; left: 50%; transform: translateX(-50%); font-size: 28px; font-weight: 900; color: #ffdd00; text-shadow: 0 0 12px #ffdd00, 0 0 30px rgba(255,221,0,0.6); animation: robot-approval-emote-bounce 0.8s ease-in-out infinite; z-index: 10; pointer-events: none; }
+.char-owl[data-status="approval"] .robot-body-wrap { animation: robot-approval-bounce 1s ease-in-out infinite; }
+.char-owl[data-status="approval"] .owl-pupil { width: 12px; height: 12px; background: #ffdd00; box-shadow: 0 0 18px #ffdd00, 0 0 36px #ffdd00; }
+
+.char-owl[data-status="ended"] { opacity: 0.5; }
+.char-owl[data-status="ended"] .owl-pupil { width: 8px; height: 2px; border-radius: 2px; background: var(--text-dim); box-shadow: none; }
+.char-owl[data-status="ended"] .owl-eye { border-color: var(--text-dim); box-shadow: none; }
+
+.char-owl.robot-emote .robot-body-wrap { animation: robot-emote-bounce 0.6s ease-out !important; }
+
+@keyframes owl-look {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
+}
+@keyframes owl-flap {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-8deg); }
+}
+
