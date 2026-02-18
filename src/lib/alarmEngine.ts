@@ -8,8 +8,10 @@
  * - Event sounds: maps hook events to sound actions
  */
 import type { Session, SessionEvent } from '@/types';
-import type { SoundAction } from './soundEngine';
+import type { SoundAction, SoundName } from './soundEngine';
 import { soundEngine } from './soundEngine';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { detectCli } from './cliDetect';
 
 // ---------------------------------------------------------------------------
 // Tool name -> sound action mapping
@@ -78,6 +80,35 @@ export function clearAllAlarms(): void {
 }
 
 /**
+ * Resolve the sound to play for a given action, respecting per-CLI profiles.
+ * Falls back to the global soundEngine.play() if no CLI match or CLI is disabled.
+ */
+function playForCli(session: Session, action: SoundAction): void {
+  const state = useSettingsStore.getState();
+  if (!state.soundSettings.enabled) return;
+
+  // Determine CLI name from model + events (session.source is terminal type, not CLI)
+  const cli = detectCli(session);
+  const perCli = state.soundSettings.perCli;
+  const cliConfig = cli ? perCli[cli] : undefined;
+
+  if (cliConfig && cliConfig.enabled) {
+    const soundName = (cliConfig.actions[action] ?? 'none') as SoundName;
+    if (soundName !== 'none') {
+      // Temporarily set volume to CLI-specific volume scaled by master volume
+      const prevVol = soundEngine.getVolume();
+      soundEngine.setVolume(state.soundSettings.volume * cliConfig.volume);
+      soundEngine.preview(soundName);
+      soundEngine.setVolume(prevVol);
+    }
+    return;
+  }
+
+  // Fallback: use global sound engine defaults
+  soundEngine.play(action);
+}
+
+/**
  * Handle event-based sounds for a session update.
  * Call this when a session receives new events.
  */
@@ -91,28 +122,28 @@ export function handleEventSounds(session: Session): void {
 
   switch (lastEvt.type) {
     case 'SessionStart':
-      soundEngine.play('sessionStart');
+      playForCli(session, 'sessionStart');
       break;
     case 'UserPromptSubmit':
-      soundEngine.play('promptSubmit');
+      playForCli(session, 'promptSubmit');
       break;
     case 'PreToolUse': {
       const toolName = (lastEvt as SessionEvent & { tool_name?: string }).tool_name || '';
       const action = TOOL_SOUND_MAP[toolName] || 'toolOther';
-      soundEngine.play(action);
+      playForCli(session, action);
       break;
     }
     case 'Stop':
-      soundEngine.play('taskComplete');
+      playForCli(session, 'taskComplete');
       break;
     case 'SessionEnd':
-      soundEngine.play('sessionEnd');
+      playForCli(session, 'sessionEnd');
       break;
     case 'SubagentStart':
-      soundEngine.play('subagentStart');
+      playForCli(session, 'subagentStart');
       break;
     case 'SubagentStop':
-      soundEngine.play('subagentStop');
+      playForCli(session, 'subagentStop');
       break;
   }
 }

@@ -12,10 +12,8 @@ vi.mock('@/components/ui/ResizablePanel', () => ({
   ),
 }));
 
-vi.mock('@/components/character/CharacterModel', () => ({
-  default: ({ model, status }: { model: string; status: string }) => (
-    <div data-testid="character-model" data-model={model} data-status={status} />
-  ),
+vi.mock('@/lib/robot3DModels', () => ({
+  getModelLabel: (type: string) => type.charAt(0).toUpperCase() + type.slice(1),
 }));
 
 vi.mock('./DetailTabs', () => ({
@@ -172,16 +170,15 @@ describe('DetailPanel', () => {
     expect(screen.getByText('Prompts: 2')).toBeInTheDocument();
   });
 
-  it('renders character model preview', () => {
+  it('renders model icon in header', () => {
     const session = makeSession({ characterModel: 'Robot' });
     useSessionStore.setState({
       sessions: new Map([['sess-1', session]]),
       selectedSessionId: 'sess-1',
     });
     render(<DetailPanel />);
-    const charModel = screen.getByTestId('character-model');
-    expect(charModel).toHaveAttribute('data-model', 'robot');
-    expect(charModel).toHaveAttribute('data-status', 'working');
+    // The header shows the first letter of the model label
+    expect(screen.getByText('R')).toBeInTheDocument();
   });
 
   it('deselects on close button click', () => {

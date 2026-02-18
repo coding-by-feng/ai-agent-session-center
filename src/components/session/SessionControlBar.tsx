@@ -8,7 +8,7 @@ import { useState, useCallback } from 'react';
 import type { Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
-import { useGroupStore } from '@/stores/groupStore';
+import { useRoomStore } from '@/stores/roomStore';
 import { db } from '@/lib/db';
 import { deleteSession as deleteSessionDb } from '@/lib/db';
 import { showToast } from '@/components/ui/ToastContainer';
@@ -28,9 +28,9 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
   const updateSession = useSessionStore((s) => s.updateSession);
   const selectSession = useSessionStore((s) => s.selectSession);
   const openModal = useUiStore((s) => s.openModal);
-  const groups = useGroupStore((s) => s.groups);
-  const addSession = useGroupStore((s) => s.addSession);
-  const removeSessionFromGroup = useGroupStore((s) => s.removeSession);
+  const rooms = useRoomStore((s) => s.rooms);
+  const addSession = useRoomStore((s) => s.addSession);
+  const removeSessionFromRoom = useRoomStore((s) => s.removeSession);
 
   const [resuming, setResuming] = useState(false);
   const [summarizeState, setSummarizeState] = useState<'idle' | 'loading' | 'done'>('idle');
@@ -111,41 +111,41 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
     openModal(ALERT_MODAL_ID);
   }, [openModal]);
 
-  // ---- Group select ----
-  const handleGroupChange = useCallback(
+  // ---- Room select ----
+  const handleRoomChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const groupId = e.target.value;
-      if (groupId === '__new__') {
-        const name = window.prompt('New group name:');
+      const roomId = e.target.value;
+      if (roomId === '__new__') {
+        const name = window.prompt('New room name:');
         if (name?.trim()) {
-          const newGroupId = useGroupStore.getState().createGroup(name.trim());
-          useGroupStore.getState().addSession(newGroupId, session.sessionId);
+          const newRoomId = useRoomStore.getState().createRoom(name.trim());
+          useRoomStore.getState().addSession(newRoomId, session.sessionId);
           showToast(`Created and assigned to "${name.trim()}"`, 'success');
         }
         return;
       }
 
-      // Remove from all groups first
-      for (const g of groups) {
-        if (g.sessionIds.includes(session.sessionId)) {
-          removeSessionFromGroup(g.id, session.sessionId);
+      // Remove from all rooms first
+      for (const r of rooms) {
+        if (r.sessionIds.includes(session.sessionId)) {
+          removeSessionFromRoom(r.id, session.sessionId);
         }
       }
 
-      // Add to selected group
-      if (groupId) {
-        addSession(groupId, session.sessionId);
-        showToast('Moved to group', 'info');
+      // Add to selected room
+      if (roomId) {
+        addSession(roomId, session.sessionId);
+        showToast('Moved to room', 'info');
       } else {
-        showToast('Removed from group', 'info');
+        showToast('Removed from room', 'info');
       }
     },
-    [session.sessionId, groups, addSession, removeSessionFromGroup],
+    [session.sessionId, rooms, addSession, removeSessionFromRoom],
   );
 
-  // Find current group
-  const currentGroupId = groups.find((g) =>
-    g.sessionIds.includes(session.sessionId),
+  // Find current room
+  const currentRoomId = rooms.find((r) =>
+    r.sessionIds.includes(session.sessionId),
   )?.id || '';
 
   return (
@@ -192,19 +192,19 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
           ALERT
         </button>
 
-        {/* Group select */}
+        {/* Room select */}
         <select
           className={styles.ctrlSelect}
-          value={currentGroupId}
-          onChange={handleGroupChange}
+          value={currentRoomId}
+          onChange={handleRoomChange}
         >
-          <option value="">No group</option>
-          {groups.map((g) => (
-            <option key={g.id} value={g.id}>
-              {g.name}
+          <option value="">No room</option>
+          {rooms.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.name}
             </option>
           ))}
-          <option value="__new__">+ New Group</option>
+          <option value="__new__">+ New Room</option>
         </select>
       </div>
 

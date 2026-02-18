@@ -55,20 +55,29 @@ export function onMuteChange(fn: (muted: boolean) => void): () => void {
 // ---------------------------------------------------------------------------
 
 export function useKeyboardShortcuts(): void {
+  // Read modal state reactively (changes the shortcuts panel visibility)
   const openModal = useUiStore((s) => s.openModal);
   const closeModal = useUiStore((s) => s.closeModal);
   const activeModal = useUiStore((s) => s.activeModal);
-  const selectedSessionId = useSessionStore((s) => s.selectedSessionId);
-  const deselectSession = useSessionStore((s) => s.deselectSession);
 
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
+  // IMPORTANT: Do NOT subscribe to selectedSessionId via useSessionStore((s) => s.selectedSessionId).
+  // That subscription forces AppLayout to re-render on every selection change, which cascades
+  // through Canvas → SceneContent → all SessionRobots → drei <Html> portals, triggering
+  // React Error #185 (maximum update depth exceeded). Instead, read from getState() at
+  // event-handler time so the keyboard handler always gets the latest value without
+  // causing re-renders.
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      const currentModal = useUiStore.getState().activeModal;
+      const selectedId = useSessionStore.getState().selectedSessionId;
+
       // Always allow Escape
       if (e.key === 'Escape') {
-        if (activeModal) {
+        if (currentModal) {
           closeModal();
-        } else if (selectedSessionId) {
-          deselectSession();
+        } else if (selectedId) {
+          useSessionStore.getState().deselectSession();
         }
         return;
       }
@@ -91,7 +100,7 @@ export function useKeyboardShortcuts(): void {
 
         case '?':
           e.preventDefault();
-          if (activeModal === 'shortcuts') {
+          if (currentModal === 'shortcuts') {
             closeModal();
           } else {
             openModal('shortcuts');
@@ -101,7 +110,7 @@ export function useKeyboardShortcuts(): void {
         case 'S':
         case 's':
           e.preventDefault();
-          if (activeModal === 'settings') {
+          if (currentModal === 'settings') {
             closeModal();
           } else {
             openModal('settings');
@@ -116,17 +125,17 @@ export function useKeyboardShortcuts(): void {
 
         case 'K':
         case 'k':
-          if (selectedSessionId) {
+          if (selectedId) {
             e.preventDefault();
-            killSelectedSession(selectedSessionId);
+            killSelectedSession(selectedId);
           }
           break;
 
         case 'A':
         case 'a':
-          if (selectedSessionId) {
+          if (selectedId) {
             e.preventDefault();
-            archiveSelectedSession(selectedSessionId);
+            archiveSelectedSession(selectedId);
           }
           break;
 
@@ -138,14 +147,11 @@ export function useKeyboardShortcuts(): void {
           break;
         }
       }
-    },
-    [activeModal, selectedSessionId, openModal, closeModal, deselectSession],
-  );
+    }
 
-  useEffect(() => {
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
+  }, [openModal, closeModal, activeModal]);
 }
 
 // ---------------------------------------------------------------------------

@@ -12,7 +12,9 @@ import SettingsPanel from '@/components/settings/SettingsPanel';
 import NewSessionModal from '@/components/modals/NewSessionModal';
 import QuickSessionModal from '@/components/modals/QuickSessionModal';
 import ShortcutsPanel from '@/components/modals/ShortcutsPanel';
+import DetailPanel from '@/components/session/DetailPanel';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useSettingsInit } from '@/hooks/useSettingsInit';
 import LiveView from '@/routes/LiveView';
 
 // Lazy-load non-default routes for code splitting
@@ -48,11 +50,13 @@ function AppLayout() {
       <NewSessionModal />
       <QuickSessionModal />
       <ShortcutsPanel />
+      <DetailPanel />
     </div>
   );
 }
 
 function Dashboard({ token }: { token: string | null }) {
+  useSettingsInit();
   useWebSocket(token);
 
   return (

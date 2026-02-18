@@ -3,7 +3,7 @@
  * Uses ResizablePanel for width adjustment.
  * Ported from public/js/detailPanel.js.
  */
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import type { Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
@@ -16,13 +16,25 @@ import NotesTab from './NotesTab';
 import SummaryTab from './SummaryTab';
 import QueueTab from './QueueTab';
 import SessionControlBar from './SessionControlBar';
-import KillConfirmModal from './KillConfirmModal';
-import AlertModal from './AlertModal';
-import SummarizeModal from './SummarizeModal';
+import KillConfirmModal, { KILL_MODAL_ID } from './KillConfirmModal';
+import AlertModal, { ALERT_MODAL_ID } from './AlertModal';
+import SummarizeModal, { SUMMARIZE_MODAL_ID } from './SummarizeModal';
 import TerminalContainer from '@/components/terminal/TerminalContainer';
-import CharacterModel, { type CharacterModelName } from '@/components/character/CharacterModel';
+import { getModelLabel, type RobotModelType } from '@/lib/robot3DModels';
 import { formatDuration, getStatusLabel } from '@/lib/format';
 import styles from '@/styles/modules/DetailPanel.module.css';
+
+// ---------------------------------------------------------------------------
+// LazyModal — only mounts children when the modal is active.
+// Prevents zustand subscriptions in KillConfirmModal/AlertModal/SummarizeModal
+// from firing during the initial DetailPanel mount.
+// ---------------------------------------------------------------------------
+
+function LazyModal({ modalId, children }: { modalId: string; children: ReactNode }) {
+  const activeModal = useUiStore((s) => s.activeModal);
+  if (activeModal !== modalId) return null;
+  return <>{children}</>;
+}
 
 // ---------------------------------------------------------------------------
 // Terminal content wrapper (accesses WsClient from store)
@@ -100,7 +112,12 @@ export default function DetailPanel() {
   const durText = formatDuration(Date.now() - session.startedAt);
   const statusLabel = getStatusLabel(session.status);
   const isDisconnected = session.status === 'ended';
-  const charModel = (session.characterModel || 'robot').toLowerCase() as CharacterModelName;
+  const modelType = (session.characterModel || 'robot').toLowerCase() as RobotModelType;
+  const statusColor: Record<string, string> = {
+    idle: '#00ff88', prompting: '#00e5ff', working: '#ff9100',
+    waiting: '#00e5ff', approval: '#ffdd00', input: '#aa66ff',
+    ended: '#ff4444', connecting: '#666',
+  };
 
   return (
     <div className={styles.overlay} onClick={handleOverlayClick}>
@@ -121,13 +138,25 @@ export default function DetailPanel() {
 
         {/* Header */}
         <div className={styles.header}>
-          {/* Mini character preview */}
-          <div className={styles.charPreview}>
-            <CharacterModel
-              model={charModel}
-              status={session.status}
-              color={session.accentColor}
-            />
+          {/* Mini robot icon */}
+          <div className={styles.charPreview} style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: 48,
+            height: 48,
+            borderRadius: 6,
+            border: `1px solid ${statusColor[session.status] ?? '#666'}40`,
+            background: `${statusColor[session.status] ?? '#666'}10`,
+          }}>
+            <span style={{
+              fontSize: 20,
+              color: statusColor[session.status] ?? '#666',
+              fontFamily: "'Orbitron', sans-serif",
+              fontWeight: 700,
+            }}>
+              {getModelLabel(modelType).charAt(0)}
+            </span>
           </div>
 
           <div className={styles.headerText}>
@@ -192,10 +221,11 @@ export default function DetailPanel() {
           }
         />
 
-        {/* Modals (rendered inside panel, but positioned fixed) */}
-        <KillConfirmModal />
-        <AlertModal />
-        <SummarizeModal />
+        {/* Modals — only mount when their modal is active to avoid unnecessary
+            zustand subscriptions during DetailPanel mount (reduces cascading re-renders). */}
+        <LazyModal modalId={KILL_MODAL_ID}><KillConfirmModal /></LazyModal>
+        <LazyModal modalId={ALERT_MODAL_ID}><AlertModal /></LazyModal>
+        <LazyModal modalId={SUMMARIZE_MODAL_ID}><SummarizeModal /></LazyModal>
       </ResizablePanel>
     </div>
   );

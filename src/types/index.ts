@@ -139,7 +139,10 @@ export type {
   AutoIdleConfig,
   StatusAnimation,
   StatusAnimationConfig,
+  CliSoundConfig,
   SoundSettings,
+  AmbientPreset,
+  AmbientSettings,
   LabelAlarmSettings,
   BrowserSettings,
 } from './settings.js';
