@@ -452,7 +452,6 @@ function _applyCardUpdate(session) {
       titleEl.addEventListener('blur', save, { once: true });
       titleEl.addEventListener('keydown', (ke) => {
         if (ke.key === 'Enter') { ke.preventDefault(); titleEl.blur(); }
-        if (ke.key === 'Escape') { titleEl.textContent = session.title || ''; titleEl.blur(); }
       });
     });
 

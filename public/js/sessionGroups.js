@@ -350,7 +350,6 @@ export function renderGroups() {
         nameEl.addEventListener('blur', save, { once: true });
         nameEl.addEventListener('keydown', (ke) => {
           if (ke.key === 'Enter') { ke.preventDefault(); nameEl.blur(); }
-          if (ke.key === 'Escape') { nameEl.textContent = group.name; nameEl.blur(); }
         });
       });
       // Delete group
