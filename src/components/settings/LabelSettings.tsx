@@ -42,7 +42,7 @@ export default function LabelSettings() {
       <div className={styles.section}>
         <h4>Label Completion Alerts</h4>
         <p className={styles.settingsHint}>
-          Configure sound, movement, and card frame effects when a labeled session completes.
+          Configure sound, movement, and robot body effects when a labeled session completes.
         </p>
         <div className={styles.labelSettingsGrid}>
           {LABELS.map((label) => {
@@ -67,7 +67,7 @@ export default function LabelSettings() {
 
                 {/* Frame Effect */}
                 <div className={styles.labelConfigRow}>
-                  <span className={styles.labelConfigField}>Card Frame</span>
+                  <span className={styles.labelConfigField}>Robot Effect</span>
                   <select
                     className={styles.labelConfigSelect}
                     value={cfg.frame}

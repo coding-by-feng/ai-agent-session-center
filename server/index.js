@@ -65,7 +65,14 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 // ── Static files (always served — login page is part of SPA) ──
-app.use(express.static(join(__dirname, '..', 'public')));
+// Serve built React app from dist/client (after vite build), fallback to public/
+import { existsSync } from 'fs';
+const distDir = join(__dirname, '..', 'dist', 'client');
+if (existsSync(distDir)) {
+  app.use(express.static(distDir));
+} else {
+  app.use(express.static(join(__dirname, '..', 'public')));
+}
 
 // ── Hook endpoints (no auth — CLI hooks must work without login) ──
 app.use('/api/hooks', hookRateLimitMiddleware, hookRouter);
@@ -85,6 +92,13 @@ if (log.isDebug) {
       log.debug('http', `${req.method} ${req.originalUrl} ${res.statusCode} ${Date.now() - start}ms`);
     });
     next();
+  });
+}
+
+// ── SPA fallback for React Router (dist/client only) ──
+if (existsSync(distDir)) {
+  app.get('/{*path}', (req, res) => {
+    res.sendFile(join(distDir, 'index.html'));
   });
 }
 

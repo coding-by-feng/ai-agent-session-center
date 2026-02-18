@@ -4,6 +4,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
 import { db, migrateSessionId, persistSessionUpdate } from '@/lib/db';
 import type { Session, ServerMessage } from '@/types';
+import { handleEventSounds, checkAlarms } from '@/lib/alarmEngine';
 
 export function useWebSocket(token: string | null): WsClient | null {
   const clientRef = useRef<WsClient | null>(null);
@@ -51,6 +52,10 @@ export function useWebSocket(token: string | null): WsClient | null {
 
           updateSession(session);
           persistSessionUpdate(session).catch(() => {});
+
+          // Sound system: play event sounds and manage alarms
+          handleEventSounds(session);
+          checkAlarms(session, () => useSessionStore.getState().sessions);
           break;
         }
 

@@ -63,12 +63,37 @@ export type StatusAnimationConfig = Record<string, StatusAnimation>;
 // Browser-Side Settings (persisted in IndexedDB / localStorage)
 // ---------------------------------------------------------------------------
 
+/** Per-CLI sound configuration */
+export interface CliSoundConfig {
+  enabled: boolean;
+  volume: number;
+  actions: Partial<Record<string, string>>;
+}
+
 /** Sound settings (Web Audio synthesis) */
 export interface SoundSettings {
   enabled: boolean;
   volume: number;
   muteApproval: boolean;
   muteInput: boolean;
+  perCli: {
+    claude: CliSoundConfig;
+    gemini: CliSoundConfig;
+    codex: CliSoundConfig;
+    openclaw: CliSoundConfig;
+  };
+}
+
+/** Ambient / white noise preset names */
+export type AmbientPreset = 'off' | 'rain' | 'lofi' | 'serverRoom' | 'deepSpace' | 'coffeeShop';
+
+/** Ambient & white noise settings */
+export interface AmbientSettings {
+  enabled: boolean;
+  volume: number;
+  preset: AmbientPreset;
+  roomSounds: boolean;
+  roomVolume: number;
 }
 
 /** Label alarm settings */
@@ -80,6 +105,7 @@ export interface LabelAlarmSettings {
 /** Browser-side settings (persisted in localStorage/IndexedDB) */
 export interface BrowserSettings {
   soundSettings: SoundSettings;
+  ambientSettings: AmbientSettings;
   labelAlarms: LabelAlarmSettings;
   theme: 'dark' | 'light';
   compactMode: boolean;

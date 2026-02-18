@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { db } from '@/lib/db';
-import type { BrowserSettings, SoundSettings, LabelAlarmSettings } from '@/types';
+import type { BrowserSettings, SoundSettings, LabelAlarmSettings, AmbientSettings, CliSoundConfig, AmbientPreset } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Theme definitions (matching original 9 themes)
@@ -56,10 +56,129 @@ export const DEFAULT_LABEL_SETTINGS: LabelSettings = {
 export const FRAME_EFFECTS: Record<string, string> = {
   none: 'None',
   fire: 'Burning Fire',
-  electric: 'Electric Current',
-  chains: 'Golden Chains',
-  liquid: 'Liquid Flow',
-  plasma: 'Plasma Ring',
+  electric: 'Electric Surge',
+  chains: 'Golden Aura',
+  liquid: 'Liquid Energy',
+  plasma: 'Plasma Overload',
+};
+
+// ---------------------------------------------------------------------------
+// Per-CLI default sound profiles
+// ---------------------------------------------------------------------------
+
+export const CLI_SOUND_PROFILES: Record<string, CliSoundConfig> = {
+  claude: {
+    enabled: true,
+    volume: 0.7,
+    actions: {
+      sessionStart: 'chime',
+      sessionEnd: 'cascade',
+      promptSubmit: 'ping',
+      taskComplete: 'fanfare',
+      toolRead: 'click',
+      toolWrite: 'blip',
+      toolEdit: 'blip',
+      toolBash: 'click',
+      toolGrep: 'click',
+      toolGlob: 'click',
+      toolWebFetch: 'ping',
+      toolTask: 'chime',
+      toolOther: 'click',
+      approvalNeeded: 'alarm',
+      inputNeeded: 'chime',
+      alert: 'alarm',
+      kill: 'thud',
+      archive: 'ping',
+      subagentStart: 'chirp',
+      subagentStop: 'ping',
+    },
+  },
+  gemini: {
+    enabled: true,
+    volume: 0.7,
+    actions: {
+      sessionStart: 'ding',
+      sessionEnd: 'cascade',
+      promptSubmit: 'chirp',
+      taskComplete: 'fanfare',
+      toolRead: 'click',
+      toolWrite: 'swoosh',
+      toolEdit: 'swoosh',
+      toolBash: 'ding',
+      toolGrep: 'click',
+      toolGlob: 'click',
+      toolWebFetch: 'swoosh',
+      toolTask: 'ding',
+      toolOther: 'chirp',
+      approvalNeeded: 'alarm',
+      inputNeeded: 'ding',
+      alert: 'alarm',
+      kill: 'thud',
+      archive: 'swoosh',
+      subagentStart: 'chirp',
+      subagentStop: 'ding',
+    },
+  },
+  codex: {
+    enabled: true,
+    volume: 0.5,
+    actions: {
+      sessionStart: 'blip',
+      sessionEnd: 'beep',
+      promptSubmit: 'click',
+      taskComplete: 'blip',
+      toolRead: 'click',
+      toolWrite: 'blip',
+      toolEdit: 'blip',
+      toolBash: 'beep',
+      toolGrep: 'click',
+      toolGlob: 'click',
+      toolWebFetch: 'click',
+      toolTask: 'beep',
+      toolOther: 'click',
+      approvalNeeded: 'alarm',
+      inputNeeded: 'beep',
+      alert: 'alarm',
+      kill: 'thud',
+      archive: 'click',
+      subagentStart: 'blip',
+      subagentStop: 'beep',
+    },
+  },
+  openclaw: {
+    enabled: true,
+    volume: 0.7,
+    actions: {
+      sessionStart: 'fanfare',
+      sessionEnd: 'cascade',
+      promptSubmit: 'buzz',
+      taskComplete: 'fanfare',
+      toolRead: 'click',
+      toolWrite: 'buzz',
+      toolEdit: 'buzz',
+      toolBash: 'buzz',
+      toolGrep: 'click',
+      toolGlob: 'click',
+      toolWebFetch: 'swoosh',
+      toolTask: 'buzz',
+      toolOther: 'buzz',
+      approvalNeeded: 'urgentAlarm',
+      inputNeeded: 'fanfare',
+      alert: 'urgentAlarm',
+      kill: 'thud',
+      archive: 'cascade',
+      subagentStart: 'fanfare',
+      subagentStop: 'cascade',
+    },
+  },
+};
+
+export const DEFAULT_AMBIENT_SETTINGS: AmbientSettings = {
+  enabled: false,
+  volume: 0.3,
+  preset: 'off',
+  roomSounds: false,
+  roomVolume: 0.2,
 };
 
 // ---------------------------------------------------------------------------
@@ -119,6 +238,9 @@ interface SettingsState extends BrowserSettings {
   loadFromDb: (settings: Partial<SettingsState>) => void;
   saveToDb: () => SettingsState;
   updateSoundSettings: (settings: Partial<SoundSettings>) => void;
+  updateCliSoundConfig: (cli: string, config: Partial<CliSoundConfig>) => void;
+  setCliActionSound: (cli: string, action: string, sound: string) => void;
+  updateAmbientSettings: (settings: Partial<AmbientSettings>) => void;
   updateLabelAlarms: (settings: Partial<LabelAlarmSettings>) => void;
   setThemeName: (theme: ThemeName) => void;
   setTheme: (theme: 'dark' | 'light') => void;
@@ -158,7 +280,14 @@ const defaultSettings: SettingsData = {
     volume: 0.5,
     muteApproval: false,
     muteInput: false,
+    perCli: {
+      claude: { ...CLI_SOUND_PROFILES.claude },
+      gemini: { ...CLI_SOUND_PROFILES.gemini },
+      codex: { ...CLI_SOUND_PROFILES.codex },
+      openclaw: { ...CLI_SOUND_PROFILES.openclaw },
+    },
   },
+  ambientSettings: { ...DEFAULT_AMBIENT_SETTINGS },
   labelAlarms: {
     labels: [],
     soundEnabled: true,
@@ -239,15 +368,65 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     return { ...state };
   },
 
-  updateSoundSettings: (updates) =>
+  updateSoundSettings: (updates) => {
     set((state) => ({
       soundSettings: { ...state.soundSettings, ...updates },
-    })),
+    }));
+    get().persistSetting('soundSettings', JSON.stringify(get().soundSettings));
+  },
 
-  updateLabelAlarms: (updates) =>
+  updateCliSoundConfig: (cli, config) => {
+    set((state) => {
+      const perCli = state.soundSettings.perCli;
+      const current = perCli[cli as keyof typeof perCli];
+      if (!current) return {};
+      return {
+        soundSettings: {
+          ...state.soundSettings,
+          perCli: {
+            ...perCli,
+            [cli]: { ...current, ...config },
+          },
+        },
+      };
+    });
+    get().persistSetting('soundSettings', JSON.stringify(get().soundSettings));
+  },
+
+  setCliActionSound: (cli, action, sound) => {
+    set((state) => {
+      const perCli = state.soundSettings.perCli;
+      const current = perCli[cli as keyof typeof perCli];
+      if (!current) return {};
+      return {
+        soundSettings: {
+          ...state.soundSettings,
+          perCli: {
+            ...perCli,
+            [cli]: {
+              ...current,
+              actions: { ...current.actions, [action]: sound },
+            },
+          },
+        },
+      };
+    });
+    get().persistSetting('soundSettings', JSON.stringify(get().soundSettings));
+  },
+
+  updateAmbientSettings: (updates) => {
+    set((state) => ({
+      ambientSettings: { ...state.ambientSettings, ...updates },
+    }));
+    get().persistSetting('ambientSettings', JSON.stringify(get().ambientSettings));
+  },
+
+  updateLabelAlarms: (updates) => {
     set((state) => ({
       labelAlarms: { ...state.labelAlarms, ...updates },
-    })),
+    }));
+    get().persistSetting('labelAlarms', JSON.stringify(get().labelAlarms));
+  },
 
   setThemeName: (themeName) => {
     applyTheme(themeName);

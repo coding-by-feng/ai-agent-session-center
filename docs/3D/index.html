@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CYBERDROME — Robotic Office Lab</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; background: #0e0c1a; font-family: 'Share Tech Mono', monospace; }
+    canvas { display: block; }
+
+    #ui {
+      position: fixed; inset: 0;
+      pointer-events: none; z-index: 10;
+    }
+    #ui::before {
+      content: ''; position: fixed; inset: 0; z-index: 100; pointer-events: none;
+      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    }
+    #ui::after {
+      content: ''; position: fixed; inset: 0; pointer-events: none;
+      background: radial-gradient(ellipse at center, transparent 60%, rgba(6,4,14,0.4) 100%);
+    }
+
+    .title {
+      position: absolute; top: 24px; left: 28px; user-select: none;
+      animation: fadeIn 0.8s ease 0.2s both;
+    }
+    .title h1 {
+      font-family: 'Orbitron', sans-serif; font-weight: 900; font-size: 15px;
+      letter-spacing: 5px; color: #00f0ff; text-transform: uppercase;
+      text-shadow: 0 0 10px rgba(0,240,255,0.5), 0 0 30px rgba(0,240,255,0.12);
+      animation: flicker 6s ease-in-out infinite;
+    }
+    .title p {
+      font-size: 10px; letter-spacing: 3px; margin-top: 5px;
+      color: rgba(255,0,170,0.45); text-transform: uppercase;
+      text-shadow: 0 0 6px rgba(255,0,170,0.25);
+    }
+
+    .panel {
+      position: absolute; bottom: 24px; right: 28px;
+      background: rgba(10,6,22,0.78); backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(0,240,255,0.18); border-radius: 4px;
+      padding: 20px 24px; pointer-events: all; min-width: 200px;
+      box-shadow: 0 0 12px rgba(0,240,255,0.04), inset 0 0 24px rgba(0,240,255,0.02);
+      animation: fadeIn 0.8s ease 0.4s both;
+    }
+    .panel::before {
+      content: ''; position: absolute; top: -1px; left: -1px;
+      width: 14px; height: 14px; border-top: 2px solid #00f0ff; border-left: 2px solid #00f0ff;
+    }
+    .panel::after {
+      content: ''; position: absolute; bottom: -1px; right: -1px;
+      width: 14px; height: 14px; border-bottom: 2px solid #ff00aa; border-right: 2px solid #ff00aa;
+    }
+
+    .stat-label { font-size: 10px; letter-spacing: 2px; color: rgba(0,240,255,0.4); text-transform: uppercase; }
+    .stat-value { font-family: 'Orbitron', sans-serif; font-size: 34px; font-weight: 700; color: #fff; margin: 3px 0 14px; line-height: 1; }
+    .btn {
+      display: block; width: 100%; font-family: 'Share Tech Mono', monospace;
+      font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase;
+      padding: 9px 14px; border-radius: 2px; cursor: pointer;
+      transition: all 0.15s ease; border: 1px solid;
+    }
+    .btn-primary { background: rgba(0,240,255,0.08); color: #00f0ff; border-color: rgba(0,240,255,0.28); }
+    .btn-primary:hover { background: rgba(0,240,255,0.16); border-color: rgba(0,240,255,0.5); box-shadow: 0 0 16px rgba(0,240,255,0.12); }
+    .btn-ghost { background: rgba(255,0,170,0.04); color: rgba(255,0,170,0.45); border-color: rgba(255,0,170,0.14); margin-top: 7px; }
+    .btn-ghost:hover { background: rgba(255,0,170,0.1); color: rgba(255,0,170,0.7); border-color: rgba(255,0,170,0.3); }
+    .btn:active { transform: scale(0.97); }
+    .hint { font-size: 9px; color: rgba(255,255,255,0.16); margin-top: 12px; line-height: 1.6; text-align: center; }
+    .hint kbd { display: inline-block; padding: 1px 4px; border: 1px solid rgba(0,240,255,0.18); border-radius: 2px; font-size: 9px; font-family: 'Share Tech Mono', monospace; color: rgba(0,240,255,0.3); }
+
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes flicker { 0%,100%{opacity:1} 91%{opacity:1} 92%{opacity:.7} 93%{opacity:1} 95%{opacity:.85} 96.5%{opacity:1} }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <div class="title">
+      <h1>Cyberdrome</h1>
+      <p>Robotic Office Lab</p>
+    </div>
+    <div class="panel">
+      <div class="stat-label">Units Online</div>
+      <div class="stat-value" id="count">0</div>
+      <button class="btn btn-primary" id="addBtn">&gt; Deploy Unit</button>
+      <button class="btn btn-ghost" id="resetBtn">// Reset Lab</button>
+      <div class="hint">Drag to orbit &middot; Scroll to zoom<br><kbd>Space</kbd> deploy &middot; <kbd>R</kbd> reset</div>
+    </div>
+  </div>
+
+  <script type="importmap">
+  { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three'
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+
+    // ═══════════════════════════════════════════════════
+    // CONSTANTS
+    // ═══════════════════════════════════════════════════
+    const GS = 30, BOUND = 13.5, WALL_H = 2.8, WALL_T = 0.12
+    const INITIAL = 10, MAX = 50
+    const PALETTE = [
+      '#00f0ff','#ff00aa','#a855f7','#00ff88',
+      '#ff4444','#ffaa00','#00aaff','#ff66ff',
+      '#44ff44','#ff8800','#8855ff','#00ffcc',
+      '#ff0066','#ccff00','#ff5577','#33ddff',
+    ]
+    const S_WALK = 0, S_GOTO = 1, S_SIT = 2
+
+    // Room bounds: NW=0, NE=1, SW=2, SE=3
+    const roomBounds = [
+      { minX:-13, maxX:-3, minZ:-13, maxZ:-3 },
+      { minX:3,   maxX:13, minZ:-13, maxZ:-3 },
+      { minX:-13, maxX:-3, minZ:3,   maxZ:13 },
+      { minX:3,   maxX:13, minZ:3,   maxZ:13 },
+    ]
+    // Doorway center positions (inner corner of each room)
+    const doorways = [
+      new THREE.Vector3(-4.5, 0, -4.5),
+      new THREE.Vector3(4.5,  0, -4.5),
+      new THREE.Vector3(-4.5, 0, 4.5),
+      new THREE.Vector3(4.5,  0, 4.5),
+    ]
+
+    // ═══════════════════════════════════════════════════
+    // RENDERER + SCENE
+    // ═══════════════════════════════════════════════════
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setSize(window.innerWidth, window.innerHeight)
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.2
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    document.body.appendChild(renderer.domElement)
+
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color('#0e0c1a')
+    scene.fog = new THREE.FogExp2('#0e0c1a', 0.015)
+
+    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 150)
+    camera.position.set(18, 16, 18)
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.dampingFactor = 0.06
+    controls.maxPolarAngle = Math.PI / 2.1
+    controls.minDistance = 6
+    controls.maxDistance = 50
+    controls.target.set(0, 1, 0)
+
+    // ═══════════════════════════════════════════════════
+    // LIGHTING — brighter cyberpunk
+    // ═══════════════════════════════════════════════════
+    scene.add(new THREE.AmbientLight('#2a2040', 3))
+
+    const sun = new THREE.DirectionalLight('#c8b8e0', 2)
+    sun.position.set(8, 20, 6)
+    sun.castShadow = true
+    Object.assign(sun.shadow.camera, { left:-18, right:18, top:18, bottom:-18, near:1, far:50 })
+    sun.shadow.mapSize.set(2048, 2048)
+    sun.shadow.bias = -0.0004
+    sun.shadow.normalBias = 0.02
+    scene.add(sun)
+
+    const cyLight = new THREE.PointLight('#00f0ff', 4, 40, 1.5)
+    cyLight.position.set(-10, 8, -10)
+    scene.add(cyLight)
+    const mgLight = new THREE.PointLight('#ff00aa', 3, 40, 1.5)
+    mgLight.position.set(10, 7, 10)
+    scene.add(mgLight)
+    scene.add(new THREE.HemisphereLight('#2a1a3e', '#0a080e', 1))
+
+    // ═══════════════════════════════════════════════════
+    // GROUND
+    // ═══════════════════════════════════════════════════
+    const floorMat = new THREE.MeshStandardMaterial({ color: '#1a1830', roughness: 0.7, metalness: 0.3 })
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(GS, GS), floorMat)
+    floor.rotation.x = -Math.PI / 2
+    floor.receiveShadow = true
+    scene.add(floor)
+
+    // Room floor panels (slightly lighter)
+    const rmFloorGeo = new THREE.PlaneGeometry(10, 10)
+    const rmFloorMat = new THREE.MeshStandardMaterial({ color: '#201e38', roughness: 0.6, metalness: 0.3 })
+    for (const rb of roomBounds) {
+      const rf = new THREE.Mesh(rmFloorGeo, rmFloorMat)
+      rf.rotation.x = -Math.PI / 2
+      rf.position.set((rb.minX + rb.maxX) / 2, 0.003, (rb.minZ + rb.maxZ) / 2)
+      rf.receiveShadow = true
+      scene.add(rf)
+    }
+
+    // Grids
+    const g1 = new THREE.GridHelper(GS, 30, '#00f0ff', '#00f0ff')
+    g1.material.opacity = 0.06; g1.material.transparent = true; g1.position.y = 0.005
+    scene.add(g1)
+    const g2 = new THREE.GridHelper(GS, 6, '#ff00aa', '#ff00aa')
+    g2.material.opacity = 0.05; g2.material.transparent = true; g2.position.y = 0.008
+    scene.add(g2)
+
+    // Circuit traces
+    const traceColors = ['#00f0ff', '#ff00aa', '#a855f7']
+    for (let i = 0; i < 14; i++) {
+      const pts = []
+      let cx = (Math.random() - 0.5) * GS * 0.7, cz = (Math.random() - 0.5) * GS * 0.7
+      pts.push(new THREE.Vector3(cx, 0.011, cz))
+      for (let j = 0, segs = 3 + Math.floor(Math.random() * 4); j < segs; j++) {
+        const len = 1 + Math.random() * 3
+        if (j % 2 === 0) cx += (Math.random() < 0.5 ? -1 : 1) * len
+        else cz += (Math.random() < 0.5 ? -1 : 1) * len
+        cx = THREE.MathUtils.clamp(cx, -14, 14)
+        cz = THREE.MathUtils.clamp(cz, -14, 14)
+        pts.push(new THREE.Vector3(cx, 0.011, cz))
+      }
+      scene.add(new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(pts),
+        new THREE.LineBasicMaterial({ color: traceColors[i % 3], transparent: true, opacity: 0.08 + Math.random() * 0.08 })
+      ))
+    }
+
+    // ═══════════════════════════════════════════════════
+    // WALLS + COLLISION
+    // ═══════════════════════════════════════════════════
+    const wallRects = []
+    const wallMat = new THREE.MeshStandardMaterial({
+      color: '#282845', roughness: 0.2, metalness: 0.7,
+      transparent: true, opacity: 0.55, side: THREE.DoubleSide,
+    })
+    const cyStripMat = new THREE.MeshStandardMaterial({ color: '#00f0ff', emissive: '#00f0ff', emissiveIntensity: 2, roughness: 0.2 })
+    const mgStripMat = new THREE.MeshStandardMaterial({ color: '#ff00aa', emissive: '#ff00aa', emissiveIntensity: 2, roughness: 0.2 })
+
+    // Wall segments: [type, fixedCoord, from, to, stripColor]
+    // type: 'h' = horizontal (along x, z=fixed), 'v' = vertical (along z, x=fixed)
+    const wallDefs = [
+      // NW room (zone 0) — cyan strips
+      ['h', -13, -13, -3, 0], ['v', -13, -13, -3, 0],
+      ['h', -3, -13, -6, 0],  ['v', -3, -13, -6, 0],
+      // NE room (zone 1) — magenta strips
+      ['h', -13, 3, 13, 1],   ['v', 13, -13, -3, 1],
+      ['h', -3, 6, 13, 1],    ['v', 3, -13, -6, 1],
+      // SW room (zone 2) — magenta strips
+      ['h', 13, -13, -3, 1],  ['v', -13, 3, 13, 1],
+      ['h', 3, -13, -6, 1],   ['v', -3, 6, 13, 1],
+      // SE room (zone 3) — cyan strips
+      ['h', 13, 3, 13, 0],    ['v', 13, 3, 13, 0],
+      ['h', 3, 6, 13, 0],     ['v', 3, 6, 13, 0],
+    ]
+
+    for (const [type, fixed, from, to, col] of wallDefs) {
+      const len = to - from
+      if (len <= 0) continue
+      const stripMat = col === 0 ? cyStripMat : mgStripMat
+      const mid = (from + to) / 2
+
+      if (type === 'h') {
+        const w = new THREE.Mesh(new THREE.BoxGeometry(len, WALL_H, WALL_T), wallMat)
+        w.position.set(mid, WALL_H / 2, fixed)
+        w.castShadow = true; w.receiveShadow = true; scene.add(w)
+        const s = new THREE.Mesh(new THREE.BoxGeometry(len, 0.04, WALL_T + 0.06), stripMat)
+        s.position.set(mid, WALL_H, fixed); scene.add(s)
+        wallRects.push({ minX: from, maxX: to, minZ: fixed - 0.25, maxZ: fixed + 0.25 })
+      } else {
+        const w = new THREE.Mesh(new THREE.BoxGeometry(WALL_T, WALL_H, len), wallMat)
+        w.position.set(fixed, WALL_H / 2, mid)
+        w.castShadow = true; w.receiveShadow = true; scene.add(w)
+        const s = new THREE.Mesh(new THREE.BoxGeometry(WALL_T + 0.06, 0.04, len), stripMat)
+        s.position.set(fixed, WALL_H, mid); scene.add(s)
+        wallRects.push({ minX: fixed - 0.25, maxX: fixed + 0.25, minZ: from, maxZ: to })
+      }
+    }
+
+    function collidesWall(x, z) {
+      for (const w of wallRects) {
+        if (x + 0.25 > w.minX && x - 0.25 < w.maxX && z + 0.25 > w.minZ && z - 0.25 < w.maxZ) return true
+      }
+      return false
+    }
+    function getZone(x, z) {
+      if (x < -3 && z < -3) return 0
+      if (x > 3 && z < -3) return 1
+      if (x < -3 && z > 3) return 2
+      if (x > 3 && z > 3) return 3
+      return -1
+    }
+
+    // ═══════════════════════════════════════════════════
+    // FURNITURE
+    // ═══════════════════════════════════════════════════
+    const deskMat = new THREE.MeshStandardMaterial({ color: '#1c1c30', roughness: 0.5, metalness: 0.6 })
+    const monFrameMat = new THREE.MeshStandardMaterial({ color: '#111120', roughness: 0.3, metalness: 0.8 })
+    const chairMat = new THREE.MeshStandardMaterial({ color: '#222238', roughness: 0.55, metalness: 0.5 })
+
+    // Shared furniture geometries
+    const fGeo = {
+      dTop: new THREE.BoxGeometry(1.5, 0.05, 0.65),
+      dPanel: new THREE.BoxGeometry(0.04, 0.66, 0.58),
+      monF: new THREE.BoxGeometry(0.48, 0.32, 0.025),
+      monS: new THREE.BoxGeometry(0.44, 0.28, 0.005),
+      kb: new THREE.BoxGeometry(0.32, 0.012, 0.1),
+      cSeat: new THREE.BoxGeometry(0.36, 0.03, 0.36),
+      cBack: new THREE.BoxGeometry(0.34, 0.28, 0.03),
+      cPed: new THREE.CylinderGeometry(0.025, 0.025, 0.36, 6),
+      cBase: new THREE.CylinderGeometry(0.16, 0.16, 0.025, 6),
+    }
+
+    const workstations = []
+
+    // Desk definitions: [x, z, rotation, zone]
+    const deskDefs = [
+      // NW room
+      [-10, -11.5, 0, 0], [-6, -11.5, 0, 0], [-11.5, -7, Math.PI / 2, 0],
+      // NE room
+      [6, -11.5, 0, 1], [10, -11.5, 0, 1], [11.5, -7, -Math.PI / 2, 1],
+      // SW room
+      [-10, 11.5, Math.PI, 2], [-6, 11.5, Math.PI, 2], [-11.5, 7, Math.PI / 2, 2],
+      // SE room
+      [6, 11.5, Math.PI, 3], [10, 11.5, Math.PI, 3], [11.5, 7, -Math.PI / 2, 3],
+    ]
+
+    for (let di = 0; di < deskDefs.length; di++) {
+      const [dx, dz, drot, zone] = deskDefs[di]
+      const g = new THREE.Group()
+
+      // Tabletop
+      const top = new THREE.Mesh(fGeo.dTop, deskMat)
+      top.position.y = 0.7; top.castShadow = true; top.receiveShadow = true; g.add(top)
+
+      // Side panels
+      for (const sx of [-0.72, 0.72]) {
+        const p = new THREE.Mesh(fGeo.dPanel, deskMat)
+        p.position.set(sx, 0.35, 0); p.castShadow = true; g.add(p)
+      }
+
+      // Monitor
+      const mf = new THREE.Mesh(fGeo.monF, monFrameMat)
+      mf.position.set(0, 0.92, -0.2); g.add(mf)
+      const sColor = PALETTE[(di * 3 + 1) % PALETTE.length]
+      const sMat = new THREE.MeshStandardMaterial({
+        color: sColor, emissive: sColor, emissiveIntensity: 0.6, roughness: 0.3,
+      })
+      const ms = new THREE.Mesh(fGeo.monS, sMat)
+      ms.position.set(0, 0.92, -0.185); g.add(ms)
+
+      // Keyboard
+      const kb = new THREE.Mesh(fGeo.kb, deskMat)
+      kb.position.set(0, 0.72, 0.12); g.add(kb)
+
+      g.position.set(dx, 0, dz)
+      g.rotation.y = drot
+      scene.add(g)
+
+      // Chair at seat position
+      const seatX = dx + 0.65 * Math.sin(drot)
+      const seatZ = dz + 0.65 * Math.cos(drot)
+      const faceRot = drot + Math.PI
+
+      const cg = new THREE.Group()
+      const seat = new THREE.Mesh(fGeo.cSeat, chairMat); seat.position.y = 0.4; cg.add(seat)
+      const back = new THREE.Mesh(fGeo.cBack, chairMat); back.position.set(0, 0.57, -0.155); cg.add(back)
+      const ped = new THREE.Mesh(fGeo.cPed, chairMat); ped.position.y = 0.19; cg.add(ped)
+      const base = new THREE.Mesh(fGeo.cBase, chairMat); base.position.y = 0.013; cg.add(base)
+      cg.position.set(seatX, 0, seatZ)
+      cg.rotation.y = faceRot
+      scene.add(cg)
+
+      workstations.push({
+        idx: di, zone,
+        seatPos: new THREE.Vector3(seatX, 0, seatZ),
+        faceRot,
+        occupant: null,
+      })
+    }
+
+    // ═══════════════════════════════════════════════════
+    // ENVIRONMENT
+    // ═══════════════════════════════════════════════════
+
+    // Central hologram
+    const holoMat = new THREE.MeshBasicMaterial({ color: '#00f0ff', wireframe: true, transparent: true, opacity: 0.1 })
+    const holo = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 3, 6, 1, true), holoMat)
+    holo.position.y = 1.5; scene.add(holo)
+    const holo2 = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 2, 6, 1, true),
+      new THREE.MeshBasicMaterial({ color: '#ff00aa', wireframe: true, transparent: true, opacity: 0.07 }))
+    holo2.position.y = 1.5; scene.add(holo2)
+
+    // Data particles
+    function makeStream(n, color) {
+      const pos = new Float32Array(n * 3), spd = new Float32Array(n)
+      for (let i = 0; i < n; i++) {
+        pos[i*3] = (Math.random()-0.5)*GS; pos[i*3+1] = Math.random()*10; pos[i*3+2] = (Math.random()-0.5)*GS
+        spd[i] = 0.2 + Math.random() * 0.6
+      }
+      const geo = new THREE.BufferGeometry()
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+      return { mesh: new THREE.Points(geo, new THREE.PointsMaterial({ color, size: 0.04, transparent: true, opacity: 0.4, sizeAttenuation: true })), pos, spd, n }
+    }
+    const sCy = makeStream(140, '#00f0ff'), sMg = makeStream(80, '#ff00aa')
+    scene.add(sCy.mesh); scene.add(sMg.mesh)
+
+    function tickStream(s, dt) {
+      for (let i = 0; i < s.n; i++) {
+        s.pos[i*3+1] += s.spd[i] * dt
+        if (s.pos[i*3+1] > 10) { s.pos[i*3+1] = 0; s.pos[i*3] = (Math.random()-0.5)*GS; s.pos[i*3+2] = (Math.random()-0.5)*GS }
+      }
+      s.mesh.geometry.attributes.position.needsUpdate = true
+    }
+
+    // Stars
+    const stN = 400, stP = new Float32Array(stN * 3)
+    for (let i = 0; i < stN; i++) { stP[i*3] = (Math.random()-0.5)*100; stP[i*3+1] = Math.random()*35+8; stP[i*3+2] = (Math.random()-0.5)*100 }
+    const stGeo = new THREE.BufferGeometry(); stGeo.setAttribute('position', new THREE.BufferAttribute(stP, 3))
+    scene.add(new THREE.Points(stGeo, new THREE.PointsMaterial({ color: '#bbaaee', size: 0.05, transparent: true, opacity: 0.4, sizeAttenuation: true })))
+
+    // ═══════════════════════════════════════════════════
+    // SHARED ROBOT GEOMETRY + MATERIALS
+    // ═══════════════════════════════════════════════════
+    const rGeo = {
+      head: new THREE.BoxGeometry(0.28, 0.24, 0.26),
+      visor: new THREE.BoxGeometry(0.24, 0.065, 0.02),
+      antenna: new THREE.CylinderGeometry(0.007, 0.007, 0.14, 4),
+      aTip: new THREE.SphereGeometry(0.02, 6, 6),
+      torso: new THREE.BoxGeometry(0.32, 0.38, 0.2),
+      core: new THREE.SphereGeometry(0.032, 8, 8),
+      joint: new THREE.SphereGeometry(0.035, 8, 8),
+      arm: new THREE.BoxGeometry(0.08, 0.26, 0.08),
+      leg: new THREE.BoxGeometry(0.09, 0.28, 0.09),
+      foot: new THREE.BoxGeometry(0.1, 0.045, 0.12),
+    }
+    const rEdge = {
+      head: new THREE.EdgesGeometry(rGeo.head),
+      torso: new THREE.EdgesGeometry(rGeo.torso),
+      arm: new THREE.EdgesGeometry(rGeo.arm),
+      leg: new THREE.EdgesGeometry(rGeo.leg),
+    }
+
+    // Material pools (shared per color)
+    const metalMat = new THREE.MeshStandardMaterial({ color: '#2a2a3e', roughness: 0.3, metalness: 0.85 })
+    const darkMat = new THREE.MeshStandardMaterial({ color: '#1c1c2c', roughness: 0.4, metalness: 0.7 })
+    const neonMats = PALETTE.map(h => { const c = new THREE.Color(h); return new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 2, roughness: 0.2, metalness: 0.3 }) })
+    const edgeMats = PALETTE.map(h => new THREE.LineBasicMaterial({ color: h, transparent: true, opacity: 0.3 }))
+
+    // Glow disc texture
+    const glowCvs = document.createElement('canvas'); glowCvs.width = 64; glowCvs.height = 64
+    const gx = glowCvs.getContext('2d'), gg = gx.createRadialGradient(32,32,0,32,32,32)
+    gg.addColorStop(0,'rgba(255,255,255,0.3)'); gg.addColorStop(0.5,'rgba(255,255,255,0.08)'); gg.addColorStop(1,'rgba(255,255,255,0)')
+    gx.fillStyle = gg; gx.fillRect(0,0,64,64)
+    const glowTex = new THREE.CanvasTexture(glowCvs)
+    const glowMats = PALETTE.map(h => new THREE.MeshBasicMaterial({ map: glowTex, color: h, transparent: true, opacity: 0.3, depthWrite: false, blending: THREE.AdditiveBlending }))
+
+    // ═══════════════════════════════════════════════════
+    // ROBOT CLASS
+    // ═══════════════════════════════════════════════════
+    class Robot {
+      constructor(ci, x, z) {
+        this.group = new THREE.Group()
+        this.ci = ci
+        this.speed = 1.0 + Math.random() * 0.7
+        this.target = new THREE.Vector3()
+        this.state = S_WALK
+        this.deskIdx = -1
+        this.sitTimer = 0
+        this.decisionTimer = 2 + Math.random() * 4
+        this.phase = Math.random() * Math.PI * 2
+        this.walkHz = 7 + Math.random() * 2
+
+        const s = 0.85 + Math.random() * 0.2
+        this.group.scale.setScalar(s)
+
+        const nm = neonMats[ci], em = edgeMats[ci]
+
+        // Head
+        const head = new THREE.Mesh(rGeo.head, metalMat); head.position.y = 1.32; head.castShadow = true; this.group.add(head)
+        const headE = new THREE.LineSegments(rEdge.head, em); headE.position.copy(head.position); this.group.add(headE)
+        const visor = new THREE.Mesh(rGeo.visor, nm); visor.position.set(0, 1.32, 0.13); this.group.add(visor)
+        const ant = new THREE.Mesh(rGeo.antenna, darkMat); ant.position.set(0.05, 1.52, 0); this.group.add(ant)
+        this.aTip = new THREE.Mesh(rGeo.aTip, nm); this.aTip.position.set(0.05, 1.6, 0); this.group.add(this.aTip)
+
+        // Torso
+        const torso = new THREE.Mesh(rGeo.torso, metalMat); torso.position.y = 0.87; torso.castShadow = true; this.group.add(torso)
+        this.bodyMesh = torso
+        this.bodyEdge = new THREE.LineSegments(rEdge.torso, em); this.bodyEdge.position.copy(torso.position)
+        this.group.add(this.bodyEdge)
+        this.core = new THREE.Mesh(rGeo.core, nm); this.core.position.set(0, 0.91, 0.105); this.group.add(this.core)
+
+        // Shoulders
+        for (const sx of [-1, 1]) { const j = new THREE.Mesh(rGeo.joint, nm); j.position.set(sx * 0.21, 1.07, 0); this.group.add(j) }
+
+        // Arms
+        this.armPivots = []
+        for (const sx of [-1, 1]) {
+          const pv = new THREE.Group(); pv.position.set(sx * 0.21, 1.07, 0)
+          const arm = new THREE.Mesh(rGeo.arm, darkMat); arm.position.y = -0.18; arm.castShadow = true; pv.add(arm)
+          const armE = new THREE.LineSegments(rEdge.arm, em); armE.position.copy(arm.position); pv.add(armE)
+          this.group.add(pv); this.armPivots.push(pv)
+        }
+
+        // Hips
+        for (const sx of [-1, 1]) { const j = new THREE.Mesh(rGeo.joint, nm); j.position.set(sx * 0.09, 0.54, 0); j.scale.setScalar(0.9); this.group.add(j) }
+
+        // Legs
+        this.legPivots = []
+        for (const sx of [-1, 1]) {
+          const pv = new THREE.Group(); pv.position.set(sx * 0.09, 0.54, 0)
+          const leg = new THREE.Mesh(rGeo.leg, darkMat); leg.position.y = -0.19; leg.castShadow = true; pv.add(leg)
+          const legE = new THREE.LineSegments(rEdge.leg, em); legE.position.copy(leg.position); pv.add(legE)
+          const ft = new THREE.Mesh(rGeo.foot, metalMat); ft.position.set(0, -0.36, 0.012); ft.castShadow = true; pv.add(ft)
+          this.group.add(pv); this.legPivots.push(pv)
+        }
+
+        // Ground glow
+        this.glow = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.4), glowMats[ci])
+        this.glow.rotation.x = -Math.PI / 2; this.glow.position.y = 0.01
+        this.group.add(this.glow)
+
+        this.group.position.set(x, 0, z)
+        this.group.rotation.y = Math.random() * Math.PI * 2
+        this._pickTarget()
+      }
+
+      // ── Target picking (zone-aware) ──
+      _pickTarget() {
+        const zone = getZone(this.group.position.x, this.group.position.z)
+        if (zone >= 0) {
+          const rb = roomBounds[zone]
+          if (Math.random() < 0.65) {
+            this.target.set(
+              rb.minX + 1.5 + Math.random() * (rb.maxX - rb.minX - 3), 0,
+              rb.minZ + 1.5 + Math.random() * (rb.maxZ - rb.minZ - 3),
+            )
+          } else {
+            this.target.copy(doorways[zone])
+            this.target.x += (Math.random() - 0.5) * 1.5
+            this.target.z += (Math.random() - 0.5) * 1.5
+          }
+        } else {
+          if (Math.random() < 0.4) {
+            if (Math.random() < 0.5) this.target.set((Math.random()-0.5)*4, 0, (Math.random()-0.5)*22)
+            else this.target.set((Math.random()-0.5)*22, 0, (Math.random()-0.5)*4)
+          } else {
+            const ri = Math.floor(Math.random() * 4)
+            this.target.copy(doorways[ri])
+            this.target.x += (Math.random()-0.5) * 1.5
+            this.target.z += (Math.random()-0.5) * 1.5
+          }
+        }
+      }
+
+      // ── Sit at desk ──
+      seatAt(wsIdx) {
+        const ws = workstations[wsIdx]
+        ws.occupant = this
+        this.deskIdx = wsIdx
+        this.state = S_SIT
+        this.sitTimer = 8 + Math.random() * 18
+        this.group.position.set(ws.seatPos.x, -0.12, ws.seatPos.z)
+        this.group.rotation.y = ws.faceRot
+        this.legPivots[0].rotation.x = 1.2
+        this.legPivots[1].rotation.x = 1.2
+        this.armPivots[0].rotation.x = -0.5
+        this.armPivots[1].rotation.x = -0.5
+        this.glow.position.y = 0.13
+      }
+
+      _standUp() {
+        if (this.deskIdx >= 0) workstations[this.deskIdx].occupant = null
+        this.deskIdx = -1
+        this.state = S_WALK
+        this.group.position.y = 0
+        this.glow.position.y = 0.01
+        this.decisionTimer = 4 + Math.random() * 6
+        this._pickTarget()
+      }
+
+      // ── Update ──
+      update(dt, t) {
+        // Antenna + core pulse
+        this.aTip.scale.setScalar(0.8 + ((Math.sin(t * 6 + this.phase) + 1) * 0.5) * 0.4)
+        this.core.scale.setScalar(0.9 + Math.sin(t * 3 + this.phase) * 0.12)
+
+        if (this.state === S_SIT) {
+          this.sitTimer -= dt
+          if (this.sitTimer <= 0) { this._standUp(); return }
+          const ty = Math.sin(t * 10 + this.phase) * 0.05
+          this.armPivots[0].rotation.x = -0.5 + ty
+          this.armPivots[1].rotation.x = -0.5 - ty
+          this.bodyMesh.rotation.z = Math.sin(t * 0.7 + this.phase) * 0.012
+          this.bodyEdge.rotation.z = this.bodyMesh.rotation.z
+          return
+        }
+
+        // Movement (WALK or GOTO)
+        const dx = this.target.x - this.group.position.x
+        const dz = this.target.z - this.group.position.z
+        const dist = Math.sqrt(dx * dx + dz * dz)
+
+        if (dist < 0.5) {
+          if (this.state === S_GOTO) { this.seatAt(this.deskIdx); return }
+          this._pickTarget()
+          return
+        }
+
+        const want = Math.atan2(dx, dz)
+        let diff = want - this.group.rotation.y
+        if (diff > Math.PI) diff -= Math.PI * 2
+        if (diff < -Math.PI) diff += Math.PI * 2
+        this.group.rotation.y += diff * Math.min(1, 5 * dt)
+
+        const step = this.speed * dt
+        const nx = this.group.position.x + Math.sin(this.group.rotation.y) * step
+        const nz = this.group.position.z + Math.cos(this.group.rotation.y) * step
+
+        if (!collidesWall(nx, nz)) {
+          this.group.position.x = nx; this.group.position.z = nz
+        } else if (!collidesWall(nx, this.group.position.z)) {
+          this.group.position.x = nx; if (this.state === S_WALK) this._pickTarget()
+        } else if (!collidesWall(this.group.position.x, nz)) {
+          this.group.position.z = nz; if (this.state === S_WALK) this._pickTarget()
+        } else {
+          if (this.state === S_WALK) this._pickTarget()
+        }
+
+        this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, -BOUND, BOUND)
+        this.group.position.z = THREE.MathUtils.clamp(this.group.position.z, -BOUND, BOUND)
+
+        // Walk animation
+        const w = t * this.walkHz + this.phase
+        this.legPivots[0].rotation.x = Math.sin(w) * 0.4
+        this.legPivots[1].rotation.x = -Math.sin(w) * 0.4
+        this.armPivots[0].rotation.x = -Math.sin(w) * 0.25
+        this.armPivots[1].rotation.x = Math.sin(w) * 0.25
+        this.group.position.y = Math.abs(Math.sin(w * 2)) * 0.03
+        this.bodyMesh.rotation.z = Math.sin(w) * 0.016
+        this.bodyEdge.rotation.z = this.bodyMesh.rotation.z
+
+        // Decision to sit (only while walking)
+        if (this.state === S_WALK) {
+          this.decisionTimer -= dt
+          if (this.decisionTimer <= 0) {
+            this.decisionTimer = 3 + Math.random() * 5
+            const zone = getZone(this.group.position.x, this.group.position.z)
+            if (zone >= 0 && Math.random() < 0.5) {
+              const empty = workstations.filter(ws => ws.zone === zone && !ws.occupant)
+              if (empty.length > 0) {
+                const ws = empty[Math.floor(Math.random() * empty.length)]
+                ws.occupant = this
+                this.deskIdx = ws.idx
+                this.state = S_GOTO
+                this.target.copy(ws.seatPos)
+              }
+            }
+          }
+        }
+      }
+
+      dispose() {
+        if (this.deskIdx >= 0) workstations[this.deskIdx].occupant = null
+        this.group.traverse(c => { if (c.isMesh && !Object.values(neonMats).includes(c.material) && c.material !== metalMat && c.material !== darkMat) c.material.dispose() })
+      }
+    }
+
+    // ═══════════════════════════════════════════════════
+    // STATE MANAGEMENT
+    // ═══════════════════════════════════════════════════
+    const robots = []
+    let colorIdx = 0
+    const countEl = document.getElementById('count')
+
+    function deploy() {
+      if (robots.length >= MAX) return
+      // Spawn in corridor
+      let sx, sz
+      if (Math.random() < 0.5) { sx = (Math.random()-0.5)*4; sz = (Math.random()-0.5)*20 }
+      else { sx = (Math.random()-0.5)*20; sz = (Math.random()-0.5)*4 }
+      const r = new Robot(colorIdx++ % PALETTE.length, sx, sz)
+      robots.push(r); scene.add(r.group)
+      countEl.textContent = robots.length
+    }
+
+    function deployAtDesk(wsIdx) {
+      if (robots.length >= MAX) return
+      const r = new Robot(colorIdx++ % PALETTE.length, 0, 0)
+      r.seatAt(wsIdx)
+      robots.push(r); scene.add(r.group)
+      countEl.textContent = robots.length
+    }
+
+    function reset() {
+      for (const r of robots) { scene.remove(r.group); r.dispose() }
+      robots.length = 0; colorIdx = 0
+      for (const ws of workstations) ws.occupant = null
+      initPopulation()
+    }
+
+    function initPopulation() {
+      // Seat some robots at desks first
+      const deskOrder = [...Array(workstations.length).keys()].sort(() => Math.random() - 0.5)
+      const seatCount = Math.min(6, INITIAL, workstations.length)
+      for (let i = 0; i < seatCount; i++) deployAtDesk(deskOrder[i])
+      // Rest in corridors
+      for (let i = seatCount; i < INITIAL; i++) deploy()
+    }
+    initPopulation()
+
+    // ═══════════════════════════════════════════════════
+    // EVENTS
+    // ═══════════════════════════════════════════════════
+    document.getElementById('addBtn').addEventListener('click', deploy)
+    document.getElementById('resetBtn').addEventListener('click', reset)
+    window.addEventListener('keydown', e => {
+      if (e.target !== document.body) return
+      if (e.code === 'Space') { e.preventDefault(); deploy() }
+      if (e.code === 'KeyR') reset()
+    })
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight
+      camera.updateProjectionMatrix()
+      renderer.setSize(window.innerWidth, window.innerHeight)
+    })
+
+    // ═══════════════════════════════════════════════════
+    // ANIMATION LOOP
+    // ═══════════════════════════════════════════════════
+    const clock = new THREE.Clock()
+    ;(function tick() {
+      requestAnimationFrame(tick)
+      const dt = Math.min(clock.getDelta(), 0.1)
+      const t = clock.elapsedTime
+
+      for (const r of robots) r.update(dt, t)
+      tickStream(sCy, dt); tickStream(sMg, dt)
+
+      // Hologram rotation
+      holo.rotation.y += dt * 0.2
+      holo2.rotation.y -= dt * 0.15
+      holo.position.y = 1.5 + Math.sin(t * 0.5) * 0.15
+      holo2.position.y = 1.5 + Math.sin(t * 0.5 + 1) * 0.1
+
+      controls.update()
+      renderer.render(scene, camera)
+    })()
+  </script>
+</body>
+</html>
