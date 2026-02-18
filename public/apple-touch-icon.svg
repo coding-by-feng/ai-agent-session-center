@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
+  <rect width="180" height="180" rx="36" fill="#0a0a1a"/>
+  <!-- Robot head -->
+  <circle cx="90" cy="72" r="40" fill="none" stroke="#00e5ff" stroke-width="5"/>
+  <!-- Eyes -->
+  <circle cx="76" cy="67" r="8" fill="#00e5ff"/>
+  <circle cx="104" cy="67" r="8" fill="#00e5ff"/>
+  <!-- Eye glints -->
+  <circle cx="78" cy="65" r="2.5" fill="#0a0a1a"/>
+  <circle cx="106" cy="65" r="2.5" fill="#0a0a1a"/>
+  <!-- Smile -->
+  <path d="M73 88 Q90 106 107 88" fill="none" stroke="#00e5ff" stroke-width="3.5" stroke-linecap="round"/>
+  <!-- Antenna -->
+  <rect x="82" y="22" width="16" height="16" rx="5" fill="#00e5ff"/>
+  <line x1="90" y1="38" x2="90" y2="32" stroke="#00e5ff" stroke-width="4"/>
+  <!-- Terminal/keyboard -->
+  <rect x="48" y="125" width="84" height="34" rx="8" fill="none" stroke="#ff9100" stroke-width="4"/>
+  <line x1="66" y1="135" x2="66" y2="149" stroke="#ff9100" stroke-width="3" stroke-linecap="round"/>
+  <line x1="90" y1="135" x2="90" y2="149" stroke="#ff9100" stroke-width="3" stroke-linecap="round"/>
+  <line x1="114" y1="135" x2="114" y2="149" stroke="#ff9100" stroke-width="3" stroke-linecap="round"/>
+</svg>

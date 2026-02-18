@@ -171,12 +171,52 @@ export function matchSession(hookData, sessions, pendingResume, pidToSession, pr
     // by direct Map lookup and we return early.  But pendingResume/pendingLinks
     // entries (registered by reconnectSessionTerminal / createTerminal) are left
     // dangling.  Clean them up here to prevent stale matches for future hooks.
-    if (hook_event_name === EVENT_TYPES.SESSION_START && session.terminalId) {
-      if (pendingResume.has(session.terminalId)) {
-        pendingResume.delete(session.terminalId);
-        log.debug('session', `Cleaned stale pendingResume for terminal=${session.terminalId?.slice(0,8)} (session found by direct ID)`);
+    if (hook_event_name === EVENT_TYPES.SESSION_START) {
+      if (session.terminalId) {
+        if (pendingResume.has(session.terminalId)) {
+          pendingResume.delete(session.terminalId);
+          log.debug('session', `Cleaned stale pendingResume for terminal=${session.terminalId?.slice(0,8)} (session found by direct ID)`);
+        }
+        consumePendingLink(session.projectPath);
       }
-      consumePendingLink(session.projectPath);
+
+      // Consume orphaned terminal sessions that should have been matched to this one.
+      // This happens when: (1) `claude --resume` reuses the old session_id but a new
+      // dashboard terminal was created, or (2) the session_id directly matches but the
+      // terminal session was created separately and never consumed.
+      const termId = hookData.agent_terminal_id;
+      if (termId && termId !== session_id) {
+        const orphan = sessions.get(termId);
+        if (orphan && orphan.sessionId !== session_id
+            && (orphan.status === SESSION_STATUS.CONNECTING || orphan.status === SESSION_STATUS.IDLE)) {
+          if (!session.terminalId && orphan.terminalId) {
+            session.terminalId = orphan.terminalId;
+          }
+          sessions.delete(termId);
+          session.replacesId = termId;
+          consumePendingLink(orphan.projectPath);
+          log.info('session', `Consumed orphaned terminal session ${termId} → merged into ${session_id?.slice(0,8)} (via agent_terminal_id on direct lookup)`);
+        }
+      }
+      // Fallback: scan for orphaned CONNECTING/IDLE terminal sessions by workDir
+      if (!session.replacesId && cwd) {
+        const normalizedCwd = cwd.replace(/\/$/, '');
+        for (const [key, s] of sessions) {
+          if (key === session_id || !s.terminalId) continue;
+          if (s.status !== SESSION_STATUS.CONNECTING && s.status !== SESSION_STATUS.IDLE) continue;
+          if (!s.projectPath) continue;
+          if (s.projectPath.replace(/\/$/, '') === normalizedCwd) {
+            if (!session.terminalId && s.terminalId) {
+              session.terminalId = s.terminalId;
+            }
+            sessions.delete(key);
+            session.replacesId = key;
+            consumePendingLink(s.projectPath);
+            log.info('session', `Consumed orphaned terminal session ${key} → merged into ${session_id?.slice(0,8)} (via workDir on direct lookup)`);
+            break;
+          }
+        }
+      }
     }
     return session;
   }
@@ -357,12 +397,10 @@ export function matchSession(hookData, sessions, pendingResume, pidToSession, pr
         }
       }
       if (!found) {
-        // No SSH terminal match — create a display-only card with detected source
+        // No matching dashboard terminal — ignore external sessions (VS Code, iTerm, etc.)
         const detectedSource = detectHookSource(hookData);
-        log.info('session', `Creating display-only session ${session_id?.slice(0,8)} source=${detectedSource} cwd=${cwd}`);
-        const inheritedConfig = findSshConfig(sessions, hookData.agent_terminal_id, cwd);
-        session = createDefaultSession(session_id, cwd, hookData, inheritedConfig ? 'ssh' : detectedSource, hookData.agent_terminal_id || null, inheritedConfig);
-        sessions.set(session_id, session);
+        log.debug('session', `Ignoring external session ${session_id?.slice(0,8)} source=${detectedSource} cwd=${cwd}`);
+        return null;
       }
     }
   }

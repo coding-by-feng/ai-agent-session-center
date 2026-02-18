@@ -92,6 +92,7 @@ function SceneContent({
   casualAreas,
   doors,
   sessionArray,
+  sessionsMap,
   connections,
   sceneBackground,
   sceneFogDensity,
@@ -108,6 +109,7 @@ function SceneContent({
   casualAreas: CasualArea[];
   doors: DoorWaypoint[];
   sessionArray: Session[];
+  sessionsMap: Map<string, Session>;
   connections: ConnectionData[];
   sceneBackground: string;
   sceneFogDensity: number;
@@ -132,7 +134,7 @@ function SceneContent({
     <>
       <SceneThemeSync background={sceneBackground} fogDensity={sceneFogDensity} />
       <CyberdromeEnvironment rooms={rooms} casualAreas={casualAreas} theme={sceneTheme} />
-      <RoomLabels rooms={rooms} casualAreas={casualAreas} storeRooms={storeRooms} />
+      <RoomLabels rooms={rooms} casualAreas={casualAreas} storeRooms={storeRooms} sessions={sessionsMap} />
       {sessionArray.map((session) => (
         <SessionRobot
           key={session.sessionId}
@@ -383,6 +385,7 @@ export default function CyberdromeScene() {
             casualAreas={casualAreas}
             doors={doorWaypoints}
             sessionArray={sessionArray}
+            sessionsMap={sessions}
             connections={connections}
             sceneBackground={sceneTheme.background}
             sceneFogDensity={sceneTheme.fogDensity}
@@ -396,7 +399,7 @@ export default function CyberdromeScene() {
       </Canvas>
 
       <MapControls controlsRef={controlsRef} />
-      <SceneOverlay sessionCount={sessions.size} />
+      <SceneOverlay sessionCount={sessionArray.length} />
       <RobotListSidebar />
     </div>
   );

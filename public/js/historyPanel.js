@@ -1,4 +1,5 @@
 import { escapeHtml as _escapeHtml, formatDuration as _formatDuration, formatTime as _formatTime, sanitizeColor } from './utils.js';
+import { switchTo } from './navController.js';
 
 let currentPage = 1;
 let debounceTimer = null;
@@ -73,19 +74,7 @@ async function loadSessions() {
 
   const result = await apiFetch(`/api/db/sessions?${params}`);
 
-  // DB returns snake_case fields directly
-  const mapped = result.sessions.map(s => ({
-    id: s.id,
-    title: s.title || '',
-    project_name: s.project_name || '',
-    started_at: s.started_at,
-    ended_at: s.ended_at,
-    status: s.status,
-    total_prompts: s.total_prompts || 0,
-    total_tool_calls: s.total_tool_calls || 0,
-    git_branch: '',
-  }));
-  renderResults(mapped, result.total, result.page, result.pageSize);
+  renderResults(result.sessions, result.total, result.page, result.pageSize);
 }
 
 function renderResults(sessions, total, page, pageSize) {
@@ -104,15 +93,16 @@ function renderResults(sessions, total, page, pageSize) {
       year: 'numeric', month: 'short', day: 'numeric',
       hour: '2-digit', minute: '2-digit', hour12: false,
     });
-    return `<div class="history-row" data-session-id="${s.id}">
-      <span class="history-title">${escapeHtml(s.title)}</span>
-      <span class="history-project">${escapeHtml(s.project_name)}</span>
+    return `<div class="history-row" data-session-id="${s.id}" data-project-path="${escapeHtml(s.project_path || '')}">
+      <span class="history-title">${escapeHtml(s.title || '')}</span>
+      <span class="history-project">${escapeHtml(s.project_name || '')}</span>
       <span class="history-date">${date}</span>
       <span class="history-duration">${duration}</span>
       <span class="history-status ${s.status}">${s.status.toUpperCase()}</span>
-      <span class="history-prompts">${s.total_prompts} prompts</span>
-      <span class="history-tools">${s.total_tool_calls} tools</span>
+      <span class="history-prompts">${s.total_prompts || 0} prompts</span>
+      <span class="history-tools">${s.total_tool_calls || 0} tools</span>
       <span class="history-branch">${escapeHtml(s.git_branch || '')}</span>
+      <button class="history-resume" title="Resume session">&#9654;</button>
       <button class="history-delete" title="Delete session">&times;</button>
     </div>`;
   }).join('');
@@ -120,8 +110,41 @@ function renderResults(sessions, total, page, pageSize) {
   // Click handler for rows
   container.querySelectorAll('.history-row').forEach(row => {
     row.addEventListener('click', (e) => {
-      if (e.target.closest('.history-delete')) return;
+      if (e.target.closest('.history-delete') || e.target.closest('.history-resume')) return;
       openHistoryDetail(row.dataset.sessionId);
+    });
+  });
+
+  // Resume button handler — create terminal with claude --resume
+  container.querySelectorAll('.history-resume').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const row = btn.closest('.history-row');
+      const sid = row.dataset.sessionId;
+      if (!sid || !/^[a-zA-Z0-9_-]+$/.test(sid)) return;
+      const projectPath = row.dataset.projectPath || '';
+      btn.disabled = true;
+      btn.textContent = '...';
+      try {
+        const body = { command: `claude --resume ${sid}` };
+        if (projectPath) body.workingDir = projectPath;
+        const resp = await fetch('/api/terminals', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const result = await resp.json();
+        if (result.ok) {
+          switchTo('live');
+        } else {
+          alert(result.error || 'Failed to resume session');
+        }
+      } catch (err) {
+        alert('Resume error: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '\u25B6';
+      }
     });
   });
 
@@ -196,8 +219,8 @@ async function openHistoryDetail(sessionId) {
 
   const sess = data.session;
   const prompts = data.prompts || [];
-  const responses = (data.responses || []).map(r => ({ ...r, text: r.text_excerpt || r.text || '' }));
-  const tools = (data.tool_calls || []).map(t => ({ tool: t.tool_name, input: t.tool_input_summary || '', timestamp: t.timestamp }));
+  const responses = data.responses || [];
+  const tools = data.tool_calls || [];
   const events = data.events || [];
 
   // Populate header
@@ -236,47 +259,30 @@ async function openHistoryDetail(sessionId) {
     });
   }
 
-  // Conversation tab (interleaved prompts + responses)
+  // Conversation tab (interleaved prompts + responses — single pass)
   const convoEl = document.getElementById('detail-conversation');
-  const allEntries = [
-    ...prompts.map(p => ({ type: 'prompt', timestamp: p.timestamp, text: p.text })),
-    ...responses.map(r => ({ type: 'response', timestamp: r.timestamp, text: r.text })),
-  ].sort((a, b) => a.timestamp - b.timestamp);
-  convoEl.innerHTML = allEntries.map(e => {
-    const cls = e.type === 'prompt' ? 'prompt-entry' : 'response-entry';
-    return `<div class="${cls}">
+  const allEntries = [];
+  for (const p of prompts) allEntries.push({ type: 'prompt', timestamp: p.timestamp, text: p.text });
+  for (const r of responses) allEntries.push({ type: 'response', timestamp: r.timestamp, text: r.text_excerpt || r.text || '' });
+  allEntries.sort((a, b) => a.timestamp - b.timestamp);
+  convoEl.innerHTML = allEntries.map(e => `<div class="${e.type}-entry">
       <span class="${e.type}-time">${formatTime(e.timestamp)}</span>
       <div class="${e.type}-text">${escapeHtml(e.text)}</div>
-    </div>`;
-  }).join('');
+    </div>`).join('');
 
-  // Activity tab (merged tool calls + events)
-  const histItems = [];
-  for (const t of tools) {
-    histItems.push({ kind: 'tool', tool: t.tool, input: t.input, timestamp: t.timestamp });
-  }
-  for (const e of events) {
-    histItems.push({ kind: 'event', type: e.event_type, detail: e.detail, timestamp: e.timestamp });
-  }
-  histItems.sort((a, b) => b.timestamp - a.timestamp);
+  // Activity tab (merged tool calls + events — tag in-place, sort once, render)
   const actEl = document.getElementById('detail-activity-log');
   if (actEl) {
+    const histItems = [];
+    for (const t of tools) histItems.push({ k: 't', ts: t.timestamp, a: t.tool_name, b: t.tool_input_summary || '' });
+    for (const e of events) histItems.push({ k: 'e', ts: e.timestamp, a: e.event_type, b: e.detail });
+    histItems.sort((a, b) => b.ts - a.ts);
     actEl.innerHTML = histItems.length > 0
-      ? histItems.map(item => {
-          if (item.kind === 'tool') {
-            return `<div class="activity-entry activity-tool">
-              <span class="activity-time">${formatTime(item.timestamp)}</span>
-              <span class="activity-badge activity-badge-tool">${escapeHtml(item.tool)}</span>
-              <span class="activity-detail">${escapeHtml(item.input)}</span>
-            </div>`;
-          } else {
-            return `<div class="activity-entry activity-event">
-              <span class="activity-time">${formatTime(item.timestamp)}</span>
-              <span class="activity-badge activity-badge-event">${escapeHtml(item.type)}</span>
-              <span class="activity-detail">${escapeHtml(item.detail)}</span>
-            </div>`;
-          }
-        }).join('')
+      ? histItems.map(h => `<div class="activity-entry activity-${h.k === 't' ? 'tool' : 'event'}">
+              <span class="activity-time">${formatTime(h.ts)}</span>
+              <span class="activity-badge activity-badge-${h.k === 't' ? 'tool' : 'event'}">${escapeHtml(h.a)}</span>
+              <span class="activity-detail">${escapeHtml(h.b)}</span>
+            </div>`).join('')
       : '<div class="tab-empty">No activity recorded</div>';
   }
 

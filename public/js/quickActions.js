@@ -10,6 +10,38 @@ import * as terminalManager from './terminalManager.js';
 import { escapeHtml, debugWarn } from './utils.js';
 import { STORAGE_KEYS, LABELS } from './constants.js';
 
+/**
+ * After creating a terminal, open the detail panel on the Terminal tab.
+ * The session may not exist in the frontend map yet (WebSocket broadcast is async),
+ * so we poll briefly until the session appears, then select + attach.
+ */
+function openTerminalPanel(terminalId) {
+  const maxAttempts = 20;
+  let attempt = 0;
+  const interval = setInterval(async () => {
+    attempt++;
+    const { selectSession } = await import('./detailPanel.js');
+    const { getSessionsData } = await import('./sessionPanel.js');
+    const sessions = getSessionsData();
+    const session = sessions.get(terminalId);
+    if (session || attempt >= maxAttempts) {
+      clearInterval(interval);
+      if (!session) return;
+      // Switch to terminal tab before selecting so initTerminal gets real dimensions
+      const tabBtn = document.querySelector('.detail-tabs .tab[data-tab="terminal"]');
+      if (tabBtn) {
+        document.querySelectorAll('.detail-tabs .tab').forEach(t => t.classList.remove('active'));
+        tabBtn.classList.add('active');
+        document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+        const tabContent = document.getElementById('tab-terminal');
+        if (tabContent) tabContent.classList.add('active');
+      }
+      selectSession(terminalId);
+      terminalManager.attachToSession(terminalId, terminalId);
+    }
+  }, 100);
+}
+
 // ---- Working Directory History ----
 function getWorkdirHistory() {
   try {
@@ -355,6 +387,7 @@ function initQuickSessionModal() {
       } else {
         showToast('CONNECTED', 'Quick session launched');
       }
+      openTerminalPanel(result.terminalId);
     } catch (e) {
       showToast('ERROR', e.message);
     } finally {
@@ -516,6 +549,7 @@ function initNewSessionModal() {
 
       const theme = document.getElementById('ssh-terminal-theme')?.value || getDefaultTerminalTheme();
       terminalManager.setTerminalTheme(result.terminalId, theme);
+      openTerminalPanel(result.terminalId);
     } catch (e) {
       showToast('ERROR', e.message);
     } finally {
@@ -600,6 +634,7 @@ async function directLaunchSession(label) {
     } else {
       showToast('CONNECTED', 'Quick session launched');
     }
+    openTerminalPanel(result.terminalId);
   } catch (e) {
     showToast('ERROR', e.message);
   }

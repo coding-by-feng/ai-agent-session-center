@@ -219,8 +219,36 @@ export function populateDetailPanel(session) {
       }
     });
   } else if (activeTab && activeTab.dataset.tab === 'terminal' && !session.terminalId) {
-    import('./terminalManager.js').then(tm => tm.detachTerminal());
+    import('./terminalManager.js').then(tm => {
+      tm.detachTerminal();
+      _showExternalSourceHint(session);
+    });
   }
+}
+
+const SOURCE_LABELS = {
+  vscode: 'VS Code', jetbrains: 'JetBrains', iterm: 'iTerm',
+  warp: 'Warp', kitty: 'Kitty', ghostty: 'Ghostty',
+  alacritty: 'Alacritty', wezterm: 'WezTerm', hyper: 'Hyper',
+  terminal: 'Terminal', tmux: 'tmux',
+};
+
+/** Show an informational hint in the terminal container for external-source sessions. */
+function _showExternalSourceHint(session) {
+  const isExternal = session.source && session.source !== 'ssh';
+  const container = document.getElementById('terminal-container');
+  if (!container || !isExternal) return;
+
+  const label = SOURCE_LABELS[session.source] || session.source;
+  container.innerHTML = `
+    <div class="terminal-external-hint">
+      <div class="terminal-external-hint-icon">&#x1F4E1;</div>
+      <div class="terminal-external-hint-title">External Session &mdash; ${escapeHtml(label)}</div>
+      <div class="terminal-external-hint-text">
+        This session was detected from <strong>${escapeHtml(label)}</strong> via hooks.<br>
+        No managed terminal is attached. Use the <strong>RECONNECT</strong> button to open a terminal and resume this session, or interact with it directly in ${escapeHtml(label)}.
+      </div>
+    </div>`;
 }
 
 /**
@@ -328,77 +356,44 @@ export async function openSessionDetailFromHistory(sessionId) {
     data.session.accentColor || null
   );
 
-  // Populate conversation tab
+  // Populate conversation tab — tag raw data in-place, sort once
+  const prompts = data.prompts || [];
+  const toolCalls = data.tool_calls || [];
+  const responses = data.responses || [];
+  const events = data.events || [];
+
   const histConvItems = [];
-  for (const p of (data.prompts || [])) {
-    histConvItems.push({ type: 'user', text: p.text, timestamp: p.timestamp });
-  }
-  for (const t of (data.tool_calls || [])) {
-    histConvItems.push({ type: 'tool', tool: t.toolName, input: t.toolInputSummary, timestamp: t.timestamp });
-  }
-  for (const r of (data.responses || [])) {
-    histConvItems.push({ type: 'claude', text: r.textExcerpt, timestamp: r.timestamp });
-  }
-  histConvItems.sort((a, b) => b.timestamp - a.timestamp);
+  for (const p of prompts) histConvItems.push({ k: 'u', ts: p.timestamp, a: p.text, b: '' });
+  for (const t of toolCalls) histConvItems.push({ k: 't', ts: t.timestamp, a: t.toolName, b: t.toolInputSummary });
+  for (const r of responses) histConvItems.push({ k: 'c', ts: r.timestamp, a: r.textExcerpt, b: '' });
+  histConvItems.sort((a, b) => b.ts - a.ts);
+  const CONV_CFG = { u: ['conv-user', 'USER'], t: ['conv-tool', 'TOOL'], c: ['conv-claude', 'CLAUDE'] };
   const histConvContainer = document.getElementById('detail-conversation');
   histConvContainer.innerHTML = histConvItems.length > 0
-    ? histConvItems.map(item => {
-        if (item.type === 'user') {
-          return `<div class="conv-entry conv-user">
-            <div class="conv-header"><span class="conv-role">USER</span><span class="conv-time">${formatTime(item.timestamp)}</span><button class="conv-copy" title="Copy">COPY</button></div>
-            <div class="conv-text">${escapeHtml(item.text)}</div>
-          </div>`;
-        } else if (item.type === 'tool') {
-          return `<div class="conv-entry conv-tool">
-            <div class="conv-header"><span class="conv-role">TOOL</span><span class="conv-time">${formatTime(item.timestamp)}</span><button class="conv-copy" title="Copy">COPY</button></div>
-            <span class="conv-tool-name">${escapeHtml(item.tool)}</span>
-            <span class="conv-tool-input">${escapeHtml(item.input)}</span>
-          </div>`;
-        } else {
-          return `<div class="conv-entry conv-claude">
-            <div class="conv-header"><span class="conv-role">CLAUDE</span><span class="conv-time">${formatTime(item.timestamp)}</span><button class="conv-copy" title="Copy">COPY</button></div>
-            <div class="conv-text">${escapeHtml(item.text)}</div>
-          </div>`;
-        }
+    ? histConvItems.map(h => {
+        const [cls, role] = CONV_CFG[h.k];
+        const header = `<div class="conv-header"><span class="conv-role">${role}</span><span class="conv-time">${formatTime(h.ts)}</span><button class="conv-copy" title="Copy">COPY</button></div>`;
+        return h.k === 't'
+          ? `<div class="conv-entry ${cls}">${header}<span class="conv-tool-name">${escapeHtml(h.a)}</span><span class="conv-tool-input">${escapeHtml(h.b)}</span></div>`
+          : `<div class="conv-entry ${cls}">${header}<div class="conv-text">${escapeHtml(h.a)}</div></div>`;
       }).join('')
     : '<div class="tab-empty">No conversation recorded</div>';
 
-  // Populate activity tab
-  const histActivityItems = [];
-  for (const t of (data.tool_calls || [])) {
-    histActivityItems.push({ kind: 'tool', tool: t.toolName, input: t.toolInputSummary, timestamp: t.timestamp });
-  }
-  for (const e of (data.events || [])) {
-    histActivityItems.push({ kind: 'event', type: e.eventType, detail: e.detail, timestamp: e.timestamp });
-  }
-  for (const r of (data.responses || [])) {
-    histActivityItems.push({ kind: 'response', text: r.textExcerpt || r.text, timestamp: r.timestamp });
-  }
-  histActivityItems.sort((a, b) => b.timestamp - a.timestamp);
+  // Populate activity tab — reuse raw arrays, no intermediate copies
   const actEl = document.getElementById('detail-activity-log');
   if (actEl) {
-    actEl.innerHTML = histActivityItems.length > 0
-      ? histActivityItems.map(item => {
-          if (item.kind === 'tool') {
-            return `<div class="activity-entry activity-tool">
-              <span class="activity-time">${formatTime(item.timestamp)}</span>
-              <span class="activity-badge activity-badge-tool">${escapeHtml(item.tool)}</span>
-              <span class="activity-detail">${escapeHtml(item.input)}</span>
-            </div>`;
-          } else if (item.kind === 'response') {
-            return `<div class="activity-entry activity-response">
-              <span class="activity-time">${formatTime(item.timestamp)}</span>
-              <span class="activity-badge activity-badge-response">RESPONSE</span>
-              <span class="activity-detail">${escapeHtml(item.text)}</span>
-            </div>`;
-          } else {
-            return `<div class="activity-entry activity-event">
-              <span class="activity-time">${formatTime(item.timestamp)}</span>
-              <span class="activity-badge activity-badge-event">${escapeHtml(item.type)}</span>
-              <span class="activity-detail">${escapeHtml(item.detail)}</span>
-            </div>`;
-          }
-        }).join('')
+    const actItems = [];
+    for (const t of toolCalls) actItems.push({ k: 't', ts: t.timestamp, a: t.toolName, b: t.toolInputSummary });
+    for (const e of events) actItems.push({ k: 'e', ts: e.timestamp, a: e.eventType, b: e.detail });
+    for (const r of responses) actItems.push({ k: 'r', ts: r.timestamp, a: 'RESPONSE', b: r.textExcerpt || r.text });
+    actItems.sort((a, b) => b.ts - a.ts);
+    const ACT_CLS = { t: 'tool', e: 'event', r: 'response' };
+    actEl.innerHTML = actItems.length > 0
+      ? actItems.map(h => `<div class="activity-entry activity-${ACT_CLS[h.k]}">
+              <span class="activity-time">${formatTime(h.ts)}</span>
+              <span class="activity-badge activity-badge-${ACT_CLS[h.k]}">${escapeHtml(h.a)}</span>
+              <span class="activity-detail">${escapeHtml(h.b)}</span>
+            </div>`).join('')
       : '<div class="tab-empty">No activity recorded</div>';
   }
 
@@ -491,6 +486,10 @@ export function initDetailPanelHandlers() {
         if (rbtn && session) {
           const showBtn = !!(session.terminalId || session.lastTerminalId || session.status === 'ended');
           rbtn.classList.toggle('hidden', !showBtn);
+        }
+        // Show external source hint when no terminal is attached
+        if (session && !session.terminalId) {
+          _showExternalSourceHint(session);
         }
       }
     }

@@ -6,6 +6,7 @@
 import { Text } from '@react-three/drei';
 import { computeRoomCenter, ROOM_HALF, type RoomConfig, type CasualArea } from '@/lib/cyberdromeScene';
 import type { Room } from '@/stores/roomStore';
+import type { Session } from '@/types/session';
 
 // Strip color → neon label color (matches wall strip colors in CyberdromeEnvironment)
 const STRIP_COLORS = ['#00f0ff', '#ff00aa'] as const;
@@ -16,9 +17,10 @@ interface RoomLabelsProps {
   rooms: RoomConfig[];
   casualAreas?: CasualArea[];
   storeRooms: Room[];
+  sessions?: Map<string, Session>;
 }
 
-export default function RoomLabels({ rooms: roomConfigs, casualAreas, storeRooms }: RoomLabelsProps) {
+export default function RoomLabels({ rooms: roomConfigs, casualAreas, storeRooms, sessions }: RoomLabelsProps) {
   const rooms = storeRooms;
 
   return (
@@ -26,7 +28,12 @@ export default function RoomLabels({ rooms: roomConfigs, casualAreas, storeRooms
       {roomConfigs.map((roomCfg) => {
         const [cx, , cz] = computeRoomCenter(roomCfg.index);
         const room = rooms.find((r) => r.id === roomCfg.roomId);
-        const sessionCount = room?.sessionIds.length ?? 0;
+        const sessionCount = sessions
+          ? (room?.sessionIds.filter(id => {
+              const s = sessions.get(id);
+              return s && s.status !== 'ended';
+            }).length ?? 0)
+          : (room?.sessionIds.length ?? 0);
         const color = STRIP_COLORS[roomCfg.stripColor] ?? STRIP_COLORS[0];
         const dimColor = STRIP_COLORS_DIM[roomCfg.stripColor] ?? STRIP_COLORS_DIM[0];
 
