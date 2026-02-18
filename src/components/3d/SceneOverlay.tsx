@@ -3,6 +3,7 @@
  * Shows status breakdown, session count, mute toggle, and room management.
  */
 import { useMemo, useState, useCallback } from 'react';
+import { useSessionStore } from '@/stores/sessionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useRoomStore, type Room } from '@/stores/roomStore';
 import { useCameraStore, DEFAULT_CAMERA_POSITION, DEFAULT_CAMERA_TARGET } from '@/stores/cameraStore';
@@ -38,6 +39,7 @@ function RoomPanel() {
   const createRoom = useRoomStore((s) => s.createRoom);
   const renameRoom = useRoomStore((s) => s.renameRoom);
   const deleteRoom = useRoomStore((s) => s.deleteRoom);
+  const sessions = useSessionStore((s) => s.sessions);
   const flyTo = useCameraStore((s) => s.flyTo);
 
   const [expanded, setExpanded] = useState(false);
@@ -129,117 +131,124 @@ function RoomPanel() {
           </button>
 
           {/* Existing rooms */}
-          {sortedRooms.map((room) => (
-            <div
-              key={room.id}
-              style={{
-                padding: '6px 8px',
-                borderRadius: 3,
-                border: '1px solid rgba(0,240,255,0.2)',
-                background: 'rgba(0,240,255,0.04)',
-              }}
-            >
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 4,
-              }}>
-                {editingId === room.id ? (
-                  <input
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    onBlur={commitRename}
-                    onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); }}
-                    autoFocus
-                    style={{
-                      flex: 1,
-                      background: 'rgba(0,0,0,0.3)',
-                      border: '1px solid rgba(0,240,255,0.3)',
-                      color: '#fff',
+          {sortedRooms.map((room) => {
+            const activeCount = room.sessionIds.filter(id => {
+              const s = sessions.get(id);
+              return s && s.status !== 'ended';
+            }).length;
+
+            return (
+              <div
+                key={room.id}
+                onClick={() => {
+                  if (editingId !== room.id && room.roomIndex != null) {
+                    handleFocusRoom(room.roomIndex);
+                  }
+                }}
+                style={{
+                  padding: '6px 8px',
+                  borderRadius: 3,
+                  border: '1px solid rgba(0,240,255,0.2)',
+                  background: 'rgba(0,240,255,0.04)',
+                  cursor: editingId === room.id ? 'default' : 'pointer',
+                }}
+                onMouseEnter={(e) => {
+                  if (editingId !== room.id) {
+                    e.currentTarget.style.background = 'rgba(0,240,255,0.1)';
+                    e.currentTarget.style.borderColor = 'rgba(0,240,255,0.4)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(0,240,255,0.04)';
+                  e.currentTarget.style.borderColor = 'rgba(0,240,255,0.2)';
+                }}
+              >
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 4,
+                }}>
+                  {editingId === room.id ? (
+                    <input
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      onBlur={commitRename}
+                      onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); }}
+                      onClick={(e) => e.stopPropagation()}
+                      autoFocus
+                      style={{
+                        flex: 1,
+                        background: 'rgba(0,0,0,0.3)',
+                        border: '1px solid rgba(0,240,255,0.3)',
+                        color: '#fff',
+                        fontSize: 10,
+                        fontFamily: "'JetBrains Mono', monospace",
+                        padding: '2px 4px',
+                        borderRadius: 2,
+                        outline: 'none',
+                      }}
+                    />
+                  ) : (
+                    <span style={{
                       fontSize: 10,
                       fontFamily: "'JetBrains Mono', monospace",
-                      padding: '2px 4px',
-                      borderRadius: 2,
-                      outline: 'none',
-                    }}
-                  />
-                ) : (
-                  <span style={{
-                    fontSize: 10,
-                    fontFamily: "'JetBrains Mono', monospace",
-                    color: '#ddd',
-                    flex: 1,
-                  }}>
-                    {room.name}
-                  </span>
-                )}
+                      color: '#ddd',
+                      flex: 1,
+                    }}>
+                      {room.name}
+                    </span>
+                  )}
 
-                {editingId !== room.id && (
-                  <div style={{ display: 'flex', gap: 2 }}>
-                    {room.roomIndex != null && (
+                  {editingId !== room.id && (
+                    <div style={{ display: 'flex', gap: 2 }}>
                       <button
-                        onClick={() => handleFocusRoom(room.roomIndex!)}
+                        onClick={(e) => { e.stopPropagation(); startRename(room); }}
                         style={{
                           background: 'none',
                           border: 'none',
-                          color: 'rgba(0,240,255,0.5)',
+                          color: 'rgba(0,240,255,0.4)',
                           cursor: 'pointer',
-                          fontSize: 11,
+                          fontSize: 10,
                           padding: '0 2px',
-                          lineHeight: 1,
                         }}
-                        title="Zoom to room"
+                        title="Rename"
                       >
-                        &#9673;
+                        &#9998;
                       </button>
-                    )}
-                    <button
-                      onClick={() => startRename(room)}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: 'rgba(0,240,255,0.4)',
-                        cursor: 'pointer',
-                        fontSize: 10,
-                        padding: '0 2px',
-                      }}
-                      title="Rename"
-                    >
-                      &#9998;
-                    </button>
-                    <button
-                      onClick={() => deleteRoom(room.id)}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: 'rgba(255,68,68,0.5)',
-                        cursor: 'pointer',
-                        fontSize: 10,
-                        padding: '0 2px',
-                      }}
-                      title="Delete room"
-                    >
-                      &times;
-                    </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); deleteRoom(room.id); }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: 'rgba(255,68,68,0.5)',
+                          cursor: 'pointer',
+                          fontSize: 10,
+                          padding: '0 2px',
+                        }}
+                        title="Delete room"
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Session count badge */}
+                {activeCount > 0 && (
+                  <div style={{
+                    marginTop: 4,
+                    fontSize: 9,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    color: 'rgba(255,255,255,0.35)',
+                    padding: '1px 4px',
+                  }}>
+                    {activeCount} session{activeCount !== 1 ? 's' : ''}
                   </div>
                 )}
               </div>
-
-              {/* Session count badge */}
-              {room.sessionIds.length > 0 && (
-                <div style={{
-                  marginTop: 4,
-                  fontSize: 9,
-                  fontFamily: "'JetBrains Mono', monospace",
-                  color: 'rgba(255,255,255,0.35)',
-                  padding: '1px 4px',
-                }}>
-                  {room.sessionIds.length} session{room.sessionIds.length !== 1 ? 's' : ''}
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
 
           {/* No rooms message */}
           {rooms.length === 0 && (

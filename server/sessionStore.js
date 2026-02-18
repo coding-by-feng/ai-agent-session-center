@@ -529,7 +529,9 @@ export function handleEvent(hookData) {
   log.debugJson('session', 'Full hook data', hookData);
 
   // Match or create session (delegated to sessionMatcher)
+  // Returns null for external sessions (VS Code, iTerm, etc.) that have no dashboard terminal
   const session = matchSession(hookData, sessions, pendingResume, pidToSession, projectSessionCounters);
+  if (!session) return;
 
   // Auto-revive sessions that were marked ended by ServerRestart but whose Claude process survived.
   // This happens when Claude runs in tmux/screen and keeps sending hooks after server restart.

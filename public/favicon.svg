@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="6" fill="#0a0a1a"/>
+  <!-- Robot head -->
+  <circle cx="16" cy="13" r="7" fill="none" stroke="#00e5ff" stroke-width="2"/>
+  <!-- Eyes -->
+  <circle cx="13.5" cy="12" r="1.5" fill="#00e5ff"/>
+  <circle cx="18.5" cy="12" r="1.5" fill="#00e5ff"/>
+  <!-- Smile -->
+  <path d="M13 16 Q16 19 19 16" fill="none" stroke="#00e5ff" stroke-width="1" stroke-linecap="round"/>
+  <!-- Antenna -->
+  <rect x="14.5" y="4" width="3" height="3" rx="1" fill="#00e5ff"/>
+  <line x1="16" y1="7" x2="16" y2="6" stroke="#00e5ff" stroke-width="1.5"/>
+  <!-- Terminal/keyboard -->
+  <rect x="9" y="22" width="14" height="6" rx="2" fill="none" stroke="#ff9100" stroke-width="1.5"/>
+  <line x1="12" y1="24" x2="12" y2="26" stroke="#ff9100" stroke-width="1" stroke-linecap="round"/>
+  <line x1="16" y1="24" x2="16" y2="26" stroke="#ff9100" stroke-width="1" stroke-linecap="round"/>
+  <line x1="20" y1="24" x2="20" y2="26" stroke="#ff9100" stroke-width="1" stroke-linecap="round"/>
+</svg>

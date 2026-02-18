@@ -6,7 +6,7 @@ A real-time dashboard for monitoring and managing all your AI coding agent sessi
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
-![AI Agent Session Center Dashboard](docs/images/dashboard-3d.png)
+<video src="docs/demo.mp4" width="100%" controls autoplay loop muted></video>
 
 ---
 
