@@ -7,17 +7,19 @@ import { getSelectedSessionId } from './sessionPanel.js';
 import { sendEscape as terminalSendEscape } from './terminalManager.js';
 
 export function initKeyboardShortcuts() {
-  // Capture-phase Escape handler — fires BEFORE the browser can blur the
-  // xterm textarea, so a single Escape press reliably sends \x1b to SSH.
-  // Capture phase runs before bubble phase and before default browser actions.
+  // Capture-phase Escape handler — intercept ALL Escape presses globally.
+  // If an active terminal exists, forward \x1b to it; otherwise just eat the
+  // event so Escape never triggers modal closes, detail-panel exits, or
+  // focus blur anywhere on the site.
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
 
+    e.preventDefault();
+    e.stopPropagation();
+
     const activeTab = document.querySelector('.detail-tabs .tab.active');
     if (activeTab && activeTab.dataset.tab === 'terminal') {
-      e.preventDefault();
-      e.stopPropagation();
       terminalSendEscape();
     }
   }, true); // <-- capture phase

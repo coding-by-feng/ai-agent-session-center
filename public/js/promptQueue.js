@@ -452,7 +452,6 @@ export function initQueueHandlers() {
       editBtn.onclick = (ev) => { ev.stopPropagation(); saveEdit(); };
       ta.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); saveEdit(); }
-        if (ev.key === 'Escape') loadQueue(sid);
       });
     }
 
