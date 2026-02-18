@@ -6,7 +6,7 @@ A real-time dashboard for monitoring and managing all your AI coding agent sessi
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
-![Demo](docs/demo.mp4)
+https://github.com/user-attachments/assets/004ee6f9-942c-44c2-a4c5-d971fa0e824b
 
 ---
 
