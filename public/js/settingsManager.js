@@ -19,11 +19,6 @@ const defaults = {
   movementActions: '',
   autoSendQueue: 'false',
   hookDensity: 'off',
-  labelSettings: JSON.stringify({
-    ONEOFF:    { sound: 'alarm',       movement: 'shake',  frame: 'none' },
-    HEAVY:     { sound: 'urgentAlarm', movement: 'flash',  frame: 'electric' },
-    IMPORTANT: { sound: 'fanfare',     movement: 'bounce', frame: 'liquid' },
-  })
 };
 
 let settings = { ...defaults };
@@ -561,9 +556,6 @@ export function initSettingsUI() {
   // Build per-action movement effect grid
   initMovementGrid();
 
-  // Build label completion alerts grid
-  initLabelGrid();
-
   // Build summary prompt template management
   initSummaryPromptSettings();
 }
@@ -820,140 +812,6 @@ async function initSummaryPromptSettings() {
   });
 
   loadAndRender();
-}
-
-// ---- Label Settings (per-label completion alerts) ----
-
-export function getLabelSettings() {
-  const raw = get('labelSettings');
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return JSON.parse(defaults.labelSettings);
-  }
-}
-
-export async function setLabelSetting(label, field, value) {
-  const current = getLabelSettings();
-  if (!current[label]) current[label] = { sound: 'none', movement: 'none' };
-  current[label] = { ...current[label], [field]: value };
-  await set('labelSettings', JSON.stringify(current));
-}
-
-// Frame effect library for label cards
-const FRAME_EFFECTS = {
-  none:     'None',
-  fire:     'Burning Fire',
-  electric: 'Electric Current',
-  chains:   'Golden Chains',
-  liquid:   'Liquid Flow',
-  plasma:   'Plasma Ring',
-};
-
-export function getFrameEffects() {
-  return { ...FRAME_EFFECTS };
-}
-
-async function initLabelGrid() {
-  const container = document.getElementById('label-settings-grid');
-  if (!container) return;
-
-  const soundManager = await import('./soundManager.js');
-  const movementManager = await import('./movementManager.js');
-
-  const sounds = soundManager.getSoundLibrary(); // string[]
-  const effects = movementManager.getEffectLibrary(); // { key: label }
-  const labelConfig = getLabelSettings();
-
-  const LABELS = ['ONEOFF', 'HEAVY', 'IMPORTANT'];
-  const LABEL_COLORS = { ONEOFF: '#ff9100', HEAVY: '#ff3355', IMPORTANT: '#aa66ff' };
-  const LABEL_ICONS = { ONEOFF: '&#128293;', HEAVY: '&#9733;', IMPORTANT: '&#9888;' };
-
-  let html = '';
-  for (const label of LABELS) {
-    const cfg = labelConfig[label] || { sound: 'none', movement: 'none', frame: 'none' };
-    const color = LABEL_COLORS[label];
-
-    const soundOpts = sounds.map(s =>
-      `<option value="${s}"${s === cfg.sound ? ' selected' : ''}>${s}</option>`
-    ).join('');
-
-    const effectOpts = Object.entries(effects).map(([key, name]) =>
-      `<option value="${key}"${key === cfg.movement ? ' selected' : ''}>${name}</option>`
-    ).join('');
-
-    const frameOpts = Object.entries(FRAME_EFFECTS).map(([key, name]) =>
-      `<option value="${key}"${key === (cfg.frame || 'none') ? ' selected' : ''}>${name}</option>`
-    ).join('');
-
-    html += `
-      <div class="label-config-card" style="--label-color: ${color}" data-frame="${cfg.frame || 'none'}">
-        <div class="label-config-header">
-          <span class="label-config-icon">${LABEL_ICONS[label]}</span>
-          <span class="label-config-name">${label}</span>
-        </div>
-        <div class="label-config-row">
-          <span class="label-config-field">Card Frame</span>
-          <select class="label-config-select" data-label="${label}" data-field="frame">${frameOpts}</select>
-        </div>
-        <div class="label-config-row">
-          <span class="label-config-field">Sound</span>
-          <select class="label-config-select" data-label="${label}" data-field="sound">${soundOpts}</select>
-          <button class="sound-preview-btn label-preview-btn" data-label="${label}" data-field="sound" title="Preview">&#9654;</button>
-        </div>
-        <div class="label-config-row">
-          <span class="label-config-field">Movement</span>
-          <select class="label-config-select" data-label="${label}" data-field="movement">${effectOpts}</select>
-          <button class="sound-preview-btn label-preview-btn" data-label="${label}" data-field="movement" title="Preview">&#9654;</button>
-        </div>
-      </div>`;
-  }
-  container.innerHTML = html;
-
-  // Change handler
-  container.addEventListener('change', (e) => {
-    const sel = e.target.closest('.label-config-select');
-    if (!sel) return;
-    const field = sel.dataset.field;
-    const label = sel.dataset.label;
-    setLabelSetting(label, field, sel.value);
-
-    // Live-preview frame effect on the config card itself
-    if (field === 'frame') {
-      const configCard = sel.closest('.label-config-card');
-      if (configCard) configCard.dataset.frame = sel.value;
-      // Also update any live session cards with this label
-      document.querySelectorAll(`.session-card.${label.toLowerCase()}-session`).forEach(card => {
-        if (sel.value && sel.value !== 'none') {
-          card.dataset.frame = sel.value;
-        } else {
-          delete card.dataset.frame;
-        }
-      });
-    }
-  });
-
-  // Preview handler
-  container.addEventListener('click', (e) => {
-    const btn = e.target.closest('.label-preview-btn');
-    if (!btn) return;
-    const label = btn.dataset.label;
-    const field = btn.dataset.field;
-    const sel = container.querySelector(`.label-config-select[data-label="${label}"][data-field="${field}"]`);
-    if (!sel) return;
-    if (field === 'sound') {
-      soundManager.previewSound(sel.value);
-    } else {
-      // Preview movement on the first session card character
-      const card = document.querySelector('.session-card .css-robot');
-      if (card && sel.value !== 'none') {
-        card.removeAttribute('data-movement');
-        void card.offsetWidth;
-        card.setAttribute('data-movement', sel.value);
-        setTimeout(() => card.removeAttribute('data-movement'), 3500);
-      }
-    }
-  });
 }
 
 const escapeHtml = _escapeHtml;

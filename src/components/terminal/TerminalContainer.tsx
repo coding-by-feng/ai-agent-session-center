@@ -3,7 +3,8 @@
  * Uses the useTerminal hook for lifecycle management.
  * Ported from public/js/terminalManager.js.
  */
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useTerminal } from '@/hooks/useTerminal';
 import TerminalToolbar from './TerminalToolbar';
 import styles from '@/styles/modules/Terminal.module.css';
@@ -30,11 +31,12 @@ export default function TerminalContainer({
     }
   });
 
+  const fsContainerRef = useRef<HTMLDivElement | null>(null);
+
   const {
     containerRef,
     attach,
     detach,
-    isAttached,
     isFullscreen,
     toggleFullscreen,
     sendEscape,
@@ -43,6 +45,8 @@ export default function TerminalContainer({
     handleTerminalOutput,
     handleTerminalReady,
     handleTerminalClosed,
+    reparent,
+    scrollToBottom,
   } = useTerminal({ ws, themeName });
 
   // Attach/detach when terminalId changes
@@ -53,6 +57,18 @@ export default function TerminalContainer({
       detach();
     }
   }, [terminalId, attach, detach]);
+
+  // Move xterm element between inline and fullscreen containers
+  useEffect(() => {
+    // Defer one frame so the portal DOM is committed
+    requestAnimationFrame(() => {
+      if (isFullscreen && fsContainerRef.current) {
+        reparent(fsContainerRef.current);
+      } else if (!isFullscreen && containerRef.current) {
+        reparent(containerRef.current);
+      }
+    });
+  }, [isFullscreen, reparent, containerRef]);
 
   // Listen for terminal WS messages
   useEffect(() => {
@@ -88,6 +104,17 @@ export default function TerminalContainer({
     return () => document.removeEventListener('visibilitychange', handler);
   }, [refitTerminal]);
 
+  // Alt+Cmd/Ctrl+R keyboard shortcut → refresh terminal
+  useEffect(() => {
+    if (!terminalId) return;
+    const handler = () => {
+      refitTerminal();
+      scrollToBottom();
+    };
+    window.addEventListener('terminal:refresh', handler);
+    return () => window.removeEventListener('terminal:refresh', handler);
+  }, [terminalId, refitTerminal, scrollToBottom]);
+
   const handleThemeChange = useCallback(
     (name: string) => {
       setThemeName(name);
@@ -98,7 +125,8 @@ export default function TerminalContainer({
 
   const handleRefresh = useCallback(() => {
     refitTerminal();
-  }, [refitTerminal]);
+    scrollToBottom();
+  }, [refitTerminal, scrollToBottom]);
 
   if (!terminalId) {
     return (
@@ -124,6 +152,23 @@ export default function TerminalContainer({
         ref={containerRef}
         className={styles.container}
       />
+      {/* Fullscreen overlay — always mounted, toggled via display.
+          This avoids unmounting the portal while the xterm element is still inside it. */}
+      {createPortal(
+        <div
+          className={styles.fullscreenOverlay}
+          style={{ display: isFullscreen ? 'flex' : 'none' }}
+        >
+          <div className={styles.fullscreenTopbar}>
+            <span className={styles.fullscreenTitle}>Terminal</span>
+            <button className={styles.fullscreenExit} onClick={toggleFullscreen}>
+              EXIT FULLSCREEN
+            </button>
+          </div>
+          <div ref={fsContainerRef} className={styles.fullscreenContainer} />
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

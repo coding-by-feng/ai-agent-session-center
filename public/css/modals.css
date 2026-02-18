@@ -174,32 +174,6 @@
   background: rgba(0, 229, 255, 0.12) !important;
 }
 
-.qa-btn-oneoff {
-  color: #ff9100 !important;
-  border-color: rgba(255, 145, 0, 0.4) !important;
-}
-.qa-btn-oneoff:hover {
-  background: rgba(255, 145, 0, 0.12) !important;
-}
-
-.qa-btn-heavy {
-  color: #ff3355 !important;
-  border-color: rgba(255, 51, 85, 0.5) !important;
-  font-weight: 700 !important;
-}
-.qa-btn-heavy:hover {
-  background: rgba(255, 51, 85, 0.15) !important;
-}
-
-.qa-btn-important {
-  color: #aa66ff !important;
-  border-color: rgba(170, 102, 255, 0.5) !important;
-  font-weight: 700 !important;
-}
-.qa-btn-important:hover {
-  background: rgba(170, 102, 255, 0.15) !important;
-}
-
 /* ---- Quick Session Modal ---- */
 
 .quick-session-panel {

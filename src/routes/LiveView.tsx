@@ -7,7 +7,7 @@ const CyberdromeScene = lazy(() => import('@/components/3d/CyberdromeScene'));
 
 export default function LiveView() {
   return (
-    <div style={{ height: '100%', position: 'relative' }}>
+    <div style={{ position: 'absolute', inset: 0 }}>
       <Suspense fallback={
         <div style={{
           display: 'flex',

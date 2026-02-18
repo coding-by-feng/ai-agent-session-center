@@ -8,6 +8,7 @@ import type { TmuxSessionInfo, SshKeyInfo } from '@/types';
 import type { CreateTerminalRequest } from '@/types/api';
 import Modal from '@/components/ui/Modal';
 import { showToast } from '@/components/ui/ToastContainer';
+import { useSessionStore } from '@/stores/sessionStore';
 import styles from '@/styles/modules/Modal.module.css';
 
 // ---------------------------------------------------------------------------
@@ -16,6 +17,32 @@ import styles from '@/styles/modules/Modal.module.css';
 
 const WORKDIR_HISTORY_KEY = 'workdir-history';
 const MAX_WORKDIR_HISTORY = 20;
+const LAST_SESSION_KEY = 'lastSession';
+
+interface LastSessionConfig {
+  host?: string;
+  port?: number;
+  username?: string;
+  authMethod?: 'key' | 'password';
+  privateKeyPath?: string;
+  workingDir?: string;
+  command?: string;
+  terminalTheme?: string;
+}
+
+function loadLastSession(): LastSessionConfig {
+  try {
+    return JSON.parse(localStorage.getItem(LAST_SESSION_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveLastSession(config: LastSessionConfig): void {
+  try {
+    localStorage.setItem(LAST_SESSION_KEY, JSON.stringify(config));
+  } catch { /* ignore quota errors */ }
+}
 
 function loadWorkdirHistory(): string[] {
   try {
@@ -37,16 +64,17 @@ function saveWorkdir(dir: string): void {
 // ---------------------------------------------------------------------------
 
 export default function NewSessionModal() {
-  const [host, setHost] = useState('localhost');
-  const [port, setPort] = useState('22');
-  const [username, setUsername] = useState('');
-  const [authMethod, setAuthMethod] = useState<'key' | 'password'>('key');
-  const [privateKeyPath, setPrivateKeyPath] = useState('');
+  const [saved] = useState(() => loadLastSession());
+  const [host, setHost] = useState(saved.host || 'localhost');
+  const [port, setPort] = useState(String(saved.port || 22));
+  const [username, setUsername] = useState(saved.username || '');
+  const [authMethod, setAuthMethod] = useState<'key' | 'password'>(saved.authMethod || 'key');
+  const [privateKeyPath, setPrivateKeyPath] = useState(saved.privateKeyPath || '');
   const [password, setPassword] = useState('');
-  const [workingDir, setWorkingDir] = useState('~');
+  const [workingDir, setWorkingDir] = useState(saved.workingDir || '~');
   const [useTmux, setUseTmux] = useState(false);
   const [tmuxSession, setTmuxSession] = useState('');
-  const [command, setCommand] = useState('');
+  const [command, setCommand] = useState(saved.command || '');
   const [apiKey, setApiKey] = useState('');
   const [sessionTitle, setSessionTitle] = useState('');
   const [label, setLabel] = useState('');
@@ -122,6 +150,19 @@ export default function NewSessionModal() {
       const data = await res.json();
       if (data.ok) {
         saveWorkdir(workingDir);
+        saveLastSession({
+          host: body.host,
+          port: body.port,
+          username: body.username,
+          authMethod,
+          privateKeyPath: authMethod === 'key' ? privateKeyPath : undefined,
+          workingDir: workingDir || '~',
+          command: command || undefined,
+        });
+        // Auto-select the new session so the detail panel stays open
+        if (data.terminalId) {
+          useSessionStore.getState().selectSession(data.terminalId);
+        }
         showToast('Terminal session created', 'success');
       } else {
         showToast(data.error || 'Failed to create terminal', 'error');

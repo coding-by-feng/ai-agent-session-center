@@ -28,6 +28,13 @@ const SHORTCUTS: { section: string; items: ShortcutDef[] }[] = [
     ],
   },
   {
+    section: 'Terminal',
+    items: [
+      { key: 'Alt+Cmd/Ctrl+R', description: 'Refresh terminal' },
+      { key: 'Alt+F11', description: 'Toggle fullscreen' },
+    ],
+  },
+  {
     section: 'Selected Session',
     items: [
       { key: 'K', description: 'Kill selected session' },

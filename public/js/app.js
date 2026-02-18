@@ -14,7 +14,7 @@ import { openDB, persistSessionUpdate, put, del, getAll, clear, getQueue, migrat
 import { escapeHtml as utilEscapeHtml, debugLog, debugWarn } from './utils.js';
 import { initKeyboardShortcuts } from './keyboardShortcuts.js';
 import { initQuickActions, initShortcutsPanel } from './quickActions.js';
-import { handleEventSounds, checkAlarms, handleLabelAlerts, clearAlarm } from './alarmManager.js';
+import { handleEventSounds, checkAlarms, clearAlarm } from './alarmManager.js';
 
 let allSessions = {};
 let hasRestoredSelection = false;
@@ -246,9 +246,6 @@ async function init() {
 
       addActivityEntry(session);
       toggleEmptyState(Object.keys(allSessions).length === 0);
-
-      // Label completion alerts
-      handleLabelAlerts(session);
 
       // SSH sessions persist as disconnected cards; non-SSH auto-remove
       if (session.status === 'ended' && session.source !== 'ssh') {

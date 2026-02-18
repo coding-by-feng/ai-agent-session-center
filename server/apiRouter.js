@@ -10,7 +10,7 @@ import { getMqStats } from './mqReader.js';
 import { execFile } from 'child_process';
 import { readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
-import { homedir } from 'os';
+import { homedir, userInfo } from 'os';
 import { fileURLToPath } from 'url';
 import { ALL_CLAUDE_HOOK_EVENTS, DENSITY_EVENTS, SESSION_STATUS, WS_TYPES } from './constants.js';
 import log from './logger.js';
@@ -18,6 +18,23 @@ import log from './logger.js';
 const __apiDirname = dirname(fileURLToPath(import.meta.url));
 
 const router = Router();
+
+// ---- Last-used Username Persistence ----
+
+let _lastUsedUsername = null;
+
+function getDefaultUsername() {
+  if (_lastUsedUsername) return _lastUsedUsername;
+  try { return userInfo().username; } catch { return null; }
+}
+
+function saveLastUsername(username) {
+  if (username) _lastUsedUsername = username;
+}
+
+function isLocalHost(host) {
+  return !host || host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
 
 // ---- Input Validation Helpers ----
 
@@ -448,10 +465,12 @@ router.get('/ssh-keys', (req, res) => {
 
 router.post('/tmux-sessions', async (req, res) => {
   try {
-    const { host, port, username, password, privateKeyPath, authMethod, passphrase } = req.body;
+    const { host, port, username: rawUsername, password, privateKeyPath, authMethod, passphrase } = req.body;
+    const resolvedHost = host || 'localhost';
+    const username = rawUsername || getDefaultUsername() || (isLocalHost(resolvedHost) ? 'local' : null);
     if (!username) return res.status(400).json({ error: 'username required' });
     const config = {
-      host: host || 'localhost',
+      host: resolvedHost,
       port: port || 22,
       username,
       authMethod: authMethod || 'key',
@@ -477,10 +496,14 @@ router.post('/terminals', async (req, res) => {
   }
 
   try {
-    const { host, port, username, password, privateKeyPath, authMethod, workingDir, command, apiKey, tmuxSession, useTmux, sessionTitle, label } = req.body;
+    const { host, port, username: rawUsername, password, privateKeyPath, authMethod, workingDir, command, apiKey, tmuxSession, useTmux, sessionTitle, label } = req.body;
+
+    // Resolve username: provided > last-used > OS user (local only)
+    const resolvedHost = host || 'localhost';
+    const username = rawUsername || getDefaultUsername() || (isLocalHost(resolvedHost) ? 'local' : null);
 
     // Input validation
-    if (!username) return res.status(400).json({ success: false, error: 'username required' });
+    if (!username) return res.status(400).json({ success: false, error: 'username required — set it once in "+ NEW SESSION" and it will be reused' });
     if (!isValidUsername(username)) {
       return res.status(400).json({ success: false, error: 'username contains invalid characters' });
     }
@@ -503,8 +526,11 @@ router.post('/terminals', async (req, res) => {
       return res.status(400).json({ success: false, error: 'sessionTitle must be a string (max 500 chars)' });
     }
 
+    // Remember this username for future sessions
+    saveLastUsername(username);
+
     const config = {
-      host: host || 'localhost',
+      host: resolvedHost,
       port: port || 22,
       username,
       authMethod: authMethod || 'key',

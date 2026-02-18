@@ -3,7 +3,8 @@
  * Uses ResizablePanel for width adjustment.
  * Ported from public/js/detailPanel.js.
  */
-import { useCallback, useEffect, useMemo, type ReactNode } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, type ReactNode } from 'react';
+import { Canvas } from '@react-three/fiber';
 import type { Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
@@ -20,7 +21,10 @@ import KillConfirmModal, { KILL_MODAL_ID } from './KillConfirmModal';
 import AlertModal, { ALERT_MODAL_ID } from './AlertModal';
 import SummarizeModal, { SUMMARIZE_MODAL_ID } from './SummarizeModal';
 import TerminalContainer from '@/components/terminal/TerminalContainer';
-import { getModelLabel, type RobotModelType } from '@/lib/robot3DModels';
+import Robot3DModel from '@/components/3d/Robot3DModel';
+import type { RobotModelType } from '@/lib/robot3DModels';
+import { sessionStatusToRobotState } from '@/lib/robotStateMap';
+import { PALETTE } from '@/lib/robot3DGeometry';
 import { formatDuration, getStatusLabel } from '@/lib/format';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
@@ -51,12 +55,21 @@ function TerminalContent({ session }: { session: Session }) {
   }, [session.sessionId]);
 
   return (
-    <TerminalContainer
-      terminalId={session.terminalId}
-      ws={ws}
-      showReconnect={showReconnect}
-      onReconnect={handleReconnect}
-    />
+    <div className={styles.terminalWithQueue}>
+      <div className={styles.terminalSection}>
+        <TerminalContainer
+          terminalId={session.terminalId}
+          ws={ws}
+          showReconnect={showReconnect}
+          onReconnect={handleReconnect}
+        />
+      </div>
+      <QueueTab
+        sessionId={session.sessionId}
+        sessionStatus={session.status}
+        terminalId={session.terminalId}
+      />
+    </div>
   );
 }
 
@@ -73,11 +86,13 @@ export default function DetailPanel() {
     ? sessions.get(selectedSessionId)
     : undefined;
 
-  // Close on Escape
+  // Close on Escape — but not when terminal is focused (let xterm send \x1b)
   useEffect(() => {
     if (!session) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') deselectSession();
+      if (e.key === 'Escape' && !(e.target as HTMLElement)?.closest?.('.xterm')) {
+        deselectSession();
+      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -113,6 +128,8 @@ export default function DetailPanel() {
   const statusLabel = getStatusLabel(session.status);
   const isDisconnected = session.status === 'ended';
   const modelType = (session.characterModel || 'robot').toLowerCase() as RobotModelType;
+  const neonColor = session.accentColor || PALETTE[(session.colorIndex ?? 0) % PALETTE.length];
+  const robotState = sessionStatusToRobotState(session.status);
   const statusColor: Record<string, string> = {
     idle: '#00ff88', prompting: '#00e5ff', working: '#ff9100',
     waiting: '#00e5ff', approval: '#ffdd00', input: '#aa66ff',
@@ -138,25 +155,34 @@ export default function DetailPanel() {
 
         {/* Header */}
         <div className={styles.header}>
-          {/* Mini robot icon */}
+          {/* Mini 3D robot preview */}
           <div className={styles.charPreview} style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 48,
-            height: 48,
+            width: 64,
+            height: 80,
             borderRadius: 6,
             border: `1px solid ${statusColor[session.status] ?? '#666'}40`,
             background: `${statusColor[session.status] ?? '#666'}10`,
+            overflow: 'hidden',
           }}>
-            <span style={{
-              fontSize: 20,
-              color: statusColor[session.status] ?? '#666',
-              fontFamily: "'Orbitron', sans-serif",
-              fontWeight: 700,
-            }}>
-              {getModelLabel(modelType).charAt(0)}
-            </span>
+            <Suspense fallback={null}>
+              <Canvas
+                gl={{ antialias: true, alpha: true }}
+                camera={{ position: [0, 0, 2.4], fov: 32 }}
+                style={{ width: '100%', height: '100%' }}
+              >
+                <ambientLight intensity={0.4} />
+                <directionalLight position={[2, 3, 2]} intensity={0.8} />
+                {/* Offset group centers the robot in the viewport */}
+                <group position={[0, -0.55, 0]}>
+                  <Robot3DModel
+                    neonColor={neonColor}
+                    state={robotState}
+                    scale={0.7}
+                    modelType={modelType}
+                  />
+                </group>
+              </Canvas>
+            </Suspense>
           </div>
 
           <div className={styles.headerText}>

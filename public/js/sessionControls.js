@@ -710,6 +710,14 @@ export function initControlHandlers() {
         detailTitleInput.blur();
       }
     });
+
+    const titleEditBtn = document.getElementById('detail-title-edit-btn');
+    if (titleEditBtn) {
+      titleEditBtn.addEventListener('click', () => {
+        detailTitleInput.focus();
+        detailTitleInput.select();
+      });
+    }
   }
 
   // Session Label Save (blur/Enter)

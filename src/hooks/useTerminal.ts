@@ -42,6 +42,9 @@ interface UseTerminalReturn {
   handleTerminalOutput: (terminalId: string, base64Data: string) => void;
   handleTerminalReady: (terminalId: string) => void;
   handleTerminalClosed: (terminalId: string, reason?: string) => void;
+  /** Move the xterm element to a different container (e.g. for fullscreen) */
+  reparent: (container: HTMLElement) => void;
+  scrollToBottom: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -270,17 +273,19 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
     [detach],
   );
 
-  // Terminal output handler
+  // Terminal output handler — auto-scrolls to bottom on new output
   const handleTerminalOutput = useCallback((terminalId: string, base64Data: string) => {
     if (activeRef.current && activeRef.current.terminalId === terminalId) {
       const bytes = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
       activeRef.current.term.write(bytes);
+      activeRef.current.term.scrollToBottom();
 
       if (!hasReceivedFirstOutputRef.current) {
         hasReceivedFirstOutputRef.current = true;
         setTimeout(() => {
           if (activeRef.current && activeRef.current.terminalId === terminalId) {
             activeRef.current.term.refresh(0, activeRef.current.term.rows - 1);
+            activeRef.current.term.scrollToBottom();
           }
         }, 100);
       }
@@ -327,11 +332,64 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
   const refitTerminal = useCallback(() => {
     if (!activeRef.current) return;
     const { terminalId, term, fitAddon } = activeRef.current;
-    forceCanvasRepaint(wsRef.current, terminalId, term, fitAddon, activeRef);
+
+    // Clear and re-subscribe to get fresh terminal buffer from server
+    term.clear();
+    if (wsRef.current && wsRef.current.readyState === 1) {
+      wsRef.current.send(JSON.stringify({ type: 'terminal_subscribe', terminalId }));
+    }
+
+    // Enter fullscreen then immediately exit to force a full refit/repaint
+    setIsFullscreen(true);
+    requestAnimationFrame(() => {
+      setIsFullscreen(false);
+      requestAnimationFrame(() => {
+        forceCanvasRepaint(wsRef.current, terminalId, term, fitAddon, activeRef);
+        term.scrollToBottom();
+      });
+    });
   }, []);
 
   const toggleFullscreenFn = useCallback(() => {
     setIsFullscreen((prev) => !prev);
+  }, []);
+
+  const reparent = useCallback((newContainer: HTMLElement) => {
+    if (!activeRef.current) return;
+    const { terminalId, term, fitAddon, resizeObserver } = activeRef.current;
+    const xtermEl = term.element;
+    if (!xtermEl || xtermEl.parentElement === newContainer) return;
+
+    // Move xterm element to new container
+    newContainer.appendChild(xtermEl);
+
+    // Replace resize observer to track new container dimensions
+    resizeObserver.disconnect();
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+    const newObserver = new ResizeObserver(() => {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (!activeRef.current) return;
+        activeRef.current.fitAddon.fit();
+        sendResize(wsRef.current, activeRef.current.terminalId,
+          activeRef.current.term.cols, activeRef.current.term.rows);
+      }, 50);
+    });
+    newObserver.observe(newContainer);
+    activeRef.current.resizeObserver = newObserver;
+
+    // Refit + repaint in the new container
+    requestAnimationFrame(() => {
+      if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
+      forceCanvasRepaint(wsRef.current, terminalId, term, fitAddon, activeRef);
+      term.focus();
+    });
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    if (activeRef.current) {
+      activeRef.current.term.scrollToBottom();
+    }
   }, []);
 
   const setThemeFn = useCallback((name: string) => {
@@ -384,5 +442,7 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
     handleTerminalOutput,
     handleTerminalReady,
     handleTerminalClosed,
+    reparent,
+    scrollToBottom,
   };
 }

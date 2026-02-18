@@ -2,19 +2,20 @@
  * SubagentConnections — Renders animated dashed laser-lines between parent
  * and child robots when team/subagent relationships exist.
  * Uses raw THREE.Line with LineDashedMaterial for animated dash flow.
+ *
+ * ZERO Zustand subscriptions — receives precomputed connections as props
+ * from the DOM layer to prevent cross-reconciler cascades (React Error #185).
  */
 import { useRef, useMemo, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { useSessionStore } from '@/stores/sessionStore';
-import { PALETTE } from '@/lib/robot3DGeometry';
 import { robotPositionStore } from './robotPositionStore';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-interface ConnectionData {
+export interface ConnectionData {
   parentId: string;
   childId: string;
   color: string;
@@ -82,45 +83,10 @@ function ConnectionLine({ parentId, childId, color }: ConnectionData) {
 }
 
 // ---------------------------------------------------------------------------
-// Main Component — reads session store for team relationships
+// Main Component — receives connections as props (no store subscription)
 // ---------------------------------------------------------------------------
 
-export default function SubagentConnections() {
-  const sessions = useSessionStore((s) => s.sessions);
-
-  // Build connection list from team relationships
-  const connections = useMemo(() => {
-    const result: ConnectionData[] = [];
-
-    for (const session of sessions.values()) {
-      // Only draw lines for child sessions that have a parent
-      if (!session.teamId || session.teamRole !== 'member') continue;
-
-      // Extract parent session ID from teamId (format: "team-{parentSessionId}")
-      const parentId = session.teamId.replace(/^team-/, '');
-      if (!parentId || parentId === session.sessionId) continue;
-
-      // Only draw if parent session exists and is not ended
-      const parentSession = sessions.get(parentId);
-      if (!parentSession || parentSession.status === 'ended') continue;
-
-      // Skip if child session is ended
-      if (session.status === 'ended') continue;
-
-      // Use parent's accent color
-      const parentColor = parentSession.accentColor ||
-        PALETTE[(parentSession.colorIndex ?? 0) % PALETTE.length];
-
-      result.push({
-        parentId,
-        childId: session.sessionId,
-        color: parentColor,
-      });
-    }
-
-    return result;
-  }, [sessions]);
-
+export default function SubagentConnections({ connections }: { connections: ConnectionData[] }) {
   if (connections.length === 0) return null;
 
   return (

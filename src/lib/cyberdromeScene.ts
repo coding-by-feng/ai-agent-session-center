@@ -61,7 +61,7 @@ export interface Workstation {
 }
 
 export interface CasualArea {
-  type: 'coffee' | 'gym';
+  type: 'coffee';
   center: [number, number, number];
   bounds: RoomBound;
   stations: { pos: THREE.Vector3; faceRot: number }[];
@@ -69,20 +69,31 @@ export interface CasualArea {
 
 export interface DoorWaypoint {
   roomIndex: number;
-  outside: THREE.Vector3;  // south side, 1 unit past wall
-  inside: THREE.Vector3;   // north side, 1 unit inside wall
+  side: 'south' | 'north';
+  outside: THREE.Vector3;  // outside the wall, 1 unit past
+  inside: THREE.Vector3;   // inside the room, 1 unit past
 }
 
 export function buildDoorWaypoints(rooms: RoomConfig[]): DoorWaypoint[] {
-  return rooms.map(room => {
+  const doors: DoorWaypoint[] = [];
+  for (const room of rooms) {
     const [cx] = room.center;
-    const maxZ = room.bounds.maxZ;
-    return {
+    // South door
+    doors.push({
       roomIndex: room.index,
-      outside: new THREE.Vector3(cx, 0, maxZ + 1.0),
-      inside: new THREE.Vector3(cx, 0, maxZ - 1.0),
-    };
-  });
+      side: 'south',
+      outside: new THREE.Vector3(cx, 0, room.bounds.maxZ + 1.0),
+      inside: new THREE.Vector3(cx, 0, room.bounds.maxZ - 1.0),
+    });
+    // North door
+    doors.push({
+      roomIndex: room.index,
+      side: 'north',
+      outside: new THREE.Vector3(cx, 0, room.bounds.minZ - 1.0),
+      inside: new THREE.Vector3(cx, 0, room.bounds.minZ + 1.0),
+    });
+  }
+  return doors;
 }
 
 /**
@@ -103,18 +114,31 @@ export function computePathWaypoints(
 
   const result: THREE.Vector3[] = [];
 
-  // Exiting a room
+  // Pick the nearest door for a given room relative to a world position
+  function nearestDoor(roomIdx: number, wx: number, wz: number): DoorWaypoint | undefined {
+    const roomDoors = doors.filter(d => d.roomIndex === roomIdx);
+    if (roomDoors.length === 0) return undefined;
+    let best = roomDoors[0];
+    let bestDist = (best.outside.x - wx) ** 2 + (best.outside.z - wz) ** 2;
+    for (let i = 1; i < roomDoors.length; i++) {
+      const d = (roomDoors[i].outside.x - wx) ** 2 + (roomDoors[i].outside.z - wz) ** 2;
+      if (d < bestDist) { best = roomDoors[i]; bestDist = d; }
+    }
+    return best;
+  }
+
+  // Exiting a room — pick the door closest to the target
   if (fromZone >= 0) {
-    const exitDoor = doors.find(d => d.roomIndex === fromZone);
+    const exitDoor = nearestDoor(fromZone, target.x, target.z);
     if (exitDoor) {
       result.push(exitDoor.inside.clone());
       result.push(exitDoor.outside.clone());
     }
   }
 
-  // Entering a room
+  // Entering a room — pick the door closest to where the robot currently is
   if (targetZone >= 0) {
-    const enterDoor = doors.find(d => d.roomIndex === targetZone);
+    const enterDoor = nearestDoor(targetZone, fromX, fromZ);
     if (enterDoor) {
       result.push(enterDoor.outside.clone());
       result.push(enterDoor.inside.clone());
@@ -197,24 +221,27 @@ export function computeRoomConfigs(rooms: Room[]): RoomConfig[] {
 }
 
 // ---------------------------------------------------------------------------
-// Dynamic Desk Definitions (7 desks per room)
+// Dynamic Desk Definitions (8 desks per room)
 // ---------------------------------------------------------------------------
 
 export function buildDynamicDeskDefs(rooms: RoomConfig[]): DeskDef[] {
   const desks: DeskDef[] = [];
   for (const room of rooms) {
     const [cx, , cz] = room.center;
-    // All desks in the back half of the room, away from the south door.
-    // 3 desks along north wall (back wall), facing south
-    desks.push({ x: cx - 3.5, z: cz - 4.5, rotation: 0, zone: room.index });
-    desks.push({ x: cx,       z: cz - 4.5, rotation: 0, zone: room.index });
-    desks.push({ x: cx + 3.5, z: cz - 4.5, rotation: 0, zone: room.index });
-    // 2 desks along west wall, facing east
-    desks.push({ x: cx - 5, z: cz - 1.5, rotation: Math.PI / 2, zone: room.index });
-    desks.push({ x: cx - 5, z: cz + 1.5, rotation: Math.PI / 2, zone: room.index });
-    // 2 desks along east wall, facing west
-    desks.push({ x: cx + 5, z: cz, rotation: -Math.PI / 2, zone: room.index });
-    desks.push({ x: cx + 5, z: cz + 1.5, rotation: -Math.PI / 2, zone: room.index });
+    // Two desk islands (west & east) with a central corridor for door access.
+    // Each island: 2x2 paired desks facing each other across the aisle.
+
+    // West island (4 desks)
+    desks.push({ x: cx - 4, z: cz - 1.5, rotation: Math.PI / 2, zone: room.index });  // facing east
+    desks.push({ x: cx - 4, z: cz + 1.5, rotation: Math.PI / 2, zone: room.index });  // facing east
+    desks.push({ x: cx - 2, z: cz - 1.5, rotation: -Math.PI / 2, zone: room.index }); // facing west
+    desks.push({ x: cx - 2, z: cz + 1.5, rotation: -Math.PI / 2, zone: room.index }); // facing west
+
+    // East island (4 desks)
+    desks.push({ x: cx + 2, z: cz - 1.5, rotation: Math.PI / 2, zone: room.index });  // facing east
+    desks.push({ x: cx + 2, z: cz + 1.5, rotation: Math.PI / 2, zone: room.index });  // facing east
+    desks.push({ x: cx + 4, z: cz - 1.5, rotation: -Math.PI / 2, zone: room.index }); // facing west
+    desks.push({ x: cx + 4, z: cz + 1.5, rotation: -Math.PI / 2, zone: room.index }); // facing west
   }
   return desks;
 }
@@ -319,9 +346,10 @@ export function buildDynamicWallRects(rooms: RoomConfig[]): WallRect[] {
     const mx = (b.minX + b.maxX) / 2;
     const ht = 0.25; // wall half-thickness for collision
 
-    // North wall (z = minZ): solid, no door
-    rects.push({ minX: b.minX, maxX: b.maxX, minZ: b.minZ - ht, maxZ: b.minZ + ht });
-    // South wall (z = maxZ): single door in center
+    // North wall (z = minZ): door in center
+    rects.push({ minX: b.minX, maxX: mx - dg, minZ: b.minZ - ht, maxZ: b.minZ + ht });
+    rects.push({ minX: mx + dg, maxX: b.maxX, minZ: b.minZ - ht, maxZ: b.minZ + ht });
+    // South wall (z = maxZ): door in center
     rects.push({ minX: b.minX, maxX: mx - dg, minZ: b.maxZ - ht, maxZ: b.maxZ + ht });
     rects.push({ minX: mx + dg, maxX: b.maxX, minZ: b.maxZ - ht, maxZ: b.maxZ + ht });
     // West wall (x = minX): solid, no door
@@ -418,25 +446,22 @@ export function pickCorridorTarget(bound: number): THREE.Vector3 {
 }
 
 // ---------------------------------------------------------------------------
-// Casual Areas (Coffee Lounge & Gym)
+// Casual Areas (Coffee Lounge)
 // ---------------------------------------------------------------------------
 
-const CASUAL_AREA_SIZE = 14;  // expanded to accommodate 10+ gym devices
+const CASUAL_AREA_SIZE = 14;
 const CASUAL_HALF = CASUAL_AREA_SIZE / 2;
 
-/** Build the Coffee Lounge and Gym areas NORTH of the rooms (above, negative Z side). */
+/** Build the Coffee Lounge area NORTH of the rooms (above, negative Z side). */
 export function buildCasualAreas(roomConfigs: RoomConfig[]): CasualArea[] {
   let baseZ: number;
   let centerX: number;
 
   if (roomConfigs.length === 0) {
-    // No rooms — place casual areas north of origin
     baseZ = -12;
     centerX = 0;
   } else {
-    // Find the northernmost (most negative Z) edge of all rooms
     const minZedge = Math.min(...roomConfigs.map(r => r.bounds.minZ));
-    // Place casual areas north of that edge, with a gap
     baseZ = minZedge - ROOM_GAP - CASUAL_HALF - 2;
 
     const minCol = Math.min(...roomConfigs.map(r => r.index % ROOM_COLS));
@@ -446,65 +471,32 @@ export function buildCasualAreas(roomConfigs: RoomConfig[]): CasualArea[] {
     centerX = (leftCol[0] + rightCol[0]) / 2;
   }
 
-  const gap = 3;
-  const coffeeX = centerX - CASUAL_HALF - gap / 2;
-  const gymX = centerX + CASUAL_HALF + gap / 2;
-
   const coffeeStations: { pos: THREE.Vector3; faceRot: number }[] = [];
   // 6 coffee table seats in a 2x3 grid
   for (let row = 0; row < 2; row++) {
     for (let col = 0; col < 3; col++) {
-      const sx = coffeeX - 3 + col * 3;
+      const sx = centerX - 3 + col * 3;
       const sz = baseZ - 2.5 + row * 5;
       coffeeStations.push({ pos: new THREE.Vector3(sx, 0, sz), faceRot: row === 0 ? 0 : Math.PI });
     }
   }
 
-  const gymStations: { pos: THREE.Vector3; faceRot: number }[] = [];
-  // 10 gym stations spread across the expanded area
-  const gymPositions = [
-    { x: gymX - 5,   z: baseZ - 5,   rot: 0 },           // bench press
-    { x: gymX,       z: baseZ - 5,   rot: 0 },            // treadmill
-    { x: gymX + 5,   z: baseZ - 5,   rot: 0 },            // rowing machine
-    { x: gymX - 5,   z: baseZ,       rot: Math.PI / 2 },  // stationary bike
-    { x: gymX,       z: baseZ,       rot: 0 },             // pull-up bar
-    { x: gymX + 5,   z: baseZ,       rot: Math.PI / 2 },  // leg press
-    { x: gymX - 5,   z: baseZ + 5,   rot: Math.PI },      // punching bag
-    { x: gymX,       z: baseZ + 5,   rot: Math.PI },       // cable machine
-    { x: gymX + 5,   z: baseZ + 5,   rot: Math.PI },      // kettlebell rack
-    { x: gymX - 2.5, z: baseZ + 2.5, rot: Math.PI },      // weight rack / dumbbells
-  ];
-  for (const gp of gymPositions) {
-    gymStations.push({ pos: new THREE.Vector3(gp.x, 0, gp.z), faceRot: gp.rot });
-  }
-
   return [
     {
       type: 'coffee',
-      center: [coffeeX, 0, baseZ],
+      center: [centerX, 0, baseZ],
       bounds: {
-        minX: coffeeX - CASUAL_HALF,
-        maxX: coffeeX + CASUAL_HALF,
+        minX: centerX - CASUAL_HALF,
+        maxX: centerX + CASUAL_HALF,
         minZ: baseZ - CASUAL_HALF,
         maxZ: baseZ + CASUAL_HALF,
       },
       stations: coffeeStations,
     },
-    {
-      type: 'gym',
-      center: [gymX, 0, baseZ],
-      bounds: {
-        minX: gymX - CASUAL_HALF,
-        maxX: gymX + CASUAL_HALF,
-        minZ: baseZ - CASUAL_HALF,
-        maxZ: baseZ + CASUAL_HALF,
-      },
-      stations: gymStations,
-    },
   ];
 }
 
-/** Create workstations for casual areas (zone=-2 for coffee, zone=-3 for gym). */
+/** Create workstations for the coffee lounge (zone=-2). */
 export function buildCasualWorkstations(
   areas: CasualArea[],
   startIdx: number,
@@ -512,7 +504,7 @@ export function buildCasualWorkstations(
   const workstations: Workstation[] = [];
   let idx = startIdx;
   for (const area of areas) {
-    const zone = area.type === 'coffee' ? -2 : -3;
+    const zone = -2;
     for (const station of area.stations) {
       workstations.push({
         idx,

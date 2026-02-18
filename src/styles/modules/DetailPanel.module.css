@@ -58,7 +58,7 @@
 }
 
 .charPreview { width: 64px; height: 80px; flex-shrink: 0; position: relative; }
-.charPreview :global(.css-robot) { position: absolute; width: 160px; height: 200px; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.42); pointer-events: none; }
+.charPreview canvas { display: block; }
 
 .headerText { flex: 1; min-width: 0; }
 .headerTop { display: flex; align-items: flex-start; gap: 10px; }
@@ -89,7 +89,7 @@
 /* ---- Tab Content ---- */
 
 .tabContent { display: none; flex: 1; overflow-y: auto; padding: 16px 20px; }
-.tabContent.active { display: block; }
+.tabContent.active { display: flex; flex-direction: column; }
 .tabContent::-webkit-scrollbar { width: 4px; }
 .tabContent::-webkit-scrollbar-track { background: transparent; }
 .tabContent::-webkit-scrollbar-thumb { background: var(--bg-accent); border-radius: 2px; }
@@ -186,6 +186,21 @@
 .prevSessionSection.collapsed .prevSessionContent { display: none; }
 .prevSessionContent { padding-top: 4px; }
 .convEntry.prevSessionEntry { opacity: 0.6; border-left: 2px solid rgba(255, 255, 255, 0.1); padding-left: 10px; }
+
+/* ---- Terminal + Queue layout ---- */
+
+.terminalWithQueue {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.terminalSection {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
 
 /* ---- Responsive ---- */
 

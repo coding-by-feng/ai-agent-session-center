@@ -76,6 +76,7 @@ export default function TerminalToolbar({
         title={isFullscreen ? 'Exit fullscreen (Alt+F11)' : 'Fullscreen (Alt+F11)'}
       >
         {isFullscreen ? 'EXIT FS' : 'FULLSCREEN'}
+        <kbd className={styles.kbdHint}>Alt+F11</kbd>
       </button>
 
       {showReconnect && onReconnect && (

@@ -19,7 +19,7 @@ import { getMqStats } from './mqReader.js';
 import { execFile } from 'child_process';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
-import { homedir } from 'os';
+import { homedir, userInfo } from 'os';
 import { fileURLToPath } from 'url';
 import { ALL_CLAUDE_HOOK_EVENTS, DENSITY_EVENTS, SESSION_STATUS, WS_TYPES } from './constants.js';
 import log from './logger.js';
@@ -28,6 +28,23 @@ import type { TerminalConfig } from '../src/types/terminal.js';
 const __apiDirname = dirname(fileURLToPath(import.meta.url));
 
 const router = Router();
+
+// ---- Last-used Username Persistence ----
+
+let _lastUsedUsername: string | null = null;
+
+function getDefaultUsername(): string | null {
+  if (_lastUsedUsername) return _lastUsedUsername;
+  try { return userInfo().username; } catch { return null; }
+}
+
+function saveLastUsername(username: string): void {
+  if (username) _lastUsedUsername = username;
+}
+
+function isLocalHost(host: string): boolean {
+  return !host || host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
 
 // ---- Zod Validation Schemas ----
 
@@ -49,7 +66,7 @@ const authMethodSchema = z.enum(['key', 'password']).optional();
 const terminalCreateSchema = z.object({
   host: noShellMeta(255).optional(),
   port: z.number().int().min(1).max(65535).optional(),
-  username: usernameSchema,
+  username: usernameSchema.optional(),
   password: z.string().optional(),
   privateKeyPath: z.string().optional(),
   authMethod: authMethodSchema,
@@ -65,7 +82,7 @@ const terminalCreateSchema = z.object({
 const tmuxSessionsSchema = z.object({
   host: z.string().optional(),
   port: z.number().optional(),
-  username: usernameSchema,
+  username: usernameSchema.optional(),
   password: z.string().optional(),
   privateKeyPath: z.string().optional(),
   authMethod: authMethodSchema,
@@ -501,10 +518,13 @@ router.post('/tmux-sessions', async (req: Request, res: Response) => {
   const body = validateBody(tmuxSessionsSchema, req.body, res);
   if (!body) return;
   try {
+    const resolvedHost = body.host || 'localhost';
+    const username = body.username || getDefaultUsername() || (isLocalHost(resolvedHost) ? 'local' : null);
+    if (!username) { res.status(400).json({ error: 'username required' }); return; }
     const config: TerminalConfig = {
-      host: body.host || 'localhost',
+      host: resolvedHost,
       port: body.port || 22,
-      username: body.username,
+      username,
       authMethod: body.authMethod || 'key',
       privateKeyPath: body.privateKeyPath,
       workingDir: '~',
@@ -533,10 +553,18 @@ router.post('/terminals', async (req: Request, res: Response) => {
   if (!body) return;
 
   try {
+    const resolvedHost = body.host || 'localhost';
+    const username = body.username || getDefaultUsername() || (isLocalHost(resolvedHost) ? 'local' : null);
+    if (!username) {
+      res.status(400).json({ success: false, error: 'username required — set it once in "+ NEW SESSION" and it will be reused' });
+      return;
+    }
+    saveLastUsername(username);
+
     const config: TerminalConfig = {
-      host: body.host || 'localhost',
+      host: resolvedHost,
       port: body.port || 22,
-      username: body.username,
+      username,
       authMethod: body.authMethod || 'key',
       privateKeyPath: body.privateKeyPath,
       workingDir: body.workingDir || '~',

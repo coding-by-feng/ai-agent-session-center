@@ -1,10 +1,9 @@
 /**
- * AlarmEngine manages approval/input alarms and label-based completion alerts.
+ * AlarmEngine manages approval/input alarms.
  * Ported from public/js/alarmManager.js.
  *
  * - Approval alarm: repeating sound every 10s while session is in 'approval' status
  * - Input notification: one-time sound when session enters 'input' status
- * - Label alerts: sound + movement when a labeled session ends
  * - Event sounds: maps hook events to sound actions
  */
 import type { Session, SessionEvent } from '@/types';
@@ -188,25 +187,5 @@ export function checkAlarms(
     }
   } else if (session.status !== 'input') {
     inputFired.delete(inputKey);
-  }
-}
-
-/**
- * Handle label-based completion alerts.
- * Call this when a labeled session transitions to 'ended'.
- */
-export function handleLabelAlerts(
-  session: Session,
-  labelSettings: Record<string, { sound?: string; movement?: string; frame?: string }>,
-): void {
-  if (session.status !== 'ended') return;
-  if (mutedSessions.has(session.sessionId)) return;
-
-  const labelUpper = (session.label || '').toUpperCase();
-  const cfg = labelSettings[labelUpper];
-  if (!cfg) return;
-
-  if (cfg.sound && cfg.sound !== 'none') {
-    soundEngine.preview(cfg.sound as Parameters<typeof soundEngine.preview>[0]);
   }
 }

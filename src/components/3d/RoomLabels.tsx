@@ -5,7 +5,7 @@
  */
 import { Text } from '@react-three/drei';
 import { computeRoomCenter, ROOM_HALF, type RoomConfig, type CasualArea } from '@/lib/cyberdromeScene';
-import { useRoomStore } from '@/stores/roomStore';
+import type { Room } from '@/stores/roomStore';
 
 // Strip color → neon label color (matches wall strip colors in CyberdromeEnvironment)
 const STRIP_COLORS = ['#00f0ff', '#ff00aa'] as const;
@@ -15,10 +15,11 @@ const STRIP_COLORS_DIM = ['#007f88', '#881155'] as const;
 interface RoomLabelsProps {
   rooms: RoomConfig[];
   casualAreas?: CasualArea[];
+  storeRooms: Room[];
 }
 
-export default function RoomLabels({ rooms: roomConfigs, casualAreas }: RoomLabelsProps) {
-  const rooms = useRoomStore((s) => s.rooms);
+export default function RoomLabels({ rooms: roomConfigs, casualAreas, storeRooms }: RoomLabelsProps) {
+  const rooms = storeRooms;
 
   return (
     <>
@@ -66,8 +67,8 @@ export default function RoomLabels({ rooms: roomConfigs, casualAreas }: RoomLabe
       {casualAreas?.map((area) => {
         const [ax, , az] = area.center;
         const halfDepth = (area.bounds.maxZ - area.bounds.minZ) / 2;
-        const labelColor = area.type === 'coffee' ? '#ff9944' : '#44ff88';
-        const labelText = area.type === 'coffee' ? 'COFFEE LOUNGE' : 'GYM AREA';
+        const labelColor = '#ff9944';
+        const labelText = 'COFFEE LOUNGE';
 
         return (
           <Text

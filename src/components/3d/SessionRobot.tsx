@@ -4,13 +4,13 @@
  * Integrates floating labels, room navigation, and model type selection.
  * Uses dynamic room configs for wall collision and navigation.
  */
-import { useRef, useCallback, useEffect, useState, startTransition, useMemo, memo } from 'react';
+import { useRef, useCallback, useEffect, useMemo, memo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { ThreeEvent } from '@react-three/fiber';
 import type { Session } from '@/types';
 import Robot3DModel from './Robot3DModel';
-import type { CliBadge, LabelFrameEffect } from './Robot3DModel';
+import type { CliBadge } from './Robot3DModel';
 import RobotLabel from './RobotLabel';
 import RobotDialogue from './RobotDialogue';
 import StatusParticles from './StatusParticles';
@@ -28,8 +28,6 @@ import {
 } from '@/lib/cyberdromeScene';
 import { PALETTE } from '@/lib/robot3DGeometry';
 import { detectCli } from '@/lib/cliDetect';
-import { useRoomStore } from '@/stores/roomStore';
-import { useSettingsStore } from '@/stores/settingsStore';
 import type { RobotModelType } from '@/lib/robot3DModels';
 import { robotPositionStore, updateNavInfo, removeNavInfo } from './robotPositionStore';
 import { loadRobotPositions } from '@/lib/robotPositionPersist';
@@ -61,12 +59,6 @@ const NAV_GOTO = 1;
 const NAV_SIT = 2;
 const NAV_IDLE = 3;
 
-const LABEL_COLORS: Record<string, string> = {
-  ONEOFF: '#ff9100',
-  HEAVY: '#ff3355',
-  IMPORTANT: '#aa66ff',
-};
-
 interface NavState {
   mode: number;
   target: THREE.Vector3;
@@ -95,6 +87,9 @@ interface SessionRobotProps {
   doors: DoorWaypoint[];
   sceneBound: number;
   onSelect: (sessionId: string) => void;
+  roomIndex?: number;
+  globalCharacterModel: string;
+  fontSize: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,26 +104,19 @@ function SessionRobotInner({
   doors,
   sceneBound,
   onSelect,
+  roomIndex,
+  globalCharacterModel,
+  fontSize,
 }: SessionRobotProps) {
   const robotState = sessionStatusToRobotState(session.status);
   const behavior = getRobotStateBehavior(robotState);
 
   const neonColor = session.accentColor || PALETTE[(session.colorIndex ?? 0) % PALETTE.length];
   const isHoveredRef = useRef(false);
-  // NOTE: Do NOT subscribe to selectedSessionId here. When all SessionRobots
-  // re-render simultaneously (due to global store change), drei's <Html> portals
-  // cascade in R3F's reconciler causing React Error #185. The DetailPanel
-  // (outside the Canvas) handles the selected state display instead.
   const isSelected = false;
 
-  // Room mapping
-  const getRoomForSession = useRoomStore((s) => s.getRoomForSession);
-  const room = getRoomForSession(session.sessionId);
-  const roomIndex = room?.roomIndex;
-
-  // Model type: per-session override → global setting
-  const globalModel = useSettingsStore((s) => s.characterModel);
-  const modelType = (session.characterModel || globalModel || 'robot') as RobotModelType;
+  // Model type: per-session override → global setting (passed as prop, no store subscription)
+  const modelType = (session.characterModel || globalCharacterModel || 'robot') as RobotModelType;
 
   const persisted = loadRobotPositions().get(session.sessionId);
   const initPosX = persisted ? persisted.posX : (Math.random() - 0.5) * 4;
@@ -158,6 +146,7 @@ function SessionRobotInner({
 
   const prevState = useRef<Robot3DState>(robotState);
   const prevRoomIndex = useRef<number | undefined>(roomIndex);
+  const hasInitialized = useRef(false);
 
   // Helper: pick wander target based on room assignment
   function pickWanderTarget(): THREE.Vector3 {
@@ -183,130 +172,137 @@ function SessionRobotInner({
     prevRoomIndex.current = roomIndex;
   }, [roomIndex, workstations, rooms, doors]);
 
-  // Handle state transitions
+  // Handle state transitions (and initial mount)
   useEffect(() => {
     const n = nav.current;
-
-    if (prevState.current !== robotState) {
-      const deskSeekingStates: Robot3DState[] = ['thinking', 'working'];
-      const casualStates: Robot3DState[] = ['idle', 'waiting'];
-      const wasDeskSeeking = deskSeekingStates.includes(prevState.current);
-      const isDeskSeeking = deskSeekingStates.includes(robotState);
-      const wasCasual = casualStates.includes(prevState.current);
-
-      // Transition between thinking <-> working: keep the desk, no stand-up
-      if (wasDeskSeeking && isDeskSeeking) {
-        // Already seated → stay seated, no nav change needed
-        prevState.current = robotState;
-        return;
+    const isFirstMount = !hasInitialized.current;
+    if (isFirstMount) {
+      hasInitialized.current = true;
+      // On mount: reclaim workstation if persisted as NAV_SIT
+      if (n.mode === NAV_SIT && n.deskIdx >= 0 && workstations[n.deskIdx]) {
+        workstations[n.deskIdx].occupantId = session.sessionId;
       }
+    }
 
-      // Leaving a desk-seeking state → release desk, stand up
-      if (wasDeskSeeking && !isDeskSeeking) {
-        if (n.deskIdx >= 0 && workstations[n.deskIdx]) {
-          workstations[n.deskIdx].occupantId = null;
-          n.deskIdx = -1;
-        }
-        n.posY = 0;
+    // Run on state change OR on first mount (to seek desk/casual area immediately)
+    if (!isFirstMount && prevState.current === robotState) return;
+
+    const deskSeekingStates: Robot3DState[] = ['thinking', 'working'];
+    const casualStates: Robot3DState[] = ['idle', 'waiting'];
+    const wasDeskSeeking = !isFirstMount && deskSeekingStates.includes(prevState.current);
+    const isDeskSeeking = deskSeekingStates.includes(robotState);
+    const wasCasual = !isFirstMount && casualStates.includes(prevState.current);
+
+    // Transition between thinking <-> working: keep the desk, no stand-up
+    if (wasDeskSeeking && isDeskSeeking) {
+      prevState.current = robotState;
+      return;
+    }
+
+    // Leaving a desk-seeking state → release desk, stand up
+    if (wasDeskSeeking && !isDeskSeeking) {
+      if (n.deskIdx >= 0 && workstations[n.deskIdx]) {
+        workstations[n.deskIdx].occupantId = null;
+        n.deskIdx = -1;
       }
+      n.posY = 0;
+      // Reset mode so next state handler can navigate (NAV_SIT would block it)
+      n.mode = NAV_WALK;
+    }
 
-      // Leaving a casual state (idle/waiting) → release casual seat, stand up
-      if (wasCasual && !casualStates.includes(robotState)) {
-        if (n.deskIdx >= 0 && workstations[n.deskIdx]) {
-          workstations[n.deskIdx].occupantId = null;
-          n.deskIdx = -1;
-        }
-        n.posY = 0;
+    // Leaving a casual state (idle/waiting) → release casual seat, stand up
+    if (wasCasual && !casualStates.includes(robotState)) {
+      if (n.deskIdx >= 0 && workstations[n.deskIdx]) {
+        workstations[n.deskIdx].occupantId = null;
+        n.deskIdx = -1;
       }
+      n.posY = 0;
+      // Reset mode so desk-seeking can proceed (NAV_SIT would block it)
+      n.mode = NAV_WALK;
+    }
 
-      // Entering a desk-seeking state → find a desk
-      if (isDeskSeeking && n.mode !== NAV_SIT) {
-        const zone = roomIndex != null ? roomIndex : getZone(n.posX, n.posZ, rooms);
-        let candidates: Workstation[];
-        if (zone >= 0) {
-          candidates = workstations.filter(ws => ws.zone === zone && !ws.occupantId);
-        } else if (roomIndex == null) {
-          // Unassigned robot → prefer corridor desks (zone === -1)
-          candidates = workstations.filter(ws => ws.zone === -1 && !ws.occupantId);
-        } else {
-          candidates = workstations.filter(ws => !ws.occupantId);
-        }
-        if (candidates.length > 0) {
-          const ws = candidates[Math.floor(Math.random() * candidates.length)];
-          ws.occupantId = session.sessionId;
-          n.deskIdx = ws.idx;
-          n.mode = NAV_GOTO;
-          setNavTarget(n, ws.seatPos, ws.zone, rooms, doors);
-        } else {
-          // All desks full → stand behind nearest occupied desk (overflow)
-          const occupied = zone >= 0
-            ? workstations.filter(ws => ws.zone === zone && ws.occupantId)
-            : workstations.filter(ws => ws.zone === -1 && ws.occupantId);
-          if (occupied.length > 0) {
-            let nearest = occupied[0];
-            let minDist = Infinity;
-            for (const ws of occupied) {
-              const dx = ws.seatPos.x - n.posX;
-              const dz = ws.seatPos.z - n.posZ;
-              const d = dx * dx + dz * dz;
-              if (d < minDist) { minDist = d; nearest = ws; }
-            }
-            // Stand 0.5 units behind the desk seat
-            const behindOffset = 0.5;
-            const overflowTarget = new THREE.Vector3(
-              nearest.seatPos.x - Math.sin(nearest.faceRot) * behindOffset,
-              0,
-              nearest.seatPos.z - Math.cos(nearest.faceRot) * behindOffset,
-            );
-            setNavTarget(n, overflowTarget, nearest.zone, rooms, doors);
-            n.mode = NAV_GOTO;
-          } else {
-            n.mode = NAV_WALK;
-            const wt = pickWanderTarget();
-            n.waypoints = [wt.clone()];
-            n.waypointIdx = 0;
-            n.target.copy(wt);
+    // Entering a desk-seeking state → find a desk
+    if (isDeskSeeking && n.mode !== NAV_SIT) {
+      const zone = roomIndex != null ? roomIndex : getZone(n.posX, n.posZ, rooms);
+      let candidates: Workstation[];
+      if (zone >= 0) {
+        candidates = workstations.filter(ws => ws.zone === zone && !ws.occupantId);
+      } else if (roomIndex == null) {
+        // Unassigned robot → prefer corridor desks (zone === -1)
+        candidates = workstations.filter(ws => ws.zone === -1 && !ws.occupantId);
+      } else {
+        candidates = workstations.filter(ws => !ws.occupantId);
+      }
+      if (candidates.length > 0) {
+        const ws = candidates[Math.floor(Math.random() * candidates.length)];
+        ws.occupantId = session.sessionId;
+        n.deskIdx = ws.idx;
+        n.mode = NAV_GOTO;
+        setNavTarget(n, ws.seatPos, ws.zone, rooms, doors);
+      } else {
+        // All desks full → stand behind nearest occupied desk (overflow)
+        const occupied = zone >= 0
+          ? workstations.filter(ws => ws.zone === zone && ws.occupantId)
+          : workstations.filter(ws => ws.zone === -1 && ws.occupantId);
+        if (occupied.length > 0) {
+          let nearest = occupied[0];
+          let minDist = Infinity;
+          for (const ws of occupied) {
+            const dx = ws.seatPos.x - n.posX;
+            const dz = ws.seatPos.z - n.posZ;
+            const d = dx * dx + dz * dz;
+            if (d < minDist) { minDist = d; nearest = ws; }
           }
-        }
-      }
-
-      // Transition: alert/input → stay at desk if seated, else freeze in place
-      if (robotState === 'alert' || robotState === 'input') {
-        if (n.mode !== NAV_SIT) {
-          n.mode = NAV_IDLE;
-        }
-        // If seated (NAV_SIT), remain seated — no change needed
-      }
-
-      // Transition: idle → seek coffee workstation (zone -2)
-      // Transition: waiting → seek gym workstation (zone -3)
-      if (robotState === 'idle' || robotState === 'waiting') {
-        const casualZone = robotState === 'idle' ? -2 : -3;
-        const casualCandidates = workstations.filter(ws => ws.zone === casualZone && !ws.occupantId);
-        if (casualCandidates.length > 0) {
-          const ws = casualCandidates[Math.floor(Math.random() * casualCandidates.length)];
-          ws.occupantId = session.sessionId;
-          n.deskIdx = ws.idx;
+          const behindOffset = 0.5;
+          const overflowTarget = new THREE.Vector3(
+            nearest.seatPos.x - Math.sin(nearest.faceRot) * behindOffset,
+            0,
+            nearest.seatPos.z - Math.cos(nearest.faceRot) * behindOffset,
+          );
+          setNavTarget(n, overflowTarget, nearest.zone, rooms, doors);
           n.mode = NAV_GOTO;
-          setNavTarget(n, ws.seatPos, ws.zone, rooms, doors);
         } else {
-          // All casual seats full — wander instead
           n.mode = NAV_WALK;
-          n.decisionTimer = 2 + Math.random() * 4;
           const wt = pickWanderTarget();
           n.waypoints = [wt.clone()];
           n.waypointIdx = 0;
           n.target.copy(wt);
         }
       }
+    }
 
-      // Transition: offline / connecting → stay put
-      if (robotState === 'offline' || robotState === 'connecting') {
+    // Transition: alert/input → stay at desk if seated, else freeze in place
+    if (robotState === 'alert' || robotState === 'input') {
+      if (n.mode !== NAV_SIT) {
         n.mode = NAV_IDLE;
       }
-
-      prevState.current = robotState;
     }
+
+    // Transition: idle/waiting → seek coffee workstation (zone -2)
+    if (robotState === 'idle' || robotState === 'waiting') {
+      const casualCandidates = workstations.filter(ws => ws.zone === -2 && !ws.occupantId);
+      if (casualCandidates.length > 0) {
+        const ws = casualCandidates[Math.floor(Math.random() * casualCandidates.length)];
+        ws.occupantId = session.sessionId;
+        n.deskIdx = ws.idx;
+        n.mode = NAV_GOTO;
+        setNavTarget(n, ws.seatPos, ws.zone, rooms, doors);
+      } else {
+        n.mode = NAV_WALK;
+        n.decisionTimer = 2 + Math.random() * 4;
+        const wt = pickWanderTarget();
+        n.waypoints = [wt.clone()];
+        n.waypointIdx = 0;
+        n.target.copy(wt);
+      }
+    }
+
+    // Transition: offline / connecting → stay put
+    if (robotState === 'offline' || robotState === 'connecting') {
+      n.mode = NAV_IDLE;
+    }
+
+    prevState.current = robotState;
   }, [robotState, session.sessionId, workstations, roomIndex, rooms]);
 
   // Cleanup: release desk on unmount
@@ -430,31 +426,22 @@ function SessionRobotInner({
 
   const handleClick = useCallback((e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
-    // Use React 19's startTransition to mark as non-urgent update.
-    // This prevents the reconciler from flushing synchronously inside
-    // R3F's render loop and avoids cascading re-renders.
-    startTransition(() => {
-      onSelect(session.sessionId);
-    });
+    // Dispatch CustomEvent so the store update happens in the DOM reconciler,
+    // completely outside R3F's render/event cycle. This prevents cross-reconciler
+    // cascades that cause React Error #185.
+    onSelect(session.sessionId);
   }, [session.sessionId, onSelect]);
 
   const handlePointerEnter = useCallback(() => { isHoveredRef.current = true; }, []);
   const handlePointerLeave = useCallback(() => { isHoveredRef.current = false; }, []);
 
   const robotScale = 0.85 + (nav.current.phase % 0.2);
-  // Track seated state — only triggers re-render on actual change (sit down / stand up)
-  // Use a ref alongside state to avoid stale closure reads in useFrame.
-  // Without seatedRef, React 19's startTransition defers the state update, so `seated`
-  // in the closure stays stale across multiple frames, causing repeated setState calls
-  // that trigger React Error #185.
+  // Track seated state as a pure ref — NO useState, NO setState inside the
+  // render loop. Robot3DModel reads seatedRef.current directly in its useFrame.
+  // This eliminates cross-reconciler state cascades (React Error #185).
   const seatedRef = useRef(false);
-  const [seated, setSeated] = useState(false);
   useFrame(() => {
-    const isSeated = nav.current.mode === NAV_SIT;
-    if (isSeated !== seatedRef.current) {
-      seatedRef.current = isSeated;
-      startTransition(() => setSeated(isSeated));
-    }
+    seatedRef.current = nav.current.mode === NAV_SIT;
   });
 
   // Register robot world position for subagent connection lines
@@ -502,10 +489,12 @@ function SessionRobotInner({
         : null);
 
   // ---------------------------------------------------------------------------
-  // Dialogue bubble state
+  // Dialogue bubble state — pure ref, NO useState.
+  // Eliminates React state updates from the R3F tree entirely.
+  // RobotDialogue reads this ref in useFrame to pick up changes.
   // ---------------------------------------------------------------------------
 
-  const [dialogue, setDialogue] = useState<{
+  const dialogueRef = useRef<{
     text: string;
     borderColor: string;
     persistent: boolean;
@@ -520,7 +509,7 @@ function SessionRobotInner({
   useEffect(() => {
     const statusChanged = prevStatus.current !== session.status;
 
-    // Throttle rapid tool calls to prevent cascading re-renders (500ms minimum)
+    // Throttle rapid tool calls (500ms minimum)
     const now = Date.now();
     if (now - lastDialogueUpdate.current < 500 && !statusChanged) return;
     lastDialogueUpdate.current = now;
@@ -539,17 +528,17 @@ function SessionRobotInner({
         const truncated = session.currentPrompt.length > 60
           ? session.currentPrompt.slice(0, 60) + '...'
           : session.currentPrompt;
-        setDialogue({ text: truncated, borderColor: '#00e5ff', persistent: false, timestamp: Date.now() });
+        dialogueRef.current = { text: truncated, borderColor: '#00e5ff', persistent: false, timestamp: Date.now() };
       } else if (session.status === 'approval') {
-        setDialogue({ text: 'AWAITING APPROVAL', borderColor: '#ffdd00', persistent: true, timestamp: Date.now() });
+        dialogueRef.current = { text: 'AWAITING APPROVAL', borderColor: '#ffdd00', persistent: true, timestamp: Date.now() };
       } else if (session.status === 'input') {
-        setDialogue({ text: 'NEEDS INPUT', borderColor: '#aa66ff', persistent: true, timestamp: Date.now() });
+        dialogueRef.current = { text: 'NEEDS INPUT', borderColor: '#aa66ff', persistent: true, timestamp: Date.now() };
       } else if (session.status === 'waiting') {
-        setDialogue({ text: 'Task complete!', borderColor: '#00ff88', persistent: false, timestamp: Date.now() });
+        dialogueRef.current = { text: 'Task complete!', borderColor: '#00ff88', persistent: false, timestamp: Date.now() };
       } else if (session.status === 'ended') {
-        setDialogue({ text: 'OFFLINE', borderColor: '#ff4444', persistent: false, timestamp: Date.now() });
+        dialogueRef.current = { text: 'OFFLINE', borderColor: '#ff4444', persistent: false, timestamp: Date.now() };
       } else if (session.status === 'idle' && prev !== 'idle' && prev !== 'connecting') {
-        setDialogue({ text: 'ONLINE', borderColor: '#00ff88', persistent: false, timestamp: Date.now() });
+        dialogueRef.current = { text: 'ONLINE', borderColor: '#00ff88', persistent: false, timestamp: Date.now() };
       }
     }
     // Tool-based dialogues (only when status did not change)
@@ -559,17 +548,17 @@ function SessionRobotInner({
 
       if (toolName === 'Read' || toolName === 'Grep' || toolName === 'Glob') {
         const filename = extractFilename(input);
-        setDialogue({ text: `Reading ${filename}...`, borderColor: 'rgba(0,229,255,0.6)', persistent: false, timestamp: Date.now() });
+        dialogueRef.current = { text: `Reading ${filename}...`, borderColor: 'rgba(0,229,255,0.6)', persistent: false, timestamp: Date.now() };
       } else if (toolName === 'Bash') {
         const cmd = input.length > 40 ? input.slice(0, 40) + '...' : input;
-        setDialogue({ text: `$ ${cmd}`, borderColor: '#ff9100', persistent: false, timestamp: Date.now() });
+        dialogueRef.current = { text: `$ ${cmd}`, borderColor: '#ff9100', persistent: false, timestamp: Date.now() };
       } else if (toolName === 'Edit' || toolName === 'Write') {
         const filename = extractFilename(input);
-        setDialogue({ text: `Editing ${filename}...`, borderColor: '#00aaff', persistent: false, timestamp: Date.now() });
+        dialogueRef.current = { text: `Editing ${filename}...`, borderColor: '#00aaff', persistent: false, timestamp: Date.now() };
       } else if (toolName === 'Task') {
-        setDialogue({ text: 'Spawning agent...', borderColor: '#aa66ff', persistent: false, timestamp: Date.now() });
+        dialogueRef.current = { text: 'Spawning agent...', borderColor: '#aa66ff', persistent: false, timestamp: Date.now() };
       } else if (toolName === 'WebFetch' || toolName === 'WebSearch') {
-        setDialogue({ text: 'Fetching...', borderColor: '#00e5ff', persistent: false, timestamp: Date.now() });
+        dialogueRef.current = { text: 'Fetching...', borderColor: '#00e5ff', persistent: false, timestamp: Date.now() };
       }
     }
     // Prompt changed while already prompting (no status change)
@@ -577,27 +566,13 @@ function SessionRobotInner({
       const truncated = session.currentPrompt.length > 60
         ? session.currentPrompt.slice(0, 60) + '...'
         : session.currentPrompt;
-      setDialogue({ text: truncated, borderColor: '#00e5ff', persistent: false, timestamp: Date.now() });
+      dialogueRef.current = { text: truncated, borderColor: '#00e5ff', persistent: false, timestamp: Date.now() };
     }
 
     prevStatus.current = session.status;
     prevToolKey.current = toolKey;
     prevPrompt.current = session.currentPrompt;
   }, [session.status, session.toolLog, session.currentPrompt]);
-
-  // ---------------------------------------------------------------------------
-  // Label frame effect: activate when a labeled session transitions to ended
-  // ---------------------------------------------------------------------------
-
-  const labelSettings = useSettingsStore((s) => s.labelSettings);
-  const activeLabelFrame: LabelFrameEffect = useMemo(() => {
-    if (session.status !== 'ended' || !session.label) return 'none';
-    const labelUpper = session.label.toUpperCase();
-    const cfg = labelSettings[labelUpper];
-    return (cfg?.frame ?? 'none') as LabelFrameEffect;
-  }, [session.status, session.label, labelSettings]);
-
-  const labelFrameColor = session.label ? LABEL_COLORS[session.label.toUpperCase()] : undefined;
 
   return (
     <group
@@ -612,12 +587,10 @@ function SessionRobotInner({
         rotation={nav.current.rotY}
         scale={robotScale}
         modelType={modelType}
-        seated={seated}
+        seatedRef={seatedRef}
         cliBadge={cliBadge}
         currentTool={currentTool}
         statusStartTime={statusStartTimeRef.current}
-        labelFrame={activeLabelFrame}
-        labelFrameColor={labelFrameColor}
       />
       <StatusParticles state={robotState} />
       <RobotLabel
@@ -625,12 +598,9 @@ function SessionRobotInner({
         robotState={robotState}
         isSelected={isSelected}
         isHovered={isHoveredRef.current}
+        fontSize={fontSize}
       />
-      <RobotDialogue
-        text={dialogue?.text ?? null}
-        borderColor={dialogue?.borderColor ?? '#00e5ff'}
-        persistent={dialogue?.persistent ?? false}
-      />
+      <RobotDialogue dialogueRef={dialogueRef} />
     </group>
   );
 }
@@ -697,6 +667,9 @@ const SessionRobot = memo(SessionRobotInner, (prev, next) =>
   prev.workstations === next.workstations &&
   prev.wallRects === next.wallRects &&
   prev.rooms === next.rooms &&
-  prev.doors === next.doors
+  prev.doors === next.doors &&
+  prev.roomIndex === next.roomIndex &&
+  prev.globalCharacterModel === next.globalCharacterModel &&
+  prev.fontSize === next.fontSize
 );
 export default SessionRobot;

@@ -86,24 +86,3 @@ export function checkAlarms(session, allSessions) {
     approvalAlarmTimers.delete('input-' + session.sessionId);
   }
 }
-
-// Label completion alerts
-export function handleLabelAlerts(session) {
-  if (session.status !== 'ended' || isMuted(session.sessionId)) return;
-
-  const labelUpper = (session.label || '').toUpperCase();
-  const labelCfg = settingsManager.getLabelSettings();
-  if (labelCfg[labelUpper]) {
-    const cfg = labelCfg[labelUpper];
-    if (cfg.sound && cfg.sound !== 'none') soundManager.previewSound(cfg.sound);
-    if (cfg.movement && cfg.movement !== 'none') movementManager.trigger('alert', session.sessionId);
-    const card = document.querySelector(`.session-card[data-session-id="${session.sessionId}"] .css-robot`);
-    if (card && cfg.movement && cfg.movement !== 'none') {
-      card.removeAttribute('data-movement');
-      void card.offsetWidth;
-      card.setAttribute('data-movement', cfg.movement);
-      setTimeout(() => card.removeAttribute('data-movement'), 5000);
-    }
-  }
-
-}

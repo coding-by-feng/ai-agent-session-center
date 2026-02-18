@@ -55,10 +55,7 @@ export interface Scene3DTheme {
   // Casual areas
   coffeeFloor: string;
   coffeeAccent: string;
-  gymFloor: string;
-  gymAccent: string;
   coffeeFurniture: string;
-  gymEquipment: string;
 }
 
 const COMMAND_CENTER: Scene3DTheme = {
@@ -97,10 +94,7 @@ const COMMAND_CENTER: Scene3DTheme = {
   roomLight2: '#d8d0e8',
   coffeeFloor: '#2a2018',
   coffeeAccent: '#d4882a',
-  gymFloor: '#142028',
-  gymAccent: '#22aa88',
   coffeeFurniture: '#5a3a20',
-  gymEquipment: '#2a5050',
 };
 
 const CYBERPUNK: Scene3DTheme = {
@@ -139,10 +133,7 @@ const CYBERPUNK: Scene3DTheme = {
   roomLight2: '#c0e0ff',
   coffeeFloor: '#200818',
   coffeeAccent: '#ff8820',
-  gymFloor: '#081828',
-  gymAccent: '#00ff88',
   coffeeFurniture: '#4a2010',
-  gymEquipment: '#1a4848',
 };
 
 const WARM: Scene3DTheme = {
@@ -181,10 +172,7 @@ const WARM: Scene3DTheme = {
   roomLight2: '#f0e0c0',
   coffeeFloor: '#c8b898',
   coffeeAccent: '#b87333',
-  gymFloor: '#a8b8a0',
-  gymAccent: '#5a8a60',
   coffeeFurniture: '#8a6a40',
-  gymEquipment: '#607860',
 };
 
 const DRACULA: Scene3DTheme = {
@@ -223,10 +211,7 @@ const DRACULA: Scene3DTheme = {
   roomLight2: '#ddd8f0',
   coffeeFloor: '#2a2030',
   coffeeAccent: '#ffb86c',
-  gymFloor: '#1a2a30',
-  gymAccent: '#50fa7b',
   coffeeFurniture: '#4a3028',
-  gymEquipment: '#2a4a3a',
 };
 
 const SOLARIZED: Scene3DTheme = {
@@ -265,10 +250,7 @@ const SOLARIZED: Scene3DTheme = {
   roomLight2: '#93a1a1',
   coffeeFloor: '#0a2828',
   coffeeAccent: '#cb4b16',
-  gymFloor: '#002828',
-  gymAccent: '#2aa198',
   coffeeFurniture: '#3a2818',
-  gymEquipment: '#0a3838',
 };
 
 const NORD: Scene3DTheme = {
@@ -307,10 +289,7 @@ const NORD: Scene3DTheme = {
   roomLight2: '#d8dee9',
   coffeeFloor: '#2a2228',
   coffeeAccent: '#d08770',
-  gymFloor: '#1a2a30',
-  gymAccent: '#88c0d0',
   coffeeFurniture: '#4a3030',
-  gymEquipment: '#2a4050',
 };
 
 const MONOKAI: Scene3DTheme = {
@@ -349,10 +328,7 @@ const MONOKAI: Scene3DTheme = {
   roomLight2: '#d8d8c8',
   coffeeFloor: '#2a2018',
   coffeeAccent: '#f92672',
-  gymFloor: '#182820',
-  gymAccent: '#a6e22e',
   coffeeFurniture: '#4a2a18',
-  gymEquipment: '#2a4828',
 };
 
 const LIGHT: Scene3DTheme = {
@@ -391,10 +367,7 @@ const LIGHT: Scene3DTheme = {
   roomLight2: '#e0e4f0',
   coffeeFloor: '#c0b0a0',
   coffeeAccent: '#b87333',
-  gymFloor: '#a0b0b8',
-  gymAccent: '#3b82f6',
   coffeeFurniture: '#8a7050',
-  gymEquipment: '#5878a8',
 };
 
 const BLONDE: Scene3DTheme = {
@@ -433,10 +406,7 @@ const BLONDE: Scene3DTheme = {
   roomLight2: '#f0e0c8',
   coffeeFloor: '#c8b898',
   coffeeAccent: '#a16207',
-  gymFloor: '#a0a898',
-  gymAccent: '#6a8a30',
   coffeeFurniture: '#8a6a38',
-  gymEquipment: '#5a7840',
 };
 
 const SCENE_THEMES: Record<ThemeName, Scene3DTheme> = {

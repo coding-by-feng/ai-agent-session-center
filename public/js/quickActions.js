@@ -304,18 +304,13 @@ function initQuickSessionModal() {
       try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.LAST_SESSION) || '{}'); } catch { return {}; }
     })();
 
-    if (!saved.username) {
-      showToast('ERROR', 'No saved session config. Use "+ NEW SESSION" first.');
-      return;
-    }
-
     launchBtn.disabled = true;
     launchBtn.textContent = 'LAUNCHING...';
     try {
       const body = {
         host: saved.host || window.location.hostname || 'localhost',
         port: saved.port || 22,
-        username: saved.username,
+        username: saved.username || undefined,
         authMethod: saved.authMethod || 'key',
         privateKeyPath: saved.privateKeyPath,
         workingDir: workingDir,
@@ -486,19 +481,7 @@ function initNewSessionModal() {
         label: labelVal,
       };
 
-      if (currentSshMode === 'tmux-attach') {
-        body.tmuxSession = selectedTmuxSession;
-      } else if (currentSshMode === 'tmux-wrap') {
-        body.useTmux = true;
-      }
-      const resp = await fetch('/api/terminals', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const result = await resp.json();
-      if (!resp.ok) throw new Error(result.error || 'Connection failed');
-
+      // Save config before connecting so quick buttons can use it even if connection fails
       try {
         localStorage.setItem(STORAGE_KEYS.LAST_SESSION, JSON.stringify({
           host: body.host,
@@ -511,6 +494,19 @@ function initNewSessionModal() {
           terminalTheme: body.terminalTheme,
         }));
       } catch (_) {}
+
+      if (currentSshMode === 'tmux-attach') {
+        body.tmuxSession = selectedTmuxSession;
+      } else if (currentSshMode === 'tmux-wrap') {
+        body.useTmux = true;
+      }
+      const resp = await fetch('/api/terminals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const result = await resp.json();
+      if (!resp.ok) throw new Error(result.error || 'Connection failed');
 
       if (labelVal) saveLabel(labelVal);
       saveWorkdir(body.workingDir);
@@ -527,6 +523,86 @@ function initNewSessionModal() {
       connectBtn.textContent = 'CONNECT & LAUNCH';
     }
   });
+}
+
+async function directLaunchSession(label) {
+  // Read from New Session modal form fields first (user may have filled them in)
+  const formHost = document.getElementById('ssh-host')?.value?.trim();
+  const formUsername = document.getElementById('ssh-username')?.value?.trim();
+  const formPort = document.getElementById('ssh-port')?.value;
+  const formAuthMethod = document.getElementById('ssh-auth-method')?.value;
+  const formKeyPath = document.getElementById('ssh-key-select')?.value;
+  const formWorkDir = document.getElementById('ssh-workdir')?.value?.trim();
+  const formTheme = document.getElementById('ssh-terminal-theme')?.value;
+  const formCommand = (() => {
+    const preset = document.getElementById('ssh-command-preset')?.value;
+    if (preset === 'custom') return document.getElementById('ssh-custom-command')?.value || 'claude';
+    return preset;
+  })();
+
+  // Fall back to saved config from localStorage
+  const saved = (() => {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.LAST_SESSION) || '{}'); } catch { return {}; }
+  })();
+
+  const username = formUsername || saved.username || undefined;
+
+  const body = {
+    host: formHost || saved.host || window.location.hostname || 'localhost',
+    port: parseInt(formPort || saved.port) || 22,
+    username,
+    authMethod: formAuthMethod || saved.authMethod || 'key',
+    privateKeyPath: formKeyPath || saved.privateKeyPath,
+    workingDir: formWorkDir || saved.workingDir || '~',
+    command: formCommand || saved.command || 'claude',
+    terminalTheme: formTheme || saved.terminalTheme || getDefaultTerminalTheme(),
+    label: label || undefined,
+  };
+
+  const globalKey = getApiKeyForCommand(body.command);
+  if (globalKey) body.apiKey = globalKey;
+
+  try {
+    const resp = await fetch('/api/terminals', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const result = await resp.json();
+    if (!resp.ok) throw new Error(result.error || 'Connection failed');
+
+    // Save config for future use
+    try {
+      localStorage.setItem(STORAGE_KEYS.LAST_SESSION, JSON.stringify({
+        host: body.host,
+        port: body.port,
+        username: body.username,
+        authMethod: body.authMethod,
+        privateKeyPath: body.privateKeyPath,
+        workingDir: body.workingDir,
+        command: body.command,
+        terminalTheme: body.terminalTheme,
+      }));
+    } catch (_) {}
+
+    if (label) saveLabel(label);
+
+    terminalManager.setTerminalTheme(result.terminalId, body.terminalTheme);
+
+    if (label === LABELS.HEAVY) {
+      setTimeout(() => pinSession(result.terminalId), 500);
+      showToast('HEAVY SESSION', 'High-priority session launched & pinned');
+    } else if (label === LABELS.IMPORTANT) {
+      setTimeout(() => pinSession(result.terminalId), 500);
+      showToast('IMPORTANT SESSION', 'Important session launched & pinned');
+    } else if (label === LABELS.ONEOFF) {
+      showToast('ONEOFF SESSION', 'One-off session launched');
+    } else {
+      showToast('CONNECTED', 'Quick session launched');
+    }
+  } catch (e) {
+    showToast('ERROR', e.message);
+  }
 }
 
 function openQuickModalWithLabel(label) {
@@ -586,25 +662,7 @@ export function initQuickActions() {
   // QUICK SESSION button
   const quickBtn = document.getElementById('qa-quick-session');
   if (quickBtn) {
-    quickBtn.addEventListener('click', () => openQuickModalWithLabel(''));
-  }
-
-  // ONEOFF button
-  const oneoffBtn = document.getElementById('qa-oneoff');
-  if (oneoffBtn) {
-    oneoffBtn.addEventListener('click', () => openQuickModalWithLabel(LABELS.ONEOFF));
-  }
-
-  // HEAVY button
-  const heavyBtn = document.getElementById('qa-heavy');
-  if (heavyBtn) {
-    heavyBtn.addEventListener('click', () => openQuickModalWithLabel(LABELS.HEAVY));
-  }
-
-  // IMPORTANT button
-  const importantBtn = document.getElementById('qa-important');
-  if (importantBtn) {
-    importantBtn.addEventListener('click', () => openQuickModalWithLabel(LABELS.IMPORTANT));
+    quickBtn.addEventListener('click', () => directLaunchSession(''));
   }
 
   // Quick Session modal buttons
@@ -661,16 +719,7 @@ export function initQuickActions() {
           openNewSessionModal();
           break;
         case 'quick-session':
-          openQuickModalWithLabel('');
-          break;
-        case 'oneoff':
-          openQuickModalWithLabel(LABELS.ONEOFF);
-          break;
-        case 'heavy':
-          openQuickModalWithLabel(LABELS.HEAVY);
-          break;
-        case 'important':
-          openQuickModalWithLabel(LABELS.IMPORTANT);
+          directLaunchSession('');
           break;
         case 'new-group':
           // Trigger new group creation

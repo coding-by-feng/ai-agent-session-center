@@ -56,9 +56,6 @@
       <div id="nav-actions-items">
         <button id="qa-new-session" class="qa-btn qa-btn-terminal" title="Launch a new Claude session via SSH">+ NEW SESSION</button>
         <button id="qa-quick-session" class="qa-btn qa-btn-quick" title="Quick launch with last config + label">&#9889; QUICK</button>
-        <button id="qa-oneoff" class="qa-btn qa-btn-oneoff" title="Launch a one-off session (auto-review reminder)">ONEOFF</button>
-        <button id="qa-heavy" class="qa-btn qa-btn-heavy" title="Launch a high-priority session (auto-pinned, bold frame)">&#9733; HEAVY</button>
-        <button id="qa-important" class="qa-btn qa-btn-important" title="Launch an important session (alert on completion)">&#9888; IMPORTANT</button>
         <button id="qa-new-group" class="qa-btn" title="Create a new group">+ NEW GROUP</button>
         <div class="qa-separator"></div>
         <button id="qa-mute-all" class="qa-btn" title="Mute all sessions">&#9835; MUTE ALL</button>
@@ -97,18 +94,6 @@
       <button class="mobile-qa-item" data-action="quick-session" title="Quick Launch">
         <span class="mobile-qa-icon">&#9889;</span>
         <span class="mobile-qa-label">QUICK</span>
-      </button>
-      <button class="mobile-qa-item" data-action="oneoff" title="One-off Session">
-        <span class="mobile-qa-icon">&#128260;</span>
-        <span class="mobile-qa-label">ONEOFF</span>
-      </button>
-      <button class="mobile-qa-item" data-action="heavy" title="Heavy Session">
-        <span class="mobile-qa-icon">&#9733;</span>
-        <span class="mobile-qa-label">HEAVY</span>
-      </button>
-      <button class="mobile-qa-item" data-action="important" title="Important Session">
-        <span class="mobile-qa-icon">&#9888;</span>
-        <span class="mobile-qa-label">IMPORTANT</span>
       </button>
       <button class="mobile-qa-item" data-action="new-group" title="New Group">
         <span class="mobile-qa-icon">&#128194;</span>
@@ -284,6 +269,9 @@
               <h3 id="detail-project-name"></h3>
               <div class="detail-title-row">
                 <input type="text" id="detail-title" placeholder="Add session title..." class="detail-title-input">
+                <button class="detail-title-edit-btn" id="detail-title-edit-btn" title="Edit title">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                </button>
                 <input type="text" id="detail-label" list="detail-label-suggestions" placeholder="Label..." class="detail-label-input" autocomplete="off">
                 <datalist id="detail-label-suggestions"></datalist>
               </div>
@@ -487,7 +475,6 @@
       <div class="settings-tabs">
         <button class="settings-tab active" data-settings-tab="appearance">Appearance</button>
         <button class="settings-tab" data-settings-tab="sounds">Sounds</button>
-        <button class="settings-tab" data-settings-tab="labels">Labels</button>
         <button class="settings-tab" data-settings-tab="advanced">Advanced</button>
       </div>
 
@@ -761,15 +748,6 @@
         <div class="settings-section">
           <h4>Per-Action Sounds</h4>
           <div id="sound-action-grid" class="sound-action-grid"></div>
-        </div>
-      </div>
-
-      <!-- Labels Tab -->
-      <div class="settings-tab-content" id="settings-tab-labels">
-        <div class="settings-section">
-          <h4>Built-in Label Alerts</h4>
-          <p class="settings-hint">Configure which sound and movement effect plays when a labeled session completes. These alerts fire on session end for ONEOFF, HEAVY, and IMPORTANT sessions.</p>
-          <div id="label-settings-grid" class="label-settings-grid"></div>
         </div>
       </div>
 

@@ -1,22 +1,24 @@
 # AI Agent Session Center
 
-A real-time dashboard for monitoring and managing all your AI coding agent sessions. Launch, monitor, and control Claude Code, Codex CLI, and Gemini CLI sessions from a unified interface with embedded SSH terminals, approval alerts, and comprehensive analytics.
+A real-time dashboard for monitoring and managing all your AI coding agent sessions. Launch, monitor, and control Claude Code, Codex CLI, and Gemini CLI sessions from a unified interface with an immersive 3D Cyberdrome visualization, embedded SSH terminals, approval alerts, team/subagent tracking, and comprehensive analytics.
 
 [![npm version](https://img.shields.io/npm/v/ai-agent-session-center.svg)](https://www.npmjs.com/package/ai-agent-session-center)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
+![AI Agent Session Center Dashboard](docs/images/dashboard-3d.png)
+
 ---
 
 ## Quick Start
 
-### Using npx (Recommended - No Install Required)
+### Using npx (Recommended)
 
 ```bash
 npx ai-agent-session-center
 ```
 
-That's it! The dashboard will start at **http://localhost:3333** and automatically configure hooks.
+The dashboard starts at **http://localhost:3333** and automatically configures hooks.
 
 ### Global Install
 
@@ -31,7 +33,9 @@ ai-agent-session-center
 git clone https://github.com/coding-by-feng/ai-agent-session-center.git
 cd ai-agent-session-center
 npm install
-npm start
+npm run dev    # React + Vite dev server
+# or
+npm start      # Production server (serves built frontend)
 ```
 
 ### CLI Options
@@ -43,423 +47,58 @@ Options:
   --port <number>    Server port (default: 3333)
   --no-open          Don't auto-open browser
   --debug            Enable verbose logging
-
-Examples:
-  npx ai-agent-session-center --port 8080
-  ai-agent-session-center --no-open --debug
+  --setup            Re-run the interactive setup wizard
 ```
-
-All active AI agent sessions appear automatically as animated character cards with live status updates.
 
 ---
 
-## Usage Guide
+## Tech Stack
 
-### Starting Your First Session
-
-1. **Launch the dashboard:**
-   ```bash
-   npm start
-   ```
-   Opens at http://localhost:3333
-
-2. **Create a session:**
-   - Click **+ NEW SESSION** button (or press `T`)
-   - Fill in the launch form:
-     - **Connection:** Choose "Local" for localhost or "SSH" for remote
-     - **Label:** Tag for organization (e.g., "frontend", "api", "debug")
-     - **Title:** Optional custom display name
-     - **CLI:** Select Claude Code, Codex CLI, Gemini CLI, or custom command
-     - **Directory:** Working directory for the session
-     - **API Key:** Optional per-session override
-
-3. **Watch it appear:**
-   - A new animated character card appears in the dashboard
-   - The character animates based on what Claude is doing
-   - Status updates in real-time via WebSocket
-
-### Using the Terminal
-
-1. **Open a session's terminal:**
-   - Click any session card
-   - Click the **Terminal** tab in the detail panel
-
-2. **Execute commands:**
-   - Type any command and press Enter
-   - Commands run in Claude's shell environment
-   - See output in real-time
-
-3. **Queue prompts for Claude:**
-   - Type a prompt in the text area at the top
-   - Press `Ctrl+Enter` to add to queue
-   - Send when ready (queued prompts appear as chips)
-
-4. **Fullscreen mode:**
-   - Press `F11` while terminal is focused
-   - Press `F11` again to exit
-
-### Responding to Approvals
-
-When Claude needs approval for a tool call:
-
-1. **You'll notice:**
-   - Card border turns **screaming yellow**
-   - Character **shakes** with floating **"!"**
-   - **3-burst alarm** plays (repeats every 10s)
-   - Banner says "NEEDS YOUR APPROVAL"
-
-2. **Respond:**
-   - Click the card to open detail panel
-   - Or switch to your terminal where Claude is running
-   - Approve/deny the tool call in the terminal
-   - Card returns to normal once resolved
-
-3. **False alarm?**
-   - Fast tools (Read, Grep, Glob) auto-approve instantly
-   - Only blocking tools trigger alerts
-   - Adjust thresholds in `server/config.js` if needed
-
-### Managing Multiple Sessions
-
-1. **Use labels:**
-   - Launch sessions with descriptive labels
-   - Quick presets: **ONEOFF**, **★ HEAVY**, **⚠ IMPORTANT**
-
-2. **Organize into groups:**
-   - Drag sessions onto group headers
-   - Or assign from detail panel → **Group** dropdown
-   - Groups persist in localStorage
-
-3. **Pin important sessions:**
-   - Click the **★** icon in the detail panel
-   - Pinned sessions stay at the top
-
-4. **Archive completed work:**
-   - Press `A` with session selected
-   - Or click **ARCHIVE** in detail panel
-   - View archived sessions in **History** tab
-
-### Searching Session History
-
-1. **Open History tab:**
-   - Click **History** in the navigation bar
-
-2. **Full-text search:**
-   - Type in the search box (or press `/` anywhere)
-   - Searches prompts, responses, and tool names
-   - Powered by SQLite FTS5 for fast results
-
-3. **Filter results:**
-   - Use dropdowns for project, status, date range
-   - Sort by date, duration, prompt count, or tool calls
-   - Paginated (50 per page)
-
-4. **View a historical session:**
-   - Click any row to open full details
-   - All conversation history, tools, and events preserved
-
-### Analyzing Usage Patterns
-
-1. **Open Analytics tab:**
-   - Click **Analytics** in the navigation bar
-
-2. **Tool Usage breakdown:**
-   - See which tools Claude uses most
-   - Bar chart with percentages
-   - Filter by date range
-
-3. **Duration Trends:**
-   - How long your sessions run over time
-   - Choose granularity: hour/day/week/month
-   - Line chart visualization
-
-4. **Daily Heatmap:**
-   - See when you use Claude most
-   - Hour-by-day grid
-   - Darker = more active
-
-### Customizing Appearance
-
-1. **Open Settings:**
-   - Click the gear icon or press `S`
-
-2. **Change theme:**
-   - **Appearance** section → **Theme** dropdown
-   - 9 themes available (6 dark, 3 light)
-   - Changes apply instantly
-
-3. **Adjust card size:**
-   - **Card Size** dropdown: small/compact/normal/large
-   - Useful when monitoring many sessions
-
-4. **Character model:**
-   - **Default Character** dropdown
-   - 20 models to choose from
-   - Override per-session in detail panel
-
-5. **Animation controls:**
-   - **Animation Intensity:** 0-100% (how dramatic)
-   - **Animation Speed:** 0.5x-3x (how fast)
-   - **Scanline Effect:** CRT-style overlay toggle
-
-### Customizing Sounds
-
-1. **Open Settings → Sounds:**
-   - Enable/disable sound globally
-   - Adjust master volume (0-100%)
-
-2. **Configure per-action sounds:**
-   - 19 actions organized by category
-   - 16 available tones (chirp, ping, alarm, etc.)
-   - Click **Preview** to hear each tone
-   - Set any action to "none" to mute it
-
-3. **Examples:**
-   - `approvalNeeded` → `urgentAlarm` (default screamer)
-   - `toolWrite` → `blip` (subtle edit notification)
-   - `sessionEnd` → `cascade` (satisfying completion)
-
-### Customizing Movement Effects
-
-1. **Open Settings → Movement:**
-   - Configure visual effects per action
-   - 18 effects available
-
-2. **Effect types:**
-   - **sweat** — droplets fall from character
-   - **shake** — vibration for urgency
-   - **sparkle** — celebratory stars
-   - **fade** — ghost-like transparency
-   - **breathe** — subtle pulse
-
-3. **Defaults:**
-   - `toolWrite` → sweat drops
-   - `approvalNeeded` → shake
-   - `sessionEnd` → fade
-   - `taskComplete` → sparkle
-
-### Working with Teams
-
-When Claude spawns agent teams:
-
-1. **Auto-detection:**
-   - Dashboard detects parent/child relationships
-   - Team badge appears on parent session card
-
-2. **View team members:**
-   - Click the **Team** badge
-   - Modal shows all team members
-   - Navigate between team members
-
-3. **Monitoring teams:**
-   - All team members appear as separate cards
-   - Grouped together visually
-   - Each has independent status/terminal
-
-### Advanced Workflows
-
-**Workflow 1: Quick iteration cycles**
-1. Launch with **⚡ QUICK** button
-2. Terminal tab → queue multiple prompts
-3. Send all at once with batch submit
-4. Monitor progress via character animations
-
-**Workflow 2: Remote development**
-1. **+ NEW SESSION** → SSH connection
-2. Enter hostname from your `~/.ssh/config`
-3. Choose working directory on remote
-4. Terminal uses native SSH (respects your agent)
-
-**Workflow 3: Long-running tasks**
-1. Launch session with **⚠ IMPORTANT** label
-2. Set duration alert in detail panel
-3. Let it run in background
-4. Get notified when threshold exceeded
-
-**Workflow 4: Multi-project juggling**
-1. Create groups: "Frontend", "Backend", "DevOps"
-2. Launch sessions with appropriate labels
-3. Drag sessions into groups
-4. Minimize inactive groups
-
-**Workflow 5: Session review**
-1. Archive completed sessions
-2. **History** tab → search for specific work
-3. **Export** button → download full transcript
-4. **Summarize** → generate AI summary
+| Component | Technology |
+|-----------|-----------|
+| Backend | Node.js 18+ (ESM) + Express 5 + ws 8 |
+| Frontend | React 19 + TypeScript + Vite |
+| 3D Visualization | Three.js + React Three Fiber + drei |
+| State Management | Zustand + React Query |
+| Terminal | xterm.js + node-pty |
+| Database | SQLite (better-sqlite3, WAL mode) + IndexedDB (browser) |
+| Forms | React Hook Form + Zod validation |
+| Charts | Recharts |
+| Drag & Drop | @dnd-kit |
+| Hooks | Bash script (file-based MQ primary, HTTP fallback) |
+| Testing | Vitest (407+ tests) + Playwright (E2E) |
+| Port | 3333 (configurable) |
 
 ---
 
 ## Core Features
 
-### 🚀 Launch Sessions
+### 3D Cyberdrome Visualization
 
-**Three Ways to Start:**
+The main dashboard view is a fully interactive 3D office environment rendered with React Three Fiber. Each active session is represented by an animated 3D robot character that navigates the scene in real time.
 
-1. **+ NEW SESSION** — Full SSH terminal with configuration:
-   - Local or remote connections (native SSH, uses your ~/.ssh/config and agent)
-   - Session labels for organization (e.g., "frontend", "api", "debug")
-   - Custom titles for disambiguation
-   - Choose CLI: Claude Code, Codex CLI, Gemini CLI, or custom command
-   - tmux integration: attach to existing sessions or wrap new ones
-   - Per-session terminal themes
-   - API keys (optional per-session override of global settings)
+- **Dynamic room system** -- rooms are created and destroyed as sessions come and go, laid out in a 4-column grid with 12x12 unit rooms and corridors
+- **8 desks per room** with monitors, keyboards, and chairs -- robots sit at desks when working
+- **6 robot model variants**: Standard, Mech, Drone, Spider, Orb, Tank
+- **16-color neon palette** for robot accents and wireframe overlays
+- **CLI source badges** on each robot's chest (C = Claude, G = Gemini, X = Codex, O = OpenClaw)
+- **Status-driven animations**: idle bob, thinking head-tilt, working charge effect, alert visor flash, and more
+- **Tool-specific working animations**: reading (head scan), writing (rapid arm typing), bash (arm extended), task (both arms raised), web (antenna glow)
+- **Cross-room pathfinding** with door waypoints and wall collision avoidance
+- **Casual areas**: Coffee Lounge (6 tables, counter, coffee machine) and Gym (bench press, treadmill, rowing machine, bike, pull-up bar, leg press, punching bag, cable machine, kettlebells, dumbbells)
+- **Status particles** burst on state transitions (confetti, rings, rising sparks)
+- **Subagent connection beams** -- animated dashed laser-lines between parent and child sessions
+- **Floating dialogue bubbles** showing current prompt, tool activity, or approval status
+- **Robot name labels** with status dot and alert banners (pure WebGL billboards)
+- **Scene environment**: circuit traces on the floor, rising data particles, grid overlays, star field, room sconce lighting
+- **Camera fly-to** on robot selection with smooth lerp animation
+- **Map controls overlay**: zoom in/out, top-down view, reset
+- **Robot list sidebar**: sortable agent list with status indicators
+- **Position persistence** -- robot positions saved to sessionStorage across page reloads
 
-2. **⚡ QUICK** — Launch with last config + just pick a label
-   - Remembers your SSH config from the last full launch
-   - One-click workflow for rapid session spawning
+### 9 Scene Themes
 
-3. **Preset Labels** — Quick buttons for common workflows:
-   - **ONEOFF** — One-off task with completion review reminder
-   - **★ HEAVY** — High-priority session (auto-pinned to top)
-   - **⚠ IMPORTANT** — Alert on completion
-
-**Pro Tip:** Use `T` keyboard shortcut to open New Session modal
-
----
-
-### 📺 Embedded Terminals
-
-Each session gets a **full xterm.js terminal** in the detail panel:
-
-- **Direct command execution** — Run commands in the same shell Claude is using
-- **Prompt queue** — Add prompts to a queue, send them with Ctrl+Enter
-- **Session persistence** — Reconnects automatically if dashboard refreshes
-- **Fullscreen mode** — F11 to go fullscreen for focused work
-- **Terminal themes** — 7 built-in themes (or match dashboard theme)
-- **tmux support** — Attach to existing tmux sessions or create new ones
-
-**Workflow:** Click any session card → Terminal tab → Start typing. Your commands run in the same environment as Claude.
-
----
-
-### 🚨 Approval Alerts (Never Miss a Blocked Tool)
-
-When Claude needs your approval for a tool call:
-
-- Card turns **screaming yellow** with "NEEDS YOUR APPROVAL" banner
-- Character **shakes** with floating **"!"** exclamation mark
-- **3-burst alarm** plays and **repeats every 10 seconds** until you respond
-- No false alarms — auto-approved tools (Read, Grep, Glob) resolve instantly
-
-**Detection:** Monitors tool timing. If `PostToolUse` doesn't arrive within 3s (fast tools) or 15s (medium tools like WebFetch), approval is required.
-
-**Input Detection:** Tools requiring your answer (`AskUserQuestion`, `EnterPlanMode`) trigger a distinct "WAITING FOR YOUR ANSWER" state with a softer chime sound.
-
----
-
-## Live Session Dashboard
-
-Every active Claude Code session appears as an animated character card. At a glance you can see:
-
-- **What each session is doing** — idle, prompting, working, waiting for input, or needing approval
-- **Project name and working directory** for each session
-- **Live duration timer** counting up since session start
-- **Prompt count and tool call count** updating in real time
-- **Activity feed** at the bottom showing events as they happen
-
-### Status Colors
-
-| Status | What it means | Visual |
-|--------|---------------|--------|
-| **Idle** | No activity | Green border, calm character |
-| **Prompting** | You just sent a prompt | Cyan pulse, walking animation |
-| **Working** | Claude is calling tools | Orange pulse, running animation |
-| **Waiting** | Claude finished, your turn | Soft blue, gentle pulse |
-| **Approval** | Tool blocked, needs your yes/no | Yellow screaming, alarm sound |
-| **Input** | Waiting for your answer | Purple glow, chime sound |
-| **Ended** | Session closed | Red, faded, auto-removed after 60s |
-
-### Auto-Idle Timeouts
-
-Sessions automatically transition to prevent stale states:
-
-- Prompting &rarr; Waiting (30s)
-- Waiting &rarr; Idle (2 min)
-- Working &rarr; Idle (3 min)
-- Approval/Input &rarr; Idle (10 min safety net)
-
----
-
-## 20 Character Models
-
-All characters are CSS-animated (no WebGL required). Pick a character globally or per-session.
-
-**Robot** &middot; **Cat** &middot; **Alien** &middot; **Ghost** &middot; **Orb** &middot; **Dragon** &middot; **Penguin** &middot; **Octopus** &middot; **Mushroom** &middot; **Fox** &middot; **Unicorn** &middot; **Jellyfish** &middot; **Owl** &middot; **Bat** &middot; **Cactus** &middot; **Slime** &middot; **Pumpkin** &middot; **Yeti** &middot; **Crystal** &middot; **Bee**
-
-Set a global default in Settings > Character Model, or override per-session in the detail panel.
-
----
-
-## Session Detail Panel
-
-Click any session card to open a slide-in panel with everything about that session:
-
-- **Conversation** — full prompt/response history in order, with tool calls inline
-- **Tool Log** — every tool call with input summaries and timestamps
-- **Events** — raw session event stream
-- **Notes** — attach persistent notes to any session
-- **Summary** — AI-generated session summaries (uses prompt templates you can customize)
-
-### Session Controls
-
-| Button | What it does |
-|--------|-------------|
-| **OPEN IN EDITOR** | Jump to the project in your editor |
-| **KILL** | Send SIGTERM to the Claude process (with confirmation) |
-| **ARCHIVE** | Hide from live view, still accessible in history |
-| **SUMMARIZE** | Generate an AI summary using a prompt template |
-| **EXPORT** | Download the full session transcript as JSON |
-| **NOTES** | Add/view persistent notes |
-| **ALERT** | Get notified when a session exceeds a duration threshold |
-
-You can also set per-session **character models**, **accent colors**, and **custom titles**.
-
----
-
-## Session Groups
-
-Organize sessions into named groups. Drag-and-drop or assign from the detail panel. Groups are persisted in localStorage. Useful when running many sessions across different projects.
-
----
-
-## Team Detection
-
-When Claude Code spawns agent teams (via the Agent SDK), the dashboard detects parent/child session relationships and groups them together. Click the team badge to see all members in a modal.
-
----
-
-## Sound System
-
-16 synthesized tones (no audio files needed) mapped to 19 configurable actions, all generated via the Web Audio API:
-
-**Tones:** chirp, ping, chime, ding, blip, swoosh, click, beep, warble, buzz, cascade, fanfare, alarm, thud, urgentAlarm, none
-
-**Actions organized by category:**
-
-| Category | Actions |
-|----------|---------|
-| **Session Events** | sessionStart, sessionEnd, promptSubmit, taskComplete |
-| **Tool Calls** | toolRead, toolWrite, toolEdit, toolBash, toolGrep, toolGlob, toolWebFetch, toolTask, toolOther |
-| **System** | approvalNeeded, inputNeeded, alert, kill, archive, subagentStart, subagentStop |
-
-The `urgentAlarm` is the approval screamer — a loud 3-burst square wave alarm that repeats every 10 seconds until you act.
-
-Configure in **Settings > Sounds**: pick which tone plays for each action, adjust master volume, or mute entirely.
-
----
-
-## Movement Effects
-
-18 visual effects that trigger per-action, mirroring the sound system:
-
-**none** &middot; **sweat** &middot; **energy-ring** &middot; **sparks** &middot; **steam** &middot; **eye-cycle** &middot; **think-pulse** &middot; **head-tilt** &middot; **float** &middot; **breathe** &middot; **sway** &middot; **sparkle** &middot; **bounce** &middot; **flash** &middot; **shake** &middot; **fade** &middot; **shrink** &middot; **dissolve**
-
-Each action (same 19 as sounds) can be assigned any effect. Defaults are sensible — `toolWrite` triggers sweat drops, `approvalNeeded` triggers shake, `sessionEnd` triggers fade.
-
----
-
-## 9 Themes
+Every visual element in both the 3D scene and the UI respects the active theme via 35+ color properties:
 
 | Dark | Light |
 |------|-------|
@@ -470,37 +109,300 @@ Each action (same 19 as sounds) can be assigned any effect. Defaults are sensibl
 | Monokai | |
 | Solarized | |
 
-Switch in **Settings > Appearance**. Every element respects the active theme via CSS custom properties.
+---
+
+### Session Management
+
+Every active AI coding session appears as an animated robot. At a glance you can see:
+
+- **What each session is doing** -- idle, prompting, working, waiting, approval needed, or input needed
+- **Project name and working directory**
+- **Live duration timer**
+- **Prompt count and tool call count** updating in real time
+- **Activity feed** at the bottom showing events as they happen
+
+#### Status Colors
+
+| Status | What it means | Visual |
+|--------|---------------|--------|
+| **Idle** | No activity | Green, robot seeks coffee lounge |
+| **Prompting** | You just sent a prompt | Cyan, robot walks to desk |
+| **Working** | Claude is calling tools | Orange, charging effect, sits at desk |
+| **Waiting** | Claude finished, your turn | Cyan, robot goes to gym |
+| **Approval** | Tool blocked, needs yes/no | Yellow, visor flash, alarm |
+| **Input** | Waiting for your answer | Purple, arm raised |
+| **Ended** | Session closed | Red, offline animation |
+| **Connecting** | SSH terminal connecting | Gray, boot animation |
+
+#### Auto-Idle Timeouts
+
+Sessions automatically transition to prevent stale states:
+
+- Prompting -> Waiting (30s)
+- Waiting -> Idle (2 min)
+- Working -> Idle (3 min)
+- Approval/Input -> Idle (10 min safety net)
 
 ---
 
-## Session History
+### Launch Sessions
 
-All sessions are persisted to a local SQLite database (`data/sessions.db`). The **History** tab gives you:
+**Three ways to start:**
 
-- Full-text search across all prompts, responses, and tool names (powered by FTS5)
-- Filter by project, status, or date range
-- Sort by date, duration, prompt count, or tool calls
-- Pagination (50 per page)
+1. **+ NEW SESSION** -- Full SSH terminal with configuration:
+   - Local or remote connections (native SSH, uses your `~/.ssh/config` and agent)
+   - Session labels for organization (ONEOFF, HEAVY, IMPORTANT, or custom)
+   - Choose CLI: Claude Code, Codex CLI, Gemini CLI, or custom command
+   - tmux integration: attach to existing sessions or wrap new ones
+   - Per-session terminal themes, API keys, titles
+   - Working directory history (last 20, MRU)
 
-Historical sessions from `~/.claude/projects/` are auto-imported on startup via JSONL parsing.
+2. **QUICK SESSION** -- Launch with last config, just pick a label
+
+3. **Preset Labels** -- Quick buttons for common workflows:
+   - **ONEOFF** -- One-off task with completion review reminder
+   - **HEAVY** -- High-priority session (auto-pinned to top)
+   - **IMPORTANT** -- Alert on completion
 
 ---
 
-## Timeline View
+### Embedded Terminals
 
-Visual timeline showing when sessions were active. Switch between hourly, daily, or weekly granularity. Filter by project and date range.
+Each session gets a **full xterm.js terminal** in the detail panel:
+
+- **Direct command execution** in the same shell Claude is using
+- **Prompt queue** -- compose and stage prompts, send with Ctrl+Enter
+- **Auto-reconnect** on dashboard refresh
+- **Fullscreen mode** for focused work
+- **8 terminal themes** + auto (matches dashboard theme)
+- **tmux support** -- attach to existing sessions or create new ones
+- **Team terminal view** -- split-view of all team member terminals
+- **Output ring buffer** -- 128KB replay for new connections
 
 ---
 
-## Analytics
+### Approval Alerts
 
-The **Analytics** tab shows usage patterns:
+When Claude needs your approval for a tool call:
 
-- **Tool Usage** — bar chart of which tools Claude uses most, with percentages
-- **Duration Trends** — how long your sessions run over time (hour/day/week/month granularity)
-- **Active Projects** — ranked by session count
-- **Daily Heatmap** — hour-by-day grid showing when you use Claude most
+- Card turns **screaming yellow** with "AWAITING APPROVAL" banner
+- Robot **visor flashes** with escalating urgency (faster after 15s, lateral shake after 30s)
+- **3-burst alarm** plays and **repeats every 10 seconds** until you respond
+- No false alarms -- auto-approved tools resolve instantly
+- **`hasChildProcesses` check** for Bash/Task tools prevents false positives during long-running commands
+- **PermissionRequest** hook event provides a reliable direct signal (medium+ density)
+
+**Input Detection:** Tools requiring your answer (`AskUserQuestion`, `EnterPlanMode`) trigger a distinct purple "NEEDS INPUT" state.
+
+---
+
+### Session Detail Panel
+
+Click any robot or session card to open a slide-in panel with:
+
+| Tab | Content |
+|-----|---------|
+| **Terminal** | xterm.js terminal with WebSocket relay, reconnect button |
+| **Prompts** | Full prompt history, numbered and timestamped, with COPY buttons. Previous sessions shown as collapsible accordions for resumed sessions. |
+| **Activity** | Interleaved tool calls, events, and response excerpts (newest first) |
+| **Notes** | Per-session persistent notes with timestamps |
+| **Summary** | AI-generated session summaries with 5 built-in templates |
+| **Queue** | Prompt queue management -- compose, reorder, send, move between sessions |
+
+#### Session Controls
+
+| Action | Description |
+|--------|------------|
+| **Kill** | SIGTERM -> SIGKILL with confirmation modal |
+| **Archive** | Move to history, keep in IndexedDB |
+| **Resume** | Reconnect ended SSH session (`claude --resume`) |
+| **Summarize** | AI summary using configurable prompt templates |
+| **Notes** | Attach persistent notes |
+| **Alert** | Duration threshold notifications |
+| **Labels** | ONEOFF / HEAVY / IMPORTANT with custom label history |
+| **Title** | Inline-editable custom titles |
+
+#### Summary Templates (5 built-in)
+
+- Detailed Technical Summary (default)
+- Quick Bullet Points
+- Changelog Entry
+- Handoff Notes
+- PR Description
+
+Custom templates can be created, edited, and saved.
+
+---
+
+### Team & Subagent Tracking
+
+When Claude spawns agent teams:
+
+- **Auto-detection** via `CLAUDE_CODE_PARENT_SESSION_ID` env var or path-based matching
+- **Team badge** on parent session with member list
+- **Animated connection beams** between parent and child robots in the 3D scene
+- **Team config reader** loads `~/.claude/teams/{name}/config.json` for member roles and colors
+- **Team terminal view** with split panes for all members
+- **Auto-cleanup** when all team members end
+
+---
+
+### Prompt Queue
+
+Stage and manage prompts for any session:
+
+- **Compose** prompts in the Queue tab textarea
+- **Reorder** via drag-and-drop
+- **Send** individual items or auto-send on terminal focus
+- **Move** prompts between sessions (enter move mode, click target)
+- **Drag to terminal** -- drop queue items directly onto the terminal
+- **Ctrl+Enter** sends the first queued prompt
+- **Global queue view** (Queue route) shows all queued prompts across sessions with export
+
+---
+
+### Sound System
+
+16 synthesized tones (Web Audio API, no audio files) mapped to 20 configurable actions:
+
+**Tones:** chirp, ping, chime, ding, blip, swoosh, click, beep, warble, buzz, cascade, fanfare, alarm, thud, urgentAlarm, none
+
+**Per-CLI sound profiles** with independent volume and action mappings for Claude, Gemini, Codex, and OpenClaw.
+
+**6 ambient presets** (procedurally generated): Off, Rain, Lo-Fi, Server Room, Deep Space, Coffee Shop.
+
+**Label completion alerts**: ONEOFF triggers alarm+shake, HEAVY triggers urgentAlarm+electric frame, IMPORTANT triggers fanfare+liquid frame.
+
+---
+
+### Analytics
+
+The **Analytics** route shows usage patterns:
+
+- **Summary stats** -- total sessions, prompts, tool calls, avg duration, most-used tool, busiest project
+- **Tool usage** -- horizontal bar chart with counts and percentages (top 15)
+- **Active projects** -- ranked by session count with last activity date
+- **Daily heatmap** -- 7x24 grid showing when you use AI agents most
+
+---
+
+### History & Search
+
+The **History** route provides:
+
+- **Full-text search** across prompts, responses, and tool names (powered by SQLite)
+- **Filter** by project, status, or date range
+- **Sort** by date, duration, prompt count, or tool calls
+- **Pagination** (50 per page)
+- Click any row to open the full detail panel with conversation history
+
+---
+
+### Timeline View
+
+Visual timeline showing session activity over time:
+
+- **Grouped bar chart** with sessions (cyan), prompts (green), and tool calls (orange)
+- **Granularity**: hour / day / week / month
+- **Filter** by project and date range
+
+---
+
+### Session Groups
+
+Organize sessions into named groups:
+
+- **4 default groups**: Priority, Active, Background, Review
+- **12-column CSS grid layout** with 5 presets (1-col, 2-col, 3-col, 1/3+2/3, 2/3+1/3)
+- **Drag-and-drop** sessions between groups
+- **Resizable** group columns (drag handles)
+- **Collapsible** groups
+- **Auto-assign** new sessions to last-used group
+
+---
+
+### Authentication
+
+Optional password protection for the dashboard:
+
+- **scrypt-based** password hashing with timing-safe comparison
+- **24-hour tokens** via cookie, Authorization header, or query param
+- **WebSocket authentication** -- unauthenticated connections rejected with code 4001
+- Hooks bypass auth (they must work without login)
+
+---
+
+## How It Works
+
+```
+AI CLI (Claude / Gemini / Codex)
+         |
+    Hook Script (bash)
+    - Reads stdin JSON
+    - Enriches with PID, TTY, terminal env vars, team data
+    - Single jq pass (~2-5ms)
+         |
+         v
+  /tmp/claude-session-center/queue.jsonl
+  - Atomic POSIX append (~0.1ms)
+  - Fallback: HTTP POST to localhost:3333/api/hooks
+         |
+         v
+  Server (Express + WebSocket)
+  - mqReader.js: fs.watch() + 10ms debounce
+  - hookProcessor.js: validate + process
+  - sessionStore.js: state machine + SQLite dual-write
+  - wsManager.js: broadcast to all browsers
+         |
+         v
+  React Frontend
+  - Zustand stores + React Three Fiber 3D scene
+  - IndexedDB for client-side persistence
+```
+
+**End-to-end latency: 3-17ms** (hook fired to browser updated)
+
+All hooks run async with fire-and-forget -- they never slow down your AI CLI.
+
+### Hook Delivery
+
+The primary transport is a **file-based message queue** (JSONL). The bash hook script appends enriched JSON to `/tmp/claude-session-center/queue.jsonl` via POSIX atomic append (~0.1ms). The server watches this file with `fs.watch()` and reads from a byte offset (no re-reading). Falls back to HTTP POST when the MQ directory doesn't exist.
+
+### Session Matching (5-Priority System)
+
+When a hook event arrives with an unknown `session_id`, the matcher links it to the correct terminal session:
+
+| Priority | Strategy | Risk |
+|----------|----------|------|
+| 0 | `pendingResume` + terminal ID / workDir | Low |
+| 1 | `agent_terminal_id` env var | Low |
+| 2 | `tryLinkByWorkDir` | Medium |
+| 3 | Path scan (connecting sessions) | Medium |
+| 4 | PID parent check | High |
+
+If no match is found, a display-only card is created with the detected source (VS Code, iTerm, Warp, Ghostty, etc.).
+
+### Terminal Detection
+
+The hook script detects and enriches events with metadata from: **iTerm2**, **Kitty**, **Warp**, **WezTerm**, **Ghostty**, **VS Code**, **JetBrains IDEs**, **Alacritty**, **Hyper**, and **tmux**.
+
+---
+
+## Multi-CLI Support
+
+| CLI | Hook Script | Config Location | Events |
+|-----|------------|-----------------|--------|
+| Claude Code | dashboard-hook.sh | ~/.claude/settings.json | 14 events (high density) |
+| Gemini CLI | dashboard-hook-gemini.sh | ~/.gemini/settings.json | 7 events |
+| Codex | dashboard-hook-codex.sh | ~/.codex/config.toml | 1 event |
+
+### Hook Density Levels
+
+| Level | Claude Events | Use Case |
+|-------|--------------|----------|
+| high | All 14 | Full monitoring, approval detection |
+| medium | 12 (no TeammateIdle, PreCompact) | Default, good balance |
+| low | 5 (Start, Prompt, Permission, Stop, End) | Minimal overhead |
 
 ---
 
@@ -509,107 +411,260 @@ The **Analytics** tab shows usage patterns:
 | Key | Action |
 |-----|--------|
 | `/` | Focus search bar |
-| `Esc` | Close panel / modal |
-| `S` | Open settings |
+| `?` | Toggle shortcuts panel |
+| `Esc` | Close panel / modal / send escape to terminal |
+| `S` | Toggle settings |
 | `K` | Kill selected session |
 | `A` | Archive selected session |
-| `E` | Export selected session |
-| `N` | Session notes |
-| `?` | Show shortcuts help |
+| `T` | Open new session modal |
+| `M` | Toggle global mute |
+| `Ctrl+Enter` | Send first queued prompt to terminal |
 
 ---
 
 ## Settings
 
-**Appearance** — theme, font size (10-20px), card size (small/compact/normal/large), scanline CRT effect, animation intensity and speed sliders, default character model
+**Appearance** -- theme, font size, scanline CRT effect, animation intensity and speed sliders, default robot model
 
-**Sounds** — enable/disable, master volume, per-action tone selection with live preview
+**Sound** -- enable/disable, master volume, per-action tone selection, per-CLI sound profiles, ambient presets (rain, lo-fi, server room, deep space, coffee shop)
 
-**Advanced** — summary prompt template editor, import/export settings as JSON, reset to defaults, activity feed toggle
+**Labels** -- per-label sound, movement effect, and frame effect configuration (fire, electric, golden aura, liquid energy, plasma overload)
 
-All settings persist in the SQLite database and survive restarts.
+**Hooks** -- density selector, install/uninstall buttons
 
----
+**API Keys** -- Anthropic, OpenAI, Gemini key inputs (used for per-session overrides)
 
-## How It Works
-
-```
-Claude Code ──(hooks)──> Express Server ──(WebSocket)──> Browser Dashboard
-                              │
-                         SQLite DB
-                     (sessions, analytics,
-                      settings, notes)
-```
-
-1. Claude Code fires hook events (session start, prompt, tool use, stop, etc.)
-2. A bash hook script enriches the JSON with terminal metadata (PID, TTY, terminal app, tab ID) and POSTs it to `localhost:3333`
-3. The server processes events, updates the in-memory state machine + SQLite (dual-write)
-4. WebSocket pushes updates to all connected browsers
-5. The dashboard renders everything in real time with CSS animations and Web Audio
-
-All hooks run with `async: true` and fire-and-forget — they never slow down Claude.
-
-### Terminal Support
-
-The hook script detects and enriches events with metadata from: **iTerm2**, **Kitty**, **Warp**, **WezTerm**, **Ghostty**, **VS Code**, **JetBrains IDEs**, and **tmux**. It also manages terminal tab titles (sets them to "Claude: \<project\>" via OSC escape sequences).
+**Import/Export** -- export all settings as JSON, import to restore, reset to defaults
 
 ---
 
-## Tech Stack
+## Commands
 
-| Component | Technology |
-|-----------|-----------|
-| Backend | Node.js (ESM) + Express 5 |
-| WebSocket | ws 8 |
-| Database | SQLite (better-sqlite3) with WAL mode + FTS5 |
-| Frontend | Vanilla JS (ES2022, zero build step) |
-| Characters | CSS-animated (20 models) |
-| Audio | Web Audio API (synthesized, no audio files) |
-| Font | JetBrains Mono |
-| Hooks | Bash (macOS/Linux) + PowerShell (Windows) |
+```bash
+# Development (React + Vite hot reload + server)
+npm run dev
+
+# Build for production
+npm run build
+
+# Start production server
+npm start
+
+# Start without opening browser
+npm run start:no-open
+
+# Start in debug mode
+npm run debug
+
+# Interactive setup wizard
+npm run setup
+
+# Install hooks
+npm run install-hooks
+
+# Uninstall hooks
+npm run uninstall-hooks
+
+# Reset everything (remove hooks, clean config, create backup)
+npm run reset
+
+# Run tests (407+ Vitest tests)
+npm test
+
+# Watch mode
+npm run test:watch
+
+# Coverage
+npm run test:coverage
+
+# E2E tests (Playwright)
+npm run test:e2e
+
+# Type check
+npm run typecheck
+
+# Lint
+npm run lint
+
+# Format
+npm run format
+```
 
 ---
 
 ## Project Structure
 
 ```
-server/
-├── index.js           # Express + WebSocket server entry (port 3333)
-├── sessionStore.js    # In-memory state machine with SQLite dual-write
-├── hookRouter.js      # POST /api/hooks endpoint
-├── apiRouter.js       # REST API (sessions, analytics, settings, search)
-├── wsManager.js       # WebSocket broadcast to connected browsers
-├── db.js              # SQLite schema, tables, FTS5, prepared statements
-├── config.js          # Tool categories, timeouts, status animations
-├── queryEngine.js     # Session search, filtering, pagination
-├── analytics.js       # Tool usage, duration trends, heatmaps
-├── importer.js        # Historical JSONL session importer
-└── logger.js          # Debug-aware colored logging
+src/                          # React 19 + TypeScript frontend
+├── App.tsx                   # Auth gate, router, layout
+├── routes/
+│   ├── LiveView.tsx          # 3D Cyberdrome scene (lazy-loaded)
+│   ├── HistoryView.tsx       # Session history with search
+│   ├── TimelineView.tsx      # Timeline visualization
+│   ├── AnalyticsView.tsx     # Usage analytics
+│   └── QueueView.tsx         # Global prompt queue
+├── components/
+│   ├── 3d/                   # Three.js / R3F components
+│   │   ├── CyberdromeScene.tsx      # Canvas wrapper (zero Zustand inside Canvas)
+│   │   ├── CyberdromeEnvironment.tsx # Walls, desks, floors, lighting, particles
+│   │   ├── SessionRobot.tsx         # Per-session robot (memoized, ref-based animation)
+│   │   ├── Robot3DModel.tsx         # Robot geometry, materials, animations
+│   │   ├── RobotDialogue.tsx        # Floating speech bubbles
+│   │   ├── RobotLabel.tsx           # Name tags with status dots
+│   │   ├── RobotListSidebar.tsx     # DOM overlay agent list
+│   │   ├── StatusParticles.tsx      # Particle bursts on transitions
+│   │   ├── SubagentConnections.tsx  # Parent-child laser beams
+│   │   ├── CameraController.tsx     # Smooth fly-to animation
+│   │   ├── RoomLabels.tsx           # Floor text labels
+│   │   └── SceneOverlay.tsx         # Map controls + room badges
+│   ├── session/              # Session detail panel and controls
+│   ├── terminal/             # xterm.js terminal + toolbar
+│   ├── settings/             # Settings panel tabs
+│   ├── modals/               # New session, quick session, shortcuts
+│   ├── layout/               # Header, navbar, activity feed
+│   ├── auth/                 # Login screen
+│   └── ui/                   # Modal, tabs, search, toast, resize
+├── stores/                   # Zustand stores
+│   ├── sessionStore.ts       # Sessions, selection, teams
+│   ├── settingsStore.ts      # All user preferences
+│   ├── roomStore.ts          # Dynamic room management
+│   ├── uiStore.ts            # Modals, panels, toasts
+│   ├── wsStore.ts            # WebSocket connection state
+│   ├── queueStore.ts         # Prompt queue
+│   └── cameraStore.ts        # Camera fly-to targets
+├── hooks/                    # React hooks
+├── lib/                      # Utilities, sound engine, scene config
+└── styles/                   # CSS modules
 
-public/
-├── index.html         # Dashboard UI
-├── css/
-│   └── dashboard.css  # 9 themes, animations, responsive layout
-└── js/
-    ├── app.js             # Bootstrap: WS connect, event routing
-    ├── sessionPanel.js    # Session cards, detail panel, drag-drop groups
-    ├── robotManager.js    # 20 CSS character models
-    ├── soundManager.js    # 16 synthesized tones, per-action mapping
-    ├── movementManager.js # 18 movement effects, per-action mapping
-    ├── settingsManager.js # Settings persistence, theme/font management
-    ├── statsPanel.js      # Global stats header bar
-    ├── wsClient.js        # WebSocket client with auto-reconnect
-    ├── navController.js   # View switching (live/history/timeline/analytics)
-    ├── historyPanel.js    # Full-text search, filters, pagination
-    ├── timelinePanel.js   # Hour/day/week timeline charts
-    ├── analyticsPanel.js  # Tool breakdown, duration trends, heatmaps
-    └── chartUtils.js      # SVG bar charts, line charts, heatmaps
+server/                       # Node.js backend
+├── index.js                  # Express + WS orchestrator
+├── apiRouter.js              # REST API endpoints
+├── hookRouter.js             # POST /api/hooks (HTTP fallback)
+├── hookProcessor.js          # Hook validation + processing
+├── mqReader.js               # File-based JSONL queue reader
+├── sessionStore.js           # In-memory state machine (coordinator)
+│   ├── sessionMatcher.js     # 5-priority session matching
+│   ├── approvalDetector.js   # Tool approval timeout logic
+│   ├── teamManager.js        # Team/subagent tracking
+│   ├── processMonitor.js     # PID liveness checking
+│   └── autoIdleManager.js    # Idle transition timers
+├── wsManager.js              # WebSocket broadcast + terminal relay
+├── sshManager.js             # SSH/PTY terminal management
+├── db.js                     # SQLite schema + queries
+├── hookInstaller.js          # Auto-install hooks on startup
+├── hookStats.js              # Performance statistics
+├── config.js                 # Tool categories, timeouts
+├── constants.js              # Centralized magic strings
+├── serverConfig.js           # User config from data/server-config.json
+└── logger.js                 # Debug-aware logging
 
-hooks/
-├── dashboard-hook.sh   # Bash: enriches JSON, POSTs to localhost:3333
-├── dashboard-hook.ps1  # PowerShell: Windows variant
-└── install-hooks.js    # Merges hook config into ~/.claude/settings.json
+public/                       # Legacy vanilla JS frontend (fallback)
+hooks/                        # Hook scripts + installers
+├── dashboard-hook.sh         # Main hook (bash)
+├── dashboard-hook.ps1        # Windows PowerShell variant
+├── dashboard-hook-gemini.sh  # Gemini CLI adapter
+├── dashboard-hook-codex.sh   # Codex CLI adapter
+├── install-hooks.js          # CLI installer
+├── setup-wizard.js           # Interactive 6-step setup
+└── reset.js                  # Full reset with backup
+
+bin/cli.js                    # npx/global CLI entry point
+data/server-config.json       # User configuration
 ```
+
+---
+
+## REST API
+
+### Sessions
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/sessions` | List all in-memory sessions |
+| `PUT` | `/api/sessions/:id/title` | Update title |
+| `PUT` | `/api/sessions/:id/label` | Update label |
+| `PUT` | `/api/sessions/:id/accent-color` | Update accent color |
+| `POST` | `/api/sessions/:id/kill` | Kill session (SIGTERM -> SIGKILL) |
+| `POST` | `/api/sessions/:id/resume` | Resume SSH session |
+| `POST` | `/api/sessions/:id/summarize` | AI summarization |
+| `DELETE` | `/api/sessions/:id` | Delete session |
+
+### Terminals
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/terminals` | Create PTY terminal (max 10) |
+| `GET` | `/api/terminals` | List active terminals |
+| `DELETE` | `/api/terminals/:id` | Close terminal |
+
+### History & Analytics
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/db/sessions` | Search/list sessions (paginated) |
+| `GET` | `/api/db/sessions/:id` | Full session detail |
+| `GET` | `/api/db/search` | Full-text search |
+| `GET` | `/api/db/projects` | Distinct projects |
+| `GET` | `/api/db/analytics/summary` | Summary stats |
+| `GET` | `/api/db/analytics/tools` | Tool breakdown |
+| `GET` | `/api/db/analytics/projects` | Active projects |
+| `GET` | `/api/db/analytics/heatmap` | Activity heatmap |
+
+### Other
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/auth/status` | Auth status |
+| `POST` | `/api/auth/login` | Login |
+| `GET` | `/api/hooks/status` | Hook density and installed events |
+| `POST` | `/api/hooks/install` | Install hooks |
+| `GET` | `/api/ssh-keys` | List SSH keys from `~/.ssh/` |
+| `POST` | `/api/tmux-sessions` | List tmux sessions on host |
+| `GET` | `/api/teams/:id/config` | Read team config |
+
+---
+
+## Troubleshooting
+
+### Port 3333 in Use
+
+The server automatically kills the process occupying port 3333 on startup. To use a different port:
+
+```bash
+npx ai-agent-session-center --port 4444
+PORT=4444 npm start
+```
+
+### Hooks Not Firing
+
+1. Check hooks are registered: `cat ~/.claude/settings.json | grep dashboard-hook`
+2. Verify the hook script exists: `ls -la ~/.claude/hooks/dashboard-hook.sh`
+3. Verify executable: `chmod +x ~/.claude/hooks/dashboard-hook.sh`
+4. Test manually: `echo '{"session_id":"test","hook_event_name":"SessionStart"}' | ~/.claude/hooks/dashboard-hook.sh`
+5. Re-install: `npm run install-hooks`
+
+### jq Not Installed
+
+The hook script requires `jq` for JSON enrichment. Without it, hooks still work but send unenriched JSON.
+
+```bash
+# macOS
+brew install jq
+
+# Ubuntu/Debian
+sudo apt-get install jq
+```
+
+### Sessions Not Appearing
+
+1. Check MQ file: `ls /tmp/claude-session-center/queue.jsonl`
+2. Check data: `tail -5 /tmp/claude-session-center/queue.jsonl`
+3. Debug mode: `npm run debug`
+4. Verify density includes SessionStart: `npm run install-hooks`
+
+### WebSocket Disconnections
+
+Auto-reconnects with exponential backoff (1s base, 10s max). On reconnect, replays missed events from the server's ring buffer (last 500 events).
 
 ---
 
