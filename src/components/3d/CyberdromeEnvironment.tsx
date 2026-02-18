@@ -293,50 +293,9 @@ function RoomDesks({ room, deskOffset, theme }: { room: RoomConfig; deskOffset: 
 
 function RoomLighting({ center, theme }: { center: [number, number, number]; theme: Scene3DTheme }) {
   const [cx, , cz] = center;
-  const h = ROOM_HALF;
-  const lightY = WALL_H * 0.65;
-
-  const sconceMat = useMemo(() => new THREE.MeshStandardMaterial({
-    color: theme.sconceColor,
-    emissive: theme.sconceColor,
-    emissiveIntensity: 2.5,
-    roughness: 0.3,
-  }), [theme.sconceColor]);
-
-  const bracketMat = useMemo(() => new THREE.MeshStandardMaterial({
-    color: '#333348',
-    roughness: 0.4,
-    metalness: 0.7,
-  }), []);
-
-  const sconces = useMemo(() => [
-    { pos: [cx - 3, lightY, cz - h + 0.15] as [number, number, number], rot: 0 },
-    { pos: [cx,     lightY, cz - h + 0.15] as [number, number, number], rot: 0 },
-    { pos: [cx + 3, lightY, cz - h + 0.15] as [number, number, number], rot: 0 },
-    { pos: [cx - h + 0.15, lightY, cz - 2] as [number, number, number], rot: Math.PI / 2 },
-    { pos: [cx - h + 0.15, lightY, cz + 2] as [number, number, number], rot: Math.PI / 2 },
-    { pos: [cx + h - 0.15, lightY, cz - 2] as [number, number, number], rot: -Math.PI / 2 },
-    { pos: [cx + h - 0.15, lightY, cz + 2] as [number, number, number], rot: -Math.PI / 2 },
-    { pos: [cx - 3, lightY, cz + h - 0.15] as [number, number, number], rot: Math.PI },
-    { pos: [cx + 3, lightY, cz + h - 0.15] as [number, number, number], rot: Math.PI },
-  ], [cx, cz, h, lightY]);
 
   return (
     <group>
-      {sconces.map((s, i) => (
-        <group key={i} position={s.pos} rotation={[0, s.rot, 0]}>
-          <mesh position={[0, 0, -0.03]} material={bracketMat}>
-            <boxGeometry args={[0.8, 0.12, 0.05]} />
-          </mesh>
-          <mesh position={[0, 0, 0.1]} material={bracketMat}>
-            <boxGeometry args={[0.1, 0.08, 0.22]} />
-          </mesh>
-          <mesh position={[0, 0.03, 0.22]} material={sconceMat}>
-            <boxGeometry args={[1.2, 0.25, 0.12]} />
-          </mesh>
-        </group>
-      ))}
-
       <pointLight
         color={theme.roomLight1}
         intensity={10}

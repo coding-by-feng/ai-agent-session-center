@@ -3,27 +3,11 @@
  * Shows status breakdown, session count, mute toggle, and room management.
  */
 import { useMemo, useState, useCallback } from 'react';
-import { useSessionStore } from '@/stores/sessionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useRoomStore, type Room } from '@/stores/roomStore';
 import { useCameraStore, DEFAULT_CAMERA_POSITION, DEFAULT_CAMERA_TARGET } from '@/stores/cameraStore';
 import { computeRoomCameraTarget } from '@/lib/cyberdromeScene';
 import { soundEngine } from '@/lib/soundEngine';
-
-// ---------------------------------------------------------------------------
-// Status Colors
-// ---------------------------------------------------------------------------
-
-const STATUS_COLORS: Record<string, string> = {
-  idle: '#00ff88',
-  prompting: '#00e5ff',
-  working: '#ff9100',
-  waiting: '#00e5ff',
-  approval: '#ffdd00',
-  input: '#aa66ff',
-  ended: '#ff4444',
-  connecting: '#666',
-};
 
 // Shared button styling helper
 const BTN_FONT: React.CSSProperties = {
@@ -54,8 +38,6 @@ function RoomPanel() {
   const createRoom = useRoomStore((s) => s.createRoom);
   const renameRoom = useRoomStore((s) => s.renameRoom);
   const deleteRoom = useRoomStore((s) => s.deleteRoom);
-  const removeSession = useRoomStore((s) => s.removeSession);
-  const sessions = useSessionStore((s) => s.sessions);
   const flyTo = useCameraStore((s) => s.flyTo);
 
   const [expanded, setExpanded] = useState(false);
@@ -79,10 +61,6 @@ function RoomPanel() {
     setEditingId(null);
     setEditName('');
   }, [editingId, editName, renameRoom]);
-
-  const handleRemoveSession = useCallback((roomId: string, sessionId: string) => {
-    removeSession(roomId, sessionId);
-  }, [removeSession]);
 
   const handleFocusRoom = useCallback((roomIndex: number) => {
     const cam = computeRoomCameraTarget(roomIndex);
@@ -248,58 +226,16 @@ function RoomPanel() {
                 )}
               </div>
 
-              {/* Sessions in this room */}
+              {/* Session count badge */}
               {room.sessionIds.length > 0 && (
-                <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  {room.sessionIds.map((sid) => {
-                    const s = sessions.get(sid);
-                    if (!s) return null;
-                    return (
-                      <div
-                        key={sid}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 4,
-                          fontSize: 9,
-                          fontFamily: "'JetBrains Mono', monospace",
-                          color: 'rgba(255,255,255,0.5)',
-                          padding: '1px 4px',
-                        }}
-                      >
-                        <span style={{
-                          width: 5,
-                          height: 5,
-                          borderRadius: '50%',
-                          background: STATUS_COLORS[s.status] ?? '#888',
-                          flexShrink: 0,
-                        }} />
-                        <span style={{
-                          flex: 1,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}>
-                          {s.projectName || 'Unnamed'}
-                        </span>
-                        <button
-                          onClick={() => handleRemoveSession(room.id, sid)}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            color: 'rgba(255,68,68,0.4)',
-                            cursor: 'pointer',
-                            fontSize: 9,
-                            padding: 0,
-                            lineHeight: 1,
-                          }}
-                          title="Remove from room"
-                        >
-                          &times;
-                        </button>
-                      </div>
-                    );
-                  })}
+                <div style={{
+                  marginTop: 4,
+                  fontSize: 9,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  color: 'rgba(255,255,255,0.35)',
+                  padding: '1px 4px',
+                }}>
+                  {room.sessionIds.length} session{room.sessionIds.length !== 1 ? 's' : ''}
                 </div>
               )}
             </div>
