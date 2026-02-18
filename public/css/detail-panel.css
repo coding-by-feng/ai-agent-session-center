@@ -252,6 +252,31 @@
   transition: border-color 0.2s, background 0.2s;
 }
 
+.detail-title-edit-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted, #555);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.4;
+  transition: opacity 0.2s, color 0.2s;
+}
+
+.detail-title-edit-btn:hover {
+  opacity: 1;
+  color: var(--accent-cyan);
+}
+
+.detail-title-row:focus-within .detail-title-edit-btn {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .detail-header .detail-title-input:hover {
   border-color: var(--border-subtle);
   background: var(--border-faint);

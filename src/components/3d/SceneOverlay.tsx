@@ -350,18 +350,8 @@ function RoomPanel() {
 // ---------------------------------------------------------------------------
 
 export default function SceneOverlay({ sessionCount }: SceneOverlayProps) {
-  const sessions = useSessionStore((s) => s.sessions);
   const soundEnabled = useSettingsStore((s) => s.soundSettings.enabled);
   const updateSoundSettings = useSettingsStore((s) => s.updateSoundSettings);
-
-  // Status breakdown
-  const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const session of sessions.values()) {
-      counts[session.status] = (counts[session.status] || 0) + 1;
-    }
-    return counts;
-  }, [sessions]);
 
   const toggleMute = () => {
     const newEnabled = !soundEnabled;
@@ -378,45 +368,6 @@ export default function SceneOverlay({ sessionCount }: SceneOverlayProps) {
       pointerEvents: 'none',
       zIndex: 10,
     }}>
-      {/* Status breakdown (top left) */}
-      {sessionCount > 0 && (
-        <div style={{
-          position: 'absolute',
-          top: 16,
-          left: 20,
-          display: 'flex',
-          gap: 8,
-          alignItems: 'center',
-          userSelect: 'none',
-        }}>
-          {Object.entries(statusCounts)
-            .filter(([, count]) => count > 0)
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([status, count]) => (
-              <div
-                key={status}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  fontSize: 10,
-                  fontFamily: "'Share Tech Mono', 'JetBrains Mono', monospace",
-                  color: STATUS_COLORS[status] ?? '#888',
-                  letterSpacing: 1,
-                }}
-              >
-                <span style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: '50%',
-                  background: STATUS_COLORS[status] ?? '#888',
-                  boxShadow: `0 0 4px ${STATUS_COLORS[status] ?? '#888'}`,
-                }} />
-                {count}
-              </div>
-            ))}
-        </div>
-      )}
 
       {/* Bottom-right panel */}
       <div style={{

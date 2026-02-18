@@ -55,35 +55,44 @@ function shellEscapeSingleQuote(str) {
 
 // ---- Shell Ready Detection ----
 
-// Match ANSI escape sequences (CSI + OSC) for stripping from PTY output
-const ANSI_ESC_RE = /\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?(?:\x07|\x1b\\)/g;
+// Match ANSI escape sequences (CSI + OSC + DEC private modes) for stripping from PTY output
+const ANSI_ESC_RE = /\x1b\[[\x20-\x3f]*[0-9;]*[a-zA-Z@]|\x1b\].*?(?:\x07|\x1b\\)/g;
 
-// Common shell prompt endings: $ (bash/zsh), % (zsh), # (root), > (fish/powershell)
-const SHELL_PROMPT_RE = /[#$%>]\s*$/;
+// Common shell prompt endings: $ (bash/zsh), % (zsh), # (root), > (fish/powershell),
+// ❯ (starship), ➜ (oh-my-zsh robbyrussell), → » λ (other popular themes)
+const SHELL_PROMPT_RE = /[#$%>❯➜→»λ]\s*$/;
 
 /**
  * Watch PTY output to detect when the shell is ready (prompt visible).
  * Resolves `true` when a prompt is detected, `false` on timeout or PTY exit.
- * Uses a 100ms settle timer to avoid false-matching mid-stream MOTD output —
- * shell prompts are always the last thing printed before the shell waits for input.
+ *
+ * Strategy:
+ * 1. Watch for prompt patterns in PTY output (50ms settle timer to avoid MOTD false matches)
+ * 2. After `probeDelayMs`, send a bare Enter to the PTY — if the shell is ready, this
+ *    triggers a fresh prompt that gets detected immediately; if still loading, the Enter
+ *    is harmlessly buffered by the TTY driver
+ * 3. Hard timeout as final fallback (command will still work — PTY input is buffered)
  *
  * @param {import('node-pty').IPty} ptyProcess
  * @param {string} terminalId - For logging
  * @param {number} timeoutMs - Max wait time before fallback
+ * @param {number} probeDelayMs - Delay before sending Enter probe (0 to disable)
  * @returns {Promise<boolean>}
  */
-function detectShellReady(ptyProcess, terminalId, timeoutMs) {
+function detectShellReady(ptyProcess, terminalId, timeoutMs, probeDelayMs = 0) {
   let resolveFn;
   const promise = new Promise(r => { resolveFn = r; });
   let buffer = '';
   let done = false;
   let settleTimer = null;
+  let probeTimer = null;
 
   function finish(detected) {
     if (done) return;
     done = true;
     clearTimeout(fallbackTimer);
     clearTimeout(settleTimer);
+    clearTimeout(probeTimer);
     dataDisp.dispose();
     exitDisp.dispose();
     resolveFn(detected);
@@ -109,16 +118,29 @@ function detectShellReady(ptyProcess, terminalId, timeoutMs) {
     buffer += data;
     // Cap buffer to avoid memory issues with large MOTD output
     if (buffer.length > 4096) buffer = buffer.slice(-4096);
-    // Wait for output to settle (100ms of silence) before checking —
+    // Wait for output to settle (30ms of silence) before checking —
     // MOTD lines arrive in bursts, but the final prompt is followed by silence
     clearTimeout(settleTimer);
-    settleTimer = setTimeout(checkPrompt, 100);
+    settleTimer = setTimeout(checkPrompt, 30);
   });
 
   const exitDisp = ptyProcess.onExit(() => {
     log.debug('pty', `PTY ${terminalId} exited before shell ready detected`);
     finish(false);
   });
+
+  // Active probe: send Enter after delay to force a fresh prompt.
+  // This handles shells whose prompts don't match SHELL_PROMPT_RE
+  // (e.g., powerlevel10k, custom themes) — the new prompt after Enter
+  // gives another chance for detection, and even if detection still fails,
+  // the shorter hard timeout kicks in quickly.
+  if (probeDelayMs > 0) {
+    probeTimer = setTimeout(() => {
+      if (done) return;
+      log.debug('pty', `Sending Enter probe to ${terminalId} (no prompt detected after ${probeDelayMs}ms)`);
+      try { ptyProcess.write('\r'); } catch { /* pty may have exited */ }
+    }, probeDelayMs);
+  }
 
   const fallbackTimer = setTimeout(() => {
     log.warn('pty', `Shell ready detection timed out for ${terminalId} after ${timeoutMs}ms — sending command as fallback`);
@@ -284,7 +306,12 @@ export function createTerminal(config, wsClient) {
 
       // Detect when the shell is ready (prompt visible) before sending commands.
       // Local shells init in ~100-300ms; remote SSH can take seconds for key exchange.
-      const shellReady = detectShellReady(ptyProcess, terminalId, local ? 5000 : 15000);
+      // Probe sends an Enter after delay to force a prompt for shells with unrecognized prompts.
+      const shellReady = detectShellReady(
+        ptyProcess, terminalId,
+        local ? 1200 : 3000,   // hard timeout
+        local ? 300 : 1000,    // Enter probe delay
+      );
 
       terminals.set(terminalId, {
         pty: ptyProcess,

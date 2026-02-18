@@ -57,27 +57,20 @@ export interface CliBadge {
   color: string;
 }
 
-/** Label completion frame effect type */
-export type LabelFrameEffect = 'none' | 'fire' | 'electric' | 'chains' | 'liquid' | 'plasma';
-
 export interface Robot3DModelProps {
   neonColor: string;
   state: Robot3DState;
   scale?: number;
   rotation?: number;
   modelType?: RobotModelType;
-  /** Whether the robot is seated at a desk */
-  seated?: boolean;
+  /** Ref tracking whether the robot is seated at a desk (read in useFrame, no re-render) */
+  seatedRef?: React.RefObject<boolean>;
   /** CLI source badge rendered on the robot's chest */
   cliBadge?: CliBadge;
   /** Current active tool name (for tool-specific working animations) */
   currentTool?: string | null;
   /** Timestamp (ms) when the current status started (for urgency + progress timer) */
   statusStartTime?: number;
-  /** Active label frame effect (fires on label completion) */
-  labelFrame?: LabelFrameEffect;
-  /** Accent color for the label frame effect */
-  labelFrameColor?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -90,17 +83,11 @@ export default function Robot3DModel({
   scale: scaleProp = 1,
   rotation = 0,
   modelType = 'robot',
-  seated = false,
+  seatedRef,
   cliBadge,
   currentTool = null,
   statusStartTime,
-  labelFrame = 'none',
-  labelFrameColor,
 }: Robot3DModelProps) {
-  // Settings: animation intensity and speed
-  const animIntensity = useSettingsStore((s) => s.animationIntensity) / 100;
-  const animSpeed = useSettingsStore((s) => s.animationSpeed) / 100;
-
   // Model variant overrides
   const modelDef = useMemo(() => getModelDef(modelType), [modelType]);
   const groupRef = useRef<THREE.Group>(null);
@@ -157,14 +144,15 @@ export default function Robot3DModel({
     statusElapsed.current = 0;
   }, [state]);
 
-  // Animation loop (scaled by settings)
+  // Animation loop — reads settings imperatively (no Zustand subscription)
   useFrame((_, delta) => {
+    const settings = useSettingsStore.getState();
+    const animSpeed = settings.animationSpeed / 100;
+    const ai = settings.animationIntensity / 100;
     const t = (performance.now() / 1000) * animSpeed;
     const dt = Math.min(delta, 0.1);
     const group = groupRef.current;
     if (!group) return;
-
-    const ai = animIntensity; // animation intensity multiplier
 
     // Track status elapsed time
     statusElapsed.current += dt;
@@ -215,179 +203,12 @@ export default function Robot3DModel({
         break;
     }
 
-    // Label completion frame effect (overlay on top of state animation)
-    if (labelFrame !== 'none') {
-      animateLabelFrame(t, phase, ai);
-    }
   });
-
-  // --- Label Frame Effect Animation ---
-
-  function animateLabelFrame(t: number, ph: number, ai: number) {
-    const fc = labelFrameColor || neonColor;
-
-    switch (labelFrame) {
-      case 'fire': {
-        // Burning fire: warm orange/red emissive across body, flickering wireframe
-        if (bodyMeshRef.current) {
-          const mtl = bodyMeshRef.current.material as THREE.MeshStandardMaterial;
-          if (mtl.emissive) {
-            mtl.emissive.set('#ff4400');
-            // Rapid fire flicker: two frequencies layered
-            mtl.emissiveIntensity = 0.4 + Math.sin(t * 9 + ph) * 0.2 + Math.abs(Math.sin(t * 17 + ph * 3)) * 0.25;
-          }
-        }
-        if (bodyEdgeRef.current) {
-          const mtl = bodyEdgeRef.current.material as THREE.LineBasicMaterial;
-          mtl.color.set('#ff6600');
-          mtl.opacity = Math.min(1, 0.7 + Math.sin(t * 11 + ph) * 0.3);
-        }
-        if (coreRef.current) {
-          const mtl = coreRef.current.material as THREE.MeshStandardMaterial;
-          mtl.emissive.set('#ff3300');
-          mtl.emissiveIntensity = 3.0 + Math.sin(t * 7 + ph) * 2.0;
-        }
-        if (visorRef.current) {
-          const mtl = visorRef.current.material as THREE.MeshStandardMaterial;
-          mtl.emissive.set('#ff6600');
-          mtl.emissiveIntensity = 2.5 + Math.sin(t * 13 + ph) * 1.5;
-        }
-        break;
-      }
-
-      case 'electric': {
-        // Electric surge: bright cyan/white flickering arcs, rapid wireframe intensity spikes
-        if (bodyMeshRef.current) {
-          const mtl = bodyMeshRef.current.material as THREE.MeshStandardMaterial;
-          if (mtl.emissive) {
-            mtl.emissive.set(fc);
-            // Electrical spike pattern: sharp random-feeling bursts
-            const spike = Math.pow(Math.abs(Math.sin(t * 20 + ph)), 4);
-            mtl.emissiveIntensity = 0.3 + spike * 0.6;
-          }
-        }
-        if (bodyEdgeRef.current) {
-          const mtl = bodyEdgeRef.current.material as THREE.LineBasicMaterial;
-          mtl.color.set('#ffffff');
-          // Rapid arc flicker between full brightness and dim
-          const arc = Math.sin(t * 25 + ph) > 0.3 ? 1.0 : 0.4;
-          mtl.opacity = arc;
-        }
-        if (coreRef.current) {
-          const mtl = coreRef.current.material as THREE.MeshStandardMaterial;
-          mtl.emissive.set(fc);
-          mtl.emissiveIntensity = 3.5 + Math.sin(t * 16 + ph) * 2.0 + Math.sin(t * 31) * 1.0;
-        }
-        if (aTipRef.current) {
-          const mtl = aTipRef.current.material as THREE.MeshStandardMaterial;
-          mtl.emissiveIntensity = 4.0 + Math.sin(t * 22 + ph) * 2.5;
-          const crackle = 1.0 + Math.sin(t * 30 + ph) * 0.25 * ai;
-          aTipRef.current.scale.setScalar(crackle);
-        }
-        break;
-      }
-
-      case 'chains': {
-        // Golden aura: warm golden glow enveloping the robot, slow pulsing
-        const gold = '#ffd700';
-        if (bodyMeshRef.current) {
-          const mtl = bodyMeshRef.current.material as THREE.MeshStandardMaterial;
-          if (mtl.emissive) {
-            mtl.emissive.set(gold);
-            mtl.emissiveIntensity = 0.35 + Math.sin(t * 2.5 + ph) * 0.15;
-          }
-        }
-        if (bodyEdgeRef.current) {
-          const mtl = bodyEdgeRef.current.material as THREE.LineBasicMaterial;
-          mtl.color.set(gold);
-          mtl.opacity = 0.8 + Math.sin(t * 3 + ph) * 0.2;
-        }
-        if (coreRef.current) {
-          const mtl = coreRef.current.material as THREE.MeshStandardMaterial;
-          mtl.emissive.set(gold);
-          mtl.emissiveIntensity = 2.5 + Math.sin(t * 2 + ph) * 1.0;
-        }
-        if (visorRef.current) {
-          const mtl = visorRef.current.material as THREE.MeshStandardMaterial;
-          mtl.emissive.set(gold);
-          mtl.emissiveIntensity = 2.0 + Math.sin(t * 3.5 + ph) * 0.8;
-        }
-        break;
-      }
-
-      case 'liquid': {
-        // Liquid energy: flowing wave pattern across body, shifting hue
-        const wave = Math.sin(t * 4 + ph);
-        const hueShift = wave * 0.5; // -0.5 to 0.5
-        // Blend between label color and a shifted version
-        if (bodyMeshRef.current) {
-          const mtl = bodyMeshRef.current.material as THREE.MeshStandardMaterial;
-          if (mtl.emissive) {
-            mtl.emissive.set(fc);
-            // Flowing wave intensity: ripple from bottom to top
-            mtl.emissiveIntensity = 0.25 + (Math.sin(t * 3 + ph) + 1) * 0.2;
-          }
-        }
-        if (bodyEdgeRef.current) {
-          const mtl = bodyEdgeRef.current.material as THREE.LineBasicMaterial;
-          mtl.color.set(fc);
-          // Wave-like opacity pattern
-          mtl.opacity = 0.5 + Math.sin(t * 5 + ph + 1) * 0.3;
-        }
-        if (coreRef.current) {
-          const mtl = coreRef.current.material as THREE.MeshStandardMaterial;
-          mtl.emissive.set(fc);
-          mtl.emissiveIntensity = 2.0 + Math.sin(t * 3.5 + ph) * 1.5 + hueShift;
-        }
-        if (visorRef.current) {
-          const mtl = visorRef.current.material as THREE.MeshStandardMaterial;
-          mtl.emissiveIntensity = 2.0 + Math.sin(t * 6 + ph) * 1.0;
-        }
-        break;
-      }
-
-      case 'plasma': {
-        // Plasma overload: intense magenta/violet, extremely high emissive, rapid violent oscillation
-        const plasma = '#ff00ff';
-        if (bodyMeshRef.current) {
-          const mtl = bodyMeshRef.current.material as THREE.MeshStandardMaterial;
-          if (mtl.emissive) {
-            mtl.emissive.set(plasma);
-            mtl.emissiveIntensity = 0.5 + Math.sin(t * 15 + ph) * 0.3 + Math.abs(Math.sin(t * 23)) * 0.2;
-          }
-        }
-        if (bodyEdgeRef.current) {
-          const mtl = bodyEdgeRef.current.material as THREE.LineBasicMaterial;
-          mtl.color.set(plasma);
-          mtl.opacity = Math.min(1, 0.8 + Math.sin(t * 18 + ph) * 0.2);
-        }
-        if (coreRef.current) {
-          const mtl = coreRef.current.material as THREE.MeshStandardMaterial;
-          mtl.emissive.set(plasma);
-          mtl.emissiveIntensity = 4.0 + Math.sin(t * 12 + ph) * 2.5 + Math.sin(t * 27) * 1.5;
-        }
-        if (visorRef.current) {
-          const mtl = visorRef.current.material as THREE.MeshStandardMaterial;
-          mtl.emissive.set(plasma);
-          mtl.emissiveIntensity = 3.0 + Math.sin(t * 14 + ph) * 2.0;
-        }
-        if (aTipRef.current) {
-          const mtl = aTipRef.current.material as THREE.MeshStandardMaterial;
-          mtl.emissive.set(plasma);
-          mtl.emissiveIntensity = 5.0 + Math.sin(t * 20 + ph) * 3.0;
-          aTipRef.current.scale.setScalar(1.0 + Math.sin(t * 25 + ph) * 0.3 * ai);
-        }
-        break;
-      }
-    }
-  }
 
   // --- Animation functions ---
 
-  /** Reset body emissive glow that working state applies.
-   *  Skipped when labelFrame is active — the frame animation takes priority. */
+  /** Reset body emissive glow that working state applies. */
   function resetBodyCharge() {
-    if (labelFrame !== 'none') return;
     if (bodyMeshRef.current) {
       const bodyMtl = bodyMeshRef.current.material as THREE.MeshStandardMaterial;
       if (bodyMtl.emissive) {
@@ -423,7 +244,7 @@ export default function Robot3DModel({
   function animateThinking(t: number, _dt: number, ph: number, ai: number) {
     resetBodyCharge();
     const group = groupRef.current!;
-    if (seated) {
+    if (seatedRef?.current) {
       // Seated thinking: head tilted, right arm raised in chin-scratch pose
       group.position.y = Math.sin(t * 0.8 + ph) * 0.005 * ai;
       if (headRef.current) {
@@ -505,8 +326,15 @@ export default function Robot3DModel({
       }
     }
 
-    if (legLRef.current) legLRef.current.rotation.x = 1.2;
-    if (legRRef.current) legRRef.current.rotation.x = 1.2;
+    if (seatedRef?.current) {
+      // Seated: legs bent at desk
+      if (legLRef.current) legLRef.current.rotation.x = 1.2;
+      if (legRRef.current) legRRef.current.rotation.x = 1.2;
+    } else {
+      // Walking to desk: legs animate walking motion
+      if (legLRef.current) legLRef.current.rotation.x = Math.sin(t * 8 + ph) * 0.3 * ai;
+      if (legRRef.current) legRRef.current.rotation.x = -Math.sin(t * 8 + ph) * 0.3 * ai;
+    }
     if (bodyMeshRef.current) bodyMeshRef.current.rotation.z = Math.sin(t * 0.7 + ph) * 0.012 * ai;
     if (bodyEdgeRef.current) bodyEdgeRef.current.rotation.z = Math.sin(t * 0.7 + ph) * 0.012 * ai;
 
@@ -572,7 +400,7 @@ export default function Robot3DModel({
       const intensity = baseIntensity + Math.sin(t * pulseSpeed) * pulseRange;
       (visorRef.current.material as THREE.MeshStandardMaterial).emissiveIntensity = intensity;
     }
-    if (seated) {
+    if (seatedRef?.current) {
       group.position.y = Math.abs(Math.sin(t * 6 + ph)) * 0.03 * ai;
       if (armLRef.current) armLRef.current.rotation.x = -1.2 + Math.sin(t * 8 + ph) * 0.2 * ai;
       if (armRRef.current) armRRef.current.rotation.x = -1.2 - Math.sin(t * 8 + ph) * 0.2 * ai;
@@ -598,7 +426,7 @@ export default function Robot3DModel({
       const intensity = 1.5 + Math.sin(t * 4) * 0.8;
       (visorRef.current.material as THREE.MeshStandardMaterial).emissiveIntensity = intensity;
     }
-    if (seated) {
+    if (seatedRef?.current) {
       group.position.y = Math.sin(t * 1.5 + ph) * 0.01 * ai;
       if (armRRef.current) armRRef.current.rotation.x = -1.5 + Math.sin(t * 2 + ph) * 0.1 * ai;
       if (armLRef.current) armLRef.current.rotation.x = -0.3 + Math.sin(t * 0.5 + ph) * 0.03 * ai;
@@ -625,7 +453,7 @@ export default function Robot3DModel({
       mat.emissiveIntensity = Math.max(0, mat.emissiveIntensity - 0.02);
     }
 
-    if (seated) {
+    if (seatedRef?.current) {
       group.position.y = 0;
       if (headRef.current) {
         headRef.current.rotation.x = 0.3;

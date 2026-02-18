@@ -5,6 +5,7 @@
 import { useEffect, useRef } from 'react';
 import { db } from '@/lib/db';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { soundEngine } from '@/lib/soundEngine';
 
 export function useSettingsInit(): void {
   const loaded = useRef(false);
@@ -41,5 +42,33 @@ export function useSettingsInit(): void {
         // IndexedDB not available — use defaults
       }
     })();
+  }, []);
+
+  // Sync master volume from settings to the sound engine
+  const volume = useSettingsStore((s) => s.soundSettings.volume);
+  useEffect(() => {
+    soundEngine.setVolume(volume);
+  }, [volume]);
+
+  // Unlock Web Audio on first user interaction so alarm sounds can play
+  useEffect(() => {
+    if (soundEngine.isUnlocked()) return;
+
+    function unlock() {
+      soundEngine.unlock();
+      document.removeEventListener('click', unlock);
+      document.removeEventListener('keydown', unlock);
+      document.removeEventListener('touchstart', unlock);
+    }
+
+    document.addEventListener('click', unlock);
+    document.addEventListener('keydown', unlock);
+    document.addEventListener('touchstart', unlock);
+
+    return () => {
+      document.removeEventListener('click', unlock);
+      document.removeEventListener('keydown', unlock);
+      document.removeEventListener('touchstart', unlock);
+    };
   }, []);
 }

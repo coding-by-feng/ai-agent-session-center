@@ -1,8 +1,11 @@
 /**
  * CameraController — Canvas-side component that reads camera navigation
  * requests from the cameraStore and smoothly animates OrbitControls.
+ *
+ * ZERO Zustand subscriptions — reads store imperatively in useFrame
+ * to prevent cross-reconciler cascades (React Error #185).
  */
-import { useRef, useEffect } from 'react';
+import { useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import * as THREE from 'three';
@@ -17,24 +20,24 @@ interface CameraControllerProps {
 
 export default function CameraController({ controlsRef }: CameraControllerProps) {
   const camera = useThree((s) => s.camera);
-  const pendingTarget = useCameraStore((s) => s.pendingTarget);
-  const completeAnimation = useCameraStore((s) => s.completeAnimation);
 
   const targetPos = useRef(new THREE.Vector3());
   const targetLookAt = useRef(new THREE.Vector3());
   const animating = useRef(false);
   const lastRequestId = useRef(0);
 
-  useEffect(() => {
+  useFrame(() => {
+    // Poll the camera store imperatively — no subscription, no re-render
+    const { pendingTarget } = useCameraStore.getState();
+
+    // Detect new fly-to requests
     if (pendingTarget && pendingTarget.requestId !== lastRequestId.current) {
       lastRequestId.current = pendingTarget.requestId;
       targetPos.current.set(...pendingTarget.position);
       targetLookAt.current.set(...pendingTarget.lookAt);
       animating.current = true;
     }
-  }, [pendingTarget]);
 
-  useFrame(() => {
     if (!animating.current || !controlsRef.current) return;
 
     const controls = controlsRef.current;
@@ -51,7 +54,8 @@ export default function CameraController({ controlsRef }: CameraControllerProps)
       controls.target.copy(targetLookAt.current);
       controls.update();
       animating.current = false;
-      completeAnimation();
+      // Defer the store update out of R3F's render cycle
+      queueMicrotask(() => useCameraStore.getState().completeAnimation());
     }
   });
 

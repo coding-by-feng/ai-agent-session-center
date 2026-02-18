@@ -72,10 +72,13 @@ export function useKeyboardShortcuts(): void {
       const currentModal = useUiStore.getState().activeModal;
       const selectedId = useSessionStore.getState().selectedSessionId;
 
-      // Always allow Escape
+      // Always allow Escape — but pass it through to the terminal when focused
       if (e.key === 'Escape') {
         if (currentModal) {
           closeModal();
+        } else if ((e.target as HTMLElement)?.closest?.('.xterm')) {
+          // Terminal has focus — let xterm handle Escape (sends \x1b to SSH)
+          return;
         } else if (selectedId) {
           useSessionStore.getState().deselectSession();
         }
@@ -84,6 +87,24 @@ export function useKeyboardShortcuts(): void {
 
       // Don't intercept when typing in form fields
       if (isTyping(e)) return;
+
+      // Alt+Cmd+R (macOS) / Alt+Ctrl+R: refresh terminal
+      if (e.key === 'r' && e.altKey && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('terminal:refresh'));
+        return;
+      }
+
+      // Alt+F11: toggle browser fullscreen
+      if (e.key === 'F11' && e.altKey) {
+        e.preventDefault();
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {});
+        } else {
+          document.documentElement.requestFullscreen().catch(() => {});
+        }
+        return;
+      }
 
       // Don't intercept with modifier keys (Ctrl, Cmd, Alt)
       if (e.ctrlKey || e.metaKey || e.altKey) return;

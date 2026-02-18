@@ -12,9 +12,6 @@ vi.mock('./ThemeSettings', () => ({
 vi.mock('./SoundSettings', () => ({
   default: () => <div data-testid="sound-settings">Sound Settings</div>,
 }));
-vi.mock('./LabelSettings', () => ({
-  default: () => <div data-testid="label-settings">Label Settings</div>,
-}));
 vi.mock('./HookSettings', () => ({
   default: () => <div data-testid="hook-settings">Hook Settings</div>,
 }));
@@ -71,13 +68,6 @@ describe('SettingsPanel', () => {
     expect(screen.queryByTestId('theme-settings')).not.toBeInTheDocument();
   });
 
-  it('switches to labels tab', () => {
-    useUiStore.setState({ activeModal: 'settings' });
-    render(<SettingsPanel />);
-    fireEvent.click(screen.getByText('LABELS'));
-    expect(screen.getByTestId('label-settings')).toBeInTheDocument();
-  });
-
   it('switches to hooks tab', () => {
     useUiStore.setState({ activeModal: 'settings' });
     render(<SettingsPanel />);
@@ -101,12 +91,11 @@ describe('SettingsPanel', () => {
     expect(screen.getByText('Reset to Defaults')).toBeInTheDocument();
   });
 
-  it('has all 6 tab buttons', () => {
+  it('has all 5 tab buttons', () => {
     useUiStore.setState({ activeModal: 'settings' });
     render(<SettingsPanel />);
     expect(screen.getByText('APPEARANCE')).toBeInTheDocument();
     expect(screen.getByText('SOUND')).toBeInTheDocument();
-    expect(screen.getByText('LABELS')).toBeInTheDocument();
     expect(screen.getByText('HOOKS')).toBeInTheDocument();
     expect(screen.getByText('API KEYS')).toBeInTheDocument();
     expect(screen.getByText('ADVANCED')).toBeInTheDocument();

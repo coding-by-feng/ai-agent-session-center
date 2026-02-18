@@ -1,0 +1,153 @@
+/* ============================================================
+   WorkdirLauncher CSS Module
+   Dropdown popover for one-click session launch by directory
+   ============================================================ */
+
+.wrapper {
+  position: relative;
+}
+
+.triggerBtn {
+  background: none;
+  border: 1px solid rgba(0, 255, 136, 0.4);
+  color: #00ff88;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 5px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.triggerBtn:hover {
+  background: rgba(0, 255, 136, 0.12);
+  border-color: #00ff88;
+}
+
+.triggerBtn.open {
+  background: rgba(0, 255, 136, 0.15);
+  border-color: #00ff88;
+}
+
+/* ---- Dropdown ---- */
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 280px;
+  max-width: 380px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--bg-panel, #0d0d2b);
+  border: 1px solid var(--border-accent, #1a1a3e);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  animation: dropIn 0.15s ease;
+}
+
+@keyframes dropIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.dropdown::-webkit-scrollbar { width: 6px; }
+.dropdown::-webkit-scrollbar-track { background: transparent; }
+.dropdown::-webkit-scrollbar-thumb { background: var(--border-accent, #1a1a3e); border-radius: 3px; }
+
+.dropdownHeader {
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-dim, #555);
+  border-bottom: 1px solid var(--border-subtle, #1a1a3e);
+}
+
+/* ---- Directory Items ---- */
+
+.dirItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  transition: background 0.12s;
+}
+
+.dirItem:last-child {
+  border-bottom: none;
+}
+
+.dirItem:hover {
+  background: rgba(0, 255, 136, 0.06);
+}
+
+.dirInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.dirName {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary, #e0e0e0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dirPath {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim, #555);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dirRemove {
+  background: none;
+  border: none;
+  color: var(--text-dim, #555);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.dirItem:hover .dirRemove {
+  opacity: 0.6;
+}
+
+.dirRemove:hover {
+  opacity: 1 !important;
+  color: var(--accent-red, #ff3355);
+  background: rgba(255, 51, 85, 0.1);
+}
+
+/* ---- Empty State ---- */
+
+.empty {
+  padding: 16px 12px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim, #555);
+  font-style: italic;
+}

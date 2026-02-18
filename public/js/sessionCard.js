@@ -593,19 +593,6 @@ function _applyCardUpdate(session) {
   const isImportant = (session.label || '').toUpperCase() === 'IMPORTANT';
   card.classList.toggle('important-session', isImportant);
 
-  const labelUpper = (session.label || '').toUpperCase();
-  if (labelUpper === 'ONEOFF' || labelUpper === 'HEAVY' || labelUpper === 'IMPORTANT') {
-    const labelCfg = settingsManager.getLabelSettings();
-    const frameName = labelCfg[labelUpper]?.frame || 'none';
-    if (frameName && frameName !== 'none') {
-      card.dataset.frame = frameName;
-    } else {
-      delete card.dataset.frame;
-    }
-  } else {
-    delete card.dataset.frame;
-  }
-
   const sourceBadge = card.querySelector('.source-badge');
   if (sourceBadge) {
     const src = session.source || 'ssh';

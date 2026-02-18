@@ -101,20 +101,6 @@
 .soundPreviewBtn { background: none; border: 1px solid var(--border-subtle); color: var(--text-dim); font-size: 10px; cursor: pointer; padding: 3px 7px; border-radius: 3px; transition: all 0.2s; flex-shrink: 0; }
 .soundPreviewBtn:hover { color: var(--accent-cyan); border-color: var(--border-accent-strong); background: var(--bg-accent); }
 
-/* ---- Label Settings ---- */
-
-.labelSettingsGrid { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
-.labelConfigCard { background: var(--bg-card); border: 2px solid var(--label-color, var(--border-subtle)); border-radius: 8px; padding: 12px 14px; box-shadow: 0 0 8px color-mix(in srgb, var(--label-color) 20%, transparent); position: relative; overflow: visible; }
-.labelConfigHeader { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border-subtle); }
-.labelConfigIcon { font-size: 16px; }
-.labelConfigName { font-size: 13px; font-weight: 800; letter-spacing: 1px; color: var(--label-color, var(--text-primary)); text-transform: uppercase; }
-.labelConfigRow { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.labelConfigRow:last-child { margin-bottom: 0; }
-.labelConfigField { font-size: 11px; color: var(--text-secondary); width: 70px; flex-shrink: 0; }
-.labelConfigSelect { flex: 1; background: var(--bg-panel); border: 1px solid var(--border-subtle); color: var(--text-primary); font-family: var(--font-mono); font-size: 11px; padding: 4px 8px; border-radius: 4px; cursor: pointer; }
-.labelConfigSelect:focus { border-color: var(--label-color, var(--accent-cyan)); outline: none; }
-.labelConfigSelect option { background-color: var(--bg-card, #0d1b2a); color: var(--text-primary, #ccd6f6); }
-
 /* ---- Hook Density Controls ---- */
 
 .densityControl { display: flex; gap: 10px; margin-bottom: 12px; }

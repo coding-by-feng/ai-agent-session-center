@@ -6,6 +6,7 @@ import { useState, useMemo } from 'react';
 import Modal from '@/components/ui/Modal';
 import { showToast } from '@/components/ui/ToastContainer';
 import { useUiStore } from '@/stores/uiStore';
+import { useSessionStore } from '@/stores/sessionStore';
 import styles from '@/styles/modules/Modal.module.css';
 
 // ---------------------------------------------------------------------------
@@ -52,6 +53,7 @@ export default function QuickSessionModal() {
   const [selectedLabel, setSelectedLabel] = useState('');
   const [newLabel, setNewLabel] = useState('');
   const [customLabels, setCustomLabels] = useState(loadCustomLabels);
+  const [sessionTitle, setSessionTitle] = useState('');
   const [workingDir, setWorkingDir] = useState(() => {
     const history = loadWorkdirHistory();
     return history[0] || '~';
@@ -94,11 +96,16 @@ export default function QuickSessionModal() {
           workingDir: workingDir || '~',
           command: 'claude',
           label: selectedLabel || undefined,
+          sessionTitle: sessionTitle.trim() || undefined,
         }),
       });
       const data = await res.json();
       if (data.ok) {
         showToast(`Quick session launched${selectedLabel ? ` [${selectedLabel}]` : ''}`, 'success');
+        // Auto-select the new session so the detail panel stays open
+        if (data.terminalId) {
+          useSessionStore.getState().selectSession(data.terminalId);
+        }
         closeModal();
       } else {
         showToast(data.error || 'Failed to launch session', 'error');
@@ -157,6 +164,16 @@ export default function QuickSessionModal() {
               onChange={(e) => setNewLabel(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAddLabel()}
               placeholder="Add custom label..."
+            />
+          </div>
+
+          {/* Session title */}
+          <div className={styles.quickWorkdirRow}>
+            <label>Session Title <span style={{ opacity: 0.4, fontWeight: 400 }}>(optional)</span></label>
+            <input
+              value={sessionTitle}
+              onChange={(e) => setSessionTitle(e.target.value)}
+              placeholder="Auto-generated if empty"
             />
           </div>
 

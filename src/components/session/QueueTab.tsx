@@ -20,6 +20,9 @@ function localId(): number {
   return nextLocalId++;
 }
 
+/** Stable empty array — prevents useSyncExternalStore infinite loop from `?? []` */
+const EMPTY_QUEUE: QueueItem[] = [];
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -38,7 +41,7 @@ export default function QueueTab({
   terminalId,
   onQueueCountChange,
 }: QueueTabProps) {
-  const items = useQueueStore((s) => s.queues.get(sessionId) ?? []);
+  const items = useQueueStore((s) => s.queues.get(sessionId) ?? EMPTY_QUEUE);
   const add = useQueueStore((s) => s.add);
   const remove = useQueueStore((s) => s.remove);
   const reorder = useQueueStore((s) => s.reorder);

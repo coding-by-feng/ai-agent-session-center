@@ -1,115 +1,117 @@
 /**
- * RobotDialogue -- Floating speech-bubble popup above each 3D robot.
- * Shows contextual messages based on session events: prompts, tool usage,
- * status changes. Uses drei <Text> + <Billboard> for pure WebGL rendering
- * (avoids <Html> DOM portals which cascade in R3F's reconciler).
+ * RobotDialogue -- Floating speech-bubble above each 3D robot.
+ * Shows contextual messages based on session events.
+ *
+ * ZERO React state — reads dialogue data from a parent ref in useFrame.
+ * This eliminates all setState calls from the R3F render tree,
+ * preventing cross-reconciler cascades (React Error #185).
  */
-import { memo, useEffect, useRef, useState } from 'react';
+import { useRef } from 'react';
 import { Text, Billboard } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
+import * as THREE from 'three';
 
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
 
-export interface RobotDialogueProps {
-  text: string | null;
+export interface DialogueData {
+  text: string;
   borderColor: string;
   persistent: boolean;
+  timestamp: number;
+}
+
+export interface RobotDialogueProps {
+  dialogueRef: React.RefObject<DialogueData | null>;
 }
 
 // ---------------------------------------------------------------------------
-// Component
+// Component (always mounted, visibility controlled by opacity)
 // ---------------------------------------------------------------------------
 
-function RobotDialogueInner({ text, borderColor, persistent }: RobotDialogueProps) {
-  const [visible, setVisible] = useState(false);
-  const fadingOut = useRef(false);
+export default function RobotDialogue({ dialogueRef }: RobotDialogueProps) {
   const opacity = useRef(0);
-  const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prevText = useRef<string | null>(null);
+  const lastTimestamp = useRef(0);
+  const fadingOut = useRef(false);
+  const fadeStartTime = useRef(0);
+  const currentText = useRef('');
+  const currentBorderColor = useRef('#00e5ff');
+  const bgMatRef = useRef<THREE.MeshBasicMaterial>(null);
+  const borderMatRef = useRef<THREE.MeshBasicMaterial>(null);
 
-  // Animate opacity in useFrame instead of CSS transitions
   useFrame((_, delta) => {
-    if (!visible) {
-      opacity.current = 0;
-      return;
+    const d = dialogueRef.current;
+    const now = performance.now() / 1000;
+
+    // Detect new dialogue
+    if (d && d.timestamp !== lastTimestamp.current) {
+      lastTimestamp.current = d.timestamp;
+      currentText.current = d.text;
+      currentBorderColor.current = d.borderColor;
+      fadingOut.current = false;
+
+      // Schedule fade-out for non-persistent dialogues
+      if (!d.persistent) {
+        fadeStartTime.current = now + 5; // fade after 5 seconds
+      } else {
+        fadeStartTime.current = 0; // persistent — never auto-fade
+      }
     }
-    const target = fadingOut.current ? 0 : 1;
-    const speed = 4; // lerp speed (higher = faster fade)
+
+    // Check if it's time to fade out
+    if (fadeStartTime.current > 0 && now >= fadeStartTime.current && !fadingOut.current) {
+      fadingOut.current = true;
+    }
+
+    // Animate opacity
+    const target = fadingOut.current ? 0 : (lastTimestamp.current > 0 ? 1 : 0);
+    const speed = 4;
     opacity.current += (target - opacity.current) * Math.min(1, speed * delta);
 
-    // Once fully faded out, hide the component
-    if (fadingOut.current && opacity.current < 0.01) {
-      opacity.current = 0;
-      fadingOut.current = false;
-      setVisible(false);
+    // Clamp small values to 0
+    if (opacity.current < 0.01) opacity.current = 0;
+
+    // Update materials directly (no React re-render needed)
+    if (bgMatRef.current) {
+      bgMatRef.current.opacity = opacity.current * 0.92;
+      bgMatRef.current.visible = opacity.current > 0;
+    }
+    if (borderMatRef.current) {
+      borderMatRef.current.opacity = opacity.current * 0.6;
+      borderMatRef.current.visible = opacity.current > 0;
+      borderMatRef.current.color.set(currentBorderColor.current);
     }
   });
 
-  useEffect(() => {
-    // Clear existing timers on any change
-    if (dismissTimer.current) clearTimeout(dismissTimer.current);
-    if (fadeTimer.current) clearTimeout(fadeTimer.current);
-
-    if (text) {
-      fadingOut.current = false;
-      setVisible(true);
-      prevText.current = text;
-
-      if (!persistent) {
-        // Start fade-out after 5s
-        dismissTimer.current = setTimeout(() => {
-          fadingOut.current = true;
-        }, 5000);
-      }
-    } else {
-      // text cleared -> fade out
-      if (visible) {
-        fadingOut.current = true;
-      }
-    }
-
-    return () => {
-      if (dismissTimer.current) clearTimeout(dismissTimer.current);
-      if (fadeTimer.current) clearTimeout(fadeTimer.current);
-    };
-  }, [text, persistent]);
-
-  if (!visible) return null;
-
-  const displayText = text || prevText.current;
-  if (!displayText) return null;
-
-  // Fixed panel width — generous estimate for most dialogue strings
+  // Fixed panel dimensions
   const panelWidth = 2.2;
   const panelHeight = 0.22;
 
   return (
-    <Billboard
-      position={[0, 2.8, 0]}
-      follow
-      lockX={false}
-      lockY={false}
-      lockZ={false}
-    >
+    <Billboard position={[0, 2.8, 0]} follow lockX={false} lockY={false} lockZ={false}>
       {/* Background panel */}
       <mesh position={[0, 0, -0.01]}>
         <planeGeometry args={[panelWidth, panelHeight]} />
         <meshBasicMaterial
+          ref={bgMatRef}
           color="#0a0616"
           transparent
-          opacity={opacity.current * 0.92}
+          opacity={0}
+          visible={false}
+          depthTest={false}
         />
       </mesh>
       {/* Border */}
       <mesh position={[0, 0, -0.005]}>
         <planeGeometry args={[panelWidth + 0.04, panelHeight + 0.04]} />
         <meshBasicMaterial
-          color={borderColor}
+          ref={borderMatRef}
+          color="#00e5ff"
           transparent
-          opacity={opacity.current * 0.6}
+          opacity={0}
+          visible={false}
+          depthTest={false}
         />
       </mesh>
       <Text
@@ -120,15 +122,59 @@ function RobotDialogueInner({ text, borderColor, persistent }: RobotDialogueProp
         maxWidth={2}
         outlineWidth={0.005}
         outlineColor="#000000"
-        // Use opacity.current for fade; material transparency driven by ref
-        fillOpacity={opacity.current}
-        outlineOpacity={opacity.current * 0.5}
+        fillOpacity={0}
+        outlineOpacity={0}
+        /* Text content and opacity are updated in useFrame below */
       >
-        {displayText}
+        {/* Placeholder — overridden by useFrame */}
+        {' '}
+        <TextUpdater
+          opacityRef={opacity}
+          textRef={currentText}
+        />
       </Text>
     </Billboard>
   );
 }
 
-const RobotDialogue = memo(RobotDialogueInner);
-export default RobotDialogue;
+/**
+ * Inner component that reads refs in useFrame to update Text properties
+ * without any React state. Drei's <Text> exposes troika text via parent ref.
+ */
+function TextUpdater({
+  opacityRef,
+  textRef,
+}: {
+  opacityRef: React.RefObject<number>;
+  textRef: React.RefObject<string>;
+}) {
+  const parentRef = useRef<THREE.Object3D>(null);
+
+  useFrame(() => {
+    if (!parentRef.current) return;
+    // Walk up to find the Text mesh (parent of this group)
+    const textMesh = parentRef.current.parent as unknown as {
+      text?: string;
+      fillOpacity?: number;
+      outlineOpacity?: number;
+      sync?: () => void;
+    };
+    if (!textMesh) return;
+
+    const op = opacityRef.current;
+    const txt = textRef.current;
+
+    if (textMesh.fillOpacity !== undefined) {
+      textMesh.fillOpacity = op;
+    }
+    if (textMesh.outlineOpacity !== undefined) {
+      textMesh.outlineOpacity = op * 0.5;
+    }
+    if (textMesh.text !== undefined && textMesh.text !== txt) {
+      textMesh.text = txt;
+      textMesh.sync?.();
+    }
+  });
+
+  return <group ref={parentRef} />;
+}

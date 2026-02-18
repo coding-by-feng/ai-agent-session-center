@@ -39,7 +39,7 @@ function AppLayout() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       <Header />
       <NavBar />
-      <main style={{ flex: 1, overflow: 'auto' }}>
+      <main style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
         <Suspense fallback={<div style={{ padding: '2rem', color: '#8888aa', textAlign: 'center' }}>Loading...</div>}>
           <Outlet />
         </Suspense>

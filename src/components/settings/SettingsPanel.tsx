@@ -4,18 +4,16 @@ import { useUiStore } from '@/stores/uiStore';
 import Modal from '@/components/ui/Modal';
 import ThemeSettings from './ThemeSettings';
 import SoundSettings from './SoundSettings';
-import LabelSettings from './LabelSettings';
 import HookSettings from './HookSettings';
 import ApiKeySettings from './ApiKeySettings';
 import SummaryPromptSettings from './SummaryPromptSettings';
 import styles from '@/styles/modules/Settings.module.css';
 
-type SettingsTab = 'appearance' | 'sound' | 'labels' | 'hooks' | 'apikeys' | 'advanced';
+type SettingsTab = 'appearance' | 'sound' | 'hooks' | 'apikeys' | 'advanced';
 
 const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'appearance', label: 'APPEARANCE' },
   { id: 'sound', label: 'SOUND' },
-  { id: 'labels', label: 'LABELS' },
   { id: 'hooks', label: 'HOOKS' },
   { id: 'apikeys', label: 'API KEYS' },
   { id: 'advanced', label: 'ADVANCED' },
@@ -37,7 +35,7 @@ export default function SettingsPanel() {
       'setHookDensity', 'setCompactMode', 'setShowArchived', 'setGroupBy',
       'setSortBy', 'setActivityFeedVisible', 'setToastEnabled',
       'setAutoSendQueue', 'setDefaultTerminalTheme', 'setSoundAction',
-      'setMovementAction', 'setLabelSetting', 'setApiKey', 'persistSetting',
+      'setMovementAction', 'setApiKey', 'persistSetting',
       'flashAutosave', 'resetDefaults', 'autosaveVisible',
     ]);
     for (const [key, value] of Object.entries(state)) {
@@ -102,7 +100,6 @@ export default function SettingsPanel() {
         <div style={{ padding: '16px 0', overflowY: 'auto', maxHeight: '55vh' }}>
           {activeTab === 'appearance' && <ThemeSettings />}
           {activeTab === 'sound' && <SoundSettings />}
-          {activeTab === 'labels' && <LabelSettings />}
           {activeTab === 'hooks' && <HookSettings />}
           {activeTab === 'apikeys' && <ApiKeySettings />}
           {activeTab === 'advanced' && (

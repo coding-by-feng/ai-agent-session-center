@@ -77,14 +77,12 @@ html, body {
 }
 
 body {
-  display: grid;
-  grid-template-rows: auto auto 1fr auto;
-  grid-template-areas:
-    "header"
-    "nav"
-    "main"
-    "footer";
   position: relative;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
 }
 
 /* Scanline overlay on the whole viewport */

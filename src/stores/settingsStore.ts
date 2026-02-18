@@ -36,33 +36,6 @@ export const THEMES: ThemeDefinition[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Label alert settings
-// ---------------------------------------------------------------------------
-
-export interface LabelConfig {
-  sound: string;
-  movement: string;
-  frame: string;
-}
-
-export type LabelSettings = Record<string, LabelConfig>;
-
-export const DEFAULT_LABEL_SETTINGS: LabelSettings = {
-  ONEOFF: { sound: 'alarm', movement: 'shake', frame: 'none' },
-  HEAVY: { sound: 'urgentAlarm', movement: 'flash', frame: 'electric' },
-  IMPORTANT: { sound: 'fanfare', movement: 'bounce', frame: 'liquid' },
-};
-
-export const FRAME_EFFECTS: Record<string, string> = {
-  none: 'None',
-  fire: 'Burning Fire',
-  electric: 'Electric Surge',
-  chains: 'Golden Aura',
-  liquid: 'Liquid Energy',
-  plasma: 'Plasma Overload',
-};
-
-// ---------------------------------------------------------------------------
 // Per-CLI default sound profiles
 // ---------------------------------------------------------------------------
 
@@ -214,9 +187,6 @@ interface SettingsState extends BrowserSettings {
   soundActions: SoundActionMap;
   movementActions: MovementActionMap;
 
-  // Labels
-  labelSettings: LabelSettings;
-
   // Hooks
   hookDensity: 'high' | 'medium' | 'low' | 'off';
 
@@ -260,7 +230,6 @@ interface SettingsState extends BrowserSettings {
   setDefaultTerminalTheme: (theme: string) => void;
   setSoundAction: (action: string, sound: string) => void;
   setMovementAction: (action: string, effect: string) => void;
-  setLabelSetting: (label: string, field: keyof LabelConfig, value: string) => void;
   setApiKey: (provider: 'anthropic' | 'openai' | 'gemini', key: string) => void;
   persistSetting: (key: string, value: unknown) => Promise<void>;
   flashAutosave: () => void;
@@ -305,7 +274,6 @@ const defaultSettings: SettingsData = {
   characterModel: 'robot',
   soundActions: {},
   movementActions: {},
-  labelSettings: { ...DEFAULT_LABEL_SETTINGS },
   hookDensity: 'medium',
   activityFeedVisible: true,
   toastEnabled: true,
@@ -509,20 +477,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }));
     const actions = get().movementActions;
     get().persistSetting('movementActions', JSON.stringify(actions));
-  },
-
-  setLabelSetting: (label, field, value) => {
-    set((state) => ({
-      labelSettings: {
-        ...state.labelSettings,
-        [label]: {
-          ...(state.labelSettings[label] ?? { sound: 'none', movement: 'none', frame: 'none' }),
-          [field]: value,
-        },
-      },
-    }));
-    const settings = get().labelSettings;
-    get().persistSetting('labelSettings', JSON.stringify(settings));
   },
 
   setApiKey: (provider, key) => {

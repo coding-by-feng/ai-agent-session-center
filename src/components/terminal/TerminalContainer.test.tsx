@@ -13,6 +13,8 @@ const mockSetTheme = vi.fn();
 const mockHandleTerminalOutput = vi.fn();
 const mockHandleTerminalReady = vi.fn();
 const mockHandleTerminalClosed = vi.fn();
+const mockReparent = vi.fn();
+const mockScrollToBottom = vi.fn();
 const mockContainerRef = { current: null };
 
 vi.mock('@/hooks/useTerminal', () => ({
@@ -29,6 +31,8 @@ vi.mock('@/hooks/useTerminal', () => ({
     handleTerminalOutput: mockHandleTerminalOutput,
     handleTerminalReady: mockHandleTerminalReady,
     handleTerminalClosed: mockHandleTerminalClosed,
+    reparent: mockReparent,
+    scrollToBottom: mockScrollToBottom,
   }),
 }));
 

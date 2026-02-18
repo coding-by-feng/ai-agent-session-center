@@ -1,10 +1,12 @@
 /**
  * StatusParticles -- Brief particle burst on status transitions.
  * Renders inside SessionRobot when a status change occurs.
- * Uses simple <points> geometry with animated positions via useFrame.
- * Max 25 particles per burst, lasting ~1.5 seconds.
+ *
+ * ZERO React state — uses only refs. The <points> is always mounted
+ * with draw range set to 0 when inactive. This eliminates all setState
+ * from the R3F tree, preventing React Error #185 cascades.
  */
-import { useRef, useMemo, useEffect, useState, startTransition } from 'react';
+import { useRef, useMemo, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { Robot3DState } from '@/lib/robotStateMap';
@@ -16,7 +18,6 @@ import type { Robot3DState } from '@/lib/robotStateMap';
 interface BurstConfig {
   color: string;
   count: number;
-  /** Initial velocity direction bias: 'up' | 'down' | 'ring' | 'confetti' */
   pattern: 'up' | 'down' | 'ring' | 'confetti';
   speed: number;
   gravity: number;
@@ -25,23 +26,18 @@ interface BurstConfig {
 }
 
 function getBurstConfig(from: Robot3DState, to: Robot3DState): BurstConfig | null {
-  // idle -> working/thinking: upward sparks
   if ((from === 'idle' || from === 'waiting') && (to === 'working' || to === 'thinking')) {
     return { color: '#ffdd00', count: 20, pattern: 'up', speed: 2.5, gravity: -1.5, lifetime: 1.5, size: 0.04 };
   }
-  // working -> waiting: green confetti falling
   if ((from === 'working' || from === 'thinking') && to === 'waiting') {
     return { color: '#00ff88', count: 20, pattern: 'confetti', speed: 1.2, gravity: 2.0, lifetime: 1.5, size: 0.05 };
   }
-  // any -> alert: yellow ring expanding outward
   if (to === 'alert') {
     return { color: '#ffdd00', count: 25, pattern: 'ring', speed: 2.0, gravity: 0, lifetime: 1.2, size: 0.06 };
   }
-  // any -> input: purple ring
   if (to === 'input') {
     return { color: '#aa66ff', count: 20, pattern: 'ring', speed: 1.5, gravity: 0, lifetime: 1.2, size: 0.05 };
   }
-  // any -> offline: gray smoke drifting down
   if (to === 'offline') {
     return { color: '#666688', count: 20, pattern: 'down', speed: 0.8, gravity: 0.5, lifetime: 2.0, size: 0.06 };
   }
@@ -49,7 +45,7 @@ function getBurstConfig(from: Robot3DState, to: Robot3DState): BurstConfig | nul
 }
 
 // ---------------------------------------------------------------------------
-// Particle state
+// Particle state (ref-only, no React state)
 // ---------------------------------------------------------------------------
 
 interface ParticleSet {
@@ -63,6 +59,8 @@ interface ParticleSet {
   size: number;
 }
 
+const MAX_PARTICLES = 25;
+
 function createParticles(config: BurstConfig): ParticleSet {
   const { count, pattern, speed, gravity, lifetime, color, size } = config;
   const positions = new Float32Array(count * 3);
@@ -70,7 +68,6 @@ function createParticles(config: BurstConfig): ParticleSet {
 
   for (let i = 0; i < count; i++) {
     const i3 = i * 3;
-    // All start near robot center
     positions[i3] = (Math.random() - 0.5) * 0.2;
     positions[i3 + 1] = 0.8 + Math.random() * 0.3;
     positions[i3 + 2] = (Math.random() - 0.5) * 0.2;
@@ -93,7 +90,7 @@ function createParticles(config: BurstConfig): ParticleSet {
         velocities[i3] = Math.cos(angle) * speed;
         velocities[i3 + 1] = (Math.random() - 0.5) * speed * 0.3;
         velocities[i3 + 2] = Math.sin(angle) * speed;
-        positions[i3 + 1] = 0.15; // ground level ring
+        positions[i3 + 1] = 0.15;
         break;
       }
       case 'confetti': {
@@ -118,20 +115,7 @@ function createParticles(config: BurstConfig): ParticleSet {
 }
 
 // ---------------------------------------------------------------------------
-// Shared geometry + material
-// ---------------------------------------------------------------------------
-
-const particleMat = new THREE.PointsMaterial({
-  size: 0.05,
-  transparent: true,
-  opacity: 1,
-  depthWrite: false,
-  blending: THREE.AdditiveBlending,
-  vertexColors: false,
-});
-
-// ---------------------------------------------------------------------------
-// Component
+// Component (always mounted, draw range controls visibility)
 // ---------------------------------------------------------------------------
 
 interface StatusParticlesProps {
@@ -140,66 +124,79 @@ interface StatusParticlesProps {
 
 export default function StatusParticles({ state }: StatusParticlesProps) {
   const pointsRef = useRef<THREE.Points>(null);
-  const [burst, setBurst] = useState<ParticleSet | null>(null);
+  const burstRef = useRef<ParticleSet | null>(null);
   const prevState = useRef<Robot3DState>(state);
 
-  // Track state transitions
+  // Pre-allocate buffer geometry (never recreated)
+  const bufferGeo = useMemo(() => {
+    const geo = new THREE.BufferGeometry();
+    const pos = new Float32Array(MAX_PARTICLES * 3);
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setDrawRange(0, 0); // hidden initially
+    return geo;
+  }, []);
+
+  // Per-instance material (cloned once)
+  const instanceMat = useMemo(() => {
+    return new THREE.PointsMaterial({
+      size: 0.05,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexColors: false,
+    });
+  }, []);
+
+  // Dispose on unmount
+  useEffect(() => {
+    return () => { instanceMat.dispose(); };
+  }, [instanceMat]);
+
+  // Track state transitions (ref-only, no setState)
   useEffect(() => {
     if (prevState.current !== state) {
       const config = getBurstConfig(prevState.current, state);
       if (config) {
-        setBurst(createParticles(config));
+        burstRef.current = createParticles(config);
       }
       prevState.current = state;
     }
   }, [state]);
 
-  // Create buffer geometry
-  const bufferGeo = useMemo(() => {
-    const geo = new THREE.BufferGeometry();
-    // Pre-allocate max 25 particles
-    const pos = new Float32Array(25 * 3);
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    return geo;
-  }, []);
-
-  // Per-instance material (cloned once, reused across bursts, disposed on unmount)
-  const instanceMat = useMemo(() => particleMat.clone(), []);
-  useEffect(() => {
-    return () => { instanceMat.dispose(); };
-  }, [instanceMat]);
-
   // Animate particles each frame
   useFrame(() => {
-    if (!burst || !pointsRef.current) return;
+    const burst = burstRef.current;
+    if (!burst) {
+      // Ensure hidden
+      bufferGeo.setDrawRange(0, 0);
+      instanceMat.opacity = 0;
+      return;
+    }
 
     const now = performance.now() / 1000;
     const elapsed = now - burst.startTime;
     const progress = elapsed / burst.lifetime;
 
     if (progress >= 1) {
-      startTransition(() => setBurst(null));
+      burstRef.current = null;
+      bufferGeo.setDrawRange(0, 0);
+      instanceMat.opacity = 0;
       return;
     }
 
     const posAttr = bufferGeo.getAttribute('position') as THREE.BufferAttribute;
-    const dt = 1 / 60; // approx fixed step
+    const dt = 1 / 60;
 
     for (let i = 0; i < burst.count; i++) {
       const i3 = i * 3;
-      // Apply velocity
       burst.positions[i3] += burst.velocities[i3] * dt;
       burst.positions[i3 + 1] += burst.velocities[i3 + 1] * dt;
       burst.positions[i3 + 2] += burst.velocities[i3 + 2] * dt;
-
-      // Apply gravity to Y velocity
       burst.velocities[i3 + 1] -= burst.gravity * dt;
-
-      // Damping
       burst.velocities[i3] *= 0.99;
       burst.velocities[i3 + 1] *= 0.99;
       burst.velocities[i3 + 2] *= 0.99;
-
       posAttr.array[i3] = burst.positions[i3];
       posAttr.array[i3 + 1] = burst.positions[i3 + 1];
       posAttr.array[i3 + 2] = burst.positions[i3 + 2];
@@ -207,17 +204,10 @@ export default function StatusParticles({ state }: StatusParticlesProps) {
 
     posAttr.needsUpdate = true;
     bufferGeo.setDrawRange(0, burst.count);
-
-    // Fade out and update material
-    const mat = pointsRef.current.material as THREE.PointsMaterial;
-    mat.opacity = 1 - progress * progress; // ease-out fade
-    mat.size = burst.size * (1 - progress * 0.5);
-    mat.color.copy(burst.color);
+    instanceMat.opacity = 1 - progress * progress;
+    instanceMat.size = burst.size * (1 - progress * 0.5);
+    instanceMat.color.copy(burst.color);
   });
 
-  if (!burst) return null;
-
-  return (
-    <points ref={pointsRef} geometry={bufferGeo} material={instanceMat} />
-  );
+  return <points ref={pointsRef} geometry={bufferGeo} material={instanceMat} />;
 }

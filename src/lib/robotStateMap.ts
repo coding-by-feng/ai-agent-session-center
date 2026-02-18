@@ -52,7 +52,7 @@ export interface RobotStateBehavior {
   /** Animation speed multiplier */
   speedMultiplier: number;
   /** Navigate to a casual area instead of wandering (null = no casual target) */
-  casualTarget: 'coffee' | 'gym' | null;
+  casualTarget: 'coffee' | null;
 }
 
 const STATE_BEHAVIORS: Record<Robot3DState, RobotStateBehavior> = {
@@ -86,7 +86,7 @@ const STATE_BEHAVIORS: Record<Robot3DState, RobotStateBehavior> = {
     urgentFlash: false,
     visorColorOverride: null,
     speedMultiplier: 0.8,
-    casualTarget: 'gym',
+    casualTarget: 'coffee',
   },
   alert: {
     seekDesk: false,

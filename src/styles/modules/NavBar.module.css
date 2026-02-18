@@ -31,7 +31,7 @@
 /* ---- Nav Actions ---- */
 
 .actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-.actionsItems { display: flex; align-items: center; gap: 8px; transition: opacity 0.2s, max-width 0.3s; overflow: hidden; max-width: 600px; }
+.actionsItems { display: flex; align-items: center; gap: 8px; transition: opacity 0.2s, max-width 0.3s; overflow: visible; max-width: 600px; }
 .actions.collapsed .actionsItems { max-width: 0; opacity: 0; padding: 0; gap: 0; }
 
 .actionsToggle {
@@ -54,14 +54,6 @@
 .qaBtn.terminal:hover { background: rgba(76, 175, 80, 0.15) !important; }
 .qaBtn.quick { color: var(--accent-cyan) !important; border-color: var(--accent-cyan) !important; }
 .qaBtn.quick:hover { background: rgba(0, 229, 255, 0.12) !important; }
-.qaBtn.oneoff { color: #ff9100 !important; border-color: rgba(255, 145, 0, 0.4) !important; }
-.qaBtn.oneoff:hover { background: rgba(255, 145, 0, 0.12) !important; }
-.qaBtn.heavy { color: #ff3355 !important; border-color: rgba(255, 51, 85, 0.5) !important; font-weight: 700 !important; }
-.qaBtn.heavy:hover { background: rgba(255, 51, 85, 0.15) !important; }
-.qaBtn.important { color: #aa66ff !important; border-color: rgba(170, 102, 255, 0.5) !important; font-weight: 700 !important; }
-.qaBtn.important:hover { background: rgba(170, 102, 255, 0.15) !important; }
-
-.separator { width: 1px; height: 20px; background: var(--bg-subtle); }
 
 /* ---- Keyboard Shortcuts Button ---- */
 

@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router';
 import { useUiStore } from '@/stores/uiStore';
-import { showToast } from '@/components/ui/ToastContainer';
+import WorkdirLauncher from './WorkdirLauncher';
 import styles from '@/styles/modules/NavBar.module.css';
 
 interface NavItem {
@@ -15,33 +15,6 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/analytics', label: 'ANALYTICS' },
   { to: '/queue', label: 'QUEUE' },
 ];
-
-// ---------------------------------------------------------------------------
-// Quick launch helper: fires a labeled session directly
-// ---------------------------------------------------------------------------
-
-async function quickLaunchLabeled(label: string) {
-  try {
-    const res = await fetch('/api/terminals', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        host: 'localhost',
-        workingDir: '~',
-        command: 'claude',
-        label,
-      }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      showToast(`${label} session launched`, 'success');
-    } else {
-      showToast(data.error || `Failed to launch ${label} session`, 'error');
-    }
-  } catch {
-    showToast('Network error', 'error');
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -85,27 +58,8 @@ export default function NavBar() {
             QUICK
           </button>
 
-          <div className={styles.separator} />
-
-          {/* Label-based one-click launchers */}
-          <button
-            className={`${styles.qaBtn} ${styles.oneoff}`}
-            onClick={() => quickLaunchLabeled('ONEOFF')}
-          >
-            ONEOFF
-          </button>
-          <button
-            className={`${styles.qaBtn} ${styles.heavy}`}
-            onClick={() => quickLaunchLabeled('HEAVY')}
-          >
-            HEAVY
-          </button>
-          <button
-            className={`${styles.qaBtn} ${styles.important}`}
-            onClick={() => quickLaunchLabeled('IMPORTANT')}
-          >
-            IMPORTANT
-          </button>
+          {/* Recent directories one-click launcher */}
+          <WorkdirLauncher />
         </div>
 
         {/* Shortcuts help button */}
