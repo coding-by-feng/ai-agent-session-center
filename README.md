@@ -6,7 +6,7 @@ A real-time dashboard for monitoring and managing all your AI coding agent sessi
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
-https://github.com/coding-by-feng/ai-agent-session-center/raw/main/docs/demo.mp4
+![Demo](docs/demo.mp4)
 
 ---
 
