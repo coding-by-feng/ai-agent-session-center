@@ -189,27 +189,29 @@ export function loadSnapshot() {
       if (session.cachedPid) {
         if (isPidAlive(session.cachedPid)) {
           if (session.source === 'ssh') {
-            // SSH sessions: terminal is ALWAYS dead after server restart (PTY was
-            // owned by the old node process). The Claude process is an orphan —
-            // alive but unreachable. Kill it and mark as ended.
-            try { process.kill(session.cachedPid, 'SIGTERM'); } catch {}
+            // SSH sessions: terminal (PTY) is dead after server restart, but
+            // NEVER kill the Claude process — let it finish its work and exit
+            // naturally (it will receive SIGHUP when the PTY master closes).
+            // Mark as ended so user knows the terminal is lost, but keep PID
+            // tracked so auto-revive works if hooks keep flowing.
             session.status = SESSION_STATUS.ENDED;
             session.animationState = ANIMATION_STATE.DEATH;
             session.endedAt = Date.now();
             session.events = session.events || [];
             session.events.push({
               type: 'ServerRestart',
-              detail: 'Killed orphaned SSH process — terminal died with old server',
+              detail: 'Terminal lost on server restart — Claude process left running',
               timestamp: Date.now(),
             });
             session.isHistorical = true;
             session.lastTerminalId = session.terminalId;
             session.terminalId = null;
             sessions.set(id, session);
+            pidToSession.set(session.cachedPid, id);
             ended++;
           } else {
             // Non-SSH (VS Code, iTerm, etc.): process can legitimately survive
-            // server restart since the terminal is external
+            // server restart since the terminal is external — restore as-is
             sessions.set(id, session);
             pidToSession.set(session.cachedPid, id);
             restored++;
@@ -913,7 +915,11 @@ export async function createTerminalSession(terminalId, config) {
 
   log.info('session', `Created terminal session ${terminalId} → ${config.host}:${workDir}`);
 
-  await broadcastAsync({ type: WS_TYPES.SESSION_UPDATE, session: { ...session } });
+  // Use debouncedBroadcast instead of broadcastAsync to avoid yielding to the
+  // event loop via lazy import(). broadcastAsync's `await import()` can let a
+  // fast hook broadcast run BEFORE this initial "Connecting" card reaches the
+  // frontend, causing replacesId to target a card that doesn't exist yet.
+  debouncedBroadcast({ type: WS_TYPES.SESSION_UPDATE, session: { ...session } });
 
   // Non-Claude CLIs (codex, gemini, etc.) don't send hooks — auto-transition to idle
   const command = config.command || 'claude';

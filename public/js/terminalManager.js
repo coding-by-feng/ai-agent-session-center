@@ -125,6 +125,9 @@ function buildAutoTheme() {
 
 export function setWs(websocket) {
   ws = websocket;
+  // Reset resize tracking — server may have missed resizes during disconnect
+  lastSentCols = 0;
+  lastSentRows = 0;
   // Re-subscribe active terminal after WS reconnect so output keeps flowing.
   // Clear the terminal first — the server will replay its ring buffer, which
   // would otherwise duplicate content that's already on screen.
@@ -179,8 +182,33 @@ export function applyTheme(themeName) {
   if (select && select.value !== resolvedName) select.value = resolvedName;
 }
 
+// Debounced resize — coalesces rapid resize calls into a single server message.
+// During terminal init, doSetup/forceCanvasRepaint/onTerminalReady each call
+// sendResize within ~80ms.  Without debouncing, each triggers a SIGWINCH on the
+// PTY, causing the shell to redraw the screen multiple times → duplicate lines.
+let pendingResize = null;
+let resizeDebounceTimer = null;
+let lastSentCols = 0;
+let lastSentRows = 0;
+const RESIZE_DEBOUNCE_MS = 100;
+
 function sendResize(terminalId, cols, rows) {
-  if (ws && ws.readyState === 1 && cols > 0 && rows > 0) {
+  if (!cols || !rows || cols <= 0 || rows <= 0) return;
+  pendingResize = { terminalId, cols, rows };
+  clearTimeout(resizeDebounceTimer);
+  resizeDebounceTimer = setTimeout(flushResize, RESIZE_DEBOUNCE_MS);
+}
+
+function flushResize() {
+  resizeDebounceTimer = null;
+  if (!pendingResize) return;
+  const { terminalId, cols, rows } = pendingResize;
+  pendingResize = null;
+  if (!activeTerminal || activeTerminal.terminalId !== terminalId) return;
+  if (cols === lastSentCols && rows === lastSentRows) return;
+  if (ws && ws.readyState === 1) {
+    lastSentCols = cols;
+    lastSentRows = rows;
     ws.send(JSON.stringify({ type: 'terminal_resize', terminalId, cols, rows }));
   }
 }
@@ -456,6 +484,11 @@ export function detachTerminal() {
     activeTerminal.term.dispose();
     activeTerminal = null;
   }
+  // Reset resize debounce state so the next terminal gets a clean first resize
+  lastSentCols = 0;
+  lastSentRows = 0;
+  clearTimeout(resizeDebounceTimer);
+  pendingResize = null;
   const container = document.getElementById('terminal-container');
   if (container) container.innerHTML = '';
 }

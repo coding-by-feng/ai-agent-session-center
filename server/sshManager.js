@@ -255,7 +255,7 @@ export function listTmuxSessions(config) {
   });
 }
 
-export function createTerminal(config, wsClient) {
+export function createTerminal(config, wsClient, preGeneratedId) {
   return new Promise((resolve, reject) => {
     // Validate inputs before any shell interaction
     const wdErr = validateWorkingDir(config.workingDir);
@@ -265,7 +265,7 @@ export function createTerminal(config, wsClient) {
     const tmuxErr = validateTmuxSession(config.tmuxSession);
     if (tmuxErr) return reject(new Error(tmuxErr));
 
-    const terminalId = `term-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const terminalId = preGeneratedId || `term-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const workDir = resolveWorkDir(config.workingDir);
     const command = config.command || 'claude';
     const skipAutoLaunch = config.command === '';
