@@ -8,7 +8,7 @@ import { spawn } from 'child_process';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = join(__dirname, '..');
-const serverPath = join(projectRoot, 'server', 'index.js');
+const serverPath = join(projectRoot, 'server', 'index.ts');
 const setupPath = join(projectRoot, 'hooks', 'setup-wizard.js');
 const configPath = join(projectRoot, 'data', 'server-config.json');
 
@@ -18,7 +18,7 @@ const isFirstRun = !existsSync(configPath);
 
 function startServer() {
   const serverArgs = args.filter(a => a !== '--setup');
-  const child = spawn('node', [serverPath, ...serverArgs], {
+  const child = spawn('tsx', [serverPath, ...serverArgs], {
     stdio: 'inherit',
     cwd: projectRoot,
   });

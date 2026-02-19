@@ -2,17 +2,17 @@
 
 ## Project Overview
 
-A localhost dashboard (port 3333) that monitors all active AI coding agent sessions (Claude Code, Gemini CLI, Codex) via hooks. Each session is represented by an animated CSS character. Users can click on any character/session card to view full prompt history, response history, tool logs, and session details. Supports SSH terminal connections, team/subagent tracking, prompt queuing, and session resume.
+A localhost dashboard (port 3333) that monitors all active AI coding agent sessions (Claude Code, Gemini CLI, Codex) via hooks. Each session is represented by a 3D robot character in an interactive cyberdrome scene. Users can click on any robot/session to view full prompt history, response history, tool logs, and session details. Supports SSH terminal connections, team/subagent tracking, prompt queuing, and session resume.
 
 ## Tech Stack
 
 | Component | Technology |
 |-----------|-----------|
-| Backend | Node.js 18+ (ESM) + Express 5 + ws 8 |
-| Frontend | Vanilla JS + CSS animations (import maps, zero build) |
+| Backend | Node.js 18+ (ESM) + Express 5 + ws 8 + tsx |
+| Frontend | React 19 + Three.js + @react-three/fiber + Zustand + Vite |
 | Terminal | node-pty for SSH/local PTY sessions |
 | Hooks | Bash script (file-based MQ primary, HTTP fallback) |
-| Persistence | In-memory (server) + IndexedDB (browser) |
+| Persistence | SQLite (server) + IndexedDB via Dexie (browser) |
 | Port | 3333 (configurable) |
 
 ## Commands
@@ -21,7 +21,13 @@ A localhost dashboard (port 3333) that monitors all active AI coding agent sessi
 # Install dependencies
 npm install
 
-# Start the dashboard server (auto-opens browser)
+# Development (Vite dev server + backend with HMR)
+npm run dev
+
+# Build frontend for production
+npm run build
+
+# Start production server (serves built frontend)
 npm start
 
 # Start without opening browser
@@ -112,124 +118,108 @@ Claude Code / Gemini / Codex
 ### Module Relationships
 
 ```
-server/index.js (thin orchestrator)
+server/index.ts (thin orchestrator)
   ├── hookInstaller.js    — auto-install hooks on startup
-  ├── portManager.js      — resolve port, kill conflicts
-  ├── hookRouter.js       — POST /api/hooks (HTTP transport)
-  ├── apiRouter.js        — all REST API endpoints
-  ├── mqReader.js         — file-based JSONL queue reader
-  ├── hookProcessor.js    — shared validation + processing pipeline
-  ├── sessionStore.js     — coordinator (delegates to sub-modules)
-  │   ├── sessionMatcher.js    — 5-priority session matching
-  │   ├── approvalDetector.js  — tool approval timeout logic
-  │   ├── teamManager.js       — team/subagent tracking
-  │   ├── processMonitor.js    — PID liveness checking
-  │   └── autoIdleManager.js   — idle transition timers
-  ├── wsManager.js        — WebSocket broadcast + terminal relay
-  ├── sshManager.js       — SSH/PTY terminal management
-  ├── hookStats.js        — in-memory performance stats
-  ├── config.js           — tool categories, timeouts, animation maps
-  ├── constants.js        — all magic strings (events, statuses, WS types)
-  ├── serverConfig.js     — loads data/server-config.json
-  └── logger.js           — debug-aware logging utility
+  ├── portManager.ts      — resolve port, kill conflicts
+  ├── hookRouter.ts       — POST /api/hooks (HTTP transport)
+  ├── apiRouter.ts        — all REST API endpoints
+  ├── mqReader.ts         — file-based JSONL queue reader
+  ├── hookProcessor.ts    — shared validation + processing pipeline
+  ├── sessionStore.ts     — coordinator (delegates to sub-modules)
+  │   ├── sessionMatcher.ts    — 5-priority session matching
+  │   ├── approvalDetector.ts  — tool approval timeout logic
+  │   ├── teamManager.ts       — team/subagent tracking
+  │   ├── processMonitor.ts    — PID liveness checking
+  │   └── autoIdleManager.ts   — idle transition timers
+  ├── wsManager.ts        — WebSocket broadcast + terminal relay
+  ├── sshManager.ts       — SSH/PTY terminal management
+  ├── hookStats.ts        — in-memory performance stats
+  ├── config.ts           — tool categories, timeouts, animation maps
+  ├── constants.ts        — all magic strings (events, statuses, WS types)
+  ├── serverConfig.ts     — loads data/server-config.json
+  └── logger.ts           — debug-aware logging utility
 ```
 
 ### Frontend Module Structure
 
 ```
-public/js/app.js (bootstrap + WS message dispatcher)
-  ├── wsClient.js          — WebSocket client with auto-reconnect + replay
-  ├── sessionPanel.js      — re-exports from split modules (facade)
-  │   ├── sessionCard.js       — card creation, rendering, drag/drop, teams
-  │   ├── detailPanel.js       — select/deselect, panel populate, tabs, search
-  │   ├── promptQueue.js       — queue data, compose UI, move-between-sessions
-  │   ├── sessionGroups.js     — group management, persistence, rendering
-  │   ├── sessionControls.js   — kill, archive, resume, labels, notes, summarize
-  │   ├── keyboardShortcuts.js — all keyboard shortcut handlers
-  │   ├── alarmManager.js      — approval/input alarms, label alerts
-  │   └── quickActions.js      — new session, quick launch, oneoff/heavy/important
-  ├── robotManager.js      — CSS character rendering + animations
-  ├── sceneManager.js      — viewport management for character cards
-  ├── movementManager.js   — movement effects triggered by events
-  ├── soundManager.js      — Web Audio API sound effects
-  ├── statsPanel.js        — global stats header bar
-  ├── navController.js     — navigation between live/history/analytics/settings
-  ├── terminalManager.js   — xterm.js terminal management
-  ├── historyPanel.js      — session history from IndexedDB
-  ├── analyticsPanel.js    — analytics/charts view
-  ├── timelinePanel.js     — timeline visualization
-  ├── settingsManager.js   — settings persistence + UI
-  ├── browserDb.js         — IndexedDB wrapper (sessions, prompts, tools, queue)
-  ├── chartUtils.js        — chart rendering utilities
-  ├── constants.js         — frontend magic strings
-  └── utils.js             — shared utilities (escapeHtml, formatDuration, etc.)
+src/
+  ├── main.tsx             — React entry point
+  ├── App.tsx              — Router + layout + providers
+  ├── components/
+  │   ├── 3d/              — Three.js 3D scene
+  │   │   ├── CyberdromeScene.tsx    — root 3D canvas
+  │   │   ├── CyberdromeEnvironment.tsx — floor, walls, rooms
+  │   │   ├── SessionRobot.tsx       — per-session 3D robot
+  │   │   ├── Robot3DModel.tsx       — procedural robot geometry
+  │   │   ├── RobotDialogue.tsx      — speech bubble overlays
+  │   │   ├── StatusParticles.tsx    — status particle effects
+  │   │   ├── SubagentConnections.tsx — team connection lines
+  │   │   ├── RobotListSidebar.tsx   — 2D robot list overlay
+  │   │   └── CameraController.tsx   — animated camera
+  │   ├── session/         — detail panel, tabs, controls
+  │   ├── terminal/        — xterm.js terminal components
+  │   ├── settings/        — settings panel components
+  │   ├── modals/          — modal dialogs
+  │   ├── layout/          — nav, header, activity feed
+  │   └── ui/              — shared UI components
+  ├── routes/              — LiveView, HistoryView, AnalyticsView, etc.
+  ├── stores/              — Zustand state management
+  ├── hooks/               — React hooks (useWebSocket, useTerminal, etc.)
+  ├── lib/                 — utilities (wsClient, db, sound, alarms, etc.)
+  ├── styles/              — CSS/theme files
+  └── types/               — TypeScript type definitions
 ```
 
 ## Project Structure
 
 ```
 server/
-├── index.js              # Express + WS server entry (thin orchestrator)
-├── apiRouter.js          # REST API endpoints (sessions, terminals, hooks, SSH)
-├── hookRouter.js         # POST /api/hooks endpoint (HTTP transport adapter)
-├── hookProcessor.js      # Shared hook validation + processing pipeline
-├── mqReader.js           # File-based JSONL message queue reader
-├── sessionStore.js       # In-memory session state machine (coordinator)
-├── sessionMatcher.js     # 5-priority session matching logic
-├── approvalDetector.js   # Tool approval timeout detection
-├── teamManager.js        # Team/subagent tracking and auto-detection
-├── processMonitor.js     # PID liveness checking for auto-cleanup
-├── autoIdleManager.js    # Auto-idle transition timers
-├── wsManager.js          # WebSocket broadcast + bidirectional terminal relay
-├── sshManager.js         # SSH/PTY terminal creation and management
-├── hookInstaller.js      # Auto-install hook scripts on startup
-├── portManager.js        # Port resolution and conflict management
-├── hookStats.js          # In-memory hook performance statistics
-├── config.js             # Tool categories, timeouts, animation mappings
-├── constants.js          # Centralized magic strings (events, statuses, WS types)
-├── serverConfig.js       # Loads user config from data/server-config.json
-└── logger.js             # Debug-aware logging utility
+├── index.ts              # Express + WS server entry (thin orchestrator)
+├── apiRouter.ts          # REST API endpoints (sessions, terminals, hooks, SSH)
+├── hookRouter.ts         # POST /api/hooks endpoint (HTTP transport adapter)
+├── hookProcessor.ts      # Shared hook validation + processing pipeline
+├── mqReader.ts           # File-based JSONL message queue reader
+├── sessionStore.ts       # Session state machine (coordinator)
+├── sessionMatcher.ts     # 5-priority session matching logic
+├── approvalDetector.ts   # Tool approval timeout detection
+├── teamManager.ts        # Team/subagent tracking and auto-detection
+├── processMonitor.ts     # PID liveness checking for auto-cleanup
+├── autoIdleManager.ts    # Auto-idle transition timers
+├── wsManager.ts          # WebSocket broadcast + bidirectional terminal relay
+├── sshManager.ts         # SSH/PTY terminal creation and management
+├── hookInstaller.js      # Auto-install hook scripts on startup (plain JS)
+├── portManager.ts        # Port resolution and conflict management
+├── hookStats.ts          # In-memory hook performance statistics
+├── config.ts             # Tool categories, timeouts, animation mappings
+├── constants.ts          # Centralized magic strings (events, statuses, WS types)
+├── serverConfig.ts       # Loads user config from data/server-config.json
+├── authManager.ts        # Password auth, token management
+├── db.ts                 # SQLite database (better-sqlite3)
+└── logger.ts             # Debug-aware logging utility
 
-public/
-├── index.html            # Dashboard SPA with modals, panels, navigation
-├── css/
-│   ├── main.css          # CSS import aggregator
-│   ├── base.css          # CSS variables, fonts, resets
-│   ├── layout.css        # Grid layout, navigation, panels
-│   ├── card.css          # Session card styles
-│   ├── detail-panel.css  # Detail panel, tabs, activity log
-│   ├── modals.css        # Modal dialogs (kill, alert, summarize, etc.)
-│   ├── terminal.css      # Terminal/xterm styles
-│   ├── settings.css      # Settings panel styles
-│   ├── animations.css    # CSS character animations, movements
-│   └── dashboard.css     # Legacy styles (being migrated)
-└── js/
-    ├── app.js            # Bootstrap: init modules, connect WS, render loop
-    ├── wsClient.js       # WebSocket client with auto-reconnect + replay
-    ├── sessionPanel.js   # Facade: re-exports from split session modules
-    ├── sessionCard.js    # Card creation, rendering, click/drag, team cards
-    ├── detailPanel.js    # Session detail panel, tabs, search highlights
-    ├── promptQueue.js    # Prompt queue management, compose, move-between
-    ├── sessionGroups.js  # Session group management and drag-and-drop
-    ├── sessionControls.js # Kill, archive, resume, labels, notes, summarize
-    ├── keyboardShortcuts.js # Keyboard shortcut definitions and handlers
-    ├── alarmManager.js   # Approval/input alarms, label-based alerts
-    ├── quickActions.js   # New session, quick launch, labeled sessions
-    ├── robotManager.js   # CSS character rendering + animation control
-    ├── sceneManager.js   # Viewport management for character cards
-    ├── movementManager.js # Movement effects triggered by session events
-    ├── soundManager.js   # Web Audio API sound effects
-    ├── statsPanel.js     # Global stats header bar
-    ├── navController.js  # Navigation between views (live/history/analytics)
-    ├── terminalManager.js # xterm.js terminal + WebSocket relay
-    ├── historyPanel.js   # Session history browser (IndexedDB)
-    ├── analyticsPanel.js # Analytics/charts view
-    ├── timelinePanel.js  # Timeline visualization
-    ├── settingsManager.js # Settings persistence + UI handlers
-    ├── browserDb.js      # IndexedDB wrapper (sessions, prompts, queue, notes)
-    ├── chartUtils.js     # Chart rendering utilities
-    ├── constants.js      # Frontend magic strings (statuses, WS types, labels)
-    └── utils.js          # Shared utilities (escapeHtml, formatDuration, etc.)
+src/
+├── main.tsx              # React entry point (mounts to #root)
+├── App.tsx               # Router, layout, providers
+├── components/
+│   ├── 3d/               # Three.js 3D cyberdrome scene
+│   ├── session/          # Detail panel, tabs, controls, modals
+│   ├── terminal/         # xterm.js terminal components
+│   ├── settings/         # Settings panel (theme, sound, hooks, API keys)
+│   ├── modals/           # New session, quick session modals
+│   ├── layout/           # NavBar, Header, ActivityFeed, WorkdirLauncher
+│   ├── auth/             # Login screen
+│   └── ui/               # Modal, Tabs, SearchInput, ResizablePanel, Toast
+├── routes/               # LiveView, HistoryView, AnalyticsView, TimelineView, QueueView
+├── stores/               # Zustand stores (session, settings, queue, room, camera, ui, ws)
+├── hooks/                # useWebSocket, useTerminal, useAuth, useSound, useKeyboardShortcuts
+├── lib/                  # wsClient, db (Dexie), soundEngine, alarmEngine, format, etc.
+├── styles/               # CSS/theme files
+└── types/                # TypeScript type definitions
+
+static/
+├── favicon.svg           # Favicon
+└── apple-touch-icon.svg  # Apple touch icon
 
 hooks/
 ├── dashboard-hook.sh     # Main hook: enrich JSON + append to MQ file
@@ -253,8 +243,8 @@ data/
 - **File-based MQ over HTTP**: Hooks append JSON to `/tmp/claude-session-center/queue.jsonl` instead of HTTP POST. Eliminates process spawn overhead (no curl), achieves ~0.1ms delivery via POSIX atomic append.
 - **5-priority session matching**: Hooks don't know about SSH terminals. The matcher tries pendingResume, terminal ID, workDir link, path scan, and PID fallback to link hooks to the correct terminal session.
 - **Approval detection heuristic**: Uses tool-category timeouts to detect when Claude is waiting for user approval. PermissionRequest hook event (medium+ density) provides a reliable signal that replaces the heuristic.
-- **No build step**: Import maps for all dependencies. Vanilla JS modules. No webpack/vite needed.
-- **In-memory store**: No database on the server. Sessions are ephemeral. Browser IndexedDB is the persistence layer for history and settings.
+- **Vite + React frontend**: React 19 with Three.js for 3D scene rendering. Vite for dev server (HMR) and production builds (`dist/client/`).
+- **Dual persistence**: SQLite on server (sessions, snapshots) + IndexedDB via Dexie in browser (history, settings, queue).
 - **Coordinator pattern**: sessionStore.js delegates to focused sub-modules rather than being a monolith.
 - **Atomic settings writes**: Hook installation uses write-to-temp + rename to prevent corrupting `~/.claude/settings.json`.
 
@@ -373,7 +363,7 @@ When user clicks a session card:
 - Neon accent colors: cyan (prompting), orange (working), green (idle), red (ended), yellow (approval), purple (input)
 - JetBrains Mono font
 - Glowing card borders that pulse based on status
-- CSS split into focused stylesheets: base, layout, card, detail-panel, modals, terminal, settings, animations
+- Styles in `src/styles/`, component-level CSS modules
 
 ## Multi-CLI Support
 

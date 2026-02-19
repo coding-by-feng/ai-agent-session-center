@@ -67,8 +67,9 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ success: true });
 });
 
-// -- Static files (always served -- login page is part of SPA) --
-app.use(express.static(join(__dirname, '..', 'public')));
+// -- Static files (Vite-built React SPA) --
+const clientDir = join(__dirname, '..', 'dist', 'client');
+app.use(express.static(clientDir));
 
 // -- Hook endpoints (no auth -- CLI hooks must work without login) --
 app.use('/api/hooks', hookRateLimitMiddleware, hookRouter);
@@ -90,6 +91,11 @@ if (log.isDebug) {
     next();
   });
 }
+
+// -- SPA fallback: serve index.html for all non-API routes (React Router) --
+app.get('/{*splat}', (_req, res) => {
+  res.sendFile(join(clientDir, 'index.html'));
+});
 
 // -- WebSocket with auth validation --
 wss.on('connection', (ws, req) => {
@@ -208,7 +214,9 @@ function gracefulShutdown(signal: string): void {
   setTimeout(() => process.exit(1), 5000);
 }
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGTERM', () => {
+  log.info('server', 'Received SIGTERM — ignoring (use Ctrl+C to stop)');
+});
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Global error handlers -- log and continue (don't crash on transient errors)
