@@ -46,7 +46,7 @@ export function killPortProcess(port: number): void {
       const output = execSync(`lsof -ti:${port}`, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
       const pids = output.trim().split('\n').filter(Boolean);
       for (const pid of pids) {
-        try { process.kill(Number(pid), 'SIGTERM'); } catch { /* already dead */ }
+        try { process.kill(Number(pid), 'SIGKILL'); } catch { /* already dead */ }
       }
     }
   } catch {
