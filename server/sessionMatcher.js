@@ -276,7 +276,11 @@ export function matchSession(hookData, sessions, pendingResume, pidToSession, pr
   // multiple sessions share the same projectPath, path alone is ambiguous
   // and we'd link the wrong card.  In that case, skip and let a new card
   // be created — the user can manually resume/reconnect.
-  if (!session && hook_event_name === EVENT_TYPES.SESSION_START && cwd) {
+  // Skip Priority 0.5 when agent_terminal_id is present — that means the hook
+  // came from a dashboard-created terminal, and Priority 1 (direct terminal ID
+  // match) should handle it.  Without this guard, an old ended snapshot session
+  // with the same projectPath gets re-keyed, hijacking the new terminal session.
+  if (!session && hook_event_name === EVENT_TYPES.SESSION_START && cwd && !hookData.agent_terminal_id) {
     const normalizedCwd = cwd.replace(/\/$/, '');
     const candidates = [];
     for (const [oldId, s] of sessions) {
@@ -431,6 +435,29 @@ export function matchSession(hookData, sessions, pendingResume, pidToSession, pr
   const projectKey = session.projectName;
   const count = (projectSessionCounters.get(projectKey) || 0) + 1;
   projectSessionCounters.set(projectKey, count);
+
+  // Safety-net orphan cleanup: after a successful SessionStart match, remove any
+  // stale Connecting/Idle terminal sessions that share the same terminalId or
+  // projectPath. This catches duplicates from race conditions or matching edge cases.
+  if (hook_event_name === EVENT_TYPES.SESSION_START) {
+    const normalizedCwd = (cwd || '').replace(/\/$/, '');
+    for (const [key, s] of sessions) {
+      if (key === session_id) continue;
+      if (s.status !== SESSION_STATUS.CONNECTING && s.status !== SESSION_STATUS.IDLE) continue;
+      if (!s.terminalId) continue;
+      const isTerminalMatch = session.terminalId && s.terminalId === session.terminalId;
+      const isPathMatch = normalizedCwd && s.projectPath?.replace(/\/$/, '') === normalizedCwd;
+      if (isTerminalMatch || isPathMatch) {
+        if (!session.terminalId && s.terminalId) session.terminalId = s.terminalId;
+        if (!session.sshConfig && s.sshConfig) session.sshConfig = { ...s.sshConfig };
+        sessions.delete(key);
+        if (!session.replacesId) session.replacesId = key;
+        consumePendingLink(s.projectPath);
+        log.info('session', `Orphan cleanup: removed ${key} (matched by ${isTerminalMatch ? 'terminalId' : 'path'}) → merged into ${session_id?.slice(0, 8)}`);
+        break;
+      }
+    }
+  }
 
   return session;
 }

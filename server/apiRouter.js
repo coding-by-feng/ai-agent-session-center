@@ -551,9 +551,13 @@ router.post('/terminals', async (req, res) => {
       config.apiKey = apiKey;
     }
 
-    const terminalId = await createTerminal(config, null);
-    // Create session card immediately so it appears in the dashboard
+    // Generate terminalId first, then store the session BEFORE spawning the PTY.
+    // This eliminates a race condition where a fast Claude startup could fire
+    // a SessionStart hook before createTerminalSession() stores the session,
+    // causing matchSession() to create a duplicate card.
+    const terminalId = `term-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     await createTerminalSession(terminalId, config);
+    await createTerminal(config, null, terminalId);
     res.json({ ok: true, terminalId });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
