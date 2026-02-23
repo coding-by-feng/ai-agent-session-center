@@ -99,7 +99,7 @@ export default function WorkdirLauncher() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          host: saved.host || 'localhost',
+          host: saved.host || window.location.hostname || 'localhost',
           port: saved.port || undefined,
           username: saved.username || undefined,
           authMethod: saved.authMethod || undefined,
