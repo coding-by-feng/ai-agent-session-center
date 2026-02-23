@@ -152,6 +152,30 @@
 
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
+/* ---- Responsive ---- */
+
+@media (max-width: 480px) {
+  .toolbar {
+    gap: 4px;
+    padding: 2px;
+  }
+
+  .themeSelect {
+    font-size: 8px;
+    padding: 2px 4px;
+  }
+
+  .toolbarBtn {
+    font-size: 8px;
+    padding: 2px 6px;
+    letter-spacing: 0;
+  }
+
+  .kbdHint {
+    display: none;
+  }
+}
+
 /* ---- Fullscreen ---- */
 
 .fullscreenBtn { background: transparent; border: 1px solid rgba(76, 175, 80, 0.3); color: #4caf50; font-family: inherit; font-size: 10px; letter-spacing: 1px; padding: 2px 10px; cursor: pointer; border-radius: 3px; transition: all 0.2s; }

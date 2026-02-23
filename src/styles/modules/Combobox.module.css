@@ -10,19 +10,21 @@
 
 .input {
   width: 100%;
-  background: var(--card-bg, rgba(255,255,255,0.04));
-  border: 2px solid var(--border-accent, rgba(255,255,255,0.15));
+  background: rgba(10, 10, 26, 0.8);
+  border: 2px solid var(--border-accent, rgba(0, 229, 255, 0.15));
   color: var(--text-primary);
-  padding: 6px 28px 6px 8px;
+  padding: 6px 32px 6px 10px;
   border-radius: 4px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-sizing: border-box;
 }
 
 .input:focus {
   outline: none;
   border-color: var(--accent-cyan, #00e5ff);
-  box-shadow: 0 0 6px var(--glow-accent, rgba(0, 229, 255, 0.3));
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.3), inset 0 0 4px rgba(0, 229, 255, 0.05);
 }
 
 .arrowBtn {
@@ -34,63 +36,95 @@
   border: none;
   color: var(--text-secondary);
   cursor: pointer;
-  padding: 4px 6px;
-  font-size: 10px;
+  padding: 4px 8px;
+  font-size: 12px;
   line-height: 1;
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: color 0.15s, transform 0.2s;
 }
 
 .arrowBtn:hover {
   color: var(--accent-cyan, #00e5ff);
 }
 
+.arrowBtnOpen {
+  color: var(--accent-cyan, #00e5ff);
+  transform: translateY(-50%) rotate(180deg);
+}
+
 .dropdown {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 2px);
   left: 0;
   right: 0;
   z-index: 50;
-  max-height: 180px;
+  max-height: 200px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  background: var(--bg-panel, #0e0e24);
-  border: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15));
-  border-top: none;
-  border-radius: 0 0 4px 4px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  background: rgba(10, 10, 30, 0.95);
+  border: 1px solid rgba(0, 229, 255, 0.25);
+  border-radius: 4px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.5),
+    0 0 12px rgba(0, 229, 255, 0.08);
   margin: 0;
-  padding: 0;
+  padding: 4px 0;
   list-style: none;
+  backdrop-filter: blur(12px);
+  animation: dropdownSlide 0.15s ease-out;
+}
+
+@keyframes dropdownSlide {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .item {
-  padding: 6px 8px;
+  padding: 7px 10px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
   color: var(--text-primary);
   cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  transition: background 0.1s, color 0.1s;
+  border-left: 2px solid transparent;
+  line-height: 1.4;
 }
 
 .item:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(0, 229, 255, 0.06);
 }
 
 .itemHighlighted {
   background: rgba(0, 229, 255, 0.12);
   color: var(--accent-cyan, #00e5ff);
+  border-left-color: var(--accent-cyan, #00e5ff);
 }
 
 .empty {
-  padding: 8px;
+  padding: 10px;
   font-size: 11px;
   color: var(--text-dim, #666);
   text-align: center;
   font-style: italic;
+}
+
+/* Scrollbar styling for the dropdown */
+.dropdown::-webkit-scrollbar {
+  width: 4px;
+}
+.dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dropdown::-webkit-scrollbar-thumb {
+  background: rgba(0, 229, 255, 0.2);
+  border-radius: 2px;
+}
+.dropdown::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 229, 255, 0.4);
 }
 
 @media (pointer: coarse) {
@@ -111,5 +145,16 @@
   .arrowBtn {
     min-width: 44px;
     min-height: 44px;
+  }
+}
+
+@media (max-width: 480px) {
+  .input {
+    box-sizing: border-box;
+    max-width: 100%;
+  }
+
+  .dropdown {
+    max-height: 160px;
   }
 }
