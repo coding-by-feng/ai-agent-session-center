@@ -68,12 +68,37 @@ function saveWorkdir(dir: string): void {
 const COMMAND_HISTORY_KEY = 'command-history';
 const MAX_COMMAND_HISTORY = 20;
 
+// Common CLI commands shown by default in the Command dropdown
+const DEFAULT_COMMANDS: string[] = [
+  'claude',
+  'claude --resume',
+  'claude --continue',
+  'claude --model sonnet',
+  'claude --model opus',
+  'claude --dangerously-skip-permissions',
+  'claude --verbose',
+  'gemini',
+  'codex',
+  'aider',
+];
+
 function loadCommandHistory(): string[] {
   try {
     return JSON.parse(localStorage.getItem(COMMAND_HISTORY_KEY) || '[]');
   } catch {
     return [];
   }
+}
+
+/** Merge user history (on top) with defaults, deduplicated. */
+function getCommandSuggestions(): string[] {
+  const history = loadCommandHistory();
+  const seen = new Set(history);
+  const merged = [...history];
+  for (const cmd of DEFAULT_COMMANDS) {
+    if (!seen.has(cmd)) merged.push(cmd);
+  }
+  return merged;
 }
 
 function saveCommand(cmd: string): void {
@@ -113,7 +138,7 @@ export default function NewSessionModal() {
   const workdirHistory = useKnownProjects();
 
   // Command history
-  const commandHistory = useMemo(() => loadCommandHistory(), []);
+  const commandSuggestions = useMemo(() => getCommandSuggestions(), []);
 
   // Fetch SSH keys on mount
   useEffect(() => {
@@ -350,7 +375,7 @@ export default function NewSessionModal() {
           <Combobox
             value={command}
             onChange={setCommand}
-            items={commandHistory}
+            items={commandSuggestions}
             placeholder="e.g. claude"
           />
         </div>
