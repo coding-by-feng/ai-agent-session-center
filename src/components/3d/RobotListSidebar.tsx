@@ -379,6 +379,25 @@ interface SessionGroup {
 }
 
 // ---------------------------------------------------------------------------
+// Filter persistence (localStorage)
+// ---------------------------------------------------------------------------
+
+const FILTER_KEY = 'sidebar-ssh-only';
+
+function loadSshOnlyFilter(): boolean {
+  try {
+    const val = localStorage.getItem(FILTER_KEY);
+    return val === null ? true : val === '1';
+  } catch {
+    return true;
+  }
+}
+
+function saveSshOnlyFilter(on: boolean): void {
+  try { localStorage.setItem(FILTER_KEY, on ? '1' : '0'); } catch { /* ignore */ }
+}
+
+// ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
 
@@ -390,6 +409,7 @@ export default function RobotListSidebar() {
   const rooms = useRoomStore((s) => s.rooms);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [sshOnly, setSshOnly] = useState(loadSshOnlyFilter);
 
   const toggleGroup = useCallback((groupId: string) => {
     setCollapsedGroups((prev) => {
@@ -403,9 +423,21 @@ export default function RobotListSidebar() {
     });
   }, []);
 
+  const toggleSshOnly = useCallback(() => {
+    setSshOnly((prev) => {
+      const next = !prev;
+      saveSshOnlyFilter(next);
+      return next;
+    });
+  }, []);
+
   // Build grouped session list: rooms first (sorted by roomIndex), then "Common Area"
   const groups = useMemo((): SessionGroup[] => {
-    const activeSessions = [...sessions.values()].filter(s => s.status !== 'ended');
+    const activeSessions = [...sessions.values()].filter(s => {
+      if (s.status === 'ended') return false;
+      if (sshOnly && s.source !== 'ssh') return false;
+      return true;
+    });
     const assignedIds = new Set<string>();
     const result: SessionGroup[] = [];
 
@@ -437,7 +469,7 @@ export default function RobotListSidebar() {
     }
 
     return result;
-  }, [sessions, rooms]);
+  }, [sessions, rooms, sshOnly]);
 
   const totalCount = useMemo(
     () => groups.reduce((sum, g) => sum + g.sessions.length, 0),
@@ -509,9 +541,38 @@ export default function RobotListSidebar() {
             color: 'rgba(0,240,255,0.4)',
             textTransform: 'uppercase',
             fontFamily: "'Share Tech Mono', 'JetBrains Mono', monospace",
+            flex: 1,
           }}
         >
           Agents ({totalCount})
+        </span>
+        {/* SSH-only filter toggle */}
+        <span
+          role="button"
+          tabIndex={-1}
+          title={sshOnly ? 'Showing SSH sessions only — click to show all' : 'Showing all sessions — click to show SSH only'}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleSshOnly();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.stopPropagation(); toggleSshOnly(); }
+          }}
+          style={{
+            fontSize: 9,
+            letterSpacing: 0.5,
+            padding: '2px 6px',
+            borderRadius: 3,
+            fontFamily: "'JetBrains Mono', monospace",
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+            background: sshOnly ? 'rgba(0,240,255,0.12)' : 'rgba(255,255,255,0.04)',
+            color: sshOnly ? 'rgba(0,240,255,0.8)' : 'rgba(255,255,255,0.3)',
+            border: sshOnly ? '1px solid rgba(0,240,255,0.25)' : '1px solid rgba(255,255,255,0.1)',
+            marginRight: 6,
+          }}
+        >
+          SSH
         </span>
         <svg
           width="14"
