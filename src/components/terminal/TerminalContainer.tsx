@@ -125,8 +125,10 @@ export default function TerminalContainer({
       <TerminalToolbar
         themeName={themeName}
         onThemeChange={handleThemeChange}
+        onFullscreen={toggleFullscreen}
         onSendEscape={sendEscape}
         onReconnect={onReconnect}
+        isFullscreen={isFullscreen}
         showReconnect={showReconnect}
       />
       <div
