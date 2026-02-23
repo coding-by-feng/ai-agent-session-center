@@ -53,6 +53,17 @@ npm install -g ai-agent-session-center
 ai-agent-session-center
 ```
 
+### Uninstall
+
+```bash
+# Remove hooks and clean up config
+npx ai-agent-session-center --setup  # choose uninstall, or:
+npm run uninstall-hooks              # if installed from source
+
+# Remove global install
+npm uninstall -g ai-agent-session-center
+```
+
 ### From Source
 
 ```bash
