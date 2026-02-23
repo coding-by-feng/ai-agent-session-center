@@ -56,11 +56,30 @@ async function askValue(stepNum, totalSteps, label, defaultVal) {
   return answer.trim() || String(defaultVal);
 }
 
-// ── Password helper ──
+// ── Password helpers ──
 function hashPassword(password) {
   const salt = randomBytes(16).toString('hex');
   const hash = scryptSync(password, salt, 64).toString('hex');
   return `${salt}:${hash}`;
+}
+
+/**
+ * Validate password complexity:
+ * - At least 8 characters
+ * - At least 1 uppercase letter
+ * - At least 1 lowercase letter
+ * - At least 1 digit
+ * - At least 1 special character
+ * Returns { valid: boolean, errors: string[] }
+ */
+function validatePassword(password) {
+  const errors = [];
+  if (password.length < 8) errors.push('at least 8 characters');
+  if (!/[A-Z]/.test(password)) errors.push('at least 1 uppercase letter');
+  if (!/[a-z]/.test(password)) errors.push('at least 1 lowercase letter');
+  if (!/[0-9]/.test(password)) errors.push('at least 1 digit');
+  if (!/[^A-Za-z0-9]/.test(password)) errors.push('at least 1 special character (!@#$%^&* etc.)');
+  return { valid: errors.length === 0, errors };
 }
 
 async function askPassword(prompt) {
@@ -168,9 +187,11 @@ if (hasExistingPassword) {
     passwordHash = existing.passwordHash;
   } else if (pwChoice.value === 'change') {
     rl.close(); rlClosed = true;
+    console.log(`  ${DIM}Requirements: 8+ chars, uppercase, lowercase, digit, special char${RESET}`);
     const pw = await askPassword(`  ${DIM}New password:${RESET} `);
-    if (pw.length < 4) {
-      console.log(`  ${RED}✗ Password must be at least 4 characters${RESET}`);
+    const check = validatePassword(pw);
+    if (!check.valid) {
+      console.log(`  ${RED}✗ Password must have: ${check.errors.join(', ')}${RESET}`);
       process.exit(1);
     }
     const confirm = await askPassword(`  ${DIM}Confirm password:${RESET} `);
@@ -192,9 +213,11 @@ if (hasExistingPassword) {
   const pwChoice = await choose(6, TOTAL, 'Dashboard password (optional)', pwOptions, 0);
   if (pwChoice.value === 'set') {
     rl.close(); rlClosed = true;
+    console.log(`  ${DIM}Requirements: 8+ chars, uppercase, lowercase, digit, special char${RESET}`);
     const pw = await askPassword(`  ${DIM}Enter password:${RESET} `);
-    if (pw.length < 4) {
-      console.log(`  ${RED}✗ Password must be at least 4 characters${RESET}`);
+    const check = validatePassword(pw);
+    if (!check.valid) {
+      console.log(`  ${RED}✗ Password must have: ${check.errors.join(', ')}${RESET}`);
       process.exit(1);
     }
     const confirm = await askPassword(`  ${DIM}Confirm password:${RESET} `);
