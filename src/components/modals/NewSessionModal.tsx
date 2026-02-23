@@ -3,8 +3,8 @@
  * Fields: host, port, username, auth method, key path, working dir,
  * tmux mode, tmux session, command, API key, session title, label.
  */
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import type { TmuxSessionInfo, SshKeyInfo } from '@/types';
+import { useState, useEffect, useMemo } from 'react';
+import type { SshKeyInfo } from '@/types';
 import type { CreateTerminalRequest } from '@/types/api';
 import Modal from '@/components/ui/Modal';
 import Combobox from '@/components/ui/Combobox';
@@ -121,18 +121,14 @@ export default function NewSessionModal() {
   const [privateKeyPath, setPrivateKeyPath] = useState(saved.privateKeyPath || '');
   const [password, setPassword] = useState('');
   const [workingDir, setWorkingDir] = useState(saved.workingDir || '~');
-  const [useTmux, setUseTmux] = useState(false);
-  const [tmuxSession, setTmuxSession] = useState('');
   const [command, setCommand] = useState(saved.command || '');
   const [apiKey, setApiKey] = useState('');
   const [sessionTitle, setSessionTitle] = useState('');
   const [label, setLabel] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // SSH keys + tmux sessions from server
+  // SSH keys from server
   const [sshKeys, setSshKeys] = useState<SshKeyInfo[]>([]);
-  const [tmuxSessions, setTmuxSessions] = useState<TmuxSessionInfo[]>([]);
-  const [tmuxLoading, setTmuxLoading] = useState(false);
 
   // Working directory history (merged with known Claude Code projects)
   const workdirHistory = useKnownProjects();
@@ -147,31 +143,6 @@ export default function NewSessionModal() {
       .then((data: { keys: SshKeyInfo[] }) => setSshKeys(data.keys ?? []))
       .catch(() => {});
   }, []);
-
-  const fetchTmuxSessions = useCallback(async () => {
-    if (!host || !username) return;
-    setTmuxLoading(true);
-    try {
-      const res = await fetch('/api/tmux-sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          host,
-          port: Number(port) || 22,
-          username,
-          authMethod,
-          privateKeyPath: authMethod === 'key' ? privateKeyPath : undefined,
-          password: authMethod === 'password' ? password : undefined,
-        }),
-      });
-      const data = await res.json();
-      setTmuxSessions(data.sessions ?? []);
-    } catch {
-      setTmuxSessions([]);
-    } finally {
-      setTmuxLoading(false);
-    }
-  }, [host, port, username, authMethod, privateKeyPath, password]);
 
   // #33: Client-side form validation
   const portNum = Number(port);
@@ -192,8 +163,6 @@ export default function NewSessionModal() {
       workingDir: workingDir || '~',
       command: command || undefined,
       apiKey: apiKey || undefined,
-      useTmux: useTmux || undefined,
-      tmuxSession: useTmux && tmuxSession ? tmuxSession : undefined,
       sessionTitle: sessionTitle || undefined,
       label: label || undefined,
     };
@@ -235,24 +204,6 @@ export default function NewSessionModal() {
   return (
     <Modal modalId="new-session" title="New Terminal Session" panelClassName={styles.newSessionPanel}>
       <div className={styles.newSessionBody}>
-        {/* Mode toggle: Direct SSH / Tmux */}
-        <div className={styles.sshModeToggle}>
-          <button
-            type="button"
-            className={`${styles.sshModeBtn} ${!useTmux ? styles.active : ''}`}
-            onClick={() => setUseTmux(false)}
-          >
-            DIRECT
-          </button>
-          <button
-            type="button"
-            className={`${styles.sshModeBtn} ${useTmux ? styles.active : ''}`}
-            onClick={() => setUseTmux(true)}
-          >
-            TMUX
-          </button>
-        </div>
-
         {/* Host + Port */}
         <div className={styles.sshFieldRow}>
           <div className={`${styles.sshField} ${styles.sshFieldGrow}`}>
@@ -325,47 +276,6 @@ export default function NewSessionModal() {
             placeholder="~"
           />
         </div>
-
-        {/* Tmux session list */}
-        {useTmux && (
-          <div className={styles.sshField}>
-            <label>
-              Tmux Session
-              <button
-                type="button"
-                className={styles.sshTmuxRefresh}
-                onClick={fetchTmuxSessions}
-                title="Refresh tmux sessions"
-              >
-                &#x21bb;
-              </button>
-            </label>
-            <div className={styles.sshTmuxList}>
-              {tmuxLoading && <div className={styles.sshTmuxLoading}>Loading...</div>}
-              {!tmuxLoading && tmuxSessions.length === 0 && (
-                <div className={styles.sshTmuxEmpty}>No tmux sessions found</div>
-              )}
-              {tmuxSessions.map((s) => (
-                <div
-                  key={s.name}
-                  className={`${styles.sshTmuxItem} ${tmuxSession === s.name ? styles.selected : ''}`}
-                  onClick={() => setTmuxSession(s.name)}
-                >
-                  <span className={styles.sshTmuxName}>{s.name}</span>
-                  <span className={styles.sshTmuxMeta}>
-                    {s.windows} win{s.windows !== 1 ? 's' : ''} {s.attached ? '(attached)' : ''}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <input
-              value={tmuxSession}
-              onChange={(e) => setTmuxSession(e.target.value)}
-              placeholder="Or type new session name"
-              style={{ marginTop: '4px' }}
-            />
-          </div>
-        )}
 
         {/* Command */}
         <div className={styles.sshField}>
