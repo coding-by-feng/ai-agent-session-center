@@ -17,6 +17,8 @@ export interface Terminal {
   createdAt: number;
   outputBuffer: Buffer;
   shellReady?: Promise<boolean>;
+  // #19: Store disposables for proper cleanup
+  disposables?: import('node-pty').IDisposable[];
 }
 
 /** Resolved terminal config (after validation & defaults) */

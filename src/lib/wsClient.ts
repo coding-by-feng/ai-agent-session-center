@@ -80,8 +80,15 @@ export class WsClient {
     };
   }
 
+  // #81: Check bufferedAmount before sending to prevent backpressure buildup
+  private static readonly MAX_BUFFERED = 64 * 1024; // 64KB threshold
+
   send(msg: ClientMessage): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
+      // Skip non-critical messages when buffer is backed up
+      if (this.ws.bufferedAmount > WsClient.MAX_BUFFERED && msg.type !== 'terminal_input') {
+        return;
+      }
       this.ws.send(JSON.stringify(msg));
     }
   }

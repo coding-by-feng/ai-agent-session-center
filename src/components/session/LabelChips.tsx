@@ -62,15 +62,22 @@ export default function LabelChips({ sessionId, currentLabel }: LabelChipsProps)
         updateSession({ ...session, label: newLabel });
       }
 
-      // Persist to server
+      // Persist to server — #7: rollback on failure
       try {
-        await fetch(`/api/sessions/${sessionId}/label`, {
+        const resp = await fetch(`/api/sessions/${sessionId}/label`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ label: newLabel }),
         });
+        if (!resp.ok) throw new Error('Server error');
       } catch {
-        // silent fail
+        // Rollback local state on server error
+        setActiveLabel(activeLabel === label ? label : activeLabel);
+        const session = sessions.get(sessionId);
+        if (session) {
+          updateSession({ ...session, label: activeLabel === label ? label : activeLabel });
+        }
+        showToast('Failed to save label', 'error');
       }
 
       // Track label usage

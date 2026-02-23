@@ -4,7 +4,7 @@
  * Displayed in the detail panel below the header.
  * Ported from public/js/sessionControls.js.
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
@@ -33,18 +33,29 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
   const removeSessionFromRoom = useRoomStore((s) => s.removeSession);
 
   const [resuming, setResuming] = useState(false);
-  const [summarizeState, setSummarizeState] = useState<'idle' | 'loading' | 'done'>('idle');
+  const abortRef = useRef<AbortController | null>(null);
 
   const isDisconnected = session.status === 'ended';
+
+  // #4: Abort inflight resume fetch on unmount or session change
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, [session.sessionId]);
 
   // ---- Resume ----
   const handleResume = useCallback(async () => {
     if (resuming || !isDisconnected) return;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setResuming(true);
     try {
       const resp = await fetch(`/api/sessions/${session.sessionId}/resume`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
       });
       const data = await resp.json();
       if (data.ok) {
@@ -53,6 +64,7 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
         showToast(data.error || 'Resume failed', 'error');
       }
     } catch (err) {
+      if ((err as Error).name === 'AbortError') return;
       showToast((err as Error).message, 'error');
     } finally {
       setResuming(false);
@@ -76,8 +88,9 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
           endedAt: s.endedAt || Date.now(),
         });
       }
-      // Delete from server
-      await fetch(`/api/sessions/${session.sessionId}`, { method: 'DELETE' }).catch(() => {});
+      // #12: Delete from server — show error on failure
+      const delResp = await fetch(`/api/sessions/${session.sessionId}`, { method: 'DELETE' });
+      if (!delResp.ok) showToast('Server archive failed, archived locally', 'warning');
       deselectSession();
       removeSession(session.sessionId);
       showToast('Session archived to history', 'success');

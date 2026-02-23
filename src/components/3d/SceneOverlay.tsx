@@ -210,7 +210,11 @@ function RoomPanel() {
                           color: 'rgba(0,240,255,0.4)',
                           cursor: 'pointer',
                           fontSize: 10,
-                          padding: '0 2px',
+                          minWidth: 44,
+                          minHeight: 44,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
                         }}
                         title="Rename"
                       >
@@ -224,7 +228,11 @@ function RoomPanel() {
                           color: 'rgba(255,68,68,0.5)',
                           cursor: 'pointer',
                           fontSize: 10,
-                          padding: '0 2px',
+                          minWidth: 44,
+                          minHeight: 44,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
                         }}
                         title="Delete room"
                       >

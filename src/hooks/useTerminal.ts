@@ -19,6 +19,8 @@ interface ActiveTerminal {
   term: Terminal;
   fitAddon: FitAddon;
   resizeObserver: ResizeObserver;
+  /** True after fitAddon.fit() has run and layout is stable */
+  layoutReady: boolean;
 }
 
 interface UseTerminalOptions {
@@ -71,19 +73,16 @@ function forceCanvasRepaint(
   fitAddon: FitAddon,
   activeRef: React.MutableRefObject<ActiveTerminal | null>,
 ): void {
-  const savedCols = term.cols;
-  const savedRows = term.rows;
-
+  // Use term.refresh() to force canvas repaint without resizing.
+  // This avoids the shrink→expand flicker of the old 2-frame resize trick.
   requestAnimationFrame(() => {
     if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
-    if (savedCols > 2) {
-      term.resize(savedCols - 1, savedRows);
+    fitAddon.fit();
+    sendResize(ws, terminalId, term.cols, term.rows);
+    term.refresh(0, term.rows - 1);
+    if (activeRef.current) {
+      activeRef.current.layoutReady = true;
     }
-    requestAnimationFrame(() => {
-      if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
-      fitAddon.fit();
-      sendResize(ws, terminalId, term.cols, term.rows);
-    });
   });
 }
 
@@ -95,9 +94,13 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeRef = useRef<ActiveTerminal | null>(null);
   const pendingOutputRef = useRef<Map<string, string[]>>(new Map());
-  const hasReceivedFirstOutputRef = useRef(false);
+  const pendingOutputTtlRef = useRef<Map<string, number>>(new Map());
   const themeNameRef = useRef(themeName);
   const wsRef = useRef(ws);
+  /** Track which terminalId is currently subscribed on the server to avoid double-subscribe (#74) */
+  const subscribedTerminalIdRef = useRef<string | null>(null);
+  /** RAF handle for batched output writes (#76) */
+  const outputRafRef = useRef<number | null>(null);
 
   const [isAttached, setIsAttached] = useState(false);
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
@@ -110,16 +113,30 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
 
   useEffect(() => {
     wsRef.current = ws;
-    // Re-subscribe on WS reconnect
+    // Re-subscribe on WS reconnect (#74: unsubscribe old before subscribing new)
     if (activeRef.current && ws && ws.readyState === 1) {
-      activeRef.current.term.clear();
-      ws.send(JSON.stringify({ type: 'terminal_subscribe', terminalId: activeRef.current.terminalId }));
+      const { terminalId } = activeRef.current;
+      // Unsubscribe previous subscription to prevent duplicate output streams
+      if (subscribedTerminalIdRef.current && subscribedTerminalIdRef.current !== terminalId) {
+        ws.send(JSON.stringify({ type: 'terminal_disconnect', terminalId: subscribedTerminalIdRef.current }));
+      }
+      // Don't clear terminal content on reconnect — let server replay append to existing (#24)
+      ws.send(JSON.stringify({ type: 'terminal_subscribe', terminalId }));
+      subscribedTerminalIdRef.current = terminalId;
     }
   }, [ws]);
 
   // Detach
   const detach = useCallback(() => {
+    // Cancel any pending RAF output flush (#76)
+    if (outputRafRef.current !== null) {
+      cancelAnimationFrame(outputRafRef.current);
+      outputRafRef.current = null;
+    }
     if (activeRef.current) {
+      const { terminalId } = activeRef.current;
+      // Clear active terminal's batched output buffer
+      pendingOutputRef.current.delete(`__active__${terminalId}`);
       activeRef.current.resizeObserver.disconnect();
       activeRef.current.term.dispose();
       activeRef.current = null;
@@ -130,13 +147,14 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
     setIsAttached(false);
     setActiveTerminalId(null);
     setIsFullscreen(false);
+    // #85: Remove terminal-focused class to resume scanline animation
+    document.body.classList.remove('terminal-focused');
   }, []);
 
   // Attach
   const attach = useCallback(
     (terminalId: string) => {
       detach();
-      hasReceivedFirstOutputRef.current = false;
 
       const containerOrNull = containerRef.current;
       if (!containerOrNull) return;
@@ -156,12 +174,18 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
       const theme = resolveTheme(savedTheme);
       container.style.background = theme.background || '';
 
-      // Clear stale pending output
+      // Clear stale pending output for this terminal
       pendingOutputRef.current.delete(terminalId);
+      pendingOutputTtlRef.current.delete(terminalId);
 
-      // Subscribe for output
+      // Subscribe for output (#74: track subscription to prevent duplicates)
       if (wsRef.current && wsRef.current.readyState === 1) {
+        // Unsubscribe previous terminal if different
+        if (subscribedTerminalIdRef.current && subscribedTerminalIdRef.current !== terminalId) {
+          wsRef.current.send(JSON.stringify({ type: 'terminal_disconnect', terminalId: subscribedTerminalIdRef.current }));
+        }
         wsRef.current.send(JSON.stringify({ type: 'terminal_subscribe', terminalId }));
+        subscribedTerminalIdRef.current = terminalId;
       }
 
       // Wait for container dimensions
@@ -185,7 +209,7 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
           letterSpacing: 0,
           theme: resolveTheme(themeNameRef.current),
           allowProposedApi: true,
-          scrollback: 10000,
+          scrollback: 5000, // #86: reduced from 10000 to save ~1MB per terminal
           convertEol: false,
           drawBoldTextInBrightColors: true,
           minimumContrastRatio: 1,
@@ -239,33 +263,43 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
           }
         });
 
-        // Resize observer
+        // Resize observer — 200ms debounce (#83: was 50ms, caused excessive resize messages)
         let resizeTimer: ReturnType<typeof setTimeout> | null = null;
         const resizeObserver = new ResizeObserver(() => {
           if (resizeTimer) clearTimeout(resizeTimer);
           resizeTimer = setTimeout(() => {
             fitAddon.fit();
             sendResize(wsRef.current, terminalId, term.cols, term.rows);
-          }, 50);
+          }, 200);
         });
         resizeObserver.observe(container);
 
-        activeRef.current = { terminalId, term, fitAddon, resizeObserver };
+        activeRef.current = { terminalId, term, fitAddon, resizeObserver, layoutReady: false };
         setIsAttached(true);
         setActiveTerminalId(terminalId);
 
-        // Flush buffered output
-        const buffered = pendingOutputRef.current.get(terminalId);
-        if (buffered) {
-          for (const data of buffered) {
-            const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
-            term.write(bytes);
-          }
-          pendingOutputRef.current.delete(terminalId);
-        }
-
         term.focus();
+        // #85: Add terminal-focused class to pause scanline animation
+        document.body.classList.add('terminal-focused');
+        // #77 + #78: single forceCanvasRepaint call that also sets layoutReady=true.
+        // Buffered output is flushed after layout is confirmed stable (inside forceCanvasRepaint).
         forceCanvasRepaint(wsRef.current, terminalId, term, fitAddon, activeRef);
+
+        // Flush buffered output after layout is ready (#77: prevent flush before layout stabilizes)
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
+            const buffered = pendingOutputRef.current.get(terminalId);
+            if (buffered && buffered.length > 0) {
+              for (const data of buffered) {
+                const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+                term.write(bytes);
+              }
+              pendingOutputRef.current.delete(terminalId);
+              pendingOutputTtlRef.current.delete(terminalId);
+            }
+          });
+        });
       }
 
       setupWhenReady(60);
@@ -273,23 +307,44 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
     [detach],
   );
 
-  // Terminal output handler — auto-scrolls to bottom on new output
+  // Terminal output handler — batches writes via requestAnimationFrame (#76)
   const handleTerminalOutput = useCallback((terminalId: string, base64Data: string) => {
     if (activeRef.current && activeRef.current.terminalId === terminalId) {
-      const bytes = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
-      activeRef.current.term.write(bytes);
-      activeRef.current.term.scrollToBottom();
+      // Buffer this chunk for the active terminal; flush via RAF
+      const activeBuf = pendingOutputRef.current.get(`__active__${terminalId}`) || [];
+      activeBuf.push(base64Data);
+      pendingOutputRef.current.set(`__active__${terminalId}`, activeBuf);
 
-      if (!hasReceivedFirstOutputRef.current) {
-        hasReceivedFirstOutputRef.current = true;
-        setTimeout(() => {
-          if (activeRef.current && activeRef.current.terminalId === terminalId) {
-            activeRef.current.term.refresh(0, activeRef.current.term.rows - 1);
-            activeRef.current.term.scrollToBottom();
+      if (outputRafRef.current === null) {
+        outputRafRef.current = requestAnimationFrame(() => {
+          outputRafRef.current = null;
+          if (!activeRef.current) return;
+          const tid = activeRef.current.terminalId;
+          const pending = pendingOutputRef.current.get(`__active__${tid}`);
+          if (!pending || pending.length === 0) return;
+          pendingOutputRef.current.delete(`__active__${tid}`);
+
+          const { term } = activeRef.current;
+          for (const chunk of pending) {
+            const bytes = Uint8Array.from(atob(chunk), (c) => c.charCodeAt(0));
+            term.write(bytes);
           }
-        }, 100);
+          // Scroll once after all chunks written (#76: not per-write)
+          term.scrollToBottom();
+        });
       }
     } else {
+      // TTL-based cleanup for stale buffers (#27)
+      const now = Date.now();
+      pendingOutputTtlRef.current.set(terminalId, now);
+      // Evict buffers older than 60s
+      for (const [id, ts] of pendingOutputTtlRef.current) {
+        if (now - ts > 60000) {
+          pendingOutputRef.current.delete(id);
+          pendingOutputTtlRef.current.delete(id);
+        }
+      }
+
       const buf = pendingOutputRef.current.get(terminalId) || [];
       buf.push(base64Data);
       if (buf.length > 500) buf.shift();
@@ -333,20 +388,14 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
     if (!activeRef.current) return;
     const { terminalId, term, fitAddon } = activeRef.current;
 
-    // Clear and re-subscribe to get fresh terminal buffer from server
-    term.clear();
-    if (wsRef.current && wsRef.current.readyState === 1) {
-      wsRef.current.send(JSON.stringify({ type: 'terminal_subscribe', terminalId }));
-    }
-
-    // Enter fullscreen then immediately exit to force a full refit/repaint
-    setIsFullscreen(true);
+    // #79: Don't clear terminal — preserve scrollback context.
+    // Just refit and refresh canvas to fix layout issues.
     requestAnimationFrame(() => {
-      setIsFullscreen(false);
-      requestAnimationFrame(() => {
-        forceCanvasRepaint(wsRef.current, terminalId, term, fitAddon, activeRef);
-        term.scrollToBottom();
-      });
+      if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
+      fitAddon.fit();
+      sendResize(wsRef.current, terminalId, term.cols, term.rows);
+      term.refresh(0, term.rows - 1);
+      term.scrollToBottom();
     });
   }, []);
 
@@ -363,7 +412,7 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
     // Move xterm element to new container
     newContainer.appendChild(xtermEl);
 
-    // Replace resize observer to track new container dimensions
+    // Replace resize observer to track new container dimensions (#29: disconnect old before replacing)
     resizeObserver.disconnect();
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const newObserver = new ResizeObserver(() => {
@@ -373,7 +422,7 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
         activeRef.current.fitAddon.fit();
         sendResize(wsRef.current, activeRef.current.terminalId,
           activeRef.current.term.cols, activeRef.current.term.rows);
-      }, 50);
+      }, 200); // #83: match main resize debounce
     });
     newObserver.observe(newContainer);
     activeRef.current.resizeObserver = newObserver;
@@ -408,6 +457,10 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      if (outputRafRef.current !== null) {
+        cancelAnimationFrame(outputRafRef.current);
+        outputRafRef.current = null;
+      }
       if (activeRef.current) {
         activeRef.current.resizeObserver.disconnect();
         activeRef.current.term.dispose();

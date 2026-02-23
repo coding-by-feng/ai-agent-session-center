@@ -614,7 +614,7 @@ Theme properties include: `background`, `fogDensity`, `floor`, `roomFloor`, `bor
 
 ---
 
-## 22. Sound System
+## 22. Sound System (`src/lib/soundEngine.ts`, `src/lib/ambientEngine.ts`, `src/lib/alarmEngine.ts`)
 
 ### 22.1 Architecture
 
@@ -623,7 +623,7 @@ The sound system has two layers:
 1. **`SoundEngine`** (singleton `soundEngine`) — event-driven sound effects using Web Audio API synthesis
 2. **`AmbientEngine`** (singleton `ambientEngine`) — continuous procedurally generated ambient presets
 
-Both engines use lazy `AudioContext` creation, only initialized after user interaction.
+Both engines use lazy `AudioContext` creation, only initialized after user interaction. Zero audio files — all sounds are synthesized from Web Audio API primitives (oscillators, gain nodes, filters, noise buffers).
 
 ### 22.2 Sound Library (16 sounds)
 
@@ -657,6 +657,14 @@ Actions are organized in 3 categories:
 **Tool Calls** (9): `toolRead`, `toolWrite`, `toolEdit`, `toolBash`, `toolGrep`, `toolGlob`, `toolWebFetch`, `toolTask`, `toolOther`
 
 **System** (7): `approvalNeeded`, `inputNeeded`, `alert`, `kill`, `archive`, `subagentStart`, `subagentStop`
+
+**Sound engine parameters:**
+
+| Parameter | Value |
+|-----------|-------|
+| Base gain | `0.3 × masterVolume` |
+| Tone durations | 0.03s – 0.35s |
+| Frequency range | 30 Hz – 1200 Hz |
 
 **Default action → sound mapping:**
 
@@ -719,58 +727,46 @@ All ambient sounds are synthesized from oscillators and filtered noise:
 
 ## 23. Movement Effects
 
-### 23.1 CSS Data-Attribute System
+> **Note:** The legacy CSS-based movement effects (`data-effect` attributes) have been superseded by the 3D robot animation system (section 15.14). Movement actions now map to 3D robot state behaviors instead of CSS animations.
 
-Movement effects in the legacy CSS frontend are applied by setting `data-effect="<effectName>"` on session card DOM elements. A central `movementManager.js` module applies effects and schedules their removal.
+### 23.1 Action-to-Movement Mapping
 
-**Effect lifecycle:**
-1. Effect applied: `element.dataset.effect = effectName`
-2. CSS animation triggers via `[data-effect="name"]` selector
-3. Auto-clear: `setTimeout(() => delete element.dataset.effect, duration)` removes the attribute
+Movement actions are configurable in `settingsStore.movementActions`. Each action maps to a named effect that triggers the corresponding 3D robot state animation:
 
-### 23.2 Effect Library (18 effects)
+| Action | Default movement | 3D behavior |
+|--------|-----------------|-------------|
+| sessionStart | slide | Robot spawns with boot-up scale animation (connecting state) |
+| sessionEnd | spin | Robot fades to offline, visor/core dims |
+| promptSubmit | wave | Robot enters thinking state, seeks desk |
+| taskComplete | bounce | Robot enters waiting state, celebration hop |
+| toolRead | pulse | Head scanning animation |
+| toolWrite | pulse | Rapid arm typing animation |
+| toolBash | run | Right arm extended forward |
+| toolWebFetch | walk | Antenna brightness boost |
+| toolTask | jump | Both arms raised |
+| approvalNeeded | twitch | Visor flash, lateral shake |
+| inputNeeded | wobble | Purple visor, arm oscillation |
+| kill | flip | Session terminated |
+| archive | fade | Session archived |
+| subagentStart | jump | Status particles burst |
 
-| Effect | CSS animation | Trigger scenario |
-|--------|---------------|-----------------|
-| `walk` | Horizontal movement | UserPromptSubmit |
-| `run` | Fast horizontal movement | PreToolUse (working) |
-| `bounce` | Vertical bouncing | Task complete |
-| `shake` | Lateral shake | Alarm / ONEOFF label |
-| `flash` | Opacity flicker | HEAVY label complete |
-| `spin` | 360-degree rotation | Session end |
-| `wave` | Wave oscillation | Prompting |
-| `pulse` | Scale pulse | Tool use |
-| `dance` | Celebratory multi-move | Waiting / task complete |
-| `jump` | Vertical leap | Subagent spawn |
-| `slide` | Horizontal slide | Session start |
-| `wobble` | Irregular wobble | Alert state |
-| `flip` | Vertical flip | Kill action |
-| `zoom` | Scale zoom | Selection |
-| `fade` | Opacity fade | Archive |
-| `glow` | Glow pulse | Idle state |
-| `twitch` | Rapid small movements | Approval needed |
-| `none` | No animation | Default |
+### 23.2 Label Completion Frame Effects (6 types)
 
-### 23.3 Action-to-Movement Mapping
+When a labeled session transitions to `ended`, special visual frame effects override the normal robot animation:
 
-Default movement mappings (configurable in settings):
-
-| Action | Default movement |
+| Effect | Visual character |
 |--------|-----------------|
-| sessionStart | slide |
-| sessionEnd | spin |
-| promptSubmit | wave |
-| taskComplete | bounce |
-| toolRead | pulse |
-| toolWrite | pulse |
-| toolBash | run |
-| toolWebFetch | walk |
-| toolTask | jump |
-| approvalNeeded | twitch |
-| inputNeeded | wobble |
-| kill | flip |
-| archive | fade |
-| subagentStart | jump |
+| `fire` | Orange/red body emissive with rapid flicker (9 Hz + 17 Hz layered), orange wireframe, fiery core |
+| `electric` | Spike pattern (sin^4 at 20 Hz), white wireframe arc flicker (25 Hz threshold), intense multi-freq core |
+| `chains` | Slow golden aura (2.5 Hz), gold wireframe (3 Hz), golden visor glow |
+| `liquid` | Flowing wave intensity (3 Hz body, 5 Hz edges, 3.5 Hz core), hue-shifted by wave value |
+| `plasma` | Violent magenta oscillations at 12/15/14 Hz body/core/visor; extreme intensities (4.0-6.5 core) |
+| `none` | No frame effect |
+
+Default label alarm configurations:
+- `ONEOFF`: sound `alarm`, movement `shake`, frame effect `none`
+- `HEAVY`: sound `urgentAlarm`, movement `flash`, frame effect `electric`
+- `IMPORTANT`: sound `fanfare`, movement `bounce`, frame effect `liquid`
 
 ---
 
@@ -918,15 +914,13 @@ Tool name → action mapping:
 
 ### 25.5 Settings Panel UI
 
-The settings panel has 6 tabs (legacy CSS frontend):
-1. **Appearance** — theme picker, font size, scanlines, animation speed/intensity, character model
-2. **Sound** — master volume, enable/disable, per-action sound dropdowns, per-CLI profiles
-3. **Ambient** — preset picker, volume, room sounds toggle
+The settings panel (React, via `settingsStore` actions) has 6 tabs:
+1. **Appearance** — theme picker (9 themes), font size, scanlines, animation speed/intensity, character model (6 robot variants)
+2. **Sound** — master volume, enable/disable, per-action sound dropdowns, per-CLI profiles (claude/gemini/codex/openclaw)
+3. **Ambient** — preset picker (5 presets), volume, room sounds toggle
 4. **Labels** — per-label sound/movement/frame configuration
 5. **Hooks** — hook density selector, install/uninstall buttons
 6. **API Keys** — Anthropic, OpenAI, Gemini key inputs
-
-The React frontend (settings route) mirrors this structure using `settingsStore` actions directly.
 
 **Import/Export**: Settings can be exported as JSON and imported to restore a configuration.
 
@@ -934,15 +928,26 @@ The React frontend (settings route) mirrors this structure using `settingsStore`
 
 ---
 
-## 26. Terminal Manager (Frontend)
+## 26. Terminal Manager (Frontend) (`src/hooks/useTerminal.ts`, `src/components/terminal/`)
 
 ### 26.1 xterm.js Integration
 
-The terminal manager uses xterm.js with addons for full terminal emulation in the browser:
-- `@xterm/xterm` — core terminal
-- `@xterm/addon-fit` — auto-resize to container
-- `@xterm/addon-web-links` — clickable URL detection
-- `@xterm/addon-search` — text search within terminal
+The terminal is implemented via the `useTerminal` hook, which manages xterm.js lifecycle:
+
+| Parameter | Value |
+|-----------|-------|
+| Font family | JetBrains Mono (fallbacks: Cascadia Code, Fira Code, Menlo) |
+| Font size | Responsive: 11px (≤480w), 12px (≤640w), 14px (default) |
+| Scrollback | 10,000 lines |
+| Cursor | Bar, non-blinking |
+| Resize debounce | 50ms (ResizeObserver) |
+| Output buffer max | 500 pending items per terminal |
+| First output refresh | 100ms delay |
+| Setup retries | 60 at 50ms intervals (~3s timeout) |
+
+**Addons loaded:** FitAddon, Unicode11Addon, WebLinksAddon.
+
+**Hook returns:** `containerRef`, `attach()`, `detach()`, `isAttached`, `activeTerminalId`, `toggleFullscreen()`, `isFullscreen`, `sendEscape()`, `refitTerminal()`, `setTheme()`, `handleTerminalOutput()`, `handleTerminalReady()`, `handleTerminalClosed()`, `reparent()`, `scrollToBottom()`.
 
 ### 26.2 Terminal Themes (8 named + auto)
 
@@ -958,38 +963,66 @@ The terminal manager uses xterm.js with addons for full terminal emulation in th
 | `monokai` | Monokai colors |
 | `warm` | Amber on cream |
 
-Theme is applied on terminal creation and when the setting changes. `auto` resolves the theme from the current `themeName` in settings.
+Theme is applied on terminal creation and when the setting changes. `auto` resolves the theme from the current `themeName` in settings via `settingsStore.defaultTerminalTheme`.
 
-### 26.3 Canvas Repaint Workaround
+### 26.3 Attach/Detach Lifecycle
 
-xterm.js uses canvas rendering. A known issue causes the canvas to appear blank when the terminal panel is first opened or when the panel is resized. The workaround:
-1. After terminal creation: `setTimeout(() => terminal.refresh(0, terminal.rows - 1), 50)` — forces a full repaint
-2. On panel resize: `fitAddon.fit()` followed by another `refresh` call
-3. On tab switch back to terminal: another `refresh` call
+**`attach(terminalId)`:**
+1. Creates xterm Terminal instance with responsive font sizing
+2. Loads addons (FitAddon, Unicode11Addon, WebLinksAddon)
+3. Retries container mount up to 60 times (50ms interval) waiting for DOM ready
+4. Opens terminal in container, fits to container dimensions
+5. Flushes pending output buffer (up to 500 queued items)
+6. Subscribes to terminal via WebSocket (`terminal_subscribe`)
+7. Registers resize observer (50ms debounce) and data handler (`terminal_input`)
+8. Forces canvas repaint via double-resize workaround
 
-### 26.4 Fullscreen Mode
+**`detach()`:**
+1. Disconnects ResizeObserver
+2. Disposes xterm Terminal instance
+3. Clears active terminal reference
 
-The terminal tab in the detail panel has a fullscreen toggle button. When activated:
-- The terminal container expands to cover the full viewport
-- `fitAddon.fit()` is called after the transition
-- Escape key or the toggle button exits fullscreen
-- Panel resize handles are hidden in fullscreen
+**Pending output buffering:** When a terminal is not attached (user viewing another tab), incoming `terminal_output` messages are queued in `pendingOutputRef` (max 500 items per terminal). On attach, the buffer is flushed immediately.
 
-### 26.5 Team Terminal
+### 26.4 Canvas Repaint Workaround
 
-For team sessions (leader + members), a special "Team Terminal" view is available:
-- Shows a split-view with all team member terminals
-- Each terminal pane shows the member's session title and status
-- Switching between member terminals uses the same WebSocket relay as individual terminals
+xterm.js uses canvas rendering. A known issue causes the canvas to appear blank when first opened or resized. The `forceCanvasRepaint()` workaround:
+1. Shrinks terminal by 1 column via `term.resize(cols-1, rows)`
+2. Waits one animation frame
+3. Re-fits via `fitAddon.fit()`
+4. Sends updated dimensions to server via `terminal_resize`
 
-### 26.6 WebSocket Relay
+### 26.5 Fullscreen Mode
 
-Terminal I/O is relayed through the WebSocket connection using message types:
-- `terminal_input`: keystrokes from browser → server → PTY
-- `terminal_output`: PTY output → server → browser (base64-encoded)
-- `terminal_resize`: `{cols, rows}` to resize the PTY
+The terminal tab has a fullscreen toggle:
+- Reparents xterm container to a fullscreen wrapper
+- Calls `fitAddon.fit()` after transition
+- Escape key or toggle button exits fullscreen
+- Resize observer handles dimension changes during transition
 
-The `sshManager.js` on the server creates `node-pty` processes for SSH/local sessions.
+### 26.6 WebSocket Terminal Relay
+
+Terminal I/O is relayed through the WebSocket connection:
+
+| Message | Direction | Description |
+|---------|-----------|-------------|
+| `terminal_subscribe` | Client → Server | Register for output relay |
+| `terminal_input` | Client → Server | User keystrokes |
+| `terminal_output` | Server → Client | PTY output (base64-encoded) |
+| `terminal_resize` | Client → Server | Terminal dimensions `{cols, rows}` (50ms debounced) |
+| `terminal_disconnect` | Client → Server | Close PTY |
+| `terminal_ready` | Server → Client | PTY spawned and ready |
+| `terminal_closed` | Server → Client | PTY exited |
+
+**Server-side:** `sshManager.ts` creates `node-pty` processes. Output is base64-encoded and relayed via WebSocket. Server maintains a 128KB output ring buffer per terminal for replay on reconnect.
+
+**Escape key:** Always forwards `\x1b` to the SSH terminal (not consumed by UI keyboard shortcuts when xterm is focused).
+
+### 26.7 Reconnect Button
+
+Visible when session has `terminalId`, `lastTerminalId`, or `status === 'ended'`:
+- If active terminal: sends resume command via WebSocket
+- If no terminal: `POST /api/sessions/:id/resume` creates new PTY
 
 ---
 

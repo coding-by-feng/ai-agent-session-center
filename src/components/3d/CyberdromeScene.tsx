@@ -51,7 +51,8 @@ function SceneThemeSync({ background, fogDensity }: { background: string; fogDen
   // useThree must be called inside Canvas — reads scene/gl refs
   const { scene, gl } = useThree();
 
-  useMemo(() => {
+  // #51: Use useEffect instead of useMemo for side effects (mutations)
+  useEffect(() => {
     const fogColor = new THREE.Color(background);
     if (scene.fog instanceof THREE.FogExp2) {
       scene.fog.color.copy(fogColor);

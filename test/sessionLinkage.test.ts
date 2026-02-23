@@ -86,6 +86,8 @@ describe('matchSession — 5-priority session matching', () => {
     tryLinkByWorkDir: vi.fn().mockReturnValue(null),
     getTerminalByPtyChild: vi.fn().mockReturnValue(null),
     consumePendingLink: vi.fn(),
+    registerTerminalExitCallback: vi.fn(),
+    closeTerminal: vi.fn(),
   }));
 
   let sessions: Map<string, Session>;
@@ -342,18 +344,20 @@ describe('matchSession — 5-priority session matching', () => {
       expect(sessions.has('claude-arriving')).toBe(true);
     });
 
-    it('skips path scan when multiple CONNECTING sessions share the same path (ambiguous)', () => {
+    it('picks newest CONNECTING session when multiple share the same path', () => {
       sessions.set('pre-a', makeSession({
         sessionId: 'pre-a',
         terminalId: 'term-a',
         status: SESSION_STATUS.CONNECTING as Session['status'],
         projectPath: '/same/path',
+        startedAt: 1000,
       }));
       sessions.set('pre-b', makeSession({
         sessionId: 'pre-b',
         terminalId: 'term-b',
         status: SESSION_STATUS.CONNECTING as Session['status'],
         projectPath: '/same/path',
+        startedAt: 2000,
       }));
 
       const result = matchSession(
@@ -368,10 +372,12 @@ describe('matchSession — 5-priority session matching', () => {
         projectCounters,
       );
 
-      // Should create a new display-only card, not re-key either CONNECTING session
+      // Should re-key the newest CONNECTING session (pre-b, startedAt=2000)
       expect(result.sessionId).toBe('ambig-hook');
+      expect(result.replacesId).toBe('pre-b');
+      expect(sessions.has('pre-b')).toBe(false);
       expect(sessions.has('pre-a')).toBe(true);
-      expect(sessions.has('pre-b')).toBe(true);
+      expect(sessions.has('ambig-hook')).toBe(true);
     });
   });
 

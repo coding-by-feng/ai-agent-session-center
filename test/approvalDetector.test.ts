@@ -31,10 +31,10 @@ describe('approvalDetector', () => {
       expect(typeof result).toBe('boolean');
     });
 
-    it('returns false for non-existent PID', () => {
-      // Use a very high PID that almost certainly doesn't exist
+    it('returns true for non-existent PID (safe default per #37)', () => {
+      // #37: Returns true on error as safer default (assume still running)
       const result = hasChildProcesses(9999999);
-      expect(result).toBe(false);
+      expect(result).toBe(true);
     });
   });
 

@@ -69,7 +69,7 @@ const STATE_BEHAVIORS: Record<Robot3DState, RobotStateBehavior> = {
     wander: false,
     urgentFlash: false,
     visorColorOverride: null,
-    speedMultiplier: 1.2,
+    speedMultiplier: 1.0,
     casualTarget: null,
   },
   working: {
@@ -77,7 +77,7 @@ const STATE_BEHAVIORS: Record<Robot3DState, RobotStateBehavior> = {
     wander: false,
     urgentFlash: false,
     visorColorOverride: null,
-    speedMultiplier: 1.5,
+    speedMultiplier: 1.2,
     casualTarget: null,
   },
   waiting: {
@@ -85,7 +85,7 @@ const STATE_BEHAVIORS: Record<Robot3DState, RobotStateBehavior> = {
     wander: false,
     urgentFlash: false,
     visorColorOverride: null,
-    speedMultiplier: 0.8,
+    speedMultiplier: 0.6,
     casualTarget: 'coffee',
   },
   alert: {

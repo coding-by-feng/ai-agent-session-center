@@ -11,13 +11,13 @@ The AI Agent Session Center is a localhost dashboard (default port **3333**) tha
 | Layer | Technology | Version / Notes |
 |---|---|---|
 | Runtime | Node.js | 18+ (ESM modules) |
+| Language | TypeScript | Server compiled via tsx; Zod for runtime validation |
 | HTTP framework | Express | 5 |
 | WebSocket | ws | 8 |
 | PTY / terminal | node-pty | native bindings |
 | Database | better-sqlite3 | WAL mode |
 | Hook delivery | Bash → JSONL queue file | POSIX atomic append |
-| Frontend (legacy) | Vanilla JS + CSS | Import maps, no build step |
-| Frontend (new) | React 19 + TypeScript + Vite | Served from dist/client |
+| Frontend | React 19 + TypeScript + Three.js + Vite | Served from dist/client |
 | Port | 3333 | Configurable |
 
 ### Top-Level Architecture
@@ -641,7 +641,24 @@ All endpoints except auth and hook ingestion require authentication when `passwo
 |---|---|---|---|
 | `POST` | `/api/hooks` | Hook JSON | Processes a hook event; rate limit 100/sec per IP |
 
-### 10.3 Session Endpoints
+### 10.3 Input Validation
+
+All request bodies are validated with **Zod schemas** (runtime type checking). Invalid payloads return `400` with field-level error messages. Key schemas:
+
+| Schema | Validates |
+|---|---|
+| `terminalCreateSchema` | Terminal creation (host, port, username, workingDir, command, tmux options) |
+| `killSessionSchema` | `{ confirm: true }` literal |
+| `titleSchema` | `{ title: string }` max 500 chars |
+| `labelSchema` | `{ label: string }` |
+| `accentColorSchema` | `{ color: string }` 1–50 chars |
+| `summarizeSchema` | `{ context: string, promptTemplate?, custom_prompt? }` |
+| `noteSchema` | `{ text: string }` 1–10,000 chars |
+| `hookInstallSchema` | `{ density: 'high' | 'medium' | 'low' }` |
+
+Shell metacharacter injection is prevented via Zod `.refine()` that rejects `` ;|&$`\!><()\n\r{}[] `` in host, workingDir, and command fields.
+
+### 10.4 Session Endpoints
 
 | Method | Path | Body | Description |
 |---|---|---|---|
@@ -655,7 +672,7 @@ All endpoints except auth and hook ingestion require authentication when `passwo
 | `POST` | `/api/sessions/:id/resume` | — | Resume SSH session (`claude --resume {id} \|\| claude --continue`) |
 | `POST` | `/api/sessions/:id/summarize` | `{context, promptTemplate?, custom_prompt?}` | Summarize via Claude CLI (`haiku` model), max 2 concurrent |
 
-### 10.4 Terminal Endpoints
+### 10.5 Terminal Endpoints
 
 | Method | Path | Body | Description |
 |---|---|---|---|
@@ -666,21 +683,21 @@ All endpoints except auth and hook ingestion require authentication when `passwo
 **`POST /api/terminals` body fields:**
 `host`, `port` (default 22), `username` (required), `password`, `privateKeyPath`, `authMethod` (default `key`), `workingDir` (default `~`), `command` (default `claude`), `apiKey`, `tmuxSession`, `useTmux`, `sessionTitle`, `label`
 
-### 10.5 SSH Key and Tmux Endpoints
+### 10.6 SSH Key and Tmux Endpoints
 
 | Method | Path | Body | Description |
 |---|---|---|---|
 | `GET` | `/api/ssh-keys` | — | List private keys from `~/.ssh/` |
 | `POST` | `/api/tmux-sessions` | Connection config | List tmux sessions on host |
 
-### 10.6 Team Endpoints
+### 10.7 Team Endpoints
 
 | Method | Path | Body | Description |
 |---|---|---|---|
 | `GET` | `/api/teams/:teamId/config` | — | Read team config from `~/.claude/teams/{name}/config.json` |
 | `POST` | `/api/teams/:teamId/members/:sessionId/terminal` | — | Attach to member's tmux pane (requires `tmuxPaneId` on session) |
 
-### 10.7 Hook Management Endpoints
+### 10.8 Hook Management Endpoints
 
 | Method | Path | Body | Description |
 |---|---|---|---|
@@ -688,7 +705,7 @@ All endpoints except auth and hook ingestion require authentication when `passwo
 | `POST` | `/api/hooks/install` | `{density}` | Install hooks at specified density |
 | `POST` | `/api/hooks/uninstall` | — | Remove all dashboard hooks |
 
-### 10.8 Database / History Endpoints
+### 10.9 Database / History Endpoints
 
 | Method | Path | Query Params | Description |
 |---|---|---|---|
@@ -699,7 +716,20 @@ All endpoints except auth and hook ingestion require authentication when `passwo
 | `GET` | `/api/db/search` | `query`, `type` (`all`/`prompts`/`responses`), `page`, `pageSize` | Full-text search across prompts and responses |
 | `GET` | `/api/sessions/history` | `projectPath?` | Legacy endpoint; returns all or project sessions |
 
-### 10.9 Notes Endpoints
+### 10.10 Known Projects Endpoint
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/known-projects` | Decode `~/.claude/projects/` directory names back to filesystem paths |
+
+**Decoding logic (`decodeProjectDir`):** Claude Code stores per-project config in `~/.claude/projects/{encoded-name}/` where:
+- Leading `-` → `/`
+- `--` → `.`
+- Other `-` → `/` (ambiguous when folder names contain hyphens)
+
+Ambiguity is resolved by **greedy filesystem probing**: the decoder tries the longest possible segment match against the real filesystem first, then falls back to shorter segments. Entries containing `worktrees` are excluded.
+
+### 10.11 Notes Endpoints
 
 | Method | Path | Body | Description |
 |---|---|---|---|
@@ -707,7 +737,7 @@ All endpoints except auth and hook ingestion require authentication when `passwo
 | `POST` | `/api/db/sessions/:id/notes` | `{text}` | Add note (max 10,000 chars) |
 | `DELETE` | `/api/db/notes/:id` | — | Delete note by ID |
 
-### 10.10 Analytics Endpoints
+### 10.12 Analytics Endpoints
 
 | Method | Path | Description |
 |---|---|---|
@@ -716,7 +746,7 @@ All endpoints except auth and hook ingestion require authentication when `passwo
 | `GET` | `/api/db/analytics/projects` | Active projects with session count and last activity |
 | `GET` | `/api/db/analytics/heatmap` | Activity heatmap by `{day_of_week, hour, count}` |
 
-### 10.11 Stats and Admin Endpoints
+### 10.13 Stats and Admin Endpoints
 
 | Method | Path | Description |
 |---|---|---|
@@ -725,7 +755,7 @@ All endpoints except auth and hook ingestion require authentication when `passwo
 | `GET` | `/api/mq-stats` | MQ reader stats (offset, linesProcessed, etc.) |
 | `POST` | `/api/reset` | Broadcast `clearBrowserDb` to all clients |
 
-### 10.12 Rate Limiting
+### 10.14 Rate Limiting
 
 In-memory sliding-window rate limiter (no external dependencies):
 
@@ -926,7 +956,16 @@ Port is resolved in order: `--port` CLI flag → `PORT` environment variable →
 
 Port conflict handling: on `EADDRINUSE`, the server calls `killPortProcess(port)` which uses `lsof -ti:{port}` (macOS/Linux) or `netstat -ano | findstr :port` (Windows) to find and SIGTERM the occupying process, then retries binding after **1 second**.
 
-### 31.2 Graceful Shutdown
+### 31.2 TypeScript Migration
+
+All server modules are now TypeScript (`.ts` files, compiled at runtime via `tsx`). Key patterns:
+
+- **Zod schemas** for all request body validation (replaces manual checks)
+- **Shared type definitions** in `src/types/` (Session, Team, Terminal, Hook, API, Analytics types)
+- **Type imports** from `../src/types/` ensure server and client share the same type contracts
+- **`str()` helper** safely extracts string from Express 5's `string | string[]` param types
+
+### 31.3 Graceful Shutdown
 
 Signals handled: `SIGTERM`, `SIGINT`
 
@@ -940,14 +979,14 @@ Shutdown sequence:
 7. Close HTTP server
 8. Exit 0 (forced exit 1 after **5 seconds** if not clean)
 
-### 31.3 Global Error Handlers
+### 31.4 Global Error Handlers
 
 | Handler | Behavior |
 |---|---|
 | `uncaughtException` | Log error; exit 1 if `out of memory` or `ENOMEM` |
 | `unhandledRejection` | Log error and stack; continue |
 
-### 31.4 Process Monitor
+### 31.5 Process Monitor
 
 `processMonitor.js` runs every **15,000 ms** (configurable via `serverConfig.processCheckInterval`) and checks `process.kill(pid, 0)` for each non-ended session with a `cachedPid`. Dead processes trigger:
 - Session marked `ended` + `Death` animation
@@ -966,11 +1005,11 @@ Sessions with an active PTY terminal are skipped (terminal is the source of trut
 3. TTY fallback: first unclaimed PID with a TTY attached
 4. Last resort: first unclaimed PID
 
-### 31.5 Rate Limiting
+### 31.6 Rate Limiting
 
 In-memory sliding-window rate limiter using `Map<key, {count, windowStart}>`. Window is **1 second**. Stale buckets (older than 5s) are cleaned every **30 seconds**.
 
-### 31.6 Logger
+### 31.7 Logger
 
 Levels:
 - `info` — always shown
@@ -983,7 +1022,7 @@ Format: `[ISO timestamp] [tag] message`
 
 Debug mode is activated by `--debug` CLI flag or `"debug": true` in `data/server-config.json`.
 
-### 31.7 Server Config (`data/server-config.json`)
+### 31.8 Server Config (`data/server-config.json`)
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -995,11 +1034,11 @@ Debug mode is activated by `--debug` CLI flag or `"debug": true` in `data/server
 | `enabledClis` | string[] | `["claude"]` | Which CLIs to install hooks for |
 | `passwordHash` | string\|null | `null` | `salt:hash` for dashboard login |
 
-### 31.8 Network Interface Detection
+### 31.9 Network Interface Detection
 
 On startup, `getLocalIP()` probes network interfaces in preferred order: `en0`, `en1`, `eth0`, `wlan0`, then falls back to any non-internal IPv4. The LAN IP is displayed in the startup log.
 
-### 31.9 Static File Serving
+### 31.10 Static File Serving
 
 If `dist/client/` directory exists (Vite build output), it is served from there. Otherwise, `public/` is served. The React SPA fallback (`GET /*`) serves `dist/client/index.html` for client-side routing.
 

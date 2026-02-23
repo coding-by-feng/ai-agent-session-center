@@ -7,9 +7,10 @@
 
 import {
   existsSync, mkdirSync, writeFileSync,
-  openSync, readSync, closeSync, fstatSync, watch,
+  openSync, fstatSync, closeSync, watch,
 } from 'fs';
-import type { FSWatcher } from 'fs';
+import { open as fsOpen, stat as fsStat, writeFile as fsWriteFile } from 'fs/promises';
+import type { FSWatcher, FileHandle } from 'fs';
 import { join } from 'path';
 import { processHookEvent } from './hookProcessor.js';
 import log from './logger.js';
@@ -132,13 +133,11 @@ export function startMqReader(options?: MqReaderOptions): void {
   // Health check: detect when fs.watch silently stops delivering events
   // If no watch events for HEALTH_CHECK_INTERVAL_MS but the file has grown, trigger a manual read
   lastWatchEventAt = Date.now();
-  healthCheckTimer = setInterval(() => {
+  healthCheckTimer = setInterval(async () => {
     if (!watcher) return; // Already relying on poll only
     try {
-      const fd = openSync(QUEUE_FILE, 'r');
-      const stat = fstatSync(fd);
-      closeSync(fd);
-      const currentSize = stat.size;
+      const fileStat = await fsStat(QUEUE_FILE);
+      const currentSize = fileStat.size;
       const timeSinceWatch = Date.now() - lastWatchEventAt;
       if (timeSinceWatch > HEALTH_CHECK_INTERVAL_MS && currentSize > lastKnownFileSize) {
         log.warn('mq', `fs.watch stale (${Math.round(timeSinceWatch / 1000)}s silent, file grew ${currentSize - lastKnownFileSize} bytes), triggering manual read`);
@@ -160,15 +159,21 @@ function scheduleRead(): void {
   }, DEBOUNCE_MS);
 }
 
+// #87: Prevent concurrent reads from overlapping
+let readInProgress = false;
+
 /**
  * Core read loop: reads from lastByteOffset to current EOF,
  * processes complete JSON lines, retains any partial trailing line.
+ * #87: Uses async file I/O to avoid blocking the Node.js event loop.
  */
-function readNewLines(): void {
-  let fd: number | undefined;
+async function readNewLines(): Promise<void> {
+  if (readInProgress) return;
+  readInProgress = true;
+  let fh: FileHandle | undefined;
   try {
-    fd = openSync(QUEUE_FILE, 'r');
-    const fileStat = fstatSync(fd);
+    fh = await fsOpen(QUEUE_FILE, 'r');
+    const fileStat = await fh.stat();
     const fileSize = fileStat.size;
 
     // File was truncated externally or is smaller than our offset
@@ -179,18 +184,19 @@ function readNewLines(): void {
     }
 
     if (fileSize <= lastByteOffset) {
-      closeSync(fd);
+      await fh.close();
+      readInProgress = false;
       return;
     }
 
     // Read the new chunk
     const bytesToRead = fileSize - lastByteOffset;
     const buffer = Buffer.alloc(bytesToRead);
-    const bytesRead = readSync(fd, buffer, 0, bytesToRead, lastByteOffset);
-    closeSync(fd);
-    fd = undefined;
+    const { bytesRead } = await fh.read(buffer, 0, bytesToRead, lastByteOffset);
+    await fh.close();
+    fh = undefined;
 
-    if (bytesRead === 0) return;
+    if (bytesRead === 0) { readInProgress = false; return; }
 
     const chunk = buffer.toString('utf-8', 0, bytesRead);
     const combined = partialLine + chunk;
@@ -222,11 +228,11 @@ function readNewLines(): void {
 
     // Truncate if file grew too large and we've fully caught up
     if (lastByteOffset > TRUNCATE_THRESHOLD && partialLine === '') {
-      truncateQueue();
+      await truncateQueue();
     }
   } catch (err: unknown) {
-    if (fd != null) {
-      try { closeSync(fd); } catch { /* ignore */ }
+    if (fh) {
+      try { await fh.close(); } catch { /* ignore */ }
     }
     const e = err as NodeJS.ErrnoException;
     if (e.code !== 'ENOENT') {
@@ -237,23 +243,26 @@ function readNewLines(): void {
       lastByteOffset = 0;
       partialLine = '';
     }
+  } finally {
+    readInProgress = false;
   }
 }
 
 /** Truncate the queue file after all lines have been processed.
  *  Checks if file grew since our last read to avoid losing events
  *  written between the read and truncation.
+ *  #87: Uses async file I/O.
  */
-function truncateQueue(): void {
-  let fd: number | undefined;
+async function truncateQueue(): Promise<void> {
+  let fh: FileHandle | undefined;
   try {
-    fd = openSync(QUEUE_FILE, 'r+');
-    const stat = fstatSync(fd);
+    fh = await fsOpen(QUEUE_FILE, 'r+');
+    const fileStat = await fh.stat();
     // If file grew since our last read, read the new data first
-    if (stat.size > lastByteOffset) {
-      const newBytes = stat.size - lastByteOffset;
+    if (fileStat.size > lastByteOffset) {
+      const newBytes = fileStat.size - lastByteOffset;
       const buffer = Buffer.alloc(newBytes);
-      const bytesRead = readSync(fd, buffer, 0, newBytes, lastByteOffset);
+      const { bytesRead } = await fh.read(buffer, 0, newBytes, lastByteOffset);
       if (bytesRead > 0) {
         const chunk = buffer.toString('utf-8', 0, bytesRead);
         const combined = partialLine + chunk;
@@ -275,16 +284,16 @@ function truncateQueue(): void {
       }
     }
     // Now truncate — write remaining partial line (if any) to start of file
-    closeSync(fd);
-    fd = undefined;
-    writeFileSync(QUEUE_FILE, partialLine);
+    await fh.close();
+    fh = undefined;
+    await fsWriteFile(QUEUE_FILE, partialLine);
     lastByteOffset = Buffer.byteLength(partialLine, 'utf-8');
     partialLine = '';
     mqStats.truncations++;
     log.info('mq', 'Queue file truncated (all events processed)');
   } catch (err: unknown) {
-    if (fd != null) {
-      try { closeSync(fd); } catch { /* ignore */ }
+    if (fh) {
+      try { await fh.close(); } catch { /* ignore */ }
     }
     const msg = err instanceof Error ? err.message : String(err);
     log.warn('mq', `Truncation error: ${msg}`);

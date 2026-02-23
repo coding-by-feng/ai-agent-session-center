@@ -6,7 +6,7 @@
  * This eliminates all setState calls from the R3F render tree,
  * preventing cross-reconciler cascades (React Error #185).
  */
-import { useRef } from 'react';
+import { useRef, useEffect } from 'react';
 import { Text, Billboard } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -149,6 +149,17 @@ function TextUpdater({
   textRef: React.RefObject<string>;
 }) {
   const parentRef = useRef<THREE.Object3D>(null);
+
+  // #58: Dispose Troika text mesh on unmount to prevent cache leaks
+  useEffect(() => {
+    return () => {
+      if (!parentRef.current) return;
+      const textMesh = parentRef.current.parent as unknown as {
+        dispose?: () => void;
+      };
+      textMesh?.dispose?.();
+    };
+  }, []);
 
   useFrame(() => {
     if (!parentRef.current) return;

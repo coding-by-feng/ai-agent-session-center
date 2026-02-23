@@ -35,6 +35,8 @@ export function startMonitoring(
 
   livenessInterval = setInterval(async () => {
     for (const [id, session] of sessions) {
+      // #43: Defensive check — session may have been deleted by another part of the code
+      if (!sessions.has(id)) continue;
       if (session.status === SESSION_STATUS.ENDED) continue;
       if (!session.cachedPid) continue;
       const monitorPid = validatePid(session.cachedPid);
@@ -81,14 +83,13 @@ export function startMonitoring(
           log.warn('session', `processMonitor broadcast failed: ${(e as Error).message}`);
         }
 
-        // SSH sessions: keep in memory as historical (disconnected), preserve terminal ref for resume
+        // Keep all sessions in memory — user must manually close via UI close button
         if (session.source === 'ssh') {
           session.isHistorical = true;
           session.lastTerminalId = session.terminalId;
           session.terminalId = null;
-        } else {
-          setTimeout(() => sessions.delete(id), 10000);
         }
+        // Non-SSH sessions are also kept (no auto-delete)
       }
     }
   }, PROCESS_CHECK_INTERVAL);

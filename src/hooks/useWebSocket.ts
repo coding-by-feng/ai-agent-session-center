@@ -36,6 +36,15 @@ export function useWebSocket(token: string | null): WsClient | null {
           for (const session of deduped.values()) {
             persistSessionUpdate(session).catch(() => {});
           }
+
+          // #39: Reconcile IndexedDB — delete sessions not in snapshot
+          db.sessions.toCollection().primaryKeys().then((keys) => {
+            const snapshotIds = new Set(deduped.keys());
+            const staleKeys = keys.filter((k) => !snapshotIds.has(String(k)));
+            if (staleKeys.length > 0) {
+              db.sessions.bulkDelete(staleKeys).catch(() => {});
+            }
+          }).catch(() => {});
           break;
         }
 

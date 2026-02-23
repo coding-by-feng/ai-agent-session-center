@@ -57,6 +57,13 @@ export default function QueueTab({
 
   const prevStatusRef = useRef(sessionStatus);
 
+  // #13: Reset edit state when session changes
+  useEffect(() => {
+    setEditingId(null);
+    setEditText('');
+    setMovingItemId(null);
+  }, [sessionId]);
+
   // ---- Load queue from IndexedDB on mount ----
   useEffect(() => {
     (async () => {
@@ -113,6 +120,32 @@ export default function QueueTab({
     onQueueCountChange?.(sessionId, items.length);
   }, [items, sessionId, onQueueCountChange]);
 
+  // ---- Send prompt text to terminal via API — returns true on success ----
+  const sendPromptToTerminal = useCallback(
+    async (text: string): Promise<boolean> => {
+      if (!terminalId) {
+        showToast('No terminal attached', 'error');
+        return false;
+      }
+      try {
+        const res = await fetch(`/api/terminals/${terminalId}/write`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: text + '\n' }),
+        });
+        if (!res.ok) {
+          showToast('Failed to send to terminal', 'error');
+          return false;
+        }
+        return true;
+      } catch {
+        showToast('Network error sending to terminal', 'error');
+        return false;
+      }
+    },
+    [terminalId],
+  );
+
   // ---- Auto-send: when session transitions to "waiting" or "input", send first queued prompt ----
   useEffect(() => {
     const prev = prevStatusRef.current;
@@ -123,36 +156,18 @@ export default function QueueTab({
       sessionStatus === 'waiting' || sessionStatus === 'input';
     if (!isWaiting) return;
     if (items.length === 0) return;
+    // Only auto-send if there's a terminal attached
+    if (!terminalId) return;
 
-    // Send the first item
+    // Send the first item — only remove after successful send
     const first = items[0];
-    sendPromptToTerminal(first.text);
-    remove(sessionId, first.id);
-    showToast('Auto-sent queued prompt', 'info', 2000);
-  }, [sessionStatus, items, sessionId, remove]);
-
-  // ---- Send prompt text to terminal via API ----
-  const sendPromptToTerminal = useCallback(
-    async (text: string) => {
-      if (!terminalId) {
-        showToast('No terminal attached', 'error');
-        return;
+    sendPromptToTerminal(first.text).then((sent) => {
+      if (sent) {
+        remove(sessionId, first.id);
+        showToast('Auto-sent queued prompt', 'info', 2000);
       }
-      try {
-        const res = await fetch(`/api/terminals/${terminalId}/write`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: text + '\n' }),
-        });
-        if (!res.ok) {
-          showToast('Failed to send to terminal', 'error');
-        }
-      } catch {
-        showToast('Network error sending to terminal', 'error');
-      }
-    },
-    [terminalId],
-  );
+    });
+  }, [sessionStatus, items, sessionId, terminalId, remove, sendPromptToTerminal]);
 
   // ---- Add to queue ----
   const handleAdd = useCallback(() => {
@@ -201,11 +216,13 @@ export default function QueueTab({
     setEditText('');
   }, [editingId, editText, items, sessionId, remove]);
 
-  // ---- Send now (first item or specific item) ----
+  // ---- Send now (first item or specific item) — only remove after successful send ----
   const handleSendNow = useCallback(
-    (item: QueueItem) => {
-      sendPromptToTerminal(item.text);
-      remove(sessionId, item.id);
+    async (item: QueueItem) => {
+      const sent = await sendPromptToTerminal(item.text);
+      if (sent) {
+        remove(sessionId, item.id);
+      }
     },
     [sendPromptToTerminal, remove, sessionId],
   );
@@ -233,10 +250,13 @@ export default function QueueTab({
     (e: React.DragEvent, targetIdx: number) => {
       e.preventDefault();
       if (dragIdx === null || dragIdx === targetIdx) return;
-      const ids = items.map((i) => i.id);
-      const [movedId] = ids.splice(dragIdx, 1);
-      ids.splice(targetIdx, 0, movedId);
-      reorder(sessionId, ids);
+      // Immutable reorder: build new array without mutating
+      const newItems = [...items];
+      const [moved] = newItems.splice(dragIdx, 1);
+      newItems.splice(targetIdx, 0, moved);
+      // Validate array integrity
+      if (newItems.length !== items.length) return;
+      reorder(sessionId, newItems.map((i) => i.id));
       setDragIdx(targetIdx);
     },
     [dragIdx, items, reorder, sessionId],

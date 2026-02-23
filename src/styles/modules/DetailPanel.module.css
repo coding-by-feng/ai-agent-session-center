@@ -26,6 +26,8 @@
   display: flex; flex-direction: column;
   animation: slide-in-right 0.3s ease;
   overflow: hidden;
+  /* #82: Hint browser to optimize animation, reduce terminal layout disruption */
+  will-change: transform;
 }
 .panel.resizing { animation: none; transition: none; user-select: none; }
 
@@ -81,15 +83,16 @@
 
 /* ---- Tabs ---- */
 
-.tabs { display: flex; border-bottom: 1px solid var(--border-subtle); padding: 0 20px; }
-.tab { background: none; border: none; color: var(--text-dim); font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 1px; padding: 10px 16px; cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s; }
+/* #60 — Horizontal scrollable tabs on mobile */
+.tabs { display: flex; border-bottom: 1px solid var(--border-subtle); padding: 0 20px; overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { background: none; border: none; color: var(--text-dim); font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 1px; padding: 10px 16px; cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s; white-space: nowrap; flex-shrink: 0; }
 .tab:hover { color: var(--text-secondary); }
 .tab.active { color: var(--accent-cyan); border-bottom-color: var(--accent-cyan); }
 
 /* ---- Tab Content ---- */
 
-.tabContent { display: none; flex: 1; overflow-y: auto; padding: 16px 20px; }
-.tabContent.active { display: flex; flex-direction: column; }
+.tabContent { display: flex; flex-direction: column; flex: 1; overflow-y: auto; padding: 16px 20px; min-height: 0; }
 .tabContent::-webkit-scrollbar { width: 4px; }
 .tabContent::-webkit-scrollbar-track { background: transparent; }
 .tabContent::-webkit-scrollbar-thumb { background: var(--bg-accent); border-radius: 2px; }
@@ -117,6 +120,11 @@
 .convEntry:hover .convCopy { opacity: 1; }
 .convCopy:hover { color: var(--text-primary); border-color: var(--text-dim); }
 
+/* #63 — Always show copy button on touch devices */
+@media (hover: none) {
+  .convCopy { opacity: 0.5; }
+}
+
 /* ---- Activity Entries ---- */
 
 .activityEntry { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border-faint); font-size: 11px; border-left: 3px solid transparent; padding-left: 8px; }
@@ -134,7 +142,8 @@
 
 /* ---- Session Control Buttons ---- */
 
-.ctrlBar { display: flex; gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--border-subtle); }
+/* #62 — Flex-wrap control bar on mobile */
+.ctrlBar { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--border-subtle); }
 .ctrlBtn { background: var(--bg-subtle); border: 1px solid var(--border-subtle-strong); color: var(--text-secondary); font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: 1px; padding: 6px 14px; border-radius: 4px; cursor: pointer; transition: all 0.2s; }
 .ctrlBtn:hover { background: var(--bg-subtle-strong); color: var(--text-primary); }
 .ctrlBtn.resume { color: var(--accent-green); border-color: rgba(80, 250, 123, 0.3); }
@@ -207,4 +216,55 @@
 @media (max-width: 640px) {
   .panel { width: 100% !important; max-width: 100vw; }
   .resizeHandle { display: none; }
+
+  /* #67 — Stack header elements, reduce padding on mobile */
+  .header {
+    padding: 12px 48px 10px 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .charPreview { width: 48px; height: 60px; }
+
+  /* #62 — Reduce control bar button padding on small screens */
+  .ctrlBtn {
+    padding: 5px 10px;
+    font-size: 9px;
+  }
+
+  .ctrlSelect {
+    font-size: 9px;
+    padding: 5px 20px 5px 8px;
+  }
+}
+
+/* #64 — Increase close button to 44x44px on touch devices */
+@media (pointer: coarse) {
+  .closeBtn {
+    width: 44px;
+    height: 44px;
+    top: 8px;
+    right: 8px;
+  }
+
+  /* #60 — Larger tab touch targets */
+  .tab {
+    padding: 12px 14px;
+    min-height: 44px;
+  }
+
+  /* #62 — Larger ctrl button touch targets */
+  .ctrlBtn {
+    min-height: 44px;
+    padding: 0 14px;
+  }
+
+  .ctrlSelect {
+    min-height: 44px;
+  }
+}
+
+/* #63 — Always show copy button on touch devices */
+@media (hover: none) {
+  /* (already handled in .convCopy block above) */
 }

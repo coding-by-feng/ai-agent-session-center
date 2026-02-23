@@ -13,6 +13,18 @@ import type { Terminal, TerminalConfig, TerminalInfo, TmuxSessionInfo, SshKeyInf
 import type { PendingLink } from '../src/types/session.js';
 import type WebSocket from 'ws';
 
+// Callback type for notifying session store of terminal exit
+type OnTerminalExitCallback = (terminalId: string) => void;
+let onTerminalExitCallback: OnTerminalExitCallback | null = null;
+
+/**
+ * Register a callback invoked when a PTY exits, allowing the session store
+ * to clear session.terminalId and broadcast the update.
+ */
+export function registerTerminalExitCallback(cb: OnTerminalExitCallback): void {
+  onTerminalExitCallback = cb;
+}
+
 // ---- Input Validation Helpers ----
 
 // Shell metacharacters that indicate injection attempts
@@ -108,10 +120,10 @@ function detectShellReady(ptyProcess: IPty, terminalId: string, timeoutMs: numbe
     buffer += data;
     // Cap buffer to avoid memory issues with large MOTD output
     if (buffer.length > 4096) buffer = buffer.slice(-4096);
-    // Wait for output to settle (100ms of silence) before checking —
+    // Wait for output to settle (50ms of silence) before checking —
     // MOTD lines arrive in bursts, but the final prompt is followed by silence
     if (settleTimer) clearTimeout(settleTimer);
-    settleTimer = setTimeout(checkPrompt, 100);
+    settleTimer = setTimeout(checkPrompt, 50);
   });
 
   const exitDisp: IDisposable = ptyProcess.onExit(() => {
@@ -286,7 +298,7 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
 
       // Detect when the shell is ready (prompt visible) before sending commands.
       // Local shells init in ~100-300ms; remote SSH can take seconds for key exchange.
-      const shellReady = detectShellReady(ptyProcess, terminalId, local ? 5000 : 15000);
+      const shellReady = detectShellReady(ptyProcess, terminalId, local ? 2000 : 10000);
 
       terminals.set(terminalId, {
         pty: ptyProcess,
@@ -301,8 +313,12 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
       // Register pending link for session matching
       pendingLinks.set(workDir, { terminalId, host: config.host || 'localhost', createdAt: Date.now() });
 
+      // #19: Store disposables for proper cleanup on terminal close
+      const disposables: IDisposable[] = [];
+      terminals.get(terminalId)!.disposables = disposables;
+
       // Stream output to WebSocket client + buffer for replay
-      ptyProcess.onData((data: string) => {
+      disposables.push(ptyProcess.onData((data: string) => {
         const term = terminals.get(terminalId);
         if (!term) return;
 
@@ -320,17 +336,21 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
             data: chunk.toString('base64'),
           }));
         }
-      });
+      }));
 
-      ptyProcess.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {
+      disposables.push(ptyProcess.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {
         log.info('pty', `Terminal ${terminalId} exited (code: ${exitCode}, signal: ${signal})`);
         broadcastToClient(terminalId, {
           type: 'terminal_closed',
           terminalId,
           reason: signal ? `signal ${signal}` : 'exited',
         });
+        // #21: Notify session store so it can clear session.terminalId
+        if (onTerminalExitCallback) {
+          onTerminalExitCallback(terminalId);
+        }
         cleanup(terminalId);
-      });
+      }));
 
       // Send the launch command once the shell is ready (prompt detected).
       // API keys are passed via env object to pty.spawn (above), not via shell commands.
@@ -521,16 +541,20 @@ export async function writeWhenReady(terminalId: string, data: string): Promise<
   return true;
 }
 
-export function resizeTerminal(terminalId: string, cols: number, rows: number): void {
+// #31: Returns error message on failure so wsManager can relay to client
+export function resizeTerminal(terminalId: string, cols: number, rows: number): string | null {
   const term = terminals.get(terminalId);
   if (term && term.pty) {
     try {
       term.pty.resize(cols, rows);
+      return null;
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       log.debug('pty', `Resize failed for ${terminalId} (process may be dead): ${msg}`);
+      return msg;
     }
   }
+  return terminalId ? 'terminal not found' : null;
 }
 
 export function closeTerminal(terminalId: string): void {
@@ -614,28 +638,30 @@ export function getTerminalByPtyChild(childPid: number): string | null {
   return null;
 }
 
-export function setWsClient(terminalId: string, wsClient: WebSocket | null): void {
+// #30: Returns boolean indicating whether terminal exists (for subscribe race check)
+export function setWsClient(terminalId: string, wsClient: WebSocket | null): boolean {
   const term = terminals.get(terminalId);
-  if (term) {
-    term.wsClient = wsClient;
+  if (!term) return false;
 
-    if (wsClient && wsClient.readyState === 1) {
-      // Send terminal_ready so the frontend runs onTerminalReady (refit + resize sync).
-      // This is important for REST-API-created terminals where the original terminal_ready
-      // was sent to a null wsClient and never reached the browser.
-      wsClient.send(JSON.stringify({ type: 'terminal_ready', terminalId }));
+  term.wsClient = wsClient;
 
-      // Replay buffered output so the client sees previous terminal content
-      if (term.outputBuffer.length > 0) {
-        wsClient.send(JSON.stringify({
-          type: 'terminal_output',
-          terminalId,
-          data: term.outputBuffer.toString('base64'),
-        }));
-        log.debug('pty', `Replayed ${term.outputBuffer.length} bytes to new client for ${terminalId}`);
-      }
+  if (wsClient && wsClient.readyState === 1) {
+    // Send terminal_ready so the frontend runs onTerminalReady (refit + resize sync).
+    // This is important for REST-API-created terminals where the original terminal_ready
+    // was sent to a null wsClient and never reached the browser.
+    wsClient.send(JSON.stringify({ type: 'terminal_ready', terminalId }));
+
+    // Replay buffered output so the client sees previous terminal content
+    if (term.outputBuffer.length > 0) {
+      wsClient.send(JSON.stringify({
+        type: 'terminal_output',
+        terminalId,
+        data: term.outputBuffer.toString('base64'),
+      }));
+      log.debug('pty', `Replayed ${term.outputBuffer.length} bytes to new client for ${terminalId}`);
     }
   }
+  return true;
 }
 
 export function getTerminals(): TerminalInfo[] {
@@ -663,6 +689,13 @@ function broadcastToClient(terminalId: string, message: Record<string, unknown>)
 function cleanup(terminalId: string): void {
   const term = terminals.get(terminalId);
   if (term) {
+    // #19: Dispose event listeners to prevent memory leaks
+    if (term.disposables) {
+      for (const d of term.disposables) {
+        try { d.dispose(); } catch { /* already disposed */ }
+      }
+      term.disposables = [];
+    }
     for (const [key, link] of pendingLinks) {
       if (link.terminalId === terminalId) pendingLinks.delete(key);
     }

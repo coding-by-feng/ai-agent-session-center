@@ -25,8 +25,16 @@ export default function CameraController({ controlsRef }: CameraControllerProps)
   const targetLookAt = useRef(new THREE.Vector3());
   const animating = useRef(false);
   const lastRequestId = useRef(0);
+  // #75: Frame counter for polling camera store when idle (not animating)
+  const idleFrameCounter = useRef(0);
 
   useFrame(() => {
+    // When not animating, only poll the camera store every 6th frame (#75: reduce idle cost)
+    if (!animating.current) {
+      idleFrameCounter.current++;
+      if (idleFrameCounter.current % 6 !== 0) return;
+    }
+
     // Poll the camera store imperatively — no subscription, no re-render
     const { pendingTarget } = useCameraStore.getState();
 
@@ -36,6 +44,7 @@ export default function CameraController({ controlsRef }: CameraControllerProps)
       targetPos.current.set(...pendingTarget.position);
       targetLookAt.current.set(...pendingTarget.lookAt);
       animating.current = true;
+      idleFrameCounter.current = 0;
     }
 
     if (!animating.current || !controlsRef.current) return;

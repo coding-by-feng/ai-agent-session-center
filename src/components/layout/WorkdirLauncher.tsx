@@ -7,6 +7,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useClickOutside } from '@/hooks/useClickOutside';
 import { showToast } from '@/components/ui/ToastContainer';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useKnownProjects } from '@/hooks/useKnownProjects';
 import styles from '@/styles/modules/WorkdirLauncher.module.css';
 
 const WORKDIR_HISTORY_KEY = 'workdir-history';
@@ -52,18 +53,28 @@ function shortenPath(fullPath: string): string {
 export default function WorkdirLauncher() {
   const [open, setOpen] = useState(false);
   const [dirs, setDirs] = useState<string[]>([]);
+  const knownProjects = useKnownProjects();
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const close = useCallback(() => setOpen(false), []);
 
   useClickOutside(wrapperRef, close, open);
 
-  // Reload history each time the dropdown opens
+  // Reload history merged with known projects each time the dropdown opens
   useEffect(() => {
     if (open) {
-      setDirs(loadWorkdirHistory());
+      const history = loadWorkdirHistory();
+      const seen = new Set(history);
+      const merged = [...history];
+      for (const dir of knownProjects) {
+        if (!seen.has(dir)) {
+          seen.add(dir);
+          merged.push(dir);
+        }
+      }
+      setDirs(merged);
     }
-  }, [open]);
+  }, [open, knownProjects]);
 
   // Escape key closes dropdown
   useEffect(() => {

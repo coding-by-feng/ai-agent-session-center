@@ -489,8 +489,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     get().persistSetting(fieldMap[provider], key);
   },
 
+  // #46: Safe serializer to prevent circular reference crashes
   persistSetting: async (key, value) => {
     try {
+      // Validate serialization before persisting
+      if (typeof value === 'object' && value !== null) {
+        try { JSON.stringify(value); } catch { return; }
+      }
       await db.settings.put({ key, value, updatedAt: Date.now() });
       get().flashAutosave();
     } catch {

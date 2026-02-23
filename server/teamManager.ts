@@ -16,6 +16,8 @@ import type { Team, TeamSerialized, PendingSubagent, TeamConfig, TeamLinkResult 
 const teams = new Map<string, Team>();            // teamId -> Team
 const sessionToTeam = new Map<string, string>();   // sessionId -> teamId
 const pendingSubagents: PendingSubagent[] = [];    // { parentSessionId, parentCwd, agentType, timestamp }
+// #42: Track cleanup timers so they can be cancelled when new children join
+const cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 /**
  * Find a pending subagent entry matching a new child session.
@@ -157,6 +159,13 @@ function linkSessionToTeam(
 
   // Link child
   team.childSessionIds.add(childId);
+  // #42: Cancel pending cleanup timer when new child joins
+  const pendingCleanup = cleanupTimers.get(teamId);
+  if (pendingCleanup) {
+    clearTimeout(pendingCleanup);
+    cleanupTimers.delete(teamId);
+    log.info('session', `Cancelled team cleanup for ${teamId} — new child ${childId} added`);
+  }
   const childSession = sessions.get(childId);
   if (childSession) {
     childSession.teamId = teamId;
@@ -192,14 +201,16 @@ export function handleTeamMemberEnd(
       return !s || s.status === SESSION_STATUS.ENDED;
     });
     if (allChildrenEnded) {
-      // Clean up team after a delay
-      setTimeout(() => {
+      // #42: Clean up team after a delay, but cancel if new child is added
+      const timer = setTimeout(() => {
+        cleanupTimers.delete(teamId);
         teams.delete(teamId);
         sessionToTeam.delete(team.parentSessionId);
         for (const cid of team.childSessionIds) {
           sessionToTeam.delete(cid);
         }
       }, 15000);
+      cleanupTimers.set(teamId, timer);
     }
   }
 

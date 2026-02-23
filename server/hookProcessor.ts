@@ -8,6 +8,30 @@ import log from './logger.js';
 import type { HookPayload } from '../src/types/hook.js';
 import type { HandleEventResult } from '../src/types/session.js';
 
+// #80: Throttle session_update broadcasts to max 4/sec per session (250ms)
+const SESSION_UPDATE_THROTTLE_MS = 250;
+const pendingSessionUpdates = new Map<string, { delta: HandleEventResult; timer: ReturnType<typeof setTimeout> }>();
+
+function scheduleBroadcast(sessionId: string, delta: HandleEventResult): void {
+  const existing = pendingSessionUpdates.get(sessionId);
+  if (existing) {
+    // Update the pending delta with latest data (coalesce)
+    existing.delta = delta;
+    return;
+  }
+  // No pending broadcast — schedule one
+  const timer = setTimeout(() => {
+    const pending = pendingSessionUpdates.get(sessionId);
+    if (!pending) return;
+    pendingSessionUpdates.delete(sessionId);
+    broadcast({ type: WS_TYPES.SESSION_UPDATE, ...pending.delta });
+    if (pending.delta.team) {
+      broadcast({ type: WS_TYPES.TEAM_UPDATE, team: pending.delta.team });
+    }
+  }, SESSION_UPDATE_THROTTLE_MS);
+  pendingSessionUpdates.set(sessionId, { delta, timer });
+}
+
 /**
  * Validate a hook payload. Returns null if valid, or an error string if invalid.
  */
@@ -93,14 +117,10 @@ export function processHookEvent(
   const eventType = hookData.hook_event_name || 'unknown';
   recordHook(eventType, deliveryLatency, processingTime);
 
-  // Broadcast to WebSocket clients
+  // #80: Use throttled broadcast for session updates to max 4/sec per session
   if (delta) {
     log.debug('hook', `Broadcasting session_update for ${hookData.session_id} status=${delta.session?.status}`);
-    broadcast({ type: WS_TYPES.SESSION_UPDATE, ...delta });
-    if (delta.team) {
-      log.debug('hook', `Broadcasting team_update for team=${delta.team.teamId}`);
-      broadcast({ type: WS_TYPES.TEAM_UPDATE, team: delta.team });
-    }
+    scheduleBroadcast(hookData.session_id, delta);
     broadcast({ type: WS_TYPES.HOOK_STATS, stats: getStats() });
   }
 

@@ -27,16 +27,23 @@ export default function NotesTab({ sessionId }: NotesTabProps) {
   const [text, setText] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Load notes
+  const [loadError, setLoadError] = useState(false);
+
+  // #5: Load notes with error feedback
   const loadNotes = useCallback(async () => {
     try {
+      setLoadError(false);
       const resp = await fetch(`/api/db/sessions/${sessionId}/notes`);
       if (resp.ok) {
         const data = await resp.json();
         setNotes(data.notes || []);
+      } else {
+        setLoadError(true);
+        showToast('Failed to load notes', 'error');
       }
     } catch {
-      // silent
+      setLoadError(true);
+      showToast('Network error loading notes', 'error');
     }
   }, [sessionId]);
 
@@ -127,6 +134,8 @@ export default function NotesTab({ sessionId }: NotesTabProps) {
               <div className={styles.noteText}>{note.text}</div>
             </div>
           ))
+      ) : loadError ? (
+        <div className={styles.tabEmpty}>Failed to load notes — <button onClick={loadNotes} style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', cursor: 'pointer', fontFamily: 'inherit' }}>retry</button></div>
       ) : (
         <div className={styles.tabEmpty}>No notes yet</div>
       )}
