@@ -8,7 +8,7 @@ import { createPortal } from 'react-dom';
 import { useTerminal } from '@/hooks/useTerminal';
 import TerminalToolbar from './TerminalToolbar';
 import styles from '@/styles/modules/Terminal.module.css';
-import 'xterm/css/xterm.css';
+import '@xterm/xterm/css/xterm.css';
 
 interface TerminalContainerProps {
   terminalId: string | null;
