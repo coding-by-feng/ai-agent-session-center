@@ -76,6 +76,8 @@
 .sshFieldGrow { flex: 1; }
 .sshFieldSmall { width: 80px; }
 .sshFieldHint { font-size: 10px; color: var(--text-secondary, #888); font-weight: 400; }
+.sshFieldRequired { color: var(--accent-cyan, #00e5ff); font-weight: 700; }
+.sshFieldError { font-size: 10px; color: #ff5555; font-weight: 500; }
 
 /* Session mode toggle */
 .sshModeToggle { display: flex; gap: 0; border: 1px solid var(--border-accent, #1a1a3a); border-radius: 4px; overflow: hidden; }
@@ -180,20 +182,36 @@
 @media (max-width: 480px) {
   .panel {
     padding: 12px;
+    max-width: calc(100vw - 16px);
+    box-sizing: border-box;
   }
 
   .newSessionPanel {
-    width: calc(100vw - 24px);
+    width: calc(100vw - 16px);
     max-height: 90vh;
   }
 
   .newSessionBody {
     gap: 8px;
+    overflow-x: hidden;
   }
 
   .newSessionFooter {
     margin-top: 10px;
     padding-top: 10px;
+  }
+
+  /* Stack Host+Port vertically on small phones */
+  .sshFieldRow {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .sshFieldSmall {
+    width: 100%;
+  }
+
+  .quickSessionPanel {
+    max-width: calc(100vw - 16px);
   }
 }
 

@@ -39,11 +39,11 @@ export default function RoomLabels({ rooms: roomConfigs, casualAreas, storeRooms
 
         return (
           <group key={roomCfg.roomId}>
-            {/* Room name — outside south door, flat on ground */}
+            {/* Room name — floating above room center, billboard-style */}
             <Text
-              position={[cx, 0.02, cz + ROOM_HALF + 1.5]}
+              position={[cx, 2.8, cz]}
               rotation={[-Math.PI / 2, 0, 0]}
-              fontSize={0.8}
+              fontSize={0.7}
               color={color}
               anchorX="center"
               anchorY="middle"
@@ -54,11 +54,11 @@ export default function RoomLabels({ rooms: roomConfigs, casualAreas, storeRooms
               {roomCfg.name.toUpperCase()}
             </Text>
 
-            {/* Unit count — below room name, smaller and dimmer */}
+            {/* Unit count — just south of room name, still above room */}
             <Text
-              position={[cx, 0.02, cz + ROOM_HALF + 2.4]}
+              position={[cx, 2.8, cz + 1.0]}
               rotation={[-Math.PI / 2, 0, 0]}
-              fontSize={0.4}
+              fontSize={0.35}
               color={dimColor}
               anchorX="center"
               anchorY="middle"
@@ -70,17 +70,16 @@ export default function RoomLabels({ rooms: roomConfigs, casualAreas, storeRooms
         );
       })}
 
-      {/* Casual area name labels — at south edge of each area (entrance side facing rooms) */}
+      {/* Casual area name labels — floating above area center */}
       {casualAreas?.map((area) => {
         const [ax, , az] = area.center;
-        const halfDepth = (area.bounds.maxZ - area.bounds.minZ) / 2;
         const labelColor = '#ff9944';
         const labelText = 'COFFEE LOUNGE';
 
         return (
           <Text
             key={area.type}
-            position={[ax, 0.02, az + halfDepth + 1.2]}
+            position={[ax, 2.8, az]}
             rotation={[-Math.PI / 2, 0, 0]}
             fontSize={0.8}
             color={labelColor}
