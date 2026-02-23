@@ -1,6 +1,6 @@
 /**
- * TerminalToolbar shows theme selector, fullscreen toggle, reconnect, and ESC button.
- * Ported from the toolbar controls in public/js/terminalManager.js.
+ * TerminalToolbar shows theme selector, reconnect, and ESC button.
+ * Fullscreen is handled via Alt+F11 hotkey only (no button).
  */
 import { useCallback } from 'react';
 import { getThemeNames } from './themes';
@@ -9,22 +9,16 @@ import styles from '@/styles/modules/Terminal.module.css';
 interface TerminalToolbarProps {
   themeName: string;
   onThemeChange: (theme: string) => void;
-  onFullscreen: () => void;
   onSendEscape: () => void;
   onReconnect?: () => void;
-  onRefresh?: () => void;
-  isFullscreen: boolean;
   showReconnect?: boolean;
 }
 
 export default function TerminalToolbar({
   themeName,
   onThemeChange,
-  onFullscreen,
   onSendEscape,
   onReconnect,
-  onRefresh,
-  isFullscreen,
   showReconnect = false,
 }: TerminalToolbarProps) {
   const themeNames = getThemeNames();
@@ -55,28 +49,9 @@ export default function TerminalToolbar({
       <button
         className={styles.toolbarBtn}
         onClick={onSendEscape}
-        title="Send Escape key"
+        title="Send Escape key to terminal"
       >
         ESC
-      </button>
-
-      {onRefresh && (
-        <button
-          className={styles.toolbarBtn}
-          onClick={onRefresh}
-          title="Refresh terminal"
-        >
-          REFRESH
-        </button>
-      )}
-
-      <button
-        className={styles.toolbarBtn}
-        onClick={onFullscreen}
-        title={isFullscreen ? 'Exit fullscreen (Alt+F11)' : 'Fullscreen (Alt+F11)'}
-      >
-        {isFullscreen ? 'EXIT FS' : 'FULLSCREEN'}
-        <kbd className={styles.kbdHint}>Alt+F11</kbd>
       </button>
 
       {showReconnect && onReconnect && (
