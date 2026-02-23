@@ -5,8 +5,87 @@ import log from './logger.js';
 import type { IncomingMessage } from 'http';
 import type { Request, Response, NextFunction } from 'express';
 
-const TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 const SCRYPT_KEYLEN = 64;
+
+// ---------------------------------------------------------------------------
+// Login rate limiting: 5 attempts per 15 minutes per IP
+// ---------------------------------------------------------------------------
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+interface LoginAttemptBucket {
+  count: number;
+  windowStart: number;
+}
+
+const loginAttempts = new Map<string, LoginAttemptBucket>();
+
+/**
+ * Check if a login IP is rate-limited. Returns remaining seconds if locked out, 0 otherwise.
+ */
+export function checkLoginRateLimit(ip: string): number {
+  const now = Date.now();
+  const bucket = loginAttempts.get(ip);
+  if (!bucket || now - bucket.windowStart > LOGIN_WINDOW_MS) {
+    return 0; // Window expired or no attempts
+  }
+  if (bucket.count >= LOGIN_MAX_ATTEMPTS) {
+    return Math.ceil((LOGIN_WINDOW_MS - (now - bucket.windowStart)) / 1000);
+  }
+  return 0;
+}
+
+/**
+ * Record a failed login attempt for an IP.
+ */
+export function recordLoginAttempt(ip: string): void {
+  const now = Date.now();
+  const bucket = loginAttempts.get(ip);
+  if (!bucket || now - bucket.windowStart > LOGIN_WINDOW_MS) {
+    loginAttempts.set(ip, { count: 1, windowStart: now });
+  } else {
+    bucket.count++;
+  }
+}
+
+/**
+ * Clear login attempts for an IP (called on successful login).
+ */
+export function clearLoginAttempts(ip: string): void {
+  loginAttempts.delete(ip);
+}
+
+// ---------------------------------------------------------------------------
+// Password complexity validation
+// ---------------------------------------------------------------------------
+
+export interface PasswordValidation {
+  valid: boolean;
+  errors: string[];
+}
+
+/**
+ * Validate password complexity. Requirements:
+ * - At least 8 characters
+ * - At least 1 uppercase letter
+ * - At least 1 lowercase letter
+ * - At least 1 digit
+ * - At least 1 special character
+ */
+export function validatePasswordComplexity(password: string): PasswordValidation {
+  const errors: string[] = [];
+  if (password.length < 8) errors.push('at least 8 characters');
+  if (!/[A-Z]/.test(password)) errors.push('at least 1 uppercase letter');
+  if (!/[a-z]/.test(password)) errors.push('at least 1 lowercase letter');
+  if (!/[0-9]/.test(password)) errors.push('at least 1 digit');
+  if (!/[^A-Za-z0-9]/.test(password)) errors.push('at least 1 special character');
+  return { valid: errors.length === 0, errors };
+}
+
+// ---------------------------------------------------------------------------
+// Token store
+// ---------------------------------------------------------------------------
 
 // In-memory token store: Map<token, { createdAt: number }>
 const tokens = new Map<string, { createdAt: number }>();
@@ -34,12 +113,22 @@ export function verifyPassword(password: string, stored: string): boolean {
 }
 
 /**
- * Create a new auth token with 24h TTL.
+ * Create a new auth token with 1h TTL.
  */
 export function createToken(): string {
   const token = randomBytes(32).toString('hex');
   tokens.set(token, { createdAt: Date.now() });
   return token;
+}
+
+/**
+ * Refresh an existing valid token: revoke the old one, return a new one.
+ * Returns null if the old token is invalid/expired.
+ */
+export function refreshToken(oldToken: string | null): string | null {
+  if (!oldToken || !validateToken(oldToken)) return null;
+  tokens.delete(oldToken);
+  return createToken();
 }
 
 /**
@@ -55,6 +144,17 @@ export function validateToken(token: string | null): boolean {
     return false;
   }
   return true;
+}
+
+/**
+ * Get remaining TTL for a token in milliseconds. Returns 0 if invalid/expired.
+ */
+export function getTokenTTL(token: string | null): number {
+  if (!token) return 0;
+  const entry = tokens.get(token);
+  if (!entry) return 0;
+  const remaining = TOKEN_TTL_MS - (Date.now() - entry.createdAt);
+  return remaining > 0 ? remaining : 0;
 }
 
 /**
@@ -120,7 +220,23 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
 }
 
 /**
- * Periodic cleanup of expired tokens (runs every hour).
+ * Express middleware: restrict access to localhost/loopback only.
+ * Used to protect hook endpoints from external access.
+ */
+export function localhostOnlyMiddleware(req: Request, res: Response, next: NextFunction): void {
+  const ip = req.ip || req.socket?.remoteAddress || '';
+  // Allow localhost, IPv4 loopback, IPv6 loopback, and IPv4-mapped IPv6 loopback
+  const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip === 'localhost';
+  if (isLoopback) {
+    next();
+    return;
+  }
+  log.debug('auth', `Blocked non-localhost hook request from ${ip}`);
+  res.status(403).json({ error: 'Hook endpoint restricted to localhost' });
+}
+
+/**
+ * Periodic cleanup of expired tokens (runs every 15 minutes for 1h tokens).
  */
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -133,7 +249,13 @@ export function startTokenCleanup(): void {
         tokens.delete(token);
       }
     }
-  }, 60 * 60 * 1000);
+    // Also clean up expired login attempt buckets
+    for (const [ip, bucket] of loginAttempts) {
+      if (now - bucket.windowStart > LOGIN_WINDOW_MS) {
+        loginAttempts.delete(ip);
+      }
+    }
+  }, 15 * 60 * 1000); // every 15 minutes
 }
 
 export function stopTokenCleanup(): void {
@@ -142,3 +264,6 @@ export function stopTokenCleanup(): void {
     cleanupTimer = null;
   }
 }
+
+/** Export token TTL for use in cookie Max-Age */
+export const TOKEN_TTL_SECONDS = TOKEN_TTL_MS / 1000;

@@ -20,7 +20,9 @@ import { networkInterfaces } from 'os';
 import {
   isPasswordEnabled, verifyPassword, createToken, validateToken,
   removeToken, parseCookieToken, extractToken, authMiddleware,
-  startTokenCleanup, stopTokenCleanup,
+  startTokenCleanup, stopTokenCleanup, checkLoginRateLimit,
+  recordLoginAttempt, clearLoginAttempts, refreshToken, getTokenTTL,
+  localhostOnlyMiddleware, TOKEN_TTL_SECONDS,
 } from './authManager.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -32,6 +34,21 @@ const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
 app.use(express.json({ limit: '10mb' }));
+
+// -- Security headers --
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  // CSP: allow self + inline styles (needed for xterm/three.js) + WebSocket
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:",
+  );
+  next();
+});
 
 // -- Auth endpoints (no auth required) --
 app.get('/api/auth/status', (req, res) => {
@@ -46,18 +63,48 @@ app.post('/api/auth/login', (req, res) => {
     res.json({ success: true });
     return;
   }
+
+  // Rate limit: 5 attempts per 15 minutes per IP
+  const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  const lockoutSeconds = checkLoginRateLimit(ip);
+  if (lockoutSeconds > 0) {
+    res.status(429).json({
+      error: `Too many login attempts. Try again in ${Math.ceil(lockoutSeconds / 60)} minute(s).`,
+      retryAfter: lockoutSeconds,
+    });
+    return;
+  }
+
   const { password } = req.body || {};
   if (!password || typeof password !== 'string') {
     res.status(400).json({ error: 'Password is required' });
     return;
   }
   if (!verifyPassword(password, config.passwordHash ?? '')) {
+    recordLoginAttempt(ip);
     res.status(401).json({ error: 'Wrong password' });
     return;
   }
+
+  clearLoginAttempts(ip);
   const token = createToken();
-  res.setHeader('Set-Cookie', `auth_token=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${24 * 60 * 60}`);
-  res.json({ success: true, token });
+  res.setHeader('Set-Cookie', `auth_token=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${TOKEN_TTL_SECONDS}`);
+  res.json({ success: true, token, expiresIn: TOKEN_TTL_SECONDS });
+});
+
+app.post('/api/auth/refresh', (req, res) => {
+  if (!isPasswordEnabled()) {
+    res.json({ success: true });
+    return;
+  }
+  const oldToken = parseCookieToken(req.headers.cookie) ?? extractToken(req);
+  const newToken = refreshToken(oldToken);
+  if (!newToken) {
+    res.status(401).json({ error: 'Token expired or invalid — please login again' });
+    return;
+  }
+  res.setHeader('Set-Cookie', `auth_token=${newToken}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${TOKEN_TTL_SECONDS}`);
+  res.json({ success: true, token: newToken, expiresIn: TOKEN_TTL_SECONDS });
 });
 
 app.post('/api/auth/logout', (req, res) => {
@@ -71,8 +118,8 @@ app.post('/api/auth/logout', (req, res) => {
 const clientDir = join(__dirname, '..', 'dist', 'client');
 app.use(express.static(clientDir));
 
-// -- Hook endpoints (no auth -- CLI hooks must work without login) --
-app.use('/api/hooks', hookRateLimitMiddleware, hookRouter);
+// -- Hook endpoints (localhost only -- CLI hooks must work without login but are restricted to loopback) --
+app.use('/api/hooks', localhostOnlyMiddleware, hookRateLimitMiddleware, hookRouter);
 
 // -- Protected API routes --
 app.use('/api', authMiddleware, apiRouter);
@@ -158,7 +205,14 @@ function onReady(): void {
     log.info('server', `Network: http://${localIP}:${PORT}`);
   }
   if (isPasswordEnabled()) {
-    log.info('server', 'Password protection ENABLED -- login required');
+    log.info('server', 'Password protection ENABLED -- login required (1h token TTL)');
+  } else {
+    // Warn if binding to all interfaces without password
+    const bindAddr = (server.address() as { address?: string } | null)?.address;
+    if (bindAddr === '0.0.0.0' || bindAddr === '::') {
+      log.warn('server', '⚠ WARNING: Server is publicly accessible WITHOUT a password!');
+      log.warn('server', '  Run `npm run setup` to set a password before exposing to the internet.');
+    }
   }
   if (log.isDebug) {
     log.info('server', 'Debug mode ENABLED -- verbose logging active');

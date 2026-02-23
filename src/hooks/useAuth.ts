@@ -1,6 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 const TOKEN_KEY = 'auth_token';
+
+// Refresh token 5 minutes before expiry
+const REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
 interface AuthState {
   token: string | null;
@@ -56,12 +59,61 @@ export function getAuthToken(): string | null {
   return getStoredToken();
 }
 
+/**
+ * Silently refresh the auth token. Returns the new token or null on failure.
+ */
+async function doRefreshToken(): Promise<string | null> {
+  try {
+    const token = getStoredToken();
+    if (!token) return null;
+
+    const res = await fetch('/api/auth/refresh', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    const data = await res.json();
+    if (res.ok && data.success && data.token) {
+      storeToken(data.token);
+      return data.token;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function useAuth(): UseAuthReturn {
   const [state, setState] = useState<AuthState>({
     token: getStoredToken(),
     loading: true,
     needsLogin: false,
   });
+
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Schedule a token refresh `expiresIn` seconds from now (minus buffer). */
+  const scheduleRefresh = useCallback((expiresIn: number) => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+
+    // Refresh 5 minutes before expiry, minimum 30 seconds from now
+    const delayMs = Math.max((expiresIn * 1000) - REFRESH_BUFFER_MS, 30_000);
+
+    refreshTimerRef.current = setTimeout(async () => {
+      const newToken = await doRefreshToken();
+      if (newToken) {
+        setState((prev) => ({ ...prev, token: newToken }));
+        // Server returns expiresIn in seconds (3600 for 1h)
+        scheduleRefresh(3600);
+      } else {
+        // Refresh failed — force re-login
+        clearToken();
+        setState({ token: null, loading: false, needsLogin: true });
+      }
+    }, delayMs);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,6 +127,10 @@ export function useAuth(): UseAuthReturn {
 
         if (!data.passwordRequired || data.authenticated) {
           setState({ token: getStoredToken(), loading: false, needsLogin: false });
+          // If authenticated with a token, schedule auto-refresh
+          if (data.passwordRequired && data.authenticated && getStoredToken()) {
+            scheduleRefresh(3600); // 1h token TTL
+          }
         } else {
           setState({ token: null, loading: false, needsLogin: true });
         }
@@ -89,6 +145,7 @@ export function useAuth(): UseAuthReturn {
 
     // Listen for WS auth failures
     function handleAuthFailed() {
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
       clearToken();
       setState({ token: null, loading: false, needsLogin: true });
     }
@@ -96,9 +153,10 @@ export function useAuth(): UseAuthReturn {
 
     return () => {
       cancelled = true;
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
       document.removeEventListener('ws-auth-failed', handleAuthFailed);
     };
-  }, []);
+  }, [scheduleRefresh]);
 
   const login = useCallback(
     async (password: string): Promise<{ success: boolean; error?: string }> => {
@@ -115,6 +173,10 @@ export function useAuth(): UseAuthReturn {
             storeToken(data.token);
           }
           setState({ token: data.token ?? null, loading: false, needsLogin: false });
+          // Schedule refresh based on server-provided TTL
+          if (data.expiresIn) {
+            scheduleRefresh(data.expiresIn);
+          }
           return { success: true };
         }
         return { success: false, error: data.error || 'Authentication failed' };
@@ -122,11 +184,14 @@ export function useAuth(): UseAuthReturn {
         return { success: false, error: 'Connection error -- is the server running?' };
       }
     },
-    [],
+    [scheduleRefresh],
   );
 
   const logout = useCallback(() => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     clearToken();
+    // Also tell server to clear the cookie
+    fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
     setState({ token: null, loading: false, needsLogin: true });
   }, []);
 
