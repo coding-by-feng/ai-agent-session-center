@@ -181,7 +181,7 @@ export default function NewSessionModal() {
   }
 
   return (
-    <Modal modalId="new-session" title="New Terminal Session">
+    <Modal modalId="new-session" title="New Terminal Session" panelClassName={styles.newSessionPanel}>
       <div className={styles.newSessionBody}>
         {/* Mode toggle: Direct SSH / Tmux */}
         <div className={styles.sshModeToggle}>

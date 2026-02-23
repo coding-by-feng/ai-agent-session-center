@@ -435,7 +435,7 @@ export function pickCorridorTarget(bound: number): THREE.Vector3 {
 // Casual Areas (Coffee Lounge)
 // ---------------------------------------------------------------------------
 
-const CASUAL_AREA_SIZE = 6;
+const CASUAL_AREA_SIZE = 10;
 const CASUAL_HALF = CASUAL_AREA_SIZE / 2;
 
 /** Build the Coffee Lounge area NORTH of the rooms (above, negative Z side). */
@@ -458,9 +458,16 @@ export function buildCasualAreas(roomConfigs: RoomConfig[]): CasualArea[] {
   }
 
   const coffeeStations: { pos: THREE.Vector3; faceRot: number }[] = [];
-  // 2 coffee table seats side by side
-  coffeeStations.push({ pos: new THREE.Vector3(centerX - 1, 0, baseZ), faceRot: 0 });
-  coffeeStations.push({ pos: new THREE.Vector3(centerX + 1, 0, baseZ), faceRot: Math.PI });
+  // 4 tables x 2 seats each (8 total) in a 2x2 table grid
+  const TABLE_SPACING = 3;
+  for (let row = 0; row < 2; row++) {
+    for (let col = 0; col < 2; col++) {
+      const tx = centerX + (col - 0.5) * TABLE_SPACING;
+      const tz = baseZ + (row - 0.5) * TABLE_SPACING;
+      coffeeStations.push({ pos: new THREE.Vector3(tx - 0.8, 0, tz), faceRot: Math.PI / 2 });
+      coffeeStations.push({ pos: new THREE.Vector3(tx + 0.8, 0, tz), faceRot: -Math.PI / 2 });
+    }
+  }
 
   return [
     {

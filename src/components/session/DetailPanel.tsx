@@ -15,6 +15,7 @@ import ActivityLog from './ActivityLog';
 import NotesTab from './NotesTab';
 import SummaryTab from './SummaryTab';
 import QueueTab from './QueueTab';
+import ProjectTab from './ProjectTab';
 import SessionControlBar from './SessionControlBar';
 import KillConfirmModal, { KILL_MODAL_ID } from './KillConfirmModal';
 import AlertModal, { ALERT_MODAL_ID } from './AlertModal';
@@ -246,6 +247,11 @@ export default function DetailPanel() {
               sessionStatus={session.status}
               terminalId={session.terminalId}
             />
+          }
+          projectContent={
+            session.projectPath
+              ? <ProjectTab projectPath={session.projectPath} />
+              : <div className={styles.tabEmpty}>No project path detected for this session</div>
           }
         />
 
