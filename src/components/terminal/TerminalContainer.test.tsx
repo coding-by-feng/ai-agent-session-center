@@ -62,7 +62,7 @@ vi.mock('./TerminalToolbar', () => ({
 }));
 
 // Mock xterm CSS
-vi.mock('xterm/css/xterm.css', () => ({}));
+vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
 
 describe('TerminalContainer', () => {
   beforeEach(() => {
