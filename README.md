@@ -1,8 +1,8 @@
 # AI Agent Session Center
 
-A real-time dashboard that turns your AI coding agent sessions into animated 3D robot characters in an interactive cyberdrome scene.
+Real-time 3D dashboard for monitoring Claude Code, Gemini CLI, and Codex sessions — live terminals, prompt history, tool logs, and queuing. Runs on any device.
 
-Every Claude Code, Gemini CLI, or Codex session you run spawns a robot that walks around, sits at desks, and visually reflects what the agent is doing — running when executing tools, waving when prompting, waiting when it needs your approval.
+Every session spawns an animated robot in an interactive cyberdrome that visually reflects what the agent is doing — running when executing tools, waving when prompting, waiting when it needs your approval.
 
 [![npm version](https://img.shields.io/npm/v/ai-agent-session-center.svg)](https://www.npmjs.com/package/ai-agent-session-center)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green)](https://nodejs.org)
