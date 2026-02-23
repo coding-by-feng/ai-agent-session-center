@@ -40,6 +40,13 @@
 }
 .toolbarBtn:hover { background: rgba(255,255,255,0.06); color: var(--text-primary, #e0e0e0); border-color: rgba(255,255,255,0.2); }
 
+.kbdHint {
+  font-size: 8px; font-weight: 400; letter-spacing: 0;
+  color: var(--text-dim, #555); opacity: 0.7;
+  padding: 0 3px; border-radius: 2px;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+}
+
 .reconnectBtn {
   color: var(--accent-green, #50fa7b) !important;
   border-color: rgba(80, 250, 123, 0.3) !important;
