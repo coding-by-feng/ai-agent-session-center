@@ -238,6 +238,25 @@
   }
 }
 
+/* #72 — Further reduce button sizes on very small screens */
+@media (max-width: 480px) {
+  .ctrlBar {
+    gap: 4px;
+    padding: 8px 10px;
+  }
+
+  .ctrlBtn {
+    padding: 3px 6px;
+    font-size: 8px;
+    letter-spacing: 0.5px;
+  }
+
+  .ctrlSelect {
+    font-size: 8px;
+    padding: 3px 18px 3px 6px;
+  }
+}
+
 /* #64 — Increase close button to 44x44px on touch devices */
 @media (pointer: coarse) {
   .closeBtn {

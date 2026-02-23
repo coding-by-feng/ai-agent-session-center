@@ -2,7 +2,7 @@
  * QuickSessionModal - Quick-launch a session with label selection.
  * Reuses last working directory from history, allows label + workdir override.
  */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import Modal from '@/components/ui/Modal';
 import Combobox from '@/components/ui/Combobox';
 import { showToast } from '@/components/ui/ToastContainer';
@@ -10,6 +10,34 @@ import { useUiStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useKnownProjects } from '@/hooks/useKnownProjects';
 import styles from '@/styles/modules/Modal.module.css';
+
+// Default CLI command suggestions for the Command field
+const DEFAULT_COMMANDS: string[] = [
+  'claude',
+  'claude --resume',
+  'claude --continue',
+  'claude --model sonnet',
+  'claude --model opus',
+  'gemini',
+  'codex',
+  'aider',
+];
+
+const COMMAND_HISTORY_KEY = 'command-history';
+
+function getCommandSuggestions(): string[] {
+  try {
+    const history: string[] = JSON.parse(localStorage.getItem(COMMAND_HISTORY_KEY) || '[]');
+    const seen = new Set(history);
+    const merged = [...history];
+    for (const cmd of DEFAULT_COMMANDS) {
+      if (!seen.has(cmd)) merged.push(cmd);
+    }
+    return merged;
+  } catch {
+    return DEFAULT_COMMANDS;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Custom labels persistence
@@ -60,10 +88,17 @@ export default function QuickSessionModal() {
     const history = loadWorkdirHistory();
     return history[0] || '~';
   });
+  const [command, setCommand] = useState('claude');
   const [submitting, setSubmitting] = useState(false);
 
   // Working directory suggestions (history + known Claude Code projects)
   const workdirSuggestions = useKnownProjects();
+  const commandSuggestions = useMemo(() => getCommandSuggestions(), []);
+
+  // Validation
+  const workingDirValid = workingDir.trim().length > 0;
+  const commandValid = command.trim().length > 0;
+  const formValid = workingDirValid && commandValid;
 
   const allLabels = useMemo(
     () => [...BUILT_IN_LABELS, ...customLabels.filter((l) => !BUILT_IN_LABELS.includes(l))],
@@ -89,7 +124,7 @@ export default function QuickSessionModal() {
   }
 
   async function handleLaunch() {
-    if (submitting) return;
+    if (submitting || !formValid) return;
     setSubmitting(true);
 
     try {
@@ -99,7 +134,7 @@ export default function QuickSessionModal() {
         body: JSON.stringify({
           host: window.location.hostname || 'localhost',
           workingDir: workingDir || '~',
-          command: 'claude',
+          command: command || 'claude',
           label: selectedLabel || undefined,
           sessionTitle: sessionTitle.trim() || undefined,
         }),
@@ -184,12 +219,23 @@ export default function QuickSessionModal() {
 
           {/* Working directory override */}
           <div className={styles.quickWorkdirRow}>
-            <label>Working Directory</label>
+            <label>Working Directory <span style={{ color: 'var(--accent-cyan)', fontWeight: 700 }}>*</span></label>
             <Combobox
               value={workingDir}
               onChange={setWorkingDir}
               items={workdirSuggestions}
               placeholder="~"
+            />
+          </div>
+
+          {/* Command */}
+          <div className={styles.quickWorkdirRow}>
+            <label>Command <span style={{ color: 'var(--accent-cyan)', fontWeight: 700 }}>*</span></label>
+            <Combobox
+              value={command}
+              onChange={setCommand}
+              items={commandSuggestions}
+              placeholder="e.g. claude"
             />
           </div>
         </div>
@@ -215,7 +261,7 @@ export default function QuickSessionModal() {
           <button
             type="button"
             onClick={handleLaunch}
-            disabled={submitting}
+            disabled={submitting || !formValid}
             style={{
               padding: '6px 16px',
               background: 'rgba(0, 229, 255, 0.15)',
@@ -226,8 +272,8 @@ export default function QuickSessionModal() {
               fontSize: '11px',
               fontWeight: 700,
               letterSpacing: '1px',
-              cursor: submitting ? 'not-allowed' : 'pointer',
-              opacity: submitting ? 0.5 : 1,
+              cursor: submitting || !formValid ? 'not-allowed' : 'pointer',
+              opacity: submitting || !formValid ? 0.5 : 1,
             }}
           >
             {submitting ? 'LAUNCHING...' : 'LAUNCH'}

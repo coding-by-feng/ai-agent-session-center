@@ -272,12 +272,12 @@ export function buildCorridorWorkstations(
   const desks: { x: number; z: number; rotation: number }[] = [];
 
   if (roomConfigs.length === 0) {
-    // No rooms — place 10 desks in a 5x2 grid near origin
+    // No rooms — place 10 desks in a 5x2 grid south of coffee lounge (gap of 5 units)
     for (let row = 0; row < 5; row++) {
       for (let col = 0; col < 2; col++) {
         desks.push({
           x: (col - 0.5) * 3,
-          z: -3 + row * 1.5,
+          z: 3 + row * 1.5,
           rotation: col === 0 ? Math.PI / 2 : -Math.PI / 2,
         });
       }

@@ -9,6 +9,7 @@ import type { CreateTerminalRequest } from '@/types/api';
 import Modal from '@/components/ui/Modal';
 import Combobox from '@/components/ui/Combobox';
 import { showToast } from '@/components/ui/ToastContainer';
+import { useUiStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useKnownProjects } from '@/hooks/useKnownProjects';
 import styles from '@/styles/modules/Modal.module.css';
@@ -113,8 +114,9 @@ function saveCommand(cmd: string): void {
 // ---------------------------------------------------------------------------
 
 export default function NewSessionModal() {
+  const closeModal = useUiStore((s) => s.closeModal);
   const [saved] = useState(() => loadLastSession());
-  const [host, setHost] = useState(window.location.hostname || saved.host || 'localhost');
+  const [host, setHost] = useState(saved.host || '');
   const [port, setPort] = useState(String(saved.port || 22));
   const [username, setUsername] = useState(saved.username || '');
   const [authMethod, setAuthMethod] = useState<'key' | 'password'>(saved.authMethod || 'key');
@@ -126,6 +128,7 @@ export default function NewSessionModal() {
   const [sessionTitle, setSessionTitle] = useState('');
   const [label, setLabel] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
 
   // SSH keys from server
   const [sshKeys, setSshKeys] = useState<SshKeyInfo[]>([]);
@@ -144,12 +147,21 @@ export default function NewSessionModal() {
       .catch(() => {});
   }, []);
 
-  // #33: Client-side form validation
+  // Mark field as touched on blur
+  const markTouched = (field: string) => () => setTouched((prev) => ({ ...prev, [field]: true }));
+
+  // #33: Client-side form validation — required fields
   const portNum = Number(port);
   const portValid = Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535;
-  const formValid = portValid;
+  const hostValid = host.trim().length > 0;
+  const usernameValid = username.trim().length > 0;
+  const workingDirValid = workingDir.trim().length > 0;
+  const commandValid = command.trim().length > 0;
+  const formValid = portValid && hostValid && usernameValid && workingDirValid && commandValid;
 
   async function handleSubmit() {
+    // Mark all required fields as touched so validation errors show
+    setTouched({ host: true, port: true, username: true, workingDir: true, command: true });
     if (submitting || !formValid) return;
     setSubmitting(true);
 
@@ -191,6 +203,7 @@ export default function NewSessionModal() {
           useSessionStore.getState().selectSession(data.terminalId);
         }
         showToast('Terminal session created', 'success');
+        closeModal();
       } else {
         showToast(data.error || 'Failed to create terminal', 'error');
       }
@@ -207,27 +220,46 @@ export default function NewSessionModal() {
         {/* Host + Port */}
         <div className={styles.sshFieldRow}>
           <div className={`${styles.sshField} ${styles.sshFieldGrow}`}>
-            <label>Host</label>
-            <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="localhost" />
+            <label>Host <span className={styles.sshFieldRequired}>*</span></label>
+            <input
+              value={host}
+              onChange={(e) => setHost(e.target.value)}
+              onBlur={markTouched('host')}
+              placeholder="hostname / IP / domain"
+              style={touched.host && !hostValid ? { borderColor: '#ff5555' } : undefined}
+            />
+            {touched.host && !hostValid && (
+              <span className={styles.sshFieldError}>Required</span>
+            )}
           </div>
           <div className={`${styles.sshField} ${styles.sshFieldSmall}`}>
-            <label>Port</label>
+            <label>Port <span className={styles.sshFieldRequired}>*</span></label>
             <input
               value={port}
               onChange={(e) => setPort(e.target.value)}
+              onBlur={markTouched('port')}
               placeholder="22"
               style={port && !portValid ? { borderColor: '#ff5555' } : undefined}
             />
             {port && !portValid && (
-              <span style={{ color: '#ff5555', fontSize: 10 }}>1-65535</span>
+              <span className={styles.sshFieldError}>1-65535</span>
             )}
           </div>
         </div>
 
         {/* Username */}
         <div className={styles.sshField}>
-          <label>Username</label>
-          <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Optional" />
+          <label>Username <span className={styles.sshFieldRequired}>*</span></label>
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            onBlur={markTouched('username')}
+            placeholder="e.g. root"
+            style={touched.username && !usernameValid ? { borderColor: '#ff5555' } : undefined}
+          />
+          {touched.username && !usernameValid && (
+            <span className={styles.sshFieldError}>Required</span>
+          )}
         </div>
 
         {/* Auth method */}
@@ -268,19 +300,22 @@ export default function NewSessionModal() {
 
         {/* Working directory */}
         <div className={styles.sshField}>
-          <label>Working Directory</label>
+          <label>Working Directory <span className={styles.sshFieldRequired}>*</span></label>
           <Combobox
             value={workingDir}
             onChange={setWorkingDir}
             items={workdirHistory}
             placeholder="~"
           />
+          {touched.workingDir && !workingDirValid && (
+            <span className={styles.sshFieldError}>Required</span>
+          )}
         </div>
 
         {/* Command */}
         <div className={styles.sshField}>
           <label>
-            Command <span className={styles.sshFieldHint}>(runs after connect)</span>
+            Command <span className={styles.sshFieldRequired}>*</span> <span className={styles.sshFieldHint}>(runs after connect)</span>
           </label>
           <Combobox
             value={command}
@@ -288,6 +323,9 @@ export default function NewSessionModal() {
             items={commandSuggestions}
             placeholder="e.g. claude"
           />
+          {touched.command && !commandValid && (
+            <span className={styles.sshFieldError}>Required</span>
+          )}
         </div>
 
         {/* Session title + label */}
@@ -325,7 +363,7 @@ export default function NewSessionModal() {
         <button
           type="button"
           className={styles.closeBtn}
-          onClick={() => {/* closed via Modal overlay */}}
+          onClick={() => closeModal()}
           style={{ fontSize: '11px', letterSpacing: '1px' }}
         >
           CANCEL
