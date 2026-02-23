@@ -127,7 +127,7 @@ export default function Combobox({ value, onChange, items, placeholder, classNam
         />
         <button
           type="button"
-          className={styles.arrowBtn}
+          className={`${styles.arrowBtn}${isOpen ? ` ${styles.arrowBtnOpen}` : ''}`}
           onClick={handleArrowClick}
           tabIndex={-1}
           aria-label="Toggle dropdown"
