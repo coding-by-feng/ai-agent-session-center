@@ -4,13 +4,14 @@
    keyboard shortcuts button, view panels
    ============================================================ */
 
+/* #70: Apply safe area insets for iPhone notch/Dynamic Island */
 .nav {
   grid-area: nav;
   display: flex;
   flex-direction: row;
   background: linear-gradient(180deg, var(--bg-header) 0%, var(--bg-primary) 100%);
   border-bottom: 1px solid var(--border-accent);
-  padding: 0 24px;
+  padding: var(--safe-top, 0px) calc(24px + var(--safe-right, 0px)) 0 calc(24px + var(--safe-left, 0px));
   z-index: 10;
   position: relative;
   gap: 0;
@@ -75,3 +76,72 @@
 .viewPanel::-webkit-scrollbar-track { background: var(--bg-primary); }
 .viewPanel::-webkit-scrollbar-thumb { background: var(--border-accent); border-radius: 4px; }
 .viewPanel::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+/* ---- Responsive (Mobile) ---- */
+
+/* #61 — NavBar nav links: horizontal scroll on mobile instead of overflow-hidden */
+@media (max-width: 640px) {
+  .nav {
+    padding: 0 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .nav::-webkit-scrollbar { display: none; }
+
+  .navBtn {
+    padding: 10px 12px;
+    font-size: 10px;
+    letter-spacing: 1px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* #59 — Ensure action buttons stay visible and don't overflow */
+  .actions {
+    flex-shrink: 0;
+    margin-left: 8px;
+  }
+
+  .actionsItems {
+    gap: 4px;
+    overflow: visible;
+    max-width: none;
+  }
+
+  .qaBtn {
+    padding: 5px 8px;
+    font-size: 9px;
+    white-space: nowrap;
+  }
+
+  .shortcutsBtn {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+    margin-left: 2px;
+  }
+}
+
+/* #59 — Touch targets for nav/action buttons on coarse pointer devices */
+@media (pointer: coarse) {
+  .navBtn {
+    min-height: 44px;
+    padding: 0 14px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .qaBtn {
+    min-height: 44px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .shortcutsBtn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}

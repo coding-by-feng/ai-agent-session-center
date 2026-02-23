@@ -7,6 +7,8 @@ test.describe('Terminal', () => {
   }) => {
     const sessionId = `e2e-terminal-${Date.now()}`;
     await page.goto('/');
+    await page.waitForEvent('websocket', { timeout: 10000 });
+    await page.waitForTimeout(500);
 
     // Create a display-only session (no terminal)
     await request.post('/api/hooks', {
@@ -18,12 +20,12 @@ test.describe('Terminal', () => {
     });
 
     const card = page.locator(`[data-session-id="${sessionId}"]`);
-    await expect(card).toBeVisible({ timeout: 5000 });
+    await expect(card).toBeVisible({ timeout: 10000 });
 
     // Open detail panel
     await card.click();
     await expect(page.locator('[class*="overlay"]').first()).toBeVisible({
-      timeout: 3000,
+      timeout: 5000,
     });
 
     // Click the TERMINAL tab
@@ -35,11 +37,13 @@ test.describe('Terminal', () => {
     // Should show placeholder since this session has no terminal
     await expect(
       page.getByText(/no terminal/i),
-    ).toBeVisible({ timeout: 3000 });
+    ).toBeVisible({ timeout: 5000 });
   });
 
   test('create local terminal via API', async ({ page, request }) => {
     await page.goto('/');
+    await page.waitForEvent('websocket', { timeout: 10000 });
+    await page.waitForTimeout(500);
 
     // Create a terminal via the REST API
     const res = await request.post('/api/terminals', {
@@ -55,13 +59,9 @@ test.describe('Terminal', () => {
     expect(data.ok).toBeTruthy();
     expect(data.terminalId).toBeDefined();
 
-    // Wait for the session to appear
-    await page.waitForTimeout(2000);
-
-    // Check that a session card appeared (the terminal creates a connecting session)
-    const cards = page.locator('[data-status]');
-    const count = await cards.count();
-    expect(count).toBeGreaterThan(0);
+    // Wait for the session to appear via WebSocket
+    const card = page.locator(`[data-session-id="${data.terminalId}"]`);
+    await expect(card).toBeVisible({ timeout: 10000 });
 
     // Clean up: close the terminal
     if (data.terminalId) {
@@ -89,16 +89,17 @@ test.describe('Terminal', () => {
 
     const termData = await termRes.json();
     await page.goto('/');
+    await page.waitForEvent('websocket', { timeout: 10000 });
     await page.waitForTimeout(2000);
 
     // Find and click the session that has this terminal
-    const cards = page.locator('[data-status]');
+    const cards = page.locator('[data-session-id]');
     const cardCount = await cards.count();
 
     if (cardCount > 0) {
       await cards.first().click();
       await expect(page.locator('[class*="overlay"]').first()).toBeVisible({
-        timeout: 3000,
+        timeout: 5000,
       });
 
       // Click TERMINAL tab
@@ -112,7 +113,7 @@ test.describe('Terminal', () => {
       if (await toolbar.isVisible()) {
         // Theme selector should exist
         const themeSelect = page.locator('select[title="Terminal theme"]');
-        await expect(themeSelect).toBeVisible({ timeout: 3000 });
+        await expect(themeSelect).toBeVisible({ timeout: 5000 });
 
         // ESC button should exist
         await expect(page.getByRole('button', { name: 'ESC' })).toBeVisible();

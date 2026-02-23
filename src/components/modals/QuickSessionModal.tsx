@@ -7,6 +7,7 @@ import Modal from '@/components/ui/Modal';
 import { showToast } from '@/components/ui/ToastContainer';
 import { useUiStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useKnownProjects } from '@/hooks/useKnownProjects';
 import styles from '@/styles/modules/Modal.module.css';
 
 // ---------------------------------------------------------------------------
@@ -59,6 +60,9 @@ export default function QuickSessionModal() {
     return history[0] || '~';
   });
   const [submitting, setSubmitting] = useState(false);
+
+  // Working directory suggestions (history + known Claude Code projects)
+  const workdirSuggestions = useKnownProjects();
 
   const allLabels = useMemo(
     () => [...BUILT_IN_LABELS, ...customLabels.filter((l) => !BUILT_IN_LABELS.includes(l))],
@@ -184,7 +188,15 @@ export default function QuickSessionModal() {
               value={workingDir}
               onChange={(e) => setWorkingDir(e.target.value)}
               placeholder="~"
+              list="quick-workdir-history"
             />
+            {workdirSuggestions.length > 0 && (
+              <datalist id="quick-workdir-history">
+                {workdirSuggestions.map((d) => (
+                  <option key={d} value={d} />
+                ))}
+              </datalist>
+            )}
           </div>
         </div>
 

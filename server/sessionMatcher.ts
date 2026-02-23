@@ -266,7 +266,16 @@ export function matchSession(
       session = reKeyResumedSession(sessions, match.s, session_id, match.oldId, pidToSession);
       log.info('session', `AUTO-RESUME: Re-keyed ${match.oldId?.slice(0, 8)} -> ${session_id?.slice(0, 8)} (snapshot restore + projectPath match, 1 candidate)`);
     } else if (candidates.length > 1) {
-      log.info('session', `SKIP AUTO-RESUME: ${candidates.length} candidates for cwd=${normalizedCwd} — ambiguous, creating new card`);
+      // #47: Prefer ENDED sessions over zombie SSH candidates to reduce ambiguity
+      const ended = candidates.filter(c => c.s.status === SESSION_STATUS.ENDED);
+      const zombies = candidates.filter(c => c.s.status !== SESSION_STATUS.ENDED);
+      if (ended.length === 1 && zombies.length > 0) {
+        const match = ended[0];
+        session = reKeyResumedSession(sessions, match.s, session_id, match.oldId, pidToSession);
+        log.info('session', `AUTO-RESUME: Re-keyed ${match.oldId?.slice(0, 8)} -> ${session_id?.slice(0, 8)} (preferred ENDED over ${zombies.length} zombies)`);
+      } else {
+        log.info('session', `SKIP AUTO-RESUME: ${candidates.length} candidates for cwd=${normalizedCwd} — ambiguous, creating new card`);
+      }
     }
   }
 
@@ -279,6 +288,8 @@ export function matchSession(
       preSession.replacesId = hookData.agent_terminal_id;
       session = preSession;
       sessions.set(session_id, session);
+      // Consume pendingLink so Priority 2 doesn't create a duplicate match
+      consumePendingLink(preSession.projectPath || '');
       log.info('session', `Re-keyed terminal session ${hookData.agent_terminal_id} -> ${session_id?.slice(0, 8)} (via terminal ID)`);
     }
   }
@@ -343,7 +354,17 @@ export function matchSession(
         log.info('session', `Re-keyed terminal session ${key} -> ${session_id?.slice(0, 8)} (via path scan, 1 candidate)`);
         found = true;
       } else if (connectingMatches.length > 1) {
-        log.info('session', `SKIP path scan: ${connectingMatches.length} CONNECTING sessions for cwd=${normalizedCwd} — ambiguous`);
+        // Multiple CONNECTING sessions in the same dir — prefer the most recently created
+        // to avoid creating a duplicate display-only card.
+        connectingMatches.sort((a, b) => (b.s.startedAt || 0) - (a.s.startedAt || 0));
+        const { key, s } = connectingMatches[0];
+        sessions.delete(key);
+        s.sessionId = session_id;
+        s.replacesId = key;
+        session = s;
+        sessions.set(session_id, session);
+        log.info('session', `Re-keyed terminal session ${key} -> ${session_id?.slice(0, 8)} (via path scan, picked newest of ${connectingMatches.length})`);
+        found = true;
       }
       // Priority 4: PID-based fallback — check if Claude's parent is a known pty
       if (!found && hookData.claude_pid) {

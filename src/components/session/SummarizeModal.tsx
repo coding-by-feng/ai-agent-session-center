@@ -82,6 +82,8 @@ export default function SummarizeModal() {
   // ---- Run summarize ----
   const runSummarize = async (promptId: number | null, customText: string | null) => {
     if (running) return;
+    // #6: Capture sessionId at invocation time to prevent stale closure
+    const targetSessionId = selectedSessionId;
     setRunning(true);
     handleClose();
 
@@ -93,14 +95,17 @@ export default function SummarizeModal() {
         if (tmpl) promptTemplate = tmpl.prompt;
       }
 
-      const resp = await fetch(`/api/sessions/${selectedSessionId}/summarize`, {
+      const resp = await fetch(`/api/sessions/${targetSessionId}/summarize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ context, promptTemplate }),
       });
       const data: SummarizeResponse & ApiResponse = await resp.json();
+      // #6: Verify session hasn't changed before showing result toast
       if (data.ok) {
-        showToast('AI summary generated & session archived', 'success');
+        const currentId = useSessionStore.getState().selectedSessionId;
+        const label = currentId === targetSessionId ? 'AI summary generated & session archived' : `Summary generated for session ${targetSessionId?.slice(0, 8)}`;
+        showToast(label, 'success');
       } else {
         showToast(data.error || 'Summarize failed', 'error');
       }

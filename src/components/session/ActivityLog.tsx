@@ -56,6 +56,8 @@ export default function ActivityLog({
   return (
     <div>
       {items.map((item, i) => {
+        // #9: Composite key to avoid collisions between items with same timestamp
+        const itemKey = `${item.kind}-${item.timestamp}-${i}`;
         const content =
           item.kind === 'tool'
             ? `${item.tool} ${item.input}`
@@ -67,7 +69,7 @@ export default function ActivityLog({
         if (item.kind === 'tool') {
           return (
             <div
-              key={`${item.timestamp}-${i}`}
+              key={itemKey}
               className={`${styles.activityEntry} ${styles.activityTool}${highlighted ? ' search-highlight' : ''}`}
             >
               <span className={styles.activityTime}>{formatTime(item.timestamp)}</span>
@@ -82,7 +84,7 @@ export default function ActivityLog({
         if (item.kind === 'response') {
           return (
             <div
-              key={`${item.timestamp}-${i}`}
+              key={itemKey}
               className={`${styles.activityEntry} ${styles.activityResponse}${highlighted ? ' search-highlight' : ''}`}
             >
               <span className={styles.activityTime}>{formatTime(item.timestamp)}</span>
@@ -96,7 +98,7 @@ export default function ActivityLog({
 
         return (
           <div
-            key={`${item.timestamp}-${i}`}
+            key={itemKey}
             className={`${styles.activityEntry} ${styles.activityEvent}${highlighted ? ' search-highlight' : ''}`}
           >
             <span className={styles.activityTime}>{formatTime(item.timestamp)}</span>

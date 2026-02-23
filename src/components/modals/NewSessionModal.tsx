@@ -9,6 +9,7 @@ import type { CreateTerminalRequest } from '@/types/api';
 import Modal from '@/components/ui/Modal';
 import { showToast } from '@/components/ui/ToastContainer';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useKnownProjects } from '@/hooks/useKnownProjects';
 import styles from '@/styles/modules/Modal.module.css';
 
 // ---------------------------------------------------------------------------
@@ -85,8 +86,8 @@ export default function NewSessionModal() {
   const [tmuxSessions, setTmuxSessions] = useState<TmuxSessionInfo[]>([]);
   const [tmuxLoading, setTmuxLoading] = useState(false);
 
-  // Working directory history
-  const [workdirHistory] = useState(() => loadWorkdirHistory());
+  // Working directory history (merged with known Claude Code projects)
+  const workdirHistory = useKnownProjects();
 
   // Fetch SSH keys on mount
   useEffect(() => {
@@ -121,13 +122,18 @@ export default function NewSessionModal() {
     }
   }, [host, port, username, authMethod, privateKeyPath, password]);
 
+  // #33: Client-side form validation
+  const portNum = Number(port);
+  const portValid = Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535;
+  const formValid = portValid;
+
   async function handleSubmit() {
-    if (submitting) return;
+    if (submitting || !formValid) return;
     setSubmitting(true);
 
     const body: CreateTerminalRequest = {
       host: host || 'localhost',
-      port: Number(port) || 22,
+      port: portNum || 22,
       username: username || '',
       authMethod,
       privateKeyPath: authMethod === 'key' && privateKeyPath ? privateKeyPath : undefined,
@@ -203,7 +209,15 @@ export default function NewSessionModal() {
           </div>
           <div className={`${styles.sshField} ${styles.sshFieldSmall}`}>
             <label>Port</label>
-            <input value={port} onChange={(e) => setPort(e.target.value)} placeholder="22" />
+            <input
+              value={port}
+              onChange={(e) => setPort(e.target.value)}
+              placeholder="22"
+              style={port && !portValid ? { borderColor: '#ff5555' } : undefined}
+            />
+            {port && !portValid && (
+              <span style={{ color: '#ff5555', fontSize: 10 }}>1-65535</span>
+            )}
           </div>
         </div>
 
@@ -364,7 +378,7 @@ export default function NewSessionModal() {
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={submitting}
+          disabled={submitting || !formValid}
           style={{
             padding: '6px 16px',
             background: 'rgba(0, 229, 255, 0.15)',

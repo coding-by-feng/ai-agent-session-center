@@ -9,14 +9,14 @@ import type { Room } from '@/stores/roomStore';
 // Layout Constants
 // ---------------------------------------------------------------------------
 
-export const ROOM_SIZE = 12;        // internal room dimension
-export const ROOM_GAP = 5;          // corridor width between rooms
-export const ROOM_CELL = ROOM_SIZE + ROOM_GAP; // 17
-export const ROOM_HALF = ROOM_SIZE / 2; // 6
+export const ROOM_SIZE = 8;         // internal room dimension (fits 10 desks)
+export const ROOM_GAP = 2;          // corridor width between rooms
+export const ROOM_CELL = ROOM_SIZE + ROOM_GAP; // 10
+export const ROOM_HALF = ROOM_SIZE / 2; // 4
 export const ROOM_COLS = 4;         // max rooms per row before wrapping
-export const WALL_H = 2.8;
-export const WALL_T = 0.12;
-export const DOOR_GAP = 4;          // doorway width
+export const WALL_H = 2.0;
+export const WALL_T = 0.08;
+export const DOOR_GAP = 1.5;        // doorway width
 
 // ---------------------------------------------------------------------------
 // Room Config (computed from groups)
@@ -221,27 +221,22 @@ export function computeRoomConfigs(rooms: Room[]): RoomConfig[] {
 }
 
 // ---------------------------------------------------------------------------
-// Dynamic Desk Definitions (8 desks per room)
+// Dynamic Desk Definitions (10 desks per room — 5 rows x 2 facing each other)
 // ---------------------------------------------------------------------------
 
 export function buildDynamicDeskDefs(rooms: RoomConfig[]): DeskDef[] {
   const desks: DeskDef[] = [];
   for (const room of rooms) {
     const [cx, , cz] = room.center;
-    // Two desk islands (west & east) with a central corridor for door access.
-    // Each island: 2x2 paired desks facing each other across the aisle.
-
-    // West island (4 desks)
-    desks.push({ x: cx - 4, z: cz - 1.5, rotation: Math.PI / 2, zone: room.index });  // facing east
-    desks.push({ x: cx - 4, z: cz + 1.5, rotation: Math.PI / 2, zone: room.index });  // facing east
-    desks.push({ x: cx - 2, z: cz - 1.5, rotation: -Math.PI / 2, zone: room.index }); // facing west
-    desks.push({ x: cx - 2, z: cz + 1.5, rotation: -Math.PI / 2, zone: room.index }); // facing west
-
-    // East island (4 desks)
-    desks.push({ x: cx + 2, z: cz - 1.5, rotation: Math.PI / 2, zone: room.index });  // facing east
-    desks.push({ x: cx + 2, z: cz + 1.5, rotation: Math.PI / 2, zone: room.index });  // facing east
-    desks.push({ x: cx + 4, z: cz - 1.5, rotation: -Math.PI / 2, zone: room.index }); // facing west
-    desks.push({ x: cx + 4, z: cz + 1.5, rotation: -Math.PI / 2, zone: room.index }); // facing west
+    const ROWS = 5;
+    const ROW_SPACING = 1.2;
+    const startZ = cz - (ROWS - 1) * ROW_SPACING / 2;
+    for (let row = 0; row < ROWS; row++) {
+      const z = startZ + row * ROW_SPACING;
+      // Left desk against west wall facing right, right desk against east wall facing left
+      desks.push({ x: cx - 3.0, z, rotation: Math.PI / 2, zone: room.index });
+      desks.push({ x: cx + 3.0, z, rotation: -Math.PI / 2, zone: room.index });
+    }
   }
   return desks;
 }
@@ -273,48 +268,40 @@ export function buildCorridorWorkstations(
   roomConfigs: RoomConfig[],
   startIdx: number,
 ): Workstation[] {
-  // Dedicated "common area" with 10 desks for unassigned robots.
-  // No desks between rooms or near room doors — only in this dedicated zone.
+  // Dedicated "common area" with 10 desks for unassigned robots (5 rows x 2).
   const desks: { x: number; z: number; rotation: number }[] = [];
 
   if (roomConfigs.length === 0) {
-    // No rooms — place 10 desks in a 2-row x 5-col grid near origin
-    const spacingX = 3.5;
-    const spacingZ = 4;
-    for (let row = 0; row < 2; row++) {
-      for (let col = 0; col < 5; col++) {
+    // No rooms — place 10 desks in a 5x2 grid near origin
+    for (let row = 0; row < 5; row++) {
+      for (let col = 0; col < 2; col++) {
         desks.push({
-          x: (col - 2) * spacingX,
-          z: (row === 0 ? -3 : 3),
-          rotation: row === 0 ? 0 : Math.PI,
+          x: (col - 0.5) * 3,
+          z: -3 + row * 1.5,
+          rotation: col === 0 ? Math.PI / 2 : -Math.PI / 2,
         });
       }
     }
   } else {
-    // Place 10 desks in a dedicated area well south of all rooms.
+    // Place 10 desks in a dedicated common area south of all rooms.
     const maxRow = Math.max(...roomConfigs.map(r => Math.floor(r.index / ROOM_COLS)));
     const maxCol = Math.min(ROOM_COLS - 1, Math.max(...roomConfigs.map(r => r.index % ROOM_COLS)));
     const minCol = Math.min(...roomConfigs.map(r => r.index % ROOM_COLS));
 
     const southmostRoomCenter = computeRoomCenter(maxRow * ROOM_COLS);
-    const commonAreaZ = southmostRoomCenter[2] + ROOM_HALF + ROOM_GAP + 5;
+    const commonAreaZ = southmostRoomCenter[2] + ROOM_HALF + ROOM_GAP + 3;
 
-    // Center horizontally across the room span
     const leftCol = computeRoomCenter(minCol);
     const rightCol = computeRoomCenter(maxCol);
     const areaCenterX = (leftCol[0] + rightCol[0]) / 2;
 
-    // 2 rows x 5 desks, facing each other
-    const spacingX = 4;
-    const spacingZ = 4;
-    const startX = areaCenterX - 2 * spacingX;
-
-    for (let row = 0; row < 2; row++) {
-      for (let col = 0; col < 5; col++) {
+    // 5 rows x 2 desks, facing each other
+    for (let row = 0; row < 5; row++) {
+      for (let col = 0; col < 2; col++) {
         desks.push({
-          x: startX + col * spacingX,
-          z: commonAreaZ + row * spacingZ,
-          rotation: row === 0 ? 0 : Math.PI,
+          x: areaCenterX + (col - 0.5) * 3,
+          z: commonAreaZ + row * 1.5,
+          rotation: col === 0 ? Math.PI / 2 : -Math.PI / 2,
         });
       }
     }
@@ -378,8 +365,8 @@ export function collidesAnyWall(x: number, z: number, rects: WallRect[]): boolea
 // ---------------------------------------------------------------------------
 
 export function computeSceneBounds(rooms: RoomConfig[]): number {
-  if (rooms.length === 0) return 30;
-  let maxDist = 15;
+  if (rooms.length === 0) return 15;
+  let maxDist = 10;
   for (const room of rooms) {
     const [cx, , cz] = room.center;
     maxDist = Math.max(
@@ -392,11 +379,10 @@ export function computeSceneBounds(rooms: RoomConfig[]): number {
   if (rooms.length > 0) {
     const maxRow = Math.max(...rooms.map(r => Math.floor(r.index / ROOM_COLS)));
     const southmostCenter = computeRoomCenter(maxRow * ROOM_COLS);
-    maxDist = Math.max(maxDist, Math.abs(southmostCenter[2]) + ROOM_HALF + ROOM_GAP + 15);
+    maxDist = Math.max(maxDist, Math.abs(southmostCenter[2]) + ROOM_HALF + ROOM_GAP + 8);
     // Account for casual areas north of rooms
     const minZedge = Math.min(...rooms.map(r => r.bounds.minZ));
-    // casual areas extend ~20 units north of the northernmost room edge
-    maxDist = Math.max(maxDist, Math.abs(minZedge) + ROOM_GAP + 20);
+    maxDist = Math.max(maxDist, Math.abs(minZedge) + ROOM_GAP + 8);
   }
   return maxDist;
 }
@@ -425,9 +411,9 @@ export function pickTargetInRoom(roomIndex: number): THREE.Vector3 {
   const rb = computeRoomBounds(roomIndex);
   const target = new THREE.Vector3();
   target.set(
-    rb.minX + 1.5 + Math.random() * (rb.maxX - rb.minX - 3),
+    rb.minX + 0.8 + Math.random() * (rb.maxX - rb.minX - 1.6),
     0,
-    rb.minZ + 1.5 + Math.random() * (rb.maxZ - rb.minZ - 3),
+    rb.minZ + 0.8 + Math.random() * (rb.maxZ - rb.minZ - 1.6),
   );
   return target;
 }
@@ -436,7 +422,7 @@ export function pickTargetInRoom(roomIndex: number): THREE.Vector3 {
 export function pickCorridorTarget(bound: number): THREE.Vector3 {
   const target = new THREE.Vector3();
   // Wander near origin in the corridor areas
-  const range = Math.min(bound, 8);
+  const range = Math.min(bound, 5);
   target.set(
     (Math.random() - 0.5) * range * 2,
     0,
@@ -449,7 +435,7 @@ export function pickCorridorTarget(bound: number): THREE.Vector3 {
 // Casual Areas (Coffee Lounge)
 // ---------------------------------------------------------------------------
 
-const CASUAL_AREA_SIZE = 14;
+const CASUAL_AREA_SIZE = 6;
 const CASUAL_HALF = CASUAL_AREA_SIZE / 2;
 
 /** Build the Coffee Lounge area NORTH of the rooms (above, negative Z side). */
@@ -458,11 +444,11 @@ export function buildCasualAreas(roomConfigs: RoomConfig[]): CasualArea[] {
   let centerX: number;
 
   if (roomConfigs.length === 0) {
-    baseZ = -12;
+    baseZ = -8;
     centerX = 0;
   } else {
     const minZedge = Math.min(...roomConfigs.map(r => r.bounds.minZ));
-    baseZ = minZedge - ROOM_GAP - CASUAL_HALF - 2;
+    baseZ = minZedge - ROOM_GAP - CASUAL_HALF - 1;
 
     const minCol = Math.min(...roomConfigs.map(r => r.index % ROOM_COLS));
     const maxCol = Math.min(ROOM_COLS - 1, Math.max(...roomConfigs.map(r => r.index % ROOM_COLS)));
@@ -472,14 +458,9 @@ export function buildCasualAreas(roomConfigs: RoomConfig[]): CasualArea[] {
   }
 
   const coffeeStations: { pos: THREE.Vector3; faceRot: number }[] = [];
-  // 6 coffee table seats in a 2x3 grid
-  for (let row = 0; row < 2; row++) {
-    for (let col = 0; col < 3; col++) {
-      const sx = centerX - 3 + col * 3;
-      const sz = baseZ - 2.5 + row * 5;
-      coffeeStations.push({ pos: new THREE.Vector3(sx, 0, sz), faceRot: row === 0 ? 0 : Math.PI });
-    }
-  }
+  // 2 coffee table seats side by side
+  coffeeStations.push({ pos: new THREE.Vector3(centerX - 1, 0, baseZ), faceRot: 0 });
+  coffeeStations.push({ pos: new THREE.Vector3(centerX + 1, 0, baseZ), faceRot: Math.PI });
 
   return [
     {
@@ -525,5 +506,5 @@ export function buildCasualWorkstations(
 
 export function computeFloorSize(rooms: RoomConfig[]): number {
   const b = computeSceneBounds(rooms);
-  return Math.max(30, b * 2 + 10);
+  return Math.max(20, b * 2 + 6);
 }

@@ -90,7 +90,11 @@ export function handleConnection(ws: WebSocket): void {
           break;
         case WS_TYPES.TERMINAL_RESIZE:
           if (msg.terminalId && msg.cols && msg.rows) {
-            resizeTerminal(msg.terminalId, msg.cols, msg.rows);
+            // #31: Relay resize errors back to client
+            const resizeErr = resizeTerminal(msg.terminalId, msg.cols, msg.rows);
+            if (resizeErr && client.readyState === 1) {
+              try { client.send(JSON.stringify({ type: 'terminal_error', terminalId: msg.terminalId, error: `Resize failed: ${resizeErr}` })); } catch { /* ignore */ }
+            }
           }
           break;
         case WS_TYPES.TERMINAL_DISCONNECT:
@@ -100,9 +104,14 @@ export function handleConnection(ws: WebSocket): void {
           }
           break;
         case WS_TYPES.TERMINAL_SUBSCRIBE:
+          // #30/#44: Only subscribe if terminal actually exists
           if (msg.terminalId) {
-            client._terminalIds.add(msg.terminalId);
-            setWsClient(msg.terminalId, client);
+            const exists = setWsClient(msg.terminalId, client);
+            if (exists) {
+              client._terminalIds.add(msg.terminalId);
+            } else {
+              log.debug('ws', `Terminal subscribe ignored — ${msg.terminalId} not found`);
+            }
           }
           break;
         case WS_TYPES.UPDATE_QUEUE_COUNT:

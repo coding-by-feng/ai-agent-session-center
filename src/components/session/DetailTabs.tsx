@@ -80,9 +80,8 @@ export default function DetailTabs({
           </button>
         ))}
       </div>
-      {/* Only mount the active tab to avoid mass-mounting all children simultaneously.
-          This prevents React 19 reconciler cascades when DetailPanel first opens. */}
-      <div className={`${styles.tabContent} ${styles.active}`}>
+      {/* #15: Only mount the active tab content */}
+      <div className={styles.tabContent}>
         {contentMap[activeTab]}
       </div>
     </>

@@ -4,7 +4,6 @@
  */
 import { useCallback, useState } from 'react';
 import type { PromptEntry, ArchivedSession } from '@/types';
-import { escapeHtml } from '@/lib/format';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 function formatTime(ts: number): string {
@@ -22,6 +21,7 @@ interface PrevSectionProps {
 
 function PrevSessionSection({ prev, index }: PrevSectionProps) {
   const [collapsed, setCollapsed] = useState(true);
+  // #17: Sort newest-first for consistency with current session's prompt display
   const prompts = [...(prev.promptHistory || [])].sort(
     (a, b) => b.timestamp - a.timestamp,
   );

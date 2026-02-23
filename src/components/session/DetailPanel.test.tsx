@@ -12,18 +12,12 @@ vi.mock('@/components/ui/ResizablePanel', () => ({
   ),
 }));
 
-vi.mock('@react-three/fiber', () => ({
-  Canvas: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="r3f-canvas">{children}</div>
-  ),
-}));
-
-vi.mock('@/components/3d/Robot3DModel', () => ({
-  default: () => <div data-testid="robot-3d-model" />,
-}));
-
 vi.mock('@/lib/robot3DGeometry', () => ({
   PALETTE: ['#00f0ff', '#ff00aa', '#a855f7', '#00ff88'],
+}));
+
+vi.mock('@/lib/robot3DModels', () => ({
+  getModelLabel: (type: string) => type.charAt(0).toUpperCase() + type.slice(1),
 }));
 
 vi.mock('@/lib/robotStateMap', () => ({
@@ -195,7 +189,8 @@ describe('DetailPanel', () => {
       selectedSessionId: 'sess-1',
     });
     render(<DetailPanel />);
-    expect(screen.getByTestId('robot-3d-model')).toBeInTheDocument();
+    // #55: 2D badge preview replaces Canvas to prevent WebGL context exhaustion
+    expect(screen.getByText('Robot')).toBeInTheDocument();
   });
 
   it('deselects on close button click', () => {

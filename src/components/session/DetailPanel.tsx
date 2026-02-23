@@ -3,8 +3,7 @@
  * Uses ResizablePanel for width adjustment.
  * Ported from public/js/detailPanel.js.
  */
-import { Suspense, useCallback, useEffect, useMemo, type ReactNode } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import type { Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
@@ -21,9 +20,8 @@ import KillConfirmModal, { KILL_MODAL_ID } from './KillConfirmModal';
 import AlertModal, { ALERT_MODAL_ID } from './AlertModal';
 import SummarizeModal, { SUMMARIZE_MODAL_ID } from './SummarizeModal';
 import TerminalContainer from '@/components/terminal/TerminalContainer';
-import Robot3DModel from '@/components/3d/Robot3DModel';
 import type { RobotModelType } from '@/lib/robot3DModels';
-import { sessionStatusToRobotState } from '@/lib/robotStateMap';
+import { getModelLabel } from '@/lib/robot3DModels';
 import { PALETTE } from '@/lib/robot3DGeometry';
 import { formatDuration, getStatusLabel } from '@/lib/format';
 import styles from '@/styles/modules/DetailPanel.module.css';
@@ -86,9 +84,9 @@ export default function DetailPanel() {
     ? sessions.get(selectedSessionId)
     : undefined;
 
-  // Close on Escape — but not when terminal is focused (let xterm send \x1b)
+  // #10: Close on Escape — depend on sessionId (stable) not full session object
   useEffect(() => {
-    if (!session) return;
+    if (!selectedSessionId) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !(e.target as HTMLElement)?.closest?.('.xterm')) {
         deselectSession();
@@ -96,7 +94,7 @@ export default function DetailPanel() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [session, deselectSession]);
+  }, [selectedSessionId, deselectSession]);
 
   // Persist selection
   useEffect(() => {
@@ -129,7 +127,7 @@ export default function DetailPanel() {
   const isDisconnected = session.status === 'ended';
   const modelType = (session.characterModel || 'robot').toLowerCase() as RobotModelType;
   const neonColor = session.accentColor || PALETTE[(session.colorIndex ?? 0) % PALETTE.length];
-  const robotState = sessionStatusToRobotState(session.status);
+  const modelLabel = getModelLabel(modelType);
   const statusColor: Record<string, string> = {
     idle: '#00ff88', prompting: '#00e5ff', working: '#ff9100',
     waiting: '#00e5ff', approval: '#ffdd00', input: '#aa66ff',
@@ -155,34 +153,38 @@ export default function DetailPanel() {
 
         {/* Header */}
         <div className={styles.header}>
-          {/* Mini 3D robot preview */}
+          {/* #55: 2D robot badge preview (avoids WebGL context exhaustion from per-panel Canvas) */}
           <div className={styles.charPreview} style={{
             width: 64,
             height: 80,
             borderRadius: 6,
             border: `1px solid ${statusColor[session.status] ?? '#666'}40`,
             background: `${statusColor[session.status] ?? '#666'}10`,
-            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 4,
           }}>
-            <Suspense fallback={null}>
-              <Canvas
-                gl={{ antialias: true, alpha: true }}
-                camera={{ position: [0, 0, 2.4], fov: 32 }}
-                style={{ width: '100%', height: '100%' }}
-              >
-                <ambientLight intensity={0.4} />
-                <directionalLight position={[2, 3, 2]} intensity={0.8} />
-                {/* Offset group centers the robot in the viewport */}
-                <group position={[0, -0.55, 0]}>
-                  <Robot3DModel
-                    neonColor={neonColor}
-                    state={robotState}
-                    scale={0.7}
-                    modelType={modelType}
-                  />
-                </group>
-              </Canvas>
-            </Suspense>
+            <div style={{
+              width: 28,
+              height: 28,
+              borderRadius: '50%',
+              background: `${neonColor}30`,
+              border: `2px solid ${neonColor}`,
+              boxShadow: `0 0 8px ${neonColor}40`,
+            }} />
+            <span style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 8,
+              fontWeight: 700,
+              letterSpacing: 0.5,
+              color: neonColor,
+              textTransform: 'uppercase',
+              opacity: 0.8,
+            }}>
+              {modelLabel}
+            </span>
           </div>
 
           <div className={styles.headerText}>

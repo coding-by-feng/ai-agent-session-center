@@ -21,6 +21,7 @@ import {
 // Sub-module imports
 import { matchSession, detectHookSource } from './sessionMatcher.js';
 import { startApprovalTimer, clearApprovalTimer, hasChildProcesses } from './approvalDetector.js';
+import { closeTerminal, registerTerminalExitCallback } from './sshManager.js';
 import {
   findPendingSubagentMatch, handleTeamMemberEnd, addPendingSubagent,
   linkByParentSessionId,
@@ -65,9 +66,13 @@ const eventBuffer: BufferedEvent[] = [];
 /**
  * Push an event to the ring buffer for WebSocket reconnect replay.
  */
+// #36: Deep-clone data before pushing to ring buffer to avoid stale references
 export function pushEvent(type: string, data: unknown): number {
   eventSeq++;
-  eventBuffer.push({ seq: eventSeq, type, data, timestamp: Date.now() });
+  const cloned = typeof data === 'object' && data !== null
+    ? JSON.parse(JSON.stringify(data))
+    : data;
+  eventBuffer.push({ seq: eventSeq, type, data: cloned, timestamp: Date.now() });
   if (eventBuffer.length > EVENT_BUFFER_MAX) eventBuffer.shift();
   return eventSeq;
 }
@@ -179,24 +184,22 @@ export function loadSnapshot(): { mqOffset: number } | null {
       if (session.cachedPid) {
         if (isPidAlive(session.cachedPid)) {
           if (session.source === 'ssh') {
-            // SSH sessions: terminal is ALWAYS dead after server restart (PTY was
-            // owned by the old node process). The Claude process is an orphan —
-            // alive but unreachable. Kill it and mark as ended.
-            try { process.kill(session.cachedPid, 'SIGTERM'); } catch { /* ignore */ }
-            session.status = SESSION_STATUS.ENDED;
-            session.animationState = ANIMATION_STATE.DEATH;
-            session.endedAt = Date.now();
+            // SSH sessions: terminal is dead after server restart (PTY was owned
+            // by the old node process). Keep session visible as idle — user can
+            // reconnect or manually close it.
+            session.status = SESSION_STATUS.IDLE;
+            session.animationState = ANIMATION_STATE.IDLE;
             session.events = session.events || [];
             session.events.push({
               type: 'ServerRestart',
-              detail: 'Killed orphaned SSH process — terminal died with old server',
+              detail: 'Server restarted — session preserved (terminal lost, process still alive)',
               timestamp: Date.now(),
             });
-            session.isHistorical = true;
             session.lastTerminalId = session.terminalId;
             session.terminalId = null;
             sessions.set(id, session);
-            ended++;
+            pidToSession.set(session.cachedPid, id);
+            restored++;
           } else {
             // Non-SSH (VS Code, iTerm, etc.): process can legitimately survive
             // server restart since the terminal is external
@@ -205,25 +208,24 @@ export function loadSnapshot(): { mqOffset: number } | null {
             restored++;
           }
         } else {
-          // Process died while server was down — mark as ended
-          session.status = SESSION_STATUS.ENDED;
-          session.animationState = ANIMATION_STATE.DEATH;
-          session.endedAt = Date.now();
+          // Process died while server was down — keep as idle so user can
+          // see the session and manually close it when ready
+          session.status = SESSION_STATUS.IDLE;
+          session.animationState = ANIMATION_STATE.IDLE;
+          session.cachedPid = null;
           session.events = session.events || [];
           session.events.push({
             type: 'ServerRestart',
-            detail: 'Process ended while server was down',
+            detail: 'Server restarted — session preserved (process ended while server was down)',
             timestamp: Date.now(),
           });
           if (session.source === 'ssh') {
-            session.isHistorical = true;
             session.lastTerminalId = session.terminalId;
             session.terminalId = null;
           }
-          // Keep all dead-PID sessions so they can be auto-linked
-          // when `claude --resume` sends a SessionStart with a new session_id
+          // Keep all sessions visible — user must manually close them
           sessions.set(id, session);
-          ended++;
+          restored++;
         }
       } else {
         // No PID cached — restore as-is, processMonitor will handle it
@@ -248,32 +250,29 @@ export function loadSnapshot(): { mqOffset: number } | null {
           session.terminalId = null;
         }
 
-        // SSH sessions without cachedPid in non-ended status are zombies — mark as ended
-        if (!session.cachedPid && session.status !== SESSION_STATUS.ENDED) {
-          session.status = SESSION_STATUS.ENDED;
-          session.animationState = ANIMATION_STATE.DEATH;
-          session.endedAt = Date.now();
+        // SSH sessions without cachedPid in non-ended status — keep as idle,
+        // user must manually close them via the UI close button
+        if (!session.cachedPid && session.status !== SESSION_STATUS.ENDED && session.status !== SESSION_STATUS.IDLE) {
+          session.status = SESSION_STATUS.IDLE;
+          session.animationState = ANIMATION_STATE.IDLE;
           session.events = session.events || [];
           session.events.push({
             type: 'ServerRestart',
-            detail: 'SSH session ended — no cached PID and terminal lost on restart',
+            detail: 'Server restarted — SSH session preserved (no PID, terminal lost)',
             timestamp: Date.now(),
           });
-          session.isHistorical = true;
           sshCleaned++;
-          ended++;
         }
       } else if (session.status === SESSION_STATUS.ENDED) {
-        // Non-SSH ended sessions: schedule cleanup after 5 min (gives Priority 0.5 time to match)
+        // Non-SSH ended sessions: mark for ServerRestart event tagging (kept for auto-linking)
         nonSshCleanupIds.push(id);
       }
     }
     if (sshCleaned > 0) {
-      log.info('session', `Post-restart cleanup: ${sshCleaned} SSH sessions marked ended (no PID, dead terminal)`);
+      log.info('session', `Post-restart: ${sshCleaned} SSH sessions transitioned to idle (preserved for user)`);
     }
-    // Defer non-SSH cleanup — keep for 30 min so Priority 0.5 auto-linking and
-    // manual Resume/Reconnect have time to match.  Mark them with ServerRestart
-    // so they're eligible for auto-linking.
+    // Mark non-SSH ended sessions with ServerRestart event for auto-linking eligibility.
+    // Sessions are NOT auto-deleted — user must manually close them via the UI.
     if (nonSshCleanupIds.length > 0) {
       for (const id of nonSshCleanupIds) {
         const s = sessions.get(id);
@@ -281,20 +280,11 @@ export function loadSnapshot(): { mqOffset: number } | null {
           s.events = s.events || [];
           s.events.push({
             type: 'ServerRestart',
-            detail: 'Process ended while server was down',
+            detail: 'Server restarted — session preserved',
             timestamp: Date.now(),
           });
         }
       }
-      setTimeout(() => {
-        for (const id of nonSshCleanupIds) {
-          if (sessions.has(id) && sessions.get(id)!.status === SESSION_STATUS.ENDED) {
-            sessions.delete(id);
-            invalidateSessionsCache();
-          }
-        }
-        log.info('session', `Deferred cleanup: removed ${nonSshCleanupIds.length} stale non-SSH sessions`);
-      }, 30 * 60 * 1000);
     }
 
     // Restore project session counters
@@ -396,7 +386,7 @@ export function loadSnapshot(): { mqOffset: number } | null {
     }
 
     invalidateSessionsCache();
-    log.info('session', `Snapshot loaded: ${restored} sessions restored, ${ended} ended (dead PID), ${pidToSession.size} PIDs tracked, ${pendingResumeRestored} pendingResume entries`);
+    log.info('session', `Snapshot loaded: ${restored} sessions restored (preserved as idle), ${ended} already ended, ${pidToSession.size} PIDs tracked, ${pendingResumeRestored} pendingResume entries`);
 
     return { mqOffset: snapshot.mqOffset || 0 };
   } catch (err: unknown) {
@@ -460,8 +450,8 @@ async function broadcastAsync(data: unknown): Promise<void> {
   broadcast(data as { type: string; [key: string]: unknown });
 }
 
-// Debounced broadcast — batches rapid state changes within 50ms window
-const BROADCAST_DEBOUNCE_MS = 50;
+// #48: Reduced from 50ms to 20ms for snappier real-time updates
+const BROADCAST_DEBOUNCE_MS = 20;
 let pendingBroadcasts: Array<{ type: string; session?: Session; [key: string]: unknown }> = [];
 let broadcastDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -478,8 +468,9 @@ async function debouncedBroadcast(data: { type: string; session?: Session; [key:
       if (item.type === WS_TYPES.SESSION_UPDATE && item.session?.sessionId) {
         seen.set(item.session.sessionId, item);
       } else {
-        // Non-session updates get a unique key to ensure they're sent
-        seen.set(`${item.type}_${Date.now()}_${Math.random()}`, item);
+        // #40: Use type as key for non-session broadcasts to deduplicate within the batch
+        // (e.g., multiple team_update events collapse to one)
+        seen.set(item.type, item);
       }
     }
     for (const item of seen.values()) {
@@ -645,7 +636,7 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       eventEntry.detail = `${toolName}`;
 
       // Approval/input detection via timer (delegated to approvalDetector)
-      startApprovalTimer(session_id, session, toolName, toolInputSummary, broadcastSessionUpdate);
+      startApprovalTimer(session_id, session, toolName, toolInputSummary, broadcastSessionUpdate, (sid) => sessions.get(sid));
       break;
     }
 
@@ -775,14 +766,13 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       // Team cleanup (delegated to teamManager)
       handleTeamMemberEnd(session_id, sessions);
 
-      // SSH sessions: keep in memory as historical (disconnected), preserve terminal ref for resume
+      // Keep all ended sessions in memory — user must manually close via UI close button
       if (session.source === 'ssh') {
         session.isHistorical = true;
         session.lastTerminalId = session.terminalId;
         session.terminalId = null;
-      } else {
-        setTimeout(() => sessions.delete(session_id), 10000);
       }
+      // Non-SSH sessions are also kept (no auto-delete)
       break;
   }
 
@@ -945,12 +935,15 @@ export function killSession(sessionId: string): Session | null {
   const session = sessions.get(sessionId);
   if (!session) return null;
   invalidateSessionsCache();
+  // #20: Close PTY before unlinking to prevent orphan processes
+  if (session.terminalId) {
+    closeTerminal(session.terminalId);
+  }
   session.status = SESSION_STATUS.ENDED;
   session.animationState = ANIMATION_STATE.DEATH;
   session.archived = 1;
   session.lastActivityAt = Date.now();
   session.endedAt = Date.now();
-  // SSH sessions: keep in memory as historical (disconnected), preserve terminal ref for resume
   if (session.source === 'ssh') {
     session.isHistorical = true;
     session.lastTerminalId = session.terminalId;
@@ -1033,6 +1026,12 @@ export function resumeSession(sessionId: string): { error: string } | { ok: true
   });
   // Cap to prevent unbounded growth (each entry can hold hundreds of log items)
   if (session.previousSessions.length > 5) session.previousSessions.shift();
+
+  // #38: Clear stale PID cache before resume to prevent mismatched PID references
+  if (session.cachedPid) {
+    pidToSession.delete(session.cachedPid);
+    session.cachedPid = null;
+  }
 
   // Register pending resume
   pendingResume.set(session.lastTerminalId, {
@@ -1121,6 +1120,19 @@ export function detectSessionSource(sessionId: string): string {
 export function findClaudeProcess(sessionId: string, projectPath: string): number | null {
   return _findClaudeProcess(sessionId, projectPath, sessions, pidToSession);
 }
+
+// ---- #21: Register terminal exit callback to unbind session when PTY dies ----
+registerTerminalExitCallback((terminalId: string) => {
+  for (const [_id, session] of sessions) {
+    if (session.terminalId === terminalId) {
+      session.lastTerminalId = terminalId;
+      session.terminalId = null;
+      invalidateSessionsCache();
+      log.info('session', `Terminal ${terminalId} exited — unlinked from session ${_id.slice(0, 8)}`);
+      break;
+    }
+  }
+});
 
 // ---- Start background monitors ----
 

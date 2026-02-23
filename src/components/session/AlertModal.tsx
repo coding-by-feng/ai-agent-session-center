@@ -24,8 +24,11 @@ export default function AlertModal() {
     closeModal();
   };
 
+  // #16: Validate input range
+  const isValid = Number.isFinite(minutes) && minutes >= 1 && minutes <= 999;
+
   const handleConfirm = async () => {
-    if (!minutes || minutes < 1) return;
+    if (!isValid) return;
     closeModal();
 
     try {
@@ -58,6 +61,12 @@ export default function AlertModal() {
           />
           <span>minutes</span>
         </div>
+        {/* #16: Show validation message when input is invalid */}
+        {!isValid && minutes !== 0 && (
+          <p style={{ color: '#ff5555', fontSize: 11, margin: '0 0 12px' }}>
+            Enter a value between 1 and 999
+          </p>
+        )}
         <div className={styles.actions}>
           <button
             className={styles.closeBtn}
@@ -68,7 +77,7 @@ export default function AlertModal() {
           </button>
           <button
             onClick={handleConfirm}
-            disabled={minutes < 1}
+            disabled={!isValid}
             style={{
               background: 'rgba(255, 145, 0, 0.15)',
               border: '1px solid rgba(255, 145, 0, 0.3)',

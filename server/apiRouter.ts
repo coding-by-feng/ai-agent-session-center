@@ -17,7 +17,7 @@ import { getStats as getHookStats, resetStats as resetHookStats } from './hookSt
 import * as db from './db.js';
 import { getMqStats } from './mqReader.js';
 import { execFile } from 'child_process';
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir, userInfo } from 'os';
 import { fileURLToPath } from 'url';
@@ -357,6 +357,39 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('api', `Resume with new terminal failed: ${msg}`);
     res.status(500).json({ error: `Failed to create new terminal: ${msg}` });
+  }
+});
+
+// Reconnect an ended SSH session's terminal — creates a new PTY and links it
+// to the existing session. Used by the RECONNECT button in the detail panel.
+router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Response) => {
+  const sessionId = str(req.params.id);
+  const session = getSession(sessionId);
+  if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
+  if (session.source !== 'ssh') { res.status(400).json({ error: 'Reconnect only available for SSH sessions' }); return; }
+
+  const cfg = session.sshConfig;
+  if (!cfg) {
+    res.status(400).json({ error: 'No SSH config stored for this session' });
+    return;
+  }
+
+  try {
+    const newConfig: TerminalConfig = { ...cfg, workingDir: cfg.workingDir || '~', command: 'claude' };
+    const newTerminalId = await createTerminal(newConfig, null);
+    consumePendingLink(newConfig.workingDir || session.projectPath || '');
+
+    const result = reconnectSessionTerminal(sessionId, newTerminalId);
+    if ('error' in result) { res.status(500).json({ error: result.error }); return; }
+
+    const { broadcast } = await import('./wsManager.js');
+    broadcast({ type: WS_TYPES.SESSION_UPDATE, session: result.session });
+
+    res.json({ ok: true, terminalId: newTerminalId });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('api', `Reconnect terminal failed: ${msg}`);
+    res.status(500).json({ error: `Failed to reconnect terminal: ${msg}` });
   }
 });
 
@@ -769,6 +802,62 @@ router.get('/sessions/history', (req: Request, res: Response) => {
     return;
   }
   res.json(db.getAllPersistedSessions());
+});
+
+// ---- Known Claude Code projects (from ~/.claude/projects/) ----
+
+/**
+ * Decode a Claude Code project directory name back to a real filesystem path.
+ * Encoding: leading `-` = `/`, `--` = `.`, other `-` = `/` (but ambiguous
+ * when folder names contain hyphens like `agent-manager`).
+ * We resolve ambiguity by greedily matching against the actual filesystem.
+ */
+function decodeProjectDir(encoded: string): string | null {
+  if (!encoded.startsWith('-')) return null;
+
+  // Replace `--` with a placeholder for `.` before splitting
+  const DOT = '\x00';
+  const prepared = encoded.slice(1).replace(/--/g, DOT);
+  const parts = prepared.split('-').map((p) => p.replaceAll(DOT, '.'));
+
+  // Greedily resolve: try longest segment match against filesystem first
+  function resolve(current: string, idx: number): string | null {
+    if (idx >= parts.length) return current;
+    for (let end = parts.length; end > idx; end--) {
+      const candidate = parts.slice(idx, end).join('-');
+      const fullPath = join(current, candidate);
+      if (existsSync(fullPath)) {
+        const result = resolve(fullPath, end);
+        if (result !== null) return result;
+      }
+    }
+    return null;
+  }
+
+  return resolve('/', 0);
+}
+
+router.get('/known-projects', (_req: Request, res: Response) => {
+  try {
+    const projectsDir = join(homedir(), '.claude', 'projects');
+    const entries = readdirSync(projectsDir, { withFileTypes: true });
+    const paths: string[] = [];
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name.includes('worktrees')) continue;
+
+      const decoded = decodeProjectDir(entry.name);
+      if (decoded && decoded !== '/') {
+        paths.push(decoded);
+      }
+    }
+
+    paths.sort();
+    res.json({ paths });
+  } catch {
+    res.json({ paths: [] });
+  }
 });
 
 export default router;

@@ -151,3 +151,40 @@
   color: var(--text-dim, #555);
   font-style: italic;
 }
+
+/* ---- Responsive (Mobile) ---- */
+
+/* #68 — Constrain dropdown width on small phones */
+@media (max-width: 480px) {
+  .dropdown {
+    max-width: calc(100vw - 32px);
+    min-width: unset;
+    right: 0;
+  }
+}
+
+/* #63 — Always show remove button on touch devices */
+@media (hover: none) {
+  .dirRemove {
+    opacity: 0.5;
+  }
+}
+
+/* #63 — Larger touch target for remove button */
+@media (pointer: coarse) {
+  .dirRemove {
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .triggerBtn {
+    min-height: 44px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+  }
+}

@@ -519,13 +519,25 @@ export default function Robot3DModel({
   const showLegL = modelDef.legL.visible !== false;
   const showLegR = modelDef.legR.visible !== false;
 
-  // Memoize EdgesGeometry instances
+  // Memoize EdgesGeometry instances (skip invisible parts — #88: legs removed)
   const headEdgeGeo = useMemo(() => new THREE.EdgesGeometry(headGeo), [headGeo]);
   const torsoEdgeGeo = useMemo(() => new THREE.EdgesGeometry(torsoGeo), [torsoGeo]);
-  const armLEdgeGeo = useMemo(() => new THREE.EdgesGeometry(armLGeo), [armLGeo]);
-  const armREdgeGeo = useMemo(() => new THREE.EdgesGeometry(armRGeo), [armRGeo]);
-  const legLEdgeGeo = useMemo(() => new THREE.EdgesGeometry(legLGeo), [legLGeo]);
-  const legREdgeGeo = useMemo(() => new THREE.EdgesGeometry(legRGeo), [legRGeo]);
+  const armLEdgeGeo = useMemo(() => showArmL ? new THREE.EdgesGeometry(armLGeo) : null, [armLGeo, showArmL]);
+  const armREdgeGeo = useMemo(() => showArmR ? new THREE.EdgesGeometry(armRGeo) : null, [armRGeo, showArmR]);
+  const legLEdgeGeo = useMemo(() => showLegL ? new THREE.EdgesGeometry(legLGeo) : null, [legLGeo, showLegL]);
+  const legREdgeGeo = useMemo(() => showLegR ? new THREE.EdgesGeometry(legRGeo) : null, [legRGeo, showLegR]);
+
+  // #50: Dispose edge geometries on unmount to prevent GPU memory leaks
+  useEffect(() => {
+    return () => {
+      headEdgeGeo.dispose();
+      torsoEdgeGeo.dispose();
+      armLEdgeGeo?.dispose();
+      armREdgeGeo?.dispose();
+      legLEdgeGeo?.dispose();
+      legREdgeGeo?.dispose();
+    };
+  }, [headEdgeGeo, torsoEdgeGeo, armLEdgeGeo, armREdgeGeo, legLEdgeGeo, legREdgeGeo]);
 
   return (
     <group
@@ -589,7 +601,7 @@ export default function Robot3DModel({
       {showArmL && (
         <group ref={armLRef} position={armLPos as unknown as THREE.Vector3Tuple}>
           <mesh geometry={armLGeo} material={darkMat} position={[0, -0.18, 0]} castShadow />
-          <lineSegments geometry={armLEdgeGeo} material={edgeMat} position={[0, -0.18, 0]} />
+          {armLEdgeGeo && <lineSegments geometry={armLEdgeGeo} material={edgeMat} position={[0, -0.18, 0]} />}
         </group>
       )}
 
@@ -597,7 +609,7 @@ export default function Robot3DModel({
       {showArmR && (
         <group ref={armRRef} position={armRPos as unknown as THREE.Vector3Tuple}>
           <mesh geometry={armRGeo} material={darkMat} position={[0, -0.18, 0]} castShadow />
-          <lineSegments geometry={armREdgeGeo} material={edgeMat} position={[0, -0.18, 0]} />
+          {armREdgeGeo && <lineSegments geometry={armREdgeGeo} material={edgeMat} position={[0, -0.18, 0]} />}
         </group>
       )}
 
@@ -609,7 +621,7 @@ export default function Robot3DModel({
       {showLegL && (
         <group ref={legLRef} position={legLPos as unknown as THREE.Vector3Tuple}>
           <mesh geometry={legLGeo} material={darkMat} position={[0, -0.19, 0]} castShadow />
-          <lineSegments geometry={legLEdgeGeo} material={edgeMat} position={[0, -0.19, 0]} />
+          {legLEdgeGeo && <lineSegments geometry={legLEdgeGeo} material={edgeMat} position={[0, -0.19, 0]} />}
           <mesh geometry={robotGeo.foot} material={metalMat} position={[0, -0.36, 0.012]} castShadow />
         </group>
       )}
@@ -618,7 +630,7 @@ export default function Robot3DModel({
       {showLegR && (
         <group ref={legRRef} position={legRPos as unknown as THREE.Vector3Tuple}>
           <mesh geometry={legRGeo} material={darkMat} position={[0, -0.19, 0]} castShadow />
-          <lineSegments geometry={legREdgeGeo} material={edgeMat} position={[0, -0.19, 0]} />
+          {legREdgeGeo && <lineSegments geometry={legREdgeGeo} material={edgeMat} position={[0, -0.19, 0]} />}
           <mesh geometry={robotGeo.foot} material={metalMat} position={[0, -0.36, 0.012]} castShadow />
         </group>
       )}

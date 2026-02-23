@@ -80,6 +80,8 @@ function RobotEntry({
 
   return (
     <button
+      data-session-id={session.sessionId}
+      data-status={session.status}
       onClick={() => { if (!editing) onSelect(session.sessionId); }}
       style={{
         display: 'flex',

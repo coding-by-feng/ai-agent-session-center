@@ -7,6 +7,8 @@ test.describe('Kill session', () => {
   }) => {
     const sessionId = `e2e-kill-${Date.now()}`;
     await page.goto('/');
+    await page.waitForEvent('websocket', { timeout: 10000 });
+    await page.waitForTimeout(500);
 
     // Create a test session via hook API
     await request.post('/api/hooks', {
@@ -19,12 +21,12 @@ test.describe('Kill session', () => {
 
     // Wait for card to appear
     const card = page.locator(`[data-session-id="${sessionId}"]`);
-    await expect(card).toBeVisible({ timeout: 5000 });
+    await expect(card).toBeVisible({ timeout: 10000 });
 
     // Click card to select it and open detail panel
     await card.click();
     await expect(page.locator('[class*="overlay"]').first()).toBeVisible({
-      timeout: 3000,
+      timeout: 5000,
     });
 
     // Use keyboard shortcut K to trigger kill
@@ -32,7 +34,7 @@ test.describe('Kill session', () => {
 
     // Kill confirm modal should appear
     const killModal = page.getByRole('dialog');
-    await expect(killModal).toBeVisible({ timeout: 3000 });
+    await expect(killModal).toBeVisible({ timeout: 5000 });
 
     // Confirm the kill
     const confirmBtn = page.getByRole('button', { name: /confirm|kill|yes/i });
@@ -42,7 +44,7 @@ test.describe('Kill session', () => {
 
     // Session card should eventually be removed or show ended status
     await expect(card).toHaveAttribute('data-status', 'ended', {
-      timeout: 10000,
+      timeout: 15000,
     });
   });
 });

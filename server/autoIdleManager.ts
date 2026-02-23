@@ -80,23 +80,27 @@ export function startPendingResumeCleanup(
 ): void {
   if (pendingResumeCleanupInterval) return;
 
+  // #41: Check every 15s, but only clean up entries older than 2 min that are
+  // still in CONNECTING status. This gives slow SessionStart hooks (2-5s on
+  // congested systems) enough time to arrive before we clean up.
   pendingResumeCleanupInterval = setInterval(() => {
     const now = Date.now();
     for (const [termId, pending] of pendingResume) {
       if (now - pending.timestamp > 120000) { // 2 minutes
-        pendingResume.delete(termId);
         const session = sessions.get(pending.oldSessionId);
+        // Only clean up if session is still in CONNECTING — if it transitioned
+        // to another status, the resume succeeded and we just clean the entry
         if (session && session.status === SESSION_STATUS.CONNECTING) {
-          session.status = SESSION_STATUS.ENDED;
-          session.animationState = ANIMATION_STATE.DEATH;
-          session.isHistorical = true;
+          session.status = SESSION_STATUS.IDLE;
+          session.animationState = ANIMATION_STATE.IDLE;
           session.terminalId = null;
-          log.info('session', `RESUME TIMEOUT: reverted session ${pending.oldSessionId?.slice(0, 8)} back to ended`);
+          log.info('session', `RESUME TIMEOUT: reverted session ${pending.oldSessionId?.slice(0, 8)} to idle (preserved)`);
           broadcastFn({ type: WS_TYPES.SESSION_UPDATE, session: { ...session } }).catch(() => {});
         }
+        pendingResume.delete(termId);
       }
     }
-  }, 30000);
+  }, 15000);
 }
 
 /**

@@ -132,8 +132,8 @@ function SessionRobotInner({
     mode: initMode,
     target: new THREE.Vector3(initPosX, 0, initPosZ),
     deskIdx: initDeskIdx,
-    speed: 3.0 + Math.random() * 1.5,
-    walkHz: 12 + Math.random() * 4,
+    speed: 1.2 + Math.random() * 0.6,
+    walkHz: 6 + Math.random() * 2,
     phase: Math.random() * Math.PI * 2,
     decisionTimer: 2 + Math.random() * 4,
     posX: initPosX,
@@ -143,6 +143,11 @@ function SessionRobotInner({
     waypoints: [],
     waypointIdx: 0,
   });
+
+  // #75: Frame counters for throttling expensive navigation AI
+  const navFrameCounter = useRef(0);
+  // Stagger robots by session index so their expensive frames don't all land on the same frame
+  const navFrameOffset = useRef(Math.floor(Math.random() * 3));
 
   const prevState = useRef<Robot3DState>(robotState);
   const prevRoomIndex = useRef<number | undefined>(roomIndex);
@@ -315,9 +320,14 @@ function SessionRobotInner({
     };
   }, [workstations]);
 
-  // Navigation update
+  // Navigation update — throttled to every 3rd frame (#75: reduce main thread load)
   useFrame((_, delta) => {
-    const dt = Math.min(delta, 0.1);
+    navFrameCounter.current++;
+    // Stagger expensive nav AI across robots so collision checks don't all run same frame
+    if ((navFrameCounter.current + navFrameOffset.current) % 3 !== 0) return;
+
+    // Scale delta for 3-frame skip (multiply by 3 to keep movement speed consistent)
+    const dt = Math.min(delta * 3, 0.15);
     const n = nav.current;
 
     if (n.mode === NAV_IDLE || n.mode === NAV_SIT) return;
@@ -441,12 +451,17 @@ function SessionRobotInner({
   // This eliminates cross-reconciler state cascades (React Error #185).
   const seatedRef = useRef(false);
   useFrame(() => {
+    // Update seated state every frame (cheap boolean check)
     seatedRef.current = nav.current.mode === NAV_SIT;
   });
 
   // Register robot world position for subagent connection lines
   // Also keep navInfoMap in sync for periodic persistence saves
+  // #75: Throttle store writes to every 3rd frame (position changes slowly)
+  const storeFrameCounter = useRef(0);
   useFrame(() => {
+    storeFrameCounter.current++;
+    if ((storeFrameCounter.current + navFrameOffset.current) % 3 !== 0) return;
     const n = nav.current;
     robotPositionStore.set(session.sessionId, n.posX, n.posY + 1.0, n.posZ);
     updateNavInfo(session.sessionId, {

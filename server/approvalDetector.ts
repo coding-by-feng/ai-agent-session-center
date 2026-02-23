@@ -31,8 +31,9 @@ export function hasChildProcesses(pid: number): boolean {
     const out = execSync(`pgrep -P ${validPid} 2>/dev/null`, { encoding: 'utf-8', timeout: 2000 });
     return out.trim().length > 0;
   } catch (e: unknown) {
+    // #37: Return true on error as safer default — assume command is still running
     log.debug('session', `hasChildProcesses check failed for pid=${validPid}: ${(e as Error).message}`);
-    return false;
+    return true;
   }
 }
 
@@ -46,6 +47,7 @@ export function startApprovalTimer(
   toolName: string,
   toolInputSummary: string,
   broadcastFn: (session: Session) => Promise<void>,
+  sessionLookupFn: (id: string) => Session | undefined,
 ): void {
   clearTimeout(pendingToolTimers.get(sessionId));
 
@@ -55,18 +57,21 @@ export function startApprovalTimer(
     session.pendingToolDetail = toolInputSummary;
     const timer = setTimeout(async () => {
       pendingToolTimers.delete(sessionId);
-      if (session.status === SESSION_STATUS.WORKING && session.pendingTool) {
-        const category = getToolCategory(session.pendingTool);
-        if (category === 'slow' && session.cachedPid && hasChildProcesses(session.cachedPid)) {
+      // Look up the current session state instead of using stale closure reference
+      const currentSession = sessionLookupFn(sessionId);
+      if (!currentSession) return;
+      if (currentSession.status === SESSION_STATUS.WORKING && currentSession.pendingTool) {
+        const category = getToolCategory(currentSession.pendingTool);
+        if (category === 'slow' && currentSession.cachedPid && hasChildProcesses(currentSession.cachedPid)) {
           return; // Command is running, not waiting for approval
         }
 
-        const waitingStatus = getWaitingStatus(session.pendingTool) || SESSION_STATUS.APPROVAL;
-        (session as Session).status = waitingStatus as Session['status'];
-        session.animationState = ANIMATION_STATE.WAITING;
-        session.waitingDetail = getWaitingLabel(session.pendingTool, session.pendingToolDetail || '');
+        const waitingStatus = getWaitingStatus(currentSession.pendingTool) || SESSION_STATUS.APPROVAL;
+        currentSession.status = waitingStatus as Session['status'];
+        currentSession.animationState = ANIMATION_STATE.WAITING;
+        currentSession.waitingDetail = getWaitingLabel(currentSession.pendingTool, currentSession.pendingToolDetail || '');
         try {
-          await broadcastFn(session);
+          await broadcastFn(currentSession);
         } catch (e: unknown) {
           log.warn('session', `Approval broadcast failed: ${(e as Error).message}`);
         }

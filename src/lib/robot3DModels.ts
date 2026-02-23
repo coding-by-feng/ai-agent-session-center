@@ -47,10 +47,10 @@ const modelDefs: Record<RobotModelType, ModelDef> = {
     torso: {},
     armL: {},
     armR: {},
-    legL: {},
-    legR: {},
-    hovers: false,
-    baseY: 0,
+    legL: { visible: false },
+    legR: { visible: false },
+    hovers: true,
+    baseY: 0.2,
   },
 
   mech: {
@@ -73,16 +73,10 @@ const modelDefs: Record<RobotModelType, ModelDef> = {
       geometry: new THREE.BoxGeometry(0.11, 0.3, 0.11),
       position: [0.27, 1.07, 0],
     },
-    legL: {
-      geometry: new THREE.BoxGeometry(0.12, 0.32, 0.12),
-      position: [-0.13, 0.54, 0],
-    },
-    legR: {
-      geometry: new THREE.BoxGeometry(0.12, 0.32, 0.12),
-      position: [0.13, 0.54, 0],
-    },
-    hovers: false,
-    baseY: 0,
+    legL: { visible: false },
+    legR: { visible: false },
+    hovers: true,
+    baseY: 0.2,
   },
 
   drone: {
@@ -133,16 +127,10 @@ const modelDefs: Record<RobotModelType, ModelDef> = {
       position: [0.2, 0.65, -0.12],
       scale: [1, 1, 1],
     },
-    legL: {
-      geometry: new THREE.BoxGeometry(0.06, 0.22, 0.06),
-      position: [-0.2, 0.65, 0.12],
-    },
-    legR: {
-      geometry: new THREE.BoxGeometry(0.06, 0.22, 0.06),
-      position: [0.2, 0.65, 0.12],
-    },
-    hovers: false,
-    baseY: -0.15,
+    legL: { visible: false },
+    legR: { visible: false },
+    hovers: true,
+    baseY: 0.05,
   },
 
   orb: {
@@ -165,16 +153,10 @@ const modelDefs: Record<RobotModelType, ModelDef> = {
       geometry: new THREE.BoxGeometry(0.06, 0.18, 0.06),
       position: [0.24, 0.92, 0],
     },
-    legL: {
-      geometry: new THREE.BoxGeometry(0.08, 0.18, 0.08),
-      position: [-0.1, 0.58, 0],
-    },
-    legR: {
-      geometry: new THREE.BoxGeometry(0.08, 0.18, 0.08),
-      position: [0.1, 0.58, 0],
-    },
-    hovers: false,
-    baseY: 0,
+    legL: { visible: false },
+    legR: { visible: false },
+    hovers: true,
+    baseY: 0.2,
   },
 
   tank: {
@@ -194,16 +176,10 @@ const modelDefs: Record<RobotModelType, ModelDef> = {
       geometry: new THREE.BoxGeometry(0.14, 0.34, 0.14),
       position: [0.3, 0.87, 0],
     },
-    legL: {
-      geometry: new THREE.BoxGeometry(0.12, 0.14, 0.36),
-      position: [-0.14, 0.5, 0],
-    },
-    legR: {
-      geometry: new THREE.BoxGeometry(0.12, 0.14, 0.36),
-      position: [0.14, 0.5, 0],
-    },
-    hovers: false,
-    baseY: -0.05,
+    legL: { visible: false },
+    legR: { visible: false },
+    hovers: true,
+    baseY: 0.15,
   },
 };
 

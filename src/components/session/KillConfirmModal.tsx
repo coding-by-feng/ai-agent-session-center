@@ -32,7 +32,6 @@ export default function KillConfirmModal() {
   const handleConfirm = async () => {
     if (killing) return;
     setKilling(true);
-    closeModal();
 
     try {
       const resp = await fetch(`/api/sessions/${selectedSessionId}/kill`, {
@@ -43,7 +42,11 @@ export default function KillConfirmModal() {
       const data: KillSessionResponse & ApiResponse = await resp.json();
       if (data.ok) {
         if (session?.terminalId) {
-          fetch(`/api/terminals/${session.terminalId}`, { method: 'DELETE' }).catch(() => {});
+          try {
+            await fetch(`/api/terminals/${session.terminalId}`, { method: 'DELETE' });
+          } catch {
+            showToast('Failed to close terminal', 'error');
+          }
         }
         showToast(`PID ${data.pid || 'N/A'} terminated`, 'success');
         deselectSession();
@@ -54,6 +57,7 @@ export default function KillConfirmModal() {
       showToast((err as Error).message, 'error');
     } finally {
       setKilling(false);
+      closeModal();
     }
   };
 
