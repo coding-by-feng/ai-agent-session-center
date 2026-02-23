@@ -44,7 +44,14 @@ https://github.com/user-attachments/assets/004ee6f9-942c-44c2-a4c5-d971fa0e824b
 npx ai-agent-session-center
 ```
 
-The dashboard starts at **http://localhost:3333** and automatically configures hooks.
+The dashboard starts at **http://localhost:3333** (default port, configurable during setup) and automatically configures hooks.
+
+### Global Install (if npx is not available)
+
+```bash
+npm install -g ai-agent-session-center
+ai-agent-session-center
+```
 
 ### From Source
 

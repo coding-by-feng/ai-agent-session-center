@@ -1,6 +1,6 @@
 {
   "name": "ai-agent-session-center",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "description": "A real-time dashboard for monitoring AI agent sessions (Claude Code, Gemini CLI, Codex) with 3D visualization",
   "type": "module",
   "main": "server/index.ts",
