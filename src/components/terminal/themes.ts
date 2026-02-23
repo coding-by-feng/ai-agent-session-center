@@ -1,7 +1,7 @@
 /**
  * Terminal themes ported from public/js/terminalManager.js.
  */
-import type { ITheme } from 'xterm';
+import type { ITheme } from '@xterm/xterm';
 
 export const THEMES: Record<string, ITheme> = {
   default: {
