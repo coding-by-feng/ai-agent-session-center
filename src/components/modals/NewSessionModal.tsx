@@ -3,10 +3,11 @@
  * Fields: host, port, username, auth method, key path, working dir,
  * tmux mode, tmux session, command, API key, session title, label.
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { TmuxSessionInfo, SshKeyInfo } from '@/types';
 import type { CreateTerminalRequest } from '@/types/api';
 import Modal from '@/components/ui/Modal';
+import Combobox from '@/components/ui/Combobox';
 import { showToast } from '@/components/ui/ToastContainer';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useKnownProjects } from '@/hooks/useKnownProjects';
@@ -61,12 +62,34 @@ function saveWorkdir(dir: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// Command history (localStorage)
+// ---------------------------------------------------------------------------
+
+const COMMAND_HISTORY_KEY = 'command-history';
+const MAX_COMMAND_HISTORY = 20;
+
+function loadCommandHistory(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(COMMAND_HISTORY_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveCommand(cmd: string): void {
+  if (!cmd) return;
+  const history = loadCommandHistory().filter((c) => c !== cmd);
+  history.unshift(cmd);
+  localStorage.setItem(COMMAND_HISTORY_KEY, JSON.stringify(history.slice(0, MAX_COMMAND_HISTORY)));
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export default function NewSessionModal() {
   const [saved] = useState(() => loadLastSession());
-  const [host, setHost] = useState(saved.host || 'localhost');
+  const [host, setHost] = useState(window.location.hostname || saved.host || 'localhost');
   const [port, setPort] = useState(String(saved.port || 22));
   const [username, setUsername] = useState(saved.username || '');
   const [authMethod, setAuthMethod] = useState<'key' | 'password'>(saved.authMethod || 'key');
@@ -88,6 +111,9 @@ export default function NewSessionModal() {
 
   // Working directory history (merged with known Claude Code projects)
   const workdirHistory = useKnownProjects();
+
+  // Command history
+  const commandHistory = useMemo(() => loadCommandHistory(), []);
 
   // Fetch SSH keys on mount
   useEffect(() => {
@@ -132,7 +158,7 @@ export default function NewSessionModal() {
     setSubmitting(true);
 
     const body: CreateTerminalRequest = {
-      host: host || 'localhost',
+      host: host || window.location.hostname || 'localhost',
       port: portNum || 22,
       username: username || '',
       authMethod,
@@ -156,6 +182,7 @@ export default function NewSessionModal() {
       const data = await res.json();
       if (data.ok) {
         saveWorkdir(workingDir);
+        if (command) saveCommand(command);
         saveLastSession({
           host: body.host,
           port: body.port,
@@ -230,10 +257,12 @@ export default function NewSessionModal() {
         {/* Auth method */}
         <div className={styles.sshField}>
           <label>Auth Method</label>
-          <select value={authMethod} onChange={(e) => setAuthMethod(e.target.value as 'key' | 'password')}>
-            <option value="key">SSH Key</option>
-            <option value="password">Password</option>
-          </select>
+          <Combobox
+            value={authMethod === 'key' ? 'SSH Key' : 'Password'}
+            onChange={(v) => setAuthMethod(v === 'Password' ? 'password' : 'key')}
+            items={['SSH Key', 'Password']}
+            placeholder="SSH Key"
+          />
         </div>
 
         {/* Key path or password */}
@@ -242,15 +271,12 @@ export default function NewSessionModal() {
             <label>
               Private Key Path <span className={styles.sshFieldHint}>(optional)</span>
             </label>
-            <select
+            <Combobox
               value={privateKeyPath}
-              onChange={(e) => setPrivateKeyPath(e.target.value)}
-            >
-              <option value="">Default (~/.ssh/id_*)</option>
-              {sshKeys.map((k) => (
-                <option key={k.path} value={k.path}>{k.name}</option>
-              ))}
-            </select>
+              onChange={setPrivateKeyPath}
+              items={sshKeys.map((k) => k.path)}
+              placeholder="Default (~/.ssh/id_*)"
+            />
           </div>
         ) : (
           <div className={styles.sshField}>
@@ -267,19 +293,12 @@ export default function NewSessionModal() {
         {/* Working directory */}
         <div className={styles.sshField}>
           <label>Working Directory</label>
-          <input
+          <Combobox
             value={workingDir}
-            onChange={(e) => setWorkingDir(e.target.value)}
+            onChange={setWorkingDir}
+            items={workdirHistory}
             placeholder="~"
-            list="workdir-history"
           />
-          {workdirHistory.length > 0 && (
-            <datalist id="workdir-history">
-              {workdirHistory.map((d) => (
-                <option key={d} value={d} />
-              ))}
-            </datalist>
-          )}
         </div>
 
         {/* Tmux session list */}
@@ -328,9 +347,10 @@ export default function NewSessionModal() {
           <label>
             Command <span className={styles.sshFieldHint}>(runs after connect)</span>
           </label>
-          <input
+          <Combobox
             value={command}
-            onChange={(e) => setCommand(e.target.value)}
+            onChange={setCommand}
+            items={commandHistory}
             placeholder="e.g. claude"
           />
         </div>
@@ -343,12 +363,12 @@ export default function NewSessionModal() {
           </div>
           <div className={`${styles.sshField} ${styles.sshFieldGrow}`}>
             <label>Label</label>
-            <select value={label} onChange={(e) => setLabel(e.target.value)}>
-              <option value="">None</option>
-              <option value="ONEOFF">ONEOFF</option>
-              <option value="HEAVY">HEAVY</option>
-              <option value="IMPORTANT">IMPORTANT</option>
-            </select>
+            <Combobox
+              value={label}
+              onChange={setLabel}
+              items={['ONEOFF', 'HEAVY', 'IMPORTANT']}
+              placeholder="None"
+            />
           </div>
         </div>
 

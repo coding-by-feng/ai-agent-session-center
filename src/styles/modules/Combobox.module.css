@@ -1,0 +1,114 @@
+.wrapper {
+  position: relative;
+}
+
+.inputWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input {
+  width: 100%;
+  background: var(--card-bg, rgba(255,255,255,0.04));
+  border: 2px solid var(--border-accent, rgba(255,255,255,0.15));
+  color: var(--text-primary);
+  padding: 6px 28px 6px 8px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--accent-cyan, #00e5ff);
+  box-shadow: 0 0 6px var(--glow-accent, rgba(0, 229, 255, 0.3));
+}
+
+.arrowBtn {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 6px;
+  font-size: 10px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.arrowBtn:hover {
+  color: var(--accent-cyan, #00e5ff);
+}
+
+.dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  max-height: 180px;
+  overflow-y: auto;
+  background: var(--bg-panel, #0e0e24);
+  border: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15));
+  border-top: none;
+  border-radius: 0 0 4px 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  padding: 6px 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.itemHighlighted {
+  background: rgba(0, 229, 255, 0.12);
+  color: var(--accent-cyan, #00e5ff);
+}
+
+.empty {
+  padding: 8px;
+  font-size: 11px;
+  color: var(--text-dim, #666);
+  text-align: center;
+  font-style: italic;
+}
+
+@media (pointer: coarse) {
+  .input {
+    min-height: 44px;
+    font-size: 16px;
+    padding: 12px 40px 12px 14px;
+  }
+
+  .item {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    padding: 12px 14px;
+    font-size: 16px;
+  }
+
+  .arrowBtn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
