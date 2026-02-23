@@ -51,8 +51,10 @@
   flex-direction: column;
   gap: 10px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   flex: 1;
   min-height: 0;
+  padding-bottom: 4px;
   -webkit-overflow-scrolling: touch;
 }
 .newSessionFooter {
@@ -85,7 +87,7 @@
 /* Tmux session list */
 .sshTmuxRefresh { display: inline-block; margin-left: 6px; padding: 1px 6px; font-size: 14px; background: transparent; color: var(--accent-cyan, #00e5ff); border: 1px solid var(--border-accent, #1a1a3a); border-radius: 3px; cursor: pointer; vertical-align: middle; line-height: 1; }
 .sshTmuxRefresh:hover { background: rgba(0,229,255,0.1); border-color: var(--accent-cyan, #00e5ff); }
-.sshTmuxList { max-height: 160px; overflow-y: auto; border: 1px solid var(--border-accent, #1a1a3a); border-radius: 4px; background: rgba(0,0,0,0.2); }
+.sshTmuxList { max-height: 160px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border-accent, #1a1a3a); border-radius: 4px; background: rgba(0,0,0,0.2); }
 .sshTmuxItem { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.12s; }
 .sshTmuxItem:last-child { border-bottom: none; }
 .sshTmuxItem:hover { background: rgba(255,255,255,0.04); }

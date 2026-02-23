@@ -4,6 +4,7 @@
  */
 import { useState, useMemo } from 'react';
 import Modal from '@/components/ui/Modal';
+import Combobox from '@/components/ui/Combobox';
 import { showToast } from '@/components/ui/ToastContainer';
 import { useUiStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -96,7 +97,7 @@ export default function QuickSessionModal() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          host: 'localhost',
+          host: window.location.hostname || 'localhost',
           workingDir: workingDir || '~',
           command: 'claude',
           label: selectedLabel || undefined,
@@ -184,19 +185,12 @@ export default function QuickSessionModal() {
           {/* Working directory override */}
           <div className={styles.quickWorkdirRow}>
             <label>Working Directory</label>
-            <input
+            <Combobox
               value={workingDir}
-              onChange={(e) => setWorkingDir(e.target.value)}
+              onChange={setWorkingDir}
+              items={workdirSuggestions}
               placeholder="~"
-              list="quick-workdir-history"
             />
-            {workdirSuggestions.length > 0 && (
-              <datalist id="quick-workdir-history">
-                {workdirSuggestions.map((d) => (
-                  <option key={d} value={d} />
-                ))}
-              </datalist>
-            )}
           </div>
         </div>
 
