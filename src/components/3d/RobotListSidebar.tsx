@@ -382,19 +382,21 @@ interface SessionGroup {
 // Filter persistence (localStorage)
 // ---------------------------------------------------------------------------
 
-const FILTER_KEY = 'sidebar-ssh-only';
+type FilterMode = 'all' | 'ssh' | 'others';
+const FILTER_KEY = 'sidebar-filter-mode';
 
-function loadSshOnlyFilter(): boolean {
+function loadFilterMode(): FilterMode {
   try {
     const val = localStorage.getItem(FILTER_KEY);
-    return val === null ? true : val === '1';
+    if (val === 'all' || val === 'ssh' || val === 'others') return val;
+    return 'all';
   } catch {
-    return true;
+    return 'all';
   }
 }
 
-function saveSshOnlyFilter(on: boolean): void {
-  try { localStorage.setItem(FILTER_KEY, on ? '1' : '0'); } catch { /* ignore */ }
+function saveFilterMode(mode: FilterMode): void {
+  try { localStorage.setItem(FILTER_KEY, mode); } catch { /* ignore */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -409,7 +411,7 @@ export default function RobotListSidebar() {
   const rooms = useRoomStore((s) => s.rooms);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const [sshOnly, setSshOnly] = useState(loadSshOnlyFilter);
+  const [filterMode, setFilterMode] = useState<FilterMode>(loadFilterMode);
 
   const toggleGroup = useCallback((groupId: string) => {
     setCollapsedGroups((prev) => {
@@ -423,19 +425,17 @@ export default function RobotListSidebar() {
     });
   }, []);
 
-  const toggleSshOnly = useCallback(() => {
-    setSshOnly((prev) => {
-      const next = !prev;
-      saveSshOnlyFilter(next);
-      return next;
-    });
+  const handleFilterChange = useCallback((mode: FilterMode) => {
+    setFilterMode(mode);
+    saveFilterMode(mode);
   }, []);
 
   // Build grouped session list: rooms first (sorted by roomIndex), then "Common Area"
   const groups = useMemo((): SessionGroup[] => {
     const activeSessions = [...sessions.values()].filter(s => {
       if (s.status === 'ended') return false;
-      if (sshOnly && s.source !== 'ssh') return false;
+      if (filterMode === 'ssh' && s.source !== 'ssh') return false;
+      if (filterMode === 'others' && s.source === 'ssh') return false;
       return true;
     });
     const assignedIds = new Set<string>();
@@ -469,7 +469,7 @@ export default function RobotListSidebar() {
     }
 
     return result;
-  }, [sessions, rooms, sshOnly]);
+  }, [sessions, rooms, filterMode]);
 
   const totalCount = useMemo(
     () => groups.reduce((sum, g) => sum + g.sessions.length, 0),
@@ -499,7 +499,12 @@ export default function RobotListSidebar() {
     }).catch(() => {});
   }, [sessions, updateSession]);
 
-  if (totalCount === 0) return null;
+  // Hide sidebar only when there are zero active sessions across ALL filters
+  const hasAnySessions = useMemo(
+    () => [...sessions.values()].some(s => s.status !== 'ended'),
+    [sessions],
+  );
+  if (!hasAnySessions) return null;
 
   return (
     <div
@@ -546,34 +551,43 @@ export default function RobotListSidebar() {
         >
           Agents ({totalCount})
         </span>
-        {/* SSH-only filter toggle */}
-        <span
-          role="button"
-          tabIndex={-1}
-          title={sshOnly ? 'Showing SSH sessions only — click to show all' : 'Showing all sessions — click to show SSH only'}
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleSshOnly();
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') { e.stopPropagation(); toggleSshOnly(); }
-          }}
+        {/* Filter segmented control */}
+        <div
+          onClick={(e) => e.stopPropagation()}
           style={{
-            fontSize: 9,
-            letterSpacing: 0.5,
-            padding: '2px 6px',
+            display: 'flex',
             borderRadius: 3,
-            fontFamily: "'JetBrains Mono', monospace",
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
-            background: sshOnly ? 'rgba(0,240,255,0.12)' : 'rgba(255,255,255,0.04)',
-            color: sshOnly ? 'rgba(0,240,255,0.8)' : 'rgba(255,255,255,0.3)',
-            border: sshOnly ? '1px solid rgba(0,240,255,0.25)' : '1px solid rgba(255,255,255,0.1)',
+            overflow: 'hidden',
+            border: '1px solid rgba(255,255,255,0.1)',
             marginRight: 6,
           }}
         >
-          SSH
-        </span>
+          {(['all', 'ssh', 'others'] as const).map((mode) => {
+            const active = filterMode === mode;
+            const label = mode === 'all' ? 'ALL' : mode === 'ssh' ? 'SSH' : 'OTHERS';
+            return (
+              <button
+                key={mode}
+                onClick={() => handleFilterChange(mode)}
+                style={{
+                  fontSize: 9,
+                  letterSpacing: 0.5,
+                  padding: '2px 6px',
+                  fontFamily: "'JetBrains Mono', monospace",
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                  background: active ? 'rgba(0,240,255,0.15)' : 'transparent',
+                  color: active ? 'rgba(0,240,255,0.9)' : 'rgba(255,255,255,0.3)',
+                  border: 'none',
+                  borderRight: mode !== 'others' ? '1px solid rgba(255,255,255,0.08)' : 'none',
+                  lineHeight: 1.4,
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
         <svg
           width="14"
           height="14"
@@ -595,7 +609,18 @@ export default function RobotListSidebar() {
       {/* Grouped session list */}
       {!panelCollapsed && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {groups.map((group) => {
+          {totalCount === 0 ? (
+            <div style={{
+              padding: '16px 8px',
+              textAlign: 'center',
+              fontSize: 11,
+              color: 'rgba(255,255,255,0.25)',
+              fontFamily: "'JetBrains Mono', monospace",
+              letterSpacing: 0.5,
+            }}>
+              No {filterMode === 'ssh' ? 'SSH' : filterMode === 'others' ? 'other' : ''} sessions
+            </div>
+          ) : groups.map((group) => {
             const isGroupCollapsed = collapsedGroups.has(group.id);
             return (
               <div key={group.id}>
