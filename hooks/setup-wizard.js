@@ -125,8 +125,17 @@ if (Object.keys(existing).length > 0) {
 }
 
 // 1. Port
-const portStr = await askValue(1, TOTAL, 'Server port', existing.port || 3333);
-const port = parseInt(portStr, 10) || 3333;
+let port;
+{
+  const defaultPort = 3333;
+  console.log(`\n${CYAN}[1/${TOTAL}]${RESET} ${BOLD}Server port${RESET}`);
+  while (true) {
+    const answer = await ask(`  ${DIM}(default: ${defaultPort}) >${RESET} `);
+    const val = answer.trim() === '' ? defaultPort : parseInt(answer.trim(), 10);
+    if (!isNaN(val) && val >= 1 && val <= 65535) { port = val; break; }
+    console.log(`  ${RED}✗ Port must be a number between 1 and 65535${RESET}`);
+  }
+}
 
 // 2. AI CLI selection
 const cliOptions = [
@@ -188,16 +197,18 @@ if (hasExistingPassword) {
   } else if (pwChoice.value === 'change') {
     rl.close(); rlClosed = true;
     console.log(`  ${DIM}Requirements: 8+ chars, uppercase, lowercase, digit, special char${RESET}`);
-    const pw = await askPassword(`  ${DIM}New password:${RESET} `);
-    const check = validatePassword(pw);
-    if (!check.valid) {
+    let pw;
+    while (true) {
+      pw = await askPassword(`  ${DIM}New password:${RESET} `);
+      const check = validatePassword(pw);
+      if (check.valid) break;
       console.log(`  ${RED}✗ Password must have: ${check.errors.join(', ')}${RESET}`);
-      process.exit(1);
     }
-    const confirm = await askPassword(`  ${DIM}Confirm password:${RESET} `);
-    if (pw !== confirm) {
-      console.log(`  ${RED}✗ Passwords do not match${RESET}`);
-      process.exit(1);
+    let confirm;
+    while (true) {
+      confirm = await askPassword(`  ${DIM}Confirm password:${RESET} `);
+      if (pw === confirm) break;
+      console.log(`  ${RED}✗ Passwords do not match — try again${RESET}`);
     }
     passwordHash = hashPassword(pw);
     ok('Password updated');
@@ -210,20 +221,22 @@ if (hasExistingPassword) {
     { label: `No password ${DIM}— open access on localhost${RESET}`, value: 'none' },
     { label: `Set a password ${DIM}— require login${RESET}`, value: 'set' },
   ];
-  const pwChoice = await choose(6, TOTAL, 'Dashboard password (optional)', pwOptions, 0);
+  const pwChoice = await choose(6, TOTAL, 'Dashboard password (optional)', pwOptions, 1);
   if (pwChoice.value === 'set') {
     rl.close(); rlClosed = true;
     console.log(`  ${DIM}Requirements: 8+ chars, uppercase, lowercase, digit, special char${RESET}`);
-    const pw = await askPassword(`  ${DIM}Enter password:${RESET} `);
-    const check = validatePassword(pw);
-    if (!check.valid) {
+    let pw;
+    while (true) {
+      pw = await askPassword(`  ${DIM}Enter password:${RESET} `);
+      const check = validatePassword(pw);
+      if (check.valid) break;
       console.log(`  ${RED}✗ Password must have: ${check.errors.join(', ')}${RESET}`);
-      process.exit(1);
     }
-    const confirm = await askPassword(`  ${DIM}Confirm password:${RESET} `);
-    if (pw !== confirm) {
-      console.log(`  ${RED}✗ Passwords do not match${RESET}`);
-      process.exit(1);
+    let confirm;
+    while (true) {
+      confirm = await askPassword(`  ${DIM}Confirm password:${RESET} `);
+      if (pw === confirm) break;
+      console.log(`  ${RED}✗ Passwords do not match — try again${RESET}`);
     }
     passwordHash = hashPassword(pw);
     ok('Password set — login will be required');
