@@ -54,6 +54,7 @@
   z-index: 50;
   max-height: 180px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--bg-panel, #0e0e24);
   border: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15));
   border-top: none;
