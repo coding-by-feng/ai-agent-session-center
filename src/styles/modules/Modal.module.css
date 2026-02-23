@@ -38,11 +38,32 @@
 /* ---- New Session Modal ---- */
 
 /* #69 — Use min() so panel never overflows small phones */
-.newSessionPanel { width: min(420px, calc(100vw - 32px)); max-height: 85vh; overflow-y: auto; }
+.newSessionPanel {
+  width: min(420px, calc(100vw - 32px));
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
 .newSessionHeader { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .newSessionHeader h3 { margin: 0; font-size: 14px; }
-.newSessionBody { display: flex; flex-direction: column; gap: 10px; }
-.newSessionFooter { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; }
+.newSessionBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  -webkit-overflow-scrolling: touch;
+}
+.newSessionFooter {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+}
 
 /* SSH fields */
 .sshField { display: flex; flex-direction: column; gap: 3px; }
@@ -156,11 +177,21 @@
 /* #72 — Reduce modal padding on small phones */
 @media (max-width: 480px) {
   .panel {
-    padding: 16px;
+    padding: 12px;
   }
 
   .newSessionPanel {
-    width: calc(100vw - 32px);
+    width: calc(100vw - 24px);
+    max-height: 90vh;
+  }
+
+  .newSessionBody {
+    gap: 8px;
+  }
+
+  .newSessionFooter {
+    margin-top: 10px;
+    padding-top: 10px;
   }
 }
 

@@ -15,12 +15,14 @@ interface DetailTabsProps {
   activityContent: ReactNode;
   summaryContent: ReactNode;
   queueContent: ReactNode;
+  projectContent: ReactNode;
   onTabChange?: (tabId: string) => void;
 }
 
 const TABS = [
   { id: 'terminal', label: 'TERMINAL' },
   { id: 'conversation', label: 'PROMPTS' },
+  { id: 'project', label: 'PROJECT' },
   { id: 'queue', label: 'QUEUE' },
   { id: 'notes', label: 'NOTES' },
   { id: 'activity', label: 'ACTIVITY' },
@@ -34,6 +36,7 @@ export default function DetailTabs({
   activityContent,
   summaryContent,
   queueContent,
+  projectContent,
   onTabChange,
 }: DetailTabsProps) {
   const [activeTab, setActiveTab] = useState<string>(() => {
@@ -60,6 +63,7 @@ export default function DetailTabs({
   const contentMap: Record<string, ReactNode> = {
     terminal: terminalContent,
     conversation: promptsContent,
+    project: projectContent,
     queue: queueContent,
     notes: notesContent,
     activity: activityContent,

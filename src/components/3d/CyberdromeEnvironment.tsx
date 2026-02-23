@@ -249,9 +249,23 @@ function CorridorDesks({ rooms, theme }: { rooms: RoomConfig[]; theme: Scene3DTh
 // Coffee Lounge (simplified)
 // ---------------------------------------------------------------------------
 
+function CoffeeTable({ x, z, mat }: { x: number; z: number; mat: THREE.Material }) {
+  return (
+    <group>
+      <mesh position={[x, 0.45, z]} material={mat} castShadow>
+        <cylinderGeometry args={[0.4, 0.4, 0.04, 10]} />
+      </mesh>
+      <mesh position={[x, 0.22, z]} material={mat}>
+        <cylinderGeometry args={[0.05, 0.05, 0.44, 6]} />
+      </mesh>
+    </group>
+  );
+}
+
 function CoffeeLounge({ area, theme }: { area: CasualArea; theme: Scene3DTheme }) {
   const [cx, , cz] = area.center;
-  const areaSize = 6;
+  const areaSize = 10;
+  const TABLE_SPACING = 3;
 
   const floorMat = useMemo(() => new THREE.MeshStandardMaterial({
     color: theme.coffeeFloor, roughness: 0.6, metalness: 0.2,
@@ -259,6 +273,17 @@ function CoffeeLounge({ area, theme }: { area: CasualArea; theme: Scene3DTheme }
   const furnitureMat = useMemo(() => new THREE.MeshStandardMaterial({
     color: theme.coffeeFurniture, roughness: 0.5, metalness: 0.4,
   }), [theme.coffeeFurniture]);
+
+  // 2x2 grid of tables matching the station layout
+  const tables: [number, number][] = [];
+  for (let row = 0; row < 2; row++) {
+    for (let col = 0; col < 2; col++) {
+      tables.push([
+        cx + (col - 0.5) * TABLE_SPACING,
+        cz + (row - 0.5) * TABLE_SPACING,
+      ]);
+    }
+  }
 
   return (
     <group>
@@ -268,34 +293,23 @@ function CoffeeLounge({ area, theme }: { area: CasualArea; theme: Scene3DTheme }
       </mesh>
       <BorderGlow center={area.center} size={areaSize} glowColor={theme.coffeeAccent} />
 
-      {/* Two coffee tables with stools */}
-      <group>
-        <mesh position={[cx - 1, 0.45, cz]} material={furnitureMat} castShadow>
-          <cylinderGeometry args={[0.4, 0.4, 0.04, 10]} />
-        </mesh>
-        <mesh position={[cx - 1, 0.22, cz]} material={furnitureMat}>
-          <cylinderGeometry args={[0.05, 0.05, 0.44, 6]} />
-        </mesh>
-        <mesh position={[cx + 1, 0.45, cz]} material={furnitureMat} castShadow>
-          <cylinderGeometry args={[0.4, 0.4, 0.04, 10]} />
-        </mesh>
-        <mesh position={[cx + 1, 0.22, cz]} material={furnitureMat}>
-          <cylinderGeometry args={[0.05, 0.05, 0.44, 6]} />
-        </mesh>
-      </group>
+      {/* 4 coffee tables in a 2x2 grid */}
+      {tables.map(([tx, tz], i) => (
+        <CoffeeTable key={i} x={tx} z={tz} mat={furnitureMat} />
+      ))}
 
-      {/* Counter bar */}
+      {/* Counter bar along north edge */}
       <mesh position={[cx, 0.5, cz - areaSize / 2 + 0.4]} material={furnitureMat} castShadow>
-        <boxGeometry args={[3, 0.9, 0.3]} />
+        <boxGeometry args={[5, 0.9, 0.3]} />
       </mesh>
       <mesh position={[cx, 0.96, cz - areaSize / 2 + 0.4]}>
-        <boxGeometry args={[3.1, 0.03, 0.35]} />
+        <boxGeometry args={[5.1, 0.03, 0.35]} />
         <meshStandardMaterial color={theme.coffeeAccent} emissive={theme.coffeeAccent} emissiveIntensity={0.4} roughness={0.3} />
       </mesh>
 
       {/* Warm amber point light */}
       <pointLight
-        color={theme.coffeeAccent} intensity={4} distance={8}
+        color={theme.coffeeAccent} intensity={6} distance={12}
         decay={1.5} position={[cx, 2.5, cz]} castShadow={false}
       />
     </group>

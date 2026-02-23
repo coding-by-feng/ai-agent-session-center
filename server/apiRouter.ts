@@ -17,8 +17,8 @@ import { getStats as getHookStats, resetStats as resetHookStats } from './hookSt
 import * as db from './db.js';
 import { getMqStats } from './mqReader.js';
 import { execFile } from 'child_process';
-import { readFileSync, readdirSync, existsSync } from 'fs';
-import { join, dirname } from 'path';
+import { readFileSync, readdirSync, existsSync, statSync } from 'fs';
+import { join, dirname, extname, basename } from 'path';
 import { homedir, userInfo } from 'os';
 import { fileURLToPath } from 'url';
 import { ALL_CLAUDE_HOOK_EVENTS, DENSITY_EVENTS, SESSION_STATUS, WS_TYPES } from './constants.js';
@@ -857,6 +857,141 @@ router.get('/known-projects', (_req: Request, res: Response) => {
     res.json({ paths });
   } catch {
     res.json({ paths: [] });
+  }
+});
+
+// ---- File Browser (Project Tab) ----
+
+/** Allowed text extensions for file preview (binary files are rejected). */
+const TEXT_EXTENSIONS = new Set([
+  '.md', '.txt', '.json', '.js', '.ts', '.tsx', '.jsx', '.css', '.scss',
+  '.html', '.xml', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf',
+  '.sh', '.bash', '.zsh', '.fish', '.ps1', '.bat', '.cmd',
+  '.py', '.rb', '.go', '.rs', '.java', '.kt', '.swift', '.c', '.cpp', '.h',
+  '.sql', '.graphql', '.prisma', '.env', '.env.example', '.env.local',
+  '.gitignore', '.dockerignore', '.editorconfig', '.eslintrc',
+  '.prettierrc', '.babelrc', '.nvmrc',
+  '.csv', '.tsv', '.log', '.diff', '.patch',
+  '.svelte', '.vue', '.astro', '.mdx',
+]);
+
+/** Names that are always considered text (no extension). */
+const TEXT_NAMES = new Set([
+  'Dockerfile', 'Makefile', 'Gemfile', 'Rakefile', 'Procfile',
+  'LICENSE', 'CHANGELOG', 'README', 'CLAUDE.md',
+  '.gitignore', '.dockerignore', '.editorconfig',
+]);
+
+const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB
+
+/** Directories to skip when listing. */
+const HIDDEN_DIRS = new Set([
+  'node_modules', '.git', '.next', '.nuxt', '__pycache__', '.venv',
+  'venv', 'dist', 'build', '.cache', '.turbo', 'coverage', '.svelte-kit',
+]);
+
+function isTextFile(name: string): boolean {
+  if (TEXT_NAMES.has(name)) return true;
+  const ext = extname(name).toLowerCase();
+  return ext === '' || TEXT_EXTENSIONS.has(ext);
+}
+
+/** Resolve and validate a requested path is within the project root. */
+function resolveProjectPath(projectRoot: string, relPath: string): string | null {
+  // Prevent traversal: normalise, then ensure it's within root
+  const resolved = join(projectRoot, relPath);
+  const normalised = join(resolved); // removes .., . etc
+  if (!normalised.startsWith(projectRoot)) return null;
+  return normalised;
+}
+
+const filePathSchema = z.object({
+  path: z.string().max(1024).default('/'),
+});
+
+/** GET /api/files/list?root=<projectPath>&path=<relative> — list directory contents */
+router.get('/files/list', (req: Request, res: Response) => {
+  const root = str(req.query.root);
+  if (!root) { res.status(400).json({ error: 'root query param required' }); return; }
+
+  const body = filePathSchema.safeParse({ path: str(req.query.path) || '/' });
+  if (!body.success) { res.status(400).json({ error: 'Invalid path' }); return; }
+
+  const relPath = body.data.path;
+  const fullPath = resolveProjectPath(root, relPath);
+  if (!fullPath) { res.status(400).json({ error: 'Path outside project root' }); return; }
+
+  try {
+    if (!existsSync(fullPath)) { res.status(404).json({ error: 'Directory not found' }); return; }
+
+    const stat = statSync(fullPath);
+    if (!stat.isDirectory()) { res.status(400).json({ error: 'Not a directory' }); return; }
+
+    const entries = readdirSync(fullPath, { withFileTypes: true });
+    const items: Array<{ name: string; type: 'dir' | 'file'; size?: number }> = [];
+
+    for (const entry of entries) {
+      // Skip hidden dirs (but show hidden files like .env)
+      if (entry.isDirectory() && HIDDEN_DIRS.has(entry.name)) continue;
+      // Skip dot-prefixed directories (e.g. .git) but show dot files
+      if (entry.isDirectory() && entry.name.startsWith('.')) continue;
+
+      if (entry.isDirectory()) {
+        items.push({ name: entry.name, type: 'dir' });
+      } else {
+        try {
+          const fileStat = statSync(join(fullPath, entry.name));
+          items.push({ name: entry.name, type: 'file', size: fileStat.size });
+        } catch {
+          items.push({ name: entry.name, type: 'file' });
+        }
+      }
+    }
+
+    // Sort: directories first, then files, both alphabetical
+    items.sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+    });
+
+    res.json({ path: relPath, items });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
+/** GET /api/files/read?root=<projectPath>&path=<relative> — read a file */
+router.get('/files/read', (req: Request, res: Response) => {
+  const root = str(req.query.root);
+  if (!root) { res.status(400).json({ error: 'root query param required' }); return; }
+
+  const body = filePathSchema.safeParse({ path: str(req.query.path) });
+  if (!body.success) { res.status(400).json({ error: 'Invalid path' }); return; }
+
+  const relPath = body.data.path;
+  const fullPath = resolveProjectPath(root, relPath);
+  if (!fullPath) { res.status(400).json({ error: 'Path outside project root' }); return; }
+
+  try {
+    if (!existsSync(fullPath)) { res.status(404).json({ error: 'File not found' }); return; }
+
+    const stat = statSync(fullPath);
+    if (stat.isDirectory()) { res.status(400).json({ error: 'Path is a directory, not a file' }); return; }
+    if (stat.size > MAX_FILE_SIZE) { res.status(413).json({ error: `File too large (${(stat.size / 1024 / 1024).toFixed(1)} MB, max 2 MB)` }); return; }
+
+    const name = basename(fullPath);
+    if (!isTextFile(name)) {
+      res.json({ path: relPath, binary: true, size: stat.size, name });
+      return;
+    }
+
+    const content = readFileSync(fullPath, 'utf8');
+    const ext = extname(name).toLowerCase().replace('.', '') || 'text';
+    res.json({ path: relPath, content, ext, size: stat.size, name });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
   }
 });
 

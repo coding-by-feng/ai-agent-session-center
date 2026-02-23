@@ -7,9 +7,10 @@ interface ModalProps {
   children: ReactNode;
   title?: string;
   onClose?: () => void;
+  panelClassName?: string;
 }
 
-export default function Modal({ modalId, children, title, onClose }: ModalProps) {
+export default function Modal({ modalId, children, title, onClose, panelClassName }: ModalProps) {
   const activeModal = useUiStore((s) => s.activeModal);
   const closeModal = useUiStore((s) => s.closeModal);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -87,7 +88,7 @@ export default function Modal({ modalId, children, title, onClose }: ModalProps)
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={styles.panel}
+        className={`${styles.panel}${panelClassName ? ` ${panelClassName}` : ''}`}
       >
         {title && (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
