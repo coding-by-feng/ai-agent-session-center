@@ -40,23 +40,17 @@ vi.mock('@/hooks/useTerminal', () => ({
 vi.mock('./TerminalToolbar', () => ({
   default: ({
     themeName,
-    onFullscreen,
     onSendEscape,
-    onRefresh,
     onReconnect,
     showReconnect,
   }: {
     themeName: string;
-    onFullscreen: () => void;
     onSendEscape: () => void;
-    onRefresh: () => void;
     onReconnect?: () => void;
     showReconnect?: boolean;
   }) => (
     <div data-testid="terminal-toolbar" data-theme={themeName}>
-      <button data-testid="fullscreen-btn" onClick={onFullscreen}>Fullscreen</button>
       <button data-testid="escape-btn" onClick={onSendEscape}>ESC</button>
-      <button data-testid="refresh-btn" onClick={onRefresh}>Refresh</button>
       {showReconnect && onReconnect && (
         <button data-testid="reconnect-btn" onClick={onReconnect}>Reconnect</button>
       )}

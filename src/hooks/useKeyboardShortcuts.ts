@@ -88,13 +88,6 @@ export function useKeyboardShortcuts(): void {
       // Don't intercept when typing in form fields
       if (isTyping(e)) return;
 
-      // Alt+Cmd+R (macOS) / Alt+Ctrl+R: refresh terminal
-      if (e.key === 'r' && e.altKey && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        window.dispatchEvent(new CustomEvent('terminal:refresh'));
-        return;
-      }
-
       // Alt+F11: toggle browser fullscreen
       if (e.key === 'F11' && e.altKey) {
         e.preventDefault();

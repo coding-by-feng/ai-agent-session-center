@@ -104,17 +104,6 @@ export default function TerminalContainer({
     return () => document.removeEventListener('visibilitychange', handler);
   }, [refitTerminal]);
 
-  // Alt+Cmd/Ctrl+R keyboard shortcut → refresh terminal
-  useEffect(() => {
-    if (!terminalId) return;
-    const handler = () => {
-      refitTerminal();
-      scrollToBottom();
-    };
-    window.addEventListener('terminal:refresh', handler);
-    return () => window.removeEventListener('terminal:refresh', handler);
-  }, [terminalId, refitTerminal, scrollToBottom]);
-
   const handleThemeChange = useCallback(
     (name: string) => {
       setThemeName(name);
@@ -122,11 +111,6 @@ export default function TerminalContainer({
     },
     [setTheme],
   );
-
-  const handleRefresh = useCallback(() => {
-    refitTerminal();
-    scrollToBottom();
-  }, [refitTerminal, scrollToBottom]);
 
   if (!terminalId) {
     return (
@@ -141,11 +125,8 @@ export default function TerminalContainer({
       <TerminalToolbar
         themeName={themeName}
         onThemeChange={handleThemeChange}
-        onFullscreen={toggleFullscreen}
         onSendEscape={sendEscape}
-        onRefresh={handleRefresh}
         onReconnect={onReconnect}
-        isFullscreen={isFullscreen}
         showReconnect={showReconnect}
       />
       <div
