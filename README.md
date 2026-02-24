@@ -56,11 +56,10 @@ ai-agent-session-center
 ### Uninstall
 
 ```bash
-# Remove hooks and clean up config
-npx ai-agent-session-center --setup  # choose uninstall, or:
-npm run uninstall-hooks              # if installed from source
+# Remove hooks from all CLI configs
+npx ai-agent-session-center --uninstall
 
-# Remove global install
+# If installed globally
 npm uninstall -g ai-agent-session-center
 ```
 
@@ -91,6 +90,7 @@ Options:
   --no-open          Don't auto-open browser
   --debug            Enable verbose logging
   --setup            Re-run the interactive setup wizard
+  --uninstall        Remove all hooks from CLI configs and exit
 ```
 
 ## How It Works

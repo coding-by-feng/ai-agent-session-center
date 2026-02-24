@@ -3,6 +3,10 @@
  * Uses /api/files/list and /api/files/read endpoints.
  */
 import { useState, useEffect, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
+import 'highlight.js/styles/github-dark-dimmed.css';
 import styles from '@/styles/modules/ProjectTab.module.css';
 
 interface ProjectTabProps {
@@ -48,35 +52,18 @@ function fileIcon(name: string, type: 'dir' | 'file'): string {
   return map[ext] || '\u{1F4C4}';
 }
 
-/** Minimal markdown-to-HTML renderer for file preview. */
-function renderMarkdown(src: string): string {
-  let html = src
-    // Fenced code blocks
-    .replace(/```(\w*)\n([\s\S]*?)```/g, (_m, _lang, code) =>
-      `<pre class="md-code-block">${code.replace(/</g, '&lt;')}</pre>`)
-    // Headings
-    .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-    // Horizontal rules
-    .replace(/^---+$/gm, '<hr />')
-    // Bold & italic
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    // Inline code
-    .replace(/`([^`]+)`/g, '<code class="md-inline-code">$1</code>')
-    // Links
-    .replace(/\[([^\]]+)]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-    // Unordered list items
-    .replace(/^[*\-+] (.+)$/gm, '<li>$1</li>')
-    // Line breaks (double newline → paragraph break)
-    .replace(/\n{2,}/g, '<br/><br/>');
-
-  // Wrap consecutive <li> in <ul>
-  html = html.replace(/((?:<li>.*?<\/li>\s*)+)/g, '<ul>$1</ul>');
-
-  return html;
+/** Detect language from file path for code block highlighting. */
+function langFromPath(path: string): string | undefined {
+  const ext = path.split('.').pop()?.toLowerCase();
+  const map: Record<string, string> = {
+    ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
+    py: 'python', go: 'go', rs: 'rust', java: 'java', rb: 'ruby',
+    sh: 'bash', bash: 'bash', zsh: 'bash', css: 'css', scss: 'scss',
+    html: 'html', json: 'json', yaml: 'yaml', yml: 'yaml', toml: 'toml',
+    sql: 'sql', graphql: 'graphql', xml: 'xml', swift: 'swift', kt: 'kotlin',
+    c: 'c', cpp: 'cpp', h: 'c', hpp: 'cpp', cs: 'csharp',
+  };
+  return ext ? map[ext] : undefined;
 }
 
 export default function ProjectTab({ projectPath }: ProjectTabProps) {
@@ -233,12 +220,25 @@ export default function ProjectTab({ projectPath }: ProjectTabProps) {
                 Binary file ({formatSize(file.size)})
               </div>
             ) : file.ext === 'md' || file.ext === 'mdx' ? (
-              <div
-                className={styles.markdown}
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(file.content || '') }}
-              />
+              <div className={styles.markdown}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeHighlight]}
+                  components={{
+                    a: ({ children, ...props }) => (
+                      <a {...props} target="_blank" rel="noopener noreferrer">{children}</a>
+                    ),
+                  }}
+                >
+                  {file.content || ''}
+                </ReactMarkdown>
+              </div>
             ) : (
-              <pre className={styles.codeBlock}>{file.content}</pre>
+              <pre className={styles.codeBlock}>
+                <code className={langFromPath(file.path) ? `language-${langFromPath(file.path)}` : ''}>
+                  {file.content}
+                </code>
+              </pre>
             )}
           </div>
         )}

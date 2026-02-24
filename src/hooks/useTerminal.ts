@@ -387,16 +387,48 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
 
   const pasteToTerminal = useCallback(async () => {
     if (!activeRef.current || !wsRef.current || wsRef.current.readyState !== 1) return;
-    try {
-      const text = await navigator.clipboard.readText();
-      if (!text) return;
-      wsRef.current.send(
-        JSON.stringify({ type: 'terminal_input', terminalId: activeRef.current.terminalId, data: text }),
-      );
-      activeRef.current.term.focus();
-    } catch {
-      // Clipboard access denied — ignore silently
+    const { terminalId } = activeRef.current;
+
+    let text: string | null = null;
+
+    // Strategy 1: Clipboard API (requires secure context + user gesture + permission)
+    if (navigator.clipboard?.readText) {
+      try {
+        text = await navigator.clipboard.readText();
+      } catch {
+        // Permission denied or not supported — fall through to fallback
+      }
     }
+
+    // Strategy 2: Hidden textarea + execCommand fallback (works in more contexts)
+    if (!text) {
+      try {
+        const textarea = document.createElement('textarea');
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        document.execCommand('paste');
+        text = textarea.value;
+        document.body.removeChild(textarea);
+      } catch {
+        // execCommand paste not supported
+      }
+    }
+
+    // Strategy 3: Prompt as last resort
+    if (!text) {
+      text = window.prompt('Paste text to send to terminal:');
+    }
+
+    if (!text) return;
+
+    wsRef.current.send(
+      JSON.stringify({ type: 'terminal_input', terminalId, data: text }),
+    );
+    // Re-focus the terminal after paste
+    activeRef.current?.term.focus();
   }, []);
 
   const refitTerminal = useCallback(() => {

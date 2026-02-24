@@ -182,8 +182,13 @@
 .fullscreenBtn:hover { background: rgba(76, 175, 80, 0.15); border-color: #4caf50; }
 
 .fullscreenOverlay { position: fixed; inset: 0; z-index: 10000; background: #0a0a1a; display: flex; flex-direction: column; }
-.fullscreenTopbar { display: flex; align-items: center; justify-content: space-between; padding: 6px 16px; background: rgba(255, 255, 255, 0.04); border-bottom: 1px solid rgba(255, 255, 255, 0.08); flex-shrink: 0; }
-.fullscreenTitle { font-size: 12px; font-weight: 500; color: var(--text-secondary, #888); letter-spacing: 1px; text-transform: uppercase; }
+.fullscreenTopbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 6px 16px; background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08); flex-shrink: 0;
+}
+.fullscreenTopbar .toolbar { margin-bottom: 0; padding: 0; }
+.fullscreenTitle { font-size: 12px; font-weight: 500; color: var(--text-secondary, #888); letter-spacing: 1px; text-transform: uppercase; flex-shrink: 0; }
 .fullscreenExit { background: transparent; border: 1px solid rgba(255, 82, 82, 0.4); color: #ff5252; font-family: inherit; font-size: 10px; letter-spacing: 1px; padding: 4px 14px; cursor: pointer; border-radius: 3px; transition: all 0.2s; }
 .fullscreenExit:hover { background: rgba(255, 82, 82, 0.15); border-color: #ff5252; }
 .fullscreenContainer { flex: 1; overflow: hidden; }
