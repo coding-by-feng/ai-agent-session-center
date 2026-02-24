@@ -14,7 +14,10 @@ const configPath = join(projectRoot, 'data', 'server-config.json');
 
 const args = process.argv.slice(2);
 const forceSetup = args.includes('--setup');
+const forceUninstall = args.includes('--uninstall');
 const isFirstRun = !existsSync(configPath);
+
+const installHooksPath = join(projectRoot, 'hooks', 'install-hooks.js');
 
 function startServer() {
   const serverArgs = args.filter(a => a !== '--setup');
@@ -25,7 +28,14 @@ function startServer() {
   child.on('exit', (code) => process.exit(code || 0));
 }
 
-if (forceSetup || isFirstRun) {
+if (forceUninstall) {
+  // Run uninstall hooks and exit
+  const uninstall = spawn('node', [installHooksPath, '--uninstall'], {
+    stdio: 'inherit',
+    cwd: projectRoot,
+  });
+  uninstall.on('exit', (code) => process.exit(code || 0));
+} else if (forceSetup || isFirstRun) {
   // Run setup wizard, then start server on success
   const setup = spawn('node', [setupPath], {
     stdio: 'inherit',
