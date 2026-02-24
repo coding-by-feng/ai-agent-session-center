@@ -25,21 +25,6 @@ export default function NavBar() {
 
   return (
     <nav className={styles.nav}>
-      {NAV_ITEMS.map((item) => (
-        <NavLink
-          key={item.to}
-          to={item.to}
-          end={item.to === '/'}
-          className={({ isActive }) =>
-            `${styles.navBtn} ${isActive ? styles.active : ''}`
-          }
-        >
-          {item.label}
-        </NavLink>
-      ))}
-
-      <div className={styles.spacer} />
-
       <div className={styles.actions}>
         <div className={styles.actionsItems}>
           {/* New session (full form) */}
@@ -71,6 +56,21 @@ export default function NavBar() {
           ?
         </button>
       </div>
+
+      <div className={styles.spacer} />
+
+      {NAV_ITEMS.map((item) => (
+        <NavLink
+          key={item.to}
+          to={item.to}
+          end={item.to === '/'}
+          className={({ isActive }) =>
+            `${styles.navBtn} ${isActive ? styles.active : ''}`
+          }
+        >
+          {item.label}
+        </NavLink>
+      ))}
     </nav>
   );
 }

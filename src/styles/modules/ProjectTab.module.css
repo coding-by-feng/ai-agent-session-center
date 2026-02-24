@@ -1,0 +1,318 @@
+/* ============================================================
+   ProjectTab CSS Module
+   Touch-friendly file browser with tree + file viewer
+   ============================================================ */
+
+.projectTab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* ---- Toolbar (breadcrumb + back button) ---- */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.backBtn {
+  background: none;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.backBtn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--accent-cyan);
+  background: var(--bg-subtle);
+}
+.backBtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.breadcrumb {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.breadcrumb::-webkit-scrollbar { display: none; }
+
+.breadSep {
+  color: var(--text-dim);
+  margin: 0 2px;
+}
+
+.breadBtn {
+  background: none;
+  border: none;
+  color: var(--accent-cyan);
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: background 0.15s;
+}
+.breadBtn:hover {
+  background: var(--bg-subtle);
+}
+
+.breadCurrent {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* ---- Content area ---- */
+
+.content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+.content::-webkit-scrollbar { width: 4px; }
+.content::-webkit-scrollbar-track { background: transparent; }
+.content::-webkit-scrollbar-thumb { background: var(--bg-accent); border-radius: 2px; }
+
+.empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-dim);
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+/* ---- File List ---- */
+
+.fileList {
+  display: flex;
+  flex-direction: column;
+}
+
+.fileEntry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border-faint);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+  width: 100%;
+  /* Touch-friendly: minimum 44px height */
+  min-height: 44px;
+}
+.fileEntry:hover {
+  background: var(--bg-subtle);
+}
+.fileEntry:active {
+  background: var(--bg-accent);
+}
+
+.fileIcon {
+  flex-shrink: 0;
+  width: 22px;
+  text-align: center;
+  font-size: 14px;
+}
+
+.fileName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileSize {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.3px;
+}
+
+.fileChevron {
+  flex-shrink: 0;
+  font-size: 16px;
+  color: var(--text-dim);
+  font-weight: 300;
+}
+
+/* ---- File Viewer ---- */
+
+.fileViewer {
+  padding: 4px 0;
+}
+
+/* Markdown rendering */
+.markdown {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-primary);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.markdown h1 {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 16px 0 8px;
+  color: var(--accent-cyan);
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 6px;
+}
+.markdown h2 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 14px 0 6px;
+  color: var(--text-primary);
+}
+.markdown h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 12px 0 4px;
+  color: var(--text-secondary);
+}
+.markdown h4 {
+  font-size: 12px;
+  font-weight: 600;
+  margin: 10px 0 4px;
+  color: var(--text-dim);
+}
+
+.markdown strong { color: var(--text-primary); }
+.markdown em { font-style: italic; }
+
+.markdown a {
+  color: var(--accent-cyan);
+  text-decoration: none;
+}
+.markdown a:hover { text-decoration: underline; }
+
+.markdown hr {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: 12px 0;
+}
+
+.markdown li {
+  margin-left: 16px;
+  padding: 2px 0;
+  list-style: disc;
+}
+
+.markdown :global(.md-code-block) {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 12px;
+  margin: 8px 0;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  -webkit-overflow-scrolling: touch;
+}
+
+.markdown :global(.md-inline-code) {
+  background: var(--bg-accent);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent-orange);
+}
+
+/* Code file rendering */
+.codeBlock {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 12px;
+  margin: 0;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre;
+  tab-size: 2;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ---- Touch device optimizations ---- */
+
+@media (pointer: coarse) {
+  .backBtn {
+    width: 44px;
+    height: 44px;
+    font-size: 20px;
+  }
+
+  .fileEntry {
+    padding: 12px 14px;
+    min-height: 48px;
+    font-size: 13px;
+    gap: 12px;
+  }
+
+  .fileIcon {
+    font-size: 16px;
+    width: 26px;
+  }
+
+  .breadBtn {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+
+  .markdown {
+    font-size: 14px;
+    line-height: 1.8;
+  }
+
+  .codeBlock {
+    font-size: 12px;
+    padding: 14px;
+  }
+}
+
+/* ---- Small screens ---- */
+
+@media (max-width: 640px) {
+  .toolbar {
+    padding: 6px 0;
+  }
+
+  .fileEntry {
+    padding: 10px 8px;
+  }
+}
