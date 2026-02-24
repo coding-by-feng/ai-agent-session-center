@@ -1,9 +1,28 @@
 /**
- * TerminalToolbar shows theme selector, ESC, fullscreen toggle, and reconnect.
+ * TerminalToolbar shows theme selector, ESC, paste icon, fullscreen toggle, and reconnect.
  */
 import { useCallback } from 'react';
 import { getThemeNames } from './themes';
 import styles from '@/styles/modules/Terminal.module.css';
+
+/** Clipboard/paste SVG icon (16x16). */
+function PasteIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+    </svg>
+  );
+}
 
 interface TerminalToolbarProps {
   themeName: string;
@@ -64,7 +83,7 @@ export default function TerminalToolbar({
         onClick={onPaste}
         title="Paste clipboard to terminal"
       >
-        PASTE
+        <PasteIcon />
       </button>
 
       <button
