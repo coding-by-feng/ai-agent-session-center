@@ -1,6 +1,6 @@
 {
   "name": "ai-agent-session-center",
-  "version": "2.0.6",
+  "version": "2.0.7",
   "description": "A real-time dashboard for monitoring AI agent sessions (Claude Code, Gemini CLI, Codex) with 3D visualization",
   "type": "module",
   "main": "server/index.ts",
@@ -58,6 +58,7 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-unicode11": "^0.9.0",
     "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/xterm": "^5.5.0",
     "better-sqlite3": "^12.6.2",
     "dexie": "^4.3.0",
     "express": "^5.0.0",
@@ -71,7 +72,6 @@
     "three": "^0.182.0",
     "tsx": "^4.21.0",
     "ws": "^8.18.0",
-    "@xterm/xterm": "^5.5.0",
     "zod": "^4.3.6",
     "zustand": "^5.0.11"
   },
