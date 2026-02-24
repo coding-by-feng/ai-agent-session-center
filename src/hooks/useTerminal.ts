@@ -39,6 +39,7 @@ interface UseTerminalReturn {
   toggleFullscreen: () => void;
   isFullscreen: boolean;
   sendEscape: () => void;
+  pasteToTerminal: () => void;
   refitTerminal: () => void;
   setTheme: (themeName: string) => void;
   handleTerminalOutput: (terminalId: string, base64Data: string) => void;
@@ -384,6 +385,20 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
     activeRef.current.term.focus();
   }, []);
 
+  const pasteToTerminal = useCallback(async () => {
+    if (!activeRef.current || !wsRef.current || wsRef.current.readyState !== 1) return;
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) return;
+      wsRef.current.send(
+        JSON.stringify({ type: 'terminal_input', terminalId: activeRef.current.terminalId, data: text }),
+      );
+      activeRef.current.term.focus();
+    } catch {
+      // Clipboard access denied — ignore silently
+    }
+  }, []);
+
   const refitTerminal = useCallback(() => {
     if (!activeRef.current) return;
     const { terminalId, term, fitAddon } = activeRef.current;
@@ -490,6 +505,7 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
     toggleFullscreen: toggleFullscreenFn,
     isFullscreen,
     sendEscape: sendEscapeKey,
+    pasteToTerminal,
     refitTerminal,
     setTheme: setThemeFn,
     handleTerminalOutput,

@@ -160,7 +160,7 @@ export function checkAlarms(
   // ---- Approval alarm (repeating every 10s) ----
   if (session.status === 'approval' && !mutedSessions.has(sid)) {
     if (!approvalTimers.has(sid)) {
-      soundEngine.play('approvalNeeded');
+      playForCli(session, 'approvalNeeded');
       const intervalId = setInterval(() => {
         const current = getSessions().get(sid);
         if (!current || current.status !== 'approval' || mutedSessions.has(sid)) {
@@ -168,7 +168,7 @@ export function checkAlarms(
           approvalTimers.delete(sid);
           return;
         }
-        soundEngine.play('approvalNeeded');
+        playForCli(current, 'approvalNeeded');
       }, 10_000);
       approvalTimers.set(sid, intervalId);
     }
@@ -182,7 +182,7 @@ export function checkAlarms(
   const inputKey = `input-${sid}`;
   if (session.status === 'input' && !mutedSessions.has(sid)) {
     if (!inputFired.has(inputKey)) {
-      soundEngine.play('inputNeeded');
+      playForCli(session, 'inputNeeded');
       inputFired.set(inputKey, true);
     }
   } else if (session.status !== 'input') {

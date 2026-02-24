@@ -10,6 +10,7 @@ interface TerminalToolbarProps {
   onThemeChange: (theme: string) => void;
   onFullscreen: () => void;
   onSendEscape: () => void;
+  onPaste: () => void;
   onReconnect?: () => void;
   isFullscreen: boolean;
   showReconnect?: boolean;
@@ -20,6 +21,7 @@ export default function TerminalToolbar({
   onThemeChange,
   onFullscreen,
   onSendEscape,
+  onPaste,
   onReconnect,
   isFullscreen,
   showReconnect = false,
@@ -55,6 +57,14 @@ export default function TerminalToolbar({
         title="Send Escape key to terminal"
       >
         ESC
+      </button>
+
+      <button
+        className={styles.toolbarBtn}
+        onClick={onPaste}
+        title="Paste clipboard to terminal"
+      >
+        PASTE
       </button>
 
       <button

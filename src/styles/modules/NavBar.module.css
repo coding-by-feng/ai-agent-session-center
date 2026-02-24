@@ -31,7 +31,7 @@
 
 /* ---- Nav Actions ---- */
 
-.actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.actions { display: flex; align-items: center; gap: 8px; }
 .actionsItems { display: flex; align-items: center; gap: 8px; transition: opacity 0.2s, max-width 0.3s; overflow: visible; max-width: 600px; }
 .actions.collapsed .actionsItems { max-width: 0; opacity: 0; padding: 0; gap: 0; }
 

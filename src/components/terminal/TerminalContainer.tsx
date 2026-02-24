@@ -40,6 +40,7 @@ export default function TerminalContainer({
     isFullscreen,
     toggleFullscreen,
     sendEscape,
+    pasteToTerminal,
     refitTerminal,
     setTheme,
     handleTerminalOutput,
@@ -127,6 +128,7 @@ export default function TerminalContainer({
         onThemeChange={handleThemeChange}
         onFullscreen={toggleFullscreen}
         onSendEscape={sendEscape}
+        onPaste={pasteToTerminal}
         onReconnect={onReconnect}
         isFullscreen={isFullscreen}
         showReconnect={showReconnect}
