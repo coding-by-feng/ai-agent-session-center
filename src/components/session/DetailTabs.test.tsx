@@ -7,6 +7,7 @@ describe('DetailTabs', () => {
   const defaultProps = {
     terminalContent: <div>Terminal Content</div>,
     promptsContent: <div>Prompts Content</div>,
+    projectContent: <div>Project Content</div>,
     notesContent: <div>Notes Content</div>,
     activityContent: <div>Activity Content</div>,
     summaryContent: <div>Summary Content</div>,
@@ -18,10 +19,11 @@ describe('DetailTabs', () => {
     try { localStorage.removeItem('active-tab'); } catch { /* ignore */ }
   });
 
-  it('renders all 6 tab buttons', () => {
+  it('renders all 7 tab buttons', () => {
     render(<DetailTabs {...defaultProps} />);
     expect(screen.getByText('TERMINAL')).toBeInTheDocument();
     expect(screen.getByText('PROMPTS')).toBeInTheDocument();
+    expect(screen.getByText('PROJECT')).toBeInTheDocument();
     expect(screen.getByText('QUEUE')).toBeInTheDocument();
     expect(screen.getByText('NOTES')).toBeInTheDocument();
     expect(screen.getByText('ACTIVITY')).toBeInTheDocument();
