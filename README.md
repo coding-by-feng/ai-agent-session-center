@@ -5,10 +5,28 @@ Real-time 3D dashboard for monitoring Claude Code, Gemini CLI, and Codex session
 Every session spawns an animated robot in an interactive cyberdrome that visually reflects what the agent is doing — running when executing tools, waving when prompting, waiting when it needs your approval.
 
 [![npm version](https://img.shields.io/npm/v/ai-agent-session-center.svg)](https://www.npmjs.com/package/ai-agent-session-center)
+[![npm downloads](https://img.shields.io/npm/dm/ai-agent-session-center.svg)](https://www.npmjs.com/package/ai-agent-session-center)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
+<p align="center">
+  <img src="docs/screenshot-dashboard.png" alt="AI Agent Session Center — 3D cyberdrome with 15 active agent sessions" width="800">
+</p>
+
+<details>
+<summary>Detail panel view</summary>
+
+<p align="center">
+  <img src="docs/screenshot-detail.png" alt="Session detail panel with terminal, prompts, queue, and activity tabs" width="800">
+</p>
+
+</details>
+
 https://github.com/user-attachments/assets/004ee6f9-942c-44c2-a4c5-d971fa0e824b
+
+## Why?
+
+When you're running multiple AI coding agents across different terminals — Claude Code in one, Gemini in another, Codex in a third — it's impossible to keep track of what each one is doing. Which agent is stuck waiting for approval? Which one finished and needs your next prompt? Which one is burning tokens on a runaway loop? Agent Session Center gives you a single view across all your AI coding sessions so you can stay in control without constantly switching terminals.
 
 ## Features
 
@@ -136,7 +154,7 @@ When a hook event arrives, a 5-priority fallback system links it to the correct 
 - **Terminal**: xterm.js, node-pty
 - **Database**: SQLite (server, WAL mode) + IndexedDB via Dexie (browser)
 - **Hooks**: Bash scripts (file-based MQ primary, HTTP fallback)
-- **Testing**: Vitest (407+ tests) + Playwright (E2E)
+- **Testing**: Vitest (400+ tests) + Playwright (E2E)
 - **Charts**: Recharts
 - **Drag & Drop**: @dnd-kit
 
@@ -196,7 +214,7 @@ npm run setup            # Interactive setup wizard
 npm run install-hooks    # Install hooks into CLI configs
 npm run uninstall-hooks  # Remove all dashboard hooks
 npm run reset            # Reset everything (hooks, config, backup)
-npm test                 # Run tests (407+ Vitest tests)
+npm test                 # Run tests (400+ Vitest tests)
 npm run test:watch       # Watch mode
 npm run test:e2e         # E2E tests (Playwright)
 npm run debug            # Start with verbose logging
@@ -235,6 +253,14 @@ brew install jq
 # Ubuntu/Debian
 sudo apt-get install jq
 ```
+
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to get started.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes in each release.
 
 ## License
 

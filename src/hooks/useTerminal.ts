@@ -56,6 +56,12 @@ interface UseTerminalReturn {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Returns true if the terminal viewport is scrolled to the bottom (or within 1 row). */
+function isAtBottom(term: Terminal): boolean {
+  const buf = term.buffer.active;
+  return buf.viewportY >= buf.baseY;
+}
+
 function getResponsiveFontSize(): number {
   const width = window.innerWidth;
   if (width <= 480) return 11;
@@ -328,12 +334,16 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
           pendingOutputRef.current.delete(`__active__${tid}`);
 
           const { term } = activeRef.current;
+          // #88: Only auto-scroll if user hasn't scrolled up to review history
+          const wasAtBottom = isAtBottom(term);
           for (const chunk of pending) {
             const bytes = Uint8Array.from(atob(chunk), (c) => c.charCodeAt(0));
             term.write(bytes);
           }
           // Scroll once after all chunks written (#76: not per-write)
-          term.scrollToBottom();
+          if (wasAtBottom) {
+            term.scrollToBottom();
+          }
         });
       }
     } else {

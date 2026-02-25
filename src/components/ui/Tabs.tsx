@@ -10,6 +10,8 @@ interface TabsProps {
   tabs: Tab[];
   activeTab: string;
   onTabChange: (tabId: string) => void;
+  containerClassName?: string;
+  panelClassName?: string;
   tabListClassName?: string;
   tabClassName?: string;
   activeTabClassName?: string;
@@ -19,12 +21,14 @@ export default function Tabs({
   tabs,
   activeTab,
   onTabChange,
+  containerClassName,
+  panelClassName,
   tabListClassName,
   tabClassName,
   activeTabClassName,
 }: TabsProps) {
   return (
-    <div>
+    <div className={containerClassName}>
       <div
         role="tablist"
         className={tabListClassName}
@@ -70,7 +74,7 @@ export default function Tabs({
           );
         })}
       </div>
-      <div role="tabpanel">
+      <div role="tabpanel" className={panelClassName}>
         {tabs.find((t) => t.id === activeTab)?.content}
       </div>
     </div>
