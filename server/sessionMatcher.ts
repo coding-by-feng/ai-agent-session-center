@@ -386,8 +386,10 @@ export function matchSession(
         // No SSH terminal match — create a display-only card with detected source
         const detectedSource = detectHookSource(hookData);
         log.info('session', `Creating display-only session ${session_id?.slice(0, 8)} source=${detectedSource} cwd=${cwd}`);
+        // Inherit SSH config for capability (e.g. terminal relay) but keep the actual detected source.
+        // Only sessions created via the dashboard (createTerminalSession) should have source='ssh'.
         const inheritedConfig = findSshConfig(sessions, hookData.agent_terminal_id, cwd);
-        session = createDefaultSession(session_id, cwd, hookData, inheritedConfig ? 'ssh' : detectedSource, hookData.agent_terminal_id || null, inheritedConfig);
+        session = createDefaultSession(session_id, cwd, hookData, detectedSource, hookData.agent_terminal_id || null, inheritedConfig);
         sessions.set(session_id, session);
       }
     }
