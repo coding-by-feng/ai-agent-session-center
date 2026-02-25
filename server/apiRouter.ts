@@ -644,7 +644,7 @@ router.post('/terminals/:id/write', (req: Request, res: Response) => {
     return;
   }
   const terminals = getTerminals();
-  const exists = terminals.some((t: { id: string }) => t.id === terminalId);
+  const exists = terminals.some((t) => t.terminalId === terminalId);
   if (!exists) {
     res.status(404).json({ error: 'Terminal not found' });
     return;
