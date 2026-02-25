@@ -11,4 +11,6 @@ test-results/
 test-screenshots/
 *.mov
 *.png
+!static/screenshot-dashboard.png
+!static/screenshot-detail.png
 docs/
