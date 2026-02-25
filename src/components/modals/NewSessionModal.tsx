@@ -116,7 +116,7 @@ function saveCommand(cmd: string): void {
 export default function NewSessionModal() {
   const closeModal = useUiStore((s) => s.closeModal);
   const [saved] = useState(() => loadLastSession());
-  const [host, setHost] = useState(saved.host || '');
+  const [host, setHost] = useState(saved.host || window.location.hostname || '');
   const [port, setPort] = useState(String(saved.port || 22));
   const [username, setUsername] = useState(saved.username || '');
   const [authMethod, setAuthMethod] = useState<'key' | 'password'>(saved.authMethod || 'key');

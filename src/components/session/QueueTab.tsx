@@ -7,7 +7,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQueueStore, type QueueItem } from '@/stores/queueStore';
 import { useSessionStore } from '@/stores/sessionStore';
-import { db } from '@/lib/db';
 import { showToast } from '@/components/ui/ToastContainer';
 import styles from '@/styles/modules/Terminal.module.css';
 
@@ -64,61 +63,10 @@ export default function QueueTab({
     setMovingItemId(null);
   }, [sessionId]);
 
-  // ---- Load queue from IndexedDB on mount ----
+  // Notify parent of queue count changes
   useEffect(() => {
-    (async () => {
-      try {
-        const dbItems = await db.promptQueue
-          .where('sessionId')
-          .equals(sessionId)
-          .sortBy('position');
-        if (dbItems.length > 0) {
-          const mapped: QueueItem[] = dbItems.map((d) => ({
-            id: d.id!,
-            sessionId: d.sessionId,
-            text: d.text,
-            position: d.position,
-            createdAt: d.createdAt,
-          }));
-          useQueueStore.getState().setQueue(sessionId, mapped);
-        }
-      } catch {
-        // silent
-      }
-    })();
-  }, [sessionId]);
-
-  // ---- Persist queue changes to IndexedDB ----
-  useEffect(() => {
-    (async () => {
-      try {
-        // Clear existing and re-write
-        const existing = await db.promptQueue
-          .where('sessionId')
-          .equals(sessionId)
-          .toArray();
-        const existingIds = existing
-          .map((e) => e.id)
-          .filter((id): id is number => id != null);
-        if (existingIds.length > 0) {
-          await db.promptQueue.bulkDelete(existingIds);
-        }
-        if (items.length > 0) {
-          await db.promptQueue.bulkAdd(
-            items.map((item, idx) => ({
-              sessionId,
-              text: item.text,
-              position: idx,
-              createdAt: item.createdAt,
-            })),
-          );
-        }
-      } catch {
-        // silent
-      }
-    })();
     onQueueCountChange?.(sessionId, items.length);
-  }, [items, sessionId, onQueueCountChange]);
+  }, [items.length, sessionId, onQueueCountChange]);
 
   // ---- Send prompt text to terminal via API — returns true on success ----
   const sendPromptToTerminal = useCallback(

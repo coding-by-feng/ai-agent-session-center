@@ -17,6 +17,29 @@
   text-align: center; padding: 20px;
 }
 
+.reconnectPlaceholderBtn {
+  display: block;
+  margin: 14px auto 0;
+  padding: 8px 20px;
+  background: rgba(80, 250, 123, 0.08);
+  border: 1px solid rgba(80, 250, 123, 0.35);
+  border-radius: 4px;
+  color: var(--accent-green, #50fa7b);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.reconnectPlaceholderBtn:hover {
+  background: rgba(80, 250, 123, 0.18);
+  border-color: rgba(80, 250, 123, 0.6);
+  box-shadow: 0 0 8px rgba(80, 250, 123, 0.2);
+}
+
 /* ---- Terminal Tab ---- */
 
 .toolbar {

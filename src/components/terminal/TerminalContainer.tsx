@@ -17,7 +17,6 @@ interface TerminalContainerProps {
   onReconnect?: () => void;
 }
 
-const EXPANDED_HEIGHT = '70vh';
 const DEFAULT_MIN_HEIGHT = '200px';
 
 export default function TerminalContainer({
@@ -34,8 +33,6 @@ export default function TerminalContainer({
     }
   });
 
-  const [isExpanded, setIsExpanded] = useState(false);
-
   const fsContainerRef = useRef<HTMLDivElement | null>(null);
 
   const {
@@ -45,6 +42,8 @@ export default function TerminalContainer({
     isFullscreen,
     toggleFullscreen,
     sendEscape,
+    sendArrowUp,
+    sendArrowDown,
     pasteToTerminal,
     refitTerminal,
     setTheme,
@@ -118,21 +117,17 @@ export default function TerminalContainer({
     [setTheme],
   );
 
-  const handleExpand = useCallback(() => {
-    setIsExpanded(true);
-    // Refit after the container resizes
-    requestAnimationFrame(() => refitTerminal());
-  }, [refitTerminal]);
-
-  const handleCollapse = useCallback(() => {
-    setIsExpanded(false);
-    requestAnimationFrame(() => refitTerminal());
-  }, [refitTerminal]);
-
   if (!terminalId) {
     return (
       <div className={styles.placeholder}>
-        No terminal attached. Create an SSH session or select a session with a terminal.
+        <div>
+          No terminal attached. Create an SSH session or select a session with a terminal.
+          {onReconnect && (
+            <button className={styles.reconnectPlaceholderBtn} onClick={onReconnect}>
+              Reconnect Terminal
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -144,21 +139,17 @@ export default function TerminalContainer({
         onThemeChange={handleThemeChange}
         onFullscreen={toggleFullscreen}
         onSendEscape={sendEscape}
+        onSendArrowUp={sendArrowUp}
+        onSendArrowDown={sendArrowDown}
         onPaste={pasteToTerminal}
         onReconnect={onReconnect}
-        onExpand={handleExpand}
-        onCollapse={handleCollapse}
         isFullscreen={isFullscreen}
-        isExpanded={isExpanded}
         showReconnect={showReconnect}
       />
       <div
         ref={containerRef}
         className={styles.container}
-        style={{
-          minHeight: isExpanded ? EXPANDED_HEIGHT : DEFAULT_MIN_HEIGHT,
-          transition: 'min-height 0.25s ease',
-        }}
+        style={{ minHeight: DEFAULT_MIN_HEIGHT }}
       />
       {/* Fullscreen overlay — always mounted, toggled via display.
           This avoids unmounting the portal while the xterm element is still inside it. */}
@@ -174,6 +165,8 @@ export default function TerminalContainer({
               onThemeChange={handleThemeChange}
               onFullscreen={toggleFullscreen}
               onSendEscape={sendEscape}
+              onSendArrowUp={sendArrowUp}
+              onSendArrowDown={sendArrowDown}
               onPaste={pasteToTerminal}
               onReconnect={onReconnect}
               isFullscreen={isFullscreen}

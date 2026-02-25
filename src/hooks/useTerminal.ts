@@ -39,6 +39,8 @@ interface UseTerminalReturn {
   toggleFullscreen: () => void;
   isFullscreen: boolean;
   sendEscape: () => void;
+  sendArrowUp: () => void;
+  sendArrowDown: () => void;
   pasteToTerminal: () => void;
   refitTerminal: () => void;
   setTheme: (themeName: string) => void;
@@ -385,6 +387,22 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
     activeRef.current.term.focus();
   }, []);
 
+  const sendArrowUp = useCallback(() => {
+    if (!activeRef.current || !wsRef.current || wsRef.current.readyState !== 1) return;
+    wsRef.current.send(
+      JSON.stringify({ type: 'terminal_input', terminalId: activeRef.current.terminalId, data: '\x1b[A' }),
+    );
+    activeRef.current.term.focus();
+  }, []);
+
+  const sendArrowDown = useCallback(() => {
+    if (!activeRef.current || !wsRef.current || wsRef.current.readyState !== 1) return;
+    wsRef.current.send(
+      JSON.stringify({ type: 'terminal_input', terminalId: activeRef.current.terminalId, data: '\x1b[B' }),
+    );
+    activeRef.current.term.focus();
+  }, []);
+
   const pasteToTerminal = useCallback(async () => {
     if (!activeRef.current || !wsRef.current || wsRef.current.readyState !== 1) return;
     const { terminalId } = activeRef.current;
@@ -537,6 +555,8 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
     toggleFullscreen: toggleFullscreenFn,
     isFullscreen,
     sendEscape: sendEscapeKey,
+    sendArrowUp,
+    sendArrowDown,
     pasteToTerminal,
     refitTerminal,
     setTheme: setThemeFn,

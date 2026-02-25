@@ -635,6 +635,24 @@ router.delete('/terminals/:id', (req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
+// Write data to a terminal's PTY (used by queue prompt send)
+router.post('/terminals/:id/write', (req: Request, res: Response) => {
+  const terminalId = str(req.params.id);
+  const { data } = req.body || {};
+  if (!data || typeof data !== 'string') {
+    res.status(400).json({ error: 'Missing or invalid "data" field' });
+    return;
+  }
+  const terminals = getTerminals();
+  const exists = terminals.some((t: { id: string }) => t.id === terminalId);
+  if (!exists) {
+    res.status(404).json({ error: 'Terminal not found' });
+    return;
+  }
+  writeToTerminal(terminalId, data);
+  res.json({ ok: true });
+});
+
 // ── Team Endpoints ──
 
 // Get team config from ~/.claude/teams/{teamName}/config.json
