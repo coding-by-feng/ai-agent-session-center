@@ -251,7 +251,7 @@ server.on('error', (err: NodeJS.ErrnoException) => {
 
 server.listen(PORT, onReady);
 
-// Graceful shutdown
+// Graceful shutdown — save state and exit immediately
 function gracefulShutdown(signal: string): void {
   log.info('server', `Received ${signal}, shutting down...`);
   stopPeriodicSave();
@@ -259,18 +259,12 @@ function gracefulShutdown(signal: string): void {
   stopMqReader();
   stopTokenCleanup();
   // Save final snapshot before exiting
-  saveSnapshot(getMqOffset());
-  closeDb();
-  server.close(() => {
-    log.info('server', 'Server closed');
-    process.exit(0);
-  });
-  setTimeout(() => process.exit(1), 5000);
+  try { saveSnapshot(getMqOffset()); } catch { /* best effort */ }
+  try { closeDb(); } catch { /* best effort */ }
+  process.exit(0);
 }
 
-process.on('SIGTERM', () => {
-  log.info('server', 'Received SIGTERM — ignoring (use Ctrl+C to stop)');
-});
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Global error handlers -- log and continue (don't crash on transient errors)

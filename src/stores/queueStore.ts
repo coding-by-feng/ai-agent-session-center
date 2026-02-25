@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { db } from '@/lib/db';
 
 export interface QueueItem {
   id: number;
@@ -16,7 +17,18 @@ interface QueueState {
   reorder: (sessionId: string, orderedIds: number[]) => void;
   moveToSession: (itemIds: number[], fromSessionId: string, toSessionId: string) => void;
   setQueue: (sessionId: string, items: QueueItem[]) => void;
+
+  /** Load all queues from IndexedDB. Call once on app mount. */
+  loadFromDb: () => Promise<void>;
 }
+
+/**
+ * Session IDs currently being loaded from IndexedDB.
+ * When setQueue is called during a load, we skip the persist
+ * subscription to avoid a delete+re-insert cycle that generates
+ * new auto-increment IDs and causes duplicates on reload.
+ */
+const _skipPersist = new Set<string>();
 
 export const useQueueStore = create<QueueState>((set) => ({
   queues: new Map(),
@@ -86,4 +98,101 @@ export const useQueueStore = create<QueueState>((set) => ({
       next.set(sessionId, items);
       return { queues: next };
     }),
+
+  loadFromDb: async () => {
+    try {
+      const allItems = await db.promptQueue.toArray();
+      if (allItems.length === 0) return;
+
+      const bySession = new Map<string, QueueItem[]>();
+      for (const d of allItems) {
+        const items = bySession.get(d.sessionId) ?? [];
+        items.push({
+          id: d.id!,
+          sessionId: d.sessionId,
+          text: d.text,
+          position: d.position,
+          createdAt: d.createdAt,
+        });
+        bySession.set(d.sessionId, items);
+      }
+
+      // Mark all loaded sessions to skip persist
+      for (const sid of bySession.keys()) {
+        _skipPersist.add(sid);
+      }
+
+      for (const [sid, items] of bySession) {
+        items.sort((a, b) => a.position - b.position);
+        useQueueStore.getState().setQueue(sid, items);
+      }
+
+      // Clear skip flags after a tick (persist subscription runs synchronously)
+      setTimeout(() => _skipPersist.clear(), 0);
+    } catch {
+      // silent
+    }
+  },
 }));
+
+// ---------------------------------------------------------------------------
+// Persist subscription: write queue changes to IndexedDB
+// ---------------------------------------------------------------------------
+
+/** Track the previous queues map to detect which sessions changed. */
+let _prevQueues: Map<string, QueueItem[]> = new Map();
+
+useQueueStore.subscribe((state) => {
+  const nextQueues = state.queues;
+
+  // Find which session IDs changed
+  const changedSessionIds: string[] = [];
+  for (const [sid, items] of nextQueues) {
+    if (_prevQueues.get(sid) !== items) {
+      changedSessionIds.push(sid);
+    }
+  }
+  // Also check for removed sessions
+  for (const sid of _prevQueues.keys()) {
+    if (!nextQueues.has(sid)) {
+      changedSessionIds.push(sid);
+    }
+  }
+
+  _prevQueues = nextQueues;
+
+  // Persist only changed sessions, skipping those just loaded from DB
+  for (const sid of changedSessionIds) {
+    if (_skipPersist.has(sid)) continue;
+
+    const items = nextQueues.get(sid) ?? [];
+    persistSessionQueue(sid, items);
+  }
+});
+
+async function persistSessionQueue(sessionId: string, items: QueueItem[]): Promise<void> {
+  try {
+    const existing = await db.promptQueue
+      .where('sessionId')
+      .equals(sessionId)
+      .toArray();
+    const existingIds = existing
+      .map((e) => e.id)
+      .filter((id): id is number => id != null);
+    if (existingIds.length > 0) {
+      await db.promptQueue.bulkDelete(existingIds);
+    }
+    if (items.length > 0) {
+      await db.promptQueue.bulkAdd(
+        items.map((item, idx) => ({
+          sessionId,
+          text: item.text,
+          position: idx,
+          createdAt: item.createdAt,
+        })),
+      );
+    }
+  } catch {
+    // silent
+  }
+}

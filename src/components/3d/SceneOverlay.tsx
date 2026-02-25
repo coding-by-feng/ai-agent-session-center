@@ -305,6 +305,8 @@ function RoomPanel() {
 export default function SceneOverlay({ sessionCount }: SceneOverlayProps) {
   const soundEnabled = useSettingsStore((s) => s.soundSettings.enabled);
   const updateSoundSettings = useSettingsStore((s) => s.updateSoundSettings);
+  const scene3dEnabled = useSettingsStore((s) => s.scene3dEnabled);
+  const setScene3dEnabled = useSettingsStore((s) => s.setScene3dEnabled);
 
   const toggleMute = () => {
     const newEnabled = !soundEnabled;
@@ -381,6 +383,32 @@ export default function SceneOverlay({ sessionCount }: SceneOverlayProps) {
           }}
         >
           {soundEnabled ? 'Sound On' : 'Muted'}
+        </button>
+
+        {/* 3D Scene Toggle */}
+        <button
+          onClick={() => setScene3dEnabled(!scene3dEnabled)}
+          title={scene3dEnabled ? 'Disable 3D scene to save CPU/GPU' : 'Enable 3D scene'}
+          style={{
+            ...BTN_FONT,
+            width: '100%',
+            marginTop: 6,
+            border: `1px solid ${scene3dEnabled ? 'rgba(0,240,255,0.28)' : 'rgba(255,145,0,0.4)'}`,
+            background: scene3dEnabled ? 'rgba(0,240,255,0.08)' : 'rgba(255,145,0,0.12)',
+            color: scene3dEnabled ? '#00f0ff' : '#ff9100',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = scene3dEnabled
+              ? 'rgba(0,240,255,0.16)'
+              : 'rgba(255,145,0,0.2)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = scene3dEnabled
+              ? 'rgba(0,240,255,0.08)'
+              : 'rgba(255,145,0,0.12)';
+          }}
+        >
+          {scene3dEnabled ? '3D On' : '3D Off'}
         </button>
 
         {/* Room management panel */}

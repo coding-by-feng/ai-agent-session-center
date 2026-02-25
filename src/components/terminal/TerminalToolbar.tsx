@@ -17,22 +17,24 @@ function PasteIcon() {
   );
 }
 
-/** Chevron-up SVG icon (collapse). */
-function ChevronUpIcon() {
+/** Arrow-up SVG icon (send Up key). */
+function ArrowUpIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="18 15 12 9 6 15" />
+      <line x1="12" y1="19" x2="12" y2="5" />
+      <polyline points="5 12 12 5 19 12" />
     </svg>
   );
 }
 
-/** Chevron-down SVG icon (expand). */
-function ChevronDownIcon() {
+/** Arrow-down SVG icon (send Down key). */
+function ArrowDownIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="6 9 12 15 18 9" />
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <polyline points="19 12 12 19 5 12" />
     </svg>
   );
 }
@@ -80,12 +82,11 @@ interface TerminalToolbarProps {
   onThemeChange: (theme: string) => void;
   onFullscreen: () => void;
   onSendEscape: () => void;
+  onSendArrowUp: () => void;
+  onSendArrowDown: () => void;
   onPaste: () => void;
   onReconnect?: () => void;
-  onExpand?: () => void;
-  onCollapse?: () => void;
   isFullscreen: boolean;
-  isExpanded?: boolean;
   showReconnect?: boolean;
 }
 
@@ -94,12 +95,11 @@ export default function TerminalToolbar({
   onThemeChange,
   onFullscreen,
   onSendEscape,
+  onSendArrowUp,
+  onSendArrowDown,
   onPaste,
   onReconnect,
-  onExpand,
-  onCollapse,
   isFullscreen,
-  isExpanded = false,
   showReconnect = false,
 }: TerminalToolbarProps) {
   const themeNames = getThemeNames();
@@ -143,15 +143,21 @@ export default function TerminalToolbar({
         <PasteIcon />
       </button>
 
-      {onExpand && onCollapse && (
-        <button
-          className={styles.toolbarBtn}
-          onClick={isExpanded ? onCollapse : onExpand}
-          title={isExpanded ? 'Collapse terminal' : 'Expand terminal'}
-        >
-          {isExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
-        </button>
-      )}
+      <button
+        className={styles.toolbarBtn}
+        onClick={onSendArrowUp}
+        title="Send Up arrow key to terminal"
+      >
+        <ArrowUpIcon />
+      </button>
+
+      <button
+        className={styles.toolbarBtn}
+        onClick={onSendArrowDown}
+        title="Send Down arrow key to terminal"
+      >
+        <ArrowDownIcon />
+      </button>
 
       <button
         className={styles.toolbarBtn}

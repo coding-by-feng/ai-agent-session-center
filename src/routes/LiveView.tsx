@@ -1,8 +1,13 @@
 /**
  * LiveView — Main dashboard view showing active sessions in 3D Cyberdrome.
+ * When 3D is disabled, shows a flat list view with sidebar to save CPU/GPU.
  */
 import { lazy, Suspense, Component } from 'react';
 import type { ReactNode, ErrorInfo } from 'react';
+import { useSettingsStore } from '@/stores/settingsStore';
+import RobotListSidebar from '@/components/3d/RobotListSidebar';
+import SceneOverlay from '@/components/3d/SceneOverlay';
+import { useSessionStore } from '@/stores/sessionStore';
 
 const CyberdromeScene = lazy(() => import('@/components/3d/CyberdromeScene'));
 
@@ -62,7 +67,47 @@ class SceneErrorBoundary extends Component<
   }
 }
 
+/** Flat view shown when 3D is disabled — just sidebar + overlay, no WebGL. */
+function FlatView() {
+  const sessions = useSessionStore((s) => s.sessions);
+  const activeCount = Array.from(sessions.values()).filter(
+    (s) => s.status !== 'ended',
+  ).length;
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, background: 'var(--bg-primary, #0a0a1a)' }}>
+      <div style={{
+        position: 'absolute',
+        inset: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: 'rgba(255,255,255,0.06)',
+        fontFamily: "'Share Tech Mono', 'JetBrains Mono', monospace",
+        fontSize: 14,
+        letterSpacing: 4,
+        textTransform: 'uppercase',
+        userSelect: 'none',
+      }}>
+        3D Scene Paused
+      </div>
+      <SceneOverlay sessionCount={activeCount} />
+      <RobotListSidebar />
+    </div>
+  );
+}
+
 export default function LiveView() {
+  const scene3dEnabled = useSettingsStore((s) => s.scene3dEnabled);
+
+  if (!scene3dEnabled) {
+    return (
+      <div style={{ position: 'absolute', inset: 0 }}>
+        <FlatView />
+      </div>
+    );
+  }
+
   return (
     <div style={{ position: 'absolute', inset: 0 }}>
       <SceneErrorBoundary>

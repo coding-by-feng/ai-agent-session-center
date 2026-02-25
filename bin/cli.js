@@ -19,9 +19,13 @@ const isFirstRun = !existsSync(configPath);
 
 const installHooksPath = join(projectRoot, 'hooks', 'install-hooks.js');
 
+// Resolve tsx binary: prefer local node_modules/.bin (works for global installs)
+const localTsx = join(projectRoot, 'node_modules', '.bin', 'tsx');
+const tsxBin = existsSync(localTsx) ? localTsx : 'tsx';
+
 function startServer() {
   const serverArgs = args.filter(a => a !== '--setup');
-  const child = spawn('tsx', [serverPath, ...serverArgs], {
+  const child = spawn(tsxBin, [serverPath, ...serverArgs], {
     stdio: 'inherit',
     cwd: projectRoot,
   });

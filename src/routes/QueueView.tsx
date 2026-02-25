@@ -3,10 +3,9 @@
  * Shows each session's queued prompts in a table-based layout.
  * Supports add, remove, move-between-sessions.
  */
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useQueueStore, type QueueItem } from '@/stores/queueStore';
 import { useSessionStore } from '@/stores/sessionStore';
-import { db } from '@/lib/db';
 import { showToast } from '@/components/ui/ToastContainer';
 import styles from '@/styles/modules/Queue.module.css';
 import termStyles from '@/styles/modules/Terminal.module.css';
@@ -41,33 +40,6 @@ export default function QueueView() {
     itemId: number;
     fromSessionId: string;
   } | null>(null);
-
-  // Load queues from IndexedDB on mount
-  useEffect(() => {
-    (async () => {
-      try {
-        const allItems = await db.promptQueue.toArray();
-        const bySession = new Map<string, QueueItem[]>();
-        for (const d of allItems) {
-          const items = bySession.get(d.sessionId) ?? [];
-          items.push({
-            id: d.id!,
-            sessionId: d.sessionId,
-            text: d.text,
-            position: d.position,
-            createdAt: d.createdAt,
-          });
-          bySession.set(d.sessionId, items);
-        }
-        for (const [sid, items] of bySession) {
-          items.sort((a, b) => a.position - b.position);
-          useQueueStore.getState().setQueue(sid, items);
-        }
-      } catch {
-        // silent
-      }
-    })();
-  }, []);
 
   // Build a list of sessions that have queue items
   const sessionIds = Array.from(

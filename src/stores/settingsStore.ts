@@ -191,6 +191,7 @@ interface SettingsState extends BrowserSettings {
   hookDensity: 'high' | 'medium' | 'low' | 'off';
 
   // UI
+  scene3dEnabled: boolean;
   activityFeedVisible: boolean;
   toastEnabled: boolean;
   autoSendQueue: boolean;
@@ -224,6 +225,7 @@ interface SettingsState extends BrowserSettings {
   setShowArchived: (show: boolean) => void;
   setGroupBy: (groupBy: BrowserSettings['groupBy']) => void;
   setSortBy: (sortBy: BrowserSettings['sortBy']) => void;
+  setScene3dEnabled: (enabled: boolean) => void;
   setActivityFeedVisible: (visible: boolean) => void;
   setToastEnabled: (enabled: boolean) => void;
   setAutoSendQueue: (enabled: boolean) => void;
@@ -275,6 +277,7 @@ const defaultSettings: SettingsData = {
   soundActions: {},
   movementActions: {},
   hookDensity: 'medium',
+  scene3dEnabled: true,
   activityFeedVisible: true,
   toastEnabled: true,
   autoSendQueue: false,
@@ -442,6 +445,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setShowArchived: (showArchived) => set({ showArchived }),
   setGroupBy: (groupBy) => set({ groupBy }),
   setSortBy: (sortBy) => set({ sortBy }),
+
+  setScene3dEnabled: (scene3dEnabled) => {
+    set({ scene3dEnabled });
+    get().persistSetting('scene3dEnabled', scene3dEnabled);
+  },
 
   setActivityFeedVisible: (activityFeedVisible) => {
     set({ activityFeedVisible });

@@ -476,11 +476,16 @@ export default function RobotListSidebar() {
     [groups],
   );
 
+  const selectSession = useSessionStore((s) => s.selectSession);
+
   const handleSelect = useCallback((sessionId: string) => {
+    // Always select in the store so the detail panel opens
+    selectSession(sessionId);
+    // Also dispatch event for 3D camera fly (no-op when scene is unmounted)
     window.dispatchEvent(
       new CustomEvent('robot-select', { detail: { sessionId } }),
     );
-  }, []);
+  }, [selectSession]);
 
   const handleClose = useCallback((sessionId: string) => {
     removeSession(sessionId);

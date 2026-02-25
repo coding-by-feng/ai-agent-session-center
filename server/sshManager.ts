@@ -278,8 +278,10 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
       let shell: string;
       let args: string[];
       let cwd: string;
-      // Build environment — API keys go here instead of shell command strings
-      const env: Record<string, string> = { ...process.env as Record<string, string>, AGENT_MANAGER_TERMINAL_ID: terminalId };
+      // Build environment — API keys go here instead of shell command strings.
+      // Remove CLAUDECODE so spawned Claude Code sessions don't think they're nested.
+      const { CLAUDECODE: _drop, ...parentEnv } = process.env as Record<string, string>;
+      const env: Record<string, string> = { ...parentEnv, AGENT_MANAGER_TERMINAL_ID: terminalId };
 
       if (config.apiKey) {
         const envVar = command.startsWith('codex') ? 'OPENAI_API_KEY'
@@ -459,7 +461,8 @@ export function attachToTmuxPane(tmuxPaneId: string, wsClient: WebSocket | null)
       // First, resolve which tmux session this pane belongs to
       // Then attach to that session targeting the specific pane
       const shell = getDefaultShell();
-      const env: Record<string, string> = { ...process.env as Record<string, string>, AGENT_MANAGER_TERMINAL_ID: terminalId };
+      const { CLAUDECODE: _dropTmux, ...tmuxParentEnv } = process.env as Record<string, string>;
+      const env: Record<string, string> = { ...tmuxParentEnv, AGENT_MANAGER_TERMINAL_ID: terminalId };
 
       const ptyProcess: IPty = pty.spawn(shell, [], {
         name: 'xterm-256color',

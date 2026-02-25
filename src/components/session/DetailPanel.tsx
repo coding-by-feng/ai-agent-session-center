@@ -46,7 +46,8 @@ function LazyModal({ modalId, children }: { modalId: string; children: ReactNode
 function TerminalContent({ session }: { session: Session }) {
   const client = useWsStore((s) => s.client);
   const ws = useMemo(() => client?.getRawSocket() ?? null, [client]);
-  const showReconnect = session.source === 'ssh' && session.status === 'ended';
+  const isSSH = session.source === 'ssh';
+  const showReconnect = isSSH && session.status === 'ended';
 
   const handleReconnect = useCallback(() => {
     fetch(`/api/sessions/${session.sessionId}/reconnect-terminal`, { method: 'POST' })
@@ -60,7 +61,7 @@ function TerminalContent({ session }: { session: Session }) {
           terminalId={session.terminalId}
           ws={ws}
           showReconnect={showReconnect}
-          onReconnect={handleReconnect}
+          onReconnect={isSSH ? handleReconnect : undefined}
         />
       </div>
       <QueueTab
