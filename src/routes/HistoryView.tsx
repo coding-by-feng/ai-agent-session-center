@@ -374,6 +374,27 @@ function Pagination({
   );
 }
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <button
+      className={styles.copyBtn}
+      onClick={handleCopy}
+      aria-label="Copy to clipboard"
+      title="Copy to clipboard"
+    >
+      {copied ? '\u2713' : '\u2398'}
+    </button>
+  );
+}
+
 function SessionDetail({
   detail,
   onClose,
@@ -433,7 +454,10 @@ function SessionDetail({
                 entry.type === 'prompt' ? styles.convoPrompt : styles.convoResponse
               }`}
             >
-              <div className={styles.convoTime}>{formatTime(entry.timestamp)}</div>
+              <div className={styles.convoEntryHeader}>
+                <div className={styles.convoTime}>{formatTime(entry.timestamp)}</div>
+                <CopyButton text={entry.text} />
+              </div>
               <div className={styles.convoText}>{entry.text}</div>
             </div>
           ))}
@@ -487,7 +511,13 @@ function SessionDetail({
             x
           </button>
         </div>
-        <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
+        <Tabs
+          tabs={tabs}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          containerClassName={styles.detailTabs}
+          panelClassName={styles.detailTabPanel}
+        />
       </div>
     </div>
   );
