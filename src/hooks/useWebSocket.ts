@@ -51,9 +51,12 @@ export function useWebSocket(token: string | null): WsClient | null {
         case 'session_update': {
           const { session } = msg;
 
-          // Fix 6: handle replacesId migration
+          // Fix 6: handle replacesId migration in IndexedDB
+          // Note: do NOT call removeSession() here — updateSession() handles
+          // the re-key atomically (deletes old key + adds new key + follows
+          // selectedSessionId). Calling removeSession() first would clear
+          // selectedSessionId before updateSession can follow it.
           if (session.replacesId) {
-            removeSession(session.replacesId);
             migrateSessionId(session.replacesId, session.sessionId)
               .then(() => db.sessions.delete(session.replacesId!))
               .catch(() => {});
