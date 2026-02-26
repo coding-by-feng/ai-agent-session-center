@@ -1,6 +1,6 @@
 # AI Agent Session Center
 
-Real-time 3D dashboard for monitoring Claude Code, Gemini CLI, and Codex sessions — live terminals, prompt history, tool logs, and queuing. Runs on any device.
+Real-time 3D dashboard for monitoring and controlling Claude Code, Gemini CLI, and Codex sessions — live SSH terminals, prompt history, tool logs, and queuing. Runs on any device.
 
 Every session spawns an animated robot in an interactive cyberdrome that visually reflects what the agent is doing — running when executing tools, waving when prompting, waiting when it needs your approval.
 
@@ -11,6 +11,10 @@ Every session spawns an animated robot in an interactive cyberdrome that visuall
 
 <p align="center">
   <img src="static/screenshot-dashboard.png" alt="AI Agent Session Center — 3D cyberdrome with 15 active agent sessions" width="800">
+</p>
+
+<p align="center">
+  <img src="static/screenshot-terminal.png" alt="SSH terminal session — control agents directly from the dashboard" width="800">
 </p>
 
 <details>
