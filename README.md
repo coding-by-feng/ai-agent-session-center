@@ -10,7 +10,7 @@ Every session spawns an animated robot in an interactive cyberdrome that visuall
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
 <p align="center">
-  <img src="static/screenshot-dashboard.png" alt="AI Agent Session Center — 3D cyberdrome with 15 active agent sessions" width="800">
+  <img src="static/screenshot-dashboard.png" alt="AI Agent Session Center — 3D cyberdrome with 10 active agent sessions across project rooms" width="800">
 </p>
 
 <p align="center">
