@@ -52,6 +52,8 @@ export default function TerminalContainer({
     handleTerminalClosed,
     reparent,
     scrollToBottom,
+    scrollPageUp,
+    scrollPageDown,
   } = useTerminal({ ws, themeName });
 
   // Attach/detach when terminalId changes
@@ -146,11 +148,37 @@ export default function TerminalContainer({
         isFullscreen={isFullscreen}
         showReconnect={showReconnect}
       />
-      <div
-        ref={containerRef}
-        className={styles.container}
-        style={{ minHeight: DEFAULT_MIN_HEIGHT }}
-      />
+      <div className={styles.terminalArea}>
+        <div
+          ref={containerRef}
+          className={styles.container}
+          style={{ minHeight: DEFAULT_MIN_HEIGHT }}
+        />
+        <div className={styles.mobileScrollOverlay}>
+          <button
+            className={styles.mobileScrollBtn}
+            onClick={scrollPageUp}
+            title="Scroll terminal up"
+            aria-label="Scroll terminal up"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="18 15 12 9 6 15" />
+            </svg>
+          </button>
+          <button
+            className={styles.mobileScrollBtn}
+            onClick={scrollPageDown}
+            title="Scroll terminal down"
+            aria-label="Scroll terminal down"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+        </div>
+      </div>
       {/* Fullscreen overlay — always mounted, toggled via display.
           This avoids unmounting the portal while the xterm element is still inside it. */}
       {createPortal(
@@ -173,7 +201,33 @@ export default function TerminalContainer({
               showReconnect={showReconnect}
             />
           </div>
-          <div ref={fsContainerRef} className={styles.fullscreenContainer} />
+          <div className={styles.fullscreenArea}>
+            <div ref={fsContainerRef} className={styles.fullscreenContainer} />
+            <div className={styles.mobileScrollOverlay}>
+              <button
+                className={styles.mobileScrollBtn}
+                onClick={scrollPageUp}
+                title="Scroll terminal up"
+                aria-label="Scroll terminal up"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="18 15 12 9 6 15" />
+                </svg>
+              </button>
+              <button
+                className={styles.mobileScrollBtn}
+                onClick={scrollPageDown}
+                title="Scroll terminal down"
+                aria-label="Scroll terminal down"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </button>
+            </div>
+          </div>
         </div>,
         document.body,
       )}

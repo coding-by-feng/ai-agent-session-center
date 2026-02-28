@@ -1,6 +1,7 @@
 /* ============================================================
    ProjectTab CSS Module
    Touch-friendly file browser with tree + file viewer
+   Icon toolbar, file tabs, search overlay, new file editor
    ============================================================ */
 
 .projectTab {
@@ -10,13 +11,120 @@
   min-height: 0;
 }
 
+/* ---- Icon Toolbar ---- */
+
+.iconBar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-faint);
+  flex-shrink: 0;
+}
+
+.iconBtn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.iconBtn:hover:not(:disabled) {
+  color: var(--accent-cyan);
+  border-color: var(--border-subtle);
+  background: var(--bg-subtle);
+}
+.iconBtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* ---- File Tabs Bar ---- */
+
+.tabBar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0;
+  border-bottom: 1px solid var(--border-faint);
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.tabBar::-webkit-scrollbar { display: none; }
+
+.fileTab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  border-right: 1px solid var(--border-faint);
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+  max-width: 160px;
+}
+.fileTab:hover {
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+}
+.fileTabActive {
+  color: var(--accent-cyan);
+  border-bottom-color: var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.05);
+}
+.fileTabIcon {
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.fileTabName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.fileTabClose {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  opacity: 0.5;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+.fileTab:hover .fileTabClose { opacity: 1; }
+.fileTabClose:hover {
+  opacity: 1;
+  background: rgba(255, 68, 68, 0.2);
+  color: var(--accent-red, #ff4444);
+}
+
 /* ---- Toolbar (breadcrumb + back button) ---- */
 
 .toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 0;
+  padding: 6px 0;
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
 }
@@ -26,8 +134,8 @@
   border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
   font-size: 16px;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: 4px;
   cursor: pointer;
   display: flex;
@@ -83,6 +191,28 @@
   font-weight: 600;
 }
 
+/* ---- Inline Input (new file/folder) ---- */
+
+.inlineInput {
+  padding: 4px 0;
+  flex-shrink: 0;
+}
+.inlineInputField {
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--accent-cyan);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  outline: none;
+  box-shadow: 0 0 6px rgba(0, 229, 255, 0.2);
+}
+.inlineInputField::placeholder {
+  color: var(--text-dim);
+}
+
 /* ---- Content area ---- */
 
 .content {
@@ -126,7 +256,6 @@
   text-align: left;
   transition: background 0.15s;
   width: 100%;
-  /* Touch-friendly: minimum 44px height */
   min-height: 44px;
 }
 .fileEntry:hover {
@@ -169,6 +298,179 @@
 
 .fileViewer {
   padding: 4px 0;
+}
+
+/* ---- New File Editor ---- */
+
+.newFileEditor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.newFileHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.newFileName {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent-cyan);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.newFileActions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.newFileSave, .newFileCancel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  border: 1px solid;
+  transition: background 0.15s, color 0.15s;
+}
+.newFileSave {
+  background: rgba(0, 255, 136, 0.15);
+  border-color: var(--accent-green, #00ff88);
+  color: var(--accent-green, #00ff88);
+}
+.newFileSave:hover {
+  background: rgba(0, 255, 136, 0.25);
+}
+.newFileCancel {
+  background: rgba(255, 68, 68, 0.1);
+  border-color: var(--accent-red, #ff4444);
+  color: var(--accent-red, #ff4444);
+}
+.newFileCancel:hover {
+  background: rgba(255, 68, 68, 0.2);
+}
+
+.newFileTextarea {
+  flex: 1;
+  min-height: 200px;
+  background: var(--bg-card);
+  border: none;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 12px;
+  resize: none;
+  outline: none;
+  tab-size: 2;
+  -webkit-overflow-scrolling: touch;
+}
+.newFileTextarea::placeholder {
+  color: var(--text-dim);
+}
+
+/* ---- Search Overlay ---- */
+
+.searchOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 200;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 15vh;
+}
+
+.searchModal {
+  width: 90%;
+  max-width: 500px;
+  background: var(--bg-panel, #0d1117);
+  border: 1px solid var(--border-accent);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.searchInput {
+  width: 100%;
+  background: var(--bg-card);
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  padding: 14px 16px;
+  outline: none;
+}
+.searchInput::placeholder {
+  color: var(--text-dim);
+}
+
+.searchResults {
+  max-height: 320px;
+  overflow-y: auto;
+}
+.searchResults::-webkit-scrollbar { width: 4px; }
+.searchResults::-webkit-scrollbar-thumb { background: var(--bg-accent); border-radius: 2px; }
+
+.searchHint {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
+
+.searchItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 16px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+.searchItem:hover,
+.searchItemActive {
+  background: rgba(0, 229, 255, 0.08);
+}
+
+.searchName {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.searchPath {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-size: 10px;
+  text-align: right;
 }
 
 /* ---- Markdown rendering ---- */
@@ -424,9 +726,14 @@
 /* ---- Touch device optimizations ---- */
 
 @media (pointer: coarse) {
+  .iconBtn {
+    width: 36px;
+    height: 36px;
+  }
+
   .backBtn {
-    width: 44px;
-    height: 44px;
+    width: 40px;
+    height: 40px;
     font-size: 20px;
   }
 
@@ -478,4 +785,155 @@
   .fileEntry {
     padding: 10px 8px;
   }
+}
+
+/* ---- Sub-Tab Container (multiple project tabs within PROJECT) ---- */
+
+.subTabContainer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.subTabBar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border-bottom: 1px solid var(--border-faint);
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  background: var(--bg-card, #0d1117);
+}
+.subTabBar::-webkit-scrollbar { display: none; }
+
+.subTab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  border-right: 1px solid var(--border-faint);
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+  max-width: 160px;
+}
+.subTab:hover {
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+}
+.subTabActive {
+  color: var(--accent-cyan);
+  border-bottom-color: var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.05);
+}
+
+.subTabLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  text-transform: uppercase;
+}
+
+.subTabClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 4px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 0 2px;
+  transition: color 0.15s, background 0.15s;
+}
+.subTabClose:hover {
+  color: #ff4444;
+  background: rgba(255, 68, 68, 0.15);
+}
+
+.subTabContent {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.subTabPanel {
+  height: 100%;
+  flex-direction: column;
+}
+
+/* ---- Standalone Project Browser View ---- */
+
+.standalone {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg-base, #0a0a1a);
+  color: var(--text-primary, #e0e0e0);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+}
+
+.standaloneHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border-subtle, #1a1a2e);
+  flex-shrink: 0;
+  background: var(--bg-card, #0d1117);
+}
+
+.standaloneTitle {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent-cyan, #00e5ff);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.standalonePath {
+  font-size: 11px;
+  color: var(--text-dim, #555);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.standaloneContent {
+  flex: 1;
+  min-height: 0;
+  padding: 0 20px;
+  overflow: hidden;
+}
+
+.standaloneEmpty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-dim, #555);
+  font-size: 13px;
+  letter-spacing: 0.5px;
+}
+.standaloneEmpty code {
+  background: var(--bg-accent, #1a1a2e);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--accent-orange, #ff9100);
+  margin: 0 4px;
 }
