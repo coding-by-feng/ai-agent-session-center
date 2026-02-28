@@ -12,6 +12,7 @@ interface SubTab {
   id: string;
   label: string;
   projectPath: string;
+  initialPath?: string;
 }
 
 interface ProjectTabContainerProps {
@@ -26,10 +27,19 @@ export default function ProjectTabContainer({ projectPath }: ProjectTabContainer
   ]);
   const [activeSubTab, setActiveSubTab] = useState('default');
 
-  const handleOpenBrowserTab = useCallback((projPath: string) => {
-    const name = projPath.split('/').filter(Boolean).pop() || projPath;
+  const handleOpenBrowserTab = useCallback((projPath: string, currentDir: string) => {
+    // Use the deepest folder name from the current browsing path as the tab label
+    const dirSegments = currentDir.split('/').filter(Boolean);
+    const label = dirSegments.length > 0
+      ? dirSegments[dirSegments.length - 1]
+      : projPath.split('/').filter(Boolean).pop() || 'project';
     const tabId = `sub-${Date.now()}`;
-    setSubTabs((prev) => [...prev, { id: tabId, label: name, projectPath: projPath }]);
+    setSubTabs((prev) => [...prev, {
+      id: tabId,
+      label,
+      projectPath: projPath,
+      initialPath: currentDir,
+    }]);
     setActiveSubTab(tabId);
   }, []);
 
@@ -44,6 +54,15 @@ export default function ProjectTabContainer({ projectPath }: ProjectTabContainer
       return next;
     });
   }, [activeSubTab]);
+
+  const handlePathChange = useCallback((tabId: string, currentPath: string, isFile: boolean) => {
+    // Derive label from the deepest segment; for files use the file name, for dirs the folder name
+    const segments = currentPath.split('/').filter(Boolean);
+    const label = segments.length > 0
+      ? segments[segments.length - 1]
+      : projectPath.split('/').filter(Boolean).pop() || 'project';
+    setSubTabs((prev) => prev.map((t) => t.id === tabId ? { ...t, label } : t));
+  }, [projectPath]);
 
   // Only show the sub-tab bar when there are multiple tabs
   const showSubTabs = subTabs.length > 1;
@@ -81,7 +100,9 @@ export default function ProjectTabContainer({ projectPath }: ProjectTabContainer
           >
             <ProjectTab
               projectPath={tab.projectPath}
+              initialPath={tab.initialPath}
               onOpenBrowserTab={handleOpenBrowserTab}
+              onPathChange={(path, isFile) => handlePathChange(tab.id, path, isFile)}
             />
           </div>
         ))}
