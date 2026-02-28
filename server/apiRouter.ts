@@ -10,14 +10,15 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSessionAccentColor, setSummary, getSession, detectSessionSource, createTerminalSession, deleteSessionFromMemory, resumeSession, reconnectSessionTerminal } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSessionAccentColor, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, deleteSessionFromMemory, resumeSession, reconnectSessionTerminal } from './sessionStore.js';
+import { config as serverConfig } from './serverConfig.js';
 import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, attachToTmuxPane, consumePendingLink } from './sshManager.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
 import * as db from './db.js';
 import { getMqStats } from './mqReader.js';
 import { execFile } from 'child_process';
-import { readFileSync, readdirSync, existsSync, statSync } from 'fs';
+import { readFileSync, writeFileSync, readdirSync, existsSync, statSync, mkdirSync } from 'fs';
 import { join, dirname, extname, basename } from 'path';
 import { homedir, userInfo } from 'os';
 import { fileURLToPath } from 'url';
@@ -1011,6 +1012,121 @@ router.get('/files/read', (req: Request, res: Response) => {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });
   }
+});
+
+/** POST /api/files/write — create or overwrite a file */
+const fileWriteSchema = z.object({
+  root: z.string().min(1),
+  path: z.string().min(1).max(1024),
+  content: z.string().max(2 * 1024 * 1024), // 2 MB limit
+});
+
+router.post('/files/write', (req: Request, res: Response) => {
+  const parsed = fileWriteSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Invalid request body' }); return; }
+
+  const { root, path: relPath, content } = parsed.data;
+  const fullPath = resolveProjectPath(root, relPath);
+  if (!fullPath) { res.status(400).json({ error: 'Path outside project root' }); return; }
+
+  try {
+    // Ensure parent directory exists
+    const parentDir = dirname(fullPath);
+    if (!existsSync(parentDir)) {
+      mkdirSync(parentDir, { recursive: true });
+    }
+    writeFileSync(fullPath, content, 'utf8');
+    const stat = statSync(fullPath);
+    res.json({ ok: true, path: relPath, size: stat.size });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
+/** POST /api/files/mkdir — create a directory */
+const mkdirSchema = z.object({
+  root: z.string().min(1),
+  path: z.string().min(1).max(1024),
+});
+
+router.post('/files/mkdir', (req: Request, res: Response) => {
+  const parsed = mkdirSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Invalid request body' }); return; }
+
+  const { root, path: relPath } = parsed.data;
+  const fullPath = resolveProjectPath(root, relPath);
+  if (!fullPath) { res.status(400).json({ error: 'Path outside project root' }); return; }
+
+  try {
+    if (existsSync(fullPath)) { res.status(409).json({ error: 'Path already exists' }); return; }
+    mkdirSync(fullPath, { recursive: true });
+    res.json({ ok: true, path: relPath });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
+/** GET /api/files/search?root=<projectPath>&q=<query> — fuzzy search file names */
+router.get('/files/search', (req: Request, res: Response) => {
+  const root = str(req.query.root);
+  const query = str(req.query.q).toLowerCase();
+  if (!root) { res.status(400).json({ error: 'root query param required' }); return; }
+  if (!query) { res.json({ results: [] }); return; }
+
+  const results: Array<{ path: string; name: string; type: 'dir' | 'file' }> = [];
+  const MAX_RESULTS = 50;
+  const MAX_DEPTH = 8;
+
+  function walk(dir: string, relPrefix: string, depth: number) {
+    if (depth > MAX_DEPTH || results.length >= MAX_RESULTS) return;
+    try {
+      const entries = readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (results.length >= MAX_RESULTS) break;
+        if (entry.isDirectory() && (HIDDEN_DIRS.has(entry.name) || entry.name.startsWith('.'))) continue;
+        const relPath = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
+        const nameLower = entry.name.toLowerCase();
+
+        // Fuzzy match: all query chars appear in order in the filename
+        let qi = 0;
+        for (let i = 0; i < nameLower.length && qi < query.length; i++) {
+          if (nameLower[i] === query[qi]) qi++;
+        }
+        if (qi === query.length) {
+          results.push({ path: '/' + relPath, name: entry.name, type: entry.isDirectory() ? 'dir' : 'file' });
+        }
+        if (entry.isDirectory()) {
+          walk(join(dir, entry.name), relPath, depth + 1);
+        }
+      }
+    } catch { /* permission errors, etc. */ }
+  }
+
+  walk(root, '', 0);
+  res.json({ results });
+});
+
+// ---- Health & Config ----
+
+router.get('/health-check', (_req: Request, res: Response) => {
+  res.json({ status: 'ok', uptime: process.uptime() });
+});
+
+router.get('/config', (_req: Request, res: Response) => {
+  res.json({
+    port: serverConfig.port,
+    hookDensity: serverConfig.hookDensity,
+    debug: serverConfig.debug,
+    enabledClis: serverConfig.enabledClis,
+  });
+});
+
+// ---- Sessions list ----
+
+router.get('/sessions', (_req: Request, res: Response) => {
+  res.json(getAllSessions());
 });
 
 export default router;

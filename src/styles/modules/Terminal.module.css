@@ -175,6 +175,68 @@
 
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
+/* ---- Terminal Area (relative wrapper for scroll overlay) ---- */
+
+.terminalArea {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.terminalArea .container {
+  flex: 1 1 auto;
+}
+
+.fullscreenArea {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ---- Mobile Scroll Overlay ---- */
+
+.mobileScrollOverlay {
+  display: none; /* hidden on desktop */
+}
+
+@media (pointer: coarse) {
+  .mobileScrollOverlay {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 10;
+  }
+
+  .mobileScrollBtn {
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    color: rgba(255, 255, 255, 0.7);
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    touch-action: manipulation;
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .mobileScrollBtn:active {
+    background: rgba(0, 229, 255, 0.2);
+    border-color: rgba(0, 229, 255, 0.5);
+    color: #fff;
+  }
+}
+
 /* ---- Responsive ---- */
 
 @media (max-width: 480px) {

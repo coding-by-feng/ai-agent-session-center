@@ -3,7 +3,7 @@
  * Uses ResizablePanel for width adjustment.
  * Ported from public/js/detailPanel.js.
  */
-import { useCallback, useEffect, useMemo, type ReactNode } from 'react';
+import { useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import type { Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
@@ -15,7 +15,7 @@ import ActivityLog from './ActivityLog';
 import NotesTab from './NotesTab';
 import SummaryTab from './SummaryTab';
 import QueueTab from './QueueTab';
-import ProjectTab from './ProjectTab';
+import ProjectTabContainer from './ProjectTabContainer';
 import SessionControlBar from './SessionControlBar';
 import KillConfirmModal, { KILL_MODAL_ID } from './KillConfirmModal';
 import AlertModal, { ALERT_MODAL_ID } from './AlertModal';
@@ -41,6 +41,9 @@ function LazyModal({ modalId, children }: { modalId: string; children: ReactNode
 
 // ---------------------------------------------------------------------------
 // Terminal content wrapper (accesses WsClient from store)
+// IMPORTANT: Defined outside DetailPanel to avoid React treating it as a new
+// component type on every render (which would unmount/remount the terminal
+// and queue subtree, tearing down xterm and losing local component state).
 // ---------------------------------------------------------------------------
 
 function TerminalContent({ session }: { session: Session }) {
@@ -122,6 +125,8 @@ export default function DetailPanel() {
     [deselectSession],
   );
 
+  const [headerCollapsed, setHeaderCollapsed] = useState(false);
+
   if (!session) return null;
 
   const durText = formatDuration(Date.now() - session.startedAt);
@@ -153,74 +158,100 @@ export default function DetailPanel() {
           &times;
         </button>
 
-        {/* Header */}
-        <div className={styles.header}>
-          {/* #55: 2D robot badge preview (avoids WebGL context exhaustion from per-panel Canvas) */}
-          <div className={styles.charPreview} style={{
-            width: 64,
-            height: 80,
-            borderRadius: 6,
-            border: `1px solid ${statusColor[session.status] ?? '#666'}40`,
-            background: `${statusColor[session.status] ?? '#666'}10`,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 4,
-          }}>
-            <div style={{
-              width: 28,
-              height: 28,
-              borderRadius: '50%',
-              background: `${neonColor}30`,
-              border: `2px solid ${neonColor}`,
-              boxShadow: `0 0 8px ${neonColor}40`,
-            }} />
-            <span style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 8,
-              fontWeight: 700,
-              letterSpacing: 0.5,
-              color: neonColor,
-              textTransform: 'uppercase',
-              opacity: 0.8,
-            }}>
-              {modelLabel}
-            </span>
-          </div>
+        {/* Collapse toggle */}
+        <button
+          className={styles.collapseBtn}
+          onClick={() => setHeaderCollapsed(prev => !prev)}
+          title={headerCollapsed ? 'Expand header' : 'Collapse header'}
+        >
+          {headerCollapsed ? '\u25BC' : '\u25B2'}
+        </button>
 
-          <div className={styles.headerText}>
-            <div className={styles.headerTop}>
-              <div className={styles.headerTitles}>
-                <h3>{session.projectName}</h3>
-                {session.title && (
-                  <div className={styles.titleRow}>
-                    <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontStyle: 'italic' }}>
-                      {session.title}
-                    </span>
+        {/* Collapsible header + controls */}
+        {!headerCollapsed ? (
+          <>
+            {/* Header */}
+            <div className={styles.header}>
+              <div className={styles.charPreview} style={{
+                width: 64,
+                height: 80,
+                borderRadius: 6,
+                border: `1px solid ${statusColor[session.status] ?? '#666'}40`,
+                background: `${statusColor[session.status] ?? '#666'}10`,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4,
+              }}>
+                <div style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: '50%',
+                  background: `${neonColor}30`,
+                  border: `2px solid ${neonColor}`,
+                  boxShadow: `0 0 8px ${neonColor}40`,
+                }} />
+                <span style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 8,
+                  fontWeight: 700,
+                  letterSpacing: 0.5,
+                  color: neonColor,
+                  textTransform: 'uppercase',
+                  opacity: 0.8,
+                }}>
+                  {modelLabel}
+                </span>
+              </div>
+
+              <div className={styles.headerText}>
+                <div className={styles.headerTop}>
+                  <div className={styles.headerTitles}>
+                    <h3>{session.projectName}</h3>
+                    {session.title && (
+                      <div className={styles.titleRow}>
+                        <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontStyle: 'italic' }}>
+                          {session.title}
+                        </span>
+                      </div>
+                    )}
                   </div>
-                )}
+                </div>
+
+                <div className={styles.meta}>
+                  <span
+                    className={`${styles.detailStatusBadge} ${isDisconnected ? 'disconnected' : session.status}`}
+                  >
+                    {statusLabel}
+                  </span>
+                  {session.model && (
+                    <span className={styles.detailModel}>{session.model}</span>
+                  )}
+                  {durText && (
+                    <span className={styles.detailDuration}>{durText}</span>
+                  )}
+                </div>
               </div>
             </div>
 
-            <div className={styles.meta}>
-              <span
-                className={`${styles.detailStatusBadge} ${isDisconnected ? 'disconnected' : session.status}`}
-              >
-                {statusLabel}
-              </span>
-              {session.model && (
-                <span className={styles.detailModel}>{session.model}</span>
-              )}
-              {durText && (
-                <span className={styles.detailDuration}>{durText}</span>
-              )}
-            </div>
+            {/* Session controls */}
+            <SessionControlBar session={session} />
+          </>
+        ) : (
+          /* Compact header when collapsed */
+          <div className={styles.headerCompact}>
+            <span className={styles.headerCompactName}>{session.projectName}</span>
+            <span
+              className={`${styles.detailStatusBadge} ${isDisconnected ? 'disconnected' : session.status}`}
+            >
+              {statusLabel}
+            </span>
+            {durText && (
+              <span className={styles.detailDuration}>{durText}</span>
+            )}
           </div>
-        </div>
-
-        {/* Session controls */}
-        <SessionControlBar session={session} />
+        )}
 
         {/* Tabs and content */}
         <DetailTabs
@@ -251,7 +282,7 @@ export default function DetailPanel() {
           }
           projectContent={
             session.projectPath
-              ? <ProjectTab projectPath={session.projectPath} />
+              ? <ProjectTabContainer projectPath={session.projectPath} />
               : <div className={styles.tabEmpty}>No project path detected for this session</div>
           }
         />

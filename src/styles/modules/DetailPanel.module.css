@@ -51,6 +51,38 @@
 }
 .closeBtn:hover { color: var(--text-primary); background: var(--bg-subtle); }
 
+/* Collapse / expand header toggle */
+.collapseBtn {
+  position: absolute; top: 12px; right: 52px;
+  background: none; border: 1px solid var(--border-subtle);
+  color: var(--text-dim); font-size: 10px; cursor: pointer;
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 4px; transition: color 0.2s, background 0.2s, border-color 0.2s; z-index: 1;
+}
+.collapseBtn:hover { color: var(--accent-cyan); border-color: var(--accent-cyan); background: var(--bg-subtle); }
+
+/* Compact header (collapsed state) */
+.headerCompact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 80px 8px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+.headerCompactName {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
 /* ---- Header ---- */
 
 .header {
@@ -126,9 +158,16 @@
   flex-direction: column;
 }
 .splitDivider {
-  width: 1px;
+  width: 5px;
   background: var(--border-subtle);
   flex-shrink: 0;
+  cursor: col-resize;
+  position: relative;
+  transition: background 0.15s;
+}
+.splitDivider:hover {
+  background: var(--accent-cyan);
+  box-shadow: 0 0 6px rgba(0, 229, 255, 0.3);
 }
 .splitRight {
   flex: 1;

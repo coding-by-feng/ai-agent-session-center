@@ -22,6 +22,7 @@ const HistoryView = lazy(() => import('@/routes/HistoryView'));
 const TimelineView = lazy(() => import('@/routes/TimelineView'));
 const AnalyticsView = lazy(() => import('@/routes/AnalyticsView'));
 const QueueView = lazy(() => import('@/routes/QueueView'));
+const ProjectBrowserView = lazy(() => import('@/routes/ProjectBrowserView'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -62,6 +63,12 @@ function Dashboard({ token }: { token: string | null }) {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Standalone route — no AppLayout chrome */}
+        <Route path="/project-browser" element={
+          <Suspense fallback={<div style={{ padding: '2rem', color: '#8888aa', background: '#0a0a1a', height: '100vh' }}>Loading...</div>}>
+            <ProjectBrowserView />
+          </Suspense>
+        } />
         <Route element={<AppLayout />}>
           <Route path="/" element={<LiveView />} />
           <Route path="/history" element={<HistoryView />} />

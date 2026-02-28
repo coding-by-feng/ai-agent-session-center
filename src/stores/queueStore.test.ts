@@ -134,4 +134,43 @@ describe('queueStore', () => {
       expect(items[0].id).toBe(10);
     });
   });
+
+  describe('migrateSession', () => {
+    it('moves queue items from old sessionId to new sessionId', () => {
+      useQueueStore.getState().add('old-id', makeItem(1, 'old-id', 0));
+      useQueueStore.getState().add('old-id', makeItem(2, 'old-id', 1));
+
+      useQueueStore.getState().migrateSession('old-id', 'new-id');
+
+      expect(useQueueStore.getState().queues.has('old-id')).toBe(false);
+      const items = useQueueStore.getState().queues.get('new-id')!;
+      expect(items).toHaveLength(2);
+      expect(items[0].sessionId).toBe('new-id');
+      expect(items[1].sessionId).toBe('new-id');
+      expect(items[0].id).toBe(1);
+      expect(items[1].id).toBe(2);
+    });
+
+    it('is a no-op when old session has no queue', () => {
+      useQueueStore.getState().add('other', makeItem(1, 'other', 0));
+
+      const prevState = useQueueStore.getState();
+      useQueueStore.getState().migrateSession('nonexistent', 'new-id');
+
+      // State reference unchanged (returned `state` without modification)
+      expect(useQueueStore.getState().queues).toBe(prevState.queues);
+    });
+
+    it('preserves text and position of migrated items', () => {
+      const item = makeItem(5, 'old-id', 3);
+      item.text = 'Custom prompt text';
+      useQueueStore.getState().add('old-id', item);
+
+      useQueueStore.getState().migrateSession('old-id', 'new-id');
+
+      const items = useQueueStore.getState().queues.get('new-id')!;
+      expect(items[0].text).toBe('Custom prompt text');
+      expect(items[0].position).toBe(3);
+    });
+  });
 });

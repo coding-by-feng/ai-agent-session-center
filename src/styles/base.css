@@ -242,14 +242,14 @@ body.terminal-focused::after {
   }
 }
 
-/* ---- Mobile: enable page scroll, disable zoom ---- */
+/* ---- Mobile: enable page scroll + pinch zoom ---- */
 
 @media (max-width: 768px) {
   html {
     overflow: auto;
     overflow-x: hidden;
     overscroll-behavior-x: none;
-    touch-action: pan-x pan-y;
+    touch-action: pan-x pan-y pinch-zoom;
   }
 
   body {
@@ -259,7 +259,7 @@ body.terminal-focused::after {
     min-height: 100vh;
     min-height: 100dvh;
     overscroll-behavior: none;
-    touch-action: pan-x pan-y;
+    touch-action: pan-x pan-y pinch-zoom;
     /* #73 — Smooth iOS scroll */
     -webkit-overflow-scrolling: touch;
   }

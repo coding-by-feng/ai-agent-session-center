@@ -50,6 +50,8 @@ interface UseTerminalReturn {
   /** Move the xterm element to a different container (e.g. for fullscreen) */
   reparent: (container: HTMLElement) => void;
   scrollToBottom: () => void;
+  scrollPageUp: () => void;
+  scrollPageDown: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -516,6 +518,18 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
     }
   }, []);
 
+  const scrollPageUp = useCallback(() => {
+    if (activeRef.current) {
+      activeRef.current.term.scrollPages(-1);
+    }
+  }, []);
+
+  const scrollPageDown = useCallback(() => {
+    if (activeRef.current) {
+      activeRef.current.term.scrollPages(1);
+    }
+  }, []);
+
   const setThemeFn = useCallback((name: string) => {
     themeNameRef.current = name;
     try {
@@ -575,5 +589,7 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
     handleTerminalClosed,
     reparent,
     scrollToBottom,
+    scrollPageUp,
+    scrollPageDown,
   };
 }

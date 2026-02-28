@@ -18,6 +18,9 @@ interface QueueState {
   moveToSession: (itemIds: number[], fromSessionId: string, toSessionId: string) => void;
   setQueue: (sessionId: string, items: QueueItem[]) => void;
 
+  /** Re-key queue items when a session is replaced (e.g., claude --resume). */
+  migrateSession: (oldSessionId: string, newSessionId: string) => void;
+
   /** Load all queues from IndexedDB. Call once on app mount. */
   loadFromDb: () => Promise<void>;
 }
@@ -96,6 +99,20 @@ export const useQueueStore = create<QueueState>((set) => ({
     set((state) => {
       const next = new Map(state.queues);
       next.set(sessionId, items);
+      return { queues: next };
+    }),
+
+  migrateSession: (oldSessionId, newSessionId) =>
+    set((state) => {
+      const items = state.queues.get(oldSessionId);
+      if (!items || items.length === 0) return state;
+      const next = new Map(state.queues);
+      next.delete(oldSessionId);
+      // Re-key each item's sessionId to the new ID
+      next.set(
+        newSessionId,
+        items.map((i) => ({ ...i, sessionId: newSessionId })),
+      );
       return { queues: next };
     }),
 

@@ -1,17 +1,16 @@
 /**
  * DetailTabs manages the tab bar and content switching for the detail panel.
  * Tabs: Terminal | Prompts | Notes | Activity | Summary
- * Ported from the tab switching logic in public/js/detailPanel.js.
  *
  * Split-view: On wide screens the PROJECT tab has a merge icon that shows
- * Terminal (left) + Project (right) side-by-side. The same icon reverts to
- * separate tabs.
+ * Terminal (left) + Project (right) side-by-side with a draggable divider.
  */
-import { useState, useCallback, type ReactNode } from 'react';
+import { useState, useCallback, useRef, type ReactNode } from 'react';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 const STORAGE_KEY = 'active-tab';
 const SPLIT_KEY = 'split-terminal-project';
+const SPLIT_RATIO_KEY = 'split-ratio';
 
 /** Minimum panel width (px) at which the split icon is shown. */
 const SPLIT_MIN_WIDTH = 700;
@@ -60,6 +59,76 @@ function SplitIcon() {
     </svg>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Draggable split view
+// ---------------------------------------------------------------------------
+
+function DraggableSplitView({
+  left,
+  right,
+}: {
+  left: ReactNode;
+  right: ReactNode;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [ratio, setRatio] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem(SPLIT_RATIO_KEY);
+      return stored ? parseFloat(stored) : 0.5;
+    } catch {
+      return 0.5;
+    }
+  });
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const container = containerRef.current;
+    if (!container) return;
+    const startX = e.clientX;
+    const startRatio = ratio;
+    const containerWidth = container.offsetWidth;
+
+    const onMouseMove = (ev: MouseEvent) => {
+      const delta = ev.clientX - startX;
+      const newRatio = Math.max(0.15, Math.min(0.85, startRatio + delta / containerWidth));
+      setRatio(newRatio);
+    };
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      // Persist ratio
+      try {
+        localStorage.setItem(SPLIT_RATIO_KEY, String(ratio));
+      } catch { /* ignore */ }
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [ratio]);
+
+  return (
+    <div className={styles.splitView} ref={containerRef}>
+      <div className={styles.splitLeft} style={{ flex: `0 0 ${ratio * 100}%` }}>
+        {left}
+      </div>
+      <div
+        className={styles.splitDivider}
+        onMouseDown={handleMouseDown}
+      />
+      <div className={styles.splitRight} style={{ flex: 1 }}>
+        {right}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 
 export default function DetailTabs({
   terminalContent,
@@ -134,11 +203,10 @@ export default function DetailTabs({
     activity: activityContent,
     summary: summaryContent,
     split: (
-      <div className={styles.splitView}>
-        <div className={styles.splitLeft}>{terminalContent}</div>
-        <div className={styles.splitDivider} />
-        <div className={styles.splitRight}>{projectContent}</div>
-      </div>
+      <DraggableSplitView
+        left={terminalContent}
+        right={projectContent}
+      />
     ),
   };
 
