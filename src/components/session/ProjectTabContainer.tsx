@@ -47,13 +47,18 @@ export default function ProjectTabContainer({ projectPath }: ProjectTabContainer
     e.stopPropagation();
     setSubTabs((prev) => {
       const next = prev.filter((t) => t.id !== tabId);
-      // If closing the active tab, switch to the last remaining tab
-      if (activeSubTab === tabId && next.length > 0) {
+      if (next.length === 0) {
+        // Last tab closed — recreate a fresh default tab at project root
+        const fresh: SubTab = { id: `sub-${Date.now()}`, label: defaultLabel, projectPath };
+        setActiveSubTab(fresh.id);
+        return [fresh];
+      }
+      if (activeSubTab === tabId) {
         setActiveSubTab(next[next.length - 1].id);
       }
       return next;
     });
-  }, [activeSubTab]);
+  }, [activeSubTab, defaultLabel, projectPath]);
 
   const handlePathChange = useCallback((tabId: string, currentPath: string, isFile: boolean) => {
     // Derive label from the deepest segment; for files use the file name, for dirs the folder name
@@ -78,15 +83,13 @@ export default function ProjectTabContainer({ projectPath }: ProjectTabContainer
               onClick={() => setActiveSubTab(tab.id)}
             >
               <span className={styles.subTabLabel}>{tab.label}</span>
-              {tab.id !== 'default' && (
-                <span
-                  className={styles.subTabClose}
-                  onClick={(e) => handleCloseSubTab(tab.id, e)}
-                  title="Close tab"
-                >
-                  &times;
-                </span>
-              )}
+              <span
+                className={styles.subTabClose}
+                onClick={(e) => handleCloseSubTab(tab.id, e)}
+                title="Close tab"
+              >
+                &times;
+              </span>
             </button>
           ))}
         </div>
