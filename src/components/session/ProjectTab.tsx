@@ -11,7 +11,9 @@ import styles from '@/styles/modules/ProjectTab.module.css';
 
 interface ProjectTabProps {
   projectPath: string;
-  onOpenBrowserTab?: (projectPath: string) => void;
+  initialPath?: string;
+  onOpenBrowserTab?: (projectPath: string, currentDir: string) => void;
+  onPathChange?: (currentPath: string, isFile: boolean) => void;
 }
 
 interface DirEntry {
@@ -257,8 +259,8 @@ function InlineInput({
 
 // ---- Main Component ----
 
-export default function ProjectTab({ projectPath, onOpenBrowserTab }: ProjectTabProps) {
-  const [currentPath, setCurrentPath] = useState('/');
+export default function ProjectTab({ projectPath, initialPath, onOpenBrowserTab, onPathChange }: ProjectTabProps) {
+  const [currentPath, setCurrentPath] = useState(initialPath || '/');
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [file, setFile] = useState<FileContent | null>(null);
   const [loading, setLoading] = useState(false);
@@ -297,6 +299,7 @@ export default function ProjectTab({ projectPath, onOpenBrowserTab }: ProjectTab
       const data = await res.json();
       setEntries(data.items);
       setCurrentPath(relPath);
+      onPathChange?.(relPath, false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
@@ -304,7 +307,7 @@ export default function ProjectTab({ projectPath, onOpenBrowserTab }: ProjectTab
     } finally {
       setLoading(false);
     }
-  }, [projectPath]);
+  }, [projectPath, onPathChange]);
 
   const loadFile = useCallback(async (relPath: string) => {
     setLoading(true);
@@ -319,6 +322,7 @@ export default function ProjectTab({ projectPath, onOpenBrowserTab }: ProjectTab
       const data: FileContent = await res.json();
       setFile(data);
       setCurrentPath(relPath);
+      onPathChange?.(relPath, true);
 
       // Add to tabs if not already open
       const name = relPath.split('/').pop() || relPath;
@@ -333,12 +337,13 @@ export default function ProjectTab({ projectPath, onOpenBrowserTab }: ProjectTab
     } finally {
       setLoading(false);
     }
-  }, [projectPath]);
+  }, [projectPath, onPathChange]);
 
-  // Load root on mount
+  // Load initial directory on mount
   useEffect(() => {
-    if (projectPath) loadDir('/');
-  }, [projectPath, loadDir]);
+    if (projectPath) loadDir(initialPath || '/');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectPath]);
 
   const navigateUp = useCallback(() => {
     if (file || editingNewFile) {
@@ -469,12 +474,14 @@ export default function ProjectTab({ projectPath, onOpenBrowserTab }: ProjectTab
 
   // Open the project file browser in a standalone new tab
   const handleOpenProjectView = useCallback(() => {
+    // Pass the current browsing directory so the new tab label is meaningful
+    const browseDir = file ? currentPath.split('/').slice(0, -1).join('/') || '/' : currentPath;
     if (onOpenBrowserTab) {
-      onOpenBrowserTab(projectPath);
+      onOpenBrowserTab(projectPath, browseDir);
     } else {
       window.open(`/project-browser?path=${encodeURIComponent(projectPath)}`, '_blank');
     }
-  }, [projectPath, onOpenBrowserTab]);
+  }, [projectPath, currentPath, file, onOpenBrowserTab]);
 
   // Split drag handlers
   const handleSplitMouseDown = useCallback((e: React.MouseEvent) => {
