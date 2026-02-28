@@ -552,29 +552,6 @@ export default function ProjectTab({ projectPath, initialPath, onOpenBrowserTab,
         </button>
       </div>
 
-      {/* File tabs bar (only when tabs exist) */}
-      {tabs.length > 0 && (
-        <div className={styles.tabBar}>
-          {tabs.map(tab => (
-            <div
-              key={tab.path}
-              className={`${styles.fileTab} ${activeTabPath === tab.path ? styles.fileTabActive : ''}`}
-              onClick={() => handleTabClick(tab)}
-            >
-              <span className={styles.fileTabIcon}>{fileIcon(tab.name, 'file')}</span>
-              <span className={styles.fileTabName}>{tab.name}</span>
-              <button
-                className={styles.fileTabClose}
-                onClick={(e) => handleTabClose(tab.path, e)}
-                title="Close tab"
-              >
-                <IconClose />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
       {/* Path bar */}
       <div className={styles.toolbar}>
         <button
