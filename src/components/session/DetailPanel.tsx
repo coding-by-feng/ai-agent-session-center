@@ -67,6 +67,7 @@ function TerminalContent({ session }: { session: Session }) {
           showReconnect={showReconnect}
           onReconnect={isSSH ? handleReconnect : undefined}
           bookmarkPortalTarget={bookmarkTarget}
+          projectPath={session.projectPath}
         />
       </div>
       <div className={styles.bottomRow}>
@@ -134,6 +135,18 @@ export default function DetailPanel() {
   const [activeTab, setActiveTab] = useState<string>(() => {
     try { return localStorage.getItem('active-tab') || 'terminal'; } catch { return 'terminal'; }
   });
+
+  // Switch to project tab when a file link is clicked in the terminal
+  const pendingFileOpen = useUiStore((s) => s.pendingFileOpen);
+  const [externalTab, setExternalTab] = useState<string | null>(null);
+  useEffect(() => {
+    if (pendingFileOpen) {
+      setExternalTab('project');
+      // Clear after a tick so the tab switch takes effect
+      const id = setTimeout(() => setExternalTab(null), 50);
+      return () => clearTimeout(id);
+    }
+  }, [pendingFileOpen]);
 
   if (!session) return null;
 
@@ -296,6 +309,7 @@ export default function DetailPanel() {
           }
           onTabChange={setActiveTab}
           sessionId={session.sessionId}
+          externalActiveTab={externalTab}
         />
 
         {/* Modals — only mount when their modal is active to avoid unnecessary

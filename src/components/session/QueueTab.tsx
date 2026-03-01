@@ -50,7 +50,9 @@ export default function QueueTab({
   const [composeText, setComposeText] = useState('');
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem('queue-panel-collapsed') === '1'; } catch { return false; }
+  });
   const [movingItemId, setMovingItemId] = useState<number | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
 
@@ -224,7 +226,11 @@ export default function QueueTab({
       {/* Toggle header */}
       <button
         className={styles.queueToggle}
-        onClick={() => setCollapsed(!collapsed)}
+        onClick={() => {
+          const next = !collapsed;
+          setCollapsed(next);
+          try { localStorage.setItem('queue-panel-collapsed', next ? '1' : '0'); } catch { /* ignore */ }
+        }}
       >
         <span className={styles.queueToggleArrow}>&#x25B6;</span>
         QUEUE{' '}
