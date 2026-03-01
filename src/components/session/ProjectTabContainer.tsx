@@ -4,8 +4,9 @@
  * Clicking the "Open project in new tab" icon in any ProjectTab toolbar opens
  * a new sub-tab here rather than a new browser window.
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import ProjectTab from './ProjectTab';
+import { useUiStore } from '@/stores/uiStore';
 import styles from '@/styles/modules/ProjectTab.module.css';
 
 interface SubTab {
@@ -26,6 +27,21 @@ export default function ProjectTabContainer({ projectPath }: ProjectTabContainer
     { id: 'default', label: defaultLabel, projectPath },
   ]);
   const [activeSubTab, setActiveSubTab] = useState('default');
+
+  // File open requests from terminal (or elsewhere)
+  const pendingFileOpen = useUiStore((s) => s.pendingFileOpen);
+  const clearPendingFileOpen = useUiStore((s) => s.clearPendingFileOpen);
+  const [navigateToFile, setNavigateToFile] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (pendingFileOpen && pendingFileOpen.projectPath === projectPath) {
+      setNavigateToFile(pendingFileOpen.filePath);
+      clearPendingFileOpen();
+      // Clear after a tick so the prop change is picked up by ProjectTab
+      const id = setTimeout(() => setNavigateToFile(null), 100);
+      return () => clearTimeout(id);
+    }
+  }, [pendingFileOpen, projectPath, clearPendingFileOpen]);
 
   const handleOpenBrowserTab = useCallback((projPath: string, currentDir: string) => {
     // Use the deepest folder name from the current browsing path as the tab label
@@ -104,6 +120,7 @@ export default function ProjectTabContainer({ projectPath }: ProjectTabContainer
             <ProjectTab
               projectPath={tab.projectPath}
               initialPath={tab.initialPath}
+              navigateToFile={activeSubTab === tab.id ? navigateToFile : null}
               onOpenBrowserTab={handleOpenBrowserTab}
               onPathChange={(path, isFile) => handlePathChange(tab.id, path, isFile)}
             />

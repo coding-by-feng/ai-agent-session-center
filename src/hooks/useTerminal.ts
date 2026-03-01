@@ -9,6 +9,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { resolveTheme } from '@/components/terminal/themes';
+import { useUiStore } from '@/stores/uiStore';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -28,6 +29,8 @@ interface UseTerminalOptions {
   ws: WebSocket | null;
   /** Terminal theme name */
   themeName?: string;
+  /** Project root path — enables clickable file paths in terminal output */
+  projectPath?: string;
 }
 
 export interface TerminalBookmarkPosition {
@@ -112,13 +115,14 @@ function forceCanvasRepaint(
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): UseTerminalReturn {
+export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminalOptions): UseTerminalReturn {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeRef = useRef<ActiveTerminal | null>(null);
   const pendingOutputRef = useRef<Map<string, string[]>>(new Map());
   const pendingOutputTtlRef = useRef<Map<string, number>>(new Map());
   const themeNameRef = useRef(themeName);
   const wsRef = useRef(ws);
+  const projectPathRef = useRef(projectPath);
   /** Track which terminalId is currently subscribed on the server to avoid double-subscribe (#74) */
   const subscribedTerminalIdRef = useRef<string | null>(null);
   /** RAF handle for batched output writes (#76) */
@@ -132,6 +136,10 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
   useEffect(() => {
     themeNameRef.current = themeName;
   }, [themeName]);
+
+  useEffect(() => {
+    projectPathRef.current = projectPath;
+  }, [projectPath]);
 
   useEffect(() => {
     wsRef.current = ws;
@@ -255,14 +263,57 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
           // WebLinks addon not available
         }
 
+        // File path link provider — makes file paths clickable to open in PROJECT tab
+        // Matches: path/to/file.ext, ./path/to/file.ext, ../path/to/file.ext
+        const FILE_PATH_RE = /(?:\.{0,2}\/)?(?:[\w@.+-]+\/)+[\w@.+-]+\.[\w]+/g;
+        term.registerLinkProvider({
+          provideLinks(bufferLineNumber, callback) {
+            const line = term.buffer.active.getLine(bufferLineNumber - 1);
+            if (!line) { callback(undefined); return; }
+            const text = line.translateToString(true);
+            const links: Array<{ range: { start: { x: number; y: number }; end: { x: number; y: number } }; text: string; activate: () => void }> = [];
+            let match: RegExpExecArray | null;
+            FILE_PATH_RE.lastIndex = 0;
+            while ((match = FILE_PATH_RE.exec(text)) !== null) {
+              const filePath = match[0];
+              const startX = match.index + 1; // xterm columns are 1-indexed
+              const endX = startX + filePath.length - 1;
+              links.push({
+                range: {
+                  start: { x: startX, y: bufferLineNumber },
+                  end: { x: endX, y: bufferLineNumber },
+                },
+                text: filePath,
+                activate() {
+                  const pp = projectPathRef.current;
+                  if (pp) {
+                    // Strip leading ./ if present
+                    const clean = filePath.replace(/^\.\//, '');
+                    useUiStore.getState().openFileInProject(clean, pp);
+                  }
+                },
+              });
+            }
+            callback(links.length > 0 ? links : undefined);
+          },
+        });
+
         term.open(container);
 
-        // Escape key handler
+        // Custom key handler
         term.attachCustomKeyEventHandler((e) => {
           if (e.key === 'Escape') {
             e.preventDefault();
             if (e.type === 'keydown' && wsRef.current && wsRef.current.readyState === 1) {
               wsRef.current.send(JSON.stringify({ type: 'terminal_input', terminalId, data: '\x1b' }));
+            }
+            return false;
+          }
+          // Shift+Enter → same as Alt+Enter (sends ESC + newline)
+          if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.metaKey) {
+            e.preventDefault();
+            if (e.type === 'keydown' && wsRef.current && wsRef.current.readyState === 1) {
+              wsRef.current.send(JSON.stringify({ type: 'terminal_input', terminalId, data: '\x1b\n' }));
             }
             return false;
           }

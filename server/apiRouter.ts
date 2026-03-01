@@ -18,7 +18,7 @@ import { getStats as getHookStats, resetStats as resetHookStats } from './hookSt
 import * as db from './db.js';
 import { getMqStats } from './mqReader.js';
 import { execFile } from 'child_process';
-import { readFileSync, writeFileSync, readdirSync, existsSync, statSync, mkdirSync } from 'fs';
+import { createReadStream, readFileSync, writeFileSync, readdirSync, existsSync, statSync, mkdirSync } from 'fs';
 import { join, dirname, extname, basename } from 'path';
 import { homedir, userInfo } from 'os';
 import { fileURLToPath } from 'url';
@@ -902,6 +902,10 @@ const TEXT_NAMES = new Set([
 ]);
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB
+const MAX_STREAMABLE_SIZE = 100 * 1024 * 1024; // 100 MB (for PDF/image streaming)
+
+/** Extensions that can be streamed directly to the browser (not read into JSON). */
+const STREAMABLE_EXTENSIONS = new Set(['.pdf']);
 
 /** Directories to skip when listing. */
 const HIDDEN_DIRS = new Set([
@@ -997,9 +1001,21 @@ router.get('/files/read', (req: Request, res: Response) => {
 
     const stat = statSync(fullPath);
     if (stat.isDirectory()) { res.status(400).json({ error: 'Path is a directory, not a file' }); return; }
+    const name = basename(fullPath);
+    const fileExt = extname(name).toLowerCase();
+
+    // PDFs and other streamable files: return metadata with streamable flag (no size limit)
+    if (STREAMABLE_EXTENSIONS.has(fileExt)) {
+      if (stat.size > MAX_STREAMABLE_SIZE) {
+        res.status(413).json({ error: `File too large (${(stat.size / 1024 / 1024).toFixed(1)} MB, max 100 MB)` });
+        return;
+      }
+      res.json({ path: relPath, streamable: true, ext: fileExt.replace('.', ''), size: stat.size, name });
+      return;
+    }
+
     if (stat.size > MAX_FILE_SIZE) { res.status(413).json({ error: `File too large (${(stat.size / 1024 / 1024).toFixed(1)} MB, max 2 MB)` }); return; }
 
-    const name = basename(fullPath);
     if (!isTextFile(name)) {
       res.json({ path: relPath, binary: true, size: stat.size, name });
       return;
@@ -1011,6 +1027,46 @@ router.get('/files/read', (req: Request, res: Response) => {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });
+  }
+});
+
+/** GET /api/files/stream?root=<projectPath>&path=<relative> — stream a file (PDF, images) */
+router.get('/files/stream', (req: Request, res: Response) => {
+  const root = str(req.query.root);
+  if (!root) { res.status(400).json({ error: 'root query param required' }); return; }
+
+  const body = filePathSchema.safeParse({ path: str(req.query.path) });
+  if (!body.success) { res.status(400).json({ error: 'Invalid path' }); return; }
+
+  const relPath = body.data.path;
+  const fullPath = resolveProjectPath(root, relPath);
+  if (!fullPath) { res.status(400).json({ error: 'Path outside project root' }); return; }
+
+  try {
+    if (!existsSync(fullPath)) { res.status(404).json({ error: 'File not found' }); return; }
+
+    const stat = statSync(fullPath);
+    if (stat.isDirectory()) { res.status(400).json({ error: 'Path is a directory' }); return; }
+    if (stat.size > MAX_STREAMABLE_SIZE) { res.status(413).json({ error: 'File too large' }); return; }
+
+    const fileExt = extname(fullPath).toLowerCase();
+    if (!STREAMABLE_EXTENSIONS.has(fileExt)) { res.status(400).json({ error: 'File type not streamable' }); return; }
+
+    const mimeMap: Record<string, string> = { '.pdf': 'application/pdf' };
+    const contentType = mimeMap[fileExt] || 'application/octet-stream';
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Content-Disposition', `inline; filename="${basename(fullPath)}"`);
+
+    const stream = createReadStream(fullPath);
+    stream.pipe(res);
+    stream.on('error', () => {
+      if (!res.headersSent) res.status(500).json({ error: 'Stream error' });
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!res.headersSent) res.status(500).json({ error: msg });
   }
 });
 

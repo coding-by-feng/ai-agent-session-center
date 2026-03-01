@@ -12,6 +12,8 @@ import styles from '@/styles/modules/ProjectTab.module.css';
 interface ProjectTabProps {
   projectPath: string;
   initialPath?: string;
+  /** When set, programmatically navigates to this file path */
+  navigateToFile?: string | null;
   onOpenBrowserTab?: (projectPath: string, currentDir: string) => void;
   onPathChange?: (currentPath: string, isFile: boolean) => void;
 }
@@ -29,6 +31,7 @@ interface FileContent {
   size: number;
   name: string;
   binary?: boolean;
+  streamable?: boolean;
 }
 
 interface FileTab {
@@ -307,7 +310,7 @@ function InlineInput({
 
 // ---- Main Component ----
 
-export default function ProjectTab({ projectPath, initialPath, onOpenBrowserTab, onPathChange }: ProjectTabProps) {
+export default function ProjectTab({ projectPath, initialPath, navigateToFile, onOpenBrowserTab, onPathChange }: ProjectTabProps) {
   const [currentPath, setCurrentPath] = useState(initialPath || '/');
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [file, setFile] = useState<FileContent | null>(null);
@@ -397,6 +400,14 @@ export default function ProjectTab({ projectPath, initialPath, onOpenBrowserTab,
     if (projectPath) loadDir(initialPath || '/');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectPath]);
+
+  // Navigate to file when triggered externally (e.g. clicked file path in terminal)
+  useEffect(() => {
+    if (navigateToFile && projectPath) {
+      loadFile(navigateToFile);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigateToFile]);
 
   // Bookmark persistence — keyed per project
   const bookmarkKey = useMemo(() => `agent-manager:bookmarks:${projectPath}`, [projectPath]);
@@ -806,7 +817,13 @@ export default function ProjectTab({ projectPath, initialPath, onOpenBrowserTab,
         {/* File viewer */}
         {!loading && !error && file && !showingEditor && (
           <div className={styles.fileViewer}>
-            {file.binary ? (
+            {file.streamable && file.ext === 'pdf' ? (
+              <iframe
+                src={`/api/files/stream?root=${encodeURIComponent(projectPath)}&path=${encodeURIComponent(file.path)}`}
+                className={styles.pdfViewer}
+                title={file.name}
+              />
+            ) : file.binary ? (
               <div className={styles.empty}>
                 Binary file ({formatSize(file.size)})
               </div>

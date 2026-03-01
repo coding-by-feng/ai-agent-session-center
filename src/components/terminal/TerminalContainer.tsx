@@ -27,6 +27,8 @@ interface TerminalContainerProps {
   onReconnect?: () => void;
   /** When provided, the bookmark panel is rendered via portal into this element instead of inline */
   bookmarkPortalTarget?: HTMLDivElement | null;
+  /** Project root path — enables clickable file paths in terminal output */
+  projectPath?: string;
 }
 
 const DEFAULT_MIN_HEIGHT = '200px';
@@ -37,6 +39,7 @@ export default function TerminalContainer({
   showReconnect = false,
   onReconnect,
   bookmarkPortalTarget,
+  projectPath,
 }: TerminalContainerProps) {
   const [themeName, setThemeName] = useState<string>(() => {
     try {
@@ -72,7 +75,7 @@ export default function TerminalContainer({
     scrollPageDown,
     getTerminalBookmark,
     scrollToLine,
-  } = useTerminal({ ws, themeName });
+  } = useTerminal({ ws, themeName, projectPath });
 
   // Attach/detach when terminalId changes
   useEffect(() => {

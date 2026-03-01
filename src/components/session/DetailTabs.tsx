@@ -5,7 +5,7 @@
  * Split-view: On wide screens the PROJECT tab has a merge icon that shows
  * Terminal (left) + Project (right) side-by-side with a draggable divider.
  */
-import { useState, useCallback, useRef, type ReactNode } from 'react';
+import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 const STORAGE_KEY = 'active-tab';
@@ -26,6 +26,8 @@ interface DetailTabsProps {
   onTabChange?: (tabId: string) => void;
   /** Session ID used to persist split-ratio per session */
   sessionId?: string;
+  /** When set, programmatically switches to this tab */
+  externalActiveTab?: string | null;
 }
 
 const TABS = [
@@ -155,6 +157,7 @@ export default function DetailTabs({
   projectContent,
   onTabChange,
   sessionId,
+  externalActiveTab,
 }: DetailTabsProps) {
   const [activeTab, setActiveTab] = useState<string>(() => {
     try {
@@ -163,6 +166,14 @@ export default function DetailTabs({
       return 'terminal';
     }
   });
+
+  // Allow external callers to switch tabs programmatically
+  useEffect(() => {
+    if (externalActiveTab) {
+      setActiveTab(externalActiveTab);
+      try { localStorage.setItem(STORAGE_KEY, externalActiveTab); } catch { /* ignore */ }
+    }
+  }, [externalActiveTab]);
 
   const [splitView, setSplitView] = useState<boolean>(() => {
     try {

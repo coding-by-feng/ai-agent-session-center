@@ -300,6 +300,15 @@
   padding: 4px 0;
 }
 
+.pdfViewer {
+  width: 100%;
+  height: calc(100vh - 180px);
+  min-height: 500px;
+  border: none;
+  border-radius: 4px;
+  background: #1a1a2e;
+}
+
 /* ---- New File Editor ---- */
 
 .newFileEditor {
