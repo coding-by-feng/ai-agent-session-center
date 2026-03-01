@@ -135,6 +135,37 @@ function IconClose() {
     </svg>
   );
 }
+function IconFormat() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <line x1="2" y1="3" x2="14" y2="3" />
+      <line x1="5" y1="6.5" x2="14" y2="6.5" />
+      <line x1="5" y1="10" x2="14" y2="10" />
+      <line x1="2" y1="13.5" x2="11" y2="13.5" />
+      <polyline points="2 5.5 3.5 7 2 8.5" />
+    </svg>
+  );
+}
+
+/** Basic XML pretty-printer: normalises whitespace and re-indents. */
+function formatXml(xml: string): string {
+  let pad = 0;
+  const lines: string[] = [];
+  xml
+    .replace(/>\s*</g, '>\n<')
+    .split('\n')
+    .forEach((raw) => {
+      const line = raw.trim();
+      if (!line) return;
+      const isClose = /^<\/[^>]+>/.test(line);
+      const isSelfClose = /\/>$/.test(line) || /^<\?/.test(line) || /^<!/.test(line);
+      const inlineClose = !isClose && !isSelfClose && line.includes('</');
+      if (isClose) pad = Math.max(0, pad - 1);
+      lines.push('  '.repeat(pad) + line);
+      if (!isClose && !isSelfClose && !inlineClose && /^<[^?!/]/.test(line)) pad++;
+    });
+  return lines.join('\n');
+}
 
 // ---- Search Overlay ----
 
@@ -483,6 +514,21 @@ export default function ProjectTab({ projectPath, initialPath, onOpenBrowserTab,
     }
   }, [projectPath, currentPath, file, onOpenBrowserTab]);
 
+  // Format the currently viewed file (JSON / XML / SVG)
+  const handleFormatFile = useCallback(() => {
+    if (!file || file.binary || !file.content) return;
+    const ext = (file.ext ?? file.path.split('.').pop() ?? '').toLowerCase();
+    let formatted: string | null = null;
+    if (ext === 'json') {
+      try { formatted = JSON.stringify(JSON.parse(file.content), null, 2); } catch { /* invalid JSON */ }
+    } else if (ext === 'xml' || ext === 'svg' || ext === 'html' || ext === 'xhtml') {
+      formatted = formatXml(file.content);
+    }
+    if (formatted !== null && formatted !== file.content) {
+      setFile({ ...file, content: formatted });
+    }
+  }, [file]);
+
   // Split drag handlers
   const handleSplitMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -549,6 +595,14 @@ export default function ProjectTab({ projectPath, initialPath, onOpenBrowserTab,
         </button>
         <button className={styles.iconBtn} onClick={handleOpenProjectView} title="Open project in new tab">
           <IconOpenProjectView />
+        </button>
+        <button
+          className={styles.iconBtn}
+          onClick={handleFormatFile}
+          disabled={!file || !!file.binary}
+          title="Format file (JSON / XML)"
+        >
+          <IconFormat />
         </button>
       </div>
 
