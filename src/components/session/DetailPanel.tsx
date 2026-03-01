@@ -51,6 +51,7 @@ function TerminalContent({ session }: { session: Session }) {
   const ws = useMemo(() => client?.getRawSocket() ?? null, [client]);
   const isSSH = session.source === 'ssh';
   const showReconnect = isSSH && session.status === 'ended';
+  const [bookmarkTarget, setBookmarkTarget] = useState<HTMLDivElement | null>(null);
 
   const handleReconnect = useCallback(() => {
     fetch(`/api/sessions/${session.sessionId}/reconnect-terminal`, { method: 'POST' })
@@ -65,13 +66,17 @@ function TerminalContent({ session }: { session: Session }) {
           ws={ws}
           showReconnect={showReconnect}
           onReconnect={isSSH ? handleReconnect : undefined}
+          bookmarkPortalTarget={bookmarkTarget}
         />
       </div>
-      <QueueTab
-        sessionId={session.sessionId}
-        sessionStatus={session.status}
-        terminalId={session.terminalId}
-      />
+      <div className={styles.bottomRow}>
+        <QueueTab
+          sessionId={session.sessionId}
+          sessionStatus={session.status}
+          terminalId={session.terminalId}
+        />
+        <div ref={setBookmarkTarget} className={styles.bookmarkPortal} />
+      </div>
     </div>
   );
 }
@@ -126,6 +131,9 @@ export default function DetailPanel() {
   );
 
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    try { return localStorage.getItem('active-tab') || 'terminal'; } catch { return 'terminal'; }
+  });
 
   if (!session) return null;
 
@@ -148,6 +156,7 @@ export default function DetailPanel() {
         minWidth={320}
         maxWidth={Math.round(window.innerWidth * 0.95)}
         side="right"
+        activeTab={activeTab}
       >
         {/* Close button */}
         <button
@@ -285,6 +294,8 @@ export default function DetailPanel() {
               ? <ProjectTabContainer projectPath={session.projectPath} />
               : <div className={styles.tabEmpty}>No project path detected for this session</div>
           }
+          onTabChange={setActiveTab}
+          sessionId={session.sessionId}
         />
 
         {/* Modals — only mount when their modal is active to avoid unnecessary

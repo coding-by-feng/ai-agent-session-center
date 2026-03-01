@@ -65,6 +65,29 @@ function MinimizeIcon() {
   );
 }
 
+/** Scroll-to-bottom SVG icon (down arrow with baseline). */
+function ScrollToBottomIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="4" x2="12" y2="16" />
+      <polyline points="5 10 12 17 19 10" />
+      <line x1="4" y1="20" x2="20" y2="20" />
+    </svg>
+  );
+}
+
+/** Bookmark SVG icon (ribbon shape). */
+function BookmarkIcon({ active }: { active?: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24"
+      fill={active ? 'currentColor' : 'none'}
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
 /** ESC key SVG icon. */
 function EscIcon() {
   return (
@@ -86,6 +109,9 @@ interface TerminalToolbarProps {
   onSendArrowDown: () => void;
   onPaste: () => void;
   onReconnect?: () => void;
+  onScrollToBottom?: () => void;
+  onBookmark?: () => void;
+  bookmarkCount?: number;
   isFullscreen: boolean;
   showReconnect?: boolean;
 }
@@ -99,6 +125,9 @@ export default function TerminalToolbar({
   onSendArrowDown,
   onPaste,
   onReconnect,
+  onScrollToBottom,
+  onBookmark,
+  bookmarkCount = 0,
   isFullscreen,
   showReconnect = false,
 }: TerminalToolbarProps) {
@@ -158,6 +187,30 @@ export default function TerminalToolbar({
       >
         <ArrowDownIcon />
       </button>
+
+      {onScrollToBottom && (
+        <button
+          className={styles.toolbarBtn}
+          onClick={onScrollToBottom}
+          title="Scroll to bottom"
+        >
+          <ScrollToBottomIcon />
+        </button>
+      )}
+
+      {onBookmark && (
+        <button
+          className={`${styles.toolbarBtn} ${bookmarkCount > 0 ? styles.bookmarkActiveBtn : ''}`}
+          onClick={onBookmark}
+          title={bookmarkCount > 0 ? `Bookmarks (${bookmarkCount}) — select text to add, click to toggle panel` : 'Select terminal text then click to bookmark'}
+          style={{ position: 'relative' }}
+        >
+          <BookmarkIcon active={bookmarkCount > 0} />
+          {bookmarkCount > 0 && (
+            <span className={styles.bookmarkBadge}>{bookmarkCount}</span>
+          )}
+        </button>
+      )}
 
       <button
         className={styles.toolbarBtn}

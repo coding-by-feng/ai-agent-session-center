@@ -1,10 +1,19 @@
-import { useRef, useState, useCallback, type ReactNode } from 'react';
+import { useRef, useState, useCallback, useEffect, type ReactNode } from 'react';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 const STORAGE_KEY = 'detail-panel-width';
 
-function loadSavedWidth(fallback: number, min: number, max: number): number {
+function loadSavedWidth(fallback: number, min: number, max: number, tabKey?: string): number {
   try {
+    // Try tab-specific width first
+    if (tabKey) {
+      const tabRaw = localStorage.getItem(`${STORAGE_KEY}:${tabKey}`);
+      if (tabRaw) {
+        const w = Number(tabRaw);
+        if (Number.isFinite(w)) return Math.min(max, Math.max(min, w));
+      }
+    }
+    // Fall back to global width
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const w = Number(raw);
@@ -21,6 +30,8 @@ interface ResizablePanelProps {
   maxWidth?: number;
   side?: 'left' | 'right';
   className?: string;
+  /** When provided, panel width is persisted per-tab (e.g. "terminal", "project") */
+  activeTab?: string;
 }
 
 export default function ResizablePanel({
@@ -30,10 +41,23 @@ export default function ResizablePanel({
   maxWidth = 800,
   side = 'right',
   className,
+  activeTab,
 }: ResizablePanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [resizing, setResizing] = useState(false);
-  const savedWidth = useRef(loadSavedWidth(initialWidth, minWidth, maxWidth));
+  const savedWidth = useRef(loadSavedWidth(initialWidth, minWidth, maxWidth, activeTab));
+  const activeTabRef = useRef(activeTab);
+
+  // When activeTab changes, restore saved width for that tab
+  useEffect(() => {
+    if (activeTab === activeTabRef.current) return;
+    activeTabRef.current = activeTab;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const w = loadSavedWidth(initialWidth, minWidth, maxWidth, activeTab);
+    savedWidth.current = w;
+    panel.style.width = `${w}px`;
+  }, [activeTab, initialWidth, minWidth, maxWidth]);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -60,11 +84,17 @@ export default function ResizablePanel({
         document.removeEventListener('mouseup', onMouseUp);
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
-        // Persist final width
+        // Persist final width (global + per-tab if activeTab is set)
         if (panel) {
           const finalWidth = panel.getBoundingClientRect().width;
           savedWidth.current = finalWidth;
-          try { localStorage.setItem(STORAGE_KEY, String(Math.round(finalWidth))); } catch { /* ignore */ }
+          const rounded = String(Math.round(finalWidth));
+          try {
+            localStorage.setItem(STORAGE_KEY, rounded);
+            if (activeTabRef.current) {
+              localStorage.setItem(`${STORAGE_KEY}:${activeTabRef.current}`, rounded);
+            }
+          } catch { /* ignore */ }
         }
       }
 

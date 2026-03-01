@@ -24,6 +24,8 @@ interface DetailTabsProps {
   queueContent: ReactNode;
   projectContent: ReactNode;
   onTabChange?: (tabId: string) => void;
+  /** Session ID used to persist split-ratio per session */
+  sessionId?: string;
 }
 
 const TABS = [
@@ -67,26 +69,37 @@ function SplitIcon() {
 function DraggableSplitView({
   left,
   right,
+  ratioKey,
 }: {
   left: ReactNode;
   right: ReactNode;
+  /** localStorage key for persisting the split ratio */
+  ratioKey: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const ratioKeyRef = useRef(ratioKey);
+  ratioKeyRef.current = ratioKey;
+
   const [ratio, setRatio] = useState<number>(() => {
     try {
-      const stored = localStorage.getItem(SPLIT_RATIO_KEY);
+      // Try session-specific key first, then fall back to global
+      const stored = localStorage.getItem(ratioKey) ?? localStorage.getItem(SPLIT_RATIO_KEY);
       return stored ? parseFloat(stored) : 0.5;
     } catch {
       return 0.5;
     }
   });
 
+  // Track latest ratio in a ref so onMouseUp always reads the current value
+  const ratioRef = useRef(ratio);
+  ratioRef.current = ratio;
+
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     const container = containerRef.current;
     if (!container) return;
     const startX = e.clientX;
-    const startRatio = ratio;
+    const startRatio = ratioRef.current;
     const containerWidth = container.offsetWidth;
 
     const onMouseMove = (ev: MouseEvent) => {
@@ -99,16 +112,18 @@ function DraggableSplitView({
       document.removeEventListener('mouseup', onMouseUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      // Persist ratio
+      // Persist ratio (both session-specific and global fallback)
+      const finalRatio = ratioRef.current;
       try {
-        localStorage.setItem(SPLIT_RATIO_KEY, String(ratio));
+        localStorage.setItem(ratioKeyRef.current, String(finalRatio));
+        localStorage.setItem(SPLIT_RATIO_KEY, String(finalRatio));
       } catch { /* ignore */ }
     };
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-  }, [ratio]);
+  }, []);
 
   return (
     <div className={styles.splitView} ref={containerRef}>
@@ -139,6 +154,7 @@ export default function DetailTabs({
   queueContent,
   projectContent,
   onTabChange,
+  sessionId,
 }: DetailTabsProps) {
   const [activeTab, setActiveTab] = useState<string>(() => {
     try {
@@ -206,6 +222,7 @@ export default function DetailTabs({
       <DraggableSplitView
         left={terminalContent}
         right={projectContent}
+        ratioKey={sessionId ? `${SPLIT_RATIO_KEY}:${sessionId}` : SPLIT_RATIO_KEY}
       />
     ),
   };
