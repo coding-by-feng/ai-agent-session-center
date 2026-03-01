@@ -9,22 +9,33 @@ Every session spawns an animated robot in an interactive cyberdrome that visuall
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green)](https://nodejs.org)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
-<p align="center">
-  <img src="static/screenshot-dashboard.png" alt="AI Agent Session Center — 3D cyberdrome with 10 active agent sessions across project rooms" width="800">
-</p>
+## Demo
 
-<p align="center">
-  <img src="static/screenshot-terminal.png" alt="SSH terminal session — control agents directly from the dashboard" width="800">
-</p>
+### Desktop
 
-<details>
-<summary>Detail panel view</summary>
+<table>
+  <tr>
+    <td><img src="static/screenshot-dashboard.png" alt="3D cyberdrome with active agent sessions across project rooms" width="400"></td>
+    <td><img src="static/screenshot-terminal.png" alt="SSH terminal session — control agents from the dashboard" width="400"></td>
+  </tr>
+  <tr>
+    <td><img src="static/screenshot-project-tab.png" alt="Project file browser with split view — terminal and code side by side" width="400"></td>
+    <td><img src="static/screenshot-detail.png" alt="Session detail panel with prompts, queue, and activity tabs" width="400"></td>
+  </tr>
+</table>
 
-<p align="center">
-  <img src="static/screenshot-detail.png" alt="Session detail panel with terminal, prompts, queue, and activity tabs" width="800">
-</p>
+### Mobile
 
-</details>
+<table>
+  <tr>
+    <td><img src="static/screenshot-mobile-home.png" alt="Mobile — 3D cyberdrome with session list" width="160"></td>
+    <td><img src="static/screenshot-mobile-terminal.png" alt="Mobile — terminal tab with live conversation" width="160"></td>
+    <td><img src="static/screenshot-mobile-project.png" alt="Mobile — project file browser" width="160"></td>
+    <td><img src="static/screenshot-mobile-history.png" alt="Mobile — session history with filters" width="160"></td>
+  </tr>
+</table>
+
+### Video
 
 https://github.com/user-attachments/assets/004ee6f9-942c-44c2-a4c5-d971fa0e824b
 
@@ -39,7 +50,10 @@ When you're running multiple AI coding agents across different terminals — Cla
 - **Multi-CLI support** — monitors Claude Code, Gemini CLI, and Codex simultaneously
 - **SSH terminal sessions** — create and manage SSH/local terminal connections directly from the dashboard
 - **Dynamic room system** — organize sessions into rooms with a full 3D office layout (rooms, coffee lounge, gym, corridor desks)
+- **Project file browser** — browse, search, and view project files with syntax highlighting, sub-tabs, and file bookmarks
+- **Terminal & file bookmarks** — save positions in terminal scrollback and code viewer lines for quick reference with notes
 - **Prompt queue** — stage, reorder, and send prompts to agents with drag-and-drop
+- **Split view** — view terminal and project files side-by-side with a draggable divider (ratio persisted per session)
 - **Team visualization** — sub-agent teams render as connected robots with animated laser-line beams
 - **Approval alerts** — screaming yellow card, visor flash, and 3-burst alarm when tools need your approval
 - **Session resume** — reconnect to disconnected Claude sessions with one click

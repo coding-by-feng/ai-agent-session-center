@@ -1,0 +1,16 @@
+node_modules
+dist
+.git
+.claude
+*.md
+!README.md
+data/backups
+data/server-config.json
+data/*.db
+test
+*.test.*
+.eslintrc*
+.prettier*
+.vscode
+coverage
+playwright-report

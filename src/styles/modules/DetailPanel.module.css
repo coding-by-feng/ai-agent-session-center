@@ -299,6 +299,21 @@
   overflow: hidden;
 }
 
+.bottomRow {
+  display: flex;
+  flex-direction: row;
+  flex-shrink: 0;
+}
+
+.bottomRow > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.bookmarkPortal {
+  flex-shrink: 0;
+}
+
 /* ---- Responsive ---- */
 
 @media (max-width: 640px) {

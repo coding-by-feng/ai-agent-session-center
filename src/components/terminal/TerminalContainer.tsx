@@ -6,15 +6,27 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useTerminal } from '@/hooks/useTerminal';
+import type { TerminalBookmarkPosition } from '@/hooks/useTerminal';
 import TerminalToolbar from './TerminalToolbar';
 import styles from '@/styles/modules/Terminal.module.css';
 import '@xterm/xterm/css/xterm.css';
+
+interface TerminalBookmark {
+  id: string;
+  terminalId: string;
+  scrollLine: number;
+  selectedText: string;
+  note: string;
+  timestamp: number;
+}
 
 interface TerminalContainerProps {
   terminalId: string | null;
   ws: WebSocket | null;
   showReconnect?: boolean;
   onReconnect?: () => void;
+  /** When provided, the bookmark panel is rendered via portal into this element instead of inline */
+  bookmarkPortalTarget?: HTMLDivElement | null;
 }
 
 const DEFAULT_MIN_HEIGHT = '200px';
@@ -24,6 +36,7 @@ export default function TerminalContainer({
   ws,
   showReconnect = false,
   onReconnect,
+  bookmarkPortalTarget,
 }: TerminalContainerProps) {
   const [themeName, setThemeName] = useState<string>(() => {
     try {
@@ -32,6 +45,9 @@ export default function TerminalContainer({
       return 'auto';
     }
   });
+
+  const [bookmarks, setBookmarks] = useState<TerminalBookmark[]>([]);
+  const [showBookmarkPanel, setShowBookmarkPanel] = useState(false);
 
   const fsContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -54,6 +70,8 @@ export default function TerminalContainer({
     scrollToBottom,
     scrollPageUp,
     scrollPageDown,
+    getTerminalBookmark,
+    scrollToLine,
   } = useTerminal({ ws, themeName });
 
   // Attach/detach when terminalId changes
@@ -64,6 +82,27 @@ export default function TerminalContainer({
       detach();
     }
   }, [terminalId, attach, detach]);
+
+  // Load bookmarks when terminalId changes
+  useEffect(() => {
+    if (!terminalId) { setBookmarks([]); return; }
+    try {
+      const saved = localStorage.getItem(`term-bookmarks:${terminalId}`);
+      setBookmarks(saved ? JSON.parse(saved) : []);
+    } catch {
+      setBookmarks([]);
+    }
+  }, [terminalId]);
+
+  // Persist bookmarks whenever they change
+  useEffect(() => {
+    if (!terminalId) return;
+    try {
+      localStorage.setItem(`term-bookmarks:${terminalId}`, JSON.stringify(bookmarks));
+    } catch {
+      // ignore
+    }
+  }, [terminalId, bookmarks]);
 
   // Move xterm element between inline and fullscreen containers
   useEffect(() => {
@@ -119,6 +158,90 @@ export default function TerminalContainer({
     [setTheme],
   );
 
+  const handleBookmark = useCallback(() => {
+    const pos: TerminalBookmarkPosition | null = getTerminalBookmark();
+    if (pos) {
+      const newBookmark: TerminalBookmark = {
+        id: `tbm-${Date.now()}`,
+        terminalId: terminalId!,
+        scrollLine: pos.scrollLine,
+        selectedText: pos.selectedText,
+        note: '',
+        timestamp: Date.now(),
+      };
+      setBookmarks((prev) => [newBookmark, ...prev]);
+      setShowBookmarkPanel(true);
+    } else {
+      // No selection — toggle panel visibility
+      setShowBookmarkPanel((prev) => !prev);
+    }
+  }, [getTerminalBookmark, terminalId]);
+
+  const handleDeleteBookmark = useCallback((id: string) => {
+    setBookmarks((prev) => prev.filter((b) => b.id !== id));
+  }, []);
+
+  const handleBookmarkNoteChange = useCallback((id: string, note: string) => {
+    setBookmarks((prev) => prev.map((b) => (b.id === id ? { ...b, note } : b)));
+  }, []);
+
+  const handleJumpToBookmark = useCallback((scrollLine: number) => {
+    scrollToLine(scrollLine);
+  }, [scrollToLine]);
+
+  const bookmarkPanelContent = (
+    <div className={styles.termBookmarkPanel}>
+      <div className={styles.termBookmarkHeader}>
+        <span className={styles.termBookmarkTitle}>Bookmarks</span>
+        <button
+          className={styles.termBookmarkClose}
+          onClick={() => setShowBookmarkPanel(false)}
+          title="Close bookmark panel"
+        >
+          ✕
+        </button>
+      </div>
+      {bookmarks.length === 0 ? (
+        <div className={styles.termBookmarkEmpty}>
+          Select terminal text then click the bookmark button to save a position.
+        </div>
+      ) : (
+        <div className={styles.termBookmarkList}>
+          {bookmarks.map((bm) => (
+            <div key={bm.id} className={styles.termBookmarkItem}>
+              <div className={styles.termBookmarkPreview} title={bm.selectedText}>
+                {bm.selectedText.slice(0, 80)}
+              </div>
+              <textarea
+                className={styles.termBookmarkNote}
+                rows={1}
+                placeholder="Add note…"
+                value={bm.note}
+                onChange={(e) => handleBookmarkNoteChange(bm.id, e.target.value)}
+              />
+              <div className={styles.termBookmarkActions}>
+                <button
+                  className={styles.termBookmarkJumpBtn}
+                  onClick={() => handleJumpToBookmark(bm.scrollLine)}
+                  title="Jump to this position"
+                >
+                  Jump
+                </button>
+                <button
+                  className={styles.termBookmarkDelBtn}
+                  onClick={() => handleDeleteBookmark(bm.id)}
+                  title="Delete bookmark"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
   if (!terminalId) {
     return (
       <div className={styles.placeholder}>
@@ -145,15 +268,25 @@ export default function TerminalContainer({
         onSendArrowDown={sendArrowDown}
         onPaste={pasteToTerminal}
         onReconnect={onReconnect}
+        onScrollToBottom={scrollToBottom}
+        onBookmark={handleBookmark}
+        bookmarkCount={bookmarks.length}
         isFullscreen={isFullscreen}
         showReconnect={showReconnect}
       />
       <div className={styles.terminalArea}>
-        <div
-          ref={containerRef}
-          className={styles.container}
-          style={{ minHeight: DEFAULT_MIN_HEIGHT }}
-        />
+        <div className={styles.terminalRow}>
+          <div
+            ref={containerRef}
+            className={styles.container}
+            style={{ minHeight: DEFAULT_MIN_HEIGHT }}
+          />
+        </div>
+        {/* Bookmark panel: portal to external target if provided, else render inline */}
+        {showBookmarkPanel && (bookmarkPortalTarget
+          ? createPortal(bookmarkPanelContent, bookmarkPortalTarget)
+          : bookmarkPanelContent
+        )}
         <div className={styles.mobileScrollOverlay}>
           <button
             className={styles.mobileScrollBtn}
@@ -197,6 +330,9 @@ export default function TerminalContainer({
               onSendArrowDown={sendArrowDown}
               onPaste={pasteToTerminal}
               onReconnect={onReconnect}
+              onScrollToBottom={scrollToBottom}
+              onBookmark={handleBookmark}
+              bookmarkCount={bookmarks.length}
               isFullscreen={isFullscreen}
               showReconnect={showReconnect}
             />

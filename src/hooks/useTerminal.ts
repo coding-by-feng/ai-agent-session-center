@@ -30,6 +30,13 @@ interface UseTerminalOptions {
   themeName?: string;
 }
 
+export interface TerminalBookmarkPosition {
+  /** Buffer line to scroll to (term.buffer.active.viewportY at capture time) */
+  scrollLine: number;
+  /** Selected text at capture time */
+  selectedText: string;
+}
+
 interface UseTerminalReturn {
   containerRef: React.RefObject<HTMLDivElement | null>;
   attach: (terminalId: string) => void;
@@ -52,6 +59,10 @@ interface UseTerminalReturn {
   scrollToBottom: () => void;
   scrollPageUp: () => void;
   scrollPageDown: () => void;
+  /** Capture current selection + viewport position for bookmarking. Returns null if nothing selected. */
+  getTerminalBookmark: () => TerminalBookmarkPosition | null;
+  /** Scroll terminal to the given buffer line. */
+  scrollToLine: (line: number) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -530,6 +541,21 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
     }
   }, []);
 
+  const getTerminalBookmark = useCallback((): TerminalBookmarkPosition | null => {
+    if (!activeRef.current) return null;
+    const { term } = activeRef.current;
+    const selectedText = term.getSelection();
+    if (!selectedText) return null;
+    const scrollLine = term.buffer.active.viewportY;
+    return { scrollLine, selectedText };
+  }, []);
+
+  const scrollToLine = useCallback((line: number) => {
+    if (activeRef.current) {
+      activeRef.current.term.scrollToLine(line);
+    }
+  }, []);
+
   const setThemeFn = useCallback((name: string) => {
     themeNameRef.current = name;
     try {
@@ -591,5 +617,7 @@ export function useTerminal({ ws, themeName = 'auto' }: UseTerminalOptions): Use
     scrollToBottom,
     scrollPageUp,
     scrollPageDown,
+    getTerminalBookmark,
+    scrollToLine,
   };
 }

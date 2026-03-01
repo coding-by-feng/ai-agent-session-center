@@ -36,6 +36,15 @@ interface FileTab {
   name: string;
 }
 
+interface Bookmark {
+  id: string;
+  filePath: string;
+  lineStart: number;
+  lineEnd: number;
+  selectedText: string;
+  note: string;
+}
+
 interface SearchResult {
   path: string;
   name: string;
@@ -143,6 +152,14 @@ function IconFormat() {
       <line x1="5" y1="10" x2="14" y2="10" />
       <line x1="2" y1="13.5" x2="11" y2="13.5" />
       <polyline points="2 5.5 3.5 7 2 8.5" />
+    </svg>
+  );
+}
+
+function IconBookmark({ active = false }: { active?: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5">
+      <path d="M3 2h10v13l-5-3.5L3 15V2z" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -315,6 +332,11 @@ export default function ProjectTab({ projectPath, initialPath, onOpenBrowserTab,
   const splitDragging = useRef(false);
   const splitContainerRef = useRef<HTMLDivElement>(null);
 
+  // Bookmarks
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const [showBookmarkPanel, setShowBookmarkPanel] = useState(false);
+  const pendingScrollLine = useRef<number | null>(null);
+
   const loadDir = useCallback(async (relPath: string) => {
     setLoading(true);
     setError(null);
@@ -375,6 +397,29 @@ export default function ProjectTab({ projectPath, initialPath, onOpenBrowserTab,
     if (projectPath) loadDir(initialPath || '/');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectPath]);
+
+  // Bookmark persistence — keyed per project
+  const bookmarkKey = useMemo(() => `agent-manager:bookmarks:${projectPath}`, [projectPath]);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(bookmarkKey);
+      if (saved) setBookmarks(JSON.parse(saved));
+    } catch {}
+  }, [bookmarkKey]);
+  useEffect(() => {
+    try { localStorage.setItem(bookmarkKey, JSON.stringify(bookmarks)); } catch {}
+  }, [bookmarks, bookmarkKey]);
+
+  // After cross-file jump: scroll to the pending line once the new file renders
+  useEffect(() => {
+    if (pendingScrollLine.current !== null && file) {
+      const line = pendingScrollLine.current;
+      pendingScrollLine.current = null;
+      requestAnimationFrame(() => {
+        document.getElementById(`fv-line-${line}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    }
+  }, [file]);
 
   const navigateUp = useCallback(() => {
     if (file || editingNewFile) {
@@ -514,6 +559,49 @@ export default function ProjectTab({ projectPath, initialPath, onOpenBrowserTab,
     }
   }, [projectPath, currentPath, file, onOpenBrowserTab]);
 
+  // Bookmark: add from selection or toggle panel
+  const handleBookmarkBtnClick = useCallback(() => {
+    const sel = window.getSelection();
+    const selectedText = sel?.toString().trim() ?? '';
+    if (file && selectedText && file.content?.includes(selectedText)) {
+      const content = file.content;
+      const idx = content.indexOf(selectedText);
+      const lineStart = content.slice(0, idx).split('\n').length;
+      const lineEnd = lineStart + selectedText.split('\n').length - 1;
+      const bookmark: Bookmark = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        filePath: file.path,
+        lineStart,
+        lineEnd,
+        selectedText: selectedText.slice(0, 300),
+        note: '',
+      };
+      setBookmarks(prev => [...prev, bookmark]);
+      setShowBookmarkPanel(true);
+      sel!.removeAllRanges();
+    } else {
+      setShowBookmarkPanel(prev => !prev);
+    }
+  }, [file]);
+
+  const handleDeleteBookmark = useCallback((id: string) => {
+    setBookmarks(prev => prev.filter(b => b.id !== id));
+  }, []);
+
+  const handleBookmarkNoteChange = useCallback((id: string, note: string) => {
+    setBookmarks(prev => prev.map(b => b.id === id ? { ...b, note } : b));
+  }, []);
+
+  const handleJumpToBookmark = useCallback((bookmark: Bookmark) => {
+    if (bookmark.filePath !== file?.path) {
+      pendingScrollLine.current = bookmark.lineStart;
+      loadFile(bookmark.filePath);
+    } else {
+      document.getElementById(`fv-line-${bookmark.lineStart}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [file, loadFile]);
+
   // Format the currently viewed file (JSON / XML / SVG)
   const handleFormatFile = useCallback(() => {
     if (!file || file.binary || !file.content) return;
@@ -604,6 +692,14 @@ export default function ProjectTab({ projectPath, initialPath, onOpenBrowserTab,
         >
           <IconFormat />
         </button>
+        <button
+          className={`${styles.iconBtn} ${showBookmarkPanel || bookmarks.length > 0 ? styles.iconBtnActive : ''}`}
+          onClick={handleBookmarkBtnClick}
+          title="Bookmark selected text / show bookmarks"
+        >
+          <IconBookmark active={bookmarks.length > 0} />
+          {bookmarks.length > 0 && <span className={styles.bookmarkBadge}>{bookmarks.length}</span>}
+        </button>
       </div>
 
       {/* Path bar */}
@@ -655,7 +751,8 @@ export default function ProjectTab({ projectPath, initialPath, onOpenBrowserTab,
         />
       )}
 
-      {/* Content area */}
+      {/* Content area + bookmark panel below */}
+      <div className={styles.contentCol}>
       <div className={styles.content} ref={splitContainerRef}>
         {loading && <div className={styles.empty}>Loading...</div>}
 
@@ -728,15 +825,74 @@ export default function ProjectTab({ projectPath, initialPath, onOpenBrowserTab,
                 </ReactMarkdown>
               </div>
             ) : (
-              <pre className={styles.codeBlock}>
-                <code className={langFromPath(file.path) ? `language-${langFromPath(file.path)}` : ''}>
-                  {file.content}
-                </code>
-              </pre>
+              <div className={styles.codeLines}>
+                {(file.content || '').split('\n').map((line, i) => {
+                  const lineNum = i + 1;
+                  const isBookmarked = bookmarks.some(
+                    b => b.filePath === file.path && lineNum >= b.lineStart && lineNum <= b.lineEnd
+                  );
+                  return (
+                    <div
+                      key={i}
+                      id={`fv-line-${lineNum}`}
+                      className={`${styles.codeLine}${isBookmarked ? ` ${styles.bookmarkedLine}` : ''}`}
+                    >
+                      <span className={styles.lineNum}>{lineNum}</span>
+                      <span className={styles.lineText}>{line || '\u00A0'}</span>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
         )}
       </div>
+
+      {/* Bookmark panel */}
+      {showBookmarkPanel && (
+        <div className={styles.bookmarkPanel}>
+          <div className={styles.bookmarkPanelHeader}>
+            <span className={styles.bookmarkPanelTitle}>BOOKMARKS ({bookmarks.length})</span>
+            <button className={styles.bookmarkPanelClose} onClick={() => setShowBookmarkPanel(false)}>✕</button>
+          </div>
+          {bookmarks.length === 0 ? (
+            <div className={styles.bookmarkEmpty}>
+              Select text in the viewer, then click the bookmark icon to add.
+            </div>
+          ) : (
+            <div className={styles.bookmarkList}>
+              {bookmarks.map(bm => (
+                <div
+                  key={bm.id}
+                  className={`${styles.bookmarkItem}${bm.filePath !== file?.path ? ` ${styles.bookmarkItemOther}` : ''}`}
+                  onClick={() => handleJumpToBookmark(bm)}
+                >
+                  <div className={styles.bookmarkItemTop}>
+                    <span className={styles.bookmarkItemLine}>
+                      L{bm.lineStart}{bm.lineEnd !== bm.lineStart ? `–${bm.lineEnd}` : ''}
+                    </span>
+                    <span className={styles.bookmarkItemFile}>{bm.filePath.split('/').pop()}</span>
+                    <button
+                      className={styles.bookmarkItemDel}
+                      onClick={e => { e.stopPropagation(); handleDeleteBookmark(bm.id); }}
+                      title="Delete bookmark"
+                    >✕</button>
+                  </div>
+                  <div className={styles.bookmarkItemText}>{bm.selectedText.slice(0, 120)}</div>
+                  <input
+                    className={styles.bookmarkItemNote}
+                    placeholder="Add note..."
+                    value={bm.note}
+                    onChange={e => handleBookmarkNoteChange(bm.id, e.target.value)}
+                    onClick={e => e.stopPropagation()}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      </div>{/* end contentCol */}
 
       {/* Search overlay */}
       {showSearch && (
