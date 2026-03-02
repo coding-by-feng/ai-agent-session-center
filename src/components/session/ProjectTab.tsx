@@ -12,6 +12,8 @@ import styles from '@/styles/modules/ProjectTab.module.css';
 interface ProjectTabProps {
   projectPath: string;
   initialPath?: string;
+  /** True if initialPath points to a file (restore file view on mount) */
+  initialIsFile?: boolean;
   /** When set, programmatically navigates to this file path */
   navigateToFile?: string | null;
   onOpenBrowserTab?: (projectPath: string, currentDir: string) => void;
@@ -310,7 +312,7 @@ function InlineInput({
 
 // ---- Main Component ----
 
-export default function ProjectTab({ projectPath, initialPath, navigateToFile, onOpenBrowserTab, onPathChange }: ProjectTabProps) {
+export default function ProjectTab({ projectPath, initialPath, initialIsFile, navigateToFile, onOpenBrowserTab, onPathChange }: ProjectTabProps) {
   const [currentPath, setCurrentPath] = useState(initialPath || '/');
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [file, setFile] = useState<FileContent | null>(null);
@@ -395,9 +397,14 @@ export default function ProjectTab({ projectPath, initialPath, navigateToFile, o
     }
   }, [projectPath, onPathChange]);
 
-  // Load initial directory on mount
+  // Load initial path on mount — restore file or directory
   useEffect(() => {
-    if (projectPath) loadDir(initialPath || '/');
+    if (!projectPath) return;
+    if (initialIsFile && initialPath) {
+      loadFile(initialPath);
+    } else {
+      loadDir(initialPath || '/');
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectPath]);
 
