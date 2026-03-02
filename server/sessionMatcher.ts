@@ -50,6 +50,29 @@ export function reKeyResumedSession(
     oldSession.cachedPid = null;
   }
 
+  // Archive the old session data into previousSessions before resetting.
+  // Check dedup: resumeSession() already archives before calling this function,
+  // so only archive if the last entry doesn't match the old session ID.
+  const hasData = oldSession.promptHistory.length > 0 || oldSession.toolLog?.length > 0 || oldSession.events?.length > 0;
+  if (hasData) {
+    const lastPrev = oldSession.previousSessions?.[oldSession.previousSessions.length - 1];
+    if (!lastPrev || lastPrev.sessionId !== oldSessionId) {
+      if (!oldSession.previousSessions) oldSession.previousSessions = [];
+      oldSession.previousSessions.push({
+        sessionId: oldSessionId,
+        startedAt: oldSession.startedAt,
+        endedAt: oldSession.endedAt,
+        promptHistory: [...oldSession.promptHistory],
+        toolLog: [...(oldSession.toolLog || [])],
+        responseLog: [...(oldSession.responseLog || [])],
+        events: [...oldSession.events],
+        toolUsage: { ...oldSession.toolUsage },
+        totalToolCalls: oldSession.totalToolCalls,
+      });
+      if (oldSession.previousSessions.length > 5) oldSession.previousSessions.shift();
+    }
+  }
+
   oldSession.replacesId = oldSessionId;
   oldSession.sessionId = newSessionId;
   oldSession.status = SESSION_STATUS.IDLE;
@@ -291,6 +314,22 @@ export function matchSession(
       // Consume pendingLink so Priority 2 doesn't create a duplicate match
       consumePendingLink(preSession.projectPath || '');
       log.info('session', `Re-keyed terminal session ${hookData.agent_terminal_id} -> ${session_id?.slice(0, 8)} (via terminal ID)`);
+    }
+  }
+
+  // Priority 1.5: Match by cached PID — when Claude resumes with a new session_id
+  // but the same process (e.g., `claude --resume` creates a new session internally),
+  // link back to the same SSH terminal session instead of creating a duplicate card.
+  if (!session && hookData.claude_pid && hook_event_name === EVENT_TYPES.SESSION_START) {
+    const pid = Number(hookData.claude_pid);
+    const existingSessionId = pidToSession.get(pid);
+    if (existingSessionId && existingSessionId !== session_id) {
+      const existingSession = sessions.get(existingSessionId);
+      if (existingSession && existingSession.terminalId) {
+        session = reKeyResumedSession(sessions, existingSession, session_id, existingSessionId, pidToSession);
+        consumePendingLink(existingSession.projectPath || '');
+        log.info('session', `Re-keyed session ${existingSessionId?.slice(0, 8)} -> ${session_id?.slice(0, 8)} (via cached PID=${pid}, same process new session_id)`);
+      }
     }
   }
 
