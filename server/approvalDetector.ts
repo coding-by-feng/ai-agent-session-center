@@ -4,7 +4,7 @@
  * If PostToolUse does not arrive within the timeout, the session transitions to approval/input status.
  * PermissionRequest events provide a direct signal that bypasses the timeout heuristic.
  */
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { getToolTimeout, getToolCategory, getWaitingStatus, getWaitingLabel } from './config.js';
 import { SESSION_STATUS, ANIMATION_STATE } from './constants.js';
 import log from './logger.js';
@@ -28,7 +28,7 @@ export function hasChildProcesses(pid: number): boolean {
   const validPid = validatePid(pid);
   if (!validPid) return false;
   try {
-    const out = execSync(`pgrep -P ${validPid} 2>/dev/null`, { encoding: 'utf-8', timeout: 2000 });
+    const out = execFileSync('pgrep', ['-P', String(validPid)], { encoding: 'utf-8', timeout: 2000 });
     return out.trim().length > 0;
   } catch (e: unknown) {
     // #37: Return true on error as safer default — assume command is still running

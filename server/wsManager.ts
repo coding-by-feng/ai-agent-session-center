@@ -8,9 +8,13 @@ import type WebSocket from 'ws';
 interface WsClient extends WebSocket {
   _terminalIds: Set<string>;
   _isAlive: boolean;
+  _msgCount: number;
+  _msgWindowStart: number;
 }
 
 const clients = new Set<WsClient>();
+const MAX_WS_CONNECTIONS = 50;
+const MAX_MSG_PER_SECOND = 100;
 
 // Heartbeat: ping every 30s, terminate connections that don't pong within 10s
 const HEARTBEAT_INTERVAL_MS = 30000;
@@ -57,10 +61,19 @@ export function stopHeartbeat(): void {
  * Handle a new WebSocket connection: send snapshot and wire up message/close handlers.
  */
 export function handleConnection(ws: WebSocket): void {
+  // Enforce connection limit
+  if (clients.size >= MAX_WS_CONNECTIONS) {
+    log.warn('ws', `Connection limit reached (${MAX_WS_CONNECTIONS}), rejecting`);
+    ws.close(4003, 'Too many connections');
+    return;
+  }
+
   const client = ws as WsClient;
   clients.add(client);
   client._terminalIds = new Set();
   client._isAlive = true;
+  client._msgCount = 0;
+  client._msgWindowStart = Date.now();
   log.info('ws', `Client connected (total: ${clients.size})`);
 
   // Start heartbeat on first connection
@@ -80,16 +93,43 @@ export function handleConnection(ws: WebSocket): void {
 
   // Handle incoming messages (terminal input, resize, etc.)
   client.on('message', (raw: WebSocket.RawData) => {
+    // Rate limit: max MAX_MSG_PER_SECOND messages per second per client
+    const now = Date.now();
+    if (now - client._msgWindowStart > 1000) {
+      client._msgWindowStart = now;
+      client._msgCount = 0;
+    }
+    client._msgCount++;
+    if (client._msgCount > MAX_MSG_PER_SECOND) {
+      log.warn('ws', 'Client message rate limit exceeded, closing');
+      client.close(4004, 'Rate limit exceeded');
+      return;
+    }
+
     try {
-      const msg = JSON.parse(raw.toString());
+      const rawStr = raw.toString();
+      // Reject oversized messages early (64KB)
+      if (rawStr.length > 65536) {
+        log.warn('ws', 'Oversized WS message rejected');
+        return;
+      }
+      const msg = JSON.parse(rawStr);
       switch (msg.type) {
         case WS_TYPES.TERMINAL_INPUT:
-          if (msg.terminalId && msg.data) {
+          // Only allow writing to terminals this client is subscribed to
+          if (typeof msg.terminalId === 'string' && typeof msg.data === 'string' && msg.data.length <= 8192) {
+            if (!client._terminalIds.has(msg.terminalId)) {
+              log.warn('ws', `Blocked terminal_input to unsubscribed terminal ${msg.terminalId}`);
+              break;
+            }
             writeToTerminal(msg.terminalId, msg.data);
           }
           break;
         case WS_TYPES.TERMINAL_RESIZE:
-          if (msg.terminalId && msg.cols && msg.rows) {
+          if (typeof msg.terminalId === 'string'
+              && Number.isInteger(msg.cols) && msg.cols > 0 && msg.cols <= 500
+              && Number.isInteger(msg.rows) && msg.rows > 0 && msg.rows <= 200) {
+            if (!client._terminalIds.has(msg.terminalId)) break;
             // #31: Relay resize errors back to client
             const resizeErr = resizeTerminal(msg.terminalId, msg.cols, msg.rows);
             if (resizeErr && client.readyState === 1) {
@@ -98,14 +138,14 @@ export function handleConnection(ws: WebSocket): void {
           }
           break;
         case WS_TYPES.TERMINAL_DISCONNECT:
-          if (msg.terminalId) {
+          if (typeof msg.terminalId === 'string' && client._terminalIds.has(msg.terminalId)) {
             closeTerminal(msg.terminalId);
             client._terminalIds.delete(msg.terminalId);
           }
           break;
         case WS_TYPES.TERMINAL_SUBSCRIBE:
           // #30/#44: Only subscribe if terminal actually exists
-          if (msg.terminalId) {
+          if (typeof msg.terminalId === 'string') {
             const exists = setWsClient(msg.terminalId, client);
             if (exists) {
               client._terminalIds.add(msg.terminalId);
@@ -115,7 +155,8 @@ export function handleConnection(ws: WebSocket): void {
           }
           break;
         case WS_TYPES.UPDATE_QUEUE_COUNT:
-          if (msg.sessionId != null && msg.count != null) {
+          if (typeof msg.sessionId === 'string' && typeof msg.count === 'number'
+              && Number.isInteger(msg.count) && msg.count >= 0 && msg.count <= 10000) {
             const updated = updateQueueCount(msg.sessionId, msg.count);
             if (updated) {
               broadcast({ type: WS_TYPES.SESSION_UPDATE, session: updated });
@@ -124,7 +165,7 @@ export function handleConnection(ws: WebSocket): void {
           break;
         case WS_TYPES.REPLAY:
           // Client reconnected and wants events since a certain sequence number
-          if (typeof msg.sinceSeq === 'number') {
+          if (typeof msg.sinceSeq === 'number' && msg.sinceSeq >= 0) {
             const missed = getEventsSince(msg.sinceSeq);
             log.debug('ws', `Replaying ${missed.length} events since seq=${msg.sinceSeq}`);
             for (const evt of missed) {
@@ -133,11 +174,11 @@ export function handleConnection(ws: WebSocket): void {
           }
           break;
         default:
-          log.debug('ws', `Unknown message type: ${msg.type}`);
+          break; // Silently ignore unknown types
       }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      log.debug('ws', `Invalid WS message: ${msg}`);
+      const errMsg = e instanceof Error ? e.message : String(e);
+      log.debug('ws', `Invalid WS message: ${errMsg}`);
     }
   });
 

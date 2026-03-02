@@ -102,9 +102,11 @@ function forceCanvasRepaint(
   // This avoids the shrink→expand flicker of the old 2-frame resize trick.
   requestAnimationFrame(() => {
     if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
+    const wasBottom = isAtBottom(term);
     fitAddon.fit();
     sendResize(ws, terminalId, term.cols, term.rows);
     term.refresh(0, term.rows - 1);
+    if (wasBottom) term.scrollToBottom();
     if (activeRef.current) {
       activeRef.current.layoutReady = true;
     }
@@ -341,8 +343,11 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         const resizeObserver = new ResizeObserver(() => {
           if (resizeTimer) clearTimeout(resizeTimer);
           resizeTimer = setTimeout(() => {
+            const wasBottom = isAtBottom(term);
             fitAddon.fit();
             sendResize(wsRef.current, terminalId, term.cols, term.rows);
+            // Restore scroll position: only auto-scroll to bottom if user was already there
+            if (wasBottom) term.scrollToBottom();
           }, 200);
         });
         resizeObserver.observe(container);
@@ -531,10 +536,11 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     // Just refit and refresh canvas to fix layout issues.
     requestAnimationFrame(() => {
       if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
+      const wasBottom = isAtBottom(term);
       fitAddon.fit();
       sendResize(wsRef.current, terminalId, term.cols, term.rows);
       term.refresh(0, term.rows - 1);
-      term.scrollToBottom();
+      if (wasBottom) term.scrollToBottom();
     });
   }, []);
 

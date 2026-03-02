@@ -5,7 +5,7 @@ import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { execSync } from 'child_process';
+import { execFile } from 'child_process';
 import hookRouter from './hookRouter.js';
 import { handleConnection, stopHeartbeat } from './wsManager.js';
 import { getAllSessions, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave } from './sessionStore.js';
@@ -31,21 +31,25 @@ const noOpen = args.includes('--no-open');
 
 const app = express();
 const server = createServer(app);
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, maxPayload: 64 * 1024 }); // 64KB max WS message
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '2mb' }));
 
 // -- Security headers --
-app.use((_req, res, next) => {
+app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  // CSP: allow self + inline styles (needed for xterm/three.js) + WebSocket
+  // HSTS when behind TLS terminating proxy
+  if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  // CSP: restrict connect-src to self (covers ws:/wss: same-origin)
   res.setHeader(
     'Content-Security-Policy',
-    "default-src 'self'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss: https://cdn.jsdelivr.net; img-src 'self' data: blob:; font-src 'self' data: https://cdn.jsdelivr.net; worker-src 'self' blob:",
+    "default-src 'self'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob:; font-src 'self' data: https://cdn.jsdelivr.net; worker-src 'self' blob:; frame-src 'self' blob:",
   );
   next();
 });
@@ -82,14 +86,18 @@ app.post('/api/auth/login', (req, res) => {
   }
   if (!verifyPassword(password, config.passwordHash ?? '')) {
     recordLoginAttempt(ip);
+    log.warn('auth', `Failed login attempt from IP ${ip}`);
     res.status(401).json({ error: 'Wrong password' });
     return;
   }
 
   clearLoginAttempts(ip);
+  log.warn('auth', `Successful login from IP ${ip}`);
   const token = createToken();
-  res.setHeader('Set-Cookie', `auth_token=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${TOKEN_TTL_SECONDS}`);
-  res.json({ success: true, token, expiresIn: TOKEN_TTL_SECONDS });
+  const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  const secureSuffix = isSecure ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `auth_token=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${TOKEN_TTL_SECONDS}${secureSuffix}`);
+  res.json({ success: true, expiresIn: TOKEN_TTL_SECONDS });
 });
 
 app.post('/api/auth/refresh', (req, res) => {
@@ -103,8 +111,10 @@ app.post('/api/auth/refresh', (req, res) => {
     res.status(401).json({ error: 'Token expired or invalid — please login again' });
     return;
   }
-  res.setHeader('Set-Cookie', `auth_token=${newToken}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${TOKEN_TTL_SECONDS}`);
-  res.json({ success: true, token: newToken, expiresIn: TOKEN_TTL_SECONDS });
+  const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  const secureSuffix = isSecure ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `auth_token=${newToken}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${TOKEN_TTL_SECONDS}${secureSuffix}`);
+  res.json({ success: true, expiresIn: TOKEN_TTL_SECONDS });
 });
 
 app.post('/api/auth/logout', (req, res) => {
@@ -128,12 +138,13 @@ app.get('/api/sessions', authMiddleware, (_req, res) => {
   res.json(getAllSessions());
 });
 
-// Request logging middleware (debug mode only)
+// Request logging middleware (debug mode only) — strip tokens from logged URLs
 if (log.isDebug) {
   app.use((req, res, next) => {
     const start = Date.now();
     res.on('finish', () => {
-      log.debug('http', `${req.method} ${req.originalUrl} ${res.statusCode} ${Date.now() - start}ms`);
+      const sanitizedUrl = req.originalUrl.replace(/token=[^&]+/, 'token=***');
+      log.debug('http', `${req.method} ${sanitizedUrl} ${res.statusCode} ${Date.now() - start}ms`);
     });
     next();
   });
@@ -144,10 +155,29 @@ app.get('/{*splat}', (_req, res) => {
   res.sendFile(join(clientDir, 'index.html'));
 });
 
-// -- WebSocket with auth validation --
+// -- WebSocket with origin validation + auth --
 wss.on('connection', (ws, req) => {
+  // Origin validation: only allow same-host connections to prevent CSWSH
+  const origin = req.headers.origin;
+  const host = req.headers.host;
+  if (origin && host) {
+    try {
+      const originHost = new URL(origin).host;
+      if (originHost !== host) {
+        log.warn('ws', `Rejected WebSocket from foreign origin: ${origin} (expected host: ${host})`);
+        ws.close(4003, 'Forbidden: origin mismatch');
+        return;
+      }
+    } catch {
+      log.warn('ws', `Rejected WebSocket with invalid origin: ${origin}`);
+      ws.close(4003, 'Forbidden: invalid origin');
+      return;
+    }
+  }
+
   if (isPasswordEnabled()) {
-    const token = extractToken(req);
+    // Prefer cookie-based auth (avoids token in URL query string)
+    const token = parseCookieToken(req.headers.cookie) ?? extractToken(req);
     if (!validateToken(token)) {
       log.debug('auth', 'Rejected unauthorized WebSocket connection');
       ws.close(4001, 'Unauthorized');
@@ -170,7 +200,7 @@ function openBrowser(url: string): void {
     const cmd = process.platform === 'darwin' ? 'open'
       : process.platform === 'win32' ? 'start'
       : 'xdg-open';
-    execSync(`${cmd} "${url}"`, { stdio: 'ignore', timeout: 5000 });
+    execFile(cmd, [url], { timeout: 5000 }, () => { /* ignore errors */ });
   } catch {
     // Browser open failed -- not critical
   }
@@ -207,11 +237,14 @@ function onReady(): void {
   if (isPasswordEnabled()) {
     log.info('server', 'Password protection ENABLED -- login required (1h token TTL)');
   } else {
-    // Warn if binding to all interfaces without password
+    // Warn/block if binding to all interfaces without password
     const bindAddr = (server.address() as { address?: string } | null)?.address;
     if (bindAddr === '0.0.0.0' || bindAddr === '::') {
-      log.warn('server', '⚠ WARNING: Server is publicly accessible WITHOUT a password!');
-      log.warn('server', '  Run `npm run setup` to set a password before exposing to the internet.');
+      log.error('server', '------------------------------------------------------------');
+      log.error('server', 'SECURITY: Server is publicly accessible WITHOUT a password!');
+      log.error('server', 'This is DANGEROUS. Anyone on the network has full access.');
+      log.error('server', 'Run `npm run setup` to set a password.');
+      log.error('server', '------------------------------------------------------------');
     }
   }
   if (log.isDebug) {

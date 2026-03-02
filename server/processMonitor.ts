@@ -4,7 +4,7 @@
  * Auto-ends sessions whose processes have died (e.g., terminal closed abruptly).
  * Also provides findClaudeProcess() with cached PID, pgrep, and lsof fallbacks.
  */
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'child_process';
 import { getTerminalForSession } from './sshManager.js';
 import { SESSION_STATUS, ANIMATION_STATE, WS_TYPES } from './constants.js';
 import { PROCESS_CHECK_INTERVAL } from './config.js';
@@ -167,7 +167,12 @@ export function findClaudeProcess(
       if (pid) cachePid(pid, sessionId, session, pidToSession);
       return pid || null;
     } else {
-      const pidsOut = execSync(`pgrep -f claude 2>/dev/null || true`, { encoding: 'utf-8', timeout: 5000 });
+      let pidsOut: string;
+      try {
+        pidsOut = execFileSync('pgrep', ['-f', 'claude'], { encoding: 'utf-8', timeout: 5000 });
+      } catch {
+        pidsOut = ''; // pgrep exits non-zero when no matches
+      }
       const pids = pidsOut.trim().split('\n')
         .map(p => validatePid(p.trim()))
         .filter((p): p is number => p !== null && p !== myPid);
@@ -185,10 +190,11 @@ export function findClaudeProcess(
           try {
             let cwd: string;
             if (process.platform === 'darwin') {
-              const out = execSync(`lsof -a -d cwd -Fn -p ${pid} 2>/dev/null | grep '^n'`, { encoding: 'utf-8', timeout: 3000 });
-              cwd = out.trim().replace(/^n/, '');
+              const out = execFileSync('lsof', ['-a', '-d', 'cwd', '-Fn', '-p', String(pid)], { encoding: 'utf-8', timeout: 3000 });
+              const nLine = out.split('\n').find(l => l.startsWith('n'));
+              cwd = nLine ? nLine.slice(1).trim() : '';
             } else {
-              cwd = execSync(`readlink /proc/${pid}/cwd 2>/dev/null`, { encoding: 'utf-8', timeout: 3000 }).trim();
+              cwd = execFileSync('readlink', [`/proc/${pid}/cwd`], { encoding: 'utf-8', timeout: 3000 }).trim();
             }
             const match = cwd === projectPath;
             log.debug('findProcess', `pid=${pid} cwd="${cwd}" ${match ? 'MATCH' : 'no match'}`);
@@ -207,7 +213,7 @@ export function findClaudeProcess(
       for (const pid of pids) {
         if (claimedPids.has(pid)) continue;
         try {
-          const tty = execSync(`ps -o tty= -p ${pid}`, { encoding: 'utf-8', timeout: 3000 }).trim();
+          const tty = execFileSync('ps', ['-o', 'tty=', '-p', String(pid)], { encoding: 'utf-8', timeout: 3000 }).trim();
           log.debug('findProcess', `fallback pid=${pid} tty=${tty || 'NONE'}`);
           if (tty && tty !== '??' && tty !== '?') {
             log.debug('findProcess', `FALLBACK returning pid=${pid} (first unclaimed with tty)`);

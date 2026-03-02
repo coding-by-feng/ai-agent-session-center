@@ -19,7 +19,7 @@ import * as db from './db.js';
 import { getMqStats } from './mqReader.js';
 import { execFile } from 'child_process';
 import { createReadStream, readFileSync, writeFileSync, readdirSync, existsSync, statSync, mkdirSync } from 'fs';
-import { join, dirname, extname, basename } from 'path';
+import { join, dirname, extname, basename, resolve, sep } from 'path';
 import { homedir, userInfo } from 'os';
 import { fileURLToPath } from 'url';
 import { ALL_CLAUDE_HOOK_EVENTS, DENSITY_EVENTS, SESSION_STATUS, WS_TYPES } from './constants.js';
@@ -68,12 +68,12 @@ const terminalCreateSchema = z.object({
   host: noShellMeta(255).optional(),
   port: z.number().int().min(1).max(65535).optional(),
   username: usernameSchema.optional(),
-  password: z.string().optional(),
+  password: z.string().max(256).optional(),
   privateKeyPath: z.string().optional(),
   authMethod: authMethodSchema,
   workingDir: noShellMetaWorkDir.optional(),
   command: noShellMeta(512).optional(),
-  apiKey: z.string().optional(),
+  apiKey: z.string().max(512).optional(),
   tmuxSession: z.string().regex(/^[a-zA-Z0-9_.\-]+$/, 'must be alphanumeric, dash, underscore, or dot').optional(),
   useTmux: z.boolean().optional(),
   sessionTitle: z.string().max(500).optional(),
@@ -242,7 +242,8 @@ router.get('/hooks/status', (_req: Request, res: Response) => {
     res.json({ installed: installedEvents.length > 0, density, events: installedEvents });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: msg });
+    log.error('api', `Hook status check failed: ${msg}`);
+    res.status(500).json({ error: 'Failed to check hook status' });
   }
 });
 
@@ -285,11 +286,18 @@ router.post('/hooks/uninstall', (_req: Request, res: Response) => {
 router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
   const sessionId = str(req.params.id);
 
+  // Validate session ID format to prevent command injection (only allow UUID-like chars)
+  if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) {
+    res.status(400).json({ error: 'Invalid session ID format' });
+    return;
+  }
+
   const session = getSession(sessionId);
   if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
 
-  // Build resume command: try exact session ID first, fall back to --continue
-  const resumeCmd = `claude --resume ${sessionId} || claude --continue`;
+  // Build resume command with single-quoted session ID to prevent shell interpretation
+  const safeId = sessionId.replace(/'/g, "'\\''");
+  const resumeCmd = `claude --resume '${safeId}' || claude --continue`;
 
   const allTerminals = getTerminals();
   const terminalExists = session.lastTerminalId && allTerminals.some(t => t.terminalId === session.lastTerminalId);
@@ -357,7 +365,7 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('api', `Resume with new terminal failed: ${msg}`);
-    res.status(500).json({ error: `Failed to create new terminal: ${msg}` });
+    res.status(500).json({ error: 'Failed to create new terminal' });
   }
 });
 
@@ -390,7 +398,7 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('api', `Reconnect terminal failed: ${msg}`);
-    res.status(500).json({ error: `Failed to reconnect terminal: ${msg}` });
+    res.status(500).json({ error: 'Failed to reconnect terminal' });
   }
 });
 
@@ -418,7 +426,8 @@ router.post('/sessions/:id/kill', (req: Request, res: Response) => {
       }, 3000);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      res.status(500).json({ error: `Failed to kill PID ${pid}: ${msg}` });
+      log.error('api', `Failed to kill PID ${pid}: ${msg}`);
+      res.status(500).json({ error: 'Failed to terminate process' });
       return;
     }
   }
@@ -536,7 +545,7 @@ router.post('/sessions/:id/summarize', async (req: Request, res: Response) => {
     activeSummarizeRequests--;
     const msg = err instanceof Error ? err.message : String(err);
     log.error('api', `Summarize error: ${msg}`);
-    res.status(500).json({ success: false, error: `Summarize failed: ${msg}` });
+    res.status(500).json({ success: false, error: 'Summarize failed' });
   }
 });
 
@@ -569,7 +578,8 @@ router.post('/tmux-sessions', async (req: Request, res: Response) => {
     res.json({ sessions });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: msg });
+    log.error('api', `Tmux session list failed: ${msg}`);
+    res.status(500).json({ error: 'Failed to list tmux sessions' });
   }
 });
 
@@ -623,7 +633,8 @@ router.post('/terminals', async (req: Request, res: Response) => {
     res.json({ ok: true, terminalId });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ success: false, error: msg });
+    log.error('api', `Terminal creation failed: ${msg}`);
+    res.status(500).json({ success: false, error: 'Failed to create terminal' });
   }
 });
 
@@ -642,6 +653,10 @@ router.post('/terminals/:id/write', (req: Request, res: Response) => {
   const { data } = req.body || {};
   if (!data || typeof data !== 'string') {
     res.status(400).json({ error: 'Missing or invalid "data" field' });
+    return;
+  }
+  if (data.length > 8192) {
+    res.status(400).json({ error: 'Data too large (max 8KB)' });
     return;
   }
   const terminals = getTerminals();
@@ -720,7 +735,7 @@ router.post('/teams/:teamId/members/:sessionId/terminal', async (req: Request, r
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('api', `Failed to attach to tmux pane ${tmuxPaneId}: ${msg}`);
-    res.status(500).json({ success: false, error: msg });
+    res.status(500).json({ success: false, error: 'Failed to attach to tmux pane' });
   }
 });
 
@@ -738,8 +753,8 @@ router.get('/db/sessions', (req: Request, res: Response) => {
     archived: (archived as string) || undefined,
     sortBy: ((sortBy as string) || 'started_at') as 'started_at' | 'last_activity_at' | 'project_name' | 'status',
     sortDir: ((sortDir as string) || 'desc') as 'asc' | 'desc',
-    page: page ? Number(page) : 1,
-    pageSize: pageSize ? Number(pageSize) : 50,
+    page: Math.max(1, Math.min(1000, page ? parseInt(String(page), 10) || 1 : 1)),
+    pageSize: Math.max(1, Math.min(200, pageSize ? parseInt(String(pageSize), 10) || 50 : 50)),
   });
   res.json(result);
 });
@@ -762,14 +777,19 @@ router.get('/db/projects', (_req: Request, res: Response) => {
   res.json(db.getDistinctProjects());
 });
 
-// Full-text search across prompts and responses
+// Full-text search across prompts and responses (rate-limited: expensive)
 router.get('/db/search', (req: Request, res: Response) => {
+  const ip = req.ip || 'unknown';
+  if (isRateLimited(`db-search:${ip}`, 5)) {
+    res.status(429).json({ error: 'Rate limit exceeded' });
+    return;
+  }
   const { query, type, page, pageSize } = req.query;
   res.json(db.fullTextSearch({
     query: (query as string) || '',
     type: (type as string) || 'all',
-    page: page ? Number(page) : 1,
-    pageSize: pageSize ? Number(pageSize) : 50,
+    page: Math.max(1, Math.min(1000, page ? parseInt(String(page), 10) || 1 : 1)),
+    pageSize: Math.max(1, Math.min(200, pageSize ? parseInt(String(pageSize), 10) || 50 : 50)),
   }));
 });
 
@@ -805,7 +825,12 @@ router.get('/db/analytics/projects', (_req: Request, res: Response) => {
   res.json(db.getActiveProjects());
 });
 
-router.get('/db/analytics/heatmap', (_req: Request, res: Response) => {
+router.get('/db/analytics/heatmap', (req: Request, res: Response) => {
+  const ip = req.ip || 'unknown';
+  if (isRateLimited(`heatmap:${ip}`, 2)) {
+    res.status(429).json({ error: 'Rate limit exceeded' });
+    return;
+  }
   res.json(db.getHeatmap());
 });
 
@@ -919,13 +944,30 @@ function isTextFile(name: string): boolean {
   return ext === '' || TEXT_EXTENSIONS.has(ext);
 }
 
+/** Validate that root is a known/safe project path — blocks dangerous roots like /. */
+function isAllowedProjectRoot(root: string): boolean {
+  if (!root) return false;
+  // Must be an absolute path
+  if (!root.startsWith('/') && !/^[A-Z]:\\/.test(root)) return false;
+  // Block shallow roots: /, /etc, /home, /Users, etc.
+  const segments = root.split('/').filter(Boolean);
+  if (segments.length < 2) return false;
+  // Block specific dangerous roots
+  const blocked = ['/', '/etc', '/root', '/tmp', '/var', '/bin', '/sbin', '/usr', '/dev', '/proc', '/sys'];
+  if (blocked.includes(root)) return false;
+  return true;
+}
+
 /** Resolve and validate a requested path is within the project root. */
 function resolveProjectPath(projectRoot: string, relPath: string): string | null {
-  // Prevent traversal: normalise, then ensure it's within root
-  const resolved = join(projectRoot, relPath);
-  const normalised = join(resolved); // removes .., . etc
-  if (!normalised.startsWith(projectRoot)) return null;
-  return normalised;
+  // Prevent traversal: resolve to absolute, then ensure it's within root
+  // Strip leading '/' so path.resolve treats it as relative to projectRoot
+  const cleaned = relPath.replace(/^\/+/, '');
+  const rootWithSep = projectRoot.endsWith(sep) ? projectRoot : projectRoot + sep;
+  const resolved = resolve(projectRoot, cleaned);
+  // Must either equal the root exactly or be underneath it (with separator check)
+  if (resolved !== projectRoot && !resolved.startsWith(rootWithSep)) return null;
+  return resolved;
 }
 
 const filePathSchema = z.object({
@@ -936,6 +978,7 @@ const filePathSchema = z.object({
 router.get('/files/list', (req: Request, res: Response) => {
   const root = str(req.query.root);
   if (!root) { res.status(400).json({ error: 'root query param required' }); return; }
+  if (!isAllowedProjectRoot(root)) { res.status(400).json({ error: 'Invalid project root' }); return; }
 
   const body = filePathSchema.safeParse({ path: str(req.query.path) || '/' });
   if (!body.success) { res.status(400).json({ error: 'Invalid path' }); return; }
@@ -980,7 +1023,8 @@ router.get('/files/list', (req: Request, res: Response) => {
     res.json({ path: relPath, items });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: msg });
+    log.error('api', `File list failed: ${msg}`);
+    res.status(500).json({ error: 'Failed to list directory' });
   }
 });
 
@@ -988,6 +1032,7 @@ router.get('/files/list', (req: Request, res: Response) => {
 router.get('/files/read', (req: Request, res: Response) => {
   const root = str(req.query.root);
   if (!root) { res.status(400).json({ error: 'root query param required' }); return; }
+  if (!isAllowedProjectRoot(root)) { res.status(400).json({ error: 'Invalid project root' }); return; }
 
   const body = filePathSchema.safeParse({ path: str(req.query.path) });
   if (!body.success) { res.status(400).json({ error: 'Invalid path' }); return; }
@@ -1026,7 +1071,8 @@ router.get('/files/read', (req: Request, res: Response) => {
     res.json({ path: relPath, content, ext, size: stat.size, name });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: msg });
+    log.error('api', `File read failed: ${msg}`);
+    res.status(500).json({ error: 'Failed to read file' });
   }
 });
 
@@ -1034,6 +1080,7 @@ router.get('/files/read', (req: Request, res: Response) => {
 router.get('/files/stream', (req: Request, res: Response) => {
   const root = str(req.query.root);
   if (!root) { res.status(400).json({ error: 'root query param required' }); return; }
+  if (!isAllowedProjectRoot(root)) { res.status(400).json({ error: 'Invalid project root' }); return; }
 
   const body = filePathSchema.safeParse({ path: str(req.query.path) });
   if (!body.success) { res.status(400).json({ error: 'Invalid path' }); return; }
@@ -1057,7 +1104,8 @@ router.get('/files/stream', (req: Request, res: Response) => {
 
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Length', stat.size);
-    res.setHeader('Content-Disposition', `inline; filename="${basename(fullPath)}"`);
+    const safeName = basename(fullPath).replace(/[^a-zA-Z0-9._-]/g, '_');
+    res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
 
     const stream = createReadStream(fullPath);
     stream.pipe(res);
@@ -1066,7 +1114,8 @@ router.get('/files/stream', (req: Request, res: Response) => {
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (!res.headersSent) res.status(500).json({ error: msg });
+    log.error('api', `File stream failed: ${msg}`);
+    if (!res.headersSent) res.status(500).json({ error: 'Failed to stream file' });
   }
 });
 
@@ -1082,6 +1131,7 @@ router.post('/files/write', (req: Request, res: Response) => {
   if (!parsed.success) { res.status(400).json({ error: 'Invalid request body' }); return; }
 
   const { root, path: relPath, content } = parsed.data;
+  if (!isAllowedProjectRoot(root)) { res.status(400).json({ error: 'Invalid project root' }); return; }
   const fullPath = resolveProjectPath(root, relPath);
   if (!fullPath) { res.status(400).json({ error: 'Path outside project root' }); return; }
 
@@ -1096,7 +1146,8 @@ router.post('/files/write', (req: Request, res: Response) => {
     res.json({ ok: true, path: relPath, size: stat.size });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: msg });
+    log.error('api', `File write failed: ${msg}`);
+    res.status(500).json({ error: 'Failed to write file' });
   }
 });
 
@@ -1111,6 +1162,7 @@ router.post('/files/mkdir', (req: Request, res: Response) => {
   if (!parsed.success) { res.status(400).json({ error: 'Invalid request body' }); return; }
 
   const { root, path: relPath } = parsed.data;
+  if (!isAllowedProjectRoot(root)) { res.status(400).json({ error: 'Invalid project root' }); return; }
   const fullPath = resolveProjectPath(root, relPath);
   if (!fullPath) { res.status(400).json({ error: 'Path outside project root' }); return; }
 
@@ -1120,15 +1172,22 @@ router.post('/files/mkdir', (req: Request, res: Response) => {
     res.json({ ok: true, path: relPath });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: msg });
+    log.error('api', `Mkdir failed: ${msg}`);
+    res.status(500).json({ error: 'Failed to create directory' });
   }
 });
 
 /** GET /api/files/search?root=<projectPath>&q=<query> — fuzzy search file names */
 router.get('/files/search', (req: Request, res: Response) => {
+  const ip = req.ip || 'unknown';
+  if (isRateLimited(`file-search:${ip}`, 5)) {
+    res.status(429).json({ error: 'Rate limit exceeded' });
+    return;
+  }
   const root = str(req.query.root);
   const query = str(req.query.q).toLowerCase();
   if (!root) { res.status(400).json({ error: 'root query param required' }); return; }
+  if (!isAllowedProjectRoot(root)) { res.status(400).json({ error: 'Invalid project root' }); return; }
   if (!query) { res.json({ results: [] }); return; }
 
   const results: Array<{ path: string; name: string; type: 'dir' | 'file' }> = [];

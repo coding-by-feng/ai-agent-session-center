@@ -223,12 +223,12 @@ export default function DetailTabs({
 
   const contentMap: Record<string, ReactNode> = {
     terminal: terminalContent,
-    conversation: promptsContent,
+    conversation: <div className={styles.tabScroll}>{promptsContent}</div>,
     project: projectContent,
-    queue: queueContent,
-    notes: notesContent,
-    activity: activityContent,
-    summary: summaryContent,
+    queue: <div className={styles.tabScroll}>{queueContent}</div>,
+    notes: <div className={styles.tabScroll}>{notesContent}</div>,
+    activity: <div className={styles.tabScroll}>{activityContent}</div>,
+    summary: <div className={styles.tabScroll}>{summaryContent}</div>,
     split: (
       <DraggableSplitView
         left={terminalContent}
