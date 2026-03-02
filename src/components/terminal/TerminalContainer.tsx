@@ -119,6 +119,17 @@ export default function TerminalContainer({
     });
   }, [isFullscreen, reparent, containerRef]);
 
+  // Mark body so the DetailPanel overlay can be hidden while terminal is fullscreen,
+  // preventing the tab bar from showing through the fullscreen overlay.
+  useEffect(() => {
+    if (isFullscreen) {
+      document.body.classList.add('term-fullscreen');
+    } else {
+      document.body.classList.remove('term-fullscreen');
+    }
+    return () => document.body.classList.remove('term-fullscreen');
+  }, [isFullscreen]);
+
   // Listen for terminal WS messages
   useEffect(() => {
     if (!ws) return;
@@ -323,7 +334,6 @@ export default function TerminalContainer({
           style={{ display: isFullscreen ? 'flex' : 'none' }}
         >
           <div className={styles.fullscreenTopbar}>
-            <span className={styles.fullscreenTitle}>Terminal</span>
             <TerminalToolbar
               themeName={themeName}
               onThemeChange={handleThemeChange}

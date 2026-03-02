@@ -12,6 +12,14 @@
   animation: fade-in 0.2s ease;
 }
 
+/* Hide the detail panel while the terminal fullscreen overlay is active.
+   The terminal fullscreen portal (z-index: 10000) covers the viewport, but the
+   panel's will-change:transform compositor layer can bleed through in some browsers.
+   The body.term-fullscreen class is set by TerminalContainer when fullscreen is active. */
+:global(body.term-fullscreen) .overlay {
+  visibility: hidden;
+}
+
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes slide-in-right { from { transform: translateX(100%); } to { transform: translateX(0); } }
 
