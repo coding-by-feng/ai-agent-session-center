@@ -14,19 +14,41 @@ interface SubTab {
   label: string;
   projectPath: string;
   initialPath?: string;
+  /** True if initialPath points to a file (not a directory) */
+  initialIsFile?: boolean;
 }
 
 interface ProjectTabContainerProps {
   projectPath: string;
 }
 
+/** localStorage key for persisting sub-tab state per project */
+function storageKey(projectPath: string): string {
+  return `agent-manager:project-tabs:${projectPath}`;
+}
+
+function loadPersistedTabs(projectPath: string, defaultLabel: string): { tabs: SubTab[]; active: string } {
+  try {
+    const raw = localStorage.getItem(storageKey(projectPath));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed.tabs) && parsed.tabs.length > 0 && typeof parsed.active === 'string') {
+        return { tabs: parsed.tabs, active: parsed.active };
+      }
+    }
+  } catch { /* ignore */ }
+  return { tabs: [{ id: 'default', label: defaultLabel, projectPath }], active: 'default' };
+}
+
 export default function ProjectTabContainer({ projectPath }: ProjectTabContainerProps) {
   const defaultLabel = projectPath.split('/').filter(Boolean).pop() || 'project';
 
-  const [subTabs, setSubTabs] = useState<SubTab[]>(() => [
-    { id: 'default', label: defaultLabel, projectPath },
-  ]);
-  const [activeSubTab, setActiveSubTab] = useState('default');
+  const [subTabs, setSubTabs] = useState<SubTab[]>(() =>
+    loadPersistedTabs(projectPath, defaultLabel).tabs,
+  );
+  const [activeSubTab, setActiveSubTab] = useState(() =>
+    loadPersistedTabs(projectPath, defaultLabel).active,
+  );
 
   // File open requests from terminal (or elsewhere)
   const pendingFileOpen = useUiStore((s) => s.pendingFileOpen);
@@ -82,8 +104,17 @@ export default function ProjectTabContainer({ projectPath }: ProjectTabContainer
     const label = segments.length > 0
       ? segments[segments.length - 1]
       : projectPath.split('/').filter(Boolean).pop() || 'project';
-    setSubTabs((prev) => prev.map((t) => t.id === tabId ? { ...t, label } : t));
+    setSubTabs((prev) => prev.map((t) =>
+      t.id === tabId ? { ...t, label, initialPath: currentPath, initialIsFile: isFile } : t,
+    ));
   }, [projectPath]);
+
+  // Persist sub-tab state to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey(projectPath), JSON.stringify({ tabs: subTabs, active: activeSubTab }));
+    } catch { /* ignore */ }
+  }, [subTabs, activeSubTab, projectPath]);
 
   // Only show the sub-tab bar when there are multiple tabs
   const showSubTabs = subTabs.length > 1;
@@ -120,6 +151,7 @@ export default function ProjectTabContainer({ projectPath }: ProjectTabContainer
             <ProjectTab
               projectPath={tab.projectPath}
               initialPath={tab.initialPath}
+              initialIsFile={tab.initialIsFile}
               navigateToFile={activeSubTab === tab.id ? navigateToFile : null}
               onOpenBrowserTab={handleOpenBrowserTab}
               onPathChange={(path, isFile) => handlePathChange(tab.id, path, isFile)}
