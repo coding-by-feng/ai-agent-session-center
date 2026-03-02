@@ -132,6 +132,7 @@ export default function DetailPanel() {
   );
 
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [activeTab, setActiveTab] = useState<string>(() => {
     try { return localStorage.getItem('active-tab') || 'terminal'; } catch { return 'terminal'; }
   });
@@ -170,6 +171,7 @@ export default function DetailPanel() {
         maxWidth={Math.round(window.innerWidth * 0.95)}
         side="right"
         activeTab={activeTab}
+        fullscreen={isFullscreen}
       >
         {/* Close button */}
         <button
@@ -178,6 +180,29 @@ export default function DetailPanel() {
           title="Close"
         >
           &times;
+        </button>
+
+        {/* Fullscreen toggle */}
+        <button
+          className={styles.fullscreenBtn}
+          onClick={() => setIsFullscreen(prev => !prev)}
+          title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+        >
+          {isFullscreen ? (
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="4 1 1 1 1 4" />
+              <polyline points="10 13 13 13 13 10" />
+              <polyline points="13 4 13 1 10 1" />
+              <polyline points="1 10 1 13 4 13" />
+            </svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="1 5 1 1 5 1" />
+              <polyline points="13 9 13 13 9 13" />
+              <polyline points="9 1 13 1 13 5" />
+              <polyline points="5 13 1 13 1 9" />
+            </svg>
+          )}
         </button>
 
         {/* Collapse toggle */}

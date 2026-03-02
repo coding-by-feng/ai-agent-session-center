@@ -32,6 +32,8 @@ interface ResizablePanelProps {
   className?: string;
   /** When provided, panel width is persisted per-tab (e.g. "terminal", "project") */
   activeTab?: string;
+  /** When true, the panel fills the entire viewport */
+  fullscreen?: boolean;
 }
 
 export default function ResizablePanel({
@@ -42,6 +44,7 @@ export default function ResizablePanel({
   side = 'right',
   className,
   activeTab,
+  fullscreen = false,
 }: ResizablePanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [resizing, setResizing] = useState(false);
@@ -109,14 +112,16 @@ export default function ResizablePanel({
   return (
     <div
       ref={panelRef}
-      className={`${styles.panel} ${resizing ? styles.resizing : ''} ${className ?? ''}`}
-      style={{ width: `${savedWidth.current}px` }}
+      className={`${styles.panel} ${resizing ? styles.resizing : ''} ${fullscreen ? styles.panelFullscreen : ''} ${className ?? ''}`}
+      style={fullscreen ? undefined : { width: `${savedWidth.current}px` }}
     >
-      <div
-        onMouseDown={handleMouseDown}
-        className={`${styles.resizeHandle} ${resizing ? styles.active : ''}`}
-        style={{ [side === 'right' ? 'left' : 'right']: '-3px' }}
-      />
+      {!fullscreen && (
+        <div
+          onMouseDown={handleMouseDown}
+          className={`${styles.resizeHandle} ${resizing ? styles.active : ''}`}
+          style={{ [side === 'right' ? 'left' : 'right']: '-3px' }}
+        />
+      )}
       {children}
     </div>
   );

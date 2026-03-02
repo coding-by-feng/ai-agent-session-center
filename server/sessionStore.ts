@@ -141,9 +141,9 @@ export function saveSnapshot(mqOffset?: number): void {
       pidToSession: pidObj,
       pendingResume: pendingResumeObj,
     };
-    mkdirSync(SNAPSHOT_DIR, { recursive: true });
+    mkdirSync(SNAPSHOT_DIR, { recursive: true, mode: 0o700 });
     const tmpFile = SNAPSHOT_FILE + '.tmp';
-    writeFileSync(tmpFile, JSON.stringify(snapshot));
+    writeFileSync(tmpFile, JSON.stringify(snapshot), { mode: 0o600 });
     renameSync(tmpFile, SNAPSHOT_FILE);
     log.debug('session', `Snapshot saved: ${Object.keys(sessionsObj).length} sessions`);
   } catch (err: unknown) {

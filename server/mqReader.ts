@@ -60,12 +60,12 @@ export function startMqReader(options?: MqReaderOptions): void {
   running = true;
   mqStats.startedAt = Date.now();
 
-  // Ensure queue directory exists
-  mkdirSync(QUEUE_DIR, { recursive: true });
+  // Ensure queue directory exists with restrictive permissions (user-only)
+  mkdirSync(QUEUE_DIR, { recursive: true, mode: 0o700 });
 
-  // Create queue file if it doesn't exist (but don't truncate existing)
+  // Create queue file if it doesn't exist with restrictive permissions
   if (!existsSync(QUEUE_FILE)) {
-    writeFileSync(QUEUE_FILE, '');
+    writeFileSync(QUEUE_FILE, '', { mode: 0o600 });
   }
 
   // Resume from snapshot offset or start from current EOF

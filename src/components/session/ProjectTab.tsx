@@ -34,6 +34,8 @@ interface FileContent {
   name: string;
   binary?: boolean;
   streamable?: boolean;
+  /** Blob object URL for streamable files (PDF, etc.) */
+  blobUrl?: string;
 }
 
 interface FileTab {
@@ -167,6 +169,45 @@ function IconBookmark({ active = false }: { active?: boolean }) {
       <path d="M3 2h10v13l-5-3.5L3 15V2z" strokeLinejoin="round" />
     </svg>
   );
+}
+
+function IconOutline() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <line x1="2" y1="3" x2="10" y2="3" />
+      <line x1="4" y1="6.5" x2="13" y2="6.5" />
+      <line x1="4" y1="10" x2="11" y2="10" />
+      <line x1="2" y1="13.5" x2="9" y2="13.5" />
+    </svg>
+  );
+}
+
+interface HeadingItem {
+  level: number;
+  text: string;
+  slug: string;
+}
+
+/** Extract headings from markdown content for outline navigation. */
+function extractHeadings(content: string): HeadingItem[] {
+  const headings: HeadingItem[] = [];
+  let inCodeBlock = false;
+  for (const line of content.split('\n')) {
+    if (line.trimStart().startsWith('```')) { inCodeBlock = !inCodeBlock; continue; }
+    if (inCodeBlock) continue;
+    const match = line.match(/^(#{1,6})\s+(.+)/);
+    if (match) {
+      const text = match[2].replace(/\s*#+\s*$/, '').trim();
+      const slug = text.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
+      headings.push({ level: match[1].length, text, slug });
+    }
+  }
+  return headings;
+}
+
+/** Generate a slug from heading text — must match what ReactMarkdown produces. */
+function headingSlug(text: string): string {
+  return text.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
 }
 
 /** Basic XML pretty-printer: normalises whitespace and re-indents. */
@@ -342,6 +383,41 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const [showBookmarkPanel, setShowBookmarkPanel] = useState(false);
   const pendingScrollLine = useRef<number | null>(null);
 
+  // Markdown outline (side panel with draggable divider)
+  const [showOutline, setShowOutline] = useState(false);
+  const markdownRef = useRef<HTMLDivElement>(null);
+  const mdContainerRef = useRef<HTMLDivElement>(null);
+  const [outlineWidth, setOutlineWidth] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('outline-panel-width');
+      if (saved) return Math.max(120, Math.min(400, Number(saved)));
+    } catch { /* ignore */ }
+    return 180;
+  });
+  const outlineWidthRef = useRef(outlineWidth);
+  outlineWidthRef.current = outlineWidth;
+
+  const onOutlineDividerDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = outlineWidthRef.current;
+    const onMove = (ev: MouseEvent) => {
+      const newWidth = Math.max(120, Math.min(400, startWidth + (ev.clientX - startX)));
+      setOutlineWidth(newWidth);
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      try { localStorage.setItem('outline-panel-width', String(outlineWidthRef.current)); } catch { /* ignore */ }
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, []);
+
   const loadDir = useCallback(async (relPath: string) => {
     setLoading(true);
     setError(null);
@@ -368,6 +444,8 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   }, [projectPath, onPathChange]);
 
   const loadFile = useCallback(async (relPath: string) => {
+    // Revoke previous blob URL to prevent memory leaks
+    setFile((prev) => { if (prev?.blobUrl) URL.revokeObjectURL(prev.blobUrl); return prev; });
     setLoading(true);
     setError(null);
     setEditingNewFile(null);
@@ -378,6 +456,14 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         throw new Error(data.error || res.statusText);
       }
       const data: FileContent = await res.json();
+      // For streamable files (PDF), fetch the raw bytes as a blob
+      if (data.streamable) {
+        const streamRes = await fetch(`/api/files/stream?root=${encodeURIComponent(projectPath)}&path=${encodeURIComponent(relPath)}`);
+        if (streamRes.ok) {
+          const blob = await streamRes.blob();
+          data.blobUrl = URL.createObjectURL(blob);
+        }
+      }
       setFile(data);
       setCurrentPath(relPath);
       onPathChange?.(relPath, true);
@@ -711,6 +797,14 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
           <IconFormat />
         </button>
         <button
+          className={`${styles.iconBtn} ${showOutline ? styles.iconBtnActive : ''}`}
+          onClick={() => setShowOutline((p) => !p)}
+          disabled={!file || (file.ext !== 'md' && file.ext !== 'mdx')}
+          title="Toggle markdown outline"
+        >
+          <IconOutline />
+        </button>
+        <button
           className={`${styles.iconBtn} ${showBookmarkPanel || bookmarks.length > 0 ? styles.iconBtnActive : ''}`}
           onClick={handleBookmarkBtnClick}
           title="Bookmark selected text / show bookmarks"
@@ -824,9 +918,9 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         {/* File viewer */}
         {!loading && !error && file && !showingEditor && (
           <div className={styles.fileViewer}>
-            {file.streamable && file.ext === 'pdf' ? (
+            {file.streamable && file.ext === 'pdf' && file.blobUrl ? (
               <iframe
-                src={`/api/files/stream?root=${encodeURIComponent(projectPath)}&path=${encodeURIComponent(file.path)}`}
+                src={file.blobUrl}
                 className={styles.pdfViewer}
                 title={file.name}
               />
@@ -835,18 +929,49 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                 Binary file ({formatSize(file.size)})
               </div>
             ) : file.ext === 'md' || file.ext === 'mdx' ? (
-              <div className={styles.markdown}>
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeHighlight]}
-                  components={{
-                    a: ({ children, ...props }) => (
-                      <a {...props} target="_blank" rel="noopener noreferrer">{children}</a>
-                    ),
-                  }}
-                >
-                  {file.content || ''}
-                </ReactMarkdown>
+              <div className={styles.mdContainer} ref={mdContainerRef}>
+                {showOutline && (
+                  <>
+                    <div className={styles.outlinePanel} style={{ width: outlineWidth, minWidth: outlineWidth }}>
+                      <div className={styles.outlineHeader}>OUTLINE</div>
+                      <div className={styles.outlineList}>
+                        {extractHeadings(file.content || '').map((h, i) => (
+                          <button
+                            key={i}
+                            className={styles.outlineItem}
+                            style={{ paddingLeft: `${(h.level - 1) * 12 + 8}px` }}
+                            onClick={() => {
+                              const el = markdownRef.current?.querySelector(`[id="${h.slug}"]`);
+                              el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }}
+                          >
+                            {h.text}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className={styles.outlineDivider} onMouseDown={onOutlineDividerDown} />
+                  </>
+                )}
+                <div className={styles.markdown} ref={markdownRef}>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    rehypePlugins={[rehypeHighlight]}
+                    components={{
+                      a: ({ children, ...props }) => (
+                        <a {...props} target="_blank" rel="noopener noreferrer">{children}</a>
+                      ),
+                      h1: ({ children, ...props }) => <h1 id={headingSlug(String(children))} {...props}>{children}</h1>,
+                      h2: ({ children, ...props }) => <h2 id={headingSlug(String(children))} {...props}>{children}</h2>,
+                      h3: ({ children, ...props }) => <h3 id={headingSlug(String(children))} {...props}>{children}</h3>,
+                      h4: ({ children, ...props }) => <h4 id={headingSlug(String(children))} {...props}>{children}</h4>,
+                      h5: ({ children, ...props }) => <h5 id={headingSlug(String(children))} {...props}>{children}</h5>,
+                      h6: ({ children, ...props }) => <h6 id={headingSlug(String(children))} {...props}>{children}</h6>,
+                    }}
+                  >
+                    {file.content || ''}
+                  </ReactMarkdown>
+                </div>
               </div>
             ) : (
               <div className={styles.codeLines}>
