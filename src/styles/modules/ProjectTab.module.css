@@ -518,6 +518,7 @@
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  max-width: 45%;
   overflow: hidden;
   border-right: 1px solid var(--border-subtle);
 }
@@ -554,8 +555,7 @@
   flex-direction: column;
   overflow-y: auto;
   padding: 4px 0;
-  flex: 1;
-  min-height: 0;
+  max-height: min(100%, 50vh);
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
 }
@@ -577,6 +577,8 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 100%;
+  flex-shrink: 0;
   transition: color 0.12s, background 0.12s;
 }
 

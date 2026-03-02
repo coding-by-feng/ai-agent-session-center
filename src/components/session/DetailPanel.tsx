@@ -50,7 +50,7 @@ function TerminalContent({ session }: { session: Session }) {
   const client = useWsStore((s) => s.client);
   const ws = useMemo(() => client?.getRawSocket() ?? null, [client]);
   const isSSH = session.source === 'ssh';
-  const showReconnect = isSSH && session.status === 'ended';
+  const showReconnect = isSSH && session.status === 'ended' && !session.terminalId;
   const [bookmarkTarget, setBookmarkTarget] = useState<HTMLDivElement | null>(null);
 
   const handleReconnect = useCallback(() => {

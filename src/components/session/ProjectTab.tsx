@@ -401,8 +401,10 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     e.preventDefault();
     const startX = e.clientX;
     const startWidth = outlineWidthRef.current;
+    const containerWidth = mdContainerRef.current?.clientWidth ?? 800;
+    const maxWidth = Math.min(400, Math.floor(containerWidth * 0.45));
     const onMove = (ev: MouseEvent) => {
-      const newWidth = Math.max(120, Math.min(400, startWidth + (ev.clientX - startX)));
+      const newWidth = Math.max(120, Math.min(maxWidth, startWidth + (ev.clientX - startX)));
       setOutlineWidth(newWidth);
     };
     const onUp = () => {

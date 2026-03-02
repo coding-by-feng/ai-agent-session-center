@@ -770,7 +770,8 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       if (session.source === 'ssh') {
         session.isHistorical = true;
         session.lastTerminalId = session.terminalId;
-        session.terminalId = null;
+        // Keep terminalId alive — the PTY shell is still running even though Claude exited.
+        // terminalId is nulled when the PTY actually dies (registerTerminalExitCallback).
       }
       // Non-SSH sessions are also kept (no auto-delete)
       break;
