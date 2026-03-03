@@ -369,9 +369,14 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
             if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
             const buffered = pendingOutputRef.current.get(terminalId);
             if (buffered && buffered.length > 0) {
+              let remaining = buffered.length;
               for (const data of buffered) {
                 const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
-                term.write(bytes);
+                term.write(bytes, () => {
+                  if (--remaining === 0 && activeRef.current?.term === term) {
+                    term.scrollToBottom();
+                  }
+                });
               }
               pendingOutputRef.current.delete(terminalId);
               pendingOutputTtlRef.current.delete(terminalId);
@@ -405,13 +410,24 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           const { term } = activeRef.current;
           // #88: Only auto-scroll if user hasn't scrolled up to review history
           const wasAtBottom = isAtBottom(term);
-          for (const chunk of pending) {
-            const bytes = Uint8Array.from(atob(chunk), (c) => c.charCodeAt(0));
-            term.write(bytes);
-          }
-          // Scroll once after all chunks written (#76: not per-write)
-          if (wasAtBottom) {
-            term.scrollToBottom();
+          // Use write callbacks so scrollToBottom fires after xterm processes writes
+          // and updates baseY. Without this, scrollToBottom() called synchronously
+          // after write() is a no-op because baseY hasn't been updated yet (#scroll-fix).
+          if (wasAtBottom && pending.length > 0) {
+            let remaining = pending.length;
+            for (const chunk of pending) {
+              const bytes = Uint8Array.from(atob(chunk), (c) => c.charCodeAt(0));
+              term.write(bytes, () => {
+                if (--remaining === 0 && activeRef.current?.term === term) {
+                  term.scrollToBottom();
+                }
+              });
+            }
+          } else {
+            for (const chunk of pending) {
+              const bytes = Uint8Array.from(atob(chunk), (c) => c.charCodeAt(0));
+              term.write(bytes);
+            }
           }
         });
       }
