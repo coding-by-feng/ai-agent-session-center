@@ -655,8 +655,8 @@ router.post('/terminals/:id/write', (req: Request, res: Response) => {
     res.status(400).json({ error: 'Missing or invalid "data" field' });
     return;
   }
-  if (data.length > 8192) {
-    res.status(400).json({ error: 'Data too large (max 8KB)' });
+  if (data.length > 50 * 1024 * 1024) {
+    res.status(400).json({ error: 'Data too large (max 50MB)' });
     return;
   }
   const terminals = getTerminals();

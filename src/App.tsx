@@ -1,9 +1,10 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import LoginScreen from '@/components/auth/LoginScreen';
+import SetupWizard from '@/components/setup/SetupWizard';
 import Header from '@/components/layout/Header';
 import NavBar from '@/components/layout/NavBar';
 import ActivityFeed from '@/components/layout/ActivityFeed';
@@ -111,6 +112,29 @@ function AuthGate() {
 }
 
 export default function App() {
+  const [isSetup, setIsSetup] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!window.electronAPI) {
+      // Web mode: skip setup gate entirely
+      setIsSetup(true);
+      return;
+    }
+    window.electronAPI.isSetup().then(setIsSetup);
+  }, []);
+
+  if (isSetup === null) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0a0a1a', color: '#8888aa', fontFamily: "'JetBrains Mono', monospace" }}>
+        Loading...
+      </div>
+    );
+  }
+
+  if (isSetup === false) {
+    return <SetupWizard />;
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <AuthGate />
