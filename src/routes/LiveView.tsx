@@ -49,9 +49,9 @@ class SceneErrorBoundary extends Component<
           <button
             onClick={() => this.setState({ hasError: false, error: '' })}
             style={{
-              background: '#1a1a2e',
-              border: '1px solid #00f0ff',
-              color: '#00f0ff',
+              background: 'var(--bg-card)',
+              border: '1px solid var(--accent-cyan)',
+              color: 'var(--accent-cyan)',
               padding: '8px 16px',
               cursor: 'pointer',
               fontFamily: 'inherit',
@@ -82,7 +82,7 @@ function FlatView() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        color: 'rgba(255,255,255,0.06)',
+        color: 'var(--border-subtle)',
         fontFamily: "'Share Tech Mono', 'JetBrains Mono', monospace",
         fontSize: 14,
         letterSpacing: 4,
@@ -117,8 +117,8 @@ export default function LiveView() {
             alignItems: 'center',
             justifyContent: 'center',
             height: '100%',
-            background: '#0e0c1a',
-            color: '#00f0ff',
+            background: 'var(--bg-primary)',
+            color: 'var(--accent-cyan)',
             fontFamily: "'JetBrains Mono', monospace",
             fontSize: 12,
             letterSpacing: 2,

@@ -14,7 +14,6 @@ import { deleteSession as deleteSessionDb } from '@/lib/db';
 import { showToast } from '@/components/ui/ToastContainer';
 import { KILL_MODAL_ID } from './KillConfirmModal';
 import { ALERT_MODAL_ID } from './AlertModal';
-import { SUMMARIZE_MODAL_ID } from './SummarizeModal';
 import LabelChips from './LabelChips';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
@@ -114,11 +113,6 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
     }
   }, [session.sessionId, session.title, session.projectName, deselectSession, removeSession]);
 
-  // ---- Summarize ----
-  const handleSummarize = useCallback(() => {
-    openModal(SUMMARIZE_MODAL_ID);
-  }, [openModal]);
-
   // ---- Alert ----
   const handleAlert = useCallback(() => {
     openModal(ALERT_MODAL_ID);
@@ -191,12 +185,6 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
           onClick={handleDelete}
         >
           DELETE
-        </button>
-        <button
-          className={`${styles.ctrlBtn} ${styles.summarize}`}
-          onClick={handleSummarize}
-        >
-          SUMMARIZE
         </button>
         <button
           className={`${styles.ctrlBtn} ${styles.alert}`}

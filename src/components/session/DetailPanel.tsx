@@ -13,13 +13,11 @@ import DetailTabs from './DetailTabs';
 import PromptHistory from './PromptHistory';
 import ActivityLog from './ActivityLog';
 import NotesTab from './NotesTab';
-import SummaryTab from './SummaryTab';
 import QueueTab from './QueueTab';
 import ProjectTabContainer from './ProjectTabContainer';
 import SessionControlBar from './SessionControlBar';
 import KillConfirmModal, { KILL_MODAL_ID } from './KillConfirmModal';
 import AlertModal, { ALERT_MODAL_ID } from './AlertModal';
-import SummarizeModal, { SUMMARIZE_MODAL_ID } from './SummarizeModal';
 import TerminalContainer from '@/components/terminal/TerminalContainer';
 import type { RobotModelType } from '@/lib/robot3DModels';
 import { getModelLabel } from '@/lib/robot3DModels';
@@ -29,7 +27,7 @@ import styles from '@/styles/modules/DetailPanel.module.css';
 
 // ---------------------------------------------------------------------------
 // LazyModal — only mounts children when the modal is active.
-// Prevents zustand subscriptions in KillConfirmModal/AlertModal/SummarizeModal
+// Prevents zustand subscriptions in KillConfirmModal/AlertModal
 // from firing during the initial DetailPanel mount.
 // ---------------------------------------------------------------------------
 
@@ -131,7 +129,9 @@ export default function DetailPanel() {
     [deselectSession],
   );
 
-  const [headerCollapsed, setHeaderCollapsed] = useState(false);
+  const [headerCollapsed, setHeaderCollapsed] = useState(() => {
+    try { return localStorage.getItem('detail-header-collapsed') !== '0'; } catch { return true; }
+  });
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [activeTab, setActiveTab] = useState<string>(() => {
     try { return localStorage.getItem('active-tab') || 'terminal'; } catch { return 'terminal'; }
@@ -158,9 +158,9 @@ export default function DetailPanel() {
   const neonColor = session.accentColor || PALETTE[(session.colorIndex ?? 0) % PALETTE.length];
   const modelLabel = getModelLabel(modelType);
   const statusColor: Record<string, string> = {
-    idle: '#00ff88', prompting: '#00e5ff', working: '#ff9100',
-    waiting: '#00e5ff', approval: '#ffdd00', input: '#aa66ff',
-    ended: '#ff4444', connecting: '#666',
+    idle: 'var(--accent-green)', prompting: 'var(--accent-cyan)', working: 'var(--accent-orange)',
+    waiting: 'var(--accent-cyan)', approval: 'var(--accent-orange)', input: 'var(--accent-purple)',
+    ended: 'var(--accent-red)', connecting: 'var(--text-dim)',
   };
 
   return (
@@ -208,7 +208,11 @@ export default function DetailPanel() {
         {/* Collapse toggle */}
         <button
           className={styles.collapseBtn}
-          onClick={() => setHeaderCollapsed(prev => !prev)}
+          onClick={() => setHeaderCollapsed(prev => {
+            const next = !prev;
+            try { localStorage.setItem('detail-header-collapsed', next ? '1' : '0'); } catch { /* ignore */ }
+            return next;
+          })}
           title={headerCollapsed ? 'Expand header' : 'Collapse header'}
         >
           {headerCollapsed ? '\u25BC' : '\u25B2'}
@@ -223,8 +227,8 @@ export default function DetailPanel() {
                 width: 64,
                 height: 80,
                 borderRadius: 6,
-                border: `1px solid ${statusColor[session.status] ?? '#666'}40`,
-                background: `${statusColor[session.status] ?? '#666'}10`,
+                border: `1px solid color-mix(in srgb, ${statusColor[session.status] ?? 'var(--text-dim)'} 25%, transparent)`,
+                background: `color-mix(in srgb, ${statusColor[session.status] ?? 'var(--text-dim)'} 6%, transparent)`,
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
@@ -319,7 +323,6 @@ export default function DetailPanel() {
               responseLog={session.responseLog || []}
             />
           }
-          summaryContent={<SummaryTab summary={session.summary} />}
           queueContent={
             <QueueTab
               sessionId={session.sessionId}
@@ -341,7 +344,6 @@ export default function DetailPanel() {
             zustand subscriptions during DetailPanel mount (reduces cascading re-renders). */}
         <LazyModal modalId={KILL_MODAL_ID}><KillConfirmModal /></LazyModal>
         <LazyModal modalId={ALERT_MODAL_ID}><AlertModal /></LazyModal>
-        <LazyModal modalId={SUMMARIZE_MODAL_ID}><SummarizeModal /></LazyModal>
       </ResizablePanel>
     </div>
   );

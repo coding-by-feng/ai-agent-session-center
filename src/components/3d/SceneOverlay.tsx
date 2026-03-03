@@ -80,7 +80,7 @@ function RoomPanel() {
   );
 
   return (
-    <div style={{ marginTop: 10, borderTop: '1px solid rgba(0,240,255,0.1)', paddingTop: 8 }}>
+    <div style={{ marginTop: 10, borderTop: '1px solid var(--border-accent)', paddingTop: 8 }}>
       {/* Toggle header */}
       <button
         onClick={() => setExpanded(!expanded)}
@@ -93,7 +93,7 @@ function RoomPanel() {
           padding: '4px 0',
           border: 'none',
           background: 'none',
-          color: 'rgba(0,240,255,0.5)',
+          color: 'var(--text-dim)',
           fontSize: 9,
           letterSpacing: 2,
         }}
@@ -110,21 +110,21 @@ function RoomPanel() {
             style={{
               ...BTN_FONT,
               width: '100%',
-              border: '1px solid rgba(0,240,255,0.28)',
-              background: 'rgba(0,240,255,0.06)',
-              color: '#00f0ff',
+              border: '1px solid var(--border-accent)',
+              background: 'var(--bg-accent)',
+              color: 'var(--accent-cyan)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: 6,
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(0,240,255,0.16)';
-              e.currentTarget.style.borderColor = 'rgba(0,240,255,0.5)';
+              e.currentTarget.style.background = 'var(--bg-accent-strong)';
+              e.currentTarget.style.borderColor = 'var(--border-accent-strong)';
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'rgba(0,240,255,0.06)';
-              e.currentTarget.style.borderColor = 'rgba(0,240,255,0.28)';
+              e.currentTarget.style.background = 'var(--bg-accent)';
+              e.currentTarget.style.borderColor = 'var(--border-accent)';
             }}
           >
             Overview
@@ -148,19 +148,19 @@ function RoomPanel() {
                 style={{
                   padding: '6px 8px',
                   borderRadius: 3,
-                  border: '1px solid rgba(0,240,255,0.2)',
-                  background: 'rgba(0,240,255,0.04)',
+                  border: '1px solid var(--border-accent)',
+                  background: 'var(--bg-accent)',
                   cursor: editingId === room.id ? 'default' : 'pointer',
                 }}
                 onMouseEnter={(e) => {
                   if (editingId !== room.id) {
-                    e.currentTarget.style.background = 'rgba(0,240,255,0.1)';
-                    e.currentTarget.style.borderColor = 'rgba(0,240,255,0.4)';
+                    e.currentTarget.style.background = 'var(--bg-accent-strong)';
+                    e.currentTarget.style.borderColor = 'var(--border-accent-strong)';
                   }
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(0,240,255,0.04)';
-                  e.currentTarget.style.borderColor = 'rgba(0,240,255,0.2)';
+                  e.currentTarget.style.background = 'var(--bg-accent)';
+                  e.currentTarget.style.borderColor = 'var(--border-accent)';
                 }}
               >
                 <div style={{
@@ -179,9 +179,9 @@ function RoomPanel() {
                       autoFocus
                       style={{
                         flex: 1,
-                        background: 'rgba(0,0,0,0.3)',
-                        border: '1px solid rgba(0,240,255,0.3)',
-                        color: '#fff',
+                        background: 'var(--bg-subtle)',
+                        border: '1px solid var(--border-accent-strong)',
+                        color: 'var(--text-primary)',
                         fontSize: 10,
                         fontFamily: "'JetBrains Mono', monospace",
                         padding: '2px 4px',
@@ -193,7 +193,7 @@ function RoomPanel() {
                     <span style={{
                       fontSize: 10,
                       fontFamily: "'JetBrains Mono', monospace",
-                      color: '#ddd',
+                      color: 'var(--text-secondary)',
                       flex: 1,
                     }}>
                       {room.name}
@@ -207,7 +207,7 @@ function RoomPanel() {
                         style={{
                           background: 'none',
                           border: 'none',
-                          color: 'rgba(0,240,255,0.4)',
+                          color: 'var(--text-dim)',
                           cursor: 'pointer',
                           fontSize: 10,
                           minWidth: 44,
@@ -225,7 +225,7 @@ function RoomPanel() {
                         style={{
                           background: 'none',
                           border: 'none',
-                          color: 'rgba(255,68,68,0.5)',
+                          color: 'var(--accent-red)',
                           cursor: 'pointer',
                           fontSize: 10,
                           minWidth: 44,
@@ -248,7 +248,7 @@ function RoomPanel() {
                     marginTop: 4,
                     fontSize: 9,
                     fontFamily: "'JetBrains Mono', monospace",
-                    color: 'rgba(255,255,255,0.35)',
+                    color: 'var(--text-dim)',
                     padding: '1px 4px',
                   }}>
                     {activeCount} session{activeCount !== 1 ? 's' : ''}
@@ -262,7 +262,7 @@ function RoomPanel() {
           {rooms.length === 0 && (
             <div style={{
               fontSize: 9,
-              color: 'rgba(255,255,255,0.2)',
+              color: 'var(--text-dim)',
               textAlign: 'center',
               padding: '6px 0',
               fontFamily: "'Share Tech Mono', monospace",
@@ -277,17 +277,17 @@ function RoomPanel() {
             style={{
               ...BTN_FONT,
               width: '100%',
-              border: '1px dashed rgba(0,255,136,0.3)',
-              background: 'rgba(0,255,136,0.04)',
-              color: '#00ff88',
+              border: '1px dashed color-mix(in srgb, var(--accent-green) 30%, transparent)',
+              background: 'color-mix(in srgb, var(--accent-green) 6%, transparent)',
+              color: 'var(--accent-green)',
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(0,255,136,0.12)';
-              e.currentTarget.style.borderColor = 'rgba(0,255,136,0.5)';
+              e.currentTarget.style.background = 'color-mix(in srgb, var(--accent-green) 14%, transparent)';
+              e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--accent-green) 50%, transparent)';
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'rgba(0,255,136,0.04)';
-              e.currentTarget.style.borderColor = 'rgba(0,255,136,0.3)';
+              e.currentTarget.style.background = 'color-mix(in srgb, var(--accent-green) 6%, transparent)';
+              e.currentTarget.style.borderColor = 'color-mix(in srgb, var(--accent-green) 30%, transparent)';
             }}
           >
             + New Room
@@ -344,7 +344,7 @@ export default function SceneOverlay({ sessionCount }: SceneOverlayProps) {
         <div style={{
           fontSize: 9,
           letterSpacing: 2,
-          color: 'rgba(0,240,255,0.4)',
+          color: 'var(--text-dim)',
           textTransform: 'uppercase',
           fontFamily: "'Share Tech Mono', 'JetBrains Mono', monospace",
         }}>
@@ -354,7 +354,7 @@ export default function SceneOverlay({ sessionCount }: SceneOverlayProps) {
           fontFamily: "'Orbitron', 'JetBrains Mono', sans-serif",
           fontSize: 28,
           fontWeight: 700,
-          color: '#fff',
+          color: 'var(--text-primary)',
           margin: '2px 0 10px',
           lineHeight: 1,
         }}>
@@ -367,19 +367,19 @@ export default function SceneOverlay({ sessionCount }: SceneOverlayProps) {
           style={{
             ...BTN_FONT,
             width: '100%',
-            border: `1px solid ${soundEnabled ? 'rgba(0,240,255,0.28)' : 'rgba(255,68,68,0.4)'}`,
-            background: soundEnabled ? 'rgba(0,240,255,0.08)' : 'rgba(255,68,68,0.12)',
-            color: soundEnabled ? '#00f0ff' : '#ff4444',
+            border: `1px solid ${soundEnabled ? 'var(--border-accent)' : 'color-mix(in srgb, var(--accent-red) 40%, transparent)'}`,
+            background: soundEnabled ? 'var(--bg-accent)' : 'color-mix(in srgb, var(--accent-red) 12%, transparent)',
+            color: soundEnabled ? 'var(--accent-cyan)' : 'var(--accent-red)',
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.background = soundEnabled
-              ? 'rgba(0,240,255,0.16)'
-              : 'rgba(255,68,68,0.2)';
+              ? 'var(--bg-accent-strong)'
+              : 'color-mix(in srgb, var(--accent-red) 20%, transparent)';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.background = soundEnabled
-              ? 'rgba(0,240,255,0.08)'
-              : 'rgba(255,68,68,0.12)';
+              ? 'var(--bg-accent)'
+              : 'color-mix(in srgb, var(--accent-red) 12%, transparent)';
           }}
         >
           {soundEnabled ? 'Sound On' : 'Muted'}
@@ -393,19 +393,19 @@ export default function SceneOverlay({ sessionCount }: SceneOverlayProps) {
             ...BTN_FONT,
             width: '100%',
             marginTop: 6,
-            border: `1px solid ${scene3dEnabled ? 'rgba(0,240,255,0.28)' : 'rgba(255,145,0,0.4)'}`,
-            background: scene3dEnabled ? 'rgba(0,240,255,0.08)' : 'rgba(255,145,0,0.12)',
-            color: scene3dEnabled ? '#00f0ff' : '#ff9100',
+            border: `1px solid ${scene3dEnabled ? 'var(--border-accent)' : 'color-mix(in srgb, var(--accent-orange) 40%, transparent)'}`,
+            background: scene3dEnabled ? 'var(--bg-accent)' : 'color-mix(in srgb, var(--accent-orange) 12%, transparent)',
+            color: scene3dEnabled ? 'var(--accent-cyan)' : 'var(--accent-orange)',
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.background = scene3dEnabled
-              ? 'rgba(0,240,255,0.16)'
-              : 'rgba(255,145,0,0.2)';
+              ? 'var(--bg-accent-strong)'
+              : 'color-mix(in srgb, var(--accent-orange) 20%, transparent)';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.background = scene3dEnabled
-              ? 'rgba(0,240,255,0.08)'
-              : 'rgba(255,145,0,0.12)';
+              ? 'var(--bg-accent)'
+              : 'color-mix(in srgb, var(--accent-orange) 12%, transparent)';
           }}
         >
           {scene3dEnabled ? '3D On' : '3D Off'}
@@ -416,7 +416,7 @@ export default function SceneOverlay({ sessionCount }: SceneOverlayProps) {
 
         <div style={{
           fontSize: 8,
-          color: 'rgba(255,255,255,0.16)',
+          color: 'var(--text-dim)',
           marginTop: 10,
           lineHeight: 1.6,
           textAlign: 'center',

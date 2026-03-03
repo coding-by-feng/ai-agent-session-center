@@ -398,7 +398,7 @@ export default function QueueTab({
                           }}
                           onMouseEnter={(e) => {
                             (e.target as HTMLElement).style.background =
-                              'rgba(0,229,255,0.1)';
+                              'var(--bg-accent)';
                           }}
                           onMouseLeave={(e) => {
                             (e.target as HTMLElement).style.background =

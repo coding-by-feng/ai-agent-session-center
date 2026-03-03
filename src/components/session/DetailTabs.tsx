@@ -1,6 +1,6 @@
 /**
  * DetailTabs manages the tab bar and content switching for the detail panel.
- * Tabs: Terminal | Prompts | Notes | Activity | Summary
+ * Tabs: Terminal | Prompts | Notes | Activity
  *
  * Split-view: On wide screens the PROJECT tab has a merge icon that shows
  * Terminal (left) + Project (right) side-by-side with a draggable divider.
@@ -20,7 +20,6 @@ interface DetailTabsProps {
   promptsContent: ReactNode;
   notesContent: ReactNode;
   activityContent: ReactNode;
-  summaryContent: ReactNode;
   queueContent: ReactNode;
   projectContent: ReactNode;
   onTabChange?: (tabId: string) => void;
@@ -37,7 +36,6 @@ const TABS = [
   { id: 'queue', label: 'QUEUE' },
   { id: 'notes', label: 'NOTES' },
   { id: 'activity', label: 'ACTIVITY' },
-  { id: 'summary', label: 'SUMMARY' },
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -152,7 +150,6 @@ export default function DetailTabs({
   promptsContent,
   notesContent,
   activityContent,
-  summaryContent,
   queueContent,
   projectContent,
   onTabChange,
@@ -228,7 +225,6 @@ export default function DetailTabs({
     queue: <div className={styles.tabScroll}>{queueContent}</div>,
     notes: <div className={styles.tabScroll}>{notesContent}</div>,
     activity: <div className={styles.tabScroll}>{activityContent}</div>,
-    summary: <div className={styles.tabScroll}>{summaryContent}</div>,
     split: (
       <DraggableSplitView
         left={terminalContent}

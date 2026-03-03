@@ -182,6 +182,18 @@ function IconOutline() {
   );
 }
 
+function IconWordWrap() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <line x1="2" y1="3" x2="14" y2="3" />
+      <line x1="2" y1="8" x2="11" y2="8" />
+      <path d="M11 6v0a2.5 2.5 0 0 1 0 5h-2" strokeLinecap="round" />
+      <polyline points="10.5 9.5 9 11 10.5 12.5" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1="2" y1="13" x2="7" y2="13" />
+    </svg>
+  );
+}
+
 interface HeadingItem {
   level: number;
   text: string;
@@ -385,6 +397,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
 
   // Markdown outline (side panel with draggable divider)
   const [showOutline, setShowOutline] = useState(false);
+  const [wordWrap, setWordWrap] = useState(false);
   const markdownRef = useRef<HTMLDivElement>(null);
   const mdContainerRef = useRef<HTMLDivElement>(null);
   const [outlineWidth, setOutlineWidth] = useState<number>(() => {
@@ -814,6 +827,14 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
           <IconBookmark active={bookmarks.length > 0} />
           {bookmarks.length > 0 && <span className={styles.bookmarkBadge}>{bookmarks.length}</span>}
         </button>
+        <button
+          className={`${styles.iconBtn} ${wordWrap ? styles.iconBtnActive : ''}`}
+          onClick={() => setWordWrap((p) => !p)}
+          disabled={!file || !!file.binary}
+          title="Toggle word wrap"
+        >
+          <IconWordWrap />
+        </button>
       </div>
 
       {/* Path bar */}
@@ -976,7 +997,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                 </div>
               </div>
             ) : (
-              <div className={styles.codeLines}>
+              <div className={`${styles.codeLines}${wordWrap ? ` ${styles.codeLinesWrap}` : ''}`}>
                 {(file.content || '').split('\n').map((line, i) => {
                   const lineNum = i + 1;
                   const isBookmarked = bookmarks.some(

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -6,6 +6,24 @@ import {
 } from 'recharts';
 import type { DistinctProject } from '@/types';
 import chartStyles from '@/styles/modules/Charts.module.css';
+
+function getThemeColors() {
+  const s = getComputedStyle(document.documentElement);
+  return {
+    cyan: s.getPropertyValue('--accent-cyan').trim() || '#00e5ff',
+    green: s.getPropertyValue('--accent-green').trim() || '#00ff88',
+    orange: s.getPropertyValue('--accent-orange').trim() || '#ff9800',
+    textDim: s.getPropertyValue('--text-dim').trim() || '#8892b0',
+  };
+}
+const themeSubscribe = (cb: () => void) => {
+  const observer = new MutationObserver(cb);
+  observer.observe(document.body, { attributes: true, attributeFilter: ['data-theme'] });
+  return () => observer.disconnect();
+};
+function useThemeColors() {
+  return useSyncExternalStore(themeSubscribe, getThemeColors, getThemeColors);
+}
 
 type Granularity = 'hour' | 'day' | 'week';
 
@@ -63,6 +81,7 @@ function formatTimeLabel(period: string, granularity: Granularity): string {
 }
 
 export default function TimelineView() {
+  const tc = useThemeColors();
   const [granularity, setGranularity] = useState<Granularity>('day');
   const [project, setProject] = useState('');
   const [dateFrom, setDateFrom] = useState(defaultDateFrom);
@@ -153,17 +172,17 @@ export default function TimelineView() {
         ) : (
           <ResponsiveContainer width="100%" height={350}>
             <BarChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
               <XAxis
                 dataKey="label"
-                stroke="#8892b0"
+                stroke={tc.textDim}
                 fontSize={9}
                 interval={chartData.length > 15 ? Math.ceil(chartData.length / 15) : 0}
                 angle={chartData.length > 10 || granularity === 'hour' ? -40 : 0}
                 textAnchor={chartData.length > 10 || granularity === 'hour' ? 'end' : 'middle'}
                 height={granularity === 'hour' ? 60 : 40}
               />
-              <YAxis stroke="#8892b0" fontSize={10} />
+              <YAxis stroke={tc.textDim} fontSize={10} />
               <Tooltip
                 contentStyle={{
                   background: 'var(--bg-card, #12122a)',
@@ -174,11 +193,11 @@ export default function TimelineView() {
                 }}
               />
               <Legend
-                wrapperStyle={{ fontSize: '10px', color: '#8892b0' }}
+                wrapperStyle={{ fontSize: '10px', color: tc.textDim }}
               />
-              <Bar dataKey="session_count" name="Sessions" fill="#00e5ff" opacity={0.85} radius={[2, 2, 0, 0]} />
-              <Bar dataKey="prompt_count" name="Prompts" fill="#00ff88" opacity={0.85} radius={[2, 2, 0, 0]} />
-              <Bar dataKey="tool_call_count" name="Tool Calls" fill="#ff9800" opacity={0.85} radius={[2, 2, 0, 0]} />
+              <Bar dataKey="session_count" name="Sessions" fill={tc.cyan} opacity={0.85} radius={[2, 2, 0, 0]} />
+              <Bar dataKey="prompt_count" name="Prompts" fill={tc.green} opacity={0.85} radius={[2, 2, 0, 0]} />
+              <Bar dataKey="tool_call_count" name="Tool Calls" fill={tc.orange} opacity={0.85} radius={[2, 2, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         )}
