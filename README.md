@@ -11,6 +11,8 @@ Every session spawns an animated robot in an interactive cyberdrome that visuall
 
 ## Demo
 
+**[Live demo → aasc.work/demo](https://aasc.work/demo)**
+
 ### Desktop
 
 <table>
