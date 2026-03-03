@@ -1,4 +1,4 @@
-import { useMemo, Fragment } from 'react';
+import { useMemo, Fragment, useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   BarChart,
@@ -20,6 +20,34 @@ import type {
 import styles from '@/styles/modules/Charts.module.css';
 
 // ---------------------------------------------------------------------------
+// Theme-aware colors for Recharts (reads computed CSS variables)
+// ---------------------------------------------------------------------------
+
+function getThemeColors() {
+  const s = getComputedStyle(document.documentElement);
+  return {
+    cyan: s.getPropertyValue('--accent-cyan').trim() || '#00e5ff',
+    green: s.getPropertyValue('--accent-green').trim() || '#00ff88',
+    orange: s.getPropertyValue('--accent-orange').trim() || '#ff9100',
+    textDim: s.getPropertyValue('--text-dim').trim() || '#8888aa',
+    textPrimary: s.getPropertyValue('--text-primary').trim() || '#e0e0ff',
+    bgCard: s.getPropertyValue('--bg-card').trim() || '#12122a',
+    borderSubtle: s.getPropertyValue('--border-subtle').trim() || 'rgba(255,255,255,0.04)',
+    bgPrimary: s.getPropertyValue('--bg-primary').trim() || '#0a0a1a',
+  };
+}
+
+const themeSubscribe = (cb: () => void) => {
+  const observer = new MutationObserver(cb);
+  observer.observe(document.body, { attributes: true, attributeFilter: ['data-theme'] });
+  return () => observer.disconnect();
+};
+
+function useThemeColors() {
+  return useSyncExternalStore(themeSubscribe, getThemeColors, getThemeColors);
+}
+
+// ---------------------------------------------------------------------------
 // Data fetchers
 // ---------------------------------------------------------------------------
 
@@ -39,13 +67,9 @@ function formatNumber(n: number): string {
   return String(n);
 }
 
-function interpolateColor(value: number, max: number): string {
+function interpolateColor(value: number, max: number, bgColor: string, fgColor: string): string {
   const t = max === 0 ? 0 : Math.max(0, Math.min(1, value / max));
-  // From #12122a (dark) to #00ff88 (green)
-  const r = Math.round(18 + (0 - 18) * t);
-  const g = Math.round(18 + (255 - 18) * t);
-  const b = Math.round(42 + (136 - 42) * t);
-  return `rgb(${r},${g},${b})`;
+  return `color-mix(in srgb, ${fgColor} ${Math.round(t * 100)}%, ${bgColor})`;
 }
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -165,6 +189,7 @@ function SummaryStats({ summary }: { summary: AnalyticsSummary | null }) {
 // ---------------------------------------------------------------------------
 
 function ToolUsageChart({ data }: { data: ToolBreakdownEntry[] }) {
+  const tc = useThemeColors();
   const chartData = data.slice(0, 15);
 
   if (chartData.length === 0) {
@@ -178,21 +203,21 @@ function ToolUsageChart({ data }: { data: ToolBreakdownEntry[] }) {
         layout="vertical"
         margin={{ top: 4, right: 40, bottom: 4, left: 100 }}
       >
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-        <XAxis type="number" tick={{ fill: '#8888aa', fontSize: 10 }} />
+        <CartesianGrid strokeDasharray="3 3" stroke={tc.borderSubtle} />
+        <XAxis type="number" tick={{ fill: tc.textDim, fontSize: 10 }} />
         <YAxis
           type="category"
           dataKey="tool_name"
-          tick={{ fill: '#8888aa', fontSize: 10 }}
+          tick={{ fill: tc.textDim, fontSize: 10 }}
           width={96}
         />
         <Tooltip
           contentStyle={{
-            background: '#12122a',
-            border: '1px solid #00e5ff',
+            background: tc.bgCard,
+            border: `1px solid ${tc.cyan}`,
             borderRadius: 4,
             fontSize: 11,
-            color: '#e0e0ff',
+            color: tc.textPrimary,
           }}
           formatter={((value: number, _name: string, props: { payload: ToolBreakdownEntry }) => [
             `${formatNumber(value)} (${props.payload.percentage}%)`,
@@ -201,7 +226,7 @@ function ToolUsageChart({ data }: { data: ToolBreakdownEntry[] }) {
         />
         <Bar dataKey="count" radius={[0, 4, 4, 0]}>
           {chartData.map((_entry, idx) => (
-            <Cell key={idx} fill="#00e5ff" fillOpacity={0.85} />
+            <Cell key={idx} fill={tc.cyan} fillOpacity={0.85} />
           ))}
         </Bar>
       </BarChart>
@@ -214,6 +239,7 @@ function ToolUsageChart({ data }: { data: ToolBreakdownEntry[] }) {
 // ---------------------------------------------------------------------------
 
 function ProjectsChart({ data }: { data: ActiveProject[] }) {
+  const tc = useThemeColors();
   const chartData = useMemo(
     () =>
       [...data]
@@ -233,27 +259,27 @@ function ProjectsChart({ data }: { data: ActiveProject[] }) {
         layout="vertical"
         margin={{ top: 4, right: 40, bottom: 4, left: 120 }}
       >
-        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-        <XAxis type="number" tick={{ fill: '#8888aa', fontSize: 10 }} />
+        <CartesianGrid strokeDasharray="3 3" stroke={tc.borderSubtle} />
+        <XAxis type="number" tick={{ fill: tc.textDim, fontSize: 10 }} />
         <YAxis
           type="category"
           dataKey="project_name"
-          tick={{ fill: '#8888aa', fontSize: 10 }}
+          tick={{ fill: tc.textDim, fontSize: 10 }}
           width={116}
         />
         <Tooltip
           contentStyle={{
-            background: '#12122a',
-            border: '1px solid #00e5ff',
+            background: tc.bgCard,
+            border: `1px solid ${tc.cyan}`,
             borderRadius: 4,
             fontSize: 11,
-            color: '#e0e0ff',
+            color: tc.textPrimary,
           }}
           formatter={((value: number) => [formatNumber(value) + ' sessions', 'Sessions']) as never}
         />
         <Bar dataKey="session_count" radius={[0, 4, 4, 0]}>
           {chartData.map((_entry, idx) => (
-            <Cell key={idx} fill="#00ff88" fillOpacity={0.85} />
+            <Cell key={idx} fill={tc.green} fillOpacity={0.85} />
           ))}
         </Bar>
       </BarChart>
@@ -266,6 +292,7 @@ function ProjectsChart({ data }: { data: ActiveProject[] }) {
 // ---------------------------------------------------------------------------
 
 function HeatmapGrid({ data }: { data: HeatmapEntry[] }) {
+  const tc = useThemeColors();
   const { grid, maxVal } = useMemo(() => {
     const valueMap = new Map<string, number>();
     let max = 0;
@@ -300,7 +327,7 @@ function HeatmapGrid({ data }: { data: HeatmapEntry[] }) {
           key={`h-${h}`}
           style={{
             fontSize: '9px',
-            color: '#8888aa',
+            color: tc.textDim,
             textAlign: 'center',
           }}
         >
@@ -314,7 +341,7 @@ function HeatmapGrid({ data }: { data: HeatmapEntry[] }) {
           <div
             style={{
               fontSize: '10px',
-              color: '#8888aa',
+              color: tc.textDim,
               textAlign: 'right',
               paddingRight: '4px',
             }}
@@ -329,7 +356,7 @@ function HeatmapGrid({ data }: { data: HeatmapEntry[] }) {
                 className={styles.heatmapCell}
                 title={`${DAY_LABELS[day]} ${String(hour).padStart(2, '0')}:00 - ${val} events`}
                 style={{
-                  backgroundColor: interpolateColor(val, maxVal),
+                  backgroundColor: interpolateColor(val, maxVal, tc.bgPrimary, tc.green),
                 }}
               />
             );

@@ -926,7 +926,7 @@ const TEXT_NAMES = new Set([
   '.gitignore', '.dockerignore', '.editorconfig',
 ]);
 
-const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_STREAMABLE_SIZE = 100 * 1024 * 1024; // 100 MB (for PDF/image streaming)
 
 /** Extensions that can be streamed directly to the browser (not read into JSON). */
@@ -1059,7 +1059,7 @@ router.get('/files/read', (req: Request, res: Response) => {
       return;
     }
 
-    if (stat.size > MAX_FILE_SIZE) { res.status(413).json({ error: `File too large (${(stat.size / 1024 / 1024).toFixed(1)} MB, max 2 MB)` }); return; }
+    if (stat.size > MAX_FILE_SIZE) { res.status(413).json({ error: `File too large (${(stat.size / 1024 / 1024).toFixed(1)} MB, max 10 MB)` }); return; }
 
     if (!isTextFile(name)) {
       res.json({ path: relPath, binary: true, size: stat.size, name });
@@ -1123,7 +1123,7 @@ router.get('/files/stream', (req: Request, res: Response) => {
 const fileWriteSchema = z.object({
   root: z.string().min(1),
   path: z.string().min(1).max(1024),
-  content: z.string().max(2 * 1024 * 1024), // 2 MB limit
+  content: z.string().max(10 * 1024 * 1024), // 10 MB limit
 });
 
 router.post('/files/write', (req: Request, res: Response) => {

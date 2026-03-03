@@ -13,14 +13,14 @@ import type { Session } from '@/types/session';
 // ---------------------------------------------------------------------------
 
 const STATUS_COLORS: Record<string, string> = {
-  idle: '#00ff88',
-  prompting: '#00e5ff',
-  working: '#ff9100',
-  waiting: '#00e5ff',
-  approval: '#ffdd00',
-  input: '#aa66ff',
-  ended: '#ff4444',
-  connecting: '#666',
+  idle: 'var(--accent-green)',
+  prompting: 'var(--accent-cyan)',
+  working: 'var(--accent-orange)',
+  waiting: 'var(--accent-cyan)',
+  approval: 'var(--accent-orange)',
+  input: 'var(--accent-purple)',
+  ended: 'var(--accent-red)',
+  connecting: 'var(--text-dim)',
 };
 
 const STATUS_ORDER: Record<string, number> = {
@@ -91,11 +91,11 @@ function RobotEntry({
         padding: '8px 10px',
         border: isSelected
           ? `1px solid ${statusColor}`
-          : '1px solid rgba(255,255,255,0.06)',
+          : '1px solid var(--border-subtle)',
         borderRadius: 3,
         background: isSelected
-          ? `rgba(${hexToRgb(statusColor)},0.12)`
-          : 'rgba(255,255,255,0.02)',
+          ? `color-mix(in srgb, ${statusColor} 12%, transparent)`
+          : 'transparent',
         cursor: editing ? 'default' : 'pointer',
         textAlign: 'left',
         fontFamily: "'JetBrains Mono', monospace",
@@ -103,14 +103,14 @@ function RobotEntry({
       }}
       onMouseEnter={(e) => {
         if (!isSelected) {
-          e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
-          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)';
+          e.currentTarget.style.background = 'var(--bg-subtle)';
+          e.currentTarget.style.borderColor = 'var(--border-subtle-strong)';
         }
       }}
       onMouseLeave={(e) => {
         if (!isSelected) {
-          e.currentTarget.style.background = 'rgba(255,255,255,0.02)';
-          e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)';
+          e.currentTarget.style.background = 'transparent';
+          e.currentTarget.style.borderColor = 'var(--border-subtle)';
         }
       }}
     >
@@ -137,9 +137,9 @@ function RobotEntry({
               display: 'inline-block',
               fontSize: 9,
               letterSpacing: 0.5,
-              color: 'rgba(0,240,255,0.9)',
-              background: 'rgba(0,240,255,0.1)',
-              border: '1px solid rgba(0,240,255,0.2)',
+              color: 'var(--accent-cyan)',
+              background: 'var(--bg-accent)',
+              border: '1px solid var(--border-accent)',
               borderRadius: 2,
               padding: '0px 4px',
               marginBottom: 2,
@@ -165,10 +165,10 @@ function RobotEntry({
             onClick={(e) => e.stopPropagation()}
             style={{
               width: '100%',
-              background: 'rgba(255,255,255,0.08)',
-              border: '1px solid rgba(0,240,255,0.4)',
+              background: 'var(--bg-subtle)',
+              border: '1px solid var(--border-accent-strong)',
               borderRadius: 2,
-              color: '#fff',
+              color: 'var(--text-primary)',
               fontSize: 12,
               fontFamily: 'inherit',
               padding: '1px 4px',
@@ -180,7 +180,7 @@ function RobotEntry({
           <div
             style={{
               fontSize: 12,
-              color: isSelected ? '#fff' : 'rgba(255,255,255,0.75)',
+              color: isSelected ? 'var(--text-primary)' : 'var(--text-secondary)',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
@@ -226,15 +226,15 @@ function RobotEntry({
             alignItems: 'center',
             justifyContent: 'center',
             borderRadius: 2,
-            color: 'rgba(255,255,255,0.2)',
+            color: 'var(--text-dim)',
             cursor: 'pointer',
             transition: 'all 0.15s ease',
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.color = 'rgba(0,240,255,0.8)';
+            e.currentTarget.style.color = 'var(--accent-cyan)';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.color = 'rgba(255,255,255,0.2)';
+            e.currentTarget.style.color = 'var(--text-dim)';
           }}
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -265,16 +265,16 @@ function RobotEntry({
           borderRadius: 2,
           fontSize: 10,
           lineHeight: 1,
-          color: 'rgba(255,255,255,0.25)',
+          color: 'var(--text-dim)',
           cursor: 'pointer',
           transition: 'all 0.15s ease',
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.color = '#ff4444';
-          e.currentTarget.style.background = 'rgba(255,68,68,0.15)';
+          e.currentTarget.style.color = 'var(--accent-red)';
+          e.currentTarget.style.background = 'color-mix(in srgb, var(--accent-red) 15%, transparent)';
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.color = 'rgba(255,255,255,0.25)';
+          e.currentTarget.style.color = 'var(--text-dim)';
           e.currentTarget.style.background = 'transparent';
         }}
       >
@@ -316,7 +316,7 @@ function RoomGroupHeader({
         height="10"
         viewBox="0 0 24 24"
         fill="none"
-        stroke="rgba(255,255,255,0.35)"
+        stroke="var(--text-dim)"
         strokeWidth="2.5"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -332,7 +332,7 @@ function RoomGroupHeader({
         style={{
           fontSize: 11,
           letterSpacing: 1.5,
-          color: 'rgba(255,255,255,0.4)',
+          color: 'var(--text-dim)',
           textTransform: 'uppercase',
           fontFamily: "'Share Tech Mono', 'JetBrains Mono', monospace",
           flex: 1,
@@ -346,7 +346,7 @@ function RoomGroupHeader({
       <span
         style={{
           fontSize: 10,
-          color: 'rgba(255,255,255,0.25)',
+          color: 'var(--text-dim)',
           fontFamily: "'JetBrains Mono', monospace",
         }}
       >
@@ -360,13 +360,6 @@ function RoomGroupHeader({
 // Helper
 // ---------------------------------------------------------------------------
 
-function hexToRgb(hex: string): string {
-  const h = hex.replace('#', '');
-  const r = parseInt(h.substring(0, 2), 16);
-  const g = parseInt(h.substring(2, 4), 16);
-  const b = parseInt(h.substring(4, 6), 16);
-  return `${r},${g},${b}`;
-}
 
 // ---------------------------------------------------------------------------
 // Grouped data structure
@@ -548,7 +541,7 @@ export default function RobotListSidebar() {
           style={{
             fontSize: 12,
             letterSpacing: 2,
-            color: 'rgba(0,240,255,0.4)',
+            color: 'var(--text-dim)',
             textTransform: 'uppercase',
             fontFamily: "'Share Tech Mono', 'JetBrains Mono', monospace",
             flex: 1,
@@ -563,7 +556,7 @@ export default function RobotListSidebar() {
             display: 'flex',
             borderRadius: 3,
             overflow: 'hidden',
-            border: '1px solid rgba(255,255,255,0.1)',
+            border: '1px solid var(--border-subtle)',
             marginRight: 6,
           }}
         >
@@ -581,10 +574,10 @@ export default function RobotListSidebar() {
                   fontFamily: "'JetBrains Mono', monospace",
                   cursor: 'pointer',
                   transition: 'all 0.15s ease',
-                  background: active ? 'rgba(0,240,255,0.15)' : 'transparent',
-                  color: active ? 'rgba(0,240,255,0.9)' : 'rgba(255,255,255,0.3)',
+                  background: active ? 'var(--bg-accent)' : 'transparent',
+                  color: active ? 'var(--accent-cyan)' : 'var(--text-dim)',
                   border: 'none',
-                  borderRight: mode !== 'others' ? '1px solid rgba(255,255,255,0.08)' : 'none',
+                  borderRight: mode !== 'others' ? '1px solid var(--border-subtle)' : 'none',
                   lineHeight: 1.4,
                 }}
               >
@@ -598,7 +591,7 @@ export default function RobotListSidebar() {
           height="14"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="rgba(0,240,255,0.4)"
+          stroke="var(--accent-cyan)"
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -619,7 +612,7 @@ export default function RobotListSidebar() {
               padding: '16px 8px',
               textAlign: 'center',
               fontSize: 11,
-              color: 'rgba(255,255,255,0.25)',
+              color: 'var(--text-dim)',
               fontFamily: "'JetBrains Mono', monospace",
               letterSpacing: 0.5,
             }}>
