@@ -3,7 +3,7 @@
  * Uses the useTerminal hook for lifecycle management.
  * Ported from public/js/terminalManager.js.
  */
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTerminal } from '@/hooks/useTerminal';
 import type { TerminalBookmarkPosition } from '@/hooks/useTerminal';
@@ -33,7 +33,7 @@ interface TerminalContainerProps {
 
 const DEFAULT_MIN_HEIGHT = '200px';
 
-export default function TerminalContainer({
+export default memo(function TerminalContainer({
   terminalId,
   ws,
   showReconnect = false,
@@ -382,4 +382,4 @@ export default function TerminalContainer({
       )}
     </div>
   );
-}
+});

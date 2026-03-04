@@ -1,49 +1,39 @@
 /**
  * ShortcutsPanel - Keyboard shortcuts reference overlay.
  * Triggered by pressing "?" or clicking the shortcuts button.
+ * Reads bindings dynamically from the shortcut store.
  */
 import Modal from '@/components/ui/Modal';
+import { useUiStore } from '@/stores/uiStore';
+import { useShortcutStore } from '@/stores/shortcutStore';
+import { SECTION_ORDER, keyComboToString } from '@/lib/shortcutKeys';
 import styles from '@/styles/modules/Modal.module.css';
 
-interface ShortcutDef {
-  key: string;
-  description: string;
-}
-
-const SHORTCUTS: { section: string; items: ShortcutDef[] }[] = [
-  {
-    section: 'Navigation',
-    items: [
-      { key: '/', description: 'Focus search' },
-      { key: 'Escape', description: 'Close modal / deselect session' },
-      { key: '?', description: 'Toggle this panel' },
-    ],
-  },
-  {
-    section: 'Actions',
-    items: [
-      { key: 'T', description: 'New terminal session' },
-      { key: 'S', description: 'Toggle settings' },
-      { key: 'M', description: 'Mute / unmute all' },
-    ],
-  },
+/** Non-customizable shortcuts shown alongside the store bindings. */
+const EXTRA_SHORTCUTS: { section: string; items: { key: string; description: string }[] }[] = [
   {
     section: 'Terminal',
     items: [
       { key: 'Alt+Cmd/Ctrl+R', description: 'Refresh terminal' },
-      { key: 'Alt+F11', description: 'Toggle fullscreen' },
-    ],
-  },
-  {
-    section: 'Selected Session',
-    items: [
-      { key: 'K', description: 'Kill selected session' },
-      { key: 'A', description: 'Archive selected session' },
     ],
   },
 ];
 
 export default function ShortcutsPanel() {
+  const bindings = useShortcutStore((s) => s.bindings);
+  const openModal = useUiStore((s) => s.openModal);
+
+  // Group store bindings by section
+  const sections = SECTION_ORDER.map((section) => {
+    const storeItems = bindings
+      .filter((b) => b.section === section)
+      .map((b) => ({ key: keyComboToString(b.combo), description: b.label }));
+    const extraItems = EXTRA_SHORTCUTS
+      .filter((g) => g.section === section)
+      .flatMap((g) => g.items);
+    return { section, items: [...storeItems, ...extraItems] };
+  }).filter((g) => g.items.length > 0);
+
   return (
     <Modal modalId="shortcuts">
       <div className={styles.shortcutsPanel}>
@@ -51,12 +41,12 @@ export default function ShortcutsPanel() {
           <h3>KEYBOARD SHORTCUTS</h3>
         </div>
         <div className={styles.shortcutsBody}>
-          {SHORTCUTS.map((group) => (
+          {sections.map((group) => (
             <div key={group.section} className={styles.shortcutsSection}>
               <h4>{group.section}</h4>
               <div className={styles.shortcutList}>
                 {group.items.map((item) => (
-                  <div key={item.key} className={styles.shortcutRow}>
+                  <div key={item.description} className={styles.shortcutRow}>
                     <span>{item.description}</span>
                     <kbd>{item.key}</kbd>
                   </div>
@@ -64,6 +54,33 @@ export default function ShortcutsPanel() {
               </div>
             </div>
           ))}
+          <button
+            onClick={() => openModal('shortcut-settings')}
+            style={{
+              background: 'transparent',
+              border: '1px solid var(--border-subtle)',
+              color: 'var(--text-secondary)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '11px',
+              fontWeight: 600,
+              letterSpacing: '0.5px',
+              padding: '6px 14px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              alignSelf: 'center',
+              transition: 'all 0.15s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = 'var(--accent-cyan)';
+              e.currentTarget.style.borderColor = 'rgba(0, 229, 255, 0.3)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = 'var(--text-secondary)';
+              e.currentTarget.style.borderColor = 'var(--border-subtle)';
+            }}
+          >
+            Customize...
+          </button>
         </div>
       </div>
     </Modal>

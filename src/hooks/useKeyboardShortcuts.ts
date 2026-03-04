@@ -1,20 +1,11 @@
 /**
  * useKeyboardShortcuts — global keyboard shortcut handler.
- * Shortcuts are suppressed when focus is in an input, textarea, or contenteditable.
- *
- * Bindings:
- *   /       Focus search
- *   Escape  Close modal / deselect session
- *   ?       Toggle shortcuts panel
- *   S       Toggle settings
- *   K       Kill selected session
- *   A       Archive selected session
- *   T       Open new terminal modal
- *   M       Toggle global mute
+ * Reads bindings from shortcutStore so users can customize keybindings.
  */
-import { useEffect, useCallback } from 'react';
+import { useEffect } from 'react';
 import { useUiStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useShortcutStore } from '@/stores/shortcutStore';
 import { showToast } from '@/components/ui/ToastContainer';
 
 // ---------------------------------------------------------------------------
@@ -72,13 +63,12 @@ export function useKeyboardShortcuts(): void {
       const currentModal = useUiStore.getState().activeModal;
       const selectedId = useSessionStore.getState().selectedSessionId;
 
-      // Always allow Escape — but pass it through to the terminal when focused
+      // Escape is always special: close modal -> pass to terminal -> deselect
       if (e.key === 'Escape') {
         if (currentModal) {
           closeModal();
         } else if ((e.target as HTMLElement)?.closest?.('.xterm')) {
-          // Terminal has focus — let xterm handle Escape (sends \x1b to SSH)
-          return;
+          return; // let xterm handle Escape (sends \x1b to SSH)
         } else if (selectedId) {
           useSessionStore.getState().deselectSession();
         }
@@ -88,84 +78,66 @@ export function useKeyboardShortcuts(): void {
       // Don't intercept when typing in form fields
       if (isTyping(e)) return;
 
-      // Alt+F11: toggle browser fullscreen
-      if (e.key === 'F11' && e.altKey) {
-        e.preventDefault();
-        if (document.fullscreenElement) {
-          document.exitFullscreen().catch(() => {});
-        } else {
-          document.documentElement.requestFullscreen().catch(() => {});
-        }
-        return;
-      }
+      // Look up action from store bindings
+      const actionId = useShortcutStore.getState().findActionForEvent(e);
+      if (!actionId) return;
 
-      // Don't intercept with modifier keys (Ctrl, Cmd, Alt)
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-
-      switch (e.key) {
-        case '/': {
-          e.preventDefault();
-          const searchInput = document.querySelector<HTMLInputElement>(
-            '[data-search-input]',
-          );
-          searchInput?.focus();
-          break;
-        }
-
-        case '?':
-          e.preventDefault();
-          if (currentModal === 'shortcuts') {
-            closeModal();
-          } else {
-            openModal('shortcuts');
-          }
-          break;
-
-        case 'S':
-        case 's':
-          e.preventDefault();
-          if (currentModal === 'settings') {
-            closeModal();
-          } else {
-            openModal('settings');
-          }
-          break;
-
-        case 'T':
-        case 't':
-          e.preventDefault();
-          openModal('new-session');
-          break;
-
-        case 'K':
-        case 'k':
-          if (selectedId) {
-            e.preventDefault();
-            killSelectedSession(selectedId);
-          }
-          break;
-
-        case 'A':
-        case 'a':
-          if (selectedId) {
-            e.preventDefault();
-            archiveSelectedSession(selectedId);
-          }
-          break;
-
-        case 'M':
-        case 'm': {
-          e.preventDefault();
-          const muted = toggleGlobalMuted();
-          showToast(muted ? 'Sound muted' : 'Sound unmuted', 'info', 1500);
-          break;
-        }
-      }
+      e.preventDefault();
+      dispatchAction(actionId, currentModal, selectedId, openModal, closeModal);
     }
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [openModal, closeModal, activeModal]);
+}
+
+// ---------------------------------------------------------------------------
+// Action dispatcher
+// ---------------------------------------------------------------------------
+
+function dispatchAction(
+  actionId: string,
+  currentModal: string | null,
+  selectedId: string | null,
+  openModal: (id: string) => void,
+  closeModal: () => void,
+): void {
+  switch (actionId) {
+    case 'focusSearch': {
+      const searchInput = document.querySelector<HTMLInputElement>('[data-search-input]');
+      searchInput?.focus();
+      break;
+    }
+    case 'toggleShortcuts':
+      if (currentModal === 'shortcuts') closeModal();
+      else openModal('shortcuts');
+      break;
+    case 'toggleSettings':
+      if (currentModal === 'settings') closeModal();
+      else openModal('settings');
+      break;
+    case 'newTerminal':
+      openModal('new-session');
+      break;
+    case 'killSession':
+      if (selectedId) killSelectedSession(selectedId);
+      break;
+    case 'archiveSession':
+      if (selectedId) archiveSelectedSession(selectedId);
+      break;
+    case 'toggleMute': {
+      const muted = toggleGlobalMuted();
+      showToast(muted ? 'Sound muted' : 'Sound unmuted', 'info', 1500);
+      break;
+    }
+    case 'toggleFullscreen':
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      } else {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
+      break;
+  }
 }
 
 // ---------------------------------------------------------------------------

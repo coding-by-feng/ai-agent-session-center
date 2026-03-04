@@ -147,6 +147,13 @@ export type {
   BrowserSettings,
 } from './settings.js';
 
+// Shortcut
+export type {
+  KeyCombo,
+  ShortcutActionId,
+  ShortcutBinding,
+} from './shortcut.js';
+
 // Analytics
 export type {
   AnalyticsSummary,

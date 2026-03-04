@@ -81,7 +81,7 @@ export default function QueueTab({
         const res = await fetch(`/api/terminals/${terminalId}/write`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: text + '\n' }),
+          body: JSON.stringify({ data: text.replace(/\\n/g, '\n') + '\n' }),
         });
         if (!res.ok) {
           showToast('Failed to send to terminal', 'error');
