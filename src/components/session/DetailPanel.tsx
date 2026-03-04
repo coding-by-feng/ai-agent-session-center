@@ -3,7 +3,7 @@
  * Uses ResizablePanel for width adjustment.
  * Ported from public/js/detailPanel.js.
  */
-import { useState, useCallback, useEffect, useMemo, type ReactNode } from 'react';
+import { useState, useCallback, useEffect, useMemo, memo, type ReactNode } from 'react';
 import type { Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
@@ -16,6 +16,7 @@ import NotesTab from './NotesTab';
 import QueueTab from './QueueTab';
 import ProjectTabContainer from './ProjectTabContainer';
 import SessionControlBar from './SessionControlBar';
+import SessionSwitcher from './SessionSwitcher';
 import KillConfirmModal, { KILL_MODAL_ID } from './KillConfirmModal';
 import AlertModal, { ALERT_MODAL_ID } from './AlertModal';
 import TerminalContainer from '@/components/terminal/TerminalContainer';
@@ -44,41 +45,55 @@ function LazyModal({ modalId, children }: { modalId: string; children: ReactNode
 // and queue subtree, tearing down xterm and losing local component state).
 // ---------------------------------------------------------------------------
 
-function TerminalContent({ session }: { session: Session }) {
+interface TerminalContentProps {
+  sessionId: string;
+  terminalId: string | null;
+  source: string;
+  status: string;
+  projectPath?: string;
+}
+
+const TerminalContent = memo(function TerminalContent({
+  sessionId,
+  terminalId,
+  source,
+  status,
+  projectPath,
+}: TerminalContentProps) {
   const client = useWsStore((s) => s.client);
   const ws = useMemo(() => client?.getRawSocket() ?? null, [client]);
-  const isSSH = session.source === 'ssh';
-  const showReconnect = isSSH && session.status === 'ended' && !session.terminalId;
+  const isSSH = source === 'ssh';
+  const showReconnect = isSSH && status === 'ended' && !terminalId;
   const [bookmarkTarget, setBookmarkTarget] = useState<HTMLDivElement | null>(null);
 
   const handleReconnect = useCallback(() => {
-    fetch(`/api/sessions/${session.sessionId}/reconnect-terminal`, { method: 'POST' })
+    fetch(`/api/sessions/${sessionId}/reconnect-terminal`, { method: 'POST' })
       .catch(() => {});
-  }, [session.sessionId]);
+  }, [sessionId]);
 
   return (
     <div className={styles.terminalWithQueue}>
       <div className={styles.terminalSection}>
         <TerminalContainer
-          terminalId={session.terminalId}
+          terminalId={terminalId}
           ws={ws}
           showReconnect={showReconnect}
           onReconnect={isSSH ? handleReconnect : undefined}
           bookmarkPortalTarget={bookmarkTarget}
-          projectPath={session.projectPath}
+          projectPath={projectPath}
         />
       </div>
       <div className={styles.bottomRow}>
         <QueueTab
-          sessionId={session.sessionId}
-          sessionStatus={session.status}
-          terminalId={session.terminalId}
+          sessionId={sessionId}
+          sessionStatus={status}
+          terminalId={terminalId}
         />
         <div ref={setBookmarkTarget} className={styles.bookmarkPortal} />
       </div>
     </div>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Component
@@ -88,6 +103,7 @@ export default function DetailPanel() {
   const selectedSessionId = useSessionStore((s) => s.selectedSessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const deselectSession = useSessionStore((s) => s.deselectSession);
+  const selectSession = useSessionStore((s) => s.selectSession);
 
   const session: Session | undefined = selectedSessionId
     ? sessions.get(selectedSessionId)
@@ -158,30 +174,25 @@ export default function DetailPanel() {
   return (
     <div className={styles.overlay}>
       <ResizablePanel fullscreen>
-        {/* Close button */}
-        <button
-          className={styles.closeBtn}
-          onClick={deselectSession}
-          title="Close"
-        >
-          &times;
-        </button>
-
-        {/* Collapse toggle */}
-        <button
-          className={styles.collapseBtn}
-          onClick={() => setHeaderCollapsed(prev => {
+        {/* Session switcher (merged with compact header when collapsed) */}
+        <SessionSwitcher
+          currentSession={session}
+          sessions={sessions}
+          onSwitch={selectSession}
+          statusLabel={statusLabel}
+          duration={durText}
+          isDisconnected={isDisconnected}
+          onClose={deselectSession}
+          headerCollapsed={headerCollapsed}
+          onToggleCollapse={() => setHeaderCollapsed(prev => {
             const next = !prev;
             try { localStorage.setItem('detail-header-collapsed', next ? '1' : '0'); } catch { /* ignore */ }
             return next;
           })}
-          title={headerCollapsed ? 'Expand header' : 'Collapse header'}
-        >
-          {headerCollapsed ? '\u25BC' : '\u25B2'}
-        </button>
+        />
 
         {/* Collapsible header + controls */}
-        {!headerCollapsed ? (
+        {!headerCollapsed && (
           <>
             {/* Header */}
             <div className={styles.header}>
@@ -251,25 +262,18 @@ export default function DetailPanel() {
             {/* Session controls */}
             <SessionControlBar session={session} />
           </>
-        ) : (
-          /* Compact header when collapsed */
-          <div className={styles.headerCompact}>
-            <span className={styles.headerCompactName}>{session.projectName}</span>
-            <span
-              className={`${styles.detailStatusBadge} ${isDisconnected ? 'disconnected' : session.status}`}
-            >
-              {statusLabel}
-            </span>
-            {durText && (
-              <span className={styles.detailDuration}>{durText}</span>
-            )}
-          </div>
         )}
 
         {/* Tabs and content */}
         <DetailTabs
           terminalContent={
-            <TerminalContent session={session} />
+            <TerminalContent
+              sessionId={session.sessionId}
+              terminalId={session.terminalId}
+              source={session.source}
+              status={session.status}
+              projectPath={session.projectPath}
+            />
           }
           promptsContent={
             <PromptHistory

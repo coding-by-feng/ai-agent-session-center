@@ -5,7 +5,9 @@
 import { useEffect, useRef } from 'react';
 import { db } from '@/lib/db';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useShortcutStore } from '@/stores/shortcutStore';
 import { soundEngine } from '@/lib/soundEngine';
+import type { KeyCombo, ShortcutActionId } from '@/types/shortcut';
 
 export function useSettingsInit(): void {
   const loaded = useRef(false);
@@ -38,6 +40,13 @@ export function useSettingsInit(): void {
         }
 
         useSettingsStore.getState().loadFromDb(restored);
+
+        // Load shortcut binding overrides
+        if (restored.shortcutBindings && typeof restored.shortcutBindings === 'object') {
+          useShortcutStore.getState().loadFromDb(
+            restored.shortcutBindings as Partial<Record<ShortcutActionId, KeyCombo>>,
+          );
+        }
       } catch {
         // IndexedDB not available — use defaults
       }
