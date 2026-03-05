@@ -61,7 +61,10 @@ export default function SessionSwitcher({
       });
   }, [sessions, currentSession.sessionId, filterMode]);
 
-  const displayName = currentSession.title || currentSession.projectName || '(untitled)';
+  const primaryName = currentSession.title || currentSession.projectName || '(untitled)';
+  const secondaryName = currentSession.title && currentSession.projectName && currentSession.title !== currentSession.projectName
+    ? currentSession.projectName
+    : null;
   const currentColor = STATUS_COLORS[currentSession.status] ?? 'var(--text-dim)';
 
   return (
@@ -73,7 +76,10 @@ export default function SessionSwitcher({
             className={styles.switcherDot}
             style={{ background: currentColor, boxShadow: `0 0 6px ${currentColor}` }}
           />
-          <span className={styles.switcherName}>{displayName}</span>
+          <span className={styles.switcherName}>{primaryName}</span>
+          {secondaryName && (
+            <span className={styles.switcherProject}>{secondaryName}</span>
+          )}
           {currentSession.label && (
             <span className={styles.switcherLabel}>{currentSession.label}</span>
           )}

@@ -16,7 +16,6 @@ import Select from '@/components/ui/Select';
 import type { SelectOption } from '@/components/ui/Select';
 import { KILL_MODAL_ID } from './KillConfirmModal';
 import { ALERT_MODAL_ID } from './AlertModal';
-import LabelChips from './LabelChips';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 interface SessionControlBarProps {
@@ -163,58 +162,47 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
   ], [rooms]);
 
   return (
-    <div>
-      {/* Control buttons */}
-      <div className={styles.ctrlBar}>
-        {isDisconnected && (
-          <button
-            className={`${styles.ctrlBtn} ${styles.resume}`}
-            onClick={handleResume}
-            disabled={resuming}
-          >
-            {resuming ? 'RESUMING...' : 'RESUME'}
-          </button>
-        )}
+    <div className={styles.ctrlBar}>
+      {isDisconnected && (
         <button
-          className={`${styles.ctrlBtn} ${styles.kill}`}
-          onClick={handleKill}
+          className={`${styles.ctrlBtn} ${styles.resume}`}
+          onClick={handleResume}
+          disabled={resuming}
         >
-          KILL
+          {resuming ? 'RESUMING...' : 'RESUME'}
         </button>
-        <button
-          className={`${styles.ctrlBtn} ${styles.archive}`}
-          onClick={handleArchive}
-        >
-          ARCHIVE
-        </button>
-        <button
-          className={`${styles.ctrlBtn} ${styles.delete}`}
-          onClick={handleDelete}
-        >
-          DELETE
-        </button>
-        <button
-          className={`${styles.ctrlBtn} ${styles.alert}`}
-          onClick={handleAlert}
-        >
-          ALERT
-        </button>
+      )}
+      <button
+        className={`${styles.ctrlBtn} ${styles.kill}`}
+        onClick={handleKill}
+      >
+        KILL
+      </button>
+      <button
+        className={`${styles.ctrlBtn} ${styles.archive}`}
+        onClick={handleArchive}
+      >
+        ARCHIVE
+      </button>
+      <button
+        className={`${styles.ctrlBtn} ${styles.delete}`}
+        onClick={handleDelete}
+      >
+        DELETE
+      </button>
+      <button
+        className={`${styles.ctrlBtn} ${styles.alert}`}
+        onClick={handleAlert}
+      >
+        ALERT
+      </button>
 
-        {/* Room select */}
-        <Select
-          value={currentRoomId}
-          onChange={handleRoomChange}
-          options={roomOptions}
-        />
-      </div>
-
-      {/* Label chips */}
-      <div style={{ padding: '8px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
-        <LabelChips
-          sessionId={session.sessionId}
-          currentLabel={session.label || ''}
-        />
-      </div>
+      {/* Room select */}
+      <Select
+        value={currentRoomId}
+        onChange={handleRoomChange}
+        options={roomOptions}
+      />
     </div>
   );
 }
