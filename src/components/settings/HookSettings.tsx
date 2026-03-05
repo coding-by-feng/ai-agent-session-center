@@ -157,18 +157,7 @@ export default function HookSettings() {
       <div className={styles.section}>
         <h4>Default Terminal Theme</h4>
         <select
-          style={{
-            width: '100%',
-            background: 'var(--bg-card)',
-            border: '1px solid var(--border-accent)',
-            color: 'var(--text-primary)',
-            fontFamily: 'var(--font-mono)',
-            fontSize: '12px',
-            padding: '6px 10px',
-            borderRadius: '4px',
-            outline: 'none',
-            cursor: 'pointer',
-          }}
+          style={{ width: '100%' }}
           value={defaultTerminalTheme}
           onChange={(e) => setDefaultTerminalTheme(e.target.value)}
         >

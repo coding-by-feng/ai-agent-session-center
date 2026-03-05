@@ -35,18 +35,20 @@
 .filterSelect,
 .filterInput {
   padding: 6px 10px;
-  background: var(--bg-primary, #0a0a1a);
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
+  background: var(--bg-card, #12122a);
+  border: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15));
   border-radius: 4px;
   color: var(--text-primary, #e0e0ff);
   font-size: 0.8rem;
   font-family: var(--font-mono, monospace);
   outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .filterSelect:focus,
 .filterInput:focus {
   border-color: var(--accent-cyan, #00e5ff);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
 }
 
 .sortToggle {

@@ -70,8 +70,9 @@
 /* SSH fields */
 .sshField { display: flex; flex-direction: column; gap: 3px; }
 .sshField label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); }
-.sshField input, .sshField select { background: var(--card-bg, rgba(255,255,255,0.04)); border: 2px solid var(--border-accent, rgba(255,255,255,0.15)); color: var(--text-primary); padding: 6px 8px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
-.sshField input:focus, .sshField select:focus { outline: none; border-color: var(--accent-cyan, #00e5ff); box-shadow: 0 0 6px var(--glow-accent, rgba(0, 229, 255, 0.3)); }
+.sshField input, .sshField select { background: var(--bg-card, #12122a); border: 2px solid var(--border-accent, rgba(0, 229, 255, 0.15)); color: var(--text-primary); padding: 6px 10px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.sshField input:focus, .sshField select:focus { outline: none; border-color: var(--accent-cyan, #00e5ff); box-shadow: 0 0 8px rgba(0, 229, 255, 0.3); }
+.sshField select { padding-right: 28px; }
 .sshFieldRow { display: flex; gap: 8px; }
 .sshFieldGrow { flex: 1; }
 .sshFieldSmall { width: 80px; }

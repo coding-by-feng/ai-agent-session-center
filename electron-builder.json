@@ -3,7 +3,7 @@
   "productName": "AI Agent Session Center",
   "copyright": "Copyright © 2026 Kason Zhan",
   "extraMetadata": {
-    "main": "dist/electron/main.js"
+    "main": "dist/electron/main.cjs"
   },
   "files": [
     "dist/client/**",
@@ -21,8 +21,8 @@
   ],
   "mac": {
     "target": [
-      { "target": "dmg", "arch": ["arm64", "x64"] },
-      { "target": "zip", "arch": ["arm64", "x64"] }
+      { "target": "dmg", "arch": ["arm64"] },
+      { "target": "zip", "arch": ["arm64"] }
     ],
     "icon": "electron/icon/icon.icns",
     "category": "public.app-category.developer-tools",

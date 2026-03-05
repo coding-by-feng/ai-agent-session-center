@@ -76,6 +76,12 @@ html, body {
   line-height: 1.5;
 }
 
+/* Global text selection */
+::selection {
+  background: var(--accent-cyan, #00e5ff);
+  color: var(--bg-primary, #0a0a1a);
+}
+
 body {
   position: relative;
 }
@@ -108,6 +114,48 @@ body::after {
 /* #85: Pause scanline animation when terminal is focused to reduce compositing overhead */
 body.terminal-focused::after {
   animation-play-state: paused;
+}
+
+/* ---- Global Select & Option ---- */
+
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--bg-card, #12122a);
+  border: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15));
+  border-radius: 4px;
+  color: var(--text-primary, #e0e0ff);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 6px 28px 6px 10px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238888aa'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 10px 6px;
+}
+
+select:focus {
+  border-color: var(--accent-cyan, #00e5ff);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
+}
+
+select:hover {
+  border-color: var(--border-accent-strong, rgba(0, 229, 255, 0.3));
+}
+
+option {
+  background: var(--bg-card, #12122a);
+  color: var(--text-primary, #e0e0ff);
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+}
+
+option:checked {
+  background: var(--bg-accent, rgba(0, 229, 255, 0.1));
+  color: var(--accent-cyan, #00e5ff);
 }
 
 /* ---- Utility ---- */

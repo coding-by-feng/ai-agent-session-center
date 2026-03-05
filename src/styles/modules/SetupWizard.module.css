@@ -370,25 +370,21 @@
 }
 
 .selectInput {
-  background: var(--bg-primary);
+  background: var(--bg-card);
   border: 2px solid var(--border-accent);
   color: var(--text-primary);
   font-family: var(--font-mono);
   font-size: 13px;
-  padding: 10px 14px;
+  padding: 10px 28px 10px 14px;
   border-radius: 8px;
   outline: none;
   cursor: pointer;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .selectInput:focus {
   border-color: var(--accent-cyan);
-}
-
-.selectInput option {
-  background: var(--bg-card);
-  color: var(--text-primary);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
 }
 
 .fieldError {

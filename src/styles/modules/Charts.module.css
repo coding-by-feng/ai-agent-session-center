@@ -9,8 +9,8 @@
 .historyView { grid-area: main; padding: 20px; overflow-y: auto; }
 
 .historyControls { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
-.historyControls input, .historyControls select { background: var(--bg-card); border: 1px solid var(--border-accent); color: var(--text-primary); font-family: var(--font-mono); font-size: 11px; padding: 8px 12px; border-radius: 4px; outline: none; }
-.historyControls input:focus, .historyControls select:focus { border-color: var(--accent-cyan); }
+.historyControls input, .historyControls select { background: var(--bg-card); border: 1px solid var(--border-accent); color: var(--text-primary); font-family: var(--font-mono); font-size: 11px; padding: 8px 12px; border-radius: 4px; outline: none; transition: border-color 0.2s, box-shadow 0.2s; }
+.historyControls input:focus, .historyControls select:focus { border-color: var(--accent-cyan); box-shadow: 0 0 8px rgba(0, 229, 255, 0.3); }
 .searchInput { flex: 1; min-width: 200px; }
 
 .historyRow { display: grid; grid-template-columns: 1.5fr 1fr auto auto auto auto auto auto 24px; gap: 12px; padding: 12px 16px; background: var(--bg-card); border: 1px solid var(--border-faint); border-radius: 8px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s; align-items: center; font-size: 12px; }

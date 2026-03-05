@@ -95,9 +95,8 @@
 .soundActionRow { display: flex; align-items: center; gap: 8px; padding: 4px 12px; }
 .soundActionRow:hover { background: var(--border-faint); }
 .soundActionLabel { flex: 1; font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
-.soundActionSelect { background: var(--bg-card); border: 1px solid var(--border-accent); color: var(--text-primary); font-family: var(--font-mono); font-size: 10px; padding: 4px 6px; border-radius: 3px; outline: none; width: 100px; }
-.soundActionSelect:focus { border-color: var(--accent-cyan); }
-.soundActionSelect option { background-color: var(--bg-card, #0d1b2a); color: var(--text-primary, #ccd6f6); }
+.soundActionSelect { background: var(--bg-card); border: 1px solid var(--border-accent); color: var(--text-primary); font-family: var(--font-mono); font-size: 10px; padding: 4px 24px 4px 6px; border-radius: 3px; outline: none; width: 100px; transition: border-color 0.2s, box-shadow 0.2s; }
+.soundActionSelect:focus { border-color: var(--accent-cyan); box-shadow: 0 0 8px rgba(0, 229, 255, 0.3); }
 .soundPreviewBtn { background: none; border: 1px solid var(--border-subtle); color: var(--text-dim); font-size: 10px; cursor: pointer; padding: 3px 7px; border-radius: 3px; transition: all 0.2s; flex-shrink: 0; }
 .soundPreviewBtn:hover { color: var(--accent-cyan); border-color: var(--border-accent-strong); background: var(--bg-accent); }
 

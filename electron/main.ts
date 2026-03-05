@@ -59,8 +59,9 @@ app.whenReady().then(async () => {
   registerSetupHandlers()
   registerAppHandlers()
 
-  if (!isFirstRun()) {
-    // Normal launch: start Express server in-process, then open window
+  if (!isFirstRun() && !isDev) {
+    // Production launch: start Express server in-process, then open window
+    // In dev mode, the server is already running via `tsx watch server/index.ts`
     // Use require() to avoid TypeScript following ESM server files during CJS compilation
     const serverPath = path.join(PROJECT_ROOT, 'server', 'index.js')
     const { startServer } = require(serverPath) as { startServer: (port?: number) => Promise<number> }
