@@ -151,15 +151,33 @@ function dispatchAction(
 // Session switching helper
 // ---------------------------------------------------------------------------
 
+const SWITCH_STATUS_ORDER: Record<string, number> = {
+  working: 0, prompting: 1, approval: 2, input: 2,
+  waiting: 3, idle: 4, connecting: 5, ended: 6,
+};
+
 function switchToSessionByIndex(index: number): void {
   const sessions = useSessionStore.getState().sessions;
-  // Get active (non-ended) sessions sorted by project name for stable ordering
+  const filterMode = useUiStore.getState().sidebarFilterMode;
+  // Sort matching sidebar/tab-strip order: status first, then title
   const active = [...sessions.values()]
-    .filter((s) => s.status !== 'ended')
-    .sort((a, b) => (a.projectName || '').localeCompare(b.projectName || ''));
+    .filter((s) => {
+      if (s.status === 'ended') return false;
+      if (filterMode === 'ssh' && s.source !== 'ssh') return false;
+      if (filterMode === 'others' && s.source === 'ssh') return false;
+      return true;
+    })
+    .sort((a, b) => {
+      const oa = SWITCH_STATUS_ORDER[a.status] ?? 5;
+      const ob = SWITCH_STATUS_ORDER[b.status] ?? 5;
+      if (oa !== ob) return oa - ob;
+      return (a.title || 'Unnamed').localeCompare(b.title || 'Unnamed');
+    });
   if (index >= 0 && index < active.length) {
-    useSessionStore.getState().selectSession(active[index].sessionId);
-    showToast(`Switched to session ${index + 1}`, 'info', 1500);
+    const target = active[index];
+    useSessionStore.getState().selectSession(target.sessionId);
+    const name = target.title || target.projectName || `session ${index + 1}`;
+    showToast(`Switched to ${name}`, 'info', 1500);
   }
 }
 

@@ -101,9 +101,20 @@
 /* ---- Header ---- */
 
 .header {
-  padding: 20px 90px 14px 20px;
+  padding: 12px 20px;
   border-bottom: 1px solid var(--border-subtle);
-  display: flex; align-items: center; gap: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.headerInfo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
 }
 
 .charPreview { width: 64px; height: 80px; flex-shrink: 0; position: relative; }
@@ -113,6 +124,12 @@
 .headerTop { display: flex; align-items: flex-start; gap: 10px; }
 .headerTitles { flex: 1; min-width: 0; }
 .header h3 { font-size: 16px; font-weight: 700; color: var(--text-primary); line-height: 1.3; }
+
+/* Label chips row below header */
+.labelRow {
+  padding: 6px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
 
 .titleRow { display: flex; align-items: center; gap: 6px; }
 .titleInput { flex: 1; min-width: 0; background: transparent; border: 2px solid transparent; color: var(--text-secondary); font-family: var(--font-mono); font-size: 11px; font-style: italic; padding: 2px 4px; margin-top: 2px; border-radius: 3px; outline: none; transition: border-color 0.2s, background 0.2s; }
@@ -246,9 +263,9 @@
 
 /* ---- Session Control Buttons ---- */
 
-/* #62 — Flex-wrap control bar on mobile */
-.ctrlBar { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--border-subtle); }
-.ctrlBtn { background: var(--bg-subtle); border: 1px solid var(--border-subtle-strong); color: var(--text-secondary); font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: 1px; padding: 6px 14px; border-radius: 4px; cursor: pointer; transition: all 0.2s; }
+/* Control buttons — inline within header */
+.ctrlBar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; flex-shrink: 0; }
+.ctrlBtn { background: var(--bg-subtle); border: 1px solid var(--border-subtle-strong); color: var(--text-secondary); font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.8px; padding: 4px 10px; border-radius: 4px; cursor: pointer; transition: all 0.2s; }
 .ctrlBtn:hover { background: var(--bg-subtle-strong); color: var(--text-primary); }
 .ctrlBtn.resume { color: var(--accent-green); border-color: rgba(80, 250, 123, 0.3); }
 .ctrlBtn.resume:hover { background: rgba(80, 250, 123, 0.15); }
@@ -405,7 +422,16 @@
 }
 
 .switcherName {
-  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcherProject {
+  font-size: 9px;
+  color: var(--text-dim);
+  flex-shrink: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -689,19 +715,24 @@
   .panel { width: 100% !important; max-width: 100vw; }
   .resizeHandle { display: none; }
 
-  /* #67 — Stack header elements, reduce padding on mobile */
+  /* Stack header elements on mobile */
   .header {
-    padding: 12px 48px 10px 12px;
-    flex-wrap: wrap;
+    padding: 10px 12px;
     gap: 8px;
   }
 
+  .headerInfo { gap: 8px; }
   .charPreview { width: 48px; height: 60px; }
 
-  /* #62 — Reduce control bar button padding on small screens */
+  /* Buttons take full width on mobile */
+  .ctrlBar {
+    width: 100%;
+    gap: 4px;
+  }
+
   .ctrlBtn {
-    padding: 5px 10px;
-    font-size: 9px;
+    padding: 4px 8px;
+    font-size: 8px;
   }
 
   .ctrlSelect {
@@ -710,16 +741,15 @@
   }
 }
 
-/* #72 — Further reduce button sizes on very small screens */
+/* Further reduce button sizes on very small screens */
 @media (max-width: 480px) {
   .ctrlBar {
-    gap: 4px;
-    padding: 8px 10px;
+    gap: 3px;
   }
 
   .ctrlBtn {
-    padding: 3px 6px;
-    font-size: 8px;
+    padding: 3px 5px;
+    font-size: 7px;
     letter-spacing: 0.5px;
   }
 
@@ -744,10 +774,10 @@
     min-height: 44px;
   }
 
-  /* #62 — Larger ctrl button touch targets */
+  /* Larger ctrl button touch targets */
   .ctrlBtn {
-    min-height: 44px;
-    padding: 0 14px;
+    min-height: 36px;
+    padding: 0 10px;
   }
 
   .ctrlSelect {

@@ -17,6 +17,7 @@ import QueueTab from './QueueTab';
 import ProjectTabContainer from './ProjectTabContainer';
 import SessionControlBar from './SessionControlBar';
 import SessionSwitcher from './SessionSwitcher';
+import LabelChips from './LabelChips';
 import KillConfirmModal, { KILL_MODAL_ID } from './KillConfirmModal';
 import AlertModal, { ALERT_MODAL_ID } from './AlertModal';
 import TerminalContainer from '@/components/terminal/TerminalContainer';
@@ -194,73 +195,83 @@ export default function DetailPanel() {
         {/* Collapsible header + controls */}
         {!headerCollapsed && (
           <>
-            {/* Header */}
+            {/* Header with inline controls */}
             <div className={styles.header}>
-              <div className={styles.charPreview} style={{
-                width: 64,
-                height: 80,
-                borderRadius: 6,
-                border: `1px solid color-mix(in srgb, ${statusColor[session.status] ?? 'var(--text-dim)'} 25%, transparent)`,
-                background: `color-mix(in srgb, ${statusColor[session.status] ?? 'var(--text-dim)'} 6%, transparent)`,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 4,
-              }}>
-                <div style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: '50%',
-                  background: `${neonColor}30`,
-                  border: `2px solid ${neonColor}`,
-                  boxShadow: `0 0 8px ${neonColor}40`,
-                }} />
-                <span style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 8,
-                  fontWeight: 700,
-                  letterSpacing: 0.5,
-                  color: neonColor,
-                  textTransform: 'uppercase',
-                  opacity: 0.8,
+              <div className={styles.headerInfo}>
+                <div className={styles.charPreview} style={{
+                  width: 64,
+                  height: 80,
+                  borderRadius: 6,
+                  border: `1px solid color-mix(in srgb, ${statusColor[session.status] ?? 'var(--text-dim)'} 25%, transparent)`,
+                  background: `color-mix(in srgb, ${statusColor[session.status] ?? 'var(--text-dim)'} 6%, transparent)`,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 4,
                 }}>
-                  {modelLabel}
-                </span>
-              </div>
+                  <div style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: '50%',
+                    background: `${neonColor}30`,
+                    border: `2px solid ${neonColor}`,
+                    boxShadow: `0 0 8px ${neonColor}40`,
+                  }} />
+                  <span style={{
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 8,
+                    fontWeight: 700,
+                    letterSpacing: 0.5,
+                    color: neonColor,
+                    textTransform: 'uppercase',
+                    opacity: 0.8,
+                  }}>
+                    {modelLabel}
+                  </span>
+                </div>
 
-              <div className={styles.headerText}>
-                <div className={styles.headerTop}>
-                  <div className={styles.headerTitles}>
-                    <h3>{session.projectName}</h3>
-                    {session.title && (
-                      <div className={styles.titleRow}>
-                        <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontStyle: 'italic' }}>
-                          {session.title}
-                        </span>
-                      </div>
+                <div className={styles.headerText}>
+                  <div className={styles.headerTop}>
+                    <div className={styles.headerTitles}>
+                      <h3>{session.title || session.projectName || '(untitled)'}</h3>
+                      {session.title && session.projectName && session.title !== session.projectName && (
+                        <div className={styles.titleRow}>
+                          <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontStyle: 'italic' }}>
+                            {session.projectName}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className={styles.meta}>
+                    <span
+                      className={`${styles.detailStatusBadge} ${isDisconnected ? 'disconnected' : session.status}`}
+                    >
+                      {statusLabel}
+                    </span>
+                    {session.model && (
+                      <span className={styles.detailModel}>{session.model}</span>
+                    )}
+                    {durText && (
+                      <span className={styles.detailDuration}>{durText}</span>
                     )}
                   </div>
                 </div>
-
-                <div className={styles.meta}>
-                  <span
-                    className={`${styles.detailStatusBadge} ${isDisconnected ? 'disconnected' : session.status}`}
-                  >
-                    {statusLabel}
-                  </span>
-                  {session.model && (
-                    <span className={styles.detailModel}>{session.model}</span>
-                  )}
-                  {durText && (
-                    <span className={styles.detailDuration}>{durText}</span>
-                  )}
-                </div>
               </div>
+
+              {/* Session controls inline */}
+              <SessionControlBar session={session} />
             </div>
 
-            {/* Session controls */}
-            <SessionControlBar session={session} />
+            {/* Label chips */}
+            <div className={styles.labelRow}>
+              <LabelChips
+                sessionId={session.sessionId}
+                currentLabel={session.label || ''}
+              />
+            </div>
           </>
         )}
 
