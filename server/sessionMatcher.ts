@@ -275,11 +275,19 @@ export function matchSession(
           && (Date.now() - (s.endedAt || 0)) < 30 * 60 * 1000) {
         candidates.push({ oldId, s, endedAt: s.endedAt || 0 });
       }
-      // Match 2: Safety net — zombie SSH sessions that slipped through cleanup
+      // Match 2: Idle sessions with ServerRestart event (process survived restart,
+      // PID match failed because PID wasn't cached or changed)
+      if (s.status === SESSION_STATUS.IDLE
+          && s.events?.some(e => e.type === 'ServerRestart')
+          && !s.terminalId) {
+        candidates.push({ oldId, s, endedAt: s.lastActivityAt || 0 });
+      }
+      // Match 3: Safety net — zombie SSH sessions that slipped through cleanup
       // (non-ended, source=ssh, no terminalId, stale for >60s)
       if (s.source === 'ssh'
           && s.status !== SESSION_STATUS.ENDED
           && !s.terminalId
+          && !s.events?.some(e => e.type === 'ServerRestart')
           && s.lastActivityAt && (Date.now() - s.lastActivityAt) > 60_000) {
         candidates.push({ oldId, s, endedAt: s.lastActivityAt || 0 });
       }
@@ -319,13 +327,15 @@ export function matchSession(
 
   // Priority 1.5: Match by cached PID — when Claude resumes with a new session_id
   // but the same process (e.g., `claude --resume` creates a new session internally),
-  // link back to the same SSH terminal session instead of creating a duplicate card.
+  // link back to the same session instead of creating a duplicate card.
+  // Note: terminalId may be null after server restart (PTY died but Claude process
+  // survived). The PID match is a strong signal — re-key regardless of terminal state.
   if (!session && hookData.claude_pid && hook_event_name === EVENT_TYPES.SESSION_START) {
     const pid = Number(hookData.claude_pid);
     const existingSessionId = pidToSession.get(pid);
     if (existingSessionId && existingSessionId !== session_id) {
       const existingSession = sessions.get(existingSessionId);
-      if (existingSession && existingSession.terminalId) {
+      if (existingSession) {
         session = reKeyResumedSession(sessions, existingSession, session_id, existingSessionId, pidToSession);
         consumePendingLink(existingSession.projectPath || '');
         log.info('session', `Re-keyed session ${existingSessionId?.slice(0, 8)} -> ${session_id?.slice(0, 8)} (via cached PID=${pid}, same process new session_id)`);

@@ -48,20 +48,22 @@
 }
 
 .themeSelect {
-  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  background: var(--bg-card, #12122a); border: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15));
   color: var(--text-primary, #e0e0e0); font-family: var(--font-mono, 'JetBrains Mono', monospace);
-  font-size: 10px; padding: 2px 6px; border-radius: 3px; cursor: pointer;
+  font-size: 10px; padding: 2px 24px 2px 6px; border-radius: 3px; cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
-.themeSelect:focus { outline: none; border-color: var(--accent-cyan, #00e5ff); }
+.themeSelect:focus { outline: none; border-color: var(--accent-cyan, #00e5ff); box-shadow: 0 0 8px rgba(0, 229, 255, 0.3); }
 
 .toolbarBtn {
-  background: transparent; border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(128,128,128,0.08); border: 1px solid rgba(128,128,128,0.3);
   color: var(--text-secondary, #888); font-family: var(--font-mono, 'JetBrains Mono', monospace);
   font-size: 10px; font-weight: 600; letter-spacing: 0.5px;
-  padding: 2px 10px; border-radius: 3px; cursor: pointer; transition: all 0.2s;
-  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 8px; border-radius: 4px; cursor: pointer; transition: all 0.2s;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  min-width: 28px; min-height: 24px;
 }
-.toolbarBtn:hover { background: rgba(255,255,255,0.06); color: var(--text-primary, #e0e0e0); border-color: rgba(255,255,255,0.2); }
+.toolbarBtn:hover { background: rgba(128,128,128,0.15); color: var(--text-primary, #e0e0e0); border-color: rgba(128,128,128,0.5); }
 
 .kbdHint {
   font-size: 8px; font-weight: 400; letter-spacing: 0;

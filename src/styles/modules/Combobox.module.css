@@ -10,7 +10,7 @@
 
 .input {
   width: 100%;
-  background: rgba(10, 10, 26, 0.8);
+  background: var(--bg-card, #12122a);
   border: 2px solid var(--border-accent, rgba(0, 229, 255, 0.15));
   color: var(--text-primary);
   padding: 6px 32px 6px 10px;
@@ -63,7 +63,7 @@
   max-height: 200px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  background: rgba(10, 10, 30, 0.95);
+  background: var(--bg-card, #12122a);
   border: 1px solid rgba(0, 229, 255, 0.25);
   border-radius: 4px;
   box-shadow:

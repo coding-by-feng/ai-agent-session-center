@@ -269,9 +269,8 @@
 .ctrlBtn.terminal { color: #4caf50; border-color: rgba(76, 175, 80, 0.3); }
 .ctrlBtn.terminal:hover { background: rgba(76, 175, 80, 0.15); border-color: #4caf50; }
 
-.ctrlSelect { background: var(--bg-subtle); border: 1px solid var(--border-subtle-strong); color: var(--text-secondary); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.5px; padding: 6px 24px 6px 10px; border-radius: 4px; cursor: pointer; transition: all 0.15s ease; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; margin-left: auto; }
-.ctrlSelect:hover, .ctrlSelect:focus { border-color: var(--accent-cyan); color: var(--text-primary); background-color: var(--bg-subtle-strong); outline: none; }
-.ctrlSelect option { background: var(--bg-panel); color: var(--text-primary); }
+.ctrlSelect { background: var(--bg-card); border: 1px solid var(--border-accent); color: var(--text-secondary); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.5px; padding: 6px 28px 6px 10px; border-radius: 4px; cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s, color 0.15s; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238888aa'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; background-size: 10px 6px; margin-left: auto; }
+.ctrlSelect:hover, .ctrlSelect:focus { border-color: var(--accent-cyan); color: var(--text-primary); box-shadow: 0 0 8px rgba(0, 229, 255, 0.3); outline: none; }
 
 /* ---- Notes Tab ---- */
 

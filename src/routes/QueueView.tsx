@@ -108,16 +108,7 @@ export default function QueueView() {
           <select
             value={composeSessionId}
             onChange={(e) => setComposeSessionId(e.target.value)}
-            style={{
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid var(--border-subtle, rgba(255,255,255,0.08))',
-              borderRadius: '4px',
-              color: 'var(--text-primary)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '11px',
-              padding: '6px 8px',
-              minWidth: '180px',
-            }}
+            style={{ minWidth: '180px', fontSize: '11px' }}
           >
             <option value="">Select session...</option>
             {allSessions.map(([sid, s]) => (
