@@ -1,11 +1,12 @@
 /**
- * SessionSwitcher — Dropdown bar at the top of the DetailPanel that lets users
- * quickly switch between sessions without closing the panel first.
- * When headerCollapsed=true, also displays status badge, duration, and close/collapse buttons
- * so that the compact header and switcher are merged into one line.
+ * SessionSwitcher — bar at the top of the DetailPanel.
+ * Top row: current session name + status badge + duration + collapse/close buttons.
+ * Below: always-visible horizontal tab strip showing all other active sessions
+ *        as mini robot cards (icon + title + project name + label).
  */
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useMemo } from 'react';
 import type { Session } from '@/types';
+import { useUiStore } from '@/stores/uiStore';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -41,21 +42,9 @@ export default function SessionSwitcher({
   statusLabel, duration, isDisconnected,
   onClose, headerCollapsed, onToggleCollapse,
 }: Props) {
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const filterMode = useUiStore((s) => s.sidebarFilterMode);
 
-  // Read sidebar filter mode from localStorage to stay aligned with the agent list
-  const getFilterMode = useCallback((): 'all' | 'ssh' | 'others' => {
-    try {
-      const val = localStorage.getItem('sidebar-filter-mode');
-      if (val === 'ssh' || val === 'others') return val;
-    } catch { /* ignore */ }
-    return 'all';
-  }, []);
-
-  // Re-filter when dropdown opens so it always matches the sidebar's current filter
   const sortedSessions = useMemo(() => {
-    const filterMode = getFilterMode();
     return [...sessions.values()]
       .filter((s) => {
         if (s.sessionId === currentSession.sessionId) return false;
@@ -70,80 +59,27 @@ export default function SessionSwitcher({
         if (oa !== ob) return oa - ob;
         return (a.title || a.projectName || '').localeCompare(b.title || b.projectName || '');
       });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessions, currentSession.sessionId, open]);
-
-  // Close on click outside
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
-
-  // Close on Escape
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        setOpen(false);
-      }
-    };
-    window.addEventListener('keydown', handler, true);
-    return () => window.removeEventListener('keydown', handler, true);
-  }, [open]);
-
-  const handleSwitch = useCallback((sessionId: string) => {
-    setOpen(false);
-    onSwitch(sessionId);
-  }, [onSwitch]);
+  }, [sessions, currentSession.sessionId, filterMode]);
 
   const displayName = currentSession.title || currentSession.projectName || '(untitled)';
   const currentColor = STATUS_COLORS[currentSession.status] ?? 'var(--text-dim)';
 
   return (
-    <div className={styles.switcherBar} ref={containerRef}>
+    <div className={styles.switcherBar}>
+      {/* ── Top row: current session name + meta controls ── */}
       <div className={styles.switcherToggle}>
-        {/* Clickable session name area — opens dropdown */}
-        <button
-          className={styles.switcherNameBtn}
-          onClick={() => setOpen((prev) => !prev)}
-          type="button"
-        >
-          {/* Status dot */}
+        <div className={styles.switcherNameDisplay}>
           <span
             className={styles.switcherDot}
             style={{ background: currentColor, boxShadow: `0 0 6px ${currentColor}` }}
           />
-          {/* Display name */}
           <span className={styles.switcherName}>{displayName}</span>
-          {/* Label badge */}
           {currentSession.label && (
             <span className={styles.switcherLabel}>{currentSession.label}</span>
           )}
-          {/* Chevron */}
-          <svg
-            className={styles.switcherChevron}
-            width="10"
-            height="10"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ transform: open ? 'rotate(180deg)' : undefined }}
-          >
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
-        </button>
+        </div>
 
-        {/* Right side: status + duration + collapse + close (always shown) */}
+        {/* Right side: status + duration + collapse + close */}
         <div className={styles.switcherMeta}>
           {statusLabel && (
             <span
@@ -178,41 +114,44 @@ export default function SessionSwitcher({
         </div>
       </div>
 
-      {/* Dropdown */}
-      {open && sortedSessions.length > 0 && (
-        <div className={styles.switcherDropdown}>
+      {/* ── Session tab strip (hidden when header collapsed) ── */}
+      {!headerCollapsed && sortedSessions.length > 0 && (
+        <div className={styles.sessionTabStrip}>
           {sortedSessions.map((s) => {
             const color = STATUS_COLORS[s.status] ?? 'var(--text-dim)';
-            const name = s.title || '(untitled)';
+            const title = s.title || s.projectName || '(untitled)';
+            const showProject = s.projectName && s.projectName !== s.title;
             return (
               <button
                 key={s.sessionId}
-                className={styles.switcherItem}
-                onClick={() => handleSwitch(s.sessionId)}
+                className={styles.sessionTabCard}
+                data-status={s.status}
+                style={{ '--robot-color': color } as React.CSSProperties}
+                onClick={() => onSwitch(s.sessionId)}
+                title={[title, s.projectName, s.label, s.status].filter(Boolean).join(' · ')}
                 type="button"
               >
-                <span
-                  className={styles.switcherDot}
-                  style={{ background: color, boxShadow: `0 0 6px ${color}` }}
-                />
-                <span className={styles.switcherItemText}>
-                  <span className={styles.switcherItemName}>{name}</span>
-                  {s.projectName && s.projectName !== name && (
-                    <span className={styles.switcherItemProject}> — {s.projectName}</span>
-                  )}
-                </span>
+                {/* Mini robot face */}
+                <div className={styles.switcherMiniRobotFace}>
+                  <div className={styles.switcherMiniRobotEyes}>
+                    <div className={styles.switcherMiniRobotEye} />
+                    <div className={styles.switcherMiniRobotEye} />
+                  </div>
+                  <div className={styles.switcherMiniRobotMouth} />
+                </div>
+                {/* Status dot */}
+                <div className={styles.switcherMiniRobotDot} />
+                {/* Text info */}
+                <div className={styles.sessionTabTitle}>{title}</div>
+                {showProject && (
+                  <div className={styles.sessionTabProject}>{s.projectName}</div>
+                )}
                 {s.label && (
-                  <span className={styles.switcherLabel}>{s.label}</span>
+                  <div className={styles.sessionTabLabel}>{s.label}</div>
                 )}
               </button>
             );
           })}
-        </div>
-      )}
-
-      {open && sortedSessions.length === 0 && (
-        <div className={styles.switcherDropdown}>
-          <div className={styles.switcherEmpty}>No other sessions</div>
         </div>
       )}
     </div>

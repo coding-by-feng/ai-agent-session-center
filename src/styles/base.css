@@ -76,10 +76,11 @@ html, body {
   line-height: 1.5;
 }
 
-/* Global text selection */
-::selection {
+/* Global text selection — dark theme default: cyan bg, dark text */
+::selection,
+*::selection {
   background: var(--accent-cyan, #00e5ff);
-  color: var(--bg-primary, #0a0a1a);
+  color: var(--selection-text, var(--bg-primary, #0a0a1a));
 }
 
 body {

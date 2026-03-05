@@ -34,4 +34,6 @@ body[data-theme="warm"] {
   --robot-border: rgba(0, 0, 0, 0.1);
   --mute-bg: rgba(255, 252, 247, 0.8);
   --overlay-bg: rgba(0, 0, 0, 0.3);
+  /* Selection: warm-white bg-primary on dark-brown accent is readable */
+  --selection-text: var(--bg-primary);
 }

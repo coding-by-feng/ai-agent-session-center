@@ -8,6 +8,8 @@ import { createPortal } from 'react-dom';
 import { AnsiUp } from 'ansi_up';
 import { useTerminalOutput } from '@/hooks/useTerminalOutput';
 import { resolveTheme, toCssVariables, getThemeNames } from './themes';
+import Select from '@/components/ui/Select';
+import type { SelectOption } from '@/components/ui/Select';
 import styles from '@/styles/modules/TerminalOutput.module.css';
 
 interface TerminalOutputViewerProps {
@@ -162,20 +164,24 @@ export default memo(function TerminalOutputViewer({
     return [...htmlLinesRef.current];
   }, [lines]);
 
+  // Theme options for dropdown
+  const themeOptions = useMemo<SelectOption[]>(() => [
+    { value: 'auto', label: 'Auto' },
+    ...getThemeNames().map((name) => ({
+      value: name,
+      label: name.charAt(0).toUpperCase() + name.slice(1),
+    })),
+  ], []);
+
   // Toolbar component (shared between inline and fullscreen)
   const toolbarNode = useMemo(() => (
     <div className={styles.toolbar}>
-      <select
-        className={styles.themeSelect}
+      <Select
         value={themeName}
-        onChange={(e) => handleThemeChange(e.target.value)}
+        onChange={handleThemeChange}
+        options={themeOptions}
         title="Terminal theme"
-      >
-        <option value="auto">Auto</option>
-        {getThemeNames().map((name) => (
-          <option key={name} value={name}>{name.charAt(0).toUpperCase() + name.slice(1)}</option>
-        ))}
-      </select>
+      />
 
       <button
         className={`${styles.toolbarBtn} ${wordWrap ? styles.activeBtn : ''}`}
@@ -268,7 +274,7 @@ export default memo(function TerminalOutputViewer({
       )}
     </div>
   ), [themeName, wordWrap, bookmarks.length, showReconnect, onReconnect, isFullscreen,
-    handleThemeChange, handleCopyAll, clearOutput, handleBookmark, scrollToBottom]);
+    handleThemeChange, themeOptions, handleCopyAll, clearOutput, handleBookmark, scrollToBottom]);
 
   // Output render
   const outputNode = (ref: React.RefObject<HTMLDivElement | null>) => (

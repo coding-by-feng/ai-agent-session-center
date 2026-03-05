@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useSettingsStore } from '@/stores/settingsStore';
 import {
   soundEngine,
@@ -9,6 +9,8 @@ import {
 } from '@/lib/soundEngine';
 import { ambientEngine } from '@/lib/ambientEngine';
 import type { AmbientPreset } from '@/types';
+import Select from '@/components/ui/Select';
+import type { SelectOption } from '@/components/ui/Select';
 import styles from '@/styles/modules/Settings.module.css';
 
 // ---------------------------------------------------------------------------
@@ -25,6 +27,7 @@ const CLI_TABS = [
 type CliTabId = (typeof CLI_TABS)[number]['id'];
 
 const SOUND_NAMES = soundEngine.getSoundNames();
+const SOUND_OPTIONS: SelectOption[] = SOUND_NAMES.map((s) => ({ value: s, label: s }));
 
 const AMBIENT_PRESETS: Array<{ value: AmbientPreset; label: string }> = [
   { value: 'off', label: 'Off' },
@@ -187,17 +190,13 @@ export default function SoundSettings() {
                       <span className={styles.soundActionLabel}>
                         {ACTION_LABELS[action]}
                       </span>
-                      <select
-                        className={styles.soundActionSelect}
+                      <Select
                         value={currentSound}
-                        onChange={(e) =>
-                          setCliActionSound(activeCliTab, action, e.target.value)
+                        onChange={(val) =>
+                          setCliActionSound(activeCliTab, action, val)
                         }
-                      >
-                        {SOUND_NAMES.map((s) => (
-                          <option key={s} value={s}>{s}</option>
-                        ))}
-                      </select>
+                        options={SOUND_OPTIONS}
+                      />
                       <button
                         className={styles.soundPreviewBtn}
                         title="Preview sound"
@@ -246,16 +245,12 @@ export default function SoundSettings() {
           {/* Preset Dropdown */}
           <div className={styles.soundActionRow} style={{ padding: 0 }}>
             <span className={styles.soundActionLabel}>Preset</span>
-            <select
-              className={styles.soundActionSelect}
-              style={{ width: 140 }}
+            <Select
               value={ambientSettings.preset}
-              onChange={(e) => handleAmbientPresetChange(e.target.value as AmbientPreset)}
-            >
-              {AMBIENT_PRESETS.map((p) => (
-                <option key={p.value} value={p.value}>{p.label}</option>
-              ))}
-            </select>
+              onChange={(val) => handleAmbientPresetChange(val as AmbientPreset)}
+              options={AMBIENT_PRESETS.map((p) => ({ value: p.value, label: p.label }))}
+              style={{ width: 140 }}
+            />
           </div>
 
           {/* Room Activity Sounds */}

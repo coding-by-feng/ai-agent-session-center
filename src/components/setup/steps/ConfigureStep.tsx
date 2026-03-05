@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import type { SetupConfig } from '@/types/electron'
 import type { StepProps } from '../SetupWizard'
+import Select from '@/components/ui/Select'
 import styles from '@/styles/modules/SetupWizard.module.css'
 
 const DENSITY_OPTIONS: { value: SetupConfig['hookDensity']; label: string; desc: string }[] = [
@@ -164,14 +165,15 @@ export default function ConfigureStep({ config, setConfig, onNext }: StepProps) 
         {/* History Retention */}
         <div className={styles.fieldGroup}>
           <label className={styles.fieldLabel}>Session History Retention</label>
-          <select
-            className={styles.selectInput}
-            {...register('sessionHistoryHours', { valueAsNumber: true })}
-          >
-            {HISTORY_OPTIONS.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
+          <Select
+            value={String(watch('sessionHistoryHours'))}
+            onChange={(val) => setValue('sessionHistoryHours', Number(val))}
+            options={HISTORY_OPTIONS.map(opt => ({
+              value: String(opt.value),
+              label: opt.label,
+            }))}
+            style={{ width: '100%' }}
+          />
         </div>
 
         {/* Password */}

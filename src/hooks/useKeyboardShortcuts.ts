@@ -137,6 +137,29 @@ function dispatchAction(
         document.documentElement.requestFullscreen().catch(() => {});
       }
       break;
+    default:
+      // Handle switchSession1..switchSession9
+      if (actionId.startsWith('switchSession')) {
+        const idx = parseInt(actionId.replace('switchSession', ''), 10) - 1;
+        switchToSessionByIndex(idx);
+      }
+      break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Session switching helper
+// ---------------------------------------------------------------------------
+
+function switchToSessionByIndex(index: number): void {
+  const sessions = useSessionStore.getState().sessions;
+  // Get active (non-ended) sessions sorted by project name for stable ordering
+  const active = [...sessions.values()]
+    .filter((s) => s.status !== 'ended')
+    .sort((a, b) => (a.projectName || '').localeCompare(b.projectName || ''));
+  if (index >= 0 && index < active.length) {
+    useSessionStore.getState().selectSession(active[index].sessionId);
+    showToast(`Switched to session ${index + 1}`, 'info', 1500);
   }
 }
 

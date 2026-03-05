@@ -414,16 +414,7 @@ export default function SceneOverlay({ sessionCount }: SceneOverlayProps) {
         {/* Room management panel */}
         <RoomPanel />
 
-        <div style={{
-          fontSize: 8,
-          color: 'var(--text-dim)',
-          marginTop: 10,
-          lineHeight: 1.6,
-          textAlign: 'center',
-          fontFamily: "'Share Tech Mono', 'JetBrains Mono', monospace",
-        }}>
-          Drag to orbit &middot; Scroll to zoom
-        </div>
+
       </div>
     </div>
   );

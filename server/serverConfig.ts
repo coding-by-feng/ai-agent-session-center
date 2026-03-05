@@ -7,7 +7,11 @@ import { fileURLToPath } from 'url';
 import type { ServerConfig } from '../src/types/settings.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONFIG_PATH = join(__dirname, '..', 'data', 'server-config.json');
+// In packaged Electron, APP_USER_DATA is set to app.getPath('userData') — a writable directory.
+// In dev/CLI mode, fall back to the local data/ directory.
+const CONFIG_PATH = process.env.APP_USER_DATA
+  ? join(process.env.APP_USER_DATA, 'server-config.json')
+  : join(__dirname, '..', 'data', 'server-config.json');
 
 const DEFAULTS: ServerConfig = {
   port: 3333,

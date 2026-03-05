@@ -23,6 +23,15 @@ const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
   killSession:      { label: 'Kill selected session',       section: 'Selected Session', combo: { key: 'k' } },
   archiveSession:   { label: 'Archive selected session',    section: 'Selected Session', combo: { key: 'a' } },
   toggleFullscreen: { label: 'Toggle fullscreen',           section: 'Terminal',         combo: { key: 'F11', altKey: true } },
+  switchSession1:   { label: 'Switch to session 1',         section: 'Session Switch',   combo: { key: '1', altKey: true } },
+  switchSession2:   { label: 'Switch to session 2',         section: 'Session Switch',   combo: { key: '2', altKey: true } },
+  switchSession3:   { label: 'Switch to session 3',         section: 'Session Switch',   combo: { key: '3', altKey: true } },
+  switchSession4:   { label: 'Switch to session 4',         section: 'Session Switch',   combo: { key: '4', altKey: true } },
+  switchSession5:   { label: 'Switch to session 5',         section: 'Session Switch',   combo: { key: '5', altKey: true } },
+  switchSession6:   { label: 'Switch to session 6',         section: 'Session Switch',   combo: { key: '6', altKey: true } },
+  switchSession7:   { label: 'Switch to session 7',         section: 'Session Switch',   combo: { key: '7', altKey: true } },
+  switchSession8:   { label: 'Switch to session 8',         section: 'Session Switch',   combo: { key: '8', altKey: true } },
+  switchSession9:   { label: 'Switch to session 9',         section: 'Session Switch',   combo: { key: '9', altKey: true } },
 };
 
 /** All action IDs in display order. */
@@ -30,10 +39,13 @@ export const ACTION_IDS: ShortcutActionId[] = [
   'focusSearch', 'closeOrDeselect', 'toggleShortcuts',
   'toggleSettings', 'newTerminal', 'toggleMute',
   'killSession', 'archiveSession', 'toggleFullscreen',
+  'switchSession1', 'switchSession2', 'switchSession3',
+  'switchSession4', 'switchSession5', 'switchSession6',
+  'switchSession7', 'switchSession8', 'switchSession9',
 ];
 
 /** Section display order. */
-export const SECTION_ORDER = ['Navigation', 'Actions', 'Selected Session', 'Terminal'];
+export const SECTION_ORDER = ['Navigation', 'Actions', 'Selected Session', 'Terminal', 'Session Switch'];
 
 /** Build ShortcutBinding[] from defaults + optional overrides. */
 export function buildBindings(
@@ -95,8 +107,15 @@ export function comboEquals(a: KeyCombo, b: KeyCombo): boolean {
 
 /** Check if a KeyboardEvent matches a KeyCombo binding. */
 export function comboMatchesEvent(combo: KeyCombo, e: KeyboardEvent): boolean {
-  // For single-char shortcuts, compare case-insensitively so both 's' and 'S' match
-  if (normalizeKey(combo.key) !== normalizeKey(e.key)) return false;
+  // On macOS, Alt+digit produces special characters (e.g. Alt+1 → ¡).
+  // Fall back to e.code (e.g. "Digit1") when the binding uses altKey + digit.
+  let keyMatch: boolean;
+  if (combo.altKey && /^[0-9]$/.test(combo.key) && e.altKey) {
+    keyMatch = e.code === `Digit${combo.key}`;
+  } else {
+    keyMatch = normalizeKey(combo.key) === normalizeKey(e.key);
+  }
+  if (!keyMatch) return false;
 
   if (!!combo.ctrlKey !== e.ctrlKey) return false;
   if (!!combo.metaKey !== e.metaKey) return false;

@@ -1,0 +1,38 @@
+/* ============================================================
+   TitleBar CSS Module
+   Fixed 28px macOS traffic-light zone — only shown on electron-mac.
+   Sits above all overlays (z-index 99999). Native OS traffic lights
+   render above even this overlay, so they remain visible.
+   ============================================================ */
+
+.titleBar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  z-index: 99999;
+  background: var(--bg-header);
+  border-bottom: 1px solid var(--border-accent);
+  -webkit-app-region: drag;
+
+  /* Hidden on non-macOS / non-Electron */
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+
+:global(html.electron-mac) .titleBar {
+  display: flex;
+}
+
+.appName {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2.5px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  -webkit-app-region: no-drag;
+  user-select: none;
+}

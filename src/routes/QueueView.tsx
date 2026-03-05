@@ -3,10 +3,12 @@
  * Shows each session's queued prompts in a table-based layout.
  * Supports add, remove, move-between-sessions.
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useQueueStore, type QueueItem } from '@/stores/queueStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { showToast } from '@/components/ui/ToastContainer';
+import Select from '@/components/ui/Select';
+import type { SelectOption } from '@/components/ui/Select';
 import styles from '@/styles/modules/Queue.module.css';
 import termStyles from '@/styles/modules/Terminal.module.css';
 
@@ -88,6 +90,14 @@ export default function QueueView() {
 
   const allSessions = Array.from(sessions.entries());
 
+  const sessionOptions = useMemo<SelectOption[]>(() => [
+    { value: '', label: 'Select session...' },
+    ...allSessions.map(([sid, s]) => ({
+      value: sid,
+      label: `${s.projectName || sid.slice(0, 8)}${s.title ? ` — ${s.title}` : ''}`,
+    })),
+  ], [allSessions]);
+
   return (
     <div data-testid="queue-view" style={{ height: '100%', overflow: 'auto' }}>
       {/* Header controls */}
@@ -105,19 +115,13 @@ export default function QueueView() {
       {/* Compose area */}
       <div style={{ padding: '0 24px 16px' }}>
         <div className={termStyles.queueCompose}>
-          <select
+          <Select
             value={composeSessionId}
-            onChange={(e) => setComposeSessionId(e.target.value)}
+            onChange={setComposeSessionId}
+            options={sessionOptions}
+            placeholder="Select session..."
             style={{ minWidth: '180px', fontSize: '11px' }}
-          >
-            <option value="">Select session...</option>
-            {allSessions.map(([sid, s]) => (
-              <option key={sid} value={sid}>
-                {s.projectName || sid.slice(0, 8)}
-                {s.title ? ` — ${s.title}` : ''}
-              </option>
-            ))}
-          </select>
+          />
           <textarea
             className={termStyles.queueTextarea}
             placeholder="Add a prompt to the queue..."

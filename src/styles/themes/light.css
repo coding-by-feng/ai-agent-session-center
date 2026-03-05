@@ -1,5 +1,10 @@
 /* Theme: Light */
 
+body[data-theme="light"] ::selection {
+  background: var(--accent-cyan);
+  color: #ffffff;
+}
+
 body[data-theme="light"] {
   color-scheme: light;
   --bg-primary: #f0f2f5;
@@ -34,4 +39,6 @@ body[data-theme="light"] {
   --robot-border: rgba(0, 0, 0, 0.1);
   --mute-bg: rgba(255, 255, 255, 0.8);
   --overlay-bg: rgba(0, 0, 0, 0.3);
+  /* Selection: use dark text so it contrasts against the medium-blue accent */
+  --selection-text: #ffffff;
 }

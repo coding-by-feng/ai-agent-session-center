@@ -19,6 +19,12 @@
     "node_modules/better-sqlite3/**",
     "node_modules/node-pty/**"
   ],
+  "extraResources": [
+    {
+      "from": "hooks",
+      "to": "hooks"
+    }
+  ],
   "mac": {
     "target": [
       { "target": "dmg", "arch": ["arm64"] },

@@ -1,5 +1,11 @@
 /* Theme: Blonde */
 
+body[data-theme="blonde"] ::selection,
+body[data-theme="blonde"] *::selection {
+  background: var(--accent-cyan);
+  color: #ffffff;
+}
+
 body[data-theme="blonde"] {
   color-scheme: light;
   --bg-primary: #fdf8ef;

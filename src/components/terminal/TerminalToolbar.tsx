@@ -2,8 +2,10 @@
  * TerminalToolbar shows theme selector, ESC, paste icon, expand/collapse,
  * fullscreen toggle, and reconnect.
  */
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { getThemeNames } from './themes';
+import Select from '@/components/ui/Select';
+import type { SelectOption } from '@/components/ui/Select';
 import styles from '@/styles/modules/Terminal.module.css';
 
 /** Clipboard/paste SVG icon. */
@@ -24,6 +26,17 @@ function ArrowUpIcon() {
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <line x1="12" y1="19" x2="12" y2="5" />
       <polyline points="5 12 12 5 19 12" />
+    </svg>
+  );
+}
+
+/** Enter/return SVG icon. */
+function EnterIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="9 10 4 15 9 20" />
+      <path d="M20 4v7a4 4 0 0 1-4 4H4" />
     </svg>
   );
 }
@@ -107,6 +120,7 @@ interface TerminalToolbarProps {
   onSendEscape: () => void;
   onSendArrowUp: () => void;
   onSendArrowDown: () => void;
+  onSendEnter: () => void;
   onPaste: () => void;
   onReconnect?: () => void;
   onScrollToBottom?: () => void;
@@ -123,6 +137,7 @@ export default function TerminalToolbar({
   onSendEscape,
   onSendArrowUp,
   onSendArrowDown,
+  onSendEnter,
   onPaste,
   onReconnect,
   onScrollToBottom,
@@ -131,30 +146,22 @@ export default function TerminalToolbar({
   isFullscreen,
   showReconnect = false,
 }: TerminalToolbarProps) {
-  const themeNames = getThemeNames();
-
-  const handleThemeChange = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      onThemeChange(e.target.value);
-    },
-    [onThemeChange],
-  );
+  const themeOptions = useMemo<SelectOption[]>(() => [
+    { value: 'auto', label: 'Auto' },
+    ...getThemeNames().map((name) => ({
+      value: name,
+      label: name.charAt(0).toUpperCase() + name.slice(1),
+    })),
+  ], []);
 
   return (
     <div className={styles.toolbar}>
-      <select
-        className={styles.themeSelect}
+      <Select
         value={themeName}
-        onChange={handleThemeChange}
+        onChange={onThemeChange}
+        options={themeOptions}
         title="Terminal theme"
-      >
-        <option value="auto">Auto</option>
-        {themeNames.map((name) => (
-          <option key={name} value={name}>
-            {name.charAt(0).toUpperCase() + name.slice(1)}
-          </option>
-        ))}
-      </select>
+      />
 
       <button
         className={styles.toolbarBtn}
@@ -186,6 +193,14 @@ export default function TerminalToolbar({
         title="Send Down arrow key to terminal"
       >
         <ArrowDownIcon />
+      </button>
+
+      <button
+        className={styles.toolbarBtn}
+        onClick={onSendEnter}
+        title="Send Enter key to terminal"
+      >
+        <EnterIcon />
       </button>
 
       {onScrollToBottom && (

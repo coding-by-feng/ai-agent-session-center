@@ -1,8 +1,10 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { authFetch } from '@/hooks/useAuth';
 import SearchInput from '@/components/ui/SearchInput';
 import Tabs from '@/components/ui/Tabs';
+import Select from '@/components/ui/Select';
+import type { SelectOption } from '@/components/ui/Select';
 import type {
   SessionSearchResponse,
   SessionDetailResponse,
@@ -161,34 +163,33 @@ export default function HistoryView() {
 
         <div className={styles.filterGroup}>
           <span className={styles.filterLabel}>Project</span>
-          <select
-            className={styles.filterSelect}
+          <Select
             value={filters.project}
-            onChange={(e) => updateFilter('project', e.target.value)}
-          >
-            <option value="">All</option>
-            {projects?.map((p) => (
-              <option key={p.project_path} value={p.project_path}>
-                {p.project_name}
-              </option>
-            ))}
-          </select>
+            onChange={(val) => updateFilter('project', val)}
+            options={[
+              { value: '', label: 'All' },
+              ...(projects?.map((p) => ({
+                value: p.project_path,
+                label: p.project_name,
+              })) ?? []),
+            ]}
+          />
         </div>
 
         <div className={styles.filterGroup}>
           <span className={styles.filterLabel}>Status</span>
-          <select
-            className={styles.filterSelect}
+          <Select
             value={filters.status}
-            onChange={(e) => updateFilter('status', e.target.value)}
-          >
-            <option value="">All</option>
-            <option value="idle">Idle</option>
-            <option value="working">Working</option>
-            <option value="waiting">Waiting</option>
-            <option value="ended">Ended</option>
-            <option value="archived">Archived</option>
-          </select>
+            onChange={(val) => updateFilter('status', val)}
+            options={[
+              { value: '', label: 'All' },
+              { value: 'idle', label: 'Idle' },
+              { value: 'working', label: 'Working' },
+              { value: 'waiting', label: 'Waiting' },
+              { value: 'ended', label: 'Ended' },
+              { value: 'archived', label: 'Archived' },
+            ]}
+          />
         </div>
 
         <div className={styles.filterGroup}>
@@ -213,16 +214,16 @@ export default function HistoryView() {
 
         <div className={styles.filterGroup}>
           <span className={styles.filterLabel}>Sort</span>
-          <select
-            className={styles.filterSelect}
+          <Select
             value={filters.sortBy}
-            onChange={(e) => updateFilter('sortBy', e.target.value)}
-          >
-            <option value="date">Date</option>
-            <option value="duration">Activity</option>
-            <option value="prompts">Prompts</option>
-            <option value="tools">Tools</option>
-          </select>
+            onChange={(val) => updateFilter('sortBy', val)}
+            options={[
+              { value: 'date', label: 'Date' },
+              { value: 'duration', label: 'Activity' },
+              { value: 'prompts', label: 'Prompts' },
+              { value: 'tools', label: 'Tools' },
+            ]}
+          />
           <button
             className={styles.sortToggle}
             onClick={() =>

@@ -18,6 +18,7 @@ import DetailPanel from '@/components/session/DetailPanel';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useSettingsInit } from '@/hooks/useSettingsInit';
 import LiveView from '@/routes/LiveView';
+import TitleBar from '@/components/layout/TitleBar';
 
 // Lazy-load non-default routes for code splitting
 const HistoryView = lazy(() => import('@/routes/HistoryView'));
@@ -127,18 +128,27 @@ export default function App() {
 
   if (isSetup === null) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0a0a1a', color: '#8888aa', fontFamily: "'JetBrains Mono', monospace" }}>
-        Loading...
-      </div>
+      <>
+        <TitleBar />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0a0a1a', color: '#8888aa', fontFamily: "'JetBrains Mono', monospace" }}>
+          Loading...
+        </div>
+      </>
     );
   }
 
   if (isSetup === false) {
-    return <SetupWizard />;
+    return (
+      <>
+        <TitleBar />
+        <SetupWizard />
+      </>
+    );
   }
 
   return (
     <QueryClientProvider client={queryClient}>
+      <TitleBar />
       <AuthGate />
     </QueryClientProvider>
   );

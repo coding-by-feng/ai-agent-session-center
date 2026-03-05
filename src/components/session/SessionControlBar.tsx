@@ -4,7 +4,7 @@
  * Displayed in the detail panel below the header.
  * Ported from public/js/sessionControls.js.
  */
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import type { Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
@@ -12,6 +12,8 @@ import { useRoomStore } from '@/stores/roomStore';
 import { db } from '@/lib/db';
 import { deleteSession as deleteSessionDb } from '@/lib/db';
 import { showToast } from '@/components/ui/ToastContainer';
+import Select from '@/components/ui/Select';
+import type { SelectOption } from '@/components/ui/Select';
 import { KILL_MODAL_ID } from './KillConfirmModal';
 import { ALERT_MODAL_ID } from './AlertModal';
 import LabelChips from './LabelChips';
@@ -120,8 +122,7 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
 
   // ---- Room select ----
   const handleRoomChange = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const roomId = e.target.value;
+    (roomId: string) => {
       if (roomId === '__new__') {
         const name = window.prompt('New room name:');
         if (name?.trim()) {
@@ -154,6 +155,12 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
   const currentRoomId = rooms.find((r) =>
     r.sessionIds.includes(session.sessionId),
   )?.id || '';
+
+  const roomOptions = useMemo<SelectOption[]>(() => [
+    { value: '', label: 'No room' },
+    ...rooms.map((r) => ({ value: r.id, label: r.name })),
+    { value: '__new__', label: '+ New Room' },
+  ], [rooms]);
 
   return (
     <div>
@@ -194,19 +201,11 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
         </button>
 
         {/* Room select */}
-        <select
-          className={styles.ctrlSelect}
+        <Select
           value={currentRoomId}
           onChange={handleRoomChange}
-        >
-          <option value="">No room</option>
-          {rooms.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.name}
-            </option>
-          ))}
-          <option value="__new__">+ New Room</option>
-        </select>
+          options={roomOptions}
+        />
       </div>
 
       {/* Label chips */}

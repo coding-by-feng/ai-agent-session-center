@@ -8,8 +8,10 @@
 
 DIR="dist/electron"
 
-# Fix require paths: .js" → .cjs"  and  .js' → .cjs'
-find "$DIR" -name '*.js' -exec sed -i '' 's/\.js")/\.cjs")/g; s/\.js'\'')/\.cjs'\'')/g' {} +
+# Fix require paths: only replace .js" when preceded by a path separator (/).
+# This matches require("./module.js") but not standalone filename strings like 'api.js').
+# TypeScript CJS output always uses double-quoted paths, so single-quote variant is omitted.
+find "$DIR" -name '*.js' -exec sed -i '' 's|/\([^"]*\)\.js")|/\1.cjs")|g' {} +
 
 # Also fix .map references
 find "$DIR" -name '*.js' -exec sed -i '' 's/\.js\.map/\.cjs\.map/g' {} +

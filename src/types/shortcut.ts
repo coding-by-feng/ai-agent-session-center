@@ -19,7 +19,16 @@ export type ShortcutActionId =
   | 'killSession'
   | 'archiveSession'
   | 'toggleMute'
-  | 'toggleFullscreen';
+  | 'toggleFullscreen'
+  | 'switchSession1'
+  | 'switchSession2'
+  | 'switchSession3'
+  | 'switchSession4'
+  | 'switchSession5'
+  | 'switchSession6'
+  | 'switchSession7'
+  | 'switchSession8'
+  | 'switchSession9';
 
 export interface ShortcutBinding {
   actionId: ShortcutActionId;

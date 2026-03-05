@@ -13,6 +13,20 @@
   border-bottom: 1px solid var(--border-accent);
   z-index: 10;
   position: relative;
+  /* Allow dragging the header as a window drag region */
+  -webkit-app-region: drag;
+}
+
+/* Interactive elements must opt out of dragging */
+.header button,
+.header a,
+.header input {
+  -webkit-app-region: no-drag;
+}
+
+/* macOS: push header content below the 28px fixed TitleBar overlay */
+:global(.electron-mac) .header {
+  padding-top: 40px; /* 28px TitleBar + 12px original top padding */
 }
 
 .title {
@@ -107,6 +121,116 @@
   padding: 4px 10px; border-radius: 4px; transition: all 0.2s; margin-left: 16px;
 }
 .settingsGear:hover { color: var(--accent-cyan); border-color: var(--border-accent); }
+
+/* ---- Agent Strip ---- */
+
+.agentStrip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  justify-content: center;
+  padding: 0 12px;
+  overflow: hidden;
+}
+
+.miniRobot {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  background: var(--bg-card);
+  border: 1.5px solid var(--robot-color, var(--border-subtle));
+  border-radius: 7px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 5px var(--robot-color, transparent);
+  transition: box-shadow 0.2s, transform 0.15s, border-color 0.2s;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.miniRobot:hover {
+  transform: translateY(-3px) scale(1.12);
+  box-shadow: 0 0 12px var(--robot-color, transparent);
+}
+
+.miniRobot[data-selected='true'] {
+  outline: 2px solid var(--robot-color);
+  outline-offset: 2px;
+  box-shadow: 0 0 14px var(--robot-color, transparent);
+}
+
+.miniRobot[data-status='working'],
+.miniRobot[data-status='prompting'] {
+  animation: robotGlow 2s ease-in-out infinite;
+}
+
+@keyframes robotGlow {
+  0%, 100% { box-shadow: 0 0 5px var(--robot-color); }
+  50%       { box-shadow: 0 0 14px var(--robot-color); }
+}
+
+.miniRobotFace {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.miniRobotEyes {
+  display: flex;
+  gap: 4px;
+}
+
+.miniRobotEye {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--robot-color, var(--text-dim));
+  box-shadow: 0 0 3px var(--robot-color, transparent);
+}
+
+.miniRobotMouth {
+  width: 9px;
+  height: 2px;
+  background: var(--border-subtle-strong);
+  border-radius: 1px;
+}
+
+.miniRobotDot {
+  position: absolute;
+  bottom: -3px;
+  right: -3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--robot-color, var(--text-dim));
+  box-shadow: 0 0 4px var(--robot-color, transparent);
+  border: 1.5px solid var(--bg-primary);
+}
+
+.overflowChip {
+  height: 30px;
+  padding: 0 9px;
+  background: var(--bg-accent);
+  border: 1px solid var(--border-accent);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  letter-spacing: 0.5px;
+}
+
+.overflowChip:hover {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+  box-shadow: 0 0 8px var(--glow-accent);
+}
 
 /* ---- Responsive ---- */
 

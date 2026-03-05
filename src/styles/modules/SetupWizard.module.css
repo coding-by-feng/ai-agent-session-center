@@ -24,6 +24,11 @@
   border-bottom: 1px solid var(--border-accent);
 }
 
+/* macOS: push content below the 28px fixed TitleBar overlay */
+:global(.electron-mac) .header {
+  padding-top: 52px; /* 28px TitleBar + 24px original top padding */
+}
+
 .progressBar {
   height: 3px;
   background: var(--bg-card);

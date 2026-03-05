@@ -1,6 +1,6 @@
 process.env.ELECTRON = '1'
 
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, shell, Menu } from 'electron'
 import path from 'path'
 import { existsSync } from 'fs'
 import { setupTray } from './tray.js'
@@ -24,7 +24,7 @@ async function createWindow(): Promise<BrowserWindow> {
     height:    firstRun ? 520  : 900,
     minWidth:  firstRun ? 640  : 900,
     minHeight: firstRun ? 520  : 600,
-    resizable: !firstRun,
+    resizable: true,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     backgroundColor: '#0a0a1a',
     webPreferences: {
@@ -62,6 +62,8 @@ app.whenReady().then(async () => {
   if (!isFirstRun() && !isDev) {
     // Production launch: start Express server in-process, then open window
     // In dev mode, the server is already running via `tsx watch server/index.ts`
+    // Set APP_USER_DATA so the server reads config from the writable userData dir
+    process.env.APP_USER_DATA = app.getPath('userData')
     // Use require() to avoid TypeScript following ESM server files during CJS compilation
     const serverPath = path.join(PROJECT_ROOT, 'server', 'index.js')
     const { startServer } = require(serverPath) as { startServer: (port?: number) => Promise<number> }
@@ -71,7 +73,58 @@ app.whenReady().then(async () => {
 
   const win = await createWindow()
   setupTray(win)
+  buildAppMenu(win)
 })
+
+function buildAppMenu(win: BrowserWindow) {
+  const isMac = process.platform === 'darwin'
+
+  const template: Electron.MenuItemConstructorOptions[] = [
+    // macOS app menu (required for Cmd+Q, about, etc.)
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        { role: 'about' as const },
+        { type: 'separator' as const },
+        { role: 'services' as const },
+        { type: 'separator' as const },
+        { role: 'hide' as const },
+        { role: 'hideOthers' as const },
+        { role: 'unhide' as const },
+        { type: 'separator' as const },
+        { role: 'quit' as const },
+      ],
+    }] : []),
+    {
+      label: 'View',
+      submenu: [
+        {
+          label: 'Zoom In',
+          accelerator: isMac ? 'Cmd+=' : 'Ctrl+=',
+          click: () => { win.webContents.setZoomLevel(win.webContents.getZoomLevel() + 0.5) },
+        },
+        {
+          label: 'Zoom Out',
+          accelerator: isMac ? 'Cmd+-' : 'Ctrl+-',
+          click: () => { win.webContents.setZoomLevel(win.webContents.getZoomLevel() - 0.5) },
+        },
+        {
+          label: 'Reset Zoom',
+          accelerator: isMac ? 'Cmd+0' : 'Ctrl+0',
+          click: () => { win.webContents.setZoomLevel(0) },
+        },
+        { type: 'separator' },
+        {
+          label: 'Toggle Fullscreen',
+          accelerator: isMac ? 'Ctrl+Cmd+F' : 'F11',
+          click: () => { win.setFullScreen(!win.isFullScreen()) },
+        },
+      ],
+    },
+  ]
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
 
 app.on('window-all-closed', () => {
   // Do nothing — tray keeps app alive.

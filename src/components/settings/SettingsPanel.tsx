@@ -7,15 +7,17 @@ import SoundSettings from './SoundSettings';
 import HookSettings from './HookSettings';
 import ApiKeySettings from './ApiKeySettings';
 import SummaryPromptSettings from './SummaryPromptSettings';
+import ShortcutSettings from './ShortcutSettings';
 import styles from '@/styles/modules/Settings.module.css';
 
-type SettingsTab = 'appearance' | 'sound' | 'hooks' | 'apikeys' | 'advanced';
+type SettingsTab = 'appearance' | 'sound' | 'hooks' | 'apikeys' | 'shortcuts' | 'advanced';
 
 const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'appearance', label: 'APPEARANCE' },
   { id: 'sound', label: 'SOUND' },
   { id: 'hooks', label: 'HOOKS' },
   { id: 'apikeys', label: 'API KEYS' },
+  { id: 'shortcuts', label: 'SHORTCUTS' },
   { id: 'advanced', label: 'ADVANCED' },
 ];
 
@@ -73,7 +75,7 @@ export default function SettingsPanel() {
   }
 
   return (
-    <Modal modalId="settings" title="Settings">
+    <Modal modalId="settings" title="Settings" panelClassName={styles.settingsModal}>
       <div className={styles.panel}>
         {/* Autosave indicator */}
         <div
@@ -97,11 +99,12 @@ export default function SettingsPanel() {
         </div>
 
         {/* Tab Content */}
-        <div style={{ padding: '16px 0', overflowY: 'auto', maxHeight: '55vh' }}>
+        <div style={{ padding: '16px 0', overflowY: 'auto', maxHeight: '72vh' }}>
           {activeTab === 'appearance' && <ThemeSettings />}
           {activeTab === 'sound' && <SoundSettings />}
           {activeTab === 'hooks' && <HookSettings />}
           {activeTab === 'apikeys' && <ApiKeySettings />}
+          {activeTab === 'shortcuts' && <ShortcutSettings />}
           {activeTab === 'advanced' && (
             <AdvancedSettings
               onExport={handleExport}
