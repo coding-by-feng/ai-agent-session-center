@@ -337,6 +337,7 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 
+
 .switcherToggle {
   display: flex;
   align-items: center;
@@ -494,6 +495,192 @@
   color: var(--text-dim);
   font-size: 10px;
   letter-spacing: 0.5px;
+}
+
+/* ---- Mini robot grid inside switcher dropdown ---- */
+
+.switcherRobotGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.switcherMiniRobot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  width: 52px;
+  padding: 8px 4px 6px;
+  background: var(--bg-card);
+  border: 1.5px solid var(--robot-color, var(--border-subtle));
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 0 5px var(--robot-color, transparent);
+  transition: box-shadow 0.2s, transform 0.15s;
+}
+
+.switcherMiniRobot:hover {
+  transform: translateY(-2px) scale(1.06);
+  box-shadow: 0 0 12px var(--robot-color, transparent);
+}
+
+.switcherMiniRobot[data-status='working'],
+.switcherMiniRobot[data-status='prompting'] {
+  animation: switcherRobotGlow 2s ease-in-out infinite;
+}
+
+@keyframes switcherRobotGlow {
+  0%, 100% { box-shadow: 0 0 5px var(--robot-color); }
+  50%       { box-shadow: 0 0 14px var(--robot-color); }
+}
+
+.switcherMiniRobotFace {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.switcherMiniRobotEyes {
+  display: flex;
+  gap: 4px;
+}
+
+.switcherMiniRobotEye {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--robot-color, var(--text-dim));
+  box-shadow: 0 0 3px var(--robot-color, transparent);
+}
+
+.switcherMiniRobotMouth {
+  width: 10px;
+  height: 2px;
+  background: var(--border-subtle-strong);
+  border-radius: 1px;
+}
+
+.switcherMiniRobotDot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--robot-color, var(--text-dim));
+  box-shadow: 0 0 4px var(--robot-color, transparent);
+  border: 1.5px solid var(--bg-panel);
+}
+
+.switcherMiniRobotName {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-secondary);
+  text-align: center;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+/* ---- Always-visible session tab strip ---- */
+
+.switcherNameDisplay {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 8px 0 12px;
+  overflow: hidden;
+}
+
+.sessionTabStrip {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px 5px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border-faint);
+  flex-shrink: 0;
+  scrollbar-width: none;
+  background: color-mix(in srgb, var(--bg-card) 40%, transparent);
+}
+
+.sessionTabStrip::-webkit-scrollbar {
+  display: none;
+}
+
+.sessionTabCard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  width: 72px;
+  padding: 7px 4px 6px;
+  background: var(--bg-card);
+  border: 1.5px solid var(--robot-color, var(--border-subtle));
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 0 5px var(--robot-color, transparent);
+  transition: box-shadow 0.2s, transform 0.15s;
+}
+
+.sessionTabCard:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 0 12px var(--robot-color, transparent);
+}
+
+.sessionTabCard[data-status='working'],
+.sessionTabCard[data-status='prompting'] {
+  animation: switcherRobotGlow 2s ease-in-out infinite;
+}
+
+.sessionTabTitle {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: center;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.sessionTabProject {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: var(--text-dim);
+  text-align: center;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.sessionTabLabel {
+  font-size: 8px;
+  color: var(--accent-cyan);
+  background: var(--bg-accent);
+  border: 1px solid var(--border-accent);
+  border-radius: 2px;
+  padding: 0 3px;
+  line-height: 1.5;
+  text-transform: uppercase;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---- Responsive ---- */

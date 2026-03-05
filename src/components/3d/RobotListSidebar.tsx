@@ -6,6 +6,8 @@
 import { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
+import { useUiStore } from '@/stores/uiStore';
+import type { SidebarFilterMode } from '@/stores/uiStore';
 import type { Session } from '@/types/session';
 
 // ---------------------------------------------------------------------------
@@ -372,25 +374,8 @@ interface SessionGroup {
 }
 
 // ---------------------------------------------------------------------------
-// Filter persistence (localStorage)
-// ---------------------------------------------------------------------------
-
-type FilterMode = 'all' | 'ssh' | 'others';
-const FILTER_KEY = 'sidebar-filter-mode';
-
-function loadFilterMode(): FilterMode {
-  try {
-    const val = localStorage.getItem(FILTER_KEY);
-    if (val === 'all' || val === 'ssh' || val === 'others') return val;
-    return 'all';
-  } catch {
-    return 'all';
-  }
-}
-
-function saveFilterMode(mode: FilterMode): void {
-  try { localStorage.setItem(FILTER_KEY, mode); } catch { /* ignore */ }
-}
+// FilterMode type alias (now managed by uiStore)
+type FilterMode = SidebarFilterMode;
 
 // ---------------------------------------------------------------------------
 // Main Component
@@ -402,9 +387,10 @@ export default function RobotListSidebar() {
   const removeSession = useSessionStore((s) => s.removeSession);
   const updateSession = useSessionStore((s) => s.updateSession);
   const rooms = useRoomStore((s) => s.rooms);
+  const filterMode = useUiStore((s) => s.sidebarFilterMode);
+  const setSidebarFilterMode = useUiStore((s) => s.setSidebarFilterMode);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const [filterMode, setFilterMode] = useState<FilterMode>(loadFilterMode);
 
   const toggleGroup = useCallback((groupId: string) => {
     setCollapsedGroups((prev) => {
@@ -419,9 +405,8 @@ export default function RobotListSidebar() {
   }, []);
 
   const handleFilterChange = useCallback((mode: FilterMode) => {
-    setFilterMode(mode);
-    saveFilterMode(mode);
-  }, []);
+    setSidebarFilterMode(mode);
+  }, [setSidebarFilterMode]);
 
   // Build grouped session list: rooms first (sorted by roomIndex), then "Common Area"
   const groups = useMemo((): SessionGroup[] => {

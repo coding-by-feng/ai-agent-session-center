@@ -449,8 +449,8 @@
 .fullscreenOverlay { position: fixed; inset: 0; z-index: 10000; background: #0a0a1a; display: flex; flex-direction: column; }
 .fullscreenTopbar {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 6px 16px; background: rgba(255, 255, 255, 0.04);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08); flex-shrink: 0;
+  padding: 6px 16px; background: var(--bg-header, #0e0e28);
+  border-bottom: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15)); flex-shrink: 0;
 }
 .fullscreenTopbar .toolbar { margin-bottom: 0; padding: 0; }
 .fullscreenTitle { font-size: 12px; font-weight: 500; color: var(--text-secondary, #888); letter-spacing: 1px; text-transform: uppercase; flex-shrink: 0; }

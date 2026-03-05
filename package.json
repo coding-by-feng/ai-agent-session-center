@@ -1,6 +1,6 @@
 {
   "name": "ai-agent-session-center",
-  "version": "2.4.2",
+  "version": "2.4.3",
   "description": "A real-time dashboard for monitoring AI agent sessions (Claude Code, Gemini CLI, Codex) with 3D visualization",
   "type": "module",
   "main": "server/index.ts",
@@ -8,7 +8,7 @@
     "ai-agent-session-center": "bin/cli.js"
   },
   "scripts": {
-    "dev": "concurrently \"vite\" \"tsx watch server/index.ts\"",
+    "dev": "concurrently \"vite --open\" \"tsx watch server/index.ts --no-open\"",
     "build": "vite build",
     "start": "tsx server/index.ts",
     "start:no-open": "tsx server/index.ts --no-open",

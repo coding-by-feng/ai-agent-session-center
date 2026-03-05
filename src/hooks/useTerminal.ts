@@ -51,6 +51,7 @@ interface UseTerminalReturn {
   sendEscape: () => void;
   sendArrowUp: () => void;
   sendArrowDown: () => void;
+  sendEnter: () => void;
   pasteToTerminal: () => void;
   refitTerminal: () => void;
   setTheme: (themeName: string) => void;
@@ -498,6 +499,14 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     activeRef.current.term.focus();
   }, []);
 
+  const sendEnter = useCallback(() => {
+    if (!activeRef.current || !wsRef.current || wsRef.current.readyState !== 1) return;
+    wsRef.current.send(
+      JSON.stringify({ type: 'terminal_input', terminalId: activeRef.current.terminalId, data: '\r' }),
+    );
+    activeRef.current.term.focus();
+  }, []);
+
   const pasteToTerminal = useCallback(async () => {
     if (!activeRef.current || !wsRef.current || wsRef.current.readyState !== 1) return;
     const { terminalId } = activeRef.current;
@@ -680,6 +689,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     sendEscape: sendEscapeKey,
     sendArrowUp,
     sendArrowDown,
+    sendEnter,
     pasteToTerminal,
     refitTerminal,
     setTheme: setThemeFn,

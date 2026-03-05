@@ -7,7 +7,10 @@ import path, { join } from 'path'
 const SETUP_FLAG  = join(app.getPath('userData'), 'setup.json')
 // __dirname resolves to dist/electron/ipc/ after CJS compilation
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..', '..')
-const CONFIG_PATH  = join(PROJECT_ROOT, 'data', 'server-config.json')
+// Config is written to userData (writable) — not PROJECT_ROOT which is inside the read-only asar
+const CONFIG_PATH  = join(app.getPath('userData'), 'server-config.json')
+// In packaged app, hooks/ is in extraResources (outside asar). In dev, it's in PROJECT_ROOT.
+const getHooksRoot = () => app.isPackaged ? process.resourcesPath : PROJECT_ROOT
 
 // Validation constants — never accept these from renderer input
 const VALID_DENSITIES = ['high', 'medium', 'low'] as const
@@ -111,7 +114,7 @@ export function registerSetupHandlers() {
         : {}),
     }
 
-    const dataDir = join(PROJECT_ROOT, 'data')
+    const dataDir = app.getPath('userData')
     if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true })
     // Atomic write: write to temp file then rename to prevent corruption
     const tmpPath = CONFIG_PATH + '.tmp.' + randomBytes(4).toString('hex')
@@ -145,19 +148,21 @@ export function registerSetupHandlers() {
     const send = (line: string) => win?.webContents.send('setup:install-log', line)
 
     try {
-      const { installHooks } = await import(
-        join(PROJECT_ROOT, 'hooks', 'install-hooks-api.js')
-      )
+      const hooksRoot = getHooksRoot()
+      // Use the .cjs version — require() can load it directly from extraResources.
+      const apiPath = join(hooksRoot, 'hooks', 'install-hooks-api.cjs')
+      const { installHooks } = require(apiPath) as { installHooks: (...a: unknown[]) => Promise<unknown> }
       await installHooks({
         density,
         enabledClis,
-        projectRoot: PROJECT_ROOT,
+        projectRoot: hooksRoot,
         onLog: send,
       })
+      send('DONE')
       return { ok: true }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
-      return { ok: false, error: message }
+      throw new Error(message)
     }
   })
 
@@ -168,6 +173,8 @@ export function registerSetupHandlers() {
     writeFileSync(SETUP_FLAG, JSON.stringify({ completedAt: new Date().toISOString() }))
 
     // Start server and resize/reload window
+    // Set APP_USER_DATA so server reads config from writable userData dir
+    process.env.APP_USER_DATA = app.getPath('userData')
     // Use require() to avoid TypeScript following ESM server files during CJS compilation
     const serverPath = path.join(PROJECT_ROOT, 'server', 'index.js')
     const { startServer } = require(serverPath) as { startServer: (port?: number) => Promise<number> }

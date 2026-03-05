@@ -63,6 +63,7 @@ export default memo(function TerminalContainer({
     sendEscape,
     sendArrowUp,
     sendArrowDown,
+    sendEnter,
     pasteToTerminal,
     refitTerminal,
     setTheme,
@@ -280,6 +281,7 @@ export default memo(function TerminalContainer({
         onSendEscape={sendEscape}
         onSendArrowUp={sendArrowUp}
         onSendArrowDown={sendArrowDown}
+        onSendEnter={sendEnter}
         onPaste={pasteToTerminal}
         onReconnect={onReconnect}
         onScrollToBottom={scrollToBottom}
@@ -341,6 +343,7 @@ export default memo(function TerminalContainer({
               onSendEscape={sendEscape}
               onSendArrowUp={sendArrowUp}
               onSendArrowDown={sendArrowDown}
+              onSendEnter={sendEnter}
               onPaste={pasteToTerminal}
               onReconnect={onReconnect}
               onScrollToBottom={scrollToBottom}

@@ -1,6 +1,6 @@
 // wsManager.ts — WebSocket broadcast manager with bidirectional terminal support
 import { getAllSessions, getAllTeams, getEventSeq, getEventsSince, updateQueueCount } from './sessionStore.js';
-import { writeToTerminal, resizeTerminal, closeTerminal, setWsClient } from './sshManager.js';
+import { writeToTerminal, resizeTerminal, setWsClient } from './sshManager.js';
 import { WS_TYPES } from './constants.js';
 import log from './logger.js';
 import type WebSocket from 'ws';
@@ -138,8 +138,10 @@ export function handleConnection(ws: WebSocket): void {
           }
           break;
         case WS_TYPES.TERMINAL_DISCONNECT:
+          // Unsubscribe this client from terminal output without killing the PTY.
+          // The PTY is only destroyed by explicit DELETE /api/terminals/:id or session kill.
           if (typeof msg.terminalId === 'string' && client._terminalIds.has(msg.terminalId)) {
-            closeTerminal(msg.terminalId);
+            setWsClient(msg.terminalId, null);
             client._terminalIds.delete(msg.terminalId);
           }
           break;

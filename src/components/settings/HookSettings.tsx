@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSettingsStore } from '@/stores/settingsStore';
 import type { HooksStatusResponse, HookDensity } from '@/types';
+import Select from '@/components/ui/Select';
 import styles from '@/styles/modules/Settings.module.css';
 
 const DENSITY_OPTIONS: Array<{ value: HookDensity; label: string; desc: string }> = [
@@ -156,19 +157,20 @@ export default function HookSettings() {
       {/* Default Terminal Theme */}
       <div className={styles.section}>
         <h4>Default Terminal Theme</h4>
-        <select
-          style={{ width: '100%' }}
+        <Select
           value={defaultTerminalTheme}
-          onChange={(e) => setDefaultTerminalTheme(e.target.value)}
-        >
-          <option value="auto">Auto (match dashboard)</option>
-          <option value="dark">Dark</option>
-          <option value="light">Light</option>
-          <option value="solarized-dark">Solarized Dark</option>
-          <option value="solarized-light">Solarized Light</option>
-          <option value="dracula">Dracula</option>
-          <option value="monokai">Monokai</option>
-        </select>
+          onChange={setDefaultTerminalTheme}
+          options={[
+            { value: 'auto', label: 'Auto (match dashboard)' },
+            { value: 'dark', label: 'Dark' },
+            { value: 'light', label: 'Light' },
+            { value: 'solarized-dark', label: 'Solarized Dark' },
+            { value: 'solarized-light', label: 'Solarized Light' },
+            { value: 'dracula', label: 'Dracula' },
+            { value: 'monokai', label: 'Monokai' },
+          ]}
+          style={{ width: '100%' }}
+        />
       </div>
     </div>
   );

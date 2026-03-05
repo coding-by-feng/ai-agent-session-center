@@ -4,7 +4,10 @@
    sound controls, label settings, hook density, API key
    ============================================================ */
 
-.panel { max-width: 560px; max-height: 85vh; overflow-y: auto; }
+.panel { max-width: 780px; max-height: 90vh; overflow-y: auto; }
+
+/* Override Modal's default max-width: 400px */
+.settingsModal { max-width: 780px; width: 95vw; }
 
 .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
 .header h3 { font-size: 16px; }
@@ -20,7 +23,7 @@
 .tab:hover { color: var(--text-secondary); }
 .tab.active { color: var(--accent-cyan); border-bottom-color: var(--accent-cyan); }
 
-.tabContent { display: none; padding: 16px 24px; overflow-y: auto; max-height: 55vh; }
+.tabContent { display: none; padding: 16px 24px; overflow-y: auto; max-height: 72vh; }
 .tabContent.active { display: block; }
 .tabContent::-webkit-scrollbar { width: 4px; }
 .tabContent::-webkit-scrollbar-track { background: transparent; }

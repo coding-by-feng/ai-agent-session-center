@@ -5,6 +5,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import type { DistinctProject } from '@/types';
+import Select from '@/components/ui/Select';
 import chartStyles from '@/styles/modules/Charts.module.css';
 
 function getThemeColors() {
@@ -126,26 +127,27 @@ export default function TimelineView() {
     <div className={chartStyles.timelineView} data-testid="timeline-view">
       {/* Controls */}
       <div className={chartStyles.timelineControls}>
-        <select
+        <Select
           value={granularity}
-          onChange={(e) => setGranularity(e.target.value as Granularity)}
-        >
-          <option value="hour">Hourly</option>
-          <option value="day">Daily</option>
-          <option value="week">Weekly</option>
-        </select>
+          onChange={(val) => setGranularity(val as Granularity)}
+          options={[
+            { value: 'hour', label: 'Hourly' },
+            { value: 'day', label: 'Daily' },
+            { value: 'week', label: 'Weekly' },
+          ]}
+        />
 
-        <select
+        <Select
           value={project}
-          onChange={(e) => setProject(e.target.value)}
-        >
-          <option value="">All Projects</option>
-          {projects?.map((p) => (
-            <option key={p.project_path} value={p.project_path}>
-              {p.project_name}
-            </option>
-          ))}
-        </select>
+          onChange={setProject}
+          options={[
+            { value: '', label: 'All Projects' },
+            ...(projects?.map((p) => ({
+              value: p.project_path,
+              label: p.project_name,
+            })) ?? []),
+          ]}
+        />
 
         <input
           type="date"
