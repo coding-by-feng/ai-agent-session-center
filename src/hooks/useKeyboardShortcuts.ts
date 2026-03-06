@@ -75,8 +75,16 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
-      // Don't intercept when typing in form fields
-      if (isTyping(e)) return;
+      // Don't intercept when typing in form fields.
+      // Exception: Alt+1-9 session-switch shortcuts fire even when xterm is
+      // focused — xterm uses a hidden <textarea> so isTyping() returns true,
+      // but we still want these hotkeys to work from the terminal.
+      if (isTyping(e)) {
+        const inXterm = !!(e.target as HTMLElement)?.closest?.('.xterm');
+        const isAltDigit = e.altKey && (e.metaKey || e.ctrlKey) && /^Digit[0-9]$/.test(e.code);
+        if (!inXterm || !isAltDigit) return;
+        // fall through to shortcut lookup
+      }
 
       // Look up action from store bindings
       const actionId = useShortcutStore.getState().findActionForEvent(e);

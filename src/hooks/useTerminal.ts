@@ -320,6 +320,12 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
             }
             return false;
           }
+          // Cmd+Alt+1-9 (macOS) / Ctrl+Alt+1-9 (Win/Linux): session-switch
+          // shortcuts — prevent xterm from processing these and let the event
+          // bubble to the global handler in useKeyboardShortcuts.
+          if (e.altKey && (e.metaKey || e.ctrlKey) && /^Digit[0-9]$/.test(e.code)) {
+            return false;
+          }
           return true;
         });
 
