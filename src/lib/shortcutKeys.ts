@@ -13,6 +13,16 @@ interface ShortcutDef {
   combo: KeyCombo;
 }
 
+// Platform detection: macOS uses Cmd (metaKey), Windows/Linux uses Ctrl (ctrlKey)
+const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
+
+/** Build a session-switch KeyCombo: Cmd+Alt+N on macOS, Ctrl+Alt+N elsewhere. */
+function sw(key: string): KeyCombo {
+  return isMac
+    ? { key, altKey: true, metaKey: true }
+    : { key, altKey: true, ctrlKey: true };
+}
+
 const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
   focusSearch:      { label: 'Focus search',                section: 'Navigation',       combo: { key: '/' } },
   closeOrDeselect:  { label: 'Close modal / deselect',      section: 'Navigation',       combo: { key: 'Escape' } },
@@ -23,15 +33,15 @@ const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
   killSession:      { label: 'Kill selected session',       section: 'Selected Session', combo: { key: 'k' } },
   archiveSession:   { label: 'Archive selected session',    section: 'Selected Session', combo: { key: 'a' } },
   toggleFullscreen: { label: 'Toggle fullscreen',           section: 'Terminal',         combo: { key: 'F11', altKey: true } },
-  switchSession1:   { label: 'Switch to session 1',         section: 'Session Switch',   combo: { key: '1', altKey: true } },
-  switchSession2:   { label: 'Switch to session 2',         section: 'Session Switch',   combo: { key: '2', altKey: true } },
-  switchSession3:   { label: 'Switch to session 3',         section: 'Session Switch',   combo: { key: '3', altKey: true } },
-  switchSession4:   { label: 'Switch to session 4',         section: 'Session Switch',   combo: { key: '4', altKey: true } },
-  switchSession5:   { label: 'Switch to session 5',         section: 'Session Switch',   combo: { key: '5', altKey: true } },
-  switchSession6:   { label: 'Switch to session 6',         section: 'Session Switch',   combo: { key: '6', altKey: true } },
-  switchSession7:   { label: 'Switch to session 7',         section: 'Session Switch',   combo: { key: '7', altKey: true } },
-  switchSession8:   { label: 'Switch to session 8',         section: 'Session Switch',   combo: { key: '8', altKey: true } },
-  switchSession9:   { label: 'Switch to session 9',         section: 'Session Switch',   combo: { key: '9', altKey: true } },
+  switchSession1:   { label: 'Switch to session 1',         section: 'Session Switch',   combo: sw('1') },
+  switchSession2:   { label: 'Switch to session 2',         section: 'Session Switch',   combo: sw('2') },
+  switchSession3:   { label: 'Switch to session 3',         section: 'Session Switch',   combo: sw('3') },
+  switchSession4:   { label: 'Switch to session 4',         section: 'Session Switch',   combo: sw('4') },
+  switchSession5:   { label: 'Switch to session 5',         section: 'Session Switch',   combo: sw('5') },
+  switchSession6:   { label: 'Switch to session 6',         section: 'Session Switch',   combo: sw('6') },
+  switchSession7:   { label: 'Switch to session 7',         section: 'Session Switch',   combo: sw('7') },
+  switchSession8:   { label: 'Switch to session 8',         section: 'Session Switch',   combo: sw('8') },
+  switchSession9:   { label: 'Switch to session 9',         section: 'Session Switch',   combo: sw('9') },
 };
 
 /** All action IDs in display order. */
