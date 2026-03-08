@@ -20,9 +20,10 @@ import styles from '@/styles/modules/DetailPanel.module.css';
 
 interface SessionControlBarProps {
   session: Session;
+  labelChips?: React.ReactNode;
 }
 
-export default function SessionControlBar({ session }: SessionControlBarProps) {
+export default function SessionControlBar({ session, labelChips }: SessionControlBarProps) {
   const deselectSession = useSessionStore((s) => s.deselectSession);
   const removeSession = useSessionStore((s) => s.removeSession);
   const updateSession = useSessionStore((s) => s.updateSession);
@@ -163,6 +164,7 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
 
   return (
     <div className={styles.ctrlBar}>
+      {labelChips}
       {isDisconnected && (
         <button
           className={`${styles.ctrlBtn} ${styles.resume}`}

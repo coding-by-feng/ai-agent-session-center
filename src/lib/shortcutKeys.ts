@@ -28,6 +28,7 @@ const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
   closeOrDeselect:  { label: 'Close modal / deselect',      section: 'Navigation',       combo: { key: 'Escape' } },
   toggleShortcuts:  { label: 'Toggle shortcuts panel',      section: 'Navigation',       combo: { key: '?' } },
   toggleSettings:   { label: 'Toggle settings',             section: 'Actions',          combo: { key: 's' } },
+  toggleHeader:     { label: 'Collapse / expand header',    section: 'Navigation',       combo: { key: 'h' } },
   newTerminal:      { label: 'New terminal session',        section: 'Actions',          combo: { key: 't' } },
   toggleMute:       { label: 'Mute / unmute all',           section: 'Actions',          combo: { key: 'm' } },
   killSession:      { label: 'Kill selected session',       section: 'Selected Session', combo: { key: 'k' } },
@@ -47,7 +48,7 @@ const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
 /** All action IDs in display order. */
 export const ACTION_IDS: ShortcutActionId[] = [
   'focusSearch', 'closeOrDeselect', 'toggleShortcuts',
-  'toggleSettings', 'newTerminal', 'toggleMute',
+  'toggleSettings', 'toggleHeader', 'newTerminal', 'toggleMute',
   'killSession', 'archiveSession', 'toggleFullscreen',
   'switchSession1', 'switchSession2', 'switchSession3',
   'switchSession4', 'switchSession5', 'switchSession6',

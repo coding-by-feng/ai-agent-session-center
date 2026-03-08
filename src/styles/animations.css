@@ -3,6 +3,12 @@
    Status Effects, Triggered Movements, Movement Preview
    ============================================================ */
 
+/* Sidebar approval/input pulse (used by inline styles in RobotListSidebar) */
+@keyframes sidebarApprovalPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.75; }
+}
+
 /* ============================================================
    Configurable Status Effects — selected via body[data-effect-*]
    ============================================================ */

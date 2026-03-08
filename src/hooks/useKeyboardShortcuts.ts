@@ -138,6 +138,9 @@ function dispatchAction(
       showToast(muted ? 'Sound muted' : 'Sound unmuted', 'info', 1500);
       break;
     }
+    case 'toggleHeader':
+      useUiStore.getState().toggleDetailHeader();
+      break;
     case 'toggleFullscreen':
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
@@ -166,15 +169,9 @@ const SWITCH_STATUS_ORDER: Record<string, number> = {
 
 function switchToSessionByIndex(index: number): void {
   const sessions = useSessionStore.getState().sessions;
-  const filterMode = useUiStore.getState().sidebarFilterMode;
   // Sort matching sidebar/tab-strip order: status first, then title
   const active = [...sessions.values()]
-    .filter((s) => {
-      if (s.status === 'ended') return false;
-      if (filterMode === 'ssh' && s.source !== 'ssh') return false;
-      if (filterMode === 'others' && s.source === 'ssh') return false;
-      return true;
-    })
+    .filter((s) => s.status !== 'ended')
     .sort((a, b) => {
       const oa = SWITCH_STATUS_ORDER[a.status] ?? 5;
       const ob = SWITCH_STATUS_ORDER[b.status] ?? 5;
