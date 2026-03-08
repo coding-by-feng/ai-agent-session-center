@@ -15,6 +15,7 @@ export type ShortcutActionId =
   | 'closeOrDeselect'
   | 'toggleShortcuts'
   | 'toggleSettings'
+  | 'toggleHeader'
   | 'newTerminal'
   | 'killSession'
   | 'archiveSession'

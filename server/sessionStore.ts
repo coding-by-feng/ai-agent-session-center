@@ -171,10 +171,13 @@ export function loadSnapshot(): { mqOffset: number } | null {
     let restored = 0;
     let ended = 0;
     for (const [id, session] of Object.entries(snapshot.sessions) as [string, Session][]) {
+      // SSH-only mode: skip non-SSH sessions entirely
+      if (session.source !== 'ssh') continue;
+
       // Skip sessions that were already ended
       if (session.status === SESSION_STATUS.ENDED) {
         // Still restore ended SSH sessions (historical)
-        if (session.source === 'ssh' && session.isHistorical) {
+        if (session.isHistorical) {
           sessions.set(id, session);
           restored++;
         }
@@ -183,30 +186,22 @@ export function loadSnapshot(): { mqOffset: number } | null {
       // Check PID liveness for active sessions
       if (session.cachedPid) {
         if (isPidAlive(session.cachedPid)) {
-          if (session.source === 'ssh') {
-            // SSH sessions: terminal is dead after server restart (PTY was owned
-            // by the old node process). Keep session visible as idle — user can
-            // reconnect or manually close it.
-            session.status = SESSION_STATUS.IDLE;
-            session.animationState = ANIMATION_STATE.IDLE;
-            session.events = session.events || [];
-            session.events.push({
-              type: 'ServerRestart',
-              detail: 'Server restarted — session preserved (terminal lost, process still alive)',
-              timestamp: Date.now(),
-            });
-            session.lastTerminalId = session.terminalId;
-            session.terminalId = null;
-            sessions.set(id, session);
-            pidToSession.set(session.cachedPid, id);
-            restored++;
-          } else {
-            // Non-SSH (VS Code, iTerm, etc.): process can legitimately survive
-            // server restart since the terminal is external
-            sessions.set(id, session);
-            pidToSession.set(session.cachedPid, id);
-            restored++;
-          }
+          // SSH sessions: terminal is dead after server restart (PTY was owned
+          // by the old node process). Keep session visible as idle — user can
+          // reconnect or manually close it.
+          session.status = SESSION_STATUS.IDLE;
+          session.animationState = ANIMATION_STATE.IDLE;
+          session.events = session.events || [];
+          session.events.push({
+            type: 'ServerRestart',
+            detail: 'Server restarted — session preserved (terminal lost, process still alive)',
+            timestamp: Date.now(),
+          });
+          session.lastTerminalId = session.terminalId;
+          session.terminalId = null;
+          sessions.set(id, session);
+          pidToSession.set(session.cachedPid, id);
+          restored++;
         } else {
           // Process died while server was down — keep as idle so user can
           // see the session and manually close it when ready
@@ -219,11 +214,8 @@ export function loadSnapshot(): { mqOffset: number } | null {
             detail: 'Server restarted — session preserved (process ended while server was down)',
             timestamp: Date.now(),
           });
-          if (session.source === 'ssh') {
-            session.lastTerminalId = session.terminalId;
-            session.terminalId = null;
-          }
-          // Keep all sessions visible — user must manually close them
+          session.lastTerminalId = session.terminalId;
+          session.terminalId = null;
           sessions.set(id, session);
           restored++;
         }
@@ -508,7 +500,9 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
   log.debugJson('session', 'Full hook data', hookData);
 
   // Match or create session (delegated to sessionMatcher)
+  // Returns null when hook doesn't match any SSH terminal (SSH-only mode)
   const session = matchSession(hookData, sessions, pendingResume, pidToSession, projectSessionCounters);
+  if (!session) return null;
 
   // Auto-revive sessions that were marked ended by ServerRestart but whose Claude process survived.
   // This happens when Claude runs in tmux/screen and keeps sending hooks after server restart.

@@ -6,7 +6,6 @@
  */
 import { useMemo } from 'react';
 import type { Session } from '@/types';
-import { useUiStore } from '@/stores/uiStore';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -14,7 +13,7 @@ const STATUS_COLORS: Record<string, string> = {
   prompting: 'var(--accent-cyan)',
   working: 'var(--accent-orange)',
   waiting: 'var(--accent-cyan)',
-  approval: 'var(--accent-orange)',
+  approval: 'var(--accent-yellow)',
   input: 'var(--accent-purple)',
   ended: 'var(--accent-red)',
   connecting: 'var(--text-dim)',
@@ -42,15 +41,11 @@ export default function SessionSwitcher({
   statusLabel, duration, isDisconnected,
   onClose, headerCollapsed, onToggleCollapse,
 }: Props) {
-  const filterMode = useUiStore((s) => s.sidebarFilterMode);
-
   const sortedSessions = useMemo(() => {
     return [...sessions.values()]
       .filter((s) => {
         if (s.sessionId === currentSession.sessionId) return false;
         if (s.status === 'ended') return false;
-        if (filterMode === 'ssh' && s.source !== 'ssh') return false;
-        if (filterMode === 'others' && s.source === 'ssh') return false;
         return true;
       })
       .sort((a, b) => {
@@ -59,7 +54,7 @@ export default function SessionSwitcher({
         if (oa !== ob) return oa - ob;
         return (a.title || a.projectName || '').localeCompare(b.title || b.projectName || '');
       });
-  }, [sessions, currentSession.sessionId, filterMode]);
+  }, [sessions, currentSession.sessionId]);
 
   const primaryName = currentSession.title || currentSession.projectName || '(untitled)';
   const secondaryName = currentSession.title && currentSession.projectName && currentSession.title !== currentSession.projectName

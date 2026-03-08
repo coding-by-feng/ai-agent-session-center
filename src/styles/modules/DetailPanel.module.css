@@ -106,7 +106,6 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
 }
 
 .headerInfo {
@@ -125,7 +124,7 @@
 .headerTitles { flex: 1; min-width: 0; }
 .header h3 { font-size: 16px; font-weight: 700; color: var(--text-primary); line-height: 1.3; }
 
-/* Label chips row below header */
+/* Legacy labelRow fallback */
 .labelRow {
   padding: 6px 20px;
   border-bottom: 1px solid var(--border-subtle);
@@ -649,8 +648,9 @@
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
-  width: 72px;
-  padding: 7px 4px 6px;
+  min-width: 72px;
+  max-width: 140px;
+  padding: 7px 6px 6px;
   background: var(--bg-card);
   border: 1.5px solid var(--robot-color, var(--border-subtle));
   border-radius: 8px;
@@ -669,6 +669,23 @@
   animation: switcherRobotGlow 2s ease-in-out infinite;
 }
 
+.sessionTabCard[data-status='approval'],
+.sessionTabCard[data-status='input'] {
+  animation: approvalPulse 1.2s ease-in-out infinite;
+  border-width: 2px;
+}
+
+@keyframes approvalPulse {
+  0%, 100% {
+    box-shadow: 0 0 6px var(--robot-color), inset 0 0 4px rgba(255, 204, 0, 0.05);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 18px var(--robot-color), 0 0 30px rgba(255, 204, 0, 0.2), inset 0 0 8px rgba(255, 204, 0, 0.1);
+    transform: scale(1.04);
+  }
+}
+
 .sessionTabTitle {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -676,10 +693,12 @@
   color: var(--text-primary);
   text-align: center;
   width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   line-height: 1.2;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
 }
 
 .sessionTabProject {

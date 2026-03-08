@@ -139,9 +139,8 @@ export default function DetailPanel() {
     }
   }, [selectedSessionId]);
 
-  const [headerCollapsed, setHeaderCollapsed] = useState(() => {
-    try { return localStorage.getItem('detail-header-collapsed') !== '0'; } catch { return true; }
-  });
+  const headerCollapsed = useUiStore((s) => s.detailHeaderCollapsed);
+  const toggleDetailHeader = useUiStore((s) => s.toggleDetailHeader);
   const [activeTab, setActiveTab] = useState<string>(() => {
     try { return localStorage.getItem('active-tab') || 'terminal'; } catch { return 'terminal'; }
   });
@@ -168,7 +167,7 @@ export default function DetailPanel() {
   const modelLabel = getModelLabel(modelType);
   const statusColor: Record<string, string> = {
     idle: 'var(--accent-green)', prompting: 'var(--accent-cyan)', working: 'var(--accent-orange)',
-    waiting: 'var(--accent-cyan)', approval: 'var(--accent-orange)', input: 'var(--accent-purple)',
+    waiting: 'var(--accent-cyan)', approval: 'var(--accent-yellow)', input: 'var(--accent-purple)',
     ended: 'var(--accent-red)', connecting: 'var(--text-dim)',
   };
 
@@ -185,11 +184,7 @@ export default function DetailPanel() {
           isDisconnected={isDisconnected}
           onClose={deselectSession}
           headerCollapsed={headerCollapsed}
-          onToggleCollapse={() => setHeaderCollapsed(prev => {
-            const next = !prev;
-            try { localStorage.setItem('detail-header-collapsed', next ? '1' : '0'); } catch { /* ignore */ }
-            return next;
-          })}
+          onToggleCollapse={toggleDetailHeader}
         />
 
         {/* Collapsible header + controls */}
@@ -261,15 +256,15 @@ export default function DetailPanel() {
                 </div>
               </div>
 
-              {/* Session controls inline */}
-              <SessionControlBar session={session} />
-            </div>
-
-            {/* Label chips */}
-            <div className={styles.labelRow}>
-              <LabelChips
-                sessionId={session.sessionId}
-                currentLabel={session.label || ''}
+              {/* Session controls + label chips inline */}
+              <SessionControlBar
+                session={session}
+                labelChips={
+                  <LabelChips
+                    sessionId={session.sessionId}
+                    currentLabel={session.label || ''}
+                  />
+                }
               />
             </div>
           </>

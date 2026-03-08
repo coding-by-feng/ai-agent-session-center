@@ -5,47 +5,44 @@ interface PendingFileOpen {
   projectPath: string;
 }
 
-export type SidebarFilterMode = 'all' | 'ssh' | 'others';
-
 interface UiState {
   activeModal: string | null;
   detailPanelOpen: boolean;
   activityFeedOpen: boolean;
+  detailHeaderCollapsed: boolean;
   pendingFileOpen: PendingFileOpen | null;
-  sidebarFilterMode: SidebarFilterMode;
 
   openModal: (modalId: string) => void;
   closeModal: () => void;
   setDetailPanelOpen: (open: boolean) => void;
   setActivityFeedOpen: (open: boolean) => void;
+  toggleDetailHeader: () => void;
   openFileInProject: (filePath: string, projectPath: string) => void;
   clearPendingFileOpen: () => void;
-  setSidebarFilterMode: (mode: SidebarFilterMode) => void;
 }
 
-function loadFilterMode(): SidebarFilterMode {
+function loadHeaderCollapsed(): boolean {
   try {
-    const val = localStorage.getItem('sidebar-filter-mode');
-    if (val === 'all' || val === 'ssh' || val === 'others') return val;
-  } catch { /* ignore */ }
-  return 'all';
+    return localStorage.getItem('detail-header-collapsed') !== '0';
+  } catch { return true; }
 }
 
 export const useUiStore = create<UiState>((set) => ({
   activeModal: null,
   detailPanelOpen: false,
   activityFeedOpen: false,
+  detailHeaderCollapsed: loadHeaderCollapsed(),
   pendingFileOpen: null,
-  sidebarFilterMode: loadFilterMode(),
 
   openModal: (modalId) => set({ activeModal: modalId }),
   closeModal: () => set({ activeModal: null }),
   setDetailPanelOpen: (open) => set({ detailPanelOpen: open }),
   setActivityFeedOpen: (open) => set({ activityFeedOpen: open }),
+  toggleDetailHeader: () => set((s) => {
+    const next = !s.detailHeaderCollapsed;
+    try { localStorage.setItem('detail-header-collapsed', next ? '1' : '0'); } catch { /* ignore */ }
+    return { detailHeaderCollapsed: next };
+  }),
   openFileInProject: (filePath, projectPath) => set({ pendingFileOpen: { filePath, projectPath } }),
   clearPendingFileOpen: () => set({ pendingFileOpen: null }),
-  setSidebarFilterMode: (mode) => {
-    try { localStorage.setItem('sidebar-filter-mode', mode); } catch { /* ignore */ }
-    set({ sidebarFilterMode: mode });
-  },
 }));

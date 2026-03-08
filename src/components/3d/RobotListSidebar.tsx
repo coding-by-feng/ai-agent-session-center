@@ -6,8 +6,6 @@
 import { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
-import { useUiStore } from '@/stores/uiStore';
-import type { SidebarFilterMode } from '@/stores/uiStore';
 import type { Session } from '@/types/session';
 
 // ---------------------------------------------------------------------------
@@ -19,7 +17,7 @@ const STATUS_COLORS: Record<string, string> = {
   prompting: 'var(--accent-cyan)',
   working: 'var(--accent-orange)',
   waiting: 'var(--accent-cyan)',
-  approval: 'var(--accent-orange)',
+  approval: 'var(--accent-yellow)',
   input: 'var(--accent-purple)',
   ended: 'var(--accent-red)',
   connecting: 'var(--text-dim)',
@@ -57,6 +55,7 @@ function RobotEntry({
   onTitleSave: (id: string, title: string) => void;
 }) {
   const statusColor = STATUS_COLORS[session.status] ?? '#888';
+  const needsAttention = session.status === 'approval' || session.status === 'input';
   const title = session.title || 'Unnamed';
   const label = session.label;
   const [editing, setEditing] = useState(false);
@@ -91,17 +90,21 @@ function RobotEntry({
         gap: 8,
         width: '100%',
         padding: '8px 10px',
-        border: isSelected
-          ? `1px solid ${statusColor}`
+        border: (isSelected || needsAttention)
+          ? `${needsAttention ? '2px' : '1px'} solid ${statusColor}`
           : '1px solid var(--border-subtle)',
         borderRadius: 3,
         background: isSelected
           ? `color-mix(in srgb, ${statusColor} 12%, transparent)`
-          : 'transparent',
+          : needsAttention
+            ? `color-mix(in srgb, ${statusColor} 8%, transparent)`
+            : 'transparent',
         cursor: editing ? 'default' : 'pointer',
         textAlign: 'left',
         fontFamily: "'JetBrains Mono', monospace",
         transition: 'all 0.15s ease',
+        boxShadow: needsAttention ? `0 0 8px ${statusColor}, inset 0 0 4px color-mix(in srgb, ${statusColor} 10%, transparent)` : undefined,
+        animation: needsAttention ? 'sidebarApprovalPulse 1.2s ease-in-out infinite' : undefined,
       }}
       onMouseEnter={(e) => {
         if (!isSelected) {
@@ -374,8 +377,6 @@ interface SessionGroup {
 }
 
 // ---------------------------------------------------------------------------
-// FilterMode type alias (now managed by uiStore)
-type FilterMode = SidebarFilterMode;
 
 // ---------------------------------------------------------------------------
 // Main Component
@@ -387,8 +388,6 @@ export default function RobotListSidebar() {
   const removeSession = useSessionStore((s) => s.removeSession);
   const updateSession = useSessionStore((s) => s.updateSession);
   const rooms = useRoomStore((s) => s.rooms);
-  const filterMode = useUiStore((s) => s.sidebarFilterMode);
-  const setSidebarFilterMode = useUiStore((s) => s.setSidebarFilterMode);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
@@ -404,18 +403,9 @@ export default function RobotListSidebar() {
     });
   }, []);
 
-  const handleFilterChange = useCallback((mode: FilterMode) => {
-    setSidebarFilterMode(mode);
-  }, [setSidebarFilterMode]);
-
   // Build grouped session list: rooms first (sorted by roomIndex), then "Common Area"
   const groups = useMemo((): SessionGroup[] => {
-    const activeSessions = [...sessions.values()].filter(s => {
-      if (s.status === 'ended') return false;
-      if (filterMode === 'ssh' && s.source !== 'ssh') return false;
-      if (filterMode === 'others' && s.source === 'ssh') return false;
-      return true;
-    });
+    const activeSessions = [...sessions.values()].filter(s => s.status !== 'ended');
     const assignedIds = new Set<string>();
     const result: SessionGroup[] = [];
 
@@ -447,7 +437,7 @@ export default function RobotListSidebar() {
     }
 
     return result;
-  }, [sessions, rooms, filterMode]);
+  }, [sessions, rooms]);
 
   const totalCount = useMemo(
     () => groups.reduce((sum, g) => sum + g.sessions.length, 0),
@@ -534,43 +524,6 @@ export default function RobotListSidebar() {
         >
           Agents ({totalCount})
         </span>
-        {/* Filter segmented control */}
-        <div
-          onClick={(e) => e.stopPropagation()}
-          style={{
-            display: 'flex',
-            borderRadius: 3,
-            overflow: 'hidden',
-            border: '1px solid var(--border-subtle)',
-            marginRight: 6,
-          }}
-        >
-          {(['all', 'ssh', 'others'] as const).map((mode) => {
-            const active = filterMode === mode;
-            const label = mode === 'all' ? 'ALL' : mode === 'ssh' ? 'SSH' : 'OTHERS';
-            return (
-              <button
-                key={mode}
-                onClick={() => handleFilterChange(mode)}
-                style={{
-                  fontSize: 9,
-                  letterSpacing: 0.5,
-                  padding: '2px 6px',
-                  fontFamily: "'JetBrains Mono', monospace",
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease',
-                  background: active ? 'var(--bg-accent)' : 'transparent',
-                  color: active ? 'var(--accent-cyan)' : 'var(--text-dim)',
-                  border: 'none',
-                  borderRight: mode !== 'others' ? '1px solid var(--border-subtle)' : 'none',
-                  lineHeight: 1.4,
-                }}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
         <svg
           width="14"
           height="14"
@@ -601,7 +554,7 @@ export default function RobotListSidebar() {
               fontFamily: "'JetBrains Mono', monospace",
               letterSpacing: 0.5,
             }}>
-              No {filterMode === 'ssh' ? 'SSH' : filterMode === 'others' ? 'other' : ''} sessions
+              No sessions
             </div>
           ) : groups.map((group) => {
             const isGroupCollapsed = collapsedGroups.has(group.id);

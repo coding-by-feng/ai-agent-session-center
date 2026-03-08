@@ -8,7 +8,7 @@ const STATUS_COLORS: Record<string, string> = {
   prompting: 'var(--accent-cyan)',
   working: 'var(--accent-orange)',
   waiting: 'var(--accent-cyan)',
-  approval: 'var(--accent-orange)',
+  approval: 'var(--accent-yellow)',
   input: 'var(--accent-purple)',
   ended: 'var(--accent-red)',
   connecting: 'var(--text-dim)',
