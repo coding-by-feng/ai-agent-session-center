@@ -284,7 +284,12 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
             const line = term.buffer.active.getLine(bufferLineNumber - 1);
             if (!line) { callback(undefined); return; }
             const text = line.translateToString(true);
-            const links: Array<{ range: { start: { x: number; y: number }; end: { x: number; y: number } }; text: string; activate: () => void }> = [];
+            const links: Array<{
+              range: { start: { x: number; y: number }; end: { x: number; y: number } };
+              text: string;
+              activate: () => void;
+              tooltip?: string;
+            }> = [];
             let match: RegExpExecArray | null;
             FILE_PATH_RE.lastIndex = 0;
             while ((match = FILE_PATH_RE.exec(text)) !== null) {
@@ -297,13 +302,11 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
                   end: { x: endX, y: bufferLineNumber },
                 },
                 text: filePath,
+                tooltip: 'Click to open in Project tab',
                 activate() {
+                  const clean = filePath.replace(/^\.\//, '');
                   const pp = projectPathRef.current;
-                  if (pp) {
-                    // Strip leading ./ if present
-                    const clean = filePath.replace(/^\.\//, '');
-                    useUiStore.getState().openFileInProject(clean, pp);
-                  }
+                  useUiStore.getState().openFileInProject(clean, pp || '');
                 },
               });
             }

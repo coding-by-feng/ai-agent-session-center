@@ -4,7 +4,7 @@
  * Clicking the "Open project in new tab" icon in any ProjectTab toolbar opens
  * a new sub-tab here rather than a new browser window.
  */
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import ProjectTab from './ProjectTab';
 import { useUiStore } from '@/stores/uiStore';
 import styles from '@/styles/modules/ProjectTab.module.css';
@@ -12,6 +12,8 @@ import styles from '@/styles/modules/ProjectTab.module.css';
 interface SubTab {
   id: string;
   label: string;
+  /** User-set name that persists until renamed again or tab is closed */
+  customLabel?: string;
   projectPath: string;
   initialPath?: string;
   /** True if initialPath points to a file (not a directory) */
@@ -56,7 +58,7 @@ export default function ProjectTabContainer({ projectPath }: ProjectTabContainer
   const [navigateToFile, setNavigateToFile] = useState<string | null>(null);
 
   useEffect(() => {
-    if (pendingFileOpen && pendingFileOpen.projectPath === projectPath) {
+    if (pendingFileOpen && (pendingFileOpen.projectPath === projectPath || !pendingFileOpen.projectPath)) {
       setNavigateToFile(pendingFileOpen.filePath);
       clearPendingFileOpen();
       // Clear after a tick so the prop change is picked up by ProjectTab
@@ -105,9 +107,44 @@ export default function ProjectTabContainer({ projectPath }: ProjectTabContainer
       ? segments[segments.length - 1]
       : projectPath.split('/').filter(Boolean).pop() || 'project';
     setSubTabs((prev) => prev.map((t) =>
-      t.id === tabId ? { ...t, label, initialPath: currentPath, initialIsFile: isFile } : t,
+      // Skip auto-label update if the user has set a custom name
+      t.id === tabId ? { ...t, ...(!t.customLabel ? { label } : {}), initialPath: currentPath, initialIsFile: isFile } : t,
     ));
   }, [projectPath]);
+
+  // --- Rename state ---
+  const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  const startRename = useCallback((tab: SubTab, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingTabId(tab.id);
+    setRenameValue(tab.customLabel || tab.label);
+  }, []);
+
+  const commitRename = useCallback(() => {
+    if (!renamingTabId) return;
+    const trimmed = renameValue.trim();
+    if (trimmed) {
+      setSubTabs((prev) => prev.map((t) =>
+        t.id === renamingTabId ? { ...t, customLabel: trimmed } : t,
+      ));
+    }
+    setRenamingTabId(null);
+  }, [renamingTabId, renameValue]);
+
+  const cancelRename = useCallback(() => {
+    setRenamingTabId(null);
+  }, []);
+
+  // Focus the rename input when it appears
+  useEffect(() => {
+    if (renamingTabId && renameInputRef.current) {
+      renameInputRef.current.focus();
+      renameInputRef.current.select();
+    }
+  }, [renamingTabId]);
 
   // Persist sub-tab state to localStorage whenever it changes
   useEffect(() => {
@@ -128,8 +165,25 @@ export default function ProjectTabContainer({ projectPath }: ProjectTabContainer
               key={tab.id}
               className={`${styles.subTab} ${activeSubTab === tab.id ? styles.subTabActive : ''}`}
               onClick={() => setActiveSubTab(tab.id)}
+              onDoubleClick={(e) => startRename(tab, e)}
+              title="Double-click to rename"
             >
-              <span className={styles.subTabLabel}>{tab.label}</span>
+              {renamingTabId === tab.id ? (
+                <input
+                  ref={renameInputRef}
+                  className={styles.subTabRenameInput}
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onBlur={commitRename}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitRename();
+                    if (e.key === 'Escape') cancelRename();
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <span className={styles.subTabLabel}>{tab.customLabel || tab.label}</span>
+              )}
               <span
                 className={styles.subTabClose}
                 onClick={(e) => handleCloseSubTab(tab.id, e)}

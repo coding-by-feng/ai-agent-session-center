@@ -340,31 +340,57 @@ function SearchOverlay({
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [indexing, setIndexing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const abortRef = useRef<AbortController | undefined>(undefined);
 
   useEffect(() => {
     inputRef.current?.focus();
-  }, []);
+    // Preload the file index on mount so the first search is instant
+    fetch(`/api/files/search?root=${encodeURIComponent(projectPath)}&q=__preload__`).catch(() => {});
+  }, [projectPath]);
 
   useEffect(() => {
-    if (!query.trim()) { setResults([]); return; }
+    if (!query.trim()) { setResults([]); setLoading(false); return; }
+
+    // Cancel any in-flight request
+    abortRef.current?.abort();
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(async () => {
-      setLoading(true);
+
+    setLoading(true);
+
+    const doSearch = async (retryCount = 0) => {
+      const controller = new AbortController();
+      abortRef.current = controller;
       try {
         const res = await fetch(
-          `/api/files/search?root=${encodeURIComponent(projectPath)}&q=${encodeURIComponent(query.trim())}`
+          `/api/files/search?root=${encodeURIComponent(projectPath)}&q=${encodeURIComponent(query.trim())}`,
+          { signal: controller.signal }
         );
-        if (res.ok) {
+        if (res.ok && !controller.signal.aborted) {
           const data = await res.json();
           setResults(data.results || []);
           setSelectedIdx(0);
+          setIndexing(!!data.indexing);
+          // If index is still building, retry after a short delay (up to 5 retries)
+          if (data.indexing && retryCount < 5) {
+            debounceRef.current = setTimeout(() => doSearch(retryCount + 1), 300);
+            return;
+          }
         }
-      } catch { /* ignore */ }
-      setLoading(false);
-    }, 200);
-    return () => clearTimeout(debounceRef.current);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+      }
+      if (!controller.signal.aborted) setLoading(false);
+    };
+
+    debounceRef.current = setTimeout(() => doSearch(), 80);
+
+    return () => {
+      clearTimeout(debounceRef.current);
+      abortRef.current?.abort();
+    };
   }, [query, projectPath]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -387,7 +413,9 @@ function SearchOverlay({
           spellCheck={false}
         />
         <div className={styles.searchResults}>
-          {loading && <div className={styles.searchHint}>Searching...</div>}
+          {loading && results.length === 0 && (
+            <div className={styles.searchHint}>{indexing ? 'Indexing project files...' : 'Searching...'}</div>
+          )}
           {!loading && query && results.length === 0 && (
             <div className={styles.searchHint}>No matches</div>
           )}

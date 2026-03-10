@@ -88,7 +88,7 @@
 
 .row {
   display: grid;
-  grid-template-columns: 1fr 120px 150px 80px 80px 70px 70px 32px;
+  grid-template-columns: 1fr 120px 150px 80px 80px 70px 70px 28px 28px;
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
@@ -166,6 +166,24 @@
   font-size: 0.7rem;
   color: var(--text-dim, #555577);
   text-align: center;
+}
+
+.resumeBtn {
+  background: none;
+  border: none;
+  color: var(--text-dim, #555577);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.resumeBtn:hover {
+  color: var(--accent-cyan, #00e5ff);
+  background: rgba(0, 229, 255, 0.1);
 }
 
 .deleteBtn {
@@ -410,7 +428,7 @@
 
 @media (max-width: 768px) {
   .row {
-    grid-template-columns: 1fr 80px 32px;
+    grid-template-columns: 1fr 80px 28px 28px;
   }
 
   .rowProject,
