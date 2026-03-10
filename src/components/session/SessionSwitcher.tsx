@@ -115,8 +115,8 @@ export default function SessionSwitcher({
         </div>
       </div>
 
-      {/* ── Session tab strip (hidden when header collapsed) ── */}
-      {!headerCollapsed && sortedSessions.length > 0 && (
+      {/* ── Session tab strip ── */}
+      {sortedSessions.length > 0 && (
         <div className={styles.sessionTabStrip}>
           {sortedSessions.map((s) => {
             const color = STATUS_COLORS[s.status] ?? 'var(--text-dim)';

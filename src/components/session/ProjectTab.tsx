@@ -222,6 +222,89 @@ function headingSlug(text: string): string {
   return text.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
 }
 
+/** Threshold: files with more lines than this use virtualised rendering. */
+const VIRTUALIZE_THRESHOLD = 10_000;
+/** Fixed line height (px) used for virtual scroll math — 12px font * 1.6 line-height. */
+const LINE_HEIGHT_PX = 20;
+/** Extra lines rendered above/below the visible viewport. */
+const OVERSCAN = 30;
+
+/** Virtualised code viewer for very large files. */
+function VirtualCodeViewer({
+  content,
+  filePath,
+  bookmarks: bmarks,
+  wordWrap,
+}: {
+  content: string;
+  filePath: string;
+  bookmarks: Bookmark[];
+  wordWrap: boolean;
+}) {
+  const lines = useMemo(() => content.split('\n'), [content]);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewHeight, setViewHeight] = useState(600);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    // Observe container resize to keep viewHeight accurate
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) setViewHeight(entry.contentRect.height);
+    });
+    ro.observe(el);
+    setViewHeight(el.clientHeight);
+    return () => ro.disconnect();
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    const el = containerRef.current;
+    if (el) setScrollTop(el.scrollTop);
+  }, []);
+
+  const totalHeight = lines.length * LINE_HEIGHT_PX;
+  const startIdx = Math.max(0, Math.floor(scrollTop / LINE_HEIGHT_PX) - OVERSCAN);
+  const endIdx = Math.min(lines.length, Math.ceil((scrollTop + viewHeight) / LINE_HEIGHT_PX) + OVERSCAN);
+
+  const bookmarkedSet = useMemo(() => {
+    const set = new Set<number>();
+    for (const b of bmarks) {
+      if (b.filePath === filePath) {
+        for (let l = b.lineStart; l <= b.lineEnd; l++) set.add(l);
+      }
+    }
+    return set;
+  }, [bmarks, filePath]);
+
+  return (
+    <div
+      ref={containerRef}
+      className={`${styles.codeLines}${wordWrap ? ` ${styles.codeLinesWrap}` : ''}`}
+      onScroll={handleScroll}
+    >
+      <div style={{ height: totalHeight, position: 'relative' }}>
+        {Array.from({ length: endIdx - startIdx }, (_, offset) => {
+          const i = startIdx + offset;
+          const lineNum = i + 1;
+          const isBookmarked = bookmarkedSet.has(lineNum);
+          return (
+            <div
+              key={i}
+              id={`fv-line-${lineNum}`}
+              className={`${styles.codeLine}${isBookmarked ? ` ${styles.bookmarkedLine}` : ''}`}
+              style={{ position: 'absolute', top: i * LINE_HEIGHT_PX, left: 0, right: 0, height: LINE_HEIGHT_PX }}
+            >
+              <span className={styles.lineNum}>{lineNum}</span>
+              <span className={styles.lineText}>{lines[i] || '\u00A0'}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /** Basic XML pretty-printer: normalises whitespace and re-indents. */
 function formatXml(xml: string): string {
   let pad = 0;
@@ -996,6 +1079,13 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                   </ReactMarkdown>
                 </div>
               </div>
+            ) : (file.content || '').split('\n').length > VIRTUALIZE_THRESHOLD ? (
+              <VirtualCodeViewer
+                content={file.content || ''}
+                filePath={file.path}
+                bookmarks={bookmarks}
+                wordWrap={wordWrap}
+              />
             ) : (
               <div className={`${styles.codeLines}${wordWrap ? ` ${styles.codeLinesWrap}` : ''}`}>
                 {(file.content || '').split('\n').map((line, i) => {
