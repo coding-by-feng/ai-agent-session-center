@@ -51,7 +51,10 @@ export default function QueueTab({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
   const [collapsed, setCollapsed] = useState(() => {
-    try { return localStorage.getItem('queue-panel-collapsed') === '1'; } catch { return false; }
+    try {
+      const stored = localStorage.getItem('queue-panel-collapsed');
+      return stored === null ? true : stored === '1';
+    } catch { return true; }
   });
   const [movingItemId, setMovingItemId] = useState<number | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);

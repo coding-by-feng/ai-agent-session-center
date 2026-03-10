@@ -10,6 +10,7 @@ import type {
   SessionDetailResponse,
   DbSessionRow,
 } from '@/types';
+import { showToast } from '@/components/ui/ToastContainer';
 import styles from '@/styles/modules/History.module.css';
 
 interface Filters {
@@ -147,6 +148,27 @@ export default function HistoryView() {
     [queryClient],
   );
 
+  const handleResume = useCallback(
+    async (e: React.MouseEvent, sessionId: string) => {
+      e.stopPropagation();
+      try {
+        const resp = await authFetch(`/api/sessions/${encodeURIComponent(sessionId)}/resume`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        const data = await resp.json();
+        if (data.ok) {
+          showToast('Resuming Claude session in terminal', 'success');
+        } else {
+          showToast(data.error || 'Resume failed', 'error');
+        }
+      } catch (err) {
+        showToast((err as Error).message, 'error');
+      }
+    },
+    [],
+  );
+
   const sessions = searchResult?.sessions ?? [];
   const total = searchResult?.total ?? 0;
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -246,6 +268,7 @@ export default function HistoryView() {
             key={s.id}
             session={s}
             onClick={() => setSelectedSessionId(s.id)}
+            onResume={(e) => handleResume(e, s.id)}
             onDelete={(e) => handleDelete(e, s.id)}
           />
         ))}
@@ -272,13 +295,25 @@ export default function HistoryView() {
 // Sub-components
 // ---------------------------------------------------------------------------
 
+function ResumeIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="1 4 1 10 7 10" />
+      <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+    </svg>
+  );
+}
+
 function SessionRow({
   session,
   onClick,
+  onResume,
   onDelete,
 }: {
   session: DbSessionRow;
   onClick: () => void;
+  onResume: (e: React.MouseEvent) => void;
   onDelete: (e: React.MouseEvent) => void;
 }) {
   const duration =
@@ -299,6 +334,14 @@ function SessionRow({
       </span>
       <span className={styles.rowMeta}>{session.total_prompts} prompts</span>
       <span className={styles.rowMeta}>{session.total_tool_calls} tools</span>
+      <button
+        className={styles.resumeBtn}
+        onClick={onResume}
+        title="Resume session"
+        aria-label="Resume session"
+      >
+        <ResumeIcon />
+      </button>
       <button
         className={styles.deleteBtn}
         onClick={onDelete}

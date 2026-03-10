@@ -1205,6 +1205,23 @@
   text-transform: uppercase;
 }
 
+.subTabRenameInput {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.08);
+  border: 1px solid var(--accent-cyan);
+  border-radius: 2px;
+  padding: 1px 4px;
+  outline: none;
+  width: 100%;
+  min-width: 40px;
+  max-width: 140px;
+  text-transform: uppercase;
+}
+
 .subTabClose {
   display: inline-flex;
   align-items: center;

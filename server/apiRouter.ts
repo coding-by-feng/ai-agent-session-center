@@ -24,6 +24,7 @@ import { homedir, userInfo } from 'os';
 import { fileURLToPath } from 'url';
 import { ALL_CLAUDE_HOOK_EVENTS, DENSITY_EVENTS, SESSION_STATUS, WS_TYPES } from './constants.js';
 import log from './logger.js';
+import { searchFiles, invalidateCache, preloadIndex } from './fileIndexCache.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
 
 const __apiDirname = dirname(fileURLToPath(import.meta.url));
@@ -1143,6 +1144,7 @@ router.post('/files/write', (req: Request, res: Response) => {
     }
     writeFileSync(fullPath, content, 'utf8');
     const stat = statSync(fullPath);
+    invalidateCache(root);
     res.json({ ok: true, path: relPath, size: stat.size });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -1169,6 +1171,7 @@ router.post('/files/mkdir', (req: Request, res: Response) => {
   try {
     if (existsSync(fullPath)) { res.status(409).json({ error: 'Path already exists' }); return; }
     mkdirSync(fullPath, { recursive: true });
+    invalidateCache(root);
     res.json({ ok: true, path: relPath });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -1177,50 +1180,38 @@ router.post('/files/mkdir', (req: Request, res: Response) => {
   }
 });
 
-/** GET /api/files/search?root=<projectPath>&q=<query> — fuzzy search file names */
+/** GET /api/files/search?root=<projectPath>&q=<query> — fuzzy search file names (cached) */
 router.get('/files/search', (req: Request, res: Response) => {
   const ip = req.ip || 'unknown';
-  if (isRateLimited(`file-search:${ip}`, 5)) {
+  if (isRateLimited(`file-search:${ip}`, 20)) {
     res.status(429).json({ error: 'Rate limit exceeded' });
     return;
   }
   const root = str(req.query.root);
-  const query = str(req.query.q).toLowerCase();
+  const query = str(req.query.q);
   if (!root) { res.status(400).json({ error: 'root query param required' }); return; }
   if (!isAllowedProjectRoot(root)) { res.status(400).json({ error: 'Invalid project root' }); return; }
-  if (!query) { res.json({ results: [] }); return; }
-
-  const results: Array<{ path: string; name: string; type: 'dir' | 'file' }> = [];
-  const MAX_RESULTS = 50;
-  const MAX_DEPTH = 8;
-
-  function walk(dir: string, relPrefix: string, depth: number) {
-    if (depth > MAX_DEPTH || results.length >= MAX_RESULTS) return;
-    try {
-      const entries = readdirSync(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (results.length >= MAX_RESULTS) break;
-        if (entry.isDirectory() && (HIDDEN_DIRS.has(entry.name) || entry.name.startsWith('.'))) continue;
-        const relPath = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
-        const nameLower = entry.name.toLowerCase();
-
-        // Fuzzy match: all query chars appear in order in the filename
-        let qi = 0;
-        for (let i = 0; i < nameLower.length && qi < query.length; i++) {
-          if (nameLower[i] === query[qi]) qi++;
-        }
-        if (qi === query.length) {
-          results.push({ path: '/' + relPath, name: entry.name, type: entry.isDirectory() ? 'dir' : 'file' });
-        }
-        if (entry.isDirectory()) {
-          walk(join(dir, entry.name), relPath, depth + 1);
-        }
-      }
-    } catch { /* permission errors, etc. */ }
+  if (!query.trim()) {
+    // Trigger background preload even for empty queries (used by frontend on mount)
+    preloadIndex(root);
+    res.json({ results: [] });
+    return;
   }
 
-  walk(root, '', 0);
-  res.json({ results });
+  try {
+    const { results, indexing } = searchFiles(root, query.trim());
+    res.json({ results, indexing });
+  } catch (err) {
+    log.error('file-search', err instanceof Error ? err.message : String(err));
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+/** POST /api/files/search/invalidate — clear file search cache for a project */
+router.post('/files/search/invalidate', (req: Request, res: Response) => {
+  const root = str(req.body?.root);
+  if (root) invalidateCache(root);
+  res.json({ ok: true });
 });
 
 // ---- Health & Config ----
