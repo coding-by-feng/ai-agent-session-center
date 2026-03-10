@@ -11,6 +11,7 @@ import Combobox from '@/components/ui/Combobox';
 import { showToast } from '@/components/ui/ToastContainer';
 import { useUiStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useRoomStore } from '@/stores/roomStore';
 import { useKnownProjects } from '@/hooks/useKnownProjects';
 import styles from '@/styles/modules/Modal.module.css';
 
@@ -127,6 +128,7 @@ export default function NewSessionModal() {
   const [apiKey, setApiKey] = useState('');
   const [sessionTitle, setSessionTitle] = useState('');
   const [label, setLabel] = useState('');
+  const [roomId, setRoomId] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
@@ -138,6 +140,10 @@ export default function NewSessionModal() {
 
   // Command history
   const commandSuggestions = useMemo(() => getCommandSuggestions(), []);
+
+  // Rooms
+  const rooms = useRoomStore((s) => s.rooms);
+  const roomOptions = useMemo(() => rooms.map((r) => r.name), [rooms]);
 
   // Fetch SSH keys on mount
   useEffect(() => {
@@ -201,6 +207,10 @@ export default function NewSessionModal() {
         // Auto-select the new session so the detail panel stays open
         if (data.terminalId) {
           useSessionStore.getState().selectSession(data.terminalId);
+          // Assign to selected room
+          if (roomId) {
+            useRoomStore.getState().addSession(roomId, data.terminalId);
+          }
         }
         showToast('Terminal session created', 'success');
         closeModal();
@@ -343,6 +353,20 @@ export default function NewSessionModal() {
               placeholder="None"
             />
           </div>
+        </div>
+
+        {/* Room */}
+        <div className={styles.sshField}>
+          <label>Room</label>
+          <Combobox
+            value={roomId ? (rooms.find((r) => r.id === roomId)?.name ?? '') : ''}
+            onChange={(v) => {
+              const match = rooms.find((r) => r.name === v);
+              setRoomId(match ? match.id : '');
+            }}
+            items={roomOptions}
+            placeholder="None (corridor)"
+          />
         </div>
 
         {/* API key */}

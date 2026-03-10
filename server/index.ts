@@ -7,8 +7,10 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { execFile } from 'child_process';
 import hookRouter from './hookRouter.js';
-import { handleConnection, stopHeartbeat } from './wsManager.js';
-import { getAllSessions, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave } from './sessionStore.js';
+import { handleConnection, stopHeartbeat, broadcast } from './wsManager.js';
+import { getAllSessions, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
+import { createTerminal, consumePendingLink, writeWhenReady } from './sshManager.js';
+import { WS_TYPES } from './constants.js';
 import { closeDb } from './db.js';
 import apiRouter, { hookRateLimitMiddleware } from './apiRouter.js';
 import { startMqReader, stopMqReader, getMqOffset } from './mqReader.js';
@@ -229,6 +231,59 @@ export function startServer(port?: number): Promise<number> {
 
   const PORT = port ?? resolvePort(args, config);
 
+  /**
+   * After snapshot restore, respawn PTY terminals for SSH sessions that
+   * were active before the server went down. Each session gets a new terminal
+   * linked via reconnectSessionTerminal + a `claude --resume` command.
+   */
+  async function respawnSshTerminals(): Promise<void> {
+    const toRespawn = getSessionsForRespawn();
+    if (toRespawn.length === 0) return;
+    log.info('server', `Auto-respawning ${toRespawn.length} SSH terminal(s) from previous session...`);
+
+    for (const { sessionId, session } of toRespawn) {
+      try {
+        const cfg = session.sshConfig!;
+        const isRemote = cfg.host && cfg.host !== 'localhost' && cfg.host !== '127.0.0.1';
+
+        // command='' skips auto-launch; we write the resume command ourselves
+        const newConfig = {
+          host: cfg.host || 'localhost',
+          port: cfg.port,
+          username: cfg.username,
+          authMethod: cfg.authMethod,
+          privateKeyPath: cfg.privateKeyPath,
+          workingDir: cfg.workingDir || session.projectPath || '~',
+          command: '',
+        };
+        const newTerminalId = await createTerminal(newConfig, null);
+        consumePendingLink(newConfig.workingDir);
+
+        const result = reconnectSessionTerminal(sessionId, newTerminalId);
+        if ('error' in result) {
+          log.warn('server', `Respawn failed for ${sessionId.slice(0, 8)}: ${result.error}`);
+          continue;
+        }
+
+        // Build resume command (same logic as the /sessions/:id/resume endpoint)
+        const safeId = sessionId.replace(/'/g, "'\\''");
+        const resumeCmd = `claude --resume '${safeId}' || claude --continue`;
+        let prefix = '';
+        if (isRemote) {
+          prefix += `export AGENT_MANAGER_TERMINAL_ID='${newTerminalId}' && `;
+          if (cfg.workingDir) prefix += `cd '${cfg.workingDir}' && `;
+        }
+        writeWhenReady(newTerminalId, `${prefix}${resumeCmd}\r`);
+
+        broadcast({ type: WS_TYPES.SESSION_UPDATE, session: result.session });
+        log.info('server', `Respawned terminal for session ${sessionId.slice(0, 8)} → ${newTerminalId.slice(0, 12)}`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log.warn('server', `Failed to respawn terminal for session ${sessionId.slice(0, 8)}: ${msg}`);
+      }
+    }
+  }
+
   function onReady(): void {
     const localIP = getLocalIP();
     log.info('server', 'AI Agent Session Center');
@@ -267,6 +322,11 @@ export function startServer(port?: number): Promise<number> {
 
     // Start auth token cleanup (every hour)
     startTokenCleanup();
+
+    // Auto-respawn SSH terminals for sessions that survived restart
+    if (snapshotResult) {
+      setTimeout(() => respawnSshTerminals(), 500);
+    }
 
     // Open browser after a brief delay (let server fully initialize)
     setTimeout(() => openBrowser(`http://localhost:${PORT}`, noOpen), 300);

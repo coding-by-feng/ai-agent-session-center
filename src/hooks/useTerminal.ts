@@ -34,10 +34,18 @@ interface UseTerminalOptions {
 }
 
 export interface TerminalBookmarkPosition {
-  /** Buffer line to scroll to (term.buffer.active.viewportY at capture time) */
+  /** Absolute buffer line to scroll to */
   scrollLine: number;
   /** Selected text at capture time */
   selectedText: string;
+  /** Selection start column */
+  selStartX: number;
+  /** Selection start row (absolute buffer line) */
+  selStartY: number;
+  /** Selection end column */
+  selEndX: number;
+  /** Selection end row (absolute buffer line) */
+  selEndY: number;
 }
 
 interface UseTerminalReturn {
@@ -67,6 +75,8 @@ interface UseTerminalReturn {
   getTerminalBookmark: () => TerminalBookmarkPosition | null;
   /** Scroll terminal to the given buffer line. */
   scrollToLine: (line: number) => void;
+  /** Scroll to bookmark and briefly highlight the original selection. */
+  jumpToBookmark: (bm: TerminalBookmarkPosition) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -634,13 +644,40 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     const { term } = activeRef.current;
     const selectedText = term.getSelection();
     if (!selectedText) return null;
-    const scrollLine = term.buffer.active.viewportY;
-    return { scrollLine, selectedText };
+    const selPos = term.getSelectionPosition();
+    const baseY = term.buffer.active.baseY;
+    const scrollLine = selPos
+      ? selPos.start.y + baseY
+      : term.buffer.active.viewportY;
+    return {
+      scrollLine,
+      selectedText,
+      selStartX: selPos?.start.x ?? 0,
+      selStartY: selPos ? selPos.start.y + baseY : scrollLine,
+      selEndX: selPos?.end.x ?? 0,
+      selEndY: selPos ? selPos.end.y + baseY : scrollLine,
+    };
   }, []);
 
   const scrollToLine = useCallback((line: number) => {
     if (activeRef.current) {
       activeRef.current.term.scrollToLine(line);
+    }
+  }, []);
+
+  const jumpToBookmark = useCallback((bm: TerminalBookmarkPosition) => {
+    if (!activeRef.current) return;
+    const { term } = activeRef.current;
+    term.scrollToLine(bm.scrollLine);
+    const baseY = term.buffer.active.baseY;
+    const startRow = bm.selStartY - baseY;
+    const endRow = bm.selEndY - baseY;
+    const length = endRow === startRow
+      ? bm.selEndX - bm.selStartX
+      : (term.cols - bm.selStartX) + bm.selEndX + Math.max(0, endRow - startRow - 1) * term.cols;
+    if (length > 0) {
+      term.select(bm.selStartX, startRow, length);
+      setTimeout(() => term.clearSelection(), 2000);
     }
   }, []);
 
@@ -708,5 +745,6 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     scrollPageDown,
     getTerminalBookmark,
     scrollToLine,
+    jumpToBookmark,
   };
 }

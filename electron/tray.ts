@@ -18,6 +18,10 @@ export function setupTray(win: BrowserWindow) {
 
   const tray = new Tray(trayIcon)
 
+  // Track whether a real quit is in progress (Cmd+Q, tray Quit, etc.)
+  let isQuitting = false
+  app.on('before-quit', () => { isQuitting = true })
+
   const rebuild = () => {
     tray.setContextMenu(Menu.buildFromTemplate([
       {
@@ -51,7 +55,7 @@ export function setupTray(win: BrowserWindow) {
       { type: 'separator' },
       {
         label: 'Quit',
-        click: () => app.exit(0),
+        click: () => app.quit(),
       },
     ]))
   }
@@ -63,10 +67,12 @@ export function setupTray(win: BrowserWindow) {
     rebuild()
   })
 
-  // Minimize to tray instead of quit
+  // Minimize to tray instead of closing — but allow real quit (Cmd+Q, tray Quit) to proceed
   win.on('close', (e) => {
-    e.preventDefault()
-    win.hide()
-    rebuild()
+    if (!isQuitting) {
+      e.preventDefault()
+      win.hide()
+      rebuild()
+    }
   })
 }

@@ -18,6 +18,10 @@ interface TerminalBookmark {
   selectedText: string;
   note: string;
   timestamp: number;
+  selStartX: number;
+  selStartY: number;
+  selEndX: number;
+  selEndY: number;
 }
 
 interface TerminalContainerProps {
@@ -76,6 +80,7 @@ export default memo(function TerminalContainer({
     scrollPageDown,
     getTerminalBookmark,
     scrollToLine,
+    jumpToBookmark,
   } = useTerminal({ ws, themeName, projectPath });
 
   // Attach/detach when terminalId changes
@@ -183,6 +188,10 @@ export default memo(function TerminalContainer({
         selectedText: pos.selectedText,
         note: '',
         timestamp: Date.now(),
+        selStartX: pos.selStartX,
+        selStartY: pos.selStartY,
+        selEndX: pos.selEndX,
+        selEndY: pos.selEndY,
       };
       setBookmarks((prev) => [newBookmark, ...prev]);
       setShowBookmarkPanel(true);
@@ -200,9 +209,16 @@ export default memo(function TerminalContainer({
     setBookmarks((prev) => prev.map((b) => (b.id === id ? { ...b, note } : b)));
   }, []);
 
-  const handleJumpToBookmark = useCallback((scrollLine: number) => {
-    scrollToLine(scrollLine);
-  }, [scrollToLine]);
+  const handleJumpToBookmark = useCallback((bm: TerminalBookmark) => {
+    jumpToBookmark({
+      scrollLine: bm.scrollLine,
+      selectedText: bm.selectedText,
+      selStartX: bm.selStartX,
+      selStartY: bm.selStartY,
+      selEndX: bm.selEndX,
+      selEndY: bm.selEndY,
+    });
+  }, [jumpToBookmark]);
 
   const bookmarkPanelContent = (
     <div className={styles.termBookmarkPanel}>
@@ -237,7 +253,7 @@ export default memo(function TerminalContainer({
               <div className={styles.termBookmarkActions}>
                 <button
                   className={styles.termBookmarkJumpBtn}
-                  onClick={() => handleJumpToBookmark(bm.scrollLine)}
+                  onClick={() => handleJumpToBookmark(bm)}
                   title="Jump to this position"
                 >
                   Jump

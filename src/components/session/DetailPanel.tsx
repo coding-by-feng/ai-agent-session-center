@@ -187,87 +187,83 @@ export default function DetailPanel() {
           onToggleCollapse={toggleDetailHeader}
         />
 
-        {/* Collapsible header + controls */}
+        {/* Collapsible header — robot icon, title, meta, controls */}
         {!headerCollapsed && (
-          <>
-            {/* Header with inline controls */}
-            <div className={styles.header}>
-              <div className={styles.headerInfo}>
-                <div className={styles.charPreview} style={{
-                  width: 64,
-                  height: 80,
-                  borderRadius: 6,
-                  border: `1px solid color-mix(in srgb, ${statusColor[session.status] ?? 'var(--text-dim)'} 25%, transparent)`,
-                  background: `color-mix(in srgb, ${statusColor[session.status] ?? 'var(--text-dim)'} 6%, transparent)`,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 4,
+          <div className={styles.header}>
+            <div className={styles.headerInfo}>
+              <div className={styles.charPreview} style={{
+                width: 64,
+                height: 80,
+                borderRadius: 6,
+                border: `1px solid color-mix(in srgb, ${statusColor[session.status] ?? 'var(--text-dim)'} 25%, transparent)`,
+                background: `color-mix(in srgb, ${statusColor[session.status] ?? 'var(--text-dim)'} 6%, transparent)`,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4,
+              }}>
+                <div style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: '50%',
+                  background: `${neonColor}30`,
+                  border: `2px solid ${neonColor}`,
+                  boxShadow: `0 0 8px ${neonColor}40`,
+                }} />
+                <span style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 8,
+                  fontWeight: 700,
+                  letterSpacing: 0.5,
+                  color: neonColor,
+                  textTransform: 'uppercase',
+                  opacity: 0.8,
                 }}>
-                  <div style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: '50%',
-                    background: `${neonColor}30`,
-                    border: `2px solid ${neonColor}`,
-                    boxShadow: `0 0 8px ${neonColor}40`,
-                  }} />
-                  <span style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 8,
-                    fontWeight: 700,
-                    letterSpacing: 0.5,
-                    color: neonColor,
-                    textTransform: 'uppercase',
-                    opacity: 0.8,
-                  }}>
-                    {modelLabel}
-                  </span>
-                </div>
-
-                <div className={styles.headerText}>
-                  <div className={styles.headerTop}>
-                    <div className={styles.headerTitles}>
-                      <h3>{session.title || session.projectName || '(untitled)'}</h3>
-                      {session.title && session.projectName && session.title !== session.projectName && (
-                        <div className={styles.titleRow}>
-                          <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontStyle: 'italic' }}>
-                            {session.projectName}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className={styles.meta}>
-                    <span
-                      className={`${styles.detailStatusBadge} ${isDisconnected ? 'disconnected' : session.status}`}
-                    >
-                      {statusLabel}
-                    </span>
-                    {session.model && (
-                      <span className={styles.detailModel}>{session.model}</span>
-                    )}
-                    {durText && (
-                      <span className={styles.detailDuration}>{durText}</span>
-                    )}
-                  </div>
-                </div>
+                  {modelLabel}
+                </span>
               </div>
 
-              {/* Session controls + label chips inline */}
-              <SessionControlBar
-                session={session}
-                labelChips={
-                  <LabelChips
-                    sessionId={session.sessionId}
-                    currentLabel={session.label || ''}
-                  />
-                }
-              />
+              <div className={styles.headerText}>
+                <div className={styles.headerTop}>
+                  <div className={styles.headerTitles}>
+                    <h3>{session.title || session.projectName || '(untitled)'}</h3>
+                    {session.title && session.projectName && session.title !== session.projectName && (
+                      <div className={styles.titleRow}>
+                        <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontStyle: 'italic' }}>
+                          {session.projectName}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className={styles.meta}>
+                  <span
+                    className={`${styles.detailStatusBadge} ${isDisconnected ? 'disconnected' : session.status}`}
+                  >
+                    {statusLabel}
+                  </span>
+                  {session.model && (
+                    <span className={styles.detailModel}>{session.model}</span>
+                  )}
+                  {durText && (
+                    <span className={styles.detailDuration}>{durText}</span>
+                  )}
+                </div>
+              </div>
             </div>
-          </>
+
+            <SessionControlBar
+              session={session}
+              labelChips={
+                <LabelChips
+                  sessionId={session.sessionId}
+                  currentLabel={session.label || ''}
+                />
+              }
+            />
+          </div>
         )}
 
         {/* Tabs and content */}

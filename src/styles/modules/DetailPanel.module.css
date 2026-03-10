@@ -139,6 +139,28 @@
 .charSelect:hover { color: var(--text-secondary); border-color: var(--border-subtle-strong); }
 .charSelect:focus { outline: none; border-color: var(--accent-cyan); color: var(--text-primary); }
 
+/* Collapse toggle inside expanded header (near action buttons) */
+.headerCollapseBtn {
+  background: none;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-dim);
+  font-size: 9px;
+  cursor: pointer;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.headerCollapseBtn:hover {
+  color: var(--accent-cyan);
+  border-color: var(--accent-cyan);
+  background: var(--bg-subtle);
+}
+
 .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
 .detailStatusBadge { font-size: 9px; font-weight: 700; letter-spacing: 1.5px; padding: 2px 8px; border-radius: 3px; text-transform: uppercase; }
 .detailModel { font-size: 10px; color: var(--text-dim); letter-spacing: 0.5px; }

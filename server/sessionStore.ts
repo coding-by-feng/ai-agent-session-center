@@ -1116,6 +1116,25 @@ export function findClaudeProcess(sessionId: string, projectPath: string): numbe
   return _findClaudeProcess(sessionId, projectPath, sessions, pidToSession);
 }
 
+/**
+ * Return SSH sessions that need terminal respawn after a server restart.
+ * These are non-ended SSH sessions with sshConfig that have no live terminal.
+ */
+export function getSessionsForRespawn(): Array<{ sessionId: string; session: Session }> {
+  const result: Array<{ sessionId: string; session: Session }> = [];
+  for (const [id, session] of sessions) {
+    if (
+      session.source === 'ssh' &&
+      session.sshConfig &&
+      session.status !== SESSION_STATUS.ENDED &&
+      !session.terminalId
+    ) {
+      result.push({ sessionId: id, session });
+    }
+  }
+  return result;
+}
+
 // ---- #21: Register terminal exit callback to unbind session when PTY dies ----
 registerTerminalExitCallback((terminalId: string) => {
   for (const [_id, session] of sessions) {
