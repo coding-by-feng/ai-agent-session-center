@@ -108,8 +108,8 @@ export function handleConnection(ws: WebSocket): void {
 
     try {
       const rawStr = raw.toString();
-      // Reject oversized messages early (64KB)
-      if (rawStr.length > 65536) {
+      // Reject oversized messages early (512KB)
+      if (rawStr.length > 524288) {
         log.warn('ws', 'Oversized WS message rejected');
         return;
       }
@@ -117,7 +117,7 @@ export function handleConnection(ws: WebSocket): void {
       switch (msg.type) {
         case WS_TYPES.TERMINAL_INPUT:
           // Only allow writing to terminals this client is subscribed to
-          if (typeof msg.terminalId === 'string' && typeof msg.data === 'string' && msg.data.length <= 8192) {
+          if (typeof msg.terminalId === 'string' && typeof msg.data === 'string' && msg.data.length <= 262144) {
             if (!client._terminalIds.has(msg.terminalId)) {
               log.warn('ws', `Blocked terminal_input to unsubscribed terminal ${msg.terminalId}`);
               break;

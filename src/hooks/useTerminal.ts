@@ -345,10 +345,19 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         fitAddon.fit();
         sendResize(wsRef.current, terminalId, term.cols, term.rows);
 
-        // Send keystrokes
+        // Send keystrokes (chunk large pastes to stay within 8 KB server limit)
+        const CHUNK_SIZE = 4096;
         term.onData((data) => {
-          if (wsRef.current && wsRef.current.readyState === 1) {
+          if (!wsRef.current || wsRef.current.readyState !== 1) return;
+          if (data.length <= CHUNK_SIZE) {
             wsRef.current.send(JSON.stringify({ type: 'terminal_input', terminalId, data }));
+          } else {
+            const ws = wsRef.current;
+            for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+              const chunk = data.slice(i, i + CHUNK_SIZE);
+              if (ws.readyState !== 1) break;
+              ws.send(JSON.stringify({ type: 'terminal_input', terminalId, data: chunk }));
+            }
           }
         });
 
@@ -565,9 +574,26 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
 
     if (!text) return;
 
-    wsRef.current.send(
-      JSON.stringify({ type: 'terminal_input', terminalId, data: text }),
-    );
+    // Chunk large pastes to stay within server's per-message limit (8 KB)
+    const CHUNK_SIZE = 4096;
+    if (text.length <= CHUNK_SIZE) {
+      wsRef.current.send(
+        JSON.stringify({ type: 'terminal_input', terminalId, data: text }),
+      );
+    } else {
+      const ws = wsRef.current;
+      for (let i = 0; i < text.length; i += CHUNK_SIZE) {
+        const chunk = text.slice(i, i + CHUNK_SIZE);
+        // Small delay between chunks to avoid overwhelming the PTY buffer
+        if (i > 0) {
+          await new Promise((r) => setTimeout(r, 5));
+        }
+        if (ws.readyState !== 1) break;
+        ws.send(
+          JSON.stringify({ type: 'terminal_input', terminalId, data: chunk }),
+        );
+      }
+    }
     // Re-focus the terminal after paste
     activeRef.current?.term.focus();
   }, []);

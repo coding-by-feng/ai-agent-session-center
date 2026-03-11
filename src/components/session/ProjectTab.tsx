@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
+import * as XLSX from 'xlsx';
 import 'highlight.js/styles/github-dark-dimmed.css';
 import styles from '@/styles/modules/ProjectTab.module.css';
 
@@ -26,6 +27,11 @@ interface DirEntry {
   size?: number;
 }
 
+interface ExcelSheet {
+  name: string;
+  data: string[][];
+}
+
 interface FileContent {
   path: string;
   content?: string;
@@ -36,6 +42,8 @@ interface FileContent {
   streamable?: boolean;
   /** Blob object URL for streamable files (PDF, etc.) */
   blobUrl?: string;
+  /** Parsed Excel sheets */
+  sheets?: ExcelSheet[];
 }
 
 interface FileTab {
@@ -228,6 +236,56 @@ const VIRTUALIZE_THRESHOLD = 10_000;
 const LINE_HEIGHT_PX = 20;
 /** Extra lines rendered above/below the visible viewport. */
 const OVERSCAN = 30;
+
+/** Excel spreadsheet viewer — renders parsed sheets as tables. */
+function ExcelViewer({ sheets }: { sheets: ExcelSheet[] }) {
+  const [activeSheet, setActiveSheet] = useState(0);
+  const sheet = sheets[activeSheet];
+  if (!sheet) return null;
+
+  return (
+    <div className={styles.excelViewer}>
+      {sheets.length > 1 && (
+        <div className={styles.excelSheetTabs}>
+          {sheets.map((s, i) => (
+            <button
+              key={i}
+              className={`${styles.excelSheetTab}${i === activeSheet ? ` ${styles.excelSheetTabActive}` : ''}`}
+              onClick={() => setActiveSheet(i)}
+              type="button"
+            >
+              {s.name}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className={styles.excelTableWrap}>
+        <table className={styles.excelTable}>
+          {sheet.data.length > 0 && (
+            <thead>
+              <tr>
+                <th className={styles.excelRowNum}>#</th>
+                {sheet.data[0].map((cell, ci) => (
+                  <th key={ci}>{cell ?? ''}</th>
+                ))}
+              </tr>
+            </thead>
+          )}
+          <tbody>
+            {sheet.data.slice(1).map((row, ri) => (
+              <tr key={ri}>
+                <td className={styles.excelRowNum}>{ri + 2}</td>
+                {row.map((cell, ci) => (
+                  <td key={ci}>{cell ?? ''}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 /** Virtualised code viewer for very large files. */
 function VirtualCodeViewer({
@@ -582,12 +640,23 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         throw new Error(data.error || res.statusText);
       }
       const data: FileContent = await res.json();
-      // For streamable files (PDF), fetch the raw bytes as a blob
+      // For streamable files, fetch the raw bytes as a blob
       if (data.streamable) {
         const streamRes = await fetch(`/api/files/stream?root=${encodeURIComponent(projectPath)}&path=${encodeURIComponent(relPath)}`);
         if (streamRes.ok) {
-          const blob = await streamRes.blob();
-          data.blobUrl = URL.createObjectURL(blob);
+          const ext = (data.ext ?? '').toLowerCase();
+          if (ext === 'xlsx' || ext === 'xls') {
+            // Parse Excel in-browser
+            const arrayBuffer = await streamRes.arrayBuffer();
+            const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+            data.sheets = workbook.SheetNames.map((name) => ({
+              name,
+              data: XLSX.utils.sheet_to_json<string[]>(workbook.Sheets[name], { header: 1 }) as string[][],
+            }));
+          } else {
+            const blob = await streamRes.blob();
+            data.blobUrl = URL.createObjectURL(blob);
+          }
         }
       }
       setFile(data);
@@ -1052,7 +1121,9 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         {/* File viewer */}
         {!loading && !error && file && !showingEditor && (
           <div className={styles.fileViewer}>
-            {file.streamable && file.ext === 'pdf' && file.blobUrl ? (
+            {file.sheets && file.sheets.length > 0 ? (
+              <ExcelViewer sheets={file.sheets} />
+            ) : file.streamable && file.ext === 'pdf' && file.blobUrl ? (
               <iframe
                 src={file.blobUrl}
                 className={styles.pdfViewer}

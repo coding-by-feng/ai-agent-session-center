@@ -318,6 +318,96 @@
   background: #1a1a2e;
 }
 
+/* ---- Excel Viewer ---- */
+
+.excelViewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.excelSheetTabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.excelSheetTab {
+  padding: 4px 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.excelSheetTab:hover { color: var(--text-primary); background: var(--bg-subtle); }
+.excelSheetTabActive {
+  color: var(--accent-cyan);
+  background: var(--bg-card);
+  border-color: var(--border-accent);
+}
+
+.excelTableWrap {
+  flex: 1;
+  overflow: auto;
+  padding: 0;
+}
+
+.excelTable {
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+  min-width: 100%;
+}
+
+.excelTable th,
+.excelTable td {
+  padding: 3px 10px;
+  border: 1px solid var(--border-subtle);
+  text-align: left;
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.excelTable thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-weight: 600;
+  z-index: 1;
+  border-bottom: 2px solid var(--border-accent);
+}
+
+.excelTable tbody td {
+  color: var(--text-secondary);
+}
+
+.excelTable tbody tr:hover td {
+  background: var(--bg-subtle);
+}
+
+.excelRowNum {
+  color: var(--text-dim);
+  text-align: right;
+  width: 40px;
+  min-width: 40px;
+  font-size: 10px;
+  user-select: none;
+}
+
 /* ---- New File Editor ---- */
 
 .newFileEditor {
