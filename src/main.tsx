@@ -13,11 +13,6 @@ import '@/styles/themes/warm.css';
 import '@/styles/themes/blonde.css';
 import '@/styles/themes/light-overrides.css';
 
-// Apply macOS traffic-light clearance before React mounts (synchronous, before first paint)
-if (window.electronAPI?.platform === 'darwin') {
-  document.documentElement.classList.add('electron-mac');
-}
-
 // Load persisted queue items from IndexedDB before rendering
 useQueueStore.getState().loadFromDb();
 

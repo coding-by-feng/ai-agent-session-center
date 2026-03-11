@@ -296,9 +296,20 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
   const session = getSession(sessionId);
   if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
 
-  // Build resume command with single-quoted session ID to prevent shell interpretation
+  // Retrieve the original command used to create this session
+  const originalCmd = session.sshCommand || session.sshConfig?.command || '';
+
+  // Build resume command preserving original flags/options
   const safeId = sessionId.replace(/'/g, "'\\''");
-  const resumeCmd = `claude --resume '${safeId}' || claude --continue`;
+  let resumeCmd: string;
+  if (!originalCmd || originalCmd.startsWith('claude')) {
+    // Claude CLI: strip any prior --resume/--continue, then append --resume with fallback
+    const baseCmd = (originalCmd || 'claude').replace(/\s+--(?:resume\s+'[^']*'|resume\s+\S+|continue)\b/g, '').trim();
+    resumeCmd = `${baseCmd} --resume '${safeId}' || ${baseCmd} --continue`;
+  } else {
+    // Non-Claude CLI (gemini, codex, aider, etc.): re-run the original command as-is
+    resumeCmd = originalCmd;
+  }
 
   const allTerminals = getTerminals();
   const terminalExists = session.lastTerminalId && allTerminals.some(t => t.terminalId === session.lastTerminalId);
@@ -385,7 +396,7 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
   }
 
   try {
-    const newConfig: TerminalConfig = { ...cfg, workingDir: cfg.workingDir || '~', command: 'claude' };
+    const newConfig: TerminalConfig = { ...cfg, workingDir: cfg.workingDir || '~', command: cfg.command || 'claude' };
     const newTerminalId = await createTerminal(newConfig, null);
     consumePendingLink(newConfig.workingDir || session.projectPath || '');
 

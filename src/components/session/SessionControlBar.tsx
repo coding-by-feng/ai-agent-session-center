@@ -123,16 +123,6 @@ export default function SessionControlBar({ session, labelChips }: SessionContro
   // ---- Room select ----
   const handleRoomChange = useCallback(
     (roomId: string) => {
-      if (roomId === '__new__') {
-        const name = window.prompt('New room name:');
-        if (name?.trim()) {
-          const newRoomId = useRoomStore.getState().createRoom(name.trim());
-          useRoomStore.getState().addSession(newRoomId, session.sessionId);
-          showToast(`Created and assigned to "${name.trim()}"`, 'success');
-        }
-        return;
-      }
-
       // Remove from all rooms first
       for (const r of rooms) {
         if (r.sessionIds.includes(session.sessionId)) {
@@ -159,7 +149,6 @@ export default function SessionControlBar({ session, labelChips }: SessionContro
   const roomOptions = useMemo<SelectOption[]>(() => [
     { value: '', label: 'No room' },
     ...rooms.map((r) => ({ value: r.id, label: r.name })),
-    { value: '__new__', label: '+ New Room' },
   ], [rooms]);
 
   return (
