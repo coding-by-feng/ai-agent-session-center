@@ -931,7 +931,7 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_STREAMABLE_SIZE = 100 * 1024 * 1024; // 100 MB (for PDF/image streaming)
 
 /** Extensions that can be streamed directly to the browser (not read into JSON). */
-const STREAMABLE_EXTENSIONS = new Set(['.pdf']);
+const STREAMABLE_EXTENSIONS = new Set(['.pdf', '.xlsx', '.xls']);
 
 /** Directories to skip when listing. */
 const HIDDEN_DIRS = new Set([
@@ -1100,7 +1100,11 @@ router.get('/files/stream', (req: Request, res: Response) => {
     const fileExt = extname(fullPath).toLowerCase();
     if (!STREAMABLE_EXTENSIONS.has(fileExt)) { res.status(400).json({ error: 'File type not streamable' }); return; }
 
-    const mimeMap: Record<string, string> = { '.pdf': 'application/pdf' };
+    const mimeMap: Record<string, string> = {
+      '.pdf': 'application/pdf',
+      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.xls': 'application/vnd.ms-excel',
+    };
     const contentType = mimeMap[fileExt] || 'application/octet-stream';
 
     res.setHeader('Content-Type', contentType);

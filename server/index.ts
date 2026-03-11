@@ -69,7 +69,7 @@ export function startServer(port?: number): Promise<number> {
 
   const app = express();
   const server = createServer(app);
-  const wss = new WebSocketServer({ server, maxPayload: 64 * 1024 }); // 64KB max WS message
+  const wss = new WebSocketServer({ server, maxPayload: 512 * 1024 }); // 512KB max WS message (supports large terminal pastes)
 
   app.use(express.json({ limit: '50mb' }));
 
