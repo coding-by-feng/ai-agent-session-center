@@ -25,7 +25,6 @@ async function createWindow(): Promise<BrowserWindow> {
     minWidth:  firstRun ? 640  : 900,
     minHeight: firstRun ? 520  : 600,
     resizable: true,
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     backgroundColor: '#0a0a1a',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -95,6 +94,19 @@ function buildAppMenu(win: BrowserWindow) {
         { role: 'quit' as const },
       ],
     }] : []),
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' as const },
+        { role: 'redo' as const },
+        { type: 'separator' as const },
+        { role: 'cut' as const },
+        { role: 'copy' as const },
+        { role: 'paste' as const },
+        { role: 'pasteAndMatchStyle' as const },
+        { role: 'selectAll' as const },
+      ],
+    },
     {
       label: 'View',
       submenu: [

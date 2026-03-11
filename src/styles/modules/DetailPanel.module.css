@@ -63,6 +63,7 @@
   font-size: 24px; cursor: pointer; width: 32px; height: 32px;
   display: flex; align-items: center; justify-content: center;
   border-radius: 4px; transition: color 0.2s, background 0.2s; z-index: 1;
+  -webkit-app-region: no-drag;
 }
 .closeBtn:hover { color: var(--text-primary); background: var(--bg-subtle); }
 
@@ -74,6 +75,7 @@
   width: 28px; height: 28px;
   display: flex; align-items: center; justify-content: center;
   border-radius: 4px; transition: color 0.2s, background 0.2s, border-color 0.2s; z-index: 1;
+  -webkit-app-region: no-drag;
 }
 .collapseBtn:hover { color: var(--accent-cyan); border-color: var(--accent-cyan); background: var(--bg-subtle); }
 
@@ -461,6 +463,7 @@
   justify-content: center;
   border-radius: 3px;
   transition: color 0.15s, background 0.15s;
+  -webkit-app-region: no-drag;
 }
 .switcherIconBtn:hover {
   color: var(--text-primary);
@@ -861,4 +864,10 @@
 /* #63 — Always show copy button on touch devices */
 @media (hover: none) {
   /* (already handled in .convCopy block above) */
+}
+
+/* macOS Electron: push panel below the 28px TitleBar so close/collapse buttons are reachable */
+:global(html.electron-mac) .panel {
+  top: 28px;
+  height: calc(100% - 28px);
 }
