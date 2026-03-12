@@ -306,6 +306,9 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
   const originalCmd = session.startupCommand || session.sshCommand || session.sshConfig?.command || '';
 
   // Build resume command preserving original flags/options
+  // Terminal IDs (term-xxx) are agent-manager internal IDs, not Claude conversation IDs.
+  // claude --resume only works with real Claude session IDs, so fall back to --continue.
+  const isClaudeSessionId = !sessionId.startsWith('term-');
   const safeId = sessionId.replace(/'/g, "'\\''");
   let resumeCmd: string;
   // Detect Claude CLI — handles 'claude', '/usr/local/bin/claude', 'node /path/to/claude'
@@ -315,7 +318,9 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
     const baseCmd = (originalCmd || 'claude')
       .replace(/^(\S*\/)claude/, 'claude')
       .replace(/\s+--(?:resume\s+'[^']*'|resume\s+\S+|continue)\b/g, '').trim();
-    resumeCmd = `${baseCmd} --resume '${safeId}' || ${baseCmd} --continue`;
+    resumeCmd = isClaudeSessionId
+      ? `${baseCmd} --resume '${safeId}' || ${baseCmd} --continue`
+      : `${baseCmd} --continue`;
   } else {
     // Non-Claude CLI (gemini, codex, aider, etc.): re-run the original command as-is
     resumeCmd = originalCmd;
