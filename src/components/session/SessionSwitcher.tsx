@@ -85,15 +85,11 @@ export default function SessionSwitcher({
   const cardDisplayMode = useUiStore((s) => s.cardDisplayMode);
   const toggleCardDisplayMode = useUiStore((s) => s.toggleCardDisplayMode);
 
-  const sortedSessions = useMemo(() => {
-    return [...sessions.values()]
-      .filter((s) => {
-        if (s.sessionId === currentSession.sessionId) return false;
-        if (s.status === 'ended') return false;
-        return true;
-      })
+  // Build globally indexed session list (all active, sorted), then split out "others"
+  const { sortedSessions, sessionIndexMap, currentIndex } = useMemo(() => {
+    const allActive = [...sessions.values()]
+      .filter((s) => s.status !== 'ended')
       .sort((a, b) => {
-        // Pinned first
         if (a.pinned && !b.pinned) return -1;
         if (!a.pinned && b.pinned) return 1;
         const oa = STATUS_ORDER[a.status] ?? 5;
@@ -101,6 +97,14 @@ export default function SessionSwitcher({
         if (oa !== ob) return oa - ob;
         return (a.title || a.projectName || '').localeCompare(b.title || b.projectName || '');
       });
+    const indexMap = new Map<string, number>();
+    let curIdx = -1;
+    allActive.forEach((s, i) => {
+      indexMap.set(s.sessionId, i + 1);
+      if (s.sessionId === currentSession.sessionId) curIdx = i + 1;
+    });
+    const others = allActive.filter((s) => s.sessionId !== currentSession.sessionId);
+    return { sortedSessions: others, sessionIndexMap: indexMap, currentIndex: curIdx };
   }, [sessions, currentSession.sessionId]);
 
   const primaryName = currentSession.title || currentSession.projectName || '(untitled)';
@@ -119,6 +123,9 @@ export default function SessionSwitcher({
             className={styles.switcherDot}
             style={{ background: currentColor, boxShadow: `0 0 6px ${currentColor}` }}
           />
+          {currentIndex > 0 && (
+            <span className={styles.switcherIndex}>{currentIndex}</span>
+          )}
           <span className={styles.switcherName}>{primaryName}</span>
           {secondaryName && (
             <span className={styles.switcherProject}>{secondaryName}</span>
@@ -180,6 +187,7 @@ export default function SessionSwitcher({
               session={s}
               onSwitch={onSwitch}
               isCompact={isCompact}
+              index={sessionIndexMap.get(s.sessionId) ?? 0}
             />
           ))}
         </div>
@@ -192,10 +200,12 @@ function SessionTabCard({
   session,
   onSwitch,
   isCompact,
+  index,
 }: {
   session: Session;
   onSwitch: (id: string) => void;
   isCompact: boolean;
+  index: number;
 }) {
   const color = STATUS_COLORS[session.status] ?? 'var(--text-dim)';
   const title = session.title || session.projectName || '(untitled)';
@@ -241,7 +251,10 @@ function SessionTabCard({
       )}
 
       {/* Text info */}
-      <div className={styles.sessionTabTitle}>{title}</div>
+      <div className={styles.sessionTabTitle}>
+        {index > 0 && <span className={styles.switcherIndex}>{index}</span>}
+        {title}
+      </div>
       {!isCompact && showProject && (
         <div className={styles.sessionTabProject}>{session.projectName}</div>
       )}

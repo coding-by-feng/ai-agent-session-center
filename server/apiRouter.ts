@@ -1048,7 +1048,7 @@ router.get('/files/list', (req: Request, res: Response) => {
     if (!stat.isDirectory()) { res.status(400).json({ error: 'Not a directory' }); return; }
 
     const entries = readdirSync(fullPath, { withFileTypes: true });
-    const items: Array<{ name: string; type: 'dir' | 'file'; size?: number }> = [];
+    const items: Array<{ name: string; type: 'dir' | 'file'; size?: number; mtime?: string }> = [];
 
     for (const entry of entries) {
       // Skip hidden dirs (but show hidden files like .env)
@@ -1057,11 +1057,16 @@ router.get('/files/list', (req: Request, res: Response) => {
       if (entry.isDirectory() && entry.name.startsWith('.')) continue;
 
       if (entry.isDirectory()) {
-        items.push({ name: entry.name, type: 'dir' });
+        try {
+          const dirStat = statSync(join(fullPath, entry.name));
+          items.push({ name: entry.name, type: 'dir', mtime: dirStat.mtime.toISOString() });
+        } catch {
+          items.push({ name: entry.name, type: 'dir' });
+        }
       } else {
         try {
           const fileStat = statSync(join(fullPath, entry.name));
-          items.push({ name: entry.name, type: 'file', size: fileStat.size });
+          items.push({ name: entry.name, type: 'file', size: fileStat.size, mtime: fileStat.mtime.toISOString() });
         } catch {
           items.push({ name: entry.name, type: 'file' });
         }

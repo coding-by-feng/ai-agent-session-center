@@ -484,6 +484,23 @@
   white-space: nowrap;
 }
 
+.switcherIndex {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.08));
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  margin-right: 5px;
+  flex-shrink: 0;
+  letter-spacing: 0.5px;
+}
+
 .switcherProject {
   font-size: 9px;
   color: var(--text-dim);
