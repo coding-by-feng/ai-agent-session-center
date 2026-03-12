@@ -802,6 +802,30 @@
   white-space: nowrap;
 }
 
+/* ---- Session tab index badge ---- */
+
+.sessionTabIndex {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--robot-color, var(--accent-cyan));
+  border: 2px solid var(--bg-card, #12122a);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: #ffffff;
+  z-index: 3;
+  line-height: 1;
+  box-shadow: 0 0 6px var(--robot-color, var(--accent-cyan));
+}
+
 /* ---- Display mode toggle ---- */
 
 .displayModeToggle {

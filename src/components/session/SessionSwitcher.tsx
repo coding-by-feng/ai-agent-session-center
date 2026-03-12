@@ -250,9 +250,11 @@ function SessionTabCard({
         </>
       )}
 
+      {/* Sequence badge */}
+      {index > 0 && <span className={styles.sessionTabIndex}>{index}</span>}
+
       {/* Text info */}
       <div className={styles.sessionTabTitle}>
-        {index > 0 && <span className={styles.switcherIndex}>{index}</span>}
         {title}
       </div>
       {!isCompact && showProject && (

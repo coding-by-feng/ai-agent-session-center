@@ -44,10 +44,10 @@
   min-height: 1.3em;
 }
 
-/* Selection styling */
+/* Selection styling — always use opaque bg + contrasting fg so colored text stays readable */
 .outputContainer ::selection {
-  background: var(--term-selection-bg, var(--accent-cyan, #00e5ff));
-  color: var(--term-selection-fg, var(--bg-primary, #0a0a1a));
+  background: var(--term-selection-bg, #0284c7);
+  color: var(--term-selection-fg, #ffffff);
 }
 
 /* Scrollbar styling */

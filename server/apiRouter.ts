@@ -79,6 +79,7 @@ const terminalCreateSchema = z.object({
   useTmux: z.boolean().optional(),
   sessionTitle: z.string().max(500).optional(),
   label: z.string().optional(),
+  enableOpsTerminal: z.boolean().optional(),
 });
 
 const tmuxSessionsSchema = z.object({
@@ -682,8 +683,21 @@ router.post('/terminals', async (req: Request, res: Response) => {
     }
 
     const terminalId = await createTerminal(config, null);
+
+    // Create ops terminal (blank shell for manual commands) if requested
+    let opsTerminalId: string | undefined;
+    if (body.enableOpsTerminal) {
+      const opsConfig: TerminalConfig = {
+        ...config,
+        command: '',          // empty = no auto-launch, just a shell prompt
+        sessionTitle: undefined,
+        label: undefined,
+      };
+      opsTerminalId = await createTerminal(opsConfig, null);
+    }
+
     // Create session card immediately so it appears in the dashboard
-    await createTerminalSession(terminalId, config);
+    await createTerminalSession(terminalId, config, opsTerminalId);
     res.json({ ok: true, terminalId });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -1312,6 +1326,45 @@ router.get('/config', (_req: Request, res: Response) => {
 
 router.get('/sessions', (_req: Request, res: Response) => {
   res.json(getAllSessions());
+});
+
+// ---- Workspace snapshot save/load ----
+
+const WORKSPACE_SNAPSHOT_PATH = process.env.APP_USER_DATA
+  ? join(process.env.APP_USER_DATA, 'workspace-snapshot.json')
+  : join(__apiDirname, '..', 'data', 'workspace-snapshot.json');
+
+router.post('/workspace/save', (req: Request, res: Response) => {
+  try {
+    const snapshot = req.body;
+    if (!snapshot || !snapshot.version || !Array.isArray(snapshot.sessions)) {
+      res.status(400).json({ error: 'Invalid workspace snapshot' });
+      return;
+    }
+    writeFileSync(WORKSPACE_SNAPSHOT_PATH, JSON.stringify(snapshot, null, 2), 'utf8');
+    log.info('api', `Workspace snapshot saved (${snapshot.sessions.length} sessions)`);
+    res.json({ ok: true });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('api', `Workspace save failed: ${msg}`);
+    res.status(500).json({ error: 'Failed to save workspace snapshot' });
+  }
+});
+
+router.get('/workspace/load', (_req: Request, res: Response) => {
+  try {
+    if (!existsSync(WORKSPACE_SNAPSHOT_PATH)) {
+      res.status(404).json({ error: 'No workspace snapshot found' });
+      return;
+    }
+    const raw = readFileSync(WORKSPACE_SNAPSHOT_PATH, 'utf8');
+    const snapshot = JSON.parse(raw);
+    res.json(snapshot);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('api', `Workspace load failed: ${msg}`);
+    res.status(500).json({ error: 'Failed to load workspace snapshot' });
+  }
 });
 
 export default router;

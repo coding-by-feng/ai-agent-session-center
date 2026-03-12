@@ -5,7 +5,7 @@
  * Split-view: On wide screens the PROJECT tab has a merge icon that shows
  * Terminal (left) + Project (right) side-by-side with a draggable divider.
  */
-import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo, type ReactNode } from 'react';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 const STORAGE_KEY = 'active-tab';
@@ -22,6 +22,7 @@ interface DetailTabsProps {
   activityContent: ReactNode;
   queueContent: ReactNode;
   projectContent: ReactNode;
+  commandsContent?: ReactNode;
   onTabChange?: (tabId: string) => void;
   /** Session ID used to persist split-ratio per session */
   sessionId?: string;
@@ -29,7 +30,7 @@ interface DetailTabsProps {
   externalActiveTab?: string | null;
 }
 
-const TABS = [
+const BASE_TABS = [
   { id: 'terminal', label: 'TERMINAL' },
   { id: 'conversation', label: 'PROMPTS' },
   { id: 'project', label: 'PROJECT' },
@@ -37,6 +38,8 @@ const TABS = [
   { id: 'notes', label: 'NOTES' },
   { id: 'activity', label: 'ACTIVITY' },
 ] as const;
+
+const COMMANDS_TAB = { id: 'commands', label: 'COMMANDS' } as const;
 
 // ---------------------------------------------------------------------------
 // Split / merge SVG icons (inline to avoid extra asset files)
@@ -152,10 +155,12 @@ export default function DetailTabs({
   activityContent,
   queueContent,
   projectContent,
+  commandsContent,
   onTabChange,
   sessionId,
   externalActiveTab,
 }: DetailTabsProps) {
+  const hasCommands = !!commandsContent;
   const [activeTab, setActiveTab] = useState<string>(() => {
     try {
       return localStorage.getItem(STORAGE_KEY) || 'terminal';
@@ -218,6 +223,11 @@ export default function DetailTabs({
       ? 'split'
       : activeTab;
 
+  const tabs = useMemo(
+    () => hasCommands ? [...BASE_TABS, COMMANDS_TAB] : BASE_TABS,
+    [hasCommands],
+  );
+
   const contentMap: Record<string, ReactNode> = {
     terminal: terminalContent,
     conversation: <div className={styles.tabScroll}>{promptsContent}</div>,
@@ -233,11 +243,14 @@ export default function DetailTabs({
       />
     ),
   };
+  if (commandsContent) {
+    contentMap.commands = commandsContent;
+  }
 
   return (
     <>
       <div className={styles.tabs}>
-        {TABS.map((tab) => {
+        {tabs.map((tab) => {
           const isActive =
             isSplit && (tab.id === 'terminal' || tab.id === 'project')
               ? activeTab === 'terminal' || activeTab === 'project'

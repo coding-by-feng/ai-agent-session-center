@@ -12,7 +12,7 @@
   background: linear-gradient(180deg, var(--bg-header) 0%, var(--bg-primary) 100%);
   border-bottom: 1px solid var(--border-accent);
   padding: var(--safe-top, 0px) calc(24px + var(--safe-right, 0px)) 0 calc(24px + var(--safe-left, 0px));
-  z-index: 10;
+  z-index: 15;
   position: relative;
   gap: 0;
 }

@@ -153,6 +153,7 @@ export interface CreateTerminalRequest extends SshConnectionConfig {
   useTmux?: boolean;
   sessionTitle?: string;
   label?: string;
+  enableOpsTerminal?: boolean;
 }
 
 export interface CreateTerminalResponse {
