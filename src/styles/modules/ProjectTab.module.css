@@ -334,6 +334,51 @@
   background: #1a1a2e;
 }
 
+/* ---- Media Viewer (images, video, audio) ---- */
+
+.mediaViewer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+  overflow: auto;
+  min-height: 0;
+}
+
+.mediaImage {
+  max-width: 100%;
+  max-height: calc(100vh - 240px);
+  object-fit: contain;
+  border-radius: 4px;
+  background: repeating-conic-gradient(
+    rgba(255, 255, 255, 0.04) 0% 25%,
+    transparent 0% 50%
+  ) 50% / 16px 16px;
+}
+
+.mediaVideo {
+  max-width: 100%;
+  max-height: calc(100vh - 240px);
+  border-radius: 4px;
+  outline: none;
+}
+
+.mediaAudio {
+  width: 100%;
+  max-width: 480px;
+  outline: none;
+}
+
+.mediaInfo {
+  font-size: 11px;
+  color: var(--text-dim);
+  letter-spacing: 0.3px;
+  text-align: center;
+}
+
 /* ---- Excel Viewer ---- */
 
 .excelViewer {

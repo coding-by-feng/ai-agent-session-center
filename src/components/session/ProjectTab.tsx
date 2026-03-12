@@ -101,6 +101,13 @@ function fileIcon(name: string, type: 'dir' | 'file'): string {
   return map[ext] || '\u{1F4C4}';
 }
 
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']);
+const VIDEO_EXTS = new Set(['mp4', 'webm', 'ogg', 'mov']);
+const AUDIO_EXTS = new Set(['mp3', 'wav', 'flac', 'aac', 'm4a']);
+function isImageExt(ext?: string): boolean { return IMAGE_EXTS.has((ext ?? '').toLowerCase()); }
+function isVideoExt(ext?: string): boolean { return VIDEO_EXTS.has((ext ?? '').toLowerCase()); }
+function isAudioExt(ext?: string): boolean { return AUDIO_EXTS.has((ext ?? '').toLowerCase()); }
+
 /** Detect language from file path for code block highlighting. */
 function langFromPath(path: string): string | undefined {
   const ext = path.split('.').pop()?.toLowerCase();
@@ -1231,6 +1238,31 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                 className={styles.pdfViewer}
                 title={file.name}
               />
+            ) : file.streamable && file.blobUrl && isImageExt(file.ext) ? (
+              <div className={styles.mediaViewer}>
+                <img
+                  src={file.blobUrl}
+                  alt={file.name}
+                  className={styles.mediaImage}
+                  draggable={false}
+                />
+                <div className={styles.mediaInfo}>{file.name} — {formatSize(file.size)}</div>
+              </div>
+            ) : file.streamable && file.blobUrl && isVideoExt(file.ext) ? (
+              <div className={styles.mediaViewer}>
+                <video
+                  src={file.blobUrl}
+                  controls
+                  className={styles.mediaVideo}
+                  preload="metadata"
+                />
+                <div className={styles.mediaInfo}>{file.name} — {formatSize(file.size)}</div>
+              </div>
+            ) : file.streamable && file.blobUrl && isAudioExt(file.ext) ? (
+              <div className={styles.mediaViewer}>
+                <audio src={file.blobUrl} controls preload="metadata" className={styles.mediaAudio} />
+                <div className={styles.mediaInfo}>{file.name} — {formatSize(file.size)}</div>
+              </div>
             ) : file.binary ? (
               <div className={styles.empty}>
                 Binary file ({formatSize(file.size)})

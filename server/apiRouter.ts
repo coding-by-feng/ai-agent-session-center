@@ -984,7 +984,15 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_STREAMABLE_SIZE = 100 * 1024 * 1024; // 100 MB (for PDF/image streaming)
 
 /** Extensions that can be streamed directly to the browser (not read into JSON). */
-const STREAMABLE_EXTENSIONS = new Set(['.pdf', '.xlsx', '.xls']);
+const STREAMABLE_EXTENSIONS = new Set([
+  '.pdf', '.xlsx', '.xls',
+  // Images
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico', '.avif',
+  // Videos
+  '.mp4', '.webm', '.ogg', '.mov',
+  // Audio
+  '.mp3', '.wav', '.flac', '.aac', '.m4a',
+]);
 
 /** Directories to skip when listing. */
 const HIDDEN_DIRS = new Set([
@@ -1162,6 +1170,15 @@ router.get('/files/stream', (req: Request, res: Response) => {
       '.pdf': 'application/pdf',
       '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       '.xls': 'application/vnd.ms-excel',
+      // Images
+      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
+      '.bmp': 'image/bmp', '.ico': 'image/x-icon', '.avif': 'image/avif',
+      // Videos
+      '.mp4': 'video/mp4', '.webm': 'video/webm', '.ogg': 'video/ogg', '.mov': 'video/quicktime',
+      // Audio
+      '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.flac': 'audio/flac',
+      '.aac': 'audio/aac', '.m4a': 'audio/mp4',
     };
     const contentType = mimeMap[fileExt] || 'application/octet-stream';
 

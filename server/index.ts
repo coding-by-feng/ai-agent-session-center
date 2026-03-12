@@ -63,6 +63,14 @@ function getLocalIP(): string | null {
   return null;
 }
 
+// Shutdown function set inside startServer, callable by Electron before quit
+let _shutdownFn: (() => Promise<void>) | null = null;
+/** Gracefully shut down the server (save snapshot, close DB, stop timers).
+ *  Called by Electron before app.quit() to guarantee state is saved. */
+export async function shutdownServer(): Promise<void> {
+  if (_shutdownFn) await _shutdownFn();
+}
+
 export function startServer(port?: number): Promise<number> {
   const args = process.argv.slice(2);
   const noOpen = args.includes('--no-open');
@@ -242,44 +250,59 @@ export function startServer(port?: number): Promise<number> {
     log.info('server', `Auto-respawning ${toRespawn.length} SSH terminal(s) from previous session...`);
 
     for (const { sessionId, session } of toRespawn) {
-      try {
-        const cfg = session.sshConfig!;
-        const isRemote = cfg.host && cfg.host !== 'localhost' && cfg.host !== '127.0.0.1';
+      const MAX_RETRIES = 3;
+      const RETRY_DELAYS = [0, 3000, 10000]; // immediate, 3s, 10s
+      let succeeded = false;
 
-        // command='' skips auto-launch; we write the resume command ourselves
-        const newConfig = {
-          host: cfg.host || 'localhost',
-          port: cfg.port,
-          username: cfg.username,
-          authMethod: cfg.authMethod,
-          privateKeyPath: cfg.privateKeyPath,
-          workingDir: cfg.workingDir || session.projectPath || '~',
-          command: '',
-        };
-        const newTerminalId = await createTerminal(newConfig, null);
-        consumePendingLink(newConfig.workingDir);
-
-        const result = reconnectSessionTerminal(sessionId, newTerminalId);
-        if ('error' in result) {
-          log.warn('server', `Respawn failed for ${sessionId.slice(0, 8)}: ${result.error}`);
-          continue;
+      for (let attempt = 0; attempt < MAX_RETRIES && !succeeded; attempt++) {
+        if (attempt > 0) {
+          log.info('server', `Retry ${attempt}/${MAX_RETRIES - 1} for session ${sessionId.slice(0, 8)} in ${RETRY_DELAYS[attempt] / 1000}s...`);
+          await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt]));
         }
+        try {
+          const cfg = session.sshConfig!;
+          const isRemote = cfg.host && cfg.host !== 'localhost' && cfg.host !== '127.0.0.1';
 
-        // Build resume command (same logic as the /sessions/:id/resume endpoint)
-        const safeId = sessionId.replace(/'/g, "'\\''");
-        const resumeCmd = `claude --resume '${safeId}' || claude --continue`;
-        let prefix = '';
-        if (isRemote) {
-          prefix += `export AGENT_MANAGER_TERMINAL_ID='${newTerminalId}' && `;
-          if (cfg.workingDir) prefix += `cd '${cfg.workingDir}' && `;
+          // command='' skips auto-launch; we write the resume command ourselves
+          const newConfig = {
+            host: cfg.host || 'localhost',
+            port: cfg.port,
+            username: cfg.username,
+            authMethod: cfg.authMethod,
+            privateKeyPath: cfg.privateKeyPath,
+            workingDir: cfg.workingDir || session.projectPath || '~',
+            command: '',
+          };
+          const newTerminalId = await createTerminal(newConfig, null);
+          consumePendingLink(newConfig.workingDir);
+
+          const result = reconnectSessionTerminal(sessionId, newTerminalId);
+          if ('error' in result) {
+            log.warn('server', `Respawn reconnect failed for ${sessionId.slice(0, 8)}: ${result.error}`);
+            continue;
+          }
+
+          // Build resume command (same logic as the /sessions/:id/resume endpoint)
+          const safeId = sessionId.replace(/'/g, "'\\''");
+          const resumeCmd = `claude --resume '${safeId}' || claude --continue`;
+          let prefix = '';
+          if (isRemote) {
+            prefix += `export AGENT_MANAGER_TERMINAL_ID='${newTerminalId}' && `;
+            if (cfg.workingDir) prefix += `cd '${cfg.workingDir}' && `;
+          }
+          writeWhenReady(newTerminalId, `${prefix}${resumeCmd}\r`);
+
+          broadcast({ type: WS_TYPES.SESSION_UPDATE, session: result.session });
+          log.info('server', `Respawned terminal for session ${sessionId.slice(0, 8)} → ${newTerminalId.slice(0, 12)}`);
+          succeeded = true;
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          log.warn('server', `Failed to respawn terminal for session ${sessionId.slice(0, 8)} (attempt ${attempt + 1}): ${msg}`);
         }
-        writeWhenReady(newTerminalId, `${prefix}${resumeCmd}\r`);
+      }
 
-        broadcast({ type: WS_TYPES.SESSION_UPDATE, session: result.session });
-        log.info('server', `Respawned terminal for session ${sessionId.slice(0, 8)} → ${newTerminalId.slice(0, 12)}`);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        log.warn('server', `Failed to respawn terminal for session ${sessionId.slice(0, 8)}: ${msg}`);
+      if (!succeeded) {
+        log.error('server', `All ${MAX_RETRIES} respawn attempts failed for session ${sessionId.slice(0, 8)} — session left in idle state`);
       }
     }
   }
@@ -332,8 +355,12 @@ export function startServer(port?: number): Promise<number> {
     setTimeout(() => openBrowser(`http://localhost:${PORT}`, noOpen), 300);
   }
 
-  // Graceful shutdown — save state and exit immediately
-  function gracefulShutdown(signal: string): void {
+  // Graceful shutdown — save state, close resources, then exit.
+  // Returns a promise so Electron can await full cleanup before quitting.
+  let shutdownComplete = false;
+  function gracefulShutdown(signal: string): Promise<void> {
+    if (shutdownComplete) return Promise.resolve();
+    shutdownComplete = true;
     log.info('server', `Received ${signal}, shutting down...`);
     stopPeriodicSave();
     stopHeartbeat();
@@ -342,11 +369,18 @@ export function startServer(port?: number): Promise<number> {
     // Save final snapshot before exiting
     try { saveSnapshot(getMqOffset()); } catch { /* best effort */ }
     try { closeDb(); } catch { /* best effort */ }
-    process.exit(0);
+    return new Promise<void>((resolve) => {
+      server.close(() => resolve());
+      // Force resolve after 2s if server.close() hangs (open connections)
+      setTimeout(() => resolve(), 2000);
+    });
   }
 
-  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  // Expose shutdown for Electron to call directly (avoids SIGTERM race)
+  _shutdownFn = () => gracefulShutdown('electron-quit');
+
+  process.on('SIGTERM', () => { gracefulShutdown('SIGTERM').then(() => process.exit(0)); });
+  process.on('SIGINT', () => { gracefulShutdown('SIGINT').then(() => process.exit(0)); });
 
   // Global error handlers -- log and continue (don't crash on transient errors)
   process.on('uncaughtException', (err: Error) => {

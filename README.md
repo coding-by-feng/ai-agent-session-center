@@ -1,8 +1,6 @@
 # AI Agent Session Center
 
-Real-time 3D dashboard for monitoring and controlling Claude Code, Gemini CLI, and Codex sessions — live SSH terminals, prompt history, tool logs, and queuing. Runs on any device.
-
-Every session spawns an animated robot in an interactive cyberdrome that visually reflects what the agent is doing — running when executing tools, waving when prompting, waiting when it needs your approval.
+A lightweight, real-time dashboard that replaces heavy IDEs like VS Code and JetBrains for AI agent workflows. Monitor and control all your Claude Code, Gemini CLI, and Codex sessions from one place — with live SSH terminals, prompt history, tool logs, and queuing. Every session spawns an animated 3D robot in an interactive cyberdrome that visually reflects what the agent is doing. Runs on any device, anywhere.
 
 [![npm version](https://img.shields.io/npm/v/ai-agent-session-center.svg)](https://www.npmjs.com/package/ai-agent-session-center)
 [![npm downloads](https://img.shields.io/npm/dm/ai-agent-session-center.svg)](https://www.npmjs.com/package/ai-agent-session-center)
@@ -21,8 +19,8 @@ Every session spawns an animated robot in an interactive cyberdrome that visuall
     <td><img src="static/screenshot-terminal.png" alt="SSH terminal session — control agents from the dashboard" width="400"></td>
   </tr>
   <tr>
-    <td><img src="static/screenshot-project-tab.png" alt="Project file browser with split view — terminal and code side by side" width="400"></td>
-    <td><img src="static/screenshot-detail.png" alt="Session detail panel with prompts, queue, and activity tabs" width="400"></td>
+    <td><img src="static/screenshot-project-tab-detailed.png" alt="Split view with detailed session switcher cards — terminal and project file browser side by side" width="400"></td>
+    <td><img src="static/screenshot-project-tab-compact.png" alt="Split view with compact session switcher — terminal and project file browser side by side" width="400"></td>
   </tr>
 </table>
 
@@ -47,23 +45,97 @@ When you're running multiple AI coding agents across different terminals — Cla
 
 ## Features
 
-- **One agent, one robot** — every AI coding session gets its own animated 3D character in the cyberdrome
-- **Live activity tracking** — robots animate based on what the agent is actually doing (writing, reading, running commands, waiting for approval)
-- **Multi-CLI support** — monitors Claude Code, Gemini CLI, and Codex simultaneously
-- **SSH terminal sessions** — create and manage SSH/local terminal connections directly from the dashboard
-- **Dynamic room system** — organize sessions into rooms with a full 3D office layout (rooms, coffee lounge, gym, corridor desks)
-- **Project file browser** — browse, search, and view project files with syntax highlighting, sub-tabs, and file bookmarks
-- **Terminal & file bookmarks** — save positions in terminal scrollback and code viewer lines for quick reference with notes
-- **Prompt queue** — stage, reorder, and send prompts to agents with drag-and-drop
-- **Split view** — view terminal and project files side-by-side with a draggable divider (ratio persisted per session)
-- **Team visualization** — sub-agent teams render as connected robots with animated laser-line beams
-- **Approval alerts** — screaming yellow card, visor flash, and 3-burst alarm when tools need your approval
-- **Session resume** — reconnect to disconnected Claude sessions with one click
+### 3D Cyberdrome Scene
+
+- **One agent, one robot** — every AI coding session gets its own animated 3D character in an interactive cyberdrome
+- **8 animation states** — robots idle, walk, run, wait, dance, wave, or go offline based on real-time session status
+- **6 procedural robot models** — robot, mech, drone, spider, orb, and tank variants with auto-assigned neon colors
+- **Dynamic room system** — four-quadrant office layout with desks, coffee lounge, gym, corridor rooms, and spatial navigation AI
+- **Subagent connections** — parent-child agent teams render as connected robots with animated laser-line beams
+- **Speech bubbles & particles** — floating dialogue shows current tool/prompt, burst particles on state transitions
+- **Camera fly-to** — smooth animated camera focuses on the selected robot; OrbitControls for manual pan/zoom/rotate
+- **Flat list fallback** — 2D sidebar list auto-activates if 3D crashes or for low-resource environments
+
+### Session Detail Panel
+
+- **Resizable detail panel** — slides in from the right (320px–95vw) with 7 tabs: Terminal, Prompts, Project, Queue, Notes, Activity, Summary
+- **Session switcher** — horizontal tab strip shows all active sessions with sequence numbers, pin/unpin, compact/detailed display modes
+- **Editable metadata** — inline-edit title, label, accent color (customizes robot glow), and pin state; all persisted to SQLite + IndexedDB
+- **Session controls** — Resume, Kill, Archive, Delete, Summarize, Alert, room assignment, and label chips (ONEOFF, HEAVY, IMPORTANT)
+- **Split view** — Terminal and Project side-by-side with a draggable divider (ratio persisted per session)
+- **Approval alerts** — yellow card, visor flash, and 3-burst alarm when tools need user approval
+
+### Terminal & SSH
+
+- **Full terminal emulation** — xterm.js 5 with 256 colors, Unicode 11, WebLinks, and FitAddon
+- **Local & SSH sessions** — create terminals with working directory, command, SSH host/key/password, tmux wrap/attach
+- **Session resume** — reconnect to disconnected Claude sessions via `claude --resume` with one click
+- **Terminal bookmarks** — save scroll positions with notes, jump back to any bookmarked line
+- **Terminal toolbar** — fullscreen, clear, copy, paste, theme selector (auto, light, dark, Solarized, Dracula, custom)
+- **Bidirectional WebSocket relay** — real-time I/O, 50ms debounced resize, Escape forwards `\x1b` to SSH
+
+### Project File Browser
+
+- **Browse & search** — navigate project directories, full-text file search with cached results
+- **Syntax highlighting** — code viewer with line numbers, word wrap toggle, and markdown outline panel
+- **Sub-tab system** — open multiple directories/files in tabs within the Project panel
+- **File bookmarks** — save line references with notes; bookmarked lines highlighted in the code viewer; cross-file navigation
+- **Sort & filter** — sort by name or date, toggle date/time display, file size shown per entry
+- **File editing** — inline editor with save support for quick edits
+
+### Multi-CLI Monitoring
+
+- **Three AI CLIs** — Claude Code (up to 14 events), Gemini CLI (4 events), and Codex (1 event)
+- **3 hook density levels** — High (full monitoring), Medium (default, 12 events), Low (5 events, minimal overhead)
+- **File-based message queue** — hooks append to JSONL queue file via atomic POSIX append (~0.1ms); HTTP POST fallback
+- **3–17ms end-to-end latency** — from hook fired to browser updated
+- **5-priority session matching** — pending resume, terminal ID, working directory, path scan, PID parent check
+- **Approval detection** — tool-category timeouts with child-process check; `PermissionRequest` event for reliable signal
+- **CLI badge detection** — auto-detects CLAUDE, GEMINI, CODEX, or AIDER from launch command
+
+### Prompt Queue
+
+- **Global queue view** — see all pending prompts across every session in one place
+- **Per-session queue** — compose, reorder (drag-and-drop), send, and move prompts between sessions
+- **Auto-send mode** — queued prompts auto-dispatch when the target session becomes idle
+
+### Analytics & History
+
+- **History search** — full-text search across titles, projects, and labels with date range, status, and sort filters
+- **Analytics dashboard** — summary cards, 7-day activity heatmap, tool usage breakdown, active projects ranking
+- **Timeline view** — time-series visualization (hourly, daily, weekly) of sessions, prompts, and tool calls
+
+### Theming & Sound
+
 - **9 scene themes** — Command Center, Cyberpunk, Dracula, Nord, Monokai, Solarized, Light, Warm, Blonde
-- **Sound system** — 16 synthesized tones, per-CLI profiles, 6 ambient presets (rain, lo-fi, server room, deep space, coffee shop)
-- **Analytics** — usage heatmaps, tool breakdowns, project rankings, and timeline visualization
-- **History search** — full-text search across all prompts, responses, and tool names
-- **Keyboard shortcuts** — full keyboard navigation for power users
+- **16 synthesized sounds** — per-CLI profiles with per-event sound mapping (chime, ping, alarm, fanfare, etc.)
+- **6 ambient presets** — rain, lo-fi, server room, deep space, coffee shop, or off
+- **Visual effects** — glowing card borders, pulsing animations, scanline CRT overlay, status particles, fog depth by theme
+
+### Notes & Summaries
+
+- **Session notes** — plain-text notes with full CRUD, stored in both SQLite and IndexedDB
+- **AI-powered summaries** — generate session summaries via configured LLM API with customizable prompt templates
+
+### Authentication & Security
+
+- **Password protection** — optional login with HttpOnly cookie (1-hour TTL), rate-limited (5 attempts/15min)
+- **Security headers** — X-Frame-Options, CSP, CORS, localhost-only hook endpoint, shell metacharacter injection prevention
+- **Directory traversal protection** — `resolveProjectPath()` validates all file browser paths
+
+### Keyboard Shortcuts
+
+- **Full keyboard navigation** — `/` search, `T` new terminal, `K` kill, `A` archive, `M` mute, `S` settings, `?` shortcuts panel
+- **Rebindable shortcuts** — customize every shortcut from Settings with conflict detection
+- **Session switching** — `Alt+Cmd+1`–`9` to select Nth session by status priority
+
+### Data Persistence
+
+- **Dual storage** — SQLite on server (sessions, prompts, tools, events, notes) + IndexedDB via Dexie in browser (12 tables)
+- **Auto-snapshots** — server saves full state every 10 seconds; SSH terminals auto-respawn on restart
+- **Session ID migration** — seamless re-keying when sessions resume with new IDs
+
+> See [docs/feature/README.md](docs/feature/README.md) for the complete features reference with architecture details and API documentation.
 
 ## Requirements
 

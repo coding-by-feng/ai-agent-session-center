@@ -366,7 +366,7 @@ export default function DetailPanel() {
           }
           projectContent={
             session.projectPath
-              ? <ProjectTabContainer key={session.sessionId} projectPath={session.projectPath} />
+              ? <ProjectTabContainer key={session.sessionId} projectPath={session.projectPath} sessionId={session.sessionId} />
               : <div className={styles.tabEmpty}>No project path detected for this session</div>
           }
           onTabChange={setActiveTab}
