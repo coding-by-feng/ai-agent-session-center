@@ -66,11 +66,20 @@ export default function Select({
     }
   }, [isOpen, options, value]);
 
-  // Scroll highlighted item into view
+  // Scroll highlighted item into view (within dropdown only, not ancestors)
   useEffect(() => {
     if (highlightedIndex >= 0 && listRef.current) {
       const el = listRef.current.children[highlightedIndex] as HTMLElement | undefined;
-      el?.scrollIntoView({ block: 'nearest' });
+      if (el) {
+        const list = listRef.current;
+        const elTop = el.offsetTop;
+        const elBottom = elTop + el.offsetHeight;
+        if (elTop < list.scrollTop) {
+          list.scrollTop = elTop;
+        } else if (elBottom > list.scrollTop + list.clientHeight) {
+          list.scrollTop = elBottom - list.clientHeight;
+        }
+      }
     }
   }, [highlightedIndex]);
 

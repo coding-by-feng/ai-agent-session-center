@@ -1,11 +1,13 @@
 /**
  * SessionSwitcher — bar at the top of the DetailPanel.
- * Top row: current session name + status badge + duration + collapse/close buttons.
+ * Top row: current session name + status badge + duration + display toggle + collapse/close buttons.
  * Below: always-visible horizontal tab strip showing all other active sessions
  *        as mini robot cards (icon + title + project name + label).
  */
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import type { Session } from '@/types';
+import { useSessionStore } from '@/stores/sessionStore';
+import { useUiStore } from '@/stores/uiStore';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -24,6 +26,45 @@ const STATUS_ORDER: Record<string, number> = {
   waiting: 3, idle: 4, connecting: 5, ended: 6,
 };
 
+/** Detect CLI tool from session command */
+function getCliBadge(session: Session): string | null {
+  const cmd = (session.sshCommand || session.sshConfig?.command || '').toLowerCase();
+  if (cmd.startsWith('claude') || cmd.includes('/claude')) return 'CLAUDE';
+  if (cmd.startsWith('codex') || cmd.includes('/codex')) return 'CODEX';
+  if (cmd.startsWith('gemini') || cmd.includes('/gemini')) return 'GEMINI';
+  if (cmd.startsWith('aider') || cmd.includes('/aider')) return 'AIDER';
+  if (session.backendType) {
+    const bt = session.backendType.toLowerCase();
+    if (bt.includes('claude')) return 'CLAUDE';
+    if (bt.includes('codex')) return 'CODEX';
+    if (bt.includes('gemini')) return 'GEMINI';
+    if (bt.includes('aider')) return 'AIDER';
+  }
+  return null;
+}
+
+/** Two-column grid icon — shown in compact mode; click to switch to detailed */
+function DetailedModeIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="1" y="1" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="8" y="1" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="1" y="8" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="8" y="8" width="5" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  );
+}
+
+/** Horizontal list icon — shown in detailed mode; click to switch to compact */
+function CompactModeIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="1" y="2" width="12" height="3" rx="1" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="1" y="9" width="12" height="3" rx="1" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  );
+}
+
 interface Props {
   currentSession: Session;
   sessions: Map<string, Session>;
@@ -41,6 +82,9 @@ export default function SessionSwitcher({
   statusLabel, duration, isDisconnected,
   onClose, headerCollapsed, onToggleCollapse,
 }: Props) {
+  const cardDisplayMode = useUiStore((s) => s.cardDisplayMode);
+  const toggleCardDisplayMode = useUiStore((s) => s.toggleCardDisplayMode);
+
   const sortedSessions = useMemo(() => {
     return [...sessions.values()]
       .filter((s) => {
@@ -49,6 +93,9 @@ export default function SessionSwitcher({
         return true;
       })
       .sort((a, b) => {
+        // Pinned first
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
         const oa = STATUS_ORDER[a.status] ?? 5;
         const ob = STATUS_ORDER[b.status] ?? 5;
         if (oa !== ob) return oa - ob;
@@ -61,6 +108,7 @@ export default function SessionSwitcher({
     ? currentSession.projectName
     : null;
   const currentColor = STATUS_COLORS[currentSession.status] ?? 'var(--text-dim)';
+  const isCompact = cardDisplayMode === 'compact';
 
   return (
     <div className={styles.switcherBar}>
@@ -80,7 +128,7 @@ export default function SessionSwitcher({
           )}
         </div>
 
-        {/* Right side: status + duration + collapse + close */}
+        {/* Right side: status + duration + display toggle + collapse + close */}
         <div className={styles.switcherMeta}>
           {statusLabel && (
             <span
@@ -92,6 +140,14 @@ export default function SessionSwitcher({
           {duration && (
             <span className={styles.detailDuration}>{duration}</span>
           )}
+          <button
+            className={styles.displayModeToggle}
+            onClick={toggleCardDisplayMode}
+            title={isCompact ? 'Detailed view' : 'Compact view'}
+            type="button"
+          >
+            {isCompact ? <DetailedModeIcon /> : <CompactModeIcon />}
+          </button>
           {onToggleCollapse && (
             <button
               className={styles.switcherIconBtn}
@@ -118,43 +174,83 @@ export default function SessionSwitcher({
       {/* ── Session tab strip ── */}
       {sortedSessions.length > 0 && (
         <div className={styles.sessionTabStrip}>
-          {sortedSessions.map((s) => {
-            const color = STATUS_COLORS[s.status] ?? 'var(--text-dim)';
-            const title = s.title || s.projectName || '(untitled)';
-            const showProject = s.projectName && s.projectName !== s.title;
-            return (
-              <button
-                key={s.sessionId}
-                className={styles.sessionTabCard}
-                data-status={s.status}
-                style={{ '--robot-color': color } as React.CSSProperties}
-                onClick={() => onSwitch(s.sessionId)}
-                title={[title, s.projectName, s.label, s.status].filter(Boolean).join(' · ')}
-                type="button"
-              >
-                {/* Mini robot face */}
-                <div className={styles.switcherMiniRobotFace}>
-                  <div className={styles.switcherMiniRobotEyes}>
-                    <div className={styles.switcherMiniRobotEye} />
-                    <div className={styles.switcherMiniRobotEye} />
-                  </div>
-                  <div className={styles.switcherMiniRobotMouth} />
-                </div>
-                {/* Status dot */}
-                <div className={styles.switcherMiniRobotDot} />
-                {/* Text info */}
-                <div className={styles.sessionTabTitle}>{title}</div>
-                {showProject && (
-                  <div className={styles.sessionTabProject}>{s.projectName}</div>
-                )}
-                {s.label && (
-                  <div className={styles.sessionTabLabel}>{s.label}</div>
-                )}
-              </button>
-            );
-          })}
+          {sortedSessions.map((s) => (
+            <SessionTabCard
+              key={s.sessionId}
+              session={s}
+              onSwitch={onSwitch}
+              isCompact={isCompact}
+            />
+          ))}
         </div>
       )}
     </div>
+  );
+}
+
+function SessionTabCard({
+  session,
+  onSwitch,
+  isCompact,
+}: {
+  session: Session;
+  onSwitch: (id: string) => void;
+  isCompact: boolean;
+}) {
+  const color = STATUS_COLORS[session.status] ?? 'var(--text-dim)';
+  const title = session.title || session.projectName || '(untitled)';
+  const showProject = session.projectName && session.projectName !== session.title;
+  const badge = getCliBadge(session);
+
+  const handlePinClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    useSessionStore.getState().togglePin(session.sessionId);
+  }, [session.sessionId]);
+
+  return (
+    <button
+      className={`${styles.sessionTabCard}${isCompact ? ` ${styles.sessionTabCardCompact}` : ''}`}
+      data-status={session.status}
+      style={{ '--robot-color': color } as React.CSSProperties}
+      onClick={() => onSwitch(session.sessionId)}
+      title={[title, session.projectName, session.label, session.status].filter(Boolean).join(' · ')}
+      type="button"
+    >
+      {/* Pin icon */}
+      <span
+        className={`${styles.sessionTabPin}${session.pinned ? ` ${styles.pinned}` : ''}`}
+        onClick={handlePinClick}
+        title={session.pinned ? 'Unpin' : 'Pin'}
+      >
+        &#x1F4CC;
+      </span>
+
+      {!isCompact && (
+        <>
+          {/* Mini robot face */}
+          <div className={styles.switcherMiniRobotFace}>
+            <div className={styles.switcherMiniRobotEyes}>
+              <div className={styles.switcherMiniRobotEye} />
+              <div className={styles.switcherMiniRobotEye} />
+            </div>
+            <div className={styles.switcherMiniRobotMouth} />
+          </div>
+          {/* Status dot */}
+          <div className={styles.switcherMiniRobotDot} />
+        </>
+      )}
+
+      {/* Text info */}
+      <div className={styles.sessionTabTitle}>{title}</div>
+      {!isCompact && showProject && (
+        <div className={styles.sessionTabProject}>{session.projectName}</div>
+      )}
+      {!isCompact && badge && (
+        <div className={styles.sessionTabBadge}>{badge}</div>
+      )}
+      {!isCompact && session.label && (
+        <div className={styles.sessionTabLabel}>{session.label}</div>
+      )}
+    </button>
   );
 }
