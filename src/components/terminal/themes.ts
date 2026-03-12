@@ -69,19 +69,49 @@ export const THEMES: Record<string, ITheme> = {
   },
 };
 
+/** Parse a hex color (#rgb or #rrggbb) into [r, g, b]. Returns null on failure. */
+function parseHex(hex: string): [number, number, number] | null {
+  const m = hex.match(/^#([0-9a-f]{3,8})$/i);
+  if (!m) return null;
+  const h = m[1];
+  if (h.length === 3) return [parseInt(h[0]+h[0],16), parseInt(h[1]+h[1],16), parseInt(h[2]+h[2],16)];
+  if (h.length >= 6) return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+  return null;
+}
+
+/** Relative luminance (0 = black, 1 = white). */
+function luminance(hex: string): number {
+  const rgb = parseHex(hex);
+  if (!rgb) return 0;
+  const [r, g, b] = rgb.map((c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** True when the background is perceptually light. */
+function isLightBackground(hex: string): boolean {
+  return luminance(hex) > 0.4;
+}
+
 export function buildAutoTheme(): ITheme {
   const s = getComputedStyle(document.body);
   const v = (name: string) => s.getPropertyValue(name).trim();
 
   const bg = v('--bg-primary') || THEMES.default.background!;
   const fg = v('--text-primary') || THEMES.default.foreground!;
+  const light = isLightBackground(bg);
 
   return {
     background: bg,
     foreground: fg,
     cursor: fg,
     cursorAccent: bg,
-    selectionBackground: 'rgba(255,255,255,0.18)',
+    // Light bg: opaque accent selection with white text; dark bg: translucent overlay
+    selectionBackground: light
+      ? (v('--accent-cyan') || '#0284c7')
+      : 'rgba(0,229,255,0.30)',
     selectionForeground: '#ffffff',
     black: bg,
     red: v('--accent-red') || THEMES.default.red,
@@ -98,7 +128,7 @@ export function buildAutoTheme(): ITheme {
     brightBlue: v('--accent-cyan') || THEMES.default.brightBlue,
     brightMagenta: v('--accent-purple') || THEMES.default.brightMagenta,
     brightCyan: v('--accent-cyan') || THEMES.default.brightCyan,
-    brightWhite: '#ffffff',
+    brightWhite: light ? '#1e293b' : '#ffffff',
   };
 }
 
@@ -109,4 +139,31 @@ export function getThemeNames(): string[] {
 export function resolveTheme(themeName: string): ITheme {
   if (themeName === 'auto') return buildAutoTheme();
   return THEMES[themeName] || THEMES.default;
+}
+
+/**
+ * Convert an ITheme into a CSS custom-property map for the DOM-based
+ * TerminalOutputViewer (inline styles on the container).
+ */
+export function toCssVariables(theme: ITheme): Record<string, string> {
+  const vars: Record<string, string> = {};
+  if (theme.background) vars['--term-bg'] = theme.background;
+  if (theme.foreground) vars['--term-fg'] = theme.foreground;
+  if (theme.selectionBackground) vars['--term-selection-bg'] = theme.selectionBackground;
+  if (theme.selectionForeground) vars['--term-selection-fg'] = theme.selectionForeground;
+  // ANSI color CSS variables consumed by ansi_up class-based output
+  const colorMap: Array<[string, keyof ITheme]> = [
+    ['--ansi-black', 'black'], ['--ansi-red', 'red'], ['--ansi-green', 'green'],
+    ['--ansi-yellow', 'yellow'], ['--ansi-blue', 'blue'], ['--ansi-magenta', 'magenta'],
+    ['--ansi-cyan', 'cyan'], ['--ansi-white', 'white'],
+    ['--ansi-bright-black', 'brightBlack'], ['--ansi-bright-red', 'brightRed'],
+    ['--ansi-bright-green', 'brightGreen'], ['--ansi-bright-yellow', 'brightYellow'],
+    ['--ansi-bright-blue', 'brightBlue'], ['--ansi-bright-magenta', 'brightMagenta'],
+    ['--ansi-bright-cyan', 'brightCyan'], ['--ansi-bright-white', 'brightWhite'],
+  ];
+  for (const [cssVar, key] of colorMap) {
+    const val = theme[key];
+    if (typeof val === 'string') vars[cssVar] = val;
+  }
+  return vars;
 }

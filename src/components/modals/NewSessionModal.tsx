@@ -64,6 +64,44 @@ function saveWorkdir(dir: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// Host & username history (localStorage)
+// ---------------------------------------------------------------------------
+
+const HOST_HISTORY_KEY = 'host-history';
+const USERNAME_HISTORY_KEY = 'username-history';
+const MAX_HISTORY = 20;
+
+function loadHistory(key: string): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(key) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(key: string, value: string, max = MAX_HISTORY): void {
+  if (!value) return;
+  const history = loadHistory(key).filter((v) => v !== value);
+  history.unshift(value);
+  localStorage.setItem(key, JSON.stringify(history.slice(0, max)));
+}
+
+function getHostSuggestions(): string[] {
+  const history = loadHistory(HOST_HISTORY_KEY);
+  const defaults = ['localhost'];
+  const seen = new Set(history);
+  const merged = [...history];
+  for (const d of defaults) {
+    if (!seen.has(d)) merged.push(d);
+  }
+  return merged;
+}
+
+function getUsernameSuggestions(): string[] {
+  return loadHistory(USERNAME_HISTORY_KEY);
+}
+
+// ---------------------------------------------------------------------------
 // Command history (localStorage)
 // ---------------------------------------------------------------------------
 
@@ -129,6 +167,7 @@ export default function NewSessionModal() {
   const [sessionTitle, setSessionTitle] = useState('');
   const [label, setLabel] = useState('');
   const [roomId, setRoomId] = useState('');
+  const [enableOpsTerminal, setEnableOpsTerminal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
@@ -138,7 +177,9 @@ export default function NewSessionModal() {
   // Working directory history (merged with known Claude Code projects)
   const workdirHistory = useKnownProjects();
 
-  // Command history
+  // Host, username, and command history
+  const hostSuggestions = useMemo(() => getHostSuggestions(), []);
+  const usernameSuggestions = useMemo(() => getUsernameSuggestions(), []);
   const commandSuggestions = useMemo(() => getCommandSuggestions(), []);
 
   // Rooms
@@ -183,6 +224,7 @@ export default function NewSessionModal() {
       apiKey: apiKey || undefined,
       sessionTitle: sessionTitle || undefined,
       label: label || undefined,
+      enableOpsTerminal: enableOpsTerminal || undefined,
     };
 
     try {
@@ -195,6 +237,8 @@ export default function NewSessionModal() {
       if (data.ok) {
         saveWorkdir(workingDir);
         if (command) saveCommand(command);
+        if (body.host) saveHistory(HOST_HISTORY_KEY, body.host);
+        if (body.username) saveHistory(USERNAME_HISTORY_KEY, body.username);
         saveLastSession({
           host: body.host,
           port: body.port,
@@ -231,12 +275,11 @@ export default function NewSessionModal() {
         <div className={styles.sshFieldRow}>
           <div className={`${styles.sshField} ${styles.sshFieldGrow}`}>
             <label>Host <span className={styles.sshFieldRequired}>*</span></label>
-            <input
+            <Combobox
               value={host}
-              onChange={(e) => setHost(e.target.value)}
-              onBlur={markTouched('host')}
+              onChange={(v) => { setHost(v); setTouched((t) => ({ ...t, host: true })); }}
+              items={hostSuggestions}
               placeholder="hostname / IP / domain"
-              style={touched.host && !hostValid ? { borderColor: '#ff5555' } : undefined}
             />
             {touched.host && !hostValid && (
               <span className={styles.sshFieldError}>Required</span>
@@ -260,12 +303,11 @@ export default function NewSessionModal() {
         {/* Username */}
         <div className={styles.sshField}>
           <label>Username <span className={styles.sshFieldRequired}>*</span></label>
-          <input
+          <Combobox
             value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            onBlur={markTouched('username')}
+            onChange={(v) => { setUsername(v); setTouched((t) => ({ ...t, username: true })); }}
+            items={usernameSuggestions}
             placeholder="e.g. root"
-            style={touched.username && !usernameValid ? { borderColor: '#ff5555' } : undefined}
           />
           {touched.username && !usernameValid && (
             <span className={styles.sshFieldError}>Required</span>
@@ -380,6 +422,23 @@ export default function NewSessionModal() {
             onChange={(e) => setApiKey(e.target.value)}
             placeholder="Optional"
           />
+        </div>
+
+        {/* Ops terminal checkbox */}
+        <div className={styles.sshField}>
+          <label
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
+            onClick={() => setEnableOpsTerminal((v) => !v)}
+          >
+            <input
+              type="checkbox"
+              checked={enableOpsTerminal}
+              onChange={(e) => setEnableOpsTerminal(e.target.checked)}
+              style={{ accentColor: 'var(--accent-cyan)', cursor: 'pointer' }}
+            />
+            <span>Enable Commands Terminal</span>
+            <span className={styles.sshFieldHint}>(extra shell tab for manual commands)</span>
+          </label>
         </div>
       </div>
 

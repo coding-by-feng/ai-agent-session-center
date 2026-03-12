@@ -99,6 +99,33 @@ const TerminalContent = memo(function TerminalContent({
 });
 
 // ---------------------------------------------------------------------------
+// Ops terminal content wrapper (for the COMMANDS tab — blank shell)
+// ---------------------------------------------------------------------------
+
+interface OpsTerminalContentProps {
+  opsTerminalId: string;
+  projectPath?: string;
+}
+
+const OpsTerminalContent = memo(function OpsTerminalContent({
+  opsTerminalId,
+  projectPath,
+}: OpsTerminalContentProps) {
+  const client = useWsStore((s) => s.client);
+  const ws = useMemo(() => client?.getRawSocket() ?? null, [client]);
+
+  return (
+    <div className={styles.terminalSection} style={{ height: '100%' }}>
+      <TerminalContainer
+        terminalId={opsTerminalId}
+        ws={ws}
+        projectPath={projectPath}
+      />
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
 // EditableTitle — click-to-edit session title
 // ---------------------------------------------------------------------------
 
@@ -368,6 +395,14 @@ export default function DetailPanel() {
             session.projectPath
               ? <ProjectTabContainer key={session.sessionId} projectPath={session.projectPath} sessionId={session.sessionId} />
               : <div className={styles.tabEmpty}>No project path detected for this session</div>
+          }
+          commandsContent={
+            session.opsTerminalId ? (
+              <OpsTerminalContent
+                opsTerminalId={session.opsTerminalId}
+                projectPath={session.projectPath}
+              />
+            ) : undefined
           }
           onTabChange={setActiveTab}
           sessionId={session.sessionId}

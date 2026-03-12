@@ -8,6 +8,7 @@ import Combobox from '@/components/ui/Combobox';
 import { showToast } from '@/components/ui/ToastContainer';
 import { useUiStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useRoomStore } from '@/stores/roomStore';
 import { useKnownProjects } from '@/hooks/useKnownProjects';
 import styles from '@/styles/modules/Modal.module.css';
 
@@ -89,7 +90,13 @@ export default function QuickSessionModal() {
     return history[0] || '~';
   });
   const [command, setCommand] = useState('claude');
+  const [roomId, setRoomId] = useState('');
+  const [enableOpsTerminal, setEnableOpsTerminal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Rooms
+  const rooms = useRoomStore((s) => s.rooms);
+  const roomOptions = useMemo(() => rooms.map((r) => r.name), [rooms]);
 
   // Working directory suggestions (history + known Claude Code projects)
   const workdirSuggestions = useKnownProjects();
@@ -137,6 +144,7 @@ export default function QuickSessionModal() {
           command: command || 'claude',
           label: selectedLabel || undefined,
           sessionTitle: sessionTitle.trim() || undefined,
+          enableOpsTerminal: enableOpsTerminal || undefined,
         }),
       });
       const data = await res.json();
@@ -145,6 +153,9 @@ export default function QuickSessionModal() {
         // Auto-select the new session so the detail panel stays open
         if (data.terminalId) {
           useSessionStore.getState().selectSession(data.terminalId);
+          if (roomId) {
+            useRoomStore.getState().addSession(roomId, data.terminalId);
+          }
         }
         closeModal();
       } else {
@@ -237,6 +248,39 @@ export default function QuickSessionModal() {
               items={commandSuggestions}
               placeholder="e.g. claude"
             />
+          </div>
+
+          {/* Room */}
+          {roomOptions.length > 0 && (
+            <div className={styles.quickWorkdirRow}>
+              <label>Room</label>
+              <Combobox
+                value={roomId ? (rooms.find((r) => r.id === roomId)?.name ?? '') : ''}
+                onChange={(v) => {
+                  const match = rooms.find((r) => r.name === v);
+                  setRoomId(match ? match.id : '');
+                }}
+                items={roomOptions}
+                placeholder="None (corridor)"
+              />
+            </div>
+          )}
+
+          {/* Ops terminal checkbox */}
+          <div className={styles.quickWorkdirRow}>
+            <label
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
+              onClick={() => setEnableOpsTerminal((v) => !v)}
+            >
+              <input
+                type="checkbox"
+                checked={enableOpsTerminal}
+                onChange={(e) => setEnableOpsTerminal(e.target.checked)}
+                style={{ accentColor: 'var(--accent-cyan)', cursor: 'pointer' }}
+              />
+              <span>Commands Terminal</span>
+              <span style={{ opacity: 0.4, fontWeight: 400, fontSize: '11px' }}>(extra shell tab for manual commands)</span>
+            </label>
           </div>
         </div>
 

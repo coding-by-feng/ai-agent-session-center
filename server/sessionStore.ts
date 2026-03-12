@@ -844,7 +844,7 @@ export function getSession(sessionId: string): Session | null {
 /**
  * Create a session card immediately when SSH terminal connects (before hooks arrive).
  */
-export async function createTerminalSession(terminalId: string, config: TerminalConfig): Promise<Session> {
+export async function createTerminalSession(terminalId: string, config: TerminalConfig, opsTerminalId?: string): Promise<Session> {
   const workDir = config.workingDir
     ? (config.workingDir.startsWith('~') ? config.workingDir.replace(/^~/, homedir()) : config.workingDir)
     : homedir();
@@ -884,6 +884,7 @@ export async function createTerminalSession(terminalId: string, config: Terminal
     cachedPid: null,
     queueCount: 0,
     terminalId,
+    opsTerminalId: opsTerminalId || null,
     sshHost: config.host || 'localhost',
     sshCommand: config.command || 'claude',
     sshConfig: {
@@ -1165,6 +1166,12 @@ registerTerminalExitCallback((terminalId: string) => {
       session.terminalId = null;
       invalidateSessionsCache();
       log.info('session', `Terminal ${terminalId} exited — unlinked from session ${_id.slice(0, 8)}`);
+      break;
+    }
+    if (session.opsTerminalId === terminalId) {
+      session.opsTerminalId = null;
+      invalidateSessionsCache();
+      log.info('session', `Ops terminal ${terminalId} exited — unlinked from session ${_id.slice(0, 8)}`);
       break;
     }
   }
