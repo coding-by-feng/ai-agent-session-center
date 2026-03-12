@@ -25,7 +25,11 @@ interface DirEntry {
   name: string;
   type: 'dir' | 'file';
   size?: number;
+  mtime?: string;
 }
+
+type SortField = 'name' | 'date';
+type SortDir = 'asc' | 'desc';
 
 interface ExcelSheet {
   name: string;
@@ -71,6 +75,13 @@ function formatSize(bytes?: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDateTime(iso?: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function fileIcon(name: string, type: 'dir' | 'file'): string {
@@ -198,6 +209,37 @@ function IconWordWrap() {
       <path d="M11 6v0a2.5 2.5 0 0 1 0 5h-2" strokeLinecap="round" />
       <polyline points="10.5 9.5 9 11 10.5 12.5" strokeLinecap="round" strokeLinejoin="round" />
       <line x1="2" y1="13" x2="7" y2="13" />
+    </svg>
+  );
+}
+
+function IconClock() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <circle cx="8" cy="8" r="6" />
+      <polyline points="8 4.5 8 8 11 10" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconSortAlpha() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <text x="1" y="7" fontSize="6.5" fill="currentColor" stroke="none" fontWeight="700" fontFamily="monospace">A</text>
+      <text x="1" y="14" fontSize="6.5" fill="currentColor" stroke="none" fontWeight="700" fontFamily="monospace">Z</text>
+      <line x1="11" y1="3" x2="11" y2="13" />
+      <polyline points="9 11 11 13 13 11" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconSortDate() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <circle cx="5" cy="7.5" r="4" />
+      <polyline points="5 5 5 7.5 7 9" strokeLinecap="round" />
+      <line x1="12" y1="3" x2="12" y2="13" />
+      <polyline points="10 11 12 13 14 11" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -564,6 +606,11 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const [showBookmarkPanel, setShowBookmarkPanel] = useState(false);
   const pendingScrollLine = useRef<number | null>(null);
 
+  // File list display options
+  const [showDateTime, setShowDateTime] = useState(false);
+  const [sortField, setSortField] = useState<SortField>('name');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+
   // Markdown outline (side panel with draggable divider)
   const [showOutline, setShowOutline] = useState(false);
   const [wordWrap, setWordWrap] = useState(false);
@@ -847,6 +894,33 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     }
   }, [currentPath, file, loadDir, loadFile]);
 
+  // Sort entries: directories first, then apply user sort preference
+  const sortedEntries = useMemo(() => {
+    const sorted = [...entries];
+    sorted.sort((a, b) => {
+      // Directories always come first
+      if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+      if (sortField === 'date') {
+        const ta = a.mtime ? new Date(a.mtime).getTime() : 0;
+        const tb = b.mtime ? new Date(b.mtime).getTime() : 0;
+        return sortDir === 'asc' ? ta - tb : tb - ta;
+      }
+      const cmp = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return sorted;
+  }, [entries, sortField, sortDir]);
+
+  // Cycle sort: click same field toggles direction, click different field switches to it asc
+  const handleSortToggle = useCallback((field: SortField) => {
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDir('asc');
+    }
+  }, [sortField]);
+
   // Open the project file browser in a standalone new tab
   const handleOpenProjectView = useCallback(() => {
     // Pass the current browsing directory so the new tab label is meaningful
@@ -1015,6 +1089,31 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         >
           <IconWordWrap />
         </button>
+        <span className={styles.iconBarSep} />
+        <button
+          className={`${styles.iconBtn} ${showDateTime ? styles.iconBtnActive : ''}`}
+          onClick={() => setShowDateTime(p => !p)}
+          disabled={!!file}
+          title="Toggle date/time display"
+        >
+          <IconClock />
+        </button>
+        <button
+          className={`${styles.iconBtn} ${sortField === 'name' ? styles.iconBtnActive : ''}`}
+          onClick={() => handleSortToggle('name')}
+          disabled={!!file}
+          title={`Sort by name (${sortField === 'name' ? sortDir : 'asc'})`}
+        >
+          <IconSortAlpha />
+        </button>
+        <button
+          className={`${styles.iconBtn} ${sortField === 'date' ? styles.iconBtnActive : ''}`}
+          onClick={() => handleSortToggle('date')}
+          disabled={!!file}
+          title={`Sort by date (${sortField === 'date' ? sortDir : 'asc'})`}
+        >
+          <IconSortDate />
+        </button>
       </div>
 
       {/* Path bar */}
@@ -1101,7 +1200,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
 
         {!loading && !error && !file && !showingEditor && entries.length > 0 && (
           <div className={styles.fileList}>
-            {entries.map((entry) => (
+            {sortedEntries.map((entry) => (
               <button
                 key={entry.name}
                 className={styles.fileEntry}
@@ -1109,6 +1208,9 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
               >
                 <span className={styles.fileIcon}>{fileIcon(entry.name, entry.type)}</span>
                 <span className={styles.fileName}>{entry.name}</span>
+                {showDateTime && entry.mtime && (
+                  <span className={styles.fileDate}>{formatDateTime(entry.mtime)}</span>
+                )}
                 {entry.type === 'file' && entry.size != null && (
                   <span className={styles.fileSize}>{formatSize(entry.size)}</span>
                 )}

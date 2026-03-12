@@ -140,6 +140,8 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   const subscribedTerminalIdRef = useRef<string | null>(null);
   /** RAF handle for batched output writes (#76) */
   const outputRafRef = useRef<number | null>(null);
+  /** Force scroll-to-bottom on next output batch (set when user sends Enter) */
+  const forceScrollRef = useRef(false);
 
   const [isAttached, setIsAttached] = useState(false);
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
@@ -349,6 +351,11 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         const CHUNK_SIZE = 4096;
         term.onData((data) => {
           if (!wsRef.current || wsRef.current.readyState !== 1) return;
+          // When user sends Enter, hint the output handler to force scroll-to-bottom.
+          // This ensures output stays visible after voice dictation or focus-loss scenarios.
+          if (data === '\r' || data === '\n') {
+            forceScrollRef.current = true;
+          }
           if (data.length <= CHUNK_SIZE) {
             wsRef.current.send(JSON.stringify({ type: 'terminal_input', terminalId, data }));
           } else {
@@ -437,12 +444,14 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           pendingOutputRef.current.delete(`__active__${tid}`);
 
           const { term } = activeRef.current;
-          // #88: Only auto-scroll if user hasn't scrolled up to review history
-          const wasAtBottom = isAtBottom(term);
+          // #88: Only auto-scroll if user hasn't scrolled up to review history.
+          // Also force-scroll when user just sent Enter (voice input can displace viewport).
+          const shouldScroll = isAtBottom(term) || forceScrollRef.current;
+          forceScrollRef.current = false;
           // Use write callbacks so scrollToBottom fires after xterm processes writes
           // and updates baseY. Without this, scrollToBottom() called synchronously
           // after write() is a no-op because baseY hasn't been updated yet (#scroll-fix).
-          if (wasAtBottom && pending.length > 0) {
+          if (shouldScroll && pending.length > 0) {
             let remaining = pending.length;
             for (const chunk of pending) {
               const bytes = Uint8Array.from(atob(chunk), (c) => c.charCodeAt(0));
@@ -532,6 +541,10 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     wsRef.current.send(
       JSON.stringify({ type: 'terminal_input', terminalId: activeRef.current.terminalId, data: '\r' }),
     );
+    // Force scroll-to-bottom so incoming output is visible even if viewport
+    // was displaced during voice dictation or other focus-loss scenarios.
+    forceScrollRef.current = true;
+    activeRef.current.term.scrollToBottom();
     activeRef.current.term.focus();
   }, []);
 
