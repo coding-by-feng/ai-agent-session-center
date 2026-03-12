@@ -7,6 +7,11 @@ import { setupTray } from './tray.js'
 import { registerSetupHandlers } from './ipc/setupHandlers.js'
 import { registerAppHandlers } from './ipc/appHandlers.js'
 
+// Allow Web Audio to play without requiring a user gesture for each sound.
+// Session events arrive via WebSocket (not user clicks), so without this flag
+// Chromium's autoplay policy silently blocks AudioContext.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+
 const isDev = !app.isPackaged
 
 // Reference to server shutdown function (set after server starts in production)
