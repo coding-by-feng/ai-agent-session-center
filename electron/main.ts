@@ -8,6 +8,9 @@ import { registerSetupHandlers } from './ipc/setupHandlers.js'
 import { registerAppHandlers } from './ipc/appHandlers.js'
 
 const isDev = !app.isPackaged
+
+// Reference to server shutdown function (set after server starts in production)
+let serverShutdown: (() => Promise<void>) | null = null
 const SETUP_FLAG = path.join(app.getPath('userData'), 'setup.json')
 // __dirname resolves to dist/electron/ after CJS compilation
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..')
@@ -120,9 +123,13 @@ app.whenReady().then(async () => {
     try {
       // server-bundle.cjs is a CJS bundle produced by esbuild (npm run build:server)
       const serverPath = path.join(PROJECT_ROOT, 'dist', 'server-bundle.cjs')
-      const { startServer } = require(serverPath) as { startServer: (port?: number) => Promise<number> }
+      const serverModule = require(serverPath) as {
+        startServer: (port?: number) => Promise<number>
+        shutdownServer: () => Promise<void>
+      }
+      serverShutdown = serverModule.shutdownServer
       sendLoadingUpdate(win, 30, 'Starting server')
-      const port = await startServer()
+      const port = await serverModule.startServer()
       process.env.SERVER_PORT = String(port)
       sendLoadingUpdate(win, 95, 'Loading app')
       restoreLogs()
@@ -208,6 +215,22 @@ function buildAppMenu(win: BrowserWindow) {
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
+
+// Graceful shutdown: save snapshot + close DB before Electron exits.
+// This runs BEFORE windows close, so the server is still alive.
+app.on('before-quit', async (e) => {
+  if (serverShutdown) {
+    e.preventDefault()
+    const fn = serverShutdown
+    serverShutdown = null // prevent re-entry
+    try {
+      await fn()
+    } catch {
+      // best effort — don't block quit
+    }
+    app.quit()
+  }
+})
 
 app.on('window-all-closed', () => {
   // Do nothing — tray keeps app alive.

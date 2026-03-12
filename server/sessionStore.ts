@@ -86,9 +86,13 @@ export function getEventSeq(): number {
 }
 
 // ---- Snapshot persistence ----
-const SNAPSHOT_DIR = process.platform === 'win32'
-  ? join(process.env.TEMP || process.env.TMP || 'C:\\Temp', 'claude-session-center')
-  : '/tmp/claude-session-center';
+// Use persistent APP_USER_DATA directory (Electron userData) when available;
+// fall back to /tmp only for non-Electron (standalone server) usage.
+const SNAPSHOT_DIR = process.env.APP_USER_DATA
+  ? join(process.env.APP_USER_DATA, 'data')
+  : process.platform === 'win32'
+    ? join(process.env.TEMP || process.env.TMP || 'C:\\Temp', 'claude-session-center')
+    : '/tmp/claude-session-center';
 const SNAPSHOT_FILE = join(SNAPSHOT_DIR, 'sessions-snapshot.json');
 const SNAPSHOT_INTERVAL_MS = 10_000; // Save every 10s
 let snapshotTimer: ReturnType<typeof setInterval> | null = null;
@@ -1115,6 +1119,10 @@ export function reconnectSessionTerminal(sessionId: string, newTerminalId: strin
 
   invalidateSessionsCache();
   log.info('session', `RECONNECT: session ${sessionId?.slice(0, 8)} → new terminal ${newTerminalId?.slice(0, 8)}`);
+
+  // Immediately save snapshot — terminal reconnect is a critical state change
+  // that shouldn't wait for the 10s periodic save.
+  try { saveSnapshot(); } catch { /* best effort */ }
 
   return { ok: true, session: { ...session } };
 }

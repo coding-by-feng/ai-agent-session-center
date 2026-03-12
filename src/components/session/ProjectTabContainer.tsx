@@ -22,16 +22,19 @@ interface SubTab {
 
 interface ProjectTabContainerProps {
   projectPath: string;
+  /** Session ID — used to persist sub-tabs independently per session */
+  sessionId?: string;
 }
 
-/** localStorage key for persisting sub-tab state per project */
-function storageKey(projectPath: string): string {
+/** localStorage key for persisting sub-tab state per session (falls back to projectPath) */
+function storageKey(projectPath: string, sessionId?: string): string {
+  if (sessionId) return `agent-manager:project-tabs:session:${sessionId}`;
   return `agent-manager:project-tabs:${projectPath}`;
 }
 
-function loadPersistedTabs(projectPath: string, defaultLabel: string): { tabs: SubTab[]; active: string } {
+function loadPersistedTabs(projectPath: string, defaultLabel: string, sessionId?: string): { tabs: SubTab[]; active: string } {
   try {
-    const raw = localStorage.getItem(storageKey(projectPath));
+    const raw = localStorage.getItem(storageKey(projectPath, sessionId));
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed.tabs) && parsed.tabs.length > 0 && typeof parsed.active === 'string') {
@@ -42,14 +45,14 @@ function loadPersistedTabs(projectPath: string, defaultLabel: string): { tabs: S
   return { tabs: [{ id: 'default', label: defaultLabel, projectPath }], active: 'default' };
 }
 
-export default function ProjectTabContainer({ projectPath }: ProjectTabContainerProps) {
+export default function ProjectTabContainer({ projectPath, sessionId }: ProjectTabContainerProps) {
   const defaultLabel = projectPath.split('/').filter(Boolean).pop() || 'project';
 
   const [subTabs, setSubTabs] = useState<SubTab[]>(() =>
-    loadPersistedTabs(projectPath, defaultLabel).tabs,
+    loadPersistedTabs(projectPath, defaultLabel, sessionId).tabs,
   );
   const [activeSubTab, setActiveSubTab] = useState(() =>
-    loadPersistedTabs(projectPath, defaultLabel).active,
+    loadPersistedTabs(projectPath, defaultLabel, sessionId).active,
   );
 
   // File open requests from terminal (or elsewhere)
@@ -149,9 +152,9 @@ export default function ProjectTabContainer({ projectPath }: ProjectTabContainer
   // Persist sub-tab state to localStorage whenever it changes
   useEffect(() => {
     try {
-      localStorage.setItem(storageKey(projectPath), JSON.stringify({ tabs: subTabs, active: activeSubTab }));
+      localStorage.setItem(storageKey(projectPath, sessionId), JSON.stringify({ tabs: subTabs, active: activeSubTab }));
     } catch { /* ignore */ }
-  }, [subTabs, activeSubTab, projectPath]);
+  }, [subTabs, activeSubTab, projectPath, sessionId]);
 
   // Only show the sub-tab bar when there are multiple tabs
   const showSubTabs = subTabs.length > 1;
