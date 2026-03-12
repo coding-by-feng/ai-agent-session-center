@@ -41,6 +41,7 @@ interface RoomState {
   moveSession: (sessionId: string, fromRoomId: string, toRoomId: string) => void;
   toggleCollapse: (roomId: string) => void;
   setRoomIndex: (roomId: string, roomIndex: number | undefined) => void;
+  migrateSession: (oldSessionId: string, newSessionId: string) => void;
   getRoomForSession: (sessionId: string) => Room | undefined;
   loadFromStorage: () => void;
 }
@@ -139,6 +140,21 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       );
       saveToLocalStorage(rooms);
       return { rooms };
+    }),
+
+  migrateSession: (oldSessionId, newSessionId) =>
+    set((state) => {
+      let changed = false;
+      const rooms = state.rooms.map((r) => {
+        const idx = r.sessionIds.indexOf(oldSessionId);
+        if (idx === -1) return r;
+        changed = true;
+        const ids = [...r.sessionIds];
+        ids[idx] = newSessionId;
+        return { ...r, sessionIds: ids };
+      });
+      if (changed) saveToLocalStorage(rooms);
+      return changed ? { rooms } : state;
     }),
 
   getRoomForSession: (sessionId) => {

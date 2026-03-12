@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { WsClient } from '@/lib/wsClient';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useQueueStore } from '@/stores/queueStore';
+import { useRoomStore } from '@/stores/roomStore';
 import { useWsStore } from '@/stores/wsStore';
 import { db, migrateSessionId, persistSessionUpdate } from '@/lib/db';
 import type { Session, ServerMessage } from '@/types';
@@ -61,6 +62,7 @@ export function useWebSocket(token: string | null): WsClient | null {
             // Migrate queue items in Zustand store (synchronous, before updateSession
             // changes the selectedSessionId so QueueTab reads with the new ID)
             useQueueStore.getState().migrateSession(session.replacesId, session.sessionId);
+            useRoomStore.getState().migrateSession(session.replacesId, session.sessionId);
 
             migrateSessionId(session.replacesId, session.sessionId)
               .then(() => db.sessions.delete(session.replacesId!))

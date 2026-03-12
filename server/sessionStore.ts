@@ -981,6 +981,11 @@ export function setSummary(sessionId: string, summary: string): Session | null {
   return session ? { ...session } : null;
 }
 
+export function setSessionPinned(sessionId: string, pinned: boolean): void {
+  const session = sessions.get(sessionId);
+  if (session) { session.pinned = pinned; invalidateSessionsCache(); }
+}
+
 export function setSessionAccentColor(sessionId: string, color: string): void {
   const session = sessions.get(sessionId);
   if (session) { session.accentColor = color; invalidateSessionsCache(); }

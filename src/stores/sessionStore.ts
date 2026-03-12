@@ -11,6 +11,7 @@ interface SessionState {
   selectSession: (sessionId: string) => void;
   deselectSession: () => void;
   setSessions: (sessions: Map<string, Session>) => void;
+  togglePin: (sessionId: string) => void;
 }
 
 export const useSessionStore = create<SessionState>((set) => ({
@@ -58,4 +59,20 @@ export const useSessionStore = create<SessionState>((set) => ({
   deselectSession: () => set({ selectedSessionId: null }),
 
   setSessions: (sessions) => set({ sessions }),
+
+  togglePin: (sessionId) =>
+    set((state) => {
+      const session = state.sessions.get(sessionId);
+      if (!session) return state;
+      const pinned = !session.pinned;
+      const next = new Map(state.sessions);
+      next.set(sessionId, { ...session, pinned });
+      // Persist to server
+      fetch(`/api/sessions/${encodeURIComponent(sessionId)}/pinned`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned }),
+      }).catch(() => { /* ignore network errors */ });
+      return { sessions: next };
+    }),
 }));

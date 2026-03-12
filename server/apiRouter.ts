@@ -10,7 +10,7 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSessionAccentColor, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, deleteSessionFromMemory, resumeSession, reconnectSessionTerminal } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSessionPinned, setSessionAccentColor, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, deleteSessionFromMemory, resumeSession, reconnectSessionTerminal } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
 import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, attachToTmuxPane, consumePendingLink } from './sshManager.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
@@ -104,6 +104,10 @@ const titleSchema = z.object({
 
 const labelSchema = z.object({
   label: z.string(),
+});
+
+const pinnedSchema = z.object({
+  pinned: z.boolean(),
 });
 
 const accentColorSchema = z.object({
@@ -497,6 +501,14 @@ router.put('/sessions/:id/label', (req: Request, res: Response) => {
   const body = validateBody(labelSchema, req.body, res);
   if (!body) return;
   setSessionLabel(str(req.params.id), body.label);
+  res.json({ ok: true });
+});
+
+// Update session pinned state
+router.put('/sessions/:id/pinned', (req: Request, res: Response) => {
+  const body = validateBody(pinnedSchema, req.body, res);
+  if (!body) return;
+  setSessionPinned(str(req.params.id), body.pinned);
   res.json({ ok: true });
 });
 
