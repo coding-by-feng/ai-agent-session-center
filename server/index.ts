@@ -283,8 +283,13 @@ export function startServer(port?: number): Promise<number> {
           }
 
           // Build resume command (same logic as the /sessions/:id/resume endpoint)
+          // Terminal IDs (term-xxx) are agent-manager internal IDs, not Claude conversation IDs.
+          // claude --resume only works with real Claude session IDs, so fall back to --continue.
+          const isClaudeSessionId = !sessionId.startsWith('term-');
           const safeId = sessionId.replace(/'/g, "'\\''");
-          const resumeCmd = `claude --resume '${safeId}' || claude --continue`;
+          const resumeCmd = isClaudeSessionId
+            ? `claude --resume '${safeId}' || claude --continue`
+            : `claude --continue`;
           let prefix = '';
           if (isRemote) {
             prefix += `export AGENT_MANAGER_TERMINAL_ID='${newTerminalId}' && `;
