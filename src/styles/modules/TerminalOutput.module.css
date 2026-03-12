@@ -217,6 +217,16 @@
 .outputContainer :global(.ansi-cyan-bg) { background-color: var(--ansi-cyan) !important; }
 .outputContainer :global(.ansi-white-bg) { background-color: var(--ansi-white) !important; }
 
+/* Clickable URL links inside terminal output */
+.outputContainer :global(.termLink) {
+  color: #58a6ff;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.outputContainer :global(.termLink:hover) {
+  color: #79c0ff;
+}
+
 /* Responsive font sizes */
 @media (max-width: 480px) {
   .outputContainer { font-size: 11px; }

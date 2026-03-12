@@ -25,6 +25,18 @@ const ansiUp = new AnsiUp();
 ansiUp.use_classes = true;
 ansiUp.escape_html = true;
 
+// Linkify http/https URLs in already-escaped HTML (only in text nodes, not inside tags)
+const URL_RE = /(https?:\/\/[^\s<>"']+)/g;
+function linkifyHtml(html: string): string {
+  // Replace URLs that are NOT inside an HTML attribute (i.e. not preceded by href=" or src=")
+  return html.replace(URL_RE, (url) => {
+    // Strip trailing punctuation that's likely not part of the URL
+    const clean = url.replace(/[.,;:!?)]+$/, '');
+    const tail = url.slice(clean.length);
+    return `<a class="termLink" href="${clean}" data-url="${clean}">${clean}</a>${tail}`;
+  });
+}
+
 export default memo(function TerminalOutputViewer({
   terminalId,
   ws,
@@ -153,11 +165,11 @@ export default memo(function TerminalOutputViewer({
     const cached = htmlLinesRef.current;
     if (lines.length < cached.length) {
       // Lines were cleared
-      htmlLinesRef.current = lines.map((l) => ansiUp.ansi_to_html(l));
+      htmlLinesRef.current = lines.map((l) => linkifyHtml(ansiUp.ansi_to_html(l)));
     } else {
       // Append new lines
       for (let i = cached.length; i < lines.length; i++) {
-        cached.push(ansiUp.ansi_to_html(lines[i]));
+        cached.push(linkifyHtml(ansiUp.ansi_to_html(lines[i])));
       }
       htmlLinesRef.current = cached;
     }
@@ -276,12 +288,23 @@ export default memo(function TerminalOutputViewer({
   ), [themeName, wordWrap, bookmarks.length, showReconnect, onReconnect, isFullscreen,
     handleThemeChange, themeOptions, handleCopyAll, clearOutput, handleBookmark, scrollToBottom]);
 
+  // Open links externally (works in both browser and Electron)
+  const handleOutputClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const a = (e.target as HTMLElement).closest('a[data-url]') as HTMLAnchorElement | null;
+    if (a) {
+      e.preventDefault();
+      const url = a.dataset.url || a.href;
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  }, []);
+
   // Output render
   const outputNode = (ref: React.RefObject<HTMLDivElement | null>) => (
     <div
       ref={ref}
       className={styles.outputContainer}
       style={themeStyle as React.CSSProperties}
+      onClick={handleOutputClick}
     >
       {htmlLines.length === 0 ? (
         <div className={styles.emptyPlaceholder}>
