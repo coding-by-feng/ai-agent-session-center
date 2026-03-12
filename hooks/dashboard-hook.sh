@@ -33,6 +33,13 @@ if [ -n "$PPID" ] && [ "$PPID" != "0" ]; then
   fi
 fi
 
+# ── Startup command capture (SessionStart only) ──
+STARTUP_CMD=""
+EVENT_CHECK=$(echo "$INPUT" | head -c 500 | grep -o '"hook_event_name":"[^"]*"' | head -1 | sed 's/.*:"//;s/"//')
+if [ "$EVENT_CHECK" = "SessionStart" ] && [ -n "$PPID" ] && [ "$PPID" != "0" ]; then
+  STARTUP_CMD=$(ps -p "$PPID" -o args= 2>/dev/null | head -1 | sed 's/^[[:space:]]*//')
+fi
+
 # ── Single jq pass: enrich JSON + extract event/session_id/cwd ──
 JQ_OUT=$(echo "$INPUT" | jq -c \
   --arg pid "$PPID" \
@@ -60,6 +67,7 @@ JQ_OUT=$(echo "$INPUT" | jq -c \
   --arg cc_agent_type "${CLAUDE_CODE_AGENT_TYPE:-}" \
   --arg cc_agent_id "${CLAUDE_CODE_AGENT_ID:-}" \
   --arg cc_agent_color "${CLAUDE_CODE_AGENT_COLOR:-}" \
+  --arg startup_cmd "$STARTUP_CMD" \
   '
   (. + {
     claude_pid: ($pid | tonumber),
@@ -88,7 +96,8 @@ JQ_OUT=$(echo "$INPUT" | jq -c \
     agent_name: (if $cc_agent_name != "" then $cc_agent_name else null end),
     agent_type: (if $cc_agent_type != "" then $cc_agent_type else null end),
     agent_id: (if $cc_agent_id != "" then $cc_agent_id else null end),
-    agent_color: (if $cc_agent_color != "" then $cc_agent_color else null end)
+    agent_color: (if $cc_agent_color != "" then $cc_agent_color else null end),
+    startup_command: (if $startup_cmd != "" then $startup_cmd else null end)
   }),
   "\(.hook_event_name // "")",
   "\(.session_id // "")",

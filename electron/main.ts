@@ -47,10 +47,55 @@ async function createWindow(): Promise<BrowserWindow> {
     return { action: 'deny' }
   })
 
-  const port = process.env.SERVER_PORT ?? (isDev ? '3332' : '3333')
-  await win.loadURL(`http://localhost:${port}`)
+  if (isDev) {
+    // Dev: server already running, connect directly
+    const port = process.env.SERVER_PORT ?? '3332'
+    await win.loadURL(`http://localhost:${port}`)
+  } else {
+    // Production: show loading screen immediately while server starts
+    const loadingPath = path.join(__dirname, 'loading.html')
+    await win.loadFile(loadingPath)
+  }
 
   return win
+}
+
+function js(win: BrowserWindow, expr: string) {
+  win.webContents.executeJavaScript(expr).catch(() => {})
+}
+
+function sendLoadingUpdate(win: BrowserWindow, progress: number, msg: string) {
+  js(win, `window.updateProgress && window.updateProgress(${progress}, ${JSON.stringify(msg)})`)
+}
+
+function sendLog(win: BrowserWindow, text: string, isError = false) {
+  const lines = text.split('\n')
+  for (const line of lines) {
+    if (!line.trim()) continue
+    js(win, `window.addLog && window.addLog(${JSON.stringify(line)}, ${isError})`)
+  }
+}
+
+/** Intercept process stdout/stderr and mirror every line to the loading screen. */
+function captureLogsToLoadingScreen(win: BrowserWindow): () => void {
+  const origOut = process.stdout.write.bind(process.stdout)
+  const origErr = process.stderr.write.bind(process.stderr)
+
+  ;(process.stdout as NodeJS.WriteStream & { write: (...a: unknown[]) => boolean }).write =
+    (chunk: unknown, ...rest: unknown[]) => {
+      sendLog(win, String(chunk), false)
+      return (origOut as (...a: unknown[]) => boolean)(chunk, ...rest)
+    }
+  ;(process.stderr as NodeJS.WriteStream & { write: (...a: unknown[]) => boolean }).write =
+    (chunk: unknown, ...rest: unknown[]) => {
+      sendLog(win, String(chunk), true)
+      return (origErr as (...a: unknown[]) => boolean)(chunk, ...rest)
+    }
+
+  return () => {
+    process.stdout.write = origOut
+    process.stderr.write = origErr
+  }
 }
 
 app.whenReady().then(async () => {
@@ -58,21 +103,36 @@ app.whenReady().then(async () => {
   registerSetupHandlers()
   registerAppHandlers()
 
-  if (!isFirstRun() && !isDev) {
-    // Production launch: start Express server in-process, then open window
-    // In dev mode, the server is already running via `tsx watch server/index.ts`
-    // Set APP_USER_DATA so the server reads config from the writable userData dir
-    process.env.APP_USER_DATA = app.getPath('userData')
-    // Use require() to avoid TypeScript following ESM server files during CJS compilation
-    const serverPath = path.join(PROJECT_ROOT, 'server', 'index.js')
-    const { startServer } = require(serverPath) as { startServer: (port?: number) => Promise<number> }
-    const port = await startServer()
-    process.env.SERVER_PORT = String(port)
-  }
-
+  // Create window immediately — shows loading screen in production
   const win = await createWindow()
   setupTray(win)
   buildAppMenu(win)
+
+  if (!isDev) {
+    // Production: start Express server in-process, stream logs to loading UI, then navigate
+    // In dev mode the server is already running via `tsx watch server/index.ts`
+    sendLoadingUpdate(win, 10, 'Starting server')
+    process.env.APP_USER_DATA = app.getPath('userData')
+
+    // Mirror all stdout/stderr to the loading screen
+    const restoreLogs = captureLogsToLoadingScreen(win)
+
+    try {
+      // server-bundle.cjs is a CJS bundle produced by esbuild (npm run build:server)
+      const serverPath = path.join(PROJECT_ROOT, 'dist', 'server-bundle.cjs')
+      const { startServer } = require(serverPath) as { startServer: (port?: number) => Promise<number> }
+      sendLoadingUpdate(win, 30, 'Starting server')
+      const port = await startServer()
+      process.env.SERVER_PORT = String(port)
+      sendLoadingUpdate(win, 95, 'Loading app')
+      restoreLogs()
+      await win.loadURL(`http://localhost:${port}`)
+    } catch (err) {
+      restoreLogs()
+      const msg = err instanceof Error ? err.message : String(err)
+      js(win, `window.showError && window.showError(${JSON.stringify(msg)})`)
+    }
+  }
 })
 
 function buildAppMenu(win: BrowserWindow) {

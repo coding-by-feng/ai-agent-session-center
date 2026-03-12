@@ -53,6 +53,12 @@ if [ -n "$PPID" ] && [ "$PPID" != "0" ]; then
   fi
 fi
 
+# ── Startup command capture (SessionStart only) ──
+STARTUP_CMD=""
+if [ "$GEMINI_EVENT" = "SessionStart" ] && [ -n "$PPID" ] && [ "$PPID" != "0" ]; then
+  STARTUP_CMD=$(ps -p "$PPID" -o args= 2>/dev/null | head -1 | sed 's/^[[:space:]]*//')
+fi
+
 # ── Single jq pass: build enriched JSON ──
 ENRICHED=$(echo "$INPUT" | jq -c \
   --arg event "$MAPPED_EVENT" \
@@ -63,6 +69,7 @@ ENRICHED=$(echo "$INPUT" | jq -c \
   --arg sent_at "$SENT_AT" \
   --arg agent_terminal_id "${AGENT_MANAGER_TERMINAL_ID:-}" \
   --arg gemini_event "$GEMINI_EVENT" \
+  --arg startup_cmd "$STARTUP_CMD" \
   '
   {
     hook_event_name: $event,
@@ -78,7 +85,8 @@ ENRICHED=$(echo "$INPUT" | jq -c \
     response: (.response // .llm_response // .prompt_response // null),
     model: (.model // null),
     source: "gemini",
-    gemini_event: $gemini_event
+    gemini_event: $gemini_event,
+    startup_command: (if $startup_cmd != "" then $startup_cmd else null end)
   }
   ' 2>/dev/null)
 

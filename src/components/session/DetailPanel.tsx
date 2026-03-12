@@ -64,7 +64,9 @@ const TerminalContent = memo(function TerminalContent({
   const client = useWsStore((s) => s.client);
   const ws = useMemo(() => client?.getRawSocket() ?? null, [client]);
   const isSSH = source === 'ssh';
-  const showReconnect = isSSH && status === 'ended' && !terminalId;
+  const hasStartupCommand = useSessionStore((s) => !!s.sessions.get(sessionId)?.startupCommand);
+  const canReconnect = isSSH || hasStartupCommand;
+  const showReconnect = canReconnect && status === 'ended' && !terminalId;
   const [bookmarkTarget, setBookmarkTarget] = useState<HTMLDivElement | null>(null);
 
   const handleReconnect = useCallback(() => {
@@ -79,7 +81,7 @@ const TerminalContent = memo(function TerminalContent({
           terminalId={terminalId}
           ws={ws}
           showReconnect={showReconnect}
-          onReconnect={isSSH ? handleReconnect : undefined}
+          onReconnect={canReconnect ? handleReconnect : undefined}
           bookmarkPortalTarget={bookmarkTarget}
           projectPath={projectPath}
         />

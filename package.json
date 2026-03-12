@@ -1,6 +1,6 @@
 {
   "name": "ai-agent-session-center",
-  "version": "2.5.2",
+  "version": "2.5.3",
   "description": "A real-time dashboard for monitoring AI agent sessions (Claude Code, Gemini CLI, Codex) with 3D visualization",
   "type": "module",
   "main": "server/index.ts",
@@ -28,10 +28,11 @@
     "test:e2e": "npx playwright test",
     "test:coverage": "vitest run --coverage",
     "electron:dev": "tsc -p tsconfig.electron.json && bash scripts/cjs-rename.sh && concurrently \"vite\" \"tsx watch server/index.ts\" \"wait-on tcp:3333 && electron dist/electron/main.cjs\"",
-    "electron:build": "npm run build && tsc -p tsconfig.electron.json && bash scripts/cjs-rename.sh && electron-builder",
+    "build:server": "node scripts/build-server.mjs",
+    "electron:build": "npm run build && npm run build:server && npm run electron:rebuild && tsc -p tsconfig.electron.json && node -e \"require('fs').copyFileSync('electron/loading.html','dist/electron/loading.html')\" && bash scripts/cjs-rename.sh && electron-builder",
     "electron:build:mac": "npm run electron:build -- --mac",
     "electron:build:win": "npm run electron:build -- --win",
-    "electron:rebuild": "electron-rebuild -f -w better-sqlite3,node-pty",
+    "electron:rebuild": "node scripts/rebuild-native.cjs",
     "electron:pack": "npm run build && tsc -p tsconfig.electron.json && electron-builder --dir"
   },
   "keywords": [

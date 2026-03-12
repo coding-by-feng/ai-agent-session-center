@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AI Agent Session Center</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0a0a1a;
+      color: #e0e0ff;
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* Robot */
+    .robot { width: 52px; height: 52px; margin-bottom: 24px; }
+    .robot-head {
+      width: 36px; height: 28px;
+      background: rgba(0,229,255,0.08);
+      border: 1.5px solid rgba(0,229,255,0.4);
+      border-radius: 6px;
+      margin: 0 auto;
+      display: flex; align-items: center; justify-content: center; gap: 7px;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    .eye {
+      width: 6px; height: 6px;
+      background: #00e5ff; border-radius: 50%;
+      box-shadow: 0 0 6px #00e5ff;
+      animation: blink 3s ease-in-out infinite;
+    }
+    .eye:nth-child(2) { animation-delay: 0.15s; }
+    .robot-neck {
+      width: 10px; height: 5px;
+      background: rgba(0,229,255,0.2);
+      border: 1px solid rgba(0,229,255,0.3);
+      margin: 0 auto;
+    }
+    .robot-body {
+      width: 44px; height: 20px;
+      background: rgba(0,229,255,0.06);
+      border: 1.5px solid rgba(0,229,255,0.3);
+      border-radius: 4px;
+      margin: 0 auto;
+    }
+    @keyframes pulse {
+      0%,100% { border-color: rgba(0,229,255,0.4); }
+      50% { border-color: rgba(0,229,255,0.8); box-shadow: 0 0 12px rgba(0,229,255,0.2); }
+    }
+    @keyframes blink {
+      0%,90%,100% { opacity:1; } 95% { opacity:0.1; }
+    }
+
+    .title {
+      font-size: 15px; font-weight: 700;
+      letter-spacing: 2.5px; color: #e0e0ff;
+      text-transform: uppercase; margin-bottom: 5px;
+    }
+    .subtitle {
+      font-size: 10px; color: rgba(0,229,255,0.45);
+      letter-spacing: 1.5px; text-transform: uppercase;
+      margin-bottom: 28px;
+    }
+
+    /* Progress */
+    .progress-wrap {
+      width: 340px; height: 2px;
+      background: rgba(0,229,255,0.1);
+      border-radius: 2px; overflow: hidden; margin-bottom: 12px;
+    }
+    .progress-bar {
+      height: 100%; width: 0%;
+      background: linear-gradient(90deg, #00e5ff, #7c3aed);
+      border-radius: 2px;
+      box-shadow: 0 0 8px rgba(0,229,255,0.5);
+      transition: width 0.35s ease;
+    }
+    .status {
+      font-size: 10px; color: rgba(0,229,255,0.55);
+      letter-spacing: 1.5px; text-transform: uppercase;
+      margin-bottom: 16px; min-height: 14px;
+    }
+    .dots { display: inline-block; width: 18px; text-align: left; }
+
+    /* Log area */
+    .log-area {
+      width: 480px;
+      max-height: 180px;
+      overflow-y: auto;
+      background: rgba(0,0,0,0.35);
+      border: 1px solid rgba(0,229,255,0.12);
+      border-radius: 4px;
+      padding: 8px 10px;
+      font-size: 10px;
+      line-height: 1.65;
+      text-align: left;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(0,229,255,0.2) transparent;
+    }
+    .log-area::-webkit-scrollbar { width: 4px; }
+    .log-area::-webkit-scrollbar-track { background: transparent; }
+    .log-area::-webkit-scrollbar-thumb { background: rgba(0,229,255,0.2); border-radius: 2px; }
+
+    .log-line { white-space: pre-wrap; word-break: break-all; }
+    .log-line.info  { color: rgba(200,200,255,0.65); }
+    .log-line.debug { color: rgba(140,140,180,0.45); }
+    .log-line.warn  { color: #ffb86c; }
+    .log-line.error { color: #ff5555; }
+
+    /* Error banner */
+    .error-banner {
+      display: none;
+      margin-top: 14px;
+      width: 480px;
+      padding: 10px 14px;
+      background: rgba(255,85,85,0.1);
+      border: 1px solid rgba(255,85,85,0.4);
+      border-radius: 4px;
+      color: #ff5555;
+      font-size: 10px;
+      line-height: 1.6;
+      text-align: left;
+    }
+    .error-banner strong { display: block; margin-bottom: 4px; letter-spacing: 1px; }
+  </style>
+</head>
+<body>
+  <div class="robot">
+    <div class="robot-head"><div class="eye"></div><div class="eye"></div></div>
+    <div class="robot-neck"></div>
+    <div class="robot-body"></div>
+  </div>
+
+  <div class="title">AI Agent Session Center</div>
+  <div class="subtitle">Starting up</div>
+
+  <div class="progress-wrap"><div class="progress-bar" id="bar"></div></div>
+  <div class="status" id="status">Initializing<span class="dots" id="dots"></span></div>
+
+  <div class="log-area" id="logs"></div>
+  <div class="error-banner" id="errBanner">
+    <strong>&#x26A0; Startup failed</strong>
+    <span id="errMsg"></span>
+  </div>
+
+  <script>
+    // Animated dots
+    let dotCount = 0;
+    setInterval(() => {
+      dotCount = (dotCount + 1) % 4;
+      document.getElementById('dots').textContent = '.'.repeat(dotCount);
+    }, 400);
+
+    // Auto-advance progress while waiting
+    let pct = 0;
+    const autoAdv = setInterval(() => {
+      if (pct < 75) {
+        pct += pct < 30 ? 5 : pct < 55 ? 2 : 0.4;
+        document.getElementById('bar').style.width = pct + '%';
+      }
+    }, 250);
+
+    // Strip ANSI escape codes
+    function stripAnsi(str) {
+      return str.replace(/\x1B\[[0-9;]*[mGKHFJK]/g, '').replace(/\x1B\].*?\x07/g, '');
+    }
+
+    // Classify log level from text
+    function lineClass(text) {
+      const t = text.toLowerCase();
+      if (/\[error\]|\berror\b|err:/i.test(t)) return 'error';
+      if (/\[warn\]|\bwarn\b/i.test(t)) return 'warn';
+      if (/\[debug\]|\bdebug\b/i.test(t)) return 'debug';
+      return 'info';
+    }
+
+    // Add a log line
+    window.addLog = function(raw, isError) {
+      const text = stripAnsi(raw).trimEnd();
+      if (!text) return;
+      const logs = document.getElementById('logs');
+      const div = document.createElement('div');
+      div.className = 'log-line ' + (isError ? 'error' : lineClass(text));
+      div.textContent = text;
+      logs.appendChild(div);
+      logs.scrollTop = logs.scrollHeight;
+    };
+
+    // Update progress + status text
+    window.updateProgress = function(p, msg) {
+      clearInterval(autoAdv);
+      pct = p;
+      document.getElementById('bar').style.width = p + '%';
+      if (msg) document.getElementById('status').childNodes[0].textContent = msg;
+    };
+
+    // Show fatal error banner
+    window.showError = function(msg) {
+      clearInterval(autoAdv);
+      document.getElementById('bar').style.background = '#ff5555';
+      document.getElementById('bar').style.boxShadow = '0 0 8px rgba(255,85,85,0.5)';
+      document.getElementById('status').style.color = '#ff5555';
+      document.getElementById('status').childNodes[0].textContent = 'Startup failed';
+      document.getElementById('dots').textContent = '';
+      const banner = document.getElementById('errBanner');
+      document.getElementById('errMsg').textContent = msg;
+      banner.style.display = 'block';
+    };
+  </script>
+</body>
+</html>

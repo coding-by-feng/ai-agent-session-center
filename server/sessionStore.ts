@@ -526,6 +526,15 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
 
   invalidateSessionsCache();
   session.lastActivityAt = Date.now();
+
+  // Store startup command from hook enrichment (first occurrence wins).
+  // Skips subagent sessions (parent_session_id present) since their command is meaningless.
+  if ('startup_command' in hookData && hookData.startup_command
+      && !session.startupCommand && !hookData.parent_session_id) {
+    session.startupCommand = hookData.startup_command;
+    log.debug('session', `Stored startupCommand for ${session_id?.slice(0,8)}: ${hookData.startup_command.slice(0,80)}`);
+  }
+
   const eventEntry: SessionEvent = {
     type: hook_event_name,
     timestamp: Date.now(),
