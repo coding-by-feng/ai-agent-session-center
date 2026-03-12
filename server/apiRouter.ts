@@ -300,15 +300,20 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
   const session = getSession(sessionId);
   if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
 
-  // Retrieve the original command used to create this session
-  const originalCmd = session.sshCommand || session.sshConfig?.command || '';
+  // Retrieve the original command used to create this session.
+  // Priority: startupCommand (from hook) > sshCommand > sshConfig.command > default
+  const originalCmd = session.startupCommand || session.sshCommand || session.sshConfig?.command || '';
 
   // Build resume command preserving original flags/options
   const safeId = sessionId.replace(/'/g, "'\\''");
   let resumeCmd: string;
-  if (!originalCmd || originalCmd.startsWith('claude')) {
-    // Claude CLI: strip any prior --resume/--continue, then append --resume with fallback
-    const baseCmd = (originalCmd || 'claude').replace(/\s+--(?:resume\s+'[^']*'|resume\s+\S+|continue)\b/g, '').trim();
+  // Detect Claude CLI — handles 'claude', '/usr/local/bin/claude', 'node /path/to/claude'
+  const isClaude = !originalCmd || /(?:^|\/)claude(?:\s|$)/.test(originalCmd);
+  if (isClaude) {
+    // Claude CLI: normalize full path, strip any prior --resume/--continue, then append --resume with fallback
+    const baseCmd = (originalCmd || 'claude')
+      .replace(/^(\S*\/)claude/, 'claude')
+      .replace(/\s+--(?:resume\s+'[^']*'|resume\s+\S+|continue)\b/g, '').trim();
     resumeCmd = `${baseCmd} --resume '${safeId}' || ${baseCmd} --continue`;
   } else {
     // Non-Claude CLI (gemini, codex, aider, etc.): re-run the original command as-is
@@ -385,32 +390,57 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
   }
 });
 
-// Reconnect an ended SSH session's terminal — creates a new PTY and links it
+// Reconnect an ended session's terminal — creates a new PTY and links it
 // to the existing session. Used by the RECONNECT button in the detail panel.
+// Works for SSH sessions (using stored sshConfig) and hook-detected sessions
+// that have a captured startupCommand.
 router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Response) => {
   const sessionId = str(req.params.id);
   const session = getSession(sessionId);
   if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
-  if (session.source !== 'ssh') { res.status(400).json({ error: 'Reconnect only available for SSH sessions' }); return; }
-
-  const cfg = session.sshConfig;
-  if (!cfg) {
-    res.status(400).json({ error: 'No SSH config stored for this session' });
+  if (session.source !== 'ssh' && !session.startupCommand) {
+    res.status(400).json({ error: 'Reconnect requires SSH config or a known startup command' });
     return;
   }
 
+  const cfg = session.sshConfig;
+
   try {
-    const newConfig: TerminalConfig = { ...cfg, workingDir: cfg.workingDir || '~', command: cfg.command || 'claude' };
-    const newTerminalId = await createTerminal(newConfig, null);
-    consumePendingLink(newConfig.workingDir || session.projectPath || '');
+    if (cfg && cfg.username) {
+      // SSH session: use stored SSH config
+      const newConfig: TerminalConfig = { ...cfg, workingDir: cfg.workingDir || '~', command: cfg.command || 'claude' };
+      const newTerminalId = await createTerminal(newConfig, null);
+      consumePendingLink(newConfig.workingDir || session.projectPath || '');
 
-    const result = reconnectSessionTerminal(sessionId, newTerminalId);
-    if ('error' in result) { res.status(500).json({ error: result.error }); return; }
+      const result = reconnectSessionTerminal(sessionId, newTerminalId);
+      if ('error' in result) { res.status(500).json({ error: result.error }); return; }
 
-    const { broadcast } = await import('./wsManager.js');
-    broadcast({ type: WS_TYPES.SESSION_UPDATE, session: result.session });
+      const { broadcast } = await import('./wsManager.js');
+      broadcast({ type: WS_TYPES.SESSION_UPDATE, session: result.session });
 
-    res.json({ ok: true, terminalId: newTerminalId });
+      res.json({ ok: true, terminalId: newTerminalId });
+    } else {
+      // Non-SSH (hook-detected) session: create local terminal, write command after shell ready.
+      // Use command='' to avoid shell metacharacter validation on the startup command.
+      const newConfig: TerminalConfig = {
+        host: 'localhost',
+        workingDir: session.projectPath || '~',
+        command: '',
+      };
+      const newTerminalId = await createTerminal(newConfig, null);
+      consumePendingLink(newConfig.workingDir || session.projectPath || '');
+
+      const result = reconnectSessionTerminal(sessionId, newTerminalId);
+      if ('error' in result) { res.status(500).json({ error: result.error }); return; }
+
+      const cmd = session.startupCommand || 'claude';
+      writeWhenReady(newTerminalId, `${cmd}\r`);
+
+      const { broadcast } = await import('./wsManager.js');
+      broadcast({ type: WS_TYPES.SESSION_UPDATE, session: result.session });
+
+      res.json({ ok: true, terminalId: newTerminalId });
+    }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('api', `Reconnect terminal failed: ${msg}`);

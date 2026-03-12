@@ -22,6 +22,12 @@ case "$EVENT_TYPE" in
   *)                   MAPPED_EVENT="Stop" ;;
 esac
 
+# ── Startup command capture ──
+STARTUP_CMD=""
+if [ -n "$PPID" ] && [ "$PPID" != "0" ]; then
+  STARTUP_CMD=$(ps -p "$PPID" -o args= 2>/dev/null | head -1 | sed 's/^[[:space:]]*//')
+fi
+
 # ── Build enriched JSON ──
 ENRICHED=$(echo "$INPUT" | jq -c \
   --arg event "$MAPPED_EVENT" \
@@ -31,6 +37,7 @@ ENRICHED=$(echo "$INPUT" | jq -c \
   --arg sent_at "$SENT_AT" \
   --arg agent_terminal_id "${AGENT_MANAGER_TERMINAL_ID:-}" \
   --arg codex_event "$EVENT_TYPE" \
+  --arg startup_cmd "$STARTUP_CMD" \
   '
   {
     hook_event_name: $event,
@@ -43,7 +50,8 @@ ENRICHED=$(echo "$INPUT" | jq -c \
     prompt: (if .["input-messages"] then (.["input-messages"] | last | .content // null) else null end),
     model: (.model // null),
     source: "codex",
-    codex_event: $codex_event
+    codex_event: $codex_event,
+    startup_command: (if $startup_cmd != "" then $startup_cmd else null end)
   }
   ' 2>/dev/null)
 

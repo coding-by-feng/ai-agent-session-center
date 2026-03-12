@@ -292,7 +292,9 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
 
       if (local) {
         shell = getDefaultShell();
-        args = [];
+        // Use -l (login shell) so ~/.zshrc / ~/.bash_profile are sourced
+        // and user PATH (e.g. ~/.local/bin for claude) is available.
+        args = ['-l'];
         cwd = workDir;
       } else {
         // Spawn native ssh — uses system SSH config, agent, keys automatically
@@ -464,7 +466,7 @@ export function attachToTmuxPane(tmuxPaneId: string, wsClient: WebSocket | null)
       const { CLAUDECODE: _dropTmux, ...tmuxParentEnv } = process.env as Record<string, string>;
       const env: Record<string, string> = { ...tmuxParentEnv, AGENT_MANAGER_TERMINAL_ID: terminalId };
 
-      const ptyProcess: IPty = pty.spawn(shell, [], {
+      const ptyProcess: IPty = pty.spawn(shell, ['-l'], {
         name: 'xterm-256color',
         cols: 120,
         rows: 40,

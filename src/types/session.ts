@@ -195,6 +195,7 @@ export interface Session {
   sshHost?: string;
   sshCommand?: string;
   sshConfig?: SshConfig;
+  startupCommand?: string;
 
   // Resume / re-key
   replacesId?: string;

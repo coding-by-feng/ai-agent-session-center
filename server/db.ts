@@ -18,7 +18,11 @@ import type {
 } from '../src/types/analytics.js';
 
 const __dbDirname = dirname(fileURLToPath(import.meta.url));
-const DB_DIR = join(__dbDirname, '..', 'data');
+// In packaged Electron, APP_USER_DATA is set to app.getPath('userData') — a writable directory.
+// In dev/CLI mode, fall back to the local data/ directory.
+const DB_DIR = process.env.APP_USER_DATA
+  ? join(process.env.APP_USER_DATA, 'data')
+  : join(__dbDirname, '..', 'data');
 const DB_PATH = join(DB_DIR, 'sessions.db');
 
 mkdirSync(DB_DIR, { recursive: true });

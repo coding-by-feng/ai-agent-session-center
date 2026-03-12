@@ -39,6 +39,9 @@ export interface HookPayloadBase {
   agent_id?: string;
   team_name?: string;
   agent_color?: string;
+
+  // Startup command (captured from parent process on SessionStart)
+  startup_command?: string;
 }
 
 // ---------------------------------------------------------------------------

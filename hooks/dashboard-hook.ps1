@@ -53,6 +53,18 @@ try {
     $sessionId = $null
 }
 
+# Capture startup command on SessionStart
+if ($hookEvent -eq 'SessionStart' -and $claude_pid) {
+    try {
+        $wmiProc = Get-CimInstance Win32_Process -Filter "ProcessId=$claude_pid" -ErrorAction Stop
+        $startup_cmd = $wmiProc.CommandLine
+        if ($startup_cmd) {
+            $data | Add-Member -NotePropertyName 'startup_command' -NotePropertyValue $startup_cmd -Force
+            $enriched = $data | ConvertTo-Json -Compress -Depth 10
+        }
+    } catch {}
+}
+
 $cacheDir = "$env:TEMP\claude-tab-titles"
 if ($sessionId) {
     $cacheFile = "$cacheDir\$sessionId"
