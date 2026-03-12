@@ -111,6 +111,17 @@ function buildAppMenu(win: BrowserWindow) {
       label: 'View',
       submenu: [
         {
+          label: 'Reload',
+          accelerator: isMac ? 'Cmd+R' : 'Ctrl+R',
+          click: () => { win.webContents.reload() },
+        },
+        {
+          label: 'Force Reload',
+          accelerator: isMac ? 'Cmd+Shift+R' : 'Ctrl+Shift+R',
+          click: () => { win.webContents.reloadIgnoringCache() },
+        },
+        { type: 'separator' },
+        {
           label: 'Zoom In',
           accelerator: isMac ? 'Cmd+=' : 'Ctrl+=',
           click: () => { win.webContents.setZoomLevel(win.webContents.getZoomLevel() + 0.5) },
