@@ -28,6 +28,7 @@ export type ShortcutActionId =
   | 'switchSession5'
   | 'switchSession6'
   | 'switchSession7'
+  | 'scrollToBottom'
   | 'switchSession8'
   | 'switchSession9';
 

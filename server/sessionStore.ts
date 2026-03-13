@@ -885,6 +885,7 @@ export async function createTerminalSession(terminalId: string, config: Terminal
     queueCount: 0,
     terminalId,
     opsTerminalId: opsTerminalId || null,
+    hadOpsTerminal: !!opsTerminalId,
     sshHost: config.host || 'localhost',
     sshCommand: config.command || 'claude',
     sshConfig: {
@@ -1125,6 +1126,22 @@ export function reconnectSessionTerminal(sessionId: string, newTerminalId: strin
   // that shouldn't wait for the 10s periodic save.
   try { saveSnapshot(); } catch { /* best effort */ }
 
+  return { ok: true, session: { ...session } };
+}
+
+/**
+ * Link a new ops terminal to an existing session.
+ * Used when the old ops terminal exited and the user wants a fresh shell.
+ */
+export function reconnectOpsTerminal(sessionId: string, newOpsTerminalId: string): { error: string } | { ok: true; session: Session } {
+  const session = sessions.get(sessionId);
+  if (!session) return { error: 'Session not found' };
+
+  session.opsTerminalId = newOpsTerminalId;
+  session.hadOpsTerminal = true;
+  invalidateSessionsCache();
+
+  log.info('session', `OPS RECONNECT: session ${sessionId?.slice(0, 8)} → ops terminal ${newOpsTerminalId?.slice(0, 8)}`);
   return { ok: true, session: { ...session } };
 }
 

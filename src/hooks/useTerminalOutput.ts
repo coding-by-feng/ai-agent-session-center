@@ -171,6 +171,13 @@ export function useTerminalOutput({ ws, terminalId }: UseTerminalOutputOptions):
     }
   }, []);
 
+  // Listen for global shortcut event to scroll terminal output to bottom
+  useEffect(() => {
+    const handler = () => scrollToBottom();
+    document.addEventListener('terminal:scrollToBottom', handler);
+    return () => document.removeEventListener('terminal:scrollToBottom', handler);
+  }, [scrollToBottom]);
+
   const clearOutput = useCallback(() => {
     setLines([]);
     partialLineRef.current = '';

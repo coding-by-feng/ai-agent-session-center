@@ -191,6 +191,7 @@ export interface Session {
   // Terminal / SSH linkage
   terminalId: string | null;
   opsTerminalId?: string | null;
+  hadOpsTerminal?: boolean;
   lastTerminalId?: string | null;
   cachedPid: number | null;
   sshHost?: string;

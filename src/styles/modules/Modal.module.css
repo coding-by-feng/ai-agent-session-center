@@ -131,10 +131,10 @@
 
 /* ---- Keyboard Shortcuts Modal ---- */
 
-.shortcutsPanel { max-width: 420px; width: 100%; }
+.shortcutsPanel { max-width: 480px; width: 100%; }
 .shortcutsHeader { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border-subtle); }
 .shortcutsHeader h3 { font-size: 13px; font-weight: 700; letter-spacing: 1.5px; color: var(--accent-cyan); }
-.shortcutsBody { padding: 16px 20px; display: flex; flex-direction: column; gap: 18px; }
+.shortcutsBody { padding: 16px 20px; display: flex; flex-direction: column; gap: 18px; max-height: 70vh; overflow-y: auto; }
 .shortcutsSection h4 { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px; }
 .shortcutList { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
 .shortcutRow { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; }
