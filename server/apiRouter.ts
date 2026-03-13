@@ -10,7 +10,7 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSessionPinned, setSessionAccentColor, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, deleteSessionFromMemory, resumeSession, reconnectSessionTerminal } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSessionPinned, setSessionAccentColor, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, deleteSessionFromMemory, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
 import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, attachToTmuxPane, consumePendingLink } from './sshManager.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
@@ -172,7 +172,7 @@ let activeSummarizeRequests = 0;
 const MAX_CONCURRENT_SUMMARIZE = 2;
 
 // Terminal creation cap
-const MAX_TERMINALS = 10;
+const MAX_TERMINALS = 50;
 
 /**
  * Hook ingestion rate limit middleware (applied to hookRouter externally).
@@ -315,9 +315,18 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
   const isClaude = !originalCmd || /(?:^|\/)claude(?:\s|$)/.test(originalCmd);
   if (isClaude) {
     // Claude CLI: normalize full path, strip any prior --resume/--continue, then append --resume with fallback
-    const baseCmd = (originalCmd || 'claude')
+    let baseCmd = (originalCmd || 'claude')
       .replace(/^(\S*\/)claude/, 'claude')
       .replace(/\s+--(?:resume\s+'[^']*'|resume\s+\S+|continue)\b/g, '').trim();
+
+    // If startupCommand wasn't captured but permissionMode is known,
+    // reconstruct the flag so resume preserves the original behavior.
+    if (session.permissionMode
+        && !baseCmd.includes('--dangerously-skip-permissions')
+        && /bypass|dangerously|skip/i.test(session.permissionMode)) {
+      baseCmd += ' --dangerously-skip-permissions';
+    }
+
     resumeCmd = isClaudeSessionId
       ? `${baseCmd} --resume '${safeId}' || ${baseCmd} --continue`
       : `${baseCmd} --continue`;
@@ -451,6 +460,39 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
     const msg = err instanceof Error ? err.message : String(err);
     log.error('api', `Reconnect terminal failed: ${msg}`);
     res.status(500).json({ error: 'Failed to reconnect terminal' });
+  }
+});
+
+// Reconnect (or create) the ops terminal for a session.
+// Creates a new blank shell in the session's project directory.
+router.post('/sessions/:id/reconnect-ops-terminal', async (req: Request, res: Response) => {
+  const sessionId = str(req.params.id);
+  const session = getSession(sessionId);
+  if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
+
+  try {
+    const cfg = session.sshConfig;
+    const opsConfig: TerminalConfig = {
+      host: cfg?.host || 'localhost',
+      port: cfg?.port,
+      username: cfg?.username,
+      authMethod: cfg?.authMethod,
+      workingDir: cfg?.workingDir || session.projectPath || '~',
+      command: '',   // blank shell
+    };
+
+    const newOpsId = await createTerminal(opsConfig, null);
+    const result = reconnectOpsTerminal(sessionId, newOpsId);
+    if ('error' in result) { res.status(500).json({ error: result.error }); return; }
+
+    const { broadcast } = await import('./wsManager.js');
+    broadcast({ type: WS_TYPES.SESSION_UPDATE, session: result.session });
+
+    res.json({ ok: true, opsTerminalId: newOpsId });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('api', `Reconnect ops terminal failed: ${msg}`);
+    res.status(500).json({ error: 'Failed to reconnect ops terminal' });
   }
 });
 
@@ -1346,8 +1388,26 @@ router.post('/workspace/save', (req: Request, res: Response) => {
       res.status(400).json({ error: 'Invalid workspace snapshot' });
       return;
     }
-    writeFileSync(WORKSPACE_SNAPSHOT_PATH, JSON.stringify(snapshot, null, 2), 'utf8');
-    log.info('api', `Workspace snapshot saved (${snapshot.sessions.length} sessions)`);
+    // Deduplicate sessions by title + SSH config before saving
+    const seen = new Set<string>();
+    const deduped: unknown[] = [];
+    for (const s of snapshot.sessions as { title?: string; sshConfig?: { host?: string; port?: number; username?: string; workingDir?: string; command?: string } }[]) {
+      const key = [
+        s.title ?? '',
+        s.sshConfig?.host ?? '',
+        s.sshConfig?.port ?? '',
+        s.sshConfig?.username ?? '',
+        s.sshConfig?.workingDir ?? '',
+        s.sshConfig?.command ?? '',
+      ].join('\0');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(s);
+    }
+    const cleaned = { ...snapshot, sessions: deduped };
+    writeFileSync(WORKSPACE_SNAPSHOT_PATH, JSON.stringify(cleaned, null, 2), 'utf8');
+    const removed = snapshot.sessions.length - deduped.length;
+    log.info('api', `Workspace snapshot saved (${deduped.length} sessions${removed > 0 ? `, ${removed} duplicates removed` : ''})`);
     res.json({ ok: true });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

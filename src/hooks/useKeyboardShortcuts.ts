@@ -148,6 +148,9 @@ function dispatchAction(
         document.documentElement.requestFullscreen().catch(() => {});
       }
       break;
+    case 'scrollToBottom':
+      document.dispatchEvent(new CustomEvent('terminal:scrollToBottom'));
+      break;
     default:
       // Handle switchSession1..switchSession9
       if (actionId.startsWith('switchSession')) {

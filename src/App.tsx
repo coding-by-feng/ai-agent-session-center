@@ -17,6 +17,7 @@ import ShortcutSettingsModal from '@/components/modals/ShortcutSettingsModal';
 import DetailPanel from '@/components/session/DetailPanel';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useSettingsInit } from '@/hooks/useSettingsInit';
+import { useWorkspaceAutoSave } from '@/hooks/useWorkspaceAutoSave';
 import LiveView from '@/routes/LiveView';
 import TitleBar from '@/components/layout/TitleBar';
 
@@ -63,6 +64,7 @@ function AppLayout() {
 function Dashboard({ token }: { token: string | null }) {
   useSettingsInit();
   useWebSocket(token);
+  useWorkspaceAutoSave();
 
   return (
     <BrowserRouter>

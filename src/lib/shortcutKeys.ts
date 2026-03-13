@@ -34,6 +34,7 @@ const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
   killSession:      { label: 'Kill selected session',       section: 'Selected Session', combo: { key: 'k' } },
   archiveSession:   { label: 'Archive selected session',    section: 'Selected Session', combo: { key: 'a' } },
   toggleFullscreen: { label: 'Toggle fullscreen',           section: 'Terminal',         combo: { key: 'F11', altKey: true } },
+  scrollToBottom:   { label: 'Scroll to bottom',            section: 'Terminal',         combo: { key: 'b' } },
   switchSession1:   { label: 'Switch to session 1',         section: 'Session Switch',   combo: sw('1') },
   switchSession2:   { label: 'Switch to session 2',         section: 'Session Switch',   combo: sw('2') },
   switchSession3:   { label: 'Switch to session 3',         section: 'Session Switch',   combo: sw('3') },
@@ -49,14 +50,14 @@ const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
 export const ACTION_IDS: ShortcutActionId[] = [
   'focusSearch', 'closeOrDeselect', 'toggleShortcuts',
   'toggleSettings', 'toggleHeader', 'newTerminal', 'toggleMute',
-  'killSession', 'archiveSession', 'toggleFullscreen',
+  'killSession', 'archiveSession', 'toggleFullscreen', 'scrollToBottom',
   'switchSession1', 'switchSession2', 'switchSession3',
   'switchSession4', 'switchSession5', 'switchSession6',
   'switchSession7', 'switchSession8', 'switchSession9',
 ];
 
 /** Section display order. */
-export const SECTION_ORDER = ['Navigation', 'Actions', 'Selected Session', 'Terminal', 'Session Switch'];
+export const SECTION_ORDER = ['Session Switch', 'Navigation', 'Actions', 'Selected Session', 'Terminal'];
 
 /** Build ShortcutBinding[] from defaults + optional overrides. */
 export function buildBindings(

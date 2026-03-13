@@ -19,15 +19,39 @@ const EXTRA_SHORTCUTS: { section: string; items: { key: string; description: str
   },
 ];
 
+/** Session-switch action IDs that should be collapsed into one row. */
+const SESSION_SWITCH_RE = /^switchSession\d$/;
+
 export default function ShortcutsPanel() {
   const bindings = useShortcutStore((s) => s.bindings);
   const openModal = useUiStore((s) => s.openModal);
 
-  // Group store bindings by section
+  // Group store bindings by section, collapsing session-switch into one row
   const sections = SECTION_ORDER.map((section) => {
-    const storeItems = bindings
-      .filter((b) => b.section === section)
-      .map((b) => ({ key: keyComboToString(b.combo), description: b.label }));
+    const sectionBindings = bindings.filter((b) => b.section === section);
+    const switchBindings = sectionBindings.filter((b) => SESSION_SWITCH_RE.test(b.actionId));
+    const otherBindings = sectionBindings.filter((b) => !SESSION_SWITCH_RE.test(b.actionId));
+
+    const storeItems = otherBindings.map((b) => ({
+      key: keyComboToString(b.combo),
+      description: b.label,
+    }));
+
+    // Collapse session-switch 1–9 into a single summary row
+    if (switchBindings.length > 0) {
+      const sample = switchBindings[0].combo;
+      const prefix = [
+        sample.ctrlKey && 'Ctrl',
+        sample.altKey && 'Alt',
+        sample.metaKey && 'Cmd',
+        sample.shiftKey && 'Shift',
+      ].filter(Boolean).join('+');
+      storeItems.unshift({
+        key: prefix ? `${prefix}+1–9` : '1–9',
+        description: 'Switch to session 1–9',
+      });
+    }
+
     const extraItems = EXTRA_SHORTCUTS
       .filter((g) => g.section === section)
       .flatMap((g) => g.items);

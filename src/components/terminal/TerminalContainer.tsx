@@ -55,6 +55,7 @@ export default memo(function TerminalContainer({
 
   const [bookmarks, setBookmarks] = useState<TerminalBookmark[]>([]);
   const [showBookmarkPanel, setShowBookmarkPanel] = useState(false);
+  const [isClosed, setIsClosed] = useState(false);
 
   const fsContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -85,6 +86,7 @@ export default memo(function TerminalContainer({
 
   // Attach/detach when terminalId changes
   useEffect(() => {
+    setIsClosed(false);
     if (terminalId) {
       attach(terminalId);
     } else {
@@ -149,6 +151,9 @@ export default memo(function TerminalContainer({
           handleTerminalReady(msg.terminalId);
         } else if (msg.type === 'terminal_closed' && msg.terminalId) {
           handleTerminalClosed(msg.terminalId, msg.reason);
+          if (msg.terminalId === terminalId) {
+            setIsClosed(true);
+          }
         }
       } catch {
         // not JSON or not terminal message
@@ -157,7 +162,7 @@ export default memo(function TerminalContainer({
 
     ws.addEventListener('message', handler);
     return () => ws.removeEventListener('message', handler);
-  }, [ws, handleTerminalOutput, handleTerminalReady, handleTerminalClosed]);
+  }, [ws, terminalId, handleTerminalOutput, handleTerminalReady, handleTerminalClosed]);
 
   // Refit on visibility change
   useEffect(() => {
@@ -304,7 +309,7 @@ export default memo(function TerminalContainer({
         onBookmark={handleBookmark}
         bookmarkCount={bookmarks.length}
         isFullscreen={isFullscreen}
-        showReconnect={showReconnect}
+        showReconnect={showReconnect || (isClosed && !!onReconnect)}
       />
       <div className={styles.terminalArea}>
         <div className={styles.terminalRow}>

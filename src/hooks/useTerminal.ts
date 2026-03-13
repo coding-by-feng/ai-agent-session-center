@@ -272,7 +272,11 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         }
 
         try {
-          const webLinks = new WebLinksAddon();
+          const webLinks = new WebLinksAddon((_event, uri) => {
+            // In Electron, window.open triggers setWindowOpenHandler → shell.openExternal.
+            // In browser, window.open opens a new tab.
+            window.open(uri, '_blank');
+          });
           term.loadAddon(webLinks);
         } catch {
           // WebLinks addon not available
@@ -668,6 +672,13 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
       activeRef.current.term.scrollToBottom();
     }
   }, []);
+
+  // Listen for global shortcut event to scroll terminal to bottom
+  useEffect(() => {
+    const handler = () => scrollToBottom();
+    document.addEventListener('terminal:scrollToBottom', handler);
+    return () => document.removeEventListener('terminal:scrollToBottom', handler);
+  }, [scrollToBottom]);
 
   const scrollPageUp = useCallback(() => {
     if (activeRef.current) {

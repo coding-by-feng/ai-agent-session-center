@@ -103,22 +103,31 @@ const TerminalContent = memo(function TerminalContent({
 // ---------------------------------------------------------------------------
 
 interface OpsTerminalContentProps {
-  opsTerminalId: string;
+  sessionId: string;
+  opsTerminalId: string | null;
   projectPath?: string;
 }
 
 const OpsTerminalContent = memo(function OpsTerminalContent({
+  sessionId,
   opsTerminalId,
   projectPath,
 }: OpsTerminalContentProps) {
   const client = useWsStore((s) => s.client);
   const ws = useMemo(() => client?.getRawSocket() ?? null, [client]);
 
+  const handleReconnect = useCallback(() => {
+    fetch(`/api/sessions/${sessionId}/reconnect-ops-terminal`, { method: 'POST' })
+      .catch(() => {});
+  }, [sessionId]);
+
   return (
     <div className={styles.terminalSection} style={{ height: '100%' }}>
       <TerminalContainer
         terminalId={opsTerminalId}
         ws={ws}
+        showReconnect={!opsTerminalId}
+        onReconnect={handleReconnect}
         projectPath={projectPath}
       />
     </div>
@@ -397,9 +406,10 @@ export default function DetailPanel() {
               : <div className={styles.tabEmpty}>No project path detected for this session</div>
           }
           commandsContent={
-            session.opsTerminalId ? (
+            (session.opsTerminalId || session.hadOpsTerminal) ? (
               <OpsTerminalContent
-                opsTerminalId={session.opsTerminalId}
+                sessionId={session.sessionId}
+                opsTerminalId={session.opsTerminalId ?? null}
                 projectPath={session.projectPath}
               />
             ) : undefined
