@@ -122,7 +122,7 @@ server/index.ts (thin orchestrator)
   ├── hookInstaller.js    — auto-install hooks on startup
   ├── portManager.ts      — resolve port, kill conflicts
   ├── hookRouter.ts       — POST /api/hooks (HTTP transport)
-  ├── apiRouter.ts        — all REST API endpoints
+  ├── apiRouter.ts        — all REST API endpoints (incl. agenda CRUD)
   ├── mqReader.ts         — file-based JSONL queue reader
   ├── hookProcessor.ts    — shared validation + processing pipeline
   ├── sessionStore.ts     — coordinator (delegates to sub-modules)
@@ -162,9 +162,10 @@ src/
   │   ├── settings/        — settings panel components
   │   ├── modals/          — modal dialogs
   │   ├── layout/          — nav, header, activity feed
+  │   ├── agenda/          — agenda task management components
   │   └── ui/              — shared UI components
-  ├── routes/              — LiveView, HistoryView, AnalyticsView, etc.
-  ├── stores/              — Zustand state management
+  ├── routes/              — LiveView, HistoryView, AgendaView, AnalyticsView, etc.
+  ├── stores/              — Zustand state management (session, settings, queue, agenda, room, camera, ui, ws)
   ├── hooks/               — React hooks (useWebSocket, useTerminal, etc.)
   ├── lib/                 — utilities (wsClient, db, sound, alarms, etc.)
   ├── styles/              — CSS/theme files
@@ -176,7 +177,7 @@ src/
 ```
 server/
 ├── index.ts              # Express + WS server entry (thin orchestrator)
-├── apiRouter.ts          # REST API endpoints (sessions, terminals, hooks, SSH)
+├── apiRouter.ts          # REST API endpoints (sessions, terminals, hooks, SSH, agenda)
 ├── hookRouter.ts         # POST /api/hooks endpoint (HTTP transport adapter)
 ├── hookProcessor.ts      # Shared hook validation + processing pipeline
 ├── mqReader.ts           # File-based JSONL message queue reader
@@ -208,10 +209,11 @@ src/
 │   ├── settings/         # Settings panel (theme, sound, hooks, API keys)
 │   ├── modals/           # New session, quick session modals
 │   ├── layout/           # NavBar, Header, ActivityFeed, WorkdirLauncher
+│   ├── agenda/           # Agenda task management components
 │   ├── auth/             # Login screen
 │   └── ui/               # Modal, Tabs, SearchInput, ResizablePanel, Toast
-├── routes/               # LiveView, HistoryView, AnalyticsView, TimelineView, QueueView
-├── stores/               # Zustand stores (session, settings, queue, room, camera, ui, ws)
+├── routes/               # LiveView, HistoryView, AgendaView, AnalyticsView, TimelineView, QueueView
+├── stores/               # Zustand stores (session, settings, queue, agenda, room, camera, ui, ws)
 ├── hooks/                # useWebSocket, useTerminal, useAuth, useSound, useKeyboardShortcuts
 ├── lib/                  # wsClient, db (Dexie), soundEngine, alarmEngine, format, etc.
 ├── styles/               # CSS/theme files
@@ -348,7 +350,7 @@ When user clicks a session card:
 
 | Key | Action |
 |-----|--------|
-| `/` | Focus search |
+| `Cmd/Ctrl+F` | Focus search |
 | `Escape` | Close modal / deselect session |
 | `?` | Toggle shortcuts panel |
 | `S` | Toggle settings |

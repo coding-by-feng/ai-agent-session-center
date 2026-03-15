@@ -28,6 +28,15 @@
 .navBtn:hover { color: var(--text-secondary); }
 .navBtn.active { color: var(--accent-cyan); border-bottom-color: var(--accent-cyan); }
 
+.badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--accent-cyan); color: #fff;
+  font-size: 9px; font-weight: 700; line-height: 1;
+  min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: 8px; margin-left: 4px;
+  vertical-align: super;
+}
+
 .spacer { flex: 1; }
 
 /* ---- Nav Actions ---- */

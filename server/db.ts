@@ -16,6 +16,7 @@ import type {
 import type {
   AnalyticsSummary, ToolBreakdownEntry, ActiveProject, HeatmapEntry, DistinctProject,
 } from '../src/types/analytics.js';
+import type { AgendaTask } from '../src/types/agenda.js';
 
 const __dbDirname = dirname(fileURLToPath(import.meta.url));
 // In packaged Electron, APP_USER_DATA is set to app.getPath('userData') — a writable directory.
@@ -115,6 +116,21 @@ db.exec(`
     FOREIGN KEY (session_id) REFERENCES sessions(id)
   );
   CREATE INDEX IF NOT EXISTS idx_notes_session_id ON notes(session_id);
+
+  CREATE TABLE IF NOT EXISTS agenda_tasks (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT,
+    priority TEXT NOT NULL DEFAULT 'medium',
+    tags TEXT NOT NULL DEFAULT '[]',
+    due_date TEXT,
+    completed INTEGER NOT NULL DEFAULT 0,
+    completed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_agenda_tasks_priority ON agenda_tasks(priority);
+  CREATE INDEX IF NOT EXISTS idx_agenda_tasks_completed ON agenda_tasks(completed);
 `);
 
 log.info('db', `SQLite database opened: ${DB_PATH}`);
@@ -199,6 +215,19 @@ const stmts = {
     GROUP BY s.project_path
     ORDER BY last_activity DESC
   `),
+
+  // Agenda tasks
+  upsertAgendaTask: db.prepare(`
+    INSERT INTO agenda_tasks (id, title, description, priority, tags, due_date, completed, completed_at, created_at, updated_at)
+    VALUES (@id, @title, @description, @priority, @tags, @due_date, @completed, @completed_at, @created_at, @updated_at)
+    ON CONFLICT(id) DO UPDATE SET
+      title = @title, description = @description, priority = @priority, tags = @tags,
+      due_date = @due_date, completed = @completed, completed_at = @completed_at, updated_at = @updated_at
+  `),
+  getAllAgendaTasks: db.prepare('SELECT * FROM agenda_tasks ORDER BY created_at DESC'),
+  getAgendaTasksByCompleted: db.prepare('SELECT * FROM agenda_tasks WHERE completed = ? ORDER BY created_at DESC'),
+  getAgendaTaskById: db.prepare('SELECT * FROM agenda_tasks WHERE id = ?'),
+  deleteAgendaTask: db.prepare('DELETE FROM agenda_tasks WHERE id = ?'),
 };
 
 // Batch insert transaction for persisting full session state
@@ -455,6 +484,67 @@ export function getHeatmap(): HeatmapEntry[] {
     }
   }
   return result;
+}
+
+// ---- Agenda Tasks ----
+
+interface AgendaTaskRow {
+  id: string;
+  title: string;
+  description: string | null;
+  priority: string;
+  tags: string;
+  due_date: string | null;
+  completed: number;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function rowToAgendaTask(row: AgendaTaskRow): AgendaTask {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description ?? undefined,
+    priority: row.priority as AgendaTask['priority'],
+    tags: JSON.parse(row.tags) as string[],
+    dueDate: row.due_date ?? undefined,
+    completed: row.completed === 1,
+    completedAt: row.completed_at ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function getAllAgendaTasks(completed?: boolean): AgendaTask[] {
+  const rows = completed === undefined
+    ? stmts.getAllAgendaTasks.all() as AgendaTaskRow[]
+    : stmts.getAgendaTasksByCompleted.all(completed ? 1 : 0) as AgendaTaskRow[];
+  return rows.map(rowToAgendaTask);
+}
+
+export function getAgendaTaskById(id: string): AgendaTask | null {
+  const row = stmts.getAgendaTaskById.get(id) as AgendaTaskRow | undefined;
+  return row ? rowToAgendaTask(row) : null;
+}
+
+export function upsertAgendaTask(task: AgendaTask): void {
+  stmts.upsertAgendaTask.run({
+    id: task.id,
+    title: task.title,
+    description: task.description ?? null,
+    priority: task.priority,
+    tags: JSON.stringify(task.tags),
+    due_date: task.dueDate ?? null,
+    completed: task.completed ? 1 : 0,
+    completed_at: task.completedAt ?? null,
+    created_at: task.createdAt,
+    updated_at: task.updatedAt,
+  });
+}
+
+export function deleteAgendaTask(id: string): void {
+  stmts.deleteAgendaTask.run(id);
 }
 
 // ---- Session ID migration ----

@@ -24,7 +24,7 @@ function sw(key: string): KeyCombo {
 }
 
 const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
-  focusSearch:      { label: 'Focus search',                section: 'Navigation',       combo: { key: '/' } },
+  focusSearch:      { label: 'Focus search',                section: 'Navigation',       combo: isMac ? { key: 'f', metaKey: true } : { key: 'f', ctrlKey: true } },
   closeOrDeselect:  { label: 'Close modal / deselect',      section: 'Navigation',       combo: { key: 'Escape' } },
   toggleShortcuts:  { label: 'Toggle shortcuts panel',      section: 'Navigation',       combo: { key: '?' } },
   toggleSettings:   { label: 'Toggle settings',             section: 'Actions',          combo: { key: 's' } },

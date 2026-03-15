@@ -6,6 +6,7 @@
 import { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
+import SearchInput from '@/components/ui/SearchInput';
 import type { Session } from '@/types/session';
 
 // ---------------------------------------------------------------------------
@@ -390,6 +391,7 @@ export default function RobotListSidebar() {
   const rooms = useRoomStore((s) => s.rooms);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
 
   const toggleGroup = useCallback((groupId: string) => {
     setCollapsedGroups((prev) => {
@@ -405,7 +407,16 @@ export default function RobotListSidebar() {
 
   // Build grouped session list: rooms first (sorted by roomIndex), then "Common Area"
   const groups = useMemo((): SessionGroup[] => {
-    const activeSessions = [...sessions.values()].filter(s => s.status !== 'ended');
+    const query = searchQuery.toLowerCase().trim();
+    const activeSessions = [...sessions.values()].filter(s => {
+      if (s.status === 'ended') return false;
+      if (!query) return true;
+      const title = (s.title || 'Unnamed').toLowerCase();
+      const label = (s.label || '').toLowerCase();
+      const project = (s.projectName || '').toLowerCase();
+      const status = s.status.toLowerCase();
+      return title.includes(query) || label.includes(query) || project.includes(query) || status.includes(query);
+    });
     const assignedIds = new Set<string>();
     const result: SessionGroup[] = [];
 
@@ -437,7 +448,7 @@ export default function RobotListSidebar() {
     }
 
     return result;
-  }, [sessions, rooms]);
+  }, [sessions, rooms, searchQuery]);
 
   const totalCount = useMemo(
     () => groups.reduce((sum, g) => sum + g.sessions.length, 0),
@@ -541,6 +552,18 @@ export default function RobotListSidebar() {
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </div>
+
+      {/* Search input */}
+      {!panelCollapsed && (
+        <div style={{ marginBottom: 6 }}>
+          <SearchInput
+            value={searchQuery}
+            onChange={setSearchQuery}
+            placeholder="Search sessions..."
+            debounceMs={150}
+          />
+        </div>
+      )}
 
       {/* Grouped session list */}
       {!panelCollapsed && (

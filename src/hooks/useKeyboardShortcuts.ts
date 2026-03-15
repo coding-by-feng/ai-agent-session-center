@@ -76,13 +76,19 @@ export function useKeyboardShortcuts(): void {
       }
 
       // Don't intercept when typing in form fields.
-      // Exception: Alt+1-9 session-switch shortcuts fire even when xterm is
-      // focused — xterm uses a hidden <textarea> so isTyping() returns true,
-      // but we still want these hotkeys to work from the terminal.
+      // Exceptions:
+      // - Alt+1-9 session-switch shortcuts fire even when xterm is focused
+      //   (xterm uses a hidden <textarea> so isTyping() returns true)
+      // - Cmd/Ctrl+F (focusSearch) fires from anywhere, like a native Find shortcut
       if (isTyping(e)) {
         const inXterm = !!(e.target as HTMLElement)?.closest?.('.xterm');
         const isAltDigit = e.altKey && (e.metaKey || e.ctrlKey) && /^Digit[0-9]$/.test(e.code);
-        if (!inXterm || !isAltDigit) return;
+        const isFindShortcut = (e.metaKey || e.ctrlKey) && e.key === 'f';
+        if (isFindShortcut) {
+          // fall through to shortcut lookup
+        } else if (!inXterm || !isAltDigit) {
+          return;
+        }
         // fall through to shortcut lookup
       }
 
@@ -113,7 +119,10 @@ function dispatchAction(
   switch (actionId) {
     case 'focusSearch': {
       const searchInput = document.querySelector<HTMLInputElement>('[data-search-input]');
-      searchInput?.focus();
+      if (searchInput) {
+        searchInput.focus();
+        searchInput.select();
+      }
       break;
     }
     case 'toggleShortcuts':
