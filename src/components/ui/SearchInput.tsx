@@ -57,6 +57,7 @@ export default function SearchInput({
     <div className={className} style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
       <input
         type="text"
+        data-search-input
         value={localValue}
         onChange={handleChange}
         placeholder={placeholder}

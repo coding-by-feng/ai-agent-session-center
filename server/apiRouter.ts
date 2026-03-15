@@ -125,6 +125,23 @@ const noteSchema = z.object({
   text: z.string().min(1).max(10000),
 });
 
+const agendaCreateSchema = z.object({
+  title: z.string().min(1).max(500),
+  description: z.string().max(5000).optional(),
+  priority: z.enum(['low', 'medium', 'high', 'urgent']).default('medium'),
+  tags: z.array(z.string().max(100)).max(20).default([]),
+  dueDate: z.string().optional(),
+});
+
+const agendaUpdateSchema = z.object({
+  title: z.string().min(1).max(500).optional(),
+  description: z.string().max(5000).optional(),
+  priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
+  tags: z.array(z.string().max(100)).max(20).optional(),
+  dueDate: z.string().nullable().optional(),
+  completed: z.boolean().optional(),
+});
+
 /** Helper: validate body with a Zod schema, send 400 on failure */
 function validateBody<T>(schema: z.ZodType<T>, body: unknown, res: Response): T | null {
   const result = schema.safeParse(body);
@@ -1429,6 +1446,118 @@ router.get('/workspace/load', (_req: Request, res: Response) => {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('api', `Workspace load failed: ${msg}`);
     res.status(500).json({ error: 'Failed to load workspace snapshot' });
+  }
+});
+
+// ---- Agenda Tasks ----
+
+router.get('/agenda', (_req: Request, res: Response) => {
+  try {
+    const completedParam = str(_req.query.completed);
+    const completed = completedParam === 'true' ? true : completedParam === 'false' ? false : undefined;
+    const tasks = db.getAllAgendaTasks(completed);
+    res.json({ ok: true, data: tasks });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('api', `Failed to list agenda tasks: ${msg}`);
+    res.status(500).json({ success: false, error: 'Failed to list agenda tasks' });
+  }
+});
+
+router.post('/agenda', (req: Request, res: Response) => {
+  const body = validateBody(agendaCreateSchema, req.body, res);
+  if (!body) return;
+  try {
+    const now = new Date().toISOString();
+    const task = {
+      id: crypto.randomUUID(),
+      title: body.title,
+      description: body.description,
+      priority: body.priority,
+      tags: body.tags,
+      dueDate: body.dueDate,
+      completed: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    db.upsertAgendaTask(task);
+    res.json({ ok: true, data: task });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('api', `Failed to create agenda task: ${msg}`);
+    res.status(500).json({ success: false, error: 'Failed to create agenda task' });
+  }
+});
+
+router.put('/agenda/:id', (req: Request, res: Response) => {
+  const body = validateBody(agendaUpdateSchema, req.body, res);
+  if (!body) return;
+  try {
+    const id = str(req.params.id);
+    const existing = db.getAgendaTaskById(id);
+    if (!existing) {
+      res.status(404).json({ success: false, error: 'Task not found' });
+      return;
+    }
+    const now = new Date().toISOString();
+    const updated = {
+      ...existing,
+      ...body,
+      id,
+      updatedAt: now,
+      completedAt: body.completed === true && !existing.completed
+        ? now
+        : body.completed === false
+          ? undefined
+          : existing.completedAt,
+    };
+    db.upsertAgendaTask(updated);
+    res.json({ ok: true, data: updated });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('api', `Failed to update agenda task: ${msg}`);
+    res.status(500).json({ success: false, error: 'Failed to update agenda task' });
+  }
+});
+
+router.delete('/agenda/:id', (req: Request, res: Response) => {
+  try {
+    const id = str(req.params.id);
+    const existing = db.getAgendaTaskById(id);
+    if (!existing) {
+      res.status(404).json({ success: false, error: 'Task not found' });
+      return;
+    }
+    db.deleteAgendaTask(id);
+    res.json({ ok: true });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('api', `Failed to delete agenda task: ${msg}`);
+    res.status(500).json({ success: false, error: 'Failed to delete agenda task' });
+  }
+});
+
+router.patch('/agenda/:id/toggle', (req: Request, res: Response) => {
+  try {
+    const id = str(req.params.id);
+    const existing = db.getAgendaTaskById(id);
+    if (!existing) {
+      res.status(404).json({ success: false, error: 'Task not found' });
+      return;
+    }
+    const now = new Date().toISOString();
+    const toggled = {
+      ...existing,
+      completed: !existing.completed,
+      completedAt: !existing.completed ? now : undefined,
+      updatedAt: now,
+    };
+    db.upsertAgendaTask(toggled);
+    res.json({ ok: true, data: toggled });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('api', `Failed to toggle agenda task: ${msg}`);
+    res.status(500).json({ success: false, error: 'Failed to toggle agenda task' });
   }
 });
 

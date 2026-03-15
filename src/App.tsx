@@ -26,6 +26,7 @@ const HistoryView = lazy(() => import('@/routes/HistoryView'));
 const TimelineView = lazy(() => import('@/routes/TimelineView'));
 const AnalyticsView = lazy(() => import('@/routes/AnalyticsView'));
 const QueueView = lazy(() => import('@/routes/QueueView'));
+const AgendaView = lazy(() => import('@/routes/AgendaView'));
 const ProjectBrowserView = lazy(() => import('@/routes/ProjectBrowserView'));
 
 const queryClient = new QueryClient({
@@ -77,6 +78,7 @@ function Dashboard({ token }: { token: string | null }) {
         } />
         <Route element={<AppLayout />}>
           <Route path="/" element={<LiveView />} />
+          <Route path="/agenda" element={<AgendaView />} />
           <Route path="/history" element={<HistoryView />} />
           <Route path="/timeline" element={<TimelineView />} />
           <Route path="/analytics" element={<AnalyticsView />} />

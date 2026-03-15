@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router';
 import { useUiStore } from '@/stores/uiStore';
+import { useAgendaStore } from '@/stores/agendaStore';
 import WorkdirLauncher from './WorkdirLauncher';
 import styles from '@/styles/modules/NavBar.module.css';
 
@@ -10,6 +11,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'LIVE' },
+  { to: '/agenda', label: 'AGENDA' },
   { to: '/history', label: 'HISTORY' },
   { to: '/timeline', label: 'TIMELINE' },
   { to: '/analytics', label: 'ANALYTICS' },
@@ -22,6 +24,9 @@ const NAV_ITEMS: NavItem[] = [
 
 export default function NavBar() {
   const openModal = useUiStore((s) => s.openModal);
+  const tasks = useAgendaStore((s) => s.tasks);
+
+  const incompleteCount = Array.from(tasks.values()).filter((t) => !t.completed).length;
 
   return (
     <nav className={styles.nav}>
@@ -69,6 +74,9 @@ export default function NavBar() {
           }
         >
           {item.label}
+          {item.to === '/agenda' && incompleteCount > 0 && (
+            <span className={styles.badge}>{incompleteCount}</span>
+          )}
         </NavLink>
       ))}
     </nav>

@@ -154,6 +154,13 @@ export type {
   ShortcutBinding,
 } from './shortcut.js';
 
+// Agenda
+export type {
+  AgendaPriority,
+  AgendaTask,
+  AgendaFilter,
+} from './agenda.js';
+
 // Analytics
 export type {
   AnalyticsSummary,
