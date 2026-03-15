@@ -349,9 +349,6 @@ export default function DetailPanel() {
                   {session.model && (
                     <span className={styles.detailModel}>{session.model}</span>
                   )}
-                  {durText && (
-                    <span className={styles.detailDuration}>{durText}</span>
-                  )}
                 </div>
               </div>
             </div>

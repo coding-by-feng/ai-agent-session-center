@@ -311,7 +311,15 @@ export default memo(function TerminalContainer({
         isFullscreen={isFullscreen}
         showReconnect={showReconnect || (isClosed && !!onReconnect)}
       />
-      <div className={styles.terminalArea}>
+      <div className={styles.terminalArea} style={{ position: 'relative' }}>
+        {isClosed && onReconnect && (
+          <div className={styles.closedOverlay}>
+            <span className={styles.closedOverlayText}>Terminal disconnected</span>
+            <button className={styles.reconnectPlaceholderBtn} onClick={onReconnect}>
+              Reconnect
+            </button>
+          </div>
+        )}
         <div className={styles.terminalRow}>
           <div
             ref={containerRef}
