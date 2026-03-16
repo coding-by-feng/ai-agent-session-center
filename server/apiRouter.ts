@@ -10,7 +10,7 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSessionPinned, setSessionAccentColor, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, deleteSessionFromMemory, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSessionPinned, setSessionAccentColor, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
 import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, attachToTmuxPane, consumePendingLink } from './sshManager.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
@@ -18,7 +18,7 @@ import { getStats as getHookStats, resetStats as resetHookStats } from './hookSt
 import * as db from './db.js';
 import { getMqStats } from './mqReader.js';
 import { execFile } from 'child_process';
-import { createReadStream, readFileSync, writeFileSync, readdirSync, existsSync, statSync, mkdirSync } from 'fs';
+import { createReadStream, readFileSync, writeFileSync, readdirSync, existsSync, statSync, mkdirSync, rmSync } from 'fs';
 import { join, dirname, extname, basename, resolve, sep } from 'path';
 import { homedir, userInfo } from 'os';
 import { fileURLToPath } from 'url';
@@ -746,6 +746,14 @@ router.post('/terminals', async (req: Request, res: Response) => {
       config.apiKey = body.apiKey;
     }
 
+    // Deduplicate: if an active session with matching config already exists, return it
+    const existing = findActiveSessionByConfig(config);
+    if (existing) {
+      log.info('api', `Deduplicated terminal creation — reusing session ${existing.sessionId} for ${resolvedHost}:${config.workingDir}`);
+      res.json({ ok: true, terminalId: existing.sessionId, deduplicated: true });
+      return;
+    }
+
     const terminalId = await createTerminal(config, null);
 
     // Create ops terminal (blank shell for manual commands) if requested
@@ -941,29 +949,6 @@ router.post('/db/sessions/:id/notes', (req: Request, res: Response) => {
 router.delete('/db/notes/:id', (req: Request, res: Response) => {
   db.deleteNote(Number(str(req.params.id)));
   res.json({ ok: true });
-});
-
-// ---- Analytics (server-side, shared across all clients) ----
-
-router.get('/db/analytics/summary', (_req: Request, res: Response) => {
-  res.json(db.getSummaryStats());
-});
-
-router.get('/db/analytics/tools', (_req: Request, res: Response) => {
-  res.json(db.getToolBreakdown());
-});
-
-router.get('/db/analytics/projects', (_req: Request, res: Response) => {
-  res.json(db.getActiveProjects());
-});
-
-router.get('/db/analytics/heatmap', (req: Request, res: Response) => {
-  const ip = req.ip || 'unknown';
-  if (isRateLimited(`heatmap:${ip}`, 2)) {
-    res.status(429).json({ error: 'Rate limit exceeded' });
-    return;
-  }
-  res.json(db.getHeatmap());
 });
 
 // Legacy endpoint (kept for backward compatibility)
@@ -1334,6 +1319,40 @@ router.post('/files/mkdir', (req: Request, res: Response) => {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('api', `Mkdir failed: ${msg}`);
     res.status(500).json({ error: 'Failed to create directory' });
+  }
+});
+
+/** DELETE /api/files/delete — delete a file or folder */
+const deleteSchema = z.object({
+  root: z.string().min(1),
+  path: z.string().min(2).max(1024), // min 2 to block deleting root "/"
+});
+
+router.post('/files/delete', (req: Request, res: Response) => {
+  const parsed = deleteSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: 'Invalid request body' }); return; }
+
+  const { root, path: relPath } = parsed.data;
+  if (!isAllowedProjectRoot(root)) { res.status(400).json({ error: 'Invalid project root' }); return; }
+  const fullPath = resolveProjectPath(root, relPath);
+  if (!fullPath) { res.status(400).json({ error: 'Path outside project root' }); return; }
+
+  // Block deleting the project root itself
+  if (fullPath === root || fullPath === root + sep) {
+    res.status(400).json({ error: 'Cannot delete project root' });
+    return;
+  }
+
+  try {
+    if (!existsSync(fullPath)) { res.status(404).json({ error: 'Path not found' }); return; }
+    const stat = statSync(fullPath);
+    rmSync(fullPath, { recursive: stat.isDirectory(), force: false });
+    invalidateCache(root);
+    res.json({ ok: true, path: relPath });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('api', `Delete failed: ${msg}`);
+    res.status(500).json({ error: 'Failed to delete' });
   }
 });
 
