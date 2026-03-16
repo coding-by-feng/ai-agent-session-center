@@ -842,6 +842,28 @@ export function getSession(sessionId: string): Session | null {
 }
 
 /**
+ * Find an active (non-ended, non-archived) session that matches the given config.
+ * Used to deduplicate when loading sessions from workspace snapshots / config.
+ */
+export function findActiveSessionByConfig(config: TerminalConfig): Session | null {
+  const resolvedHost = config.host || 'localhost';
+  const resolvedCommand = config.command || 'claude';
+  const resolvedWorkDir = config.workingDir
+    ? (config.workingDir.startsWith('~') ? config.workingDir.replace(/^~/, homedir()) : config.workingDir)
+    : homedir();
+
+  for (const session of sessions.values()) {
+    if (session.status === SESSION_STATUS.ENDED) continue;
+    if (session.archived) continue;
+    if (session.projectPath !== resolvedWorkDir) continue;
+    if ((session.sshHost || 'localhost') !== resolvedHost) continue;
+    if ((session.sshCommand || 'claude') !== resolvedCommand) continue;
+    return { ...session };
+  }
+  return null;
+}
+
+/**
  * Create a session card immediately when SSH terminal connects (before hooks arrive).
  */
 export async function createTerminalSession(terminalId: string, config: TerminalConfig, opsTerminalId?: string): Promise<Session> {
