@@ -313,6 +313,44 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
 
       log.info('pty', `Spawned ${local ? 'local' : `remote (${config.host})`} terminal ${terminalId} (pid: ${ptyProcess.pid})`);
 
+      // Auto-type SSH password when password auth is used.
+      // Watches PTY output for "password:" prompts and sends the stored password.
+      if (!local && config.password) {
+        const storedPassword = config.password;
+        let passwordBuffer = '';
+        let passwordAttempts = 0;
+        const maxAttempts = 2;
+        const passwordDisp = ptyProcess.onData((data: string) => {
+          passwordBuffer += data;
+          if (passwordBuffer.length > 4096) passwordBuffer = passwordBuffer.slice(-4096);
+          const stripped = passwordBuffer.replace(ANSI_ESC_RE, '').toLowerCase();
+          if (stripped.includes('password:') || stripped.includes('password for')) {
+            passwordAttempts++;
+            if (passwordAttempts > maxAttempts) {
+              log.error('pty', `SSH password rejected after ${maxAttempts} attempts for ${terminalId}`);
+              passwordDisp.dispose();
+              return;
+            }
+            // Small delay to ensure the SSH process is ready for input
+            setTimeout(() => {
+              const term = terminals.get(terminalId);
+              if (term?.pty) {
+                term.pty.write(storedPassword + '\r');
+                log.info('pty', `Auto-typed SSH password for ${terminalId} (attempt ${passwordAttempts})`);
+              }
+            }, 100);
+            // Reset buffer so we don't re-trigger on the same prompt
+            passwordBuffer = '';
+          }
+          // Stop watching after successful auth (shell prompt appears)
+          if (stripped.includes('last login') || SHELL_PROMPT_RE.test(stripped.split(/[\r\n]+/).filter(l => l.trim()).pop() || '')) {
+            passwordDisp.dispose();
+          }
+        });
+        // Safety cleanup — stop watching after 30s regardless
+        setTimeout(() => { passwordDisp.dispose(); }, 30000);
+      }
+
       // Detect when the shell is ready (prompt visible) before sending commands.
       // Local shells init in ~100-300ms; remote SSH can take seconds for key exchange.
       const shellReady = detectShellReady(ptyProcess, terminalId, local ? 2000 : 10000);

@@ -1,6 +1,6 @@
 process.env.ELECTRON = '1'
 
-import { app, BrowserWindow, shell, Menu } from 'electron'
+import { app, BrowserWindow, shell, Menu, ipcMain } from 'electron'
 import path from 'path'
 import { existsSync } from 'fs'
 import { setupTray } from './tray.js'
@@ -221,20 +221,42 @@ function buildAppMenu(win: BrowserWindow) {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
-// Graceful shutdown: save snapshot + close DB before Electron exits.
+// Graceful shutdown: notify renderer to save workspace, then shut down server.
 // This runs BEFORE windows close, so the server is still alive.
+let isQuitting = false
 app.on('before-quit', async (e) => {
-  if (serverShutdown) {
-    e.preventDefault()
-    const fn = serverShutdown
-    serverShutdown = null // prevent re-entry
+  if (isQuitting) return
+  e.preventDefault()
+  isQuitting = true
+
+  // Tell renderer to save workspace — wait up to 5s for it to finish
+  const windows = BrowserWindow.getAllWindows()
+  if (windows.length > 0) {
+    const win = windows[0]
     try {
-      await fn()
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          ipcMain.once('app:close-ready', () => resolve())
+          win.webContents.send('app:before-close')
+        }),
+        new Promise<void>((resolve) => setTimeout(resolve, 5000)),
+      ])
     } catch {
       // best effort — don't block quit
     }
-    app.quit()
   }
+
+  // Shut down server (save SQLite snapshot, close DB)
+  if (serverShutdown) {
+    const fn = serverShutdown
+    serverShutdown = null
+    try {
+      await fn()
+    } catch {
+      // best effort
+    }
+  }
+  app.quit()
 })
 
 app.on('window-all-closed', () => {

@@ -72,6 +72,8 @@ describe('DepsCheckStep', () => {
       getPort: vi.fn(),
       openInBrowser: vi.fn(),
       rerunSetup: vi.fn(),
+      onBeforeClose: vi.fn().mockReturnValue(() => {}),
+      closeReady: vi.fn(),
     }
 
     const props = makeStepProps()
@@ -94,6 +96,8 @@ describe('DepsCheckStep', () => {
       getPort: vi.fn(),
       openInBrowser: vi.fn(),
       rerunSetup: vi.fn(),
+      onBeforeClose: vi.fn().mockReturnValue(() => {}),
+      closeReady: vi.fn(),
     }
 
     const props = makeStepProps()
@@ -138,6 +142,8 @@ describe('InstallStep', () => {
       getPort: vi.fn(),
       openInBrowser: vi.fn(),
       rerunSetup: vi.fn(),
+      onBeforeClose: vi.fn().mockReturnValue(() => {}),
+      closeReady: vi.fn(),
     }
 
     const props = makeStepProps()

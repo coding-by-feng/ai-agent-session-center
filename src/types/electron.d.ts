@@ -37,6 +37,10 @@ export interface ElectronAPI {
   getPort():          Promise<number>
   openInBrowser():    void
   rerunSetup():       void
+
+  // Lifecycle IPC
+  onBeforeClose(cb: () => Promise<void>): () => void
+  closeReady():       void
 }
 
 declare global {

@@ -340,3 +340,20 @@ export function cancelAutoSave(): void {
     _autoSaveTimer = null;
   }
 }
+
+/**
+ * Immediately flush a workspace save (no debounce).
+ * Used when the app is about to close and we need to save right now.
+ */
+export async function flushSave(
+  getSessions: () => Map<string, Session>,
+  getRooms: () => Room[],
+): Promise<void> {
+  cancelAutoSave();
+  const sessions = getSessions();
+  const rooms = getRooms();
+  const hasExportable = Array.from(sessions.values()).some((s) => !!s.sshConfig);
+  if (!hasExportable) return;
+  const snapshot = buildSnapshot(sessions, rooms);
+  await saveToConfig(snapshot);
+}
