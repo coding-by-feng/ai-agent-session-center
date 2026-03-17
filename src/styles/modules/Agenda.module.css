@@ -270,6 +270,42 @@
   line-height: 1.7;
 }
 
+.tag:hover {
+  background: color-mix(in srgb, var(--accent-cyan) 20%, transparent);
+  border-color: var(--accent-cyan);
+}
+
+.tagInput {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  background: var(--bg-subtle);
+  border: 1px solid var(--accent-cyan);
+  border-radius: 3px;
+  padding: 1px 6px;
+  outline: none;
+  min-width: 120px;
+  line-height: 1.5;
+}
+
+.addTagBtn {
+  font-size: 10px;
+  color: var(--text-dim);
+  background: none;
+  border: 1px dashed color-mix(in srgb, var(--text-dim) 40%, transparent);
+  border-radius: 3px;
+  padding: 0 5px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  line-height: 1.6;
+  transition: all 0.15s ease;
+}
+
+.addTagBtn:hover {
+  color: var(--accent-cyan);
+  border-color: var(--accent-cyan);
+}
+
 /* --- Description --- */
 
 .description {

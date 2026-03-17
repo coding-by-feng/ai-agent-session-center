@@ -115,18 +115,44 @@ const OpsTerminalContent = memo(function OpsTerminalContent({
 }: OpsTerminalContentProps) {
   const client = useWsStore((s) => s.client);
   const ws = useMemo(() => client?.getRawSocket() ?? null, [client]);
+  const [connecting, setConnecting] = useState(false);
 
   const handleReconnect = useCallback(() => {
+    setConnecting(true);
     fetch(`/api/sessions/${sessionId}/reconnect-ops-terminal`, { method: 'POST' })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setTimeout(() => setConnecting(false), 2000));
   }, [sessionId]);
+
+  // Reset connecting state when terminal connects
+  useEffect(() => {
+    if (opsTerminalId) setConnecting(false);
+  }, [opsTerminalId]);
+
+  if (!opsTerminalId) {
+    return (
+      <div className={styles.opsReconnectPlaceholder}>
+        <div className={styles.opsReconnectIcon}>&#x2387;</div>
+        <div className={styles.opsReconnectLabel}>
+          {connecting ? 'Connecting...' : 'No terminal connected'}
+        </div>
+        <button
+          className={styles.opsReconnectBtn}
+          onClick={handleReconnect}
+          disabled={connecting}
+        >
+          {connecting ? 'CONNECTING...' : 'CONNECT TERMINAL'}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.terminalSection} style={{ height: '100%' }}>
       <TerminalContainer
         terminalId={opsTerminalId}
         ws={ws}
-        showReconnect={!opsTerminalId}
+        showReconnect={false}
         onReconnect={handleReconnect}
         projectPath={projectPath}
       />

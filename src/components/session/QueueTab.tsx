@@ -56,6 +56,12 @@ export default function QueueTab({
       return stored === null ? true : stored === '1';
     } catch { return true; }
   });
+  const [autoSend, setAutoSend] = useState(() => {
+    try {
+      const stored = localStorage.getItem('queue-auto-send');
+      return stored === null ? true : stored === '1';
+    } catch { return true; }
+  });
   const [movingItemId, setMovingItemId] = useState<number | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
 
@@ -104,6 +110,7 @@ export default function QueueTab({
     const prev = prevStatusRef.current;
     prevStatusRef.current = sessionStatus;
 
+    if (!autoSend) return;
     if (prev === sessionStatus) return;
     const isWaiting =
       sessionStatus === 'waiting' || sessionStatus === 'input';
@@ -120,7 +127,7 @@ export default function QueueTab({
         showToast('Auto-sent queued prompt', 'info', 2000);
       }
     });
-  }, [sessionStatus, items, sessionId, terminalId, remove, sendPromptToTerminal]);
+  }, [autoSend, sessionStatus, items, sessionId, terminalId, remove, sendPromptToTerminal]);
 
   // ---- Add to queue ----
   const handleAdd = useCallback(() => {
@@ -227,18 +234,36 @@ export default function QueueTab({
   return (
     <div className={`${styles.queuePanel}${collapsed ? ` ${styles.collapsed}` : ''}`}>
       {/* Toggle header */}
-      <button
-        className={styles.queueToggle}
-        onClick={() => {
-          const next = !collapsed;
-          setCollapsed(next);
-          try { localStorage.setItem('queue-panel-collapsed', next ? '1' : '0'); } catch { /* ignore */ }
-        }}
-      >
-        <span className={styles.queueToggleArrow}>&#x25B6;</span>
-        QUEUE{' '}
-        <span className={styles.queueCount}>({items.length})</span>
-      </button>
+      <div className={styles.queueHeader}>
+        <button
+          className={styles.queueToggle}
+          onClick={() => {
+            const next = !collapsed;
+            setCollapsed(next);
+            try { localStorage.setItem('queue-panel-collapsed', next ? '1' : '0'); } catch { /* ignore */ }
+          }}
+        >
+          <span className={styles.queueToggleArrow}>&#x25B6;</span>
+          QUEUE{' '}
+          <span className={styles.queueCount}>({items.length})</span>
+        </button>
+        <button
+          className={`${styles.autoSendToggle} ${autoSend ? styles.autoSendOn : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            const next = !autoSend;
+            setAutoSend(next);
+            try { localStorage.setItem('queue-auto-send', next ? '1' : '0'); } catch { /* ignore */ }
+            showToast(next ? 'Auto-send enabled' : 'Auto-send disabled', 'info', 1500);
+          }}
+          title={autoSend ? 'Auto-send ON — prompts sent automatically when session is waiting' : 'Auto-send OFF — prompts stay in queue'}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+          </svg>
+        </button>
+      </div>
 
       {/* Body */}
       <div className={styles.queueBody}>

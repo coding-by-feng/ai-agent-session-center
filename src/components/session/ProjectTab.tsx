@@ -892,6 +892,33 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     }
   }, [currentPath, projectPath, loadDir]);
 
+  // Delete file or folder
+  const [confirmDeleteName, setConfirmDeleteName] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = useCallback(async (entryName: string) => {
+    const relPath = currentPath === '/' ? '/' + entryName : currentPath + '/' + entryName;
+    setDeleting(true);
+    try {
+      const res = await fetch('/api/files/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ root: projectPath, path: relPath }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: 'Delete failed' }));
+        setError(data.error || 'Delete failed');
+        return;
+      }
+      setConfirmDeleteName(null);
+      loadDir(currentPath);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeleting(false);
+    }
+  }, [currentPath, projectPath, loadDir]);
+
   // Refresh
   const handleRefresh = useCallback(() => {
     if (file) {
@@ -900,6 +927,27 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
       loadDir(currentPath);
     }
   }, [currentPath, file, loadDir, loadFile]);
+
+  // Silent refresh — updates directory listing without clearing file/loading state.
+  // Used by the auto-refresh polling interval.
+  const silentRefreshDir = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/files/list?root=${encodeURIComponent(projectPath)}&path=${encodeURIComponent(currentPath)}`,
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      setEntries(data.items);
+    } catch {
+      // Silently ignore — next poll will retry
+    }
+  }, [projectPath, currentPath]);
+
+  // Auto-refresh: poll directory listing every 5 seconds
+  useEffect(() => {
+    const interval = setInterval(silentRefreshDir, 5000);
+    return () => clearInterval(interval);
+  }, [silentRefreshDir]);
 
   // Sort entries: directories first, then apply user sort preference
   const sortedEntries = useMemo(() => {
@@ -1208,21 +1256,58 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         {!loading && !error && !file && !showingEditor && entries.length > 0 && (
           <div className={styles.fileList}>
             {sortedEntries.map((entry) => (
-              <button
-                key={entry.name}
-                className={styles.fileEntry}
-                onClick={() => handleEntryClick(entry)}
-              >
-                <span className={styles.fileIcon}>{fileIcon(entry.name, entry.type)}</span>
-                <span className={styles.fileName}>{entry.name}</span>
-                {showDateTime && entry.mtime && (
-                  <span className={styles.fileDate}>{formatDateTime(entry.mtime)}</span>
+              <div key={entry.name} className={styles.fileRow}>
+                <button
+                  className={styles.fileEntry}
+                  onClick={() => handleEntryClick(entry)}
+                >
+                  <span className={styles.fileIcon}>{fileIcon(entry.name, entry.type)}</span>
+                  <span className={styles.fileName}>{entry.name}</span>
+                  {showDateTime && entry.mtime && (
+                    <span className={styles.fileDate}>{formatDateTime(entry.mtime)}</span>
+                  )}
+                  {entry.type === 'file' && entry.size != null && (
+                    <span className={styles.fileSize}>{formatSize(entry.size)}</span>
+                  )}
+                  {entry.type === 'dir' && <span className={styles.fileChevron}>&#8250;</span>}
+                </button>
+                <button
+                  className={styles.fileDeleteBtn}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirmDeleteName(confirmDeleteName === entry.name ? null : entry.name);
+                  }}
+                  title={`Delete ${entry.name}`}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                    <path d="M10 11v6" />
+                    <path d="M14 11v6" />
+                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                  </svg>
+                </button>
+                {confirmDeleteName === entry.name && (
+                  <div className={styles.deleteConfirm}>
+                    <span className={styles.deleteConfirmText}>
+                      Delete {entry.type === 'dir' ? 'folder' : 'file'} &ldquo;{entry.name}&rdquo;?
+                    </span>
+                    <button
+                      className={styles.deleteConfirmYes}
+                      onClick={() => handleDelete(entry.name)}
+                      disabled={deleting}
+                    >
+                      {deleting ? 'DELETING...' : 'DELETE'}
+                    </button>
+                    <button
+                      className={styles.deleteConfirmNo}
+                      onClick={() => setConfirmDeleteName(null)}
+                    >
+                      CANCEL
+                    </button>
+                  </div>
                 )}
-                {entry.type === 'file' && entry.size != null && (
-                  <span className={styles.fileSize}>{formatSize(entry.size)}</span>
-                )}
-                {entry.type === 'dir' && <span className={styles.fileChevron}>&#8250;</span>}
-              </button>
+              </div>
             ))}
           </div>
         )}

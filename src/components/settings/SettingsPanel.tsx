@@ -6,7 +6,7 @@ import ThemeSettings from './ThemeSettings';
 import SoundSettings from './SoundSettings';
 import HookSettings from './HookSettings';
 import ApiKeySettings from './ApiKeySettings';
-import SummaryPromptSettings from './SummaryPromptSettings';
+
 import ShortcutSettings from './ShortcutSettings';
 import headerStyles from '@/styles/modules/Header.module.css';
 import styles from '@/styles/modules/Settings.module.css';
@@ -162,11 +162,6 @@ function AdvancedSettings({
 }) {
   return (
     <div>
-      <div className={styles.section}>
-        <h4>Summary Prompts</h4>
-        <SummaryPromptSettings />
-      </div>
-
       <div className={styles.section}>
         <h4>Import / Export</h4>
         <p className={styles.settingsHint}>

@@ -181,14 +181,16 @@ const SWITCH_STATUS_ORDER: Record<string, number> = {
 
 function switchToSessionByIndex(index: number): void {
   const sessions = useSessionStore.getState().sessions;
-  // Sort matching sidebar/tab-strip order: status first, then title
+  // Sort matching SessionSwitcher order: pinned first, then status, then title
   const active = [...sessions.values()]
     .filter((s) => s.status !== 'ended')
     .sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
       const oa = SWITCH_STATUS_ORDER[a.status] ?? 5;
       const ob = SWITCH_STATUS_ORDER[b.status] ?? 5;
       if (oa !== ob) return oa - ob;
-      return (a.title || 'Unnamed').localeCompare(b.title || 'Unnamed');
+      return (a.title || a.projectName || '').localeCompare(b.title || b.projectName || '');
     });
   if (index >= 0 && index < active.length) {
     const target = active[index];

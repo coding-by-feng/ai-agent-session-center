@@ -83,7 +83,6 @@
   white-space: nowrap;
   flex-shrink: 0;
   transition: color 0.15s, background 0.15s, border-color 0.15s;
-  max-width: 160px;
 }
 .fileTab:hover {
   color: var(--text-secondary);
@@ -312,6 +311,104 @@
   font-size: 16px;
   color: var(--text-dim);
   font-weight: 300;
+}
+
+/* ---- File Row (entry + delete) ---- */
+
+.fileRow {
+  position: relative;
+}
+
+.fileDeleteBtn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-dim, #555);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s, border-color 0.15s;
+  z-index: 2;
+}
+.fileRow:hover .fileDeleteBtn {
+  opacity: 0.6;
+}
+.fileDeleteBtn:hover {
+  opacity: 1 !important;
+  color: var(--accent-red, #ff4444);
+  background: rgba(255, 68, 68, 0.08);
+  border-color: rgba(255, 68, 68, 0.25);
+}
+
+/* Inline confirmation hint */
+.deleteConfirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(255, 68, 68, 0.06);
+  border-bottom: 1px solid rgba(255, 68, 68, 0.15);
+}
+
+.deleteConfirmText {
+  flex: 1;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  color: var(--text-secondary, #888);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deleteConfirmYes {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  background: rgba(255, 68, 68, 0.1);
+  border: 1px solid rgba(255, 68, 68, 0.4);
+  border-radius: 3px;
+  color: var(--accent-red, #ff4444);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.deleteConfirmYes:hover {
+  background: rgba(255, 68, 68, 0.2);
+  border-color: rgba(255, 68, 68, 0.6);
+}
+.deleteConfirmYes:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.deleteConfirmNo {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  background: none;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  border-radius: 3px;
+  color: var(--text-dim, #555);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.deleteConfirmNo:hover {
+  color: var(--text-secondary, #888);
+  border-color: var(--text-dim, #555);
 }
 
 /* ---- File Viewer ---- */
@@ -1336,7 +1433,6 @@
   white-space: nowrap;
   flex-shrink: 0;
   transition: color 0.15s, background 0.15s, border-color 0.15s;
-  max-width: 160px;
 }
 .subTab:hover {
   color: var(--text-secondary);
