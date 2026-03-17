@@ -163,11 +163,5 @@ export type {
 
 // Analytics
 export type {
-  AnalyticsSummary,
-  ToolBreakdownEntry,
-  ToolBreakdown,
-  ActiveProject,
-  HeatmapEntry,
-  HeatmapData,
   DistinctProject,
 } from './analytics.js';

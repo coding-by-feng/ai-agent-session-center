@@ -13,8 +13,6 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'LIVE' },
   { to: '/agenda', label: 'AGENDA' },
   { to: '/history', label: 'HISTORY' },
-  { to: '/timeline', label: 'TIMELINE' },
-  { to: '/analytics', label: 'ANALYTICS' },
   { to: '/queue', label: 'QUEUE' },
 ];
 

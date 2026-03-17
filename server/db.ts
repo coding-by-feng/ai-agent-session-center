@@ -14,7 +14,7 @@ import type {
   FullTextSearchResult, FullTextSearchResponse,
 } from '../src/types/api.js';
 import type {
-  AnalyticsSummary, ToolBreakdownEntry, ActiveProject, HeatmapEntry, DistinctProject,
+  DistinctProject,
 } from '../src/types/analytics.js';
 import type { AgendaTask } from '../src/types/agenda.js';
 
@@ -202,19 +202,6 @@ const stmts = {
 
   // Analytics
   distinctProjects: db.prepare(`SELECT DISTINCT project_path, project_name FROM sessions WHERE project_path IS NOT NULL AND project_path != '' ORDER BY project_name`),
-  summaryStats: db.prepare(`SELECT COUNT(*) as total_sessions, SUM(CASE WHEN status != 'ended' THEN 1 ELSE 0 END) as active_sessions FROM sessions`),
-  totalPrompts: db.prepare('SELECT COUNT(*) as cnt FROM prompts'),
-  totalToolCalls: db.prepare('SELECT COUNT(*) as cnt FROM tool_calls'),
-  toolBreakdown: db.prepare(`SELECT tool_name, COUNT(*) as count FROM tool_calls GROUP BY tool_name ORDER BY count DESC`),
-  activeProjects: db.prepare(`
-    SELECT s.project_path, s.project_name,
-      COUNT(DISTINCT s.id) as session_count,
-      MAX(s.last_activity_at) as last_activity
-    FROM sessions s
-    WHERE s.project_path IS NOT NULL AND s.project_path != ''
-    GROUP BY s.project_path
-    ORDER BY last_activity DESC
-  `),
 
   // Agenda tasks
   upsertAgendaTask: db.prepare(`
@@ -426,64 +413,6 @@ export function fullTextSearch(params: { query?: string; type?: string; page?: n
 
 export function getDistinctProjects(): DistinctProject[] {
   return stmts.distinctProjects.all() as DistinctProject[];
-}
-
-export function getSummaryStats(): AnalyticsSummary {
-  const stats = stmts.summaryStats.get() as { total_sessions: number; active_sessions: number | null };
-  const promptCount = (stmts.totalPrompts.get() as { cnt: number }).cnt;
-  const toolCount = (stmts.totalToolCalls.get() as { cnt: number }).cnt;
-
-  const tools = stmts.toolBreakdown.all() as Array<{ tool_name: string; count: number }>;
-  const mostUsedTool = tools.length > 0 ? { tool_name: tools[0].tool_name, count: tools[0].count } : null;
-
-  const projects = stmts.activeProjects.all() as Array<{ project_path: string; project_name: string; session_count: number }>;
-  const busiestProject = projects.length > 0
-    ? { project_path: projects[0].project_path, name: projects[0].project_name, count: projects[0].session_count }
-    : null;
-
-  return {
-    total_sessions: stats.total_sessions,
-    active_sessions: stats.active_sessions || 0,
-    total_prompts: promptCount,
-    total_tool_calls: toolCount,
-    most_used_tool: mostUsedTool,
-    busiest_project: busiestProject,
-  };
-}
-
-export function getToolBreakdown(): ToolBreakdownEntry[] {
-  const tools = stmts.toolBreakdown.all() as Array<{ tool_name: string; count: number }>;
-  const total = tools.reduce((s, t) => s + t.count, 0);
-  return tools.map(t => ({
-    tool_name: t.tool_name,
-    count: t.count,
-    percentage: total > 0 ? Math.round(t.count / total * 1000) / 10 : 0,
-  }));
-}
-
-export function getActiveProjects(): ActiveProject[] {
-  return stmts.activeProjects.all() as ActiveProject[];
-}
-
-export function getHeatmap(): HeatmapEntry[] {
-  const rows = db.prepare('SELECT timestamp FROM events').all() as Array<{ timestamp: number }>;
-  const grid: Record<string, number> = {};
-  for (const { timestamp } of rows) {
-    const d = new Date(timestamp);
-    const jsDay = d.getDay();
-    const day = jsDay === 0 ? 6 : jsDay - 1;
-    const hour = d.getHours();
-    const key = `${day}-${hour}`;
-    grid[key] = (grid[key] || 0) + 1;
-  }
-  const result: HeatmapEntry[] = [];
-  for (let day = 0; day < 7; day++) {
-    for (let hour = 0; hour < 24; hour++) {
-      const key = `${day}-${hour}`;
-      if (grid[key]) result.push({ day_of_week: day, hour, count: grid[key] });
-    }
-  }
-  return result;
 }
 
 // ---- Agenda Tasks ----

@@ -51,9 +51,12 @@ export default function AgendaTaskCard({ task }: AgendaTaskCardProps) {
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(task.title);
+  const [editingTags, setEditingTags] = useState(false);
+  const [tagsDraft, setTagsDraft] = useState('');
   const [showDesc, setShowDesc] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const tagsInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (editing) {
@@ -61,6 +64,12 @@ export default function AgendaTaskCard({ task }: AgendaTaskCardProps) {
       inputRef.current?.select();
     }
   }, [editing]);
+
+  useEffect(() => {
+    if (editingTags) {
+      tagsInputRef.current?.focus();
+    }
+  }, [editingTags]);
 
   // Sync draft with task title when it changes externally
   useEffect(() => {
@@ -87,6 +96,24 @@ export default function AgendaTaskCard({ task }: AgendaTaskCardProps) {
     deleteTask(task.id);
     setConfirming(false);
   }, [deleteTask, task.id]);
+
+  const startEditingTags = useCallback(() => {
+    setTagsDraft(task.tags.join(', '));
+    setEditingTags(true);
+  }, [task.tags]);
+
+  const commitTagsEdit = useCallback(() => {
+    setEditingTags(false);
+    const newTags = tagsDraft
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const oldTags = task.tags.join(',');
+    const newTagsStr = newTags.join(',');
+    if (oldTags !== newTagsStr) {
+      updateTask(task.id, { tags: newTags });
+    }
+  }, [tagsDraft, task.id, task.tags, updateTask]);
 
   const dueDateStatus = getDueDateStatus(task.dueDate);
 
@@ -162,11 +189,47 @@ export default function AgendaTaskCard({ task }: AgendaTaskCardProps) {
               {formatDueDate(task.dueDate)}
             </span>
           )}
-          {task.tags.map((t) => (
-            <span key={t} className={styles.tag}>
-              {t}
-            </span>
-          ))}
+          {editingTags ? (
+            <input
+              ref={tagsInputRef}
+              className={styles.tagInput}
+              value={tagsDraft}
+              onChange={(e) => setTagsDraft(e.target.value)}
+              onBlur={commitTagsEdit}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  commitTagsEdit();
+                }
+                if (e.key === 'Escape') {
+                  setEditingTags(false);
+                }
+              }}
+              onClick={(e) => e.stopPropagation()}
+              placeholder="tag1, tag2, ..."
+            />
+          ) : (
+            <>
+              {task.tags.map((t) => (
+                <span
+                  key={t}
+                  className={styles.tag}
+                  onClick={startEditingTags}
+                  title="Click to edit tags"
+                  style={{ cursor: 'pointer' }}
+                >
+                  {t}
+                </span>
+              ))}
+              <button
+                className={styles.addTagBtn}
+                onClick={startEditingTags}
+                title="Add / edit tags"
+              >
+                +
+              </button>
+            </>
+          )}
         </div>
 
         {/* Description expandable */}
