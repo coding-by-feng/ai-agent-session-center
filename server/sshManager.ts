@@ -365,8 +365,12 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
         shellReady,
       });
 
-      // Register pending link for session matching
-      pendingLinks.set(workDir, { terminalId, host: config.host || 'localhost', createdAt: Date.now() });
+      // Register pending link for session matching.
+      // Skip for ops terminals (command='') — they never run Claude so they
+      // must not overwrite the main terminal's pending link for the same workDir.
+      if (!skipAutoLaunch) {
+        pendingLinks.set(workDir, { terminalId, host: config.host || 'localhost', createdAt: Date.now() });
+      }
 
       // #19: Store disposables for proper cleanup on terminal close
       const disposables: IDisposable[] = [];
