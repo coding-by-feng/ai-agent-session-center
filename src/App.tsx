@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect } from 'react';
+import { lazy, Suspense, useState, useEffect, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
@@ -18,13 +18,13 @@ import DetailPanel from '@/components/session/DetailPanel';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useSettingsInit } from '@/hooks/useSettingsInit';
 import { useWorkspaceAutoSave } from '@/hooks/useWorkspaceAutoSave';
+import { useWorkspaceAutoLoad } from '@/hooks/useWorkspaceAutoLoad';
 import LiveView from '@/routes/LiveView';
 import TitleBar from '@/components/layout/TitleBar';
+import SavingOverlay from '@/components/ui/SavingOverlay';
 
 // Lazy-load non-default routes for code splitting
 const HistoryView = lazy(() => import('@/routes/HistoryView'));
-const TimelineView = lazy(() => import('@/routes/TimelineView'));
-const AnalyticsView = lazy(() => import('@/routes/AnalyticsView'));
 const QueueView = lazy(() => import('@/routes/QueueView'));
 const AgendaView = lazy(() => import('@/routes/AgendaView'));
 const ProjectBrowserView = lazy(() => import('@/routes/ProjectBrowserView'));
@@ -66,27 +66,48 @@ function Dashboard({ token }: { token: string | null }) {
   useSettingsInit();
   useWebSocket(token);
   useWorkspaceAutoSave();
+  useWorkspaceAutoLoad();
+
+  const [saving, setSaving] = useState(false);
+
+  // Listen for Electron's before-close signal to flush workspace save
+  const handleBeforeClose = useCallback(async () => {
+    setSaving(true);
+    const { flushSave } = await import('@/lib/workspaceSnapshot');
+    const { useSessionStore } = await import('@/stores/sessionStore');
+    const { useRoomStore } = await import('@/stores/roomStore');
+    await flushSave(
+      () => useSessionStore.getState().sessions,
+      () => useRoomStore.getState().rooms,
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!window.electronAPI?.onBeforeClose) return;
+    return window.electronAPI.onBeforeClose(handleBeforeClose);
+  }, [handleBeforeClose]);
 
   return (
-    <BrowserRouter>
-      <Routes>
-        {/* Standalone route — no AppLayout chrome */}
-        <Route path="/project-browser" element={
-          <Suspense fallback={<div style={{ padding: '2rem', color: '#8888aa', background: '#0a0a1a', height: '100vh' }}>Loading...</div>}>
-            <ProjectBrowserView />
-          </Suspense>
-        } />
-        <Route element={<AppLayout />}>
-          <Route path="/" element={<LiveView />} />
-          <Route path="/agenda" element={<AgendaView />} />
-          <Route path="/history" element={<HistoryView />} />
-          <Route path="/timeline" element={<TimelineView />} />
-          <Route path="/analytics" element={<AnalyticsView />} />
-          <Route path="/queue" element={<QueueView />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <>
+      {saving && <SavingOverlay />}
+      <BrowserRouter>
+        <Routes>
+          {/* Standalone route — no AppLayout chrome */}
+          <Route path="/project-browser" element={
+            <Suspense fallback={<div style={{ padding: '2rem', color: '#8888aa', background: '#0a0a1a', height: '100vh' }}>Loading...</div>}>
+              <ProjectBrowserView />
+            </Suspense>
+          } />
+          <Route element={<AppLayout />}>
+            <Route path="/" element={<LiveView />} />
+            <Route path="/agenda" element={<AgendaView />} />
+            <Route path="/history" element={<HistoryView />} />
+            <Route path="/queue" element={<QueueView />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </>
   );
 }
 

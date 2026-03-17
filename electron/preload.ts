@@ -20,6 +20,17 @@ const api: ElectronAPI = {
   getPort:       ()    => ipcRenderer.invoke('app:get-port'),
   openInBrowser: ()    => { ipcRenderer.invoke('app:open-browser') },
   rerunSetup:    ()    => { ipcRenderer.invoke('app:rerun-setup') },
+
+  // Lifecycle IPC
+  onBeforeClose: (cb) => {
+    const handler = async () => {
+      await cb()
+      ipcRenderer.send('app:close-ready')
+    }
+    ipcRenderer.on('app:before-close', handler)
+    return () => { ipcRenderer.removeListener('app:before-close', handler) }
+  },
+  closeReady: () => { ipcRenderer.send('app:close-ready') },
 }
 
 contextBridge.exposeInMainWorld('electronAPI', api)
