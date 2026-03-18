@@ -22,6 +22,7 @@ import { useWorkspaceAutoLoad } from '@/hooks/useWorkspaceAutoLoad';
 import LiveView from '@/routes/LiveView';
 import TitleBar from '@/components/layout/TitleBar';
 import SavingOverlay from '@/components/ui/SavingOverlay';
+import WorkspaceLoadingOverlay from '@/components/ui/WorkspaceLoadingOverlay';
 
 // Lazy-load non-default routes for code splitting
 const HistoryView = lazy(() => import('@/routes/HistoryView'));
@@ -90,6 +91,7 @@ function Dashboard({ token }: { token: string | null }) {
   return (
     <>
       {saving && <SavingOverlay />}
+      <WorkspaceLoadingOverlay />
       <BrowserRouter>
         <Routes>
           {/* Standalone route — no AppLayout chrome */}

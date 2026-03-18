@@ -7,6 +7,13 @@ interface PendingFileOpen {
 
 export type CardDisplayMode = 'detailed' | 'compact';
 
+export interface WorkspaceLoadState {
+  active: boolean;
+  total: number;
+  done: number;
+  currentTitle: string;
+}
+
 interface UiState {
   activeModal: string | null;
   detailPanelOpen: boolean;
@@ -14,6 +21,7 @@ interface UiState {
   detailHeaderCollapsed: boolean;
   pendingFileOpen: PendingFileOpen | null;
   cardDisplayMode: CardDisplayMode;
+  workspaceLoad: WorkspaceLoadState;
 
   openModal: (modalId: string) => void;
   closeModal: () => void;
@@ -23,6 +31,9 @@ interface UiState {
   openFileInProject: (filePath: string, projectPath: string) => void;
   clearPendingFileOpen: () => void;
   toggleCardDisplayMode: () => void;
+  startWorkspaceLoad: (total: number) => void;
+  advanceWorkspaceLoad: (done: number, currentTitle: string) => void;
+  finishWorkspaceLoad: () => void;
 }
 
 function loadHeaderCollapsed(): boolean {
@@ -45,6 +56,7 @@ export const useUiStore = create<UiState>((set) => ({
   detailHeaderCollapsed: loadHeaderCollapsed(),
   pendingFileOpen: null,
   cardDisplayMode: loadCardDisplayMode(),
+  workspaceLoad: { active: false, total: 0, done: 0, currentTitle: '' },
 
   openModal: (modalId) => set({ activeModal: modalId }),
   closeModal: () => set({ activeModal: null }),
@@ -62,4 +74,7 @@ export const useUiStore = create<UiState>((set) => ({
     try { localStorage.setItem('card-display-mode', next); } catch { /* ignore */ }
     return { cardDisplayMode: next };
   }),
+  startWorkspaceLoad: (total) => set({ workspaceLoad: { active: true, total, done: 0, currentTitle: '' } }),
+  advanceWorkspaceLoad: (done, currentTitle) => set((s) => ({ workspaceLoad: { ...s.workspaceLoad, done, currentTitle } })),
+  finishWorkspaceLoad: () => set({ workspaceLoad: { active: false, total: 0, done: 0, currentTitle: '' } }),
 }));

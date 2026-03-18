@@ -4,6 +4,7 @@ import type { Session } from '@/types';
 interface SessionState {
   sessions: Map<string, Session>;
   selectedSessionId: string | null;
+  previousSessionId: string | null;
 
   addSession: (session: Session) => void;
   removeSession: (sessionId: string) => void;
@@ -17,6 +18,7 @@ interface SessionState {
 export const useSessionStore = create<SessionState>((set) => ({
   sessions: new Map(),
   selectedSessionId: null,
+  previousSessionId: null,
 
   addSession: (session) =>
     set((state) => {
@@ -54,7 +56,10 @@ export const useSessionStore = create<SessionState>((set) => ({
       return { sessions: next, selectedSessionId };
     }),
 
-  selectSession: (sessionId) => set({ selectedSessionId: sessionId }),
+  selectSession: (sessionId) => set((state) => ({
+    previousSessionId: state.selectedSessionId,
+    selectedSessionId: sessionId,
+  })),
 
   deselectSession: () => set({ selectedSessionId: null }),
 

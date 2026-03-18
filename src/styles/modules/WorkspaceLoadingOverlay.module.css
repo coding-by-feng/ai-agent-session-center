@@ -1,0 +1,63 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(10, 10, 26, 0.94);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 320px;
+}
+
+.title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: #e0e0ff;
+  text-transform: uppercase;
+}
+
+.subtitle {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: rgba(0, 229, 255, 0.6);
+  letter-spacing: 0.5px;
+  text-align: center;
+  min-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.barWrap {
+  width: 100%;
+  height: 4px;
+  background: rgba(0, 229, 255, 0.12);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.bar {
+  height: 100%;
+  background: #00e5ff;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.6);
+}
+
+.counter {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: rgba(224, 224, 255, 0.4);
+  letter-spacing: 1px;
+}

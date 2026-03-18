@@ -80,6 +80,7 @@ const terminalCreateSchema = z.object({
   sessionTitle: z.string().max(500).optional(),
   label: z.string().optional(),
   enableOpsTerminal: z.boolean().optional(),
+  forceNew: z.boolean().optional(),
 });
 
 const tmuxSessionsSchema = z.object({
@@ -747,11 +748,14 @@ router.post('/terminals', async (req: Request, res: Response) => {
     }
 
     // Deduplicate: if an active session with matching config already exists, return it
-    const existing = findActiveSessionByConfig(config);
-    if (existing) {
-      log.info('api', `Deduplicated terminal creation — reusing session ${existing.sessionId} for ${resolvedHost}:${config.workingDir}`);
-      res.json({ ok: true, terminalId: existing.sessionId, deduplicated: true });
-      return;
+    // Skip deduplication when forceNew is explicitly requested (e.g. Quick session modal)
+    if (!body.forceNew) {
+      const existing = findActiveSessionByConfig(config);
+      if (existing) {
+        log.info('api', `Deduplicated terminal creation — reusing session ${existing.sessionId} for ${resolvedHost}:${config.workingDir}`);
+        res.json({ ok: true, terminalId: existing.sessionId, deduplicated: true });
+        return;
+      }
     }
 
     const terminalId = await createTerminal(config, null);

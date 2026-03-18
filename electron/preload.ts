@@ -31,6 +31,7 @@ const api: ElectronAPI = {
     return () => { ipcRenderer.removeListener('app:before-close', handler) }
   },
   closeReady: () => { ipcRenderer.send('app:close-ready') },
+  quitApp:    () => { ipcRenderer.invoke('app:quit') },
 }
 
 contextBridge.exposeInMainWorld('electronAPI', api)

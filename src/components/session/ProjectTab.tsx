@@ -454,8 +454,14 @@ function SearchOverlay({
 
   useEffect(() => {
     inputRef.current?.focus();
-    // Preload the file index on mount so the first search is instant
-    fetch(`/api/files/search?root=${encodeURIComponent(projectPath)}&q=__preload__`).catch(() => {});
+    // Invalidate stale cache then preload fresh index so newly-added files are always found
+    fetch('/api/files/search/invalidate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ root: projectPath }),
+    })
+      .then(() => fetch(`/api/files/search?root=${encodeURIComponent(projectPath)}&q=__preload__`))
+      .catch(() => {});
   }, [projectPath]);
 
   useEffect(() => {
