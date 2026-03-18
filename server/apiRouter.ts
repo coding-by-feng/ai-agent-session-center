@@ -1245,10 +1245,32 @@ router.get('/files/stream', (req: Request, res: Response) => {
     };
     const contentType = mimeMap[fileExt] || 'application/octet-stream';
 
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Length', stat.size);
     const safeName = basename(fullPath).replace(/[^a-zA-Z0-9._-]/g, '_');
     res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+
+    // Video/audio: support HTTP Range requests so browsers can seek
+    const isMedia = contentType.startsWith('video/') || contentType.startsWith('audio/');
+    if (isMedia) {
+      res.setHeader('Accept-Ranges', 'bytes');
+      const rangeHeader = req.headers.range;
+      if (rangeHeader) {
+        const [startStr, endStr] = rangeHeader.replace(/bytes=/, '').split('-');
+        const start = parseInt(startStr, 10);
+        const end = endStr ? parseInt(endStr, 10) : stat.size - 1;
+        const chunkSize = end - start + 1;
+        res.status(206);
+        res.setHeader('Content-Range', `bytes ${start}-${end}/${stat.size}`);
+        res.setHeader('Content-Length', chunkSize);
+        res.setHeader('Content-Type', contentType);
+        const rangeStream = createReadStream(fullPath, { start, end });
+        rangeStream.pipe(res);
+        rangeStream.on('error', () => { if (!res.headersSent) res.status(500).json({ error: 'Stream error' }); });
+        return;
+      }
+    }
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Length', stat.size);
 
     const stream = createReadStream(fullPath);
     stream.pipe(res);

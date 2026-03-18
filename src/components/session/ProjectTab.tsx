@@ -682,8 +682,8 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   }, [projectPath, onPathChange]);
 
   const loadFile = useCallback(async (relPath: string) => {
-    // Revoke previous blob URL to prevent memory leaks
-    setFile((prev) => { if (prev?.blobUrl) URL.revokeObjectURL(prev.blobUrl); return prev; });
+    // Revoke previous blob URL to prevent memory leaks (only actual blob:// URLs)
+    setFile((prev) => { if (prev?.blobUrl?.startsWith('blob:')) URL.revokeObjectURL(prev.blobUrl); return prev; });
     setLoading(true);
     setError(null);
     setEditingNewFile(null);
@@ -694,20 +694,29 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         throw new Error(data.error || res.statusText);
       }
       const data: FileContent = await res.json();
-      // For streamable files, fetch the raw bytes as a blob
+      // For streamable files, fetch the raw bytes as a blob (or use direct URL for media)
       if (data.streamable) {
-        const streamRes = await fetch(`/api/files/stream?root=${encodeURIComponent(projectPath)}&path=${encodeURIComponent(relPath)}`);
-        if (streamRes.ok) {
-          const ext = (data.ext ?? '').toLowerCase();
-          if (ext === 'xlsx' || ext === 'xls') {
-            // Parse Excel in-browser
+        const ext = (data.ext ?? '').toLowerCase();
+        const streamUrl = `/api/files/stream?root=${encodeURIComponent(projectPath)}&path=${encodeURIComponent(relPath)}`;
+        if (ext === 'xlsx' || ext === 'xls') {
+          // Parse Excel in-browser
+          const streamRes = await fetch(streamUrl);
+          if (streamRes.ok) {
             const arrayBuffer = await streamRes.arrayBuffer();
             const workbook = XLSX.read(arrayBuffer, { type: 'array' });
             data.sheets = workbook.SheetNames.map((name) => ({
               name,
               data: XLSX.utils.sheet_to_json<string[]>(workbook.Sheets[name], { header: 1 }) as string[][],
             }));
-          } else {
+          }
+        } else if (isVideoExt(ext) || isAudioExt(ext)) {
+          // Video/audio: use direct stream URL so playback starts immediately (no full download)
+          // The server supports HTTP Range requests for seeking
+          data.blobUrl = streamUrl;
+        } else {
+          // Images, PDF: download as blob for object URL
+          const streamRes = await fetch(streamUrl);
+          if (streamRes.ok) {
             const blob = await streamRes.blob();
             data.blobUrl = URL.createObjectURL(blob);
           }
