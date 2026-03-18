@@ -41,6 +41,7 @@ export interface ElectronAPI {
   // Lifecycle IPC
   onBeforeClose(cb: () => Promise<void>): () => void
   closeReady():       void
+  quitApp():          void
 }
 
 declare global {

@@ -21,4 +21,9 @@ export function registerAppHandlers() {
     app.relaunch()
     app.exit(0)
   })
+
+  ipcMain.handle('app:quit', () => {
+    // Triggers before-quit → workspace save → server shutdown → app.quit()
+    app.quit()
+  })
 }

@@ -82,11 +82,12 @@ export function useKeyboardShortcuts(): void {
       // - Cmd/Ctrl+F (focusSearch) fires from anywhere, like a native Find shortcut
       if (isTyping(e)) {
         const inXterm = !!(e.target as HTMLElement)?.closest?.('.xterm');
-        const isAltDigit = e.altKey && (e.metaKey || e.ctrlKey) && /^Digit[0-9]$/.test(e.code);
+        // All Cmd/Ctrl+Alt combos fire even inside xterm (session switch shortcuts)
+        const isModifierSwitch = e.altKey && (e.metaKey || e.ctrlKey);
         const isFindShortcut = (e.metaKey || e.ctrlKey) && e.key === 'f';
         if (isFindShortcut) {
           // fall through to shortcut lookup
-        } else if (!inXterm || !isAltDigit) {
+        } else if (!inXterm || !isModifierSwitch) {
           return;
         }
         // fall through to shortcut lookup
@@ -160,6 +161,9 @@ function dispatchAction(
     case 'scrollToBottom':
       document.dispatchEvent(new CustomEvent('terminal:scrollToBottom'));
       break;
+    case 'switchLatestSession':
+      switchToPreviousSession();
+      break;
     default:
       // Handle switchSession1..switchSession9
       if (actionId.startsWith('switchSession')) {
@@ -178,6 +182,19 @@ const SWITCH_STATUS_ORDER: Record<string, number> = {
   working: 0, prompting: 1, approval: 2, input: 2,
   waiting: 3, idle: 4, connecting: 5, ended: 6,
 };
+
+function switchToPreviousSession(): void {
+  const { sessions, previousSessionId, selectedSessionId } = useSessionStore.getState();
+  if (!previousSessionId) return;
+  // Make sure the previous session still exists and is not ended
+  const prev = sessions.get(previousSessionId);
+  if (!prev || prev.status === 'ended') return;
+  // Don't switch to same session
+  if (previousSessionId === selectedSessionId) return;
+  useSessionStore.getState().selectSession(previousSessionId);
+  const name = prev.title || prev.projectName || 'previous session';
+  showToast(`Switched to ${name}`, 'info', 1500);
+}
 
 function switchToSessionByIndex(index: number): void {
   const sessions = useSessionStore.getState().sessions;

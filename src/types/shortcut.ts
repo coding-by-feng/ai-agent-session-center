@@ -30,7 +30,8 @@ export type ShortcutActionId =
   | 'switchSession7'
   | 'scrollToBottom'
   | 'switchSession8'
-  | 'switchSession9';
+  | 'switchSession9'
+  | 'switchLatestSession';
 
 export interface ShortcutBinding {
   actionId: ShortcutActionId;

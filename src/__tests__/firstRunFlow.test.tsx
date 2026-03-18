@@ -64,6 +64,7 @@ const createMockAPI = (overrides: Partial<ElectronAPI> = {}): ElectronAPI => ({
   rerunSetup: vi.fn(),
   onBeforeClose: vi.fn().mockReturnValue(() => {}),
   closeReady: vi.fn(),
+  quitApp: vi.fn(),
   ...overrides,
 })
 

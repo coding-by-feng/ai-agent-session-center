@@ -928,21 +928,24 @@ export async function createTerminalSession(terminalId: string, config: Terminal
 
   await broadcastAsync({ type: WS_TYPES.SESSION_UPDATE, session: { ...session } });
 
-  // Non-Claude CLIs (codex, gemini, etc.) don't send hooks — auto-transition to idle
+  // Auto-transition from connecting to idle if hooks don't arrive in time.
+  // Non-Claude CLIs: 3s (they never send hooks).
+  // Claude: 30s fallback — hooks should arrive via SessionStart, but if the
+  // session_id or path doesn't match (e.g. SSH remote path mismatch), the card
+  // would be stuck in connecting forever without this safety net.
   const command = config.command || 'claude';
-  if (!command.startsWith('claude')) {
-    setTimeout(async () => {
-      const s = sessions.get(terminalId);
-      if (s && s.status === (SESSION_STATUS.CONNECTING as string)) {
-        s.status = SESSION_STATUS.IDLE;
-        s.animationState = ANIMATION_STATE.IDLE;
-        s.emote = null;
-        s.model = command; // Show command name as model
-        await broadcastAsync({ type: WS_TYPES.SESSION_UPDATE, session: { ...s } });
-        log.info('session', `Auto-transitioned non-Claude session ${terminalId} to idle (${command})`);
-      }
-    }, 3000);
-  }
+  const connectingTimeout = command.startsWith('claude') ? 30_000 : 3_000;
+  setTimeout(async () => {
+    const s = sessions.get(terminalId);
+    if (s && s.status === (SESSION_STATUS.CONNECTING as string)) {
+      s.status = SESSION_STATUS.IDLE;
+      s.animationState = ANIMATION_STATE.IDLE;
+      s.emote = null;
+      if (!command.startsWith('claude')) s.model = command;
+      await broadcastAsync({ type: WS_TYPES.SESSION_UPDATE, session: { ...s } });
+      log.info('session', `Auto-transitioned session ${terminalId} to idle after connecting timeout (${command})`);
+    }
+  }, connectingTimeout);
 
   return session;
 }

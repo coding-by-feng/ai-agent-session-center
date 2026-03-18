@@ -145,6 +145,7 @@ export default function QuickSessionModal() {
           label: selectedLabel || undefined,
           sessionTitle: sessionTitle.trim() || undefined,
           enableOpsTerminal: enableOpsTerminal || undefined,
+          forceNew: true,
         }),
       });
       const data = await res.json();

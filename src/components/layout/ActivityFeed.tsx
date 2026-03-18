@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import styles from '@/styles/modules/ActivityFeed.module.css';
 
 interface FeedEntry {
@@ -15,6 +16,7 @@ export default function ActivityFeed() {
   const sessions = useSessionStore((s) => s.sessions);
   const activityFeedOpen = useUiStore((s) => s.activityFeedOpen);
   const setActivityFeedOpen = useUiStore((s) => s.setActivityFeedOpen);
+  const activityFeedVisible = useSettingsStore((s) => s.activityFeedVisible);
   const selectSession = useSessionStore((s) => s.selectSession);
   const [maxEntries] = useState(50);
 
@@ -34,6 +36,8 @@ export default function ActivityFeed() {
     all.sort((a, b) => b.timestamp - a.timestamp);
     return all.slice(0, maxEntries);
   }, [sessions, maxEntries]);
+
+  if (!activityFeedVisible) return null;
 
   return (
     <div className={`${styles.feed} ${!activityFeedOpen ? styles.collapsed : ''}`}>

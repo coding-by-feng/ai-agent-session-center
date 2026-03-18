@@ -74,6 +74,7 @@ describe('DepsCheckStep', () => {
       rerunSetup: vi.fn(),
       onBeforeClose: vi.fn().mockReturnValue(() => {}),
       closeReady: vi.fn(),
+      quitApp: vi.fn(),
     }
 
     const props = makeStepProps()
@@ -98,6 +99,7 @@ describe('DepsCheckStep', () => {
       rerunSetup: vi.fn(),
       onBeforeClose: vi.fn().mockReturnValue(() => {}),
       closeReady: vi.fn(),
+      quitApp: vi.fn(),
     }
 
     const props = makeStepProps()
@@ -144,6 +146,7 @@ describe('InstallStep', () => {
       rerunSetup: vi.fn(),
       onBeforeClose: vi.fn().mockReturnValue(() => {}),
       closeReady: vi.fn(),
+      quitApp: vi.fn(),
     }
 
     const props = makeStepProps()

@@ -201,6 +201,7 @@ export async function importSnapshot(
   snapshot: WorkspaceSnapshot,
   callbacks: {
     onSessionCreated: (terminalId: string, snap: SessionSnapshot) => void;
+    onProgress?: (done: number, total: number, currentTitle: string) => void;
     onComplete: (created: number, failed: number) => void;
   },
 ): Promise<void> {
@@ -217,9 +218,13 @@ export async function importSnapshot(
     console.warn(`[workspace] Skipped ${skipped} duplicate session(s) during import`);
   }
 
+  const total = dedupedSessions.length;
+  let processedCount = 0;
+
   for (const sessionSnap of dedupedSessions) {
+    callbacks.onProgress?.(processedCount, total, sessionSnap.title);
     const cfg = sessionSnap.sshConfig;
-    if (!cfg) { failed++; continue; }
+    if (!cfg) { failed++; processedCount++; continue; }
 
     try {
       const res = await fetch('/api/terminals', {
@@ -247,6 +252,8 @@ export async function importSnapshot(
           idRemap.set(sessionSnap.originalSessionId, data.terminalId);
         }
 
+        processedCount++;
+        callbacks.onProgress?.(processedCount, total, sessionSnap.title);
         callbacks.onSessionCreated(data.terminalId, sessionSnap);
 
         // Restore metadata (accent color, character model, pinned)
@@ -277,9 +284,13 @@ export async function importSnapshot(
         }
       } else {
         failed++;
+        processedCount++;
+        callbacks.onProgress?.(processedCount, total, sessionSnap.title);
       }
     } catch {
       failed++;
+      processedCount++;
+      callbacks.onProgress?.(processedCount, total, sessionSnap.title);
     }
   }
 

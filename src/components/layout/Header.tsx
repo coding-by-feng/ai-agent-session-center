@@ -202,6 +202,32 @@ function WorkspaceButtons() {
 // Header
 // ---------------------------------------------------------------------------
 
+function ExitButton() {
+  if (!window.electronAPI) return null;
+  return (
+    <button
+      className={styles.headerIconBtn}
+      onClick={() => window.electronAPI?.quitApp()}
+      title="Save &amp; Quit"
+      aria-label="Save and quit"
+      style={{ color: 'var(--text-dim)' }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.color = '#ff4444';
+        e.currentTarget.style.borderColor = 'rgba(255,68,68,0.4)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.color = 'var(--text-dim)';
+        e.currentTarget.style.borderColor = '';
+      }}
+    >
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M8 2v5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+        <path d="M5 3.8A6 6 0 1 0 11 3.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" fill="none"/>
+      </svg>
+    </button>
+  );
+}
+
 export default function Header() {
   return (
     <header className={styles.header}>
@@ -210,6 +236,7 @@ export default function Header() {
       <div className={styles.stats}>
         <WorkspaceButtons />
         <SettingsButton />
+        <ExitButton />
       </div>
     </header>
   );
