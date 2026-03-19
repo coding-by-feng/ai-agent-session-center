@@ -28,6 +28,16 @@ interface DetailTabsProps {
   sessionId?: string;
   /** When set, programmatically switches to this tab */
   externalActiveTab?: string | null;
+  /** Search bar props */
+  searchQuery?: string;
+  searchOpen?: boolean;
+  searchMatchCount?: number;
+  searchMatchIndex?: number;
+  onSearchChange?: (query: string) => void;
+  onSearchClose?: () => void;
+  onSearchPrev?: () => void;
+  onSearchNext?: () => void;
+  searchInputRef?: React.RefObject<HTMLInputElement | null>;
 }
 
 const BASE_TABS = [
@@ -159,6 +169,15 @@ export default function DetailTabs({
   onTabChange,
   sessionId,
   externalActiveTab,
+  searchQuery,
+  searchOpen,
+  searchMatchCount,
+  searchMatchIndex,
+  onSearchChange,
+  onSearchClose,
+  onSearchPrev,
+  onSearchNext,
+  searchInputRef,
 }: DetailTabsProps) {
   const hasCommands = !!commandsContent;
   const [activeTab, setActiveTab] = useState<string>(() => {
@@ -228,13 +247,16 @@ export default function DetailTabs({
     [hasCommands],
   );
 
+  // Each scrollable tab gets a unique key so React creates a separate DOM node per tab.
+  // Without this, all text tabs share the same div.tabScroll DOM node, meaning scroll
+  // position bleeds across tabs (e.g. scrolled-down activity bleeds into conversation).
   const contentMap: Record<string, ReactNode> = {
     terminal: terminalContent,
-    conversation: <div className={styles.tabScroll}>{promptsContent}</div>,
+    conversation: <div key="scroll-conversation" className={styles.tabScroll}>{promptsContent}</div>,
     project: projectContent,
-    queue: <div className={styles.tabScroll}>{queueContent}</div>,
-    notes: <div className={styles.tabScroll}>{notesContent}</div>,
-    activity: <div className={styles.tabScroll}>{activityContent}</div>,
+    queue: <div key="scroll-queue" className={styles.tabScroll}>{queueContent}</div>,
+    notes: <div key="scroll-notes" className={styles.tabScroll}>{notesContent}</div>,
+    activity: <div key="scroll-activity" className={styles.tabScroll}>{activityContent}</div>,
     split: (
       <DraggableSplitView
         left={terminalContent}
@@ -246,6 +268,13 @@ export default function DetailTabs({
   if (commandsContent) {
     contentMap.commands = commandsContent;
   }
+
+  const hasMatches = (searchMatchCount ?? 0) > 0;
+  const countLabel = searchQuery
+    ? hasMatches
+      ? `${(searchMatchIndex ?? 0) + 1}/${searchMatchCount}`
+      : '0 results'
+    : '';
 
   return (
     <>
@@ -289,6 +318,29 @@ export default function DetailTabs({
           );
         })}
       </div>
+      {/* Search bar — appears between tabs and content */}
+      <div className={`${styles.searchBar}${searchOpen ? '' : ` ${styles.hidden}`}`}>
+        <span className={styles.searchIcon}>⌕</span>
+        <input
+          ref={searchInputRef}
+          className={styles.searchInput}
+          type="text"
+          placeholder="Search session…"
+          value={searchQuery ?? ''}
+          onChange={(e) => onSearchChange?.(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') { e.stopPropagation(); onSearchClose?.(); }
+            if (e.key === 'Enter') { e.shiftKey ? onSearchPrev?.() : onSearchNext?.(); }
+          }}
+        />
+        <span className={`${styles.searchCount}${hasMatches ? ` ${styles.hasMatches}` : ''}`}>
+          {countLabel}
+        </span>
+        <button className={styles.searchNavBtn} onClick={onSearchPrev} disabled={!hasMatches} title="Previous (Shift+Enter)">▲</button>
+        <button className={styles.searchNavBtn} onClick={onSearchNext} disabled={!hasMatches} title="Next (Enter)">▼</button>
+        <button className={styles.searchCloseBtn} onClick={onSearchClose} title="Close (Esc)">✕</button>
+      </div>
+
       {/* #15: Only mount the active tab content */}
       <div className={styles.tabContent}>
         {contentMap[effectiveTab]}

@@ -3,6 +3,19 @@
    Variables, Reset, Utility
    ============================================================ */
 
+/* ---- Search highlight (used by PromptHistory, ActivityLog) ---- */
+.search-highlight {
+  background: rgba(0, 229, 255, 0.12) !important;
+  border-left-color: var(--accent-cyan) !important;
+  box-shadow: inset 3px 0 0 var(--accent-cyan);
+}
+
+/* ---- Wide modal variant (used by ShortcutSettingsModal) ---- */
+.modal-wide {
+  max-width: 580px !important;
+  padding: 0 !important;
+}
+
 :root {
   color-scheme: dark;
   --bg-primary: #0a0a1a;
@@ -384,3 +397,4 @@ option:checked {
     --layout-gap-sm: 4px;
   }
 }
+

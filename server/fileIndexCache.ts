@@ -1,5 +1,6 @@
 // fileIndexCache.ts — Cached file index for fast fuzzy search
 import { readdir } from 'fs/promises';
+import { watch as fsWatch } from 'fs';
 import { join } from 'path';
 import log from './logger.js';
 
@@ -28,10 +29,13 @@ interface CachedIndex {
 
 const cache = new Map<string, CachedIndex>();
 const building = new Set<string>();
+const watchers = new Map<string, ReturnType<typeof fsWatch>>();
+const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-const CACHE_TTL_MS = 30_000; // 30 seconds
+const CACHE_TTL_MS = 30_000; // 30 seconds (watcher keeps it fresh in practice)
 const MAX_ENTRIES = 50_000;
 const MAX_DEPTH = 10;
+const WATCHER_DEBOUNCE_MS = 300;
 
 /** Build the file index for a project root (async, non-blocking). */
 async function buildIndex(root: string): Promise<FileEntry[]> {
@@ -74,7 +78,10 @@ async function buildIndex(root: string): Promise<FileEntry[]> {
  */
 function ensureIndex(root: string): void {
   const cached = cache.get(root);
-  if (cached && Date.now() - cached.builtAt < CACHE_TTL_MS) return;
+  if (cached && Date.now() - cached.builtAt < CACHE_TTL_MS) {
+    startWatcher(root);
+    return;
+  }
   if (building.has(root)) return;
 
   building.add(root);
@@ -82,6 +89,7 @@ function ensureIndex(root: string): void {
     .then(entries => {
       cache.set(root, { entries, builtAt: Date.now() });
       log.debug('file-index', `Built index for ${root}: ${entries.length} entries`);
+      startWatcher(root);
     })
     .catch(err => {
       log.error('file-index', `Failed to build index for ${root}: ${err instanceof Error ? err.message : String(err)}`);
@@ -89,6 +97,30 @@ function ensureIndex(root: string): void {
     .finally(() => {
       building.delete(root);
     });
+}
+
+/** Start a recursive fs.watch on root to invalidate cache on any file change. */
+function startWatcher(root: string): void {
+  if (watchers.has(root)) return;
+  try {
+    const watcher = fsWatch(root, { recursive: true }, (_event, filename) => {
+      // Skip node_modules and hidden dirs for performance
+      if (filename && (filename.includes('node_modules') || filename.includes('/.git/'))) return;
+      const existing = debounceTimers.get(root);
+      if (existing) clearTimeout(existing);
+      debounceTimers.set(root, setTimeout(() => {
+        debounceTimers.delete(root);
+        cache.delete(root);
+        log.debug('file-index', `Cache invalidated for ${root} (file change: ${filename})`);
+      }, WATCHER_DEBOUNCE_MS));
+    });
+    watcher.on('error', () => {
+      watchers.delete(root);
+    });
+    watchers.set(root, watcher);
+  } catch {
+    // Recursive watch not supported on this platform/path — silently ignore
+  }
 }
 
 /** Score a fuzzy match. Higher = better. Returns -1 if no match. */
@@ -178,7 +210,7 @@ export function searchFiles(
   return { results: scored.slice(0, maxResults), indexing: false };
 }
 
-/** Invalidate cache for a project root. */
+/** Invalidate cache for a project root (watcher stays active). */
 export function invalidateCache(root: string): void {
   cache.delete(root);
 }

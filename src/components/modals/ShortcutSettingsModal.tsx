@@ -94,7 +94,7 @@ export default function ShortcutSettingsModal() {
   })).filter((g) => g.items.length > 0);
 
   return (
-    <Modal modalId="shortcut-settings">
+    <Modal modalId="shortcut-settings" panelClassName="modal-wide">
       <div className={styles.container}>
         <div className={styles.header}>
           <h3>CUSTOMIZE SHORTCUTS</h3>

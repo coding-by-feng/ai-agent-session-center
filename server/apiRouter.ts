@@ -10,7 +10,7 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSessionPinned, setSessionAccentColor, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSessionPinned, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
 import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, attachToTmuxPane, consumePendingLink } from './sshManager.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
@@ -114,6 +114,10 @@ const pinnedSchema = z.object({
 
 const accentColorSchema = z.object({
   color: z.string().min(1).max(50),
+});
+
+const characterModelSchema = z.object({
+  model: z.string().min(1).max(50),
 });
 
 const summarizeSchema = z.object({
@@ -616,6 +620,14 @@ router.put('/sessions/:id/accent-color', (req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
+// Update session character model
+router.put('/sessions/:id/character-model', (req: Request, res: Response) => {
+  const body = validateBody(characterModelSchema, req.body, res);
+  if (!body) return;
+  setSessionCharacterModel(str(req.params.id), body.model);
+  res.json({ ok: true });
+});
+
 /**
  * Summarize session using Claude CLI.
  * The frontend sends { context, promptTemplate } from IndexedDB data.
@@ -753,7 +765,7 @@ router.post('/terminals', async (req: Request, res: Response) => {
       const existing = findActiveSessionByConfig(config);
       if (existing) {
         log.info('api', `Deduplicated terminal creation — reusing session ${existing.sessionId} for ${resolvedHost}:${config.workingDir}`);
-        res.json({ ok: true, terminalId: existing.sessionId, deduplicated: true });
+        res.json({ ok: true, terminalId: existing.sessionId, deduplicated: true, hasTerminal: !!existing.terminalId });
         return;
       }
     }

@@ -348,6 +348,135 @@
   border-color: rgba(255, 68, 68, 0.25);
 }
 
+/* Fullscreen popup */
+.fullscreenOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.fullscreenModal {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
+  background: var(--bg-panel, #0d0d1a);
+  border: 1px solid var(--border-subtle-strong, rgba(255,255,255,0.15));
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.7);
+}
+
+.fullscreenHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+  flex-shrink: 0;
+}
+
+.fullscreenTitle {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #aaa);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fullscreenClose {
+  background: none;
+  border: none;
+  color: var(--text-dim, #555);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+
+.fullscreenClose:hover {
+  color: var(--text-primary, #e0e0e0);
+  background: rgba(255,255,255,0.07);
+}
+
+.fullscreenBody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.fullscreenBody .pdfViewer {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: none;
+}
+
+/* Context menu */
+.contextMenuBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+}
+
+.contextMenu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 160px;
+  background: var(--bg-card, #1a1a2e);
+  border: 1px solid var(--border-subtle-strong, rgba(255,255,255,0.15));
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  padding: 4px 0;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 12px;
+}
+
+.contextMenuItem {
+  display: block;
+  width: 100%;
+  padding: 7px 14px;
+  background: none;
+  border: none;
+  color: var(--text-primary, #e0e0e0);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.contextMenuItem:hover {
+  background: rgba(255,255,255,0.07);
+}
+
+.contextMenuItemDanger {
+  color: var(--accent-red, #ff4444);
+}
+
+.contextMenuItemDanger:hover {
+  background: rgba(255, 68, 68, 0.1);
+}
+
+.contextMenuDivider {
+  height: 1px;
+  background: var(--border-subtle, rgba(255,255,255,0.08));
+  margin: 4px 0;
+}
+
 /* Inline confirmation hint */
 .deleteConfirm {
   display: flex;

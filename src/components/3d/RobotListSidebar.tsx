@@ -6,6 +6,7 @@
 import { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
+import { flushSave } from '@/lib/workspaceSnapshot';
 import SearchInput from '@/components/ui/SearchInput';
 import type { Session } from '@/types/session';
 
@@ -469,6 +470,14 @@ export default function RobotListSidebar() {
   const handleClose = useCallback((sessionId: string) => {
     removeSession(sessionId);
     fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' }).catch(() => {});
+    // Flush workspace snapshot immediately so the deleted session is not
+    // recreated on the next page reload (bypasses the 5s auto-save debounce).
+    const { sessions: currentSessions } = useSessionStore.getState();
+    const { rooms: currentRooms } = useRoomStore.getState();
+    // Build a sessions map without the deleted session
+    const sessionsWithoutDeleted = new Map(currentSessions);
+    sessionsWithoutDeleted.delete(sessionId);
+    flushSave(() => sessionsWithoutDeleted, () => currentRooms).catch(() => {});
   }, [removeSession]);
 
   const handleTitleSave = useCallback((sessionId: string, title: string) => {

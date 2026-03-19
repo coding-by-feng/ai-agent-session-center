@@ -11,16 +11,8 @@ export interface KeyCombo {
 }
 
 export type ShortcutActionId =
-  | 'focusSearch'
-  | 'closeOrDeselect'
-  | 'toggleShortcuts'
-  | 'toggleSettings'
-  | 'toggleHeader'
-  | 'newTerminal'
-  | 'killSession'
-  | 'archiveSession'
-  | 'toggleMute'
   | 'toggleFullscreen'
+  | 'scrollToBottom'
   | 'switchSession1'
   | 'switchSession2'
   | 'switchSession3'
@@ -28,7 +20,6 @@ export type ShortcutActionId =
   | 'switchSession5'
   | 'switchSession6'
   | 'switchSession7'
-  | 'scrollToBottom'
   | 'switchSession8'
   | 'switchSession9'
   | 'switchLatestSession';
