@@ -1137,11 +1137,12 @@ router.get('/files/list', (req: Request, res: Response) => {
     const entries = readdirSync(fullPath, { withFileTypes: true });
     const items: Array<{ name: string; type: 'dir' | 'file'; size?: number; mtime?: string }> = [];
 
+    const showHidden = str(req.query.showHidden) === 'true';
     for (const entry of entries) {
-      // Skip hidden dirs (but show hidden files like .env)
+      // Skip certain always-hidden dirs regardless of showHidden flag
       if (entry.isDirectory() && HIDDEN_DIRS.has(entry.name)) continue;
-      // Skip dot-prefixed directories (e.g. .git) but show dot files
-      if (entry.isDirectory() && entry.name.startsWith('.')) continue;
+      // Skip dot-prefixed directories unless showHidden is set
+      if (!showHidden && entry.isDirectory() && entry.name.startsWith('.')) continue;
 
       if (entry.isDirectory()) {
         try {
