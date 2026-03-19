@@ -14,6 +14,7 @@ import NewSessionModal from '@/components/modals/NewSessionModal';
 import QuickSessionModal from '@/components/modals/QuickSessionModal';
 import ShortcutsPanel from '@/components/modals/ShortcutsPanel';
 import ShortcutSettingsModal from '@/components/modals/ShortcutSettingsModal';
+import GlobalSearchModal from '@/components/modals/GlobalSearchModal';
 import DetailPanel from '@/components/session/DetailPanel';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useSettingsInit } from '@/hooks/useSettingsInit';
@@ -58,6 +59,7 @@ function AppLayout() {
       <QuickSessionModal />
       <ShortcutsPanel />
       <ShortcutSettingsModal />
+      <GlobalSearchModal />
       <DetailPanel />
     </div>
   );

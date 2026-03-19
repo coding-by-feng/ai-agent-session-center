@@ -25,6 +25,7 @@ function isTyping(e: KeyboardEvent): boolean {
 
 export function useKeyboardShortcuts(): void {
   const closeModal = useUiStore((s) => s.closeModal);
+  const openModal = useUiStore((s) => s.openModal);
   const activeModal = useUiStore((s) => s.activeModal);
 
   // IMPORTANT: Do NOT subscribe to selectedSessionId via useSessionStore((s) => s.selectedSessionId).
@@ -38,6 +39,17 @@ export function useKeyboardShortcuts(): void {
     function handleKeyDown(e: KeyboardEvent) {
       const currentModal = useUiStore.getState().activeModal;
       const selectedId = useSessionStore.getState().selectedSessionId;
+
+      // Cmd+Shift+F (macOS) / Ctrl+Shift+F — open global session content search
+      if (e.shiftKey && (e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault();
+        if (currentModal === 'global-search') {
+          closeModal();
+        } else {
+          openModal('global-search');
+        }
+        return;
+      }
 
       // Escape is always special: close modal -> pass to terminal -> deselect
       if (e.key === 'Escape') {
@@ -71,7 +83,7 @@ export function useKeyboardShortcuts(): void {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [closeModal, activeModal]);
+  }, [closeModal, openModal, activeModal]);
 }
 
 // ---------------------------------------------------------------------------
