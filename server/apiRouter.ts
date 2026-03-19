@@ -20,7 +20,7 @@ import { getMqStats } from './mqReader.js';
 import { execFile } from 'child_process';
 import { createReadStream, readFileSync, writeFileSync, readdirSync, existsSync, statSync, mkdirSync, rmSync } from 'fs';
 import { join, dirname, extname, basename, resolve, sep } from 'path';
-import { homedir, userInfo } from 'os';
+import { homedir, userInfo, networkInterfaces, hostname } from 'os';
 import { fileURLToPath } from 'url';
 import { ALL_CLAUDE_HOOK_EVENTS, DENSITY_EVENTS, SESSION_STATUS, WS_TYPES } from './constants.js';
 import log from './logger.js';
@@ -44,8 +44,22 @@ function saveLastUsername(username: string): void {
   if (username) _lastUsedUsername = username;
 }
 
+// Build set of all addresses/hostnames that resolve to this machine.
+// Matches sshManager.ts approach so local-session detection is consistent.
+const LOCAL_HOSTS = new Set<string>(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
+try {
+  const h = hostname();
+  LOCAL_HOSTS.add(h);
+  LOCAL_HOSTS.add(`${h}.local`); // macOS mDNS
+  const ifaces = networkInterfaces();
+  for (const addrs of Object.values(ifaces)) {
+    if (!addrs) continue;
+    for (const addr of addrs) LOCAL_HOSTS.add(addr.address);
+  }
+} catch { /* ignore — hardcoded fallback is sufficient */ }
+
 function isLocalHost(host: string): boolean {
-  return !host || host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  return !host || LOCAL_HOSTS.has(host);
 }
 
 // ---- Zod Validation Schemas ----
