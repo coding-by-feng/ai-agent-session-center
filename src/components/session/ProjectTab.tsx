@@ -208,6 +208,17 @@ function IconOutline() {
   );
 }
 
+function IconFullscreen() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <polyline points="1 5 1 1 5 1" />
+      <polyline points="11 1 15 1 15 5" />
+      <polyline points="15 11 15 15 11 15" />
+      <polyline points="5 15 1 15 1 11" />
+    </svg>
+  );
+}
+
 function IconWordWrap() {
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -619,6 +630,17 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const [showBookmarkPanel, setShowBookmarkPanel] = useState(false);
   const pendingScrollLine = useRef<number | null>(null);
 
+  // Fullscreen file viewer
+  const [showFullscreen, setShowFullscreen] = useState(false);
+
+  // Close fullscreen on Escape
+  useEffect(() => {
+    if (!showFullscreen) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowFullscreen(false); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [showFullscreen]);
+
   // File list display options
   const [showDateTime, setShowDateTime] = useState(false);
   const [sortField, setSortField] = useState<SortField>('name');
@@ -911,6 +933,43 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const [confirmDeleteName, setConfirmDeleteName] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Context menu
+  interface ContextMenuState { x: number; y: number; entry: DirEntry; entryPath: string; }
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, entry: DirEntry) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const entryPath = currentPath === '/' ? '/' + entry.name : currentPath + '/' + entry.name;
+    setContextMenu({ x: e.clientX, y: e.clientY, entry, entryPath });
+  }, [currentPath]);
+
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
+
+  const handleContextOpen = useCallback(() => {
+    if (!contextMenu) return;
+    closeContextMenu();
+    handleEntryClick(contextMenu.entry);
+  }, [contextMenu, closeContextMenu, handleEntryClick]);
+
+  const handleContextOpenNewTab = useCallback(() => {
+    if (!contextMenu) return;
+    closeContextMenu();
+    const { entry, entryPath } = contextMenu;
+    const base = `/project-browser?path=${encodeURIComponent(projectPath)}`;
+    if (entry.type === 'file') {
+      window.open(`${base}&file=${encodeURIComponent(entryPath)}`, '_blank');
+    } else {
+      window.open(`${base}`, '_blank');
+    }
+  }, [contextMenu, closeContextMenu, projectPath]);
+
+  const handleContextDelete = useCallback(() => {
+    if (!contextMenu) return;
+    closeContextMenu();
+    setConfirmDeleteName(contextMenu.entry.name);
+  }, [contextMenu, closeContextMenu]);
+
   const handleDelete = useCallback(async (entryName: string) => {
     const relPath = currentPath === '/' ? '/' + entryName : currentPath + '/' + entryName;
     setDeleting(true);
@@ -1159,6 +1218,14 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         >
           <IconWordWrap />
         </button>
+        <button
+          className={styles.iconBtn}
+          onClick={() => setShowFullscreen(true)}
+          disabled={!file}
+          title="Open in fullscreen"
+        >
+          <IconFullscreen />
+        </button>
         <span className={styles.iconBarSep} />
         <button
           className={`${styles.iconBtn} ${showDateTime ? styles.iconBtnActive : ''}`}
@@ -1275,6 +1342,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                 <button
                   className={styles.fileEntry}
                   onClick={() => handleEntryClick(entry)}
+                  onContextMenu={(e) => handleContextMenu(e, entry)}
                 >
                   <span className={styles.fileIcon}>{fileIcon(entry.name, entry.type)}</span>
                   <span className={styles.fileName}>{entry.name}</span>
@@ -1488,6 +1556,69 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         </div>
       )}
       </div>{/* end contentCol */}
+
+      {/* Fullscreen file viewer popup */}
+      {showFullscreen && file && (
+        <div className={styles.fullscreenOverlay} onClick={() => setShowFullscreen(false)}>
+          <div className={styles.fullscreenModal} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.fullscreenHeader}>
+              <span className={styles.fullscreenTitle}>{file.name}</span>
+              <button className={styles.fullscreenClose} onClick={() => setShowFullscreen(false)} title="Close (Esc)">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <line x1="3" y1="3" x2="13" y2="13" />
+                  <line x1="13" y1="3" x2="3" y2="13" />
+                </svg>
+              </button>
+            </div>
+            <div className={styles.fullscreenBody}>
+              {file.sheets && file.sheets.length > 0 ? (
+                <ExcelViewer sheets={file.sheets} />
+              ) : file.streamable && file.ext === 'pdf' && file.blobUrl ? (
+                <iframe src={file.blobUrl} className={styles.pdfViewer} title={file.name} />
+              ) : file.streamable && file.blobUrl && isImageExt(file.ext) ? (
+                <div className={styles.mediaViewer}>
+                  <img src={file.blobUrl} alt={file.name} className={styles.mediaImage} draggable={false} />
+                </div>
+              ) : file.binary ? (
+                <div className={styles.empty}>Binary file ({formatSize(file.size)})</div>
+              ) : (file.content || '').split('\n').length > VIRTUALIZE_THRESHOLD ? (
+                <VirtualCodeViewer content={file.content || ''} filePath={file.path} bookmarks={bookmarks} wordWrap={wordWrap} />
+              ) : (
+                <div className={`${styles.codeLines}${wordWrap ? ` ${styles.codeLinesWrap}` : ''}`}>
+                  {(file.content || '').split('\n').map((line, i) => (
+                    <div key={i} id={`fs-line-${i + 1}`} className={styles.codeLine}>
+                      <span className={styles.lineNum}>{i + 1}</span>
+                      <span className={styles.lineText}>{line || '\u00A0'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Context menu */}
+      {contextMenu && (
+        <>
+          <div className={styles.contextMenuBackdrop} onClick={closeContextMenu} />
+          <div
+            className={styles.contextMenu}
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+          >
+            <button className={styles.contextMenuItem} onClick={handleContextOpen}>
+              Open
+            </button>
+            <button className={styles.contextMenuItem} onClick={handleContextOpenNewTab}>
+              Open in new tab
+            </button>
+            <div className={styles.contextMenuDivider} />
+            <button className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`} onClick={handleContextDelete}>
+              Delete
+            </button>
+          </div>
+        </>
+      )}
 
       {/* Search overlay */}
       {showSearch && (

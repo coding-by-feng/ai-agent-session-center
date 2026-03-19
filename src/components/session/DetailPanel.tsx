@@ -238,17 +238,95 @@ export default function DetailPanel() {
     ? sessions.get(selectedSessionId)
     : undefined;
 
-  // #10: Close on Escape — depend on sessionId (stable) not full session object
+  // Keep last session alive so ProjectTabContainer stays mounted (preserves file state/scroll).
+  const lastSessionRef = useRef<Session | undefined>(undefined);
+  if (session) lastSessionRef.current = session;
+  const displaySession = session ?? lastSessionRef.current;
+
+  // ---- Panel search state ----
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchMatchIndex, setSearchMatchIndex] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  const openSearch = useCallback(() => {
+    setSearchOpen(true);
+    // Focus input on next tick so it's mounted/visible
+    setTimeout(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    }, 0);
+  }, []);
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQuery('');
+    setSearchMatchIndex(0);
+  }, []);
+
+  // Listen for the custom event dispatched by the keyboard shortcut handler
+  useEffect(() => {
+    const handler = () => openSearch();
+    document.addEventListener('detail-panel:find', handler);
+    return () => document.removeEventListener('detail-panel:find', handler);
+  }, [openSearch]);
+
+  // Reset match index when query changes
+  useEffect(() => { setSearchMatchIndex(0); }, [searchQuery]);
+
+  // Close search when session changes
+  useEffect(() => { closeSearch(); }, [selectedSessionId, closeSearch]);
+
+  // Compute match count across prompts + activity (all three log types)
+  const searchMatchCount = useMemo(() => {
+    if (!displaySession || !searchQuery) return 0;
+    const q = searchQuery.toLowerCase();
+    let count = 0;
+    for (const p of displaySession.promptHistory ?? []) {
+      if (p.text.toLowerCase().includes(q)) count++;
+    }
+    for (const t of displaySession.toolLog ?? []) {
+      if (`${t.tool} ${t.input}`.toLowerCase().includes(q)) count++;
+    }
+    for (const r of displaySession.responseLog ?? []) {
+      if ((r.text ?? '').toLowerCase().includes(q)) count++;
+    }
+    for (const ev of displaySession.events ?? []) {
+      if (`${ev.type} ${ev.detail ?? ''}`.toLowerCase().includes(q)) count++;
+    }
+    return count;
+  }, [displaySession, searchQuery]);
+
+  // Navigate to prev/next highlighted match via DOM
+  const navigateMatch = useCallback((direction: 'prev' | 'next') => {
+    const highlights = Array.from(
+      document.querySelectorAll<HTMLElement>('.search-highlight'),
+    );
+    if (highlights.length === 0) return;
+    setSearchMatchIndex((prev) => {
+      const next = direction === 'next'
+        ? (prev + 1) % highlights.length
+        : (prev - 1 + highlights.length) % highlights.length;
+      highlights[next]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      return next;
+    });
+  }, []);
+
+  // #10: Close on Escape — close search first, then deselect
   useEffect(() => {
     if (!selectedSessionId) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !(e.target as HTMLElement)?.closest?.('.xterm')) {
-        deselectSession();
+        if (searchOpen) {
+          closeSearch();
+        } else {
+          deselectSession();
+        }
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [selectedSessionId, deselectSession]);
+  }, [selectedSessionId, deselectSession, searchOpen, closeSearch]);
 
   // Persist selection
   useEffect(() => {
@@ -285,13 +363,13 @@ export default function DetailPanel() {
     }
   }, [pendingFileOpen]);
 
-  if (!session) return null;
+  if (!displaySession) return null;
 
-  const durText = formatDuration(Date.now() - session.startedAt);
-  const statusLabel = getStatusLabel(session.status);
-  const isDisconnected = session.status === 'ended';
-  const modelType = (session.characterModel || 'robot').toLowerCase() as RobotModelType;
-  const neonColor = session.accentColor || PALETTE[(session.colorIndex ?? 0) % PALETTE.length];
+  const durText = formatDuration(Date.now() - displaySession.startedAt);
+  const statusLabel = getStatusLabel(displaySession.status);
+  const isDisconnected = displaySession.status === 'ended';
+  const modelType = (displaySession.characterModel || 'robot').toLowerCase() as RobotModelType;
+  const neonColor = displaySession.accentColor || PALETTE[(displaySession.colorIndex ?? 0) % PALETTE.length];
   const modelLabel = getModelLabel(modelType);
   const statusColor: Record<string, string> = {
     idle: 'var(--accent-green)', prompting: 'var(--accent-cyan)', working: 'var(--accent-orange)',
@@ -300,11 +378,11 @@ export default function DetailPanel() {
   };
 
   return (
-    <div className={styles.overlay}>
+    <div className={styles.overlay} style={!session ? { display: 'none' } : undefined}>
       <ResizablePanel fullscreen>
         {/* Session switcher (merged with compact header when collapsed) */}
         <SessionSwitcher
-          currentSession={session}
+          currentSession={displaySession}
           sessions={sessions}
           onSwitch={selectSession}
           statusLabel={statusLabel}
@@ -323,8 +401,8 @@ export default function DetailPanel() {
                 width: 64,
                 height: 80,
                 borderRadius: 6,
-                border: `1px solid color-mix(in srgb, ${statusColor[session.status] ?? 'var(--text-dim)'} 25%, transparent)`,
-                background: `color-mix(in srgb, ${statusColor[session.status] ?? 'var(--text-dim)'} 6%, transparent)`,
+                border: `1px solid color-mix(in srgb, ${statusColor[displaySession.status] ?? 'var(--text-dim)'} 25%, transparent)`,
+                background: `color-mix(in srgb, ${statusColor[displaySession.status] ?? 'var(--text-dim)'} 6%, transparent)`,
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
@@ -355,11 +433,11 @@ export default function DetailPanel() {
               <div className={styles.headerText}>
                 <div className={styles.headerTop}>
                   <div className={styles.headerTitles}>
-                    <EditableTitle session={session} />
-                    {session.title && session.projectName && session.title !== session.projectName && (
+                    <EditableTitle session={displaySession} />
+                    {displaySession.title && displaySession.projectName && displaySession.title !== displaySession.projectName && (
                       <div className={styles.titleRow}>
                         <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontStyle: 'italic' }}>
-                          {session.projectName}
+                          {displaySession.projectName}
                         </span>
                       </div>
                     )}
@@ -368,23 +446,23 @@ export default function DetailPanel() {
 
                 <div className={styles.meta}>
                   <span
-                    className={`${styles.detailStatusBadge} ${isDisconnected ? 'disconnected' : session.status}`}
+                    className={`${styles.detailStatusBadge} ${isDisconnected ? 'disconnected' : displaySession.status}`}
                   >
                     {statusLabel}
                   </span>
-                  {session.model && (
-                    <span className={styles.detailModel}>{session.model}</span>
+                  {displaySession.model && (
+                    <span className={styles.detailModel}>{displaySession.model}</span>
                   )}
                 </div>
               </div>
             </div>
 
             <SessionControlBar
-              session={session}
+              session={displaySession}
               labelChips={
                 <LabelChips
-                  sessionId={session.sessionId}
-                  currentLabel={session.label || ''}
+                  sessionId={displaySession.sessionId}
+                  currentLabel={displaySession.label || ''}
                 />
               }
             />
@@ -395,51 +473,62 @@ export default function DetailPanel() {
         <DetailTabs
           terminalContent={
             <TerminalContent
-              sessionId={session.sessionId}
-              terminalId={session.terminalId}
-              source={session.source}
-              status={session.status}
-              projectPath={session.projectPath}
+              sessionId={displaySession.sessionId}
+              terminalId={displaySession.terminalId}
+              source={displaySession.source}
+              status={displaySession.status}
+              projectPath={displaySession.projectPath}
             />
           }
           promptsContent={
             <PromptHistory
-              prompts={session.promptHistory || []}
-              previousSessions={session.previousSessions}
+              prompts={displaySession.promptHistory || []}
+              previousSessions={displaySession.previousSessions}
+              searchQuery={searchQuery}
             />
           }
-          notesContent={<NotesTab sessionId={session.sessionId} />}
+          notesContent={<NotesTab sessionId={displaySession.sessionId} />}
           activityContent={
             <ActivityLog
-              events={session.events || []}
-              toolLog={session.toolLog || []}
-              responseLog={session.responseLog || []}
+              events={displaySession.events || []}
+              toolLog={displaySession.toolLog || []}
+              responseLog={displaySession.responseLog || []}
+              searchQuery={searchQuery}
             />
           }
           queueContent={
             <QueueTab
-              sessionId={session.sessionId}
-              sessionStatus={session.status}
-              terminalId={session.terminalId}
+              sessionId={displaySession.sessionId}
+              sessionStatus={displaySession.status}
+              terminalId={displaySession.terminalId}
             />
           }
           projectContent={
-            session.projectPath
-              ? <ProjectTabContainer key={session.sessionId} projectPath={session.projectPath} sessionId={session.sessionId} />
+            displaySession.projectPath
+              ? <ProjectTabContainer key={displaySession.sessionId} projectPath={displaySession.projectPath} sessionId={displaySession.sessionId} />
               : <div className={styles.tabEmpty}>No project path detected for this session</div>
           }
           commandsContent={
-            (session.opsTerminalId || session.hadOpsTerminal) ? (
+            (displaySession.opsTerminalId || displaySession.hadOpsTerminal) ? (
               <OpsTerminalContent
-                sessionId={session.sessionId}
-                opsTerminalId={session.opsTerminalId ?? null}
-                projectPath={session.projectPath}
+                sessionId={displaySession.sessionId}
+                opsTerminalId={displaySession.opsTerminalId ?? null}
+                projectPath={displaySession.projectPath}
               />
             ) : undefined
           }
           onTabChange={setActiveTab}
-          sessionId={session.sessionId}
+          sessionId={displaySession.sessionId}
           externalActiveTab={externalTab}
+          searchQuery={searchQuery}
+          searchOpen={searchOpen}
+          searchMatchCount={searchMatchCount}
+          searchMatchIndex={searchMatchIndex}
+          onSearchChange={setSearchQuery}
+          onSearchClose={closeSearch}
+          onSearchPrev={() => navigateMatch('prev')}
+          onSearchNext={() => navigateMatch('next')}
+          searchInputRef={searchInputRef}
         />
 
         {/* Modals — only mount when their modal is active to avoid unnecessary

@@ -20,34 +20,10 @@ function isTyping(e: KeyboardEvent): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Mute state (module-level since it's toggled from multiple places)
-// ---------------------------------------------------------------------------
-
-let globalMuted = false;
-const muteListeners = new Set<(muted: boolean) => void>();
-
-export function getGlobalMuted(): boolean {
-  return globalMuted;
-}
-
-export function toggleGlobalMuted(): boolean {
-  globalMuted = !globalMuted;
-  for (const fn of muteListeners) fn(globalMuted);
-  return globalMuted;
-}
-
-export function onMuteChange(fn: (muted: boolean) => void): () => void {
-  muteListeners.add(fn);
-  return () => muteListeners.delete(fn);
-}
-
-// ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
 export function useKeyboardShortcuts(): void {
-  // Read modal state reactively (changes the shortcuts panel visibility)
-  const openModal = useUiStore((s) => s.openModal);
   const closeModal = useUiStore((s) => s.closeModal);
   const activeModal = useUiStore((s) => s.activeModal);
 
@@ -76,20 +52,12 @@ export function useKeyboardShortcuts(): void {
       }
 
       // Don't intercept when typing in form fields.
-      // Exceptions:
-      // - Alt+1-9 session-switch shortcuts fire even when xterm is focused
+      // Exception: Alt+1-9 session-switch shortcuts fire even when xterm is focused
       //   (xterm uses a hidden <textarea> so isTyping() returns true)
-      // - Cmd/Ctrl+F (focusSearch) fires from anywhere, like a native Find shortcut
       if (isTyping(e)) {
         const inXterm = !!(e.target as HTMLElement)?.closest?.('.xterm');
-        // All Cmd/Ctrl+Alt combos fire even inside xterm (session switch shortcuts)
         const isModifierSwitch = e.altKey && (e.metaKey || e.ctrlKey);
-        const isFindShortcut = (e.metaKey || e.ctrlKey) && e.key === 'f';
-        if (isFindShortcut) {
-          // fall through to shortcut lookup
-        } else if (!inXterm || !isModifierSwitch) {
-          return;
-        }
+        if (!inXterm || !isModifierSwitch) return;
         // fall through to shortcut lookup
       }
 
@@ -98,59 +66,20 @@ export function useKeyboardShortcuts(): void {
       if (!actionId) return;
 
       e.preventDefault();
-      dispatchAction(actionId, currentModal, selectedId, openModal, closeModal);
+      dispatchAction(actionId);
     }
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [openModal, closeModal, activeModal]);
+  }, [closeModal, activeModal]);
 }
 
 // ---------------------------------------------------------------------------
 // Action dispatcher
 // ---------------------------------------------------------------------------
 
-function dispatchAction(
-  actionId: string,
-  currentModal: string | null,
-  selectedId: string | null,
-  openModal: (id: string) => void,
-  closeModal: () => void,
-): void {
+function dispatchAction(actionId: string): void {
   switch (actionId) {
-    case 'focusSearch': {
-      const searchInput = document.querySelector<HTMLInputElement>('[data-search-input]');
-      if (searchInput) {
-        searchInput.focus();
-        searchInput.select();
-      }
-      break;
-    }
-    case 'toggleShortcuts':
-      if (currentModal === 'shortcuts') closeModal();
-      else openModal('shortcuts');
-      break;
-    case 'toggleSettings':
-      if (currentModal === 'settings') closeModal();
-      else openModal('settings');
-      break;
-    case 'newTerminal':
-      openModal('new-session');
-      break;
-    case 'killSession':
-      if (selectedId) killSelectedSession(selectedId);
-      break;
-    case 'archiveSession':
-      if (selectedId) archiveSelectedSession(selectedId);
-      break;
-    case 'toggleMute': {
-      const muted = toggleGlobalMuted();
-      showToast(muted ? 'Sound muted' : 'Sound unmuted', 'info', 1500);
-      break;
-    }
-    case 'toggleHeader':
-      useUiStore.getState().toggleDetailHeader();
-      break;
     case 'toggleFullscreen':
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
@@ -217,41 +146,3 @@ function switchToSessionByIndex(index: number): void {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Session control helpers (API calls)
-// ---------------------------------------------------------------------------
-
-async function killSelectedSession(sessionId: string): Promise<void> {
-  try {
-    const res = await fetch(`/api/sessions/${sessionId}/kill`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ confirm: true }),
-    });
-    const data = await res.json();
-    if (data.ok) {
-      showToast('Session killed', 'info');
-    } else {
-      showToast(data.error || 'Failed to kill session', 'error');
-    }
-  } catch {
-    showToast('Network error', 'error');
-  }
-}
-
-async function archiveSelectedSession(sessionId: string): Promise<void> {
-  try {
-    const res = await fetch(`/api/sessions/${sessionId}/archive`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
-    const data = await res.json();
-    if (data.ok) {
-      showToast('Session archived', 'info');
-    } else {
-      showToast(data.error || 'Failed to archive session', 'error');
-    }
-  } catch {
-    showToast('Network error', 'error');
-  }
-}

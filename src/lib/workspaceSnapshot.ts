@@ -211,6 +211,21 @@ export async function importSnapshot(
   // Map old session IDs to new terminal IDs for room remapping
   const idRemap = new Map<string, string>();
 
+  // Build a map of dropped (duplicate) session IDs to their canonical session ID,
+  // so rooms referencing duplicate sessions can still be remapped correctly.
+  const canonicalMap = new Map<string, string>(); // droppedOriginalId -> canonicalOriginalId
+  {
+    const seenKeys = new Map<string, string>(); // dedupeKey -> first originalSessionId
+    for (const snap of snapshot.sessions) {
+      const key = sessionDedupeKey(snap);
+      if (!seenKeys.has(key)) {
+        seenKeys.set(key, snap.originalSessionId);
+      } else {
+        canonicalMap.set(snap.originalSessionId, seenKeys.get(key)!);
+      }
+    }
+  }
+
   // Deduplicate sessions before importing
   const dedupedSessions = deduplicateSessions(snapshot.sessions);
   const skipped = snapshot.sessions.length - dedupedSessions.length;
@@ -256,12 +271,28 @@ export async function importSnapshot(
         callbacks.onProgress?.(processedCount, total, sessionSnap.title);
         callbacks.onSessionCreated(data.terminalId, sessionSnap);
 
+        // If the session was deduplicated to an existing session without an active
+        // PTY (e.g. after a server restart), trigger a reconnect to establish a
+        // fresh SSH connection under the existing session card.
+        if (data.deduplicated && !data.hasTerminal) {
+          fetch(`/api/sessions/${encodeURIComponent(data.terminalId)}/reconnect-terminal`, {
+            method: 'POST',
+          }).catch(() => {});
+        }
+
         // Restore metadata (accent color, character model, pinned)
         if (sessionSnap.accentColor) {
           fetch(`/api/sessions/${encodeURIComponent(data.terminalId)}/accent-color`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ color: sessionSnap.accentColor }),
+          }).catch(() => {});
+        }
+        if (sessionSnap.characterModel) {
+          fetch(`/api/sessions/${encodeURIComponent(data.terminalId)}/character-model`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: sessionSnap.characterModel }),
           }).catch(() => {});
         }
         if (sessionSnap.pinned) {
@@ -294,15 +325,33 @@ export async function importSnapshot(
     }
   }
 
-  // Restore rooms with remapped session IDs
-  if (snapshot.rooms && snapshot.rooms.length > 0) {
+  // Add dropped (deduplicated) session IDs to idRemap, pointing them to the canonical
+  // session's new terminal ID. This ensures rooms that referenced a dropped duplicate
+  // session are still remapped correctly.
+  for (const [droppedId, canonicalId] of canonicalMap) {
+    const newId = idRemap.get(canonicalId);
+    if (newId) idRemap.set(droppedId, newId);
+  }
+
+  // Restore rooms with remapped session IDs.
+  // Use localStorage rooms as base (preserves hook-only session IDs not in the snapshot).
+  // For each session ID in a room: remap it to the new terminal ID if a mapping exists,
+  // otherwise keep it as-is (hook-only sessions will be migrated later via migrateSession).
+  if (idRemap.size > 0) {
     try {
-      const remappedRooms = snapshot.rooms.map((r) => ({
+      // Load existing rooms from localStorage — falls back to snapshot.rooms on fresh install
+      let baseRooms: Room[] = snapshot.rooms ?? [];
+      try {
+        const raw = localStorage.getItem('session-rooms');
+        if (raw) {
+          const parsed = JSON.parse(raw) as Room[];
+          if (Array.isArray(parsed) && parsed.length > 0) baseRooms = parsed;
+        }
+      } catch { /* ignore parse errors */ }
+
+      const remappedRooms = baseRooms.map((r) => ({
         ...r,
-        // Remap old session IDs to new terminal IDs; drop any that weren't recreated
-        sessionIds: r.sessionIds
-          .map((oldId) => idRemap.get(oldId))
-          .filter((newId): newId is string => newId != null),
+        sessionIds: r.sessionIds.map((id) => idRemap.get(id) ?? id),
       }));
       localStorage.setItem('session-rooms', JSON.stringify(remappedRooms));
     } catch { /* ignore */ }

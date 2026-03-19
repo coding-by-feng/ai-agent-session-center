@@ -22,6 +22,8 @@ export default function ProjectBrowserView() {
 
   const projectName = projectPath.split('/').filter(Boolean).pop() || projectPath;
 
+  const initialFile = params.get('file') || undefined;
+
   return (
     <div className={styles.standalone}>
       <div className={styles.standaloneHeader}>
@@ -29,7 +31,11 @@ export default function ProjectBrowserView() {
         <span className={styles.standalonePath}>{projectPath}</span>
       </div>
       <div className={styles.standaloneContent}>
-        <ProjectTab projectPath={projectPath} />
+        <ProjectTab
+          projectPath={projectPath}
+          initialPath={initialFile}
+          initialIsFile={!!initialFile}
+        />
       </div>
     </div>
   );

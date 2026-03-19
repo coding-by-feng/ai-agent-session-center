@@ -33,17 +33,22 @@ export default function ActivityLog({
   responseLog,
   searchQuery,
 }: ActivityLogProps) {
-  const items: ActivityItem[] = [];
+  // Use source-array index (e/t/r + position in original array) as the stable key.
+  // This must NOT include the sorted position: when a new item is prepended (newest-first
+  // sort), all sorted indices shift, causing every key to change and React to unmount+remount
+  // all DOM nodes — destroying the CSS scroll-anchor element and making the viewport jump.
+  type KeyedItem = ActivityItem & { _key: string };
+  const items: KeyedItem[] = [];
 
-  for (const e of events) {
-    items.push({ kind: 'event', type: e.type, detail: e.detail, timestamp: e.timestamp });
-  }
-  for (const t of toolLog) {
-    items.push({ kind: 'tool', tool: t.tool, input: t.input, timestamp: t.timestamp });
-  }
-  for (const r of responseLog) {
-    items.push({ kind: 'response', text: r.text, timestamp: r.timestamp });
-  }
+  events.forEach((e, i) => {
+    items.push({ kind: 'event', type: e.type, detail: e.detail, timestamp: e.timestamp, _key: `e${i}` });
+  });
+  toolLog.forEach((t, i) => {
+    items.push({ kind: 'tool', tool: t.tool, input: t.input, timestamp: t.timestamp, _key: `t${i}` });
+  });
+  responseLog.forEach((r, i) => {
+    items.push({ kind: 'response', text: r.text, timestamp: r.timestamp, _key: `r${i}` });
+  });
 
   items.sort((a, b) => b.timestamp - a.timestamp);
 
@@ -55,9 +60,8 @@ export default function ActivityLog({
 
   return (
     <div>
-      {items.map((item, i) => {
-        // #9: Composite key to avoid collisions between items with same timestamp
-        const itemKey = `${item.kind}-${item.timestamp}-${i}`;
+      {items.map((item) => {
+        const itemKey = item._key;
         const content =
           item.kind === 'tool'
             ? `${item.tool} ${item.input}`

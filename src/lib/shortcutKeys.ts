@@ -24,17 +24,8 @@ function sw(key: string): KeyCombo {
 }
 
 const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
-  focusSearch:          { label: 'Focus search',                  section: 'Navigation',       combo: isMac ? { key: 'f', metaKey: true } : { key: 'f', ctrlKey: true } },
-  closeOrDeselect:      { label: 'Close modal / deselect',        section: 'Navigation',       combo: { key: 'Escape' } },
-  toggleShortcuts:      { label: 'Toggle shortcuts panel',        section: 'Navigation',       combo: { key: '?' } },
-  toggleSettings:       { label: 'Toggle settings',               section: 'Actions',          combo: { key: 's' } },
-  toggleHeader:         { label: 'Collapse / expand header',      section: 'Navigation',       combo: { key: 'h' } },
-  newTerminal:          { label: 'New terminal session',          section: 'Actions',          combo: { key: 't' } },
-  toggleMute:           { label: 'Mute / unmute all',             section: 'Actions',          combo: { key: 'm' } },
-  killSession:          { label: 'Kill selected session',         section: 'Selected Session', combo: { key: 'k' } },
-  archiveSession:       { label: 'Archive selected session',      section: 'Selected Session', combo: { key: 'a' } },
   toggleFullscreen:     { label: 'Toggle fullscreen',             section: 'Terminal',         combo: { key: 'F11', altKey: true } },
-  scrollToBottom:       { label: 'Scroll to bottom',              section: 'Terminal',         combo: { key: 'b' } },
+  scrollToBottom:       { label: 'Scroll to bottom',              section: 'Terminal',         combo: isMac ? { key: 'b', altKey: true, metaKey: true } : { key: 'b', altKey: true, ctrlKey: true } },
   switchLatestSession:  { label: 'Switch to previous session',    section: 'Session Switch',   combo: sw('p') },
   switchSession1:       { label: 'Switch to session 1',           section: 'Session Switch',   combo: sw('1') },
   switchSession2:       { label: 'Switch to session 2',           section: 'Session Switch',   combo: sw('2') },
@@ -49,9 +40,7 @@ const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
 
 /** All action IDs in display order. */
 export const ACTION_IDS: ShortcutActionId[] = [
-  'focusSearch', 'closeOrDeselect', 'toggleShortcuts',
-  'toggleSettings', 'toggleHeader', 'newTerminal', 'toggleMute',
-  'killSession', 'archiveSession', 'toggleFullscreen', 'scrollToBottom',
+  'toggleFullscreen', 'scrollToBottom',
   'switchLatestSession',
   'switchSession1', 'switchSession2', 'switchSession3',
   'switchSession4', 'switchSession5', 'switchSession6',
@@ -59,7 +48,7 @@ export const ACTION_IDS: ShortcutActionId[] = [
 ];
 
 /** Section display order. */
-export const SECTION_ORDER = ['Session Switch', 'Navigation', 'Actions', 'Selected Session', 'Terminal'];
+export const SECTION_ORDER = ['Session Switch', 'Terminal'];
 
 /** Build ShortcutBinding[] from defaults + optional overrides. */
 export function buildBindings(

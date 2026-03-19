@@ -263,3 +263,13 @@ app.on('window-all-closed', () => {
   // Do nothing — tray keeps app alive.
   // Actual quit comes from tray "Quit" menu item only.
 })
+
+// macOS: clicking the dock icon should bring the window back into focus.
+// The window is hidden (not destroyed) when the user clicks X, so we just show it.
+app.on('activate', () => {
+  const allWindows = BrowserWindow.getAllWindows()
+  if (allWindows.length > 0) {
+    allWindows[0].show()
+    allWindows[0].focus()
+  }
+})

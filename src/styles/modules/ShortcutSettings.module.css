@@ -4,7 +4,7 @@
    ============================================================ */
 
 .container {
-  width: min(720px, calc(100vw - 32px));
+  width: min(540px, calc(100vw - 32px));
   max-height: 82vh;
   display: flex;
   flex-direction: column;

@@ -508,6 +508,37 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
   const session = matchSession(hookData, sessions, pendingResume, pidToSession, projectSessionCounters);
   if (!session) return null;
 
+  // When a session is re-keyed (replacesId is set), absorb any CONNECTING session for the
+  // same path that was created by workspace auto-load. After server restart:
+  //   - Priority 0.5 re-keys the old ended session (keeping its stale terminalId)
+  //   - Workspace auto-load created a fresh CONNECTING session for the same path
+  //   - Without merging, the CONNECTING card persists as a duplicate
+  // By merging, the re-keyed session gets the fresh SSH terminal and the orphan is removed.
+  // Safe for Priority 1/2/3 re-keys too: those consume the CONNECTING session during re-key,
+  // so no orphan exists for the same path and the loop finds nothing to merge.
+  if (session.replacesId && cwd) {
+    const normalizedCwd = cwd.replace(/\/$/, '');
+    for (const [orphanKey, orphan] of sessions) {
+      if (
+        orphanKey !== session.sessionId &&
+        orphan.terminalId &&
+        orphan.status === SESSION_STATUS.CONNECTING &&
+        orphan.projectPath?.replace(/\/$/, '') === normalizedCwd
+      ) {
+        session.terminalId = orphan.terminalId;
+        if (orphan.opsTerminalId) session.opsTerminalId = orphan.opsTerminalId;
+        if (orphan.sshConfig) session.sshConfig = orphan.sshConfig;
+        if (orphan.sshHost) session.sshHost = orphan.sshHost;
+        if (orphan.sshCommand) session.sshCommand = orphan.sshCommand;
+        sessions.delete(orphanKey);
+        invalidateSessionsCache();
+        broadcastAsync({ type: WS_TYPES.SESSION_REMOVED, sessionId: orphanKey });
+        log.info('session', `Merged orphan CONNECTING terminal ${orphan.terminalId?.slice(0,8)} into re-keyed session ${session.sessionId?.slice(0,8)} (path=${normalizedCwd})`);
+        break;
+      }
+    }
+  }
+
   // Auto-revive sessions that were marked ended by ServerRestart but whose Claude process survived.
   // This happens when Claude runs in tmux/screen and keeps sending hooks after server restart.
   const REVIVABLE_EVENTS: Set<string> = new Set([
