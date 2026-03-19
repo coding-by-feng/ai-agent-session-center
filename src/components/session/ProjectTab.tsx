@@ -642,6 +642,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   }, [showFullscreen]);
 
   // File list display options
+  const [showHidden, setShowHidden] = useState(false);
   const [showDateTime, setShowDateTime] = useState(false);
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -691,7 +692,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     setActiveTabPath(null);
     setEditingNewFile(null);
     try {
-      const res = await fetch(`/api/files/list?root=${encodeURIComponent(projectPath)}&path=${encodeURIComponent(relPath)}`);
+      const res = await fetch(`/api/files/list?root=${encodeURIComponent(projectPath)}&path=${encodeURIComponent(relPath)}${showHidden ? '&showHidden=true' : ''}`);
       if (!res.ok) {
         const data = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(data.error || res.statusText);
@@ -707,7 +708,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     } finally {
       setLoading(false);
     }
-  }, [projectPath, onPathChange]);
+  }, [projectPath, onPathChange, showHidden]);
 
   const loadFile = useCallback(async (relPath: string) => {
     // Revoke previous blob URL to prevent memory leaks (only actual blob:// URLs)
@@ -993,6 +994,12 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     }
   }, [currentPath, projectPath, loadDir]);
 
+  // Reload directory when showHidden toggles
+  useEffect(() => {
+    if (!file) loadDir(currentPath);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showHidden]);
+
   // Refresh
   const handleRefresh = useCallback(() => {
     if (file) {
@@ -1007,7 +1014,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const silentRefreshDir = useCallback(async () => {
     try {
       const res = await fetch(
-        `/api/files/list?root=${encodeURIComponent(projectPath)}&path=${encodeURIComponent(currentPath)}`,
+        `/api/files/list?root=${encodeURIComponent(projectPath)}&path=${encodeURIComponent(currentPath)}${showHidden ? '&showHidden=true' : ''}`,
       );
       if (!res.ok) return;
       const data = await res.json();
@@ -1015,7 +1022,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     } catch {
       // Silently ignore — next poll will retry
     }
-  }, [projectPath, currentPath]);
+  }, [projectPath, currentPath, showHidden]);
 
   // Auto-refresh: poll directory listing every 5 seconds
   useEffect(() => {
@@ -1227,6 +1234,14 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
           <IconFullscreen />
         </button>
         <span className={styles.iconBarSep} />
+        <button
+          className={`${styles.iconBtn} ${showHidden ? styles.iconBtnActive : ''}`}
+          onClick={() => setShowHidden(p => !p)}
+          disabled={!!file}
+          title={showHidden ? 'Hide dotfiles/hidden folders' : 'Show hidden folders (dotfiles)'}
+        >
+          <span style={{ fontFamily: 'monospace', fontSize: '13px', fontWeight: 700 }}>.</span>
+        </button>
         <button
           className={`${styles.iconBtn} ${showDateTime ? styles.iconBtnActive : ''}`}
           onClick={() => setShowDateTime(p => !p)}
