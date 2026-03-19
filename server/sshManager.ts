@@ -7,7 +7,7 @@ import type { IPty, IDisposable } from 'node-pty';
 import { execFile, execSync } from 'child_process';
 import { readdirSync } from 'fs';
 import { join } from 'path';
-import { homedir, networkInterfaces } from 'os';
+import { homedir, networkInterfaces, hostname as osHostname } from 'os';
 import log from './logger.js';
 import type { Terminal, TerminalConfig, TerminalInfo, TmuxSessionInfo, SshKeyInfo } from '../src/types/terminal.js';
 import type { PendingLink } from '../src/types/session.js';
@@ -181,6 +181,9 @@ function resolveWorkDir(dir: string | undefined): string {
 // even when the user accesses the dashboard via a LAN IP (e.g. 192.168.x.x).
 const localAddresses = new Set<string>(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
 try {
+  const h = osHostname();
+  localAddresses.add(h);
+  localAddresses.add(`${h}.local`); // macOS mDNS
   const ifaces = networkInterfaces();
   for (const addrs of Object.values(ifaces)) {
     if (!addrs) continue;

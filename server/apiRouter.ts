@@ -743,8 +743,10 @@ router.post('/terminals', async (req: Request, res: Response) => {
   if (!body) return;
 
   try {
-    const resolvedHost = body.host || 'localhost';
-    const username = body.username || getDefaultUsername() || (isLocalHost(resolvedHost) ? 'local' : null);
+    // Normalize any local address (IP, hostname, .local) to 'localhost' so that
+    // dedup matching, PTY creation, and stored sshHost are all consistent.
+    const resolvedHost = isLocalHost(body.host || '') ? 'localhost' : (body.host || 'localhost');
+    const username = body.username || getDefaultUsername() || (resolvedHost === 'localhost' ? 'local' : null);
     if (!username) {
       res.status(400).json({ success: false, error: 'username required — set it once in "+ NEW SESSION" and it will be reused' });
       return;
