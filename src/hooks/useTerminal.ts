@@ -114,10 +114,16 @@ function forceCanvasRepaint(
   requestAnimationFrame(() => {
     if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
     const wasBottom = isAtBottom(term);
+    const savedViewportY = term.buffer.active.viewportY;
     fitAddon.fit();
     sendResize(ws, terminalId, term.cols, term.rows);
     term.refresh(0, term.rows - 1);
-    if (wasBottom) term.scrollToBottom();
+    if (wasBottom) {
+      term.scrollToBottom();
+    } else {
+      // Restore scroll position after fit to prevent layout-triggered viewport jump
+      term.scrollToLine(savedViewportY);
+    }
     if (activeRef.current) {
       activeRef.current.layoutReady = true;
     }
@@ -199,6 +205,8 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   // Attach
   const attach = useCallback(
     (terminalId: string) => {
+      // Skip re-attach if already attached to the same terminal (prevents scroll position reset)
+      if (activeRef.current?.terminalId === terminalId) return;
       detach();
 
       const containerOrNull = containerRef.current;
@@ -322,6 +330,14 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
 
         term.open(container);
 
+        // If the user manually scrolls up while the force-scroll flag is set,
+        // cancel the flag so incoming output doesn't yank the viewport back to bottom.
+        term.onScroll(() => {
+          if (!isAtBottom(term)) {
+            forceScrollRef.current = false;
+          }
+        });
+
         // Custom key handler
         term.attachCustomKeyEventHandler((e) => {
           if (e.key === 'Escape') {
@@ -384,10 +400,15 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           if (resizeTimer) clearTimeout(resizeTimer);
           resizeTimer = setTimeout(() => {
             const wasBottom = isAtBottom(term);
+            const savedViewportY = term.buffer.active.viewportY;
             fitAddon.fit();
             sendResize(wsRef.current, terminalId, term.cols, term.rows);
-            // Restore scroll position: only auto-scroll to bottom if user was already there
-            if (wasBottom) term.scrollToBottom();
+            // Restore scroll position after fit to prevent layout-triggered viewport jump
+            if (wasBottom) {
+              term.scrollToBottom();
+            } else {
+              term.scrollToLine(savedViewportY);
+            }
           }, 200);
         });
         resizeObserver.observe(container);

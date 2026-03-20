@@ -1090,9 +1090,9 @@ const STREAMABLE_EXTENSIONS = new Set([
 ]);
 
 /** Directories to skip when listing. */
+// Always-hidden dirs (even when showHidden=true) — large/noisy dirs with no browsing value
 const HIDDEN_DIRS = new Set([
-  'node_modules', '.git', '.next', '.nuxt', '__pycache__', '.venv',
-  'venv', 'dist', 'build', '.cache', '.turbo', 'coverage', '.svelte-kit',
+  'node_modules', '__pycache__', 'venv', 'dist', 'build', 'coverage',
 ]);
 
 function isTextFile(name: string): boolean {

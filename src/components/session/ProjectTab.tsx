@@ -642,7 +642,9 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   }, [showFullscreen]);
 
   // File list display options
-  const [showHidden, setShowHidden] = useState(false);
+  const [showHidden, setShowHidden] = useState(() => {
+    try { return localStorage.getItem('file-browser:showHidden') !== 'false'; } catch { return true; }
+  });
   const [showDateTime, setShowDateTime] = useState(false);
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -1236,7 +1238,11 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         <span className={styles.iconBarSep} />
         <button
           className={`${styles.iconBtn} ${showHidden ? styles.iconBtnActive : ''}`}
-          onClick={() => setShowHidden(p => !p)}
+          onClick={() => setShowHidden(p => {
+            const next = !p;
+            try { localStorage.setItem('file-browser:showHidden', String(next)); } catch { /* ignore */ }
+            return next;
+          })}
           disabled={!!file}
           title={showHidden ? 'Hide dotfiles/hidden folders' : 'Show hidden folders (dotfiles)'}
         >

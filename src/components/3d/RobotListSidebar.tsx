@@ -6,6 +6,7 @@
 import { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
+import { useUiStore } from '@/stores/uiStore';
 import { flushSave } from '@/lib/workspaceSnapshot';
 import SearchInput from '@/components/ui/SearchInput';
 import type { Session } from '@/types/session';
@@ -457,15 +458,22 @@ export default function RobotListSidebar() {
   );
 
   const selectSession = useSessionStore((s) => s.selectSession);
+  const detailPanelMinimized = useUiStore((s) => s.detailPanelMinimized);
+  const restoreDetailPanel = useUiStore((s) => s.restoreDetailPanel);
 
   const handleSelect = useCallback((sessionId: string) => {
     // Always select in the store so the detail panel opens
     selectSession(sessionId);
+    // If the panel is minimized, restore it (selectedSessionId may not change,
+    // so the DetailPanel useEffect won't fire — we must restore it here).
+    if (detailPanelMinimized) {
+      restoreDetailPanel();
+    }
     // Also dispatch event for 3D camera fly (no-op when scene is unmounted)
     window.dispatchEvent(
       new CustomEvent('robot-select', { detail: { sessionId } }),
     );
-  }, [selectSession]);
+  }, [selectSession, detailPanelMinimized, restoreDetailPanel]);
 
   const handleClose = useCallback((sessionId: string) => {
     removeSession(sessionId);
@@ -492,9 +500,9 @@ export default function RobotListSidebar() {
     }).catch(() => {});
   }, [sessions, updateSession]);
 
-  // Hide sidebar only when there are zero active sessions across ALL filters
+  // Hide sidebar only when there are zero sessions at all
   const hasAnySessions = useMemo(
-    () => [...sessions.values()].some(s => s.status !== 'ended'),
+    () => sessions.size > 0,
     [sessions],
   );
   if (!hasAnySessions) return null;
