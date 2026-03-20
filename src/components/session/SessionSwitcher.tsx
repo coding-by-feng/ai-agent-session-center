@@ -4,10 +4,11 @@
  * Below: always-visible horizontal tab strip showing all other active sessions
  *        as mini robot cards (icon + title + project name + label).
  */
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import type { Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
+import { useRoomStore } from '@/stores/roomStore';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -41,6 +42,22 @@ function getCliBadge(session: Session): string | null {
     if (bt.includes('aider')) return 'AIDER';
   }
   return null;
+}
+
+/** Room filter funnel icon */
+function RoomFilterIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M1 2h10L7 6.5V10.5L5 9.5V6.5L1 2Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+        fill={active ? 'currentColor' : 'none'}
+        fillOpacity={active ? 0.3 : 0}
+      />
+    </svg>
+  );
 }
 
 /** Two-column grid icon — shown in compact mode; click to switch to detailed */
@@ -84,6 +101,23 @@ export default function SessionSwitcher({
 }: Props) {
   const cardDisplayMode = useUiStore((s) => s.cardDisplayMode);
   const toggleCardDisplayMode = useUiStore((s) => s.toggleCardDisplayMode);
+  const rooms = useRoomStore((s) => s.rooms);
+
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [roomDropdownOpen, setRoomDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!roomDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setRoomDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [roomDropdownOpen]);
 
   // Build globally indexed session list (all active, sorted), then split out "others"
   const { sortedSessions, sessionIndexMap, currentIndex } = useMemo(() => {
@@ -106,6 +140,26 @@ export default function SessionSwitcher({
     const others = allActive.filter((s) => s.sessionId !== currentSession.sessionId);
     return { sortedSessions: others, sessionIndexMap: indexMap, currentIndex: curIdx };
   }, [sessions, currentSession.sessionId]);
+
+  // Rooms that have at least one session in the current active list
+  const activeSessionIds = useMemo(
+    () => new Set([...sessions.values()].filter((s) => s.status !== 'ended').map((s) => s.sessionId)),
+    [sessions],
+  );
+  const availableRooms = useMemo(
+    () => rooms.filter((r) => r.sessionIds.some((id) => activeSessionIds.has(id))),
+    [rooms, activeSessionIds],
+  );
+
+  // Apply room filter to the tab strip (current session is never filtered out)
+  const filteredSessions = useMemo(() => {
+    if (!selectedRoomId) return sortedSessions;
+    const room = rooms.find((r) => r.id === selectedRoomId);
+    if (!room) return sortedSessions;
+    return sortedSessions.filter((s) => room.sessionIds.includes(s.sessionId));
+  }, [sortedSessions, selectedRoomId, rooms]);
+
+  const selectedRoom = selectedRoomId ? rooms.find((r) => r.id === selectedRoomId) : null;
 
   const primaryName = currentSession.title || currentSession.projectName || '(untitled)';
   const secondaryName = currentSession.title && currentSession.projectName && currentSession.title !== currentSession.projectName
@@ -147,6 +201,41 @@ export default function SessionSwitcher({
           {duration && (
             <span className={styles.detailDuration}>{duration}</span>
           )}
+          {/* Room filter dropdown */}
+          {availableRooms.length > 0 && (
+            <div className={styles.roomFilterWrap} ref={dropdownRef}>
+              <button
+                className={`${styles.displayModeToggle}${selectedRoomId ? ` ${styles.roomFilterActive}` : ''}`}
+                onClick={() => setRoomDropdownOpen((o) => !o)}
+                title={selectedRoom ? `Filtering: ${selectedRoom.name}` : 'Filter by room'}
+                type="button"
+              >
+                <RoomFilterIcon active={!!selectedRoomId} />
+              </button>
+              {roomDropdownOpen && (
+                <div className={styles.roomFilterDropdown}>
+                  <button
+                    className={`${styles.roomFilterOption}${!selectedRoomId ? ` ${styles.roomFilterOptionActive}` : ''}`}
+                    onClick={() => { setSelectedRoomId(null); setRoomDropdownOpen(false); }}
+                    type="button"
+                  >
+                    All rooms
+                  </button>
+                  {availableRooms.map((r) => (
+                    <button
+                      key={r.id}
+                      className={`${styles.roomFilterOption}${selectedRoomId === r.id ? ` ${styles.roomFilterOptionActive}` : ''}`}
+                      onClick={() => { setSelectedRoomId(r.id); setRoomDropdownOpen(false); }}
+                      type="button"
+                    >
+                      {r.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <button
             className={styles.displayModeToggle}
             onClick={toggleCardDisplayMode}
@@ -179,9 +268,9 @@ export default function SessionSwitcher({
       </div>
 
       {/* ── Session tab strip ── */}
-      {sortedSessions.length > 0 && (
+      {filteredSessions.length > 0 && (
         <div className={styles.sessionTabStrip}>
-          {sortedSessions.map((s) => (
+          {filteredSessions.map((s) => (
             <SessionTabCard
               key={s.sessionId}
               session={s}

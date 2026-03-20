@@ -69,6 +69,8 @@ interface UseTerminalReturn {
   /** Move the xterm element to a different container (e.g. for fullscreen) */
   reparent: (container: HTMLElement) => void;
   scrollToBottom: () => void;
+  /** Clear terminal display and replay buffered output from the server. */
+  refreshOutput: () => void;
   scrollPageUp: () => void;
   scrollPageDown: () => void;
   /** Capture current selection + viewport position for bookmarking. Returns null if nothing selected. */
@@ -139,6 +141,8 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   const activeRef = useRef<ActiveTerminal | null>(null);
   const pendingOutputRef = useRef<Map<string, string[]>>(new Map());
   const pendingOutputTtlRef = useRef<Map<string, number>>(new Map());
+  /** Saved scroll offsets (lines above bottom) per terminalId — restored after session switch */
+  const savedScrollRef = useRef<Map<string, number>>(new Map());
   const themeNameRef = useRef(themeName);
   const wsRef = useRef(ws);
   const projectPathRef = useRef(projectPath);
@@ -207,6 +211,14 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     (terminalId: string) => {
       // Skip re-attach if already attached to the same terminal (prevents scroll position reset)
       if (activeRef.current?.terminalId === terminalId) return;
+
+      // Save scroll position of the outgoing terminal as "lines above bottom"
+      // so we can restore it when the user switches back.
+      if (activeRef.current) {
+        const buf = activeRef.current.term.buffer.active;
+        savedScrollRef.current.set(activeRef.current.terminalId, buf.baseY - buf.viewportY);
+      }
+
       detach();
 
       const containerOrNull = containerRef.current;
@@ -435,7 +447,14 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
                 const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
                 term.write(bytes, () => {
                   if (--remaining === 0 && activeRef.current?.term === term) {
-                    term.scrollToBottom();
+                    const savedOffset = savedScrollRef.current.get(terminalId) ?? 0;
+                    if (savedOffset > 0) {
+                      // Restore the same "lines above bottom" offset the user was at
+                      const buf = term.buffer.active;
+                      term.scrollToLine(Math.max(0, buf.baseY - savedOffset));
+                    } else {
+                      term.scrollToBottom();
+                    }
                   }
                 });
               }
@@ -701,6 +720,17 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     return () => document.removeEventListener('terminal:scrollToBottom', handler);
   }, [scrollToBottom]);
 
+  /** Clear the terminal display and replay buffered output from the server. */
+  const refreshOutput = useCallback(() => {
+    if (!activeRef.current) return;
+    const { term, terminalId } = activeRef.current;
+    term.clear();
+    const ws = wsRef.current;
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'terminal_subscribe', terminalId }));
+    }
+  }, []);
+
   const scrollPageUp = useCallback(() => {
     if (activeRef.current) {
       activeRef.current.term.scrollPages(-1);
@@ -815,6 +845,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     handleTerminalClosed,
     reparent,
     scrollToBottom,
+    refreshOutput,
     scrollPageUp,
     scrollPageDown,
     getTerminalBookmark,

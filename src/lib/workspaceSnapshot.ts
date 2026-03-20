@@ -67,8 +67,8 @@ export function buildSnapshot(
   for (const [_id, session] of sessions) {
     // Only export sessions that have SSH config (can be recreated)
     if (!session.sshConfig) continue;
-    // Skip ended sessions without reconnect info
-    if (session.status === 'ended' && !session.sshConfig) continue;
+    // Never recreate sessions that were explicitly killed or archived by the user
+    if (session.archived) continue;
 
     exportedSessionIds.add(session.sessionId);
     sessionSnapshots.push({

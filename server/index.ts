@@ -32,6 +32,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // Auto-open browser
 function openBrowser(url: string, noOpen: boolean): void {
   if (noOpen) return;
+  if (process.env.ELECTRON) return; // Electron hosts its own window — never open a system browser
   try {
     const cmd = process.platform === 'darwin' ? 'open'
       : process.platform === 'win32' ? 'start'

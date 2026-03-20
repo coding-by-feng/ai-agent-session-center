@@ -20,24 +20,39 @@ const DEFAULT_COMMANDS: string[] = [
   'claude --model sonnet',
   'claude --model opus',
   'gemini',
+  'gemini --yolo',
   'codex',
   'aider',
 ];
 
-const COMMAND_HISTORY_KEY = 'command-history';
+const COMMAND_USAGE_KEY = 'command-usage-counts';
+
+function loadCommandUsageCounts(): Record<string, number> {
+  try {
+    return JSON.parse(localStorage.getItem(COMMAND_USAGE_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
 
 function getCommandSuggestions(): string[] {
-  try {
-    const history: string[] = JSON.parse(localStorage.getItem(COMMAND_HISTORY_KEY) || '[]');
-    const seen = new Set(history);
-    const merged = [...history];
-    for (const cmd of DEFAULT_COMMANDS) {
-      if (!seen.has(cmd)) merged.push(cmd);
-    }
-    return merged;
-  } catch {
-    return DEFAULT_COMMANDS;
+  const counts = loadCommandUsageCounts();
+  const usedSorted = Object.entries(counts)
+    .sort(([, a], [, b]) => b - a)
+    .map(([cmd]) => cmd);
+  const seen = new Set(usedSorted);
+  const result = [...usedSorted];
+  for (const cmd of DEFAULT_COMMANDS) {
+    if (!seen.has(cmd)) result.push(cmd);
   }
+  return result;
+}
+
+function saveCommand(cmd: string): void {
+  if (!cmd) return;
+  const counts = loadCommandUsageCounts();
+  counts[cmd] = (counts[cmd] || 0) + 1;
+  localStorage.setItem(COMMAND_USAGE_KEY, JSON.stringify(counts));
 }
 
 // ---------------------------------------------------------------------------
@@ -133,6 +148,7 @@ export default function QuickSessionModal() {
   async function handleLaunch() {
     if (submitting || !formValid) return;
     setSubmitting(true);
+    saveCommand(command || 'claude');
 
     try {
       const res = await fetch('/api/terminals', {
@@ -268,21 +284,17 @@ export default function QuickSessionModal() {
           )}
 
           {/* Ops terminal checkbox */}
-          <div className={styles.quickWorkdirRow}>
-            <label
-              style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
-              onClick={() => setEnableOpsTerminal((v) => !v)}
-            >
-              <input
-                type="checkbox"
-                checked={enableOpsTerminal}
-                onChange={(e) => setEnableOpsTerminal(e.target.checked)}
-                style={{ accentColor: 'var(--accent-cyan)', cursor: 'pointer' }}
-              />
-              <span>Commands Terminal</span>
-              <span style={{ opacity: 0.4, fontWeight: 400, fontSize: '11px' }}>(extra shell tab for manual commands)</span>
-            </label>
-          </div>
+          <label className={styles.opsCheckboxRow}>
+            <input
+              type="checkbox"
+              checked={enableOpsTerminal}
+              onChange={(e) => setEnableOpsTerminal(e.target.checked)}
+            />
+            <div className={styles.opsCheckboxText}>
+              <span className={styles.opsCheckboxLabel}>Commands Terminal</span>
+              <span className={styles.opsCheckboxHint}>Extra shell tab for manual commands</span>
+            </div>
+          </label>
         </div>
 
         <div className={styles.quickSessionFooter}>

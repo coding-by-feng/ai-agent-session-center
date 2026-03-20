@@ -80,6 +80,13 @@
 .sshFieldRequired { color: var(--accent-cyan, #00e5ff); font-weight: 700; }
 .sshFieldError { font-size: 10px; color: #ff5555; font-weight: 500; }
 
+/* Ops terminal checkbox row */
+.opsCheckboxRow { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 6px 0; }
+.opsCheckboxRow input[type='checkbox'] { flex-shrink: 0; width: 14px; height: 14px; accent-color: var(--accent-cyan, #00e5ff); cursor: pointer; margin: 0; }
+.opsCheckboxText { display: flex; flex-direction: column; gap: 2px; }
+.opsCheckboxLabel { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-primary, #e0e0e0); }
+.opsCheckboxHint { font-size: 10px; color: var(--text-dim, #555); letter-spacing: 0.3px; }
+
 /* Session mode toggle */
 .sshModeToggle { display: flex; gap: 0; border: 1px solid var(--border-accent, #1a1a3a); border-radius: 4px; overflow: hidden; }
 .sshModeBtn { flex: 1; padding: 6px 10px; font-family: var(--font-mono, monospace); font-size: 11px; letter-spacing: 0.5px; background: transparent; color: var(--text-secondary, #888); border: none; border-right: 1px solid var(--border-accent, #1a1a3a); cursor: pointer; transition: background 0.15s, color 0.15s; }

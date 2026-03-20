@@ -924,6 +924,57 @@
   background: var(--bg-subtle);
 }
 
+/* ---- Room filter ---- */
+
+.roomFilterWrap {
+  position: relative;
+}
+
+.roomFilterActive {
+  color: var(--accent-cyan);
+  border-color: var(--accent-cyan);
+}
+
+.roomFilterDropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 140px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 4px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.roomFilterOption {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: inherit;
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
+}
+
+.roomFilterOption:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+.roomFilterOptionActive {
+  color: var(--accent-cyan);
+  background: color-mix(in srgb, var(--accent-cyan) 10%, transparent);
+}
+
 /* ---- Session tab pin icon ---- */
 
 .sessionTabPin {
