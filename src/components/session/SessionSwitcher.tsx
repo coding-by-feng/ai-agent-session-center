@@ -169,10 +169,10 @@ export default function SessionSwitcher({
             <button
               className={styles.switcherIconBtn}
               onClick={onClose}
-              title="Close"
+              title="Minimize"
               type="button"
             >
-              &times;
+              &#x2012;
             </button>
           )}
         </div>

@@ -17,6 +17,7 @@ export interface WorkspaceLoadState {
 interface UiState {
   activeModal: string | null;
   detailPanelOpen: boolean;
+  detailPanelMinimized: boolean;
   activityFeedOpen: boolean;
   detailHeaderCollapsed: boolean;
   pendingFileOpen: PendingFileOpen | null;
@@ -26,6 +27,8 @@ interface UiState {
   openModal: (modalId: string) => void;
   closeModal: () => void;
   setDetailPanelOpen: (open: boolean) => void;
+  minimizeDetailPanel: () => void;
+  restoreDetailPanel: () => void;
   setActivityFeedOpen: (open: boolean) => void;
   toggleDetailHeader: () => void;
   openFileInProject: (filePath: string, projectPath: string) => void;
@@ -52,6 +55,7 @@ function loadCardDisplayMode(): CardDisplayMode {
 export const useUiStore = create<UiState>((set) => ({
   activeModal: null,
   detailPanelOpen: false,
+  detailPanelMinimized: false,
   activityFeedOpen: false,
   detailHeaderCollapsed: loadHeaderCollapsed(),
   pendingFileOpen: null,
@@ -61,6 +65,8 @@ export const useUiStore = create<UiState>((set) => ({
   openModal: (modalId) => set({ activeModal: modalId }),
   closeModal: () => set({ activeModal: null }),
   setDetailPanelOpen: (open) => set({ detailPanelOpen: open }),
+  minimizeDetailPanel: () => set({ detailPanelMinimized: true }),
+  restoreDetailPanel: () => set({ detailPanelMinimized: false }),
   setActivityFeedOpen: (open) => set({ activityFeedOpen: open }),
   toggleDetailHeader: () => set((s) => {
     const next = !s.detailHeaderCollapsed;

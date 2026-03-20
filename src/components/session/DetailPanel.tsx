@@ -233,6 +233,9 @@ export default function DetailPanel() {
   const sessions = useSessionStore((s) => s.sessions);
   const deselectSession = useSessionStore((s) => s.deselectSession);
   const selectSession = useSessionStore((s) => s.selectSession);
+  const detailPanelMinimized = useUiStore((s) => s.detailPanelMinimized);
+  const minimizeDetailPanel = useUiStore((s) => s.minimizeDetailPanel);
+  const restoreDetailPanel = useUiStore((s) => s.restoreDetailPanel);
 
   const session: Session | undefined = selectedSessionId
     ? sessions.get(selectedSessionId)
@@ -312,13 +315,15 @@ export default function DetailPanel() {
     });
   }, []);
 
-  // #10: Close on Escape — close search first, then deselect
+  // #10: Close on Escape — close search first, restore if minimized, then deselect
   useEffect(() => {
     if (!selectedSessionId) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !(e.target as HTMLElement)?.closest?.('.xterm')) {
         if (searchOpen) {
           closeSearch();
+        } else if (detailPanelMinimized) {
+          restoreDetailPanel();
         } else {
           deselectSession();
         }
@@ -326,7 +331,13 @@ export default function DetailPanel() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [selectedSessionId, deselectSession, searchOpen, closeSearch]);
+  }, [selectedSessionId, deselectSession, searchOpen, closeSearch, detailPanelMinimized, restoreDetailPanel]);
+
+  // Reset minimized state when a new session is selected
+  useEffect(() => {
+    if (selectedSessionId) restoreDetailPanel();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSessionId]);
 
   // Persist selection
   useEffect(() => {
@@ -377,6 +388,36 @@ export default function DetailPanel() {
     ended: 'var(--accent-red)', connecting: 'var(--text-dim)',
   };
 
+  if (detailPanelMinimized) {
+    return (
+      <button
+        onClick={restoreDetailPanel}
+        title={`Restore: ${displaySession.title || 'Unnamed'}`}
+        style={{
+          position: 'fixed',
+          bottom: 16,
+          right: 16,
+          zIndex: 1000,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '6px 12px',
+          background: 'var(--bg-card)',
+          border: `1px solid ${neonColor}`,
+          borderRadius: 4,
+          color: neonColor,
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 12,
+          cursor: 'pointer',
+          boxShadow: `0 0 12px ${neonColor}40`,
+        }}
+      >
+        <span style={{ fontSize: 10 }}>▲</span>
+        {displaySession.title || 'Unnamed'}
+      </button>
+    );
+  }
+
   return (
     <div className={styles.overlay} style={!session ? { display: 'none' } : undefined}>
       <ResizablePanel fullscreen>
@@ -388,7 +429,7 @@ export default function DetailPanel() {
           statusLabel={statusLabel}
           duration={durText}
           isDisconnected={isDisconnected}
-          onClose={deselectSession}
+          onClose={minimizeDetailPanel}
           headerCollapsed={headerCollapsed}
           onToggleCollapse={toggleDetailHeader}
         />

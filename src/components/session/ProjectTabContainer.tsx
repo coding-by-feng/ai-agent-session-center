@@ -106,13 +106,30 @@ export default function ProjectTabContainer({ projectPath, sessionId }: ProjectT
   const handlePathChange = useCallback((tabId: string, currentPath: string, isFile: boolean) => {
     // Derive label from the deepest segment; for files use the file name, for dirs the folder name
     const segments = currentPath.split('/').filter(Boolean);
-    const label = segments.length > 0
+    const baseName = segments.length > 0
       ? segments[segments.length - 1]
       : projectPath.split('/').filter(Boolean).pop() || 'project';
-    setSubTabs((prev) => prev.map((t) =>
-      // Skip auto-label update if the user has set a custom name
-      t.id === tabId ? { ...t, ...(!t.customLabel ? { label } : {}), initialPath: currentPath, initialIsFile: isFile } : t,
-    ));
+    setSubTabs((prev) => {
+      // If another tab already has the same baseName, disambiguate by prepending the parent dir
+      const conflict = prev.some((t) => t.id !== tabId && !t.customLabel && t.label === baseName);
+      const label = conflict && segments.length >= 2
+        ? `${segments[segments.length - 2]}/${baseName}`
+        : baseName;
+      // Also fix the conflicting tab's label to include its parent dir
+      return prev.map((t) => {
+        if (t.id === tabId) {
+          return { ...t, ...(!t.customLabel ? { label } : {}), initialPath: currentPath, initialIsFile: isFile };
+        }
+        if (!t.customLabel && t.label === baseName && t.initialPath) {
+          const otherSegs = t.initialPath.split('/').filter(Boolean);
+          const disambig = otherSegs.length >= 2
+            ? `${otherSegs[otherSegs.length - 2]}/${otherSegs[otherSegs.length - 1]}`
+            : t.label;
+          return { ...t, label: disambig };
+        }
+        return t;
+      });
+    });
   }, [projectPath]);
 
   // --- Rename state ---

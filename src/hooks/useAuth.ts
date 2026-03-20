@@ -119,24 +119,41 @@ export function useAuth(): UseAuthReturn {
     let cancelled = false;
 
     async function checkAuth() {
-      try {
-        const res = await fetch('/api/auth/status');
-        const data = await res.json();
+      const MAX_RETRIES = 8;
+      const RETRY_DELAY_MS = 800;
 
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         if (cancelled) return;
-
-        if (!data.passwordRequired || data.authenticated) {
-          setState({ token: getStoredToken(), loading: false, needsLogin: false });
-          // If authenticated with a token, schedule auto-refresh
-          if (data.passwordRequired && data.authenticated && getStoredToken()) {
-            scheduleRefresh(3600); // 1h token TTL
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 3000);
+          let res: Response;
+          try {
+            res = await fetch('/api/auth/status', { signal: controller.signal });
+          } finally {
+            clearTimeout(timeout);
           }
-        } else {
-          setState({ token: null, loading: false, needsLogin: true });
-        }
-      } catch {
-        if (!cancelled) {
-          setState({ token: null, loading: false, needsLogin: true });
+          const data = await res.json();
+
+          if (cancelled) return;
+
+          if (!data.passwordRequired || data.authenticated) {
+            setState({ token: getStoredToken(), loading: false, needsLogin: false });
+            if (data.passwordRequired && data.authenticated && getStoredToken()) {
+              scheduleRefresh(3600);
+            }
+          } else {
+            setState({ token: null, loading: false, needsLogin: true });
+          }
+          return; // success — stop retrying
+        } catch {
+          if (cancelled) return;
+          if (attempt < MAX_RETRIES - 1) {
+            await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+          } else {
+            // All retries exhausted — show login screen
+            setState({ token: null, loading: false, needsLogin: true });
+          }
         }
       }
     }
