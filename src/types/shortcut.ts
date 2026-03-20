@@ -22,12 +22,27 @@ export type ShortcutActionId =
   | 'switchSession7'
   | 'switchSession8'
   | 'switchSession9'
-  | 'switchLatestSession';
+  | 'switchLatestSession'
+  // File Browser
+  | 'fileBrowserSearch'
+  | 'fileBrowserNewFile'
+  | 'fileBrowserNewFolder'
+  | 'fileBrowserRefresh'
+  | 'fileBrowserOpenNewTab'
+  | 'fileBrowserFormat'
+  | 'fileBrowserToggleOutline'
+  | 'fileBrowserToggleBookmark'
+  | 'fileBrowserToggleWordWrap'
+  | 'fileBrowserFullscreen'
+  | 'fileBrowserToggleHidden'
+  | 'fileBrowserToggleDateTime'
+  | 'fileBrowserSortName'
+  | 'fileBrowserSortDate';
 
 export interface ShortcutBinding {
   actionId: ShortcutActionId;
   label: string;           // "Focus search"
   section: string;         // "Navigation" | "Actions" | "Selected Session" | "Terminal"
-  combo: KeyCombo;         // Current binding
-  defaultCombo: KeyCombo;  // Original default
+  combo: KeyCombo | null;  // null = unbound (no shortcut)
+  defaultCombo: KeyCombo | null;  // Original default; null for file browser actions
 }

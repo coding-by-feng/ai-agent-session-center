@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.9.5] - 2026-03-21
+
+### Added
+- File Browser keyboard shortcuts section — 14 configurable actions (search, new file/folder, refresh, open in new tab, format, outline, bookmark, word wrap, fullscreen, toggle hidden, toggle date/time, sort by name/date), all unbound by default
+- `forceNew: true` flag on session creation from NewSessionModal to prevent reuse of existing sessions
+
+### Fixed
+- Session matcher Priority 1b: scan by `terminalId` property so that sessions re-keyed by Priority 1 are correctly found on subsequent Claude restarts in the same terminal window, preventing duplicate cards
+- ShortcutsPanel: unbound (null combo) entries are now hidden from the reference panel
+- `keyComboToString`, `comboEquals`, `comboMatchesEvent` all handle `null` combos safely
+
 ## [2.2.0] - 2026-02-26
 
 ### Added

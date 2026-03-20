@@ -95,7 +95,7 @@ export default function ShortcutSettings() {
           </button>
         </div>
         <p className={styles.settingsHint}>
-          Click a key binding to change it. Press Escape to cancel. Session switch shortcuts let you jump between active sessions with Alt+1-9.
+          Click a key binding to change it. Press Escape to cancel. File Browser shortcuts fire when the Project tab is open. Session switch shortcuts use Alt+1-9.
         </p>
 
         {sections.map((group) => (

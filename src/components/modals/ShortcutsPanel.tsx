@@ -30,7 +30,10 @@ export default function ShortcutsPanel() {
   const sections = SECTION_ORDER.map((section) => {
     const sectionBindings = bindings.filter((b) => b.section === section);
     const switchBindings = sectionBindings.filter((b) => SESSION_SWITCH_RE.test(b.actionId));
-    const otherBindings = sectionBindings.filter((b) => !SESSION_SWITCH_RE.test(b.actionId));
+    // Skip unbound (null combo) entries — they add no value to the reference panel
+    const otherBindings = sectionBindings
+      .filter((b) => !SESSION_SWITCH_RE.test(b.actionId))
+      .filter((b) => b.combo !== null);
 
     const storeItems = otherBindings.map((b) => ({
       key: keyComboToString(b.combo),
@@ -40,12 +43,12 @@ export default function ShortcutsPanel() {
     // Collapse session-switch 1–9 into a single summary row
     if (switchBindings.length > 0) {
       const sample = switchBindings[0].combo;
-      const prefix = [
+      const prefix = sample ? [
         sample.ctrlKey && 'Ctrl',
         sample.altKey && 'Alt',
         sample.metaKey && 'Cmd',
         sample.shiftKey && 'Shift',
-      ].filter(Boolean).join('+');
+      ].filter(Boolean).join('+') : '';
       storeItems.unshift({
         key: prefix ? `${prefix}+1–9` : '1–9',
         description: 'Switch to session 1–9',

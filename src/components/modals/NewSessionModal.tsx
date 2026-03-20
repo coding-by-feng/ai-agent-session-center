@@ -225,6 +225,7 @@ export default function NewSessionModal() {
       sessionTitle: sessionTitle || undefined,
       label: label || undefined,
       enableOpsTerminal: enableOpsTerminal || undefined,
+      forceNew: true,
     };
 
     try {

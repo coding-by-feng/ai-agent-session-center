@@ -624,6 +624,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const [splitRatio, setSplitRatio] = useState(0.5);
   const splitDragging = useRef(false);
   const splitContainerRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   // Bookmarks
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
@@ -1128,6 +1129,39 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     }
   }, [file]);
 
+  // File browser keyboard shortcuts — triggered by the global shortcut system
+  useEffect(() => {
+    function handleFileBrowserAction(e: Event) {
+      // Only act when this ProjectTab instance is visible (not hidden via display:none)
+      if (rootRef.current?.offsetParent === null) return;
+      const { actionId } = (e as CustomEvent<{ actionId: string }>).detail;
+      switch (actionId) {
+        case 'fileBrowserSearch':         setShowSearch(true); break;
+        case 'fileBrowserNewFile':        setCreatingFile(true); break;
+        case 'fileBrowserNewFolder':      setCreatingFolder(true); break;
+        case 'fileBrowserRefresh':        handleRefresh(); break;
+        case 'fileBrowserOpenNewTab':     handleOpenProjectView(); break;
+        case 'fileBrowserFormat':         handleFormatFile(); break;
+        case 'fileBrowserToggleOutline':  setShowOutline(p => !p); break;
+        case 'fileBrowserToggleBookmark': handleBookmarkBtnClick(); break;
+        case 'fileBrowserToggleWordWrap': setWordWrap(p => !p); break;
+        case 'fileBrowserFullscreen':     setShowFullscreen(true); break;
+        case 'fileBrowserToggleHidden':
+          setShowHidden(p => {
+            const next = !p;
+            try { localStorage.setItem('file-browser:showHidden', String(next)); } catch { /* ignore */ }
+            return next;
+          });
+          break;
+        case 'fileBrowserToggleDateTime': setShowDateTime(p => !p); break;
+        case 'fileBrowserSortName':       handleSortToggle('name'); break;
+        case 'fileBrowserSortDate':       handleSortToggle('date'); break;
+      }
+    }
+    document.addEventListener('fileBrowser:action', handleFileBrowserAction);
+    return () => document.removeEventListener('fileBrowser:action', handleFileBrowserAction);
+  }, [handleRefresh, handleOpenProjectView, handleFormatFile, handleBookmarkBtnClick, handleSortToggle]);
+
   // Split drag handlers
   const handleSplitMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -1177,7 +1211,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   }, [showingFile, showingEditor, currentPath, editingNewFile]);
 
   return (
-    <div className={styles.projectTab}>
+    <div ref={rootRef} className={styles.projectTab}>
       {/* Icon toolbar */}
       <div className={styles.iconBar}>
         <button className={styles.iconBtn} onClick={() => setShowSearch(true)} title="Search files (fuzzy)">

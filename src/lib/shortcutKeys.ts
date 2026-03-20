@@ -10,7 +10,7 @@ import type { KeyCombo, ShortcutActionId, ShortcutBinding } from '@/types/shortc
 interface ShortcutDef {
   label: string;
   section: string;
-  combo: KeyCombo;
+  combo: KeyCombo | null;
 }
 
 // Platform detection: macOS uses Cmd (metaKey), Windows/Linux uses Ctrl (ctrlKey)
@@ -24,18 +24,33 @@ function sw(key: string): KeyCombo {
 }
 
 const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
-  toggleFullscreen:     { label: 'Toggle fullscreen',             section: 'Terminal',         combo: { key: 'F11', altKey: true } },
-  scrollToBottom:       { label: 'Scroll to bottom',              section: 'Terminal',         combo: isMac ? { key: 'b', altKey: true, metaKey: true } : { key: 'b', altKey: true, ctrlKey: true } },
-  switchLatestSession:  { label: 'Switch to previous session',    section: 'Session Switch',   combo: sw('p') },
-  switchSession1:       { label: 'Switch to session 1',           section: 'Session Switch',   combo: sw('1') },
-  switchSession2:       { label: 'Switch to session 2',           section: 'Session Switch',   combo: sw('2') },
-  switchSession3:       { label: 'Switch to session 3',           section: 'Session Switch',   combo: sw('3') },
-  switchSession4:       { label: 'Switch to session 4',           section: 'Session Switch',   combo: sw('4') },
-  switchSession5:       { label: 'Switch to session 5',           section: 'Session Switch',   combo: sw('5') },
-  switchSession6:       { label: 'Switch to session 6',           section: 'Session Switch',   combo: sw('6') },
-  switchSession7:       { label: 'Switch to session 7',           section: 'Session Switch',   combo: sw('7') },
-  switchSession8:       { label: 'Switch to session 8',           section: 'Session Switch',   combo: sw('8') },
-  switchSession9:       { label: 'Switch to session 9',           section: 'Session Switch',   combo: sw('9') },
+  toggleFullscreen:           { label: 'Toggle fullscreen',             section: 'Terminal',      combo: { key: 'F11', altKey: true } },
+  scrollToBottom:             { label: 'Scroll to bottom',              section: 'Terminal',      combo: isMac ? { key: 'b', altKey: true, metaKey: true } : { key: 'b', altKey: true, ctrlKey: true } },
+  switchLatestSession:        { label: 'Switch to previous session',    section: 'Session Switch', combo: sw('p') },
+  switchSession1:             { label: 'Switch to session 1',           section: 'Session Switch', combo: sw('1') },
+  switchSession2:             { label: 'Switch to session 2',           section: 'Session Switch', combo: sw('2') },
+  switchSession3:             { label: 'Switch to session 3',           section: 'Session Switch', combo: sw('3') },
+  switchSession4:             { label: 'Switch to session 4',           section: 'Session Switch', combo: sw('4') },
+  switchSession5:             { label: 'Switch to session 5',           section: 'Session Switch', combo: sw('5') },
+  switchSession6:             { label: 'Switch to session 6',           section: 'Session Switch', combo: sw('6') },
+  switchSession7:             { label: 'Switch to session 7',           section: 'Session Switch', combo: sw('7') },
+  switchSession8:             { label: 'Switch to session 8',           section: 'Session Switch', combo: sw('8') },
+  switchSession9:             { label: 'Switch to session 9',           section: 'Session Switch', combo: sw('9') },
+  // File Browser — all unbound by default
+  fileBrowserSearch:          { label: 'Search files',                  section: 'File Browser',  combo: null },
+  fileBrowserNewFile:         { label: 'New file',                      section: 'File Browser',  combo: null },
+  fileBrowserNewFolder:       { label: 'New folder',                    section: 'File Browser',  combo: null },
+  fileBrowserRefresh:         { label: 'Refresh',                       section: 'File Browser',  combo: null },
+  fileBrowserOpenNewTab:      { label: 'Open in new tab',               section: 'File Browser',  combo: null },
+  fileBrowserFormat:          { label: 'Format file',                   section: 'File Browser',  combo: null },
+  fileBrowserToggleOutline:   { label: 'Toggle outline',                section: 'File Browser',  combo: null },
+  fileBrowserToggleBookmark:  { label: 'Bookmark',                      section: 'File Browser',  combo: null },
+  fileBrowserToggleWordWrap:  { label: 'Toggle word wrap',              section: 'File Browser',  combo: null },
+  fileBrowserFullscreen:      { label: 'Open in fullscreen',            section: 'File Browser',  combo: null },
+  fileBrowserToggleHidden:    { label: 'Toggle hidden files',           section: 'File Browser',  combo: null },
+  fileBrowserToggleDateTime:  { label: 'Toggle date/time display',      section: 'File Browser',  combo: null },
+  fileBrowserSortName:        { label: 'Sort by name',                  section: 'File Browser',  combo: null },
+  fileBrowserSortDate:        { label: 'Sort by date',                  section: 'File Browser',  combo: null },
 };
 
 /** All action IDs in display order. */
@@ -45,10 +60,15 @@ export const ACTION_IDS: ShortcutActionId[] = [
   'switchSession1', 'switchSession2', 'switchSession3',
   'switchSession4', 'switchSession5', 'switchSession6',
   'switchSession7', 'switchSession8', 'switchSession9',
+  'fileBrowserSearch', 'fileBrowserNewFile', 'fileBrowserNewFolder',
+  'fileBrowserRefresh', 'fileBrowserOpenNewTab', 'fileBrowserFormat',
+  'fileBrowserToggleOutline', 'fileBrowserToggleBookmark', 'fileBrowserToggleWordWrap',
+  'fileBrowserFullscreen', 'fileBrowserToggleHidden', 'fileBrowserToggleDateTime',
+  'fileBrowserSortName', 'fileBrowserSortDate',
 ];
 
 /** Section display order. */
-export const SECTION_ORDER = ['Session Switch', 'Terminal'];
+export const SECTION_ORDER = ['Session Switch', 'Terminal', 'File Browser'];
 
 /** Build ShortcutBinding[] from defaults + optional overrides. */
 export function buildBindings(
@@ -60,8 +80,8 @@ export function buildBindings(
       actionId,
       label: def.label,
       section: def.section,
-      combo: overrides?.[actionId] ?? { ...def.combo },
-      defaultCombo: { ...def.combo },
+      combo: overrides?.[actionId] ?? def.combo,
+      defaultCombo: def.combo,
     };
   });
 }
@@ -70,8 +90,9 @@ export function buildBindings(
 // KeyCombo utilities
 // ---------------------------------------------------------------------------
 
-/** Convert a KeyCombo to a human-readable string like "Alt+F11" or "?" */
-export function keyComboToString(combo: KeyCombo): string {
+/** Convert a KeyCombo (or null) to a human-readable string like "Alt+F11" or "—" */
+export function keyComboToString(combo: KeyCombo | null): string {
+  if (combo === null) return '—';
   const parts: string[] = [];
   if (combo.ctrlKey) parts.push('Ctrl');
   if (combo.altKey) parts.push('Alt');
@@ -97,8 +118,10 @@ export function keyEventToCombo(e: KeyboardEvent): KeyCombo {
   return combo;
 }
 
-/** Check if two KeyCombos are equivalent. */
-export function comboEquals(a: KeyCombo, b: KeyCombo): boolean {
+/** Check if two KeyCombos (or nulls) are equivalent. */
+export function comboEquals(a: KeyCombo | null, b: KeyCombo | null): boolean {
+  if (a === null && b === null) return true;
+  if (a === null || b === null) return false;
   return (
     normalizeKey(a.key) === normalizeKey(b.key) &&
     !!a.ctrlKey === !!b.ctrlKey &&
@@ -108,8 +131,9 @@ export function comboEquals(a: KeyCombo, b: KeyCombo): boolean {
   );
 }
 
-/** Check if a KeyboardEvent matches a KeyCombo binding. */
-export function comboMatchesEvent(combo: KeyCombo, e: KeyboardEvent): boolean {
+/** Check if a KeyboardEvent matches a KeyCombo binding. Returns false for null combos. */
+export function comboMatchesEvent(combo: KeyCombo | null, e: KeyboardEvent): boolean {
+  if (combo === null) return false;
   // On macOS, Alt+digit produces special characters (e.g. Alt+1 → ¡).
   // Fall back to e.code (e.g. "Digit1") when the binding uses altKey + digit.
   let keyMatch: boolean;
