@@ -101,6 +101,17 @@ function BookmarkIcon({ active }: { active?: boolean }) {
   );
 }
 
+/** Refresh/replay SVG icon (circular arrow). */
+function RefreshIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="23 4 23 10 17 10" />
+      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+    </svg>
+  );
+}
+
 /** ESC key SVG icon. */
 function EscIcon() {
   return (
@@ -124,6 +135,7 @@ interface TerminalToolbarProps {
   onPaste: () => void;
   onReconnect?: () => void;
   onScrollToBottom?: () => void;
+  onRefreshOutput?: () => void;
   onBookmark?: () => void;
   bookmarkCount?: number;
   isFullscreen: boolean;
@@ -141,6 +153,7 @@ export default function TerminalToolbar({
   onPaste,
   onReconnect,
   onScrollToBottom,
+  onRefreshOutput,
   onBookmark,
   bookmarkCount = 0,
   isFullscreen,
@@ -164,7 +177,7 @@ export default function TerminalToolbar({
       />
 
       <button
-        className={styles.toolbarBtn}
+        className={`${styles.toolbarBtn} ${styles.touchOnlyBtn}`}
         onClick={onSendEscape}
         title="Send Escape key to terminal"
       >
@@ -172,7 +185,7 @@ export default function TerminalToolbar({
       </button>
 
       <button
-        className={styles.toolbarBtn}
+        className={`${styles.toolbarBtn} ${styles.touchOnlyBtn}`}
         onClick={onPaste}
         title="Paste clipboard to terminal"
       >
@@ -180,7 +193,7 @@ export default function TerminalToolbar({
       </button>
 
       <button
-        className={styles.toolbarBtn}
+        className={`${styles.toolbarBtn} ${styles.touchOnlyBtn}`}
         onClick={onSendArrowUp}
         title="Send Up arrow key to terminal"
       >
@@ -188,7 +201,7 @@ export default function TerminalToolbar({
       </button>
 
       <button
-        className={styles.toolbarBtn}
+        className={`${styles.toolbarBtn} ${styles.touchOnlyBtn}`}
         onClick={onSendArrowDown}
         title="Send Down arrow key to terminal"
       >
@@ -196,7 +209,7 @@ export default function TerminalToolbar({
       </button>
 
       <button
-        className={styles.toolbarBtn}
+        className={`${styles.toolbarBtn} ${styles.touchOnlyBtn}`}
         onClick={onSendEnter}
         title="Send Enter key to terminal"
       >
@@ -210,6 +223,16 @@ export default function TerminalToolbar({
           title="Scroll to bottom"
         >
           <ScrollToBottomIcon />
+        </button>
+      )}
+
+      {onRefreshOutput && (
+        <button
+          className={styles.toolbarBtn}
+          onClick={onRefreshOutput}
+          title="Refresh terminal output (clear + replay)"
+        >
+          <RefreshIcon />
         </button>
       )}
 

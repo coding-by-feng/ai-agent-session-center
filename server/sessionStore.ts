@@ -1014,9 +1014,11 @@ export function killSession(sessionId: string): Session | null {
     session.isHistorical = true;
     session.lastTerminalId = session.terminalId;
     session.terminalId = null;
-  } else {
-    setTimeout(() => sessions.delete(sessionId), 10000);
   }
+  // Intentionally keep ENDED sessions in memory — the KILL action should leave
+  // the card visible as ENDED and allow it to persist across page refreshes via
+  // the WebSocket session_update broadcast in apiRouter. Removing them here
+  // caused the cards to vanish on reload (no broadcast = no IndexedDB update).
   return { ...session };
 }
 

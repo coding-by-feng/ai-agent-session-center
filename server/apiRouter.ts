@@ -533,7 +533,7 @@ router.post('/sessions/:id/reconnect-ops-terminal', async (req: Request, res: Re
 });
 
 // Kill session process — sends SIGTERM, then SIGKILL after 3s if still alive
-router.post('/sessions/:id/kill', (req: Request, res: Response) => {
+router.post('/sessions/:id/kill', async (req: Request, res: Response) => {
   const body = validateBody(killSessionSchema, req.body, res);
   if (!body) return;
   const sessionId = str(req.params.id);
@@ -572,6 +572,18 @@ router.post('/sessions/:id/kill', (req: Request, res: Response) => {
   if (!session && !pid) {
     res.status(404).json({ error: 'Session not found and no matching process' });
     return;
+  }
+  // Broadcast the ENDED session so all browsers update their Zustand store and
+  // save the ENDED status to IndexedDB — this is what makes the card persist as
+  // ENDED across page refreshes instead of disappearing.
+  if (session) {
+    try {
+      const { broadcast } = await import('./wsManager.js');
+      broadcast({ type: WS_TYPES.SESSION_UPDATE, session });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      log.warn('api', `Failed to broadcast killed session update: ${msg}`);
+    }
   }
   res.json({ ok: true, pid: pid || null, source });
 });

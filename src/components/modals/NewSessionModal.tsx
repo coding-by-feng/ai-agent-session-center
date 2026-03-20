@@ -105,8 +105,7 @@ function getUsernameSuggestions(): string[] {
 // Command history (localStorage)
 // ---------------------------------------------------------------------------
 
-const COMMAND_HISTORY_KEY = 'command-history';
-const MAX_COMMAND_HISTORY = 20;
+const COMMAND_USAGE_KEY = 'command-usage-counts';
 
 // Common CLI commands shown by default in the Command dropdown
 const DEFAULT_COMMANDS: string[] = [
@@ -118,34 +117,38 @@ const DEFAULT_COMMANDS: string[] = [
   'claude --dangerously-skip-permissions',
   'claude --verbose',
   'gemini',
+  'gemini --yolo',
   'codex',
   'aider',
 ];
 
-function loadCommandHistory(): string[] {
+function loadCommandUsageCounts(): Record<string, number> {
   try {
-    return JSON.parse(localStorage.getItem(COMMAND_HISTORY_KEY) || '[]');
+    return JSON.parse(localStorage.getItem(COMMAND_USAGE_KEY) || '{}');
   } catch {
-    return [];
+    return {};
   }
 }
 
-/** Merge user history (on top) with defaults, deduplicated. */
+/** Sort by usage frequency (most used first), then append unused defaults. */
 function getCommandSuggestions(): string[] {
-  const history = loadCommandHistory();
-  const seen = new Set(history);
-  const merged = [...history];
+  const counts = loadCommandUsageCounts();
+  const usedSorted = Object.entries(counts)
+    .sort(([, a], [, b]) => b - a)
+    .map(([cmd]) => cmd);
+  const seen = new Set(usedSorted);
+  const result = [...usedSorted];
   for (const cmd of DEFAULT_COMMANDS) {
-    if (!seen.has(cmd)) merged.push(cmd);
+    if (!seen.has(cmd)) result.push(cmd);
   }
-  return merged;
+  return result;
 }
 
 function saveCommand(cmd: string): void {
   if (!cmd) return;
-  const history = loadCommandHistory().filter((c) => c !== cmd);
-  history.unshift(cmd);
-  localStorage.setItem(COMMAND_HISTORY_KEY, JSON.stringify(history.slice(0, MAX_COMMAND_HISTORY)));
+  const counts = loadCommandUsageCounts();
+  counts[cmd] = (counts[cmd] || 0) + 1;
+  localStorage.setItem(COMMAND_USAGE_KEY, JSON.stringify(counts));
 }
 
 // ---------------------------------------------------------------------------
@@ -426,21 +429,17 @@ export default function NewSessionModal() {
         </div>
 
         {/* Ops terminal checkbox */}
-        <div className={styles.sshField}>
-          <label
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
-            onClick={() => setEnableOpsTerminal((v) => !v)}
-          >
-            <input
-              type="checkbox"
-              checked={enableOpsTerminal}
-              onChange={(e) => setEnableOpsTerminal(e.target.checked)}
-              style={{ accentColor: 'var(--accent-cyan)', cursor: 'pointer' }}
-            />
-            <span>Enable Commands Terminal</span>
-            <span className={styles.sshFieldHint}>(extra shell tab for manual commands)</span>
-          </label>
-        </div>
+        <label className={styles.opsCheckboxRow}>
+          <input
+            type="checkbox"
+            checked={enableOpsTerminal}
+            onChange={(e) => setEnableOpsTerminal(e.target.checked)}
+          />
+          <div className={styles.opsCheckboxText}>
+            <span className={styles.opsCheckboxLabel}>Commands Terminal</span>
+            <span className={styles.opsCheckboxHint}>Extra shell tab for manual commands</span>
+          </div>
+        </label>
       </div>
 
       <div className={styles.newSessionFooter}>

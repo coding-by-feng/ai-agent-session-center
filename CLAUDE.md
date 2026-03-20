@@ -53,6 +53,27 @@ npm test
 
 # Run tests in watch mode
 npm run test:watch
+
+# Run E2E tests (requires: npx playwright install)
+npm run test:e2e
+
+# Run tests with coverage
+npm run test:coverage
+
+# Type check only (no emit)
+npm run typecheck
+
+# Lint frontend source
+npm run lint
+
+# Format frontend source
+npm run format
+
+# Electron development (builds + launches desktop app)
+npm run electron:dev
+
+# Build Electron distributable
+npm run electron:build
 ```
 
 ## Architecture
@@ -65,7 +86,7 @@ Claude Code / Gemini / Codex
         v
   Hook Script (bash)
   - Reads stdin JSON
-  - Enriches with PID, TTY, terminal env vars
+  - Enriches with PID, TTY, terminal env vars, startup_command, wezterm_pane
   - Single jq pass (~2-5ms)
         |
         v
@@ -74,21 +95,21 @@ Claude Code / Gemini / Codex
   - Fallback: HTTP POST to localhost:3333/api/hooks
         |
         v
-  mqReader.js
+  mqReader.ts
   - fs.watch() + 10ms debounce for instant notification
   - 500ms fallback poll + 5s health check
   - Reads new bytes from last offset
   - Handles partial lines and truncation
         |
         v
-  hookProcessor.js
+  hookProcessor.ts
   - Validates payload (session_id, event type, PID)
   - Calls handleEvent() on sessionStore
   - Records stats (latency, processing time)
   - Broadcasts to WebSocket clients
         |
         v
-  sessionStore.js (coordinator)
+  sessionStore.ts (coordinator)
   - Delegates to sub-modules:
     sessionMatcher  -> match hook to session
     approvalDetector -> tool approval timeouts
@@ -97,8 +118,8 @@ Claude Code / Gemini / Codex
     autoIdleManager -> idle transition timers
         |
         v
-  wsManager.js
-  - Broadcasts session_update to all connected browsers
+  wsManager.ts
+  - Broadcasts session_update to all connected browsers (20ms debounce per sessionId)
   - Supports replay (ring buffer of last 500 events)
         |
         v
@@ -126,7 +147,7 @@ server/index.ts (thin orchestrator)
   ├── mqReader.ts         — file-based JSONL queue reader
   ├── hookProcessor.ts    — shared validation + processing pipeline
   ├── sessionStore.ts     — coordinator (delegates to sub-modules)
-  │   ├── sessionMatcher.ts    — 5-priority session matching
+  │   ├── sessionMatcher.ts    — 8-priority session matching
   │   ├── approvalDetector.ts  — tool approval timeout logic
   │   ├── teamManager.ts       — team/subagent tracking
   │   ├── processMonitor.ts    — PID liveness checking
@@ -163,9 +184,11 @@ src/
   │   ├── modals/          — modal dialogs
   │   ├── layout/          — nav, header, activity feed
   │   ├── agenda/          — agenda task management components
+  │   ├── charts/          — analytics chart components
+  │   ├── setup/           — setup wizard components
   │   └── ui/              — shared UI components
-  ├── routes/              — LiveView, HistoryView, AgendaView, AnalyticsView, etc.
-  ├── stores/              — Zustand state management (session, settings, queue, agenda, room, camera, ui, ws)
+  ├── routes/              — LiveView, HistoryView, AgendaView, QueueView, ProjectBrowserView
+  ├── stores/              — Zustand state management (session, settings, queue, agenda, room, camera, ui, ws, shortcut)
   ├── hooks/               — React hooks (useWebSocket, useTerminal, etc.)
   ├── lib/                 — utilities (wsClient, db, sound, alarms, etc.)
   ├── styles/              — CSS/theme files
@@ -182,7 +205,7 @@ server/
 ├── hookProcessor.ts      # Shared hook validation + processing pipeline
 ├── mqReader.ts           # File-based JSONL message queue reader
 ├── sessionStore.ts       # Session state machine (coordinator)
-├── sessionMatcher.ts     # 5-priority session matching logic
+├── sessionMatcher.ts     # 8-priority session matching logic
 ├── approvalDetector.ts   # Tool approval timeout detection
 ├── teamManager.ts        # Team/subagent tracking and auto-detection
 ├── processMonitor.ts     # PID liveness checking for auto-cleanup
@@ -212,8 +235,8 @@ src/
 │   ├── agenda/           # Agenda task management components
 │   ├── auth/             # Login screen
 │   └── ui/               # Modal, Tabs, SearchInput, ResizablePanel, Toast
-├── routes/               # LiveView, HistoryView, AgendaView, AnalyticsView, TimelineView, QueueView
-├── stores/               # Zustand stores (session, settings, queue, agenda, room, camera, ui, ws)
+├── routes/               # LiveView, HistoryView, AgendaView, QueueView, ProjectBrowserView
+├── stores/               # Zustand stores (session, settings, queue, agenda, room, camera, ui, ws, shortcut)
 ├── hooks/                # useWebSocket, useTerminal, useAuth, useSound, useKeyboardShortcuts
 ├── lib/                  # wsClient, db (Dexie), soundEngine, alarmEngine, format, etc.
 ├── styles/               # CSS/theme files
@@ -221,7 +244,8 @@ src/
 
 static/
 ├── favicon.svg           # Favicon
-└── apple-touch-icon.svg  # Apple touch icon
+├── apple-touch-icon.svg  # Apple touch icon
+└── screenshot-*.png      # README/marketing screenshots
 
 hooks/
 ├── dashboard-hook.sh     # Main hook: enrich JSON + append to MQ file
@@ -243,12 +267,14 @@ data/
 ## Key Design Decisions
 
 - **File-based MQ over HTTP**: Hooks append JSON to `/tmp/claude-session-center/queue.jsonl` instead of HTTP POST. Eliminates process spawn overhead (no curl), achieves ~0.1ms delivery via POSIX atomic append.
-- **5-priority session matching**: Hooks don't know about SSH terminals. The matcher tries pendingResume, terminal ID, workDir link, path scan, and PID fallback to link hooks to the correct terminal session.
+- **8-priority session matching (SSH-only mode)**: Hooks don't know about SSH terminals. The matcher tries pendingResume → terminalId scan → cached PID → workDir link → path scan → PID fallback. If no match, the event is silently dropped — no display-only cards are ever created.
 - **Approval detection heuristic**: Uses tool-category timeouts to detect when Claude is waiting for user approval. PermissionRequest hook event (medium+ density) provides a reliable signal that replaces the heuristic.
 - **Vite + React frontend**: React 19 with Three.js for 3D scene rendering. Vite for dev server (HMR) and production builds (`dist/client/`).
 - **Dual persistence**: SQLite on server (sessions, snapshots) + IndexedDB via Dexie in browser (history, settings, queue).
-- **Coordinator pattern**: sessionStore.js delegates to focused sub-modules rather than being a monolith.
+- **Coordinator pattern**: sessionStore.ts delegates to focused sub-modules rather than being a monolith.
 - **Atomic settings writes**: Hook installation uses write-to-temp + rename to prevent corrupting `~/.claude/settings.json`.
+- **Broadcast debounce**: WebSocket broadcasts are debounced 20ms per sessionId to coalesce rapid updates.
+- **Snapshot restore**: SSH sessions are restored as `idle` on server restart; non-SSH sessions with dead PIDs get `ServerRestart` event and `ended` status. Priority 0.5 auto-links new Claude starts to restored cards.
 
 ## Session State Machine
 
@@ -262,22 +288,25 @@ PostToolUse     -> working   (stays)
 PermissionRequest -> approval (Waiting — reliable signal)
 Stop            -> waiting   (ThumbsUp/Dance + Waiting)
 [2min idle]     -> idle      (Idle)
-SessionEnd      -> ended     (Death, removed after 10s for hooks / kept for SSH)
+SessionEnd      -> ended     (Death animation; session kept in memory indefinitely — not auto-removed)
 ```
 
 ## Session Matching Strategy
 
-When a hook event arrives with an unknown `session_id`, the matcher uses a 5-priority fallback system to link it to an existing terminal session:
+When a hook event arrives with an unknown `session_id`, the matcher uses an 8-priority fallback system to link it to an existing terminal session:
 
 | Priority | Strategy | When Used | Risk |
 |----------|----------|-----------|------|
-| 0 | pendingResume + terminal ID / workDir | Session resume after disconnect | Low — explicit user action |
-| 1 | `agent_terminal_id` env var | SSH terminal injects `AGENT_MANAGER_TERMINAL_ID` | Low — direct match |
-| 2 | `tryLinkByWorkDir` | Claude starts in same directory as terminal's workingDir | Medium — two sessions in same dir |
-| 3 | Path scan (connecting sessions) | Scan all `connecting` status sessions by normalized path | Medium — ambiguous if multiple |
-| 4 | PID parent check | Check if Claude's PID is a child of a known PTY process | High — unreliable across shells |
+| 0 | `pendingResume` by terminalId or path | Explicit user-triggered resume | Low — explicit user action |
+| 0.5 | Snapshot-restored card auto-link | Server restart + new Claude start in same dir | Medium — ambiguous when multiple sessions share path |
+| 1 | `sessions.get(agent_terminal_id)` | First hook from fresh Claude start in SSH terminal | Low — direct key match |
+| 1b | `s.terminalId === agent_terminal_id` scan | Post-rekey restarts (crash, `--resume`) | Low — handles all subsequent starts in same terminal |
+| 1.5 | `pidToSession.get(claude_pid)` | Same process, new session_id (e.g. `claude --resume`) | Low — strong PID signal |
+| 2 | `tryLinkByWorkDir` | Pending link by working directory | Medium — two sessions in same dir |
+| 3 | CONNECTING path scan | Scan CONNECTING sessions by normalized path | Medium — picks newest on tie |
+| 4 | PID parent check | Claude's PID is child of known PTY process | High — unreliable across shells |
 
-If no match is found, a display-only card is created with the detected source (VS Code, iTerm, Warp, etc.).
+**SSH-only mode**: If no match is found, the event is silently dropped (`return null`). No display-only cards are created.
 
 ## Approval Detection Heuristic
 
@@ -304,11 +333,11 @@ When `PreToolUse` fires, an approval timer starts. If `PostToolUse` doesn't arri
 
 ```
 Hook bash script
-  → jq enrichment (PID, TTY, terminal env, timestamp)
+  → jq enrichment (PID, TTY, terminal env, timestamp, startup_command, wezterm_pane)
   → echo "$ENRICHED" >> /tmp/claude-session-center/queue.jsonl
   → Background subshell + disown (non-blocking)
 
-Server mqReader.js
+Server mqReader.ts
   → fs.watch() for instant notification
   → 10ms debounce to coalesce rapid events
   → Read from byte offset (no re-reading processed data)
@@ -340,11 +369,12 @@ curl -s --connect-timeout 1 -m 3 -X POST \
 
 When user clicks a session card:
 1. Character plays acknowledgment animation
-2. Detail panel slides in from the right (resizable)
-3. Panel shows: project name, prompt history (scrollable), activity log, tool calls, response excerpts, terminal, notes, queue, summary
-4. Tabs: Conversation | Activity | Terminal | Notes | Queue | Summary
-5. Other cards dim slightly to highlight the selected one
-6. Click elsewhere, close button, or press Escape to deselect
+2. Detail panel slides in from the right (resizable, 480px default, 320px min, 95vw max)
+3. Panel shows: project name, prompt history, activity log, tool calls, terminal, notes, queue, summary, ops terminal
+4. Tabs (7): TERMINAL | PROMPTS | PROJECT | QUEUE | NOTES | ACTIVITY | SUMMARY | COMMANDS (ops terminal)
+5. Panel can be minimized to a thin strip; header can be collapsed independently
+6. Other cards dim slightly to highlight the selected one
+7. Click elsewhere, close button, or press Escape to deselect
 
 ## Keyboard Shortcuts
 

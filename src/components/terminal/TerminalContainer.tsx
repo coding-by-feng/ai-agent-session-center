@@ -77,6 +77,7 @@ export default memo(function TerminalContainer({
     handleTerminalClosed,
     reparent,
     scrollToBottom,
+    refreshOutput,
     scrollPageUp,
     scrollPageDown,
     getTerminalBookmark,
@@ -306,6 +307,7 @@ export default memo(function TerminalContainer({
         onPaste={pasteToTerminal}
         onReconnect={onReconnect}
         onScrollToBottom={scrollToBottom}
+        onRefreshOutput={refreshOutput}
         onBookmark={handleBookmark}
         bookmarkCount={bookmarks.length}
         isFullscreen={isFullscreen}
@@ -376,6 +378,7 @@ export default memo(function TerminalContainer({
               onPaste={pasteToTerminal}
               onReconnect={onReconnect}
               onScrollToBottom={scrollToBottom}
+              onRefreshOutput={refreshOutput}
               onBookmark={handleBookmark}
               bookmarkCount={bookmarks.length}
               isFullscreen={isFullscreen}

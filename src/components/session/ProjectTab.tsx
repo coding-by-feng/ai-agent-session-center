@@ -353,11 +353,13 @@ function VirtualCodeViewer({
   filePath,
   bookmarks: bmarks,
   wordWrap,
+  scrollKey,
 }: {
   content: string;
   filePath: string;
   bookmarks: Bookmark[];
   wordWrap: boolean;
+  scrollKey?: string;
 }) {
   const lines = useMemo(() => content.split('\n'), [content]);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -367,6 +369,13 @@ function VirtualCodeViewer({
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    // Restore saved scroll position
+    if (scrollKey) {
+      try {
+        const saved = localStorage.getItem(scrollKey);
+        if (saved) { el.scrollTop = parseInt(saved, 10); setScrollTop(parseInt(saved, 10)); }
+      } catch { /* ignore */ }
+    }
     // Observe container resize to keep viewHeight accurate
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) setViewHeight(entry.contentRect.height);
@@ -374,12 +383,17 @@ function VirtualCodeViewer({
     ro.observe(el);
     setViewHeight(el.clientHeight);
     return () => ro.disconnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
-    if (el) setScrollTop(el.scrollTop);
-  }, []);
+    if (!el) return;
+    setScrollTop(el.scrollTop);
+    if (scrollKey) {
+      try { localStorage.setItem(scrollKey, String(el.scrollTop)); } catch { /* ignore */ }
+    }
+  }, [scrollKey]);
 
   const totalHeight = lines.length * LINE_HEIGHT_PX;
   const startIdx = Math.max(0, Math.floor(scrollTop / LINE_HEIGHT_PX) - OVERSCAN);
@@ -655,6 +669,9 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const [wordWrap, setWordWrap] = useState(false);
   const markdownRef = useRef<HTMLDivElement>(null);
   const mdContainerRef = useRef<HTMLDivElement>(null);
+  const codeViewerRef = useRef<HTMLDivElement>(null);
+  // Guard: skip the showHidden effect on first mount (initial load handles it)
+  const showHiddenInitRef = useRef(true);
   const [outlineWidth, setOutlineWidth] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('outline-panel-width');
@@ -997,11 +1014,52 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     }
   }, [currentPath, projectPath, loadDir]);
 
-  // Reload directory when showHidden toggles
+  // Reload directory when showHidden toggles (skip initial mount — initial load effect handles that)
   useEffect(() => {
+    if (showHiddenInitRef.current) { showHiddenInitRef.current = false; return; }
     if (!file) loadDir(currentPath);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showHidden]);
+
+  // Scroll position persistence — save/restore per file across session switches
+  const fileScrollKey = `file-browser:scroll:${projectPath}:${currentPath}`;
+
+  // Restore scroll when a file finishes loading (markdown + regular code)
+  useEffect(() => {
+    if (!file) return;
+    let saved = 0;
+    try { saved = parseInt(localStorage.getItem(fileScrollKey) ?? '0', 10) || 0; } catch { /* ignore */ }
+    if (!saved) return;
+    requestAnimationFrame(() => {
+      if (markdownRef.current) markdownRef.current.scrollTop = saved;
+      else if (codeViewerRef.current) codeViewerRef.current.scrollTop = saved;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file?.path]);
+
+  // Save scroll on markdown scroll events
+  useEffect(() => {
+    const el = markdownRef.current;
+    if (!el || !file) return;
+    const onScroll = () => {
+      try { localStorage.setItem(fileScrollKey, String(el.scrollTop)); } catch { /* ignore */ }
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file?.path, fileScrollKey]);
+
+  // Save scroll on regular code viewer scroll events
+  useEffect(() => {
+    const el = codeViewerRef.current;
+    if (!el || !file) return;
+    const onScroll = () => {
+      try { localStorage.setItem(fileScrollKey, String(el.scrollTop)); } catch { /* ignore */ }
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file?.path, fileScrollKey]);
 
   // Refresh
   const handleRefresh = useCallback(() => {
@@ -1328,7 +1386,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
             return (
               <span key={segPath}>
                 <span className={styles.breadSep}>/</span>
-                {isLast && !showingFile && !showingEditor ? (
+                {isLast ? (
                   <span className={styles.breadCurrent}>{seg}</span>
                 ) : (
                   <button className={styles.breadBtn} onClick={() => { setFile(null); setActiveTabPath(null); setEditingNewFile(null); loadDir(segPath); }}>
@@ -1541,9 +1599,13 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                 filePath={file.path}
                 bookmarks={bookmarks}
                 wordWrap={wordWrap}
+                scrollKey={fileScrollKey}
               />
             ) : (
-              <div className={`${styles.codeLines}${wordWrap ? ` ${styles.codeLinesWrap}` : ''}`}>
+              <div
+                ref={codeViewerRef}
+                className={`${styles.codeLines}${wordWrap ? ` ${styles.codeLinesWrap}` : ''}`}
+              >
                 {(file.content || '').split('\n').map((line, i) => {
                   const lineNum = i + 1;
                   const isBookmarked = bookmarks.some(
@@ -1637,7 +1699,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
               ) : file.binary ? (
                 <div className={styles.empty}>Binary file ({formatSize(file.size)})</div>
               ) : (file.content || '').split('\n').length > VIRTUALIZE_THRESHOLD ? (
-                <VirtualCodeViewer content={file.content || ''} filePath={file.path} bookmarks={bookmarks} wordWrap={wordWrap} />
+                <VirtualCodeViewer content={file.content || ''} filePath={file.path} bookmarks={bookmarks} wordWrap={wordWrap} scrollKey={fileScrollKey} />
               ) : (
                 <div className={`${styles.codeLines}${wordWrap ? ` ${styles.codeLinesWrap}` : ''}`}>
                   {(file.content || '').split('\n').map((line, i) => (
