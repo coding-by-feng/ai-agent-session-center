@@ -37,7 +37,7 @@ interface ShortcutState {
 function persistOverrides(bindings: ShortcutBinding[]): void {
   const overrides: Partial<Record<ShortcutActionId, KeyCombo>> = {};
   for (const b of bindings) {
-    if (!comboEquals(b.combo, b.defaultCombo)) {
+    if (b.combo !== null && !comboEquals(b.combo, b.defaultCombo)) {
       overrides[b.actionId] = b.combo;
     }
   }
@@ -68,7 +68,7 @@ export const useShortcutStore = create<ShortcutState>((set, get) => ({
   resetOne(actionId) {
     set((s) => {
       const bindings = s.bindings.map((b) =>
-        b.actionId === actionId ? { ...b, combo: { ...b.defaultCombo } } : b,
+        b.actionId === actionId ? { ...b, combo: b.defaultCombo !== null ? { ...b.defaultCombo } : null } : b,
       );
       persistOverrides(bindings);
       return { bindings };
@@ -84,13 +84,13 @@ export const useShortcutStore = create<ShortcutState>((set, get) => ({
   getConflict(combo, excludeActionId) {
     return (
       get().bindings.find(
-        (b) => b.actionId !== excludeActionId && comboEquals(b.combo, combo),
+        (b) => b.actionId !== excludeActionId && b.combo !== null && comboEquals(b.combo, combo),
       ) ?? null
     );
   },
 
   findActionForEvent(e) {
-    const match = get().bindings.find((b) => comboMatchesEvent(b.combo, e));
+    const match = get().bindings.find((b) => b.combo !== null && comboMatchesEvent(b.combo, e));
     return match?.actionId ?? null;
   },
 

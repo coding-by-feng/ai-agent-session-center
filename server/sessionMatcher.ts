@@ -325,6 +325,29 @@ export function matchSession(
     }
   }
 
+  // Priority 1b: Scan by terminalId property — handles any new Claude start (fresh or --resume)
+  // inside a terminal that has already been through a Priority 1 re-key.
+  // After the first re-key, the session moves from map-key=T1 to map-key=S1.
+  // On subsequent starts, Priority 1's sessions.get(T1) returns undefined, but S1 still
+  // has s.terminalId === T1.  This scan finds S1 and re-keys it to the new session ID,
+  // preserving the terminal connection in all cases (fresh start, --resume, crash-restart).
+  // Intentionally matches ENDED sessions — reactivating the same card is correct; it avoids
+  // duplicate cards when the user restarts Claude in the same terminal window.
+  // Only triggers on SESSION_START to avoid spurious re-keys on other event types.
+  if (!session && hookData.agent_terminal_id && hook_event_name === EVENT_TYPES.SESSION_START) {
+    const termId = hookData.agent_terminal_id;
+    for (const [key, s] of sessions) {
+      if (key === termId) continue; // would have been caught by Priority 1
+      if (s.status === SESSION_STATUS.CONNECTING) continue; // handled by Priority 3
+      if (s.terminalId === termId || s.lastTerminalId === termId) {
+        session = reKeyResumedSession(sessions, s, session_id, key, pidToSession);
+        consumePendingLink(s.projectPath || '');
+        log.info('session', `Re-keyed resumed session ${key?.slice(0, 8)} -> ${session_id?.slice(0, 8)} (via terminalId scan, agent_terminal_id=${termId?.slice(0, 8)})`);
+        break;
+      }
+    }
+  }
+
   // Priority 1.5: Match by cached PID — when Claude resumes with a new session_id
   // but the same process (e.g., `claude --resume` creates a new session internally),
   // link back to the same session instead of creating a duplicate card.

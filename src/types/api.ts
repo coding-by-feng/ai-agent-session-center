@@ -154,6 +154,7 @@ export interface CreateTerminalRequest extends SshConnectionConfig {
   sessionTitle?: string;
   label?: string;
   enableOpsTerminal?: boolean;
+  forceNew?: boolean;
 }
 
 export interface CreateTerminalResponse {

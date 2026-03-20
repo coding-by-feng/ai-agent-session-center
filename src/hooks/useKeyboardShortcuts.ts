@@ -106,6 +106,12 @@ function dispatchAction(actionId: string): void {
       switchToPreviousSession();
       break;
     default:
+      if (actionId.startsWith('fileBrowser')) {
+        document.dispatchEvent(
+          new CustomEvent('fileBrowser:action', { detail: { actionId } }),
+        );
+        return;
+      }
       // Handle switchSession1..switchSession9
       if (actionId.startsWith('switchSession')) {
         const idx = parseInt(actionId.replace('switchSession', ''), 10) - 1;
