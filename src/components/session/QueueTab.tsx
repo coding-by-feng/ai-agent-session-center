@@ -5,7 +5,7 @@
  * Uses Terminal.module.css queue styles.
  */
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useQueueStore, type QueueItem } from '@/stores/queueStore';
+import { useQueueStore, type QueueItem, type QueueImageAttachment } from '@/stores/queueStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { showToast } from '@/components/ui/ToastContainer';
 import styles from '@/styles/modules/Terminal.module.css';
@@ -48,6 +48,8 @@ export default function QueueTab({
   const sessions = useSessionStore((s) => s.sessions);
 
   const [composeText, setComposeText] = useState('');
+  const [composeImages, setComposeImages] = useState<QueueImageAttachment[]>([]);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
   const [collapsed, setCollapsed] = useState(() => {
@@ -79,18 +81,39 @@ export default function QueueTab({
     onQueueCountChange?.(sessionId, items.length);
   }, [items.length, sessionId, onQueueCountChange]);
 
-  // ---- Send prompt text to terminal via API — returns true on success ----
-  const sendPromptToTerminal = useCallback(
-    async (text: string): Promise<boolean> => {
+  // ---- Upload images to server and get back file paths ----
+  const uploadImages = useCallback(async (images: QueueImageAttachment[]): Promise<string[]> => {
+    try {
+      const res = await fetch('/api/queue-images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ images }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.paths ?? [];
+      }
+    } catch { /* ignore */ }
+    return [];
+  }, []);
+
+  // ---- Send a queue item to terminal (text + optional images) ----
+  const sendItemToTerminal = useCallback(
+    async (item: QueueItem): Promise<boolean> => {
       if (!terminalId) {
         showToast('No terminal attached', 'error');
         return false;
+      }
+      let textToSend = item.text.replace(/\\n/g, '\n');
+      if (item.images && item.images.length > 0) {
+        const paths = await uploadImages(item.images);
+        if (paths.length > 0) textToSend += '\n' + paths.join('\n');
       }
       try {
         const res = await fetch(`/api/terminals/${terminalId}/write`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: text.replace(/\\n/g, '\n') + '\n' }),
+          body: JSON.stringify({ data: textToSend + '\n' }),
         });
         if (!res.ok) {
           showToast('Failed to send to terminal', 'error');
@@ -102,8 +125,9 @@ export default function QueueTab({
         return false;
       }
     },
-    [terminalId],
+    [terminalId, uploadImages],
   );
+
 
   // ---- Auto-send: when session transitions to "waiting" or "input", send first queued prompt ----
   useEffect(() => {
@@ -121,28 +145,62 @@ export default function QueueTab({
 
     // Send the first item — only remove after successful send
     const first = items[0];
-    sendPromptToTerminal(first.text).then((sent) => {
+    sendItemToTerminal(first).then((sent) => {
       if (sent) {
         remove(sessionId, first.id);
         showToast('Auto-sent queued prompt', 'info', 2000);
       }
     });
-  }, [autoSend, sessionStatus, items, sessionId, terminalId, remove, sendPromptToTerminal]);
+  }, [autoSend, sessionStatus, items, sessionId, terminalId, remove, sendItemToTerminal]);
+
+  // ---- Image file picker ----
+  const handleImagePick = useCallback(() => {
+    imageInputRef.current?.click();
+  }, []);
+
+  const handleImageFiles = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+    const readers = files.slice(0, 5).map(
+      (f) =>
+        new Promise<QueueImageAttachment>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () =>
+            resolve({ name: f.name, dataUrl: reader.result as string });
+          reader.onerror = reject;
+          reader.readAsDataURL(f);
+        }),
+    );
+    Promise.allSettled(readers).then((results) => {
+      const imgs = results
+        .filter((r): r is PromiseFulfilledResult<QueueImageAttachment> => r.status === 'fulfilled')
+        .map((r) => r.value);
+      setComposeImages((prev) => [...prev, ...imgs].slice(0, 5));
+    });
+    // Reset input so same file can be re-selected
+    e.target.value = '';
+  }, []);
+
+  const handleRemoveComposeImage = useCallback((idx: number) => {
+    setComposeImages((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
 
   // ---- Add to queue ----
   const handleAdd = useCallback(() => {
     const trimmed = composeText.trim();
-    if (!trimmed) return;
+    if (!trimmed && composeImages.length === 0) return;
     const newItem: QueueItem = {
       id: localId(),
       sessionId,
       text: trimmed,
       position: items.length,
       createdAt: Date.now(),
+      images: composeImages.length > 0 ? [...composeImages] : undefined,
     };
     add(sessionId, newItem);
     setComposeText('');
-  }, [composeText, sessionId, items.length, add]);
+    setComposeImages([]);
+  }, [composeText, composeImages, sessionId, items.length, add]);
 
   // ---- Edit item ----
   const startEdit = useCallback((item: QueueItem) => {
@@ -179,12 +237,12 @@ export default function QueueTab({
   // ---- Send now (first item or specific item) — only remove after successful send ----
   const handleSendNow = useCallback(
     async (item: QueueItem) => {
-      const sent = await sendPromptToTerminal(item.text);
+      const sent = await sendItemToTerminal(item);
       if (sent) {
         remove(sessionId, item.id);
       }
     },
-    [sendPromptToTerminal, remove, sessionId],
+    [sendItemToTerminal, remove, sessionId],
   );
 
   // ---- Move to another session ----
@@ -282,14 +340,47 @@ export default function QueueTab({
               }
             }}
           />
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: 'none' }}
+            onChange={handleImageFiles}
+          />
+          <button
+            className={`${styles.toolbarBtn} ${styles.queueAttachBtn}`}
+            onClick={handleImagePick}
+            title="Attach images"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+            </svg>
+          </button>
           <button
             className={`${styles.toolbarBtn} ${styles.queueAddBtn}`}
             onClick={handleAdd}
-            disabled={!composeText.trim()}
+            disabled={!composeText.trim() && composeImages.length === 0}
           >
             ADD
           </button>
         </div>
+        {composeImages.length > 0 && (
+          <div className={styles.queueComposeImages}>
+            {composeImages.map((img, i) => (
+              <div key={i} className={styles.queueImageThumb}>
+                <img src={img.dataUrl} alt={img.name} />
+                <button
+                  className={styles.queueImageRemove}
+                  onClick={() => handleRemoveComposeImage(i)}
+                  title="Remove image"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Queue list */}
         <div className={styles.queueList}>
@@ -328,7 +419,18 @@ export default function QueueTab({
                     rows={2}
                   />
                 ) : (
-                  <span className={styles.queueText}>{item.text}</span>
+                  <div className={styles.queueTextCol}>
+                    {item.text && <span className={styles.queueText}>{item.text}</span>}
+                    {item.images && item.images.length > 0 && (
+                      <div className={styles.queueItemImages}>
+                        {item.images.map((img, i) => (
+                          <div key={i} className={styles.queueItemThumb} title={img.name}>
+                            <img src={img.dataUrl} alt={img.name} />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 <div className={styles.queueActions}>

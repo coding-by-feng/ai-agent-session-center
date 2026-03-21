@@ -19,8 +19,9 @@ import SessionControlBar from './SessionControlBar';
 import SessionSwitcher from './SessionSwitcher';
 import LabelChips from './LabelChips';
 import KillConfirmModal, { KILL_MODAL_ID } from './KillConfirmModal';
-import AlertModal, { ALERT_MODAL_ID } from './AlertModal';
 import TerminalContainer from '@/components/terminal/TerminalContainer';
+import OutputTab from './OutputTab';
+import { useOutputCapture } from '@/hooks/useOutputCapture';
 import type { RobotModelType } from '@/lib/robot3DModels';
 import { getModelLabel } from '@/lib/robot3DModels';
 import { PALETTE } from '@/lib/robot3DGeometry';
@@ -29,7 +30,7 @@ import styles from '@/styles/modules/DetailPanel.module.css';
 
 // ---------------------------------------------------------------------------
 // LazyModal — only mounts children when the modal is active.
-// Prevents zustand subscriptions in KillConfirmModal/AlertModal
+// Prevents zustand subscriptions in KillConfirmModal
 // from firing during the initial DetailPanel mount.
 // ---------------------------------------------------------------------------
 
@@ -95,6 +96,31 @@ const TerminalContent = memo(function TerminalContent({
         <div ref={setBookmarkTarget} className={styles.bookmarkPortal} />
       </div>
     </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Output capture wrapper — always mounted to accumulate terminal output.
+// Uses useOutputCapture (no subscribe/unsubscribe) to passively collect output.
+// ---------------------------------------------------------------------------
+
+interface OutputCaptureProps {
+  terminalId: string | null;
+}
+
+const OutputCapture = memo(function OutputCapture({ terminalId }: OutputCaptureProps) {
+  const client = useWsStore((s) => s.client);
+  const ws = useMemo(() => client?.getRawSocket() ?? null, [client]);
+  const { lines, scrollContainerRef, isAutoScrolling, scrollToBottom, clearOutput } = useOutputCapture({ ws, terminalId });
+
+  return (
+    <OutputTab
+      lines={lines}
+      scrollContainerRef={scrollContainerRef}
+      isAutoScrolling={isAutoScrolling}
+      scrollToBottom={scrollToBottom}
+      clearOutput={clearOutput}
+    />
   );
 });
 
@@ -221,6 +247,92 @@ function EditableTitle({ session }: { session: Session }) {
     >
       {displayTitle}
     </h3>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Draggable minimized badge
+// ---------------------------------------------------------------------------
+
+const MINI_BADGE_POS_KEY = 'mini-badge-pos';
+
+function DraggableMiniBadge({
+  title,
+  color,
+  onRestore,
+}: {
+  title: string;
+  color: string;
+  onRestore: () => void;
+}) {
+  const [pos, setPos] = useState<{ x: number; y: number }>(() => {
+    try {
+      const saved = localStorage.getItem(MINI_BADGE_POS_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch { /* ignore */ }
+    return { x: window.innerWidth - 200, y: window.innerHeight - 48 };
+  });
+  const draggingRef = useRef(false);
+  const hasDraggedRef = useRef(false);
+  const offsetRef = useRef({ dx: 0, dy: 0 });
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    draggingRef.current = true;
+    hasDraggedRef.current = false;
+    offsetRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }, [pos]);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!draggingRef.current) return;
+    hasDraggedRef.current = true;
+    const x = Math.max(0, Math.min(window.innerWidth - 60, e.clientX - offsetRef.current.dx));
+    const y = Math.max(0, Math.min(window.innerHeight - 32, e.clientY - offsetRef.current.dy));
+    setPos({ x, y });
+  }, []);
+
+  const handlePointerUp = useCallback(() => {
+    draggingRef.current = false;
+    // Persist position
+    try { localStorage.setItem(MINI_BADGE_POS_KEY, JSON.stringify(pos)); } catch { /* ignore */ }
+  }, [pos]);
+
+  const handleClick = useCallback(() => {
+    // Only restore if user didn't drag
+    if (!hasDraggedRef.current) onRestore();
+  }, [onRestore]);
+
+  return (
+    <div
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onClick={handleClick}
+      title={`Restore: ${title} (drag to move)`}
+      style={{
+        position: 'fixed',
+        left: pos.x,
+        top: pos.y,
+        zIndex: 1000,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '6px 12px',
+        background: 'var(--bg-card)',
+        border: `1px solid ${color}`,
+        borderRadius: 4,
+        color,
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: 12,
+        cursor: draggingRef.current ? 'grabbing' : 'grab',
+        boxShadow: `0 0 12px ${color}40`,
+        userSelect: 'none',
+        touchAction: 'none',
+      }}
+    >
+      <span style={{ fontSize: 10 }}>&#x25B2;</span>
+      {title}
+    </div>
   );
 }
 
@@ -390,31 +502,11 @@ export default function DetailPanel() {
 
   if (detailPanelMinimized) {
     return (
-      <button
-        onClick={restoreDetailPanel}
-        title={`Restore: ${displaySession.title || 'Unnamed'}`}
-        style={{
-          position: 'fixed',
-          bottom: 16,
-          right: 16,
-          zIndex: 1000,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '6px 12px',
-          background: 'var(--bg-card)',
-          border: `1px solid ${neonColor}`,
-          borderRadius: 4,
-          color: neonColor,
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 12,
-          cursor: 'pointer',
-          boxShadow: `0 0 12px ${neonColor}40`,
-        }}
-      >
-        <span style={{ fontSize: 10 }}>▲</span>
-        {displaySession.title || 'Unnamed'}
-      </button>
+      <DraggableMiniBadge
+        title={displaySession.title || 'Unnamed'}
+        color={neonColor}
+        onRestore={restoreDetailPanel}
+      />
     );
   }
 
@@ -528,6 +620,12 @@ export default function DetailPanel() {
               searchQuery={searchQuery}
             />
           }
+          outputContent={
+            <OutputCapture
+              key={displaySession.terminalId ?? displaySession.sessionId}
+              terminalId={displaySession.terminalId}
+            />
+          }
           notesContent={<NotesTab sessionId={displaySession.sessionId} />}
           activityContent={
             <ActivityLog
@@ -575,7 +673,6 @@ export default function DetailPanel() {
         {/* Modals — only mount when their modal is active to avoid unnecessary
             zustand subscriptions during DetailPanel mount (reduces cascading re-renders). */}
         <LazyModal modalId={KILL_MODAL_ID}><KillConfirmModal /></LazyModal>
-        <LazyModal modalId={ALERT_MODAL_ID}><AlertModal /></LazyModal>
       </ResizablePanel>
     </div>
   );

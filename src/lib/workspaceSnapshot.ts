@@ -26,12 +26,16 @@ export interface SessionSnapshot {
   /** Original session ID — used to remap room assignments on import */
   originalSessionId: string;
   title: string;
+  /** Session status at export time (e.g. 'idle', 'working', 'ended') */
+  status?: string;
   label?: string;
   accentColor?: string;
   characterModel?: string;
   pinned?: boolean;
   enableOpsTerminal: boolean;
   sshConfig: SshConfig;
+  /** Original startup command with full params (e.g. 'gemini --model pro', 'codex --full-auto') */
+  startupCommand?: string;
   projectTabs: { tabs: ProjectSubTab[]; active: string } | null;
 }
 
@@ -69,26 +73,32 @@ export function buildSnapshot(
     if (!session.sshConfig) continue;
     // Never recreate sessions that were explicitly killed or archived by the user
     if (session.archived) continue;
+    // Skip ended sessions — they can't be meaningfully restored
+    if (session.status === 'ended') continue;
 
     exportedSessionIds.add(session.sessionId);
     sessionSnapshots.push({
       originalSessionId: session.sessionId,
       title: session.title,
+      status: session.status,
       label: session.label,
       accentColor: session.accentColor,
       characterModel: session.characterModel,
       pinned: session.pinned,
       enableOpsTerminal: !!session.opsTerminalId,
       sshConfig: { ...session.sshConfig },
+      startupCommand: session.startupCommand,
       projectTabs: getProjectTabs(session.sessionId),
     });
   }
 
-  // Only include rooms that have at least one exported session, or are empty
-  // (user may have created rooms before adding sessions).
-  // Keep full sessionIds — only the exported ones will be remappable, but we
-  // preserve the list so the structure is intact.
-  const snapshotRooms = rooms.map((r) => ({ ...r }));
+  // Only include rooms that reference exported sessions.
+  // Filter out stale session IDs (hook-only, ended, or excluded sessions)
+  // so the snapshot stays clean and importable without orphaned references.
+  const snapshotRooms = rooms.map((r) => ({
+    ...r,
+    sessionIds: r.sessionIds.filter((id) => exportedSessionIds.has(id)),
+  }));
 
   return {
     version: 1,
@@ -178,6 +188,7 @@ function sessionDedupeKey(snap: SessionSnapshot): string {
     cfg?.username ?? '',
     cfg?.workingDir ?? '',
     cfg?.command ?? '',
+    snap.startupCommand ?? '',
   ].join('\0');
 }
 
@@ -256,6 +267,7 @@ export async function importSnapshot(
           sessionTitle: sessionSnap.title,
           label: sessionSnap.label || undefined,
           enableOpsTerminal: sessionSnap.enableOpsTerminal || undefined,
+          startupCommand: sessionSnap.startupCommand || undefined,
         }),
       });
       const data = await res.json();

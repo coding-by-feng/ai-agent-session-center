@@ -103,7 +103,7 @@ export default function SessionSwitcher({
   const toggleCardDisplayMode = useUiStore((s) => s.toggleCardDisplayMode);
   const rooms = useRoomStore((s) => s.rooms);
 
-  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [selectedRoomIds, setSelectedRoomIds] = useState<Set<string>>(new Set());
   const [roomDropdownOpen, setRoomDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -153,13 +153,31 @@ export default function SessionSwitcher({
 
   // Apply room filter to the tab strip (current session is never filtered out)
   const filteredSessions = useMemo(() => {
-    if (!selectedRoomId) return sortedSessions;
-    const room = rooms.find((r) => r.id === selectedRoomId);
-    if (!room) return sortedSessions;
-    return sortedSessions.filter((s) => room.sessionIds.includes(s.sessionId));
-  }, [sortedSessions, selectedRoomId, rooms]);
+    if (selectedRoomIds.size === 0) return sortedSessions;
+    const allowedIds = new Set<string>();
+    for (const roomId of selectedRoomIds) {
+      const room = rooms.find((r) => r.id === roomId);
+      if (room) room.sessionIds.forEach((id) => allowedIds.add(id));
+    }
+    return sortedSessions.filter((s) => allowedIds.has(s.sessionId));
+  }, [sortedSessions, selectedRoomIds, rooms]);
 
-  const selectedRoom = selectedRoomId ? rooms.find((r) => r.id === selectedRoomId) : null;
+  const selectedRoomNames = useMemo(() => {
+    if (selectedRoomIds.size === 0) return '';
+    return [...selectedRoomIds]
+      .map((id) => rooms.find((r) => r.id === id)?.name)
+      .filter(Boolean)
+      .join(', ');
+  }, [selectedRoomIds, rooms]);
+
+  const toggleRoom = useCallback((roomId: string) => {
+    setSelectedRoomIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(roomId)) next.delete(roomId);
+      else next.add(roomId);
+      return next;
+    });
+  }, []);
 
   const primaryName = currentSession.title || currentSession.projectName || '(untitled)';
   const secondaryName = currentSession.title && currentSession.projectName && currentSession.title !== currentSession.projectName
@@ -201,22 +219,22 @@ export default function SessionSwitcher({
           {duration && (
             <span className={styles.detailDuration}>{duration}</span>
           )}
-          {/* Room filter dropdown */}
+          {/* Room filter dropdown (multi-select) */}
           {availableRooms.length > 0 && (
             <div className={styles.roomFilterWrap} ref={dropdownRef}>
               <button
-                className={`${styles.displayModeToggle}${selectedRoomId ? ` ${styles.roomFilterActive}` : ''}`}
+                className={`${styles.displayModeToggle}${selectedRoomIds.size > 0 ? ` ${styles.roomFilterActive}` : ''}`}
                 onClick={() => setRoomDropdownOpen((o) => !o)}
-                title={selectedRoom ? `Filtering: ${selectedRoom.name}` : 'Filter by room'}
+                title={selectedRoomIds.size > 0 ? `Filtering: ${selectedRoomNames}` : 'Filter by room'}
                 type="button"
               >
-                <RoomFilterIcon active={!!selectedRoomId} />
+                <RoomFilterIcon active={selectedRoomIds.size > 0} />
               </button>
               {roomDropdownOpen && (
                 <div className={styles.roomFilterDropdown}>
                   <button
-                    className={`${styles.roomFilterOption}${!selectedRoomId ? ` ${styles.roomFilterOptionActive}` : ''}`}
-                    onClick={() => { setSelectedRoomId(null); setRoomDropdownOpen(false); }}
+                    className={`${styles.roomFilterOption}${selectedRoomIds.size === 0 ? ` ${styles.roomFilterOptionActive}` : ''}`}
+                    onClick={() => { setSelectedRoomIds(new Set()); setRoomDropdownOpen(false); }}
                     type="button"
                   >
                     All rooms
@@ -224,10 +242,11 @@ export default function SessionSwitcher({
                   {availableRooms.map((r) => (
                     <button
                       key={r.id}
-                      className={`${styles.roomFilterOption}${selectedRoomId === r.id ? ` ${styles.roomFilterOptionActive}` : ''}`}
-                      onClick={() => { setSelectedRoomId(r.id); setRoomDropdownOpen(false); }}
+                      className={`${styles.roomFilterOption}${selectedRoomIds.has(r.id) ? ` ${styles.roomFilterOptionActive}` : ''}`}
+                      onClick={() => toggleRoom(r.id)}
                       type="button"
                     >
+                      {selectedRoomIds.has(r.id) && <span className={styles.roomFilterCheck}>&#x2713;</span>}
                       {r.name}
                     </button>
                   ))}

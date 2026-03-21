@@ -1,12 +1,18 @@
 import { create } from 'zustand';
 import { db } from '@/lib/db';
 
+export interface QueueImageAttachment {
+  name: string;
+  dataUrl: string;
+}
+
 export interface QueueItem {
   id: number;
   sessionId: string;
   text: string;
   position: number;
   createdAt: number;
+  images?: QueueImageAttachment[];
 }
 
 interface QueueState {
@@ -124,12 +130,17 @@ export const useQueueStore = create<QueueState>((set) => ({
       const bySession = new Map<string, QueueItem[]>();
       for (const d of allItems) {
         const items = bySession.get(d.sessionId) ?? [];
+        let images: QueueImageAttachment[] | undefined;
+        if (d.images) {
+          try { images = JSON.parse(d.images); } catch { /* ignore */ }
+        }
         items.push({
           id: d.id!,
           sessionId: d.sessionId,
           text: d.text,
           position: d.position,
           createdAt: d.createdAt,
+          images,
         });
         bySession.set(d.sessionId, items);
       }
@@ -206,6 +217,7 @@ async function persistSessionQueue(sessionId: string, items: QueueItem[]): Promi
           text: item.text,
           position: idx,
           createdAt: item.createdAt,
+          images: item.images ? JSON.stringify(item.images) : undefined,
         })),
       );
     }

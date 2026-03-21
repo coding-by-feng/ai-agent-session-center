@@ -13,6 +13,8 @@ interface SessionState {
   deselectSession: () => void;
   setSessions: (sessions: Map<string, Session>) => void;
   togglePin: (sessionId: string) => void;
+  toggleMute: (sessionId: string) => void;
+  toggleAlert: (sessionId: string) => void;
 }
 
 export const useSessionStore = create<SessionState>((set) => ({
@@ -77,6 +79,37 @@ export const useSessionStore = create<SessionState>((set) => ({
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pinned }),
+      }).catch(() => { /* ignore network errors */ });
+      return { sessions: next };
+    }),
+
+  toggleMute: (sessionId) =>
+    set((state) => {
+      const session = state.sessions.get(sessionId);
+      if (!session) return state;
+      const muted = !session.muted;
+      const next = new Map(state.sessions);
+      next.set(sessionId, { ...session, muted });
+      // Persist to server
+      fetch(`/api/sessions/${encodeURIComponent(sessionId)}/muted`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ muted }),
+      }).catch(() => { /* ignore network errors */ });
+      return { sessions: next };
+    }),
+
+  toggleAlert: (sessionId) =>
+    set((state) => {
+      const session = state.sessions.get(sessionId);
+      if (!session) return state;
+      const alerted = !session.alerted;
+      const next = new Map(state.sessions);
+      next.set(sessionId, { ...session, alerted });
+      fetch(`/api/sessions/${encodeURIComponent(sessionId)}/alerted`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alerted }),
       }).catch(() => { /* ignore network errors */ });
       return { sessions: next };
     }),

@@ -18,6 +18,7 @@ const SPLIT_MIN_WIDTH = 700;
 interface DetailTabsProps {
   terminalContent: ReactNode;
   promptsContent: ReactNode;
+  outputContent?: ReactNode;
   notesContent: ReactNode;
   activityContent: ReactNode;
   queueContent: ReactNode;
@@ -43,6 +44,7 @@ interface DetailTabsProps {
 const BASE_TABS = [
   { id: 'terminal', label: 'TERMINAL' },
   { id: 'conversation', label: 'PROMPTS' },
+  { id: 'output', label: 'OUTPUT' },
   { id: 'project', label: 'PROJECT' },
   { id: 'queue', label: 'QUEUE' },
   { id: 'notes', label: 'NOTES' },
@@ -161,6 +163,7 @@ function DraggableSplitView({
 export default function DetailTabs({
   terminalContent,
   promptsContent,
+  outputContent,
   notesContent,
   activityContent,
   queueContent,
@@ -341,9 +344,14 @@ export default function DetailTabs({
         <button className={styles.searchCloseBtn} onClick={onSearchClose} title="Close (Esc)">✕</button>
       </div>
 
-      {/* #15: Only mount the active tab content */}
+      {/* #15: Only mount the active tab content; OUTPUT tab is always mounted to accumulate data */}
       <div className={styles.tabContent}>
-        {contentMap[effectiveTab]}
+        {outputContent && (
+          <div className={effectiveTab === 'output' ? styles.outputTabActive : styles.outputTabHidden}>
+            {outputContent}
+          </div>
+        )}
+        {effectiveTab !== 'output' && contentMap[effectiveTab]}
       </div>
     </>
   );

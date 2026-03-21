@@ -210,6 +210,8 @@ export interface Session {
   colorIndex?: number;
   muted?: boolean;
   pinned?: boolean;
+  /** When true, play loud alert sounds for approval, input, and task completion */
+  alerted?: boolean;
 }
 
 // ---------------------------------------------------------------------------
