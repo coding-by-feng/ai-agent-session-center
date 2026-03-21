@@ -51,6 +51,16 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
+      // Cmd+F (macOS) / Ctrl+F — open detail panel search when a session is selected
+      if (!e.shiftKey && (e.metaKey || e.ctrlKey) && e.key === 'f') {
+        if (selectedId) {
+          e.preventDefault();
+          document.dispatchEvent(new CustomEvent('detail-panel:find'));
+          return;
+        }
+        // No session selected — let browser native find through
+      }
+
       // Escape is always special: close modal -> pass to terminal -> deselect
       if (e.key === 'Escape') {
         if (currentModal) {

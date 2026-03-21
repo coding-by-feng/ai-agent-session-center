@@ -42,6 +42,16 @@ async function createWindow(): Promise<BrowserWindow> {
     },
   })
 
+  // Block Cmd+R / Ctrl+R / F5 to prevent page reload (loses terminal state)
+  win.webContents.on('before-input-event', (_event, input) => {
+    if (
+      (input.key === 'r' && (input.meta || input.control)) ||
+      input.key === 'F5'
+    ) {
+      _event.preventDefault()
+    }
+  })
+
   // Only allow http/https links to open externally (blocks ms-msdt:, file:, etc.)
   win.webContents.setWindowOpenHandler(({ url }) => {
     try {

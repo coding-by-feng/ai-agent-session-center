@@ -10,7 +10,7 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSessionPinned, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSessionPinned, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
 import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, attachToTmuxPane, consumePendingLink } from './sshManager.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
@@ -95,6 +95,7 @@ const terminalCreateSchema = z.object({
   label: z.string().optional(),
   enableOpsTerminal: z.boolean().optional(),
   forceNew: z.boolean().optional(),
+  startupCommand: z.string().max(1024).optional(),
 });
 
 const tmuxSessionsSchema = z.object({
@@ -124,6 +125,14 @@ const labelSchema = z.object({
 
 const pinnedSchema = z.object({
   pinned: z.boolean(),
+});
+
+const mutedSchema = z.object({
+  muted: z.boolean(),
+});
+
+const alertedSchema = z.object({
+  alerted: z.boolean(),
 });
 
 const accentColorSchema = z.object({
@@ -458,13 +467,26 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
 
   try {
     if (cfg && cfg.username) {
-      // SSH session: use stored SSH config
-      const newConfig: TerminalConfig = { ...cfg, workingDir: cfg.workingDir || '~', command: cfg.command || 'claude' };
+      // SSH session: use stored SSH config.
+      // Use command='' and write startupCommand after shell ready so that
+      // the full original command (with all params) is preserved.
+      const launchCmd = session.startupCommand || cfg.command || 'claude';
+      const newConfig: TerminalConfig = { ...cfg, workingDir: cfg.workingDir || '~', command: '' };
       const newTerminalId = await createTerminal(newConfig, null);
       consumePendingLink(newConfig.workingDir || session.projectPath || '');
 
       const result = reconnectSessionTerminal(sessionId, newTerminalId);
       if ('error' in result) { res.status(500).json({ error: result.error }); return; }
+
+      // Write the original command (with full params) once shell is ready.
+      // For remote SSH, export AGENT_MANAGER_TERMINAL_ID first.
+      const isRemote = cfg.host && cfg.host !== 'localhost' && cfg.host !== '127.0.0.1';
+      let prefix = '';
+      if (isRemote) {
+        prefix += `export AGENT_MANAGER_TERMINAL_ID='${newTerminalId}' && `;
+        if (cfg.workingDir) prefix += `cd '${cfg.workingDir}' && `;
+      }
+      writeWhenReady(newTerminalId, `${prefix}${launchCmd}\r`);
 
       const { broadcast } = await import('./wsManager.js');
       broadcast({ type: WS_TYPES.SESSION_UPDATE, session: result.session });
@@ -638,6 +660,22 @@ router.put('/sessions/:id/pinned', (req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
+// Update session muted state
+router.put('/sessions/:id/muted', (req: Request, res: Response) => {
+  const body = validateBody(mutedSchema, req.body, res);
+  if (!body) return;
+  setSessionMuted(str(req.params.id), body.muted);
+  res.json({ ok: true });
+});
+
+// Update session alerted state
+router.put('/sessions/:id/alerted', (req: Request, res: Response) => {
+  const body = validateBody(alertedSchema, req.body, res);
+  if (!body) return;
+  setSessionAlerted(str(req.params.id), body.alerted);
+  res.json({ ok: true });
+});
+
 // Update session accent color
 router.put('/sessions/:id/accent-color', (req: Request, res: Response) => {
   const body = validateBody(accentColorSchema, req.body, res);
@@ -781,6 +819,7 @@ router.post('/terminals', async (req: Request, res: Response) => {
     if (body.useTmux) config.useTmux = true;
     if (body.sessionTitle) config.sessionTitle = body.sessionTitle;
     if (body.label) config.label = body.label;
+    if (body.startupCommand) config.startupCommand = body.startupCommand;
 
     // Resolve API key from request body only (no DB lookup)
     if (body.apiKey) {
@@ -832,6 +871,37 @@ router.delete('/terminals/:id', (req: Request, res: Response) => {
 });
 
 // Write data to a terminal's PTY (used by queue prompt send)
+/** POST /api/queue-images — save base64 images to temp files, return file paths */
+router.post('/queue-images', (req: Request, res: Response) => {
+  const schema = z.object({
+    images: z.array(z.object({
+      name: z.string().max(255),
+      dataUrl: z.string(),
+    })).max(10),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ ok: false, error: 'Invalid request' });
+    return;
+  }
+  const dir = '/tmp/claude-queue-images';
+  try { mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }
+  const paths: string[] = [];
+  for (const img of parsed.data.images) {
+    const match = img.dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+    if (!match) continue;
+    try {
+      const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
+      const buf = Buffer.from(match[2], 'base64');
+      const filename = `queue-img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const filepath = join(dir, filename);
+      writeFileSync(filepath, buf);
+      paths.push(filepath);
+    } catch { /* skip invalid */ }
+  }
+  res.json({ ok: true, paths });
+});
+
 router.post('/terminals/:id/write', (req: Request, res: Response) => {
   const terminalId = str(req.params.id);
   const { data } = req.body || {};

@@ -349,6 +349,25 @@
 .tabContent::-webkit-scrollbar-thumb, .tabScroll::-webkit-scrollbar-thumb { background: var(--bg-accent); border-radius: 2px; }
 .tabEmpty { text-align: center; padding: 40px 20px; color: var(--text-dim); font-size: 11px; letter-spacing: 1px; }
 
+/* ---- OUTPUT tab always-mount visibility ---- */
+.outputTabHidden { display: none; }
+.outputTabActive { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; }
+
+/* ---- OutputTab ---- */
+.outputTab { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.outputToolbar { display: flex; align-items: center; gap: 8px; padding: 0 0 8px; border-bottom: 1px solid var(--border-faint); flex-shrink: 0; }
+.outputLineCount { font-size: 10px; color: var(--text-dim); letter-spacing: 0.5px; flex: 1; }
+.outputScrollBtn { font-size: 9px; font-weight: 700; letter-spacing: 1px; padding: 2px 8px; background: transparent; border: 1px solid var(--accent-cyan); color: var(--accent-cyan); border-radius: 2px; cursor: pointer; }
+.outputScrollBtn:hover { background: color-mix(in srgb, var(--accent-cyan) 15%, transparent); }
+.outputClearBtn { font-size: 9px; font-weight: 700; letter-spacing: 1px; padding: 2px 8px; background: transparent; border: 1px solid var(--border-faint); color: var(--text-dim); border-radius: 2px; cursor: pointer; }
+.outputClearBtn:hover { border-color: var(--accent-red); color: var(--accent-red); }
+.outputScroll { flex: 1; overflow-y: auto; min-height: 0; margin-top: 8px; }
+.outputScroll::-webkit-scrollbar { width: 4px; }
+.outputScroll::-webkit-scrollbar-track { background: transparent; }
+.outputScroll::-webkit-scrollbar-thumb { background: var(--bg-accent); border-radius: 2px; }
+.outputPre { margin: 0; font-family: var(--font-mono); font-size: 11px; line-height: 1.5; color: var(--text-secondary); white-space: pre-wrap; word-break: break-all; }
+.outputEmpty { padding: 40px 0; text-align: center; color: var(--text-dim); font-size: 11px; letter-spacing: 1px; line-height: 1.8; }
+
 /* ---- Conversation Entries ---- */
 
 .convEntry { padding: 10px 12px; border-bottom: 1px solid var(--border-faint); border-left: 3px solid transparent; }
@@ -408,8 +427,14 @@
 .ctrlBtn.delete:hover { background: rgba(255, 68, 68, 0.2); }
 .ctrlBtn.queue { color: #00e5ff; border-color: rgba(0, 229, 255, 0.4); }
 .ctrlBtn.queue:hover { background: rgba(0, 229, 255, 0.15); }
+.ctrlBtn.mute { color: var(--text-secondary); border-color: rgba(150, 150, 150, 0.3); }
+.ctrlBtn.mute:hover { background: rgba(150, 150, 150, 0.15); }
+.ctrlBtn.muted { color: var(--accent-yellow); border-color: rgba(255, 204, 0, 0.3); background: rgba(255, 204, 0, 0.1); }
+.ctrlBtn.muted:hover { background: rgba(255, 204, 0, 0.2); }
 .ctrlBtn.alert { color: var(--accent-orange); border-color: rgba(255, 145, 0, 0.3); }
 .ctrlBtn.alert:hover { background: rgba(255, 145, 0, 0.15); }
+.ctrlBtn.alertActive { color: var(--accent-orange); border-color: var(--accent-orange); background: rgba(255, 145, 0, 0.2); font-weight: 900; }
+.ctrlBtn.alertActive:hover { background: rgba(255, 145, 0, 0.3); }
 .ctrlBtn.summarize { color: #ffcc00; border-color: rgba(255, 204, 0, 0.3); }
 .ctrlBtn.summarize:hover { background: rgba(255, 204, 0, 0.15); }
 .ctrlBtn.summarize:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -973,6 +998,11 @@
 .roomFilterOptionActive {
   color: var(--accent-cyan);
   background: color-mix(in srgb, var(--accent-cyan) 10%, transparent);
+}
+
+.roomFilterCheck {
+  margin-right: 4px;
+  font-size: 10px;
 }
 
 /* ---- Session tab pin icon ---- */

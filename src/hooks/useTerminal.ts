@@ -383,11 +383,6 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         const CHUNK_SIZE = 4096;
         term.onData((data) => {
           if (!wsRef.current || wsRef.current.readyState !== 1) return;
-          // When user sends Enter, hint the output handler to force scroll-to-bottom.
-          // This ensures output stays visible after voice dictation or focus-loss scenarios.
-          if (data === '\r' || data === '\n') {
-            forceScrollRef.current = true;
-          }
           if (data.length <= CHUNK_SIZE) {
             wsRef.current.send(JSON.stringify({ type: 'terminal_input', terminalId, data }));
           } else {
@@ -455,6 +450,9 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
                     } else {
                       term.scrollToBottom();
                     }
+                    // Force canvas repaint after output flush to prevent blank terminal
+                    fitAddon.fit();
+                    term.refresh(0, term.rows - 1);
                   }
                 });
               }
@@ -463,6 +461,17 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
             }
           });
         });
+
+        // Safety-net repaint: if the initial forceCanvasRepaint ran before the
+        // container dimensions stabilised (e.g. during a session switch with CSS
+        // transitions), this delayed repaint catches it. Without it the canvas
+        // stays blank until the user manually resizes (e.g. minimize+restore).
+        setTimeout(() => {
+          if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
+          fitAddon.fit();
+          sendResize(wsRef.current, terminalId, term.cols, term.rows);
+          term.refresh(0, term.rows - 1);
+        }, 150);
       }
 
       setupWhenReady(60);
@@ -585,10 +594,6 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     wsRef.current.send(
       JSON.stringify({ type: 'terminal_input', terminalId: activeRef.current.terminalId, data: '\r' }),
     );
-    // Force scroll-to-bottom so incoming output is visible even if viewport
-    // was displaced during voice dictation or other focus-loss scenarios.
-    forceScrollRef.current = true;
-    activeRef.current.term.scrollToBottom();
     activeRef.current.term.focus();
   }, []);
 

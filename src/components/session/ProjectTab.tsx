@@ -64,6 +64,14 @@ interface Bookmark {
   note: string;
 }
 
+interface Collection {
+  id: string;
+  path: string;
+  name: string;
+  isFile: boolean;
+  addedAt: number;
+}
+
 interface SearchResult {
   path: string;
   name: string;
@@ -204,6 +212,14 @@ function IconOutline() {
       <line x1="4" y1="6.5" x2="13" y2="6.5" />
       <line x1="4" y1="10" x2="11" y2="10" />
       <line x1="2" y1="13.5" x2="9" y2="13.5" />
+    </svg>
+  );
+}
+
+function IconCollect({ active = false }: { active?: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
+      <polygon points="8 1.5 9.9 5.9 14.5 6.2 11.2 9.1 12.2 13.6 8 11.2 3.8 13.6 4.8 9.1 1.5 6.2 6.1 5.9 8 1.5" />
     </svg>
   );
 }
@@ -645,6 +661,10 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const [showBookmarkPanel, setShowBookmarkPanel] = useState(false);
   const pendingScrollLine = useRef<number | null>(null);
 
+  // Collections — shared across sessions by projectPath
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const [showCollectionPanel, setShowCollectionPanel] = useState(false);
+
   // Fullscreen file viewer
   const [showFullscreen, setShowFullscreen] = useState(false);
 
@@ -817,9 +837,22 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
       if (saved) setBookmarks(JSON.parse(saved));
     } catch {}
   }, [bookmarkKey]);
+
+  // Collection persistence — keyed per projectPath, shared across all sessions
+  const collectionsKey = useMemo(() => `agent-manager:collections:${projectPath}`, [projectPath]);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(collectionsKey);
+      if (saved) setCollections(JSON.parse(saved));
+    } catch {}
+  }, [collectionsKey]);
   useEffect(() => {
     try { localStorage.setItem(bookmarkKey, JSON.stringify(bookmarks)); } catch {}
   }, [bookmarks, bookmarkKey]);
+
+  useEffect(() => {
+    try { localStorage.setItem(collectionsKey, JSON.stringify(collections)); } catch {}
+  }, [collections, collectionsKey]);
 
   // After cross-file jump: scroll to the pending line once the new file renders
   useEffect(() => {
@@ -1172,6 +1205,40 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     }
   }, [file, loadFile]);
 
+  // Collection: add/remove current path; toggle panel
+  const isCurrentCollected = collections.some((c) => c.path === currentPath);
+
+  const handleCollectToggle = useCallback(() => {
+    if (isCurrentCollected) {
+      setShowCollectionPanel((p) => !p);
+    } else {
+      const name = currentPath.split('/').filter(Boolean).pop() || projectPath.split('/').filter(Boolean).pop() || currentPath;
+      setCollections((prev) => [
+        ...prev,
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          path: currentPath,
+          name,
+          isFile: !!file,
+          addedAt: Date.now(),
+        },
+      ]);
+      setShowCollectionPanel(true);
+    }
+  }, [currentPath, isCurrentCollected, file, projectPath]);
+
+  const handleDeleteCollection = useCallback((id: string) => {
+    setCollections((prev) => prev.filter((c) => c.id !== id));
+  }, []);
+
+  const handleCollectionItemClick = useCallback((col: Collection) => {
+    if (col.isFile) {
+      loadFile(col.path);
+    } else {
+      loadDir(col.path);
+    }
+  }, [loadFile, loadDir]);
+
   // Format the currently viewed file (JSON / XML / SVG)
   const handleFormatFile = useCallback(() => {
     if (!file || file.binary || !file.content) return;
@@ -1310,6 +1377,19 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         >
           <IconBookmark active={bookmarks.length > 0} />
           {bookmarks.length > 0 && <span className={styles.bookmarkBadge}>{bookmarks.length}</span>}
+        </button>
+        <button
+          className={`${styles.iconBtn} ${isCurrentCollected || showCollectionPanel ? styles.iconBtnActive : ''}`}
+          onClick={handleCollectToggle}
+          style={isCurrentCollected ? { color: 'var(--accent-yellow, #ffd700)' } : undefined}
+          title={isCurrentCollected ? 'Collected — click to view/manage collection' : 'Add to collection'}
+        >
+          <IconCollect active={isCurrentCollected} />
+          {collections.length > 0 && (
+            <span className={styles.bookmarkBadge} style={{ background: 'var(--accent-yellow, #ffd700)' }}>
+              {collections.length}
+            </span>
+          )}
         </button>
         <button
           className={`${styles.iconBtn} ${wordWrap ? styles.iconBtnActive : ''}`}
@@ -1666,6 +1746,42 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                     onChange={e => handleBookmarkNoteChange(bm.id, e.target.value)}
                     onClick={e => e.stopPropagation()}
                   />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {/* Collection panel */}
+      {showCollectionPanel && (
+        <div className={styles.collectionPanel}>
+          <div className={styles.bookmarkPanelHeader}>
+            <span className={styles.collectionPanelTitle}>COLLECTION ({collections.length})</span>
+            <button className={styles.bookmarkPanelClose} onClick={() => setShowCollectionPanel(false)}>✕</button>
+          </div>
+          {collections.length === 0 ? (
+            <div className={styles.bookmarkEmpty}>
+              Navigate to any file or folder and click ★ to collect it.
+            </div>
+          ) : (
+            <div className={styles.collectionList}>
+              {collections.map((col) => (
+                <div
+                  key={col.id}
+                  className={`${styles.collectionItem}${col.path === currentPath ? ` ${styles.collectionItemActive}` : ''}`}
+                  onClick={() => handleCollectionItemClick(col)}
+                  title={col.path}
+                >
+                  <span className={styles.collectionItemIcon}>{col.isFile ? '📄' : '📁'}</span>
+                  <span className={styles.collectionItemName}>{col.name}</span>
+                  <span className={styles.collectionItemPath}>{col.path}</span>
+                  <button
+                    className={styles.bookmarkItemDel}
+                    onClick={(e) => { e.stopPropagation(); handleDeleteCollection(col.id); }}
+                    title="Remove from collection"
+                  >
+                    ✕
+                  </button>
                 </div>
               ))}
             </div>

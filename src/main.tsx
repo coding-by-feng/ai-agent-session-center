@@ -13,6 +13,17 @@ import '@/styles/themes/warm.css';
 import '@/styles/themes/blonde.css';
 import '@/styles/themes/light-overrides.css';
 
+// Block Cmd+R / Ctrl+R / F5 to prevent accidental page reload
+// (losing all terminal sessions and in-memory state)
+window.addEventListener('keydown', (e) => {
+  if (
+    (e.key === 'r' && (e.metaKey || e.ctrlKey)) ||
+    e.key === 'F5'
+  ) {
+    e.preventDefault();
+  }
+});
+
 // Load persisted queue items from IndexedDB before rendering
 useQueueStore.getState().loadFromDb();
 

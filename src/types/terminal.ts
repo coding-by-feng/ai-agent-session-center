@@ -36,6 +36,8 @@ export interface TerminalConfig {
   useTmux?: boolean;
   sessionTitle?: string;
   label?: string;
+  /** Original startup command captured from hooks (preserves full CLI + params) */
+  startupCommand?: string;
 }
 
 // ---------------------------------------------------------------------------

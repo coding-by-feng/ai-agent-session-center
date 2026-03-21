@@ -941,6 +941,7 @@ export async function createTerminalSession(terminalId: string, config: Terminal
     hadOpsTerminal: !!opsTerminalId,
     sshHost: config.host || 'localhost',
     sshCommand: config.command || 'claude',
+    startupCommand: config.startupCommand,
     sshConfig: {
       host: config.host || 'localhost',
       port: config.port || 22,
@@ -1057,6 +1058,16 @@ export function setSummary(sessionId: string, summary: string): Session | null {
 export function setSessionPinned(sessionId: string, pinned: boolean): void {
   const session = sessions.get(sessionId);
   if (session) { session.pinned = pinned; invalidateSessionsCache(); }
+}
+
+export function setSessionMuted(sessionId: string, muted: boolean): void {
+  const session = sessions.get(sessionId);
+  if (session) { session.muted = muted; invalidateSessionsCache(); }
+}
+
+export function setSessionAlerted(sessionId: string, alerted: boolean): void {
+  const session = sessions.get(sessionId);
+  if (session) { session.alerted = alerted; invalidateSessionsCache(); }
 }
 
 export function setSessionAccentColor(sessionId: string, color: string): void {

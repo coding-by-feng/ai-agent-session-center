@@ -1510,6 +1510,79 @@
 .bookmarkItemNote:focus { border-color: rgba(0, 229, 255, 0.35); }
 .bookmarkItemNote::placeholder { color: var(--text-dim); font-style: italic; }
 
+/* ---- Collection Panel ---- */
+
+.collectionPanel {
+  max-height: 180px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-subtle);
+  background: rgba(10, 10, 30, 0.6);
+  overflow: hidden;
+}
+
+.collectionPanelTitle {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: var(--accent-yellow, #ffd700);
+  text-transform: uppercase;
+}
+
+.collectionList {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+}
+.collectionList::-webkit-scrollbar { width: 3px; }
+.collectionList::-webkit-scrollbar-thumb { background: var(--bg-accent); border-radius: 2px; }
+
+.collectionItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+  border: 1px solid var(--border-faint);
+  border-radius: 4px;
+  transition: background 0.12s;
+}
+.collectionItem:hover { background: rgba(255, 255, 255, 0.04); }
+
+.collectionItemActive {
+  border-color: rgba(255, 215, 0, 0.3);
+  background: rgba(255, 215, 0, 0.05);
+}
+
+.collectionItemIcon { font-size: 11px; flex-shrink: 0; }
+
+.collectionItemName {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-primary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collectionItemPath {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 130px;
+  flex-shrink: 0;
+}
+
 /* ---- Small screens ---- */
 
 @media (max-width: 640px) {

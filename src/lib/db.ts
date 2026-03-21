@@ -73,6 +73,8 @@ export interface DbQueueItem {
   text: string;
   position: number;
   createdAt: number;
+  /** JSON-serialized array of { name, dataUrl } image attachments */
+  images?: string;
 }
 
 export interface DbAlert {

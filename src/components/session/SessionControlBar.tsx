@@ -1,21 +1,18 @@
 /**
  * SessionControlBar renders action buttons for the selected session:
- * Resume, Kill, Archive, Delete, Summarize, Alert.
+ * Resume, Kill, Mute/Unmute, Alert toggle, Room select.
  * Displayed in the detail panel below the header.
- * Ported from public/js/sessionControls.js.
  */
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import type { Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
-import { useUiStore } from '@/stores/uiStore';
 import { useRoomStore } from '@/stores/roomStore';
-import { db } from '@/lib/db';
-import { deleteSession as deleteSessionDb } from '@/lib/db';
+import { muteSession, unmuteSession, alertSession, unalertSession } from '@/lib/alarmEngine';
+import { useUiStore } from '@/stores/uiStore';
 import { showToast } from '@/components/ui/ToastContainer';
 import Select from '@/components/ui/Select';
 import type { SelectOption } from '@/components/ui/Select';
 import { KILL_MODAL_ID } from './KillConfirmModal';
-import { ALERT_MODAL_ID } from './AlertModal';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 interface SessionControlBarProps {
@@ -24,10 +21,8 @@ interface SessionControlBarProps {
 }
 
 export default function SessionControlBar({ session, labelChips }: SessionControlBarProps) {
-  const deselectSession = useSessionStore((s) => s.deselectSession);
-  const removeSession = useSessionStore((s) => s.removeSession);
-  const updateSession = useSessionStore((s) => s.updateSession);
-  const selectSession = useSessionStore((s) => s.selectSession);
+  const toggleMute = useSessionStore((s) => s.toggleMute);
+  const toggleAlert = useSessionStore((s) => s.toggleAlert);
   const openModal = useUiStore((s) => s.openModal);
   const rooms = useRoomStore((s) => s.rooms);
   const addSession = useRoomStore((s) => s.addSession);
@@ -38,7 +33,7 @@ export default function SessionControlBar({ session, labelChips }: SessionContro
 
   const isDisconnected = session.status === 'ended';
 
-  // #4: Abort inflight resume fetch on unmount or session change
+  // Abort inflight resume fetch on unmount or session change
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
@@ -77,60 +72,40 @@ export default function SessionControlBar({ session, labelChips }: SessionContro
     openModal(KILL_MODAL_ID);
   }, [openModal]);
 
-  // ---- Archive ----
-  const handleArchive = useCallback(async () => {
-    try {
-      // Mark as archived in local DB
-      const s = await db.sessions.get(session.sessionId);
-      if (s) {
-        await db.sessions.update(session.sessionId, {
-          status: 'ended',
-          archived: 1,
-          endedAt: s.endedAt || Date.now(),
-        });
-      }
-      // #12: Delete from server — show error on failure
-      const delResp = await fetch(`/api/sessions/${session.sessionId}`, { method: 'DELETE' });
-      if (!delResp.ok) showToast('Server archive failed, archived locally', 'warning');
-      deselectSession();
-      removeSession(session.sessionId);
-      showToast('Session archived to history', 'success');
-    } catch (err) {
-      showToast((err as Error).message, 'error');
+  // ---- Mute / Unmute ----
+  const handleToggleMute = useCallback(() => {
+    const muted = !session.muted;
+    toggleMute(session.sessionId);
+    if (muted) {
+      muteSession(session.sessionId);
+      showToast('Session muted', 'info');
+    } else {
+      unmuteSession(session.sessionId);
+      showToast('Session unmuted', 'info');
     }
-  }, [session.sessionId, deselectSession, removeSession]);
+  }, [session.sessionId, session.muted, toggleMute]);
 
-  // ---- Permanent Delete ----
-  const handleDelete = useCallback(async () => {
-    const label = session.title || session.projectName || session.sessionId.slice(0, 8);
-    if (!window.confirm(`Permanently delete session "${label}"?\nThis cannot be undone.`)) return;
-    try {
-      await fetch(`/api/sessions/${session.sessionId}`, { method: 'DELETE' });
-      await deleteSessionDb(session.sessionId);
-      deselectSession();
-      removeSession(session.sessionId);
-      showToast(`Session "${label}" permanently removed`, 'success');
-    } catch (err) {
-      showToast((err as Error).message, 'error');
+  // ---- Alert toggle ----
+  const handleToggleAlert = useCallback(() => {
+    const alerted = !session.alerted;
+    toggleAlert(session.sessionId);
+    if (alerted) {
+      alertSession(session.sessionId);
+      showToast('Alert ON — loud sounds for approval & completion', 'success');
+    } else {
+      unalertSession(session.sessionId);
+      showToast('Alert OFF', 'info');
     }
-  }, [session.sessionId, session.title, session.projectName, deselectSession, removeSession]);
-
-  // ---- Alert ----
-  const handleAlert = useCallback(() => {
-    openModal(ALERT_MODAL_ID);
-  }, [openModal]);
+  }, [session.sessionId, session.alerted, toggleAlert]);
 
   // ---- Room select ----
   const handleRoomChange = useCallback(
     (roomId: string) => {
-      // Remove from all rooms first
       for (const r of rooms) {
         if (r.sessionIds.includes(session.sessionId)) {
           removeSessionFromRoom(r.id, session.sessionId);
         }
       }
-
-      // Add to selected room
       if (roomId) {
         addSession(roomId, session.sessionId);
         showToast('Moved to room', 'info');
@@ -141,7 +116,6 @@ export default function SessionControlBar({ session, labelChips }: SessionContro
     [session.sessionId, rooms, addSession, removeSessionFromRoom],
   );
 
-  // Find current room
   const currentRoomId = rooms.find((r) =>
     r.sessionIds.includes(session.sessionId),
   )?.id || '';
@@ -170,22 +144,16 @@ export default function SessionControlBar({ session, labelChips }: SessionContro
         KILL
       </button>
       <button
-        className={`${styles.ctrlBtn} ${styles.archive}`}
-        onClick={handleArchive}
+        className={`${styles.ctrlBtn} ${session.muted ? styles.muted : styles.mute}`}
+        onClick={handleToggleMute}
       >
-        ARCHIVE
+        {session.muted ? 'UNMUTE' : 'MUTE'}
       </button>
       <button
-        className={`${styles.ctrlBtn} ${styles.delete}`}
-        onClick={handleDelete}
+        className={`${styles.ctrlBtn} ${session.alerted ? styles.alertActive : styles.alert}`}
+        onClick={handleToggleAlert}
       >
-        DELETE
-      </button>
-      <button
-        className={`${styles.ctrlBtn} ${styles.alert}`}
-        onClick={handleAlert}
-      >
-        ALERT
+        {session.alerted ? 'ALERT ON' : 'ALERT'}
       </button>
 
       {/* Room select */}
