@@ -1,0 +1,266 @@
+/* ============================================================
+   ContentSearchModal — grep-style content search
+   Dark theme matching the cyberdrome UI
+   ============================================================ */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 80px;
+}
+
+.modal {
+  width: 680px;
+  max-width: 90vw;
+  max-height: 70vh;
+  background: var(--bg-card, #141428);
+  border: 1px solid var(--border-subtle, #2a2a40);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+/* ---- Header ---- */
+
+.header {
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid var(--border-faint, #1e1e35);
+  flex-shrink: 0;
+}
+
+.inputRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.searchIcon {
+  color: var(--text-dim, #888);
+  flex-shrink: 0;
+}
+
+.input {
+  flex: 1;
+  background: var(--bg-input, #0d0d1a);
+  border: 1px solid var(--border-subtle, #2a2a40);
+  border-radius: 4px;
+  color: var(--text-primary, #e0e0e0);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  padding: 7px 10px;
+  outline: none;
+}
+
+.input:focus {
+  border-color: var(--accent-cyan, #00d4ff);
+  box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.2);
+}
+
+.globInput {
+  width: 100px;
+  background: var(--bg-input, #0d0d1a);
+  border: 1px solid var(--border-subtle, #2a2a40);
+  border-radius: 4px;
+  color: var(--text-dim, #888);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  padding: 7px 8px;
+  outline: none;
+  flex-shrink: 0;
+}
+
+.globInput:focus {
+  border-color: var(--accent-cyan, #00d4ff);
+  color: var(--text-primary, #e0e0e0);
+}
+
+.loadingBar {
+  height: 2px;
+  margin-top: 8px;
+  background: linear-gradient(90deg, transparent, var(--accent-cyan, #00d4ff), transparent);
+  animation: shimmer 1.2s ease-in-out infinite;
+  border-radius: 1px;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* ---- Results ---- */
+
+.results {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 4px 0;
+}
+
+.empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-dim, #888);
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.error {
+  padding: 12px 16px;
+  color: var(--accent-red, #ff4444);
+  font-size: 12px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ---- Group (file) ---- */
+
+.group {
+  margin-bottom: 2px;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 14px;
+  background: none;
+  border: none;
+  color: var(--text-primary, #e0e0e0);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.groupHeader:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.groupHeaderActive {
+  background: rgba(0, 212, 255, 0.08);
+}
+
+.groupFile {
+  font-weight: 600;
+  color: var(--accent-cyan, #00d4ff);
+  flex-shrink: 0;
+}
+
+.groupPath {
+  color: var(--text-dim, #888);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.groupCount {
+  color: var(--text-dim, #888);
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 6px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+/* ---- Match line ---- */
+
+.match {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 3px 14px 3px 28px;
+  background: none;
+  border: none;
+  color: var(--text-secondary, #c0c0c0);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  cursor: pointer;
+  text-align: left;
+  line-height: 1.5;
+}
+
+.match:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.matchActive {
+  background: rgba(0, 212, 255, 0.1);
+}
+
+.matchLine {
+  color: var(--accent-green, #00ff88);
+  font-size: 10px;
+  min-width: 36px;
+  text-align: right;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.matchText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.highlight {
+  background: rgba(255, 200, 0, 0.3);
+  color: var(--accent-yellow, #ffd700);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* ---- Truncated notice ---- */
+
+.truncated {
+  padding: 8px 16px;
+  text-align: center;
+  color: var(--accent-yellow, #ffd700);
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  opacity: 0.7;
+}
+
+/* ---- Footer ---- */
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  border-top: 1px solid var(--border-faint, #1e1e35);
+  flex-shrink: 0;
+}
+
+.footerHint {
+  color: var(--text-dim, #888);
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.footerKeys {
+  color: var(--text-dim, #888);
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.footerKeys kbd {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-subtle, #2a2a40);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 10px;
+  margin: 0 2px;
+}

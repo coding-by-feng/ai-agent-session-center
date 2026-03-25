@@ -103,7 +103,9 @@ export default function SessionSwitcher({
   const toggleCardDisplayMode = useUiStore((s) => s.toggleCardDisplayMode);
   const rooms = useRoomStore((s) => s.rooms);
 
-  const [selectedRoomIds, setSelectedRoomIds] = useState<Set<string>>(new Set());
+  const selectedRoomIds = useUiStore((s) => s.selectedRoomIds);
+  const toggleRoomFilter = useUiStore((s) => s.toggleRoomFilter);
+  const clearRoomFilter = useUiStore((s) => s.clearRoomFilter);
   const [roomDropdownOpen, setRoomDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -171,13 +173,8 @@ export default function SessionSwitcher({
   }, [selectedRoomIds, rooms]);
 
   const toggleRoom = useCallback((roomId: string) => {
-    setSelectedRoomIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(roomId)) next.delete(roomId);
-      else next.add(roomId);
-      return next;
-    });
-  }, []);
+    toggleRoomFilter(roomId);
+  }, [toggleRoomFilter]);
 
   const primaryName = currentSession.title || currentSession.projectName || '(untitled)';
   const secondaryName = currentSession.title && currentSession.projectName && currentSession.title !== currentSession.projectName
@@ -234,7 +231,7 @@ export default function SessionSwitcher({
                 <div className={styles.roomFilterDropdown}>
                   <button
                     className={`${styles.roomFilterOption}${selectedRoomIds.size === 0 ? ` ${styles.roomFilterOptionActive}` : ''}`}
-                    onClick={() => { setSelectedRoomIds(new Set()); setRoomDropdownOpen(false); }}
+                    onClick={() => { clearRoomFilter(); setRoomDropdownOpen(false); }}
                     type="button"
                   >
                     All rooms

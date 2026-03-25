@@ -48,6 +48,8 @@ const projectSessionCounters = new Map<string, number>();
 const pidToSession = new Map<number, string>();
 /** terminalId -> pending resume info */
 const pendingResume = new Map<string, PendingResume>();
+/** originalSessionId -> current sessionId — allows dedup to find sessions by their snapshot ID */
+const sessionAliases = new Map<string, string>();
 
 // Serialization cache for getAllSessions() — invalidated on any session change
 let sessionsCacheDirty = true;
@@ -869,7 +871,25 @@ export function getAllSessions(): Record<string, Session> {
 
 export function getSession(sessionId: string): Session | null {
   const s = sessions.get(sessionId);
-  return s ? { ...s } : null;
+  if (s) return { ...s };
+  // Check alias map — workspace import registers originalSessionId -> new sessionId
+  const aliased = sessionAliases.get(sessionId);
+  if (aliased) {
+    const a = sessions.get(aliased);
+    if (a) return { ...a };
+  }
+  return null;
+}
+
+/**
+ * Register an alias so that getSession(originalId) resolves to the session
+ * stored under newId. Used during workspace import to map snapshot IDs to
+ * freshly created terminal IDs.
+ */
+export function registerSessionAlias(originalId: string, newId: string): void {
+  if (originalId && newId && originalId !== newId) {
+    sessionAliases.set(originalId, newId);
+  }
 }
 
 /**
@@ -942,6 +962,7 @@ export async function createTerminalSession(terminalId: string, config: Terminal
     sshHost: config.host || 'localhost',
     sshCommand: config.command || 'claude',
     startupCommand: config.startupCommand,
+    permissionMode: config.permissionMode || null,
     sshConfig: {
       host: config.host || 'localhost',
       port: config.port || 22,
@@ -1029,6 +1050,10 @@ export function deleteSessionFromMemory(sessionId: string): boolean {
   // Release PID cache
   if (session.cachedPid) {
     pidToSession.delete(session.cachedPid);
+  }
+  // Clean up any alias pointing to this session
+  for (const [alias, target] of sessionAliases) {
+    if (target === sessionId) { sessionAliases.delete(alias); break; }
   }
   // Team cleanup
   handleTeamMemberEnd(sessionId, sessions);

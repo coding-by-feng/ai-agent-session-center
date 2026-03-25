@@ -36,6 +36,8 @@ export interface SessionSnapshot {
   sshConfig: SshConfig;
   /** Original startup command with full params (e.g. 'gemini --model pro', 'codex --full-auto') */
   startupCommand?: string;
+  /** Permission mode at export time — used to reconstruct CLI flags when startupCommand is absent */
+  permissionMode?: string | null;
   projectTabs: { tabs: ProjectSubTab[]; active: string } | null;
 }
 
@@ -85,9 +87,10 @@ export function buildSnapshot(
       accentColor: session.accentColor,
       characterModel: session.characterModel,
       pinned: session.pinned,
-      enableOpsTerminal: !!session.opsTerminalId,
+      enableOpsTerminal: !!session.opsTerminalId || !!session.hadOpsTerminal,
       sshConfig: { ...session.sshConfig },
       startupCommand: session.startupCommand,
+      permissionMode: session.permissionMode,
       projectTabs: getProjectTabs(session.sessionId),
     });
   }
@@ -97,7 +100,7 @@ export function buildSnapshot(
   // so the snapshot stays clean and importable without orphaned references.
   const snapshotRooms = rooms.map((r) => ({
     ...r,
-    sessionIds: r.sessionIds.filter((id) => exportedSessionIds.has(id)),
+    sessionIds: [...new Set(r.sessionIds.filter((id) => exportedSessionIds.has(id)))],
   }));
 
   return {
@@ -268,6 +271,7 @@ export async function importSnapshot(
           label: sessionSnap.label || undefined,
           enableOpsTerminal: sessionSnap.enableOpsTerminal || undefined,
           startupCommand: sessionSnap.startupCommand || undefined,
+          permissionMode: sessionSnap.permissionMode || undefined,
           originalSessionId: sessionSnap.originalSessionId || undefined,
         }),
       });
@@ -347,24 +351,33 @@ export async function importSnapshot(
   }
 
   // Restore rooms with remapped session IDs.
-  // Use localStorage rooms as base (preserves hook-only session IDs not in the snapshot).
-  // For each session ID in a room: remap it to the new terminal ID if a mapping exists,
-  // otherwise keep it as-is (hook-only sessions will be migrated later via migrateSession).
+  // Prefer snapshot rooms as the authoritative source — they contain originalSessionId
+  // values that are in idRemap. localStorage rooms may contain stale IDs from a
+  // previous session that won't remap correctly (e.g. after server snapshot loss).
+  // Merge in any localStorage-only rooms (rooms not present in the snapshot) to
+  // preserve hook-only session assignments.
   if (idRemap.size > 0) {
     try {
-      // Load existing rooms from localStorage — falls back to snapshot.rooms on fresh install
       let baseRooms: Room[] = snapshot.rooms ?? [];
+
+      // Merge localStorage rooms that aren't in the snapshot (by room ID)
       try {
         const raw = localStorage.getItem('session-rooms');
         if (raw) {
           const parsed = JSON.parse(raw) as Room[];
-          if (Array.isArray(parsed) && parsed.length > 0) baseRooms = parsed;
+          if (Array.isArray(parsed)) {
+            const snapshotRoomIds = new Set(baseRooms.map((r) => r.id));
+            const extraRooms = parsed.filter((r) => !snapshotRoomIds.has(r.id));
+            if (extraRooms.length > 0) {
+              baseRooms = [...baseRooms, ...extraRooms];
+            }
+          }
         }
       } catch { /* ignore parse errors */ }
 
       const remappedRooms = baseRooms.map((r) => ({
         ...r,
-        sessionIds: r.sessionIds.map((id) => idRemap.get(id) ?? id),
+        sessionIds: [...new Set(r.sessionIds.map((id) => idRemap.get(id) ?? id))],
       }));
       localStorage.setItem('session-rooms', JSON.stringify(remappedRooms));
     } catch { /* ignore */ }

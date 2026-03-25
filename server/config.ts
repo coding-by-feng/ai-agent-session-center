@@ -119,3 +119,46 @@ export function getWaitingLabel(toolName: string, detail: string): string | null
   const labelFn = WAITING_LABELS[status];
   return labelFn ? labelFn(toolName, detail) : null;
 }
+
+// ---- Permission Flag Reconstruction ----
+
+/**
+ * Reconstruct Claude CLI permission flags from permissionMode if not already present
+ * in the base command. This is a fallback for when startupCommand wasn't captured
+ * (e.g. jq not installed, PID detection failed) or when restoring from workspace snapshot.
+ *
+ * Known permissionMode values from Claude Code:
+ * - "default" / "plan" → no extra flags
+ * - "bypassPermissions" / "dangerously_skip_permissions" → --dangerously-skip-permissions
+ * - "auto-edit" / "auto_edit" → --permission-mode auto-edit (or "auto-accept edits")
+ * - "full-auto" / "full_auto" → --permission-mode full-auto (or --yolo)
+ *
+ * The regex-based approach ensures we don't double-add flags already in the command.
+ */
+export function reconstructPermissionFlags(baseCmd: string, permissionMode?: string | null): string {
+  if (!permissionMode) return baseCmd;
+
+  const mode = permissionMode.toLowerCase().replace(/[_\s]+/g, '-');
+
+  // --dangerously-skip-permissions (bypass, skip, dangerously, yolo)
+  if (/bypass|dangerously|skip|yolo/.test(mode)) {
+    if (!baseCmd.includes('--dangerously-skip-permissions')) {
+      return `${baseCmd} --dangerously-skip-permissions`;
+    }
+    return baseCmd;
+  }
+
+  // --permission-mode <value> variants
+  // Already has a --permission-mode flag → don't add
+  if (/--permission-mode/.test(baseCmd)) return baseCmd;
+
+  if (/full-?auto/.test(mode)) {
+    return `${baseCmd} --permission-mode full-auto`;
+  }
+  if (/auto-?edit/.test(mode)) {
+    return `${baseCmd} --permission-mode auto-edit`;
+  }
+
+  // "default", "plan", or unknown → no flag needed
+  return baseCmd;
+}

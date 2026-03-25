@@ -16,6 +16,7 @@ import apiRouter, { hookRateLimitMiddleware } from './apiRouter.js';
 import { startMqReader, stopMqReader, getMqOffset } from './mqReader.js';
 import log from './logger.js';
 import { config } from './serverConfig.js';
+import { reconstructPermissionFlags } from './config.js';
 import { ensureHooksInstalled } from './hookInstaller.js';
 import { resolvePort, killPortProcess } from './portManager.js';
 import { networkInterfaces } from 'os';
@@ -295,12 +296,8 @@ export function startServer(port?: number): Promise<number> {
             let baseCmd = (originalCmd || 'claude')
               .replace(/^(\S*\/)claude/, 'claude')
               .replace(/\s+--(?:resume\s+'[^']*'|resume\s+\S+|continue)\b/g, '').trim();
-            // Reconstruct --dangerously-skip-permissions if permissionMode indicates it
-            if (session.permissionMode
-                && !baseCmd.includes('--dangerously-skip-permissions')
-                && /bypass|dangerously|skip/i.test(session.permissionMode)) {
-              baseCmd += ' --dangerously-skip-permissions';
-            }
+            // Reconstruct permission flags from permissionMode if not already in command
+            baseCmd = reconstructPermissionFlags(baseCmd, session.permissionMode);
             resumeCmd = isClaudeSessionId
               ? `${baseCmd} --resume '${safeId}' || ${baseCmd} --continue`
               : `${baseCmd} --continue`;

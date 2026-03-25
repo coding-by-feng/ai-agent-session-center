@@ -10,7 +10,7 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSessionPinned, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSessionPinned, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
 import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, attachToTmuxPane, consumePendingLink } from './sshManager.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
@@ -23,6 +23,7 @@ import { join, dirname, extname, basename, resolve, sep } from 'path';
 import { homedir, userInfo, networkInterfaces, hostname } from 'os';
 import { fileURLToPath } from 'url';
 import { ALL_CLAUDE_HOOK_EVENTS, DENSITY_EVENTS, SESSION_STATUS, WS_TYPES } from './constants.js';
+import { reconstructPermissionFlags } from './config.js';
 import log from './logger.js';
 import { searchFiles, invalidateCache, preloadIndex } from './fileIndexCache.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
@@ -96,6 +97,8 @@ const terminalCreateSchema = z.object({
   enableOpsTerminal: z.boolean().optional(),
   forceNew: z.boolean().optional(),
   startupCommand: z.string().max(1024).optional(),
+  /** Permission mode from snapshot — used to reconstruct CLI flags when startupCommand is absent */
+  permissionMode: z.string().max(100).optional(),
   /** Original session ID from workspace snapshot — used for exact-match dedup on restart */
   originalSessionId: z.string().max(200).optional(),
 });
@@ -366,13 +369,9 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
       .replace(/^(\S*\/)claude/, 'claude')
       .replace(/\s+--(?:resume\s+'[^']*'|resume\s+\S+|continue)\b/g, '').trim();
 
-    // If startupCommand wasn't captured but permissionMode is known,
-    // reconstruct the flag so resume preserves the original behavior.
-    if (session.permissionMode
-        && !baseCmd.includes('--dangerously-skip-permissions')
-        && /bypass|dangerously|skip/i.test(session.permissionMode)) {
-      baseCmd += ' --dangerously-skip-permissions';
-    }
+    // If permissionMode is known but the corresponding flag isn't already in the
+    // command, reconstruct it so resume preserves the original behavior.
+    baseCmd = reconstructPermissionFlags(baseCmd, session.permissionMode);
 
     resumeCmd = isClaudeSessionId
       ? `${baseCmd} --resume '${safeId}' || ${baseCmd} --continue`
@@ -822,6 +821,7 @@ router.post('/terminals', async (req: Request, res: Response) => {
     if (body.sessionTitle) config.sessionTitle = body.sessionTitle;
     if (body.label) config.label = body.label;
     if (body.startupCommand) config.startupCommand = body.startupCommand;
+    if (body.permissionMode) config.permissionMode = body.permissionMode;
 
     // Resolve API key from request body only (no DB lookup)
     if (body.apiKey) {
@@ -866,6 +866,14 @@ router.post('/terminals', async (req: Request, res: Response) => {
 
     // Create session card immediately so it appears in the dashboard
     await createTerminalSession(terminalId, config, opsTerminalId);
+
+    // Register alias so subsequent workspace import calls can dedup by originalSessionId.
+    // Without this, sessions sharing the same workDir/command but different titles
+    // (e.g. "Other Task" and "Email Tracker" both in ~/) would be incorrectly collapsed.
+    if (body.originalSessionId) {
+      registerSessionAlias(body.originalSessionId, terminalId);
+    }
+
     res.json({ ok: true, terminalId });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -1533,6 +1541,131 @@ router.get('/files/search', (req: Request, res: Response) => {
   }
 });
 
+/** GET /api/files/grep?root=<projectPath>&q=<query>&glob=<pattern> — search file contents */
+router.get('/files/grep', (req: Request, res: Response) => {
+  const root = str(req.query.root);
+  if (!root) { res.status(400).json({ error: 'root query param required' }); return; }
+  if (!isAllowedProjectRoot(root)) { res.status(400).json({ error: 'Invalid project root' }); return; }
+
+  const query = str(req.query.q).trim();
+  if (!query) { res.status(400).json({ error: 'q query param required' }); return; }
+  if (query.length > 500) { res.status(400).json({ error: 'Query too long' }); return; }
+
+  const globPattern = str(req.query.glob).trim() || undefined;
+  const MAX_RESULTS = 500;
+
+  // Try ripgrep first, fall back to grep
+  const tryRipgrep = () => {
+    const args = [
+      '--no-heading',
+      '--line-number',
+      '--color', 'never',
+      '--max-count', '5',           // max matches per file
+      '--max-filesize', '1M',
+      '-g', '!node_modules',
+      '-g', '!.git',
+      '-g', '!__pycache__',
+      '-g', '!dist',
+      '-g', '!build',
+      '-g', '!coverage',
+      '-g', '!.next',
+      '-g', '!*.min.js',
+      '-g', '!*.min.css',
+      '-g', '!package-lock.json',
+      '-g', '!yarn.lock',
+      '-g', '!pnpm-lock.yaml',
+    ];
+    if (globPattern) {
+      args.push('-g', globPattern);
+    }
+    args.push('--', query, '.');
+
+    return new Promise<{ matches: Array<{ file: string; line: number; text: string }>; truncated: boolean }>((resolve, reject) => {
+      execFile('rg', args, { cwd: root, maxBuffer: 2 * 1024 * 1024, timeout: 10000 }, (err, stdout) => {
+        if (err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+          reject(new Error('rg_not_found'));
+          return;
+        }
+        // rg exits 1 when no matches — that's OK
+        const output = stdout || '';
+        const lines = output.split('\n').filter(Boolean);
+        const matches: Array<{ file: string; line: number; text: string }> = [];
+        const truncated = lines.length >= MAX_RESULTS;
+        for (const line of lines.slice(0, MAX_RESULTS)) {
+          const m = line.match(/^(.+?):(\d+):(.*)$/);
+          if (m) {
+            let filePath = m[1];
+            if (filePath.startsWith('./')) filePath = filePath.slice(2);
+            matches.push({
+              file: '/' + filePath,
+              line: parseInt(m[2], 10),
+              text: m[3].slice(0, 300),
+            });
+          }
+        }
+        resolve({ matches, truncated });
+      });
+    });
+  };
+
+  const tryGrep = () => {
+    const args = [
+      '-rn',
+      '--include=*.ts', '--include=*.tsx', '--include=*.js', '--include=*.jsx',
+      '--include=*.py', '--include=*.go', '--include=*.rs', '--include=*.java',
+      '--include=*.json', '--include=*.yaml', '--include=*.yml', '--include=*.md',
+      '--include=*.css', '--include=*.scss', '--include=*.html', '--include=*.sql',
+      '--include=*.sh', '--include=*.toml', '--include=*.xml', '--include=*.rb',
+      '--include=*.c', '--include=*.cpp', '--include=*.h',
+      '--exclude-dir=node_modules', '--exclude-dir=.git', '--exclude-dir=dist',
+      '--exclude-dir=build', '--exclude-dir=coverage', '--exclude-dir=__pycache__',
+      '--', query, '.',
+    ];
+
+    return new Promise<{ matches: Array<{ file: string; line: number; text: string }>; truncated: boolean }>((resolve, reject) => {
+      execFile('grep', args, { cwd: root, maxBuffer: 2 * 1024 * 1024, timeout: 10000 }, (err, stdout) => {
+        if (err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+          reject(new Error('grep_not_found'));
+          return;
+        }
+        const output = stdout || '';
+        const lines = output.split('\n').filter(Boolean);
+        const matches: Array<{ file: string; line: number; text: string }> = [];
+        const truncated = lines.length >= MAX_RESULTS;
+        for (const line of lines.slice(0, MAX_RESULTS)) {
+          const m = line.match(/^(.+?):(\d+):(.*)$/);
+          if (m) {
+            let filePath = m[1];
+            if (filePath.startsWith('./')) filePath = filePath.slice(2);
+            matches.push({
+              file: '/' + filePath,
+              line: parseInt(m[2], 10),
+              text: m[3].slice(0, 300),
+            });
+          }
+        }
+        resolve({ matches, truncated });
+      });
+    });
+  };
+
+  tryRipgrep()
+    .catch((err) => {
+      if (err instanceof Error && err.message === 'rg_not_found') {
+        return tryGrep();
+      }
+      throw err;
+    })
+    .then((result) => {
+      res.json(result);
+    })
+    .catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error('api', `File grep failed: ${msg}`);
+      res.status(500).json({ error: 'Grep search failed' });
+    });
+});
+
 /** POST /api/files/search/invalidate — clear file search cache for a project */
 router.post('/files/search/invalidate', (req: Request, res: Response) => {
   const root = str(req.body?.root);
@@ -1608,10 +1741,10 @@ router.post('/workspace/save', (req: Request, res: Response) => {
       res.status(400).json({ error: 'Invalid workspace snapshot' });
       return;
     }
-    // Deduplicate sessions by title + SSH config before saving
+    // Deduplicate sessions by title + SSH config + startupCommand before saving
     const seen = new Set<string>();
     const deduped: unknown[] = [];
-    for (const s of snapshot.sessions as { title?: string; sshConfig?: { host?: string; port?: number; username?: string; workingDir?: string; command?: string } }[]) {
+    for (const s of snapshot.sessions as { title?: string; startupCommand?: string; sshConfig?: { host?: string; port?: number; username?: string; workingDir?: string; command?: string } }[]) {
       const key = [
         s.title ?? '',
         s.sshConfig?.host ?? '',
@@ -1619,6 +1752,7 @@ router.post('/workspace/save', (req: Request, res: Response) => {
         s.sshConfig?.username ?? '',
         s.sshConfig?.workingDir ?? '',
         s.sshConfig?.command ?? '',
+        s.startupCommand ?? '',
       ].join('\0');
       if (seen.has(key)) continue;
       seen.add(key);
