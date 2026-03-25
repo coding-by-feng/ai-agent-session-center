@@ -1,6 +1,6 @@
 /**
  * ProjectTab — interactive file browser for a session's project directory.
- * Features: icon toolbar, file tabs, fuzzy search, new file/folder, draggable split.
+ * Features: tree navigation, file tabs, fuzzy search, content search, new file/folder.
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -8,6 +8,9 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import * as XLSX from 'xlsx';
 import 'highlight.js/styles/github-dark-dimmed.css';
+import FileTree from './FileTree';
+import ContentSearchModal from './ContentSearchModal';
+import { getFileSystemProvider } from '@/lib/fileSystemProvider';
 import styles from '@/styles/modules/ProjectTab.module.css';
 
 interface ProjectTabProps {
@@ -137,6 +140,16 @@ function IconSearch() {
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
       <circle cx="7" cy="7" r="5" />
       <line x1="11" y1="11" x2="14.5" y2="14.5" />
+    </svg>
+  );
+}
+function IconContentSearch() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <circle cx="6" cy="6" r="4" />
+      <line x1="9" y1="9" x2="13" y2="13" />
+      <line x1="3" y1="5" x2="9" y2="5" />
+      <line x1="3" y1="7" x2="8" y2="7" />
     </svg>
   );
 }
@@ -504,17 +517,15 @@ function SearchOverlay({
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const abortRef = useRef<AbortController | undefined>(undefined);
 
+  const searchProvider = useMemo(() => getFileSystemProvider(), []);
+
   useEffect(() => {
     inputRef.current?.focus();
-    // Invalidate stale cache then preload fresh index so newly-added files are always found
-    fetch('/api/files/search/invalidate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ root: projectPath }),
-    })
-      .then(() => fetch(`/api/files/search?root=${encodeURIComponent(projectPath)}&q=__preload__`))
+    // Invalidate stale cache then preload fresh index
+    searchProvider.invalidateSearchCache(projectPath)
+      .then(() => searchProvider.searchFiles(projectPath, '__preload__'))
       .catch(() => {});
-  }, [projectPath]);
+  }, [projectPath, searchProvider]);
 
   useEffect(() => {
     if (!query.trim()) { setResults([]); setLoading(false); return; }
@@ -525,38 +536,31 @@ function SearchOverlay({
 
     setLoading(true);
 
+    let cancelled = false;
     const doSearch = async (retryCount = 0) => {
-      const controller = new AbortController();
-      abortRef.current = controller;
       try {
-        const res = await fetch(
-          `/api/files/search?root=${encodeURIComponent(projectPath)}&q=${encodeURIComponent(query.trim())}`,
-          { signal: controller.signal }
-        );
-        if (res.ok && !controller.signal.aborted) {
-          const data = await res.json();
-          setResults(data.results || []);
-          setSelectedIdx(0);
-          setIndexing(!!data.indexing);
-          // If index is still building, retry after a short delay (up to 5 retries)
-          if (data.indexing && retryCount < 5) {
-            debounceRef.current = setTimeout(() => doSearch(retryCount + 1), 300);
-            return;
-          }
+        const data = await searchProvider.searchFiles(projectPath, query.trim());
+        if (cancelled) return;
+        setResults(data.results || []);
+        setSelectedIdx(0);
+        setIndexing(!!data.indexing);
+        if (data.indexing && retryCount < 5) {
+          debounceRef.current = setTimeout(() => doSearch(retryCount + 1), 300);
+          return;
         }
-      } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') return;
+      } catch {
+        // ignore
       }
-      if (!controller.signal.aborted) setLoading(false);
+      if (!cancelled) setLoading(false);
     };
 
     debounceRef.current = setTimeout(() => doSearch(), 80);
 
     return () => {
       clearTimeout(debounceRef.current);
-      abortRef.current?.abort();
+      cancelled = true;
     };
-  }, [query, projectPath]);
+  }, [query, projectPath, searchProvider]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') { onClose(); return; }
@@ -654,8 +658,12 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
 
   // Overlays / inline modes
   const [showSearch, setShowSearch] = useState(false);
+  const [showContentSearch, setShowContentSearch] = useState(false);
   const [creatingFile, setCreatingFile] = useState(false);
   const [creatingFolder, setCreatingFolder] = useState(false);
+
+  // File system provider (API or local)
+  const provider = useMemo(() => getFileSystemProvider(), []);
 
   // New file editor
   const [editingNewFile, setEditingNewFile] = useState<string | null>(null);
@@ -743,12 +751,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     setActiveTabPath(null);
     setEditingNewFile(null);
     try {
-      const res = await fetch(`/api/files/list?root=${encodeURIComponent(projectPath)}&path=${encodeURIComponent(relPath)}${showHidden ? '&showHidden=true' : ''}`);
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(data.error || res.statusText);
-      }
-      const data = await res.json();
+      const data = await provider.listDir(projectPath, relPath, showHidden);
       setEntries(data.items);
       setCurrentPath(relPath);
       onPathChange?.(relPath, false);
@@ -759,7 +762,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     } finally {
       setLoading(false);
     }
-  }, [projectPath, onPathChange, showHidden]);
+  }, [projectPath, onPathChange, showHidden, provider]);
 
   const loadFile = useCallback(async (relPath: string) => {
     // Revoke previous blob URL to prevent memory leaks (only actual blob:// URLs)
@@ -768,16 +771,11 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     setError(null);
     setEditingNewFile(null);
     try {
-      const res = await fetch(`/api/files/read?root=${encodeURIComponent(projectPath)}&path=${encodeURIComponent(relPath)}`);
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(data.error || res.statusText);
-      }
-      const data: FileContent = await res.json();
+      const data: FileContent = await provider.readFile(projectPath, relPath);
       // For streamable files, fetch the raw bytes as a blob (or use direct URL for media)
-      if (data.streamable) {
+      if (data.streamable && !data.blobUrl) {
         const ext = (data.ext ?? '').toLowerCase();
-        const streamUrl = `/api/files/stream?root=${encodeURIComponent(projectPath)}&path=${encodeURIComponent(relPath)}`;
+        const streamUrl = provider.streamUrl(projectPath, relPath);
         if (ext === 'xlsx' || ext === 'xls') {
           // Parse Excel in-browser
           const streamRes = await fetch(streamUrl);
@@ -790,11 +788,8 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
             }));
           }
         } else if (isVideoExt(ext) || isAudioExt(ext)) {
-          // Video/audio: use direct stream URL so playback starts immediately (no full download)
-          // The server supports HTTP Range requests for seeking
           data.blobUrl = streamUrl;
-        } else {
-          // Images, PDF: download as blob for object URL
+        } else if (streamUrl) {
           const streamRes = await fetch(streamUrl);
           if (streamRes.ok) {
             const blob = await streamRes.blob();
@@ -819,7 +814,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     } finally {
       setLoading(false);
     }
-  }, [projectPath, onPathChange]);
+  }, [projectPath, onPathChange, provider]);
 
   // Load initial path on mount — restore file or directory
   useEffect(() => {
@@ -950,23 +945,13 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const handleSaveNewFile = useCallback(async () => {
     if (!editingNewFile) return;
     try {
-      const res = await fetch('/api/files/write', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ root: projectPath, path: editingNewFile, content: newFileContent }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: 'Write failed' }));
-        setError(data.error || 'Write failed');
-        return;
-      }
+      await provider.writeFile(projectPath, editingNewFile, newFileContent);
       setEditingNewFile(null);
-      // Open the file in a tab
       loadFile(editingNewFile);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [editingNewFile, newFileContent, projectPath, loadFile]);
+  }, [editingNewFile, newFileContent, projectPath, loadFile, provider]);
 
   const handleCancelNewFile = useCallback(() => {
     setEditingNewFile(null);
@@ -978,21 +963,13 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     setCreatingFolder(false);
     const newPath = currentPath === '/' ? '/' + name : currentPath + '/' + name;
     try {
-      const res = await fetch('/api/files/mkdir', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ root: projectPath, path: newPath }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: 'Mkdir failed' }));
-        setError(data.error || 'Mkdir failed');
-        return;
-      }
+      await provider.mkdir(projectPath, newPath);
       loadDir(currentPath); // refresh
+      document.dispatchEvent(new CustomEvent('filetree:refresh'));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [currentPath, projectPath, loadDir]);
+  }, [currentPath, projectPath, loadDir, provider]);
 
   // Delete file or folder
   const [confirmDeleteName, setConfirmDeleteName] = useState<string | null>(null);
@@ -1039,24 +1016,16 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     const relPath = currentPath === '/' ? '/' + entryName : currentPath + '/' + entryName;
     setDeleting(true);
     try {
-      const res = await fetch('/api/files/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ root: projectPath, path: relPath }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: 'Delete failed' }));
-        setError(data.error || 'Delete failed');
-        return;
-      }
+      await provider.deleteEntry(projectPath, relPath);
       setConfirmDeleteName(null);
       loadDir(currentPath);
+      document.dispatchEvent(new CustomEvent('filetree:refresh'));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setDeleting(false);
     }
-  }, [currentPath, projectPath, loadDir]);
+  }, [currentPath, projectPath, loadDir, provider]);
 
   // Reload directory when showHidden toggles (skip initial mount — initial load effect handles that)
   useEffect(() => {
@@ -1118,11 +1087,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   // Used by the auto-refresh polling interval.
   const silentRefreshDir = useCallback(async () => {
     try {
-      const res = await fetch(
-        `/api/files/list?root=${encodeURIComponent(projectPath)}&path=${encodeURIComponent(currentPath)}${showHidden ? '&showHidden=true' : ''}`,
-      );
-      if (!res.ok) return;
-      const data = await res.json();
+      const data = await provider.listDir(projectPath, currentPath, showHidden);
       setEntries(data.items);
     } catch {
       // Silently ignore — next poll will retry
@@ -1174,13 +1139,8 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   }, [projectPath, currentPath, file, onOpenBrowserTab]);
 
   const handleRevealInFinder = useCallback(() => {
-    const revealPath = file ? currentPath : currentPath;
-    fetch('/api/files/reveal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ root: projectPath, path: revealPath }),
-    }).catch(() => { /* ignore */ });
-  }, [projectPath, currentPath, file]);
+    provider.reveal(projectPath, currentPath).catch(() => {});
+  }, [projectPath, currentPath, provider]);
 
   // Bookmark: add from selection or toggle panel
   const handleBookmarkBtnClick = useCallback(() => {
@@ -1274,6 +1234,16 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     }
   }, [file]);
 
+  // Listen for content search event (Cmd/Ctrl+F from keyboard shortcut handler)
+  useEffect(() => {
+    function handleContentSearch() {
+      if (rootRef.current?.offsetParent === null) return;
+      setShowContentSearch(true);
+    }
+    document.addEventListener('projectTab:contentSearch', handleContentSearch);
+    return () => document.removeEventListener('projectTab:contentSearch', handleContentSearch);
+  }, []);
+
   // File browser keyboard shortcuts — triggered by the global shortcut system
   useEffect(() => {
     function handleFileBrowserAction(e: Event) {
@@ -1282,6 +1252,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
       const { actionId } = (e as CustomEvent<{ actionId: string }>).detail;
       switch (actionId) {
         case 'fileBrowserSearch':         setShowSearch(true); break;
+        case 'fileBrowserContentSearch':  setShowContentSearch(true); break;
         case 'fileBrowserNewFile':        setCreatingFile(true); break;
         case 'fileBrowserNewFolder':      setCreatingFolder(true); break;
         case 'fileBrowserRefresh':        handleRefresh(); break;
@@ -1359,8 +1330,11 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     <div ref={rootRef} className={styles.projectTab}>
       {/* Icon toolbar */}
       <div className={styles.iconBar}>
-        <button className={styles.iconBtn} onClick={() => setShowSearch(true)} title="Search files (fuzzy)">
+        <button className={styles.iconBtn} onClick={() => setShowSearch(true)} title="Search files by name (fuzzy)">
           <IconSearch />
+        </button>
+        <button className={styles.iconBtn} onClick={() => setShowContentSearch(true)} title="Search in file contents (Cmd+F)">
+          <IconContentSearch />
         </button>
         <button className={styles.iconBtn} onClick={() => setCreatingFile(true)} title="New file">
           <IconNewFile />
@@ -1546,69 +1520,19 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
           </div>
         )}
 
-        {/* Directory listing */}
-        {!loading && !error && !file && !showingEditor && entries.length === 0 && (
-          <div className={styles.empty}>EMPTY DIRECTORY</div>
-        )}
-
-        {!loading && !error && !file && !showingEditor && entries.length > 0 && (
-          <div className={styles.fileList}>
-            {sortedEntries.map((entry) => (
-              <div key={entry.name} className={styles.fileRow}>
-                <button
-                  className={styles.fileEntry}
-                  onClick={() => handleEntryClick(entry)}
-                  onContextMenu={(e) => handleContextMenu(e, entry)}
-                >
-                  <span className={styles.fileIcon}>{fileIcon(entry.name, entry.type)}</span>
-                  <span className={styles.fileName}>{entry.name}</span>
-                  {showDateTime && entry.mtime && (
-                    <span className={styles.fileDate}>{formatDateTime(entry.mtime)}</span>
-                  )}
-                  {entry.type === 'file' && entry.size != null && (
-                    <span className={styles.fileSize}>{formatSize(entry.size)}</span>
-                  )}
-                  {entry.type === 'dir' && <span className={styles.fileChevron}>&#8250;</span>}
-                </button>
-                <button
-                  className={styles.fileDeleteBtn}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setConfirmDeleteName(confirmDeleteName === entry.name ? null : entry.name);
-                  }}
-                  title={`Delete ${entry.name}`}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="3 6 5 6 21 6" />
-                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                    <path d="M10 11v6" />
-                    <path d="M14 11v6" />
-                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-                  </svg>
-                </button>
-                {confirmDeleteName === entry.name && (
-                  <div className={styles.deleteConfirm}>
-                    <span className={styles.deleteConfirmText}>
-                      Delete {entry.type === 'dir' ? 'folder' : 'file'} &ldquo;{entry.name}&rdquo;?
-                    </span>
-                    <button
-                      className={styles.deleteConfirmYes}
-                      onClick={() => handleDelete(entry.name)}
-                      disabled={deleting}
-                    >
-                      {deleting ? 'DELETING...' : 'DELETE'}
-                    </button>
-                    <button
-                      className={styles.deleteConfirmNo}
-                      onClick={() => setConfirmDeleteName(null)}
-                    >
-                      CANCEL
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+        {/* File tree (replaces flat directory listing) */}
+        {!loading && !error && !file && !showingEditor && (
+          <FileTree
+            projectPath={projectPath}
+            showHidden={showHidden}
+            onFileSelect={(relPath) => loadFile(relPath)}
+            onDirSelect={(relPath) => {
+              setCurrentPath(relPath);
+              onPathChange?.(relPath, false);
+            }}
+            height={splitContainerRef.current?.clientHeight ?? 400}
+            activeFilePath={activeTabPath}
+          />
         )}
 
         {/* File viewer */}
@@ -1876,12 +1800,26 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         </>
       )}
 
-      {/* Search overlay */}
+      {/* Search overlay (fuzzy file name search) */}
       {showSearch && (
         <SearchOverlay
           projectPath={projectPath}
           onSelect={handleSearchSelect}
           onClose={() => setShowSearch(false)}
+        />
+      )}
+
+      {/* Content search modal (grep across project files) */}
+      {showContentSearch && (
+        <ContentSearchModal
+          projectPath={projectPath}
+          onFileOpen={(filePath, line) => {
+            loadFile(filePath);
+            if (line) {
+              pendingScrollLine.current = line;
+            }
+          }}
+          onClose={() => setShowContentSearch(false)}
         />
       )}
     </div>

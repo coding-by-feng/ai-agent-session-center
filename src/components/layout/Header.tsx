@@ -206,19 +206,10 @@ function ExitButton() {
   if (!window.electronAPI) return null;
   return (
     <button
-      className={styles.headerIconBtn}
+      className={`${styles.headerIconBtn} ${styles.exitBtn}`}
       onClick={() => window.electronAPI?.quitApp()}
-      title="Save &amp; Quit"
-      aria-label="Save and quit"
-      style={{ color: 'var(--text-dim)' }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.color = '#ff4444';
-        e.currentTarget.style.borderColor = 'rgba(255,68,68,0.4)';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.color = 'var(--text-dim)';
-        e.currentTarget.style.borderColor = '';
-      }}
+      title="Quit"
+      aria-label="Quit application"
     >
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M8 2v5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>

@@ -144,6 +144,12 @@
   height: 16px;
 }
 
+.exitBtn:hover {
+  color: #ff4444 !important;
+  border-color: rgba(255, 68, 68, 0.4) !important;
+  background: rgba(255, 68, 68, 0.08) !important;
+}
+
 /* ---- Agent Strip ---- */
 
 .agentStrip {

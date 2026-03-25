@@ -51,10 +51,12 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
-      // Cmd+F (macOS) / Ctrl+F — open detail panel search when a session is selected
+      // Cmd+F (macOS) / Ctrl+F — open content search (project tab) or detail panel search
       if (!e.shiftKey && (e.metaKey || e.ctrlKey) && e.key === 'f') {
         if (selectedId) {
           e.preventDefault();
+          // Dispatch to both — ProjectTab responds only when its tab is visible
+          document.dispatchEvent(new CustomEvent('projectTab:contentSearch'));
           document.dispatchEvent(new CustomEvent('detail-panel:find'));
           return;
         }
@@ -70,6 +72,20 @@ export function useKeyboardShortcuts(): void {
         } else if (selectedId) {
           useSessionStore.getState().deselectSession();
         }
+        return;
+      }
+
+      // `[` — go back to previous session (only when detail panel is open and not typing)
+      if (e.key === '[' && !e.metaKey && !e.ctrlKey && !e.altKey && selectedId && !isTyping(e)) {
+        e.preventDefault();
+        switchToPreviousSession();
+        return;
+      }
+
+      // `]` — jump to the latest session that just finished (waiting/idle with recent activity)
+      if (e.key === ']' && !e.metaKey && !e.ctrlKey && !e.altKey && !isTyping(e)) {
+        e.preventDefault();
+        switchToLatestFinishedSession();
         return;
       }
 
@@ -151,6 +167,20 @@ function switchToPreviousSession(): void {
   useSessionStore.getState().selectSession(previousSessionId);
   const name = prev.title || prev.projectName || 'previous session';
   showToast(`Switched to ${name}`, 'info', 1500);
+}
+
+function switchToLatestFinishedSession(): void {
+  const { sessions, selectedSessionId } = useSessionStore.getState();
+  // Find sessions that just finished a task: "waiting" (Stop received) or recently became "idle"
+  // Sorted by lastActivityAt descending — pick the most recent one that isn't already selected
+  const candidates = [...sessions.values()]
+    .filter((s) => (s.status === 'waiting' || s.status === 'idle') && s.sessionId !== selectedSessionId)
+    .sort((a, b) => (b.lastActivityAt || 0) - (a.lastActivityAt || 0));
+  if (candidates.length === 0) return;
+  const target = candidates[0];
+  useSessionStore.getState().selectSession(target.sessionId);
+  const name = target.title || target.projectName || 'finished session';
+  showToast(`Jumped to ${name}`, 'info', 1500);
 }
 
 function switchToSessionByIndex(index: number): void {

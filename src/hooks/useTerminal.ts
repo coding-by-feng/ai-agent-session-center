@@ -152,6 +152,15 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   const outputRafRef = useRef<number | null>(null);
   /** Force scroll-to-bottom on next output batch (set when user sends Enter) */
   const forceScrollRef = useRef(false);
+  /**
+   * Persistent auto-scroll flag — true when the terminal should follow new output.
+   * Unlike isAtBottom() which can return stale results during async write processing,
+   * this flag is only set to false when the user explicitly scrolls up, and set to
+   * true when scrollToBottom() is called or the user scrolls to the bottom.
+   * This prevents the race condition where RAF N+1 reads isAtBottom()=false because
+   * RAF N's scrollToBottom callback hasn't fired yet, causing viewport to jump.
+   */
+  const autoScrollActiveRef = useRef(true);
   /** IntersectionObserver fallback for hidden containers (always-mounted tabs like COMMANDS) */
   const pendingSetupObserverRef = useRef<IntersectionObserver | null>(null);
 
@@ -257,6 +266,8 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
       // Clear stale pending output for this terminal
       pendingOutputRef.current.delete(terminalId);
       pendingOutputTtlRef.current.delete(terminalId);
+      // Reset auto-scroll to true for fresh terminal attachment
+      autoScrollActiveRef.current = true;
 
       // Subscribe for output (#74: track subscription to prevent duplicates)
       if (wsRef.current && wsRef.current.readyState === 1) {
@@ -377,10 +388,13 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
 
         term.open(container);
 
-        // If the user manually scrolls up while the force-scroll flag is set,
-        // cancel the flag so incoming output doesn't yank the viewport back to bottom.
+        // Track user scroll intent: if user scrolls away from bottom, disable
+        // auto-scroll. If user scrolls back to bottom, re-enable it.
+        // Also cancel forceScrollRef when user scrolls up.
         term.onScroll(() => {
-          if (!isAtBottom(term)) {
+          const atBottom = isAtBottom(term);
+          autoScrollActiveRef.current = atBottom;
+          if (!atBottom) {
             forceScrollRef.current = false;
           }
         });
@@ -549,8 +563,11 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
 
           const { term } = activeRef.current;
           // #88: Only auto-scroll if user hasn't scrolled up to review history.
-          // Also force-scroll when user just sent Enter (voice input can displace viewport).
-          const shouldScroll = isAtBottom(term) || forceScrollRef.current;
+          // Use the persistent autoScrollActiveRef flag instead of isAtBottom() to
+          // avoid a race condition: when RAF N's scrollToBottom callback hasn't fired
+          // yet, RAF N+1's isAtBottom() returns false, causing the viewport to jump
+          // to a stale position. The persistent flag survives across RAF batches.
+          const shouldScroll = autoScrollActiveRef.current || forceScrollRef.current;
           forceScrollRef.current = false;
           // Use write callbacks so scrollToBottom fires after xterm processes writes
           // and updates baseY. Without this, scrollToBottom() called synchronously
@@ -792,6 +809,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
 
   const scrollToBottom = useCallback(() => {
     if (activeRef.current) {
+      autoScrollActiveRef.current = true;
       activeRef.current.term.scrollToBottom();
     }
   }, []);
@@ -808,6 +826,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     if (!activeRef.current) return;
     const { term, terminalId } = activeRef.current;
     term.clear();
+    autoScrollActiveRef.current = true; // Follow replayed output
     const ws = wsRef.current;
     if (ws && ws.readyState === 1) {
       ws.send(JSON.stringify({ type: 'terminal_subscribe', terminalId }));
