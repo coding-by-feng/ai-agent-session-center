@@ -88,6 +88,8 @@ export default function ProjectTabContainer({ projectPath, sessionId }: ProjectT
 
   const handleCloseSubTab = useCallback((tabId: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    // Clean up persisted file tabs for this sub-tab
+    try { localStorage.removeItem(`agent-manager:file-tabs:${tabId}`); } catch { /* ignore */ }
     setSubTabs((prev) => {
       const next = prev.filter((t) => t.id !== tabId);
       if (next.length === 0) {
@@ -227,6 +229,7 @@ export default function ProjectTabContainer({ projectPath, sessionId }: ProjectT
               initialPath={tab.initialPath}
               initialIsFile={tab.initialIsFile}
               navigateToFile={activeSubTab === tab.id ? navigateToFile : null}
+              persistId={tab.id}
               onOpenBrowserTab={handleOpenBrowserTab}
               onPathChange={(path, isFile) => handlePathChange(tab.id, path, isFile)}
             />

@@ -20,6 +20,8 @@ interface ProjectTabProps {
   initialIsFile?: boolean;
   /** When set, programmatically navigates to this file path */
   navigateToFile?: string | null;
+  /** Unique ID used to persist file tabs across remounts (e.g. sub-tab id) */
+  persistId?: string;
   onOpenBrowserTab?: (projectPath: string, currentDir: string) => void;
   onPathChange?: (currentPath: string, isFile: boolean) => void;
 }
@@ -645,16 +647,45 @@ function InlineInput({
 
 // ---- Main Component ----
 
-export default function ProjectTab({ projectPath, initialPath, initialIsFile, navigateToFile, onOpenBrowserTab, onPathChange }: ProjectTabProps) {
+export default function ProjectTab({ projectPath, initialPath, initialIsFile, navigateToFile, persistId, onOpenBrowserTab, onPathChange }: ProjectTabProps) {
   const [currentPath, setCurrentPath] = useState(initialPath || '/');
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [file, setFile] = useState<FileContent | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // File tabs
-  const [tabs, setTabs] = useState<FileTab[]>([]);
-  const [activeTabPath, setActiveTabPath] = useState<string | null>(null);
+  // File tabs — persisted to localStorage when persistId is provided
+  const fileTabsKey = persistId ? `agent-manager:file-tabs:${persistId}` : null;
+  const [tabs, setTabs] = useState<FileTab[]>(() => {
+    if (!fileTabsKey) return [];
+    try {
+      const raw = localStorage.getItem(fileTabsKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed.tabs)) return parsed.tabs;
+      }
+    } catch { /* ignore */ }
+    return [];
+  });
+  const [activeTabPath, setActiveTabPath] = useState<string | null>(() => {
+    if (!fileTabsKey) return null;
+    try {
+      const raw = localStorage.getItem(fileTabsKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed.active === 'string') return parsed.active;
+      }
+    } catch { /* ignore */ }
+    return null;
+  });
+
+  // Persist file tabs to localStorage
+  useEffect(() => {
+    if (!fileTabsKey) return;
+    try {
+      localStorage.setItem(fileTabsKey, JSON.stringify({ tabs, active: activeTabPath }));
+    } catch { /* ignore */ }
+  }, [tabs, activeTabPath, fileTabsKey]);
 
   // Overlays / inline modes
   const [showSearch, setShowSearch] = useState(false);
