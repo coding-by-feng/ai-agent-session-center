@@ -377,6 +377,9 @@ export default function DetailPanel() {
     setSearchOpen(false);
     setSearchQuery('');
     setSearchMatchIndex(0);
+    document.querySelectorAll('.search-highlight-active').forEach((el) =>
+      el.classList.remove('search-highlight-active'),
+    );
   }, []);
 
   // Listen for the custom event dispatched by the keyboard shortcut handler
@@ -392,40 +395,28 @@ export default function DetailPanel() {
   // Close search when session changes
   useEffect(() => { closeSearch(); }, [selectedSessionId, closeSearch]);
 
-  // Compute match count across prompts + activity (all three log types)
-  const searchMatchCount = useMemo(() => {
-    if (!displaySession || !searchQuery) return 0;
+  // Compute match count per tab (conversation vs activity)
+  const { searchMatchCount, conversationMatchCount } = useMemo(() => {
+    if (!displaySession || !searchQuery) return { searchMatchCount: 0, conversationMatchCount: 0 };
     const q = searchQuery.toLowerCase();
-    let count = 0;
+    let convCount = 0;
+    let actCount = 0;
     for (const p of displaySession.promptHistory ?? []) {
-      if (p.text.toLowerCase().includes(q)) count++;
+      if (p.text.toLowerCase().includes(q)) convCount++;
     }
     for (const t of displaySession.toolLog ?? []) {
-      if (`${t.tool} ${t.input}`.toLowerCase().includes(q)) count++;
+      if (`${t.tool} ${t.input}`.toLowerCase().includes(q)) actCount++;
     }
     for (const r of displaySession.responseLog ?? []) {
-      if ((r.text ?? '').toLowerCase().includes(q)) count++;
+      if ((r.text ?? '').toLowerCase().includes(q)) actCount++;
     }
     for (const ev of displaySession.events ?? []) {
-      if (`${ev.type} ${ev.detail ?? ''}`.toLowerCase().includes(q)) count++;
+      if (`${ev.type} ${ev.detail ?? ''}`.toLowerCase().includes(q)) actCount++;
     }
-    return count;
+    return { searchMatchCount: convCount + actCount, conversationMatchCount: convCount };
   }, [displaySession, searchQuery]);
 
-  // Navigate to prev/next highlighted match via DOM
-  const navigateMatch = useCallback((direction: 'prev' | 'next') => {
-    const highlights = Array.from(
-      document.querySelectorAll<HTMLElement>('.search-highlight'),
-    );
-    if (highlights.length === 0) return;
-    setSearchMatchIndex((prev) => {
-      const next = direction === 'next'
-        ? (prev + 1) % highlights.length
-        : (prev - 1 + highlights.length) % highlights.length;
-      highlights[next]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      return next;
-    });
-  }, []);
+  // navigateMatch is defined below, after activeTab/setExternalTab are declared
 
   // #10: Close on Escape — close search first, restore if minimized, then deselect
   useEffect(() => {
@@ -485,6 +476,56 @@ export default function DetailPanel() {
       return () => clearTimeout(id);
     }
   }, [pendingFileOpen]);
+
+  // Track active tab accurately (ref avoids stale closure in navigateMatch)
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+
+  // Navigate to prev/next highlighted match — auto-switches tabs when needed
+  const navigateMatch = useCallback((direction: 'prev' | 'next') => {
+    if (searchMatchCount === 0) return;
+
+    setSearchMatchIndex((prev) => {
+      const next = direction === 'next'
+        ? (prev + 1) % searchMatchCount
+        : (prev - 1 + searchMatchCount) % searchMatchCount;
+
+      // Determine which tab the match belongs to
+      // Order: conversation matches first (0..convCount-1), then activity (convCount..total-1)
+      const targetTab = next < conversationMatchCount ? 'conversation' : 'activity';
+      const indexInTab = next < conversationMatchCount ? next : next - conversationMatchCount;
+
+      const scrollToHighlight = () => {
+        requestAnimationFrame(() => {
+          const highlights = Array.from(
+            document.querySelectorAll<HTMLElement>('.search-highlight'),
+          );
+          // Clear previous active highlight
+          document.querySelectorAll('.search-highlight-active').forEach((el) =>
+            el.classList.remove('search-highlight-active'),
+          );
+          const el = highlights[indexInTab];
+          el?.classList.add('search-highlight-active');
+          el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        });
+      };
+
+      const needSwitch = activeTabRef.current !== targetTab;
+      if (needSwitch) {
+        setActiveTab(targetTab);
+        activeTabRef.current = targetTab;
+        setExternalTab(targetTab);
+        setTimeout(() => {
+          setExternalTab(null);
+          scrollToHighlight();
+        }, 80);
+      } else {
+        scrollToHighlight();
+      }
+
+      return next;
+    });
+  }, [searchMatchCount, conversationMatchCount]);
 
   if (!displaySession) return null;
 
@@ -622,7 +663,6 @@ export default function DetailPanel() {
           }
           outputContent={
             <OutputCapture
-              key={displaySession.terminalId ?? displaySession.sessionId}
               terminalId={displaySession.terminalId}
             />
           }

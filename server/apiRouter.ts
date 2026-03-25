@@ -96,6 +96,8 @@ const terminalCreateSchema = z.object({
   enableOpsTerminal: z.boolean().optional(),
   forceNew: z.boolean().optional(),
   startupCommand: z.string().max(1024).optional(),
+  /** Original session ID from workspace snapshot — used for exact-match dedup on restart */
+  originalSessionId: z.string().max(200).optional(),
 });
 
 const tmuxSessionsSchema = z.object({
@@ -829,6 +831,17 @@ router.post('/terminals', async (req: Request, res: Response) => {
     // Deduplicate: if an active session with matching config already exists, return it
     // Skip deduplication when forceNew is explicitly requested (e.g. Quick session modal)
     if (!body.forceNew) {
+      // Priority 1: exact match by originalSessionId (workspace snapshot restart)
+      // This correctly distinguishes multiple sessions sharing the same project path.
+      if (body.originalSessionId) {
+        const byId = getSession(body.originalSessionId);
+        if (byId && byId.status !== SESSION_STATUS.ENDED && !byId.archived) {
+          log.info('api', `Deduplicated by originalSessionId — reusing session ${byId.sessionId} for ${resolvedHost}:${config.workingDir}`);
+          res.json({ ok: true, terminalId: byId.sessionId, deduplicated: true, hasTerminal: !!byId.terminalId });
+          return;
+        }
+      }
+      // Priority 2: match by config (host + path + command)
       const existing = findActiveSessionByConfig(config);
       if (existing) {
         log.info('api', `Deduplicated terminal creation — reusing session ${existing.sessionId} for ${resolvedHost}:${config.workingDir}`);
@@ -1524,6 +1537,40 @@ router.get('/files/search', (req: Request, res: Response) => {
 router.post('/files/search/invalidate', (req: Request, res: Response) => {
   const root = str(req.body?.root);
   if (root) invalidateCache(root);
+  res.json({ ok: true });
+});
+
+/** POST /api/files/reveal — open path in native file explorer (Finder / Explorer) */
+router.post('/files/reveal', (req: Request, res: Response) => {
+  const root = str(req.body?.root);
+  if (!root) { res.status(400).json({ error: 'root required' }); return; }
+  if (!isAllowedProjectRoot(root)) { res.status(400).json({ error: 'Invalid project root' }); return; }
+
+  const body = filePathSchema.safeParse({ path: req.body?.path || '/' });
+  if (!body.success) { res.status(400).json({ error: 'Invalid path' }); return; }
+
+  const fullPath = resolveProjectPath(root, body.data.path);
+  if (!fullPath) { res.status(400).json({ error: 'Path outside project root' }); return; }
+  if (!existsSync(fullPath)) { res.status(404).json({ error: 'Path not found' }); return; }
+
+  const platform = process.platform;
+  let cmd: string;
+  let args: string[];
+
+  if (platform === 'darwin') {
+    cmd = 'open';
+    args = statSync(fullPath).isDirectory() ? [fullPath] : ['-R', fullPath];
+  } else if (platform === 'win32') {
+    cmd = 'explorer';
+    args = statSync(fullPath).isDirectory() ? [fullPath] : ['/select,', fullPath];
+  } else {
+    cmd = 'xdg-open';
+    args = [statSync(fullPath).isDirectory() ? fullPath : dirname(fullPath)];
+  }
+
+  execFile(cmd, args, (err) => {
+    if (err) log.error('files-reveal', err.message);
+  });
   res.json({ ok: true });
 });
 

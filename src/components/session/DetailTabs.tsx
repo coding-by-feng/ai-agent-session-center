@@ -253,8 +253,8 @@ export default function DetailTabs({
   // Each scrollable tab gets a unique key so React creates a separate DOM node per tab.
   // Without this, all text tabs share the same div.tabScroll DOM node, meaning scroll
   // position bleeds across tabs (e.g. scrolled-down activity bleeds into conversation).
+  // NOTE: terminal, commands, and output are NOT in this map — they're always-mounted above.
   const contentMap: Record<string, ReactNode> = {
-    terminal: terminalContent,
     conversation: <div key="scroll-conversation" className={styles.tabScroll}>{promptsContent}</div>,
     project: projectContent,
     queue: <div key="scroll-queue" className={styles.tabScroll}>{queueContent}</div>,
@@ -268,9 +268,6 @@ export default function DetailTabs({
       />
     ),
   };
-  if (commandsContent) {
-    contentMap.commands = commandsContent;
-  }
 
   const hasMatches = (searchMatchCount ?? 0) > 0;
   const countLabel = searchQuery
@@ -344,14 +341,35 @@ export default function DetailTabs({
         <button className={styles.searchCloseBtn} onClick={onSearchClose} title="Close (Esc)">✕</button>
       </div>
 
-      {/* #15: Only mount the active tab content; OUTPUT tab is always mounted to accumulate data */}
+      {/* Always-mount OUTPUT (accumulates data) and TERMINAL/COMMANDS (preserves xterm scroll).
+          Other tabs mount on demand. Hidden tabs use display:none to preserve DOM state. */}
       <div className={styles.tabContent}>
+        {/* OUTPUT: always mounted */}
         {outputContent && (
-          <div className={effectiveTab === 'output' ? styles.outputTabActive : styles.outputTabHidden}>
+          <div className={effectiveTab === 'output' ? styles.alwaysTabActive : styles.alwaysTabHidden}>
             {outputContent}
           </div>
         )}
-        {effectiveTab !== 'output' && contentMap[effectiveTab]}
+        {/* TERMINAL: always mounted to preserve xterm instance + scroll position.
+            Unmounted during split view (split view renders its own terminal instance). */}
+        <div className={
+          effectiveTab === 'terminal' ? styles.alwaysTabActive : styles.alwaysTabHidden
+        }>
+          {/* Don't render terminal inside wrapper when split view is active
+              to avoid duplicate xterm subscriptions */}
+          {effectiveTab !== 'split' && terminalContent}
+        </div>
+        {/* COMMANDS (ops terminal): always mounted if exists */}
+        {commandsContent && (
+          <div className={
+            effectiveTab === 'commands' ? styles.alwaysTabActive : styles.alwaysTabHidden
+          }>
+            {commandsContent}
+          </div>
+        )}
+        {/* Other tabs (incl. split view): mounted on demand */}
+        {effectiveTab !== 'output' && effectiveTab !== 'terminal' && effectiveTab !== 'commands' &&
+          contentMap[effectiveTab]}
       </div>
     </>
   );

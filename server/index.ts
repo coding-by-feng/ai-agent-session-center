@@ -283,14 +283,30 @@ export function startServer(port?: number): Promise<number> {
             continue;
           }
 
-          // Build resume command (same logic as the /sessions/:id/resume endpoint)
+          // Build resume command preserving original flags (same logic as /sessions/:id/resume)
           // Terminal IDs (term-xxx) are agent-manager internal IDs, not Claude conversation IDs.
           // claude --resume only works with real Claude session IDs, so fall back to --continue.
+          const originalCmd = session.startupCommand || session.sshCommand || session.sshConfig?.command || '';
+          const isClaude = !originalCmd || /(?:^|\/)claude(?:\s|$)/.test(originalCmd);
           const isClaudeSessionId = !sessionId.startsWith('term-');
           const safeId = sessionId.replace(/'/g, "'\\''");
-          const resumeCmd = isClaudeSessionId
-            ? `claude --resume '${safeId}' || claude --continue`
-            : `claude --continue`;
+          let resumeCmd: string;
+          if (isClaude) {
+            let baseCmd = (originalCmd || 'claude')
+              .replace(/^(\S*\/)claude/, 'claude')
+              .replace(/\s+--(?:resume\s+'[^']*'|resume\s+\S+|continue)\b/g, '').trim();
+            // Reconstruct --dangerously-skip-permissions if permissionMode indicates it
+            if (session.permissionMode
+                && !baseCmd.includes('--dangerously-skip-permissions')
+                && /bypass|dangerously|skip/i.test(session.permissionMode)) {
+              baseCmd += ' --dangerously-skip-permissions';
+            }
+            resumeCmd = isClaudeSessionId
+              ? `${baseCmd} --resume '${safeId}' || ${baseCmd} --continue`
+              : `${baseCmd} --continue`;
+          } else {
+            resumeCmd = originalCmd;
+          }
           let prefix = '';
           if (isRemote) {
             prefix += `export AGENT_MANAGER_TERMINAL_ID='${newTerminalId}' && `;

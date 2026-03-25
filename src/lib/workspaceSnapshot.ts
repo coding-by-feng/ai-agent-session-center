@@ -268,6 +268,7 @@ export async function importSnapshot(
           label: sessionSnap.label || undefined,
           enableOpsTerminal: sessionSnap.enableOpsTerminal || undefined,
           startupCommand: sessionSnap.startupCommand || undefined,
+          originalSessionId: sessionSnap.originalSessionId || undefined,
         }),
       });
       const data = await res.json();

@@ -69,6 +69,10 @@ body[data-theme="blonde"] .search-highlight {
   background: rgba(202, 138, 4, 0.15) !important;
   border-left-color: #ca8a04 !important;
 }
+body[data-theme="blonde"] .search-highlight-active {
+  background: rgba(202, 138, 4, 0.3) !important;
+  box-shadow: inset 3px 0 0 #ca8a04, 0 0 8px rgba(202, 138, 4, 0.25);
+}
 
 /* Light themes: nav actions */
 body[data-theme="light"] .qa-btn.active,

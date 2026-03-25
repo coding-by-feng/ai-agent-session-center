@@ -9,6 +9,10 @@
   border-left-color: var(--accent-cyan) !important;
   box-shadow: inset 3px 0 0 var(--accent-cyan);
 }
+.search-highlight-active {
+  background: rgba(0, 229, 255, 0.28) !important;
+  box-shadow: inset 3px 0 0 var(--accent-cyan), 0 0 8px rgba(0, 229, 255, 0.25);
+}
 
 /* ---- Wide modal variant (used by ShortcutSettingsModal) ---- */
 .modal-wide {
