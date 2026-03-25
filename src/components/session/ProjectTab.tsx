@@ -167,6 +167,17 @@ function IconOpenProjectView() {
     </svg>
   );
 }
+function IconRevealInFinder() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M2 3h12a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" />
+      <path d="M1 6h14" />
+      <path d="M5 1v2" />
+      <path d="M8 10l2-2-2-2" />
+      <line x1="5" y1="10" x2="10" y2="10" />
+    </svg>
+  );
+}
 function IconRefresh() {
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -1162,6 +1173,15 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     }
   }, [projectPath, currentPath, file, onOpenBrowserTab]);
 
+  const handleRevealInFinder = useCallback(() => {
+    const revealPath = file ? currentPath : currentPath;
+    fetch('/api/files/reveal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ root: projectPath, path: revealPath }),
+    }).catch(() => { /* ignore */ });
+  }, [projectPath, currentPath, file]);
+
   // Bookmark: add from selection or toggle panel
   const handleBookmarkBtnClick = useCallback(() => {
     const sel = window.getSelection();
@@ -1353,6 +1373,9 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         </button>
         <button className={styles.iconBtn} onClick={handleOpenProjectView} title="Open project in new tab">
           <IconOpenProjectView />
+        </button>
+        <button className={styles.iconBtn} onClick={handleRevealInFinder} title="Reveal in Finder / Explorer">
+          <IconRevealInFinder />
         </button>
         <button
           className={styles.iconBtn}

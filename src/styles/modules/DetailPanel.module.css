@@ -343,13 +343,16 @@
 /* ---- Tab Content ---- */
 
 .tabContent { display: flex; flex-direction: column; flex: 1; overflow: hidden; padding: 16px 20px; min-height: 0; }
-.tabScroll { flex: 1; overflow-y: auto; min-height: 0; }
+.tabScroll { flex: 1; overflow-y: auto; min-height: 0; overflow-anchor: auto; overscroll-behavior: contain; }
 .tabContent::-webkit-scrollbar, .tabScroll::-webkit-scrollbar { width: 4px; }
 .tabContent::-webkit-scrollbar-track, .tabScroll::-webkit-scrollbar-track { background: transparent; }
 .tabContent::-webkit-scrollbar-thumb, .tabScroll::-webkit-scrollbar-thumb { background: var(--bg-accent); border-radius: 2px; }
 .tabEmpty { text-align: center; padding: 40px 20px; color: var(--text-dim); font-size: 11px; letter-spacing: 1px; }
 
-/* ---- OUTPUT tab always-mount visibility ---- */
+/* ---- Always-mounted tab visibility (OUTPUT + TERMINAL kept alive to preserve scroll/xterm state) ---- */
+.alwaysTabHidden { display: none; }
+.alwaysTabActive { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; }
+/* Legacy aliases */
 .outputTabHidden { display: none; }
 .outputTabActive { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; }
 
@@ -361,7 +364,7 @@
 .outputScrollBtn:hover { background: color-mix(in srgb, var(--accent-cyan) 15%, transparent); }
 .outputClearBtn { font-size: 9px; font-weight: 700; letter-spacing: 1px; padding: 2px 8px; background: transparent; border: 1px solid var(--border-faint); color: var(--text-dim); border-radius: 2px; cursor: pointer; }
 .outputClearBtn:hover { border-color: var(--accent-red); color: var(--accent-red); }
-.outputScroll { flex: 1; overflow-y: auto; min-height: 0; margin-top: 8px; }
+.outputScroll { flex: 1; overflow-y: auto; min-height: 0; margin-top: 8px; overflow-anchor: auto; overscroll-behavior: contain; }
 .outputScroll::-webkit-scrollbar { width: 4px; }
 .outputScroll::-webkit-scrollbar-track { background: transparent; }
 .outputScroll::-webkit-scrollbar-thumb { background: var(--bg-accent); border-radius: 2px; }

@@ -152,6 +152,8 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   const outputRafRef = useRef<number | null>(null);
   /** Force scroll-to-bottom on next output batch (set when user sends Enter) */
   const forceScrollRef = useRef(false);
+  /** IntersectionObserver fallback for hidden containers (always-mounted tabs like COMMANDS) */
+  const pendingSetupObserverRef = useRef<IntersectionObserver | null>(null);
 
   const [isAttached, setIsAttached] = useState(false);
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
@@ -183,13 +185,26 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
 
   // Detach
   const detach = useCallback(() => {
+    // Cancel pending IntersectionObserver from setupWhenReady fallback
+    if (pendingSetupObserverRef.current) {
+      pendingSetupObserverRef.current.disconnect();
+      pendingSetupObserverRef.current = null;
+    }
     // Cancel any pending RAF output flush (#76)
     if (outputRafRef.current !== null) {
       cancelAnimationFrame(outputRafRef.current);
       outputRafRef.current = null;
     }
     if (activeRef.current) {
-      const { terminalId } = activeRef.current;
+      const { terminalId, term } = activeRef.current;
+      // Save scroll position to localStorage for cross-mount restoration
+      try {
+        const buf = term.buffer.active;
+        const offset = buf.baseY - buf.viewportY;
+        if (offset > 0) {
+          localStorage.setItem(`term-scroll:${terminalId}`, String(offset));
+        }
+      } catch { /* ignore */ }
       // Clear active terminal's batched output buffer
       pendingOutputRef.current.delete(`__active__${terminalId}`);
       activeRef.current.resizeObserver.disconnect();
@@ -255,10 +270,30 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
 
       // Wait for container dimensions
       function setupWhenReady(retries: number) {
+        // Guard: another attach call may have already set up the terminal
+        if (activeRef.current?.terminalId === terminalId) return;
         if (container.offsetWidth > 0 && container.offsetHeight > 0) {
           doSetup();
         } else if (retries > 0) {
           requestAnimationFrame(() => setTimeout(() => setupWhenReady(retries - 1), 50));
+        } else {
+          // Fallback: container is still hidden (e.g. always-mounted COMMANDS tab).
+          // Use IntersectionObserver to wait indefinitely for it to become visible.
+          const observer = new IntersectionObserver((entries) => {
+            if (
+              entries[0]?.isIntersecting &&
+              container.offsetWidth > 0 &&
+              container.offsetHeight > 0
+            ) {
+              observer.disconnect();
+              pendingSetupObserverRef.current = null;
+              if (!activeRef.current || activeRef.current.terminalId !== terminalId) {
+                doSetup();
+              }
+            }
+          });
+          observer.observe(container);
+          pendingSetupObserverRef.current = observer;
         }
       }
 
@@ -442,7 +477,15 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
                 const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
                 term.write(bytes, () => {
                   if (--remaining === 0 && activeRef.current?.term === term) {
-                    const savedOffset = savedScrollRef.current.get(terminalId) ?? 0;
+                    // Restore scroll: check in-memory ref first, then localStorage fallback
+                    let savedOffset = savedScrollRef.current.get(terminalId) ?? 0;
+                    if (savedOffset === 0) {
+                      try {
+                        savedOffset = parseInt(localStorage.getItem(`term-scroll:${terminalId}`) ?? '0', 10) || 0;
+                        // Clear after reading — one-shot restore
+                        localStorage.removeItem(`term-scroll:${terminalId}`);
+                      } catch { /* ignore */ }
+                    }
                     if (savedOffset > 0) {
                       // Restore the same "lines above bottom" offset the user was at
                       const buf = term.buffer.active;
@@ -468,9 +511,17 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         // stays blank until the user manually resizes (e.g. minimize+restore).
         setTimeout(() => {
           if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
+          const wasBottom = isAtBottom(term);
+          const savedViewportY = term.buffer.active.viewportY;
           fitAddon.fit();
           sendResize(wsRef.current, terminalId, term.cols, term.rows);
           term.refresh(0, term.rows - 1);
+          // Restore scroll position after safety-net fit
+          if (wasBottom) {
+            term.scrollToBottom();
+          } else {
+            term.scrollToLine(savedViewportY);
+          }
         }, 150);
       }
 
@@ -515,9 +566,21 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
               });
             }
           } else {
+            // User is scrolled up — preserve viewport position after writes.
+            // Without this, escape sequences (cursor home, alt-screen switch,
+            // screen clear) processed by term.write() yank the viewport to
+            // the top or middle of the buffer.
+            const savedViewportY = term.buffer.active.viewportY;
+            let remaining = pending.length;
             for (const chunk of pending) {
               const bytes = Uint8Array.from(atob(chunk), (c) => c.charCodeAt(0));
-              term.write(bytes);
+              term.write(bytes, () => {
+                if (--remaining === 0 && activeRef.current?.term === term) {
+                  if (term.buffer.active.viewportY !== savedViewportY) {
+                    term.scrollToLine(savedViewportY);
+                  }
+                }
+              });
             }
           }
         });
@@ -545,13 +608,22 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     if (activeRef.current && activeRef.current.terminalId === terminalId) {
       requestAnimationFrame(() => {
         if (!activeRef.current || !activeRef.current.fitAddon) return;
-        const prevCols = activeRef.current.term.cols;
-        const prevRows = activeRef.current.term.rows;
-        activeRef.current.fitAddon.fit();
-        const newCols = activeRef.current.term.cols;
-        const newRows = activeRef.current.term.rows;
+        const { term, fitAddon } = activeRef.current;
+        const wasBottom = isAtBottom(term);
+        const savedViewportY = term.buffer.active.viewportY;
+        const prevCols = term.cols;
+        const prevRows = term.rows;
+        fitAddon.fit();
+        const newCols = term.cols;
+        const newRows = term.rows;
         if (newCols !== prevCols || newRows !== prevRows) {
           sendResize(wsRef.current, terminalId, newCols, newRows);
+        }
+        // Restore scroll position after fit to prevent viewport jump
+        if (wasBottom) {
+          term.scrollToBottom();
+        } else {
+          term.scrollToLine(savedViewportY);
         }
       });
     }
@@ -669,10 +741,16 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     requestAnimationFrame(() => {
       if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
       const wasBottom = isAtBottom(term);
+      const savedViewportY = term.buffer.active.viewportY;
       fitAddon.fit();
       sendResize(wsRef.current, terminalId, term.cols, term.rows);
       term.refresh(0, term.rows - 1);
-      if (wasBottom) term.scrollToBottom();
+      // Restore scroll position after fit to prevent layout-triggered viewport jump
+      if (wasBottom) {
+        term.scrollToBottom();
+      } else {
+        term.scrollToLine(savedViewportY);
+      }
     });
   }, []);
 
@@ -806,6 +884,10 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      if (pendingSetupObserverRef.current) {
+        pendingSetupObserverRef.current.disconnect();
+        pendingSetupObserverRef.current = null;
+      }
       if (outputRafRef.current !== null) {
         cancelAnimationFrame(outputRafRef.current);
         outputRafRef.current = null;

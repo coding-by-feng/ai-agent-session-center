@@ -143,9 +143,9 @@ const SWITCH_STATUS_ORDER: Record<string, number> = {
 function switchToPreviousSession(): void {
   const { sessions, previousSessionId, selectedSessionId } = useSessionStore.getState();
   if (!previousSessionId) return;
-  // Make sure the previous session still exists and is not ended
+  // Make sure the previous session still exists
   const prev = sessions.get(previousSessionId);
-  if (!prev || prev.status === 'ended') return;
+  if (!prev) return;
   // Don't switch to same session
   if (previousSessionId === selectedSessionId) return;
   useSessionStore.getState().selectSession(previousSessionId);
