@@ -35,6 +35,7 @@ export default function ProjectBrowserView() {
           projectPath={projectPath}
           initialPath={initialFile}
           initialIsFile={!!initialFile}
+          persistId={`browser-${projectPath}`}
         />
       </div>
     </div>
