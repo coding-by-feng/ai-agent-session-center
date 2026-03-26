@@ -161,6 +161,13 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
    * RAF N's scrollToBottom callback hasn't fired yet, causing viewport to jump.
    */
   const autoScrollActiveRef = useRef(true);
+  /**
+   * Suppresses onScroll tracking during programmatic write/scroll operations.
+   * Without this, escape sequences processed by term.write() can briefly move the
+   * viewport to the bottom, flipping autoScrollActiveRef to true and breaking the
+   * user's scroll-up intent on the next output batch.
+   */
+  const writingRef = useRef(false);
   /** IntersectionObserver fallback for hidden containers (always-mounted tabs like COMMANDS) */
   const pendingSetupObserverRef = useRef<IntersectionObserver | null>(null);
 
@@ -391,7 +398,10 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         // Track user scroll intent: if user scrolls away from bottom, disable
         // auto-scroll. If user scrolls back to bottom, re-enable it.
         // Also cancel forceScrollRef when user scrolls up.
+        // Skip tracking during programmatic writes (writingRef) to prevent
+        // escape sequences from flipping autoScroll back to true.
         term.onScroll(() => {
+          if (writingRef.current) return;
           const atBottom = isAtBottom(term);
           autoScrollActiveRef.current = atBottom;
           if (!atBottom) {
@@ -569,6 +579,9 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           // to a stale position. The persistent flag survives across RAF batches.
           const shouldScroll = autoScrollActiveRef.current || forceScrollRef.current;
           forceScrollRef.current = false;
+          // Suppress onScroll tracking during writes so escape sequences don't
+          // flip autoScrollActiveRef back to true while user is scrolled up.
+          writingRef.current = true;
           // Use write callbacks so scrollToBottom fires after xterm processes writes
           // and updates baseY. Without this, scrollToBottom() called synchronously
           // after write() is a no-op because baseY hasn't been updated yet (#scroll-fix).
@@ -579,6 +592,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
               term.write(bytes, () => {
                 if (--remaining === 0 && activeRef.current?.term === term) {
                   term.scrollToBottom();
+                  writingRef.current = false;
                 }
               });
             }
@@ -596,6 +610,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
                   if (term.buffer.active.viewportY !== savedViewportY) {
                     term.scrollToLine(savedViewportY);
                   }
+                  writingRef.current = false;
                 }
               });
             }

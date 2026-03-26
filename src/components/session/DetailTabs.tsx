@@ -367,8 +367,15 @@ export default function DetailTabs({
             {commandsContent}
           </div>
         )}
+        {/* PROJECT: always mounted to preserve file tree + tabs + viewer state.
+            Unmounted during split view (split view renders its own project instance). */}
+        <div className={
+          effectiveTab === 'project' ? styles.alwaysTabActive : styles.alwaysTabHidden
+        }>
+          {effectiveTab !== 'split' && projectContent}
+        </div>
         {/* Other tabs (incl. split view): mounted on demand */}
-        {effectiveTab !== 'output' && effectiveTab !== 'terminal' && effectiveTab !== 'commands' &&
+        {effectiveTab !== 'output' && effectiveTab !== 'terminal' && effectiveTab !== 'commands' && effectiveTab !== 'project' &&
           contentMap[effectiveTab]}
       </div>
     </>
