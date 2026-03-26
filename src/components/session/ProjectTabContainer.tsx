@@ -229,7 +229,7 @@ export default function ProjectTabContainer({ projectPath, sessionId }: ProjectT
               initialPath={tab.initialPath}
               initialIsFile={tab.initialIsFile}
               navigateToFile={activeSubTab === tab.id ? navigateToFile : null}
-              persistId={tab.id}
+              persistId={sessionId ? `${sessionId}:${tab.id}` : tab.id}
               onOpenBrowserTab={handleOpenBrowserTab}
               onPathChange={(path, isFile) => handlePathChange(tab.id, path, isFile)}
             />

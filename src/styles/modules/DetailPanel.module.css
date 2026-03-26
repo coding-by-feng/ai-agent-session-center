@@ -349,7 +349,7 @@
 .tabContent::-webkit-scrollbar-thumb, .tabScroll::-webkit-scrollbar-thumb { background: var(--bg-accent); border-radius: 2px; }
 .tabEmpty { text-align: center; padding: 40px 20px; color: var(--text-dim); font-size: 11px; letter-spacing: 1px; }
 
-/* ---- Always-mounted tab visibility (OUTPUT + TERMINAL kept alive to preserve scroll/xterm state) ---- */
+/* ---- Always-mounted tab visibility (OUTPUT + TERMINAL + PROJECT kept alive) ---- */
 .alwaysTabHidden { display: none; }
 .alwaysTabActive { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; }
 /* Legacy aliases */

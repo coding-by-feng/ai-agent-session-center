@@ -358,6 +358,22 @@ export default function DetailPanel() {
   if (session) lastSessionRef.current = session;
   const displaySession = session ?? lastSessionRef.current;
 
+  // Track all sessions that have been visited so their ProjectTabContainers stay mounted.
+  // Each entry maps sessionId → { projectPath, sessionId } for rendering.
+  const [visitedProjects, setVisitedProjects] = useState<Map<string, { projectPath: string; sessionId: string }>>(new Map());
+  useEffect(() => {
+    if (!displaySession?.projectPath || !displaySession?.sessionId) return;
+    setVisitedProjects((prev) => {
+      if (prev.has(displaySession.sessionId)) return prev;
+      const next = new Map(prev);
+      next.set(displaySession.sessionId, {
+        projectPath: displaySession.projectPath!,
+        sessionId: displaySession.sessionId,
+      });
+      return next;
+    });
+  }, [displaySession?.sessionId, displaySession?.projectPath]);
+
   // ---- Panel search state ----
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -684,7 +700,22 @@ export default function DetailPanel() {
           }
           projectContent={
             displaySession.projectPath
-              ? <ProjectTabContainer key={displaySession.sessionId} projectPath={displaySession.projectPath} sessionId={displaySession.sessionId} />
+              ? <div style={{ position: 'relative', flex: 1, minHeight: 0, overflow: 'hidden', height: '100%' }}>
+                  {Array.from(visitedProjects.entries()).map(([sid, info]) => {
+                    const isActive = sid === displaySession.sessionId;
+                    return (
+                      <div key={sid} style={{
+                        position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+                        visibility: isActive ? 'visible' : 'hidden',
+                        pointerEvents: isActive ? 'auto' : 'none',
+                        zIndex: isActive ? 1 : 0,
+                        display: 'flex', flexDirection: 'column',
+                      }}>
+                        <ProjectTabContainer projectPath={info.projectPath} sessionId={info.sessionId} />
+                      </div>
+                    );
+                  })}
+                </div>
               : <div className={styles.tabEmpty}>No project path detected for this session</div>
           }
           commandsContent={
