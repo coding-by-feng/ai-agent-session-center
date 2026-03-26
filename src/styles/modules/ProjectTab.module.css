@@ -1270,6 +1270,103 @@
   min-height: 0;
 }
 
+/* ---- VS Code Split Layout (tree left + viewer right) ---- */
+
+.vscodeSplit {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.treePanel {
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  max-width: 50%;
+  border-right: 1px solid var(--border-faint);
+  background: rgba(10, 10, 26, 0.5);
+  overflow: hidden;
+}
+
+.treePanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-faint);
+  flex-shrink: 0;
+}
+
+.treePanelTitle {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.treePanelActions {
+  display: flex;
+  gap: 2px;
+}
+
+.treePanelBody {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.treeDivider {
+  width: 3px;
+  cursor: col-resize;
+  background: transparent;
+  flex-shrink: 0;
+  transition: background 0.15s;
+  position: relative;
+}
+.treeDivider:hover,
+.treeDivider:active {
+  background: var(--accent-cyan);
+}
+
+.viewerPanel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.viewerWelcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--text-dim);
+  font-size: 11px;
+  gap: 8px;
+  letter-spacing: 0.5px;
+  opacity: 0.6;
+}
+.viewerWelcome span:first-child {
+  font-size: 28px;
+}
+
+/* ---- Small screens: collapse tree panel ---- */
+
+@media (max-width: 480px) {
+  .treePanel {
+    display: none;
+  }
+  .treeDivider {
+    display: none;
+  }
+}
+
 /* ---- Line-based Code Viewer ---- */
 
 .codeLines {

@@ -654,6 +654,24 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // File content cache — preserves content when switching between tabs
+  const fileCacheRef = useRef(new Map<string, FileContent>());
+
+  // Clean up cached blob URLs on unmount
+  useEffect(() => {
+    const cache = fileCacheRef.current;
+    return () => {
+      cache.forEach((cached) => {
+        if (cached.blobUrl?.startsWith('blob:')) URL.revokeObjectURL(cached.blobUrl);
+      });
+      cache.clear();
+    };
+  }, []);
+
+  // Version counter: incremented by loadDir/loadFile so stale silentRefreshDir
+  // responses don't overwrite entries from a navigation that completed first.
+  const dirVersionRef = useRef(0);
+
   // File tabs — persisted to localStorage when persistId is provided
   const fileTabsKey = persistId ? `agent-manager:file-tabs:${persistId}` : null;
   const [tabs, setTabs] = useState<FileTab[]>(() => {
@@ -700,11 +718,39 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const [editingNewFile, setEditingNewFile] = useState<string | null>(null);
   const [newFileContent, setNewFileContent] = useState('');
 
-  // Split resize
+  // Split resize (markdown outline)
   const [splitRatio, setSplitRatio] = useState(0.5);
   const splitDragging = useRef(false);
   const splitContainerRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  // VS Code-style tree panel width (persisted)
+  const [treePanelWidth, setTreePanelWidth] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('file-browser:tree-panel-width');
+      if (saved) return Math.max(140, Math.min(600, Number(saved)));
+    } catch { /* ignore */ }
+    return 220;
+  });
+  const treePanelWidthRef = useRef(treePanelWidth);
+  treePanelWidthRef.current = treePanelWidth;
+  const treePanelRef = useRef<HTMLDivElement>(null);
+  const treePanelBodyRef = useRef<HTMLDivElement>(null);
+  const [treeHeight, setTreeHeight] = useState(400);
+
+  // Observe tree panel body for dynamic height
+  useEffect(() => {
+    const el = treePanelBodyRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setTreeHeight(Math.floor(entry.contentRect.height));
+      }
+    });
+    ro.observe(el);
+    setTreeHeight(el.clientHeight);
+    return () => ro.disconnect();
+  }, []);
 
   // Bookmarks
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
@@ -776,28 +822,25 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   }, []);
 
   const loadDir = useCallback(async (relPath: string) => {
-    setLoading(true);
-    setError(null);
-    setFile(null);
-    setActiveTabPath(null);
+    // In VS Code layout, directory browsing is handled by the tree.
+    // loadDir is only used for entries refresh — never show ENOTDIR errors.
+    const version = ++dirVersionRef.current;
     setEditingNewFile(null);
     try {
       const data = await provider.listDir(projectPath, relPath, showHidden);
+      // Only apply if no newer navigation has started
+      if (dirVersionRef.current !== version) return;
       setEntries(data.items);
       setCurrentPath(relPath);
       onPathChange?.(relPath, false);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(msg);
-      setEntries([]);
-    } finally {
-      setLoading(false);
+    } catch {
+      // Silently ignore — "Not a directory" and other errors are non-fatal
+      // since the tree panel handles directory navigation
     }
   }, [projectPath, onPathChange, showHidden, provider]);
 
   const loadFile = useCallback(async (relPath: string) => {
-    // Revoke previous blob URL to prevent memory leaks (only actual blob:// URLs)
-    setFile((prev) => { if (prev?.blobUrl?.startsWith('blob:')) URL.revokeObjectURL(prev.blobUrl); return prev; });
+    ++dirVersionRef.current; // Invalidate any in-flight silentRefreshDir
     setLoading(true);
     setError(null);
     setEditingNewFile(null);
@@ -828,6 +871,8 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
           }
         }
       }
+      // Cache the file content for instant tab switching
+      fileCacheRef.current.set(relPath, data);
       setFile(data);
       setCurrentPath(relPath);
       onPathChange?.(relPath, true);
@@ -847,14 +892,27 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     }
   }, [projectPath, onPathChange, provider]);
 
-  // Load initial path on mount — restore file or directory
+  // Load initial path on mount — restore persisted active file tab, or fall back to initialPath.
+  // In VS Code layout, the tree handles directory browsing, so we never need to call loadDir on mount.
   useEffect(() => {
     if (!projectPath) return;
+    // 1. Restore persisted active file tab
+    if (activeTabPath && tabs.some(t => t.path === activeTabPath)) {
+      loadFile(activeTabPath);
+      return;
+    }
+    // 2. If we have tabs but activeTabPath is stale/null, load the last tab
+    if (tabs.length > 0) {
+      const lastTab = tabs[tabs.length - 1];
+      loadFile(lastTab.path);
+      return;
+    }
+    // 3. initialPath is a file
     if (initialIsFile && initialPath) {
       loadFile(initialPath);
-    } else {
-      loadDir(initialPath || '/');
+      return;
     }
+    // 4. No file to restore — show welcome message; the tree handles dir browsing
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectPath]);
 
@@ -928,31 +986,50 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
 
   // Tab actions
   const handleTabClick = useCallback((tab: FileTab) => {
-    setActiveTabPath(tab.path);
-    loadFile(tab.path);
-  }, [loadFile]);
+    // Use cached content for instant tab switching
+    const cached = fileCacheRef.current.get(tab.path);
+    if (cached) {
+      setFile(cached);
+      setCurrentPath(tab.path);
+      setActiveTabPath(tab.path);
+      setError(null);
+      setEditingNewFile(null);
+      onPathChange?.(tab.path, true);
+    } else {
+      loadFile(tab.path);
+    }
+  }, [loadFile, onPathChange]);
 
   const handleTabClose = useCallback((tabPath: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    // Clean up cached content and blob URL
+    const cached = fileCacheRef.current.get(tabPath);
+    if (cached?.blobUrl?.startsWith('blob:')) URL.revokeObjectURL(cached.blobUrl);
+    fileCacheRef.current.delete(tabPath);
     setTabs(prev => {
       const next = prev.filter(t => t.path !== tabPath);
       if (activeTabPath === tabPath) {
         if (next.length > 0) {
           const last = next[next.length - 1];
-          setActiveTabPath(last.path);
-          loadFile(last.path);
+          // Use cache for the fallback tab too
+          const fallback = fileCacheRef.current.get(last.path);
+          if (fallback) {
+            setFile(fallback);
+            setCurrentPath(last.path);
+            setActiveTabPath(last.path);
+            onPathChange?.(last.path, true);
+          } else {
+            setActiveTabPath(last.path);
+            loadFile(last.path);
+          }
         } else {
           setActiveTabPath(null);
           setFile(null);
-          // Go back to directory listing
-          const parts = tabPath.split('/').filter(Boolean);
-          parts.pop();
-          loadDir('/' + parts.join('/'));
         }
       }
       return next;
     });
-  }, [activeTabPath, loadFile, loadDir]);
+  }, [activeTabPath, loadFile, loadDir, onPathChange]);
 
   // Search select
   const handleSearchSelect = useCallback((result: SearchResult) => {
@@ -964,10 +1041,20 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     }
   }, [loadDir, loadFile]);
 
+  // Derive the current directory path (parent of file if viewing a file)
+  const currentDirPath = useMemo(() => {
+    if (file) {
+      const parts = currentPath.split('/').filter(Boolean);
+      parts.pop();
+      return '/' + parts.join('/');
+    }
+    return currentPath;
+  }, [currentPath, file]);
+
   // New file
   const handleNewFile = useCallback(async (name: string) => {
     setCreatingFile(false);
-    const newPath = currentPath === '/' ? '/' + name : currentPath + '/' + name;
+    const newPath = currentDirPath === '/' ? '/' + name : currentDirPath + '/' + name;
     setEditingNewFile(newPath);
     setNewFileContent('');
     setFile(null);
@@ -992,15 +1079,15 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   // New folder
   const handleNewFolder = useCallback(async (name: string) => {
     setCreatingFolder(false);
-    const newPath = currentPath === '/' ? '/' + name : currentPath + '/' + name;
+    const newPath = currentDirPath === '/' ? '/' + name : currentDirPath + '/' + name;
     try {
       await provider.mkdir(projectPath, newPath);
-      loadDir(currentPath); // refresh
+      // Refresh the file tree instead of loadDir (which would clear the file viewer)
       document.dispatchEvent(new CustomEvent('filetree:refresh'));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [currentPath, projectPath, loadDir, provider]);
+  }, [currentDirPath, projectPath, provider]);
 
   // Delete file or folder
   const [confirmDeleteName, setConfirmDeleteName] = useState<string | null>(null);
@@ -1044,19 +1131,18 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   }, [contextMenu, closeContextMenu]);
 
   const handleDelete = useCallback(async (entryName: string) => {
-    const relPath = currentPath === '/' ? '/' + entryName : currentPath + '/' + entryName;
+    const relPath = currentDirPath === '/' ? '/' + entryName : currentDirPath + '/' + entryName;
     setDeleting(true);
     try {
       await provider.deleteEntry(projectPath, relPath);
       setConfirmDeleteName(null);
-      loadDir(currentPath);
       document.dispatchEvent(new CustomEvent('filetree:refresh'));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setDeleting(false);
     }
-  }, [currentPath, projectPath, loadDir, provider]);
+  }, [currentDirPath, projectPath, provider]);
 
   // Reload directory when showHidden toggles (skip initial mount — initial load effect handles that)
   useEffect(() => {
@@ -1115,15 +1201,20 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   }, [currentPath, file, loadDir, loadFile]);
 
   // Silent refresh — updates directory listing without clearing file/loading state.
-  // Used by the auto-refresh polling interval.
+  // Used by the auto-refresh polling interval. Skips when viewing a file (currentPath is a file path).
   const silentRefreshDir = useCallback(async () => {
+    // Skip when viewing a file — currentPath is a file path, not a directory
+    if (file) return;
+    const version = dirVersionRef.current;
     try {
       const data = await provider.listDir(projectPath, currentPath, showHidden);
+      // Only apply if no navigation happened while we were fetching
+      if (dirVersionRef.current !== version) return;
       setEntries(data.items);
     } catch {
       // Silently ignore — next poll will retry
     }
-  }, [projectPath, currentPath, showHidden]);
+  }, [projectPath, currentPath, showHidden, provider, file]);
 
   // Auto-refresh: poll directory listing every 5 seconds
   useEffect(() => {
@@ -1338,6 +1429,28 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     document.addEventListener('mouseup', onMouseUp);
   }, [splitRatio]);
 
+  // Tree panel divider drag handler
+  const onTreeDividerDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = treePanelWidthRef.current;
+    const onMove = (ev: MouseEvent) => {
+      const newWidth = Math.max(140, Math.min(600, startWidth + (ev.clientX - startX)));
+      setTreePanelWidth(newWidth);
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      try { localStorage.setItem('file-browser:tree-panel-width', String(treePanelWidthRef.current)); } catch { /* ignore */ }
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, []);
+
   // Breadcrumb segments
   const breadcrumbs = currentPath.split('/').filter(Boolean);
   const projectName = projectPath.split('/').filter(Boolean).pop() || projectPath;
@@ -1474,299 +1587,339 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         </button>
       </div>
 
-      {/* Path bar */}
-      <div className={styles.toolbar}>
-        <button
-          className={styles.backBtn}
-          onClick={navigateUp}
-          disabled={currentPath === '/' && !file && !editingNewFile}
-          title="Go up"
+      {/* (tabs + breadcrumb are inside the viewer panel below) */}
+
+      {/* VS Code-style split: tree left + viewer right */}
+      <div className={styles.vscodeSplit}>
+        {/* Left: File tree panel */}
+        <div
+          ref={treePanelRef}
+          className={styles.treePanel}
+          style={{ width: treePanelWidth, minWidth: treePanelWidth }}
         >
-          &#8592;
-        </button>
-        <div className={styles.breadcrumb}>
-          <button className={styles.breadBtn} onClick={() => { setFile(null); setActiveTabPath(null); setEditingNewFile(null); loadDir('/'); }}>
-            {projectName}
-          </button>
-          {breadcrumbs.map((seg, i) => {
-            const isLast = i === breadcrumbs.length - 1;
-            const segPath = '/' + breadcrumbs.slice(0, i + 1).join('/');
-            return (
-              <span key={segPath}>
-                <span className={styles.breadSep}>/</span>
-                {isLast ? (
-                  <span className={styles.breadCurrent}>{seg}</span>
-                ) : (
-                  <button className={styles.breadBtn} onClick={() => { setFile(null); setActiveTabPath(null); setEditingNewFile(null); loadDir(segPath); }}>
-                    {seg}
-                  </button>
-                )}
-              </span>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Inline new file/folder inputs */}
-      {creatingFile && (
-        <InlineInput
-          placeholder="filename.ext"
-          onSubmit={handleNewFile}
-          onCancel={() => setCreatingFile(false)}
-        />
-      )}
-      {creatingFolder && (
-        <InlineInput
-          placeholder="folder name"
-          onSubmit={handleNewFolder}
-          onCancel={() => setCreatingFolder(false)}
-        />
-      )}
-
-      {/* Content area + bookmark panel below */}
-      <div className={styles.contentCol}>
-      <div className={styles.content} ref={splitContainerRef}>
-        {loading && <div className={styles.empty}>Loading...</div>}
-
-        {error && <div className={styles.empty} style={{ color: 'var(--accent-red)' }}>{error}</div>}
-
-        {/* New file editor */}
-        {!loading && !error && showingEditor && (
-          <div className={styles.newFileEditor}>
-            <div className={styles.newFileHeader}>
-              <span className={styles.newFileName}>{editingNewFile}</span>
-              <div className={styles.newFileActions}>
-                <button className={styles.newFileSave} onClick={handleSaveNewFile}>Save</button>
-                <button className={styles.newFileCancel} onClick={handleCancelNewFile}>Cancel</button>
-              </div>
-            </div>
-            <textarea
-              className={styles.newFileTextarea}
-              value={newFileContent}
-              onChange={e => setNewFileContent(e.target.value)}
-              placeholder="Type file content..."
-              autoFocus
-              spellCheck={false}
+          <div className={styles.treePanelHeader}>
+            <span className={styles.treePanelTitle}>{projectName}</span>
+          </div>
+          {/* Inline new file/folder inputs */}
+          {creatingFile && (
+            <InlineInput
+              placeholder="filename.ext"
+              onSubmit={handleNewFile}
+              onCancel={() => setCreatingFile(false)}
+            />
+          )}
+          {creatingFolder && (
+            <InlineInput
+              placeholder="folder name"
+              onSubmit={handleNewFolder}
+              onCancel={() => setCreatingFolder(false)}
+            />
+          )}
+          <div className={styles.treePanelBody} ref={treePanelBodyRef}>
+            <FileTree
+              projectPath={projectPath}
+              showHidden={showHidden}
+              onFileSelect={(relPath) => loadFile(relPath)}
+              onDirSelect={(relPath) => {
+                setCurrentPath(relPath);
+                onPathChange?.(relPath, false);
+              }}
+              height={treeHeight || 400}
+              activeFilePath={activeTabPath}
             />
           </div>
-        )}
+        </div>
 
-        {/* File tree (replaces flat directory listing) */}
-        {!loading && !error && !file && !showingEditor && (
-          <FileTree
-            projectPath={projectPath}
-            showHidden={showHidden}
-            onFileSelect={(relPath) => loadFile(relPath)}
-            onDirSelect={(relPath) => {
-              setCurrentPath(relPath);
-              onPathChange?.(relPath, false);
-            }}
-            height={splitContainerRef.current?.clientHeight ?? 400}
-            activeFilePath={activeTabPath}
-          />
-        )}
+        {/* Resizable divider */}
+        <div className={styles.treeDivider} onMouseDown={onTreeDividerDown} />
 
-        {/* File viewer */}
-        {!loading && !error && file && !showingEditor && (
-          <div className={styles.fileViewer}>
-            {file.sheets && file.sheets.length > 0 ? (
-              <ExcelViewer sheets={file.sheets} />
-            ) : file.streamable && file.ext === 'pdf' && file.blobUrl ? (
-              <iframe
-                src={file.blobUrl}
-                className={styles.pdfViewer}
-                title={file.name}
-              />
-            ) : file.streamable && file.blobUrl && isImageExt(file.ext) ? (
-              <div className={styles.mediaViewer}>
-                <img
-                  src={file.blobUrl}
-                  alt={file.name}
-                  className={styles.mediaImage}
-                  draggable={false}
-                />
-                <div className={styles.mediaInfo}>{file.name} — {formatSize(file.size)}</div>
-              </div>
-            ) : file.streamable && file.blobUrl && isVideoExt(file.ext) ? (
-              <div className={styles.mediaViewer}>
-                <video
-                  src={file.blobUrl}
-                  controls
-                  className={styles.mediaVideo}
-                  preload="metadata"
-                />
-                <div className={styles.mediaInfo}>{file.name} — {formatSize(file.size)}</div>
-              </div>
-            ) : file.streamable && file.blobUrl && isAudioExt(file.ext) ? (
-              <div className={styles.mediaViewer}>
-                <audio src={file.blobUrl} controls preload="metadata" className={styles.mediaAudio} />
-                <div className={styles.mediaInfo}>{file.name} — {formatSize(file.size)}</div>
-              </div>
-            ) : file.binary ? (
-              <div className={styles.empty}>
-                Binary file ({formatSize(file.size)})
-              </div>
-            ) : file.ext === 'md' || file.ext === 'mdx' ? (
-              <div className={styles.mdContainer} ref={mdContainerRef}>
-                {showOutline && (
-                  <>
-                    <div className={styles.outlinePanel} style={{ width: outlineWidth, minWidth: outlineWidth }}>
-                      <div className={styles.outlineHeader}>OUTLINE</div>
-                      <div className={styles.outlineList}>
-                        {extractHeadings(file.content || '').map((h, i) => (
-                          <button
-                            key={i}
-                            className={styles.outlineItem}
-                            style={{ paddingLeft: `${(h.level - 1) * 12 + 8}px` }}
-                            onClick={() => {
-                              const el = markdownRef.current?.querySelector(`[id="${h.slug}"]`);
-                              el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                            }}
-                          >
-                            {h.text}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className={styles.outlineDivider} onMouseDown={onOutlineDividerDown} />
-                  </>
-                )}
-                <div className={styles.markdown} ref={markdownRef}>
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    rehypePlugins={[rehypeHighlight]}
-                    components={{
-                      a: ({ children, ...props }) => (
-                        <a {...props} target="_blank" rel="noopener noreferrer">{children}</a>
-                      ),
-                      h1: ({ children, ...props }) => <h1 id={headingSlug(String(children))} {...props}>{children}</h1>,
-                      h2: ({ children, ...props }) => <h2 id={headingSlug(String(children))} {...props}>{children}</h2>,
-                      h3: ({ children, ...props }) => <h3 id={headingSlug(String(children))} {...props}>{children}</h3>,
-                      h4: ({ children, ...props }) => <h4 id={headingSlug(String(children))} {...props}>{children}</h4>,
-                      h5: ({ children, ...props }) => <h5 id={headingSlug(String(children))} {...props}>{children}</h5>,
-                      h6: ({ children, ...props }) => <h6 id={headingSlug(String(children))} {...props}>{children}</h6>,
-                    }}
+        {/* Right: Viewer panel with tabs */}
+        <div className={styles.viewerPanel}>
+          {/* File tabs bar */}
+          {tabs.length > 0 && (
+            <div className={styles.tabBar}>
+              {tabs.map((tab) => (
+                <div
+                  key={tab.path}
+                  className={`${styles.fileTab} ${activeTabPath === tab.path ? styles.fileTabActive : ''}`}
+                  onClick={() => handleTabClick(tab)}
+                  title={tab.path}
+                >
+                  <span className={styles.fileTabIcon}>{fileIcon(tab.name, 'file')}</span>
+                  <span className={styles.fileTabName}>{tab.name}</span>
+                  <button
+                    className={styles.fileTabClose}
+                    onClick={(e) => handleTabClose(tab.path, e)}
+                    title="Close tab"
                   >
-                    {file.content || ''}
-                  </ReactMarkdown>
+                    &times;
+                  </button>
                 </div>
-              </div>
-            ) : (file.content || '').split('\n').length > VIRTUALIZE_THRESHOLD ? (
-              <VirtualCodeViewer
-                content={file.content || ''}
-                filePath={file.path}
-                bookmarks={bookmarks}
-                wordWrap={wordWrap}
-                scrollKey={fileScrollKey}
-              />
-            ) : (
-              <div
-                ref={codeViewerRef}
-                className={`${styles.codeLines}${wordWrap ? ` ${styles.codeLinesWrap}` : ''}`}
-              >
-                {(file.content || '').split('\n').map((line, i) => {
-                  const lineNum = i + 1;
-                  const isBookmarked = bookmarks.some(
-                    b => b.filePath === file.path && lineNum >= b.lineStart && lineNum <= b.lineEnd
-                  );
+              ))}
+            </div>
+          )}
+
+          {/* File path indicator (read-only breadcrumb, no navigation — use tree on left) */}
+          {file && (
+            <div className={styles.toolbar}>
+              <div className={styles.breadcrumb}>
+                {breadcrumbs.map((seg, i) => {
+                  const isLast = i === breadcrumbs.length - 1;
+                  const segPath = '/' + breadcrumbs.slice(0, i + 1).join('/');
                   return (
-                    <div
-                      key={i}
-                      id={`fv-line-${lineNum}`}
-                      className={`${styles.codeLine}${isBookmarked ? ` ${styles.bookmarkedLine}` : ''}`}
-                    >
-                      <span className={styles.lineNum}>{lineNum}</span>
-                      <span className={styles.lineText}>{line || '\u00A0'}</span>
-                    </div>
+                    <span key={segPath}>
+                      {i > 0 && <span className={styles.breadSep}>/</span>}
+                      {isLast ? (
+                        <span className={styles.breadCurrent}>{seg}</span>
+                      ) : (
+                        <span className={styles.breadSep} style={{ color: 'var(--text-dim)' }}>{seg}</span>
+                      )}
+                    </span>
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {/* Viewer content area */}
+          <div className={styles.contentCol}>
+          <div className={styles.content} ref={splitContainerRef}>
+            {loading && <div className={styles.empty}>Loading...</div>}
+
+            {error && <div className={styles.empty} style={{ color: 'var(--accent-red)' }}>{error}</div>}
+
+            {/* New file editor */}
+            {!loading && !error && showingEditor && (
+              <div className={styles.newFileEditor}>
+                <div className={styles.newFileHeader}>
+                  <span className={styles.newFileName}>{editingNewFile}</span>
+                  <div className={styles.newFileActions}>
+                    <button className={styles.newFileSave} onClick={handleSaveNewFile}>Save</button>
+                    <button className={styles.newFileCancel} onClick={handleCancelNewFile}>Cancel</button>
+                  </div>
+                </div>
+                <textarea
+                  className={styles.newFileTextarea}
+                  value={newFileContent}
+                  onChange={e => setNewFileContent(e.target.value)}
+                  placeholder="Type file content..."
+                  autoFocus
+                  spellCheck={false}
+                />
+              </div>
+            )}
+
+            {/* Welcome message (no file open, no tabs) */}
+            {!loading && !error && !file && !showingEditor && (
+              <div className={styles.viewerWelcome}>
+                <span>{'\u{1F4C2}'}</span>
+                <span>Select a file from the tree to view</span>
+              </div>
+            )}
+
+            {/* File viewer */}
+            {!loading && !error && file && !showingEditor && (
+              <div className={styles.fileViewer}>
+                {file.sheets && file.sheets.length > 0 ? (
+                  <ExcelViewer sheets={file.sheets} />
+                ) : file.streamable && file.ext === 'pdf' && file.blobUrl ? (
+                  <iframe
+                    src={file.blobUrl}
+                    className={styles.pdfViewer}
+                    title={file.name}
+                  />
+                ) : file.streamable && file.blobUrl && isImageExt(file.ext) ? (
+                  <div className={styles.mediaViewer}>
+                    <img
+                      src={file.blobUrl}
+                      alt={file.name}
+                      className={styles.mediaImage}
+                      draggable={false}
+                    />
+                    <div className={styles.mediaInfo}>{file.name} — {formatSize(file.size)}</div>
+                  </div>
+                ) : file.streamable && file.blobUrl && isVideoExt(file.ext) ? (
+                  <div className={styles.mediaViewer}>
+                    <video
+                      src={file.blobUrl}
+                      controls
+                      className={styles.mediaVideo}
+                      preload="metadata"
+                    />
+                    <div className={styles.mediaInfo}>{file.name} — {formatSize(file.size)}</div>
+                  </div>
+                ) : file.streamable && file.blobUrl && isAudioExt(file.ext) ? (
+                  <div className={styles.mediaViewer}>
+                    <audio src={file.blobUrl} controls preload="metadata" className={styles.mediaAudio} />
+                    <div className={styles.mediaInfo}>{file.name} — {formatSize(file.size)}</div>
+                  </div>
+                ) : file.binary ? (
+                  <div className={styles.empty}>
+                    Binary file ({formatSize(file.size)})
+                  </div>
+                ) : file.ext === 'md' || file.ext === 'mdx' ? (
+                  <div className={styles.mdContainer} ref={mdContainerRef}>
+                    {showOutline && (
+                      <>
+                        <div className={styles.outlinePanel} style={{ width: outlineWidth, minWidth: outlineWidth }}>
+                          <div className={styles.outlineHeader}>OUTLINE</div>
+                          <div className={styles.outlineList}>
+                            {extractHeadings(file.content || '').map((h, i) => (
+                              <button
+                                key={i}
+                                className={styles.outlineItem}
+                                style={{ paddingLeft: `${(h.level - 1) * 12 + 8}px` }}
+                                onClick={() => {
+                                  const el = markdownRef.current?.querySelector(`[id="${h.slug}"]`);
+                                  el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                }}
+                              >
+                                {h.text}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div className={styles.outlineDivider} onMouseDown={onOutlineDividerDown} />
+                      </>
+                    )}
+                    <div className={styles.markdown} ref={markdownRef}>
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        rehypePlugins={[rehypeHighlight]}
+                        components={{
+                          a: ({ children, ...props }) => (
+                            <a {...props} target="_blank" rel="noopener noreferrer">{children}</a>
+                          ),
+                          h1: ({ children, ...props }) => <h1 id={headingSlug(String(children))} {...props}>{children}</h1>,
+                          h2: ({ children, ...props }) => <h2 id={headingSlug(String(children))} {...props}>{children}</h2>,
+                          h3: ({ children, ...props }) => <h3 id={headingSlug(String(children))} {...props}>{children}</h3>,
+                          h4: ({ children, ...props }) => <h4 id={headingSlug(String(children))} {...props}>{children}</h4>,
+                          h5: ({ children, ...props }) => <h5 id={headingSlug(String(children))} {...props}>{children}</h5>,
+                          h6: ({ children, ...props }) => <h6 id={headingSlug(String(children))} {...props}>{children}</h6>,
+                        }}
+                      >
+                        {file.content || ''}
+                      </ReactMarkdown>
+                    </div>
+                  </div>
+                ) : (file.content || '').split('\n').length > VIRTUALIZE_THRESHOLD ? (
+                  <VirtualCodeViewer
+                    content={file.content || ''}
+                    filePath={file.path}
+                    bookmarks={bookmarks}
+                    wordWrap={wordWrap}
+                    scrollKey={fileScrollKey}
+                  />
+                ) : (
+                  <div
+                    ref={codeViewerRef}
+                    className={`${styles.codeLines}${wordWrap ? ` ${styles.codeLinesWrap}` : ''}`}
+                  >
+                    {(file.content || '').split('\n').map((line, i) => {
+                      const lineNum = i + 1;
+                      const isBookmarked = bookmarks.some(
+                        b => b.filePath === file.path && lineNum >= b.lineStart && lineNum <= b.lineEnd
+                      );
+                      return (
+                        <div
+                          key={i}
+                          id={`fv-line-${lineNum}`}
+                          className={`${styles.codeLine}${isBookmarked ? ` ${styles.bookmarkedLine}` : ''}`}
+                        >
+                          <span className={styles.lineNum}>{lineNum}</span>
+                          <span className={styles.lineText}>{line || '\u00A0'}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
 
-      {/* Bookmark panel */}
-      {showBookmarkPanel && (
-        <div className={styles.bookmarkPanel}>
-          <div className={styles.bookmarkPanelHeader}>
-            <span className={styles.bookmarkPanelTitle}>BOOKMARKS ({bookmarks.length})</span>
-            <button className={styles.bookmarkPanelClose} onClick={() => setShowBookmarkPanel(false)}>✕</button>
-          </div>
-          {bookmarks.length === 0 ? (
-            <div className={styles.bookmarkEmpty}>
-              Select text in the viewer, then click the bookmark icon to add.
-            </div>
-          ) : (
-            <div className={styles.bookmarkList}>
-              {bookmarks.map(bm => (
-                <div
-                  key={bm.id}
-                  className={`${styles.bookmarkItem}${bm.filePath !== file?.path ? ` ${styles.bookmarkItemOther}` : ''}`}
-                  onClick={() => handleJumpToBookmark(bm)}
-                >
-                  <div className={styles.bookmarkItemTop}>
-                    <span className={styles.bookmarkItemLine}>
-                      L{bm.lineStart}{bm.lineEnd !== bm.lineStart ? `–${bm.lineEnd}` : ''}
-                    </span>
-                    <span className={styles.bookmarkItemFile}>{bm.filePath.split('/').pop()}</span>
-                    <button
-                      className={styles.bookmarkItemDel}
-                      onClick={e => { e.stopPropagation(); handleDeleteBookmark(bm.id); }}
-                      title="Delete bookmark"
-                    >✕</button>
-                  </div>
-                  <div className={styles.bookmarkItemText}>{bm.selectedText.slice(0, 120)}</div>
-                  <input
-                    className={styles.bookmarkItemNote}
-                    placeholder="Add note..."
-                    value={bm.note}
-                    onChange={e => handleBookmarkNoteChange(bm.id, e.target.value)}
-                    onClick={e => e.stopPropagation()}
-                  />
+          {/* Bookmark panel */}
+          {showBookmarkPanel && (
+            <div className={styles.bookmarkPanel}>
+              <div className={styles.bookmarkPanelHeader}>
+                <span className={styles.bookmarkPanelTitle}>BOOKMARKS ({bookmarks.length})</span>
+                <button className={styles.bookmarkPanelClose} onClick={() => setShowBookmarkPanel(false)}>✕</button>
+              </div>
+              {bookmarks.length === 0 ? (
+                <div className={styles.bookmarkEmpty}>
+                  Select text in the viewer, then click the bookmark icon to add.
                 </div>
-              ))}
+              ) : (
+                <div className={styles.bookmarkList}>
+                  {bookmarks.map(bm => (
+                    <div
+                      key={bm.id}
+                      className={`${styles.bookmarkItem}${bm.filePath !== file?.path ? ` ${styles.bookmarkItemOther}` : ''}`}
+                      onClick={() => handleJumpToBookmark(bm)}
+                    >
+                      <div className={styles.bookmarkItemTop}>
+                        <span className={styles.bookmarkItemLine}>
+                          L{bm.lineStart}{bm.lineEnd !== bm.lineStart ? `–${bm.lineEnd}` : ''}
+                        </span>
+                        <span className={styles.bookmarkItemFile}>{bm.filePath.split('/').pop()}</span>
+                        <button
+                          className={styles.bookmarkItemDel}
+                          onClick={e => { e.stopPropagation(); handleDeleteBookmark(bm.id); }}
+                          title="Delete bookmark"
+                        >✕</button>
+                      </div>
+                      <div className={styles.bookmarkItemText}>{bm.selectedText.slice(0, 120)}</div>
+                      <input
+                        className={styles.bookmarkItemNote}
+                        placeholder="Add note..."
+                        value={bm.note}
+                        onChange={e => handleBookmarkNoteChange(bm.id, e.target.value)}
+                        onClick={e => e.stopPropagation()}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
-        </div>
-      )}
-      {/* Collection panel */}
-      {showCollectionPanel && (
-        <div className={styles.collectionPanel}>
-          <div className={styles.bookmarkPanelHeader}>
-            <span className={styles.collectionPanelTitle}>COLLECTION ({collections.length})</span>
-            <button className={styles.bookmarkPanelClose} onClick={() => setShowCollectionPanel(false)}>✕</button>
-          </div>
-          {collections.length === 0 ? (
-            <div className={styles.bookmarkEmpty}>
-              Navigate to any file or folder and click ★ to collect it.
-            </div>
-          ) : (
-            <div className={styles.collectionList}>
-              {collections.map((col) => (
-                <div
-                  key={col.id}
-                  className={`${styles.collectionItem}${col.path === currentPath ? ` ${styles.collectionItemActive}` : ''}`}
-                  onClick={() => handleCollectionItemClick(col)}
-                  title={col.path}
-                >
-                  <span className={styles.collectionItemIcon}>{col.isFile ? '📄' : '📁'}</span>
-                  <span className={styles.collectionItemName}>{col.name}</span>
-                  <span className={styles.collectionItemPath}>{col.path}</span>
-                  <button
-                    className={styles.bookmarkItemDel}
-                    onClick={(e) => { e.stopPropagation(); handleDeleteCollection(col.id); }}
-                    title="Remove from collection"
-                  >
-                    ✕
-                  </button>
+          {/* Collection panel */}
+          {showCollectionPanel && (
+            <div className={styles.collectionPanel}>
+              <div className={styles.bookmarkPanelHeader}>
+                <span className={styles.collectionPanelTitle}>COLLECTION ({collections.length})</span>
+                <button className={styles.bookmarkPanelClose} onClick={() => setShowCollectionPanel(false)}>✕</button>
+              </div>
+              {collections.length === 0 ? (
+                <div className={styles.bookmarkEmpty}>
+                  Navigate to any file or folder and click ★ to collect it.
                 </div>
-              ))}
+              ) : (
+                <div className={styles.collectionList}>
+                  {collections.map((col) => (
+                    <div
+                      key={col.id}
+                      className={`${styles.collectionItem}${col.path === currentPath ? ` ${styles.collectionItemActive}` : ''}`}
+                      onClick={() => handleCollectionItemClick(col)}
+                      title={col.path}
+                    >
+                      <span className={styles.collectionItemIcon}>{col.isFile ? '📄' : '📁'}</span>
+                      <span className={styles.collectionItemName}>{col.name}</span>
+                      <span className={styles.collectionItemPath}>{col.path}</span>
+                      <button
+                        className={styles.bookmarkItemDel}
+                        onClick={(e) => { e.stopPropagation(); handleDeleteCollection(col.id); }}
+                        title="Remove from collection"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
-        </div>
-      )}
-      </div>{/* end contentCol */}
+          </div>{/* end contentCol */}
+        </div>{/* end viewerPanel */}
+      </div>{/* end vscodeSplit */}
 
       {/* Fullscreen file viewer popup */}
       {showFullscreen && file && (
