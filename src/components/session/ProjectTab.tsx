@@ -984,8 +984,103 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     }
   }, [currentPath, loadDir, loadFile]);
 
+  // Scroll position persistence — save/restore per file across session switches and app restarts.
+  // Key: file-browser:scroll:{projectPath}:{filePath}
+  const scrollKeyForPath = useCallback((filePath: string) =>
+    `file-browser:scroll:${projectPath}:${filePath}`, [projectPath]);
+  const fileScrollKey = scrollKeyForPath(currentPath);
+
+  // Save current scroll position to localStorage (call before switching away)
+  const saveCurrentScroll = useCallback(() => {
+    const el = markdownRef.current || codeViewerRef.current;
+    if (!el || !file) return;
+    // Don't save when element is hidden (display:none/visibility:hidden resets scroll to 0)
+    if (!el.offsetHeight) return;
+    try { localStorage.setItem(scrollKeyForPath(file.path), String(el.scrollTop)); } catch { /* ignore */ }
+  }, [file, scrollKeyForPath]);
+
+  // Ref so cleanup/unmount can always call the latest saveCurrentScroll
+  const saveCurrentScrollRef = useRef(saveCurrentScroll);
+  saveCurrentScrollRef.current = saveCurrentScroll;
+
+  // Save scroll position on unmount
+  useEffect(() => {
+    return () => { saveCurrentScrollRef.current(); };
+  }, []);
+
+  // Restore scroll when a file finishes loading (markdown + regular code)
+  useEffect(() => {
+    if (!file) return;
+    const key = scrollKeyForPath(file.path);
+    let saved = 0;
+    try { saved = parseInt(localStorage.getItem(key) ?? '0', 10) || 0; } catch { /* ignore */ }
+    if (!saved) return;
+    // Use double rAF to ensure DOM has settled after React render
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (markdownRef.current) markdownRef.current.scrollTop = saved;
+        else if (codeViewerRef.current) codeViewerRef.current.scrollTop = saved;
+      });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file?.path]);
+
+  // Save scroll on markdown scroll events
+  useEffect(() => {
+    const el = markdownRef.current;
+    if (!el || !file) return;
+    const key = scrollKeyForPath(file.path);
+    const onScroll = () => {
+      // Skip save when element is hidden (browser resets scroll to 0)
+      if (!el.offsetHeight) return;
+      try { localStorage.setItem(key, String(el.scrollTop)); } catch { /* ignore */ }
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => { onScroll(); el.removeEventListener('scroll', onScroll); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file?.path, scrollKeyForPath]);
+
+  // Save scroll on regular code viewer scroll events
+  useEffect(() => {
+    const el = codeViewerRef.current;
+    if (!el || !file) return;
+    const key = scrollKeyForPath(file.path);
+    const onScroll = () => {
+      // Skip save when element is hidden (browser resets scroll to 0)
+      if (!el.offsetHeight) return;
+      try { localStorage.setItem(key, String(el.scrollTop)); } catch { /* ignore */ }
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => { onScroll(); el.removeEventListener('scroll', onScroll); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file?.path, scrollKeyForPath]);
+
+  // Restore scroll when tab becomes visible (display:none → display:flex triggers resize)
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const ro = new ResizeObserver(() => {
+      if (!root.offsetHeight) return; // still hidden
+      const el = markdownRef.current || codeViewerRef.current;
+      if (!el || el.scrollTop !== 0) return; // already at a non-zero position
+      const f = file;
+      if (!f) return;
+      const key = scrollKeyForPath(f.path);
+      let saved = 0;
+      try { saved = parseInt(localStorage.getItem(key) ?? '0', 10) || 0; } catch { /* ignore */ }
+      if (saved) {
+        requestAnimationFrame(() => { el.scrollTop = saved; });
+      }
+    });
+    ro.observe(root);
+    return () => ro.disconnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file?.path, scrollKeyForPath]);
+
   // Tab actions
   const handleTabClick = useCallback((tab: FileTab) => {
+    // Save current scroll position before switching
+    saveCurrentScroll();
     // Use cached content for instant tab switching
     const cached = fileCacheRef.current.get(tab.path);
     if (cached) {
@@ -998,7 +1093,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     } else {
       loadFile(tab.path);
     }
-  }, [loadFile, onPathChange]);
+  }, [loadFile, onPathChange, saveCurrentScroll]);
 
   const handleTabClose = useCallback((tabPath: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1150,46 +1245,6 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     if (!file) loadDir(currentPath);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showHidden]);
-
-  // Scroll position persistence — save/restore per file across session switches
-  const fileScrollKey = `file-browser:scroll:${projectPath}:${currentPath}`;
-
-  // Restore scroll when a file finishes loading (markdown + regular code)
-  useEffect(() => {
-    if (!file) return;
-    let saved = 0;
-    try { saved = parseInt(localStorage.getItem(fileScrollKey) ?? '0', 10) || 0; } catch { /* ignore */ }
-    if (!saved) return;
-    requestAnimationFrame(() => {
-      if (markdownRef.current) markdownRef.current.scrollTop = saved;
-      else if (codeViewerRef.current) codeViewerRef.current.scrollTop = saved;
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file?.path]);
-
-  // Save scroll on markdown scroll events
-  useEffect(() => {
-    const el = markdownRef.current;
-    if (!el || !file) return;
-    const onScroll = () => {
-      try { localStorage.setItem(fileScrollKey, String(el.scrollTop)); } catch { /* ignore */ }
-    };
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file?.path, fileScrollKey]);
-
-  // Save scroll on regular code viewer scroll events
-  useEffect(() => {
-    const el = codeViewerRef.current;
-    if (!el || !file) return;
-    const onScroll = () => {
-      try { localStorage.setItem(fileScrollKey, String(el.scrollTop)); } catch { /* ignore */ }
-    };
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file?.path, fileScrollKey]);
 
   // Refresh
   const handleRefresh = useCallback(() => {
