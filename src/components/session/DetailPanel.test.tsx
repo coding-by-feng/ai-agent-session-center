@@ -24,24 +24,16 @@ vi.mock('@/lib/robotStateMap', () => ({
   sessionStatusToRobotState: (status: string) => status === 'ended' ? 'offline' : status,
 }));
 
-vi.mock('@/lib/robot3DModels', () => ({
-  getModelLabel: (type: string) => type.charAt(0).toUpperCase() + type.slice(1),
-}));
-
 vi.mock('./DetailTabs', () => ({
   default: ({
     terminalContent,
     promptsContent,
-    activityContent,
     notesContent,
-    summaryContent,
   }: Record<string, React.ReactNode>) => (
     <div data-testid="detail-tabs">
       <div data-testid="terminal-tab">{terminalContent}</div>
       <div data-testid="prompts-tab">{promptsContent}</div>
-      <div data-testid="activity-tab">{activityContent}</div>
       <div data-testid="notes-tab">{notesContent}</div>
-      <div data-testid="summary-tab">{summaryContent}</div>
     </div>
   ),
 }));
@@ -52,19 +44,9 @@ vi.mock('./PromptHistory', () => ({
   ),
 }));
 
-vi.mock('./ActivityLog', () => ({
-  default: () => <div data-testid="activity-log">Activity</div>,
-}));
-
 vi.mock('./NotesTab', () => ({
   default: ({ sessionId }: { sessionId: string }) => (
     <div data-testid="notes-tab-inner">Notes for {sessionId}</div>
-  ),
-}));
-
-vi.mock('./SummaryTab', () => ({
-  default: ({ summary }: { summary?: string }) => (
-    <div data-testid="summary-tab-inner">{summary || 'No summary'}</div>
   ),
 }));
 

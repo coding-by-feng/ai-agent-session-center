@@ -26,7 +26,7 @@ function sw(key: string): KeyCombo {
 const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
   toggleFullscreen:           { label: 'Toggle fullscreen',             section: 'Terminal',      combo: { key: 'F11', altKey: true } },
   scrollToBottom:             { label: 'Scroll to bottom',              section: 'Terminal',      combo: isMac ? { key: 'b', altKey: true, metaKey: true } : { key: 'b', altKey: true, ctrlKey: true } },
-  switchLatestSession:        { label: 'Switch to previous session',    section: 'Session Switch', combo: sw('p') },
+  switchLatestSession:        { label: 'Switch to previous session',    section: 'Session Switch', combo: isMac ? { key: 'p', shiftKey: true, metaKey: true } : { key: 'p', shiftKey: true, ctrlKey: true } },
   switchSession1:             { label: 'Switch to session 1',           section: 'Session Switch', combo: sw('1') },
   switchSession2:             { label: 'Switch to session 2',           section: 'Session Switch', combo: sw('2') },
   switchSession3:             { label: 'Switch to session 3',           section: 'Session Switch', combo: sw('3') },

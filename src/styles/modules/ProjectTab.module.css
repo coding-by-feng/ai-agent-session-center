@@ -1299,6 +1299,11 @@
   flex-shrink: 0;
 }
 
+.treePanelCollapsed .treePanelHeader {
+  justify-content: center;
+  padding: 6px 4px;
+}
+
 .treePanelTitle {
   font-family: var(--font-mono);
   font-size: 9px;
@@ -1306,6 +1311,32 @@
   letter-spacing: 1.2px;
   color: var(--text-dim);
   text-transform: uppercase;
+}
+
+.treePanelCollapsed {
+  width: 32px !important;
+  min-width: 32px !important;
+  max-width: 32px !important;
+}
+
+.treePanelToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: 3px;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+.treePanelToggle:hover {
+  color: var(--text-primary, #e0e0e0);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .treePanelActions {

@@ -94,7 +94,7 @@ export function useKeyboardShortcuts(): void {
       //   (xterm uses a hidden <textarea> so isTyping() returns true)
       if (isTyping(e)) {
         const inXterm = !!(e.target as HTMLElement)?.closest?.('.xterm');
-        const isModifierSwitch = e.altKey && (e.metaKey || e.ctrlKey);
+        const isModifierSwitch = (e.altKey || e.shiftKey) && (e.metaKey || e.ctrlKey);
         if (!inXterm || !isModifierSwitch) return;
         // fall through to shortcut lookup
       }

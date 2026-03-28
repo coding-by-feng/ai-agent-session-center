@@ -1,11 +1,11 @@
 /**
  * DetailTabs manages the tab bar and content switching for the detail panel.
- * Tabs: Terminal | Prompts | Notes | Activity
+ * Tabs: Project | Terminal | Commands | Prompts | Notes | Queue
  *
  * Split-view: On wide screens the PROJECT tab has a merge icon that shows
  * Terminal (left) + Project (right) side-by-side with a draggable divider.
  */
-import { useState, useCallback, useRef, useEffect, useMemo, type ReactNode } from 'react';
+import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 const STORAGE_KEY = 'active-tab';
@@ -18,9 +18,7 @@ const SPLIT_MIN_WIDTH = 700;
 interface DetailTabsProps {
   terminalContent: ReactNode;
   promptsContent: ReactNode;
-  outputContent?: ReactNode;
   notesContent: ReactNode;
-  activityContent: ReactNode;
   queueContent: ReactNode;
   projectContent: ReactNode;
   commandsContent?: ReactNode;
@@ -42,16 +40,13 @@ interface DetailTabsProps {
 }
 
 const BASE_TABS = [
-  { id: 'terminal', label: 'TERMINAL' },
-  { id: 'conversation', label: 'PROMPTS' },
-  { id: 'output', label: 'OUTPUT' },
   { id: 'project', label: 'PROJECT' },
-  { id: 'queue', label: 'QUEUE' },
+  { id: 'terminal', label: 'TERMINAL' },
+  { id: 'commands', label: 'COMMANDS' },
+  { id: 'conversation', label: 'PROMPTS' },
   { id: 'notes', label: 'NOTES' },
-  { id: 'activity', label: 'ACTIVITY' },
+  { id: 'queue', label: 'QUEUE' },
 ] as const;
-
-const COMMANDS_TAB = { id: 'commands', label: 'COMMANDS' } as const;
 
 // ---------------------------------------------------------------------------
 // Split / merge SVG icons (inline to avoid extra asset files)
@@ -163,9 +158,7 @@ function DraggableSplitView({
 export default function DetailTabs({
   terminalContent,
   promptsContent,
-  outputContent,
   notesContent,
-  activityContent,
   queueContent,
   projectContent,
   commandsContent,
@@ -182,7 +175,6 @@ export default function DetailTabs({
   onSearchNext,
   searchInputRef,
 }: DetailTabsProps) {
-  const hasCommands = !!commandsContent;
   const [activeTab, setActiveTab] = useState<string>(() => {
     try {
       return localStorage.getItem(STORAGE_KEY) || 'terminal';
@@ -245,10 +237,7 @@ export default function DetailTabs({
       ? 'split'
       : activeTab;
 
-  const tabs = useMemo(
-    () => hasCommands ? [...BASE_TABS, COMMANDS_TAB] : BASE_TABS,
-    [hasCommands],
-  );
+  const tabs = BASE_TABS;
 
   // Each scrollable tab gets a unique key so React creates a separate DOM node per tab.
   // Without this, all text tabs share the same div.tabScroll DOM node, meaning scroll
@@ -259,7 +248,6 @@ export default function DetailTabs({
     project: projectContent,
     queue: <div key="scroll-queue" className={styles.tabScroll}>{queueContent}</div>,
     notes: <div key="scroll-notes" className={styles.tabScroll}>{notesContent}</div>,
-    activity: <div key="scroll-activity" className={styles.tabScroll}>{activityContent}</div>,
     split: (
       <DraggableSplitView
         left={terminalContent}
@@ -341,15 +329,9 @@ export default function DetailTabs({
         <button className={styles.searchCloseBtn} onClick={onSearchClose} title="Close (Esc)">✕</button>
       </div>
 
-      {/* Always-mount OUTPUT (accumulates data) and TERMINAL/COMMANDS (preserves xterm scroll).
+      {/* Always-mount TERMINAL/COMMANDS (preserves xterm scroll) and PROJECT (preserves file state).
           Other tabs mount on demand. Hidden tabs use display:none to preserve DOM state. */}
       <div className={styles.tabContent}>
-        {/* OUTPUT: always mounted */}
-        {outputContent && (
-          <div className={effectiveTab === 'output' ? styles.alwaysTabActive : styles.alwaysTabHidden}>
-            {outputContent}
-          </div>
-        )}
         {/* TERMINAL: always mounted to preserve xterm instance + scroll position.
             Unmounted during split view (split view renders its own terminal instance). */}
         <div className={
@@ -375,7 +357,7 @@ export default function DetailTabs({
           {effectiveTab !== 'split' && projectContent}
         </div>
         {/* Other tabs (incl. split view): mounted on demand */}
-        {effectiveTab !== 'output' && effectiveTab !== 'terminal' && effectiveTab !== 'commands' && effectiveTab !== 'project' &&
+        {effectiveTab !== 'terminal' && effectiveTab !== 'commands' && effectiveTab !== 'project' &&
           contentMap[effectiveTab]}
       </div>
     </>

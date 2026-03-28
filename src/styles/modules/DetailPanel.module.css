@@ -349,27 +349,9 @@
 .tabContent::-webkit-scrollbar-thumb, .tabScroll::-webkit-scrollbar-thumb { background: var(--bg-accent); border-radius: 2px; }
 .tabEmpty { text-align: center; padding: 40px 20px; color: var(--text-dim); font-size: 11px; letter-spacing: 1px; }
 
-/* ---- Always-mounted tab visibility (OUTPUT + TERMINAL + PROJECT kept alive) ---- */
+/* ---- Always-mounted tab visibility (TERMINAL + PROJECT kept alive) ---- */
 .alwaysTabHidden { display: none; }
 .alwaysTabActive { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; }
-/* Legacy aliases */
-.outputTabHidden { display: none; }
-.outputTabActive { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; }
-
-/* ---- OutputTab ---- */
-.outputTab { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.outputToolbar { display: flex; align-items: center; gap: 8px; padding: 0 0 8px; border-bottom: 1px solid var(--border-faint); flex-shrink: 0; }
-.outputLineCount { font-size: 10px; color: var(--text-dim); letter-spacing: 0.5px; flex: 1; }
-.outputScrollBtn { font-size: 9px; font-weight: 700; letter-spacing: 1px; padding: 2px 8px; background: transparent; border: 1px solid var(--accent-cyan); color: var(--accent-cyan); border-radius: 2px; cursor: pointer; }
-.outputScrollBtn:hover { background: color-mix(in srgb, var(--accent-cyan) 15%, transparent); }
-.outputClearBtn { font-size: 9px; font-weight: 700; letter-spacing: 1px; padding: 2px 8px; background: transparent; border: 1px solid var(--border-faint); color: var(--text-dim); border-radius: 2px; cursor: pointer; }
-.outputClearBtn:hover { border-color: var(--accent-red); color: var(--accent-red); }
-.outputScroll { flex: 1; overflow-y: auto; min-height: 0; margin-top: 8px; overflow-anchor: auto; overscroll-behavior: contain; }
-.outputScroll::-webkit-scrollbar { width: 4px; }
-.outputScroll::-webkit-scrollbar-track { background: transparent; }
-.outputScroll::-webkit-scrollbar-thumb { background: var(--bg-accent); border-radius: 2px; }
-.outputPre { margin: 0; font-family: var(--font-mono); font-size: 11px; line-height: 1.5; color: var(--text-secondary); white-space: pre-wrap; word-break: break-all; }
-.outputEmpty { padding: 40px 0; text-align: center; color: var(--text-dim); font-size: 11px; letter-spacing: 1px; line-height: 1.8; }
 
 /* ---- Conversation Entries ---- */
 
@@ -397,21 +379,6 @@
 @media (hover: none) {
   .convCopy { opacity: 0.5; }
 }
-
-/* ---- Activity Entries ---- */
-
-.activityEntry { display: flex; align-items: flex-start; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border-faint); font-size: 11px; border-left: 3px solid transparent; padding-left: 8px; }
-.activityTool { border-left-color: var(--accent-orange, #ff9100); }
-.activityEvent { border-left-color: var(--accent-purple, #bb86fc); }
-.activityResponse { border-left-color: var(--accent-green, #00ff88); }
-
-.activityTime { font-size: 9px; color: var(--text-dim); flex-shrink: 0; width: 55px; padding-top: 1px; }
-.activityBadge { font-size: 9px; font-weight: 700; letter-spacing: 0.5px; padding: 1px 6px; border-radius: 3px; flex-shrink: 0; white-space: nowrap; }
-.activityBadgeTool { background: var(--bg-accent); color: var(--accent-orange, #ff9100); border: 1px solid var(--accent-orange, #ff9100); }
-.activityBadgeEvent { background: var(--bg-accent); color: var(--accent-purple, #bb86fc); border: 1px solid var(--border-accent); }
-.activityBadgeResponse { background: var(--bg-accent); color: var(--accent-green, #00ff88); border: 1px solid var(--accent-green, #00ff88); }
-.activityDetail { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; flex: 1; white-space: nowrap; }
-.activityResponse .activityDetail { white-space: pre-wrap; word-break: break-word; max-height: 80px; overflow-y: auto; }
 
 /* ---- Session Control Buttons ---- */
 

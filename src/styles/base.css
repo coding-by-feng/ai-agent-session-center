@@ -3,7 +3,7 @@
    Variables, Reset, Utility
    ============================================================ */
 
-/* ---- Search highlight (used by PromptHistory, ActivityLog) ---- */
+/* ---- Search highlight (used by PromptHistory) ---- */
 .search-highlight {
   background: rgba(0, 229, 255, 0.12) !important;
   border-left-color: var(--accent-cyan) !important;
