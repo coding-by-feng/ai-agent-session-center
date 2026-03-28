@@ -11,7 +11,6 @@ import { useWsStore } from '@/stores/wsStore';
 import ResizablePanel from '@/components/ui/ResizablePanel';
 import DetailTabs from './DetailTabs';
 import PromptHistory from './PromptHistory';
-import ActivityLog from './ActivityLog';
 import NotesTab from './NotesTab';
 import QueueTab from './QueueTab';
 import ProjectTabContainer from './ProjectTabContainer';
@@ -20,8 +19,6 @@ import SessionSwitcher from './SessionSwitcher';
 import LabelChips from './LabelChips';
 import KillConfirmModal, { KILL_MODAL_ID } from './KillConfirmModal';
 import TerminalContainer from '@/components/terminal/TerminalContainer';
-import OutputTab from './OutputTab';
-import { useOutputCapture } from '@/hooks/useOutputCapture';
 import type { RobotModelType } from '@/lib/robot3DModels';
 import { getModelLabel } from '@/lib/robot3DModels';
 import { PALETTE } from '@/lib/robot3DGeometry';
@@ -96,31 +93,6 @@ const TerminalContent = memo(function TerminalContent({
         <div ref={setBookmarkTarget} className={styles.bookmarkPortal} />
       </div>
     </div>
-  );
-});
-
-// ---------------------------------------------------------------------------
-// Output capture wrapper — always mounted to accumulate terminal output.
-// Uses useOutputCapture (no subscribe/unsubscribe) to passively collect output.
-// ---------------------------------------------------------------------------
-
-interface OutputCaptureProps {
-  terminalId: string | null;
-}
-
-const OutputCapture = memo(function OutputCapture({ terminalId }: OutputCaptureProps) {
-  const client = useWsStore((s) => s.client);
-  const ws = useMemo(() => client?.getRawSocket() ?? null, [client]);
-  const { lines, scrollContainerRef, isAutoScrolling, scrollToBottom, clearOutput } = useOutputCapture({ ws, terminalId });
-
-  return (
-    <OutputTab
-      lines={lines}
-      scrollContainerRef={scrollContainerRef}
-      isAutoScrolling={isAutoScrolling}
-      scrollToBottom={scrollToBottom}
-      clearOutput={clearOutput}
-    />
   );
 });
 
@@ -411,25 +383,15 @@ export default function DetailPanel() {
   // Close search when session changes
   useEffect(() => { closeSearch(); }, [selectedSessionId, closeSearch]);
 
-  // Compute match count per tab (conversation vs activity)
-  const { searchMatchCount, conversationMatchCount } = useMemo(() => {
-    if (!displaySession || !searchQuery) return { searchMatchCount: 0, conversationMatchCount: 0 };
+  // Compute match count (conversation tab only)
+  const searchMatchCount = useMemo(() => {
+    if (!displaySession || !searchQuery) return 0;
     const q = searchQuery.toLowerCase();
-    let convCount = 0;
-    let actCount = 0;
+    let count = 0;
     for (const p of displaySession.promptHistory ?? []) {
-      if (p.text.toLowerCase().includes(q)) convCount++;
+      if (p.text.toLowerCase().includes(q)) count++;
     }
-    for (const t of displaySession.toolLog ?? []) {
-      if (`${t.tool} ${t.input}`.toLowerCase().includes(q)) actCount++;
-    }
-    for (const r of displaySession.responseLog ?? []) {
-      if ((r.text ?? '').toLowerCase().includes(q)) actCount++;
-    }
-    for (const ev of displaySession.events ?? []) {
-      if (`${ev.type} ${ev.detail ?? ''}`.toLowerCase().includes(q)) actCount++;
-    }
-    return { searchMatchCount: convCount + actCount, conversationMatchCount: convCount };
+    return count;
   }, [displaySession, searchQuery]);
 
   // navigateMatch is defined below, after activeTab/setExternalTab are declared
@@ -497,7 +459,7 @@ export default function DetailPanel() {
   const activeTabRef = useRef(activeTab);
   activeTabRef.current = activeTab;
 
-  // Navigate to prev/next highlighted match — auto-switches tabs when needed
+  // Navigate to prev/next highlighted match — auto-switches to conversation tab when needed
   const navigateMatch = useCallback((direction: 'prev' | 'next') => {
     if (searchMatchCount === 0) return;
 
@@ -506,31 +468,24 @@ export default function DetailPanel() {
         ? (prev + 1) % searchMatchCount
         : (prev - 1 + searchMatchCount) % searchMatchCount;
 
-      // Determine which tab the match belongs to
-      // Order: conversation matches first (0..convCount-1), then activity (convCount..total-1)
-      const targetTab = next < conversationMatchCount ? 'conversation' : 'activity';
-      const indexInTab = next < conversationMatchCount ? next : next - conversationMatchCount;
-
       const scrollToHighlight = () => {
         requestAnimationFrame(() => {
           const highlights = Array.from(
             document.querySelectorAll<HTMLElement>('.search-highlight'),
           );
-          // Clear previous active highlight
           document.querySelectorAll('.search-highlight-active').forEach((el) =>
             el.classList.remove('search-highlight-active'),
           );
-          const el = highlights[indexInTab];
+          const el = highlights[next];
           el?.classList.add('search-highlight-active');
           el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         });
       };
 
-      const needSwitch = activeTabRef.current !== targetTab;
-      if (needSwitch) {
-        setActiveTab(targetTab);
-        activeTabRef.current = targetTab;
-        setExternalTab(targetTab);
+      if (activeTabRef.current !== 'conversation') {
+        setActiveTab('conversation');
+        activeTabRef.current = 'conversation';
+        setExternalTab('conversation');
         setTimeout(() => {
           setExternalTab(null);
           scrollToHighlight();
@@ -541,7 +496,7 @@ export default function DetailPanel() {
 
       return next;
     });
-  }, [searchMatchCount, conversationMatchCount]);
+  }, [searchMatchCount]);
 
   if (!displaySession) return null;
 
@@ -677,20 +632,7 @@ export default function DetailPanel() {
               searchQuery={searchQuery}
             />
           }
-          outputContent={
-            <OutputCapture
-              terminalId={displaySession.terminalId}
-            />
-          }
           notesContent={<NotesTab sessionId={displaySession.sessionId} />}
-          activityContent={
-            <ActivityLog
-              events={displaySession.events || []}
-              toolLog={displaySession.toolLog || []}
-              responseLog={displaySession.responseLog || []}
-              searchQuery={searchQuery}
-            />
-          }
           queueContent={
             <QueueTab
               sessionId={displaySession.sessionId}

@@ -732,6 +732,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     } catch { /* ignore */ }
     return 220;
   });
+  const [treePanelCollapsed, setTreePanelCollapsed] = useState(false);
   const treePanelWidthRef = useRef(treePanelWidth);
   treePanelWidthRef.current = treePanelWidth;
   const treePanelRef = useRef<HTMLDivElement>(null);
@@ -1649,27 +1650,41 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         {/* Left: File tree panel */}
         <div
           ref={treePanelRef}
-          className={styles.treePanel}
-          style={{ width: treePanelWidth, minWidth: treePanelWidth }}
+          className={`${styles.treePanel} ${treePanelCollapsed ? styles.treePanelCollapsed : ''}`}
+          style={treePanelCollapsed ? undefined : { width: treePanelWidth, minWidth: treePanelWidth }}
         >
           <div className={styles.treePanelHeader}>
-            <span className={styles.treePanelTitle}>{projectName}</span>
+            {!treePanelCollapsed && <span className={styles.treePanelTitle}>{projectName}</span>}
+            <button
+              className={styles.treePanelToggle}
+              onClick={() => setTreePanelCollapsed((c) => !c)}
+              title={treePanelCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                {treePanelCollapsed ? (
+                  <path d="M6 2l6 6-6 6V2z" />
+                ) : (
+                  <path d="M10 14l-6-6 6-6v12z" />
+                )}
+              </svg>
+            </button>
           </div>
           {/* Inline new file/folder inputs */}
-          {creatingFile && (
+          {!treePanelCollapsed && creatingFile && (
             <InlineInput
               placeholder="filename.ext"
               onSubmit={handleNewFile}
               onCancel={() => setCreatingFile(false)}
             />
           )}
-          {creatingFolder && (
+          {!treePanelCollapsed && creatingFolder && (
             <InlineInput
               placeholder="folder name"
               onSubmit={handleNewFolder}
               onCancel={() => setCreatingFolder(false)}
             />
           )}
+          {!treePanelCollapsed && (
           <div className={styles.treePanelBody} ref={treePanelBodyRef}>
             <FileTree
               projectPath={projectPath}
@@ -1683,10 +1698,11 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
               activeFilePath={activeTabPath}
             />
           </div>
+          )}
         </div>
 
         {/* Resizable divider */}
-        <div className={styles.treeDivider} onMouseDown={onTreeDividerDown} />
+        {!treePanelCollapsed && <div className={styles.treeDivider} onMouseDown={onTreeDividerDown} />}
 
         {/* Right: Viewer panel with tabs */}
         <div className={styles.viewerPanel}>

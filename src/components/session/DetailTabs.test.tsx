@@ -9,8 +9,6 @@ describe('DetailTabs', () => {
     promptsContent: <div>Prompts Content</div>,
     projectContent: <div>Project Content</div>,
     notesContent: <div>Notes Content</div>,
-    activityContent: <div>Activity Content</div>,
-    summaryContent: <div>Summary Content</div>,
     queueContent: <div>Queue Content</div>,
   };
 
@@ -19,15 +17,14 @@ describe('DetailTabs', () => {
     try { localStorage.removeItem('active-tab'); } catch { /* ignore */ }
   });
 
-  it('renders all 7 tab buttons', () => {
+  it('renders all 6 tab buttons', () => {
     render(<DetailTabs {...defaultProps} />);
-    expect(screen.getByText('TERMINAL')).toBeInTheDocument();
-    expect(screen.getByText('PROMPTS')).toBeInTheDocument();
     expect(screen.getByText('PROJECT')).toBeInTheDocument();
-    expect(screen.getByText('QUEUE')).toBeInTheDocument();
+    expect(screen.getByText('TERMINAL')).toBeInTheDocument();
+    expect(screen.getByText('COMMANDS')).toBeInTheDocument();
+    expect(screen.getByText('PROMPTS')).toBeInTheDocument();
     expect(screen.getByText('NOTES')).toBeInTheDocument();
-    expect(screen.getByText('ACTIVITY')).toBeInTheDocument();
-    expect(screen.getByText('SUMMARY')).toBeInTheDocument();
+    expect(screen.getByText('QUEUE')).toBeInTheDocument();
   });
 
   it('shows terminal content by default', () => {
@@ -47,18 +44,6 @@ describe('DetailTabs', () => {
     expect(screen.getByText('Notes Content')).toBeInTheDocument();
   });
 
-  it('switches to activity tab on click', () => {
-    render(<DetailTabs {...defaultProps} />);
-    fireEvent.click(screen.getByText('ACTIVITY'));
-    expect(screen.getByText('Activity Content')).toBeInTheDocument();
-  });
-
-  it('switches to summary tab on click', () => {
-    render(<DetailTabs {...defaultProps} />);
-    fireEvent.click(screen.getByText('SUMMARY'));
-    expect(screen.getByText('Summary Content')).toBeInTheDocument();
-  });
-
   it('calls onTabChange callback when tab changes', () => {
     const onTabChange = vi.fn();
     render(<DetailTabs {...defaultProps} onTabChange={onTabChange} />);
@@ -68,14 +53,13 @@ describe('DetailTabs', () => {
 
   it('persists active tab to localStorage', () => {
     render(<DetailTabs {...defaultProps} />);
-    fireEvent.click(screen.getByText('ACTIVITY'));
-    expect(localStorage.getItem('active-tab')).toBe('activity');
+    fireEvent.click(screen.getByText('NOTES'));
+    expect(localStorage.getItem('active-tab')).toBe('notes');
   });
 
   it('restores active tab from localStorage', () => {
-    localStorage.setItem('active-tab', 'summary');
+    localStorage.setItem('active-tab', 'notes');
     render(<DetailTabs {...defaultProps} />);
-    // Summary tab content should be visible (active class applied)
-    expect(screen.getByText('Summary Content')).toBeInTheDocument();
+    expect(screen.getByText('Notes Content')).toBeInTheDocument();
   });
 });
