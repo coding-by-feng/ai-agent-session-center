@@ -1,0 +1,130 @@
+/* ============================================================
+   FindInFileBar — inline find bar for current file
+   Dark theme matching the cyberdrome UI
+   ============================================================ */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  background: var(--bg-card, #141428);
+  border-bottom: 1px solid var(--border-subtle, #2a2a40);
+  flex-shrink: 0;
+}
+
+.inputGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.icon {
+  color: var(--text-dim, #888);
+  flex-shrink: 0;
+}
+
+.input {
+  flex: 1;
+  min-width: 80px;
+  background: #1a1a2e;
+  border: 1px solid #3a3a5c;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  padding: 4px 8px;
+  outline: none;
+}
+
+.input:focus {
+  border-color: #00d4ff;
+  box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.25);
+}
+
+.toggleBtn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-dim, #888);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 5px;
+  border-radius: 3px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.toggleBtn:hover {
+  color: var(--text-primary, #e0e0e0);
+  border-color: var(--border-subtle, #2a2a40);
+}
+
+.toggleBtnActive {
+  color: var(--accent-cyan, #00d4ff) !important;
+  border-color: rgba(0, 229, 255, 0.35) !important;
+  background: rgba(0, 229, 255, 0.08) !important;
+}
+
+.count {
+  color: var(--text-dim, #888);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 70px;
+  text-align: center;
+}
+
+.navGroup {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.navBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-dim, #888);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.navBtn:hover:not(:disabled) {
+  color: var(--accent-cyan, #00d4ff);
+  border-color: var(--border-subtle, #2a2a40);
+  background: var(--bg-subtle, rgba(255, 255, 255, 0.04));
+}
+
+.navBtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.closeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-dim, #888);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.closeBtn:hover {
+  color: var(--accent-red, #ff4444);
+}

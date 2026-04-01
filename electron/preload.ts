@@ -32,6 +32,37 @@ const api: ElectronAPI = {
   },
   closeReady: () => { ipcRenderer.send('app:close-ready') },
   quitApp:    () => { ipcRenderer.invoke('app:quit') },
+
+  // ── PTY terminal IPC (VS Code-style direct PTY management) ──
+  createPty: (config) => ipcRenderer.invoke('pty:create', config),
+
+  writePty: (terminalId, data) => {
+    ipcRenderer.send('pty:write', terminalId, data)
+  },
+
+  resizePty: (terminalId, cols, rows) => {
+    ipcRenderer.send('pty:resize', terminalId, cols, rows)
+  },
+
+  killPty: (terminalId) => ipcRenderer.invoke('pty:kill', terminalId),
+
+  subscribePty: (terminalId) => ipcRenderer.invoke('pty:subscribe', terminalId),
+
+  hasPty: (terminalId) => ipcRenderer.invoke('pty:has', terminalId),
+
+  onPtyData: (cb) => {
+    const handler = (_: unknown, terminalId: string, base64Data: string) =>
+      cb(terminalId, base64Data)
+    ipcRenderer.on('pty:data', handler)
+    return () => { ipcRenderer.removeListener('pty:data', handler) }
+  },
+
+  onPtyExit: (cb) => {
+    const handler = (_: unknown, terminalId: string, exitCode: number, signal: number) =>
+      cb(terminalId, exitCode, signal)
+    ipcRenderer.on('pty:exit', handler)
+    return () => { ipcRenderer.removeListener('pty:exit', handler) }
+  },
 }
 
 contextBridge.exposeInMainWorld('electronAPI', api)

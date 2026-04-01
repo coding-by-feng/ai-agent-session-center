@@ -141,29 +141,3 @@ export function resolveTheme(themeName: string): ITheme {
   return THEMES[themeName] || THEMES.default;
 }
 
-/**
- * Convert an ITheme into a CSS custom-property map for the DOM-based
- * TerminalOutputViewer (inline styles on the container).
- */
-export function toCssVariables(theme: ITheme): Record<string, string> {
-  const vars: Record<string, string> = {};
-  if (theme.background) vars['--term-bg'] = theme.background;
-  if (theme.foreground) vars['--term-fg'] = theme.foreground;
-  if (theme.selectionBackground) vars['--term-selection-bg'] = theme.selectionBackground;
-  if (theme.selectionForeground) vars['--term-selection-fg'] = theme.selectionForeground;
-  // ANSI color CSS variables consumed by ansi_up class-based output
-  const colorMap: Array<[string, keyof ITheme]> = [
-    ['--ansi-black', 'black'], ['--ansi-red', 'red'], ['--ansi-green', 'green'],
-    ['--ansi-yellow', 'yellow'], ['--ansi-blue', 'blue'], ['--ansi-magenta', 'magenta'],
-    ['--ansi-cyan', 'cyan'], ['--ansi-white', 'white'],
-    ['--ansi-bright-black', 'brightBlack'], ['--ansi-bright-red', 'brightRed'],
-    ['--ansi-bright-green', 'brightGreen'], ['--ansi-bright-yellow', 'brightYellow'],
-    ['--ansi-bright-blue', 'brightBlue'], ['--ansi-bright-magenta', 'brightMagenta'],
-    ['--ansi-bright-cyan', 'brightCyan'], ['--ansi-bright-white', 'brightWhite'],
-  ];
-  for (const [cssVar, key] of colorMap) {
-    const val = theme[key];
-    if (typeof val === 'string') vars[cssVar] = val;
-  }
-  return vars;
-}

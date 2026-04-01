@@ -4,6 +4,7 @@
  */
 import { useState, useCallback, useEffect } from 'react';
 import { showToast } from '@/components/ui/ToastContainer';
+import LinkifiedText from './LinkifiedText';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 interface Note {
@@ -20,9 +21,10 @@ function formatTime(ts: number): string {
 
 interface NotesTabProps {
   sessionId: string;
+  projectPath?: string;
 }
 
-export default function NotesTab({ sessionId }: NotesTabProps) {
+export default function NotesTab({ sessionId, projectPath }: NotesTabProps) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [text, setText] = useState('');
   const [saving, setSaving] = useState(false);
@@ -131,7 +133,9 @@ export default function NotesTab({ sessionId }: NotesTabProps) {
                   DELETE
                 </button>
               </div>
-              <div className={styles.noteText}>{note.text}</div>
+              <div className={styles.noteText}>
+                <LinkifiedText text={note.text} projectPath={projectPath} />
+              </div>
             </div>
           ))
       ) : loadError ? (

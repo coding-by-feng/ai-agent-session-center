@@ -90,6 +90,20 @@ function ScrollToBottomIcon() {
   );
 }
 
+/** Auto-scroll toggle icon: down arrow with circular "auto" indicator. */
+function AutoScrollIcon({ enabled }: { enabled: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="7 13 12 18 17 13" />
+      <line x1="12" y1="6" x2="12" y2="18" />
+      {enabled && <circle cx="12" cy="3" r="2" fill="currentColor" stroke="none" />}
+      {!enabled && <line x1="10" y1="1" x2="14" y2="5" />}
+      {!enabled && <line x1="14" y1="1" x2="10" y2="5" />}
+    </svg>
+  );
+}
+
 /** Bookmark SVG icon (ribbon shape). */
 function BookmarkIcon({ active }: { active?: boolean }) {
   return (
@@ -97,6 +111,20 @@ function BookmarkIcon({ active }: { active?: boolean }) {
       fill={active ? 'currentColor' : 'none'}
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
+/** Fork/branch SVG icon (git fork). */
+function ForkIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="18" r="3" />
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="18" cy="6" r="3" />
+      <path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9" />
+      <line x1="12" y1="12" x2="12" y2="15" />
     </svg>
   );
 }
@@ -138,6 +166,9 @@ interface TerminalToolbarProps {
   onRefreshOutput?: () => void;
   onBookmark?: () => void;
   bookmarkCount?: number;
+  autoScrollEnabled?: boolean;
+  onToggleAutoScroll?: () => void;
+  onFork?: () => void;
   isFullscreen: boolean;
   showReconnect?: boolean;
 }
@@ -156,6 +187,9 @@ export default function TerminalToolbar({
   onRefreshOutput,
   onBookmark,
   bookmarkCount = 0,
+  autoScrollEnabled = true,
+  onToggleAutoScroll,
+  onFork,
   isFullscreen,
   showReconnect = false,
 }: TerminalToolbarProps) {
@@ -216,6 +250,16 @@ export default function TerminalToolbar({
         <EnterIcon />
       </button>
 
+      {onToggleAutoScroll && (
+        <button
+          className={`${styles.toolbarBtn} ${autoScrollEnabled ? styles.autoScrollActiveBtn : ''}`}
+          onClick={onToggleAutoScroll}
+          title={autoScrollEnabled ? 'Auto-scroll ON — click to disable' : 'Auto-scroll OFF — click to enable'}
+        >
+          <AutoScrollIcon enabled={autoScrollEnabled} />
+        </button>
+      )}
+
       {onScrollToBottom && (
         <button
           className={styles.toolbarBtn}
@@ -247,6 +291,16 @@ export default function TerminalToolbar({
           {bookmarkCount > 0 && (
             <span className={styles.bookmarkBadge}>{bookmarkCount}</span>
           )}
+        </button>
+      )}
+
+      {onFork && (
+        <button
+          className={styles.toolbarBtn}
+          onClick={onFork}
+          title="Fork session — create a new Claude session branching from this conversation"
+        >
+          <ForkIcon />
         </button>
       )}
 

@@ -151,33 +151,53 @@ export default function QuickSessionModal() {
     saveCommand(command || 'claude');
 
     try {
-      const res = await fetch('/api/terminals', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          host: window.location.hostname || 'localhost',
+      let terminalId: string | undefined;
+
+      // Electron: use IPC to create PTY directly (VS Code-style)
+      if (window.electronAPI?.createPty) {
+        const result = await window.electronAPI.createPty({
           workingDir: workingDir || '~',
           command: command || 'claude',
           label: selectedLabel || undefined,
           sessionTitle: sessionTitle.trim() || undefined,
           enableOpsTerminal: enableOpsTerminal || undefined,
-          forceNew: true,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        showToast(`Quick session launched${selectedLabel ? ` [${selectedLabel}]` : ''}`, 'success');
-        // Auto-select the new session so the detail panel stays open
-        if (data.terminalId) {
-          useSessionStore.getState().selectSession(data.terminalId);
-          if (roomId) {
-            useRoomStore.getState().addSession(roomId, data.terminalId);
-          }
+        });
+        if (!result.ok) {
+          showToast(result.error || 'Failed to create terminal', 'error');
+          return;
         }
-        closeModal();
+        terminalId = result.terminalId;
       } else {
-        showToast(data.error || 'Failed to launch session', 'error');
+        // Browser: use HTTP API (existing path)
+        const res = await fetch('/api/terminals', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            host: window.location.hostname || 'localhost',
+            workingDir: workingDir || '~',
+            command: command || 'claude',
+            label: selectedLabel || undefined,
+            sessionTitle: sessionTitle.trim() || undefined,
+            enableOpsTerminal: enableOpsTerminal || undefined,
+            forceNew: true,
+          }),
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          showToast(data.error || 'Failed to launch session', 'error');
+          return;
+        }
+        terminalId = data.terminalId;
       }
+
+      showToast(`Quick session launched${selectedLabel ? ` [${selectedLabel}]` : ''}`, 'success');
+      if (terminalId) {
+        useSessionStore.getState().selectSession(terminalId);
+        if (roomId) {
+          useRoomStore.getState().addSession(roomId, terminalId);
+        }
+      }
+      closeModal();
     } catch {
       showToast('Network error launching session', 'error');
     } finally {

@@ -9,8 +9,9 @@ A localhost dashboard (port 3333) that monitors all active AI coding agent sessi
 | Component | Technology |
 |-----------|-----------|
 | Backend | Node.js 18+ (ESM) + Express 5 + ws 8 + tsx |
-| Frontend | React 19 + Three.js + @react-three/fiber + Zustand + Vite |
-| Terminal | node-pty for SSH/local PTY sessions |
+| Frontend | React 19 + Three.js + @react-three/fiber + Zustand + Vite 7 |
+| Desktop | Electron 34 + electron-builder 25 |
+| Terminal | node-pty (SSH via server, local via Electron PTY host) |
 | Hooks | Bash script (file-based MQ primary, HTTP fallback) |
 | Persistence | SQLite (server) + IndexedDB via Dexie (browser) |
 | Port | 3333 (configurable) |
@@ -161,6 +162,28 @@ server/index.ts (thin orchestrator)
   └── logger.ts           — debug-aware logging utility
 ```
 
+### Electron Desktop App
+
+```
+electron/
+  ├── main.ts              — App lifecycle, window management, IPC registration
+  ├── preload.ts           — Context bridge exposing electronAPI to renderer
+  ├── tray.ts              — System tray / menu bar
+  ├── ptyHost.ts           — VS Code-style PTY host (node-pty, IPC relay, output buffering)
+  ├── ipc/
+  │   ├── setupHandlers.ts — Setup wizard IPC (dependencies, hook install)
+  │   ├── appHandlers.ts   — Dashboard IPC (port, browser, lifecycle)
+  │   └── terminalHandlers.ts — PTY terminal IPC (create, write, resize, kill)
+  ├── icon/                — macOS .icns, Windows .ico
+  └── entitlements.mac.plist — macOS hardened runtime
+```
+
+The Electron app uses a **dual transport** architecture for terminals:
+- **IPC transport** (desktop): `ptyHost.ts` manages node-pty directly in the main process. Terminal I/O flows through Electron IPC (`pty:create`, `pty:write`, `pty:data`, `pty:resize`, `pty:kill`). No WebSocket needed.
+- **WebSocket transport** (browser): `sshManager.ts` on the server spawns PTYs. Terminal I/O relays through WebSocket (`terminal_input`, `terminal_output`).
+
+The renderer auto-detects which transport to use via `window.electronAPI?.createPty`.
+
 ### Frontend Module Structure
 
 ```
@@ -179,9 +202,16 @@ src/
   │   │   ├── RobotListSidebar.tsx   — 2D robot list overlay
   │   │   └── CameraController.tsx   — animated camera
   │   ├── session/         — detail panel, tabs, controls
+  │   │   ├── DetailPanel.tsx        — main detail panel (header + tabs)
+  │   │   ├── ProjectTab.tsx         — file browser with split-view
+  │   │   ├── FileTree.tsx           — hierarchical file tree with auto-reveal
+  │   │   ├── FindInFileBar.tsx      — inline find-in-file search (Cmd+F)
+  │   │   ├── LinkifiedText.tsx      — clickable file paths in text
+  │   │   ├── PromptHistory.tsx      — prompt history with resume chains
+  │   │   └── NotesTab.tsx           — per-session notes
   │   ├── terminal/        — xterm.js terminal components
   │   ├── settings/        — settings panel components
-  │   ├── modals/          — modal dialogs
+  │   ├── modals/          — modal dialogs (NewSession, QuickSession, Shortcuts)
   │   ├── layout/          — nav, header, activity feed
   │   ├── agenda/          — agenda task management components
   │   ├── charts/          — analytics chart components
@@ -222,12 +252,32 @@ server/
 ├── db.ts                 # SQLite database (better-sqlite3)
 └── logger.ts             # Debug-aware logging utility
 
+electron/
+├── main.ts               # App lifecycle, window management, IPC registration
+├── preload.ts            # Context bridge exposing electronAPI to renderer
+├── tray.ts               # System tray / menu bar
+├── ptyHost.ts            # VS Code-style PTY host (node-pty, IPC relay)
+├── server.d.ts           # Type stubs for Node types in renderer
+├── ipc/
+│   ├── setupHandlers.ts  # Setup wizard IPC handlers
+│   ├── appHandlers.ts    # Dashboard lifecycle IPC handlers
+│   └── terminalHandlers.ts # PTY terminal IPC (create, write, resize, kill)
+├── icon/                 # macOS .icns, Windows .ico
+└── entitlements.mac.plist # macOS hardened runtime
+
 src/
 ├── main.tsx              # React entry point (mounts to #root)
 ├── App.tsx               # Router, layout, providers
 ├── components/
 │   ├── 3d/               # Three.js 3D cyberdrome scene
-│   ├── session/          # Detail panel, tabs, controls, modals
+│   ├── session/          # Detail panel, tabs, controls
+│   │   ├── DetailPanel.tsx       # Main detail panel (header + tabs)
+│   │   ├── ProjectTab.tsx        # File browser with split-view + find-in-file
+│   │   ├── FileTree.tsx          # Hierarchical file tree with auto-reveal
+│   │   ├── FindInFileBar.tsx     # Inline find-in-file search bar (Cmd+5)
+│   │   ├── LinkifiedText.tsx     # Clickable file paths in rendered text
+│   │   ├── PromptHistory.tsx     # Prompt history with resume chains
+│   │   └── NotesTab.tsx          # Per-session notes
 │   ├── terminal/         # xterm.js terminal components
 │   ├── settings/         # Settings panel (theme, sound, hooks, API keys)
 │   ├── modals/           # New session, quick session modals
@@ -268,6 +318,7 @@ data/
 
 - **File-based MQ over HTTP**: Hooks append JSON to `/tmp/claude-session-center/queue.jsonl` instead of HTTP POST. Eliminates process spawn overhead (no curl), achieves ~0.1ms delivery via POSIX atomic append.
 - **8-priority session matching (SSH-only mode)**: Hooks don't know about SSH terminals. The matcher tries pendingResume → terminalId scan → cached PID → workDir link → path scan → PID fallback. If no match, the event is silently dropped — no display-only cards are ever created.
+- **Dual terminal transport (IPC + WebSocket)**: In the Electron desktop app, `ptyHost.ts` manages PTYs directly in the main process and relays I/O via IPC — no WebSocket needed. In the browser, `sshManager.ts` on the server spawns PTYs and relays via WebSocket. The renderer auto-detects which transport to use via `window.electronAPI?.createPty`. Both paths register terminals with the server for session matching.
 - **Approval detection heuristic**: Uses tool-category timeouts to detect when Claude is waiting for user approval. PermissionRequest hook event (medium+ density) provides a reliable signal that replaces the heuristic.
 - **Vite + React frontend**: React 19 with Three.js for 3D scene rendering. Vite for dev server (HMR) and production builds (`dist/client/`).
 - **Dual persistence**: SQLite on server (sessions, snapshots) + IndexedDB via Dexie in browser (history, settings, queue).
@@ -380,7 +431,8 @@ When user clicks a session card:
 
 | Key | Action |
 |-----|--------|
-| `Cmd/Ctrl+F` | Focus search |
+| `Cmd/Ctrl+F` | Find in current file (Project tab) |
+| `Cmd/Ctrl+Shift+F` | Global search across sessions |
 | `Escape` | Close modal / deselect session |
 | `?` | Toggle shortcuts panel |
 | `S` | Toggle settings |
@@ -388,6 +440,8 @@ When user clicks a session card:
 | `A` | Archive selected session |
 | `T` | New terminal session |
 | `M` | Mute/unmute all |
+| `Cmd+Alt+1-9` | Switch to Nth session |
+| `Cmd+Alt+P` | Switch to previous session |
 
 ## Styles
 

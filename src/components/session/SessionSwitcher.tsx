@@ -99,6 +99,37 @@ export default function SessionSwitcher({
   statusLabel, duration, isDisconnected,
   onClose, headerCollapsed, onToggleCollapse,
 }: Props) {
+  // Track sessions that finished work (transitioned to "waiting") but haven't been viewed
+  const [attentionIds, setAttentionIds] = useState<Set<string>>(new Set());
+  const prevStatusRef = useRef(new Map<string, string>());
+
+  useEffect(() => {
+    let changed = false;
+    const next = new Set(attentionIds);
+    sessions.forEach((s) => {
+      const prev = prevStatusRef.current.get(s.sessionId);
+      // Detect transition TO "waiting" from an active status
+      if (prev && prev !== 'waiting' && prev !== 'idle' && prev !== 'ended' && s.status === 'waiting') {
+        // Don't mark the currently selected session
+        if (s.sessionId !== currentSession.sessionId) {
+          next.add(s.sessionId);
+          changed = true;
+        }
+      }
+      prevStatusRef.current.set(s.sessionId, s.status);
+    });
+    if (changed) setAttentionIds(next);
+  }, [sessions, currentSession.sessionId, attentionIds]);
+
+  const handleSwitch = useCallback((id: string) => {
+    setAttentionIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    onSwitch(id);
+  }, [onSwitch]);
   const cardDisplayMode = useUiStore((s) => s.cardDisplayMode);
   const toggleCardDisplayMode = useUiStore((s) => s.toggleCardDisplayMode);
   const rooms = useRoomStore((s) => s.rooms);
@@ -290,9 +321,10 @@ export default function SessionSwitcher({
             <SessionTabCard
               key={s.sessionId}
               session={s}
-              onSwitch={onSwitch}
+              onSwitch={handleSwitch}
               isCompact={isCompact}
               index={sessionIndexMap.get(s.sessionId) ?? 0}
+              needsAttention={attentionIds.has(s.sessionId)}
             />
           ))}
         </div>
@@ -306,11 +338,13 @@ function SessionTabCard({
   onSwitch,
   isCompact,
   index,
+  needsAttention,
 }: {
   session: Session;
   onSwitch: (id: string) => void;
   isCompact: boolean;
   index: number;
+  needsAttention?: boolean;
 }) {
   const color = STATUS_COLORS[session.status] ?? 'var(--text-dim)';
   const title = session.title || session.projectName || '(untitled)';
@@ -324,7 +358,7 @@ function SessionTabCard({
 
   return (
     <button
-      className={`${styles.sessionTabCard}${isCompact ? ` ${styles.sessionTabCardCompact}` : ''}`}
+      className={`${styles.sessionTabCard}${isCompact ? ` ${styles.sessionTabCardCompact}` : ''}${needsAttention ? ` ${styles.sessionTabAttention}` : ''}`}
       data-status={session.status}
       style={{ '--robot-color': color } as React.CSSProperties}
       onClick={() => onSwitch(session.sessionId)}

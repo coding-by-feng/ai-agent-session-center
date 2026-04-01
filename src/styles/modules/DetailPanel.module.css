@@ -830,6 +830,19 @@
   }
 }
 
+/* Bounce animation for sessions that finished work and need attention */
+.sessionTabAttention {
+  animation: sessionBounce 0.6s ease-in-out infinite !important;
+  box-shadow: 0 0 10px var(--accent-cyan, #00e5ff), 0 0 20px rgba(0, 229, 255, 0.2) !important;
+  border-color: var(--accent-cyan, #00e5ff) !important;
+}
+
+@keyframes sessionBounce {
+  0%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-6px); }
+  60% { transform: translateY(-2px); }
+}
+
 .sessionTabTitle {
   font-family: var(--font-mono);
   font-size: 10px;

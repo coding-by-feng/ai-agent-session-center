@@ -22,6 +22,27 @@ export interface InstallResult {
   error?: string
 }
 
+export interface PtyCreateConfig {
+  workingDir?: string
+  command?: string
+  label?: string
+  sessionTitle?: string
+  apiKey?: string
+  enableOpsTerminal?: boolean
+}
+
+export interface PtyCreateResult {
+  ok: boolean
+  terminalId?: string
+  error?: string
+}
+
+export interface PtySubscribeResult {
+  ok: boolean
+  buffer?: string | null
+  error?: string
+}
+
 export interface ElectronAPI {
   platform: 'darwin' | 'win32'
 
@@ -42,6 +63,17 @@ export interface ElectronAPI {
   onBeforeClose(cb: () => Promise<void>): () => void
   closeReady():       void
   quitApp():          void
+
+  // PTY terminal IPC (VS Code-style direct PTY management)
+  // Optional — only available when Electron ptyHost is active
+  createPty?(config: PtyCreateConfig):                    Promise<PtyCreateResult>
+  writePty?(terminalId: string, data: string):            void
+  resizePty?(terminalId: string, cols: number, rows: number): void
+  killPty?(terminalId: string):                           Promise<{ ok: boolean }>
+  subscribePty?(terminalId: string):                      Promise<PtySubscribeResult>
+  hasPty?(terminalId: string):                            Promise<boolean>
+  onPtyData?(cb: (terminalId: string, base64Data: string) => void): () => void
+  onPtyExit?(cb: (terminalId: string, exitCode: number, signal: number) => void): () => void
 }
 
 declare global {

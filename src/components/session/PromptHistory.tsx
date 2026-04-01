@@ -4,6 +4,7 @@
  */
 import { useCallback, useState } from 'react';
 import type { PromptEntry, ArchivedSession } from '@/types';
+import LinkifiedText from './LinkifiedText';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 function formatTime(ts: number): string {
@@ -17,9 +18,10 @@ function formatTime(ts: number): string {
 interface PrevSectionProps {
   prev: ArchivedSession;
   index: number;
+  projectPath?: string;
 }
 
-function PrevSessionSection({ prev, index }: PrevSectionProps) {
+function PrevSessionSection({ prev, index, projectPath }: PrevSectionProps) {
   const [collapsed, setCollapsed] = useState(true);
   // #17: Sort newest-first for consistency with current session's prompt display
   const prompts = [...(prev.promptHistory || [])].sort(
@@ -50,7 +52,9 @@ function PrevSessionSection({ prev, index }: PrevSectionProps) {
                   <span className={styles.convRole}>#{prompts.length - j}</span>
                   <span className={styles.convTime}>{formatTime(p.timestamp)}</span>
                 </div>
-                <div className={styles.convText}>{p.text}</div>
+                <div className={styles.convText}>
+                  <LinkifiedText text={p.text} projectPath={projectPath} />
+                </div>
               </div>
             ))
           ) : (
@@ -98,12 +102,14 @@ interface PromptHistoryProps {
   prompts: PromptEntry[];
   previousSessions?: ArchivedSession[];
   searchQuery?: string;
+  projectPath?: string;
 }
 
 export default function PromptHistory({
   prompts,
   previousSessions,
   searchQuery,
+  projectPath,
 }: PromptHistoryProps) {
   const sorted = [...prompts].sort((a, b) => b.timestamp - a.timestamp);
   const query = searchQuery?.toLowerCase() || '';
@@ -116,7 +122,7 @@ export default function PromptHistory({
         [...previousSessions]
           .reverse()
           .map((prev, i) => (
-            <PrevSessionSection key={prev.sessionId} prev={prev} index={i} />
+            <PrevSessionSection key={prev.sessionId} prev={prev} index={i} projectPath={projectPath} />
           ))}
 
       {/* Current session prompts */}
@@ -134,7 +140,9 @@ export default function PromptHistory({
                 <span className={styles.convTime}>{formatTime(p.timestamp)}</span>
                 <CopyButton text={p.text} />
               </div>
-              <div className={styles.convText}>{p.text}</div>
+              <div className={styles.convText}>
+                <LinkifiedText text={p.text} projectPath={projectPath} />
+              </div>
             </div>
           );
         })

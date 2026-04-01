@@ -21,6 +21,21 @@
 @import './themes/blonde.css';
 @import './themes/light-overrides.css';
 
+/* Find-in-file match highlights (global class names used by FindInFileBar) */
+.find-match {
+  background: rgba(255, 200, 0, 0.25);
+  color: var(--accent-yellow, #ffd700);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+.find-match-active {
+  background: rgba(255, 165, 0, 0.5);
+  color: #fff;
+  border-radius: 2px;
+  padding: 0 1px;
+  outline: 1px solid rgba(255, 165, 0, 0.7);
+}
+
 /* 3D Robot label animation (used by RobotLabel's Html portal) */
 @keyframes pulse-label {
   0%, 100% { opacity: 1; transform: scale(1); }

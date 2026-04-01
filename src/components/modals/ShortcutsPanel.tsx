@@ -17,6 +17,13 @@ const EXTRA_SHORTCUTS: { section: string; items: { key: string; description: str
       { key: 'Alt+Cmd/Ctrl+R', description: 'Refresh terminal' },
     ],
   },
+  {
+    section: 'File Browser',
+    items: [
+      { key: 'Cmd/Ctrl+F', description: 'Find in current file' },
+      { key: 'Cmd/Ctrl+Shift+F', description: 'Global search across sessions' },
+    ],
+  },
 ];
 
 /** Session-switch action IDs that should be collapsed into one row. */
