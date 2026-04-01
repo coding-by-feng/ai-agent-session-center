@@ -33,6 +33,8 @@ interface TerminalContainerProps {
   bookmarkPortalTarget?: HTMLDivElement | null;
   /** Project root path — enables clickable file paths in terminal output */
   projectPath?: string;
+  /** Fork the current Claude Code session (--continue --fork-session) */
+  onFork?: () => void;
 }
 
 const DEFAULT_MIN_HEIGHT = '200px';
@@ -44,6 +46,7 @@ export default memo(function TerminalContainer({
   onReconnect,
   bookmarkPortalTarget,
   projectPath,
+  onFork,
 }: TerminalContainerProps) {
   const [themeName, setThemeName] = useState<string>(() => {
     try {
@@ -83,6 +86,8 @@ export default memo(function TerminalContainer({
     getTerminalBookmark,
     scrollToLine,
     jumpToBookmark,
+    autoScrollEnabled,
+    toggleAutoScroll,
   } = useTerminal({ ws, themeName, projectPath });
 
   // Attach/detach when terminalId changes
@@ -310,6 +315,9 @@ export default memo(function TerminalContainer({
         onRefreshOutput={refreshOutput}
         onBookmark={handleBookmark}
         bookmarkCount={bookmarks.length}
+        autoScrollEnabled={autoScrollEnabled}
+        onToggleAutoScroll={toggleAutoScroll}
+        onFork={onFork}
         isFullscreen={isFullscreen}
         showReconnect={showReconnect || (isClosed && !!onReconnect)}
       />
@@ -381,6 +389,9 @@ export default memo(function TerminalContainer({
               onRefreshOutput={refreshOutput}
               onBookmark={handleBookmark}
               bookmarkCount={bookmarks.length}
+              autoScrollEnabled={autoScrollEnabled}
+              onToggleAutoScroll={toggleAutoScroll}
+              onFork={onFork}
               isFullscreen={isFullscreen}
               showReconnect={showReconnect}
             />

@@ -10,6 +10,7 @@ import * as XLSX from 'xlsx';
 import 'highlight.js/styles/github-dark-dimmed.css';
 import FileTree from './FileTree';
 import ContentSearchModal from './ContentSearchModal';
+import FindInFileBar, { highlightFindMatches } from './FindInFileBar';
 import { getFileSystemProvider } from '@/lib/fileSystemProvider';
 import styles from '@/styles/modules/ProjectTab.module.css';
 
@@ -152,6 +153,15 @@ function IconContentSearch() {
       <line x1="9" y1="9" x2="13" y2="13" />
       <line x1="3" y1="5" x2="9" y2="5" />
       <line x1="3" y1="7" x2="8" y2="7" />
+    </svg>
+  );
+}
+function IconFindInFile() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <rect x="2" y="1" width="10" height="14" rx="1" />
+      <circle cx="11" cy="11" r="3.5" />
+      <line x1="13.5" y1="13.5" x2="15" y2="15" />
     </svg>
   );
 }
@@ -345,6 +355,14 @@ function ExcelViewer({ sheets }: { sheets: ExcelSheet[] }) {
   const sheet = sheets[activeSheet];
   if (!sheet) return null;
 
+  // Find max column count across all rows — sheet_to_json omits trailing empty
+  // cells, so rows can have different lengths. Pad to the widest row to keep
+  // columns aligned and cell borders consistent.
+  const colCount = useMemo(
+    () => sheet.data.reduce((max, row) => Math.max(max, row.length), 0),
+    [sheet.data],
+  );
+
   return (
     <div className={styles.excelViewer}>
       {sheets.length > 1 && (
@@ -367,8 +385,8 @@ function ExcelViewer({ sheets }: { sheets: ExcelSheet[] }) {
             <thead>
               <tr>
                 <th className={styles.excelRowNum}>#</th>
-                {sheet.data[0].map((cell, ci) => (
-                  <th key={ci}>{cell ?? ''}</th>
+                {Array.from({ length: colCount }, (_, ci) => (
+                  <th key={ci}>{sheet.data[0][ci] ?? ''}</th>
                 ))}
               </tr>
             </thead>
@@ -377,8 +395,8 @@ function ExcelViewer({ sheets }: { sheets: ExcelSheet[] }) {
             {sheet.data.slice(1).map((row, ri) => (
               <tr key={ri}>
                 <td className={styles.excelRowNum}>{ri + 2}</td>
-                {row.map((cell, ci) => (
-                  <td key={ci}>{cell ?? ''}</td>
+                {Array.from({ length: colCount }, (_, ci) => (
+                  <td key={ci}>{row[ci] ?? ''}</td>
                 ))}
               </tr>
             ))}
@@ -396,12 +414,18 @@ function VirtualCodeViewer({
   bookmarks: bmarks,
   wordWrap,
   scrollKey,
+  findTerm: vFindTerm,
+  findCaseSensitive: vFindCase,
+  scrollToLine,
 }: {
   content: string;
   filePath: string;
   bookmarks: Bookmark[];
   wordWrap: boolean;
   scrollKey?: string;
+  findTerm?: string;
+  findCaseSensitive?: boolean;
+  scrollToLine?: { line: number; key: number } | null;
 }) {
   const lines = useMemo(() => content.split('\n'), [content]);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -437,6 +461,18 @@ function VirtualCodeViewer({
     }
   }, [scrollKey]);
 
+  // Programmatic scroll-to-line for find-in-file (element may not be in DOM due to virtualization)
+  useEffect(() => {
+    if (!scrollToLine || !containerRef.current) return;
+    const target = (scrollToLine.line - 1) * LINE_HEIGHT_PX;
+    const center = target - containerRef.current.clientHeight / 2;
+    containerRef.current.scrollTop = Math.max(0, center);
+    setScrollTop(containerRef.current.scrollTop);
+    if (scrollKey) {
+      try { localStorage.setItem(scrollKey, String(containerRef.current.scrollTop)); } catch { /* ignore */ }
+    }
+  }, [scrollToLine, scrollKey]);
+
   const totalHeight = lines.length * LINE_HEIGHT_PX;
   const startIdx = Math.max(0, Math.floor(scrollTop / LINE_HEIGHT_PX) - OVERSCAN);
   const endIdx = Math.min(lines.length, Math.ceil((scrollTop + viewHeight) / LINE_HEIGHT_PX) + OVERSCAN);
@@ -470,7 +506,11 @@ function VirtualCodeViewer({
               style={{ position: 'absolute', top: i * LINE_HEIGHT_PX, left: 0, right: 0, height: LINE_HEIGHT_PX }}
             >
               <span className={styles.lineNum}>{lineNum}</span>
-              <span className={styles.lineText}>{lines[i] || '\u00A0'}</span>
+              <span className={styles.lineText}>
+                {vFindTerm
+                  ? highlightFindMatches(lines[i], vFindTerm, vFindCase ?? false)
+                  : (lines[i] || '\u00A0')}
+              </span>
             </div>
           );
         })}
@@ -708,6 +748,9 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   // Overlays / inline modes
   const [showSearch, setShowSearch] = useState(false);
   const [showContentSearch, setShowContentSearch] = useState(false);
+  const [showFindInFile, setShowFindInFile] = useState(false);
+  const [findTerm, setFindTerm] = useState('');
+  const [findCaseSensitive, setFindCaseSensitive] = useState(false);
   const [creatingFile, setCreatingFile] = useState(false);
   const [creatingFolder, setCreatingFolder] = useState(false);
 
@@ -908,10 +951,14 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
       loadFile(lastTab.path);
       return;
     }
-    // 3. initialPath is a file
+    // 3. initialPath is a file — but only if localStorage has no prior tab state.
+    //    If the user previously closed all tabs, respect that choice.
     if (initialIsFile && initialPath) {
-      loadFile(initialPath);
-      return;
+      const hasPersistedState = fileTabsKey && localStorage.getItem(fileTabsKey) !== null;
+      if (!hasPersistedState) {
+        loadFile(initialPath);
+        return;
+      }
     }
     // 4. No file to restore — show welcome message; the tree handles dir browsing
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1254,6 +1301,8 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     } else {
       loadDir(currentPath);
     }
+    // Also refresh the file tree sidebar
+    document.dispatchEvent(new CustomEvent('filetree:refresh'));
   }, [currentPath, file, loadDir, loadFile]);
 
   // Silent refresh — updates directory listing without clearing file/loading state.
@@ -1412,6 +1461,32 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     }
   }, [file]);
 
+  // Find-in-file callbacks
+  const handleFindTermChange = useCallback((term: string, caseSensitive: boolean) => {
+    setFindTerm(term);
+    setFindCaseSensitive(caseSensitive);
+  }, []);
+
+  const [findScrollTarget, setFindScrollTarget] = useState<{ line: number; key: number } | null>(null);
+
+  const handleFindScrollToLine = useCallback((lineNumber: number) => {
+    // Virtualized view: element may not be in DOM — pass scroll target via state/props
+    setFindScrollTarget({ line: lineNumber, key: Date.now() });
+    // Non-virtualized view: element is always in DOM — scroll after next paint
+    requestAnimationFrame(() => {
+      const el = document.getElementById(`fv-line-${lineNumber}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
+  }, []);
+
+  const handleCloseFindInFile = useCallback(() => {
+    setShowFindInFile(false);
+    setFindTerm('');
+    setFindCaseSensitive(false);
+  }, []);
+
   // Listen for content search event (Cmd/Ctrl+F from keyboard shortcut handler)
   useEffect(() => {
     function handleContentSearch() {
@@ -1420,6 +1495,16 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     }
     document.addEventListener('projectTab:contentSearch', handleContentSearch);
     return () => document.removeEventListener('projectTab:contentSearch', handleContentSearch);
+  }, []);
+
+  // Listen for find-in-file event (Cmd/Ctrl+F from keyboard shortcut handler)
+  useEffect(() => {
+    function handleFindInFile() {
+      if (rootRef.current?.offsetParent === null) return;
+      setShowFindInFile(true);
+    }
+    document.addEventListener('projectTab:findInFile', handleFindInFile);
+    return () => document.removeEventListener('projectTab:findInFile', handleFindInFile);
   }, []);
 
   // File browser keyboard shortcuts — triggered by the global shortcut system
@@ -1535,6 +1620,14 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         </button>
         <button className={styles.iconBtn} onClick={() => setShowContentSearch(true)} title="Search in file contents (Cmd+F)">
           <IconContentSearch />
+        </button>
+        <button
+          className={`${styles.iconBtn} ${showFindInFile ? styles.iconBtnActive : ''}`}
+          onClick={() => setShowFindInFile((p) => !p)}
+          disabled={!file || !!file.binary}
+          title="Find in current file (Cmd/Ctrl+F)"
+        >
+          <IconFindInFile />
         </button>
         <button className={styles.iconBtn} onClick={() => setCreatingFile(true)} title="New file">
           <IconNewFile />
@@ -1754,6 +1847,14 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
 
           {/* Viewer content area */}
           <div className={styles.contentCol}>
+          {showFindInFile && file && !file.binary && (
+            <FindInFileBar
+              fileContent={file.content || ''}
+              onClose={handleCloseFindInFile}
+              onScrollToLine={handleFindScrollToLine}
+              onTermChange={handleFindTermChange}
+            />
+          )}
           <div className={styles.content} ref={splitContainerRef}>
             {loading && <div className={styles.empty}>Loading...</div>}
 
@@ -1880,6 +1981,9 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                     bookmarks={bookmarks}
                     wordWrap={wordWrap}
                     scrollKey={fileScrollKey}
+                    findTerm={findTerm}
+                    findCaseSensitive={findCaseSensitive}
+                    scrollToLine={findScrollTarget}
                   />
                 ) : (
                   <div
@@ -1898,7 +2002,11 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                           className={`${styles.codeLine}${isBookmarked ? ` ${styles.bookmarkedLine}` : ''}`}
                         >
                           <span className={styles.lineNum}>{lineNum}</span>
-                          <span className={styles.lineText}>{line || '\u00A0'}</span>
+                          <span className={styles.lineText}>
+                            {findTerm
+                              ? highlightFindMatches(line, findTerm, findCaseSensitive)
+                              : (line || '\u00A0')}
+                          </span>
                         </div>
                       );
                     })}
@@ -2017,13 +2125,17 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
               ) : file.binary ? (
                 <div className={styles.empty}>Binary file ({formatSize(file.size)})</div>
               ) : (file.content || '').split('\n').length > VIRTUALIZE_THRESHOLD ? (
-                <VirtualCodeViewer content={file.content || ''} filePath={file.path} bookmarks={bookmarks} wordWrap={wordWrap} scrollKey={fileScrollKey} />
+                <VirtualCodeViewer content={file.content || ''} filePath={file.path} bookmarks={bookmarks} wordWrap={wordWrap} scrollKey={fileScrollKey} findTerm={findTerm} findCaseSensitive={findCaseSensitive} scrollToLine={findScrollTarget} />
               ) : (
                 <div className={`${styles.codeLines}${wordWrap ? ` ${styles.codeLinesWrap}` : ''}`}>
                   {(file.content || '').split('\n').map((line, i) => (
                     <div key={i} id={`fs-line-${i + 1}`} className={styles.codeLine}>
                       <span className={styles.lineNum}>{i + 1}</span>
-                      <span className={styles.lineText}>{line || '\u00A0'}</span>
+                      <span className={styles.lineText}>
+                        {findTerm
+                          ? highlightFindMatches(line, findTerm, findCaseSensitive)
+                          : (line || '\u00A0')}
+                      </span>
                     </div>
                   ))}
                 </div>

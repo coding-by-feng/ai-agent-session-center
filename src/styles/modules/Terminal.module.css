@@ -326,6 +326,17 @@
   }
 }
 
+/* ---- Auto-scroll toggle ---- */
+
+.autoScrollActiveBtn {
+  color: var(--accent-green, #00ff88) !important;
+  border-color: color-mix(in srgb, var(--accent-green, #00ff88) 40%, transparent) !important;
+  background: color-mix(in srgb, var(--accent-green, #00ff88) 12%, transparent) !important;
+}
+.autoScrollActiveBtn:hover {
+  background: color-mix(in srgb, var(--accent-green, #00ff88) 20%, transparent) !important;
+}
+
 /* ---- Toolbar bookmark badge ---- */
 
 .bookmarkActiveBtn {

@@ -193,11 +193,27 @@ export default function DetailTabs({
 
   const [splitView, setSplitView] = useState<boolean>(() => {
     try {
+      // Per-session key first, then global fallback
+      const key = sessionId ? `${SPLIT_KEY}:${sessionId}` : SPLIT_KEY;
+      const stored = localStorage.getItem(key);
+      if (stored !== null) return stored === '1';
       return localStorage.getItem(SPLIT_KEY) === '1';
     } catch {
       return false;
     }
   });
+
+  // Restore per-session split state when switching sessions
+  useEffect(() => {
+    if (!sessionId) return;
+    try {
+      const key = `${SPLIT_KEY}:${sessionId}`;
+      const stored = localStorage.getItem(key);
+      if (stored !== null) {
+        setSplitView(stored === '1');
+      }
+    } catch { /* ignore */ }
+  }, [sessionId]);
 
   // Only offer split on wide panels (uses CSS too, but this prevents stale state)
   const panelWideEnough =
@@ -220,13 +236,16 @@ export default function DetailTabs({
     setSplitView((prev) => {
       const next = !prev;
       try {
-        localStorage.setItem(SPLIT_KEY, next ? '1' : '0');
+        // Persist per-session
+        if (sessionId) {
+          localStorage.setItem(`${SPLIT_KEY}:${sessionId}`, next ? '1' : '0');
+        }
       } catch {
         // ignore
       }
       return next;
     });
-  }, []);
+  }, [sessionId]);
 
   const isSplit = splitView && panelWideEnough;
 

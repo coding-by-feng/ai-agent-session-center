@@ -51,13 +51,11 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
-      // Cmd+F (macOS) / Ctrl+F — open content search (project tab) or detail panel search
+      // Cmd+F (macOS) / Ctrl+F — find in current file (VS Code-style)
       if (!e.shiftKey && (e.metaKey || e.ctrlKey) && e.key === 'f') {
         if (selectedId) {
           e.preventDefault();
-          // Dispatch to both — ProjectTab responds only when its tab is visible
-          document.dispatchEvent(new CustomEvent('projectTab:contentSearch'));
-          document.dispatchEvent(new CustomEvent('detail-panel:find'));
+          document.dispatchEvent(new CustomEvent('projectTab:findInFile'));
           return;
         }
         // No session selected — let browser native find through

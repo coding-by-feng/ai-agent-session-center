@@ -522,6 +522,66 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
   }
 });
 
+// Fork a Claude Code session: create a new terminal running
+// `claude --continue <sessionId> --fork-session` in the same working directory.
+router.post('/sessions/:id/fork', async (req: Request, res: Response) => {
+  const sessionId = str(req.params.id);
+  const session = getSession(sessionId);
+  if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
+
+  const forkCmd = `claude --continue --fork-session`;
+
+  try {
+    const cfg = session.sshConfig;
+
+    if (cfg && cfg.username) {
+      // SSH session: create new terminal with same SSH config
+      const newConfig: TerminalConfig = { ...cfg, workingDir: cfg.workingDir || '~', command: '' };
+      const newTerminalId = await createTerminal(newConfig, null);
+      consumePendingLink(newConfig.workingDir || session.projectPath || '');
+
+      await createTerminalSession(newTerminalId, {
+        ...newConfig,
+        command: forkCmd,
+        sessionTitle: `Fork of ${session.title || session.projectName}`,
+      });
+
+      const isRemote = cfg.host && cfg.host !== 'localhost' && cfg.host !== '127.0.0.1';
+      let prefix = '';
+      if (isRemote) {
+        prefix += `export AGENT_MANAGER_TERMINAL_ID='${newTerminalId}' && `;
+        if (cfg.workingDir) prefix += `cd '${cfg.workingDir}' && `;
+      }
+      writeWhenReady(newTerminalId, `${prefix}${forkCmd}\r`);
+
+      res.json({ ok: true, terminalId: newTerminalId });
+    } else {
+      // Non-SSH (hook-detected / local) session
+      const newConfig: TerminalConfig = {
+        host: 'localhost',
+        workingDir: session.projectPath || '~',
+        command: '',
+      };
+      const newTerminalId = await createTerminal(newConfig, null);
+      consumePendingLink(newConfig.workingDir || session.projectPath || '');
+
+      await createTerminalSession(newTerminalId, {
+        ...newConfig,
+        command: forkCmd,
+        sessionTitle: `Fork of ${session.title || session.projectName}`,
+      });
+
+      writeWhenReady(newTerminalId, `${forkCmd}\r`);
+
+      res.json({ ok: true, terminalId: newTerminalId });
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('api', `Fork session failed: ${msg}`);
+    res.status(500).json({ error: 'Failed to fork session' });
+  }
+});
+
 // Reconnect (or create) the ops terminal for a session.
 // Creates a new blank shell in the session's project directory.
 router.post('/sessions/:id/reconnect-ops-terminal', async (req: Request, res: Response) => {
@@ -884,6 +944,44 @@ router.post('/terminals', async (req: Request, res: Response) => {
 
 router.get('/terminals', (_req: Request, res: Response) => {
   res.json({ terminals: getTerminals() });
+});
+
+// Register an externally-created terminal (e.g. Electron ptyHost) with the
+// session store.  Creates a session card and pending link WITHOUT spawning a
+// PTY — the caller already owns the PTY process.
+const terminalRegisterSchema = z.object({
+  terminalId: z.string().min(1),
+  host: z.string().default('localhost'),
+  workingDir: z.string().default('~'),
+  command: z.string().default('claude'),
+  label: z.string().optional(),
+  sessionTitle: z.string().optional(),
+  source: z.string().optional(),
+});
+
+router.post('/terminals/register', async (req: Request, res: Response) => {
+  const body = validateBody(terminalRegisterSchema, req.body, res);
+  if (!body) return;
+
+  try {
+    const config: TerminalConfig = {
+      host: body.host,
+      workingDir: body.workingDir,
+      command: body.command,
+      sessionTitle: body.sessionTitle,
+      label: body.label,
+    };
+
+    // Create the session card (no PTY spawn — ptyHost owns the process)
+    await createTerminalSession(body.terminalId, config);
+
+    log.info('api', `Registered external terminal ${body.terminalId} → ${body.host}:${body.workingDir}`);
+    res.json({ ok: true, terminalId: body.terminalId });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('api', `External terminal registration failed: ${msg}`);
+    res.status(500).json({ ok: false, error: 'Registration failed' });
+  }
 });
 
 router.delete('/terminals/:id', (req: Request, res: Response) => {

@@ -6,7 +6,7 @@
 .container {
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .tree {
@@ -34,8 +34,6 @@
   padding: 0 6px;
   height: 100%;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   user-select: none;
   border-radius: 3px;
   transition: background 0.1s;
@@ -86,10 +84,7 @@
 /* ---- Name ---- */
 
 .name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 1;
-  min-width: 0;
+  flex-shrink: 0;
 }
 
 /* ---- Loading spinner ---- */

@@ -1,6 +1,7 @@
 /**
  * useTerminal hook manages xterm.js terminal lifecycle.
- * Handles creation, attachment, resize, fullscreen, and WS relay.
+ * Handles creation, attachment, resize, and relay via WebSocket or
+ * Electron IPC (VS Code-style direct PTY transport).
  * Ported from public/js/terminalManager.js.
  */
 import { useRef, useCallback, useEffect, useState } from 'react';
@@ -79,17 +80,15 @@ interface UseTerminalReturn {
   scrollToLine: (line: number) => void;
   /** Scroll to bookmark and briefly highlight the original selection. */
   jumpToBookmark: (bm: TerminalBookmarkPosition) => void;
+  /** Whether auto-scroll-to-bottom on new output is enabled. */
+  autoScrollEnabled: boolean;
+  /** Toggle auto-scroll-to-bottom on new output. */
+  toggleAutoScroll: () => void;
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Returns true if the terminal viewport is scrolled to the bottom (or within 1 row). */
-function isAtBottom(term: Terminal): boolean {
-  const buf = term.buffer.active;
-  return buf.viewportY >= buf.baseY;
-}
 
 function getResponsiveFontSize(): number {
   const width = window.innerWidth;
@@ -98,8 +97,25 @@ function getResponsiveFontSize(): number {
   return 14;
 }
 
+/** Returns true if this terminal is managed by Electron's ptyHost (IPC transport). */
+function isPtyHostTerminal(terminalId: string): boolean {
+  return terminalId.startsWith('pty-') && !!window.electronAPI?.writePty;
+}
+
+/** Send terminal input via the appropriate transport (IPC or WS). */
+function sendInput(ws: WebSocket | null, terminalId: string, data: string): void {
+  if (isPtyHostTerminal(terminalId)) {
+    window.electronAPI!.writePty!(terminalId, data);
+  } else if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'terminal_input', terminalId, data }));
+  }
+}
+
 function sendResize(ws: WebSocket | null, terminalId: string, cols: number, rows: number): void {
-  if (ws && ws.readyState === 1 && cols > 0 && rows > 0) {
+  if (cols <= 0 || rows <= 0) return;
+  if (isPtyHostTerminal(terminalId)) {
+    window.electronAPI!.resizePty!(terminalId, cols, rows);
+  } else if (ws && ws.readyState === 1) {
     ws.send(JSON.stringify({ type: 'terminal_resize', terminalId, cols, rows }));
   }
 }
@@ -111,21 +127,14 @@ function forceCanvasRepaint(
   fitAddon: FitAddon,
   activeRef: React.MutableRefObject<ActiveTerminal | null>,
 ): void {
-  // Use term.refresh() to force canvas repaint without resizing.
-  // This avoids the shrink→expand flicker of the old 2-frame resize trick.
   requestAnimationFrame(() => {
     if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
-    const wasBottom = isAtBottom(term);
     const savedViewportY = term.buffer.active.viewportY;
     fitAddon.fit();
     sendResize(ws, terminalId, term.cols, term.rows);
     term.refresh(0, term.rows - 1);
-    if (wasBottom) {
-      term.scrollToBottom();
-    } else {
-      // Restore scroll position after fit to prevent layout-triggered viewport jump
-      term.scrollToLine(savedViewportY);
-    }
+    // Always restore scroll position — never auto-scroll
+    term.scrollToLine(savedViewportY);
     if (activeRef.current) {
       activeRef.current.layoutReady = true;
     }
@@ -145,29 +154,13 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   const savedScrollRef = useRef<Map<string, number>>(new Map());
   const themeNameRef = useRef(themeName);
   const wsRef = useRef(ws);
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(false);
+  const autoScrollRef = useRef(false);
   const projectPathRef = useRef(projectPath);
   /** Track which terminalId is currently subscribed on the server to avoid double-subscribe (#74) */
   const subscribedTerminalIdRef = useRef<string | null>(null);
   /** RAF handle for batched output writes (#76) */
   const outputRafRef = useRef<number | null>(null);
-  /** Force scroll-to-bottom on next output batch (set when user sends Enter) */
-  const forceScrollRef = useRef(false);
-  /**
-   * Persistent auto-scroll flag — true when the terminal should follow new output.
-   * Unlike isAtBottom() which can return stale results during async write processing,
-   * this flag is only set to false when the user explicitly scrolls up, and set to
-   * true when scrollToBottom() is called or the user scrolls to the bottom.
-   * This prevents the race condition where RAF N+1 reads isAtBottom()=false because
-   * RAF N's scrollToBottom callback hasn't fired yet, causing viewport to jump.
-   */
-  const autoScrollActiveRef = useRef(true);
-  /**
-   * Suppresses onScroll tracking during programmatic write/scroll operations.
-   * Without this, escape sequences processed by term.write() can briefly move the
-   * viewport to the bottom, flipping autoScrollActiveRef to true and breaking the
-   * user's scroll-up intent on the next output batch.
-   */
-  const writingRef = useRef(false);
   /** IntersectionObserver fallback for hidden containers (always-mounted tabs like COMMANDS) */
   const pendingSetupObserverRef = useRef<IntersectionObserver | null>(null);
 
@@ -187,15 +180,16 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   useEffect(() => {
     wsRef.current = ws;
     // Re-subscribe on WS reconnect (#74: unsubscribe old before subscribing new)
+    // Skip for PTY host terminals — they use IPC, not WebSocket
     if (activeRef.current && ws && ws.readyState === 1) {
       const { terminalId } = activeRef.current;
-      // Unsubscribe previous subscription to prevent duplicate output streams
-      if (subscribedTerminalIdRef.current && subscribedTerminalIdRef.current !== terminalId) {
-        ws.send(JSON.stringify({ type: 'terminal_disconnect', terminalId: subscribedTerminalIdRef.current }));
+      if (!isPtyHostTerminal(terminalId)) {
+        if (subscribedTerminalIdRef.current && subscribedTerminalIdRef.current !== terminalId) {
+          ws.send(JSON.stringify({ type: 'terminal_disconnect', terminalId: subscribedTerminalIdRef.current }));
+        }
+        ws.send(JSON.stringify({ type: 'terminal_subscribe', terminalId }));
+        subscribedTerminalIdRef.current = terminalId;
       }
-      // Don't clear terminal content on reconnect — let server replay append to existing (#24)
-      ws.send(JSON.stringify({ type: 'terminal_subscribe', terminalId }));
-      subscribedTerminalIdRef.current = terminalId;
     }
   }, [ws]);
 
@@ -273,12 +267,18 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
       // Clear stale pending output for this terminal
       pendingOutputRef.current.delete(terminalId);
       pendingOutputTtlRef.current.delete(terminalId);
-      // Reset auto-scroll to true for fresh terminal attachment
-      autoScrollActiveRef.current = true;
 
       // Subscribe for output (#74: track subscription to prevent duplicates)
-      if (wsRef.current && wsRef.current.readyState === 1) {
-        // Unsubscribe previous terminal if different
+      // PTY host terminals subscribe via IPC; others use WebSocket
+      if (isPtyHostTerminal(terminalId)) {
+        window.electronAPI!.subscribePty!(terminalId).then((result) => {
+          if (result.buffer) {
+            // Replay buffered output
+            handleTerminalOutput(terminalId, result.buffer);
+          }
+        });
+        subscribedTerminalIdRef.current = terminalId;
+      } else if (wsRef.current && wsRef.current.readyState === 1) {
         if (subscribedTerminalIdRef.current && subscribedTerminalIdRef.current !== terminalId) {
           wsRef.current.send(JSON.stringify({ type: 'terminal_disconnect', terminalId: subscribedTerminalIdRef.current }));
         }
@@ -395,41 +395,43 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
 
         term.open(container);
 
-        // Track user scroll intent: if user scrolls away from bottom, disable
-        // auto-scroll. If user scrolls back to bottom, re-enable it.
-        // Also cancel forceScrollRef when user scrolls up.
-        // Skip tracking during programmatic writes (writingRef) to prevent
-        // escape sequences from flipping autoScroll back to true.
-        term.onScroll(() => {
-          if (writingRef.current) return;
-          const atBottom = isAtBottom(term);
-          autoScrollActiveRef.current = atBottom;
-          if (!atBottom) {
-            forceScrollRef.current = false;
-          }
-        });
+        // No auto-scroll tracking — terminal never auto-scrolls on output.
 
         // Custom key handler
         term.attachCustomKeyEventHandler((e) => {
           if (e.key === 'Escape') {
             e.preventDefault();
-            if (e.type === 'keydown' && wsRef.current && wsRef.current.readyState === 1) {
-              wsRef.current.send(JSON.stringify({ type: 'terminal_input', terminalId, data: '\x1b' }));
-            }
+            if (e.type === 'keydown') sendInput(wsRef.current, terminalId, '\x1b');
             return false;
           }
           // Shift+Enter → same as Alt+Enter (sends ESC + newline)
           if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.metaKey) {
             e.preventDefault();
-            if (e.type === 'keydown' && wsRef.current && wsRef.current.readyState === 1) {
-              wsRef.current.send(JSON.stringify({ type: 'terminal_input', terminalId, data: '\x1b\n' }));
-            }
+            if (e.type === 'keydown') sendInput(wsRef.current, terminalId, '\x1b\n');
             return false;
           }
           // Cmd+Alt+1-9 (macOS) / Ctrl+Alt+1-9 (Win/Linux): session-switch
           // shortcuts — prevent xterm from processing these and let the event
           // bubble to the global handler in useKeyboardShortcuts.
           if (e.altKey && (e.metaKey || e.ctrlKey) && /^Digit[0-9]$/.test(e.code)) {
+            return false;
+          }
+          // Intercept Cmd+V / Ctrl+V paste to strip trailing newlines.
+          // Without this, pasted text ending with \n auto-submits as Enter.
+          if ((e.metaKey || e.ctrlKey) && e.key === 'v' && !e.shiftKey && !e.altKey) {
+            if (e.type === 'keydown') {
+              navigator.clipboard.readText().then((text) => {
+                if (!text) return;
+                const stripped = text.replace(/[\r\n]+$/, '');
+                if (!stripped) return;
+                const usePty = isPtyHostTerminal(terminalId);
+                if (usePty) {
+                  sendInput(null, terminalId, stripped);
+                } else if (wsRef.current && wsRef.current.readyState === 1) {
+                  wsRef.current.send(JSON.stringify({ type: 'terminal_input', terminalId, data: stripped }));
+                }
+              }).catch(() => {});
+            }
             return false;
           }
           return true;
@@ -440,24 +442,28 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
 
         // Send keystrokes (chunk large pastes to stay within 8 KB server limit)
         const CHUNK_SIZE = 4096;
+        const usePtyIpc = isPtyHostTerminal(terminalId);
         term.onData((data) => {
-          if (!wsRef.current || wsRef.current.readyState !== 1) return;
-          if (data.length <= CHUNK_SIZE) {
-            wsRef.current.send(JSON.stringify({ type: 'terminal_input', terminalId, data }));
+          if (usePtyIpc) {
+            // IPC transport — no chunking needed (no WS frame limit)
+            sendInput(null, terminalId, data);
           } else {
-            const ws = wsRef.current;
-            for (let i = 0; i < data.length; i += CHUNK_SIZE) {
-              const chunk = data.slice(i, i + CHUNK_SIZE);
-              if (ws.readyState !== 1) break;
-              ws.send(JSON.stringify({ type: 'terminal_input', terminalId, data: chunk }));
+            if (!wsRef.current || wsRef.current.readyState !== 1) return;
+            if (data.length <= CHUNK_SIZE) {
+              wsRef.current.send(JSON.stringify({ type: 'terminal_input', terminalId, data }));
+            } else {
+              const ws = wsRef.current;
+              for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+                const chunk = data.slice(i, i + CHUNK_SIZE);
+                if (ws.readyState !== 1) break;
+                ws.send(JSON.stringify({ type: 'terminal_input', terminalId, data: chunk }));
+              }
             }
           }
         });
 
         term.onBinary((data) => {
-          if (wsRef.current && wsRef.current.readyState === 1) {
-            wsRef.current.send(JSON.stringify({ type: 'terminal_input', terminalId, data }));
-          }
+          sendInput(wsRef.current, terminalId, data);
         });
 
         // Resize observer — 200ms debounce (#83: was 50ms, caused excessive resize messages)
@@ -465,16 +471,13 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         const resizeObserver = new ResizeObserver(() => {
           if (resizeTimer) clearTimeout(resizeTimer);
           resizeTimer = setTimeout(() => {
-            const wasBottom = isAtBottom(term);
             const savedViewportY = term.buffer.active.viewportY;
             fitAddon.fit();
             sendResize(wsRef.current, terminalId, term.cols, term.rows);
-            // Restore scroll position after fit to prevent layout-triggered viewport jump
-            if (wasBottom) {
-              term.scrollToBottom();
-            } else {
-              term.scrollToLine(savedViewportY);
-            }
+            // Force canvas repaint — required when container transitions from
+            // display:none to visible (tab switch), otherwise canvas stays blank.
+            term.refresh(0, term.rows - 1);
+            term.scrollToLine(savedViewportY);
           }, 200);
         });
         resizeObserver.observe(container);
@@ -535,17 +538,11 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         // stays blank until the user manually resizes (e.g. minimize+restore).
         setTimeout(() => {
           if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
-          const wasBottom = isAtBottom(term);
           const savedViewportY = term.buffer.active.viewportY;
           fitAddon.fit();
           sendResize(wsRef.current, terminalId, term.cols, term.rows);
           term.refresh(0, term.rows - 1);
-          // Restore scroll position after safety-net fit
-          if (wasBottom) {
-            term.scrollToBottom();
-          } else {
-            term.scrollToLine(savedViewportY);
-          }
+          term.scrollToLine(savedViewportY);
         }, 150);
       }
 
@@ -572,48 +569,21 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           pendingOutputRef.current.delete(`__active__${tid}`);
 
           const { term } = activeRef.current;
-          // #88: Only auto-scroll if user hasn't scrolled up to review history.
-          // Use the persistent autoScrollActiveRef flag instead of isAtBottom() to
-          // avoid a race condition: when RAF N's scrollToBottom callback hasn't fired
-          // yet, RAF N+1's isAtBottom() returns false, causing the viewport to jump
-          // to a stale position. The persistent flag survives across RAF batches.
-          const shouldScroll = autoScrollActiveRef.current || forceScrollRef.current;
-          forceScrollRef.current = false;
-          // Suppress onScroll tracking during writes so escape sequences don't
-          // flip autoScrollActiveRef back to true while user is scrolled up.
-          writingRef.current = true;
-          // Use write callbacks so scrollToBottom fires after xterm processes writes
-          // and updates baseY. Without this, scrollToBottom() called synchronously
-          // after write() is a no-op because baseY hasn't been updated yet (#scroll-fix).
-          if (shouldScroll && pending.length > 0) {
-            let remaining = pending.length;
-            for (const chunk of pending) {
-              const bytes = Uint8Array.from(atob(chunk), (c) => c.charCodeAt(0));
-              term.write(bytes, () => {
-                if (--remaining === 0 && activeRef.current?.term === term) {
+          // Save viewport position before writes — escape sequences can
+          // yank viewport around; restore it after all chunks are written.
+          const savedViewportY = term.buffer.active.viewportY;
+          let remaining = pending.length;
+          for (const chunk of pending) {
+            const bytes = Uint8Array.from(atob(chunk), (c) => c.charCodeAt(0));
+            term.write(bytes, () => {
+              if (--remaining === 0 && activeRef.current?.term === term) {
+                if (autoScrollRef.current) {
                   term.scrollToBottom();
-                  writingRef.current = false;
+                } else if (term.buffer.active.viewportY !== savedViewportY) {
+                  term.scrollToLine(savedViewportY);
                 }
-              });
-            }
-          } else {
-            // User is scrolled up — preserve viewport position after writes.
-            // Without this, escape sequences (cursor home, alt-screen switch,
-            // screen clear) processed by term.write() yank the viewport to
-            // the top or middle of the buffer.
-            const savedViewportY = term.buffer.active.viewportY;
-            let remaining = pending.length;
-            for (const chunk of pending) {
-              const bytes = Uint8Array.from(atob(chunk), (c) => c.charCodeAt(0));
-              term.write(bytes, () => {
-                if (--remaining === 0 && activeRef.current?.term === term) {
-                  if (term.buffer.active.viewportY !== savedViewportY) {
-                    term.scrollToLine(savedViewportY);
-                  }
-                  writingRef.current = false;
-                }
-              });
-            }
+              }
+            });
           }
         });
       }
@@ -641,7 +611,6 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
       requestAnimationFrame(() => {
         if (!activeRef.current || !activeRef.current.fitAddon) return;
         const { term, fitAddon } = activeRef.current;
-        const wasBottom = isAtBottom(term);
         const savedViewportY = term.buffer.active.viewportY;
         const prevCols = term.cols;
         const prevRows = term.rows;
@@ -651,12 +620,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         if (newCols !== prevCols || newRows !== prevRows) {
           sendResize(wsRef.current, terminalId, newCols, newRows);
         }
-        // Restore scroll position after fit to prevent viewport jump
-        if (wasBottom) {
-          term.scrollToBottom();
-        } else {
-          term.scrollToLine(savedViewportY);
-        }
+        term.scrollToLine(savedViewportY);
       });
     }
   }, []);
@@ -670,40 +634,38 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   }, []);
 
   const sendEscapeKey = useCallback(() => {
-    if (!activeRef.current || !wsRef.current || wsRef.current.readyState !== 1) return;
-    wsRef.current.send(
-      JSON.stringify({ type: 'terminal_input', terminalId: activeRef.current.terminalId, data: '\x1b' }),
-    );
+    if (!activeRef.current) return;
+    const { terminalId } = activeRef.current;
+    sendInput(wsRef.current, terminalId, '\x1b');
     activeRef.current.term.focus();
   }, []);
 
   const sendArrowUp = useCallback(() => {
-    if (!activeRef.current || !wsRef.current || wsRef.current.readyState !== 1) return;
-    wsRef.current.send(
-      JSON.stringify({ type: 'terminal_input', terminalId: activeRef.current.terminalId, data: '\x1b[A' }),
-    );
+    if (!activeRef.current) return;
+    const { terminalId } = activeRef.current;
+    sendInput(wsRef.current, terminalId, '\x1b[A');
     activeRef.current.term.focus();
   }, []);
 
   const sendArrowDown = useCallback(() => {
-    if (!activeRef.current || !wsRef.current || wsRef.current.readyState !== 1) return;
-    wsRef.current.send(
-      JSON.stringify({ type: 'terminal_input', terminalId: activeRef.current.terminalId, data: '\x1b[B' }),
-    );
+    if (!activeRef.current) return;
+    const { terminalId } = activeRef.current;
+    sendInput(wsRef.current, terminalId, '\x1b[B');
     activeRef.current.term.focus();
   }, []);
 
   const sendEnter = useCallback(() => {
-    if (!activeRef.current || !wsRef.current || wsRef.current.readyState !== 1) return;
-    wsRef.current.send(
-      JSON.stringify({ type: 'terminal_input', terminalId: activeRef.current.terminalId, data: '\r' }),
-    );
+    if (!activeRef.current) return;
+    const { terminalId } = activeRef.current;
+    sendInput(wsRef.current, terminalId, '\r');
     activeRef.current.term.focus();
   }, []);
 
   const pasteToTerminal = useCallback(async () => {
-    if (!activeRef.current || !wsRef.current || wsRef.current.readyState !== 1) return;
+    if (!activeRef.current) return;
     const { terminalId } = activeRef.current;
+    const usePtyIpc = isPtyHostTerminal(terminalId);
+    if (!usePtyIpc && (!wsRef.current || wsRef.current.readyState !== 1)) return;
 
     let text: string | null = null;
 
@@ -740,24 +702,32 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
 
     if (!text) return;
 
-    // Chunk large pastes to stay within server's per-message limit (8 KB)
-    const CHUNK_SIZE = 4096;
-    if (text.length <= CHUNK_SIZE) {
-      wsRef.current.send(
-        JSON.stringify({ type: 'terminal_input', terminalId, data: text }),
-      );
+    // Strip trailing newlines so paste doesn't auto-submit as Enter
+    text = text.replace(/[\r\n]+$/, '');
+    if (!text) return;
+
+    // IPC transport: send full paste (no chunking needed)
+    if (usePtyIpc) {
+      sendInput(null, terminalId, text);
     } else {
-      const ws = wsRef.current;
-      for (let i = 0; i < text.length; i += CHUNK_SIZE) {
-        const chunk = text.slice(i, i + CHUNK_SIZE);
-        // Small delay between chunks to avoid overwhelming the PTY buffer
-        if (i > 0) {
-          await new Promise((r) => setTimeout(r, 5));
-        }
-        if (ws.readyState !== 1) break;
-        ws.send(
-          JSON.stringify({ type: 'terminal_input', terminalId, data: chunk }),
+      // Chunk large pastes to stay within server's per-message limit (8 KB)
+      const CHUNK_SIZE = 4096;
+      if (text.length <= CHUNK_SIZE) {
+        wsRef.current!.send(
+          JSON.stringify({ type: 'terminal_input', terminalId, data: text }),
         );
+      } else {
+        const ws = wsRef.current!;
+        for (let i = 0; i < text.length; i += CHUNK_SIZE) {
+          const chunk = text.slice(i, i + CHUNK_SIZE);
+          if (i > 0) {
+            await new Promise((r) => setTimeout(r, 5));
+          }
+          if (ws.readyState !== 1) break;
+          ws.send(
+            JSON.stringify({ type: 'terminal_input', terminalId, data: chunk }),
+          );
+        }
       }
     }
     // Re-focus the terminal after paste
@@ -772,17 +742,11 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     // Just refit and refresh canvas to fix layout issues.
     requestAnimationFrame(() => {
       if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
-      const wasBottom = isAtBottom(term);
       const savedViewportY = term.buffer.active.viewportY;
       fitAddon.fit();
       sendResize(wsRef.current, terminalId, term.cols, term.rows);
       term.refresh(0, term.rows - 1);
-      // Restore scroll position after fit to prevent layout-triggered viewport jump
-      if (wasBottom) {
-        term.scrollToBottom();
-      } else {
-        term.scrollToLine(savedViewportY);
-      }
+      term.scrollToLine(savedViewportY);
     });
   }, []);
 
@@ -806,9 +770,12 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
         if (!activeRef.current) return;
+        const savedViewportY = activeRef.current.term.buffer.active.viewportY;
         activeRef.current.fitAddon.fit();
         sendResize(wsRef.current, activeRef.current.terminalId,
           activeRef.current.term.cols, activeRef.current.term.rows);
+        activeRef.current.term.refresh(0, activeRef.current.term.rows - 1);
+        activeRef.current.term.scrollToLine(savedViewportY);
       }, 200); // #83: match main resize debounce
     });
     newObserver.observe(newContainer);
@@ -824,9 +791,16 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
 
   const scrollToBottom = useCallback(() => {
     if (activeRef.current) {
-      autoScrollActiveRef.current = true;
       activeRef.current.term.scrollToBottom();
     }
+  }, []);
+
+  const toggleAutoScroll = useCallback(() => {
+    setAutoScrollEnabled((prev) => {
+      const next = !prev;
+      autoScrollRef.current = next;
+      return next;
+    });
   }, []);
 
   // Listen for global shortcut event to scroll terminal to bottom
@@ -836,17 +810,22 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     return () => document.removeEventListener('terminal:scrollToBottom', handler);
   }, [scrollToBottom]);
 
-  /** Clear the terminal display and replay buffered output from the server. */
+  /** Clear the terminal display and replay buffered output from the server/ptyHost. */
   const refreshOutput = useCallback(() => {
     if (!activeRef.current) return;
     const { term, terminalId } = activeRef.current;
     term.clear();
-    autoScrollActiveRef.current = true; // Follow replayed output
-    const ws = wsRef.current;
-    if (ws && ws.readyState === 1) {
-      ws.send(JSON.stringify({ type: 'terminal_subscribe', terminalId }));
+    if (isPtyHostTerminal(terminalId)) {
+      window.electronAPI!.subscribePty!(terminalId).then((result) => {
+        if (result.buffer) handleTerminalOutput(terminalId, result.buffer);
+      });
+    } else {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: 'terminal_subscribe', terminalId }));
+      }
     }
-  }, []);
+  }, [handleTerminalOutput]);
 
   const scrollPageUp = useCallback(() => {
     if (activeRef.current) {
@@ -934,6 +913,18 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     };
   }, []);
 
+  // Electron IPC PTY data listener — routes ptyHost output into handleTerminalOutput
+  useEffect(() => {
+    if (!window.electronAPI?.onPtyData) return;
+    const unsubData = window.electronAPI.onPtyData((terminalId, base64Data) => {
+      handleTerminalOutput(terminalId, base64Data);
+    });
+    const unsubExit = window.electronAPI.onPtyExit!((terminalId, exitCode, signal) => {
+      handleTerminalClosed(terminalId, signal ? `signal ${signal}` : `exit ${exitCode}`);
+    });
+    return () => { unsubData(); unsubExit(); };
+  }, [handleTerminalOutput, handleTerminalClosed]);
+
   // Alt+F11 fullscreen
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -972,5 +963,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     getTerminalBookmark,
     scrollToLine,
     jumpToBookmark,
+    autoScrollEnabled,
+    toggleAutoScroll,
   };
 }

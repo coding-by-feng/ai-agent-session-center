@@ -21,6 +21,8 @@ const PRIORITY_CLASS: Record<AgendaPriority, string> = {
   low: styles.priorityLow,
 };
 
+const PRIORITY_CYCLE: AgendaPriority[] = ['low', 'medium', 'high', 'urgent'];
+
 function getDueDateStatus(dueDate?: string): 'overdue' | 'today' | 'future' | null {
   if (!dueDate) return null;
   const today = new Date();
@@ -102,6 +104,10 @@ export default function AgendaTaskCard({ task }: AgendaTaskCardProps) {
     setEditingTags(true);
   }, [task.tags]);
 
+  const handlePriorityChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+    updateTask(task.id, { priority: e.target.value as AgendaPriority });
+  }, [task.id, updateTask]);
+
   const commitTagsEdit = useCallback(() => {
     setEditingTags(false);
     const newTags = tagsDraft
@@ -170,10 +176,18 @@ export default function AgendaTaskCard({ task }: AgendaTaskCardProps) {
             </span>
           )}
 
-          {/* Priority badge */}
-          <span className={`${styles.priorityBadge} ${PRIORITY_CLASS[task.priority]}`}>
-            {task.priority}
-          </span>
+          {/* Priority dropdown */}
+          <select
+            className={`${styles.priorityBadge} ${PRIORITY_CLASS[task.priority]}`}
+            value={task.priority}
+            onChange={handlePriorityChange}
+            onClick={(e) => e.stopPropagation()}
+            title="Change priority"
+          >
+            {PRIORITY_CYCLE.map((p) => (
+              <option key={p} value={p}>{p.toUpperCase()}</option>
+            ))}
+          </select>
         </div>
 
         {/* Meta row: due date + tags */}

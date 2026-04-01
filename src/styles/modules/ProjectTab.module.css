@@ -610,7 +610,8 @@
 .excelViewer {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -1287,7 +1288,8 @@
   max-width: 50%;
   border-right: 1px solid var(--border-faint);
   background: rgba(10, 10, 26, 0.5);
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: auto;
 }
 
 .treePanelHeader {

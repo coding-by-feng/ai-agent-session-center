@@ -23,6 +23,7 @@ import type { RobotModelType } from '@/lib/robot3DModels';
 import { getModelLabel } from '@/lib/robot3DModels';
 import { PALETTE } from '@/lib/robot3DGeometry';
 import { formatDuration, getStatusLabel } from '@/lib/format';
+import { detectCli } from '@/lib/cliDetect';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 // ---------------------------------------------------------------------------
@@ -62,13 +63,27 @@ const TerminalContent = memo(function TerminalContent({
   const client = useWsStore((s) => s.client);
   const ws = useMemo(() => client?.getRawSocket() ?? null, [client]);
   const isSSH = source === 'ssh';
-  const hasStartupCommand = useSessionStore((s) => !!s.sessions.get(sessionId)?.startupCommand);
+  const session = useSessionStore((s) => s.sessions.get(sessionId));
+  const hasStartupCommand = !!session?.startupCommand;
   const canReconnect = isSSH || hasStartupCommand;
   const showReconnect = canReconnect && status === 'ended' && !terminalId;
   const [bookmarkTarget, setBookmarkTarget] = useState<HTMLDivElement | null>(null);
 
+  const isClaudeCode = session ? detectCli(session) === 'claude' : false;
+
   const handleReconnect = useCallback(() => {
     fetch(`/api/sessions/${sessionId}/reconnect-terminal`, { method: 'POST' })
+      .catch(() => {});
+  }, [sessionId]);
+
+  const handleFork = useCallback(() => {
+    fetch(`/api/sessions/${sessionId}/fork`, { method: 'POST' })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.ok && data.terminalId) {
+          useSessionStore.getState().selectSession(data.terminalId);
+        }
+      })
       .catch(() => {});
   }, [sessionId]);
 
@@ -80,6 +95,7 @@ const TerminalContent = memo(function TerminalContent({
           ws={ws}
           showReconnect={showReconnect}
           onReconnect={canReconnect ? handleReconnect : undefined}
+          onFork={isClaudeCode ? handleFork : undefined}
           bookmarkPortalTarget={bookmarkTarget}
           projectPath={projectPath}
         />
@@ -338,13 +354,44 @@ export default function DetailPanel() {
     setVisitedProjects((prev) => {
       if (prev.has(displaySession.sessionId)) return prev;
       const next = new Map(prev);
+
+      // When session is re-keyed (e.g. after /clear), migrate localStorage keys
+      // from old sessionId to new so file tabs and project sub-tabs are preserved.
+      const oldId = displaySession.replacesId;
+      if (oldId && prev.has(oldId)) {
+        next.delete(oldId);
+        // Migrate project-tabs localStorage
+        const oldProjKey = `agent-manager:project-tabs:session:${oldId}`;
+        const newProjKey = `agent-manager:project-tabs:session:${displaySession.sessionId}`;
+        try {
+          const projRaw = localStorage.getItem(oldProjKey);
+          if (projRaw) {
+            localStorage.setItem(newProjKey, projRaw);
+            localStorage.removeItem(oldProjKey);
+            // Migrate file-tabs localStorage for each sub-tab
+            const parsed = JSON.parse(projRaw);
+            if (Array.isArray(parsed.tabs)) {
+              for (const tab of parsed.tabs) {
+                const oldFileKey = `agent-manager:file-tabs:${oldId}:${tab.id}`;
+                const newFileKey = `agent-manager:file-tabs:${displaySession.sessionId}:${tab.id}`;
+                const fileRaw = localStorage.getItem(oldFileKey);
+                if (fileRaw) {
+                  localStorage.setItem(newFileKey, fileRaw);
+                  localStorage.removeItem(oldFileKey);
+                }
+              }
+            }
+          }
+        } catch { /* ignore migration errors */ }
+      }
+
       next.set(displaySession.sessionId, {
         projectPath: displaySession.projectPath!,
         sessionId: displaySession.sessionId,
       });
       return next;
     });
-  }, [displaySession?.sessionId, displaySession?.projectPath]);
+  }, [displaySession?.sessionId, displaySession?.projectPath, displaySession?.replacesId]);
 
   // ---- Panel search state ----
   const [searchOpen, setSearchOpen] = useState(false);
@@ -630,9 +677,10 @@ export default function DetailPanel() {
               prompts={displaySession.promptHistory || []}
               previousSessions={displaySession.previousSessions}
               searchQuery={searchQuery}
+              projectPath={displaySession.projectPath}
             />
           }
-          notesContent={<NotesTab sessionId={displaySession.sessionId} />}
+          notesContent={<NotesTab sessionId={displaySession.sessionId} projectPath={displaySession.projectPath} />}
           queueContent={
             <QueueTab
               sessionId={displaySession.sessionId}

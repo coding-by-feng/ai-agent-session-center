@@ -97,7 +97,7 @@ function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
       )}
       {node.isLeaf && <span className={styles.arrowSpacer} />}
       <span className={styles.icon}>{fileIcon(data.name, data.isDir)}</span>
-      <span className={styles.name}>{data.name}</span>
+      <span className={styles.name} title={data.name}>{data.name}</span>
       {data.isLoading && <span className={styles.spinner}>...</span>}
     </div>
   );
@@ -145,20 +145,32 @@ export default function FileTree({
     return () => { cancelled = true; };
   }, [projectPath, showHidden, provider]);
 
-  // Lazy-load children when a directory is toggled open
+  // Lazy-load children when a directory is toggled open.
+  // Track in-flight loads to avoid duplicate requests.
+  const loadingDirs = useRef<Set<string>>(new Set());
+
   const handleToggle = useCallback((id: string) => {
-    if (loadedDirs.current.has(id)) return; // Already loaded
+    // Skip if already loaded with children, or if a load is in-flight
+    if (loadingDirs.current.has(id)) return;
+    if (loadedDirs.current.has(id)) return;
+
+    loadingDirs.current.add(id);
 
     // Mark as loading
     setTreeData((prev) => updateNodeInTree(prev, id, (n) => ({
       ...n,
       isLoading: true,
-      children: [],
+      children: n.children?.length ? n.children : [],
     })));
 
     provider.listDir(projectPath, id, showHidden).then(({ items }) => {
-      loadedDirs.current.add(id);
       const children = entriesToNodes(items, id);
+      // Only mark as fully loaded when the API returned children.
+      // Empty results may be transient (server not ready, race condition) —
+      // leaving it out of loadedDirs allows retry on next toggle.
+      if (children.length > 0) {
+        loadedDirs.current.add(id);
+      }
       setTreeData((prev) => updateNodeInTree(prev, id, (n) => ({
         ...n,
         isLoading: false,
@@ -170,6 +182,8 @@ export default function FileTree({
         isLoading: false,
         children: [],
       })));
+    }).finally(() => {
+      loadingDirs.current.delete(id);
     });
   }, [projectPath, showHidden, provider]);
 
@@ -200,6 +214,58 @@ export default function FileTree({
     document.addEventListener('filetree:refresh', handler);
     return () => document.removeEventListener('filetree:refresh', handler);
   }, [refresh]);
+
+  // Auto-reveal: expand ancestor directories and scroll to the active file
+  const lastRevealedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeFilePath || activeFilePath === lastRevealedRef.current) return;
+    lastRevealedRef.current = activeFilePath;
+
+    // Build list of ancestor directory IDs to expand
+    const parts = activeFilePath.split('/').filter(Boolean);
+    if (parts.length <= 1) return; // root-level file, no dirs to expand
+    const ancestors: string[] = [];
+    for (let i = 1; i < parts.length; i++) {
+      ancestors.push('/' + parts.slice(0, i).join('/'));
+    }
+
+    let cancelled = false;
+
+    async function revealPath() {
+      // Sequentially load each ancestor directory if not yet loaded
+      for (const dirId of ancestors) {
+        if (cancelled) return;
+        if (!loadedDirs.current.has(dirId)) {
+          try {
+            const { items } = await provider.listDir(projectPath, dirId, showHidden);
+            if (cancelled) return;
+            loadedDirs.current.add(dirId);
+            const children = entriesToNodes(items, dirId);
+            setTreeData((prev) => updateNodeInTree(prev, dirId, (n) => ({
+              ...n, isLoading: false, children,
+            })));
+          } catch {
+            return; // stop if a dir fails to load
+          }
+        }
+      }
+
+      // Wait for React to render the new tree data, then open ancestors and scroll
+      requestAnimationFrame(() => {
+        if (cancelled || !treeRef.current) return;
+        for (const dirId of ancestors) {
+          treeRef.current.open(dirId);
+        }
+        requestAnimationFrame(() => {
+          if (cancelled || !treeRef.current) return;
+          treeRef.current.scrollTo(activeFilePath);
+        });
+      });
+    }
+
+    revealPath();
+    return () => { cancelled = true; };
+  }, [activeFilePath, projectPath, showHidden, provider]);
 
   if (error) {
     return <div className={styles.error}>{error}</div>;

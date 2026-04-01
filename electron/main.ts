@@ -6,6 +6,8 @@ import { existsSync } from 'fs'
 import { setupTray } from './tray.js'
 import { registerSetupHandlers } from './ipc/setupHandlers.js'
 import { registerAppHandlers } from './ipc/appHandlers.js'
+import { registerTerminalHandlers } from './ipc/terminalHandlers.js'
+import { disposeAll as disposePtyHost } from './ptyHost.js'
 
 // Allow Web Audio to play without requiring a user gesture for each sound.
 // Session events arrive via WebSocket (not user clicks), so without this flag
@@ -120,6 +122,7 @@ app.whenReady().then(async () => {
   // Register IPC handlers first so renderer can call them on load
   registerSetupHandlers()
   registerAppHandlers()
+  registerTerminalHandlers()
 
   // Create window immediately — shows loading screen in production
   const win = await createWindow()
@@ -255,6 +258,9 @@ app.on('before-quit', async (e) => {
       // best effort — don't block quit
     }
   }
+
+  // Kill all PTY host terminals
+  disposePtyHost()
 
   // Shut down server (save SQLite snapshot, close DB)
   if (serverShutdown) {

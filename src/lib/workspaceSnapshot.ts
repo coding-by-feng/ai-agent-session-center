@@ -32,6 +32,8 @@ export interface SessionSnapshot {
   accentColor?: string;
   characterModel?: string;
   pinned?: boolean;
+  muted?: boolean;
+  alerted?: boolean;
   enableOpsTerminal: boolean;
   sshConfig: SshConfig;
   /** Original startup command with full params (e.g. 'gemini --model pro', 'codex --full-auto') */
@@ -39,6 +41,8 @@ export interface SessionSnapshot {
   /** Permission mode at export time — used to reconstruct CLI flags when startupCommand is absent */
   permissionMode?: string | null;
   projectTabs: { tabs: ProjectSubTab[]; active: string } | null;
+  /** Open file tabs per project sub-tab: key = subTabId, value = { tabs, active } */
+  fileTabs?: Record<string, { tabs: { path: string; name: string }[]; active: string | null }>;
 }
 
 export interface WorkspaceSnapshot {
@@ -63,6 +67,26 @@ function getProjectTabs(sessionId: string): { tabs: ProjectSubTab[]; active: str
   return null;
 }
 
+/** Collect open file tabs for each project sub-tab of a session */
+function getFileTabs(sessionId: string, projectTabs: { tabs: ProjectSubTab[] } | null): Record<string, { tabs: { path: string; name: string }[]; active: string | null }> | undefined {
+  if (!projectTabs) return undefined;
+  const result: Record<string, { tabs: { path: string; name: string }[]; active: string | null }> = {};
+  let found = false;
+  for (const subTab of projectTabs.tabs) {
+    try {
+      const raw = localStorage.getItem(`agent-manager:file-tabs:${sessionId}:${subTab.id}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed.tabs) && parsed.tabs.length > 0) {
+          result[subTab.id] = { tabs: parsed.tabs, active: parsed.active ?? null };
+          found = true;
+        }
+      }
+    } catch { /* ignore */ }
+  }
+  return found ? result : undefined;
+}
+
 export function buildSnapshot(
   sessions: Map<string, Session>,
   rooms: Room[],
@@ -79,6 +103,7 @@ export function buildSnapshot(
     if (session.status === 'ended') continue;
 
     exportedSessionIds.add(session.sessionId);
+    const projectTabs = getProjectTabs(session.sessionId);
     sessionSnapshots.push({
       originalSessionId: session.sessionId,
       title: session.title,
@@ -87,11 +112,14 @@ export function buildSnapshot(
       accentColor: session.accentColor,
       characterModel: session.characterModel,
       pinned: session.pinned,
+      muted: session.muted,
+      alerted: session.alerted,
       enableOpsTerminal: !!session.opsTerminalId || !!session.hadOpsTerminal,
       sshConfig: { ...session.sshConfig },
       startupCommand: session.startupCommand,
       permissionMode: session.permissionMode,
-      projectTabs: getProjectTabs(session.sessionId),
+      projectTabs,
+      fileTabs: getFileTabs(session.sessionId, projectTabs),
     });
   }
 
@@ -319,6 +347,20 @@ export async function importSnapshot(
             body: JSON.stringify({ pinned: true }),
           }).catch(() => {});
         }
+        if (sessionSnap.muted) {
+          fetch(`/api/sessions/${encodeURIComponent(data.terminalId)}/muted`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ muted: true }),
+          }).catch(() => {});
+        }
+        if (sessionSnap.alerted) {
+          fetch(`/api/sessions/${encodeURIComponent(data.terminalId)}/alerted`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ alerted: true }),
+          }).catch(() => {});
+        }
 
         // Restore project tabs to localStorage under the new session ID
         // This preserves customLabel, initialPath, initialIsFile, etc.
@@ -329,6 +371,18 @@ export async function importSnapshot(
               JSON.stringify(sessionSnap.projectTabs),
             );
           } catch { /* ignore */ }
+        }
+
+        // Restore file tabs (open files within each project sub-tab)
+        if (sessionSnap.fileTabs) {
+          for (const [subTabId, fileTabData] of Object.entries(sessionSnap.fileTabs)) {
+            try {
+              localStorage.setItem(
+                `agent-manager:file-tabs:${data.terminalId}:${subTabId}`,
+                JSON.stringify(fileTabData),
+              );
+            } catch { /* ignore */ }
+          }
         }
       } else {
         failed++;
