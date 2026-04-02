@@ -136,10 +136,31 @@ function detectShellReady(
  * After spawning the PTY, registers the terminal with the Express server
  * so that the session store, hook pipeline, and dashboard UI all see it.
  */
+// Auto-generate session name: projectName #N
+const ptyProjectCounters = new Map<string, number>()
+function autoSessionName(workDir: string): string {
+  const projectName = workDir === homedir()
+    ? 'Home'
+    : workDir.split('/').filter(Boolean).pop() || 'Session'
+  const counter = (ptyProjectCounters.get(projectName) || 0) + 1
+  ptyProjectCounters.set(projectName, counter)
+  return `${projectName} #${counter}`
+}
+
+/** Append -n "title" to claude commands for session naming */
+function appendSessionName(cmd: string, title?: string | null): string {
+  if (!title) return cmd
+  if (!cmd.startsWith('claude')) return cmd
+  if (/ -n[ =]/.test(cmd) || / --name[ =]/.test(cmd)) return cmd
+  const escaped = title.replace(/"/g, '\\"')
+  return `${cmd} -n "${escaped}"`
+}
+
 export function createPty(config: PtyCreateConfig): string {
   const terminalId = `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const workDir = resolveWorkDir(config.workingDir)
-  const command = config.command || 'claude'
+  const sessionName = config.sessionTitle || autoSessionName(workDir)
+  const command = appendSessionName(config.command || 'claude', sessionName)
   const shell = getDefaultShell()
 
   // Build env — strip CLAUDECODE to prevent nested-session detection
@@ -212,10 +233,19 @@ export function createPty(config: PtyCreateConfig): string {
   return terminalId
 }
 
+/**
+ * Strip terminal response sequences that should never reach PTY stdin.
+ * Focus events (\x1b[I / \x1b[O) and Device Attributes responses
+ * (\x1b[?...c / \x1b[>...c) are emitted by xterm.js but are not user input.
+ */
+const TERMINAL_RESPONSE_RE = /\x1b\[I|\x1b\[O|\x1b\[\?[\d;]*c|\x1b\[>[\d;]*c/g
+
 /** Write data to a PTY's stdin. */
 export function writePty(terminalId: string, data: string): void {
   const inst = terminals.get(terminalId)
-  if (inst) inst.process.write(data)
+  if (!inst) return
+  const cleaned = data.replace(TERMINAL_RESPONSE_RE, '')
+  if (cleaned) inst.process.write(cleaned)
 }
 
 /** Resize a PTY. */

@@ -247,6 +247,25 @@ export async function importSnapshot(
     onComplete: (created: number, failed: number) => void;
   },
 ): Promise<void> {
+  // Clear all existing sessions before loading from the snapshot.
+  // This ensures the workspace is fully replaced, not merged.
+  // The server returns saved terminal output buffers so we can restore scrollback.
+  let savedOutputMap = new Map<string, string>(); // key (title\0workDir) -> base64 data
+  try {
+    const clearRes = await fetch('/api/sessions/clear-all', { method: 'POST' });
+    if (clearRes.ok) {
+      const clearData = await clearRes.json();
+      if (Array.isArray(clearData.savedOutputs)) {
+        for (const so of clearData.savedOutputs) {
+          if (so.key && so.data) savedOutputMap.set(so.key, so.data);
+        }
+      }
+    }
+  } catch {
+    // If the endpoint doesn't respond, continue anyway — dedup will handle it
+    console.warn('[workspace] Failed to clear sessions before import');
+  }
+
   let created = 0;
   let failed = 0;
 
@@ -382,6 +401,19 @@ export async function importSnapshot(
                 JSON.stringify(fileTabData),
               );
             } catch { /* ignore */ }
+          }
+        }
+
+        // Restore terminal output from saved buffer (previous session's scrollback)
+        if (savedOutputMap.size > 0) {
+          const outputKey = (sessionSnap.title || '') + '\0' + (cfg.workingDir || '');
+          const savedOutput = savedOutputMap.get(outputKey);
+          if (savedOutput) {
+            fetch(`/api/terminals/${encodeURIComponent(data.terminalId)}/prefill-output`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ data: savedOutput }),
+            }).catch(() => {});
           }
         }
       } else {

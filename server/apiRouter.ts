@@ -10,9 +10,9 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSessionPinned, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSessionPinned, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
-import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, attachToTmuxPane, consumePendingLink } from './sshManager.js';
+import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, attachToTmuxPane, consumePendingLink, prefillTerminalOutput } from './sshManager.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
 import * as db from './db.js';
@@ -336,6 +336,26 @@ router.post('/hooks/uninstall', (_req: Request, res: Response) => {
 });
 
 // ---- Session Control Endpoints ----
+
+// Clear all sessions — kill terminals and remove from memory.
+// MUST be registered before parameterized /sessions/:id routes to avoid
+// Express matching "clear-all" as a session ID.
+router.post('/sessions/clear-all', async (_req: Request, res: Response) => {
+  try {
+    const { removed, savedOutputs } = clearAllSessions();
+    // Broadcast clearBrowserDb so browsers clear their IndexedDB mirror
+    try {
+      const { broadcast } = await import('./wsManager.js');
+      broadcast({ type: WS_TYPES.CLEAR_BROWSER_DB });
+    } catch { /* ignore */ }
+    log.info('api', `Cleared all sessions: ${removed} removed, ${savedOutputs.length} output buffers saved`);
+    res.json({ ok: true, removed, savedOutputs });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('api', `Clear all sessions failed: ${msg}`);
+    res.status(500).json({ ok: false, error: msg });
+  }
+});
 
 // Resume a disconnected SSH session — tries `claude --resume <id>` first,
 // falls back to `claude --continue` if the conversation wasn't persisted.
@@ -1019,6 +1039,23 @@ router.post('/queue-images', (req: Request, res: Response) => {
     } catch { /* skip invalid */ }
   }
   res.json({ ok: true, paths });
+});
+
+// Prefill a terminal's output ring buffer with saved data (base64).
+// Used during workspace import to restore previous terminal scrollback.
+router.post('/terminals/:id/prefill-output', (req: Request, res: Response) => {
+  const terminalId = str(req.params.id);
+  const { data } = req.body || {};
+  if (!data || typeof data !== 'string') {
+    res.status(400).json({ error: 'Missing or invalid "data" field (base64)' });
+    return;
+  }
+  const ok = prefillTerminalOutput(terminalId, data);
+  if (!ok) {
+    res.status(404).json({ error: 'Terminal not found' });
+    return;
+  }
+  res.json({ ok: true });
 });
 
 router.post('/terminals/:id/write', (req: Request, res: Response) => {

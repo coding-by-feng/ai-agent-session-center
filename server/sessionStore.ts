@@ -21,7 +21,7 @@ import {
 // Sub-module imports
 import { matchSession, detectHookSource } from './sessionMatcher.js';
 import { startApprovalTimer, clearApprovalTimer, hasChildProcesses } from './approvalDetector.js';
-import { closeTerminal, registerTerminalExitCallback } from './sshManager.js';
+import { closeTerminal, registerTerminalExitCallback, getTerminalOutputBuffer } from './sshManager.js';
 import {
   findPendingSubagentMatch, handleTeamMemberEnd, addPendingSubagent,
   linkByParentSessionId,
@@ -909,6 +909,10 @@ export function findActiveSessionByConfig(config: TerminalConfig): Session | nul
     if (session.projectPath !== resolvedWorkDir) continue;
     if ((session.sshHost || 'localhost') !== resolvedHost) continue;
     if ((session.sshCommand || 'claude') !== resolvedCommand) continue;
+    // When a session title is provided in the config, require it to match.
+    // This prevents collapsing distinct sessions that share the same workDir
+    // and command but have different titles (e.g. "MD Task" and "MD").
+    if (config.sessionTitle && session.title !== config.sessionTitle) continue;
     return { ...session };
   }
   return null;
@@ -1060,6 +1064,53 @@ export function deleteSessionFromMemory(sessionId: string): boolean {
   sessions.delete(sessionId);
   invalidateSessionsCache();
   return true;
+}
+
+export interface SavedTerminalOutput {
+  /** Stable key: sessionTitle + '\0' + workingDir (used to match after reimport) */
+  key: string;
+  /** Base64-encoded terminal output ring buffer */
+  data: string;
+}
+
+/**
+ * Kill and remove ALL sessions from memory.
+ * Used during workspace import to clear the slate before loading a new snapshot.
+ * Captures terminal output buffers before killing so they can be replayed in new sessions.
+ * Returns the number of sessions removed and saved output buffers.
+ */
+export function clearAllSessions(): { removed: number; savedOutputs: SavedTerminalOutput[] } {
+  const ids = [...sessions.keys()];
+  let removed = 0;
+  const savedOutputs: SavedTerminalOutput[] = [];
+
+  for (const id of ids) {
+    const session = sessions.get(id);
+    if (!session) continue;
+
+    // Capture terminal output buffer BEFORE killing the terminal
+    if (session.terminalId) {
+      const buf = getTerminalOutputBuffer(session.terminalId);
+      if (buf) {
+        const key = (session.title || '') + '\0' + (session.projectPath || '');
+        savedOutputs.push({ key, data: buf });
+      }
+      closeTerminal(session.terminalId);
+    }
+    if (session.opsTerminalId) {
+      closeTerminal(session.opsTerminalId);
+    }
+    // Release PID cache
+    if (session.cachedPid) {
+      pidToSession.delete(session.cachedPid);
+    }
+    sessions.delete(id);
+    removed++;
+  }
+  // Clear all aliases
+  sessionAliases.clear();
+  invalidateSessionsCache();
+  return { removed, savedOutputs };
 }
 
 export function setSessionTitle(sessionId: string, title: string): Session | null {

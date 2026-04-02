@@ -9,6 +9,7 @@ import { readdirSync } from 'fs';
 import { join } from 'path';
 import { homedir, networkInterfaces, hostname as osHostname } from 'os';
 import log from './logger.js';
+import { appendSessionName } from './config.js';
 import type { Terminal, TerminalConfig, TerminalInfo, TmuxSessionInfo, SshKeyInfo } from '../src/types/terminal.js';
 import type { PendingLink } from '../src/types/session.js';
 import type WebSocket from 'ws';
@@ -151,6 +152,17 @@ export function listSshKeys(): SshKeyInfo[] {
   }
 }
 
+// Auto-generate session name: projectName #N (sequence counter per project)
+const projectNameCounters = new Map<string, number>();
+function autoSessionName(workDir: string): string {
+  const projectName = workDir === homedir()
+    ? 'Home'
+    : workDir.split('/').filter(Boolean).pop() || 'Session';
+  const counter = (projectNameCounters.get(projectName) || 0) + 1;
+  projectNameCounters.set(projectName, counter);
+  return `${projectName} #${counter}`;
+}
+
 // Active terminals: terminalId -> Terminal
 const terminals = new Map<string, Terminal>();
 
@@ -273,7 +285,10 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
 
     const terminalId = `term-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const workDir = resolveWorkDir(config.workingDir);
-    const command = config.command || 'claude';
+    const baseCommand = config.command || 'claude';
+    // Append -n "title" to Claude commands for session naming
+    const sessionName = config.sessionTitle || autoSessionName(workDir);
+    const command = appendSessionName(baseCommand, sessionName);
     const skipAutoLaunch = config.command === '';
     const local = isLocal(config.host);
 
@@ -581,10 +596,18 @@ export function attachToTmuxPane(tmuxPaneId: string, wsClient: WebSocket | null)
   });
 }
 
+/**
+ * Strip terminal response sequences that should never reach PTY stdin.
+ * Focus events (\x1b[I / \x1b[O) and Device Attributes responses
+ * (\x1b[?...c / \x1b[>...c) are emitted by xterm.js but are not user input.
+ */
+const TERMINAL_RESPONSE_RE = /\x1b\[I|\x1b\[O|\x1b\[\?[\d;]*c|\x1b\[>[\d;]*c/g;
+
 export function writeToTerminal(terminalId: string, data: string): void {
   const term = terminals.get(terminalId);
   if (term && term.pty) {
-    term.pty.write(data);
+    const cleaned = data.replace(TERMINAL_RESPONSE_RE, '');
+    if (cleaned) term.pty.write(cleaned);
   }
 }
 
@@ -723,6 +746,29 @@ export function setWsClient(terminalId: string, wsClient: WebSocket | null): boo
       }));
       log.debug('pty', `Replayed ${term.outputBuffer.length} bytes to new client for ${terminalId}`);
     }
+  }
+  return true;
+}
+
+/** Get the raw output ring buffer for a terminal (base64-encoded). */
+export function getTerminalOutputBuffer(terminalId: string): string | null {
+  const term = terminals.get(terminalId);
+  if (!term || term.outputBuffer.length === 0) return null;
+  return term.outputBuffer.toString('base64');
+}
+
+/**
+ * Prepend saved output (base64) into a terminal's ring buffer.
+ * Used during workspace import to restore previous terminal scrollback.
+ * The saved output is prepended before any new PTY output.
+ */
+export function prefillTerminalOutput(terminalId: string, base64Data: string): boolean {
+  const term = terminals.get(terminalId);
+  if (!term) return false;
+  const saved = Buffer.from(base64Data, 'base64');
+  term.outputBuffer = Buffer.concat([saved, term.outputBuffer]);
+  if (term.outputBuffer.length > OUTPUT_BUFFER_MAX) {
+    term.outputBuffer = term.outputBuffer.slice(term.outputBuffer.length - OUTPUT_BUFFER_MAX);
   }
   return true;
 }

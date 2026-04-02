@@ -162,3 +162,19 @@ export function reconstructPermissionFlags(baseCmd: string, permissionMode?: str
   // "default", "plan", or unknown → no flag needed
   return baseCmd;
 }
+
+/**
+ * Append `-n "title"` to a Claude command for session naming.
+ * Only applies to Claude CLI commands (starts with "claude").
+ * Skips if the command already contains a `-n` flag.
+ */
+export function appendSessionName(command: string, sessionTitle?: string | null): string {
+  if (!sessionTitle) return command;
+  // Only Claude CLI supports -n flag
+  if (!command.startsWith('claude')) return command;
+  // Don't double-add if already present
+  if (/ -n[ =]/.test(command) || / --name[ =]/.test(command)) return command;
+  // Escape double quotes in the title
+  const escaped = sessionTitle.replace(/"/g, '\\"');
+  return `${command} -n "${escaped}"`;
+}

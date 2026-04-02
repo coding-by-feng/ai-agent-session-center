@@ -8,6 +8,7 @@ import type { Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useWsStore } from '@/stores/wsStore';
+import { useRoomStore } from '@/stores/roomStore';
 import ResizablePanel from '@/components/ui/ResizablePanel';
 import DetailTabs from './DetailTabs';
 import PromptHistory from './PromptHistory';
@@ -82,6 +83,11 @@ const TerminalContent = memo(function TerminalContent({
       .then((data) => {
         if (data.ok && data.terminalId) {
           useSessionStore.getState().selectSession(data.terminalId);
+          // Copy room assignment from source session to forked session
+          const room = useRoomStore.getState().getRoomForSession(sessionId);
+          if (room) {
+            useRoomStore.getState().addSession(room.id, data.terminalId);
+          }
         }
       })
       .catch(() => {});

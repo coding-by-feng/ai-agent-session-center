@@ -163,7 +163,8 @@
 .queuePanel.collapsed .queueBody { display: none !important; }
 
 /* Compose row */
-.queueCompose { display: flex; gap: 6px; margin-bottom: 6px; }
+.queueCompose { display: flex; gap: 6px; margin-bottom: 6px; border: 1px solid transparent; border-radius: 4px; transition: border-color 0.15s; }
+.queueComposeDragOver { border-color: var(--accent-cyan, #00e5ff); background: rgba(0, 229, 255, 0.05); }
 .queueTextarea { flex: 1; width: auto; background: rgba(255,255,255,0.04); border: 1px solid var(--border-subtle, rgba(255,255,255,0.08)); border-radius: 4px; color: var(--text-primary, #e0e0e0); font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 11px; padding: 6px 8px; resize: vertical; line-height: 1.5; box-shadow: none; }
 .queueTextarea::placeholder { color: var(--text-dim); font-style: italic; }
 .queueTextarea:focus { outline: none; border-color: var(--accent-cyan, #00e5ff); box-shadow: none; }
