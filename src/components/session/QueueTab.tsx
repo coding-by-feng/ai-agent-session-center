@@ -185,6 +185,65 @@ export default function QueueTab({
     setComposeImages((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
+  // ---- Paste images/files from clipboard ----
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind === 'file') {
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    if (files.length === 0) return;
+    // Prevent pasting binary as text
+    e.preventDefault();
+    const readers = files.slice(0, 5).map(
+      (f) =>
+        new Promise<QueueImageAttachment>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () =>
+            resolve({ name: f.name, dataUrl: reader.result as string });
+          reader.onerror = reject;
+          reader.readAsDataURL(f);
+        }),
+    );
+    Promise.allSettled(readers).then((results) => {
+      const imgs = results
+        .filter((r): r is PromiseFulfilledResult<QueueImageAttachment> => r.status === 'fulfilled')
+        .map((r) => r.value);
+      setComposeImages((prev) => [...prev, ...imgs].slice(0, 5));
+    });
+  }, []);
+
+  // ---- Drag and drop files onto compose area ----
+  const [dragOver, setDragOver] = useState(false);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    if (files.length === 0) return;
+    const readers = files.slice(0, 5).map(
+      (f) =>
+        new Promise<QueueImageAttachment>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () =>
+            resolve({ name: f.name, dataUrl: reader.result as string });
+          reader.onerror = reject;
+          reader.readAsDataURL(f);
+        }),
+    );
+    Promise.allSettled(readers).then((results) => {
+      const imgs = results
+        .filter((r): r is PromiseFulfilledResult<QueueImageAttachment> => r.status === 'fulfilled')
+        .map((r) => r.value);
+      setComposeImages((prev) => [...prev, ...imgs].slice(0, 5));
+    });
+  }, []);
+
   // ---- Add to queue ----
   const handleAdd = useCallback(() => {
     const trimmed = composeText.trim();
@@ -326,13 +385,19 @@ export default function QueueTab({
       {/* Body */}
       <div className={styles.queueBody}>
         {/* Compose */}
-        <div className={styles.queueCompose}>
+        <div
+          className={`${styles.queueCompose}${dragOver ? ` ${styles.queueComposeDragOver}` : ''}`}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+        >
           <textarea
             className={styles.queueTextarea}
-            placeholder="Add a prompt to the queue..."
+            placeholder="Add a prompt to the queue... (paste images with Cmd+V, or drag files here)"
             rows={2}
             value={composeText}
             onChange={(e) => setComposeText(e.target.value)}
+            onPaste={handlePaste}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
@@ -343,7 +408,7 @@ export default function QueueTab({
           <input
             ref={imageInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,.pdf,.txt,.md,.json,.csv,.xml,.yaml,.yml,.log"
             multiple
             style={{ display: 'none' }}
             onChange={handleImageFiles}

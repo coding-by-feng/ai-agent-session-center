@@ -102,12 +102,27 @@ function isPtyHostTerminal(terminalId: string): boolean {
   return terminalId.startsWith('pty-') && !!window.electronAPI?.writePty;
 }
 
+/**
+ * Strip terminal response sequences that xterm.js emits via onData but should
+ * never reach the PTY stdin.  These include:
+ *  - Focus In/Out reports: \x1b[I / \x1b[O  (DECSET 1004)
+ *  - Primary Device Attributes response: \x1b[?<params>c
+ *  - Secondary Device Attributes response: \x1b[><params>c
+ */
+const TERMINAL_RESPONSE_RE = /\x1b\[I|\x1b\[O|\x1b\[\?[\d;]*c|\x1b\[>[\d;]*c/g;
+
+function stripTerminalResponses(data: string): string {
+  return data.replace(TERMINAL_RESPONSE_RE, '');
+}
+
 /** Send terminal input via the appropriate transport (IPC or WS). */
 function sendInput(ws: WebSocket | null, terminalId: string, data: string): void {
+  const cleaned = stripTerminalResponses(data);
+  if (!cleaned) return;
   if (isPtyHostTerminal(terminalId)) {
-    window.electronAPI!.writePty!(terminalId, data);
+    window.electronAPI!.writePty!(terminalId, cleaned);
   } else if (ws && ws.readyState === 1) {
-    ws.send(JSON.stringify({ type: 'terminal_input', terminalId, data }));
+    ws.send(JSON.stringify({ type: 'terminal_input', terminalId, data: cleaned }));
   }
 }
 
@@ -418,7 +433,10 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           }
           // Intercept Cmd+V / Ctrl+V paste to strip trailing newlines.
           // Without this, pasted text ending with \n auto-submits as Enter.
+          // preventDefault() is critical — without it the browser still fires a
+          // native paste event that xterm processes via onData, causing a double-paste.
           if ((e.metaKey || e.ctrlKey) && e.key === 'v' && !e.shiftKey && !e.altKey) {
+            e.preventDefault();
             if (e.type === 'keydown') {
               navigator.clipboard.readText().then((text) => {
                 if (!text) return;

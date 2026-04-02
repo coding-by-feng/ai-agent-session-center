@@ -193,6 +193,44 @@
 .miniRobot[data-status='working'],
 .miniRobot[data-status='prompting'] {
   animation: robotGlow 2s ease-in-out infinite;
+  border-color: transparent;
+  background-clip: padding-box;
+}
+
+/* Spinning border highlight for active sessions */
+.miniRobot[data-status='working']::before,
+.miniRobot[data-status='prompting']::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 9px;
+  padding: 2px;
+  background: conic-gradient(
+    from var(--spin-angle, 0deg),
+    transparent 0%,
+    var(--robot-color) 20%,
+    transparent 40%,
+    transparent 60%,
+    var(--robot-color) 80%,
+    transparent 100%
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: spinBorder 2s linear infinite;
+  z-index: -1;
+}
+
+@keyframes spinBorder {
+  to { --spin-angle: 360deg; }
+}
+
+/* Register custom property for smooth animation */
+@property --spin-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
 }
 
 @keyframes robotGlow {

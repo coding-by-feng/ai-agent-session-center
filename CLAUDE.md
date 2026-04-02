@@ -1,516 +1,174 @@
 # AI Agent Session Center
 
-## Project Overview
-
-A localhost dashboard (port 3333) that monitors all active AI coding agent sessions (Claude Code, Gemini CLI, Codex) via hooks. Each session is represented by a 3D robot character in an interactive cyberdrome scene. Users can click on any robot/session to view full prompt history, response history, tool logs, and session details. Supports SSH terminal connections, team/subagent tracking, prompt queuing, and session resume.
+Localhost dashboard (port 3333) that monitors AI coding agent sessions (Claude Code, Gemini CLI, Codex) via hooks. Sessions are visualized as 3D robot characters in an interactive cyberdrome. Supports SSH terminals, team/subagent tracking, prompt queuing, workspace snapshots, and session resume.
 
 ## Tech Stack
 
-| Component | Technology |
-|-----------|-----------|
-| Backend | Node.js 18+ (ESM) + Express 5 + ws 8 + tsx |
-| Frontend | React 19 + Three.js + @react-three/fiber + Zustand + Vite 7 |
-| Desktop | Electron 34 + electron-builder 25 |
-| Terminal | node-pty (SSH via server, local via Electron PTY host) |
-| Hooks | Bash script (file-based MQ primary, HTTP fallback) |
-| Persistence | SQLite (server) + IndexedDB via Dexie (browser) |
-| Port | 3333 (configurable) |
+| Layer | Technology |
+|-------|-----------|
+| Backend | Node.js 18+ (ESM), Express 5, ws 8, tsx |
+| Frontend | React 19, Three.js / @react-three/fiber, Zustand 5, Vite 7 |
+| Desktop | Electron 34, electron-builder 25 |
+| Terminal | node-pty (IPC in Electron, WebSocket in browser) |
+| Hooks | Bash script → JSONL file-based MQ (HTTP POST fallback) |
+| Persistence | SQLite / better-sqlite3 (server) + IndexedDB / Dexie (browser) |
 
 ## Commands
 
 ```bash
-# Install dependencies
-npm install
-
-# Development (Vite dev server + backend with HMR)
-npm run dev
-
-# Build frontend for production
-npm run build
-
-# Start production server (serves built frontend)
-npm start
-
-# Start without opening browser
-npm run start:no-open
-
-# Start in debug mode (verbose logging)
-npm run debug
-
-# Interactive setup wizard (install + configure + start)
-npm run setup
-
-# Install hooks into ~/.claude/settings.json
-npm run install-hooks
-
-# Uninstall all dashboard hooks
-npm run uninstall-hooks
-
-# Reset everything (remove hooks, clean config, create backup)
-npm run reset
-
-# Run tests
-npm test
-
-# Run tests in watch mode
-npm run test:watch
-
-# Run E2E tests (requires: npx playwright install)
-npm run test:e2e
-
-# Run tests with coverage
-npm run test:coverage
-
-# Type check only (no emit)
-npm run typecheck
-
-# Lint frontend source
-npm run lint
-
-# Format frontend source
-npm run format
-
-# Electron development (builds + launches desktop app)
-npm run electron:dev
-
-# Build Electron distributable
-npm run electron:build
+npm run dev              # Vite + tsx watch (HMR)
+npm run build            # Production build
+npm start                # Start production server
+npm test                 # Vitest
+npm run test:e2e         # Playwright E2E
+npm run test:coverage    # Coverage report
+npm run typecheck        # tsc --noEmit
+npm run lint             # ESLint src/
+npm run format           # Prettier
+npm run electron:dev     # Build + launch Electron app
+npm run electron:build   # Build distributable (DMG/NSIS)
+npm run install-hooks    # Install hooks into CLI settings
+npm run uninstall-hooks  # Remove all dashboard hooks
+npm run setup            # Interactive setup wizard
+npm run reset            # Remove hooks, clean config, backup
 ```
+
+## Feature Documentation
+
+**All feature logic is documented in `docs/feature/`.** Each doc covers function, purpose, source files, implementation, cross-feature dependencies, and change risks.
+
+**MANDATORY WORKFLOW — Before implementing any new feature or modifying an existing one:**
+1. Read this CLAUDE.md to identify which feature domain is involved
+2. Read the corresponding feature doc(s) in `docs/feature/` to understand the current implementation, source files, dependencies, and change risks
+3. Check the Impact Matrix below to identify connected features that may be affected
+4. Read those connected feature docs too, so you don't introduce regressions
+5. After completing the work, update every feature doc that was affected by the change
+
+| Domain | Docs | What they cover |
+|--------|------|----------------|
+| [`server/`](docs/feature/server/) | 11 | [Hook System](docs/feature/server/hook-system.md), [Session Management](docs/feature/server/session-management.md), [Session Matching](docs/feature/server/session-matching.md), [Approval Detection](docs/feature/server/approval-detection.md), [WebSocket](docs/feature/server/websocket-manager.md), [API](docs/feature/server/api-endpoints.md), [Database](docs/feature/server/database.md), [Terminal/SSH](docs/feature/server/terminal-ssh.md), [Teams](docs/feature/server/team-subagent.md), [Process Monitor](docs/feature/server/process-monitor.md), [Auth](docs/feature/server/authentication.md) |
+| [`frontend/`](docs/feature/frontend/) | 10 | [State](docs/feature/frontend/state-management.md), [Persistence](docs/feature/frontend/client-persistence.md), [WS Client](docs/feature/frontend/websocket-client.md), [Detail Panel](docs/feature/frontend/session-detail-panel.md), [File Browser](docs/feature/frontend/file-browser.md), [Terminal UI](docs/feature/frontend/terminal-ui.md), [Settings](docs/feature/frontend/settings-system.md), [Shortcuts](docs/feature/frontend/keyboard-shortcuts.md), [Queue](docs/feature/frontend/prompt-queue.md), [Views](docs/feature/frontend/views-routing.md) |
+| [`3d/`](docs/feature/3d/) | 3 | [Cyberdrome Scene](docs/feature/3d/cyberdrome-scene.md), [Robot System](docs/feature/3d/robot-system.md), [Particles/Effects](docs/feature/3d/particles-effects.md) |
+| [`multimedia/`](docs/feature/multimedia/) | 1 | [Sound & Alarm System](docs/feature/multimedia/sound-alarm-system.md) |
+| [`electron/`](docs/feature/electron/) | 3 | [App Lifecycle](docs/feature/electron/app-lifecycle.md), [PTY Host](docs/feature/electron/pty-host.md), [IPC Transport](docs/feature/electron/ipc-transport.md) |
+
+See [`docs/feature/README.md`](docs/feature/README.md) for the full index, dependency graph, and impact matrix.
 
 ## Architecture
 
-### Hook Delivery Pipeline
+### Data Flow
 
 ```
-Claude Code / Gemini / Codex
-        |
-        v
-  Hook Script (bash)
-  - Reads stdin JSON
-  - Enriches with PID, TTY, terminal env vars, startup_command, wezterm_pane
-  - Single jq pass (~2-5ms)
-        |
-        v
-  /tmp/claude-session-center/queue.jsonl
-  - Atomic POSIX append (~0.1ms)
-  - Fallback: HTTP POST to localhost:3333/api/hooks
-        |
-        v
-  mqReader.ts
-  - fs.watch() + 10ms debounce for instant notification
-  - 500ms fallback poll + 5s health check
-  - Reads new bytes from last offset
-  - Handles partial lines and truncation
-        |
-        v
-  hookProcessor.ts
-  - Validates payload (session_id, event type, PID)
-  - Calls handleEvent() on sessionStore
-  - Records stats (latency, processing time)
-  - Broadcasts to WebSocket clients
-        |
-        v
-  sessionStore.ts (coordinator)
-  - Delegates to sub-modules:
-    sessionMatcher  -> match hook to session
-    approvalDetector -> tool approval timeouts
-    teamManager     -> subagent team tracking
-    processMonitor  -> PID liveness checks
-    autoIdleManager -> idle transition timers
-        |
-        v
-  wsManager.ts
-  - Broadcasts session_update to all connected browsers (20ms debounce per sessionId)
-  - Supports replay (ring buffer of last 500 events)
-        |
-        v
-  Browser (IndexedDB + UI)
+AI CLI (Claude/Gemini/Codex)
+  → hooks/dashboard-hook.sh (jq enrichment, ~2-5ms)
+  → /tmp/claude-session-center/queue.jsonl (atomic append ~0.1ms)
+  → server/mqReader.ts (fs.watch + debounce)
+  → server/hookProcessor.ts (validate + route)
+  → server/sessionStore.ts (state machine + coordinator)
+  → server/wsManager.ts (broadcast to browsers)
+  → Browser (Zustand stores → React render)
+Total: 3-17ms end-to-end
 ```
 
-### Latency Expectations
-
-| Stage | Typical | Notes |
-|-------|---------|-------|
-| jq enrichment | 2-5ms | Single jq invocation in bash |
-| File append | ~0.1ms | POSIX atomic for writes < 4096 bytes |
-| fs.watch + debounce | 0-10ms | Instant on macOS/Linux |
-| Server processing | ~0.5ms | handleEvent + broadcast |
-| **Total end-to-end** | **3-17ms** | Hook fired to browser updated |
-
-### Module Relationships
-
-```
-server/index.ts (thin orchestrator)
-  ├── hookInstaller.js    — auto-install hooks on startup
-  ├── portManager.ts      — resolve port, kill conflicts
-  ├── hookRouter.ts       — POST /api/hooks (HTTP transport)
-  ├── apiRouter.ts        — all REST API endpoints (incl. agenda CRUD)
-  ├── mqReader.ts         — file-based JSONL queue reader
-  ├── hookProcessor.ts    — shared validation + processing pipeline
-  ├── sessionStore.ts     — coordinator (delegates to sub-modules)
-  │   ├── sessionMatcher.ts    — 8-priority session matching
-  │   ├── approvalDetector.ts  — tool approval timeout logic
-  │   ├── teamManager.ts       — team/subagent tracking
-  │   ├── processMonitor.ts    — PID liveness checking
-  │   └── autoIdleManager.ts   — idle transition timers
-  ├── wsManager.ts        — WebSocket broadcast + terminal relay
-  ├── sshManager.ts       — SSH/PTY terminal management
-  ├── hookStats.ts        — in-memory performance stats
-  ├── config.ts           — tool categories, timeouts, animation maps
-  ├── constants.ts        — all magic strings (events, statuses, WS types)
-  ├── serverConfig.ts     — loads data/server-config.json
-  └── logger.ts           — debug-aware logging utility
-```
-
-### Electron Desktop App
-
-```
-electron/
-  ├── main.ts              — App lifecycle, window management, IPC registration
-  ├── preload.ts           — Context bridge exposing electronAPI to renderer
-  ├── tray.ts              — System tray / menu bar
-  ├── ptyHost.ts           — VS Code-style PTY host (node-pty, IPC relay, output buffering)
-  ├── ipc/
-  │   ├── setupHandlers.ts — Setup wizard IPC (dependencies, hook install)
-  │   ├── appHandlers.ts   — Dashboard IPC (port, browser, lifecycle)
-  │   └── terminalHandlers.ts — PTY terminal IPC (create, write, resize, kill)
-  ├── icon/                — macOS .icns, Windows .ico
-  └── entitlements.mac.plist — macOS hardened runtime
-```
-
-The Electron app uses a **dual transport** architecture for terminals:
-- **IPC transport** (desktop): `ptyHost.ts` manages node-pty directly in the main process. Terminal I/O flows through Electron IPC (`pty:create`, `pty:write`, `pty:data`, `pty:resize`, `pty:kill`). No WebSocket needed.
-- **WebSocket transport** (browser): `sshManager.ts` on the server spawns PTYs. Terminal I/O relays through WebSocket (`terminal_input`, `terminal_output`).
-
-The renderer auto-detects which transport to use via `window.electronAPI?.createPty`.
-
-### Frontend Module Structure
-
-```
-src/
-  ├── main.tsx             — React entry point
-  ├── App.tsx              — Router + layout + providers
-  ├── components/
-  │   ├── 3d/              — Three.js 3D scene
-  │   │   ├── CyberdromeScene.tsx    — root 3D canvas
-  │   │   ├── CyberdromeEnvironment.tsx — floor, walls, rooms
-  │   │   ├── SessionRobot.tsx       — per-session 3D robot
-  │   │   ├── Robot3DModel.tsx       — procedural robot geometry
-  │   │   ├── RobotDialogue.tsx      — speech bubble overlays
-  │   │   ├── StatusParticles.tsx    — status particle effects
-  │   │   ├── SubagentConnections.tsx — team connection lines
-  │   │   ├── RobotListSidebar.tsx   — 2D robot list overlay
-  │   │   └── CameraController.tsx   — animated camera
-  │   ├── session/         — detail panel, tabs, controls
-  │   │   ├── DetailPanel.tsx        — main detail panel (header + tabs)
-  │   │   ├── ProjectTab.tsx         — file browser with split-view
-  │   │   ├── FileTree.tsx           — hierarchical file tree with auto-reveal
-  │   │   ├── FindInFileBar.tsx      — inline find-in-file search (Cmd+F)
-  │   │   ├── LinkifiedText.tsx      — clickable file paths in text
-  │   │   ├── PromptHistory.tsx      — prompt history with resume chains
-  │   │   └── NotesTab.tsx           — per-session notes
-  │   ├── terminal/        — xterm.js terminal components
-  │   ├── settings/        — settings panel components
-  │   ├── modals/          — modal dialogs (NewSession, QuickSession, Shortcuts)
-  │   ├── layout/          — nav, header, activity feed
-  │   ├── agenda/          — agenda task management components
-  │   ├── charts/          — analytics chart components
-  │   ├── setup/           — setup wizard components
-  │   └── ui/              — shared UI components
-  ├── routes/              — LiveView, HistoryView, AgendaView, QueueView, ProjectBrowserView
-  ├── stores/              — Zustand state management (session, settings, queue, agenda, room, camera, ui, ws, shortcut)
-  ├── hooks/               — React hooks (useWebSocket, useTerminal, etc.)
-  ├── lib/                 — utilities (wsClient, db, sound, alarms, etc.)
-  ├── styles/              — CSS/theme files
-  └── types/               — TypeScript type definitions
-```
-
-## Project Structure
+### Server Modules
 
 ```
 server/
-├── index.ts              # Express + WS server entry (thin orchestrator)
-├── apiRouter.ts          # REST API endpoints (sessions, terminals, hooks, SSH, agenda)
-├── hookRouter.ts         # POST /api/hooks endpoint (HTTP transport adapter)
-├── hookProcessor.ts      # Shared hook validation + processing pipeline
-├── mqReader.ts           # File-based JSONL message queue reader
-├── sessionStore.ts       # Session state machine (coordinator)
-├── sessionMatcher.ts     # 8-priority session matching logic
-├── approvalDetector.ts   # Tool approval timeout detection
-├── teamManager.ts        # Team/subagent tracking and auto-detection
-├── processMonitor.ts     # PID liveness checking for auto-cleanup
-├── autoIdleManager.ts    # Auto-idle transition timers
-├── wsManager.ts          # WebSocket broadcast + bidirectional terminal relay
-├── sshManager.ts         # SSH/PTY terminal creation and management
-├── hookInstaller.js      # Auto-install hook scripts on startup (plain JS)
-├── portManager.ts        # Port resolution and conflict management
-├── hookStats.ts          # In-memory hook performance statistics
-├── config.ts             # Tool categories, timeouts, animation mappings
-├── constants.ts          # Centralized magic strings (events, statuses, WS types)
-├── serverConfig.ts       # Loads user config from data/server-config.json
-├── authManager.ts        # Password auth, token management
-├── db.ts                 # SQLite database (better-sqlite3)
-└── logger.ts             # Debug-aware logging utility
-
-electron/
-├── main.ts               # App lifecycle, window management, IPC registration
-├── preload.ts            # Context bridge exposing electronAPI to renderer
-├── tray.ts               # System tray / menu bar
-├── ptyHost.ts            # VS Code-style PTY host (node-pty, IPC relay)
-├── server.d.ts           # Type stubs for Node types in renderer
-├── ipc/
-│   ├── setupHandlers.ts  # Setup wizard IPC handlers
-│   ├── appHandlers.ts    # Dashboard lifecycle IPC handlers
-│   └── terminalHandlers.ts # PTY terminal IPC (create, write, resize, kill)
-├── icon/                 # macOS .icns, Windows .ico
-└── entitlements.mac.plist # macOS hardened runtime
-
-src/
-├── main.tsx              # React entry point (mounts to #root)
-├── App.tsx               # Router, layout, providers
-├── components/
-│   ├── 3d/               # Three.js 3D cyberdrome scene
-│   ├── session/          # Detail panel, tabs, controls
-│   │   ├── DetailPanel.tsx       # Main detail panel (header + tabs)
-│   │   ├── ProjectTab.tsx        # File browser with split-view + find-in-file
-│   │   ├── FileTree.tsx          # Hierarchical file tree with auto-reveal
-│   │   ├── FindInFileBar.tsx     # Inline find-in-file search bar (Cmd+5)
-│   │   ├── LinkifiedText.tsx     # Clickable file paths in rendered text
-│   │   ├── PromptHistory.tsx     # Prompt history with resume chains
-│   │   └── NotesTab.tsx          # Per-session notes
-│   ├── terminal/         # xterm.js terminal components
-│   ├── settings/         # Settings panel (theme, sound, hooks, API keys)
-│   ├── modals/           # New session, quick session modals
-│   ├── layout/           # NavBar, Header, ActivityFeed, WorkdirLauncher
-│   ├── agenda/           # Agenda task management components
-│   ├── auth/             # Login screen
-│   └── ui/               # Modal, Tabs, SearchInput, ResizablePanel, Toast
-├── routes/               # LiveView, HistoryView, AgendaView, QueueView, ProjectBrowserView
-├── stores/               # Zustand stores (session, settings, queue, agenda, room, camera, ui, ws, shortcut)
-├── hooks/                # useWebSocket, useTerminal, useAuth, useSound, useKeyboardShortcuts
-├── lib/                  # wsClient, db (Dexie), soundEngine, alarmEngine, format, etc.
-├── styles/               # CSS/theme files
-└── types/                # TypeScript type definitions
-
-static/
-├── favicon.svg           # Favicon
-├── apple-touch-icon.svg  # Apple touch icon
-└── screenshot-*.png      # README/marketing screenshots
-
-hooks/
-├── dashboard-hook.sh     # Main hook: enrich JSON + append to MQ file
-├── dashboard-hook.ps1    # Windows PowerShell variant
-├── dashboard-hook-gemini.sh  # Gemini CLI hook adapter
-├── dashboard-hook-codex.sh   # Codex CLI hook adapter
-├── install-hooks.js      # CLI: install/uninstall hooks with density levels
-├── setup-wizard.js       # Interactive setup wizard (port, CLI selection)
-└── reset.js              # Reset: remove hooks, clean config, create backup
-
-bin/
-└── cli.js                # npx/global CLI entry point
-
-data/
-├── server-config.json    # User configuration (port, density, CLIs, debug)
-└── backups/              # Backup snapshots from reset operations
+  index.ts              — thin orchestrator
+  hookInstaller.js      — auto-install hooks on startup
+  portManager.ts        — port resolution, conflict kill
+  hookRouter.ts         — POST /api/hooks (HTTP fallback)
+  apiRouter.ts          — all REST endpoints (~78KB, largest file)
+  mqReader.ts           — JSONL queue reader
+  hookProcessor.ts      — validation + event processing
+  sessionStore.ts       — coordinator (~54KB, delegates to sub-modules)
+    sessionMatcher.ts   — 8-priority session matching
+    approvalDetector.ts — tool approval timeouts
+    teamManager.ts      — subagent team tracking
+    processMonitor.ts   — PID liveness checking
+    autoIdleManager.ts  — idle transition timers
+  wsManager.ts          — WebSocket broadcast + terminal relay
+  sshManager.ts         — SSH/PTY terminal management
+  db.ts                 — SQLite (WAL mode, 6 tables)
+  authManager.ts        — password auth + tokens
+  hookStats.ts          — performance metrics
+  config.ts             — tool categories, timeouts
+  constants.ts          — event types, statuses, WS message types
+  serverConfig.ts       — data/server-config.json loader
+  logger.ts             — debug-aware logging
 ```
 
-## Key Design Decisions
+### Frontend Modules
 
-- **File-based MQ over HTTP**: Hooks append JSON to `/tmp/claude-session-center/queue.jsonl` instead of HTTP POST. Eliminates process spawn overhead (no curl), achieves ~0.1ms delivery via POSIX atomic append.
-- **8-priority session matching (SSH-only mode)**: Hooks don't know about SSH terminals. The matcher tries pendingResume → terminalId scan → cached PID → workDir link → path scan → PID fallback. If no match, the event is silently dropped — no display-only cards are ever created.
-- **Dual terminal transport (IPC + WebSocket)**: In the Electron desktop app, `ptyHost.ts` manages PTYs directly in the main process and relays I/O via IPC — no WebSocket needed. In the browser, `sshManager.ts` on the server spawns PTYs and relays via WebSocket. The renderer auto-detects which transport to use via `window.electronAPI?.createPty`. Both paths register terminals with the server for session matching.
-- **Approval detection heuristic**: Uses tool-category timeouts to detect when Claude is waiting for user approval. PermissionRequest hook event (medium+ density) provides a reliable signal that replaces the heuristic.
-- **Vite + React frontend**: React 19 with Three.js for 3D scene rendering. Vite for dev server (HMR) and production builds (`dist/client/`).
-- **Dual persistence**: SQLite on server (sessions, snapshots) + IndexedDB via Dexie in browser (history, settings, queue).
-- **Coordinator pattern**: sessionStore.ts delegates to focused sub-modules rather than being a monolith.
-- **Atomic settings writes**: Hook installation uses write-to-temp + rename to prevent corrupting `~/.claude/settings.json`.
-- **Broadcast debounce**: WebSocket broadcasts are debounced 20ms per sessionId to coalesce rapid updates.
-- **Snapshot restore**: SSH sessions are restored as `idle` on server restart; non-SSH sessions with dead PIDs get `ServerRestart` event and `ended` status. Priority 0.5 auto-links new Claude starts to restored cards.
+```
+src/
+  stores/               — 7 Zustand stores (session, settings, queue, room, camera, ui, ws)
+  hooks/                — useWebSocket, useTerminal (37KB), useSound, useAuth, useKeyboardShortcuts
+  lib/                  — wsClient, db (Dexie), soundEngine, ambientEngine, alarmEngine, workspaceSnapshot
+  components/
+    3d/                 — CyberdromeScene, SessionRobot, Robot3DModel, CameraController, StatusParticles
+    session/            — DetailPanel, ProjectTab, FileTree, FindInFileBar, QueueTab, ActivityLog
+    terminal/           — TerminalContainer, TerminalToolbar, themes
+    settings/           — SettingsPanel (6 tabs), ThemeSettings, SoundSettings
+    modals/             — NewSessionModal, QuickSessionModal, ShortcutsModal
+    layout/             — NavBar, Header, ActivityFeed
+  routes/               — LiveView, HistoryView, AnalyticsView, TimelineView, QueueView, AgendaView
+  styles/               — CSS modules + 9 theme files
+  types/                — shared TypeScript types (server + client)
+```
+
+### Electron
+
+```
+electron/
+  main.ts               — app lifecycle, BrowserWindow, embedded Express server
+  preload.ts            — contextBridge (electronAPI)
+  ptyHost.ts            — VS Code-style PTY host (node-pty, 128KB ring buffer)
+  tray.ts               — system tray
+  ipc/                  — setupHandlers, appHandlers, terminalHandlers
+```
+
+Dual terminal transport: IPC (Electron, ~0.1ms) vs WebSocket (browser, ~1-5ms). Renderer auto-detects via `window.electronAPI?.createPty`.
 
 ## Session State Machine
 
 ```
-SessionStart    -> idle      (Idle animation)
-UserPromptSubmit -> prompting (Wave + Walking)
-PreToolUse      -> working   (Running)
-PostToolUse     -> working   (stays)
-[timeout]       -> approval  (Waiting — needs user approval)
-[timeout]       -> input     (Waiting — needs user answer)
-PermissionRequest -> approval (Waiting — reliable signal)
-Stop            -> waiting   (ThumbsUp/Dance + Waiting)
-[2min idle]     -> idle      (Idle)
-SessionEnd      -> ended     (Death animation; session kept in memory indefinitely — not auto-removed)
+SessionStart       → idle       (Idle animation)
+UserPromptSubmit   → prompting  (Walking + Wave, seeks desk)
+PreToolUse         → working    (Running, tool-specific animation)
+PostToolUse        → working    (stays)
+[timeout]          → approval   (Waiting — needs tool approval)
+[timeout]          → input      (Waiting — needs user answer)
+PermissionRequest  → approval   (reliable signal, overrides heuristic)
+Stop               → waiting    (ThumbsUp/Dance)
+[2min idle]        → idle
+SessionEnd         → ended      (Death — kept in memory)
 ```
 
-## Session Matching Strategy
+## Impact Matrix
 
-When a hook event arrives with an unknown `session_id`, the matcher uses an 8-priority fallback system to link it to an existing terminal session:
+Before modifying a feature, check what else it can break:
 
-| Priority | Strategy | When Used | Risk |
-|----------|----------|-----------|------|
-| 0 | `pendingResume` by terminalId or path | Explicit user-triggered resume | Low — explicit user action |
-| 0.5 | Snapshot-restored card auto-link | Server restart + new Claude start in same dir | Medium — ambiguous when multiple sessions share path |
-| 1 | `sessions.get(agent_terminal_id)` | First hook from fresh Claude start in SSH terminal | Low — direct key match |
-| 1b | `s.terminalId === agent_terminal_id` scan | Post-rekey restarts (crash, `--resume`) | Low — handles all subsequent starts in same terminal |
-| 1.5 | `pidToSession.get(claude_pid)` | Same process, new session_id (e.g. `claude --resume`) | Low — strong PID signal |
-| 2 | `tryLinkByWorkDir` | Pending link by working directory | Medium — two sessions in same dir |
-| 3 | CONNECTING path scan | Scan CONNECTING sessions by normalized path | Medium — picks newest on tie |
-| 4 | PID parent check | Claude's PID is child of known PTY process | High — unreliable across shells |
+| Change | Impacts |
+|--------|---------|
+| Hook script / MQ format | Session Matching, Session Management, Hook Stats |
+| Session state machine | 3D Robots, Sound/Alarms, Approval Detection, Auto-Idle, all frontend stores |
+| Session Matching | Terminal/SSH, Session Resume, Team linking |
+| WebSocket protocol | Frontend WS Client, Terminal UI, all real-time UI |
+| API contracts | ALL frontend HTTP calls, Electron PTY registration |
+| DB schema | API Endpoints, Client Persistence (IndexedDB mirror) |
+| Terminal/SSH | Session Matching (pending links), PTY Host registration |
+| Zustand store shapes | ALL subscribing components |
+| Theme CSS variables | ALL visual components (2D + 3D), Terminal themes |
+| Electron IPC channels | Preload bridge, Terminal UI dual transport |
 
-**SSH-only mode**: If no match is found, the event is silently dropped (`return null`). No display-only cards are created.
+## Key Invariants
 
-## Approval Detection Heuristic
-
-When `PreToolUse` fires, an approval timer starts. If `PostToolUse` doesn't arrive within the timeout, the session transitions to `approval` or `input` status.
-
-### Tool Category Timeouts
-
-| Category | Tools | Timeout | Waiting Status |
-|----------|-------|---------|----------------|
-| fast | Read, Write, Edit, Grep, Glob, NotebookEdit | 3s | approval |
-| userInput | AskUserQuestion, EnterPlanMode, ExitPlanMode | 3s | input |
-| medium | WebFetch, WebSearch | 15s | approval |
-| slow | Bash, Task | 8s | approval |
-
-### Refinements
-
-- **hasChildProcesses check**: For `slow` tools (Bash, Task), if the cached PID has child processes (checked via `pgrep -P`), the tool is still running and not waiting for approval.
-- **PermissionRequest event**: At medium+ hook density, Claude sends a `PermissionRequest` hook which is a reliable signal. It immediately clears the timeout heuristic and sets approval status.
-- **Known limitation**: Auto-approved long-running commands (npm install, builds) will briefly show as "approval" for ~8s until PostToolUse clears it.
-
-## Hook Delivery Pipeline
-
-### Primary: File-based Message Queue
-
-```
-Hook bash script
-  → jq enrichment (PID, TTY, terminal env, timestamp, startup_command, wezterm_pane)
-  → echo "$ENRICHED" >> /tmp/claude-session-center/queue.jsonl
-  → Background subshell + disown (non-blocking)
-
-Server mqReader.ts
-  → fs.watch() for instant notification
-  → 10ms debounce to coalesce rapid events
-  → Read from byte offset (no re-reading processed data)
-  → Split on newlines, parse JSON
-  → processHookEvent() for each line
-  → Truncate file at 1MB threshold
-```
-
-### Fallback: HTTP POST
-
-When the MQ directory doesn't exist (server not started), hooks fall back to:
-```
-curl -s --connect-timeout 1 -m 3 -X POST \
-  -H "Content-Type: application/json" \
-  --data-binary @- \
-  http://localhost:3333/api/hooks
-```
-
-## Important Files
-
-- `~/.claude/settings.json` - Where Claude hooks are registered (hookInstaller.js auto-manages)
-- `~/.claude/hooks/dashboard-hook.sh` - The hook script deployed to `~/.claude/hooks/`
-- `~/.gemini/settings.json` - Where Gemini hooks are registered
-- `~/.codex/config.toml` - Where Codex notify hook is registered
-- `/tmp/claude-session-center/queue.jsonl` - File-based message queue
-- `data/server-config.json` - Server configuration (port, density, CLIs, debug)
-
-## Interaction: Click-to-Select Session
-
-When user clicks a session card:
-1. Character plays acknowledgment animation
-2. Detail panel slides in from the right (resizable, 480px default, 320px min, 95vw max)
-3. Panel shows: project name, prompt history, activity log, tool calls, terminal, notes, queue, summary, ops terminal
-4. Tabs (7): TERMINAL | PROMPTS | PROJECT | QUEUE | NOTES | ACTIVITY | SUMMARY | COMMANDS (ops terminal)
-5. Panel can be minimized to a thin strip; header can be collapsed independently
-6. Other cards dim slightly to highlight the selected one
-7. Click elsewhere, close button, or press Escape to deselect
-
-## Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| `Cmd/Ctrl+F` | Find in current file (Project tab) |
-| `Cmd/Ctrl+Shift+F` | Global search across sessions |
-| `Escape` | Close modal / deselect session |
-| `?` | Toggle shortcuts panel |
-| `S` | Toggle settings |
-| `K` | Kill selected session |
-| `A` | Archive selected session |
-| `T` | New terminal session |
-| `M` | Mute/unmute all |
-| `Cmd+Alt+1-9` | Switch to Nth session |
-| `Cmd+Alt+P` | Switch to previous session |
-
-## Styles
-
-- Dark navy background (#0a0a1a)
-- Neon accent colors: cyan (prompting), orange (working), green (idle), red (ended), yellow (approval), purple (input)
-- JetBrains Mono font
-- Glowing card borders that pulse based on status
-- Styles in `src/styles/`, component-level CSS modules
-
-## Multi-CLI Support
-
-The dashboard supports monitoring three AI coding CLIs:
-
-| CLI | Hook Script | Config Location | Events |
-|-----|------------|-----------------|--------|
-| Claude Code | dashboard-hook.sh | ~/.claude/settings.json | SessionStart, PreToolUse, etc. |
-| Gemini CLI | dashboard-hook-gemini.sh | ~/.gemini/settings.json | BeforeAgent, AfterAgent, etc. |
-| Codex | dashboard-hook-codex.sh | ~/.codex/config.toml | agent-turn-complete |
-
-## Hook Density Levels
-
-| Level | Events | Use Case |
-|-------|--------|----------|
-| high | All 14 Claude events | Full monitoring, approval detection |
-| medium | 12 events (no TeammateIdle, PreCompact) | Default, good balance |
-| low | 5 events (Start, Prompt, Permission, Stop, End) | Minimal overhead |
-
-## Troubleshooting
-
-### Port 3333 in Use
-
-The server automatically kills the process occupying port 3333 on startup. To use a different port:
-```bash
-# Via CLI flag
-npm start -- --port 4444
-
-# Via environment variable
-PORT=4444 npm start
-
-# Via config file
-echo '{"port": 4444}' > data/server-config.json
-```
-
-### Hooks Not Firing
-
-1. Check hooks are registered: `cat ~/.claude/settings.json | grep dashboard-hook`
-2. Verify the hook script exists: `ls -la ~/.claude/hooks/dashboard-hook.sh`
-3. Check the hook script is executable: `chmod +x ~/.claude/hooks/dashboard-hook.sh`
-4. Test manually: `echo '{"session_id":"test","hook_event_name":"SessionStart"}' | ~/.claude/hooks/dashboard-hook.sh`
-5. Re-install hooks: `npm run install-hooks`
-
-### jq Not Installed
-
-The hook script requires `jq` for JSON enrichment. Without it, hooks still work but send unenriched JSON (no PID, TTY, or terminal detection).
-```bash
-# macOS
-brew install jq
-
-# Ubuntu/Debian
-sudo apt-get install jq
-```
-
-### Sessions Not Appearing
-
-1. Check the MQ file exists: `ls /tmp/claude-session-center/queue.jsonl`
-2. Check for data in the queue: `tail -5 /tmp/claude-session-center/queue.jsonl`
-3. Check server logs for errors: `npm run debug`
-4. Verify hook density includes SessionStart: `npm run install-hooks`
-
-### WebSocket Disconnections
-
-The WebSocket client auto-reconnects with exponential backoff (1s base, 10s max). On reconnect, it replays missed events from the server's ring buffer (last 500 events). If sessions appear stale after reconnect, refresh the browser.
+- **Never mutate session objects** — always spread/new Map
+- **Never use Zustand inside R3F Canvas** — causes React Error #185; all store reads in DOM layer, data flows via props
+- **Never block the hook script** — background subshell (`& disown`) for all processing
+- **Never hardcode port 3333** — read from config/env/CLI flag
+- **Never modify `~/.claude/settings.json` without atomic write** — write-to-tmp + rename
+- **Server imports use `.js` extensions** — required for NodeNext module resolution with tsx
+- **File browser uses `resolveProjectPath()`** — prevents directory traversal
+- **SSH inputs validated with Zod + shell metacharacter regex** — prevents injection
