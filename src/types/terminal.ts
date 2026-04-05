@@ -40,6 +40,8 @@ export interface TerminalConfig {
   startupCommand?: string;
   /** Permission mode from snapshot — used to reconstruct CLI flags on resume */
   permissionMode?: string;
+  /** Effort level to auto-apply after Claude Code starts (min/low/medium/high/max) */
+  effortLevel?: string;
 }
 
 // ---------------------------------------------------------------------------

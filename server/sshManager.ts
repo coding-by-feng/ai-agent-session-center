@@ -486,6 +486,35 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
             log.warn('pty', `Sending launch command to ${terminalId} despite no prompt detected`);
           }
           term.pty.write(launchCmd + '\r');
+
+          // Auto-set effort level after Claude Code starts
+          if (config.effortLevel && baseCommand.startsWith('claude')) {
+            const effortLevel = config.effortLevel;
+            let effortBuffer = '';
+            let effortSent = false;
+            const effortDisp = ptyProcess.onData((data: string) => {
+              if (effortSent) return;
+              effortBuffer += data;
+              if (effortBuffer.length > 16384) effortBuffer = effortBuffer.slice(-16384);
+              const stripped = effortBuffer.replace(ANSI_ESC_RE, '');
+              if (stripped.includes('Claude Code')) {
+                effortSent = true;
+                effortDisp.dispose();
+                // Wait for Claude Code prompt to be fully ready
+                setTimeout(() => {
+                  const t = terminals.get(terminalId);
+                  if (t?.pty) {
+                    t.pty.write(`/effort ${effortLevel}\r`);
+                    log.info('pty', `Auto-set effort level to ${effortLevel} for ${terminalId}`);
+                  }
+                }, 2500);
+              }
+            });
+            // Safety: stop watching after 30s
+            setTimeout(() => {
+              if (!effortSent) effortDisp.dispose();
+            }, 30000);
+          }
         });
       }
 

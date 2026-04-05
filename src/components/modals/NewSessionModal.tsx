@@ -170,6 +170,7 @@ export default function NewSessionModal() {
   const [sessionTitle, setSessionTitle] = useState('');
   const [label, setLabel] = useState('');
   const [roomId, setRoomId] = useState('');
+  const [effortLevel, setEffortLevel] = useState('high');
   const [enableOpsTerminal, setEnableOpsTerminal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -227,6 +228,7 @@ export default function NewSessionModal() {
       apiKey: apiKey || undefined,
       sessionTitle: sessionTitle || undefined,
       label: label || undefined,
+      effortLevel: effortLevel || undefined,
       enableOpsTerminal: enableOpsTerminal || undefined,
       forceNew: true,
     };
@@ -425,6 +427,17 @@ export default function NewSessionModal() {
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             placeholder="Optional"
+          />
+        </div>
+
+        {/* Effort level */}
+        <div className={styles.sshField}>
+          <label>Effort Level</label>
+          <Combobox
+            value={effortLevel}
+            onChange={setEffortLevel}
+            items={['min', 'low', 'medium', 'high', 'max']}
+            placeholder="high"
           />
         </div>
 

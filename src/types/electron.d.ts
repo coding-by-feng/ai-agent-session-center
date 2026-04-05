@@ -29,6 +29,8 @@ export interface PtyCreateConfig {
   sessionTitle?: string
   apiKey?: string
   enableOpsTerminal?: boolean
+  /** Effort level to auto-apply after Claude Code starts (min/low/medium/high/max) */
+  effortLevel?: string
 }
 
 export interface PtyCreateResult {

@@ -126,6 +126,76 @@ function sendInput(ws: WebSocket | null, terminalId: string, data: string): void
   }
 }
 
+/**
+ * Read clipboard items via the async Clipboard API.
+ * Returns { text, imageBlobs } — either or both may be present.
+ */
+async function readClipboard(): Promise<{ text: string | null; imageBlobs: Blob[] }> {
+  let text: string | null = null;
+  const imageBlobs: Blob[] = [];
+
+  // Try the full Clipboard API first (supports images)
+  if (navigator.clipboard?.read) {
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        for (const type of item.types) {
+          if (type === 'text/plain') {
+            const blob = await item.getType(type);
+            text = await blob.text();
+          } else if (type.startsWith('image/')) {
+            imageBlobs.push(await item.getType(type));
+          }
+        }
+      }
+      return { text, imageBlobs };
+    } catch {
+      // Permission denied or not supported — fall through to text-only
+    }
+  }
+
+  // Fallback: text-only via readText
+  if (navigator.clipboard?.readText) {
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      // Permission denied
+    }
+  }
+
+  return { text, imageBlobs };
+}
+
+/**
+ * Upload image blobs to the server and return saved file paths.
+ */
+async function uploadClipboardImages(blobs: Blob[]): Promise<string[]> {
+  const images: { name: string; dataUrl: string }[] = [];
+  for (const blob of blobs) {
+    const ext = blob.type.split('/')[1] || 'png';
+    const name = `clipboard-${Date.now()}.${ext}`;
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+    images.push({ name, dataUrl });
+  }
+  if (images.length === 0) return [];
+  try {
+    const resp = await fetch('/api/queue-images', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ images }),
+    });
+    const data = await resp.json();
+    return data.paths ?? [];
+  } catch {
+    return [];
+  }
+}
+
 function sendResize(ws: WebSocket | null, terminalId: string, cols: number, rows: number): void {
   if (cols <= 0 || rows <= 0) return;
   if (isPtyHostTerminal(terminalId)) {
@@ -169,6 +239,8 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   const savedScrollRef = useRef<Map<string, number>>(new Map());
   const themeNameRef = useRef(themeName);
   const wsRef = useRef(ws);
+  /** Per-terminal auto-scroll state — each session keeps its own on/off. */
+  const autoScrollMapRef = useRef<Map<string, boolean>>(new Map());
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(false);
   const autoScrollRef = useRef(false);
   const projectPathRef = useRef(projectPath);
@@ -252,12 +324,17 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
       // Skip re-attach if already attached to the same terminal (prevents scroll position reset)
       if (activeRef.current?.terminalId === terminalId) return;
 
-      // Save scroll position of the outgoing terminal as "lines above bottom"
-      // so we can restore it when the user switches back.
+      // Save scroll position and auto-scroll state of the outgoing terminal
       if (activeRef.current) {
         const buf = activeRef.current.term.buffer.active;
         savedScrollRef.current.set(activeRef.current.terminalId, buf.baseY - buf.viewportY);
+        autoScrollMapRef.current.set(activeRef.current.terminalId, autoScrollRef.current);
       }
+
+      // Restore auto-scroll state for the incoming terminal (defaults to off)
+      const restoredAutoScroll = autoScrollMapRef.current.get(terminalId) ?? false;
+      autoScrollRef.current = restoredAutoScroll;
+      setAutoScrollEnabled(restoredAutoScroll);
 
       detach();
 
@@ -431,24 +508,40 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           if (e.altKey && (e.metaKey || e.ctrlKey) && /^Digit[0-9]$/.test(e.code)) {
             return false;
           }
-          // Intercept Cmd+V / Ctrl+V paste to strip trailing newlines.
-          // Without this, pasted text ending with \n auto-submits as Enter.
+          // Intercept Cmd+V / Ctrl+V paste to strip trailing newlines and
+          // support image paste (saves image to temp file, pastes the path).
           // preventDefault() is critical — without it the browser still fires a
           // native paste event that xterm processes via onData, causing a double-paste.
           if ((e.metaKey || e.ctrlKey) && e.key === 'v' && !e.shiftKey && !e.altKey) {
             e.preventDefault();
             if (e.type === 'keydown') {
-              navigator.clipboard.readText().then((text) => {
+              readClipboard().then(async ({ text, imageBlobs }) => {
+                const usePty = isPtyHostTerminal(terminalId);
+                // Handle image paste — upload and paste file path(s)
+                if (imageBlobs.length > 0) {
+                  const paths = await uploadClipboardImages(imageBlobs);
+                  if (paths.length > 0) {
+                    const pathText = paths.join(' ');
+                    if (usePty) {
+                      sendInput(null, terminalId, pathText);
+                    } else if (wsRef.current && wsRef.current.readyState === 1) {
+                      wsRef.current.send(JSON.stringify({ type: 'terminal_input', terminalId, data: pathText }));
+                    }
+                    return;
+                  }
+                }
+                // Handle text paste
                 if (!text) return;
                 const stripped = text.replace(/[\r\n]+$/, '');
                 if (!stripped) return;
-                const usePty = isPtyHostTerminal(terminalId);
                 if (usePty) {
                   sendInput(null, terminalId, stripped);
                 } else if (wsRef.current && wsRef.current.readyState === 1) {
                   wsRef.current.send(JSON.stringify({ type: 'terminal_input', terminalId, data: stripped }));
                 }
-              }).catch(() => {});
+              }).catch((err) => {
+                console.warn('Terminal paste failed:', err);
+              });
             }
             return false;
           }
@@ -685,70 +778,76 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     const usePtyIpc = isPtyHostTerminal(terminalId);
     if (!usePtyIpc && (!wsRef.current || wsRef.current.readyState !== 1)) return;
 
-    let text: string | null = null;
-
-    // Strategy 1: Clipboard API (requires secure context + user gesture + permission)
-    if (navigator.clipboard?.readText) {
-      try {
-        text = await navigator.clipboard.readText();
-      } catch {
-        // Permission denied or not supported — fall through to fallback
+    /** Helper: send text to the terminal with chunking for WS transport */
+    const sendText = async (raw: string) => {
+      const text = raw.replace(/[\r\n]+$/, '');
+      if (!text) return;
+      if (usePtyIpc) {
+        sendInput(null, terminalId, text);
+      } else {
+        const CHUNK_SIZE = 4096;
+        if (text.length <= CHUNK_SIZE) {
+          wsRef.current!.send(
+            JSON.stringify({ type: 'terminal_input', terminalId, data: text }),
+          );
+        } else {
+          const ws = wsRef.current!;
+          for (let i = 0; i < text.length; i += CHUNK_SIZE) {
+            const chunk = text.slice(i, i + CHUNK_SIZE);
+            if (i > 0) await new Promise((r) => setTimeout(r, 5));
+            if (ws.readyState !== 1) break;
+            ws.send(
+              JSON.stringify({ type: 'terminal_input', terminalId, data: chunk }),
+            );
+          }
+        }
       }
+    };
+
+    // Strategy 1: Full Clipboard API (supports text + images)
+    try {
+      const { text, imageBlobs } = await readClipboard();
+      if (imageBlobs.length > 0) {
+        const paths = await uploadClipboardImages(imageBlobs);
+        if (paths.length > 0) {
+          await sendText(paths.join(' '));
+          activeRef.current?.term.focus();
+          return;
+        }
+      }
+      if (text) {
+        await sendText(text);
+        activeRef.current?.term.focus();
+        return;
+      }
+    } catch {
+      // Fall through to legacy fallbacks
     }
 
-    // Strategy 2: Hidden textarea + execCommand fallback (works in more contexts)
-    if (!text) {
-      try {
-        const textarea = document.createElement('textarea');
-        textarea.style.position = 'fixed';
-        textarea.style.left = '-9999px';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.focus();
-        document.execCommand('paste');
-        text = textarea.value;
-        document.body.removeChild(textarea);
-      } catch {
-        // execCommand paste not supported
-      }
+    // Strategy 2: Hidden textarea + execCommand fallback
+    let fallbackText: string | null = null;
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      document.execCommand('paste');
+      fallbackText = textarea.value;
+      document.body.removeChild(textarea);
+    } catch {
+      // execCommand paste not supported
     }
 
     // Strategy 3: Prompt as last resort
-    if (!text) {
-      text = window.prompt('Paste text to send to terminal:');
+    if (!fallbackText) {
+      fallbackText = window.prompt('Paste text to send to terminal:');
     }
 
-    if (!text) return;
-
-    // Strip trailing newlines so paste doesn't auto-submit as Enter
-    text = text.replace(/[\r\n]+$/, '');
-    if (!text) return;
-
-    // IPC transport: send full paste (no chunking needed)
-    if (usePtyIpc) {
-      sendInput(null, terminalId, text);
-    } else {
-      // Chunk large pastes to stay within server's per-message limit (8 KB)
-      const CHUNK_SIZE = 4096;
-      if (text.length <= CHUNK_SIZE) {
-        wsRef.current!.send(
-          JSON.stringify({ type: 'terminal_input', terminalId, data: text }),
-        );
-      } else {
-        const ws = wsRef.current!;
-        for (let i = 0; i < text.length; i += CHUNK_SIZE) {
-          const chunk = text.slice(i, i + CHUNK_SIZE);
-          if (i > 0) {
-            await new Promise((r) => setTimeout(r, 5));
-          }
-          if (ws.readyState !== 1) break;
-          ws.send(
-            JSON.stringify({ type: 'terminal_input', terminalId, data: chunk }),
-          );
-        }
-      }
+    if (fallbackText) {
+      await sendText(fallbackText);
     }
-    // Re-focus the terminal after paste
     activeRef.current?.term.focus();
   }, []);
 
@@ -817,6 +916,10 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     setAutoScrollEnabled((prev) => {
       const next = !prev;
       autoScrollRef.current = next;
+      // Persist per-terminal
+      if (activeRef.current) {
+        autoScrollMapRef.current.set(activeRef.current.terminalId, next);
+      }
       return next;
     });
   }, []);

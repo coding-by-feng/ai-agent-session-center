@@ -26,6 +26,7 @@ export function registerTerminalHandlers(): void {
     sessionTitle?: string
     apiKey?: string
     enableOpsTerminal?: boolean
+    effortLevel?: string
   }) => {
     try {
       const terminalId = createPty(config)
