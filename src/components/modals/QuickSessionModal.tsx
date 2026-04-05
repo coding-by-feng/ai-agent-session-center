@@ -105,6 +105,7 @@ export default function QuickSessionModal() {
     return history[0] || '~';
   });
   const [command, setCommand] = useState('claude');
+  const [effortLevel, setEffortLevel] = useState('high');
   const [roomId, setRoomId] = useState('');
   const [enableOpsTerminal, setEnableOpsTerminal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -160,6 +161,7 @@ export default function QuickSessionModal() {
           command: command || 'claude',
           label: selectedLabel || undefined,
           sessionTitle: sessionTitle.trim() || undefined,
+          effortLevel: effortLevel || undefined,
           enableOpsTerminal: enableOpsTerminal || undefined,
         });
         if (!result.ok) {
@@ -178,6 +180,7 @@ export default function QuickSessionModal() {
             command: command || 'claude',
             label: selectedLabel || undefined,
             sessionTitle: sessionTitle.trim() || undefined,
+            effortLevel: effortLevel || undefined,
             enableOpsTerminal: enableOpsTerminal || undefined,
             forceNew: true,
           }),
@@ -284,6 +287,17 @@ export default function QuickSessionModal() {
               onChange={setCommand}
               items={commandSuggestions}
               placeholder="e.g. claude"
+            />
+          </div>
+
+          {/* Effort level */}
+          <div className={styles.quickWorkdirRow}>
+            <label>Effort Level</label>
+            <Combobox
+              value={effortLevel}
+              onChange={setEffortLevel}
+              items={['min', 'low', 'medium', 'high', 'max']}
+              placeholder="high"
             />
           </div>
 

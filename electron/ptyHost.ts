@@ -27,6 +27,8 @@ export interface PtyCreateConfig {
   sessionTitle?: string
   apiKey?: string
   enableOpsTerminal?: boolean
+  /** Effort level to auto-apply after Claude Code starts (min/low/medium/high/max) */
+  effortLevel?: string
 }
 
 interface PtyInstance {
@@ -223,6 +225,33 @@ export function createPty(config: PtyCreateConfig): string {
       // Send command anyway as a fallback
     }
     inst.process.write(command + '\r')
+
+    // Auto-set effort level after Claude Code starts
+    const baseCommand = config.command || 'claude'
+    if (config.effortLevel && baseCommand.startsWith('claude')) {
+      const effortLevel = config.effortLevel
+      let effortBuffer = ''
+      let effortSent = false
+      const effortDisp = ptyProcess.onData((data: string) => {
+        if (effortSent) return
+        effortBuffer += data
+        if (effortBuffer.length > 16384) effortBuffer = effortBuffer.slice(-16384)
+        const stripped = effortBuffer.replace(ANSI_ESC_RE, '')
+        if (stripped.includes('Claude Code')) {
+          effortSent = true
+          effortDisp.dispose()
+          // Wait for Claude Code prompt to be fully ready
+          setTimeout(() => {
+            const t = terminals.get(terminalId)
+            if (t) t.process.write(`/effort ${effortLevel}\r`)
+          }, 2500)
+        }
+      })
+      // Safety: stop watching after 30s
+      setTimeout(() => {
+        if (!effortSent) effortDisp.dispose()
+      }, 30000)
+    }
   })
 
   // Register with Express server for session store integration

@@ -101,6 +101,8 @@ const terminalCreateSchema = z.object({
   permissionMode: z.string().max(100).optional(),
   /** Original session ID from workspace snapshot — used for exact-match dedup on restart */
   originalSessionId: z.string().max(200).optional(),
+  /** Effort level to auto-apply after Claude Code starts */
+  effortLevel: z.enum(['min', 'low', 'medium', 'high', 'max']).optional(),
 });
 
 const tmuxSessionsSchema = z.object({
@@ -549,7 +551,13 @@ router.post('/sessions/:id/fork', async (req: Request, res: Response) => {
   const session = getSession(sessionId);
   if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
 
-  const forkCmd = `claude --continue --fork-session`;
+  // Use the explicit Claude session ID to prevent --continue from
+  // reusing the running session's ID (which would steal the original session).
+  // Session IDs are alphanumeric/dash/underscore — safe to embed in commands.
+  const safeSessionId = /^[a-zA-Z0-9_\-]+$/.test(sessionId) ? sessionId : '';
+  const forkCmd = safeSessionId
+    ? `claude --continue ${safeSessionId} --fork-session`
+    : `claude --continue --fork-session`;
 
   try {
     const cfg = session.sshConfig;
@@ -902,6 +910,7 @@ router.post('/terminals', async (req: Request, res: Response) => {
     if (body.label) config.label = body.label;
     if (body.startupCommand) config.startupCommand = body.startupCommand;
     if (body.permissionMode) config.permissionMode = body.permissionMode;
+    if (body.effortLevel) config.effortLevel = body.effortLevel;
 
     // Resolve API key from request body only (no DB lookup)
     if (body.apiKey) {
