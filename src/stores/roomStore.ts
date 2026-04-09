@@ -163,6 +163,9 @@ export const useRoomStore = create<RoomState>((set, get) => ({
 
   loadFromStorage: () => {
     const rooms = loadFromLocalStorage();
+    // eslint-disable-next-line no-console
+    console.info(`[roomStore] loadFromStorage: ${rooms.length} rooms loaded.`,
+      rooms.map((r) => `${r.name}(${r.sessionIds.length})`).join(', '));
     set({ rooms });
     return rooms;
   },

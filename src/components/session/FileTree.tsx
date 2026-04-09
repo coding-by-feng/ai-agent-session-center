@@ -112,7 +112,7 @@ export default function FileTree({
   showHidden = false,
   onFileSelect,
   onDirSelect,
-  height = 400,
+  height: externalHeight,
   activeFilePath,
   searchTerm,
 }: FileTreeProps) {
@@ -122,6 +122,27 @@ export default function FileTree({
   const treeRef = useRef<TreeApi<TreeNode>>(null);
   const loadedDirs = useRef<Set<string>>(new Set());
   const provider = useMemo(() => getFileSystemProvider(), []);
+
+  // Self-sizing: measure the container height via ResizeObserver
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [measuredHeight, setMeasuredHeight] = useState(0);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const h = Math.floor(entry.contentRect.height);
+        if (h > 0) setMeasuredHeight(h);
+      }
+    });
+    ro.observe(el);
+    const h = el.clientHeight;
+    if (h > 0) setMeasuredHeight(h);
+    return () => ro.disconnect();
+  }, []);
+
+  const height = externalHeight ?? (measuredHeight > 0 ? measuredHeight : 400);
 
   // Load root directory on mount
   useEffect(() => {
@@ -276,7 +297,7 @@ export default function FileTree({
   }
 
   return (
-    <div className={styles.container}>
+    <div ref={containerRef} className={styles.container}>
       <Tree<TreeNode>
         ref={treeRef}
         data={treeData}

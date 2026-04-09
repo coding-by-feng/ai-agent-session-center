@@ -320,6 +320,13 @@ export async function importSnapshot(
           startupCommand: sessionSnap.startupCommand || undefined,
           permissionMode: sessionSnap.permissionMode || undefined,
           originalSessionId: sessionSnap.originalSessionId || undefined,
+          // Include metadata in creation so the first WS broadcast has them.
+          // Previously these were fire-and-forget PUTs that raced with auto-save.
+          pinned: sessionSnap.pinned || undefined,
+          muted: sessionSnap.muted || undefined,
+          alerted: sessionSnap.alerted || undefined,
+          accentColor: sessionSnap.accentColor || undefined,
+          characterModel: sessionSnap.characterModel || undefined,
         }),
       });
       const data = await res.json();
@@ -344,42 +351,9 @@ export async function importSnapshot(
           }).catch(() => {});
         }
 
-        // Restore metadata (accent color, character model, pinned)
-        if (sessionSnap.accentColor) {
-          fetch(`/api/sessions/${encodeURIComponent(data.terminalId)}/accent-color`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ color: sessionSnap.accentColor }),
-          }).catch(() => {});
-        }
-        if (sessionSnap.characterModel) {
-          fetch(`/api/sessions/${encodeURIComponent(data.terminalId)}/character-model`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model: sessionSnap.characterModel }),
-          }).catch(() => {});
-        }
-        if (sessionSnap.pinned) {
-          fetch(`/api/sessions/${encodeURIComponent(data.terminalId)}/pinned`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pinned: true }),
-          }).catch(() => {});
-        }
-        if (sessionSnap.muted) {
-          fetch(`/api/sessions/${encodeURIComponent(data.terminalId)}/muted`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ muted: true }),
-          }).catch(() => {});
-        }
-        if (sessionSnap.alerted) {
-          fetch(`/api/sessions/${encodeURIComponent(data.terminalId)}/alerted`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ alerted: true }),
-          }).catch(() => {});
-        }
+        // Metadata (pinned, muted, alerted, accentColor, characterModel) is now
+        // included in the POST body above, so the first WS broadcast already has it.
+        // No separate PUTs needed — eliminates the race with auto-save.
 
         // Restore project tabs to localStorage under the new session ID
         // This preserves customLabel, initialPath, initialIsFile, etc.
@@ -437,36 +411,54 @@ export async function importSnapshot(
   }
 
   // Restore rooms with remapped session IDs.
-  // Prefer snapshot rooms as the authoritative source — they contain originalSessionId
-  // values that are in idRemap. localStorage rooms may contain stale IDs from a
-  // previous session that won't remap correctly (e.g. after server snapshot loss).
-  // Merge in any localStorage-only rooms (rooms not present in the snapshot) to
-  // preserve hook-only session assignments.
-  if (idRemap.size > 0) {
-    try {
-      let baseRooms: Room[] = snapshot.rooms ?? [];
+  // Snapshot rooms are the authoritative source — they contain originalSessionId
+  // values that should be in idRemap. After clearAllSessions, all old IDs are
+  // invalid, so we ONLY keep IDs that successfully remapped (no ?? id fallback).
+  // Merge in localStorage-only rooms (rooms not in the snapshot) but also filter
+  // their sessionIds through idRemap to drop stale references from previous runs.
+  // eslint-disable-next-line no-console
+  console.info(`[workspace] Room remap: idRemap has ${idRemap.size} entries, snapshot has ${(snapshot.rooms ?? []).length} rooms`);
+  try {
+    let baseRooms: Room[] = snapshot.rooms ?? [];
 
-      // Merge localStorage rooms that aren't in the snapshot (by room ID)
-      try {
-        const raw = localStorage.getItem('session-rooms');
-        if (raw) {
-          const parsed = JSON.parse(raw) as Room[];
-          if (Array.isArray(parsed)) {
-            const snapshotRoomIds = new Set(baseRooms.map((r) => r.id));
-            const extraRooms = parsed.filter((r) => !snapshotRoomIds.has(r.id));
-            if (extraRooms.length > 0) {
-              baseRooms = [...baseRooms, ...extraRooms];
-            }
+    // Merge localStorage rooms that aren't in the snapshot (by room ID)
+    try {
+      const raw = localStorage.getItem('session-rooms');
+      if (raw) {
+        const parsed = JSON.parse(raw) as Room[];
+        if (Array.isArray(parsed)) {
+          const snapshotRoomIds = new Set(baseRooms.map((r) => r.id));
+          const extraRooms = parsed.filter((r) => !snapshotRoomIds.has(r.id));
+          if (extraRooms.length > 0) {
+            baseRooms = [...baseRooms, ...extraRooms];
           }
         }
-      } catch { /* ignore parse errors */ }
+      }
+    } catch { /* ignore parse errors */ }
 
-      const remappedRooms = baseRooms.map((r) => ({
+    // Build set of all valid new session IDs for filtering
+    const validNewIds = new Set(idRemap.values());
+
+    const remappedRooms = baseRooms.map((r) => {
+      const mapped = r.sessionIds
+        .map((id) => idRemap.get(id))
+        .filter((id): id is string => id != null && validNewIds.has(id));
+      // eslint-disable-next-line no-console
+      if (r.sessionIds.length > 0 && mapped.length === 0) {
+        console.warn(`[workspace] Room "${r.name}" lost all ${r.sessionIds.length} sessions during remap. Original IDs:`, r.sessionIds);
+      }
+      return {
         ...r,
-        sessionIds: [...new Set(r.sessionIds.map((id) => idRemap.get(id) ?? id))],
-      }));
-      localStorage.setItem('session-rooms', JSON.stringify(remappedRooms));
-    } catch { /* ignore */ }
+        sessionIds: [...new Set(mapped)],
+      };
+    });
+    localStorage.setItem('session-rooms', JSON.stringify(remappedRooms));
+    // eslint-disable-next-line no-console
+    console.info(`[workspace] Saved ${remappedRooms.length} rooms to localStorage. Sessions per room:`,
+      remappedRooms.map((r) => `${r.name}(${r.sessionIds.length})`).join(', '));
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error('[workspace] Room remap failed:', err);
   }
 
   callbacks.onComplete(created, failed);

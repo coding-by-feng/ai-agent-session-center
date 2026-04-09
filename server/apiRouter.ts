@@ -103,6 +103,12 @@ const terminalCreateSchema = z.object({
   originalSessionId: z.string().max(200).optional(),
   /** Effort level to auto-apply after Claude Code starts */
   effortLevel: z.enum(['min', 'low', 'medium', 'high', 'max']).optional(),
+  /** Session metadata from workspace snapshot — included in creation so the first WS broadcast has them */
+  pinned: z.boolean().optional(),
+  muted: z.boolean().optional(),
+  alerted: z.boolean().optional(),
+  accentColor: z.string().max(50).optional(),
+  characterModel: z.string().max(100).optional(),
 });
 
 const tmuxSessionsSchema = z.object({
@@ -911,6 +917,11 @@ router.post('/terminals', async (req: Request, res: Response) => {
     if (body.startupCommand) config.startupCommand = body.startupCommand;
     if (body.permissionMode) config.permissionMode = body.permissionMode;
     if (body.effortLevel) config.effortLevel = body.effortLevel;
+    if (body.pinned) config.pinned = body.pinned;
+    if (body.muted) config.muted = body.muted;
+    if (body.alerted) config.alerted = body.alerted;
+    if (body.accentColor) config.accentColor = body.accentColor;
+    if (body.characterModel) config.characterModel = body.characterModel;
 
     // Resolve API key from request body only (no DB lookup)
     if (body.apiKey) {

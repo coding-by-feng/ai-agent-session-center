@@ -977,6 +977,14 @@ export async function createTerminalSession(terminalId: string, config: Terminal
       command: config.command || 'claude',
     },
   };
+  // Apply optional metadata from workspace snapshot so the first broadcast includes them.
+  // Without this, metadata set via separate PUTs after creation would be missing from the
+  // initial broadcast, causing auto-save to overwrite the snapshot with stale data.
+  if (config.pinned) session.pinned = config.pinned;
+  if (config.muted) session.muted = config.muted;
+  if (config.alerted) session.alerted = config.alerted;
+  if (config.accentColor) session.accentColor = config.accentColor;
+  if (config.characterModel) session.characterModel = config.characterModel;
   sessions.set(terminalId, session);
   invalidateSessionsCache();
   dbUpsertSession(session);
