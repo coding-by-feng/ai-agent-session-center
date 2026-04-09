@@ -5,7 +5,6 @@
  */
 import { useEffect, useRef } from 'react';
 import { useWsStore } from '@/stores/wsStore';
-import { useRoomStore } from '@/stores/roomStore';
 import { useUiStore } from '@/stores/uiStore';
 import { loadFromConfig, importSnapshot } from '@/lib/workspaceSnapshot';
 import type { SessionSnapshot } from '@/lib/workspaceSnapshot';
@@ -42,7 +41,7 @@ export function useWorkspaceAutoLoad(): void {
               // eslint-disable-next-line no-console
               console.info(`[workspace] Auto-loaded ${created} session(s)${failed > 0 ? `, ${failed} failed` : ''}`);
             }
-            useRoomStore.getState().loadFromStorage();
+            // Room loading + reconciliation is handled inside importSnapshot
             // Brief delay so the bar reaches 100% visually before dismissing
             setTimeout(finishWorkspaceLoad, 600);
           },

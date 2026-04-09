@@ -68,7 +68,6 @@ function WorkspaceButtons() {
         onComplete: (created: number, failed: number) => {
           const msg = `Imported ${created} session${created !== 1 ? 's' : ''}${failed > 0 ? `, ${failed} failed` : ''}`;
           showToast(msg, failed > 0 ? 'warning' : 'success');
-          useRoomStore.getState().loadFromStorage();
         },
       });
     } catch (err) {
@@ -92,7 +91,6 @@ function WorkspaceButtons() {
         onComplete: (created: number, failed: number) => {
           const msg = `Imported ${created} session${created !== 1 ? 's' : ''}${failed > 0 ? `, ${failed} failed` : ''}`;
           showToast(msg, failed > 0 ? 'warning' : 'success');
-          useRoomStore.getState().loadFromStorage();
         },
       });
     } catch (err) {
