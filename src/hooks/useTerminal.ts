@@ -23,6 +23,10 @@ interface ActiveTerminal {
   resizeObserver: ResizeObserver;
   /** True after fitAddon.fit() has run and layout is stable */
   layoutReady: boolean;
+  /** Saved scroll offset (lines from bottom) to restore after buffer flush.
+   *  Set during attach, cleared after scroll is applied. Prevents premature
+   *  scroll saves (viewportY=0 on empty terminal) from overriding the position. */
+  pendingScrollRestore?: number;
 }
 
 interface UseTerminalOptions {
@@ -582,6 +586,14 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         const resizeObserver = new ResizeObserver(() => {
           if (resizeTimer) clearTimeout(resizeTimer);
           resizeTimer = setTimeout(() => {
+            // Skip scroll save/restore while pending scroll restore is waiting —
+            // the terminal is empty and viewportY=0 would overwrite the saved position.
+            if (activeRef.current?.pendingScrollRestore !== undefined) {
+              fitAddon.fit();
+              sendResize(wsRef.current, terminalId, term.cols, term.rows);
+              term.refresh(0, term.rows - 1);
+              return;
+            }
             const savedViewportY = term.buffer.active.viewportY;
             fitAddon.fit();
             sendResize(wsRef.current, terminalId, term.cols, term.rows);
@@ -593,7 +605,19 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         });
         resizeObserver.observe(container);
 
-        activeRef.current = { terminalId, term, fitAddon, resizeObserver, layoutReady: false };
+        // Compute saved scroll offset BEFORE setting activeRef — read from
+        // in-memory ref first, then localStorage fallback. This offset persists
+        // through the entire setup/flush cycle so it's applied no matter when
+        // the buffered data arrives.
+        let pendingScrollRestore = savedScrollRef.current.get(terminalId) ?? 0;
+        if (pendingScrollRestore === 0) {
+          try {
+            pendingScrollRestore = parseInt(localStorage.getItem(`term-scroll:${terminalId}`) ?? '0', 10) || 0;
+            localStorage.removeItem(`term-scroll:${terminalId}`);
+          } catch { /* ignore */ }
+        }
+
+        activeRef.current = { terminalId, term, fitAddon, resizeObserver, layoutReady: false, pendingScrollRestore };
         setIsAttached(true);
         setActiveTerminalId(terminalId);
 
@@ -603,6 +627,21 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         // #77 + #78: single forceCanvasRepaint call that also sets layoutReady=true.
         // Buffered output is flushed after layout is confirmed stable (inside forceCanvasRepaint).
         forceCanvasRepaint(wsRef.current, terminalId, term, fitAddon, activeRef);
+
+        // Helper: apply saved scroll offset after data is written, then clear the flag.
+        const applyPendingScroll = () => {
+          if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
+          const savedOffset = activeRef.current.pendingScrollRestore ?? 0;
+          activeRef.current.pendingScrollRestore = undefined;
+          if (savedOffset > 0) {
+            const buf = term.buffer.active;
+            term.scrollToLine(Math.max(0, buf.baseY - savedOffset));
+          } else {
+            term.scrollToBottom();
+          }
+          fitAddon.fit();
+          term.refresh(0, term.rows - 1);
+        };
 
         // Flush buffered output after layout is ready (#77: prevent flush before layout stabilizes)
         requestAnimationFrame(() => {
@@ -615,30 +654,21 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
                 const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
                 term.write(bytes, () => {
                   if (--remaining === 0 && activeRef.current?.term === term) {
-                    // Restore scroll: check in-memory ref first, then localStorage fallback
-                    let savedOffset = savedScrollRef.current.get(terminalId) ?? 0;
-                    if (savedOffset === 0) {
-                      try {
-                        savedOffset = parseInt(localStorage.getItem(`term-scroll:${terminalId}`) ?? '0', 10) || 0;
-                        // Clear after reading — one-shot restore
-                        localStorage.removeItem(`term-scroll:${terminalId}`);
-                      } catch { /* ignore */ }
-                    }
-                    if (savedOffset > 0) {
-                      // Restore the same "lines above bottom" offset the user was at
-                      const buf = term.buffer.active;
-                      term.scrollToLine(Math.max(0, buf.baseY - savedOffset));
-                    } else {
-                      term.scrollToBottom();
-                    }
-                    // Force canvas repaint after output flush to prevent blank terminal
-                    fitAddon.fit();
-                    term.refresh(0, term.rows - 1);
+                    applyPendingScroll();
                   }
                 });
               }
               pendingOutputRef.current.delete(terminalId);
               pendingOutputTtlRef.current.delete(terminalId);
+            } else {
+              // No buffered data yet — the server reply may still be in flight.
+              // Leave pendingScrollRestore set so the active output handler applies
+              // it when data arrives. Fall back after 1s if no data ever comes.
+              setTimeout(() => {
+                if (activeRef.current?.terminalId === terminalId && activeRef.current.pendingScrollRestore !== undefined) {
+                  applyPendingScroll();
+                }
+              }, 1000);
             }
           });
         });
@@ -649,6 +679,13 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         // stays blank until the user manually resizes (e.g. minimize+restore).
         setTimeout(() => {
           if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
+          // Skip scroll manipulation if pending restore hasn't been applied yet
+          if (activeRef.current.pendingScrollRestore !== undefined) {
+            fitAddon.fit();
+            sendResize(wsRef.current, terminalId, term.cols, term.rows);
+            term.refresh(0, term.rows - 1);
+            return;
+          }
           const savedViewportY = term.buffer.active.viewportY;
           fitAddon.fit();
           sendResize(wsRef.current, terminalId, term.cols, term.rows);
@@ -680,15 +717,28 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           pendingOutputRef.current.delete(`__active__${tid}`);
 
           const { term } = activeRef.current;
+          // If a pending scroll restore exists, apply it after this write batch
+          // instead of saving/restoring the current (possibly wrong) viewportY.
+          const hasPendingRestore = activeRef.current.pendingScrollRestore !== undefined;
           // Save viewport position before writes — escape sequences can
           // yank viewport around; restore it after all chunks are written.
-          const savedViewportY = term.buffer.active.viewportY;
+          const savedViewportY = hasPendingRestore ? 0 : term.buffer.active.viewportY;
           let remaining = pending.length;
           for (const chunk of pending) {
             const bytes = Uint8Array.from(atob(chunk), (c) => c.charCodeAt(0));
             term.write(bytes, () => {
               if (--remaining === 0 && activeRef.current?.term === term) {
-                if (autoScrollRef.current) {
+                if (hasPendingRestore) {
+                  // Apply the saved scroll from the previous session view
+                  const savedOffset = activeRef.current!.pendingScrollRestore ?? 0;
+                  activeRef.current!.pendingScrollRestore = undefined;
+                  if (savedOffset > 0) {
+                    const buf = term.buffer.active;
+                    term.scrollToLine(Math.max(0, buf.baseY - savedOffset));
+                  } else {
+                    term.scrollToBottom();
+                  }
+                } else if (autoScrollRef.current) {
                   term.scrollToBottom();
                 } else if (term.buffer.active.viewportY !== savedViewportY) {
                   term.scrollToLine(savedViewportY);
@@ -722,6 +772,15 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
       requestAnimationFrame(() => {
         if (!activeRef.current || !activeRef.current.fitAddon) return;
         const { term, fitAddon } = activeRef.current;
+        // Skip scroll save/restore while pending restore is waiting —
+        // viewportY may be 0 on an empty terminal and would overwrite the saved position.
+        if (activeRef.current.pendingScrollRestore !== undefined) {
+          fitAddon.fit();
+          const newCols = term.cols;
+          const newRows = term.rows;
+          sendResize(wsRef.current, terminalId, newCols, newRows);
+          return;
+        }
         const savedViewportY = term.buffer.active.viewportY;
         const prevCols = term.cols;
         const prevRows = term.rows;

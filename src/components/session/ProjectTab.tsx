@@ -779,22 +779,6 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const treePanelWidthRef = useRef(treePanelWidth);
   treePanelWidthRef.current = treePanelWidth;
   const treePanelRef = useRef<HTMLDivElement>(null);
-  const treePanelBodyRef = useRef<HTMLDivElement>(null);
-  const [treeHeight, setTreeHeight] = useState(400);
-
-  // Observe tree panel body for dynamic height
-  useEffect(() => {
-    const el = treePanelBodyRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setTreeHeight(Math.floor(entry.contentRect.height));
-      }
-    });
-    ro.observe(el);
-    setTreeHeight(el.clientHeight);
-    return () => ro.disconnect();
-  }, []);
 
   // Bookmarks
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
@@ -1778,7 +1762,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
             />
           )}
           {!treePanelCollapsed && (
-          <div className={styles.treePanelBody} ref={treePanelBodyRef}>
+          <div className={styles.treePanelBody}>
             <FileTree
               projectPath={projectPath}
               showHidden={showHidden}
@@ -1787,7 +1771,6 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                 setCurrentPath(relPath);
                 onPathChange?.(relPath, false);
               }}
-              height={treeHeight || 400}
               activeFilePath={activeTabPath}
             />
           </div>

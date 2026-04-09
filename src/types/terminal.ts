@@ -42,6 +42,12 @@ export interface TerminalConfig {
   permissionMode?: string;
   /** Effort level to auto-apply after Claude Code starts (min/low/medium/high/max) */
   effortLevel?: string;
+  /** Session metadata — set during workspace import so the first WS broadcast includes them */
+  pinned?: boolean;
+  muted?: boolean;
+  alerted?: boolean;
+  accentColor?: string;
+  characterModel?: string;
 }
 
 // ---------------------------------------------------------------------------
