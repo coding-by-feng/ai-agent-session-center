@@ -4,7 +4,9 @@
  * and session metadata so the workspace can be recreated later.
  */
 import type { Session, SshConfig } from '@/types';
+import { useRoomStore } from '@/stores/roomStore';
 import type { Room } from '@/stores/roomStore';
+import { useSessionStore } from '@/stores/sessionStore';
 
 // ---------------------------------------------------------------------------
 // Snapshot shape
@@ -261,6 +263,12 @@ export async function importSnapshot(
         }
       }
     }
+    // Clear Zustand session store immediately so stale sessions don't linger.
+    // The server-side clearBrowserDb broadcast only clears IndexedDB, not the
+    // in-memory store.  Without this, old sessions persist in Zustand until a
+    // WebSocket reconnect, causing auto-save to export ghosts and the sidebar
+    // to show duplicate entries.
+    useSessionStore.getState().setSessions(new Map());
   } catch {
     // If the endpoint doesn't respond, continue anyway — dedup will handle it
     console.warn('[workspace] Failed to clear sessions before import');
@@ -456,6 +464,38 @@ export async function importSnapshot(
     // eslint-disable-next-line no-console
     console.info(`[workspace] Saved ${remappedRooms.length} rooms to localStorage. Sessions per room:`,
       remappedRooms.map((r) => `${r.name}(${r.sessionIds.length})`).join(', '));
+
+    // Load remapped rooms into Zustand so subsequent mutations work correctly.
+    useRoomStore.getState().loadFromStorage();
+
+    // Reconcile re-keyed sessions.
+    // During import, Claude CLIs start in SSH terminals and send SessionStart hooks.
+    // The hook system re-keys sessions: terminalId → hookSessionId.  The WebSocket
+    // handler calls migrateSession(terminalId, hookSessionId), but if rooms haven't
+    // been remapped yet (still have originalSnapshotIds), the migration finds nothing.
+    // After room remapping, rooms reference terminalIds, but the Zustand session store
+    // already has hookSessionIds.  Fix the mismatch by migrating any stale terminalIds
+    // to the session's current sessionId.
+    const currentSessions = useSessionStore.getState().sessions;
+    let reconciled = 0;
+    for (const session of currentSessions.values()) {
+      if (!session.terminalId) continue;
+      if (session.sessionId === session.terminalId) continue;
+      // Session was re-keyed: sessionId ≠ terminalId
+      const roomStore = useRoomStore.getState();
+      const alreadyInRoom = roomStore.rooms.some((r) => r.sessionIds.includes(session.sessionId));
+      if (!alreadyInRoom) {
+        const roomWithTermId = roomStore.rooms.find((r) => r.sessionIds.includes(session.terminalId!));
+        if (roomWithTermId) {
+          roomStore.migrateSession(session.terminalId!, session.sessionId);
+          reconciled++;
+        }
+      }
+    }
+    if (reconciled > 0) {
+      // eslint-disable-next-line no-console
+      console.info(`[workspace] Reconciled ${reconciled} re-keyed session(s) in rooms`);
+    }
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[workspace] Room remap failed:', err);
