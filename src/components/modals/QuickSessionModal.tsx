@@ -106,6 +106,7 @@ export default function QuickSessionModal() {
   });
   const [command, setCommand] = useState('claude');
   const [effortLevel, setEffortLevel] = useState('high');
+  const [model, setModel] = useState('');
   const [roomId, setRoomId] = useState('');
   const [enableOpsTerminal, setEnableOpsTerminal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -162,6 +163,7 @@ export default function QuickSessionModal() {
           label: selectedLabel || undefined,
           sessionTitle: sessionTitle.trim() || undefined,
           effortLevel: effortLevel || undefined,
+          model: model || undefined,
           enableOpsTerminal: enableOpsTerminal || undefined,
         });
         if (!result.ok) {
@@ -181,6 +183,7 @@ export default function QuickSessionModal() {
             label: selectedLabel || undefined,
             sessionTitle: sessionTitle.trim() || undefined,
             effortLevel: effortLevel || undefined,
+            model: model || undefined,
             enableOpsTerminal: enableOpsTerminal || undefined,
             forceNew: true,
           }),
@@ -290,16 +293,29 @@ export default function QuickSessionModal() {
             />
           </div>
 
-          {/* Effort level */}
-          <div className={styles.quickWorkdirRow}>
-            <label>Effort Level</label>
-            <Combobox
-              value={effortLevel}
-              onChange={setEffortLevel}
-              items={['min', 'low', 'medium', 'high', 'max']}
-              placeholder="high"
-            />
+          {/* Model + Effort level (Claude only) */}
+          {command.trim().toLowerCase().startsWith('claude') && (
+          <div className={styles.quickWorkdirRow} style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ flex: 1 }}>
+              <label>Model</label>
+              <Combobox
+                value={model}
+                onChange={setModel}
+                items={['opus', 'sonnet', 'haiku']}
+                placeholder="Default"
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label>Effort Level</label>
+              <Combobox
+                value={effortLevel}
+                onChange={setEffortLevel}
+                items={['min', 'low', 'medium', 'high', 'max']}
+                placeholder="high"
+              />
+            </div>
           </div>
+          )}
 
           {/* Room */}
           {roomOptions.length > 0 && (

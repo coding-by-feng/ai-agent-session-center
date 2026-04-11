@@ -171,6 +171,7 @@ export default function NewSessionModal() {
   const [label, setLabel] = useState('');
   const [roomId, setRoomId] = useState('');
   const [effortLevel, setEffortLevel] = useState('high');
+  const [model, setModel] = useState('');
   const [enableOpsTerminal, setEnableOpsTerminal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -229,6 +230,7 @@ export default function NewSessionModal() {
       sessionTitle: sessionTitle || undefined,
       label: label || undefined,
       effortLevel: effortLevel || undefined,
+      model: model || undefined,
       enableOpsTerminal: enableOpsTerminal || undefined,
       forceNew: true,
     };
@@ -430,16 +432,29 @@ export default function NewSessionModal() {
           />
         </div>
 
-        {/* Effort level */}
-        <div className={styles.sshField}>
-          <label>Effort Level</label>
-          <Combobox
-            value={effortLevel}
-            onChange={setEffortLevel}
-            items={['min', 'low', 'medium', 'high', 'max']}
-            placeholder="high"
-          />
+        {/* Model + Effort level (Claude only) */}
+        {command.trim().toLowerCase().startsWith('claude') && (
+        <div className={styles.sshFieldRow}>
+          <div className={`${styles.sshField} ${styles.sshFieldGrow}`}>
+            <label>Model</label>
+            <Combobox
+              value={model}
+              onChange={setModel}
+              items={['opus', 'sonnet', 'haiku']}
+              placeholder="Default"
+            />
+          </div>
+          <div className={`${styles.sshField} ${styles.sshFieldGrow}`}>
+            <label>Effort Level</label>
+            <Combobox
+              value={effortLevel}
+              onChange={setEffortLevel}
+              items={['min', 'low', 'medium', 'high', 'max']}
+              placeholder="high"
+            />
+          </div>
         </div>
+        )}
 
         {/* Ops terminal checkbox */}
         <label className={styles.opsCheckboxRow}>

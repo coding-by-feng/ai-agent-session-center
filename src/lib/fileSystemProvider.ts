@@ -176,7 +176,7 @@ const TEXT_EXTENSIONS = new Set([
   '.toml', '.css', '.scss', '.html', '.xml', '.svg', '.py', '.go', '.rs', '.java',
   '.sh', '.bash', '.zsh', '.sql', '.graphql', '.c', '.cpp', '.h', '.hpp', '.cs',
   '.rb', '.php', '.swift', '.kt', '.lua', '.r', '.env', '.gitignore', '.dockerignore',
-  '.editorconfig', '.prettierrc', '.eslintrc', '.lock',
+  '.editorconfig', '.prettierrc', '.eslintrc', '.lock', '.jsonl', '.ndjson',
 ]);
 
 const STREAMABLE_EXTENSIONS = new Set([
