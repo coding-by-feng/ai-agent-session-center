@@ -29,6 +29,8 @@ export interface PtyCreateConfig {
   enableOpsTerminal?: boolean
   /** Effort level to auto-apply after Claude Code starts (min/low/medium/high/max) */
   effortLevel?: string
+  /** Model to auto-apply after Claude Code starts (opus/sonnet/haiku) */
+  model?: string
 }
 
 interface PtyInstance {
@@ -226,30 +228,38 @@ export function createPty(config: PtyCreateConfig): string {
     }
     inst.process.write(command + '\r')
 
-    // Auto-set effort level after Claude Code starts
+    // Auto-apply model and/or effort level after Claude Code starts
     const baseCommand = config.command || 'claude'
-    if (config.effortLevel && baseCommand.startsWith('claude')) {
-      const effortLevel = config.effortLevel
-      let effortBuffer = ''
-      let effortSent = false
-      const effortDisp = ptyProcess.onData((data: string) => {
-        if (effortSent) return
-        effortBuffer += data
-        if (effortBuffer.length > 16384) effortBuffer = effortBuffer.slice(-16384)
-        const stripped = effortBuffer.replace(ANSI_ESC_RE, '')
+    if ((config.model || config.effortLevel) && baseCommand.startsWith('claude')) {
+      let autoBuffer = ''
+      let autoSent = false
+      const autoDisp = ptyProcess.onData((data: string) => {
+        if (autoSent) return
+        autoBuffer += data
+        if (autoBuffer.length > 16384) autoBuffer = autoBuffer.slice(-16384)
+        const stripped = autoBuffer.replace(ANSI_ESC_RE, '')
         if (stripped.includes('Claude Code')) {
-          effortSent = true
-          effortDisp.dispose()
+          autoSent = true
+          autoDisp.dispose()
           // Wait for Claude Code prompt to be fully ready
           setTimeout(() => {
             const t = terminals.get(terminalId)
-            if (t) t.process.write(`/effort ${effortLevel}\r`)
+            if (!t) return
+            const cmds: string[] = []
+            if (config.model) cmds.push(`/model ${config.model}`)
+            if (config.effortLevel) cmds.push(`/effort ${config.effortLevel}`)
+            cmds.forEach((cmd, i) => {
+              setTimeout(() => {
+                const t2 = terminals.get(terminalId)
+                if (t2) t2.process.write(cmd + '\r')
+              }, i * 800)
+            })
           }, 2500)
         }
       })
       // Safety: stop watching after 30s
       setTimeout(() => {
-        if (!effortSent) effortDisp.dispose()
+        if (!autoSent) autoDisp.dispose()
       }, 30000)
     }
   })

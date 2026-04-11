@@ -157,6 +157,8 @@ export interface CreateTerminalRequest extends SshConnectionConfig {
   forceNew?: boolean;
   /** Effort level to auto-apply after Claude Code starts (min/low/medium/high/max) */
   effortLevel?: string;
+  /** Model to auto-apply after Claude Code starts (opus/sonnet/haiku) */
+  model?: string;
 }
 
 export interface CreateTerminalResponse {

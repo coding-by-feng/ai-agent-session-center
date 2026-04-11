@@ -288,40 +288,38 @@ export default function FileTree({
     return () => { cancelled = true; };
   }, [activeFilePath, projectPath, showHidden, provider]);
 
-  if (error) {
-    return <div className={styles.error}>{error}</div>;
-  }
-
-  if (loading && treeData.length === 0) {
-    return <div className={styles.loading}>Loading...</div>;
-  }
-
   return (
     <div ref={containerRef} className={styles.container}>
-      <Tree<TreeNode>
-        ref={treeRef}
-        data={treeData}
-        idAccessor="id"
-        childrenAccessor="children"
-        onToggle={handleToggle}
-        onActivate={handleActivate}
-        selection={activeFilePath ?? undefined}
-        searchTerm={searchTerm}
-        searchMatch={(node, term) => node.data.name.toLowerCase().includes(term.toLowerCase())}
-        openByDefault={false}
-        disableDrag
-        disableDrop
-        disableEdit
-        disableMultiSelection
-        rowHeight={26}
-        indent={16}
-        height={height}
-        width="100%"
-        className={styles.tree}
-        rowClassName={styles.row}
-      >
-        {Node}
-      </Tree>
+      {error ? (
+        <div className={styles.error}>{error}</div>
+      ) : loading && treeData.length === 0 ? (
+        <div className={styles.loading}>Loading...</div>
+      ) : (
+        <Tree<TreeNode>
+          ref={treeRef}
+          data={treeData}
+          idAccessor="id"
+          childrenAccessor="children"
+          onToggle={handleToggle}
+          onActivate={handleActivate}
+          selection={activeFilePath ?? undefined}
+          searchTerm={searchTerm}
+          searchMatch={(node, term) => node.data.name.toLowerCase().includes(term.toLowerCase())}
+          openByDefault={false}
+          disableDrag
+          disableDrop
+          disableEdit
+          disableMultiSelection
+          rowHeight={26}
+          indent={16}
+          height={height}
+          width="100%"
+          className={styles.tree}
+          rowClassName={styles.row}
+        >
+          {Node}
+        </Tree>
+      )}
     </div>
   );
 }

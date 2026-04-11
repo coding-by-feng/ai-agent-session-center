@@ -487,32 +487,41 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
           }
           term.pty.write(launchCmd + '\r');
 
-          // Auto-set effort level after Claude Code starts
-          if (config.effortLevel && baseCommand.startsWith('claude')) {
-            const effortLevel = config.effortLevel;
-            let effortBuffer = '';
-            let effortSent = false;
-            const effortDisp = ptyProcess.onData((data: string) => {
-              if (effortSent) return;
-              effortBuffer += data;
-              if (effortBuffer.length > 16384) effortBuffer = effortBuffer.slice(-16384);
-              const stripped = effortBuffer.replace(ANSI_ESC_RE, '');
+          // Auto-apply model and/or effort level after Claude Code starts
+          if ((config.model || config.effortLevel) && baseCommand.startsWith('claude')) {
+            let autoBuffer = '';
+            let autoSent = false;
+            const autoDisp = ptyProcess.onData((data: string) => {
+              if (autoSent) return;
+              autoBuffer += data;
+              if (autoBuffer.length > 16384) autoBuffer = autoBuffer.slice(-16384);
+              const stripped = autoBuffer.replace(ANSI_ESC_RE, '');
               if (stripped.includes('Claude Code')) {
-                effortSent = true;
-                effortDisp.dispose();
+                autoSent = true;
+                autoDisp.dispose();
                 // Wait for Claude Code prompt to be fully ready
                 setTimeout(() => {
                   const t = terminals.get(terminalId);
-                  if (t?.pty) {
-                    t.pty.write(`/effort ${effortLevel}\r`);
-                    log.info('pty', `Auto-set effort level to ${effortLevel} for ${terminalId}`);
-                  }
+                  if (!t?.pty) return;
+                  const cmds: string[] = [];
+                  if (config.model) cmds.push(`/model ${config.model}`);
+                  if (config.effortLevel) cmds.push(`/effort ${config.effortLevel}`);
+                  // Send commands sequentially with a gap between them
+                  cmds.forEach((cmd, i) => {
+                    setTimeout(() => {
+                      const t2 = terminals.get(terminalId);
+                      if (t2?.pty) {
+                        t2.pty.write(cmd + '\r');
+                        log.info('pty', `Auto-applied ${cmd} for ${terminalId}`);
+                      }
+                    }, i * 800);
+                  });
                 }, 2500);
               }
             });
             // Safety: stop watching after 30s
             setTimeout(() => {
-              if (!effortSent) effortDisp.dispose();
+              if (!autoSent) autoDisp.dispose();
             }, 30000);
           }
         });

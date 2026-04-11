@@ -103,6 +103,8 @@ const terminalCreateSchema = z.object({
   originalSessionId: z.string().max(200).optional(),
   /** Effort level to auto-apply after Claude Code starts */
   effortLevel: z.enum(['min', 'low', 'medium', 'high', 'max']).optional(),
+  /** Model to auto-apply after Claude Code starts */
+  model: z.enum(['opus', 'sonnet', 'haiku']).optional(),
   /** Session metadata from workspace snapshot — included in creation so the first WS broadcast has them */
   pinned: z.boolean().optional(),
   muted: z.boolean().optional(),
@@ -917,6 +919,7 @@ router.post('/terminals', async (req: Request, res: Response) => {
     if (body.startupCommand) config.startupCommand = body.startupCommand;
     if (body.permissionMode) config.permissionMode = body.permissionMode;
     if (body.effortLevel) config.effortLevel = body.effortLevel;
+    if (body.model) config.model = body.model;
     if (body.pinned) config.pinned = body.pinned;
     if (body.muted) config.muted = body.muted;
     if (body.alerted) config.alerted = body.alerted;
@@ -1322,7 +1325,7 @@ const TEXT_EXTENSIONS = new Set([
   '.sql', '.graphql', '.prisma', '.env', '.env.example', '.env.local',
   '.gitignore', '.dockerignore', '.editorconfig', '.eslintrc',
   '.prettierrc', '.babelrc', '.nvmrc',
-  '.csv', '.tsv', '.log', '.diff', '.patch',
+  '.csv', '.tsv', '.log', '.diff', '.patch', '.jsonl', '.ndjson',
   '.svelte', '.vue', '.astro', '.mdx',
 ]);
 
