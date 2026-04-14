@@ -21,6 +21,10 @@ export default function ActivityFeed() {
   const [maxEntries] = useState(50);
 
   const entries = useMemo(() => {
+    // Skip the O(N×events) iteration + sort when the feed isn't rendered.
+    // Without this guard the useMemo fires on every session update even when
+    // the feed is hidden (the default), wasting CPU on every hook event.
+    if (!activityFeedVisible) return [];
     const all: FeedEntry[] = [];
     for (const session of sessions.values()) {
       for (const event of session.events) {
@@ -35,7 +39,7 @@ export default function ActivityFeed() {
     }
     all.sort((a, b) => b.timestamp - a.timestamp);
     return all.slice(0, maxEntries);
-  }, [sessions, maxEntries]);
+  }, [sessions, maxEntries, activityFeedVisible]);
 
   if (!activityFeedVisible) return null;
 
