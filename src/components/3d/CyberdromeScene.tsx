@@ -319,15 +319,18 @@ export default function CyberdromeScene() {
     [sessions],
   );
 
-  // Precompute room index per session (eliminates useRoomStore inside Canvas)
+  // Precompute room index per session (eliminates useRoomStore inside Canvas).
+  // Iterates rooms (typically 0-10) instead of sessions (can be 100+), so this
+  // no longer depends on `sessions` and only recomputes when room assignments change.
   const roomAssignments = useMemo(() => {
     const map = new Map<string, number | undefined>();
-    for (const session of sessions.values()) {
-      const room = storeRooms.find((r) => r.sessionIds.includes(session.sessionId));
-      map.set(session.sessionId, room?.roomIndex);
+    for (const room of storeRooms) {
+      for (const sid of room.sessionIds) {
+        map.set(sid, room.roomIndex);
+      }
     }
     return map;
-  }, [sessions, storeRooms]);
+  }, [storeRooms]);
 
   const connections = useMemo(() => {
     const result: ConnectionData[] = [];

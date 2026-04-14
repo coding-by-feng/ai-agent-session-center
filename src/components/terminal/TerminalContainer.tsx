@@ -1,5 +1,5 @@
 /**
- * TerminalContainer wraps xterm.js 5 with FitAddon, Unicode11Addon, WebLinksAddon.
+ * TerminalContainer wraps xterm.js 5 with FitAddon, Unicode11Addon, and custom URL link provider.
  * Uses the useTerminal hook for lifecycle management.
  * Ported from public/js/terminalManager.js.
  */

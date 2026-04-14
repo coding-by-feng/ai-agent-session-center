@@ -8,7 +8,6 @@ import { useRef, useCallback, useEffect, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
-import { WebLinksAddon } from '@xterm/addon-web-links';
 import { resolveTheme } from '@/components/terminal/themes';
 import { useUiStore } from '@/stores/uiStore';
 
@@ -93,6 +92,31 @@ interface UseTerminalReturn {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Decode and concatenate an array of base64 chunks into a single Uint8Array.
+ * Calling term.write() once with a merged buffer is dramatically faster than
+ * calling it once per chunk — each call pushes a task into xterm's internal
+ * parser queue, schedules a canvas repaint, and allocates a Uint8Array.
+ * With N chunks/frame that multiplies to N parser runs + N GC objects.
+ */
+function mergeChunks(chunks: string[]): Uint8Array {
+  const decoded: string[] = new Array(chunks.length);
+  let totalLen = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    decoded[i] = atob(chunks[i]);
+    totalLen += decoded[i].length;
+  }
+  const result = new Uint8Array(totalLen);
+  let offset = 0;
+  for (let i = 0; i < decoded.length; i++) {
+    const s = decoded[i];
+    for (let j = 0; j < s.length; j++) {
+      result[offset++] = s.charCodeAt(j);
+    }
+  }
+  return result;
+}
 
 function getResponsiveFontSize(): number {
   const width = window.innerWidth;
@@ -440,16 +464,98 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           // Unicode11 addon not available
         }
 
-        try {
-          const webLinks = new WebLinksAddon((_event, uri) => {
-            // In Electron, window.open triggers setWindowOpenHandler → shell.openExternal.
-            // In browser, window.open opens a new tab.
-            window.open(uri, '_blank');
-          });
-          term.loadAddon(webLinks);
-        } catch {
-          // WebLinks addon not available
-        }
+        // Custom URL link provider — handles URLs spanning wrapped terminal lines.
+        // Unlike @xterm/addon-web-links, this does NOT stop grouping wrapped lines
+        // at whitespace, so very long URLs (OAuth redirects, etc.) stay fully clickable.
+        const URL_LINK_RE = /https?:\/\/[^\s"'<>`]+/g;
+        const MAX_URL_GROUP_LEN = 4096;
+
+        term.registerLinkProvider({
+          provideLinks(bufferLineNumber, callback) {
+            const buffer = term.buffer.active;
+            const requested = bufferLineNumber - 1; // 0-indexed
+
+            // Walk up to find start of wrapped-line group
+            let groupStart = requested;
+            while (groupStart > 0 && buffer.getLine(groupStart)?.isWrapped) {
+              groupStart--;
+            }
+
+            // Walk down to find end of wrapped-line group
+            let groupEnd = requested;
+            while (groupEnd + 1 < buffer.length && buffer.getLine(groupEnd + 1)?.isWrapped) {
+              groupEnd++;
+            }
+
+            // Concatenate all lines in the group, track per-line offsets
+            let fullText = '';
+            const lineInfos: { lineIdx: number; offset: number; len: number }[] = [];
+            for (let i = groupStart; i <= groupEnd && fullText.length < MAX_URL_GROUP_LEN; i++) {
+              const line = buffer.getLine(i);
+              if (!line) continue;
+              const text = line.translateToString(true);
+              lineInfos.push({ lineIdx: i, offset: fullText.length, len: text.length });
+              fullText += text;
+            }
+
+            // Match URLs in the concatenated text
+            URL_LINK_RE.lastIndex = 0;
+            const links: Array<{
+              range: { start: { x: number; y: number }; end: { x: number; y: number } };
+              text: string;
+              activate: () => void;
+              tooltip?: string;
+            }> = [];
+
+            let m: RegExpExecArray | null;
+            while ((m = URL_LINK_RE.exec(fullText)) !== null) {
+              let url = m[0];
+              // Strip trailing punctuation unlikely to be part of the URL
+              url = url.replace(/[.,;:!?\])}>]+$/, '');
+              if (url.length < 10) continue;
+
+              // Validate with the URL parser
+              try { new URL(url); } catch { continue; }
+
+              const urlStart = m.index;
+              const urlEnd = urlStart + url.length;
+
+              // Map character offsets → buffer line/column
+              const startInfo = lineInfos.find(
+                (li) => urlStart >= li.offset && urlStart < li.offset + li.len
+              );
+              const endInfo = lineInfos.find(
+                (li) => urlEnd > li.offset && urlEnd <= li.offset + li.len
+              );
+              if (!startInfo || !endInfo) continue;
+
+              const startX = urlStart - startInfo.offset + 1; // 1-indexed
+              const startY = startInfo.lineIdx + 1;           // 1-indexed
+              const endX = urlEnd - endInfo.offset;            // 1-indexed, inclusive
+              const endY = endInfo.lineIdx + 1;                // 1-indexed
+
+              // Only return links that overlap the requested line
+              if (startY <= bufferLineNumber && bufferLineNumber <= endY) {
+                const finalUrl = url;
+                links.push({
+                  range: {
+                    start: { x: startX, y: startY },
+                    end: { x: endX, y: endY },
+                  },
+                  text: finalUrl,
+                  tooltip: finalUrl.length > 100 ? finalUrl.substring(0, 100) + '…' : finalUrl,
+                  activate() {
+                    // In Electron, window.open triggers setWindowOpenHandler → shell.openExternal.
+                    // In browser, window.open opens a new tab.
+                    window.open(finalUrl, '_blank');
+                  },
+                });
+              }
+            }
+
+            callback(links.length > 0 ? links : undefined);
+          },
+        });
 
         // File path link provider — makes file paths clickable to open in PROJECT tab
         // Matches: path/to/file.ext, ./path/to/file.ext, ../path/to/file.ext
@@ -649,17 +755,14 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
             if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
             const buffered = pendingOutputRef.current.get(terminalId);
             if (buffered && buffered.length > 0) {
-              let remaining = buffered.length;
-              for (const data of buffered) {
-                const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
-                term.write(bytes, () => {
-                  if (--remaining === 0 && activeRef.current?.term === term) {
-                    applyPendingScroll();
-                  }
-                });
-              }
+              // Merge all buffered chunks (up to 500) into one write — avoids
+              // firing up to 500 separate xterm parser runs on session switch.
+              const merged = mergeChunks(buffered);
               pendingOutputRef.current.delete(terminalId);
               pendingOutputTtlRef.current.delete(terminalId);
+              term.write(merged, () => {
+                if (activeRef.current?.term === term) applyPendingScroll();
+              });
             } else {
               // No buffered data yet — the server reply may still be in flight.
               // Leave pendingScrollRestore set so the active output handler applies
@@ -723,29 +826,27 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           // Save viewport position before writes — escape sequences can
           // yank viewport around; restore it after all chunks are written.
           const savedViewportY = hasPendingRestore ? 0 : term.buffer.active.viewportY;
-          let remaining = pending.length;
-          for (const chunk of pending) {
-            const bytes = Uint8Array.from(atob(chunk), (c) => c.charCodeAt(0));
-            term.write(bytes, () => {
-              if (--remaining === 0 && activeRef.current?.term === term) {
-                if (hasPendingRestore) {
-                  // Apply the saved scroll from the previous session view
-                  const savedOffset = activeRef.current!.pendingScrollRestore ?? 0;
-                  activeRef.current!.pendingScrollRestore = undefined;
-                  if (savedOffset > 0) {
-                    const buf = term.buffer.active;
-                    term.scrollToLine(Math.max(0, buf.baseY - savedOffset));
-                  } else {
-                    term.scrollToBottom();
-                  }
-                } else if (autoScrollRef.current) {
-                  term.scrollToBottom();
-                } else if (term.buffer.active.viewportY !== savedViewportY) {
-                  term.scrollToLine(savedViewportY);
-                }
+          // Merge all pending chunks into one Uint8Array and write once —
+          // avoids N xterm parser runs + N canvas repaints + N GC allocations.
+          const merged = mergeChunks(pending);
+          term.write(merged, () => {
+            if (activeRef.current?.term !== term) return;
+            if (hasPendingRestore) {
+              // Apply the saved scroll from the previous session view
+              const savedOffset = activeRef.current!.pendingScrollRestore ?? 0;
+              activeRef.current!.pendingScrollRestore = undefined;
+              if (savedOffset > 0) {
+                const buf = term.buffer.active;
+                term.scrollToLine(Math.max(0, buf.baseY - savedOffset));
+              } else {
+                term.scrollToBottom();
               }
-            });
-          }
+            } else if (autoScrollRef.current) {
+              term.scrollToBottom();
+            } else if (term.buffer.active.viewportY !== savedViewportY) {
+              term.scrollToLine(savedViewportY);
+            }
+          });
         });
       }
     } else {
@@ -801,6 +902,13 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         `\r\n\x1b[31m--- Terminal ${reason || 'closed'} ---\x1b[0m\r\n`,
       );
     }
+    // Prune per-terminal map entries so they don't accumulate forever.
+    // savedScrollRef and autoScrollMapRef are only written on every attach/detach
+    // but never deleted, so they grow unboundedly as sessions are created.
+    savedScrollRef.current.delete(terminalId);
+    autoScrollMapRef.current.delete(terminalId);
+    pendingOutputRef.current.delete(terminalId);
+    pendingOutputTtlRef.current.delete(terminalId);
   }, []);
 
   const sendEscapeKey = useCallback(() => {
