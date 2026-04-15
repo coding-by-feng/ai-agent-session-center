@@ -1582,14 +1582,15 @@ router.get('/files/stream', (req: Request, res: Response) => {
 const fileWriteSchema = z.object({
   root: z.string().min(1),
   path: z.string().min(1).max(1024),
-  content: z.string().max(10 * 1024 * 1024), // 10 MB limit
+  content: z.string().max(14 * 1024 * 1024), // ~10 MB decoded (base64 overhead)
+  encoding: z.enum(['utf8', 'base64']).optional(),
 });
 
 router.post('/files/write', (req: Request, res: Response) => {
   const parsed = fileWriteSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: 'Invalid request body' }); return; }
 
-  const { root, path: relPath, content } = parsed.data;
+  const { root, path: relPath, content, encoding } = parsed.data;
   if (!isAllowedProjectRoot(root)) { res.status(400).json({ error: 'Invalid project root' }); return; }
   const fullPath = resolveProjectPath(root, relPath);
   if (!fullPath) { res.status(400).json({ error: 'Path outside project root' }); return; }
@@ -1600,7 +1601,11 @@ router.post('/files/write', (req: Request, res: Response) => {
     if (!existsSync(parentDir)) {
       mkdirSync(parentDir, { recursive: true });
     }
-    writeFileSync(fullPath, content, 'utf8');
+    if (encoding === 'base64') {
+      writeFileSync(fullPath, Buffer.from(content, 'base64'));
+    } else {
+      writeFileSync(fullPath, content, 'utf8');
+    }
     const stat = statSync(fullPath);
     invalidateCache(root);
     res.json({ ok: true, path: relPath, size: stat.size });

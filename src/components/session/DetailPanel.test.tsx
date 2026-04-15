@@ -186,7 +186,7 @@ describe('DetailPanel', () => {
     expect(useSessionStore.getState().selectedSessionId).toBeNull();
   });
 
-  it('deselects on Escape key', () => {
+  it('does not deselect on Escape key (preserves scroll position)', () => {
     const session = makeSession();
     useSessionStore.setState({
       sessions: new Map([['sess-1', session]]),
@@ -194,7 +194,7 @@ describe('DetailPanel', () => {
     });
     render(<DetailPanel />);
     fireEvent.keyDown(window, { key: 'Escape' });
-    expect(useSessionStore.getState().selectedSessionId).toBeNull();
+    expect(useSessionStore.getState().selectedSessionId).toBe('sess-1');
   });
 
   it('passes notes tab with session ID', () => {

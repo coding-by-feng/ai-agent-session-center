@@ -296,6 +296,80 @@ export default function FileTree({
     return () => document.removeEventListener('filetree:refresh', handler);
   }, [refresh]);
 
+  // Auto-refresh: silently reload all loaded directories to detect external changes.
+  // Unlike refresh(), this does not clear loadedDirs or set loading state, preventing
+  // visual flashes and race conditions with user interactions during polling.
+  const refreshingRef = useRef(false);
+
+  const silentRefresh = useCallback(async () => {
+    if (refreshingRef.current) return;
+    const prevLoaded = new Set(loadedDirs.current);
+    if (prevLoaded.size === 0) return;
+
+    refreshingRef.current = true;
+
+    const openDirIds: string[] = [];
+    if (treeRef.current) {
+      for (const dirId of prevLoaded) {
+        if (dirId === '/') continue;
+        const node = treeRef.current.get(dirId);
+        if (node?.isOpen) openDirIds.push(dirId);
+      }
+    }
+
+    try {
+      const { items: rootItems } = await provider.listDir(projectPath, '/', showHidden);
+      let nodes = entriesToNodes(rootItems, '/');
+      const newLoaded = new Set(['/']);
+
+      const dirsToReload = Array.from(prevLoaded).filter(d => d !== '/');
+      if (dirsToReload.length > 0) {
+        const results = await Promise.allSettled(
+          dirsToReload.map(async (dirId) => {
+            const { items } = await provider.listDir(projectPath, dirId, showHidden);
+            return { dirId, children: entriesToNodes(items, dirId) };
+          })
+        );
+
+        const successResults = results
+          .filter((r): r is PromiseFulfilledResult<{ dirId: string; children: TreeNode[] }> =>
+            r.status === 'fulfilled')
+          .map(r => r.value)
+          .sort((a, b) => a.dirId.split('/').length - b.dirId.split('/').length);
+
+        for (const { dirId, children } of successResults) {
+          if (children.length > 0) newLoaded.add(dirId);
+          nodes = updateNodeInTree(nodes, dirId, (n) => ({
+            ...n,
+            isLoading: false,
+            children,
+          }));
+        }
+      }
+
+      loadedDirs.current = newLoaded;
+      setTreeData(nodes);
+
+      if (openDirIds.length > 0) {
+        requestAnimationFrame(() => {
+          if (!treeRef.current) return;
+          for (const dirId of openDirIds) {
+            treeRef.current.open(dirId);
+          }
+        });
+      }
+    } catch {
+      // Silently ignore — next poll will retry
+    } finally {
+      refreshingRef.current = false;
+    }
+  }, [projectPath, showHidden, provider]);
+
+  useEffect(() => {
+    const interval = setInterval(silentRefresh, 5000);
+    return () => clearInterval(interval);
+  }, [silentRefresh]);
+
   // Auto-reveal: expand ancestor directories and scroll to the active file
   const lastRevealedRef = useRef<string | null>(null);
   useEffect(() => {

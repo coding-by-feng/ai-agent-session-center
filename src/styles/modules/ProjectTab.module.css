@@ -1386,6 +1386,16 @@
   max-width: 32px !important;
 }
 
+.treePanelDragOver {
+  outline: 2px dashed var(--accent-cyan, #00d4ff);
+  outline-offset: -2px;
+  background: rgba(0, 212, 255, 0.06);
+}
+
+.treePanel:focus-visible {
+  outline: none;
+}
+
 .treePanelToggle {
   display: flex;
   align-items: center;
