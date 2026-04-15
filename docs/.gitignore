@@ -1,0 +1,4 @@
+# Large media files (use LFS or external hosting)
+*.mov
+*.mp4
+.DS_Store
