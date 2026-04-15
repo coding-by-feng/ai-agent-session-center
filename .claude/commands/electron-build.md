@@ -1,0 +1,1 @@
+Run `npm run electron:build` from the project root to rebuild the Electron app. Stream the output and report success or failure when done. If the build fails, diagnose the error and fix it, then retry.
