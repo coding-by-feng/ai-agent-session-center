@@ -61,14 +61,12 @@ export function useKeyboardShortcuts(): void {
         // No session selected — let browser native find through
       }
 
-      // Escape is always special: close modal -> pass to terminal -> deselect
+      // Escape is always special: close modal -> pass to terminal
       if (e.key === 'Escape') {
         if (currentModal) {
           closeModal();
         } else if ((e.target as HTMLElement)?.closest?.('.xterm')) {
           return; // let xterm handle Escape (sends \x1b to SSH)
-        } else if (selectedId) {
-          useSessionStore.getState().deselectSession();
         }
         return;
       }

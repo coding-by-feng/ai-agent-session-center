@@ -335,7 +335,8 @@ function DraggableMiniBadge({
 export default function DetailPanel() {
   const selectedSessionId = useSessionStore((s) => s.selectedSessionId);
   const sessions = useSessionStore((s) => s.sessions);
-  const deselectSession = useSessionStore((s) => s.deselectSession);
+  // deselectSession removed from Esc handler — pressing Esc while viewing output
+  // would apply display:none, resetting scroll positions to 0.
   const selectSession = useSessionStore((s) => s.selectSession);
   const detailPanelMinimized = useUiStore((s) => s.detailPanelMinimized);
   const minimizeDetailPanel = useUiStore((s) => s.minimizeDetailPanel);
@@ -447,7 +448,7 @@ export default function DetailPanel() {
 
   // navigateMatch is defined below, after activeTab/setExternalTab are declared
 
-  // #10: Close on Escape — close search first, restore if minimized, then deselect
+  // #10: Close on Escape — close search first, restore if minimized
   useEffect(() => {
     if (!selectedSessionId) return;
     const handler = (e: KeyboardEvent) => {
@@ -456,14 +457,13 @@ export default function DetailPanel() {
           closeSearch();
         } else if (detailPanelMinimized) {
           restoreDetailPanel();
-        } else {
-          deselectSession();
         }
+        // No deselect — pressing Esc while viewing output would reset scroll position
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [selectedSessionId, deselectSession, searchOpen, closeSearch, detailPanelMinimized, restoreDetailPanel]);
+  }, [selectedSessionId, searchOpen, closeSearch, detailPanelMinimized, restoreDetailPanel]);
 
   // Reset minimized state when a new session is selected
   useEffect(() => {

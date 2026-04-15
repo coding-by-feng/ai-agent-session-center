@@ -55,12 +55,37 @@ export interface FileSystemProvider {
   /** Returns a URL for streaming binary content (PDF, images, video, audio). */
   streamUrl(projectRoot: string, relPath: string): string;
   writeFile(projectRoot: string, relPath: string, content: string): Promise<void>;
+  /** Upload a File object (handles both text and binary). */
+  uploadFile(projectRoot: string, relPath: string, file: File): Promise<void>;
   mkdir(projectRoot: string, relPath: string): Promise<void>;
   deleteEntry(projectRoot: string, relPath: string): Promise<void>;
   searchFiles(projectRoot: string, query: string): Promise<{ results: Array<{ path: string; name: string; type: 'dir' | 'file' }>; indexing: boolean }>;
   grepContent(projectRoot: string, query: string, glob?: string): Promise<GrepResult>;
   reveal(projectRoot: string, relPath: string): Promise<void>;
   invalidateSearchCache(projectRoot: string): Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+const TEXT_EXTENSIONS = new Set([
+  '.txt', '.md', '.mdx', '.ts', '.tsx', '.js', '.jsx', '.json', '.yaml', '.yml',
+  '.toml', '.css', '.scss', '.html', '.xml', '.svg', '.py', '.go', '.rs', '.java',
+  '.sh', '.bash', '.zsh', '.sql', '.graphql', '.c', '.cpp', '.h', '.hpp', '.cs',
+  '.rb', '.php', '.swift', '.kt', '.lua', '.r', '.env', '.gitignore', '.dockerignore',
+  '.editorconfig', '.prettierrc', '.eslintrc', '.lock', '.jsonl', '.ndjson',
+]);
+
+function extOf(name: string): string {
+  const i = name.lastIndexOf('.');
+  return i >= 0 ? name.slice(i).toLowerCase() : '';
+}
+
+function isTextByName(name: string): boolean {
+  const ext = extOf(name);
+  if (ext === '') return true; // extensionless files treated as text
+  return TEXT_EXTENSIONS.has(ext);
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +130,30 @@ export class ApiFileSystemProvider implements FileSystemProvider {
     if (!res.ok) {
       const data = await res.json().catch(() => ({ error: 'Write failed' }));
       throw new Error(data.error || 'Write failed');
+    }
+  }
+
+  async uploadFile(projectRoot: string, relPath: string, file: File) {
+    if (isTextByName(file.name)) {
+      const text = await file.text();
+      return this.writeFile(projectRoot, relPath, text);
+    }
+    // Binary file — read as base64
+    const buf = await file.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    const base64 = btoa(binary);
+    const res = await fetch('/api/files/write', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ root: projectRoot, path: relPath, content: base64, encoding: 'base64' }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: 'Upload failed' }));
+      throw new Error(data.error || 'Upload failed');
     }
   }
 
@@ -171,14 +220,6 @@ export class ApiFileSystemProvider implements FileSystemProvider {
 // Local Provider (File System Access API — Chromium only)
 // ---------------------------------------------------------------------------
 
-const TEXT_EXTENSIONS = new Set([
-  '.txt', '.md', '.mdx', '.ts', '.tsx', '.js', '.jsx', '.json', '.yaml', '.yml',
-  '.toml', '.css', '.scss', '.html', '.xml', '.svg', '.py', '.go', '.rs', '.java',
-  '.sh', '.bash', '.zsh', '.sql', '.graphql', '.c', '.cpp', '.h', '.hpp', '.cs',
-  '.rb', '.php', '.swift', '.kt', '.lua', '.r', '.env', '.gitignore', '.dockerignore',
-  '.editorconfig', '.prettierrc', '.eslintrc', '.lock', '.jsonl', '.ndjson',
-]);
-
 const STREAMABLE_EXTENSIONS = new Set([
   '.pdf', '.xlsx', '.xls', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg',
   '.bmp', '.ico', '.avif', '.mp4', '.webm', '.ogg', '.mov', '.mp3', '.wav',
@@ -189,17 +230,6 @@ const SKIP_DIRS = new Set([
   'node_modules', '.git', '__pycache__', 'venv', '.next', '.nuxt',
   'dist', 'build', 'coverage', '.cache', '.turbo', '.svelte-kit',
 ]);
-
-function extOf(name: string): string {
-  const i = name.lastIndexOf('.');
-  return i >= 0 ? name.slice(i).toLowerCase() : '';
-}
-
-function isTextByName(name: string): boolean {
-  const ext = extOf(name);
-  if (ext === '') return true; // extensionless files treated as text
-  return TEXT_EXTENSIONS.has(ext);
-}
 
 export class LocalFileSystemProvider implements FileSystemProvider {
   readonly kind = 'local' as const;
@@ -319,6 +349,19 @@ export class LocalFileSystemProvider implements FileSystemProvider {
     const fileHandle = await dir.getFileHandle(parts[parts.length - 1], { create: true });
     const writable = await fileHandle.createWritable();
     await writable.write(content);
+    await writable.close();
+  }
+
+  async uploadFile(projectRoot: string, relPath: string, file: File) {
+    const root = this.getHandle(projectRoot);
+    const parts = relPath.replace(/^\/+/, '').split('/').filter(Boolean);
+    let dir = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      dir = await dir.getDirectoryHandle(parts[i], { create: true });
+    }
+    const fileHandle = await dir.getFileHandle(parts[parts.length - 1], { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(file);
     await writable.close();
   }
 

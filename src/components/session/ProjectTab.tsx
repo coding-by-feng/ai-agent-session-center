@@ -12,6 +12,7 @@ import FileTree from './FileTree';
 import ContentSearchModal from './ContentSearchModal';
 import FindInFileBar, { highlightFindMatches } from './FindInFileBar';
 import { getFileSystemProvider } from '@/lib/fileSystemProvider';
+import { showToast } from '@/components/ui/ToastContainer';
 import styles from '@/styles/modules/ProjectTab.module.css';
 
 interface ProjectTabProps {
@@ -200,16 +201,6 @@ function IconRevealInFinder() {
       <path d="M5 1v2" />
       <path d="M8 10l2-2-2-2" />
       <line x1="5" y1="10" x2="10" y2="10" />
-    </svg>
-  );
-}
-function IconRefresh() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M2 8a6 6 0 0 1 10.5-4" />
-      <path d="M14 8a6 6 0 0 1-10.5 4" />
-      <polyline points="12 1 13 4 10 4.5" />
-      <polyline points="4 15 3 12 6 11.5" />
     </svg>
   );
 }
@@ -1230,6 +1221,67 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     }
   }, [currentDirPath, projectPath, provider]);
 
+  // Paste / drop file upload
+  const [dragOver, setDragOver] = useState(false);
+
+  const uploadFiles = useCallback(async (files: FileList | File[]) => {
+    const fileArr = Array.from(files);
+    if (fileArr.length === 0) return;
+
+    const targetDir = currentDirPath;
+    let uploaded = 0;
+    let failed = 0;
+
+    for (const file of fileArr) {
+      const relPath = targetDir === '/' ? '/' + file.name : targetDir + '/' + file.name;
+      try {
+        await provider.uploadFile(projectPath, relPath, file);
+        uploaded++;
+      } catch {
+        failed++;
+      }
+    }
+
+    document.dispatchEvent(new CustomEvent('filetree:refresh'));
+
+    if (failed === 0) {
+      showToast(`Uploaded ${uploaded} file${uploaded > 1 ? 's' : ''}`, 'success');
+    } else {
+      showToast(`Uploaded ${uploaded}, failed ${failed}`, 'warning');
+    }
+  }, [currentDirPath, projectPath, provider]);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const files = e.clipboardData?.files;
+    if (!files || files.length === 0) return;
+    e.preventDefault();
+    uploadFiles(files);
+  }, [uploadFiles]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.types.includes('Files')) {
+      setDragOver(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      uploadFiles(files);
+    }
+  }, [uploadFiles]);
+
   // Delete file or folder
   const [confirmDeleteName, setConfirmDeleteName] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -1633,9 +1685,6 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         <button className={styles.iconBtn} onClick={() => setCreatingFolder(true)} title="New folder">
           <IconNewFolder />
         </button>
-        <button className={styles.iconBtn} onClick={handleRefresh} title="Refresh">
-          <IconRefresh />
-        </button>
         <button className={styles.iconBtn} onClick={handleOpenProjectView} title="Open project in new tab">
           <IconOpenProjectView />
         </button>
@@ -1738,11 +1787,16 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
 
       {/* VS Code-style split: tree left + viewer right */}
       <div className={styles.vscodeSplit}>
-        {/* Left: File tree panel */}
+        {/* Left: File tree panel (supports paste & drag-drop file upload) */}
         <div
           ref={treePanelRef}
-          className={`${styles.treePanel} ${treePanelCollapsed ? styles.treePanelCollapsed : ''}`}
+          className={`${styles.treePanel} ${treePanelCollapsed ? styles.treePanelCollapsed : ''} ${dragOver ? styles.treePanelDragOver : ''}`}
           style={treePanelCollapsed ? undefined : { width: treePanelWidth, minWidth: treePanelWidth }}
+          tabIndex={0}
+          onPaste={handlePaste}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
         >
           <div className={styles.treePanelHeader}>
             {!treePanelCollapsed && <span className={styles.treePanelTitle}>{projectName}</span>}
