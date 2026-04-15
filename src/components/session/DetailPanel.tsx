@@ -20,8 +20,6 @@ import SessionSwitcher from './SessionSwitcher';
 import LabelChips from './LabelChips';
 import KillConfirmModal, { KILL_MODAL_ID } from './KillConfirmModal';
 import TerminalContainer from '@/components/terminal/TerminalContainer';
-import type { RobotModelType } from '@/lib/robot3DModels';
-import { getModelLabel } from '@/lib/robot3DModels';
 import { PALETTE } from '@/lib/robot3DGeometry';
 import { formatDuration, getStatusLabel } from '@/lib/format';
 import { detectCli } from '@/lib/cliDetect';
@@ -556,9 +554,7 @@ export default function DetailPanel() {
   const durText = formatDuration(Date.now() - displaySession.startedAt);
   const statusLabel = getStatusLabel(displaySession.status);
   const isDisconnected = displaySession.status === 'ended';
-  const modelType = (displaySession.characterModel || 'robot').toLowerCase() as RobotModelType;
   const neonColor = displaySession.accentColor || PALETTE[(displaySession.colorIndex ?? 0) % PALETTE.length];
-  const modelLabel = getModelLabel(modelType);
   const statusColor: Record<string, string> = {
     idle: 'var(--accent-green)', prompting: 'var(--accent-cyan)', working: 'var(--accent-orange)',
     waiting: 'var(--accent-cyan)', approval: 'var(--accent-yellow)', input: 'var(--accent-purple)',
@@ -595,39 +591,6 @@ export default function DetailPanel() {
         {!headerCollapsed && (
           <div className={styles.header}>
             <div className={styles.headerInfo}>
-              <div className={styles.charPreview} style={{
-                width: 64,
-                height: 80,
-                borderRadius: 6,
-                border: `1px solid color-mix(in srgb, ${statusColor[displaySession.status] ?? 'var(--text-dim)'} 25%, transparent)`,
-                background: `color-mix(in srgb, ${statusColor[displaySession.status] ?? 'var(--text-dim)'} 6%, transparent)`,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 4,
-              }}>
-                <div style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: '50%',
-                  background: `${neonColor}30`,
-                  border: `2px solid ${neonColor}`,
-                  boxShadow: `0 0 8px ${neonColor}40`,
-                }} />
-                <span style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 8,
-                  fontWeight: 700,
-                  letterSpacing: 0.5,
-                  color: neonColor,
-                  textTransform: 'uppercase',
-                  opacity: 0.8,
-                }}>
-                  {modelLabel}
-                </span>
-              </div>
-
               <div className={styles.headerText}>
                 <div className={styles.headerTop}>
                   <div className={styles.headerTitles}>

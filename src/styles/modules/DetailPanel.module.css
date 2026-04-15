@@ -118,9 +118,6 @@
   min-width: 0;
 }
 
-.charPreview { width: 64px; height: 80px; flex-shrink: 0; position: relative; }
-.charPreview canvas { display: block; }
-
 .headerText { flex: 1; min-width: 0; }
 .headerTop { display: flex; align-items: flex-start; gap: 10px; }
 .headerTitles { flex: 1; min-width: 0; }
@@ -1113,7 +1110,6 @@
   }
 
   .headerInfo { gap: 8px; }
-  .charPreview { width: 48px; height: 60px; }
 
   /* Buttons take full width on mobile */
   .ctrlBar {

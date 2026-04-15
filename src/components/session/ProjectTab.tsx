@@ -792,6 +792,20 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   // Fullscreen file viewer
   const [showFullscreen, setShowFullscreen] = useState(false);
 
+  // Image zoom
+  const [imageZoom, setImageZoom] = useState(1);
+  const zoomIn = useCallback(() => setImageZoom((z) => Math.min(z + 0.25, 5)), []);
+  const zoomOut = useCallback(() => setImageZoom((z) => Math.max(z - 0.25, 0.25)), []);
+  const zoomReset = useCallback(() => setImageZoom(1), []);
+  const handleImageWheel = useCallback((e: React.WheelEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      setImageZoom((z) => Math.min(Math.max(z - e.deltaY * 0.005, 0.25), 5));
+    }
+  }, []);
+  // Reset zoom when switching files
+  useEffect(() => { setImageZoom(1); }, [file?.path]);
+
   // Close fullscreen on Escape
   useEffect(() => {
     if (!showFullscreen) return;
@@ -1885,12 +1899,26 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                   />
                 ) : file.streamable && file.blobUrl && isImageExt(file.ext) ? (
                   <div className={styles.mediaViewer}>
-                    <img
-                      src={file.blobUrl}
-                      alt={file.name}
-                      className={styles.mediaImage}
-                      draggable={false}
-                    />
+                    <div className={styles.imageZoomToolbar}>
+                      <button className={styles.imageZoomBtn} onClick={zoomOut} title="Zoom out" disabled={imageZoom <= 0.25}>
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="7" cy="7" r="5.5" /><line x1="4" y1="7" x2="10" y2="7" /><line x1="11" y1="11" x2="14.5" y2="14.5" /></svg>
+                      </button>
+                      <button className={styles.imageZoomLevel} onClick={zoomReset} title="Reset zoom">
+                        {Math.round(imageZoom * 100)}%
+                      </button>
+                      <button className={styles.imageZoomBtn} onClick={zoomIn} title="Zoom in" disabled={imageZoom >= 5}>
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="7" cy="7" r="5.5" /><line x1="4" y1="7" x2="10" y2="7" /><line x1="7" y1="4" x2="7" y2="10" /><line x1="11" y1="11" x2="14.5" y2="14.5" /></svg>
+                      </button>
+                    </div>
+                    <div className={styles.imageZoomContainer} onWheel={handleImageWheel}>
+                      <img
+                        src={file.blobUrl}
+                        alt={file.name}
+                        className={styles.mediaImage}
+                        draggable={false}
+                        style={imageZoom !== 1 ? { transform: `scale(${imageZoom})`, transformOrigin: 'center center', maxWidth: 'none', maxHeight: 'none' } : undefined}
+                      />
+                    </div>
                     <div className={styles.mediaInfo}>{file.name} — {formatSize(file.size)}</div>
                   </div>
                 ) : file.streamable && file.blobUrl && isVideoExt(file.ext) ? (
@@ -2103,7 +2131,20 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                 <iframe src={file.blobUrl} className={styles.pdfViewer} title={file.name} />
               ) : file.streamable && file.blobUrl && isImageExt(file.ext) ? (
                 <div className={styles.mediaViewer}>
-                  <img src={file.blobUrl} alt={file.name} className={styles.mediaImage} draggable={false} />
+                  <div className={styles.imageZoomToolbar}>
+                    <button className={styles.imageZoomBtn} onClick={zoomOut} title="Zoom out" disabled={imageZoom <= 0.25}>
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="7" cy="7" r="5.5" /><line x1="4" y1="7" x2="10" y2="7" /><line x1="11" y1="11" x2="14.5" y2="14.5" /></svg>
+                    </button>
+                    <button className={styles.imageZoomLevel} onClick={zoomReset} title="Reset zoom">
+                      {Math.round(imageZoom * 100)}%
+                    </button>
+                    <button className={styles.imageZoomBtn} onClick={zoomIn} title="Zoom in" disabled={imageZoom >= 5}>
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="7" cy="7" r="5.5" /><line x1="4" y1="7" x2="10" y2="7" /><line x1="7" y1="4" x2="7" y2="10" /><line x1="11" y1="11" x2="14.5" y2="14.5" /></svg>
+                    </button>
+                  </div>
+                  <div className={styles.imageZoomContainer} onWheel={handleImageWheel}>
+                    <img src={file.blobUrl} alt={file.name} className={styles.mediaImage} draggable={false} style={imageZoom !== 1 ? { transform: `scale(${imageZoom})`, transformOrigin: 'center center', maxWidth: 'none', maxHeight: 'none' } : undefined} />
+                  </div>
                 </div>
               ) : file.binary ? (
                 <div className={styles.empty}>Binary file ({formatSize(file.size)})</div>
