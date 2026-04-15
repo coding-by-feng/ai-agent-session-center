@@ -692,6 +692,9 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         const resizeObserver = new ResizeObserver(() => {
           if (resizeTimer) clearTimeout(resizeTimer);
           resizeTimer = setTimeout(() => {
+            // Skip resize when container is hidden (e.g. detail panel overlay display:none).
+            // fitAddon.fit() would resize xterm to minimum 1 row, corrupting scroll state.
+            if (!container.offsetWidth || !container.offsetHeight) return;
             // Skip scroll save/restore while pending scroll restore is waiting —
             // the terminal is empty and viewportY=0 would overwrite the saved position.
             if (activeRef.current?.pendingScrollRestore !== undefined) {
@@ -1054,6 +1057,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
       if (resizeTimer) clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
         if (!activeRef.current) return;
+        if (!newContainer.offsetWidth || !newContainer.offsetHeight) return;
         const savedViewportY = activeRef.current.term.buffer.active.viewportY;
         activeRef.current.fitAddon.fit();
         sendResize(wsRef.current, activeRef.current.terminalId,

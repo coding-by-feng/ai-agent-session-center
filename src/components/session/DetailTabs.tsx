@@ -100,6 +100,14 @@ function DraggableSplitView({
     }
   });
 
+  // Restore ratio when the session (ratioKey) changes
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(ratioKey);
+      setRatio(stored ? parseFloat(stored) : 0.5);
+    } catch { /* ignore */ }
+  }, [ratioKey]);
+
   // Track latest ratio in a ref so onMouseUp always reads the current value
   const ratioRef = useRef(ratio);
   ratioRef.current = ratio;
@@ -203,15 +211,15 @@ export default function DetailTabs({
     }
   });
 
-  // Restore per-session split state when switching sessions
+  // Restore per-session split state when switching sessions.
+  // If the session has no stored preference, default to off so the previous
+  // session's state doesn't leak.
   useEffect(() => {
     if (!sessionId) return;
     try {
       const key = `${SPLIT_KEY}:${sessionId}`;
       const stored = localStorage.getItem(key);
-      if (stored !== null) {
-        setSplitView(stored === '1');
-      }
+      setSplitView(stored === '1');
     } catch { /* ignore */ }
   }, [sessionId]);
 

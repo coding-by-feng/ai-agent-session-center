@@ -605,6 +605,71 @@
   text-align: center;
 }
 
+/* ---- Image Zoom Controls ---- */
+
+.imageZoomToolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(20, 20, 40, 0.85);
+  border: 1px solid rgba(0, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 3px 4px;
+  backdrop-filter: blur(8px);
+}
+
+.imageZoomBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.imageZoomBtn:hover:not(:disabled) {
+  background: rgba(0, 255, 255, 0.1);
+  color: var(--text-bright, #e0e0ff);
+}
+
+.imageZoomBtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.imageZoomLevel {
+  font-size: 11px;
+  font-family: inherit;
+  min-width: 42px;
+  padding: 2px 4px;
+  text-align: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.imageZoomLevel:hover {
+  background: rgba(0, 255, 255, 0.1);
+  color: var(--text-bright, #e0e0ff);
+}
+
+.imageZoomContainer {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+
 /* ---- Excel Viewer ---- */
 
 .excelViewer {

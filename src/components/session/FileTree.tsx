@@ -218,15 +218,75 @@ export default function FileTree({
     }
   }, [onFileSelect, onDirSelect]);
 
-  // Refresh the entire tree
-  const refresh = useCallback(() => {
+  // Refresh the entire tree while preserving expanded directories
+  const refresh = useCallback(async () => {
+    // Capture which directories were previously loaded and which are currently open
+    const prevLoaded = new Set(loadedDirs.current);
+    const openDirIds: string[] = [];
+    if (treeRef.current) {
+      for (const dirId of prevLoaded) {
+        if (dirId === '/') continue;
+        const node = treeRef.current.get(dirId);
+        if (node?.isOpen) {
+          openDirIds.push(dirId);
+        }
+      }
+    }
+
     loadedDirs.current.clear();
     setLoading(true);
-    provider.listDir(projectPath, '/', showHidden).then(({ items }) => {
-      setTreeData(entriesToNodes(items, '/'));
+
+    try {
+      // Load root directory
+      const { items: rootItems } = await provider.listDir(projectPath, '/', showHidden);
       loadedDirs.current.add('/');
+      let nodes = entriesToNodes(rootItems, '/');
+
+      // Reload all previously-loaded directories in parallel
+      const dirsToReload = Array.from(prevLoaded).filter(d => d !== '/');
+      if (dirsToReload.length > 0) {
+        const results = await Promise.allSettled(
+          dirsToReload.map(async (dirId) => {
+            const { items } = await provider.listDir(projectPath, dirId, showHidden);
+            return { dirId, children: entriesToNodes(items, dirId) };
+          })
+        );
+
+        // Apply results depth-first (parents before children)
+        const successResults = results
+          .filter((r): r is PromiseFulfilledResult<{ dirId: string; children: TreeNode[] }> =>
+            r.status === 'fulfilled')
+          .map(r => r.value)
+          .sort((a, b) => a.dirId.split('/').length - b.dirId.split('/').length);
+
+        for (const { dirId, children } of successResults) {
+          if (children.length > 0) {
+            loadedDirs.current.add(dirId);
+          }
+          nodes = updateNodeInTree(nodes, dirId, (n) => ({
+            ...n,
+            isLoading: false,
+            children,
+          }));
+        }
+      }
+
+      setTreeData(nodes);
+
+      // Re-open previously open directories after React renders the new data
+      if (openDirIds.length > 0) {
+        requestAnimationFrame(() => {
+          if (!treeRef.current) return;
+          for (const dirId of openDirIds) {
+            treeRef.current.open(dirId);
+          }
+        });
+      }
+    } catch {
+      // Root load failed
+    } finally {
       setLoading(false);
-    }).catch(() => setLoading(false));
+    }
   }, [projectPath, showHidden, provider]);
 
   // Expose refresh via custom event
