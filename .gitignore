@@ -12,4 +12,3 @@ test-screenshots/
 *.mov
 *.png
 !static/*.png
-docs/
