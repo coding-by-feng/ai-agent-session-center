@@ -46,8 +46,8 @@ npm run reset            # Remove hooks, clean config, backup
 
 | Domain | Docs | What they cover |
 |--------|------|----------------|
-| [`server/`](docs/feature/server/) | 11 | [Hook System](docs/feature/server/hook-system.md), [Session Management](docs/feature/server/session-management.md), [Session Matching](docs/feature/server/session-matching.md), [Approval Detection](docs/feature/server/approval-detection.md), [WebSocket](docs/feature/server/websocket-manager.md), [API](docs/feature/server/api-endpoints.md), [Database](docs/feature/server/database.md), [Terminal/SSH](docs/feature/server/terminal-ssh.md), [Teams](docs/feature/server/team-subagent.md), [Process Monitor](docs/feature/server/process-monitor.md), [Auth](docs/feature/server/authentication.md) |
-| [`frontend/`](docs/feature/frontend/) | 10 | [State](docs/feature/frontend/state-management.md), [Persistence](docs/feature/frontend/client-persistence.md), [WS Client](docs/feature/frontend/websocket-client.md), [Detail Panel](docs/feature/frontend/session-detail-panel.md), [File Browser](docs/feature/frontend/file-browser.md), [Terminal UI](docs/feature/frontend/terminal-ui.md), [Settings](docs/feature/frontend/settings-system.md), [Shortcuts](docs/feature/frontend/keyboard-shortcuts.md), [Queue](docs/feature/frontend/prompt-queue.md), [Views](docs/feature/frontend/views-routing.md) |
+| [`server/`](docs/feature/server/) | 12 | [Hook System](docs/feature/server/hook-system.md), [Session Management](docs/feature/server/session-management.md), [Session Matching](docs/feature/server/session-matching.md), [Approval Detection](docs/feature/server/approval-detection.md), [WebSocket](docs/feature/server/websocket-manager.md), [API](docs/feature/server/api-endpoints.md), [Database](docs/feature/server/database.md), [Terminal/SSH](docs/feature/server/terminal-ssh.md), [Teams](docs/feature/server/team-subagent.md), [Process Monitor](docs/feature/server/process-monitor.md), [Auth](docs/feature/server/authentication.md), [File Index Cache](docs/feature/server/file-index-cache.md) |
+| [`frontend/`](docs/feature/frontend/) | 15 | [State](docs/feature/frontend/state-management.md), [Persistence](docs/feature/frontend/client-persistence.md), [WS Client](docs/feature/frontend/websocket-client.md), [Detail Panel](docs/feature/frontend/session-detail-panel.md), [File Browser](docs/feature/frontend/file-browser.md), [Terminal UI](docs/feature/frontend/terminal-ui.md), [Settings](docs/feature/frontend/settings-system.md), [Shortcuts](docs/feature/frontend/keyboard-shortcuts.md), [Queue](docs/feature/frontend/prompt-queue.md), [Views](docs/feature/frontend/views-routing.md), [Agenda](docs/feature/frontend/agenda.md), [Workspace Snapshot](docs/feature/frontend/workspace-snapshot.md), [Setup Wizard](docs/feature/frontend/setup-wizard.md), [Auth UI](docs/feature/frontend/auth-ui.md), [Project Browser](docs/feature/frontend/project-browser.md) |
 | [`3d/`](docs/feature/3d/) | 3 | [Cyberdrome Scene](docs/feature/3d/cyberdrome-scene.md), [Robot System](docs/feature/3d/robot-system.md), [Particles/Effects](docs/feature/3d/particles-effects.md) |
 | [`multimedia/`](docs/feature/multimedia/) | 1 | [Sound & Alarm System](docs/feature/multimedia/sound-alarm-system.md) |
 | [`electron/`](docs/feature/electron/) | 3 | [App Lifecycle](docs/feature/electron/app-lifecycle.md), [PTY Host](docs/feature/electron/pty-host.md), [IPC Transport](docs/feature/electron/ipc-transport.md) |
@@ -81,6 +81,7 @@ server/
   apiRouter.ts          — all REST endpoints (~78KB, largest file)
   mqReader.ts           — JSONL queue reader
   hookProcessor.ts      — validation + event processing
+  fileIndexCache.ts     — cached + fs.watch'd fuzzy file index
   sessionStore.ts       — coordinator (~54KB, delegates to sub-modules)
     sessionMatcher.ts   — 8-priority session matching
     approvalDetector.ts — tool approval timeouts
@@ -102,8 +103,8 @@ server/
 
 ```
 src/
-  stores/               — 7 Zustand stores (session, settings, queue, room, camera, ui, ws)
-  hooks/                — useWebSocket, useTerminal (37KB), useSound, useAuth, useKeyboardShortcuts
+  stores/               — 9 Zustand stores (session, settings, queue, room, camera, ui, ws, agenda, shortcut)
+  hooks/                — useWebSocket, useTerminal, useSound, useAuth, useKeyboardShortcuts, useKnownProjects, useSettingsInit, useWorkspaceAutoSave, useWorkspaceAutoLoad, useClickOutside
   lib/                  — wsClient, db (Dexie), soundEngine, ambientEngine, alarmEngine, workspaceSnapshot
   components/
     3d/                 — CyberdromeScene, SessionRobot, Robot3DModel, CameraController, StatusParticles
@@ -112,7 +113,11 @@ src/
     settings/           — SettingsPanel (6 tabs), ThemeSettings, SoundSettings
     modals/             — NewSessionModal, QuickSessionModal, ShortcutsModal
     layout/             — NavBar, Header, ActivityFeed
-  routes/               — LiveView, HistoryView, AnalyticsView, TimelineView, QueueView, AgendaView
+    agenda/             — AddTaskForm, AgendaFilterBar, AgendaTaskCard
+    auth/               — LoginScreen
+    setup/              — SetupWizard + steps/ (Welcome, DepsCheck, Configure, Install, Done)
+    ui/                 — Combobox, Modal, ResizablePanel, Select, Tabs, ToastContainer, SavingOverlay, WorkspaceLoadingOverlay
+  routes/               — LiveView, HistoryView, ProjectBrowserView, QueueView, AgendaView
   styles/               — CSS modules + 9 theme files
   types/                — shared TypeScript types (server + client)
 ```

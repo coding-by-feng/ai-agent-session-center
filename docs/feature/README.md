@@ -19,12 +19,13 @@ Feature documentation organized by domain. Each doc describes function, purpose,
 | [Team / Subagent](server/team-subagent.md) | Parent-child session tracking, team config | `server/teamManager.ts` |
 | [Process Monitor](server/process-monitor.md) | PID liveness checking, auto-idle transitions | `server/processMonitor.ts`, `server/autoIdleManager.ts` |
 | [Authentication](server/authentication.md) | Password auth, token management, middleware | `server/authManager.ts` |
+| [File Index Cache](server/file-index-cache.md) | Cached + fs.watch'd fuzzy file index for typeahead | `server/fileIndexCache.ts` |
 
 ### Frontend (`frontend/`)
 
 | Doc | Feature | Key Files |
 |-----|---------|-----------|
-| [State Management](frontend/state-management.md) | 7 Zustand stores (session, UI, settings, queue, camera, room, WS) | `src/stores/*.ts` |
+| [State Management](frontend/state-management.md) | 9 Zustand stores (session, UI, settings, queue, camera, room, WS, agenda, shortcut) | `src/stores/*.ts` |
 | [Client Persistence](frontend/client-persistence.md) | Dexie.js IndexedDB (12 tables, dedup, migration) | `src/lib/db.ts` |
 | [WebSocket Client](frontend/websocket-client.md) | WS client, reconnect, event replay | `src/lib/wsClient.ts`, `src/hooks/useWebSocket.ts` |
 | [Session Detail Panel](frontend/session-detail-panel.md) | Detail panel, 7 tabs, controls, split view | `src/components/session/DetailPanel.tsx` |
@@ -33,7 +34,12 @@ Feature documentation organized by domain. Each doc describes function, purpose,
 | [Settings System](frontend/settings-system.md) | Settings panel, 9 themes, sound profiles, API keys | `src/components/settings/`, `src/stores/settingsStore.ts` |
 | [Keyboard Shortcuts](frontend/keyboard-shortcuts.md) | Rebindable shortcuts, context-aware suppression | `src/hooks/useKeyboardShortcuts.ts`, `src/stores/shortcutStore.ts` |
 | [Prompt Queue](frontend/prompt-queue.md) | Per-session prompt queuing, auto-send | `src/stores/queueStore.ts` |
-| [Views / Routing](frontend/views-routing.md) | 7 views (Live, History, Analytics, Timeline, Queue, Agenda, Project Browser) | `src/routes/*.tsx` |
+| [Views / Routing](frontend/views-routing.md) | 5 routes (Live, History, ProjectBrowser, Queue, Agenda) | `src/routes/*.tsx` |
+| [Agenda / Tasks](frontend/agenda.md) | Personal task manager (priority, tags, due dates) + `/api/agenda` CRUD | `src/routes/AgendaView.tsx`, `src/stores/agendaStore.ts`, `src/components/agenda/*` |
+| [Workspace Snapshot](frontend/workspace-snapshot.md) | Save/load live workspace (sessions, sub-tabs, rooms) | `src/lib/workspaceSnapshot.ts`, `src/hooks/useWorkspaceAuto*.ts` |
+| [Setup Wizard](frontend/setup-wizard.md) | First-run 5-step onboarding (deps, config, hook install) | `src/components/setup/SetupWizard.tsx` |
+| [Auth UI](frontend/auth-ui.md) | Login screen, token-gated app boot | `src/components/auth/LoginScreen.tsx`, `src/hooks/useAuth.ts` |
+| [Project Browser](frontend/project-browser.md) | Standalone `/project-browser` route wrapping `ProjectTab` | `src/routes/ProjectBrowserView.tsx` |
 
 ### 3D Scene (`3d/`)
 
