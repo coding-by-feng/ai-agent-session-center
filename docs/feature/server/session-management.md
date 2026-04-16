@@ -20,6 +20,7 @@ Central hub that manages all session state. Every other feature reads from or wr
 - Session state machine: connecting -> idle -> prompting -> working -> approval/input -> waiting -> ended
 - 8 statuses: idle, prompting, working, approval, input, waiting, ended, connecting
 - `connecting` is initial status for terminal sessions before first hook arrives
+- `connectingTimeout` safety net: sessions stuck in CONNECTING transition to idle after 30s (Claude) or 3s (non-Claude agents)
 
 ### Animation State Mapping
 - Idle/Walking/Running/Waiting/Death/Dance with emotes (Wave, ThumbsUp, Jump, Yes)
@@ -28,7 +29,7 @@ Central hub that manages all session state. Every other feature reads from or wr
 - prompting 30s, waiting 2min, working 3min, approval/input 10min
 
 ### Session Object
-- ~45 fields including sessionId, projectPath, status, animationState, currentPrompt, promptHistory (last 50), toolLog (last 200), responseLog (last 50), events (last 50), model, teamId, terminalId, etc.
+- ~57 fields including sessionId, projectPath, status, animationState, currentPrompt, promptHistory (last 50), toolLog (last 200), responseLog (last 50), events (last 50), model, teamId, terminalId, etc.
 
 ### Event Buffer
 - Ring buffer: last 500 events for WebSocket reconnect replay

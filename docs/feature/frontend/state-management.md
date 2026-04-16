@@ -11,17 +11,17 @@ Single source of truth for all frontend state. Zustand chosen for its minimal AP
 |------|------|
 | `src/stores/sessionStore.ts` | Sessions Map, selectedSessionId, previousSessionId, addSession/removeSession/updateSession/selectSession/deselectSession/setSessions/togglePin/toggleMute/toggleAlert |
 | `src/stores/wsStore.ts` | connected, reconnecting, lastSeq, client, setConnected/setReconnecting/setLastSeq/setClient |
-| `src/stores/uiStore.ts` | activeModal, detailPanelOpen, detailPanelMinimized, activityFeedOpen, detailHeaderCollapsed, pendingFileOpen, cardDisplayMode, workspaceLoad, selectedRoomIds. Actions: openModal/closeModal, panel controls, openFileInProject, toggleCardDisplayMode, workspaceLoad lifecycle, toggleRoomFilter/clearRoomFilter |
+| `src/stores/uiStore.ts` | activeModal, detailPanelOpen, detailPanelMinimized, activityFeedOpen, detailHeaderCollapsed, pendingFileOpen, cardDisplayMode, workspaceLoad, selectedRoomIds. Actions: openModal/closeModal, panel controls (minimizeDetailPanel, restoreDetailPanel), openFileInProject, toggleCardDisplayMode, workspaceLoad lifecycle (startWorkspaceLoad, advanceWorkspaceLoad, finishWorkspaceLoad), toggleRoomFilter/clearRoomFilter |
 | `src/stores/settingsStore.ts` | 9 themes, 6 robot models, sound profiles (4 CLIs), ambient, hooks, API keys, animationSpeed. Complex store with side effects (DOM CSS vars, data attributes). Actions include per-CLI sound config, label alarms, import/export, resetDefaults |
 | `src/stores/queueStore.ts` | Queues Map<string, QueueItem[]>, per-session prompt queues with image attachments (QueueImageAttachment). Actions: add/remove/reorder/moveToSession/setQueue/migrateSession/loadFromDb. Persist subscription writes changes to IndexedDB |
-| `src/stores/cameraStore.ts` | pendingTarget, isAnimating, flyTo(), completeAnimation(). Defaults: [18,16,18] position, [0,1,0] target |
+| `src/stores/cameraStore.ts` | pendingTarget, isAnimating, flyTo(), completeAnimation(). Exports: `DEFAULT_CAMERA_POSITION` ([18,16,18]), `DEFAULT_CAMERA_TARGET` ([0,1,0]) constants, `CameraTarget` interface (includes `requestId` field) |
 | `src/stores/roomStore.ts` | Rooms with id/name/sessionIds/collapsed/createdAt/roomIndex, persisted to localStorage['session-rooms']. Actions: createRoom/renameRoom/deleteRoom/addSession/removeSession/moveSession/toggleCollapse/setRoomIndex/migrateSession/getRoomForSession/loadFromStorage |
 | `src/stores/shortcutStore.ts` | Rebindable keyboard shortcuts. bindings array, rebind/resetOne/resetAll/getConflict/findActionForEvent/loadFromDb. Persisted to IndexedDB via db.settings key 'shortcutBindings' |
 | `src/stores/agendaStore.ts` | Tasks Map<string, AgendaTask>, loading, filter (AgendaFilter). Actions: fetchTasks/createTask/updateTask/deleteTask/toggleTask/setFilter. Server-backed via /api/agenda |
 
 ## Implementation
 - Immutability: `set((s) => ({ sessions: new Map(s.sessions) }))` — always new Map for sessions
-- sessionStore deduplication: most recent lastActivityAt wins when two sessions have same ID
+- Session deduplication (most recent lastActivityAt wins) is handled in `useWebSocket.ts` snapshot handler, not sessionStore
 - sessionStore: togglePin/toggleMute/toggleAlert optimistically update local state and fire PUT to server
 - settingsStore persistence: each setter calls persistSetting(key, value) -> Dexie db.settings.put(), 2s autosave flash, safe serialization (catches circular refs)
 - settingsStore side effects: theme -> data-theme attribute on body, fontSize -> documentElement.style.fontSize, scanlines -> no-scanlines class, animationIntensity + animationSpeed -> CSS variables

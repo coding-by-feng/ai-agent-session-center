@@ -20,7 +20,7 @@ Users can queue up multiple prompts for a session and have them sent automatical
   - **Clipboard paste** (Cmd/Ctrl+V): captures pasted images/files from clipboard via `onPaste` handler on the compose textarea. Binary data is intercepted (prevents pasting as garbled text)
   - **Drag and drop**: drop files onto the compose area; cyan border highlights the drop zone during drag-over
 - Queue operations: add (append), remove (by id), reorder (drag-and-drop), moveToSession (dropdown picker), send now, edit (inline textarea)
-- Auto-send: per-session toggle (localStorage['queue-auto-send'], defaults to ON). When session transitions to 'waiting' or 'input' status, first queued item is sent to terminal via POST /api/terminals/{terminalId}/write, only removed after successful send
+- Auto-send: per-session toggle (localStorage['queue-auto-send'], defaults to ON). When session transitions to 'waiting' or 'input' status, first queued item is sent to terminal via POST /api/terminals/{terminalId}/write, only removed after successful send. Note: settingsStore also has an `autoSendQueue: false` field, creating a dual mechanism — QueueTab uses localStorage while settingsStore has its own independent flag
 - Send mechanism: POST /api/terminals/{terminalId}/write with {data: text + images paths + newline}. Images uploaded first via POST /api/queue-images
 - Global QueueView: shows all sessions' queues grouped by session, add prompt to any session via session selector (Select dropdown), table layout with MOVE/DEL actions
 - Persistence: IndexedDB promptQueue table via Zustand subscribe callback, survives page reloads. Images serialized as JSON in DbQueueItem.images field

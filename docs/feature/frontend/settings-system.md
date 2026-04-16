@@ -23,7 +23,7 @@ Lets users customize every aspect of the dashboard: appearance, sounds, hooks, A
 - Theme application: data-theme attribute on body (removed for command-center), CSS custom properties in src/styles/themes/*.css
 - 6 robot models: robot, mech, drone, spider, orb, tank
 - Sound profiles: 4 CLIs (claude/gemini/codex/openclaw), each with enabled/volume/20 action->sound mappings
-- 16 synthesized sounds, 6 ambient presets
+- 15 synthesized sounds + 'none' (no-op), 6 ambient presets
 - Font size: 10-20px, sets document.documentElement.style.fontSize
 - Import/export: JSON file download/upload, strips function keys, resetDefaults() restores all
 - useSettingsInit: runs once on startup, loads from Dexie, applies theme/font side effects, syncs volume, unlocks Web Audio

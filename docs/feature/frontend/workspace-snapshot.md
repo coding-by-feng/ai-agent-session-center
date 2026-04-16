@@ -21,9 +21,9 @@ So users can recreate their multi-session layout after a server restart, across 
 - **Save dedup**: server rejects duplicate sessions keyed on `(title, sshConfig.host, sshConfig.port, sshConfig.username, sshConfig.workingDir, sshConfig.command, startupCommand)` joined with `\0`. Logs how many duplicates were removed.
 - **Save validation**: rejects missing `version` or non-array `sessions` with 400.
 - **Load**: 404 when snapshot absent — client treats as empty workspace.
-- **Snapshot shape**: top-level `{version, sessions: SessionSnapshot[], rooms?: Room[]}`. Each `SessionSnapshot` carries `originalSessionId` for remapping room assignments on import.
+- **Snapshot shape**: top-level `{version, sessions: SessionSnapshot[], rooms?: Room[], exportedAt: number}`. Each `SessionSnapshot` carries `originalSessionId` for remapping room assignments on import, plus fields: `status`, `label`, `pinned`, `muted`, `alerted`, `permissionMode`, `fileTabs`.
 - **Project sub-tabs**: `ProjectSubTab` preserves per-session file-browser tabs (path, label, `customLabel`, `initialPath`, `initialIsFile`).
-- **Auto-save debounce**: store subscription → `flushSave()` after settle.
+- **Auto-save debounce**: store subscription → `scheduleAutoSave()` after settle. `flushSave()` is only used for explicit saves (e.g., beforeunload).
 - **Dynamic import**: `App.tsx:79` imports `flushSave` lazily to avoid pulling the module into initial bundle.
 
 ## Dependencies & Connections

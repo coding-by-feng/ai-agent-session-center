@@ -14,7 +14,7 @@ Real-time communication channel between server and all connected browser clients
 ## Implementation
 
 ### Connection Lifecycle
-- connect -> enforce max 50 connections -> auth check (cookie/header/query token) -> send snapshot (all sessions + teams + seq) -> heartbeat loop
+- connect -> enforce max 50 connections -> auth check performed in `server/index.ts` (lines ~226-233) BEFORE `handleConnection()` is called (wsManager does NO auth) -> send snapshot (all sessions + teams + seq) -> heartbeat loop
 - Per-client rate limit: max 100 messages/sec, close with code 4004 if exceeded
 - Max inbound message size: 512KB (oversized messages silently dropped)
 
@@ -38,6 +38,10 @@ Real-time communication channel between server and all connected browser clients
 
 ### Event Ring Buffer
 - 500 events, client sends replay {sinceSeq: N} to recover missed events
+
+### Terminal Input Validation
+- Max terminal input data size: 262,144 bytes (256KB); oversized payloads rejected
+- Terminal resize bounds enforced: cols 1-500, rows 1-200
 
 ### Terminal Relay
 - terminal_subscribe registers WS client for terminal output

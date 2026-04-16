@@ -112,6 +112,17 @@ Read -> toolRead, Write -> toolWrite, Edit -> toolEdit, Bash -> toolBash, Grep -
 - Alerted sessions play at 2.5x volume (capped at 1.0)
 - Alerted sessions use faster alarm interval (5s)
 
+**Public API:**
+- `checkAlarms(getSessions)` -- scans all sessions and triggers/clears alarms based on current status
+- `muteSession(sessionId)` -- add session to muted set
+- `unmuteSession(sessionId)` -- remove session from muted set
+- `isMuted(sessionId)` -- check if session is muted
+- `alertSession(sessionId)` -- add session to alerted set (overrides mute, 2.5x volume, 5s interval)
+- `unalertSession(sessionId)` -- remove session from alerted set
+- `isAlerted(sessionId)` -- check if session is alerted
+- `clearAlarm(sessionId)` -- clear active alarm interval for a session
+- `clearAllAlarms()` -- clear all active alarm intervals
+
 ### useSound Hook
 
 React hook returning `{play, preview, enabled, volume}`. Additional features:

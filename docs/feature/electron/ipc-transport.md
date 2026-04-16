@@ -9,9 +9,9 @@ Secure communication between React renderer and node-pty/Electron APIs. The prel
 ## Source Files
 | File | Role |
 |------|------|
-| `electron/ipc/terminalHandlers.ts` | PTY terminal IPC bridge (create, write, resize, kill, subscribe, has, list) |
+| `electron/ipc/terminalHandlers.ts` | PTY terminal IPC bridge (create, write, resize, kill, subscribe, has) |
 | `electron/ipc/setupHandlers.ts` | Setup wizard IPC (check-deps, install-hooks, get/save-config) |
-| `electron/ipc/appHandlers.ts` | App lifecycle IPC (get-port, open-browser, get-version, quit) |
+| `electron/ipc/appHandlers.ts` | App lifecycle IPC (app:get-port, app:open-browser, app:rerun-setup, app:quit) |
 | `electron/preload.ts` | contextBridge exposing electronAPI to renderer |
 
 ## Implementation
@@ -26,7 +26,6 @@ Secure communication between React renderer and node-pty/Electron APIs. The prel
 | `pty:kill` | Renderer -> Main | invoke (request/response) | Kills PTY via ptyHost.killPty, returns `{ok}` |
 | `pty:subscribe` | Renderer -> Main | invoke (request/response) | Gets output buffer via ptyHost.getOutputBuffer, returns `{ok, buffer}` |
 | `pty:has` | Renderer -> Main | invoke (request/response) | Checks PTY existence via ptyHost.hasPty, returns boolean |
-| `pty:list` | Renderer -> Main | invoke (request/response) | Lists PTY IDs via ptyHost.listPtys, returns string[] |
 | `pty:data` | Main -> Renderer | push (webContents.send) | Base64 encoded terminal output |
 | `pty:exit` | Main -> Renderer | push (webContents.send) | PTY exit with exitCode and signal |
 
@@ -35,7 +34,7 @@ Secure communication between React renderer and node-pty/Electron APIs. The prel
 The distinction between `on` (fire-and-forget) and `invoke` (request/response) is intentional:
 
 - **`pty:write` and `pty:resize` use `on`** -- these are high-frequency operations where waiting for a response adds unnecessary latency
-- **`pty:create`, `pty:kill`, `pty:subscribe`, `pty:has`, `pty:list` use `invoke`** -- these need confirmation or return data
+- **`pty:create`, `pty:kill`, `pty:subscribe`, `pty:has` use `invoke`** -- these need confirmation or return data
 
 ### ElectronAPI Interface
 

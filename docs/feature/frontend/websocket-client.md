@@ -10,7 +10,7 @@ Real-time bridge between server and browser. Handles connection lifecycle, recon
 | File | Role |
 |------|------|
 | `src/lib/wsClient.ts` (~4KB) | WebSocket client class with reconnect logic |
-| `src/hooks/useWebSocket.ts` | React hook that creates WsClient, handles 4 message types (snapshot, session_update, session_removed, clearBrowserDb) plus passthrough for team_update/hook_stats/terminal_output/terminal_ready/terminal_closed, integrates sound + persistence |
+| `src/hooks/useWebSocket.ts` | React hook that creates WsClient, handles 4 message types (snapshot, session_update, session_removed, clearBrowserDb); team_update/hook_stats/terminal_output/terminal_ready/terminal_closed are silently dropped (`break;`). Integrates sound + persistence |
 
 ## Implementation
 - Reconnection: 1s base delay, 10s max, formula min(1000 * 2^attempt, 10000), no reconnect on auth failure (code 4001)
@@ -20,6 +20,7 @@ Real-time bridge between server and browser. Handles connection lifecycle, recon
 - Sound integration: handleEventSounds() on every session_update, checkAlarms() for approval/input status
 - Auth failure: WsClient dispatches CustomEvent 'ws-auth-failed' on close code 4001, does not reconnect
 - Backpressure: WsClient checks bufferedAmount before sending, drops non-critical messages above 64KB threshold (terminal_input always sent)
+- Additional WsClient methods: `setToken()` (update auth token), `getRawSocket()` (access underlying WebSocket), `getLastSeq()` (current sequence number)
 
 ## Dependencies & Connections
 

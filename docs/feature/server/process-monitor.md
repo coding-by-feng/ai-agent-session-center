@@ -11,6 +11,7 @@ Detects when Claude/Gemini/Codex crashes or exits without sending a SessionEnd h
 |------|------|
 | `server/processMonitor.ts` (~9KB) | PID liveness checking, dead process cleanup |
 | `server/autoIdleManager.ts` (~5KB) | Idle transition timers |
+| `server/config.ts` | Provides `PROCESS_CHECK_INTERVAL` constant |
 
 ## Implementation
 

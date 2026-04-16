@@ -11,7 +11,7 @@ Packages the dashboard as a native desktop app with window management, tray icon
 |------|------|
 | `electron/main.ts` | App lifecycle, BrowserWindow, IPC registration, server embedding |
 | `electron/tray.ts` | System tray / menu bar icon with status indicator and menu |
-| `electron/ipc/appHandlers.ts` | Dashboard IPC: get-port, open-browser, get-version, quit |
+| `electron/ipc/appHandlers.ts` | Dashboard IPC: app:get-port, app:open-browser, app:rerun-setup, app:quit |
 | `electron/ipc/setupHandlers.ts` | Setup wizard IPC: check-deps, install-hooks, get/save-config |
 | `electron/loading.html` | Loading screen shown during server startup |
 
@@ -41,7 +41,7 @@ Electron Main (main.ts + tray + ptyHost + IPC handlers + embedded Express server
 
 ### Server Embedding
 
-Express server is started directly in the main process. Port is resolved first, then passed to the renderer via IPC.
+In production, the Express server is started directly in the main process. Port is resolved first, then passed to the renderer via IPC. In development, Electron connects to an already-running external dev server instead of embedding one.
 
 ### System Tray
 
@@ -76,7 +76,7 @@ Express server is started directly in the main process. Port is resolved first, 
 
 `app.before-quit` triggers (sequential):
 1. Sends `app:before-close` to renderer for workspace save (waits up to 5s for `app:close-ready` response)
-2. `disposePtyHost()` kills all active PTY processes
+2. `disposeAll()` (imported as `disposePtyHost` in main.ts) kills all active PTY processes
 3. Calls `serverShutdown()` to save SQLite snapshot and close DB
 4. Finally calls `app.quit()` to exit
 
@@ -88,6 +88,10 @@ Express server is started directly in the main process. Port is resolved first, 
 - `Cmd+R` / `Ctrl+R` / `F5` blocked via `before-input-event` to prevent page reload (loses terminal state)
 - External link navigation restricted to `http:` / `https:` protocols only (blocks `ms-msdt:`, `file:`, etc.)
 - `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true` for renderer security
+
+### Native App Menu
+
+`buildAppMenu()` creates the native application menu with Edit (undo, redo, cut, copy, paste, select all) and View (zoom in, zoom out, actual size, toggle fullscreen) menus.
 
 ### npm Scripts
 

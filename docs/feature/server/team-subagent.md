@@ -31,6 +31,8 @@ When Claude spawns subagents via the Task tool, users need to see the relationsh
 ### Team Config
 - ~/.claude/teams/{teamName}/config.json with per-member tmuxPaneId, backendType, agentColor
 - Team name sanitized (only a-zA-Z0-9_-. ) for path traversal prevention
+- `teamName` can be overridden via `CLAUDE_CODE_TEAM_NAME` env var
+- Additional exports: `getTeamConfigPath()`, `getMemberTmuxPaneId()`, `getTeamIdForSession()`
 
 ### Cleanup
 - Member end -> remove from childSessionIds

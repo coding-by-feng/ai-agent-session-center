@@ -12,7 +12,7 @@ The bridge between AI CLI processes (Claude, Gemini, Codex) and the dashboard. W
 | `hooks/dashboard-hook.sh` | Bash hook script (reads stdin JSON, enriches with PID/TTY/env vars via jq, appends to JSONL queue) |
 | `server/mqReader.ts` | File-based MQ reader (fs.watch + 10ms debounce, 500ms fallback poll, 5s health check, reads from byte offset, truncates at 1MB) |
 | `server/hookProcessor.ts` | Validates payload (session_id, event type, PID, timestamp), calls sessionStore.handleEvent(), records stats, broadcasts to WS with 250ms throttle (max 4/sec per session) |
-| `server/hookRouter.ts` | HTTP POST fallback endpoint, rate limited 100/sec per IP |
+| `server/hookRouter.ts` | HTTP POST fallback endpoint (no built-in rate limiting; rate limiting is applied via `hookRateLimitMiddleware` exported from `apiRouter.ts` and mounted in `server/index.ts`) |
 | `server/hookInstaller.js` | Auto-installs hooks on startup for Claude/Gemini/Codex, atomic writes to settings files |
 | `server/hookStats.ts` | Rolling stats per event type (last 200 samples), global rate (last 60s) |
 

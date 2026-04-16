@@ -13,7 +13,7 @@ The HTTP interface for the React frontend and external integrations. Handles all
 
 ## Implementation
 
-### Auth Endpoints (no auth required)
+### Auth Endpoints (no auth required, defined in `server/index.ts`, not apiRouter.ts)
 - GET /api/auth/status
 - POST /api/auth/login
 - POST /api/auth/refresh (token refresh, returns new token)
@@ -52,7 +52,8 @@ The HTTP interface for the React frontend and external integrations. Handles all
 
 ### Hook Management
 - GET /api/hooks/status
-- POST install/uninstall
+- POST /api/hooks/install
+- POST /api/hooks/uninstall
 
 ### DB/History
 - GET /api/db/sessions (search/filter/paginate)

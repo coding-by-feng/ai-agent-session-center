@@ -53,6 +53,12 @@ Prevents unauthorized access when the dashboard is exposed on a network (not jus
 - /api/hooks (hooks must work without login, restricted to localhost via localhostOnlyMiddleware)
 - Static files
 
+### Additional Exports
+- `startTokenCleanup()` / `stopTokenCleanup()` — manage the periodic expired-token cleanup timer
+- `validatePasswordComplexity()` — validates password meets complexity requirements
+- `parseCookieToken()` — extracts auth_token from Cookie header
+- `extractToken()` — extracts token from cookie, Authorization header, or query param (in priority order)
+
 ### Localhost Restriction
 - localhostOnlyMiddleware blocks non-loopback IPs from hook endpoints
 - Allows 127.0.0.1, ::1, ::ffff:127.0.0.1, localhost

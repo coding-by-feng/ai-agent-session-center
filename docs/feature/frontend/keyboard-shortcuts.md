@@ -13,6 +13,8 @@ Power user efficiency — quick navigation, session control, and modal toggling 
 | `src/stores/shortcutStore.ts` | Rebindable shortcut definitions and persistence |
 | `src/lib/shortcutKeys.ts` (~9KB) | Key definitions, default bindings, action registry |
 | `src/components/modals/ShortcutsPanel.tsx` | Shortcuts reference panel |
+| `src/components/modals/ShortcutSettingsModal.tsx` | Shortcut editing modal (used in App.tsx) |
+| `src/components/modals/ShortcutRow.tsx` | Shared row component for shortcut display/editing |
 
 ## Implementation
 - Hardcoded shortcuts in useKeyboardShortcuts.ts (not rebindable): Cmd+Shift+F (global search toggle), Cmd+F (find-in-file when session selected), Escape (close modal > skip if xterm focused), `[` (previous session), `]` (jump to latest finished session)

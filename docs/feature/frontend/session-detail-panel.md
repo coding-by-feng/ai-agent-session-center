@@ -18,6 +18,7 @@ Primary interface for interacting with a single session. Aggregates terminal, pr
 | `src/components/session/QueueTab.tsx` | Prompt queue management |
 | `src/components/session/LabelChips.tsx` | Session label picker chips |
 | `src/components/session/KillConfirmModal.tsx` | Kill confirmation modal (lazy-mounted) |
+| `src/components/session/ContentSearchModal.tsx` | Content search modal used in ProjectTab for searching file contents |
 
 ## Implementation
 - Panel: ResizablePanel with fullscreen mode, minimizable to draggable badge (DraggableMiniBadge, position saved to localStorage['mini-badge-pos'])

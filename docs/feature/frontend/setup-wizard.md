@@ -15,9 +15,11 @@ Hooks must be wired into each CLI's settings file before the dashboard can obser
 | `src/components/setup/steps/ConfigureStep.tsx` | Port, CLI selection, hook density, debug, history hours |
 | `src/components/setup/steps/InstallStep.tsx` | Runs hook install via API, streams progress |
 | `src/components/setup/steps/DoneStep.tsx` | Completion + next steps |
-| `src/types/electron.ts` | `SetupConfig` shape |
+| `src/types/electron.d.ts` | `SetupConfig` shape |
 | `server/hookInstaller.js` | Backend hook installer invoked by InstallStep |
 | `src/__tests__/firstRunFlow.test.tsx` | E2E-ish first-run flow test |
+| `src/components/setup/__tests__/SetupWizard.test.tsx` | SetupWizard unit tests |
+| `src/components/setup/__tests__/WizardSteps.test.tsx` | Individual wizard step tests |
 
 ## Implementation
 - **Default config**: `{port: 3333, enabledClis: ['claude'], hookDensity: 'medium', debug: false, sessionHistoryHours: 24}`.

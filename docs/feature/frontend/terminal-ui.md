@@ -9,7 +9,7 @@ Interactive PTY terminal within the dashboard. Users can type commands, view out
 ## Source Files
 | File | Role |
 |------|------|
-| `src/hooks/useTerminal.ts` (~37KB, largest hook) | xterm lifecycle, dual transport, attach/detach, output buffering |
+| `src/hooks/useTerminal.ts` (~50KB, largest hook) | xterm lifecycle, dual transport, attach/detach, output buffering |
 | `src/components/terminal/TerminalContainer.tsx` | Composes toolbar + xterm + bookmarks + fullscreen overlay |
 | `src/components/terminal/TerminalToolbar.tsx` | Theme selector, buttons (ESC, paste, arrows, auto-scroll, bookmark, fork, fullscreen, reconnect) |
 | `src/components/terminal/themes.ts` | 7 named themes + auto theme from CSS variables |
@@ -47,7 +47,7 @@ Interactive PTY terminal within the dashboard. Users can type commands, view out
 - WebSocket for terminal relay, localStorage for theme + bookmarks + scroll position, document.body classes (terminal-focused, term-fullscreen)
 
 ## Change Risks
-- Largest hook (37KB). Adding useState inside xterm callbacks causes stale closure bugs
+- Largest hook (50KB). Adding useState inside xterm callbacks causes stale closure bugs
 - Breaking dual transport detection blocks terminal in one environment
 - Changing scrollback from 5000 affects memory (~1MB per terminal)
 - Canvas repaint workaround is fragile — removal causes blank terminals

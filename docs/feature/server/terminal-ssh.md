@@ -53,6 +53,21 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 - `appendSessionName()` helper in `server/config.ts` handles escaping and dedup
 - `autoSessionName()` in sshManager.ts manages the per-project counter
 
+### Terminal Response Stripping
+- `TERMINAL_RESPONSE_RE` regex strips focus events and Device Attributes responses from terminal input before processing
+
+### SSH Password Auto-Typing
+- For remote SSH connections, password is auto-typed when a password prompt is detected
+
+### Auto-Apply Model/Effort
+- After Claude Code starts in a terminal, the configured model and effort level are automatically applied
+
+### Environment
+- `CLAUDECODE` env var is stripped from the spawned PTY environment to avoid conflicts
+
+### Local Address Detection
+- Detects local addresses via hostname, `.local` suffix, and network interface addresses to distinguish local vs remote connections
+
 ### Security
 - API keys passed via env object, never interpolated into shell command strings
 

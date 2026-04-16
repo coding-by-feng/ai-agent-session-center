@@ -87,14 +87,14 @@ Imperative update of `scene.fog` color/density and `gl.clearColor` on theme chan
 Only sessions with `status !== 'ended'` AND `source === 'ssh'` are rendered as robots. This ensures only terminal-launched sessions appear in the 3D scene.
 
 ### Store Dependencies
-`CyberdromeScene` reads from `sessionStore`, `roomStore`, `settingsStore`, and `cameraStore` in the DOM layer. ALL Canvas-side components use zero store access (props only, or imperative `getState()` reads where necessary).
+`CyberdromeScene` reads from `sessionStore`, `roomStore`, `settingsStore`, `cameraStore`, and `uiStore` in the DOM layer. `RobotListSidebar` reads `detailPanelMinimized` and `restoreDetailPanel` from `uiStore`. ALL Canvas-side components use zero store access (props only, or imperative `getState()` reads where necessary).
 
 ## Dependencies & Connections
 
 ### Depends On
 - [State Management](../frontend/state-management.md) -- sessionStore (sessions), roomStore (rooms), settingsStore (theme, characterModel, fontSize), cameraStore (fly-to)
 - [Robot System](./robot-system.md) -- SessionRobot rendered per session inside Canvas
-- [Particles & Effects](./particles-effects.md) -- StatusParticles, SubagentConnections rendered inside Canvas
+- [Particles & Effects](./particles-effects.md) -- StatusParticles rendered per-robot inside SessionRobot (not at scene level), SubagentConnections rendered inside Canvas
 
 ### Depended On By
 - [Views/Routing](../frontend/views-routing.md) -- LiveView renders CyberdromeScene
@@ -103,7 +103,7 @@ Only sessions with `status !== 'ended'` AND `source === 'ssh'` are rendered as r
 
 ### Shared Resources
 - Three.js Canvas (single instance, shared by all 3D components)
-- `robotPositionStore` (non-reactive Map for position sharing between robots and camera)
+- `robotPositionStore` (plain object with `set`/`get`/`delete`/`has` methods wrapping an internal Map, for non-reactive position sharing between robots and camera)
 - `sessionStorage['cyberdrome-robot-positions']` for position persistence across page reloads
 
 ## Change Risks

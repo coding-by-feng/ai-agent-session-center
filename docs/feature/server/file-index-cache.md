@@ -20,7 +20,7 @@ Fuzzy search over large repos via `readdir` on every keystroke is too slow. A ca
   - `WATCHER_DEBOUNCE_MS = 300` — coalesces fs.watch events before rebuilding
 - **Skip dirs** (`SKIP_DIRS`): `node_modules`, `.git`, `.next`, `.nuxt`, `__pycache__`, `.venv`, `venv`, `dist`, `build`, `.cache`, `.turbo`, `coverage`, `.svelte-kit`. Also skips any directory starting with `.`.
 - **API**:
-  - `searchFiles(root, query, {limit, types?}) → SearchResult[]` — sync lookup using cached entries; triggers `ensureIndex` if missing
+  - `searchFiles(root: string, query: string, maxResults = 50) → { results: SearchResult[]; indexing: boolean }` — sync lookup using cached entries; triggers `ensureIndex` if missing. Returns `{ results: [], indexing: true }` when the cache is cold (still building)
   - `preloadIndex(root)` — warms the cache without blocking
   - `invalidateCache(root)` — drops the cached entries (watcher rebuilds on next query)
 - **Fuzzy scorer** (`fuzzyScore`): matches on both filename and full path (lowercase), with bonuses for contiguous matches, word boundaries, and filename vs. path hits.

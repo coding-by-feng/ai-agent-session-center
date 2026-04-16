@@ -17,6 +17,7 @@ Each session needs a visual avatar that communicates status through animation (w
 | `src/lib/robot3DGeometry.ts` | 16-color neon palette, 10 body + 4 edge geometries, 2 base + 32 per-color materials |
 | `src/lib/robot3DModels.ts` | 6 model variants (robot, mech, drone, spider, orb, tank) with per-part overrides |
 | `src/lib/robotStateMap.ts` | Session status to robot state mapping (8 states) |
+| `src/lib/cliDetect.ts` | `detectCli()` used by SessionRobot for CLI badge rendering |
 | `src/lib/robotPositionPersist.ts` | sessionStorage persistence every 2s |
 
 ## Implementation
@@ -71,9 +72,9 @@ All variants hover (`hovers: true`) and use the same skeletal structure with per
 | `robot` | Standard humanoid (default) | 0.2 |
 | `mech` | Bulkier torso, wider stance, angular head | 0.2 |
 | `drone` | Smaller hovering unit with antenna-like arms | 0.3 |
-| `spider` | Low body with stubby legs (forward-mounted head) | 0.05 |
+| `spider` | Low body with forward-mounted head (legs hidden) | 0.05 |
 | `orb` | Spherical torso with stubby arms | 0.2 |
-| `tank` | Wide body with one thick arm, no left arm | 0.15 |
+| `tank` | Wide body with one thick arm, treads for legs | 0.15 |
 
 ### Shared Resources for Rendering
 - 16-color neon palette (`PALETTE`) shared across all robots
@@ -119,8 +120,11 @@ Throttled to minimum 500ms between tool-related updates to prevent bubble spam. 
 - On restore: `NAV_GOTO` is reset to `NAV_WALK` to prevent stale target seeking; `NAV_SIT` robots reclaim their workstation on mount
 
 ### robotPositionStore
-- Plain `Map` (NOT a Zustand store) for sharing positions between `SubagentConnections` and camera fly-to
+- Plain object with `set`/`get`/`delete`/`has` methods wrapping an internal `Map` (NOT a Zustand store) for sharing positions between `SubagentConnections` and camera fly-to
 - Must remain non-reactive to avoid triggering Canvas re-renders
+
+### Imperative Settings Access
+`Robot3DModel` reads `useSettingsStore.getState()` imperatively inside `useFrame` to access `animationSpeed` and `animationIntensity` settings. This avoids subscribing to the store reactively (which would cause cross-reconciler issues inside Canvas).
 
 ### Special Behaviors
 - CLI badge: detects CLI type from model string + event types via `detectCli()`, renders badge on the robot chest: C (Claude, cyan), G (Gemini, blue), X (Codex, green), O (OpenClaw, orange), ? (unknown, purple)
