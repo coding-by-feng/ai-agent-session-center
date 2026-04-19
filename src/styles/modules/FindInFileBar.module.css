@@ -77,6 +77,15 @@
   flex-shrink: 0;
   min-width: 70px;
   text-align: center;
+  border-radius: 3px;
+  padding: 1px 4px;
+  background: transparent;
+  transition: background 0.35s ease, color 0.35s ease;
+}
+
+.countWrapped {
+  background: rgba(255, 200, 0, 0.15);
+  color: var(--accent-yellow, #ffcc44);
 }
 
 .navGroup {

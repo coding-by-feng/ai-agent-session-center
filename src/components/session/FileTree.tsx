@@ -1,13 +1,28 @@
 /**
  * FileTree — react-arborist tree component for project file navigation.
  * Lazily loads directory children on expand via FileSystemProvider.
+ *
+ * Persistence: expanded folders + scrollTop are written to localStorage
+ * under `agent-manager:tree-state:${projectPath}` (debounced 200ms) so state
+ * survives tab unmount/remount in DetailTabs.
  */
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { Tree, NodeRendererProps } from 'react-arborist';
 import type { TreeApi } from 'react-arborist';
 import { getFileSystemProvider } from '@/lib/fileSystemProvider';
 import type { DirEntry } from '@/lib/fileSystemProvider';
 import styles from '@/styles/modules/FileTree.module.css';
+
+/**
+ * Imperative handle exposed via forwardRef — lets parents (e.g. ProjectTab
+ * toolbar) trigger tree-wide actions without duplicating state logic.
+ */
+export interface FileTreeHandle {
+  /** Close every currently-open directory. */
+  collapseAll(): void;
+  /** Re-load the tree from disk, preserving open dirs + scroll. */
+  refresh(): Promise<void>;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -76,6 +91,62 @@ function entriesToNodes(entries: DirEntry[], parentPath: string): TreeNode[] {
 }
 
 // ---------------------------------------------------------------------------
+// Persistence — expanded folders + scrollTop per projectPath
+// ---------------------------------------------------------------------------
+
+const TREE_STATE_VERSION = 1;
+
+interface PersistedTreeState {
+  openIds: string[];
+  scrollTop: number;
+  v: number;
+}
+
+function treeStateKey(projectPath: string): string {
+  return `agent-manager:tree-state:${projectPath}`;
+}
+
+function readPersistedTreeState(projectPath: string): PersistedTreeState | null {
+  if (!projectPath) return null;
+  try {
+    const raw = localStorage.getItem(treeStateKey(projectPath));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PersistedTreeState>;
+    if (parsed.v !== TREE_STATE_VERSION) return null;
+    const openIds = Array.isArray(parsed.openIds)
+      ? parsed.openIds.filter((id): id is string => typeof id === 'string')
+      : [];
+    const scrollTop = typeof parsed.scrollTop === 'number' && parsed.scrollTop >= 0
+      ? parsed.scrollTop
+      : 0;
+    return { openIds, scrollTop, v: TREE_STATE_VERSION };
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedTreeState(projectPath: string, state: PersistedTreeState): void {
+  if (!projectPath) return;
+  try {
+    localStorage.setItem(treeStateKey(projectPath), JSON.stringify(state));
+  } catch {
+    // localStorage full / disabled — silently ignore
+  }
+}
+
+/** Find a node by id anywhere in the (possibly lazy) tree. */
+function findNodeById(nodes: TreeNode[], targetId: string): TreeNode | null {
+  for (const node of nodes) {
+    if (node.id === targetId) return node;
+    if (node.children && targetId.startsWith(node.id + '/')) {
+      const found = findNodeById(node.children, targetId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Node renderer
 // ---------------------------------------------------------------------------
 
@@ -107,7 +178,7 @@ function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function FileTree({
+const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileTree({
   projectPath,
   showHidden = false,
   onFileSelect,
@@ -115,13 +186,19 @@ export default function FileTree({
   height: externalHeight,
   activeFilePath,
   searchTerm,
-}: FileTreeProps) {
+}, ref) {
   const [treeData, setTreeData] = useState<TreeNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const treeRef = useRef<TreeApi<TreeNode>>(null);
   const loadedDirs = useRef<Set<string>>(new Set());
   const provider = useMemo(() => getFileSystemProvider(), []);
+
+  // Persistence refs — debounced writer + latest-known scroll offset
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastScrollTopRef = useRef<number>(0);
+  // Set on mount from storage; consumed after tree data + rAF to restore scroll
+  const pendingScrollTopRef = useRef<number | null>(null);
 
   // Self-sizing: measure the container height via ResizeObserver
   const containerRef = useRef<HTMLDivElement>(null);
@@ -144,33 +221,151 @@ export default function FileTree({
 
   const height = externalHeight ?? (measuredHeight > 0 ? measuredHeight : 400);
 
-  // Load root directory on mount
+  // Load root directory on mount, then restore persisted open dirs + scroll.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
     loadedDirs.current.clear();
 
-    provider.listDir(projectPath, '/', showHidden).then(({ items }) => {
-      if (cancelled) return;
-      const nodes = entriesToNodes(items, '/');
-      setTreeData(nodes);
-      loadedDirs.current.add('/');
-      setLoading(false);
-    }).catch((err) => {
-      if (cancelled) return;
-      setError(err instanceof Error ? err.message : String(err));
-      setLoading(false);
-    });
+    const persisted = readPersistedTreeState(projectPath);
+    // Stash scrollTop to apply after tree data lands in the DOM
+    pendingScrollTopRef.current = persisted?.scrollTop ?? null;
+    lastScrollTopRef.current = persisted?.scrollTop ?? 0;
+
+    async function loadAndRestore(): Promise<void> {
+      try {
+        const { items } = await provider.listDir(projectPath, '/', showHidden);
+        if (cancelled) return;
+        let nodes = entriesToNodes(items, '/');
+        loadedDirs.current.add('/');
+
+        // Parallel-load persisted open directories (skip ones that no longer exist)
+        const candidates = (persisted?.openIds ?? []).filter(id => id !== '/' && id.startsWith('/'));
+        if (candidates.length > 0) {
+          // Sort shallow-first so parent loads happen before children are matched
+          const sorted = [...candidates].sort(
+            (a, b) => a.split('/').length - b.split('/').length,
+          );
+
+          // Load all candidate directories in parallel (settled — ignore failures)
+          const results = await Promise.all(
+            sorted.map((dirId) =>
+              provider
+                .listDir(projectPath, dirId, showHidden)
+                .then((r) => ({ dirId, items: r.items, ok: true as const }))
+                .catch(() => ({ dirId, items: [] as DirEntry[], ok: false as const })),
+            ),
+          );
+          if (cancelled) return;
+
+          // Apply in shallow-first order so each child's parent already exists
+          for (const { dirId, items: childItems, ok } of results) {
+            // Check the target dir still exists in the current tree (parent chain)
+            const parent = findNodeById(nodes, dirId);
+            if (!parent || !parent.isDir) continue;
+            if (!ok) continue;
+            const children = entriesToNodes(childItems, dirId);
+            if (children.length > 0) {
+              loadedDirs.current.add(dirId);
+            }
+            nodes = updateNodeInTree(nodes, dirId, (n) => ({
+              ...n,
+              isLoading: false,
+              children,
+            }));
+          }
+        }
+
+        setTreeData(nodes);
+        setLoading(false);
+
+        // After React commits + react-arborist builds its list, open dirs + scroll.
+        if (persisted && (persisted.openIds.length > 0 || persisted.scrollTop > 0)) {
+          requestAnimationFrame(() => {
+            if (cancelled || !treeRef.current) return;
+            for (const id of persisted.openIds) {
+              if (id === '/') continue;
+              const node = treeRef.current.get(id);
+              if (node) treeRef.current.open(id);
+            }
+            requestAnimationFrame(() => {
+              if (cancelled || !treeRef.current) return;
+              const list = treeRef.current.list.current;
+              if (list && pendingScrollTopRef.current != null) {
+                list.scrollTo(pendingScrollTopRef.current);
+                pendingScrollTopRef.current = null;
+              }
+            });
+          });
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : String(err));
+        setLoading(false);
+      }
+    }
+
+    loadAndRestore();
 
     return () => { cancelled = true; };
   }, [projectPath, showHidden, provider]);
+
+  // Debounced writer — captures current tree.openIds + lastScrollTop.
+  const schedulePersist = useCallback(() => {
+    if (!projectPath) return;
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = setTimeout(() => {
+      persistTimerRef.current = null;
+      if (!projectPath) return;
+      const api = treeRef.current;
+      const openIds: string[] = [];
+      if (api) {
+        // Iterate visible nodes; Tree exposes openState but we need Node.isOpen
+        // on internal nodes. Walk the open map via visibleNodes for reliability.
+        for (const node of api.visibleNodes) {
+          if (node.isOpen && node.isInternal) {
+            openIds.push(node.id);
+          }
+        }
+      }
+      writePersistedTreeState(projectPath, {
+        openIds,
+        scrollTop: lastScrollTopRef.current,
+        v: TREE_STATE_VERSION,
+      });
+    }, 200);
+  }, [projectPath]);
+
+  // Flush pending write on unmount so last-known state is captured
+  useEffect(() => {
+    return () => {
+      if (persistTimerRef.current) {
+        clearTimeout(persistTimerRef.current);
+        persistTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  // Scroll handler — stores the latest offset, debounces the persist write.
+  const handleScroll = useCallback(
+    (props: { scrollOffset: number }) => {
+      lastScrollTopRef.current = props.scrollOffset;
+      schedulePersist();
+    },
+    [schedulePersist],
+  );
 
   // Lazy-load children when a directory is toggled open.
   // Track in-flight loads to avoid duplicate requests.
   const loadingDirs = useRef<Set<string>>(new Set());
 
   const handleToggle = useCallback((id: string) => {
+    // Schedule a persist write — toggle may be opening OR closing a dir.
+    // react-arborist updates its open state synchronously before onToggle fires
+    // so the debounced writer will see the correct latest openIds.
+    schedulePersist();
+
     // Skip if already loaded with children, or if a load is in-flight
     if (loadingDirs.current.has(id)) return;
     if (loadedDirs.current.has(id)) return;
@@ -206,7 +401,7 @@ export default function FileTree({
     }).finally(() => {
       loadingDirs.current.delete(id);
     });
-  }, [projectPath, showHidden, provider]);
+  }, [projectPath, showHidden, provider, schedulePersist]);
 
   // Handle activation (double-click or Enter on a node)
   const handleActivate = useCallback((node: { data: TreeNode }) => {
@@ -295,6 +490,31 @@ export default function FileTree({
     document.addEventListener('filetree:refresh', handler);
     return () => document.removeEventListener('filetree:refresh', handler);
   }, [refresh]);
+
+  // Expose imperative methods to parent components (e.g. toolbar buttons)
+  useImperativeHandle(ref, () => ({
+    collapseAll: () => {
+      const api = treeRef.current;
+      if (!api) return;
+      // Iterate a stable snapshot — closing a node mutates visibleNodes.
+      const openIds: string[] = [];
+      for (const node of api.visibleNodes) {
+        if (node.isOpen && node.isInternal) {
+          openIds.push(node.id);
+        }
+      }
+      for (const id of openIds) {
+        api.close(id);
+      }
+      // Persistence: react-arborist's close() does not fire onToggle, so
+      // schedule the debounced write ourselves so the cleared state lands
+      // in localStorage.
+      schedulePersist();
+    },
+    refresh: async () => {
+      await refresh();
+    },
+  }), [refresh, schedulePersist]);
 
   // Auto-refresh: silently reload all loaded directories to detect external changes.
   // Unlike refresh(), this does not clear loadedDirs or set loading state, preventing
@@ -436,6 +656,7 @@ export default function FileTree({
           childrenAccessor="children"
           onToggle={handleToggle}
           onActivate={handleActivate}
+          onScroll={handleScroll}
           selection={activeFilePath ?? undefined}
           searchTerm={searchTerm}
           searchMatch={(node, term) => node.data.name.toLowerCase().includes(term.toLowerCase())}
@@ -456,7 +677,9 @@ export default function FileTree({
       )}
     </div>
   );
-}
+});
+
+export default FileTree;
 
 // ---------------------------------------------------------------------------
 // Tree update helper — immutably update a node by id deep in the tree

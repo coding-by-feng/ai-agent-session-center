@@ -12,6 +12,7 @@ import styles from '@/styles/modules/WorkdirLauncher.module.css';
 
 const WORKDIR_HISTORY_KEY = 'workdir-history';
 const LAST_SESSION_KEY = 'lastSession';
+const DIR_SESSION_CONFIGS_KEY = 'dir-session-configs';
 
 interface LastSessionConfig {
   host?: string;
@@ -20,6 +21,7 @@ interface LastSessionConfig {
   authMethod?: 'key' | 'password';
   privateKeyPath?: string;
   command?: string;
+  workingDir?: string;
 }
 
 function loadWorkdirHistory(): string[] {
@@ -40,6 +42,54 @@ function loadLastSession(): LastSessionConfig {
   } catch {
     return {};
   }
+}
+
+function loadDirSessionConfig(dir: string): LastSessionConfig | null {
+  try {
+    const all: Record<string, LastSessionConfig> = JSON.parse(
+      localStorage.getItem(DIR_SESSION_CONFIGS_KEY) || '{}',
+    );
+    return all[dir] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function saveDirSessionConfig(dir: string, config: LastSessionConfig): void {
+  if (!dir) return;
+  try {
+    const all: Record<string, LastSessionConfig> = JSON.parse(
+      localStorage.getItem(DIR_SESSION_CONFIGS_KEY) || '{}',
+    );
+    all[dir] = { ...config, workingDir: dir };
+    localStorage.setItem(DIR_SESSION_CONFIGS_KEY, JSON.stringify(all));
+  } catch { /* ignore quota errors */ }
+}
+
+/** Look up the most recent live session whose sshConfig.workingDir matches `dir`. */
+function findLiveSessionConfigForDir(dir: string): LastSessionConfig | null {
+  const sessions = useSessionStore.getState().sessions;
+  let best: { startedAt: number; cfg: LastSessionConfig } | null = null;
+  for (const session of sessions.values()) {
+    const ssh = session.sshConfig;
+    if (!ssh || ssh.workingDir !== dir) continue;
+    const startedAt = session.startedAt ?? 0;
+    if (!best || startedAt > best.startedAt) {
+      best = {
+        startedAt,
+        cfg: {
+          host: ssh.host,
+          port: ssh.port,
+          username: ssh.username,
+          authMethod: ssh.authMethod,
+          privateKeyPath: ssh.privateKeyPath,
+          command: ssh.command,
+          workingDir: ssh.workingDir,
+        },
+      };
+    }
+  }
+  return best?.cfg ?? null;
 }
 
 /** Extract the last meaningful segment from a path for display. */
@@ -92,21 +142,28 @@ export default function WorkdirLauncher() {
   async function handleLaunch(workingDir: string) {
     close();
 
-    const saved = loadLastSession();
+    // Prefer params from a previous session in THIS directory, falling back
+    // to a live session in the store, then the global lastSession.
+    const dirSaved = loadDirSessionConfig(workingDir);
+    const liveSaved = dirSaved ? null : findLiveSessionConfigForDir(workingDir);
+    const globalSaved = dirSaved || liveSaved ? null : loadLastSession();
+    const saved: LastSessionConfig = dirSaved ?? liveSaved ?? globalSaved ?? {};
+
+    const body = {
+      host: saved.host || window.location.hostname || 'localhost',
+      port: saved.port || undefined,
+      username: saved.username || undefined,
+      authMethod: saved.authMethod || undefined,
+      privateKeyPath: saved.privateKeyPath || undefined,
+      workingDir,
+      command: saved.command || 'claude',
+    };
 
     try {
       const res = await fetch('/api/terminals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          host: saved.host || window.location.hostname || 'localhost',
-          port: saved.port || undefined,
-          username: saved.username || undefined,
-          authMethod: saved.authMethod || undefined,
-          privateKeyPath: saved.privateKeyPath || undefined,
-          workingDir,
-          command: saved.command || 'claude',
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (data.ok) {
@@ -114,6 +171,17 @@ export default function WorkdirLauncher() {
         if (data.terminalId) {
           useSessionStore.getState().selectSession(data.terminalId);
         }
+        // Persist per-directory config so the next click reuses it without
+        // relying on live sessions or the global lastSession.
+        saveDirSessionConfig(workingDir, {
+          host: body.host,
+          port: body.port,
+          username: body.username,
+          authMethod: body.authMethod,
+          privateKeyPath: body.privateKeyPath,
+          command: body.command,
+          workingDir,
+        });
         showToast(`Session launched in ${shortenPath(workingDir)}`, 'success');
       } else {
         showToast(data.error || 'Failed to launch session', 'error');

@@ -22,6 +22,7 @@ import styles from '@/styles/modules/Modal.module.css';
 const WORKDIR_HISTORY_KEY = 'workdir-history';
 const MAX_WORKDIR_HISTORY = 20;
 const LAST_SESSION_KEY = 'lastSession';
+const DIR_SESSION_CONFIGS_KEY = 'dir-session-configs';
 
 interface LastSessionConfig {
   host?: string;
@@ -45,6 +46,17 @@ function loadLastSession(): LastSessionConfig {
 function saveLastSession(config: LastSessionConfig): void {
   try {
     localStorage.setItem(LAST_SESSION_KEY, JSON.stringify(config));
+  } catch { /* ignore quota errors */ }
+}
+
+function saveDirSessionConfig(dir: string, config: LastSessionConfig): void {
+  if (!dir) return;
+  try {
+    const all: Record<string, LastSessionConfig> = JSON.parse(
+      localStorage.getItem(DIR_SESSION_CONFIGS_KEY) || '{}',
+    );
+    all[dir] = { ...config, workingDir: dir };
+    localStorage.setItem(DIR_SESSION_CONFIGS_KEY, JSON.stringify(all));
   } catch { /* ignore quota errors */ }
 }
 
@@ -247,7 +259,7 @@ export default function NewSessionModal() {
         if (command) saveCommand(command);
         if (body.host) saveHistory(HOST_HISTORY_KEY, body.host);
         if (body.username) saveHistory(USERNAME_HISTORY_KEY, body.username);
-        saveLastSession({
+        const configToSave: LastSessionConfig = {
           host: body.host,
           port: body.port,
           username: body.username,
@@ -255,7 +267,9 @@ export default function NewSessionModal() {
           privateKeyPath: authMethod === 'key' ? privateKeyPath : undefined,
           workingDir: workingDir || '~',
           command: command || undefined,
-        });
+        };
+        saveLastSession(configToSave);
+        saveDirSessionConfig(workingDir || '~', configToSave);
         // Auto-select the new session so the detail panel stays open
         if (data.terminalId) {
           useSessionStore.getState().selectSession(data.terminalId);

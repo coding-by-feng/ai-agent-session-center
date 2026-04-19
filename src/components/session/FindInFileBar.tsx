@@ -24,10 +24,12 @@ export default function FindInFileBar({
   onScrollToLine,
   onTermChange,
 }: FindInFileBarProps) {
-  const [query, setQuery] = useState('');
-  const [caseSensitive, setCaseSensitive] = useState(false);
-  const [activeIdx, setActiveIdx] = useState(0);
+  const [query, setQuery] = useState<string>('');
+  const [caseSensitive, setCaseSensitive] = useState<boolean>(false);
+  const [activeIdx, setActiveIdx] = useState<number>(0);
+  const [didWrap, setDidWrap] = useState<boolean>(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const wrapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -68,17 +70,59 @@ export default function FindInFileBar({
     setActiveIdx(0);
   }, [matches.length]);
 
-  const goNext = useCallback(() => {
-    if (matches.length === 0) return;
-    setActiveIdx((i) => (i + 1) % matches.length);
-  }, [matches.length]);
+  const flashWrap = useCallback((): void => {
+    setDidWrap(true);
+    if (wrapTimerRef.current) clearTimeout(wrapTimerRef.current);
+    wrapTimerRef.current = setTimeout(() => {
+      setDidWrap(false);
+      wrapTimerRef.current = null;
+    }, 600);
+  }, []);
 
-  const goPrev = useCallback(() => {
+  const goNext = useCallback((): void => {
     if (matches.length === 0) return;
-    setActiveIdx((i) => (i - 1 + matches.length) % matches.length);
-  }, [matches.length]);
+    setActiveIdx((i) => {
+      const next = (i + 1) % matches.length;
+      if (i === matches.length - 1 && next === 0) flashWrap();
+      return next;
+    });
+  }, [matches.length, flashWrap]);
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+  const goPrev = useCallback((): void => {
+    if (matches.length === 0) return;
+    setActiveIdx((i) => {
+      const next = (i - 1 + matches.length) % matches.length;
+      if (i === 0 && next === matches.length - 1) flashWrap();
+      return next;
+    });
+  }, [matches.length, flashWrap]);
+
+  // Cleanup the wrap-flash timer on unmount
+  useEffect(() => {
+    return () => {
+      if (wrapTimerRef.current) {
+        clearTimeout(wrapTimerRef.current);
+        wrapTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  // Document-level F3 / Shift+F3 while the bar is mounted
+  useEffect(() => {
+    const handleDocKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'F3') {
+        e.preventDefault();
+        if (e.shiftKey) goPrev();
+        else goNext();
+      }
+    };
+    document.addEventListener('keydown', handleDocKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleDocKeyDown);
+    };
+  }, [goNext, goPrev]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent): void => {
     if (e.key === 'Escape') {
       onClose();
       return;
@@ -87,6 +131,16 @@ export default function FindInFileBar({
       e.preventDefault();
       if (e.shiftKey) goPrev();
       else goNext();
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      goNext();
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      goPrev();
       return;
     }
   }, [onClose, goNext, goPrev]);
@@ -116,7 +170,10 @@ export default function FindInFileBar({
         </button>
       </div>
 
-      <span className={styles.count}>
+      <span
+        className={`${styles.count} ${didWrap ? styles.countWrapped : ''}`}
+        data-wrapped={didWrap ? 'true' : 'false'}
+      >
         {query ? (matches.length > 0 ? `${activeIdx + 1} of ${matches.length}` : 'No results') : ''}
       </span>
 
@@ -125,7 +182,7 @@ export default function FindInFileBar({
           className={styles.navBtn}
           onClick={goPrev}
           disabled={matches.length === 0}
-          title="Previous match (Shift+Enter)"
+          title="Previous match (↑ / Shift+Enter / Shift+F3)"
         >
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M4 10l4-4 4 4" />
@@ -135,7 +192,7 @@ export default function FindInFileBar({
           className={styles.navBtn}
           onClick={goNext}
           disabled={matches.length === 0}
-          title="Next match (Enter)"
+          title="Next match (↓ / Enter / F3)"
         >
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M4 6l4 4 4-4" />

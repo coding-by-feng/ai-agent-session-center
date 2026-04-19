@@ -8,9 +8,25 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import * as XLSX from 'xlsx';
 import 'highlight.js/styles/github-dark-dimmed.css';
-import FileTree from './FileTree';
+import FileTree, { type FileTreeHandle } from './FileTree';
 import ContentSearchModal from './ContentSearchModal';
 import FindInFileBar, { highlightFindMatches } from './FindInFileBar';
+import {
+  DEFAULT_VIEW,
+  PAN_STEP,
+  PERSIST_DEBOUNCE_MS,
+  ZOOM_MAX,
+  ZOOM_MIN,
+  clampPan,
+  fitToScreenRatio,
+  imageViewKey,
+  parseView,
+  serializeView,
+  zoomAroundCursor,
+  zoomInStep,
+  zoomOutStep,
+  type ImageView,
+} from './imageViewport';
 import { getFileSystemProvider } from '@/lib/fileSystemProvider';
 import { showToast } from '@/components/ui/ToastContainer';
 import styles from '@/styles/modules/ProjectTab.module.css';
@@ -676,6 +692,265 @@ function InlineInput({
   );
 }
 
+// ---- Image Viewer subcomponent ----
+
+interface ImageViewerProps {
+  src: string;
+  alt: string;
+  filePath: string;
+  /** Optional subtitle line shown below the image (e.g. "foo.png — 123 KB") */
+  caption?: string;
+}
+
+/**
+ * Image viewer with zoom, pan (drag), keyboard shortcuts, fit-to-screen, and
+ * per-path persistence (localStorage). Shared between the inline and
+ * fullscreen viewers.
+ */
+function ImageViewer({ src, alt, filePath, caption }: ImageViewerProps) {
+  // Restore persisted view on mount. The parent re-mounts this component via
+  // `key={file.path}` when the file changes, so the lazy initializer fires
+  // exactly once per file — no follow-up "reset on path change" effect needed.
+  const [view, setView] = useState<ImageView>(() => {
+    try {
+      const raw = localStorage.getItem(imageViewKey(filePath));
+      return parseView(raw) ?? { ...DEFAULT_VIEW };
+    } catch {
+      return { ...DEFAULT_VIEW };
+    }
+  });
+  const [isDragging, setIsDragging] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const naturalSizeRef = useRef<{ w: number; h: number } | null>(null);
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+
+  // Persist view with a 200ms debounce so pan doesn't spam localStorage.
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      try {
+        localStorage.setItem(imageViewKey(filePath), serializeView(view));
+      } catch { /* quota or disabled storage — ignore */ }
+    }, PERSIST_DEBOUNCE_MS);
+    return () => clearTimeout(handle);
+  }, [view, filePath]);
+
+  // Helper: current container size
+  const getContainerSize = useCallback((): { w: number; h: number } => {
+    const el = containerRef.current;
+    if (!el) return { w: 0, h: 0 };
+    return { w: el.clientWidth, h: el.clientHeight };
+  }, []);
+
+  const zoomIn = useCallback(() => {
+    setView((v) => {
+      const nextZoom = zoomInStep(v.zoom);
+      if (nextZoom === v.zoom) return v;
+      const { w, h } = getContainerSize();
+      const { panX, panY } = clampPan(v.panX, v.panY, nextZoom, w, h);
+      return { zoom: nextZoom, panX, panY };
+    });
+  }, [getContainerSize]);
+
+  const zoomOut = useCallback(() => {
+    setView((v) => {
+      const nextZoom = zoomOutStep(v.zoom);
+      if (nextZoom === v.zoom) return v;
+      const { w, h } = getContainerSize();
+      const { panX, panY } = clampPan(v.panX, v.panY, nextZoom, w, h);
+      return { zoom: nextZoom, panX, panY };
+    });
+  }, [getContainerSize]);
+
+  const zoomReset = useCallback(() => setView({ ...DEFAULT_VIEW }), []);
+
+  const fitToScreen = useCallback(() => {
+    const natural = naturalSizeRef.current;
+    if (!natural) return;
+    const { w, h } = getContainerSize();
+    const ratio = fitToScreenRatio(w, h, natural.w, natural.h);
+    setView({ zoom: ratio, panX: 0, panY: 0 });
+  }, [getContainerSize]);
+
+  // Wheel: Ctrl/Meta+wheel always zooms; plain wheel zooms when container has focus.
+  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    const isFocused = document.activeElement === containerRef.current;
+    const wantsZoom = e.ctrlKey || e.metaKey || isFocused;
+    if (!wantsZoom) return;
+    e.preventDefault();
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const cursorX = e.clientX - rect.left;
+    const cursorY = e.clientY - rect.top;
+    setView((v) => zoomAroundCursor(v, v.zoom - e.deltaY * 0.005, cursorX, cursorY, rect.width, rect.height));
+  }, []);
+
+  // Drag-to-pan (only when zoomed in)
+  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    if (view.zoom <= 1) return;
+    e.preventDefault();
+    isDraggingRef.current = true;
+    dragStartRef.current = { x: e.clientX, y: e.clientY, panX: view.panX, panY: view.panY };
+    setIsDragging(true);
+  }, [view.zoom, view.panX, view.panY]);
+
+  // Window-level mousemove/mouseup while dragging
+  useEffect(() => {
+    if (!isDragging) return;
+    const handleMove = (e: MouseEvent): void => {
+      const start = dragStartRef.current;
+      if (!start) return;
+      const dx = e.clientX - start.x;
+      const dy = e.clientY - start.y;
+      setView((v) => {
+        const { w, h } = getContainerSize();
+        const { panX, panY } = clampPan(start.panX + dx, start.panY + dy, v.zoom, w, h);
+        return { ...v, panX, panY };
+      });
+    };
+    const handleUp = (): void => {
+      isDraggingRef.current = false;
+      dragStartRef.current = null;
+      setIsDragging(false);
+    };
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [isDragging, getContainerSize]);
+
+  // Keyboard shortcuts (attached to the container)
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    switch (e.key) {
+      case '+':
+      case '=':
+        e.preventDefault();
+        zoomIn();
+        break;
+      case '-':
+      case '_':
+        e.preventDefault();
+        zoomOut();
+        break;
+      case '0':
+        e.preventDefault();
+        zoomReset();
+        break;
+      case 'f':
+      case 'F':
+        e.preventDefault();
+        fitToScreen();
+        break;
+      case 'ArrowLeft':
+        if (view.zoom > 1) {
+          e.preventDefault();
+          setView((v) => {
+            const { w, h } = getContainerSize();
+            const { panX, panY } = clampPan(v.panX + PAN_STEP, v.panY, v.zoom, w, h);
+            return { ...v, panX, panY };
+          });
+        }
+        break;
+      case 'ArrowRight':
+        if (view.zoom > 1) {
+          e.preventDefault();
+          setView((v) => {
+            const { w, h } = getContainerSize();
+            const { panX, panY } = clampPan(v.panX - PAN_STEP, v.panY, v.zoom, w, h);
+            return { ...v, panX, panY };
+          });
+        }
+        break;
+      case 'ArrowUp':
+        if (view.zoom > 1) {
+          e.preventDefault();
+          setView((v) => {
+            const { w, h } = getContainerSize();
+            const { panX, panY } = clampPan(v.panX, v.panY + PAN_STEP, v.zoom, w, h);
+            return { ...v, panX, panY };
+          });
+        }
+        break;
+      case 'ArrowDown':
+        if (view.zoom > 1) {
+          e.preventDefault();
+          setView((v) => {
+            const { w, h } = getContainerSize();
+            const { panX, panY } = clampPan(v.panX, v.panY - PAN_STEP, v.zoom, w, h);
+            return { ...v, panX, panY };
+          });
+        }
+        break;
+    }
+  }, [zoomIn, zoomOut, zoomReset, fitToScreen, view.zoom, getContainerSize]);
+
+  const handleDoubleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setView({ ...DEFAULT_VIEW });
+  }, []);
+
+  const handleImgLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    naturalSizeRef.current = { w: img.naturalWidth, h: img.naturalHeight };
+  }, []);
+
+  const containerStyle: React.CSSProperties = {
+    cursor: isDragging ? 'grabbing' : view.zoom > 1 ? 'grab' : 'default',
+    userSelect: isDragging ? 'none' : undefined,
+  };
+
+  const imageStyle: React.CSSProperties = {
+    transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`,
+    transformOrigin: 'center center',
+    maxWidth: view.zoom > 1 ? 'none' : undefined,
+    maxHeight: view.zoom > 1 ? 'none' : undefined,
+  };
+
+  return (
+    <div className={styles.mediaViewer}>
+      <div className={styles.imageZoomToolbar}>
+        <button className={styles.imageZoomBtn} onClick={zoomOut} title="Zoom out (-)" disabled={view.zoom <= ZOOM_MIN}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="7" cy="7" r="5.5" /><line x1="4" y1="7" x2="10" y2="7" /><line x1="11" y1="11" x2="14.5" y2="14.5" /></svg>
+        </button>
+        <button className={styles.imageZoomLevel} onClick={zoomReset} title="Reset zoom (0)">
+          {Math.round(view.zoom * 100)}%
+        </button>
+        <button className={styles.imageZoomBtn} onClick={fitToScreen} title="Fit to screen (F)">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeDasharray="2 2"><rect x="2.5" y="2.5" width="11" height="11" rx="1" /></svg>
+        </button>
+        <button className={styles.imageZoomBtn} onClick={zoomIn} title="Zoom in (+)" disabled={view.zoom >= ZOOM_MAX}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="7" cy="7" r="5.5" /><line x1="4" y1="7" x2="10" y2="7" /><line x1="7" y1="4" x2="7" y2="10" /><line x1="11" y1="11" x2="14.5" y2="14.5" /></svg>
+        </button>
+      </div>
+      <div
+        ref={containerRef}
+        className={styles.imageZoomContainer}
+        tabIndex={0}
+        role="img"
+        aria-label={alt}
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onDoubleClick={handleDoubleClick}
+        onKeyDown={handleKeyDown}
+        style={containerStyle}
+      >
+        <img
+          src={src}
+          alt={alt}
+          className={`${styles.mediaImage}${isDragging ? ` ${styles.mediaImageDragging}` : ''}`}
+          draggable={false}
+          onLoad={handleImgLoad}
+          style={imageStyle}
+        />
+      </div>
+      {caption && <div className={styles.mediaInfo}>{caption}</div>}
+    </div>
+  );
+}
+
 // ---- Main Component ----
 
 export default function ProjectTab({ projectPath, initialPath, initialIsFile, navigateToFile, persistId, onOpenBrowserTab, onPathChange }: ProjectTabProps) {
@@ -702,6 +977,9 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   // Version counter: incremented by loadDir/loadFile so stale silentRefreshDir
   // responses don't overwrite entries from a navigation that completed first.
   const dirVersionRef = useRef(0);
+
+  // Imperative handle to the file tree (collapse-all / refresh toolbar buttons).
+  const fileTreeRef = useRef<FileTreeHandle>(null);
 
   // File tabs — persisted to localStorage when persistId is provided
   const fileTabsKey = persistId ? `agent-manager:file-tabs:${persistId}` : null;
@@ -783,19 +1061,10 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   // Fullscreen file viewer
   const [showFullscreen, setShowFullscreen] = useState(false);
 
-  // Image zoom
-  const [imageZoom, setImageZoom] = useState(1);
-  const zoomIn = useCallback(() => setImageZoom((z) => Math.min(z + 0.25, 5)), []);
-  const zoomOut = useCallback(() => setImageZoom((z) => Math.max(z - 0.25, 0.25)), []);
-  const zoomReset = useCallback(() => setImageZoom(1), []);
-  const handleImageWheel = useCallback((e: React.WheelEvent) => {
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault();
-      setImageZoom((z) => Math.min(Math.max(z - e.deltaY * 0.005, 0.25), 5));
-    }
-  }, []);
-  // Reset zoom when switching files
-  useEffect(() => { setImageZoom(1); }, [file?.path]);
+  // Image viewer state is encapsulated inside the ImageViewer subcomponent —
+  // each viewer (normal + fullscreen) gets its own instance keyed by file path,
+  // which handles zoom, pan, keyboard shortcuts, fit-to-screen, and per-path
+  // persistence via localStorage.
 
   // Close fullscreen on Escape
   useEffect(() => {
@@ -810,8 +1079,32 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     try { return localStorage.getItem('file-browser:showHidden') !== 'false'; } catch { return true; }
   });
   const [showDateTime, setShowDateTime] = useState(false);
-  const [sortField, setSortField] = useState<SortField>('name');
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  // Sort field/direction — persisted per projectPath so it survives tab unmount
+  const [sortField, setSortField] = useState<SortField>(() => {
+    try {
+      const raw = localStorage.getItem(`agent-manager:tree-sort:${projectPath}`);
+      if (!raw) return 'name';
+      const parsed = JSON.parse(raw) as { field?: string };
+      return parsed.field === 'date' ? 'date' : 'name';
+    } catch { return 'name'; }
+  });
+  const [sortDir, setSortDir] = useState<SortDir>(() => {
+    try {
+      const raw = localStorage.getItem(`agent-manager:tree-sort:${projectPath}`);
+      if (!raw) return 'asc';
+      const parsed = JSON.parse(raw) as { dir?: string };
+      return parsed.dir === 'desc' ? 'desc' : 'asc';
+    } catch { return 'asc'; }
+  });
+  useEffect(() => {
+    if (!projectPath) return;
+    try {
+      localStorage.setItem(
+        `agent-manager:tree-sort:${projectPath}`,
+        JSON.stringify({ field: sortField, dir: sortDir }),
+      );
+    } catch { /* ignore */ }
+  }, [sortField, sortDir, projectPath]);
 
   // Markdown outline (side panel with draggable divider)
   const [showOutline, setShowOutline] = useState(false);
@@ -1415,9 +1708,14 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     }
   }, [projectPath, currentPath, file, onOpenBrowserTab]);
 
-  const handleRevealInFinder = useCallback(() => {
-    provider.reveal(projectPath, currentPath).catch(() => {});
-  }, [projectPath, currentPath, provider]);
+  const handleRevealInFinder = useCallback(async () => {
+    try {
+      await provider.reveal(projectPath, file?.path ?? currentPath);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Reveal failed: ${msg}`, 'error');
+    }
+  }, [projectPath, currentPath, file, provider]);
 
   // Bookmark: add from selection or toggle panel
   const handleBookmarkBtnClick = useCallback(() => {
@@ -1781,6 +2079,29 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         >
           <IconSortDate />
         </button>
+        <span className={styles.iconBarSep} />
+        <button
+          className={styles.iconBtn}
+          onClick={() => fileTreeRef.current?.collapseAll()}
+          disabled={!!file}
+          title="Collapse all folders"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M2 4l1.5-1.5h3L8 4h6v8H2V4z" />
+            <path d="M5 9l3-3 3 3" />
+            <path d="M5 12l3-3 3 3" />
+          </svg>
+        </button>
+        <button
+          className={styles.iconBtn}
+          onClick={() => { void fileTreeRef.current?.refresh(); }}
+          title="Refresh file tree"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M13 3v4h-4" />
+            <path d="M13 7a5 5 0 1 0-1.5 3.5" />
+          </svg>
+        </button>
       </div>
 
       {/* (tabs + breadcrumb are inside the viewer panel below) */}
@@ -1832,6 +2153,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
           {!treePanelCollapsed && (
           <div className={styles.treePanelBody}>
             <FileTree
+              ref={fileTreeRef}
               projectPath={projectPath}
               showHidden={showHidden}
               onFileSelect={(relPath) => loadFile(relPath)}
@@ -1952,29 +2274,13 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                     title={file.name}
                   />
                 ) : file.streamable && file.blobUrl && isImageExt(file.ext) ? (
-                  <div className={styles.mediaViewer}>
-                    <div className={styles.imageZoomToolbar}>
-                      <button className={styles.imageZoomBtn} onClick={zoomOut} title="Zoom out" disabled={imageZoom <= 0.25}>
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="7" cy="7" r="5.5" /><line x1="4" y1="7" x2="10" y2="7" /><line x1="11" y1="11" x2="14.5" y2="14.5" /></svg>
-                      </button>
-                      <button className={styles.imageZoomLevel} onClick={zoomReset} title="Reset zoom">
-                        {Math.round(imageZoom * 100)}%
-                      </button>
-                      <button className={styles.imageZoomBtn} onClick={zoomIn} title="Zoom in" disabled={imageZoom >= 5}>
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="7" cy="7" r="5.5" /><line x1="4" y1="7" x2="10" y2="7" /><line x1="7" y1="4" x2="7" y2="10" /><line x1="11" y1="11" x2="14.5" y2="14.5" /></svg>
-                      </button>
-                    </div>
-                    <div className={styles.imageZoomContainer} onWheel={handleImageWheel}>
-                      <img
-                        src={file.blobUrl}
-                        alt={file.name}
-                        className={styles.mediaImage}
-                        draggable={false}
-                        style={imageZoom !== 1 ? { transform: `scale(${imageZoom})`, transformOrigin: 'center center', maxWidth: 'none', maxHeight: 'none' } : undefined}
-                      />
-                    </div>
-                    <div className={styles.mediaInfo}>{file.name} — {formatSize(file.size)}</div>
-                  </div>
+                  <ImageViewer
+                    key={file.path}
+                    src={file.blobUrl}
+                    alt={file.name}
+                    filePath={file.path}
+                    caption={`${file.name} — ${formatSize(file.size)}`}
+                  />
                 ) : file.streamable && file.blobUrl && isVideoExt(file.ext) ? (
                   <div className={styles.mediaViewer}>
                     <video
@@ -2184,22 +2490,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
               ) : file.streamable && file.ext === 'pdf' && file.blobUrl ? (
                 <iframe src={file.blobUrl} className={styles.pdfViewer} title={file.name} />
               ) : file.streamable && file.blobUrl && isImageExt(file.ext) ? (
-                <div className={styles.mediaViewer}>
-                  <div className={styles.imageZoomToolbar}>
-                    <button className={styles.imageZoomBtn} onClick={zoomOut} title="Zoom out" disabled={imageZoom <= 0.25}>
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="7" cy="7" r="5.5" /><line x1="4" y1="7" x2="10" y2="7" /><line x1="11" y1="11" x2="14.5" y2="14.5" /></svg>
-                    </button>
-                    <button className={styles.imageZoomLevel} onClick={zoomReset} title="Reset zoom">
-                      {Math.round(imageZoom * 100)}%
-                    </button>
-                    <button className={styles.imageZoomBtn} onClick={zoomIn} title="Zoom in" disabled={imageZoom >= 5}>
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="7" cy="7" r="5.5" /><line x1="4" y1="7" x2="10" y2="7" /><line x1="7" y1="4" x2="7" y2="10" /><line x1="11" y1="11" x2="14.5" y2="14.5" /></svg>
-                    </button>
-                  </div>
-                  <div className={styles.imageZoomContainer} onWheel={handleImageWheel}>
-                    <img src={file.blobUrl} alt={file.name} className={styles.mediaImage} draggable={false} style={imageZoom !== 1 ? { transform: `scale(${imageZoom})`, transformOrigin: 'center center', maxWidth: 'none', maxHeight: 'none' } : undefined} />
-                  </div>
-                </div>
+                <ImageViewer key={file.path} src={file.blobUrl} alt={file.name} filePath={file.path} />
               ) : file.binary ? (
                 <div className={styles.empty}>Binary file ({formatSize(file.size)})</div>
               ) : (file.content || '').split('\n').length > VIRTUALIZE_THRESHOLD ? (
