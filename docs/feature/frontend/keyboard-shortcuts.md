@@ -20,6 +20,23 @@ Power user efficiency — quick navigation, session control, and modal toggling 
 - Hardcoded shortcuts in useKeyboardShortcuts.ts (not rebindable): Cmd+Shift+F (global search toggle), Cmd+F (find-in-file when session selected), Escape (close modal > skip if xterm focused), `[` (previous session), `]` (jump to latest finished session)
 - Rebindable shortcuts via shortcutStore (26 actions): Alt+F11 (fullscreen), Cmd+Alt+B (scroll to bottom), Cmd+Shift+P (switch to previous session), Cmd+Alt+1-9 (session switch), 14 file browser actions (all unbound by default)
 - Suppressed in INPUT/TEXTAREA/SELECT/contentEditable elements (exception: Alt+modifier session-switch shortcuts fire even inside xterm's hidden textarea)
+- Scoped shortcuts owned by file browser components (not routed through `shortcutStore`):
+
+  | Scope | Key | Action |
+  |-------|-----|--------|
+  | Find-in-file bar (focused input) | Enter / ArrowDown | Next match |
+  | Find-in-file bar (focused input) | Shift+Enter / ArrowUp | Previous match |
+  | Find-in-file bar (mounted, document-level) | F3 | Next match |
+  | Find-in-file bar (mounted, document-level) | Shift+F3 | Previous match |
+  | Find-in-file bar | Escape | Close bar |
+  | Image viewer (focused container) | `+` / `=` | Zoom in (cursor-anchored via wheel equivalent) |
+  | Image viewer (focused container) | `-` / `_` | Zoom out |
+  | Image viewer (focused container) | `0` | Reset zoom + pan |
+  | Image viewer (focused container) | `f` | Fit to screen |
+  | Image viewer (focused container, zoom > 1) | Arrow keys | Pan by `PAN_STEP` px |
+  | Image viewer | Double-click | Reset zoom + pan |
+  | Image viewer | Mouse wheel | Cursor-anchored zoom |
+
 - Alt+digit uses e.code (Digit1) to avoid macOS special-character conflicts
 - Escape priority: modal > xterm (let terminal handle). Does NOT deselect session (removed to prevent scroll position loss when panel is hidden via display:none)
 - Rebindable: Settings -> Shortcuts tab, recording mode on click, conflict detection

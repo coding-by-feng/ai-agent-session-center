@@ -583,6 +583,16 @@
     rgba(255, 255, 255, 0.04) 0% 25%,
     transparent 0% 50%
   ) 50% / 16px 16px;
+  transform-origin: center center;
+  transition: transform 120ms ease-out;
+  will-change: transform;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* Applied while dragging to make panning feel native (no easing lag). */
+.mediaImageDragging {
+  transition: none !important;
 }
 
 .mediaVideo {
@@ -663,11 +673,21 @@
 
 .imageZoomContainer {
   flex: 1;
-  overflow: auto;
+  /* We pan via CSS transform — overflow must be hidden so the image can't
+     spill past the toolbar / container bounds. */
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 0;
+  position: relative;
+  outline: none;
+}
+
+/* Subtle focus ring so keyboard users can tell the container is focused
+   (that's when plain-wheel zoom activates). */
+.imageZoomContainer:focus-visible {
+  box-shadow: inset 0 0 0 1px rgba(0, 255, 255, 0.35);
 }
 
 /* ---- Excel Viewer ---- */

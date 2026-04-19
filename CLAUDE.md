@@ -105,18 +105,18 @@ server/
 src/
   stores/               — 9 Zustand stores (session, settings, queue, room, camera, ui, ws, agenda, shortcut)
   hooks/                — useWebSocket, useTerminal, useSound, useAuth, useKeyboardShortcuts, useKnownProjects, useSettingsInit, useWorkspaceAutoSave, useWorkspaceAutoLoad, useClickOutside
-  lib/                  — wsClient, db (Dexie), soundEngine, ambientEngine, alarmEngine, workspaceSnapshot
+  lib/                  — wsClient, db (Dexie), soundEngine, ambientEngine, alarmEngine, workspaceSnapshot, cliDetect, cyberdromeScene, fileSystemProvider, format, robot3DGeometry, robot3DModels, robotPositionPersist, robotStateMap, sceneThemes, shortcutKeys
   components/
-    3d/                 — CyberdromeScene, SessionRobot, Robot3DModel, CameraController, StatusParticles
-    session/            — DetailPanel, ProjectTab, FileTree, FindInFileBar, QueueTab, ActivityLog
+    3d/                 — CyberdromeScene, CyberdromeEnvironment, SessionRobot, Robot3DModel, RobotDialogue, RobotLabel, RobotListSidebar, RoomLabels, SceneOverlay, CameraController, StatusParticles, SubagentConnections, robotPositionStore
+    session/            — DetailPanel, DetailTabs, ProjectTab, ProjectTabContainer, FileTree, FindInFileBar, ContentSearchModal, QueueTab, NotesTab, SummaryTab, PromptHistory, SessionControlBar, SessionSwitcher, SummarizeModal, LabelChips, LinkifiedText, KillConfirmModal, AlertModal, imageViewport
     terminal/           — TerminalContainer, TerminalToolbar, themes
-    settings/           — SettingsPanel (6 tabs), ThemeSettings, SoundSettings
-    modals/             — NewSessionModal, QuickSessionModal, ShortcutsModal
-    layout/             — NavBar, Header, ActivityFeed
+    settings/           — SettingsPanel (6 tabs), ThemeSettings, SoundSettings, ShortcutSettings, HookSettings, ApiKeySettings, SummaryPromptSettings
+    modals/             — NewSessionModal, QuickSessionModal, GlobalSearchModal, ShortcutSettingsModal, ShortcutsPanel, ShortcutRow
+    layout/             — NavBar, Header, HeaderAgentStrip, TitleBar, ActivityFeed, WorkdirLauncher
     agenda/             — AddTaskForm, AgendaFilterBar, AgendaTaskCard
     auth/               — LoginScreen
     setup/              — SetupWizard + steps/ (Welcome, DepsCheck, Configure, Install, Done)
-    ui/                 — Combobox, Modal, ResizablePanel, Select, Tabs, ToastContainer, SavingOverlay, WorkspaceLoadingOverlay
+    ui/                 — Combobox, Modal, ResizablePanel, Select, Tabs, ToastContainer, SavingOverlay, WorkspaceLoadingOverlay, SearchInput
   routes/               — LiveView, HistoryView, ProjectBrowserView, QueueView, AgendaView
   styles/               — CSS modules + 9 theme files
   types/                — shared TypeScript types (server + client)

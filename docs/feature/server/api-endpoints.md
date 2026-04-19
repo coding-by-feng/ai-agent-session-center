@@ -9,7 +9,7 @@ The HTTP interface for the React frontend and external integrations. Handles all
 ## Source Files
 | File | Role |
 |------|------|
-| `server/apiRouter.ts` (~78KB, largest server file) | All REST endpoints |
+| `server/apiRouter.ts` (~78KB, ~2064 lines, largest server file) | All REST endpoints |
 
 ## Implementation
 
@@ -124,7 +124,7 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - DB
 
 ## Change Risks
-- Largest server file (~1000+ lines) -- consider splitting if it grows further
+- Largest server file (~2064 lines) -- consider splitting if it grows further
 - Changes to endpoint contracts break frontend
 - Zod schema changes affect request validation
 - Rate limit changes affect hook ingestion

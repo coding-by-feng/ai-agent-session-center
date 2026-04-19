@@ -85,7 +85,7 @@ Hook System ──────────────────┐
                         │                        │
           ┌─────────────┤                        ▼
           ▼             ▼                 State Management
-    Terminal/SSH    API Endpoints          (7 Zustand stores)
+    Terminal/SSH    API Endpoints          (9 Zustand stores)
     (PTY, buffer)  (REST routes)              │
           │             │              ┌──────┼──────────┐
           ▼             ▼              ▼      ▼          ▼

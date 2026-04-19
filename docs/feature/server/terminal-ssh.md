@@ -9,7 +9,7 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 ## Source Files
 | File | Role |
 |------|------|
-| `server/sshManager.ts` (~29KB) | PTY creation, shell-ready detection, output buffering, pending links |
+| `server/sshManager.ts` (~32KB, ~850 lines) | PTY creation, shell-ready detection, output buffering, pending links |
 
 ## Implementation
 

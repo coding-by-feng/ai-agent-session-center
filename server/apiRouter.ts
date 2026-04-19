@@ -563,9 +563,12 @@ router.post('/sessions/:id/fork', async (req: Request, res: Response) => {
   // reusing the running session's ID (which would steal the original session).
   // Session IDs are alphanumeric/dash/underscore — safe to embed in commands.
   const safeSessionId = /^[a-zA-Z0-9_\-]+$/.test(sessionId) ? sessionId : '';
-  const forkCmd = safeSessionId
+  const baseForkCmd = safeSessionId
     ? `claude --continue ${safeSessionId} --fork-session`
     : `claude --continue --fork-session`;
+  // Preserve the source session's permission mode (e.g. --dangerously-skip-permissions,
+  // --permission-mode auto-edit) so the forked session behaves the same way.
+  const forkCmd = reconstructPermissionFlags(baseForkCmd, session.permissionMode);
 
   try {
     const cfg = session.sshConfig;

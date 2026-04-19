@@ -19,7 +19,7 @@ Real-time communication channel between server and all connected browser clients
 - Max inbound message size: 512KB (oversized messages silently dropped)
 
 ### Heartbeat
-- ping every 30s, terminate if no pong within 10s
+- ping every 30s; on each tick, terminate any client that hasn't replied with a pong since the previous ping (effective drop window: up to 30s)
 
 ### Server-to-Client Messages
 - snapshot, session_update, session_removed, team_update, hook_stats, terminal_output, terminal_ready, terminal_closed, terminal_error, clearBrowserDb, replay
