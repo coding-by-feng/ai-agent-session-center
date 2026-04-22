@@ -26,6 +26,7 @@ import { ALL_CLAUDE_HOOK_EVENTS, DENSITY_EVENTS, SESSION_STATUS, WS_TYPES } from
 import { reconstructPermissionFlags } from './config.js';
 import log from './logger.js';
 import { searchFiles, invalidateCache, preloadIndex } from './fileIndexCache.js';
+import { synthesize as ttsSynthesize, checkApiKey as ttsCheckApiKey } from './ttsManager.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
 
 const __apiDirname = dirname(fileURLToPath(import.meta.url));
@@ -559,12 +560,15 @@ router.post('/sessions/:id/fork', async (req: Request, res: Response) => {
   const session = getSession(sessionId);
   if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
 
-  // Use the explicit Claude session ID to prevent --continue from
-  // reusing the running session's ID (which would steal the original session).
-  // Session IDs are alphanumeric/dash/underscore — safe to embed in commands.
+  // Use --resume <sessionId> (not --continue <sessionId>) because Claude's
+  // --continue flag doesn't take a session ID argument — a trailing ID would
+  // be interpreted as the initial prompt and typed into the Claude input.
+  // Terminal IDs (term-xxx) are agent-manager internal, not Claude conversation
+  // IDs — fall back to --continue in that case.
+  const isClaudeSessionId = !sessionId.startsWith('term-');
   const safeSessionId = /^[a-zA-Z0-9_\-]+$/.test(sessionId) ? sessionId : '';
-  const baseForkCmd = safeSessionId
-    ? `claude --continue ${safeSessionId} --fork-session`
+  const baseForkCmd = safeSessionId && isClaudeSessionId
+    ? `claude --resume '${safeSessionId}' --fork-session`
     : `claude --continue --fork-session`;
   // Preserve the source session's permission mode (e.g. --dangerously-skip-permissions,
   // --permission-mode auto-edit) so the forked session behaves the same way.
@@ -2061,6 +2065,58 @@ router.patch('/agenda/:id/toggle', (req: Request, res: Response) => {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('api', `Failed to toggle agenda task: ${msg}`);
     res.status(500).json({ success: false, error: 'Failed to toggle agenda task' });
+  }
+});
+
+// ---- TTS (Google Cloud Text-to-Speech — per-user API key) ----
+
+// API key length guard: Google API keys are ~39 chars; cap at 200 to allow future formats.
+const ttsSynthesizeSchema = z.object({
+  apiKey: z.string().min(10).max(200),
+  text: z.string().min(1).max(12000),
+  voiceEn: z.string().max(100).optional(),
+  voiceZh: z.string().max(100).optional(),
+  speakingRate: z.number().min(0.25).max(4).optional(),
+  lang: z.enum(['en', 'zh', 'auto']).optional(),
+});
+
+const ttsStatusSchema = z.object({
+  apiKey: z.string().min(1).max(200),
+});
+
+function redactTtsError(msg: string, apiKey?: string): string {
+  if (!apiKey) return msg;
+  return msg.split(apiKey).join('***');
+}
+
+router.post('/tts/synthesize', async (req: Request, res: Response) => {
+  if (isRateLimited('tts-synthesize', 5)) {
+    res.status(429).json({ success: false, error: 'Rate limit exceeded' });
+    return;
+  }
+  const body = validateBody(ttsSynthesizeSchema, req.body, res);
+  if (!body) return;
+  try {
+    const audio = await ttsSynthesize(body);
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(audio);
+  } catch (err: unknown) {
+    const msg = redactTtsError(err instanceof Error ? err.message : String(err), body.apiKey);
+    log.error('api', `TTS synthesize failed: ${msg}`);
+    res.status(500).json({ success: false, error: msg });
+  }
+});
+
+router.post('/tts/status', async (req: Request, res: Response) => {
+  const body = validateBody(ttsStatusSchema, req.body, res);
+  if (!body) return;
+  try {
+    const status = await ttsCheckApiKey(body.apiKey);
+    res.json({ success: true, data: status });
+  } catch (err: unknown) {
+    const msg = redactTtsError(err instanceof Error ? err.message : String(err), body.apiKey);
+    res.status(500).json({ success: false, error: msg });
   }
 });
 

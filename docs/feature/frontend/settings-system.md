@@ -11,7 +11,7 @@ Lets users customize every aspect of the dashboard: appearance, sounds, hooks, A
 |------|------|
 | `src/components/settings/SettingsPanel.tsx` | Modal with 6 tabs |
 | `src/components/settings/ThemeSettings.tsx` | Theme picker, character model, font, scanlines, animation |
-| `src/components/settings/SoundSettings.tsx` | Per-CLI sound profiles, ambient presets, volume controls |
+| `src/components/settings/SoundSettings.tsx` | Per-CLI sound profiles, ambient presets, volume controls, Voice (TTS) toggle + EN/zh-CN voice pickers + rate |
 | `src/components/settings/HookSettings.tsx` | Hook density, install/uninstall, auto-send, terminal theme |
 | `src/components/settings/ApiKeySettings.tsx` | API key management (Anthropic, OpenAI, Gemini) |
 | `src/components/settings/ShortcutSettings.tsx` | Rebindable keyboard shortcuts |
@@ -26,6 +26,7 @@ Lets users customize every aspect of the dashboard: appearance, sounds, hooks, A
 - 15 synthesized sounds + 'none' (no-op), 6 ambient presets
 - Font size: 10-20px, sets document.documentElement.style.fontSize
 - Import/export: JSON file download/upload, strips function keys, resetDefaults() restores all
+- TTS (voice output): 5 persisted keys — `googleTtsApiKey` (required per-user key, stored client-side only; set via `setApiKey('googleTts', …)` alongside the existing `anthropicApiKey`/`openaiApiKey`/`geminiApiKey`), `ttsEnabled` (bool, default false), `ttsVoiceEn` (default `en-US-Chirp3-HD-Aoede`), `ttsVoiceZh` (default `cmn-CN-Chirp3-HD-Aoede`), `ttsSpeakingRate` (0.5–2.0, default 1.0). Setters: `setTtsEnabled`, `setTtsVoiceEn`, `setTtsVoiceZh`, `setTtsSpeakingRate`. No ambient GCP credentials — every user configures their own key
 - useSettingsInit: runs once on startup, loads from Dexie, applies theme/font side effects, syncs volume, unlocks Web Audio
 
 ## Dependencies & Connections
@@ -38,7 +39,8 @@ Lets users customize every aspect of the dashboard: appearance, sounds, hooks, A
 
 ### Depended On By
 - [3D Cyberdrome Scene](../3d/cyberdrome-scene.md) — reads theme, characterModel, fontSize
-- [Terminal UI](./terminal-ui.md) — reads defaultTerminalTheme
+- [Terminal UI](./terminal-ui.md) — reads defaultTerminalTheme, `ttsEnabled`/`ttsVoice*`/`ttsSpeakingRate`
+- [TTS Voice Output](../multimedia/tts-voice-output.md) — reads `ttsEnabled` and voice prefs
 - ALL visual components — CSS custom properties from themes
 
 ### Shared Resources

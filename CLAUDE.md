@@ -49,7 +49,7 @@ npm run reset            # Remove hooks, clean config, backup
 | [`server/`](docs/feature/server/) | 12 | [Hook System](docs/feature/server/hook-system.md), [Session Management](docs/feature/server/session-management.md), [Session Matching](docs/feature/server/session-matching.md), [Approval Detection](docs/feature/server/approval-detection.md), [WebSocket](docs/feature/server/websocket-manager.md), [API](docs/feature/server/api-endpoints.md), [Database](docs/feature/server/database.md), [Terminal/SSH](docs/feature/server/terminal-ssh.md), [Teams](docs/feature/server/team-subagent.md), [Process Monitor](docs/feature/server/process-monitor.md), [Auth](docs/feature/server/authentication.md), [File Index Cache](docs/feature/server/file-index-cache.md) |
 | [`frontend/`](docs/feature/frontend/) | 15 | [State](docs/feature/frontend/state-management.md), [Persistence](docs/feature/frontend/client-persistence.md), [WS Client](docs/feature/frontend/websocket-client.md), [Detail Panel](docs/feature/frontend/session-detail-panel.md), [File Browser](docs/feature/frontend/file-browser.md), [Terminal UI](docs/feature/frontend/terminal-ui.md), [Settings](docs/feature/frontend/settings-system.md), [Shortcuts](docs/feature/frontend/keyboard-shortcuts.md), [Queue](docs/feature/frontend/prompt-queue.md), [Views](docs/feature/frontend/views-routing.md), [Agenda](docs/feature/frontend/agenda.md), [Workspace Snapshot](docs/feature/frontend/workspace-snapshot.md), [Setup Wizard](docs/feature/frontend/setup-wizard.md), [Auth UI](docs/feature/frontend/auth-ui.md), [Project Browser](docs/feature/frontend/project-browser.md) |
 | [`3d/`](docs/feature/3d/) | 3 | [Cyberdrome Scene](docs/feature/3d/cyberdrome-scene.md), [Robot System](docs/feature/3d/robot-system.md), [Particles/Effects](docs/feature/3d/particles-effects.md) |
-| [`multimedia/`](docs/feature/multimedia/) | 1 | [Sound & Alarm System](docs/feature/multimedia/sound-alarm-system.md) |
+| [`multimedia/`](docs/feature/multimedia/) | 2 | [Sound & Alarm System](docs/feature/multimedia/sound-alarm-system.md), [TTS Voice Output](docs/feature/multimedia/tts-voice-output.md) |
 | [`electron/`](docs/feature/electron/) | 3 | [App Lifecycle](docs/feature/electron/app-lifecycle.md), [PTY Host](docs/feature/electron/pty-host.md), [IPC Transport](docs/feature/electron/ipc-transport.md) |
 
 See [`docs/feature/README.md`](docs/feature/README.md) for the full index, dependency graph, and impact matrix.
@@ -166,6 +166,7 @@ Before modifying a feature, check what else it can break:
 | Zustand store shapes | ALL subscribing components |
 | Theme CSS variables | ALL visual components (2D + 3D), Terminal themes |
 | Electron IPC channels | Preload bridge, Terminal UI dual transport |
+| TTS / GCP API key | Settings toggle, Terminal UI hold-to-speak, `/api/tts/*` endpoints — per-user `googleTtsApiKey` stored client-side, forwarded per request. **Never** reintroduce ambient credentials (gcloud ADC / service-account files) — leaks across users |
 
 ## Key Invariants
 

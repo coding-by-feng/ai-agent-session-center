@@ -424,6 +424,7 @@ function VirtualCodeViewer({
   findTerm: vFindTerm,
   findCaseSensitive: vFindCase,
   scrollToLine,
+  activeMatch,
 }: {
   content: string;
   filePath: string;
@@ -433,6 +434,7 @@ function VirtualCodeViewer({
   findTerm?: string;
   findCaseSensitive?: boolean;
   scrollToLine?: { line: number; key: number } | null;
+  activeMatch?: { line: number; col: number } | null;
 }) {
   const lines = useMemo(() => content.split('\n'), [content]);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -515,7 +517,7 @@ function VirtualCodeViewer({
               <span className={styles.lineNum}>{lineNum}</span>
               <span className={styles.lineText}>
                 {vFindTerm
-                  ? highlightFindMatches(lines[i], vFindTerm, vFindCase ?? false)
+                  ? highlightFindMatches(lines[i], vFindTerm, vFindCase ?? false, activeMatch ?? undefined, lineNum)
                   : (lines[i] || '\u00A0')}
               </span>
             </div>
@@ -1816,6 +1818,14 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   }, []);
 
   const [findScrollTarget, setFindScrollTarget] = useState<{ line: number; key: number } | null>(null);
+  const [findActiveMatch, setFindActiveMatch] = useState<{ line: number; col: number } | null>(null);
+
+  const handleFindActiveMatchChange = useCallback(
+    (match: { line: number; col: number } | null) => {
+      setFindActiveMatch(match);
+    },
+    [],
+  );
 
   const handleFindScrollToLine = useCallback((lineNumber: number) => {
     // Virtualized view: element may not be in DOM — pass scroll target via state/props
@@ -1833,6 +1843,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     setShowFindInFile(false);
     setFindTerm('');
     setFindCaseSensitive(false);
+    setFindActiveMatch(null);
   }, []);
 
   // Listen for content search event (Cmd/Ctrl+F from keyboard shortcut handler)
@@ -2226,6 +2237,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
               onClose={handleCloseFindInFile}
               onScrollToLine={handleFindScrollToLine}
               onTermChange={handleFindTermChange}
+              onActiveMatchChange={handleFindActiveMatchChange}
             />
           )}
           <div className={styles.content} ref={splitContainerRef}>
@@ -2355,6 +2367,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                     findTerm={findTerm}
                     findCaseSensitive={findCaseSensitive}
                     scrollToLine={findScrollTarget}
+                    activeMatch={findActiveMatch}
                   />
                 ) : (
                   <div
@@ -2375,7 +2388,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                           <span className={styles.lineNum}>{lineNum}</span>
                           <span className={styles.lineText}>
                             {findTerm
-                              ? highlightFindMatches(line, findTerm, findCaseSensitive)
+                              ? highlightFindMatches(line, findTerm, findCaseSensitive, findActiveMatch ?? undefined, lineNum)
                               : (line || '\u00A0')}
                           </span>
                         </div>
@@ -2494,7 +2507,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
               ) : file.binary ? (
                 <div className={styles.empty}>Binary file ({formatSize(file.size)})</div>
               ) : (file.content || '').split('\n').length > VIRTUALIZE_THRESHOLD ? (
-                <VirtualCodeViewer content={file.content || ''} filePath={file.path} bookmarks={bookmarks} wordWrap={wordWrap} scrollKey={fileScrollKey} findTerm={findTerm} findCaseSensitive={findCaseSensitive} scrollToLine={findScrollTarget} />
+                <VirtualCodeViewer content={file.content || ''} filePath={file.path} bookmarks={bookmarks} wordWrap={wordWrap} scrollKey={fileScrollKey} findTerm={findTerm} findCaseSensitive={findCaseSensitive} scrollToLine={findScrollTarget} activeMatch={findActiveMatch} />
               ) : (
                 <div className={`${styles.codeLines}${wordWrap ? ` ${styles.codeLinesWrap}` : ''}`}>
                   {(file.content || '').split('\n').map((line, i) => (
@@ -2502,7 +2515,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                       <span className={styles.lineNum}>{i + 1}</span>
                       <span className={styles.lineText}>
                         {findTerm
-                          ? highlightFindMatches(line, findTerm, findCaseSensitive)
+                          ? highlightFindMatches(line, findTerm, findCaseSensitive, findActiveMatch ?? undefined, i + 1)
                           : (line || '\u00A0')}
                       </span>
                     </div>

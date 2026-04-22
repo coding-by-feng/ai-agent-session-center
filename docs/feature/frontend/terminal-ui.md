@@ -11,7 +11,7 @@ Interactive PTY terminal within the dashboard. Users can type commands, view out
 |------|------|
 | `src/hooks/useTerminal.ts` (~50KB, largest hook) | xterm lifecycle, dual transport, attach/detach, output buffering |
 | `src/components/terminal/TerminalContainer.tsx` | Composes toolbar + xterm + bookmarks + fullscreen overlay |
-| `src/components/terminal/TerminalToolbar.tsx` | Theme selector, buttons (ESC, paste, arrows, auto-scroll, bookmark, fork, fullscreen, reconnect) |
+| `src/components/terminal/TerminalToolbar.tsx` | Theme selector, buttons (ESC, paste, arrows, auto-scroll, bookmark, fork, mic/hold-to-speak, fullscreen, reconnect) |
 | `src/components/terminal/themes.ts` | 7 named themes + auto theme from CSS variables |
 
 ## Implementation
@@ -30,6 +30,8 @@ Interactive PTY terminal within the dashboard. Users can type commands, view out
 - Canvas repaint workaround: RAF -> save scroll -> fit -> sendResize -> refresh -> restore scroll
 - Fullscreen: reparent xterm to body portal, display toggle, toolbar duplicated, Alt+F11
 - Custom keys: Escape -> \x1b, Shift+Enter -> \x1b\n, Cmd+Alt+1-9 passthrough, Cmd+V intercepted
+- `useTerminal` exposes `readRecentText({ lines?, sinceAbsLine? }): { text, absBottom }` — reads plain text from `term.buffer.active`, strips control characters, collapses whitespace. Used by hold-to-speak TTS
+- Hold-to-speak (TTS): when `settingsStore.ttsEnabled`, the toolbar shows a mic button and `TerminalContainer` installs a capture-phase `keydown`/`keyup`/`blur` listener. Holding **Space** while focus is inside the terminal wrapper (or pointer-holding the mic) calls `ttsEngine.speak(readRecentText(...))` with the last ~20 buffer lines, then polls every 1.2s for new lines via `readRecentText({ sinceAbsLine })`. Release/blur/disable calls `ttsEngine.stop()`. See [TTS Voice Output](../multimedia/tts-voice-output.md)
 
 ## Dependencies & Connections
 
@@ -42,6 +44,7 @@ Interactive PTY terminal within the dashboard. Users can type commands, view out
 ### Depended On By
 - [Session Detail Panel](./session-detail-panel.md) — TerminalContainer in TERMINAL and COMMANDS tabs
 - [File Browser](./file-browser.md) — clickable paths in terminal open files
+- [TTS Voice Output](../multimedia/tts-voice-output.md) — consumes `readRecentText()` for hold-to-speak
 
 ### Shared Resources
 - WebSocket for terminal relay, localStorage for theme + bookmarks + scroll position, document.body classes (terminal-focused, term-fullscreen)

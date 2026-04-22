@@ -11,6 +11,8 @@ interface FindInFileBarProps {
   onScrollToLine: (lineNumber: number) => void;
   /** Expose current search term so parent can highlight matches in the code viewer */
   onTermChange: (term: string, caseSensitive: boolean) => void;
+  /** Expose the currently-focused match so parent can distinguish it visually */
+  onActiveMatchChange?: (match: { line: number; col: number } | null) => void;
 }
 
 interface MatchPosition {
@@ -23,6 +25,7 @@ export default function FindInFileBar({
   onClose,
   onScrollToLine,
   onTermChange,
+  onActiveMatchChange,
 }: FindInFileBarProps) {
   const [query, setQuery] = useState<string>('');
   const [caseSensitive, setCaseSensitive] = useState<boolean>(false);
@@ -58,12 +61,16 @@ export default function FindInFileBar({
     onTermChange(query, caseSensitive);
   }, [query, caseSensitive, onTermChange]);
 
-  // Scroll to active match
+  // Scroll to active match and notify parent of its position
   useEffect(() => {
     if (matches.length > 0 && activeIdx >= 0 && activeIdx < matches.length) {
-      onScrollToLine(matches[activeIdx].line);
+      const m = matches[activeIdx];
+      onScrollToLine(m.line);
+      onActiveMatchChange?.({ line: m.line, col: m.col });
+    } else {
+      onActiveMatchChange?.(null);
     }
-  }, [activeIdx, matches, onScrollToLine]);
+  }, [activeIdx, matches, onScrollToLine, onActiveMatchChange]);
 
   // Reset active index when matches change
   useEffect(() => {

@@ -54,6 +54,7 @@ Feature documentation organized by domain. Each doc describes function, purpose,
 | Doc | Feature | Key Files |
 |-----|---------|-----------|
 | [Sound & Alarm System](multimedia/sound-alarm-system.md) | 16 synthesized sounds, 6 ambient presets, approval/input alarms | `src/lib/soundEngine.ts`, `src/lib/ambientEngine.ts`, `src/lib/alarmEngine.ts` |
+| [TTS Voice Output](multimedia/tts-voice-output.md) | Hold-space bilingual EN+zh TTS of latest terminal output via GCP | `server/ttsManager.ts`, `src/lib/ttsEngine.ts`, `src/hooks/useTerminal.ts` |
 
 ### Electron (`electron/`)
 

@@ -91,6 +91,11 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - GET /api/health-check
 - GET /api/config (server configuration)
 
+### TTS (Google Cloud Text-to-Speech — per-user API key)
+- POST /api/tts/synthesize — body `{ apiKey, text, voiceEn?, voiceZh?, speakingRate?, lang? }`, returns `audio/mpeg` MP3 (concatenated segments for bilingual text). Rate limit: 5/sec per client; server-wide concurrency cap of 3 (see `server/ttsManager.ts`). The `apiKey` is forwarded as `?key=` to Google and redacted from any logged error.
+- POST /api/tts/status — body `{ apiKey }`, returns `{ ok, error? }`; probes the Google `voices.list` endpoint to validate the supplied key.
+- **No ambient identity** — gcloud/ADC is deliberately NOT used. Each user supplies their own API key stored client-side; the server never has an implicit credential.
+
 ### Input Validation
 - Zod schemas for ALL request bodies
 - Shell metacharacter regex for SSH fields
@@ -99,7 +104,7 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - GET /api/known-projects decodes ~/.claude/projects/ directory names with greedy filesystem probing
 
 ### Rate Limiting
-- In-memory sliding window (100/sec hooks, 2 concurrent summarize, 50 max terminals)
+- In-memory sliding window (100/sec hooks, 2 concurrent summarize, 50 max terminals, 5/sec TTS)
 
 ### str() Helper
 - Normalizes Express 5 query/param ambiguity (string | string[] | undefined)
@@ -112,6 +117,7 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - [Database](./database.md) — queries SQLite for history/analytics
 - [Authentication](./authentication.md) — auth middleware protects routes
 - [Hook System](./hook-system.md) — hook ingestion endpoint
+- [TTS Voice Output](../multimedia/tts-voice-output.md) — `ttsManager.ts` wrapped by `/api/tts/*` endpoints
 
 ### Depended On By
 - ALL frontend components that make HTTP requests

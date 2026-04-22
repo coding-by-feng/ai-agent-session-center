@@ -140,6 +140,20 @@ function RefreshIcon() {
   );
 }
 
+/** Microphone SVG icon (hold-to-speak). */
+function MicIcon({ active }: { active?: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24"
+      fill={active ? 'currentColor' : 'none'}
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="2" width="6" height="12" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0" />
+      <line x1="12" y1="18" x2="12" y2="22" />
+      <line x1="9" y1="22" x2="15" y2="22" />
+    </svg>
+  );
+}
+
 /** ESC key SVG icon. */
 function EscIcon() {
   return (
@@ -171,6 +185,11 @@ interface TerminalToolbarProps {
   onFork?: () => void;
   isFullscreen: boolean;
   showReconnect?: boolean;
+  /** Show hold-to-speak mic button (TTS enabled in settings). */
+  ttsEnabled?: boolean;
+  ttsActive?: boolean;
+  onTtsPressStart?: () => void;
+  onTtsPressEnd?: () => void;
 }
 
 export default function TerminalToolbar({
@@ -192,6 +211,10 @@ export default function TerminalToolbar({
   onFork,
   isFullscreen,
   showReconnect = false,
+  ttsEnabled = false,
+  ttsActive = false,
+  onTtsPressStart,
+  onTtsPressEnd,
 }: TerminalToolbarProps) {
   const themeOptions = useMemo<SelectOption[]>(() => [
     { value: 'auto', label: 'Auto' },
@@ -301,6 +324,19 @@ export default function TerminalToolbar({
           title="Fork session — create a new Claude session branching from this conversation"
         >
           <ForkIcon />
+        </button>
+      )}
+
+      {ttsEnabled && onTtsPressStart && onTtsPressEnd && (
+        <button
+          className={`${styles.toolbarBtn}${ttsActive ? ` ${styles.autoScrollActiveBtn}` : ''}`}
+          onPointerDown={(e) => { e.preventDefault(); onTtsPressStart(); }}
+          onPointerUp={onTtsPressEnd}
+          onPointerLeave={() => { if (ttsActive) onTtsPressEnd(); }}
+          onPointerCancel={onTtsPressEnd}
+          title="Hold to speak latest terminal output (also: hold Space while focused)"
+        >
+          <MicIcon active={ttsActive} />
         </button>
       )}
 

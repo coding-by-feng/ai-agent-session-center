@@ -201,6 +201,14 @@ interface SettingsState extends BrowserSettings {
   anthropicApiKey: string;
   openaiApiKey: string;
   geminiApiKey: string;
+  /** Per-user Google Cloud API key with Text-to-Speech API enabled. Required for hold-to-speak. */
+  googleTtsApiKey: string;
+
+  // Text-to-Speech (hold-space to speak terminal output)
+  ttsEnabled: boolean;
+  ttsVoiceEn: string;
+  ttsVoiceZh: string;
+  ttsSpeakingRate: number;
 
   // Autosave flash
   autosaveVisible: boolean;
@@ -232,7 +240,11 @@ interface SettingsState extends BrowserSettings {
   setDefaultTerminalTheme: (theme: string) => void;
   setSoundAction: (action: string, sound: string) => void;
   setMovementAction: (action: string, effect: string) => void;
-  setApiKey: (provider: 'anthropic' | 'openai' | 'gemini', key: string) => void;
+  setApiKey: (provider: 'anthropic' | 'openai' | 'gemini' | 'googleTts', key: string) => void;
+  setTtsEnabled: (enabled: boolean) => void;
+  setTtsVoiceEn: (voice: string) => void;
+  setTtsVoiceZh: (voice: string) => void;
+  setTtsSpeakingRate: (rate: number) => void;
   persistSetting: (key: string, value: unknown) => Promise<void>;
   flashAutosave: () => void;
   resetDefaults: () => void;
@@ -285,6 +297,11 @@ const defaultSettings: SettingsData = {
   anthropicApiKey: '',
   openaiApiKey: '',
   geminiApiKey: '',
+  googleTtsApiKey: '',
+  ttsEnabled: false,
+  ttsVoiceEn: 'en-US-Chirp3-HD-Aoede',
+  ttsVoiceZh: 'cmn-CN-Chirp3-HD-Aoede',
+  ttsSpeakingRate: 1.0,
   autosaveVisible: false,
 };
 
@@ -492,10 +509,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       anthropic: 'anthropicApiKey',
       openai: 'openaiApiKey',
       gemini: 'geminiApiKey',
+      googleTts: 'googleTtsApiKey',
     } as const;
     set({ [fieldMap[provider]]: key });
     get().persistSetting(fieldMap[provider], key);
   },
+
+  setTtsEnabled: (enabled) => { set({ ttsEnabled: enabled }); get().persistSetting('ttsEnabled', enabled); },
+  setTtsVoiceEn: (voice) => { set({ ttsVoiceEn: voice }); get().persistSetting('ttsVoiceEn', voice); },
+  setTtsVoiceZh: (voice) => { set({ ttsVoiceZh: voice }); get().persistSetting('ttsVoiceZh', voice); },
+  setTtsSpeakingRate: (rate) => { set({ ttsSpeakingRate: rate }); get().persistSetting('ttsSpeakingRate', rate); },
 
   // #46: Safe serializer to prevent circular reference crashes
   persistSetting: async (key, value) => {
