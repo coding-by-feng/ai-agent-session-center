@@ -311,6 +311,17 @@ export async function importSnapshot(
     if (!cfg) { failed++; processedCount++; continue; }
 
     try {
+      // When originalSessionId looks like a CLI session UUID (not a term-* placeholder
+      // for a never-re-keyed fresh session), pass it as resumeSessionId so the server
+      // rebuilds the launch command to `--resume '<UUID>'` instead of re-running the
+      // raw sshConfig.command — which for forked sessions would re-fork from the
+      // ancestor and lose all conversation done since the fork.
+      // Also requires alphanumeric+dashes/underscores per the server-side regex.
+      const originalId = sessionSnap.originalSessionId || '';
+      const looksLikeRealSessionId = !!originalId
+        && !originalId.startsWith('term-')
+        && /^[a-zA-Z0-9_-]+$/.test(originalId);
+
       const res = await fetch('/api/terminals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -327,7 +338,8 @@ export async function importSnapshot(
           enableOpsTerminal: sessionSnap.enableOpsTerminal || undefined,
           startupCommand: sessionSnap.startupCommand || undefined,
           permissionMode: sessionSnap.permissionMode || undefined,
-          originalSessionId: sessionSnap.originalSessionId || undefined,
+          originalSessionId: originalId || undefined,
+          resumeSessionId: looksLikeRealSessionId ? originalId : undefined,
           // Include metadata in creation so the first WS broadcast has them.
           // Previously these were fire-and-forget PUTs that raced with auto-save.
           pinned: sessionSnap.pinned || undefined,

@@ -25,6 +25,7 @@ So users can recreate their multi-session layout after a server restart, across 
 - **Project sub-tabs**: `ProjectSubTab` preserves per-session file-browser tabs (path, label, `customLabel`, `initialPath`, `initialIsFile`).
 - **Auto-save debounce**: store subscription → `scheduleAutoSave()` after settle. `flushSave()` is only used for explicit saves (e.g., beforeunload).
 - **Dynamic import**: `App.tsx:79` imports `flushSave` lazily to avoid pulling the module into initial bundle.
+- **Auto-resume on import**: when `originalSessionId` looks like a real CLI session UUID (matches `^[a-zA-Z0-9_-]+$` and does NOT start with `term-`), the client passes it as `resumeSessionId` to `POST /api/terminals`. The server strips any prior `--resume/--continue UUID` and `--fork-session` flags from `sshConfig.command`, applies `reconstructPermissionFlags(…, permissionMode)`, and rebuilds the launch command as `<baseCmd> --resume '<UUID>' || <baseCmd> --continue`. The terminal is spawned with an empty command (so `createTerminal` skips auto-launch) and the rebuilt command is injected via `writeWhenReady`. This ensures re-imports pick up the user's actual conversation instead of re-forking from the ancestor or starting fresh. Non-Claude commands (codex, gemini) and `term-*` originalSessionIds bypass this logic and run `sshConfig.command` verbatim.
 
 ## Dependencies & Connections
 
@@ -43,3 +44,5 @@ So users can recreate their multi-session layout after a server restart, across 
 - Changing `SessionSnapshot` shape without a version bump silently breaks `/api/workspace/load` for old snapshots
 - Dedup key change on the server can drop sessions that previously imported cleanly
 - Session ID remapping must run before room reconciliation — otherwise rooms attach to wrong sessions
+- The resume command stripping regex in `apiRouter.ts` (`POST /terminals` handler) must keep parity with the `/sessions/:id/resume` flow — adding new Claude flags (e.g., `--permission-mode`) without updating both call sites produces divergent resume behavior between the detail-panel resume button and workspace auto-load
+- `resumeSessionId` passes through Zod as alphanumeric+dashes/underscores only — any Claude session ID format change (e.g., adding dots/colons) requires updating the regex in both `terminalCreateSchema` and the client-side `looksLikeRealSessionId` check

@@ -796,6 +796,7 @@
 
 .sessionTabStrip {
   display: flex;
+  align-items: center;
   gap: 6px;
   padding: 6px 8px 5px;
   overflow-x: auto;
@@ -1090,6 +1091,44 @@
   padding: 3px 8px;
   min-width: auto;
   max-width: 100px;
+}
+
+/* ---- Room-group frame ---- */
+
+.sessionTabRoomGroup {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 10px 10px 6px;
+  border: 1.5px solid var(--room-color, var(--border-subtle));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--room-color, transparent) 7%, transparent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--room-color, transparent) 22%, transparent);
+  transition: box-shadow 0.2s;
+}
+
+.sessionTabRoomGroup:hover {
+  box-shadow: 0 0 10px color-mix(in srgb, var(--room-color, transparent) 38%, transparent);
+}
+
+.sessionTabRoomGroupLabel {
+  position: absolute;
+  top: -7px;
+  left: 10px;
+  padding: 0 4px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--room-color, var(--text-dim));
+  background: var(--bg-card, var(--bg-primary));
+  white-space: nowrap;
+  line-height: 1.4;
+  pointer-events: none;
+  z-index: 2;
 }
 
 .sessionTabCardCompact .sessionTabTitle {
