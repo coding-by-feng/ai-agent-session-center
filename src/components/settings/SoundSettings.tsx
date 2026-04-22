@@ -8,6 +8,7 @@ import {
   type SoundAction,
 } from '@/lib/soundEngine';
 import { ambientEngine } from '@/lib/ambientEngine';
+import { ttsEngine, checkTTSStatus } from '@/lib/ttsEngine';
 import type { AmbientPreset } from '@/types';
 import Select from '@/components/ui/Select';
 import type { SelectOption } from '@/components/ui/Select';
@@ -28,6 +29,30 @@ type CliTabId = (typeof CLI_TABS)[number]['id'];
 
 const SOUND_NAMES = soundEngine.getSoundNames();
 const SOUND_OPTIONS: SelectOption[] = SOUND_NAMES.map((s) => ({ value: s, label: s }));
+
+const TTS_EN_VOICES: SelectOption[] = [
+  { value: 'en-US-Chirp3-HD-Aoede', label: 'Aoede (Chirp 3 HD, female)' },
+  { value: 'en-US-Chirp3-HD-Charon', label: 'Charon (Chirp 3 HD, male)' },
+  { value: 'en-US-Chirp3-HD-Fenrir', label: 'Fenrir (Chirp 3 HD, male)' },
+  { value: 'en-US-Chirp3-HD-Kore', label: 'Kore (Chirp 3 HD, female)' },
+  { value: 'en-US-Chirp3-HD-Leda', label: 'Leda (Chirp 3 HD, female)' },
+  { value: 'en-US-Chirp3-HD-Orus', label: 'Orus (Chirp 3 HD, male)' },
+  { value: 'en-US-Chirp3-HD-Puck', label: 'Puck (Chirp 3 HD, male)' },
+  { value: 'en-US-Chirp3-HD-Zephyr', label: 'Zephyr (Chirp 3 HD, female)' },
+  { value: 'en-US-Studio-O', label: 'Studio O (female)' },
+  { value: 'en-US-Studio-Q', label: 'Studio Q (male)' },
+  { value: 'en-US-Neural2-F', label: 'Neural2 F (female)' },
+  { value: 'en-US-Neural2-D', label: 'Neural2 D (male)' },
+];
+
+const TTS_ZH_VOICES: SelectOption[] = [
+  { value: 'cmn-CN-Chirp3-HD-Aoede', label: 'Aoede (Chirp 3 HD, female)' },
+  { value: 'cmn-CN-Chirp3-HD-Charon', label: 'Charon (Chirp 3 HD, male)' },
+  { value: 'cmn-CN-Chirp3-HD-Kore', label: 'Kore (Chirp 3 HD, female)' },
+  { value: 'cmn-CN-Chirp3-HD-Puck', label: 'Puck (Chirp 3 HD, male)' },
+  { value: 'cmn-CN-Wavenet-A', label: 'Wavenet A (female)' },
+  { value: 'cmn-CN-Wavenet-B', label: 'Wavenet B (male)' },
+];
 
 const AMBIENT_PRESETS: Array<{ value: AmbientPreset; label: string }> = [
   { value: 'off', label: 'Off' },
@@ -58,6 +83,22 @@ export default function SoundSettings() {
   // Ambient settings
   const ambientSettings = useSettingsStore((s) => s.ambientSettings);
   const updateAmbientSettings = useSettingsStore((s) => s.updateAmbientSettings);
+
+  // TTS settings
+  const ttsEnabled = useSettingsStore((s) => s.ttsEnabled);
+  const ttsVoiceEn = useSettingsStore((s) => s.ttsVoiceEn);
+  const ttsVoiceZh = useSettingsStore((s) => s.ttsVoiceZh);
+  const ttsRate = useSettingsStore((s) => s.ttsSpeakingRate);
+  const googleTtsApiKey = useSettingsStore((s) => s.googleTtsApiKey);
+  const setTtsEnabled = useSettingsStore((s) => s.setTtsEnabled);
+  const setTtsVoiceEn = useSettingsStore((s) => s.setTtsVoiceEn);
+  const setTtsVoiceZh = useSettingsStore((s) => s.setTtsVoiceZh);
+  const setTtsSpeakingRate = useSettingsStore((s) => s.setTtsSpeakingRate);
+  const setApiKey = useSettingsStore((s) => s.setApiKey);
+  const [ttsStatus, setTtsStatus] = useState<{ ok: boolean; error?: string } | null>(null);
+  const [ttsPreviewBusy, setTtsPreviewBusy] = useState(false);
+  const [ttsKeyVisible, setTtsKeyVisible] = useState(false);
+  const ttsKeyConfigured = googleTtsApiKey.trim().length > 0;
 
   // Notifications
   const activityFeedVisible = useSettingsStore((s) => s.activityFeedVisible);
@@ -94,6 +135,28 @@ export default function SoundSettings() {
     ambientEngine.setVolume(volume);
   }
 
+  async function handleTtsCheckStatus() {
+    const status = await checkTTSStatus(googleTtsApiKey);
+    setTtsStatus(status);
+  }
+
+  async function handleTtsPreview() {
+    if (ttsPreviewBusy || !ttsKeyConfigured) return;
+    setTtsPreviewBusy(true);
+    try {
+      await ttsEngine.speak('Hello. 你好,这是语音预览。Ready to read your terminal output.', {
+        apiKey: googleTtsApiKey,
+        voiceEn: ttsVoiceEn,
+        voiceZh: ttsVoiceZh,
+        speakingRate: ttsRate,
+      });
+    } catch (err) {
+      setTtsStatus({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setTtsPreviewBusy(false);
+    }
+  }
+
   return (
     <div>
       {/* Master Sound Toggle + Volume */}
@@ -124,6 +187,128 @@ export default function SoundSettings() {
               {Math.round(soundVolume * 100)}%
             </span>
           </div>
+        </div>
+      </div>
+
+      {/* Voice (TTS) */}
+      <div className={styles.section}>
+        <h4>Voice (Text-to-Speech)</h4>
+        <p style={{ margin: '4px 0 10px', fontSize: 12, opacity: 0.75 }}>
+          Hold <kbd>Space</kbd> while focused on a session terminal to hear the latest output read aloud.
+          Each user supplies their own Google Cloud API key (restricted to Text-to-Speech API) — no shared credentials.{' '}
+          <a
+            href="https://console.cloud.google.com/apis/credentials"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: 'var(--accent-cyan, #3bd6c6)' }}
+          >
+            Create one in GCP Console
+          </a>.
+        </p>
+
+        {/* Per-user API key */}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+          <label style={{ fontSize: 12, opacity: 0.8, minWidth: 110 }}>Google TTS API key</label>
+          <input
+            type={ttsKeyVisible ? 'text' : 'password'}
+            value={googleTtsApiKey}
+            onChange={(e) => setApiKey('googleTts', e.target.value.trim())}
+            placeholder="AIza..."
+            spellCheck={false}
+            autoComplete="off"
+            style={{
+              flex: '1 1 260px',
+              padding: '6px 8px',
+              fontFamily: 'var(--font-mono, monospace)',
+              fontSize: 12,
+              background: 'var(--bg-elev-1, rgba(255,255,255,0.04))',
+              border: '1px solid var(--border-subtle, rgba(255,255,255,0.1))',
+              borderRadius: 4,
+              color: 'inherit',
+            }}
+          />
+          <button
+            className={styles.testBtn ?? styles.button}
+            onClick={() => setTtsKeyVisible((v) => !v)}
+            type="button"
+          >
+            {ttsKeyVisible ? 'Hide' : 'Show'}
+          </button>
+        </div>
+
+        {!ttsKeyConfigured && (
+          <div style={{ fontSize: 12, color: 'var(--accent-yellow, #ffd700)', marginBottom: 10 }}>
+            Paste your own Google Cloud API key above to use voice output. The key is stored locally in this browser only.
+          </div>
+        )}
+
+        <div className={styles.soundControls}>
+          <label className={styles.toggleLabel}>
+            <input
+              type="checkbox"
+              checked={ttsEnabled}
+              onChange={(e) => setTtsEnabled(e.target.checked)}
+              disabled={!ttsKeyConfigured}
+            />
+            <span className={styles.toggleSwitch} />
+            <span>Enable voice output</span>
+          </label>
+
+          <div className={styles.volumeControl}>
+            <span>Speaking rate</span>
+            <input
+              type="range"
+              min={0.5}
+              max={2}
+              step={0.05}
+              value={ttsRate}
+              onChange={(e) => setTtsSpeakingRate(Number(e.target.value))}
+              disabled={!ttsEnabled}
+            />
+            <span className={styles.volumeDisplay}>{ttsRate.toFixed(2)}x</span>
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 12,
+            marginTop: 12,
+            opacity: ttsEnabled ? 1 : 0.5,
+            pointerEvents: ttsEnabled ? 'auto' : 'none',
+          }}
+        >
+          <div>
+            <label style={{ fontSize: 12, opacity: 0.8 }}>English voice</label>
+            <Select value={ttsVoiceEn} onChange={setTtsVoiceEn} options={TTS_EN_VOICES} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, opacity: 0.8 }}>中文 voice</label>
+            <Select value={ttsVoiceZh} onChange={setTtsVoiceZh} options={TTS_ZH_VOICES} />
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            className={styles.testBtn ?? styles.button}
+            onClick={handleTtsPreview}
+            disabled={!ttsEnabled || ttsPreviewBusy || !ttsKeyConfigured}
+          >
+            {ttsPreviewBusy ? 'Speaking…' : 'Preview voice'}
+          </button>
+          <button
+            className={styles.testBtn ?? styles.button}
+            onClick={handleTtsCheckStatus}
+            disabled={!ttsKeyConfigured}
+          >
+            Test API key
+          </button>
+          {ttsStatus && (
+            <span style={{ fontSize: 12, opacity: 0.9, color: ttsStatus.ok ? 'var(--accent-green, #7ee787)' : 'var(--accent-red, #ff6b6b)' }}>
+              {ttsStatus.ok ? '✓ API key is valid' : `✗ ${ttsStatus.error ?? 'Invalid key'}`}
+            </span>
+          )}
         </div>
       </div>
 

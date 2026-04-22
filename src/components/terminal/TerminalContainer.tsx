@@ -8,6 +8,8 @@ import { createPortal } from 'react-dom';
 import { useTerminal } from '@/hooks/useTerminal';
 import type { TerminalBookmarkPosition } from '@/hooks/useTerminal';
 import TerminalToolbar from './TerminalToolbar';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { ttsEngine } from '@/lib/ttsEngine';
 import styles from '@/styles/modules/Terminal.module.css';
 import '@xterm/xterm/css/xterm.css';
 
@@ -88,7 +90,98 @@ export default memo(function TerminalContainer({
     jumpToBookmark,
     autoScrollEnabled,
     toggleAutoScroll,
+    readRecentText,
   } = useTerminal({ ws, themeName, projectPath });
+
+  // ---- Hold-to-speak (TTS) ----
+  const ttsEnabledSetting = useSettingsStore((s) => s.ttsEnabled);
+  const ttsApiKey = useSettingsStore((s) => s.googleTtsApiKey);
+  const ttsVoiceEn = useSettingsStore((s) => s.ttsVoiceEn);
+  const ttsVoiceZh = useSettingsStore((s) => s.ttsVoiceZh);
+  const ttsRate = useSettingsStore((s) => s.ttsSpeakingRate);
+  // Effective enable: requires both the toggle AND a configured per-user key
+  const ttsEnabled = ttsEnabledSetting && ttsApiKey.trim().length > 0;
+  const [ttsActive, setTtsActive] = useState(false);
+  const ttsActiveRef = useRef(false);
+  const ttsLastAbsRef = useRef<number>(-1);
+  const ttsPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopTts = useCallback(() => {
+    if (!ttsActiveRef.current) return;
+    ttsActiveRef.current = false;
+    setTtsActive(false);
+    ttsEngine.stop();
+    if (ttsPollRef.current) {
+      clearInterval(ttsPollRef.current);
+      ttsPollRef.current = null;
+    }
+  }, []);
+
+  const startTts = useCallback(() => {
+    if (!ttsEnabled || ttsActiveRef.current) return;
+    ttsActiveRef.current = true;
+    setTtsActive(true);
+    const opts = { apiKey: ttsApiKey, voiceEn: ttsVoiceEn, voiceZh: ttsVoiceZh, speakingRate: ttsRate };
+    // Speak the current tail immediately
+    const initial = readRecentText({ lines: 20 });
+    ttsLastAbsRef.current = initial.absBottom;
+    if (initial.text) {
+      ttsEngine.speak(initial.text, opts).catch(() => { /* swallowed; stop() will clean */ });
+    }
+    // Then poll for new lines every 1.2s while held
+    ttsPollRef.current = setInterval(() => {
+      if (!ttsActiveRef.current) return;
+      const snap = readRecentText({ sinceAbsLine: ttsLastAbsRef.current });
+      if (snap.absBottom > ttsLastAbsRef.current && snap.text) {
+        ttsLastAbsRef.current = snap.absBottom;
+        ttsEngine.speak(snap.text, opts).catch(() => { /* ignore */ });
+      } else {
+        ttsLastAbsRef.current = snap.absBottom;
+      }
+    }, 1200);
+  }, [ttsEnabled, ttsApiKey, ttsVoiceEn, ttsVoiceZh, ttsRate, readRecentText]);
+
+  // Spacebar hold triggers TTS while focus is inside this terminal wrapper
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!ttsEnabled) return;
+    const isInRoot = (el: EventTarget | null): boolean => {
+      if (!(el instanceof Node)) return false;
+      return !!rootRef.current && rootRef.current.contains(el);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || e.repeat) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      // Ignore when typing in an input or when xterm itself has focus and is capturing
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      if (!isInRoot(target)) return;
+      e.preventDefault();
+      startTts();
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return;
+      if (ttsActiveRef.current) {
+        e.preventDefault();
+        stopTts();
+      }
+    };
+    const onBlur = () => stopTts();
+    window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('keyup', onKeyUp, true);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('keyup', onKeyUp, true);
+      window.removeEventListener('blur', onBlur);
+      stopTts();
+    };
+  }, [ttsEnabled, startTts, stopTts]);
+
+  // Stop TTS if it becomes disabled mid-playback
+  useEffect(() => {
+    if (!ttsEnabled) stopTts();
+  }, [ttsEnabled, stopTts]);
 
   // Attach/detach when terminalId changes
   useEffect(() => {
@@ -300,7 +393,7 @@ export default memo(function TerminalContainer({
   }
 
   return (
-    <div className={styles.wrapper}>
+    <div className={styles.wrapper} ref={rootRef}>
       <TerminalToolbar
         themeName={themeName}
         onThemeChange={handleThemeChange}
@@ -320,6 +413,10 @@ export default memo(function TerminalContainer({
         onFork={onFork}
         isFullscreen={isFullscreen}
         showReconnect={showReconnect || (isClosed && !!onReconnect)}
+        ttsEnabled={ttsEnabled}
+        ttsActive={ttsActive}
+        onTtsPressStart={startTts}
+        onTtsPressEnd={stopTts}
       />
       <div className={styles.terminalArea} style={{ position: 'relative' }}>
         {isClosed && onReconnect && (

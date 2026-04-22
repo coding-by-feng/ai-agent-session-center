@@ -87,6 +87,8 @@ interface UseTerminalReturn {
   autoScrollEnabled: boolean;
   /** Toggle auto-scroll-to-bottom on new output. */
   toggleAutoScroll: () => void;
+  /** Read plain text from the terminal buffer. Returns current bottom baseY and the text of the last `lines` absolute lines (or all lines since `sinceAbsLine` if provided). */
+  readRecentText: (options?: { lines?: number; sinceAbsLine?: number }) => { text: string; absBottom: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -1229,6 +1231,36 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
+  const readRecentText = useCallback((options?: { lines?: number; sinceAbsLine?: number }): { text: string; absBottom: number } => {
+    const active = activeRef.current;
+    if (!active) return { text: '', absBottom: 0 };
+    const { term } = active;
+    const buf = term.buffer.active;
+    const absBottom = buf.baseY + term.rows; // one past the last line
+    const lineCount = options?.lines ?? 30;
+    let absStart: number;
+    if (typeof options?.sinceAbsLine === 'number') {
+      absStart = Math.max(0, options.sinceAbsLine);
+    } else {
+      absStart = Math.max(0, absBottom - lineCount);
+    }
+    const parts: string[] = [];
+    for (let abs = absStart; abs < absBottom; abs++) {
+      const line = buf.getLine(abs);
+      if (!line) continue;
+      parts.push(line.translateToString(true));
+    }
+    // Strip control characters and collapse whitespace
+    const text = parts
+      .join('\n')
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, '')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+    return { text, absBottom };
+  }, []);
+
   return {
     containerRef,
     attach,
@@ -1257,5 +1289,6 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     jumpToBookmark,
     autoScrollEnabled,
     toggleAutoScroll,
+    readRecentText,
   };
 }
