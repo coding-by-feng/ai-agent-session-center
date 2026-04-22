@@ -8,7 +8,7 @@ import { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import type { Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
-import { useRoomStore } from '@/stores/roomStore';
+import { useRoomStore, type Room } from '@/stores/roomStore';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -26,6 +26,28 @@ const STATUS_ORDER: Record<string, number> = {
   working: 0, prompting: 1, approval: 2, input: 2,
   waiting: 3, idle: 4, connecting: 5, ended: 6,
 };
+
+// One color per room slot — cycles if more than 8 rooms exist.
+// Must match the palette in HeaderAgentStrip so colors agree across the UI.
+const ROOM_COLOR_PALETTE = [
+  'var(--accent-orange)',
+  '#4a9eff',
+  'var(--accent-green)',
+  'var(--accent-purple)',
+  'var(--accent-yellow)',
+  '#ff69b4',
+  'var(--accent-cyan)',
+  '#ff7043',
+];
+
+function getRoomColor(room: Room): string {
+  const index = ((room.roomIndex ?? 0) % ROOM_COLOR_PALETTE.length + ROOM_COLOR_PALETTE.length) % ROOM_COLOR_PALETTE.length;
+  return ROOM_COLOR_PALETTE[index];
+}
+
+type TabRenderItem =
+  | { type: 'session'; session: Session }
+  | { type: 'room'; room: Room; sessions: Session[]; color: string };
 
 /** Detect CLI tool from session command */
 function getCliBadge(session: Session): string | null {
@@ -195,6 +217,41 @@ export default function SessionSwitcher({
     return sortedSessions.filter((s) => allowedIds.has(s.sessionId));
   }, [sortedSessions, selectedRoomIds, rooms]);
 
+  // Group same-room sessions into a room-colored frame. Room frames appear
+  // where their first (highest-priority) session would appear in the flat list;
+  // orphan sessions (no room) render inline as bare cards.
+  const tabRenderItems = useMemo((): TabRenderItem[] => {
+    const sessionToRoom = new Map<string, Room>();
+    for (const room of rooms) {
+      for (const sid of room.sessionIds) {
+        sessionToRoom.set(sid, room);
+      }
+    }
+
+    const processedRooms = new Set<string>();
+    const seenSessions = new Set<string>();
+    const items: TabRenderItem[] = [];
+
+    for (const session of filteredSessions) {
+      if (seenSessions.has(session.sessionId)) continue;
+      seenSessions.add(session.sessionId);
+
+      const room = sessionToRoom.get(session.sessionId);
+      if (room && !processedRooms.has(room.id)) {
+        processedRooms.add(room.id);
+        const roomSessions = filteredSessions.filter((s) =>
+          room.sessionIds.includes(s.sessionId),
+        );
+        roomSessions.forEach((s) => seenSessions.add(s.sessionId));
+        items.push({ type: 'room', room, sessions: roomSessions, color: getRoomColor(room) });
+      } else if (!room) {
+        items.push({ type: 'session', session });
+      }
+    }
+
+    return items;
+  }, [filteredSessions, rooms]);
+
   const selectedRoomNames = useMemo(() => {
     if (selectedRoomIds.size === 0) return '';
     return [...selectedRoomIds]
@@ -317,16 +374,40 @@ export default function SessionSwitcher({
       {/* ── Session tab strip ── */}
       {filteredSessions.length > 0 && (
         <div className={styles.sessionTabStrip}>
-          {filteredSessions.map((s) => (
-            <SessionTabCard
-              key={s.sessionId}
-              session={s}
-              onSwitch={handleSwitch}
-              isCompact={isCompact}
-              index={sessionIndexMap.get(s.sessionId) ?? 0}
-              needsAttention={attentionIds.has(s.sessionId)}
-            />
-          ))}
+          {tabRenderItems.map((item) => {
+            if (item.type === 'room') {
+              return (
+                <div
+                  key={item.room.id}
+                  className={styles.sessionTabRoomGroup}
+                  style={{ '--room-color': item.color } as React.CSSProperties}
+                  title={item.room.name}
+                >
+                  <span className={styles.sessionTabRoomGroupLabel}>{item.room.name}</span>
+                  {item.sessions.map((s) => (
+                    <SessionTabCard
+                      key={s.sessionId}
+                      session={s}
+                      onSwitch={handleSwitch}
+                      isCompact={isCompact}
+                      index={sessionIndexMap.get(s.sessionId) ?? 0}
+                      needsAttention={attentionIds.has(s.sessionId)}
+                    />
+                  ))}
+                </div>
+              );
+            }
+            return (
+              <SessionTabCard
+                key={item.session.sessionId}
+                session={item.session}
+                onSwitch={handleSwitch}
+                isCompact={isCompact}
+                index={sessionIndexMap.get(item.session.sessionId) ?? 0}
+                needsAttention={attentionIds.has(item.session.sessionId)}
+              />
+            );
+          })}
         </div>
       )}
     </div>

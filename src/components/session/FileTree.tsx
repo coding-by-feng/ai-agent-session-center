@@ -528,15 +528,6 @@ const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileTree({
 
     refreshingRef.current = true;
 
-    const openDirIds: string[] = [];
-    if (treeRef.current) {
-      for (const dirId of prevLoaded) {
-        if (dirId === '/') continue;
-        const node = treeRef.current.get(dirId);
-        if (node?.isOpen) openDirIds.push(dirId);
-      }
-    }
-
     try {
       const { items: rootItems } = await provider.listDir(projectPath, '/', showHidden);
       let nodes = entriesToNodes(rootItems, '/');
@@ -564,6 +555,19 @@ const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileTree({
             isLoading: false,
             children,
           }));
+        }
+      }
+
+      // Capture open state AFTER API calls complete so any user interactions
+      // during the async window (e.g. collapseAll) are reflected correctly.
+      // Reading before the await would snapshot stale state and re-open dirs
+      // the user explicitly collapsed.
+      const openDirIds: string[] = [];
+      if (treeRef.current) {
+        for (const dirId of newLoaded) {
+          if (dirId === '/') continue;
+          const node = treeRef.current.get(dirId);
+          if (node?.isOpen) openDirIds.push(dirId);
         }
       }
 
@@ -632,7 +636,7 @@ const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileTree({
           treeRef.current.open(dirId);
         }
         requestAnimationFrame(() => {
-          if (cancelled || !treeRef.current) return;
+          if (cancelled || !treeRef.current || !activeFilePath) return;
           treeRef.current.scrollTo(activeFilePath);
         });
       });

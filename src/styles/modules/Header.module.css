@@ -158,8 +158,8 @@
   gap: 6px;
   flex: 1;
   justify-content: center;
-  padding: 0 12px;
-  overflow: hidden;
+  padding: 8px 12px 0;
+  overflow: visible;
 }
 
 .miniRobot {
@@ -351,6 +351,44 @@
   border-color: var(--accent-cyan);
   color: var(--accent-cyan);
   box-shadow: 0 0 8px var(--glow-accent);
+}
+
+/* ---- Room group frame ---- */
+
+.roomGroup {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1.5px solid var(--room-color, var(--border-subtle));
+  border-radius: 18px;
+  position: relative;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--room-color, transparent) 6%, transparent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--room-color, transparent) 20%, transparent);
+  transition: box-shadow 0.2s;
+}
+
+.roomGroup:hover {
+  box-shadow: 0 0 10px color-mix(in srgb, var(--room-color, transparent) 35%, transparent);
+}
+
+.roomGroupLabel {
+  position: absolute;
+  top: -8px;
+  left: 10px;
+  font-family: var(--font-mono);
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--room-color, var(--text-dim));
+  background: var(--bg-header, var(--bg-primary));
+  padding: 0 3px;
+  white-space: nowrap;
+  line-height: 1.4;
+  pointer-events: none;
+  z-index: 1;
 }
 
 /* ---- Workspace export/import menu ---- */

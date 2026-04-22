@@ -102,6 +102,17 @@ const terminalCreateSchema = z.object({
   permissionMode: z.string().max(100).optional(),
   /** Original session ID from workspace snapshot — used for exact-match dedup on restart */
   originalSessionId: z.string().max(200).optional(),
+  /**
+   * Claude session UUID to resume on restart. When provided and the base command is Claude,
+   * the server rebuilds the launch command as `<baseCmd> --resume '<UUID>' || <baseCmd> --continue`
+   * so the user picks up their actual conversation instead of forking/starting fresh.
+   * Must be alphanumeric + dashes/underscores (no shell metacharacters).
+   */
+  resumeSessionId: z
+    .string()
+    .max(200)
+    .regex(/^[a-zA-Z0-9_-]+$/, 'resumeSessionId contains invalid characters')
+    .optional(),
   /** Effort level to auto-apply after Claude Code starts */
   effortLevel: z.enum(['min', 'low', 'medium', 'high', 'max']).optional(),
   /** Model to auto-apply after Claude Code starts */
@@ -960,7 +971,38 @@ router.post('/terminals', async (req: Request, res: Response) => {
       }
     }
 
-    const terminalId = await createTerminal(config, null);
+    // Workspace restore resume: rebuild the Claude launch command to --resume the
+    // actual conversation UUID instead of blindly re-running sshConfig.command
+    // (which could fork a fresh session or re-fork from the ancestor, losing work).
+    // Only applies when resumeSessionId is a real Claude UUID (not a term-* id) and
+    // the base command is a Claude CLI invocation.
+    const resumeId = body.resumeSessionId;
+    let resumeLaunchCmd: string | null = null;
+    if (
+      resumeId
+      && !resumeId.startsWith('term-')
+      && /(?:^|\/)claude(?:\s|$)/.test(config.command || 'claude')
+    ) {
+      const baseCmdStripped = (config.command || 'claude')
+        .replace(/^(\S*\/)claude/, 'claude')
+        .replace(/\s+--(?:resume|continue)\s+'[^']*'/g, '')
+        .replace(/\s+--(?:resume|continue)\s+[a-f0-9-]+/gi, '')
+        .replace(/\s+--(?:resume|continue)\b/g, '')
+        .replace(/\s+--fork-session\b/g, '')
+        .trim();
+      const baseCmd = reconstructPermissionFlags(baseCmdStripped || 'claude', body.permissionMode);
+      const safeId = resumeId.replace(/'/g, "'\\''");
+      resumeLaunchCmd = `${baseCmd} --resume '${safeId}' || ${baseCmd} --continue`;
+    }
+
+    // When resuming, spawn terminal with empty command so createTerminal skips
+    // auto-launch (the resume command contains `||` which can't pass shell-metachar
+    // validation). We write the actual launch command via writeWhenReady below,
+    // after the shell is ready.
+    const terminalConfig: TerminalConfig = resumeLaunchCmd
+      ? { ...config, command: '' }
+      : config;
+    const terminalId = await createTerminal(terminalConfig, null);
 
     // Create ops terminal (blank shell for manual commands) if requested
     let opsTerminalId: string | undefined;
@@ -974,7 +1016,10 @@ router.post('/terminals', async (req: Request, res: Response) => {
       opsTerminalId = await createTerminal(opsConfig, null);
     }
 
-    // Create session card immediately so it appears in the dashboard
+    // Create session card immediately so it appears in the dashboard.
+    // Always store the ORIGINAL `config` (including the snapshot's `sshConfig.command`)
+    // so subsequent auto-saves export the same command — not the transient empty
+    // command we pass to createTerminal during resume.
     await createTerminalSession(terminalId, config, opsTerminalId);
 
     // Register alias so subsequent workspace import calls can dedup by originalSessionId.
@@ -982,6 +1027,20 @@ router.post('/terminals', async (req: Request, res: Response) => {
     // (e.g. "Other Task" and "Email Tracker" both in ~/) would be incorrectly collapsed.
     if (body.originalSessionId) {
       registerSessionAlias(body.originalSessionId, terminalId);
+    }
+
+    // Inject the resume command once the shell is ready.
+    // For remote SSH sessions, prepend `cd` + AGENT_MANAGER_TERMINAL_ID export since
+    // SSH doesn't forward env vars and createTerminal skipped its own prefix.
+    if (resumeLaunchCmd && resumeId) {
+      const isRemote = !!(config.host && config.host !== 'localhost' && config.host !== '127.0.0.1');
+      let prefix = '';
+      if (isRemote) {
+        prefix += `export AGENT_MANAGER_TERMINAL_ID='${terminalId.replace(/'/g, "'\\''")}' && `;
+        if (config.workingDir) prefix += `cd '${config.workingDir.replace(/'/g, "'\\''")}' && `;
+      }
+      writeWhenReady(terminalId, `${prefix}${resumeLaunchCmd}\r`);
+      log.info('api', `Workspace resume: ${resumeId.slice(0, 8)} → terminal ${terminalId.slice(0, 16)} (${resumeLaunchCmd.slice(0, 120)}${resumeLaunchCmd.length > 120 ? '…' : ''})`);
     }
 
     res.json({ ok: true, terminalId });
