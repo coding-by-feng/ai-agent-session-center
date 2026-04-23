@@ -29,7 +29,13 @@ Lets the user track tasks alongside AI coding sessions without leaving the dashb
 - **Priority order**: urgent > high > medium > low (used by `sortBy: 'priority'`).
 - **Optimistic updates**: createTask inserts a `temp-{timestamp}` entry, swaps to real id on success; failures roll back.
 - **Filter state**: lives in store, not URL — lost on reload.
-- **Default filter**: `showCompleted: false`, `sortBy: 'priority'`.
+- **Default filter**: `showCompleted: false`, `sortBy: 'priority'`, `tag: 'all'`.
+- **Filter bar controls** (`AgendaFilterBar.tsx`):
+  - Search input (200ms debounce) — matches title + description.
+  - Priority `<select>` — `all | urgent | high | medium | low`.
+  - Tag `<select>` — `all` plus every distinct tag collected from loaded tasks (sorted alphabetically, rendered as `#tag`). Disabled when no task has any tag. A task passes the tag filter when its `tags` array includes the selected tag (`task.tags.includes(tag)` in `AgendaView.matchesFilter`).
+  - Sort `<select>` — `priority | dueDate | createdAt`.
+  - Show completed checkbox — reveals the collapsible Completed group.
 
 ## Dependencies & Connections
 

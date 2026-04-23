@@ -636,6 +636,57 @@ router.post('/sessions/:id/fork', async (req: Request, res: Response) => {
   }
 });
 
+// Clone a session: create a new terminal running the same startupCommand + config.
+router.post('/sessions/:id/clone', async (req: Request, res: Response) => {
+  const sessionId = str(req.params.id);
+  const session = getSession(sessionId);
+  if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
+
+  try {
+    const cfg = session.sshConfig;
+    const baseCmd = session.startupCommand || cfg?.command || 'claude';
+    const cloneCmd = reconstructPermissionFlags(baseCmd, session.permissionMode);
+
+    if (cfg && cfg.username) {
+      const newConfig: TerminalConfig = { ...cfg, workingDir: cfg.workingDir || '~', command: '' };
+      const newTerminalId = await createTerminal(newConfig, null);
+      consumePendingLink(newConfig.workingDir || session.projectPath || '');
+      await createTerminalSession(newTerminalId, {
+        ...newConfig,
+        command: cloneCmd,
+        sessionTitle: `Clone of ${session.title || session.projectName}`,
+      });
+      const isRemote = cfg.host && cfg.host !== 'localhost' && cfg.host !== '127.0.0.1';
+      let prefix = '';
+      if (isRemote) {
+        prefix += `export AGENT_MANAGER_TERMINAL_ID='${newTerminalId}' && `;
+        if (cfg.workingDir) prefix += `cd '${cfg.workingDir}' && `;
+      }
+      writeWhenReady(newTerminalId, `${prefix}${cloneCmd}\r`);
+      res.json({ ok: true, terminalId: newTerminalId });
+    } else {
+      const newConfig: TerminalConfig = {
+        host: 'localhost',
+        workingDir: session.projectPath || '~',
+        command: '',
+      };
+      const newTerminalId = await createTerminal(newConfig, null);
+      consumePendingLink(newConfig.workingDir || session.projectPath || '');
+      await createTerminalSession(newTerminalId, {
+        ...newConfig,
+        command: cloneCmd,
+        sessionTitle: `Clone of ${session.title || session.projectName}`,
+      });
+      writeWhenReady(newTerminalId, `${cloneCmd}\r`);
+      res.json({ ok: true, terminalId: newTerminalId });
+    }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('api', `Clone session failed: ${msg}`);
+    res.status(500).json({ error: 'Failed to clone session' });
+  }
+});
+
 // Reconnect (or create) the ops terminal for a session.
 // Creates a new blank shell in the session's project directory.
 router.post('/sessions/:id/reconnect-ops-terminal', async (req: Request, res: Response) => {
@@ -1900,6 +1951,51 @@ router.post('/files/search/invalidate', (req: Request, res: Response) => {
   const root = str(req.body?.root);
   if (root) invalidateCache(root);
   res.json({ ok: true });
+});
+
+/**
+ * GET /api/files/resolve?path=<absoluteOrTilde>
+ * Expands `~`, resolves to an absolute path, classifies as file/dir,
+ * and returns the suggested project root + relative path so the
+ * client can open it in the file browser.
+ */
+router.get('/files/resolve', (req: Request, res: Response) => {
+  const raw = str(req.query.path).trim();
+  if (!raw) { res.status(400).json({ error: 'path required' }); return; }
+
+  // Expand `~` and `~/` to homedir
+  let expanded = raw;
+  if (expanded === '~') expanded = homedir();
+  else if (expanded.startsWith('~/')) expanded = join(homedir(), expanded.slice(2));
+
+  if (!expanded.startsWith('/') && !/^[A-Z]:\\/.test(expanded)) {
+    res.status(400).json({ error: 'Path must be absolute (or start with ~)' });
+    return;
+  }
+
+  const absolute = resolve(expanded);
+  if (!existsSync(absolute)) {
+    res.status(404).json({ error: 'Path does not exist', absolute });
+    return;
+  }
+
+  let kind: 'file' | 'dir';
+  try {
+    kind = statSync(absolute).isDirectory() ? 'dir' : 'file';
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: `stat failed: ${msg}` });
+    return;
+  }
+
+  const root = kind === 'dir' ? absolute : dirname(absolute);
+  if (!isAllowedProjectRoot(root)) {
+    res.status(403).json({ error: 'Path is in a restricted location', absolute });
+    return;
+  }
+
+  const rel = kind === 'file' ? '/' + basename(absolute) : '/';
+  res.json({ absolute, kind, root, rel });
 });
 
 /** POST /api/files/reveal — open path in native file explorer (Finder / Explorer) */

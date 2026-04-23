@@ -47,6 +47,13 @@ export interface GrepResult {
   truncated: boolean;
 }
 
+export interface ResolvedPath {
+  absolute: string;
+  kind: 'file' | 'dir';
+  root: string;
+  rel: string;
+}
+
 export interface FileSystemProvider {
   readonly kind: 'api' | 'local';
 
@@ -63,6 +70,8 @@ export interface FileSystemProvider {
   grepContent(projectRoot: string, query: string, glob?: string): Promise<GrepResult>;
   reveal(projectRoot: string, relPath: string): Promise<void>;
   invalidateSearchCache(projectRoot: string): Promise<void>;
+  /** Resolve an absolute (or `~/...`) path to its canonical form + suggested browser root. */
+  resolvePath(rawPath: string): Promise<ResolvedPath>;
 }
 
 // ---------------------------------------------------------------------------
@@ -214,6 +223,16 @@ export class ApiFileSystemProvider implements FileSystemProvider {
       body: JSON.stringify({ root: projectRoot }),
     }).catch(() => {});
   }
+
+  async resolvePath(rawPath: string): Promise<ResolvedPath> {
+    const params = new URLSearchParams({ path: rawPath });
+    const res = await fetch(`/api/files/resolve?${params}`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(data.error || 'Failed to resolve path');
+    }
+    return res.json();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -261,7 +280,7 @@ export class LocalFileSystemProvider implements FileSystemProvider {
     return h;
   }
 
-  private async resolvePath(root: FileSystemDirectoryHandle, relPath: string): Promise<FileSystemDirectoryHandle | FileSystemFileHandle> {
+  private async resolveHandle(root: FileSystemDirectoryHandle, relPath: string): Promise<FileSystemDirectoryHandle | FileSystemFileHandle> {
     const parts = relPath.replace(/^\/+/, '').split('/').filter(Boolean);
     let current: FileSystemDirectoryHandle = root;
     for (let i = 0; i < parts.length - 1; i++) {
@@ -315,7 +334,7 @@ export class LocalFileSystemProvider implements FileSystemProvider {
 
   async readFile(projectRoot: string, relPath: string): Promise<FileContent> {
     const root = this.getHandle(projectRoot);
-    const handle = await this.resolvePath(root, relPath) as FileSystemFileHandle;
+    const handle = await this.resolveHandle(root, relPath) as FileSystemFileHandle;
     const file = await handle.getFile();
     const name = file.name;
     const ext = extOf(name).replace('.', '');
@@ -406,6 +425,11 @@ export class LocalFileSystemProvider implements FileSystemProvider {
   async invalidateSearchCache(projectRoot: string) {
     const api = new ApiFileSystemProvider();
     return api.invalidateSearchCache(projectRoot);
+  }
+
+  async resolvePath(rawPath: string): Promise<ResolvedPath> {
+    const api = new ApiFileSystemProvider();
+    return api.resolvePath(rawPath);
   }
 }
 

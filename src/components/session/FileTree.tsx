@@ -52,6 +52,12 @@ interface FileTreeProps {
   activeFilePath?: string | null;
   /** Search term passed to react-arborist for filtering */
   searchTerm?: string;
+  /**
+   * Called when the user requests deletion of a node via the per-row trash
+   * icon or Cmd/Ctrl+Delete (Backspace) on the focused row. The parent is
+   * expected to confirm with the user before calling the delete API.
+   */
+  onRequestDelete?: (relPath: string, name: string, isDir: boolean) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -150,28 +156,50 @@ function findNodeById(nodes: TreeNode[], targetId: string): TreeNode | null {
 // Node renderer
 // ---------------------------------------------------------------------------
 
-function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
-  const data = node.data;
-  const isActive = node.isSelected;
+const isMacPlatform = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
 
-  return (
-    <div
-      ref={dragHandle}
-      style={style}
-      className={`${styles.node} ${isActive ? styles.nodeActive : ''} ${node.state.isFocused ? styles.nodeFocused : ''}`}
-      onClick={() => node.isInternal ? node.toggle() : node.activate()}
-    >
-      {node.isInternal && (
-        <span className={`${styles.arrow} ${node.isOpen ? styles.arrowOpen : ''}`}>
-          {'\u25B6'}
-        </span>
-      )}
-      {node.isLeaf && <span className={styles.arrowSpacer} />}
-      <span className={styles.icon}>{fileIcon(data.name, data.isDir)}</span>
-      <span className={styles.name} title={data.name}>{data.name}</span>
-      {data.isLoading && <span className={styles.spinner}>...</span>}
-    </div>
-  );
+type DeleteRequester = (relPath: string, name: string, isDir: boolean) => void;
+
+function makeNodeRenderer(onRequestDelete?: DeleteRequester) {
+  return function Node({ node, style, dragHandle }: NodeRendererProps<TreeNode>) {
+    const data = node.data;
+    const isActive = node.isSelected;
+
+    return (
+      <div
+        ref={dragHandle}
+        style={style}
+        className={`${styles.node} ${isActive ? styles.nodeActive : ''} ${node.state.isFocused ? styles.nodeFocused : ''}`}
+        onClick={() => node.isInternal ? node.toggle() : node.activate()}
+      >
+        {node.isInternal && (
+          <span className={`${styles.arrow} ${node.isOpen ? styles.arrowOpen : ''}`}>
+            {'\u25B6'}
+          </span>
+        )}
+        {node.isLeaf && <span className={styles.arrowSpacer} />}
+        <span className={styles.icon}>{fileIcon(data.name, data.isDir)}</span>
+        <span className={styles.name} title={data.name}>{data.name}</span>
+        {data.isLoading && <span className={styles.spinner}>...</span>}
+        {onRequestDelete && (
+          <button
+            type="button"
+            className={styles.deleteBtn}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRequestDelete(node.id, data.name, data.isDir);
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            title={`Delete ${data.isDir ? 'folder' : 'file'} (${isMacPlatform ? 'Cmd' : 'Ctrl'}+Del)`}
+            aria-label={`Delete ${data.name}`}
+            tabIndex={-1}
+          >
+            {'\u{1F5D1}'}
+          </button>
+        )}
+      </div>
+    );
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -186,6 +214,7 @@ const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileTree({
   height: externalHeight,
   activeFilePath,
   searchTerm,
+  onRequestDelete,
 }, ref) {
   const [treeData, setTreeData] = useState<TreeNode[]>([]);
   const [loading, setLoading] = useState(true);
@@ -646,8 +675,39 @@ const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileTree({
     return () => { cancelled = true; };
   }, [activeFilePath, projectPath, showHidden, provider]);
 
+  // Bind onRequestDelete into the Node renderer so per-row trash buttons work.
+  const nodeRenderer = useMemo(
+    () => makeNodeRenderer(onRequestDelete),
+    [onRequestDelete],
+  );
+
+  // Cmd/Ctrl + Delete (or Backspace on macOS) on the focused row fires the
+  // delete request. The parent component owns confirmation + actual deletion.
+  const handleTreeKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!onRequestDelete) return;
+      const hasMod = e.metaKey || e.ctrlKey;
+      const isDeleteKey = e.key === 'Delete' || e.key === 'Backspace';
+      if (!hasMod || !isDeleteKey) return;
+
+      const api = treeRef.current;
+      if (!api) return;
+      const focused = api.focusedNode ?? api.selectedNodes[0] ?? null;
+      if (!focused) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      onRequestDelete(focused.id, focused.data.name, focused.data.isDir);
+    },
+    [onRequestDelete],
+  );
+
   return (
-    <div ref={containerRef} className={styles.container}>
+    <div
+      ref={containerRef}
+      className={styles.container}
+      onKeyDown={handleTreeKeyDown}
+    >
       {error ? (
         <div className={styles.error}>{error}</div>
       ) : loading && treeData.length === 0 ? (
@@ -676,7 +736,7 @@ const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileTree({
           className={styles.tree}
           rowClassName={styles.row}
         >
-          {Node}
+          {nodeRenderer}
         </Tree>
       )}
     </div>

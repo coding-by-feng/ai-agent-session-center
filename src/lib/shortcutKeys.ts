@@ -23,6 +23,13 @@ function sw(key: string): KeyCombo {
     : { key, altKey: true, ctrlKey: true };
 }
 
+/** Build a tab-switch KeyCombo: Cmd+Shift+N on macOS, Ctrl+Shift+N elsewhere. */
+function tb(key: string): KeyCombo {
+  return isMac
+    ? { key, shiftKey: true, metaKey: true }
+    : { key, shiftKey: true, ctrlKey: true };
+}
+
 const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
   toggleFullscreen:           { label: 'Toggle fullscreen',             section: 'Terminal',      combo: { key: 'F11', altKey: true } },
   scrollToBottom:             { label: 'Scroll to bottom',              section: 'Terminal',      combo: isMac ? { key: 'b', altKey: true, metaKey: true } : { key: 'b', altKey: true, ctrlKey: true } },
@@ -36,6 +43,13 @@ const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
   switchSession7:             { label: 'Switch to session 7',           section: 'Session Switch', combo: sw('7') },
   switchSession8:             { label: 'Switch to session 8',           section: 'Session Switch', combo: sw('8') },
   switchSession9:             { label: 'Switch to session 9',           section: 'Session Switch', combo: sw('9') },
+  // Detail panel tabs
+  switchTabProject:           { label: 'Switch to Project tab',         section: 'Detail Tabs',    combo: tb('1') },
+  switchTabTerminal:          { label: 'Switch to Terminal tab',        section: 'Detail Tabs',    combo: tb('2') },
+  switchTabCommands:          { label: 'Switch to Commands tab',        section: 'Detail Tabs',    combo: tb('3') },
+  switchTabPrompts:           { label: 'Switch to Prompts tab',         section: 'Detail Tabs',    combo: tb('4') },
+  switchTabNotes:             { label: 'Switch to Notes tab',           section: 'Detail Tabs',    combo: tb('5') },
+  switchTabQueue:             { label: 'Switch to Queue tab',           section: 'Detail Tabs',    combo: tb('6') },
   // File Browser — all unbound by default
   fileBrowserSearch:          { label: 'Search files',                  section: 'File Browser',  combo: null },
   fileBrowserNewFile:         { label: 'New file',                      section: 'File Browser',  combo: null },
@@ -60,6 +74,8 @@ export const ACTION_IDS: ShortcutActionId[] = [
   'switchSession1', 'switchSession2', 'switchSession3',
   'switchSession4', 'switchSession5', 'switchSession6',
   'switchSession7', 'switchSession8', 'switchSession9',
+  'switchTabProject', 'switchTabTerminal', 'switchTabCommands',
+  'switchTabPrompts', 'switchTabNotes', 'switchTabQueue',
   'fileBrowserSearch', 'fileBrowserNewFile', 'fileBrowserNewFolder',
   'fileBrowserRefresh', 'fileBrowserOpenNewTab', 'fileBrowserFormat',
   'fileBrowserToggleOutline', 'fileBrowserToggleBookmark', 'fileBrowserToggleWordWrap',
@@ -68,7 +84,7 @@ export const ACTION_IDS: ShortcutActionId[] = [
 ];
 
 /** Section display order. */
-export const SECTION_ORDER = ['Session Switch', 'Terminal', 'File Browser'];
+export const SECTION_ORDER = ['Session Switch', 'Detail Tabs', 'Terminal', 'File Browser'];
 
 /** Build ShortcutBinding[] from defaults + optional overrides. */
 export function buildBindings(
@@ -134,10 +150,14 @@ export function comboEquals(a: KeyCombo | null, b: KeyCombo | null): boolean {
 /** Check if a KeyboardEvent matches a KeyCombo binding. Returns false for null combos. */
 export function comboMatchesEvent(combo: KeyCombo | null, e: KeyboardEvent): boolean {
   if (combo === null) return false;
-  // On macOS, Alt+digit produces special characters (e.g. Alt+1 → ¡).
-  // Fall back to e.code (e.g. "Digit1") when the binding uses altKey + digit.
+  // Alt+digit (macOS: Alt+1 → ¡) and Shift+digit (Shift+1 → !) produce
+  // special characters — fall back to e.code ("Digit1") for digit bindings
+  // that require Alt or Shift.
   let keyMatch: boolean;
-  if (combo.altKey && /^[0-9]$/.test(combo.key) && e.altKey) {
+  const isDigitBinding = /^[0-9]$/.test(combo.key);
+  const needsCodeFallback =
+    isDigitBinding && ((combo.altKey && e.altKey) || (combo.shiftKey && e.shiftKey));
+  if (needsCodeFallback) {
     keyMatch = e.code === `Digit${combo.key}`;
   } else {
     keyMatch = normalizeKey(combo.key) === normalizeKey(e.key);

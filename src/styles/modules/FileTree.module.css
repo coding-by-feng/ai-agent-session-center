@@ -114,3 +114,32 @@
 .error {
   color: var(--accent-red, #ff4444);
 }
+
+/* ---- Delete button (trash icon) ---- */
+
+.deleteBtn {
+  margin-left: auto;
+  padding: 0 4px;
+  background: transparent;
+  border: none;
+  color: var(--text-dim, #888);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  border-radius: 3px;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+  flex-shrink: 0;
+}
+
+.node:hover .deleteBtn,
+.nodeActive .deleteBtn,
+.nodeFocused .deleteBtn {
+  opacity: 0.7;
+}
+
+.deleteBtn:hover {
+  opacity: 1;
+  color: var(--accent-red, #ff4444);
+  background: rgba(255, 68, 68, 0.12);
+}

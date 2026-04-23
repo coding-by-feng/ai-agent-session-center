@@ -19,7 +19,7 @@ Lets users browse and inspect code/media files in the project directory without 
 
 ## Implementation
 - Tab management: default tab at project root, open in new tab, double-click to rename, x to close (last tab recreates root), auto-label from deepest path segment
-- Toolbar: search, find-in-file, new file/folder, open in new tab, format (Prettier), toggle outline/bookmarks/word wrap/fullscreen/hidden/datetime, sort by name/date, **Collapse all folders**, **Refresh file tree**
+- Toolbar: search, find-in-file, new file/folder, open in new tab, **open external path** (prompts for an absolute or `~/`-prefixed path; resolves via `GET /api/files/resolve` and opens the file/folder in a fresh sub-tab — useful for viewing files outside the session project, e.g. `~/.config/gcloud/application_default_credentials.json`), format (Prettier), toggle outline/bookmarks/word wrap/fullscreen/hidden/datetime, sort by name/date, **Collapse all folders**, **Refresh file tree**
 - Reveal-in-Finder: on failure shows a red toast (`showToast`) with the server error message instead of silently swallowing
 - File preview: Markdown (GFM + syntax highlight), Excel (XLSX with sheet tabs), code (line numbers + syntax), PDF (blob URL), image (interactive `ImageViewer`), binary (unsupported indicator)
 - Find-in-file: real-time search, case toggle (Aa), match counter ("X of Y"), Previous/Next bindings — `Enter`/`Shift+Enter`, `ArrowDown`/`ArrowUp`, and document-level `F3`/`Shift+F3` while the bar is mounted; the counter pulses via `.countWrapped` whenever the index wraps past first/last; exports `highlightFindMatches(text, term, caseSensitive, activeLineMatch?, currentLine?)` for code viewer
@@ -42,7 +42,7 @@ Lets users browse and inspect code/media files in the project directory without 
 ## Dependencies & Connections
 
 ### Depends On
-- [Server API](../server/api-endpoints.md) — GET /api/files/list|read|stream|search, POST /api/files/write|mkdir
+- [Server API](../server/api-endpoints.md) — GET /api/files/list|read|stream|search|resolve, POST /api/files/write|mkdir
 - [State Management](./state-management.md) — uiStore.pendingFileOpen for terminal->project tab navigation
 - [Session Detail Panel](./session-detail-panel.md) — rendered inside PROJECT tab
 

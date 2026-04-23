@@ -1,0 +1,2931 @@
+{
+  "version": 1,
+  "generated_at": "2026-04-23T11:30:29Z",
+  "generator": "align-existing-feature-docs --rebuild-manifest",
+  "project_type": "desktop-app",
+  "domains": [
+    "3d",
+    "electron",
+    "frontend",
+    "multimedia",
+    "server"
+  ],
+  "features": [
+    {
+      "doc": "3d/cyberdrome-scene.md",
+      "domain": "3d",
+      "sources": [
+        "src/components/3d/CyberdromeScene.tsx",
+        "src/components/3d/CyberdromeEnvironment.tsx",
+        "src/components/3d/CameraController.tsx",
+        "src/components/3d/RoomLabels.tsx",
+        "src/components/3d/SceneOverlay.tsx",
+        "src/components/3d/RobotListSidebar.tsx",
+        "src/lib/cyberdromeScene.ts",
+        "src/lib/sceneThemes.ts",
+        "src/stores/cameraStore.ts",
+        "src/stores/roomStore.ts"
+      ],
+      "source_hashes": {
+        "src/components/3d/CyberdromeScene.tsx": "b441af19f62da6d3e0223db92777302c9caa83d6",
+        "src/components/3d/CyberdromeEnvironment.tsx": "56388b1fd6b8f4be3f50ec2335227aa799511fea",
+        "src/components/3d/CameraController.tsx": "5abd4edccf3cf5d67740c7b5f0d045d9cfccb02c",
+        "src/components/3d/RoomLabels.tsx": "712dc24a69c29568973086794f82d839c51a02a2",
+        "src/components/3d/SceneOverlay.tsx": "c63059e26e1084bcfd181210115dc6680a2941a0",
+        "src/components/3d/RobotListSidebar.tsx": "d2ab5a8eb695600ebefcc662f323b416fae63b22",
+        "src/lib/cyberdromeScene.ts": "0bfc29c424340701e0adc5a2909b9212813b18bd",
+        "src/lib/sceneThemes.ts": "b96e62f62aff0ee860b95e2a9c2384b5ac566c7a",
+        "src/stores/cameraStore.ts": "1cbd74145921367deb5af53cf7d99245119d6f79",
+        "src/stores/roomStore.ts": "a254e5a68fd9d35583f2864c9bd6e241b5846711"
+      },
+      "symbols": {
+        "functions": [
+          "BorderGlow",
+          "CoffeeLounge",
+          "CoffeeTable",
+          "CorridorDesks",
+          "DataParticles",
+          "DeskWithChair",
+          "HWall",
+          "Lighting",
+          "MapControls",
+          "RobotEntry",
+          "Room",
+          "RoomGroupHeader",
+          "RoomPanel",
+          "SceneContent",
+          "SceneThemeSync",
+          "Stars",
+          "VWall",
+          "areaCenterX",
+          "buildCasualAreas",
+          "buildCasualWorkstations",
+          "buildCorridorWorkstations",
+          "buildDoorWaypoints",
+          "buildDynamicDeskDefs",
+          "buildDynamicWallRects",
+          "buildDynamicWorkstations",
+          "collidesAnyWall",
+          "commitEdit",
+          "computeFloorSize",
+          "computePathWaypoints",
+          "computeRoomBounds",
+          "computeRoomCameraTarget",
+          "computeRoomCenter",
+          "computeRoomConfigs",
+          "computeSceneBounds",
+          "d",
+          "getRoomCenter",
+          "getScene3DTheme",
+          "getZone",
+          "handler",
+          "label",
+          "loadFromLocalStorage",
+          "mx",
+          "mz",
+          "nearestDoor",
+          "pickCorridorTarget",
+          "pickTargetInRoom",
+          "project",
+          "saveToLocalStorage",
+          "segLen",
+          "sortSessions",
+          "tickStream",
+          "title",
+          "toggleMute",
+          "x"
+        ],
+        "constants": {
+          "ARRIVAL_THRESHOLD": 0.1,
+          "CASUAL_AREA_SIZE": 10,
+          "DOOR_GAP": 1.5,
+          "FLY_OFFSET_X": 6,
+          "FLY_OFFSET_Y": 8,
+          "FLY_OFFSET_Z": 10,
+          "LERP_FACTOR": 0.04,
+          "ROOM_COLS": 4,
+          "ROOM_GAP": 2,
+          "ROOM_SIZE": 8,
+          "ROOM_VIEW_DISTANCE": 14,
+          "ROOM_VIEW_HEIGHT": 10,
+          "ROWS": 5,
+          "ROW_SPACING": 1.2,
+          "STORAGE_KEY": "session-rooms",
+          "TABLE_SPACING": 3,
+          "WALL_H": 2.0,
+          "WALL_T": 0.08
+        },
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "frontend/state-management.md",
+        "3d/robot-system.md",
+        "3d/particles-effects.md"
+      ],
+      "depended_on_by": [
+        "frontend/views-routing.md",
+        "frontend/session-detail-panel.md",
+        "frontend/settings-system.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "3d/particles-effects.md",
+      "domain": "3d",
+      "sources": [
+        "src/components/3d/StatusParticles.tsx",
+        "src/components/3d/SubagentConnections.tsx"
+      ],
+      "source_hashes": {
+        "src/components/3d/StatusParticles.tsx": "1752614c7d86a3171fc07492abf446eb0dca4366",
+        "src/components/3d/SubagentConnections.tsx": "748b562f13864c7b4a7ba6cc303ff5d03addfc89"
+      },
+      "symbols": {
+        "functions": [
+          "ConnectionLine",
+          "angle",
+          "createParticles",
+          "getBurstConfig"
+        ],
+        "constants": {
+          "MAX_PARTICLES": 25
+        },
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "3d/robot-system.md",
+        "3d/cyberdrome-scene.md",
+        "server/team-subagent.md"
+      ],
+      "depended_on_by": [
+        "3d/cyberdrome-scene.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "3d/robot-system.md",
+      "domain": "3d",
+      "sources": [
+        "src/components/3d/SessionRobot.tsx",
+        "src/components/3d/Robot3DModel.tsx",
+        "src/components/3d/RobotDialogue.tsx",
+        "src/components/3d/RobotLabel.tsx",
+        "src/components/3d/robotPositionStore.ts",
+        "src/lib/robot3DGeometry.ts",
+        "src/lib/robot3DModels.ts",
+        "src/lib/robotStateMap.ts",
+        "src/lib/cliDetect.ts",
+        "src/lib/robotPositionPersist.ts"
+      ],
+      "source_hashes": {
+        "src/components/3d/SessionRobot.tsx": "47b55570e285e88b76498ff912c7c07acfa6be94",
+        "src/components/3d/Robot3DModel.tsx": "72456e6af3ea2a9bd788169ee34b9d4e4e0d3d2a",
+        "src/components/3d/RobotDialogue.tsx": "f0eed2acc2139ed3af34e12d5a21f2c91f2489fe",
+        "src/components/3d/RobotLabel.tsx": "d634c271136a0757187aab699c198848b60c2768",
+        "src/components/3d/robotPositionStore.ts": "c45622966cc8d8b0d84470c591b5a2b0e0476f36",
+        "src/lib/robot3DGeometry.ts": "2322bc962d83e85981ecab0604961ba00ee93648",
+        "src/lib/robot3DModels.ts": "5ba85a553c4445e3bae7fc90bcf8ae0052e75363",
+        "src/lib/robotStateMap.ts": "7cada7282bbcad62d92973db5ba95eac366361f4",
+        "src/lib/cliDetect.ts": "5fe786a8bf8a97b90f478588517b41ae6294f345",
+        "src/lib/robotPositionPersist.ts": "5879d1c2728f1d3aeff31f6b36117600eaac9820"
+      },
+      "symbols": {
+        "functions": [
+          "RobotLabelInner",
+          "SessionRobotInner",
+          "TextUpdater",
+          "animateAlert",
+          "animateConnecting",
+          "animateIdle",
+          "animateInput",
+          "animateOffline",
+          "animateThinking",
+          "animateWaiting",
+          "animateWorking",
+          "classifyTool",
+          "clearPersistedPosition",
+          "createEdgeMat",
+          "createNeonMat",
+          "detectCli",
+          "extractFilename",
+          "getAllNavInfo",
+          "getModelDef",
+          "getModelDescription",
+          "getModelLabel",
+          "getNavInfo",
+          "getRobotStateBehavior",
+          "idx",
+          "loadRobotPositions",
+          "model",
+          "modelType",
+          "pickWanderTarget",
+          "removeNavInfo",
+          "resetBodyCharge",
+          "resolveCliBadge",
+          "saveRobotPositions",
+          "seatAt",
+          "sessionStatusToRobotState",
+          "setNavTarget",
+          "t",
+          "updateNavInfo",
+          "w"
+        ],
+        "constants": {
+          "BASE_ALERT_FONT": 0.07,
+          "BASE_ALERT_H": 0.16,
+          "BASE_ALERT_W": 1.6,
+          "BASE_ALERT_Y": 0.18,
+          "BASE_BILLBOARD_Y": 2.1,
+          "BASE_BORDER_H": 0.17,
+          "BASE_BORDER_W": 1.84,
+          "BASE_DOT_R": 0.025,
+          "BASE_DOT_X": -0.82,
+          "BASE_FONT": 13,
+          "BASE_MAX_WIDTH": 1.5,
+          "BASE_PANEL_H": 0.14,
+          "BASE_PANEL_W": 1.8,
+          "BASE_TEXT_SIZE": 0.065,
+          "NAV_GOTO": 1,
+          "NAV_IDLE": 3,
+          "NAV_SIT": 2,
+          "NAV_WALK": 0,
+          "STORAGE_KEY": "cyberdrome-robot-positions"
+        },
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "3d/cyberdrome-scene.md",
+        "frontend/state-management.md",
+        "server/session-management.md"
+      ],
+      "depended_on_by": [
+        "3d/cyberdrome-scene.md",
+        "3d/particles-effects.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "electron/app-lifecycle.md",
+      "domain": "electron",
+      "sources": [
+        "electron/main.ts",
+        "electron/tray.ts",
+        "electron/ipc/appHandlers.ts",
+        "electron/ipc/setupHandlers.ts",
+        "electron/loading.html"
+      ],
+      "source_hashes": {
+        "electron/main.ts": "14590d20d025cde2765edc20add1fe916dd4ee8e",
+        "electron/tray.ts": "7be96aadb545ca5388b7004989234a3e68b1ab7e",
+        "electron/ipc/appHandlers.ts": "a019e9a8c600b4f5f2db1907c565ed1d14caf387",
+        "electron/ipc/setupHandlers.ts": "47d7b6907b05ed1eb58e18a3bca373320ee6f0ce",
+        "electron/loading.html": "4d524da3451768ed4f29c52bf3b7ccc263f32447"
+      },
+      "symbols": {
+        "functions": [
+          "buildAppMenu",
+          "captureLogsToLoadingScreen",
+          "createWindow",
+          "getHooksRoot",
+          "isFirstRun",
+          "isValidCli",
+          "isValidDensity",
+          "isValidPort",
+          "js",
+          "lineClass",
+          "rebuild",
+          "registerAppHandlers",
+          "registerSetupHandlers",
+          "send",
+          "sendLoadingUpdate",
+          "sendLog",
+          "setupTray",
+          "stripAnsi"
+        ],
+        "constants": {
+          "MAX_PORT": 65535,
+          "MIN_PORT": 1
+        },
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": [],
+        "ipc_channels": [
+          "app:get-port",
+          "app:open-browser",
+          "app:quit",
+          "app:rerun-setup",
+          "setup:check-deps",
+          "setup:complete",
+          "setup:install-hooks",
+          "setup:is-complete",
+          "setup:save-config"
+        ]
+      },
+      "depends_on": [
+        "electron/pty-host.md",
+        "electron/ipc-transport.md",
+        "server/api-endpoints.md"
+      ],
+      "depended_on_by": [
+        "frontend/terminal-ui.md",
+        "electron/pty-host.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "electron/ipc-transport.md",
+      "domain": "electron",
+      "sources": [
+        "electron/ipc/terminalHandlers.ts",
+        "electron/ipc/setupHandlers.ts",
+        "electron/ipc/appHandlers.ts",
+        "electron/preload.ts"
+      ],
+      "source_hashes": {
+        "electron/ipc/terminalHandlers.ts": "bbc8925f8524d0f91283a574573ab2c26baaf109",
+        "electron/ipc/setupHandlers.ts": "47d7b6907b05ed1eb58e18a3bca373320ee6f0ce",
+        "electron/ipc/appHandlers.ts": "a019e9a8c600b4f5f2db1907c565ed1d14caf387",
+        "electron/preload.ts": "e6c28071160ee2c2e8bade552cd1f13dc6d4500f"
+      },
+      "symbols": {
+        "functions": [
+          "getHooksRoot",
+          "handler",
+          "isValidCli",
+          "isValidDensity",
+          "isValidPort",
+          "registerAppHandlers",
+          "registerSetupHandlers",
+          "registerTerminalHandlers",
+          "send"
+        ],
+        "constants": {
+          "MAX_PORT": 65535,
+          "MIN_PORT": 1
+        },
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": [],
+        "ipc_channels": [
+          "app:before-close",
+          "app:close-ready",
+          "app:get-port",
+          "app:open-browser",
+          "app:quit",
+          "app:rerun-setup",
+          "pty:create",
+          "pty:data",
+          "pty:exit",
+          "pty:has",
+          "pty:kill",
+          "pty:list",
+          "pty:resize",
+          "pty:subscribe",
+          "pty:write",
+          "setup:check-deps",
+          "setup:complete",
+          "setup:install-hooks",
+          "setup:install-log",
+          "setup:is-complete",
+          "setup:save-config"
+        ]
+      },
+      "depends_on": [
+        "electron/pty-host.md",
+        "electron/app-lifecycle.md"
+      ],
+      "depended_on_by": [
+        "frontend/terminal-ui.md",
+        "frontend/settings-system.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "electron/pty-host.md",
+      "domain": "electron",
+      "sources": [
+        "electron/ptyHost.ts"
+      ],
+      "source_hashes": {
+        "electron/ptyHost.ts": "5d89e37b0985752ee767e3b5878ebd3d0026c8a2"
+      },
+      "symbols": {
+        "functions": [
+          "appendSessionName",
+          "autoSessionName",
+          "checkPrompt",
+          "cleanup",
+          "counter",
+          "createPty",
+          "detectShellReady",
+          "disposeAll",
+          "finish",
+          "getDefaultShell",
+          "getOutputBuffer",
+          "hasPty",
+          "killPty",
+          "listPtys",
+          "registerWithServer",
+          "resizePty",
+          "resolveWorkDir",
+          "sendToAllWindows",
+          "writePty"
+        ],
+        "constants": {},
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "server/terminal-ssh.md",
+        "server/session-matching.md",
+        "electron/app-lifecycle.md"
+      ],
+      "depended_on_by": [
+        "electron/ipc-transport.md",
+        "frontend/terminal-ui.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "frontend/agenda.md",
+      "domain": "frontend",
+      "sources": [
+        "src/stores/agendaStore.ts",
+        "src/routes/AgendaView.tsx",
+        "src/components/agenda/AgendaFilterBar.tsx",
+        "src/components/agenda/AgendaTaskCard.tsx",
+        "src/components/agenda/AddTaskForm.tsx",
+        "src/types/agenda.ts",
+        "server/apiRouter.ts",
+        "server/db.ts"
+      ],
+      "source_hashes": {
+        "src/stores/agendaStore.ts": "0357cedd3fc44c75b1104846ea240f281e19b28a",
+        "src/routes/AgendaView.tsx": "582da461d8c13afc485dc96fef9e31c4eddf94d7",
+        "src/components/agenda/AgendaFilterBar.tsx": "ca2e70990b5db8880318039c1b8e4b95fadf2f79",
+        "src/components/agenda/AgendaTaskCard.tsx": "6d2f757544e6f80ef61e56bb1edbeddaa4de3558",
+        "src/components/agenda/AddTaskForm.tsx": "aa2e81834480da4d9dcea0093277ad5f935b6828",
+        "src/types/agenda.ts": "5c8c5bbac47ab30049890246da7e0051d07eb1b8",
+        "server/apiRouter.ts": "0546e268f6e8f3b6cb2fb6f94d7eacd53c48fff5",
+        "server/db.ts": "3bb88e02672a417ce06e56e72a68f879f8d03f21"
+      },
+      "symbols": {
+        "functions": [
+          "GroupHeader",
+          "addNote",
+          "baseCmdStripped",
+          "closeDb",
+          "decodeProjectDir",
+          "deleteAgendaTask",
+          "deleteNote",
+          "descMatch",
+          "formatDueDate",
+          "fullTextSearch",
+          "getAgendaTaskById",
+          "getAllAgendaTasks",
+          "getAllPersistedSessions",
+          "getDefaultUsername",
+          "getDistinctProjects",
+          "getDueDateStatus",
+          "getNotes",
+          "getSessionDetail",
+          "getSessionsByProjectPath",
+          "hookRateLimitMiddleware",
+          "hooks",
+          "isAllowedProjectRoot",
+          "isLocalHost",
+          "isRateLimited",
+          "isTextFile",
+          "matchesFilter",
+          "noShellMeta",
+          "offset",
+          "redactTtsError",
+          "resolve",
+          "resolveProjectPath",
+          "rowToAgendaTask",
+          "saveLastUsername",
+          "searchSessions",
+          "sortTasks",
+          "str",
+          "total",
+          "tryGrep",
+          "tryRipgrep",
+          "updateSessionArchived",
+          "updateSessionLabel",
+          "updateSessionSummary",
+          "updateSessionTitle",
+          "upsertAgendaTask",
+          "upsertSession",
+          "validateBody"
+        ],
+        "constants": {
+          "DOT": "\\x00",
+          "HOOK_PATTERN": "dashboard-hook.",
+          "MAX_CONCURRENT_SUMMARIZE": 2,
+          "MAX_RESULTS": 500,
+          "MAX_TERMINALS": 50
+        },
+        "endpoints": [
+          "DELETE /agenda/:id",
+          "DELETE /db/notes/:id",
+          "DELETE /db/sessions/:id",
+          "DELETE /sessions/:id",
+          "DELETE /terminals/:id",
+          "GET /agenda",
+          "GET /config",
+          "GET /db/projects",
+          "GET /db/search",
+          "GET /db/sessions",
+          "GET /db/sessions/:id",
+          "GET /db/sessions/:id/notes",
+          "GET /files/grep",
+          "GET /files/list",
+          "GET /files/read",
+          "GET /files/search",
+          "GET /files/stream",
+          "GET /health-check",
+          "GET /hook-stats",
+          "GET /hooks/status",
+          "GET /known-projects",
+          "GET /mq-stats",
+          "GET /sessions",
+          "GET /sessions/:id/source",
+          "GET /sessions/history",
+          "GET /ssh-keys",
+          "GET /teams/:teamId/config",
+          "GET /terminals",
+          "GET /workspace/load",
+          "PATCH /agenda/:id/toggle",
+          "POST /agenda",
+          "POST /db/sessions/:id/notes",
+          "POST /files/delete",
+          "POST /files/mkdir",
+          "POST /files/reveal",
+          "POST /files/search/invalidate",
+          "POST /files/write",
+          "POST /hook-stats/reset",
+          "POST /hooks/install",
+          "POST /hooks/uninstall",
+          "POST /queue-images",
+          "POST /reset",
+          "POST /sessions/:id/fork",
+          "POST /sessions/:id/kill",
+          "POST /sessions/:id/reconnect-ops-terminal",
+          "POST /sessions/:id/reconnect-terminal",
+          "POST /sessions/:id/resume",
+          "POST /sessions/:id/summarize",
+          "POST /sessions/clear-all",
+          "POST /teams/:teamId/members/:sessionId/terminal",
+          "POST /terminals",
+          "POST /terminals/:id/prefill-output",
+          "POST /terminals/:id/write",
+          "POST /terminals/register",
+          "POST /tmux-sessions",
+          "POST /tts/status",
+          "POST /tts/synthesize",
+          "POST /workspace/save",
+          "PUT /agenda/:id",
+          "PUT /sessions/:id/accent-color"
+        ],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "server/api-endpoints.md",
+        "server/database.md",
+        "frontend/state-management.md",
+        "frontend/views-routing.md"
+      ],
+      "depended_on_by": [
+        "frontend/keyboard-shortcuts.md"
+      ],
+      "last_updated": "2026-04-23T23:28:21Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "frontend/auth-ui.md",
+      "domain": "frontend",
+      "sources": [
+        "src/components/auth/LoginScreen.tsx",
+        "src/hooks/useAuth.ts",
+        "src/hooks/useAuth.test.ts",
+        "src/styles/modules/Login.module.css"
+      ],
+      "source_hashes": {
+        "src/components/auth/LoginScreen.tsx": "11f87f0e148ae7a287dd21a5d49360d88f48f238",
+        "src/hooks/useAuth.ts": "83538137e2df232fefef8082cc244bed23ebc2d8",
+        "src/hooks/useAuth.test.ts": "16652daa8b61b7d38e389b157e587c965d4f9702",
+        "src/styles/modules/Login.module.css": "77c3978bdc1494c88c2442e718eb8718d4a90911"
+      },
+      "symbols": {
+        "functions": [
+          "authFetch",
+          "checkAuth",
+          "clearToken",
+          "doRefreshToken",
+          "getAuthToken",
+          "getStoredToken",
+          "handleAuthFailed",
+          "handleSubmit",
+          "storeToken",
+          "useAuth"
+        ],
+        "constants": {
+          "MAX_RETRIES": 8,
+          "RETRY_DELAY_MS": 800,
+          "TOKEN_KEY": "auth_token"
+        },
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": [
+          "auth_token"
+        ]
+      },
+      "depends_on": [
+        "server/authentication.md"
+      ],
+      "depended_on_by": [],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "frontend/client-persistence.md",
+      "domain": "frontend",
+      "sources": [
+        "src/lib/db.ts"
+      ],
+      "source_hashes": {
+        "src/lib/db.ts": "cc3a3de7a406a3bb4851b13836bd1126c386a5cb"
+      },
+      "symbols": {
+        "functions": [
+          "deleteSession",
+          "migrateSessionId",
+          "persistSessionUpdate"
+        ],
+        "constants": {},
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "frontend/websocket-client.md",
+        "frontend/state-management.md"
+      ],
+      "depended_on_by": [
+        "frontend/state-management.md",
+        "frontend/views-routing.md",
+        "frontend/session-detail-panel.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "frontend/file-browser.md",
+      "domain": "frontend",
+      "sources": [
+        "src/components/session/ProjectTabContainer.tsx",
+        "src/components/session/ProjectTab.tsx",
+        "src/components/session/FileTree.tsx",
+        "src/components/session/FindInFileBar.tsx",
+        "src/components/session/imageViewport.ts",
+        "src/components/session/LinkifiedText.tsx",
+        "src/lib/fileSystemProvider.ts"
+      ],
+      "source_hashes": {
+        "src/components/session/ProjectTabContainer.tsx": "9d838c1353601c6a36a508e19675ed5b52a11bb0",
+        "src/components/session/ProjectTab.tsx": "57dcd7813aa00f663342524aacc7382845bd793f",
+        "src/components/session/FileTree.tsx": "47234f8305bab79ce5b6b00d99d0625ef550ef09",
+        "src/components/session/FindInFileBar.tsx": "844e0286b95927516ebe5b28526bf3ec194d1779",
+        "src/components/session/imageViewport.ts": "9df0a5354ff8b3ff3a8c10bb632c7027279ff328",
+        "src/components/session/LinkifiedText.tsx": "50960d0ffcbb372c224bc91035c829b8e72516d9",
+        "src/lib/fileSystemProvider.ts": "4625557a0474409c990fc7a3b1ce7a5577a853f3"
+      },
+      "symbols": {
+        "functions": [
+          "ExcelViewer",
+          "IconBookmark",
+          "IconClock",
+          "IconClose",
+          "IconCollect",
+          "IconContentSearch",
+          "IconFindInFile",
+          "IconFormat",
+          "IconFullscreen",
+          "IconNewFile",
+          "IconNewFolder",
+          "IconOpenProjectView",
+          "IconOutline",
+          "IconRevealInFinder",
+          "IconSearch",
+          "IconSortAlpha",
+          "IconSortDate",
+          "IconWordWrap",
+          "ImageViewer",
+          "InlineInput",
+          "Node",
+          "SearchOverlay",
+          "VirtualCodeViewer",
+          "candidates",
+          "clampPan",
+          "clampZoom",
+          "doSearch",
+          "entriesToNodes",
+          "ext",
+          "extOf",
+          "extractHeadings",
+          "fileIcon",
+          "findNodeById",
+          "fitToScreenRatio",
+          "formatDateTime",
+          "formatSize",
+          "formatXml",
+          "getFileSystemProvider",
+          "handleContentSearch",
+          "handleDocKeyDown",
+          "handleFileBrowserAction",
+          "handleFindInFile",
+          "handleMove",
+          "handleUp",
+          "handler",
+          "headingSlug",
+          "highlightFindMatches",
+          "imageViewKey",
+          "isAudioExt",
+          "isImageExt",
+          "isLocalHost",
+          "isTextByName",
+          "isVideoExt",
+          "langFromPath",
+          "loadAndRestore",
+          "loadPersistedTabs",
+          "maxX",
+          "maxY",
+          "next",
+          "onMouseMove"
+        ],
+        "constants": {
+          "LINE_HEIGHT_PX": 20,
+          "OVERSCAN": 30,
+          "PAN_STEP": 30,
+          "PERSIST_DEBOUNCE_MS": 200,
+          "PERSIST_VERSION": 1,
+          "TREE_STATE_VERSION": 1,
+          "ZOOM_MAX": 5,
+          "ZOOM_MIN": 0.25,
+          "ZOOM_STEP": 0.25
+        },
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": [
+          "agent-manager:file-tabs:${tabId}",
+          "agent-manager:tree-sort:${projectPath}",
+          "file-browser:showHidden",
+          "file-browser:tree-panel-width",
+          "outline-panel-width"
+        ]
+      },
+      "depends_on": [
+        "server/api-endpoints.md",
+        "frontend/state-management.md",
+        "frontend/session-detail-panel.md"
+      ],
+      "depended_on_by": [
+        "frontend/terminal-ui.md",
+        "frontend/session-detail-panel.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "frontend/keyboard-shortcuts.md",
+      "domain": "frontend",
+      "sources": [
+        "src/hooks/useKeyboardShortcuts.ts",
+        "src/stores/shortcutStore.ts",
+        "src/lib/shortcutKeys.ts",
+        "src/types/shortcut.ts",
+        "src/components/modals/ShortcutsPanel.tsx",
+        "src/components/modals/ShortcutSettingsModal.tsx",
+        "src/components/modals/ShortcutRow.tsx"
+      ],
+      "source_hashes": {
+        "src/hooks/useKeyboardShortcuts.ts": "40a5ae2978dce1e29eb7cc65aa0253c9f8fd4726",
+        "src/stores/shortcutStore.ts": "212a44d1213bd0e8c720a8671d59e4964f32a32a",
+        "src/lib/shortcutKeys.ts": "b2c27f3c28e267c12b3b29b1c5e86ddbfec1ffd8",
+        "src/types/shortcut.ts": "f609ed1a4626b9fc99dee51ea28924a83df1f3ae",
+        "src/components/modals/ShortcutsPanel.tsx": "b24289fa0bb5151353f4e782053343c7cc1548ee",
+        "src/components/modals/ShortcutSettingsModal.tsx": "cebacf559d9c54769f09a77b878f8b6369edd7bd",
+        "src/components/modals/ShortcutRow.tsx": "cbb7dee2f96e77122cfafe3fb2f09b8f460e3972"
+      },
+      "symbols": {
+        "functions": [
+          "buildBindings",
+          "comboEquals",
+          "comboMatchesEvent",
+          "dispatchAction",
+          "handleCapture",
+          "handleKeyDown",
+          "isModifierSwitch",
+          "isReservedOrModifierOnly",
+          "isTyping",
+          "keyComboToString",
+          "keyEventToCombo",
+          "normalizeKey",
+          "persistOverrides",
+          "sw",
+          "switchToLatestFinishedSession",
+          "switchToPreviousSession",
+          "switchToSessionByIndex",
+          "tag",
+          "tb",
+          "useKeyboardShortcuts"
+        ],
+        "constants": {
+          "DB_KEY": "shortcutBindings"
+        },
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "frontend/state-management.md",
+        "frontend/settings-system.md",
+        "frontend/session-detail-panel.md"
+      ],
+      "depended_on_by": [
+        "frontend/terminal-ui.md",
+        "frontend/file-browser.md",
+        "frontend/session-detail-panel.md"
+      ],
+      "last_updated": "2026-04-23T11:33:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "frontend/project-browser.md",
+      "domain": "frontend",
+      "sources": [
+        "src/routes/ProjectBrowserView.tsx",
+        "src/components/session/ProjectTab.tsx",
+        "src/styles/modules/ProjectTab.module.css"
+      ],
+      "source_hashes": {
+        "src/routes/ProjectBrowserView.tsx": "71133d554ca780bed33a4b5322c1b36ae577e165",
+        "src/components/session/ProjectTab.tsx": "57dcd7813aa00f663342524aacc7382845bd793f",
+        "src/styles/modules/ProjectTab.module.css": "946d5a530fd5daa2b0c16cebaea518a31351f3a5"
+      },
+      "symbols": {
+        "functions": [
+          "ExcelViewer",
+          "IconBookmark",
+          "IconClock",
+          "IconClose",
+          "IconCollect",
+          "IconContentSearch",
+          "IconFindInFile",
+          "IconFormat",
+          "IconFullscreen",
+          "IconNewFile",
+          "IconNewFolder",
+          "IconOpenProjectView",
+          "IconOutline",
+          "IconRevealInFinder",
+          "IconSearch",
+          "IconSortAlpha",
+          "IconSortDate",
+          "IconWordWrap",
+          "ImageViewer",
+          "InlineInput",
+          "SearchOverlay",
+          "VirtualCodeViewer",
+          "doSearch",
+          "ext",
+          "extractHeadings",
+          "fileIcon",
+          "formatDateTime",
+          "formatSize",
+          "formatXml",
+          "handleContentSearch",
+          "handleFileBrowserAction",
+          "handleFindInFile",
+          "handleMove",
+          "handleUp",
+          "handler",
+          "headingSlug",
+          "isAudioExt",
+          "isImageExt",
+          "isVideoExt",
+          "langFromPath",
+          "onMouseMove",
+          "onMouseUp",
+          "onMove",
+          "onScroll",
+          "onUp",
+          "pad",
+          "target"
+        ],
+        "constants": {
+          "LINE_HEIGHT_PX": 20,
+          "OVERSCAN": 30
+        },
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": [
+          "agent-manager:tree-sort:${projectPath}",
+          "file-browser:showHidden",
+          "file-browser:tree-panel-width",
+          "outline-panel-width"
+        ]
+      },
+      "depends_on": [
+        "frontend/file-browser.md",
+        "frontend/views-routing.md",
+        "server/api-endpoints.md"
+      ],
+      "depended_on_by": [],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "frontend/prompt-queue.md",
+      "domain": "frontend",
+      "sources": [
+        "src/stores/queueStore.ts",
+        "src/components/session/QueueTab.tsx",
+        "src/routes/QueueView.tsx"
+      ],
+      "source_hashes": {
+        "src/stores/queueStore.ts": "6585d363c40d246a7942215aa718e51550ea1cc8",
+        "src/components/session/QueueTab.tsx": "36816fa77cefdf44a2452f6edfc0197744eaf7dc",
+        "src/routes/QueueView.tsx": "a5714563d4cfd9862ab7f2426ecdf1ae65d52276"
+      },
+      "symbols": {
+        "functions": [
+          "formatDate",
+          "items",
+          "localId",
+          "persistSessionQueue"
+        ],
+        "constants": {},
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": [
+          "queue-auto-send",
+          "queue-panel-collapsed"
+        ]
+      },
+      "depends_on": [
+        "frontend/state-management.md",
+        "frontend/client-persistence.md",
+        "server/api-endpoints.md"
+      ],
+      "depended_on_by": [
+        "frontend/session-detail-panel.md",
+        "frontend/views-routing.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "frontend/session-detail-panel.md",
+      "domain": "frontend",
+      "sources": [
+        "src/components/session/DetailPanel.tsx",
+        "src/components/session/DetailTabs.tsx",
+        "src/components/session/SessionControlBar.tsx",
+        "src/components/session/SessionSwitcher.tsx",
+        "src/components/session/PromptHistory.tsx",
+        "src/components/session/NotesTab.tsx",
+        "src/components/session/QueueTab.tsx",
+        "src/components/session/LabelChips.tsx",
+        "src/components/session/KillConfirmModal.tsx",
+        "src/components/session/ContentSearchModal.tsx"
+      ],
+      "source_hashes": {
+        "src/components/session/DetailPanel.tsx": "d085d19068b8681af6d58536818dc83d199ce6ec",
+        "src/components/session/DetailTabs.tsx": "2124f5a958987dcdc47e223a28acb264277e5589",
+        "src/components/session/SessionControlBar.tsx": "897ef8b2f693b89cc25fb8a050d89e7d1b164e51",
+        "src/components/session/SessionSwitcher.tsx": "99760a7c28514b7c4cb8792036c0922300c3bb32",
+        "src/components/session/PromptHistory.tsx": "5ff61c613c4068962fd9845e80bf076ee27b109c",
+        "src/components/session/NotesTab.tsx": "7fbd7e9a1ac92651e7ca93ff478f323660a6cc6b",
+        "src/components/session/QueueTab.tsx": "36816fa77cefdf44a2452f6edfc0197744eaf7dc",
+        "src/components/session/LabelChips.tsx": "dc74ee92c5fa9cfb20d3cc708a7550d7a2c50ac5",
+        "src/components/session/KillConfirmModal.tsx": "d13efff749a94ab732f9e0eb8ea9cfe81e5712d7",
+        "src/components/session/ContentSearchModal.tsx": "6a878ab4e0a554469df3eb0299816f045dd04efa"
+      },
+      "symbols": {
+        "functions": [
+          "CompactModeIcon",
+          "CopyButton",
+          "DetailedModeIcon",
+          "DraggableMiniBadge",
+          "DraggableSplitView",
+          "EditableTitle",
+          "LazyModal",
+          "MergeIcon",
+          "PrevSessionSection",
+          "RoomFilterIcon",
+          "SessionTabCard",
+          "SplitIcon",
+          "cmd",
+          "formatTime",
+          "getCliBadge",
+          "getRoomColor",
+          "handleCancel",
+          "handleConfirm",
+          "handler",
+          "hasMatches",
+          "index",
+          "loadCustomLabels",
+          "localId",
+          "onMouseMove",
+          "onMouseUp",
+          "saveLabel",
+          "scrollToHighlight",
+          "tabId"
+        ],
+        "constants": {
+          "KILL_MODAL_ID": "kill-confirm",
+          "LABELS_STORAGE_KEY": "session-labels",
+          "MINI_BADGE_POS_KEY": "mini-badge-pos",
+          "SPLIT_KEY": "split-terminal-project",
+          "SPLIT_MIN_WIDTH": 700,
+          "SPLIT_RATIO_KEY": "split-ratio",
+          "STORAGE_KEY": "active-tab"
+        },
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": [
+          "${SPLIT_KEY}:${sessionId}",
+          "active-tab",
+          "queue-auto-send",
+          "queue-panel-collapsed",
+          "selected-session"
+        ]
+      },
+      "depends_on": [
+        "frontend/state-management.md",
+        "frontend/terminal-ui.md",
+        "frontend/file-browser.md",
+        "frontend/prompt-queue.md",
+        "frontend/client-persistence.md",
+        "server/api-endpoints.md",
+        "frontend/keyboard-shortcuts.md"
+      ],
+      "depended_on_by": [
+        "3d/cyberdrome-scene.md",
+        "frontend/views-routing.md",
+        "frontend/keyboard-shortcuts.md"
+      ],
+      "last_updated": "2026-04-23T11:33:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "frontend/settings-system.md",
+      "domain": "frontend",
+      "sources": [
+        "src/components/settings/SettingsPanel.tsx",
+        "src/components/settings/ThemeSettings.tsx",
+        "src/components/settings/SoundSettings.tsx",
+        "src/components/settings/HookSettings.tsx",
+        "src/components/settings/ApiKeySettings.tsx",
+        "src/components/settings/ShortcutSettings.tsx",
+        "src/stores/settingsStore.ts",
+        "src/hooks/useSettingsInit.ts"
+      ],
+      "source_hashes": {
+        "src/components/settings/SettingsPanel.tsx": "15d47c7e538ca930c3cecf8f53456573d92112e3",
+        "src/components/settings/ThemeSettings.tsx": "4dfc3c8c9633ab5966acc2edc3fee7fbb7b846f0",
+        "src/components/settings/SoundSettings.tsx": "33812e2355e231d0105c4dea0bfe4e7d04acd6d7",
+        "src/components/settings/HookSettings.tsx": "7f087023571675748d3de3dae9bf957d8a078e6c",
+        "src/components/settings/ApiKeySettings.tsx": "ffa5a07237b3adaf25f158a97ff8cb792499b9dd",
+        "src/components/settings/ShortcutSettings.tsx": "b2773b31d4e63d242d9bcc84d95379602c4b95f7",
+        "src/stores/settingsStore.ts": "8ea078535d360ae153b16f64213a726d86bfdce7",
+        "src/hooks/useSettingsInit.ts": "97921cfc1da51559a88a895545fe56683e856ccc"
+      },
+      "symbols": {
+        "functions": [
+          "AdvancedSettings",
+          "ApiKeyField",
+          "ModelIcon",
+          "SettingsButton",
+          "applyAnimationIntensity",
+          "applyAnimationSpeed",
+          "applyFontSize",
+          "applyScanline",
+          "applyTheme",
+          "currentSound",
+          "handleAmbientPresetChange",
+          "handleAmbientToggle",
+          "handleAmbientVolume",
+          "handleCapture",
+          "handleExport",
+          "handleImport",
+          "handleInstall",
+          "handlePreview",
+          "handleSave",
+          "handleTtsCheckStatus",
+          "handleTtsPreview",
+          "handleUninstall",
+          "unlock",
+          "useSettingsInit"
+        ],
+        "constants": {},
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "frontend/state-management.md",
+        "frontend/client-persistence.md",
+        "multimedia/sound-alarm-system.md",
+        "server/api-endpoints.md"
+      ],
+      "depended_on_by": [
+        "3d/cyberdrome-scene.md",
+        "frontend/terminal-ui.md",
+        "multimedia/tts-voice-output.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "frontend/setup-wizard.md",
+      "domain": "frontend",
+      "sources": [
+        "src/components/setup/SetupWizard.tsx",
+        "src/components/setup/steps/WelcomeStep.tsx",
+        "src/components/setup/steps/DepsCheckStep.tsx",
+        "src/components/setup/steps/ConfigureStep.tsx",
+        "src/components/setup/steps/InstallStep.tsx",
+        "src/components/setup/steps/DoneStep.tsx",
+        "src/types/electron.d.ts",
+        "server/hookInstaller.js",
+        "src/__tests__/firstRunFlow.test.tsx",
+        "src/components/setup/__tests__/SetupWizard.test.tsx",
+        "src/components/setup/__tests__/WizardSteps.test.tsx"
+      ],
+      "source_hashes": {
+        "src/components/setup/SetupWizard.tsx": "efe91ab332d19f82a9dc45425d9f5491051c7fcf",
+        "src/components/setup/steps/WelcomeStep.tsx": "af3ac1dac0842ddd74bcd0a42c8dd3c8735db474",
+        "src/components/setup/steps/DepsCheckStep.tsx": "1da4606ff2cdd5edf149bc2c5de799b383cc65e5",
+        "src/components/setup/steps/ConfigureStep.tsx": "400493dd79c55e92d1be672efc1742fce4ddc9c0",
+        "src/components/setup/steps/InstallStep.tsx": "48abdadfd418ea7e13dd85947690d1fcd545b9d9",
+        "src/components/setup/steps/DoneStep.tsx": "ccde69b89573121b6b67ef0cbd87b039dc5d169a",
+        "src/types/electron.d.ts": "f280211bc023990fe796548ba7267bdbb7437281",
+        "server/hookInstaller.js": "5f83e0d820f261f06af84f92de8276bdcad8e513",
+        "src/__tests__/firstRunFlow.test.tsx": "e4e4f4748199cb42a9ecb37ce69e0eb042951952",
+        "src/components/setup/__tests__/SetupWizard.test.tsx": "0d963906f6ae61d46091a06ccd19569a5088a54f",
+        "src/components/setup/__tests__/WizardSteps.test.tsx": "dd414fc2ad24aeb4b2622ce8b82d7bd3b16008bc"
+      },
+      "symbols": {
+        "functions": [
+          "WizardHeader",
+          "atomicWriteJSON",
+          "createMockAPI",
+          "ensureHooksInstalled",
+          "handleLaunch",
+          "handleOpenBrowser",
+          "handleRetry",
+          "makeStepProps",
+          "onSubmit",
+          "runInstall",
+          "syncHookFile"
+        ],
+        "constants": {},
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "server/authentication.md",
+        "server/hook-system.md",
+        "server/api-endpoints.md"
+      ],
+      "depended_on_by": [],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "frontend/state-management.md",
+      "domain": "frontend",
+      "sources": [
+        "src/stores/sessionStore.ts",
+        "src/stores/wsStore.ts",
+        "src/stores/uiStore.ts",
+        "src/stores/settingsStore.ts",
+        "src/stores/queueStore.ts",
+        "src/stores/cameraStore.ts",
+        "src/stores/roomStore.ts",
+        "src/stores/shortcutStore.ts",
+        "src/stores/agendaStore.ts"
+      ],
+      "source_hashes": {
+        "src/stores/sessionStore.ts": "dad64c79b1df369859b969f94673d23738d207fd",
+        "src/stores/wsStore.ts": "0bcf2d51cea211c534f4cd2a89a4da59fedc202b",
+        "src/stores/uiStore.ts": "b08985bbe0e6861aa040581b1902d82a71a245e9",
+        "src/stores/settingsStore.ts": "8ea078535d360ae153b16f64213a726d86bfdce7",
+        "src/stores/queueStore.ts": "6585d363c40d246a7942215aa718e51550ea1cc8",
+        "src/stores/cameraStore.ts": "1cbd74145921367deb5af53cf7d99245119d6f79",
+        "src/stores/roomStore.ts": "a254e5a68fd9d35583f2864c9bd6e241b5846711",
+        "src/stores/shortcutStore.ts": "212a44d1213bd0e8c720a8671d59e4964f32a32a",
+        "src/stores/agendaStore.ts": "0357cedd3fc44c75b1104846ea240f281e19b28a"
+      },
+      "symbols": {
+        "functions": [
+          "applyAnimationIntensity",
+          "applyAnimationSpeed",
+          "applyFontSize",
+          "applyScanline",
+          "applyTheme",
+          "items",
+          "loadCardDisplayMode",
+          "loadFromLocalStorage",
+          "loadHeaderCollapsed",
+          "loadRoomFilter",
+          "persistOverrides",
+          "persistSessionQueue",
+          "saveRoomFilter",
+          "saveToLocalStorage"
+        ],
+        "constants": {
+          "DB_KEY": "shortcutBindings",
+          "STORAGE_KEY": "session-rooms"
+        },
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": [
+          "card-display-mode",
+          "detail-header-collapsed",
+          "room-filter"
+        ]
+      },
+      "depends_on": [
+        "frontend/client-persistence.md",
+        "frontend/websocket-client.md"
+      ],
+      "depended_on_by": [
+        "3d/cyberdrome-scene.md",
+        "frontend/session-detail-panel.md",
+        "multimedia/sound-alarm-system.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "frontend/terminal-ui.md",
+      "domain": "frontend",
+      "sources": [
+        "src/hooks/useTerminal.ts",
+        "src/components/terminal/TerminalContainer.tsx",
+        "src/components/terminal/TerminalToolbar.tsx",
+        "src/components/terminal/themes.ts"
+      ],
+      "source_hashes": {
+        "src/hooks/useTerminal.ts": "045e3058b3c63f2ffdf3c92af111d3a28f8abc29",
+        "src/components/terminal/TerminalContainer.tsx": "5d794f53fb5be9987e4da5d6f1ee4ec128701049",
+        "src/components/terminal/TerminalToolbar.tsx": "bf768314f746fb5cc0a99cc29d0634a196e24940",
+        "src/components/terminal/themes.ts": "505b41604c920f629fa21885c7d17e8fa3dc1e99"
+      },
+      "symbols": {
+        "functions": [
+          "ArrowDownIcon",
+          "ArrowUpIcon",
+          "AutoScrollIcon",
+          "BookmarkIcon",
+          "EnterIcon",
+          "EscIcon",
+          "ForkIcon",
+          "MaximizeIcon",
+          "MicIcon",
+          "MinimizeIcon",
+          "PasteIcon",
+          "RefreshIcon",
+          "ScrollToBottomIcon",
+          "applyPendingScroll",
+          "bookmarkPanelContent",
+          "buildAutoTheme",
+          "doSetup",
+          "forceCanvasRepaint",
+          "getResponsiveFontSize",
+          "getThemeNames",
+          "handler",
+          "isInRoot",
+          "isLightBackground",
+          "isPtyHostTerminal",
+          "luminance",
+          "mergeChunks",
+          "onBlur",
+          "onKeyDown",
+          "onKeyUp",
+          "parseHex",
+          "readClipboard",
+          "resolveTheme",
+          "savedTheme",
+          "sendInput",
+          "sendResize",
+          "sendText",
+          "setupWhenReady",
+          "stripTerminalResponses",
+          "uploadClipboardImages",
+          "useTerminal",
+          "v"
+        ],
+        "constants": {
+          "CHUNK_SIZE": 4096,
+          "DEFAULT_MIN_HEIGHT": "200px",
+          "MAX_URL_GROUP_LEN": 4096
+        },
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": [
+          "term-bookmarks:${terminalId}",
+          "term-scroll:${terminalId}",
+          "terminal-theme"
+        ]
+      },
+      "depends_on": [
+        "frontend/websocket-client.md",
+        "electron/ipc-transport.md",
+        "frontend/state-management.md",
+        "server/terminal-ssh.md"
+      ],
+      "depended_on_by": [
+        "frontend/session-detail-panel.md",
+        "frontend/file-browser.md",
+        "multimedia/tts-voice-output.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "frontend/views-routing.md",
+      "domain": "frontend",
+      "sources": [
+        "src/routes/LiveView.tsx",
+        "src/routes/HistoryView.tsx",
+        "src/routes/QueueView.tsx",
+        "src/routes/AgendaView.tsx",
+        "src/routes/ProjectBrowserView.tsx",
+        "src/App.tsx",
+        "src/components/layout/NavBar.tsx"
+      ],
+      "source_hashes": {
+        "src/routes/LiveView.tsx": "136a921d89930a57d4d3301e74ddc8043a69bd28",
+        "src/routes/HistoryView.tsx": "85fecf61750a0becd231cd658caff3ecde7a6c78",
+        "src/routes/QueueView.tsx": "a5714563d4cfd9862ab7f2426ecdf1ae65d52276",
+        "src/routes/AgendaView.tsx": "582da461d8c13afc485dc96fef9e31c4eddf94d7",
+        "src/routes/ProjectBrowserView.tsx": "71133d554ca780bed33a4b5322c1b36ae577e165",
+        "src/App.tsx": "900b77ce3aef815092a61c7661a4afdc32f341f7",
+        "src/components/layout/NavBar.tsx": "d2695844ff5e9d70da620b61123a9831220c49ab"
+      },
+      "symbols": {
+        "functions": [
+          "AppLayout",
+          "AuthGate",
+          "CopyButton",
+          "Dashboard",
+          "FlatView",
+          "GroupHeader",
+          "Pagination",
+          "ResumeIcon",
+          "SessionDetail",
+          "SessionRow",
+          "buildSearchParams",
+          "descMatch",
+          "formatDate",
+          "formatDuration",
+          "formatTime",
+          "handleCopy",
+          "localId",
+          "matchesFilter",
+          "sortTasks"
+        ],
+        "constants": {
+          "PAGE_SIZE": 50
+        },
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "3d/cyberdrome-scene.md",
+        "frontend/session-detail-panel.md",
+        "frontend/file-browser.md",
+        "server/api-endpoints.md",
+        "frontend/state-management.md"
+      ],
+      "depended_on_by": [],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "frontend/websocket-client.md",
+      "domain": "frontend",
+      "sources": [
+        "src/lib/wsClient.ts",
+        "src/hooks/useWebSocket.ts"
+      ],
+      "source_hashes": {
+        "src/lib/wsClient.ts": "4332173bfa0264710c7e5b1e9d8a488587e49174",
+        "src/hooks/useWebSocket.ts": "2f39fb08c6b530b26ae23eb534d19cd9d1e6aafd"
+      },
+      "symbols": {
+        "functions": [
+          "handleMessage",
+          "handleStatus",
+          "useWebSocket"
+        ],
+        "constants": {
+          "BASE_DELAY": 1000,
+          "MAX_DELAY": 10000
+        },
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "server/websocket-manager.md",
+        "frontend/state-management.md",
+        "frontend/client-persistence.md",
+        "multimedia/sound-alarm-system.md"
+      ],
+      "depended_on_by": [
+        "frontend/terminal-ui.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "frontend/workspace-snapshot.md",
+      "domain": "frontend",
+      "sources": [
+        "src/lib/workspaceSnapshot.ts",
+        "src/hooks/useWorkspaceAutoSave.ts",
+        "src/hooks/useWorkspaceAutoLoad.ts",
+        "src/components/ui/WorkspaceLoadingOverlay.tsx",
+        "src/components/ui/SavingOverlay.tsx",
+        "server/apiRouter.ts"
+      ],
+      "source_hashes": {
+        "src/lib/workspaceSnapshot.ts": "195b8de3face7428f823aad609881d2866a9807c",
+        "src/hooks/useWorkspaceAutoSave.ts": "09ea2658b0f2345706a839d056d7cf4fd75133d9",
+        "src/hooks/useWorkspaceAutoLoad.ts": "e94dd17990922678d57f8e65f042b1371a07647f",
+        "src/components/ui/WorkspaceLoadingOverlay.tsx": "5bc15dfb98db2767dbcd837837d7fb6ae36d1d32",
+        "src/components/ui/SavingOverlay.tsx": "a0b5499d74fc95c178f3dc134fc6812b7c67afb0",
+        "server/apiRouter.ts": "0546e268f6e8f3b6cb2fb6f94d7eacd53c48fff5"
+      },
+      "symbols": {
+        "functions": [
+          "baseCmdStripped",
+          "buildSnapshot",
+          "cancelAutoSave",
+          "decodeProjectDir",
+          "deduplicateSessions",
+          "downloadSnapshot",
+          "flushSave",
+          "getDefaultUsername",
+          "getFileTabs",
+          "getProjectTabs",
+          "hookRateLimitMiddleware",
+          "hooks",
+          "importSnapshot",
+          "isAllowedProjectRoot",
+          "isLocalHost",
+          "isRateLimited",
+          "isTextFile",
+          "loadFromConfig",
+          "loadFromFile",
+          "noShellMeta",
+          "outputKey",
+          "redactTtsError",
+          "resolve",
+          "resolveProjectPath",
+          "saveLastUsername",
+          "saveToConfig",
+          "scheduleAutoSave",
+          "sessionDedupeKey",
+          "str",
+          "tryGrep",
+          "tryRipgrep",
+          "useWorkspaceAutoLoad",
+          "useWorkspaceAutoSave",
+          "validateBody"
+        ],
+        "constants": {
+          "DOT": "\\x00",
+          "HOOK_PATTERN": "dashboard-hook.",
+          "MAX_CONCURRENT_SUMMARIZE": 2,
+          "MAX_RESULTS": 500,
+          "MAX_TERMINALS": 50
+        },
+        "endpoints": [
+          "DELETE /agenda/:id",
+          "DELETE /db/notes/:id",
+          "DELETE /db/sessions/:id",
+          "DELETE /sessions/:id",
+          "DELETE /terminals/:id",
+          "GET /agenda",
+          "GET /config",
+          "GET /db/projects",
+          "GET /db/search",
+          "GET /db/sessions",
+          "GET /db/sessions/:id",
+          "GET /db/sessions/:id/notes",
+          "GET /files/grep",
+          "GET /files/list",
+          "GET /files/read",
+          "GET /files/search",
+          "GET /files/stream",
+          "GET /health-check",
+          "GET /hook-stats",
+          "GET /hooks/status",
+          "GET /known-projects",
+          "GET /mq-stats",
+          "GET /sessions",
+          "GET /sessions/:id/source",
+          "GET /sessions/history",
+          "GET /ssh-keys",
+          "GET /teams/:teamId/config",
+          "GET /terminals",
+          "GET /workspace/load",
+          "PATCH /agenda/:id/toggle",
+          "POST /agenda",
+          "POST /db/sessions/:id/notes",
+          "POST /files/delete",
+          "POST /files/mkdir",
+          "POST /files/reveal",
+          "POST /files/search/invalidate",
+          "POST /files/write",
+          "POST /hook-stats/reset",
+          "POST /hooks/install",
+          "POST /hooks/uninstall",
+          "POST /queue-images",
+          "POST /reset",
+          "POST /sessions/:id/fork",
+          "POST /sessions/:id/kill",
+          "POST /sessions/:id/reconnect-ops-terminal",
+          "POST /sessions/:id/reconnect-terminal",
+          "POST /sessions/:id/resume",
+          "POST /sessions/:id/summarize",
+          "POST /sessions/clear-all",
+          "POST /teams/:teamId/members/:sessionId/terminal",
+          "POST /terminals",
+          "POST /terminals/:id/prefill-output",
+          "POST /terminals/:id/write",
+          "POST /terminals/register",
+          "POST /tmux-sessions",
+          "POST /tts/status",
+          "POST /tts/synthesize",
+          "POST /workspace/save",
+          "PUT /agenda/:id",
+          "PUT /sessions/:id/accent-color"
+        ],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": [
+          "agent-manager:file-tabs:${data.terminalId}:${subTabId}",
+          "agent-manager:file-tabs:${sessionId}:${subTab.id}",
+          "agent-manager:project-tabs:session:${data.terminalId}",
+          "agent-manager:project-tabs:session:${sessionId}",
+          "session-rooms"
+        ]
+      },
+      "depends_on": [
+        "frontend/state-management.md",
+        "server/api-endpoints.md",
+        "server/session-management.md"
+      ],
+      "depended_on_by": [],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "multimedia/sound-alarm-system.md",
+      "domain": "multimedia",
+      "sources": [
+        "src/lib/soundEngine.ts",
+        "src/lib/ambientEngine.ts",
+        "src/lib/alarmEngine.ts",
+        "src/lib/cliDetect.ts",
+        "src/hooks/useSound.ts"
+      ],
+      "source_hashes": {
+        "src/lib/soundEngine.ts": "b309e96dbc97322406449447bc472720686f0d40",
+        "src/lib/ambientEngine.ts": "51912f901cdd0be43921e2a6c4972423d637eaff",
+        "src/lib/alarmEngine.ts": "24270147ffbb82932c1300dd85062c0fc9841163",
+        "src/lib/cliDetect.ts": "5fe786a8bf8a97b90f478588517b41ae6294f345",
+        "src/hooks/useSound.ts": "2c86c46244f7cbe85405edd4093b2977428edeb2"
+      },
+      "symbols": {
+        "functions": [
+          "alertSession",
+          "checkAlarms",
+          "clearAlarm",
+          "clearAllAlarms",
+          "detectCli",
+          "handleEventSounds",
+          "isAlerted",
+          "isMuted",
+          "model",
+          "muteSession",
+          "playForCli",
+          "soundName",
+          "toolName",
+          "unalertSession",
+          "unlock",
+          "unmuteSession",
+          "useSound"
+        ],
+        "constants": {
+          "ALERT_VOLUME_BOOST": 2.5
+        },
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "frontend/state-management.md",
+        "frontend/websocket-client.md",
+        "server/session-management.md"
+      ],
+      "depended_on_by": [
+        "frontend/websocket-client.md",
+        "frontend/settings-system.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "multimedia/tts-voice-output.md",
+      "domain": "multimedia",
+      "sources": [],
+      "source_hashes": {},
+      "symbols": {
+        "functions": [],
+        "constants": {},
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [],
+      "depended_on_by": [],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "server/api-endpoints.md",
+      "domain": "server",
+      "sources": [
+        "server/apiRouter.ts"
+      ],
+      "source_hashes": {
+        "server/apiRouter.ts": "0546e268f6e8f3b6cb2fb6f94d7eacd53c48fff5"
+      },
+      "symbols": {
+        "functions": [
+          "baseCmdStripped",
+          "decodeProjectDir",
+          "getDefaultUsername",
+          "hookRateLimitMiddleware",
+          "hooks",
+          "isAllowedProjectRoot",
+          "isLocalHost",
+          "isRateLimited",
+          "isTextFile",
+          "noShellMeta",
+          "redactTtsError",
+          "resolve",
+          "resolveProjectPath",
+          "saveLastUsername",
+          "str",
+          "tryGrep",
+          "tryRipgrep",
+          "validateBody"
+        ],
+        "constants": {
+          "DOT": "\\x00",
+          "HOOK_PATTERN": "dashboard-hook.",
+          "MAX_CONCURRENT_SUMMARIZE": 2,
+          "MAX_RESULTS": 500,
+          "MAX_TERMINALS": 50
+        },
+        "endpoints": [
+          "DELETE /agenda/:id",
+          "DELETE /db/notes/:id",
+          "DELETE /db/sessions/:id",
+          "DELETE /sessions/:id",
+          "DELETE /terminals/:id",
+          "GET /agenda",
+          "GET /config",
+          "GET /db/projects",
+          "GET /db/search",
+          "GET /db/sessions",
+          "GET /db/sessions/:id",
+          "GET /db/sessions/:id/notes",
+          "GET /files/grep",
+          "GET /files/list",
+          "GET /files/read",
+          "GET /files/search",
+          "GET /files/stream",
+          "GET /health-check",
+          "GET /hook-stats",
+          "GET /hooks/status",
+          "GET /known-projects",
+          "GET /mq-stats",
+          "GET /sessions",
+          "GET /sessions/:id/source",
+          "GET /sessions/history",
+          "GET /ssh-keys",
+          "GET /teams/:teamId/config",
+          "GET /terminals",
+          "GET /workspace/load",
+          "PATCH /agenda/:id/toggle",
+          "POST /agenda",
+          "POST /db/sessions/:id/notes",
+          "POST /files/delete",
+          "POST /files/mkdir",
+          "POST /files/reveal",
+          "POST /files/search/invalidate",
+          "POST /files/write",
+          "POST /hook-stats/reset",
+          "POST /hooks/install",
+          "POST /hooks/uninstall",
+          "POST /queue-images",
+          "POST /reset",
+          "POST /sessions/:id/fork",
+          "POST /sessions/:id/kill",
+          "POST /sessions/:id/reconnect-ops-terminal",
+          "POST /sessions/:id/reconnect-terminal",
+          "POST /sessions/:id/resume",
+          "POST /sessions/:id/summarize",
+          "POST /sessions/clear-all",
+          "POST /teams/:teamId/members/:sessionId/terminal",
+          "POST /terminals",
+          "POST /terminals/:id/prefill-output",
+          "POST /terminals/:id/write",
+          "POST /terminals/register",
+          "POST /tmux-sessions",
+          "POST /tts/status",
+          "POST /tts/synthesize",
+          "POST /workspace/save",
+          "PUT /agenda/:id",
+          "PUT /sessions/:id/accent-color"
+        ],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "server/session-management.md",
+        "server/terminal-ssh.md",
+        "server/database.md",
+        "server/authentication.md",
+        "server/hook-system.md",
+        "multimedia/tts-voice-output.md"
+      ],
+      "depended_on_by": [],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "server/approval-detection.md",
+      "domain": "server",
+      "sources": [
+        "server/approvalDetector.ts",
+        "server/config.ts"
+      ],
+      "source_hashes": {
+        "server/approvalDetector.ts": "e1b7e35ff072f06200f5a8b268b58d6b365ad034",
+        "server/config.ts": "5df745040a70bdccf3607ff5b2183a9c15b00577"
+      },
+      "symbols": {
+        "functions": [
+          "appendSessionName",
+          "clearApprovalTimer",
+          "getToolCategory",
+          "getToolTimeout",
+          "getWaitingLabel",
+          "getWaitingStatus",
+          "hasChildProcesses",
+          "reconstructPermissionFlags",
+          "startApprovalTimer",
+          "validatePid"
+        ],
+        "constants": {},
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "server/session-management.md",
+        "server/hook-system.md",
+        "server/process-monitor.md"
+      ],
+      "depended_on_by": [],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "server/authentication.md",
+      "domain": "server",
+      "sources": [
+        "server/authManager.ts",
+        "server/serverConfig.ts"
+      ],
+      "source_hashes": {
+        "server/authManager.ts": "d1e2075de1c322a640260d2de1bcf906c0530ca3",
+        "server/serverConfig.ts": "db6c86ef8243e7c246ff7aebcf5544781a35a513"
+      },
+      "symbols": {
+        "functions": [
+          "authMiddleware",
+          "checkLoginRateLimit",
+          "clearLoginAttempts",
+          "createToken",
+          "extractToken",
+          "getTokenTTL",
+          "hashPassword",
+          "isPasswordEnabled",
+          "localhostOnlyMiddleware",
+          "parseCookieToken",
+          "recordLoginAttempt",
+          "refreshToken",
+          "removeToken",
+          "startTokenCleanup",
+          "stopTokenCleanup",
+          "validatePasswordComplexity",
+          "validateToken",
+          "verifyPassword"
+        ],
+        "constants": {
+          "LOGIN_MAX_ATTEMPTS": 5,
+          "SCRYPT_KEYLEN": 64
+        },
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [],
+      "depended_on_by": [
+        "server/api-endpoints.md",
+        "server/websocket-manager.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "server/database.md",
+      "domain": "server",
+      "sources": [
+        "server/db.ts"
+      ],
+      "source_hashes": {
+        "server/db.ts": "3bb88e02672a417ce06e56e72a68f879f8d03f21"
+      },
+      "symbols": {
+        "functions": [
+          "addNote",
+          "closeDb",
+          "deleteAgendaTask",
+          "deleteNote",
+          "fullTextSearch",
+          "getAgendaTaskById",
+          "getAllAgendaTasks",
+          "getAllPersistedSessions",
+          "getDistinctProjects",
+          "getNotes",
+          "getSessionDetail",
+          "getSessionsByProjectPath",
+          "offset",
+          "rowToAgendaTask",
+          "searchSessions",
+          "total",
+          "updateSessionArchived",
+          "updateSessionLabel",
+          "updateSessionSummary",
+          "updateSessionTitle",
+          "upsertAgendaTask",
+          "upsertSession"
+        ],
+        "constants": {},
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "server/session-management.md"
+      ],
+      "depended_on_by": [
+        "server/api-endpoints.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "server/file-index-cache.md",
+      "domain": "server",
+      "sources": [
+        "server/fileIndexCache.ts",
+        "server/apiRouter.ts"
+      ],
+      "source_hashes": {
+        "server/fileIndexCache.ts": "cb73609a13c087b5d86de7bdc4167f6ed554812c",
+        "server/apiRouter.ts": "0546e268f6e8f3b6cb2fb6f94d7eacd53c48fff5"
+      },
+      "symbols": {
+        "functions": [
+          "baseCmdStripped",
+          "buildIndex",
+          "decodeProjectDir",
+          "ensureIndex",
+          "fuzzyScore",
+          "getDefaultUsername",
+          "hookRateLimitMiddleware",
+          "hooks",
+          "invalidateCache",
+          "isAllowedProjectRoot",
+          "isLocalHost",
+          "isRateLimited",
+          "isTextFile",
+          "noShellMeta",
+          "preloadIndex",
+          "redactTtsError",
+          "resolve",
+          "resolveProjectPath",
+          "saveLastUsername",
+          "searchFiles",
+          "startWatcher",
+          "str",
+          "tryGrep",
+          "tryRipgrep",
+          "validateBody",
+          "walk"
+        ],
+        "constants": {
+          "DOT": "\\x00",
+          "HOOK_PATTERN": "dashboard-hook.",
+          "MAX_CONCURRENT_SUMMARIZE": 2,
+          "MAX_DEPTH": 10,
+          "MAX_RESULTS": 500,
+          "MAX_TERMINALS": 50,
+          "WATCHER_DEBOUNCE_MS": 300
+        },
+        "endpoints": [
+          "DELETE /agenda/:id",
+          "DELETE /db/notes/:id",
+          "DELETE /db/sessions/:id",
+          "DELETE /sessions/:id",
+          "DELETE /terminals/:id",
+          "GET /agenda",
+          "GET /config",
+          "GET /db/projects",
+          "GET /db/search",
+          "GET /db/sessions",
+          "GET /db/sessions/:id",
+          "GET /db/sessions/:id/notes",
+          "GET /files/grep",
+          "GET /files/list",
+          "GET /files/read",
+          "GET /files/search",
+          "GET /files/stream",
+          "GET /health-check",
+          "GET /hook-stats",
+          "GET /hooks/status",
+          "GET /known-projects",
+          "GET /mq-stats",
+          "GET /sessions",
+          "GET /sessions/:id/source",
+          "GET /sessions/history",
+          "GET /ssh-keys",
+          "GET /teams/:teamId/config",
+          "GET /terminals",
+          "GET /workspace/load",
+          "PATCH /agenda/:id/toggle",
+          "POST /agenda",
+          "POST /db/sessions/:id/notes",
+          "POST /files/delete",
+          "POST /files/mkdir",
+          "POST /files/reveal",
+          "POST /files/search/invalidate",
+          "POST /files/write",
+          "POST /hook-stats/reset",
+          "POST /hooks/install",
+          "POST /hooks/uninstall",
+          "POST /queue-images",
+          "POST /reset",
+          "POST /sessions/:id/fork",
+          "POST /sessions/:id/kill",
+          "POST /sessions/:id/reconnect-ops-terminal",
+          "POST /sessions/:id/reconnect-terminal",
+          "POST /sessions/:id/resume",
+          "POST /sessions/:id/summarize",
+          "POST /sessions/clear-all",
+          "POST /teams/:teamId/members/:sessionId/terminal",
+          "POST /terminals",
+          "POST /terminals/:id/prefill-output",
+          "POST /terminals/:id/write",
+          "POST /terminals/register",
+          "POST /tmux-sessions",
+          "POST /tts/status",
+          "POST /tts/synthesize",
+          "POST /workspace/save",
+          "PUT /agenda/:id",
+          "PUT /sessions/:id/accent-color"
+        ],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [],
+      "depended_on_by": [
+        "server/api-endpoints.md",
+        "frontend/file-browser.md",
+        "frontend/session-detail-panel.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "server/hook-system.md",
+      "domain": "server",
+      "sources": [
+        "hooks/dashboard-hook.sh",
+        "server/mqReader.ts",
+        "server/hookProcessor.ts",
+        "server/hookRouter.ts",
+        "server/hookInstaller.js",
+        "server/hookStats.ts"
+      ],
+      "source_hashes": {
+        "hooks/dashboard-hook.sh": "c7abb7fa477f2449b38cc66fb6abe46388b6dd55",
+        "server/mqReader.ts": "d232f203d3415a2753816d5ba18bbcd2ffa03891",
+        "server/hookProcessor.ts": "64b80fb365a72377b6a09a57e0473e1ca74c0a54",
+        "server/hookRouter.ts": "bb009141f575133156a12d55c991c7192255242e",
+        "server/hookInstaller.js": "5f83e0d820f261f06af84f92de8276bdcad8e513",
+        "server/hookStats.ts": "6017e30d79b1575a955a63ae1b1460e1f070b146"
+      },
+      "symbols": {
+        "functions": [
+          "atomicWriteJSON",
+          "calcStats",
+          "ensureEvent",
+          "ensureHooksInstalled",
+          "eventName",
+          "getMqOffset",
+          "getMqStats",
+          "getQueueFilePath",
+          "getStats",
+          "processHookEvent",
+          "readNewLines",
+          "recordHook",
+          "resetStats",
+          "scheduleBroadcast",
+          "scheduleRead",
+          "startMqReader",
+          "stopMqReader",
+          "syncHookFile",
+          "truncateQueue",
+          "validateHookPayload"
+        ],
+        "constants": {
+          "DEBOUNCE_MS": 10,
+          "HEALTH_CHECK_INTERVAL_MS": 5000,
+          "POLL_INTERVAL_MS": 500,
+          "ROLLING_WINDOW": 200,
+          "SESSION_UPDATE_THROTTLE_MS": 250
+        },
+        "endpoints": [
+          "POST /"
+        ],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [],
+      "depended_on_by": [
+        "server/session-management.md",
+        "server/websocket-manager.md",
+        "server/approval-detection.md",
+        "server/team-subagent.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "server/process-monitor.md",
+      "domain": "server",
+      "sources": [
+        "server/processMonitor.ts",
+        "server/autoIdleManager.ts",
+        "server/config.ts"
+      ],
+      "source_hashes": {
+        "server/processMonitor.ts": "16ab88cd80aad7f6cb52727597688b860321d0e1",
+        "server/autoIdleManager.ts": "83faccce7abcf6e5809ad2c38e0b36995417314e",
+        "server/config.ts": "5df745040a70bdccf3607ff5b2183a9c15b00577"
+      },
+      "symbols": {
+        "functions": [
+          "appendSessionName",
+          "cachePid",
+          "findClaudeProcess",
+          "getToolCategory",
+          "getToolTimeout",
+          "getWaitingLabel",
+          "getWaitingStatus",
+          "reconstructPermissionFlags",
+          "startAutoIdle",
+          "startMonitoring",
+          "startPendingResumeCleanup",
+          "stopAutoIdle",
+          "stopMonitoring",
+          "stopPendingResumeCleanup",
+          "validatePid"
+        ],
+        "constants": {},
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "server/session-management.md",
+        "server/approval-detection.md",
+        "server/team-subagent.md"
+      ],
+      "depended_on_by": [
+        "server/session-management.md",
+        "server/websocket-manager.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "server/session-management.md",
+      "domain": "server",
+      "sources": [
+        "server/sessionStore.ts",
+        "server/autoIdleManager.ts",
+        "server/config.ts",
+        "server/constants.ts"
+      ],
+      "source_hashes": {
+        "server/sessionStore.ts": "e2b00945232676b91c95fef884845ca20f8b3339",
+        "server/autoIdleManager.ts": "83faccce7abcf6e5809ad2c38e0b36995417314e",
+        "server/config.ts": "5df745040a70bdccf3607ff5b2183a9c15b00577",
+        "server/constants.ts": "42114157a263ac34bf4ecdd85db8fb1e36f8177f"
+      },
+      "symbols": {
+        "functions": [
+          "appendSessionName",
+          "archiveSession",
+          "broadcastAsync",
+          "broadcastSessionUpdate",
+          "clearAllSessions",
+          "counter",
+          "createTerminalSession",
+          "debouncedBroadcast",
+          "deleteSessionFromMemory",
+          "detectSessionSource",
+          "errorMsg",
+          "failedTool",
+          "findActiveSessionByConfig",
+          "findClaudeProcess",
+          "getAllSessions",
+          "getEventSeq",
+          "getEventsSince",
+          "getSession",
+          "getSessionsForRespawn",
+          "getToolCategory",
+          "getToolTimeout",
+          "getWaitingLabel",
+          "getWaitingStatus",
+          "handleEvent",
+          "invalidateSessionsCache",
+          "isPidAlive",
+          "key",
+          "killSession",
+          "linkTerminalToSession",
+          "loadSnapshot",
+          "makeShortTitle",
+          "permTool",
+          "pushEvent",
+          "reconnectOpsTerminal",
+          "reconnectSessionTerminal",
+          "reconstructPermissionFlags",
+          "registerSessionAlias",
+          "responseText",
+          "resumeSession",
+          "saveSnapshot",
+          "setSessionAccentColor",
+          "setSessionAlerted",
+          "setSessionCharacterModel",
+          "setSessionLabel",
+          "setSessionMuted",
+          "setSessionPinned",
+          "setSessionTitle",
+          "setSummary",
+          "startAutoIdle",
+          "startPendingResumeCleanup",
+          "startPeriodicSave",
+          "stopAutoIdle",
+          "stopPendingResumeCleanup",
+          "stopPeriodicSave",
+          "summarizeToolInput",
+          "toolName",
+          "updateQueueCount"
+        ],
+        "constants": {
+          "BROADCAST_DEBOUNCE_MS": 20,
+          "EVENT_BUFFER_MAX": 500
+        },
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "server/hook-system.md",
+        "server/session-matching.md",
+        "server/approval-detection.md",
+        "server/team-subagent.md",
+        "server/process-monitor.md"
+      ],
+      "depended_on_by": [
+        "server/websocket-manager.md",
+        "server/api-endpoints.md",
+        "server/database.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "server/session-matching.md",
+      "domain": "server",
+      "sources": [
+        "server/sessionMatcher.ts"
+      ],
+      "source_hashes": {
+        "server/sessionMatcher.ts": "5b3ed338c2d801442fbd06733950e1586cbe29f8"
+      },
+      "symbols": {
+        "functions": [
+          "count",
+          "createDefaultSession",
+          "detectHookSource",
+          "findSshConfig",
+          "matchSession",
+          "normalizedCwd",
+          "reKeyResumedSession",
+          "tp"
+        ],
+        "constants": {},
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "server/session-management.md",
+        "server/hook-system.md"
+      ],
+      "depended_on_by": [
+        "server/session-management.md",
+        "server/terminal-ssh.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "server/team-subagent.md",
+      "domain": "server",
+      "sources": [
+        "server/teamManager.ts"
+      ],
+      "source_hashes": {
+        "server/teamManager.ts": "f9098c850895e2941f719c5a31ecda8bf8fa67ff"
+      },
+      "symbols": {
+        "functions": [
+          "addPendingSubagent",
+          "findPendingSubagentMatch",
+          "getAllTeams",
+          "getMemberTmuxPaneId",
+          "getTeam",
+          "getTeamConfigPath",
+          "getTeamForSession",
+          "getTeamIdForSession",
+          "handleTeamMemberEnd",
+          "linkByParentSessionId",
+          "linkSessionToTeam",
+          "readTeamConfig",
+          "safeName",
+          "serializeTeam"
+        ],
+        "constants": {},
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "server/session-management.md",
+        "server/hook-system.md"
+      ],
+      "depended_on_by": [
+        "server/websocket-manager.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "server/terminal-ssh.md",
+      "domain": "server",
+      "sources": [
+        "server/sshManager.ts"
+      ],
+      "source_hashes": {
+        "server/sshManager.ts": "bd6302dc0117d5f1af0e07034ca70987c16c4ea4"
+      },
+      "symbols": {
+        "functions": [
+          "attachToTmuxPane",
+          "autoSessionName",
+          "broadcastToClient",
+          "buildSshArgs",
+          "checkPrompt",
+          "cleanup",
+          "closeTerminal",
+          "consumePendingLink",
+          "counter",
+          "createTerminal",
+          "detectShellReady",
+          "finish",
+          "getDefaultShell",
+          "getTerminalByPtyChild",
+          "getTerminalForSession",
+          "getTerminalOutputBuffer",
+          "getTerminals",
+          "isLocal",
+          "linkSession",
+          "listSshKeys",
+          "listTmuxSessions",
+          "prefillTerminalOutput",
+          "registerTerminalExitCallback",
+          "resizeTerminal",
+          "resolveWorkDir",
+          "setWsClient",
+          "shellEscapeSingleQuote",
+          "tryLinkByWorkDir",
+          "validateCommand",
+          "validatePid",
+          "validateTmuxSession",
+          "validateWorkingDir",
+          "writeToTerminal",
+          "writeWhenReady"
+        ],
+        "constants": {},
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "server/session-management.md",
+        "server/session-matching.md",
+        "server/websocket-manager.md"
+      ],
+      "depended_on_by": [
+        "server/api-endpoints.md"
+      ],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    },
+    {
+      "doc": "server/websocket-manager.md",
+      "domain": "server",
+      "sources": [
+        "server/wsManager.ts"
+      ],
+      "source_hashes": {
+        "server/wsManager.ts": "5e48d6be321fd0b63aa593a558b8019326d1c0fe"
+      },
+      "symbols": {
+        "functions": [
+          "broadcast",
+          "broadcastToClients",
+          "handleConnection",
+          "isCriticalBroadcast",
+          "startHeartbeat",
+          "stopHeartbeat"
+        ],
+        "constants": {
+          "HEARTBEAT_INTERVAL_MS": 30000,
+          "HOOK_STATS_THROTTLE_MS": 1000,
+          "MAX_MSG_PER_SECOND": 100,
+          "MAX_WS_CONNECTIONS": 50
+        },
+        "endpoints": [],
+        "ui_elements": [],
+        "cli_commands": [],
+        "storage_keys": []
+      },
+      "depends_on": [
+        "server/session-management.md",
+        "server/authentication.md",
+        "server/terminal-ssh.md"
+      ],
+      "depended_on_by": [],
+      "last_updated": "2026-04-23T11:30:29Z",
+      "last_aligned": "2026-04-23T11:30:29Z"
+    }
+  ],
+  "impact_matrix": [
+    {
+      "change": [
+        "src/components/3d/CyberdromeScene.tsx",
+        "src/components/3d/CyberdromeEnvironment.tsx",
+        "src/components/3d/CameraController.tsx",
+        "src/components/3d/RoomLabels.tsx",
+        "src/components/3d/SceneOverlay.tsx",
+        "src/components/3d/RobotListSidebar.tsx",
+        "src/lib/cyberdromeScene.ts",
+        "src/lib/sceneThemes.ts",
+        "src/stores/cameraStore.ts",
+        "src/stores/roomStore.ts"
+      ],
+      "check": [
+        "3d/cyberdrome-scene.md",
+        "frontend/views-routing.md",
+        "frontend/session-detail-panel.md",
+        "frontend/settings-system.md"
+      ]
+    },
+    {
+      "change": [
+        "src/components/3d/StatusParticles.tsx",
+        "src/components/3d/SubagentConnections.tsx"
+      ],
+      "check": [
+        "3d/particles-effects.md",
+        "3d/cyberdrome-scene.md"
+      ]
+    },
+    {
+      "change": [
+        "src/components/3d/SessionRobot.tsx",
+        "src/components/3d/Robot3DModel.tsx",
+        "src/components/3d/RobotDialogue.tsx",
+        "src/components/3d/RobotLabel.tsx",
+        "src/components/3d/robotPositionStore.ts",
+        "src/lib/robot3DGeometry.ts",
+        "src/lib/robot3DModels.ts",
+        "src/lib/robotStateMap.ts",
+        "src/lib/cliDetect.ts",
+        "src/lib/robotPositionPersist.ts"
+      ],
+      "check": [
+        "3d/robot-system.md",
+        "3d/cyberdrome-scene.md",
+        "3d/particles-effects.md"
+      ]
+    },
+    {
+      "change": [
+        "electron/main.ts",
+        "electron/tray.ts",
+        "electron/ipc/appHandlers.ts",
+        "electron/ipc/setupHandlers.ts",
+        "electron/loading.html"
+      ],
+      "check": [
+        "electron/app-lifecycle.md",
+        "frontend/terminal-ui.md",
+        "electron/pty-host.md"
+      ]
+    },
+    {
+      "change": [
+        "electron/ipc/terminalHandlers.ts",
+        "electron/ipc/setupHandlers.ts",
+        "electron/ipc/appHandlers.ts",
+        "electron/preload.ts"
+      ],
+      "check": [
+        "electron/ipc-transport.md",
+        "frontend/terminal-ui.md",
+        "frontend/settings-system.md"
+      ]
+    },
+    {
+      "change": [
+        "electron/ptyHost.ts"
+      ],
+      "check": [
+        "electron/pty-host.md",
+        "electron/ipc-transport.md",
+        "frontend/terminal-ui.md"
+      ]
+    },
+    {
+      "change": [
+        "src/stores/agendaStore.ts",
+        "src/routes/AgendaView.tsx",
+        "src/components/agenda/AgendaFilterBar.tsx",
+        "src/components/agenda/AgendaTaskCard.tsx",
+        "src/components/agenda/AddTaskForm.tsx",
+        "src/types/agenda.ts",
+        "server/apiRouter.ts",
+        "server/db.ts"
+      ],
+      "check": [
+        "frontend/agenda.md",
+        "frontend/keyboard-shortcuts.md"
+      ]
+    },
+    {
+      "change": [
+        "src/components/auth/LoginScreen.tsx",
+        "src/hooks/useAuth.ts",
+        "src/hooks/useAuth.test.ts",
+        "src/styles/modules/Login.module.css"
+      ],
+      "check": [
+        "frontend/auth-ui.md"
+      ]
+    },
+    {
+      "change": [
+        "src/lib/db.ts"
+      ],
+      "check": [
+        "frontend/client-persistence.md",
+        "frontend/state-management.md",
+        "frontend/views-routing.md",
+        "frontend/session-detail-panel.md"
+      ]
+    },
+    {
+      "change": [
+        "src/components/session/ProjectTabContainer.tsx",
+        "src/components/session/ProjectTab.tsx",
+        "src/components/session/FileTree.tsx",
+        "src/components/session/FindInFileBar.tsx",
+        "src/components/session/imageViewport.ts",
+        "src/components/session/LinkifiedText.tsx",
+        "src/lib/fileSystemProvider.ts"
+      ],
+      "check": [
+        "frontend/file-browser.md",
+        "frontend/terminal-ui.md",
+        "frontend/session-detail-panel.md"
+      ]
+    },
+    {
+      "change": [
+        "src/hooks/useKeyboardShortcuts.ts",
+        "src/stores/shortcutStore.ts",
+        "src/lib/shortcutKeys.ts",
+        "src/types/shortcut.ts",
+        "src/components/modals/ShortcutsPanel.tsx",
+        "src/components/modals/ShortcutSettingsModal.tsx",
+        "src/components/modals/ShortcutRow.tsx"
+      ],
+      "check": [
+        "frontend/keyboard-shortcuts.md",
+        "frontend/terminal-ui.md",
+        "frontend/file-browser.md",
+        "frontend/session-detail-panel.md"
+      ]
+    },
+    {
+      "change": [
+        "src/routes/ProjectBrowserView.tsx",
+        "src/components/session/ProjectTab.tsx",
+        "src/styles/modules/ProjectTab.module.css"
+      ],
+      "check": [
+        "frontend/project-browser.md"
+      ]
+    },
+    {
+      "change": [
+        "src/stores/queueStore.ts",
+        "src/components/session/QueueTab.tsx",
+        "src/routes/QueueView.tsx"
+      ],
+      "check": [
+        "frontend/prompt-queue.md",
+        "frontend/session-detail-panel.md",
+        "frontend/views-routing.md"
+      ]
+    },
+    {
+      "change": [
+        "src/components/session/DetailPanel.tsx",
+        "src/components/session/DetailTabs.tsx",
+        "src/components/session/SessionControlBar.tsx",
+        "src/components/session/SessionSwitcher.tsx",
+        "src/components/session/PromptHistory.tsx",
+        "src/components/session/NotesTab.tsx",
+        "src/components/session/QueueTab.tsx",
+        "src/components/session/LabelChips.tsx",
+        "src/components/session/KillConfirmModal.tsx",
+        "src/components/session/ContentSearchModal.tsx"
+      ],
+      "check": [
+        "frontend/session-detail-panel.md",
+        "3d/cyberdrome-scene.md",
+        "frontend/views-routing.md",
+        "frontend/keyboard-shortcuts.md"
+      ]
+    },
+    {
+      "change": [
+        "src/components/settings/SettingsPanel.tsx",
+        "src/components/settings/ThemeSettings.tsx",
+        "src/components/settings/SoundSettings.tsx",
+        "src/components/settings/HookSettings.tsx",
+        "src/components/settings/ApiKeySettings.tsx",
+        "src/components/settings/ShortcutSettings.tsx",
+        "src/stores/settingsStore.ts",
+        "src/hooks/useSettingsInit.ts"
+      ],
+      "check": [
+        "frontend/settings-system.md",
+        "3d/cyberdrome-scene.md",
+        "frontend/terminal-ui.md",
+        "multimedia/tts-voice-output.md"
+      ]
+    },
+    {
+      "change": [
+        "src/components/setup/SetupWizard.tsx",
+        "src/components/setup/steps/WelcomeStep.tsx",
+        "src/components/setup/steps/DepsCheckStep.tsx",
+        "src/components/setup/steps/ConfigureStep.tsx",
+        "src/components/setup/steps/InstallStep.tsx",
+        "src/components/setup/steps/DoneStep.tsx",
+        "src/types/electron.d.ts",
+        "server/hookInstaller.js",
+        "src/__tests__/firstRunFlow.test.tsx",
+        "src/components/setup/__tests__/SetupWizard.test.tsx",
+        "src/components/setup/__tests__/WizardSteps.test.tsx"
+      ],
+      "check": [
+        "frontend/setup-wizard.md"
+      ]
+    },
+    {
+      "change": [
+        "src/stores/sessionStore.ts",
+        "src/stores/wsStore.ts",
+        "src/stores/uiStore.ts",
+        "src/stores/settingsStore.ts",
+        "src/stores/queueStore.ts",
+        "src/stores/cameraStore.ts",
+        "src/stores/roomStore.ts",
+        "src/stores/shortcutStore.ts",
+        "src/stores/agendaStore.ts"
+      ],
+      "check": [
+        "frontend/state-management.md",
+        "3d/cyberdrome-scene.md",
+        "frontend/session-detail-panel.md",
+        "multimedia/sound-alarm-system.md"
+      ]
+    },
+    {
+      "change": [
+        "src/hooks/useTerminal.ts",
+        "src/components/terminal/TerminalContainer.tsx",
+        "src/components/terminal/TerminalToolbar.tsx",
+        "src/components/terminal/themes.ts"
+      ],
+      "check": [
+        "frontend/terminal-ui.md",
+        "frontend/session-detail-panel.md",
+        "frontend/file-browser.md",
+        "multimedia/tts-voice-output.md"
+      ]
+    },
+    {
+      "change": [
+        "src/routes/LiveView.tsx",
+        "src/routes/HistoryView.tsx",
+        "src/routes/QueueView.tsx",
+        "src/routes/AgendaView.tsx",
+        "src/routes/ProjectBrowserView.tsx",
+        "src/App.tsx",
+        "src/components/layout/NavBar.tsx"
+      ],
+      "check": [
+        "frontend/views-routing.md"
+      ]
+    },
+    {
+      "change": [
+        "src/lib/wsClient.ts",
+        "src/hooks/useWebSocket.ts"
+      ],
+      "check": [
+        "frontend/websocket-client.md",
+        "frontend/terminal-ui.md"
+      ]
+    },
+    {
+      "change": [
+        "src/lib/workspaceSnapshot.ts",
+        "src/hooks/useWorkspaceAutoSave.ts",
+        "src/hooks/useWorkspaceAutoLoad.ts",
+        "src/components/ui/WorkspaceLoadingOverlay.tsx",
+        "src/components/ui/SavingOverlay.tsx",
+        "server/apiRouter.ts"
+      ],
+      "check": [
+        "frontend/workspace-snapshot.md"
+      ]
+    },
+    {
+      "change": [
+        "src/lib/soundEngine.ts",
+        "src/lib/ambientEngine.ts",
+        "src/lib/alarmEngine.ts",
+        "src/lib/cliDetect.ts",
+        "src/hooks/useSound.ts"
+      ],
+      "check": [
+        "multimedia/sound-alarm-system.md",
+        "frontend/websocket-client.md",
+        "frontend/settings-system.md"
+      ]
+    },
+    {
+      "change": [
+        "server/apiRouter.ts"
+      ],
+      "check": [
+        "server/api-endpoints.md"
+      ]
+    },
+    {
+      "change": [
+        "server/approvalDetector.ts",
+        "server/config.ts"
+      ],
+      "check": [
+        "server/approval-detection.md"
+      ]
+    },
+    {
+      "change": [
+        "server/authManager.ts",
+        "server/serverConfig.ts"
+      ],
+      "check": [
+        "server/authentication.md",
+        "server/api-endpoints.md",
+        "server/websocket-manager.md"
+      ]
+    },
+    {
+      "change": [
+        "server/db.ts"
+      ],
+      "check": [
+        "server/database.md",
+        "server/api-endpoints.md"
+      ]
+    },
+    {
+      "change": [
+        "server/fileIndexCache.ts",
+        "server/apiRouter.ts"
+      ],
+      "check": [
+        "server/file-index-cache.md",
+        "server/api-endpoints.md",
+        "frontend/file-browser.md",
+        "frontend/session-detail-panel.md"
+      ]
+    },
+    {
+      "change": [
+        "hooks/dashboard-hook.sh",
+        "server/mqReader.ts",
+        "server/hookProcessor.ts",
+        "server/hookRouter.ts",
+        "server/hookInstaller.js",
+        "server/hookStats.ts"
+      ],
+      "check": [
+        "server/hook-system.md",
+        "server/session-management.md",
+        "server/websocket-manager.md",
+        "server/approval-detection.md",
+        "server/team-subagent.md"
+      ]
+    },
+    {
+      "change": [
+        "server/processMonitor.ts",
+        "server/autoIdleManager.ts",
+        "server/config.ts"
+      ],
+      "check": [
+        "server/process-monitor.md",
+        "server/session-management.md",
+        "server/websocket-manager.md"
+      ]
+    },
+    {
+      "change": [
+        "server/sessionStore.ts",
+        "server/autoIdleManager.ts",
+        "server/config.ts",
+        "server/constants.ts"
+      ],
+      "check": [
+        "server/session-management.md",
+        "server/websocket-manager.md",
+        "server/api-endpoints.md",
+        "server/database.md"
+      ]
+    },
+    {
+      "change": [
+        "server/sessionMatcher.ts"
+      ],
+      "check": [
+        "server/session-matching.md",
+        "server/session-management.md",
+        "server/terminal-ssh.md"
+      ]
+    },
+    {
+      "change": [
+        "server/teamManager.ts"
+      ],
+      "check": [
+        "server/team-subagent.md",
+        "server/websocket-manager.md"
+      ]
+    },
+    {
+      "change": [
+        "server/sshManager.ts"
+      ],
+      "check": [
+        "server/terminal-ssh.md",
+        "server/api-endpoints.md"
+      ]
+    },
+    {
+      "change": [
+        "server/wsManager.ts"
+      ],
+      "check": [
+        "server/websocket-manager.md"
+      ]
+    }
+  ]
+}

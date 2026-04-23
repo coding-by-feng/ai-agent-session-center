@@ -2,7 +2,7 @@
  * AgendaFilterBar — Search, priority filter, completed toggle, and sort selector
  * for the Agenda task list.
  */
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import SearchInput from '@/components/ui/SearchInput';
 import { useAgendaStore } from '@/stores/agendaStore';
 import type { AgendaPriority, AgendaFilter } from '@/types';
@@ -25,6 +25,17 @@ const SORT_OPTIONS: Array<{ value: AgendaFilter['sortBy']; label: string }> = [
 export default function AgendaFilterBar() {
   const filter = useAgendaStore((s) => s.filter);
   const setFilter = useAgendaStore((s) => s.setFilter);
+  const tasks = useAgendaStore((s) => s.tasks);
+
+  const availableTags = useMemo(() => {
+    const tagSet = new Set<string>();
+    for (const task of tasks.values()) {
+      for (const tag of task.tags) {
+        if (tag) tagSet.add(tag);
+      }
+    }
+    return [...tagSet].sort((a, b) => a.localeCompare(b));
+  }, [tasks]);
 
   const handleSearch = useCallback(
     (search: string) => setFilter({ search }),
@@ -34,6 +45,12 @@ export default function AgendaFilterBar() {
   const handlePriority = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) =>
       setFilter({ priority: e.target.value as AgendaPriority | 'all' }),
+    [setFilter],
+  );
+
+  const handleTag = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) =>
+      setFilter({ tag: e.target.value }),
     [setFilter],
   );
 
@@ -61,6 +78,19 @@ export default function AgendaFilterBar() {
         {PRIORITY_OPTIONS.map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}
+          </option>
+        ))}
+      </select>
+
+      <select
+        value={filter.tag}
+        onChange={handleTag}
+        disabled={availableTags.length === 0}
+      >
+        <option value="all">All tags</option>
+        {availableTags.map((tag) => (
+          <option key={tag} value={tag}>
+            #{tag}
           </option>
         ))}
       </select>

@@ -23,6 +23,13 @@ export type ShortcutActionId =
   | 'switchSession8'
   | 'switchSession9'
   | 'switchLatestSession'
+  // Detail panel tabs
+  | 'switchTabProject'
+  | 'switchTabTerminal'
+  | 'switchTabCommands'
+  | 'switchTabPrompts'
+  | 'switchTabNotes'
+  | 'switchTabQueue'
   // File Browser
   | 'fileBrowserSearch'
   | 'fileBrowserNewFile'

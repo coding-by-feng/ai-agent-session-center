@@ -40,7 +40,7 @@ interface ProjectTabProps {
   navigateToFile?: string | null;
   /** Unique ID used to persist file tabs across remounts (e.g. sub-tab id) */
   persistId?: string;
-  onOpenBrowserTab?: (projectPath: string, currentDir: string) => void;
+  onOpenBrowserTab?: (projectPath: string, currentDir: string, isFile?: boolean) => void;
   onPathChange?: (currentPath: string, isFile: boolean) => void;
 }
 
@@ -1577,9 +1577,37 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     }
   }, [uploadFiles]);
 
-  // Delete file or folder
-  const [confirmDeleteName, setConfirmDeleteName] = useState<string | null>(null);
+  // Delete file or folder — keyed by full rel path (supports FileTree + context menu)
+  interface DeleteTarget { relPath: string; name: string; isDir: boolean; }
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  const handleRequestDelete = useCallback(
+    (relPath: string, name: string, isDir: boolean) => {
+      setDeleteTarget({ relPath, name, isDir });
+    },
+    [],
+  );
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await provider.deleteEntry(projectPath, deleteTarget.relPath);
+      setDeleteTarget(null);
+      // Refresh the tree and the current directory view so the removed entry disappears.
+      document.dispatchEvent(new CustomEvent('filetree:refresh'));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeleting(false);
+    }
+  }, [deleteTarget, projectPath, provider]);
+
+  const handleCancelDelete = useCallback(() => {
+    if (deleting) return;
+    setDeleteTarget(null);
+  }, [deleting]);
 
   // Context menu
   interface ContextMenuState { x: number; y: number; entry: DirEntry; entryPath: string; }
@@ -1614,23 +1642,14 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
 
   const handleContextDelete = useCallback(() => {
     if (!contextMenu) return;
+    const { entry, entryPath } = contextMenu;
     closeContextMenu();
-    setConfirmDeleteName(contextMenu.entry.name);
+    setDeleteTarget({
+      relPath: entryPath,
+      name: entry.name,
+      isDir: entry.type === 'dir',
+    });
   }, [contextMenu, closeContextMenu]);
-
-  const handleDelete = useCallback(async (entryName: string) => {
-    const relPath = currentDirPath === '/' ? '/' + entryName : currentDirPath + '/' + entryName;
-    setDeleting(true);
-    try {
-      await provider.deleteEntry(projectPath, relPath);
-      setConfirmDeleteName(null);
-      document.dispatchEvent(new CustomEvent('filetree:refresh'));
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setDeleting(false);
-    }
-  }, [currentDirPath, projectPath, provider]);
 
   // Reload directory when showHidden toggles (skip initial mount — initial load effect handles that)
   useEffect(() => {
@@ -1709,6 +1728,26 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
       window.open(`/project-browser?path=${encodeURIComponent(projectPath)}`, '_blank');
     }
   }, [projectPath, currentPath, file, onOpenBrowserTab]);
+
+  // Open an arbitrary path on disk (e.g. ~/.config/gcloud/...) in a new browser tab
+  const handleOpenExternalPath = useCallback(async () => {
+    const input = window.prompt(
+      'Open path (absolute, or starting with ~):',
+      '~/',
+    );
+    if (!input || !input.trim()) return;
+    try {
+      const resolved = await provider.resolvePath(input.trim());
+      if (onOpenBrowserTab) {
+        onOpenBrowserTab(resolved.root, resolved.rel, resolved.kind === 'file');
+      } else {
+        window.open(`/project-browser?path=${encodeURIComponent(resolved.root)}`, '_blank');
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Open failed: ${msg}`, 'error');
+    }
+  }, [provider, onOpenBrowserTab]);
 
   const handleRevealInFinder = useCallback(async () => {
     try {
@@ -1997,6 +2036,16 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         <button className={styles.iconBtn} onClick={handleOpenProjectView} title="Open project in new tab">
           <IconOpenProjectView />
         </button>
+        <button
+          className={styles.iconBtn}
+          onClick={() => { void handleOpenExternalPath(); }}
+          title="Open path outside this project (e.g. ~/.config/...)"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M2 4h5l1.5 1.5H14V13H2V4z" />
+            <path d="M9 9h4M11 7l2 2-2 2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
         <button className={styles.iconBtn} onClick={handleRevealInFinder} title="Reveal in Finder / Explorer">
           <IconRevealInFinder />
         </button>
@@ -2173,6 +2222,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                 onPathChange?.(relPath, false);
               }}
               activeFilePath={activeTabPath}
+              onRequestDelete={handleRequestDelete}
             />
           </div>
           )}
@@ -2571,6 +2621,83 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
           onClose={() => setShowContentSearch(false)}
         />
       )}
+
+      {/* Confirm delete dialog */}
+      {deleteTarget && (
+        <DeleteConfirmOverlay
+          target={deleteTarget}
+          deleting={deleting}
+          onConfirm={handleConfirmDelete}
+          onCancel={handleCancelDelete}
+        />
+      )}
+    </div>
+  );
+}
+
+interface DeleteConfirmOverlayProps {
+  target: { relPath: string; name: string; isDir: boolean };
+  deleting: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function DeleteConfirmOverlay({ target, deleting, onConfirm, onCancel }: DeleteConfirmOverlayProps) {
+  // Keyboard: Enter confirms, Esc cancels.
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onCancel();
+      } else if (e.key === 'Enter' && !deleting) {
+        e.stopPropagation();
+        onConfirm();
+      }
+    }
+    document.addEventListener('keydown', handleKey, true);
+    return () => document.removeEventListener('keydown', handleKey, true);
+  }, [deleting, onCancel, onConfirm]);
+
+  return (
+    <div className={styles.deleteConfirmOverlay} onClick={onCancel}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Confirm delete"
+        className={styles.deleteConfirmPanel}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className={styles.deleteConfirmTitle}>
+          Delete {target.isDir ? 'folder' : 'file'}?
+        </div>
+        <div className={styles.deleteConfirmBody}>
+          <code className={styles.deleteConfirmPath}>{target.relPath}</code>
+          {target.isDir && (
+            <div className={styles.deleteConfirmWarn}>
+              This will remove the folder and all its contents.
+            </div>
+          )}
+        </div>
+        <div className={styles.deleteConfirmActions}>
+          <button
+            type="button"
+            className={styles.deleteConfirmCancel}
+            onClick={onCancel}
+            disabled={deleting}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={styles.deleteConfirmConfirm}
+            onClick={onConfirm}
+            disabled={deleting}
+            autoFocus
+          >
+            {deleting ? 'Deleting...' : 'Delete'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

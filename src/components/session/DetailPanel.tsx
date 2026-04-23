@@ -81,7 +81,21 @@ const TerminalContent = memo(function TerminalContent({
       .then((data) => {
         if (data.ok && data.terminalId) {
           useSessionStore.getState().selectSession(data.terminalId);
-          // Copy room assignment from source session to forked session
+          const room = useRoomStore.getState().getRoomForSession(sessionId);
+          if (room) {
+            useRoomStore.getState().addSession(room.id, data.terminalId);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [sessionId]);
+
+  const handleClone = useCallback(() => {
+    fetch(`/api/sessions/${sessionId}/clone`, { method: 'POST' })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.ok && data.terminalId) {
+          useSessionStore.getState().selectSession(data.terminalId);
           const room = useRoomStore.getState().getRoomForSession(sessionId);
           if (room) {
             useRoomStore.getState().addSession(room.id, data.terminalId);
@@ -100,6 +114,7 @@ const TerminalContent = memo(function TerminalContent({
           showReconnect={showReconnect}
           onReconnect={canReconnect ? handleReconnect : undefined}
           onFork={isClaudeCode ? handleFork : undefined}
+          onClone={handleClone}
           bookmarkPortalTarget={bookmarkTarget}
           projectPath={projectPath}
         />
@@ -505,6 +520,23 @@ export default function DetailPanel() {
       return () => clearTimeout(id);
     }
   }, [pendingFileOpen]);
+
+  // Keyboard shortcuts dispatch detailTabs:switchTab to jump between tabs
+  useEffect(() => {
+    let clearId: ReturnType<typeof setTimeout> | null = null;
+    const handler = (e: Event) => {
+      const tabId = (e as CustomEvent<{ tabId?: string }>).detail?.tabId;
+      if (!tabId) return;
+      setExternalTab(tabId);
+      if (clearId) clearTimeout(clearId);
+      clearId = setTimeout(() => setExternalTab(null), 50);
+    };
+    document.addEventListener('detailTabs:switchTab', handler);
+    return () => {
+      document.removeEventListener('detailTabs:switchTab', handler);
+      if (clearId) clearTimeout(clearId);
+    };
+  }, []);
 
   // Track active tab accurately (ref avoids stale closure in navigateMatch)
   const activeTabRef = useRef(activeTab);

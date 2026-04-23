@@ -134,6 +134,15 @@ function dispatchAction(actionId: string): void {
         );
         return;
       }
+      if (actionId.startsWith('switchTab')) {
+        const tabId = TAB_ACTION_MAP[actionId];
+        if (tabId) {
+          document.dispatchEvent(
+            new CustomEvent('detailTabs:switchTab', { detail: { tabId } }),
+          );
+        }
+        return;
+      }
       // Handle switchSession1..switchSession9
       if (actionId.startsWith('switchSession')) {
         const idx = parseInt(actionId.replace('switchSession', ''), 10) - 1;
@@ -142,6 +151,15 @@ function dispatchAction(actionId: string): void {
       break;
   }
 }
+
+const TAB_ACTION_MAP: Record<string, string> = {
+  switchTabProject: 'project',
+  switchTabTerminal: 'terminal',
+  switchTabCommands: 'commands',
+  switchTabPrompts: 'conversation',
+  switchTabNotes: 'notes',
+  switchTabQueue: 'queue',
+};
 
 // ---------------------------------------------------------------------------
 // Session switching helper

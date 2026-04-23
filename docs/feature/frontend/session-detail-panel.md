@@ -25,6 +25,7 @@ Primary interface for interacting with a single session. Aggregates terminal, pr
 - Header: collapsible (localStorage['detail-header-collapsed']), 64x80px character preview (CSS circle, not 3D Canvas), project name, editable title (EditableTitle component), status badge, model, LabelChips, SessionControlBar
 - Session switcher: SessionSwitcher component with compact header info when collapsed. Mini-robot cards and session tab cards show a **spinning conic-gradient border** when session status is `working` or `prompting` (CSS `@property --spin-angle` animated via `spinBorder` keyframes, 2s linear infinite). Approval/input states use a pulsing border instead.
 - 6 tabs: PROJECT, TERMINAL, COMMANDS, PROMPTS (id: conversation), NOTES, QUEUE — TERMINAL/COMMANDS/PROJECT always mounted (preserves xterm + file state), other tabs mounted on demand
+- Tab switching via keyboard: DetailPanel listens to the `detailTabs:switchTab` CustomEvent (dispatched from useKeyboardShortcuts.ts when Cmd/Ctrl+Shift+1..6 is pressed) and drives the existing `externalTab` state. Default bindings: 1=Project, 2=Terminal, 3=Commands, 4=Prompts, 5=Notes, 6=Queue. Event detail: `{ tabId: 'project' | 'terminal' | 'commands' | 'conversation' | 'notes' | 'queue' }`. `externalTab` is cleared ~50ms after set so subsequent user clicks aren't blocked.
 - Split view: >=700px panel width shows Terminal+Project side-by-side (DraggableSplitView) with draggable divider, ratio persisted per-session (localStorage['split-ratio:{sessionId}'])
 - Tab state persisted in localStorage['active-tab'], split state in localStorage['split-terminal-project:{sessionId}']
 - Selection: localStorage['selected-session'], restored on refresh
@@ -43,6 +44,7 @@ Primary interface for interacting with a single session. Aggregates terminal, pr
 - [Prompt Queue](./prompt-queue.md) — QueueTab
 - [Client Persistence](./client-persistence.md) — notes, prompts from IndexedDB
 - [Server API](../server/api-endpoints.md) — kill, resume, summarize, title/label/color updates
+- [Keyboard Shortcuts](./keyboard-shortcuts.md) — receives `detailTabs:switchTab` CustomEvent for programmatic tab switching
 
 ### Depended On By
 - [3D Cyberdrome Scene](../3d/cyberdrome-scene.md) — robot click triggers panel open via selectSession
