@@ -1988,3 +1988,100 @@
   color: var(--accent-orange, #ff9100);
   margin: 0 4px;
 }
+
+/* ---- Delete confirm dialog ---- */
+
+.deleteConfirmOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+
+.deleteConfirmPanel {
+  min-width: 340px;
+  max-width: 480px;
+  padding: 20px 22px;
+  background: var(--bg-panel, #11182b);
+  border: 1px solid rgba(255, 68, 68, 0.35);
+  border-radius: 8px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  color: var(--text-primary, #e0e0e0);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.deleteConfirmTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-red, #ff4444);
+  margin-bottom: 12px;
+}
+
+.deleteConfirmBody {
+  font-size: 12px;
+  margin-bottom: 18px;
+  word-break: break-all;
+}
+
+.deleteConfirmPath {
+  display: block;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+  color: var(--text-primary, #e0e0e0);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.deleteConfirmWarn {
+  color: var(--text-dim, #aa8888);
+  font-size: 11px;
+}
+
+.deleteConfirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.deleteConfirmCancel,
+.deleteConfirmConfirm {
+  padding: 6px 14px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.12s, color 0.12s, border 0.12s;
+}
+
+.deleteConfirmCancel {
+  background: transparent;
+  color: var(--text-primary, #e0e0e0);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.deleteConfirmCancel:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.deleteConfirmConfirm {
+  background: var(--accent-red, #ff4444);
+  color: #fff;
+  border-color: var(--accent-red, #ff4444);
+}
+
+.deleteConfirmConfirm:hover:not(:disabled) {
+  background: #ff5c5c;
+  border-color: #ff5c5c;
+}
+
+.deleteConfirmCancel:disabled,
+.deleteConfirmConfirm:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

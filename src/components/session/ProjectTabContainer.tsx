@@ -70,8 +70,9 @@ export default function ProjectTabContainer({ projectPath, sessionId }: ProjectT
     }
   }, [pendingFileOpen, projectPath, clearPendingFileOpen]);
 
-  const handleOpenBrowserTab = useCallback((projPath: string, currentDir: string) => {
-    // Use the deepest folder name from the current browsing path as the tab label
+  const handleOpenBrowserTab = useCallback((projPath: string, currentDir: string, isFile?: boolean) => {
+    // Use the deepest segment from the current path as the tab label.
+    // For files, that's the file name; for dirs, the folder name.
     const dirSegments = currentDir.split('/').filter(Boolean);
     const label = dirSegments.length > 0
       ? dirSegments[dirSegments.length - 1]
@@ -82,6 +83,7 @@ export default function ProjectTabContainer({ projectPath, sessionId }: ProjectT
       label,
       projectPath: projPath,
       initialPath: currentDir,
+      initialIsFile: !!isFile,
     }]);
     setActiveSubTab(tabId);
   }, []);

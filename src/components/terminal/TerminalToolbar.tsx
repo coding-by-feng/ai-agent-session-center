@@ -115,6 +115,19 @@ function BookmarkIcon({ active }: { active?: boolean }) {
   );
 }
 
+/** Clone/copy SVG icon (new session with same config). */
+function CloneIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="8" y="8" width="13" height="13" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+      <line x1="14" y1="11" x2="14" y2="17" />
+      <line x1="11" y1="14" x2="17" y2="14" />
+    </svg>
+  );
+}
+
 /** Fork/branch SVG icon (git fork). */
 function ForkIcon() {
   return (
@@ -183,6 +196,7 @@ interface TerminalToolbarProps {
   autoScrollEnabled?: boolean;
   onToggleAutoScroll?: () => void;
   onFork?: () => void;
+  onClone?: () => void;
   isFullscreen: boolean;
   showReconnect?: boolean;
   /** Show hold-to-speak mic button (TTS enabled in settings). */
@@ -209,6 +223,7 @@ export default function TerminalToolbar({
   autoScrollEnabled = true,
   onToggleAutoScroll,
   onFork,
+  onClone,
   isFullscreen,
   showReconnect = false,
   ttsEnabled = false,
@@ -314,6 +329,16 @@ export default function TerminalToolbar({
           {bookmarkCount > 0 && (
             <span className={styles.bookmarkBadge}>{bookmarkCount}</span>
           )}
+        </button>
+      )}
+
+      {onClone && (
+        <button
+          className={styles.toolbarBtn}
+          onClick={onClone}
+          title="New session — same command and config as this session"
+        >
+          <CloneIcon />
         </button>
       )}
 

@@ -12,3 +12,5 @@ test-screenshots/
 *.mov
 *.png
 !static/*.png
+docs/feature/.manifest.json.bak
+docs/feature/.manifest.json.tmp.*

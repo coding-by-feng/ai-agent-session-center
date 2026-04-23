@@ -37,6 +37,8 @@ interface TerminalContainerProps {
   projectPath?: string;
   /** Fork the current Claude Code session (--continue --fork-session) */
   onFork?: () => void;
+  /** Clone — new session running the same startupCommand + config */
+  onClone?: () => void;
 }
 
 const DEFAULT_MIN_HEIGHT = '200px';
@@ -49,6 +51,7 @@ export default memo(function TerminalContainer({
   bookmarkPortalTarget,
   projectPath,
   onFork,
+  onClone,
 }: TerminalContainerProps) {
   const [themeName, setThemeName] = useState<string>(() => {
     try {
@@ -411,6 +414,7 @@ export default memo(function TerminalContainer({
         autoScrollEnabled={autoScrollEnabled}
         onToggleAutoScroll={toggleAutoScroll}
         onFork={onFork}
+        onClone={onClone}
         isFullscreen={isFullscreen}
         showReconnect={showReconnect || (isClosed && !!onReconnect)}
         ttsEnabled={ttsEnabled}
