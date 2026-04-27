@@ -9,9 +9,11 @@ export interface ImageView {
   panY: number;
 }
 
-export const ZOOM_MIN = 0.25;
-export const ZOOM_MAX = 5;
+export const ZOOM_MIN = 0.1;
+export const ZOOM_MAX = 8;
 export const ZOOM_STEP = 0.25;
+/** Multiplicative factor per wheel tick (deltaY ~100 ⇒ ~10% zoom change). */
+export const ZOOM_WHEEL_FACTOR = 0.001;
 export const PAN_STEP = 30;
 export const PERSIST_VERSION = 1;
 export const PERSIST_DEBOUNCE_MS = 200;

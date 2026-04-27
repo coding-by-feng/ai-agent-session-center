@@ -334,6 +334,12 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
       } catch { /* ignore */ }
       // Clear active terminal's batched output buffer
       pendingOutputRef.current.delete(`__active__${terminalId}`);
+      // Unsubscribe from the PTY host (Electron IPC) so the main process
+      // stops streaming output for this terminal to us.
+      if (isPtyHostTerminal(terminalId)) {
+        try { window.electronAPI?.unsubscribePty?.(terminalId); } catch { /* ignore */ }
+        subscribedTerminalIdRef.current = null;
+      }
       activeRef.current.resizeObserver.disconnect();
       activeRef.current.term.dispose();
       activeRef.current = null;

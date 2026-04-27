@@ -15,6 +15,7 @@ import pty from 'node-pty'
 import type { IPty, IDisposable } from 'node-pty'
 import { homedir } from 'os'
 import { BrowserWindow } from 'electron'
+import type { WebContents } from 'electron'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,9 +38,16 @@ interface PtyInstance {
   id: string
   process: IPty
   config: PtyCreateConfig
-  outputBuffer: Buffer
+  /** Pre-allocated ring buffer — see ringWrite() / ringSnapshot(). */
+  ring: Buffer
+  /** Next write offset within `ring`. */
+  ringOffset: number
+  /** True once the ring has been wrapped at least once (buffer is full). */
+  ringWrapped: boolean
   disposables: IDisposable[]
   shellReady: Promise<boolean>
+  /** Renderer WebContents currently viewing this PTY. Output is sent only to these. */
+  subscribers: Set<WebContents>
 }
 
 // ---------------------------------------------------------------------------
@@ -61,6 +69,50 @@ const SHELL_PROMPT_RE = /[#$%>]\s*$/
 const terminals = new Map<string, PtyInstance>()
 
 // ---------------------------------------------------------------------------
+// Ring-buffer helpers — pre-allocated slab + write offset, no per-chunk concat
+// ---------------------------------------------------------------------------
+
+function ringWrite(inst: PtyInstance, chunk: Buffer): void {
+  const cap = inst.ring.length
+  if (chunk.length >= cap) {
+    // Single chunk is larger than the ring — keep only the tail.
+    chunk.copy(inst.ring, 0, chunk.length - cap)
+    inst.ringOffset = 0
+    inst.ringWrapped = true
+    return
+  }
+  const tail = cap - inst.ringOffset
+  if (chunk.length <= tail) {
+    chunk.copy(inst.ring, inst.ringOffset)
+    inst.ringOffset += chunk.length
+    if (inst.ringOffset === cap) {
+      inst.ringOffset = 0
+      inst.ringWrapped = true
+    }
+  } else {
+    chunk.copy(inst.ring, inst.ringOffset, 0, tail)
+    chunk.copy(inst.ring, 0, tail)
+    inst.ringOffset = chunk.length - tail
+    inst.ringWrapped = true
+  }
+}
+
+/** Linearize the ring into a contiguous Buffer (oldest → newest). */
+function ringSnapshot(inst: PtyInstance): Buffer {
+  if (!inst.ringWrapped) {
+    return inst.ring.slice(0, inst.ringOffset)
+  }
+  return Buffer.concat([
+    inst.ring.slice(inst.ringOffset),
+    inst.ring.slice(0, inst.ringOffset),
+  ])
+}
+
+function ringLength(inst: PtyInstance): number {
+  return inst.ringWrapped ? inst.ring.length : inst.ringOffset
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -73,10 +125,21 @@ function getDefaultShell(): string {
   return process.env.SHELL || '/bin/bash'
 }
 
+/** Send to every renderer window — use only for low-frequency / broadcast events. */
 function sendToAllWindows(channel: string, ...args: unknown[]): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
       win.webContents.send(channel, ...args)
+    }
+  }
+}
+
+/** Send to only the WebContents currently subscribed to this PTY. */
+function sendToSubscribers(inst: PtyInstance, channel: string, ...args: unknown[]): void {
+  if (inst.subscribers.size === 0) return
+  for (const wc of inst.subscribers) {
+    if (!wc.isDestroyed()) {
+      wc.send(channel, ...args)
     }
   }
 }
@@ -127,6 +190,7 @@ function detectShellReady(
 
     const exitDisp: IDisposable = ptyProcess.onExit(() => { finish(false) })
     const fallbackTimer = setTimeout(() => { finish(false) }, timeoutMs)
+    void terminalId // reserved for future tracing
   })
 }
 
@@ -196,22 +260,29 @@ export function createPty(config: PtyCreateConfig): string {
     id: terminalId,
     process: ptyProcess,
     config,
-    outputBuffer: Buffer.alloc(0),
+    ring: Buffer.alloc(OUTPUT_BUFFER_MAX),
+    ringOffset: 0,
+    ringWrapped: false,
     disposables: [],
     shellReady,
+    subscribers: new Set<WebContents>(),
   }
 
-  // Stream PTY output to renderer via IPC
+  // Stream PTY output to subscribed renderers via IPC.
+  // Unsubscribed terminals still fill the ring buffer (for replay on subscribe),
+  // but do NOT send IPC messages — this eliminates the main-thread work of
+  // decoding/routing output from background sessions.
   const dataDisp = ptyProcess.onData((data: string) => {
-    const chunk = Buffer.from(data)
-    instance.outputBuffer = Buffer.concat([instance.outputBuffer, chunk])
-    if (instance.outputBuffer.length > OUTPUT_BUFFER_MAX) {
-      instance.outputBuffer = instance.outputBuffer.slice(-OUTPUT_BUFFER_MAX)
+    const chunk = Buffer.from(data, 'utf8')
+    ringWrite(instance, chunk)
+    if (instance.subscribers.size > 0) {
+      const base64 = chunk.toString('base64')
+      sendToSubscribers(instance, 'pty:data', terminalId, base64)
     }
-    sendToAllWindows('pty:data', terminalId, chunk.toString('base64'))
   })
 
   const exitDisp = ptyProcess.onExit(({ exitCode, signal }) => {
+    // pty:exit is rare — broadcast to all windows so any view can clean up.
     sendToAllWindows('pty:exit', terminalId, exitCode, signal ?? 0)
     cleanup(terminalId)
   })
@@ -304,11 +375,33 @@ export function killPty(terminalId: string): void {
   }
 }
 
+/** Register a renderer WebContents as subscribed to this PTY. */
+export function subscribePty(terminalId: string, wc: WebContents): boolean {
+  const inst = terminals.get(terminalId)
+  if (!inst) return false
+  inst.subscribers.add(wc)
+  return true
+}
+
+/** Remove a renderer WebContents from this PTY's subscribers. */
+export function unsubscribePty(terminalId: string, wc: WebContents): void {
+  const inst = terminals.get(terminalId)
+  if (!inst) return
+  inst.subscribers.delete(wc)
+}
+
+/** Remove a WebContents from every PTY's subscriber set (on window close/crash). */
+export function removeSubscriberFromAll(wc: WebContents): void {
+  for (const inst of terminals.values()) {
+    inst.subscribers.delete(wc)
+  }
+}
+
 /** Get the output buffer for replay on subscribe. */
 export function getOutputBuffer(terminalId: string): string | null {
   const inst = terminals.get(terminalId)
-  if (!inst || inst.outputBuffer.length === 0) return null
-  return inst.outputBuffer.toString('base64')
+  if (!inst || ringLength(inst) === 0) return null
+  return ringSnapshot(inst).toString('base64')
 }
 
 /** Check if a terminal ID is managed by ptyHost. */
@@ -338,6 +431,7 @@ function cleanup(terminalId: string): void {
     for (const d of inst.disposables) {
       try { d.dispose() } catch { /* already disposed */ }
     }
+    inst.subscribers.clear()
     terminals.delete(terminalId)
   }
 }

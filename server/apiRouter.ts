@@ -948,7 +948,7 @@ router.post('/tmux-sessions', async (req: Request, res: Response) => {
 // ── Terminals ──
 
 router.post('/terminals', async (req: Request, res: Response) => {
-  // Rate limit: max 10 terminals total
+  // Rate limit: cap at MAX_TERMINALS total
   const currentTerminals = getTerminals();
   if (currentTerminals.length >= MAX_TERMINALS) {
     res.status(429).json({ success: false, error: `Terminal limit reached (max ${MAX_TERMINALS})` });
@@ -1013,12 +1013,18 @@ router.post('/terminals', async (req: Request, res: Response) => {
           return;
         }
       }
-      // Priority 2: match by config (host + path + command)
-      const existing = findActiveSessionByConfig(config);
-      if (existing) {
-        log.info('api', `Deduplicated terminal creation — reusing session ${existing.sessionId} for ${resolvedHost}:${config.workingDir}`);
-        res.json({ ok: true, terminalId: existing.sessionId, deduplicated: true, hasTerminal: !!existing.terminalId });
-        return;
+      // Priority 2: match by config (host + path + command).
+      // Skip when originalSessionId is provided — the caller (workspace import)
+      // has authoritative IDs, and config-based fuzzy match can collapse distinct
+      // sessions that share a workDir + command but differ only by conversation
+      // UUID (e.g. multiple Claude sessions in the same project directory).
+      if (!body.originalSessionId) {
+        const existing = findActiveSessionByConfig(config);
+        if (existing) {
+          log.info('api', `Deduplicated terminal creation — reusing session ${existing.sessionId} for ${resolvedHost}:${config.workingDir}`);
+          res.json({ ok: true, terminalId: existing.sessionId, deduplicated: true, hasTerminal: !!existing.terminalId });
+          return;
+        }
       }
     }
 
@@ -1049,9 +1055,11 @@ router.post('/terminals', async (req: Request, res: Response) => {
     // When resuming, spawn terminal with empty command so createTerminal skips
     // auto-launch (the resume command contains `||` which can't pass shell-metachar
     // validation). We write the actual launch command via writeWhenReady below,
-    // after the shell is ready.
+    // after the shell is ready.  Set deferredLaunch=true so sshManager still
+    // registers a pendingLink — without it, SessionStart hooks from sessions
+    // sharing a workDir collapse onto a single card during workspace import.
     const terminalConfig: TerminalConfig = resumeLaunchCmd
-      ? { ...config, command: '' }
+      ? { ...config, command: '', deferredLaunch: true }
       : config;
     const terminalId = await createTerminal(terminalConfig, null);
 
@@ -1150,6 +1158,32 @@ router.delete('/terminals/:id', (req: Request, res: Response) => {
 });
 
 // Write data to a terminal's PTY (used by queue prompt send)
+const QUEUE_IMAGES_DIR = '/tmp/claude-queue-images';
+const QUEUE_IMAGE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/** Delete queue-image files older than QUEUE_IMAGE_TTL_MS. Best-effort; never throws. */
+function cleanupQueueImages(): void {
+  try {
+    if (!existsSync(QUEUE_IMAGES_DIR)) return;
+    const now = Date.now();
+    const files = readdirSync(QUEUE_IMAGES_DIR);
+    for (const name of files) {
+      if (!name.startsWith('queue-img-')) continue;
+      const fp = join(QUEUE_IMAGES_DIR, name);
+      try {
+        const stat = statSync(fp);
+        if (now - stat.mtimeMs > QUEUE_IMAGE_TTL_MS) {
+          rmSync(fp, { force: true });
+        }
+      } catch { /* ignore per-file errors */ }
+    }
+  } catch { /* directory gone or not readable */ }
+}
+
+// Sweep once on module load, then hourly thereafter.
+cleanupQueueImages();
+setInterval(cleanupQueueImages, 60 * 60 * 1000).unref();
+
 /** POST /api/queue-images — save base64 images to temp files, return file paths */
 router.post('/queue-images', (req: Request, res: Response) => {
   const schema = z.object({
@@ -1163,8 +1197,9 @@ router.post('/queue-images', (req: Request, res: Response) => {
     res.status(400).json({ ok: false, error: 'Invalid request' });
     return;
   }
-  const dir = '/tmp/claude-queue-images';
-  try { mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }
+  try { mkdirSync(QUEUE_IMAGES_DIR, { recursive: true }); } catch { /* ignore */ }
+  // Opportunistic cleanup on write — cheap when nothing is stale.
+  cleanupQueueImages();
   const paths: string[] = [];
   for (const img of parsed.data.images) {
     const match = img.dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
@@ -1173,7 +1208,7 @@ router.post('/queue-images', (req: Request, res: Response) => {
       const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
       const buf = Buffer.from(match[2], 'base64');
       const filename = `queue-img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-      const filepath = join(dir, filename);
+      const filepath = join(QUEUE_IMAGES_DIR, filename);
       writeFileSync(filepath, buf);
       paths.push(filepath);
     } catch { /* skip invalid */ }

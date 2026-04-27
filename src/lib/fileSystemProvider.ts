@@ -180,7 +180,7 @@ export class ApiFileSystemProvider implements FileSystemProvider {
 
   async deleteEntry(projectRoot: string, relPath: string) {
     const res = await fetch('/api/files/delete', {
-      method: 'DELETE',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ root: projectRoot, path: relPath }),
     });

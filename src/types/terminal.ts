@@ -15,7 +15,12 @@ export interface Terminal {
   config: TerminalConfig;
   wsClient: import('ws').WebSocket | null;
   createdAt: number;
-  outputBuffer: Buffer;
+  /** Pre-allocated output ring buffer (128 KB). Use ring* helpers — never mutate directly. */
+  outputRing: Buffer;
+  /** Next write offset within outputRing. */
+  outputOffset: number;
+  /** True once outputRing has wrapped at least once (full buffer has data). */
+  outputWrapped: boolean;
   shellReady?: Promise<boolean>;
   // #19: Store disposables for proper cleanup
   disposables?: import('node-pty').IDisposable[];
@@ -50,6 +55,15 @@ export interface TerminalConfig {
   alerted?: boolean;
   accentColor?: string;
   characterModel?: string;
+  /**
+   * When true, `command` is intentionally empty because the caller will write the
+   * real launch command (e.g. `claude --resume 'X' || claude --continue`) later
+   * via `writeWhenReady`.  Distinguishes workspace-resume terminals from ops
+   * terminals (also command='' but truly never run Claude).  Resume terminals
+   * still need a pendingLink registered so session matching can bind the Claude
+   * SessionStart hook to the correct terminal card.
+   */
+  deferredLaunch?: boolean;
 }
 
 // ---------------------------------------------------------------------------

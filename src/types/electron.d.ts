@@ -75,6 +75,7 @@ export interface ElectronAPI {
   resizePty?(terminalId: string, cols: number, rows: number): void
   killPty?(terminalId: string):                           Promise<{ ok: boolean }>
   subscribePty?(terminalId: string):                      Promise<PtySubscribeResult>
+  unsubscribePty?(terminalId: string):                    void
   hasPty?(terminalId: string):                            Promise<boolean>
   onPtyData?(cb: (terminalId: string, base64Data: string) => void): () => void
   onPtyExit?(cb: (terminalId: string, exitCode: number, signal: number) => void): () => void

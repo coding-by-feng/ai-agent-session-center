@@ -169,6 +169,56 @@ const terminals = new Map<string, Terminal>();
 // Ring buffer size for PTY output replay (128KB — enough for ~2 full screens of scrollback)
 const OUTPUT_BUFFER_MAX = 128 * 1024;
 
+// ---------------------------------------------------------------------------
+// Ring-buffer helpers — pre-allocated slab + write offset, O(1) append.
+// Replaces the old Buffer.concat-every-chunk approach which was O(n) per write
+// and allocated garbage for every PTY data event.
+// ---------------------------------------------------------------------------
+
+function ringWrite(term: Terminal, chunk: Buffer): void {
+  const cap = term.outputRing.length;
+  if (chunk.length >= cap) {
+    // Incoming chunk larger than the ring — keep only the tail.
+    chunk.copy(term.outputRing, 0, chunk.length - cap);
+    term.outputOffset = 0;
+    term.outputWrapped = true;
+    return;
+  }
+  const tail = cap - term.outputOffset;
+  if (chunk.length <= tail) {
+    chunk.copy(term.outputRing, term.outputOffset);
+    term.outputOffset += chunk.length;
+    if (term.outputOffset === cap) {
+      term.outputOffset = 0;
+      term.outputWrapped = true;
+    }
+  } else {
+    chunk.copy(term.outputRing, term.outputOffset, 0, tail);
+    chunk.copy(term.outputRing, 0, tail);
+    term.outputOffset = chunk.length - tail;
+    term.outputWrapped = true;
+  }
+}
+
+function ringSnapshot(term: Terminal): Buffer {
+  if (!term.outputWrapped) return term.outputRing.slice(0, term.outputOffset);
+  return Buffer.concat([
+    term.outputRing.slice(term.outputOffset),
+    term.outputRing.slice(0, term.outputOffset),
+  ]);
+}
+
+function ringLength(term: Terminal): number {
+  return term.outputWrapped ? term.outputRing.length : term.outputOffset;
+}
+
+function ringReset(term: Terminal, preload?: Buffer): void {
+  term.outputRing.fill(0);
+  term.outputOffset = 0;
+  term.outputWrapped = false;
+  if (preload && preload.length > 0) ringWrite(term, preload);
+}
+
 // Pending links: workingDir -> { terminalId, host, createdAt }
 // Used to match incoming SessionStart hooks to the terminal that launched Claude
 const pendingLinks = new Map<string, PendingLink>();
@@ -379,14 +429,21 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
         config: { ...config, workingDir: workDir },
         wsClient,
         createdAt: Date.now(),
-        outputBuffer: Buffer.alloc(0),
+        outputRing: Buffer.alloc(OUTPUT_BUFFER_MAX),
+        outputOffset: 0,
+        outputWrapped: false,
         shellReady,
       });
 
       // Register pending link for session matching.
-      // Skip for ops terminals (command='') — they never run Claude so they
-      // must not overwrite the main terminal's pending link for the same workDir.
-      if (!skipAutoLaunch) {
+      // Skip for ops terminals (command='', deferredLaunch unset) — they never
+      // run Claude so they must not overwrite the main terminal's pending link
+      // for the same workDir.  Resume terminals also arrive with command=''
+      // but set deferredLaunch=true because the caller will write the real
+      // claude launch via writeWhenReady; those MUST register a pendingLink so
+      // Claude's SessionStart hook can bind to the correct terminal card when
+      // multiple sessions share a workDir.
+      if (!skipAutoLaunch || config.deferredLaunch) {
         pendingLinks.set(workDir, { terminalId, host: config.host || 'localhost', createdAt: Date.now() });
       }
 
@@ -401,10 +458,7 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
 
         // Append to ring buffer for replay on (re)subscribe
         const chunk = Buffer.from(data);
-        term.outputBuffer = Buffer.concat([term.outputBuffer, chunk]);
-        if (term.outputBuffer.length > OUTPUT_BUFFER_MAX) {
-          term.outputBuffer = term.outputBuffer.slice(term.outputBuffer.length - OUTPUT_BUFFER_MAX);
-        }
+        ringWrite(term, chunk);
 
         if (term.wsClient && term.wsClient.readyState === 1) {
           term.wsClient.send(JSON.stringify({
@@ -580,7 +634,9 @@ export function attachToTmuxPane(tmuxPaneId: string, wsClient: WebSocket | null)
         config: { host: 'localhost', workingDir: homedir(), command: `tmux (pane ${tmuxPaneId})` },
         wsClient,
         createdAt: Date.now(),
-        outputBuffer: Buffer.alloc(0),
+        outputRing: Buffer.alloc(OUTPUT_BUFFER_MAX),
+        outputOffset: 0,
+        outputWrapped: false,
       });
 
       // Stream output to WebSocket client + buffer for replay
@@ -589,10 +645,7 @@ export function attachToTmuxPane(tmuxPaneId: string, wsClient: WebSocket | null)
         if (!term) return;
 
         const chunk = Buffer.from(data);
-        term.outputBuffer = Buffer.concat([term.outputBuffer, chunk]);
-        if (term.outputBuffer.length > OUTPUT_BUFFER_MAX) {
-          term.outputBuffer = term.outputBuffer.slice(term.outputBuffer.length - OUTPUT_BUFFER_MAX);
-        }
+        ringWrite(term, chunk);
 
         if (term.wsClient && term.wsClient.readyState === 1) {
           term.wsClient.send(JSON.stringify({
@@ -776,13 +829,14 @@ export function setWsClient(terminalId: string, wsClient: WebSocket | null): boo
     wsClient.send(JSON.stringify({ type: 'terminal_ready', terminalId }));
 
     // Replay buffered output so the client sees previous terminal content
-    if (term.outputBuffer.length > 0) {
+    const snapshot = ringSnapshot(term);
+    if (snapshot.length > 0) {
       wsClient.send(JSON.stringify({
         type: 'terminal_output',
         terminalId,
-        data: term.outputBuffer.toString('base64'),
+        data: snapshot.toString('base64'),
       }));
-      log.debug('pty', `Replayed ${term.outputBuffer.length} bytes to new client for ${terminalId}`);
+      log.debug('pty', `Replayed ${snapshot.length} bytes to new client for ${terminalId}`);
     }
   }
   return true;
@@ -791,8 +845,8 @@ export function setWsClient(terminalId: string, wsClient: WebSocket | null): boo
 /** Get the raw output ring buffer for a terminal (base64-encoded). */
 export function getTerminalOutputBuffer(terminalId: string): string | null {
   const term = terminals.get(terminalId);
-  if (!term || term.outputBuffer.length === 0) return null;
-  return term.outputBuffer.toString('base64');
+  if (!term || ringLength(term) === 0) return null;
+  return ringSnapshot(term).toString('base64');
 }
 
 /**
@@ -804,10 +858,12 @@ export function prefillTerminalOutput(terminalId: string, base64Data: string): b
   const term = terminals.get(terminalId);
   if (!term) return false;
   const saved = Buffer.from(base64Data, 'base64');
-  term.outputBuffer = Buffer.concat([saved, term.outputBuffer]);
-  if (term.outputBuffer.length > OUTPUT_BUFFER_MAX) {
-    term.outputBuffer = term.outputBuffer.slice(term.outputBuffer.length - OUTPUT_BUFFER_MAX);
-  }
+  const existing = ringSnapshot(term);
+  const combined = Buffer.concat([saved, existing]);
+  const trimmed = combined.length > OUTPUT_BUFFER_MAX
+    ? combined.slice(combined.length - OUTPUT_BUFFER_MAX)
+    : combined;
+  ringReset(term, trimmed);
   return true;
 }
 
