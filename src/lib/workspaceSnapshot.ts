@@ -7,6 +7,8 @@ import type { Session, SshConfig } from '@/types';
 import { useRoomStore } from '@/stores/roomStore';
 import type { Room } from '@/stores/roomStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useQueueStore } from '@/stores/queueStore';
+import type { QueueItem } from '@/stores/queueStore';
 
 // ---------------------------------------------------------------------------
 // Snapshot shape
@@ -45,6 +47,8 @@ export interface SessionSnapshot {
   projectTabs: { tabs: ProjectSubTab[]; active: string } | null;
   /** Open file tabs per project sub-tab: key = subTabId, value = { tabs, active } */
   fileTabs?: Record<string, { tabs: { path: string; name: string }[]; active: string | null }>;
+  /** Queued prompts at export time — restored on import without image binary data */
+  queueItems?: Array<{ text: string; position: number; createdAt: number; images?: Array<{ name: string; dataUrl: string }> }>;
 }
 
 export interface WorkspaceSnapshot {
@@ -106,6 +110,10 @@ export function buildSnapshot(
 
     exportedSessionIds.add(session.sessionId);
     const projectTabs = getProjectTabs(session.sessionId);
+    const rawQueue = useQueueStore.getState().queues.get(session.sessionId);
+    const queueItems = rawQueue && rawQueue.length > 0
+      ? rawQueue.map(({ text, position, createdAt, images }) => ({ text, position, createdAt, images }))
+      : undefined;
     sessionSnapshots.push({
       originalSessionId: session.sessionId,
       title: session.title,
@@ -122,6 +130,7 @@ export function buildSnapshot(
       permissionMode: session.permissionMode,
       projectTabs,
       fileTabs: getFileTabs(session.sessionId, projectTabs),
+      queueItems,
     });
   }
 
@@ -396,6 +405,19 @@ export async function importSnapshot(
               );
             } catch { /* ignore */ }
           }
+        }
+
+        // Restore queued prompts under the new session ID
+        if (sessionSnap.queueItems && sessionSnap.queueItems.length > 0) {
+          const restoredItems: QueueItem[] = sessionSnap.queueItems.map((item, idx) => ({
+            id: Date.now() + idx,
+            sessionId: data.terminalId,
+            text: item.text,
+            position: item.position,
+            createdAt: item.createdAt,
+            images: item.images,
+          }));
+          useQueueStore.getState().setQueue(data.terminalId, restoredItems);
         }
 
         // Restore terminal output from saved buffer (previous session's scrollback)

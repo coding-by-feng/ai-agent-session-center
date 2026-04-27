@@ -1128,7 +1128,7 @@
   white-space: nowrap;
   line-height: 1.4;
   pointer-events: none;
-  z-index: 2;
+  z-index: 4;
 }
 
 .sessionTabCardCompact .sessionTabTitle {

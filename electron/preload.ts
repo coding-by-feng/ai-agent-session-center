@@ -48,6 +48,10 @@ const api: ElectronAPI = {
 
   subscribePty: (terminalId) => ipcRenderer.invoke('pty:subscribe', terminalId),
 
+  unsubscribePty: (terminalId) => {
+    ipcRenderer.send('pty:unsubscribe', terminalId)
+  },
+
   hasPty: (terminalId) => ipcRenderer.invoke('pty:has', terminalId),
 
   onPtyData: (cb) => {

@@ -9,7 +9,7 @@ Secure communication between React renderer and node-pty/Electron APIs. The prel
 ## Source Files
 | File | Role |
 |------|------|
-| `electron/ipc/terminalHandlers.ts` | PTY terminal IPC bridge (create, write, resize, kill, subscribe, has) |
+| `electron/ipc/terminalHandlers.ts` | PTY terminal IPC bridge (create, write, resize, kill, subscribe, unsubscribe, has) |
 | `electron/ipc/setupHandlers.ts` | Setup wizard IPC (check-deps, install-hooks, get/save-config) |
 | `electron/ipc/appHandlers.ts` | App lifecycle IPC (app:get-port, app:open-browser, app:rerun-setup, app:quit) |
 | `electron/preload.ts` | contextBridge exposing electronAPI to renderer |
@@ -24,16 +24,17 @@ Secure communication between React renderer and node-pty/Electron APIs. The prel
 | `pty:write` | Renderer -> Main | on (fire-and-forget) | Writes data to PTY stdin via ptyHost.writePty |
 | `pty:resize` | Renderer -> Main | on (fire-and-forget) | Resizes PTY via ptyHost.resizePty |
 | `pty:kill` | Renderer -> Main | invoke (request/response) | Kills PTY via ptyHost.killPty, returns `{ok}` |
-| `pty:subscribe` | Renderer -> Main | invoke (request/response) | Gets output buffer via ptyHost.getOutputBuffer, returns `{ok, buffer}` |
+| `pty:subscribe` | Renderer -> Main | invoke (request/response) | Registers caller's `WebContents` as a subscriber AND returns output buffer via ptyHost.getOutputBuffer, returns `{ok, buffer}`. Caller also receives subsequent `pty:data` pushes until unsubscribed. |
+| `pty:unsubscribe` | Renderer -> Main | on (fire-and-forget) | Removes caller's `WebContents` from the PTY's subscriber set. PTY keeps running; caller stops receiving `pty:data` pushes. Used on session switch. |
 | `pty:has` | Renderer -> Main | invoke (request/response) | Checks PTY existence via ptyHost.hasPty, returns boolean |
-| `pty:data` | Main -> Renderer | push (webContents.send) | Base64 encoded terminal output |
-| `pty:exit` | Main -> Renderer | push (webContents.send) | PTY exit with exitCode and signal |
+| `pty:data` | Main -> Renderer | push (webContents.send) | Base64 encoded terminal output. **Gated**: only sent to `WebContents` in the PTY's subscriber set. |
+| `pty:exit` | Main -> Renderer | push (webContents.send) | PTY exit with exitCode and signal. Broadcast to all windows (rare event). |
 
 ### Fire-and-Forget vs Request/Response
 
 The distinction between `on` (fire-and-forget) and `invoke` (request/response) is intentional:
 
-- **`pty:write` and `pty:resize` use `on`** -- these are high-frequency operations where waiting for a response adds unnecessary latency
+- **`pty:write`, `pty:resize`, `pty:unsubscribe` use `on`** -- these are high-frequency or best-effort operations where waiting for a response adds unnecessary latency
 - **`pty:create`, `pty:kill`, `pty:subscribe`, `pty:has` use `invoke`** -- these need confirmation or return data
 
 ### ElectronAPI Interface
@@ -66,6 +67,7 @@ interface ElectronAPI {
   resizePty: (id: string, cols: number, rows: number) => void
   killPty: (id: string) => Promise<{ok: boolean}>
   subscribePty: (id: string) => Promise<{ok: boolean, buffer?: string | null}>
+  unsubscribePty: (id: string) => void
   hasPty: (id: string) => Promise<boolean>
   onPtyData: (cb: (terminalId: string, base64Data: string) => void) => () => void
   onPtyExit: (cb: (terminalId: string, exitCode: number, signal: number) => void) => () => void

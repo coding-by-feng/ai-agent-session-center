@@ -353,13 +353,15 @@
         "electron/ipc/terminalHandlers.ts",
         "electron/ipc/setupHandlers.ts",
         "electron/ipc/appHandlers.ts",
-        "electron/preload.ts"
+        "electron/preload.ts",
+        "src/types/electron.d.ts"
       ],
       "source_hashes": {
-        "electron/ipc/terminalHandlers.ts": "bbc8925f8524d0f91283a574573ab2c26baaf109",
+        "electron/ipc/terminalHandlers.ts": "66c67fddb0cda847700851580e2d1da1041b942f",
         "electron/ipc/setupHandlers.ts": "47d7b6907b05ed1eb58e18a3bca373320ee6f0ce",
         "electron/ipc/appHandlers.ts": "a019e9a8c600b4f5f2db1907c565ed1d14caf387",
-        "electron/preload.ts": "e6c28071160ee2c2e8bade552cd1f13dc6d4500f"
+        "electron/preload.ts": "78cc156236b84da0400eed71db0a10d5b9020644",
+        "src/types/electron.d.ts": "1fc4fa120f2189e0049a7784eadfee85b0acd6a7"
       },
       "symbols": {
         "functions": [
@@ -423,7 +425,7 @@
         "electron/ptyHost.ts"
       ],
       "source_hashes": {
-        "electron/ptyHost.ts": "5d89e37b0985752ee767e3b5878ebd3d0026c8a2"
+        "electron/ptyHost.ts": "f4d4e5e23580f12af525c10a3cc06a4c40006b6e"
       },
       "symbols": {
         "functions": [
@@ -1028,10 +1030,10 @@
         "src/components/session/ContentSearchModal.tsx"
       ],
       "source_hashes": {
-        "src/components/session/DetailPanel.tsx": "d085d19068b8681af6d58536818dc83d199ce6ec",
+        "src/components/session/DetailPanel.tsx": "85e01e76e604475d83d890da355382a988c21ee0",
         "src/components/session/DetailTabs.tsx": "2124f5a958987dcdc47e223a28acb264277e5589",
         "src/components/session/SessionControlBar.tsx": "897ef8b2f693b89cc25fb8a050d89e7d1b164e51",
-        "src/components/session/SessionSwitcher.tsx": "99760a7c28514b7c4cb8792036c0922300c3bb32",
+        "src/components/session/SessionSwitcher.tsx": "3fa89a887a0d7fce15317275d0bcc2cc5f5cf82b",
         "src/components/session/PromptHistory.tsx": "5ff61c613c4068962fd9845e80bf076ee27b109c",
         "src/components/session/NotesTab.tsx": "7fbd7e9a1ac92651e7ca93ff478f323660a6cc6b",
         "src/components/session/QueueTab.tsx": "36816fa77cefdf44a2452f6edfc0197744eaf7dc",
@@ -1200,7 +1202,7 @@
         "src/components/setup/steps/ConfigureStep.tsx": "400493dd79c55e92d1be672efc1742fce4ddc9c0",
         "src/components/setup/steps/InstallStep.tsx": "48abdadfd418ea7e13dd85947690d1fcd545b9d9",
         "src/components/setup/steps/DoneStep.tsx": "ccde69b89573121b6b67ef0cbd87b039dc5d169a",
-        "src/types/electron.d.ts": "f280211bc023990fe796548ba7267bdbb7437281",
+        "src/types/electron.d.ts": "1fc4fa120f2189e0049a7784eadfee85b0acd6a7",
         "server/hookInstaller.js": "5f83e0d820f261f06af84f92de8276bdcad8e513",
         "src/__tests__/firstRunFlow.test.tsx": "e4e4f4748199cb42a9ecb37ce69e0eb042951952",
         "src/components/setup/__tests__/SetupWizard.test.tsx": "0d963906f6ae61d46091a06ccd19569a5088a54f",
@@ -1312,9 +1314,9 @@
         "src/components/terminal/themes.ts"
       ],
       "source_hashes": {
-        "src/hooks/useTerminal.ts": "045e3058b3c63f2ffdf3c92af111d3a28f8abc29",
-        "src/components/terminal/TerminalContainer.tsx": "5d794f53fb5be9987e4da5d6f1ee4ec128701049",
-        "src/components/terminal/TerminalToolbar.tsx": "bf768314f746fb5cc0a99cc29d0634a196e24940",
+        "src/hooks/useTerminal.ts": "966d167577b5e2838e5d00d654118d0b220aba46",
+        "src/components/terminal/TerminalContainer.tsx": "ce5842b3a2f0bd95c4da22739453d956547c7400",
+        "src/components/terminal/TerminalToolbar.tsx": "399721fe56f521bbcb584974aa92c066a91ddaab",
         "src/components/terminal/themes.ts": "505b41604c920f629fa21885c7d17e8fa3dc1e99"
       },
       "symbols": {
@@ -1715,7 +1717,7 @@
         "server/apiRouter.ts"
       ],
       "source_hashes": {
-        "server/apiRouter.ts": "0546e268f6e8f3b6cb2fb6f94d7eacd53c48fff5"
+        "server/apiRouter.ts": "eb938e60660b7d66e4d7cced80b7d2853894871e"
       },
       "symbols": {
         "functions": [
@@ -2381,10 +2383,12 @@
       "doc": "server/terminal-ssh.md",
       "domain": "server",
       "sources": [
-        "server/sshManager.ts"
+        "server/sshManager.ts",
+        "src/types/terminal.ts"
       ],
       "source_hashes": {
-        "server/sshManager.ts": "bd6302dc0117d5f1af0e07034ca70987c16c4ea4"
+        "server/sshManager.ts": "1c4d16b92eccff16d12183825600d379769065ad",
+        "src/types/terminal.ts": "50f2b561b3c160d394dd242ab5bf15b3379b7cfd"
       },
       "symbols": {
         "functions": [
@@ -2927,5 +2931,6 @@
         "server/websocket-manager.md"
       ]
     }
-  ]
+  ],
+  "last_updated": "2026-04-24T00:08:01Z"
 }

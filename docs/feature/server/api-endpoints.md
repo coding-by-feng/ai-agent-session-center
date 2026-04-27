@@ -82,7 +82,8 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - PATCH /api/agenda/:id/toggle (toggle completed)
 
 ### Queue
-- POST /api/queue-images (upload queue card images)
+- POST /api/queue-images — accepts `{ images: [{ name, dataUrl }, ...] }` (max 10), decodes `data:image/*;base64,...`, writes each to `/tmp/claude-queue-images/queue-img-{ts}-{rand}.{ext}`, returns `{ ok, paths }`.
+- **Cleanup**: `cleanupQueueImages()` deletes files matching `queue-img-*` older than `QUEUE_IMAGE_TTL_MS` (24 h). Runs (a) once on module load, (b) every 60 min via `setInterval(...).unref()`, (c) opportunistically inside each POST. Best-effort — errors are swallowed. Without this the directory accumulated ~17 MB of stale paste-images over a few days.
 
 ### Stats/Admin
 - GET /api/hook-stats|mq-stats

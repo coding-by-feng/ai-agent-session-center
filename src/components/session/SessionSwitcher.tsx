@@ -174,6 +174,19 @@ export default function SessionSwitcher({
     return () => document.removeEventListener('mousedown', handler);
   }, [roomDropdownOpen]);
 
+  // Derive a stable content signature from `sessions`. The Map reference changes
+  // on every session update (pattern `new Map(...)`), but if the visible fields
+  // haven't changed the downstream memos don't need to rerun.  This moves the
+  // O(N) sort + filter off the hot path for ~95% of session-update events.
+  const sessionsSignature = useMemo(() => {
+    const parts: string[] = [];
+    sessions.forEach((s) => {
+      parts.push(`${s.sessionId}|${s.status}|${s.pinned ? 1 : 0}|${s.title ?? ''}|${s.projectName ?? ''}|${s.label ?? ''}|${s.colorIndex ?? ''}|${s.accentColor ?? ''}|${s.terminalId ?? ''}`);
+    });
+    parts.sort();
+    return parts.join('\n');
+  }, [sessions]);
+
   // Build globally indexed session list (all active, sorted), then split out "others"
   const { sortedSessions, sessionIndexMap, currentIndex } = useMemo(() => {
     const allActive = [...sessions.values()]
@@ -194,13 +207,18 @@ export default function SessionSwitcher({
     });
     const others = allActive.filter((s) => s.sessionId !== currentSession.sessionId);
     return { sortedSessions: others, sessionIndexMap: indexMap, currentIndex: curIdx };
-  }, [sessions, currentSession.sessionId]);
+    // `sessionsSignature` covers field changes; `sessions` ref is intentionally
+    // excluded so unchanged-content re-renders skip the sort.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionsSignature, currentSession.sessionId]);
 
   // Rooms that have at least one session in the current active list
-  const activeSessionIds = useMemo(
-    () => new Set([...sessions.values()].filter((s) => s.status !== 'ended').map((s) => s.sessionId)),
-    [sessions],
-  );
+  const activeSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    sessions.forEach((s) => { if (s.status !== 'ended') ids.add(s.sessionId); });
+    return ids;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionsSignature]);
   const availableRooms = useMemo(
     () => rooms.filter((r) => r.sessionIds.some((id) => activeSessionIds.has(id))),
     [rooms, activeSessionIds],

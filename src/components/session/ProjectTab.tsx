@@ -722,10 +722,12 @@ function ImageViewer({ src, alt, filePath, caption }: ImageViewerProps) {
     }
   });
   const [isDragging, setIsDragging] = useState(false);
+  const [isWheeling, setIsWheeling] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const naturalSizeRef = useRef<{ w: number; h: number } | null>(null);
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const wheelTimerRef = useRef<number | null>(null);
 
   // Persist view with a 200ms debounce so pan doesn't spam localStorage.
   useEffect(() => {
@@ -736,6 +738,10 @@ function ImageViewer({ src, alt, filePath, caption }: ImageViewerProps) {
     }, PERSIST_DEBOUNCE_MS);
     return () => clearTimeout(handle);
   }, [view, filePath]);
+
+  useEffect(() => () => {
+    if (wheelTimerRef.current) window.clearTimeout(wheelTimerRef.current);
+  }, []);
 
   // Helper: current container size
   const getContainerSize = useCallback((): { w: number; h: number } => {
@@ -775,6 +781,9 @@ function ImageViewer({ src, alt, filePath, caption }: ImageViewerProps) {
   }, [getContainerSize]);
 
   // Wheel: Ctrl/Meta+wheel always zooms; plain wheel zooms when container has focus.
+  // Multiplicative scaling keeps the zoom rate proportional to the current zoom,
+  // so the image zooms smoothly at any level (e.g. moving 100→200% feels the same
+  // as 200→400%, instead of snapping in linear chunks above 100%).
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     const isFocused = document.activeElement === containerRef.current;
     const wantsZoom = e.ctrlKey || e.metaKey || isFocused;
@@ -784,7 +793,11 @@ function ImageViewer({ src, alt, filePath, caption }: ImageViewerProps) {
     if (!rect) return;
     const cursorX = e.clientX - rect.left;
     const cursorY = e.clientY - rect.top;
-    setView((v) => zoomAroundCursor(v, v.zoom - e.deltaY * 0.005, cursorX, cursorY, rect.width, rect.height));
+    const factor = Math.exp(-e.deltaY * 0.001);
+    setIsWheeling(true);
+    if (wheelTimerRef.current) window.clearTimeout(wheelTimerRef.current);
+    wheelTimerRef.current = window.setTimeout(() => setIsWheeling(false), 140);
+    setView((v) => zoomAroundCursor(v, v.zoom * factor, cursorX, cursorY, rect.width, rect.height));
   }, []);
 
   // Drag-to-pan (only when zoomed in)
@@ -942,7 +955,7 @@ function ImageViewer({ src, alt, filePath, caption }: ImageViewerProps) {
         <img
           src={src}
           alt={alt}
-          className={`${styles.mediaImage}${isDragging ? ` ${styles.mediaImageDragging}` : ''}`}
+          className={`${styles.mediaImage}${isDragging || isWheeling ? ` ${styles.mediaImageDragging}` : ''}`}
           draggable={false}
           onLoad={handleImgLoad}
           style={imageStyle}

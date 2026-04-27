@@ -10,6 +10,7 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 | File | Role |
 |------|------|
 | `server/sshManager.ts` (~32KB, ~850 lines) | PTY creation, shell-ready detection, output buffering, pending links |
+| `src/types/terminal.ts` | Shared `Terminal` interface (PTY, wsClient, output ring fields) |
 
 ## Implementation
 
@@ -31,7 +32,10 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 - On timeout, command sent anyway with warning
 
 ### Output Ring Buffer
-- 128KB per terminal, replayed on WS subscriber connect
+- 128KB **pre-allocated** per terminal (`OUTPUT_BUFFER_MAX = 128 * 1024`).
+- The `Terminal` interface stores `outputRing: Buffer`, `outputOffset: number`, `outputWrapped: boolean` — NOT `outputBuffer`. All appends go through the file-local `ringWrite()` helper; snapshots (for `getTerminalOutputBuffer`, `prefillTerminalOutput`, and `setWsClient` replay) go through `ringSnapshot()` which linearizes the ring (oldest → newest).
+- This replaces the previous `Buffer.concat([old, chunk])` + `slice(-cap)` pattern, which was O(n) per PTY write and allocated a new Buffer for every onData event. The new path is O(1) per append with zero steady-state allocation.
+- Ring helpers (`ringWrite`, `ringSnapshot`, `ringLength`, `ringReset`) are module-local; do not export — callers should use the existing buffer API (`getTerminalOutputBuffer`, `prefillTerminalOutput`).
 
 ### Pending Links
 - workDir -> {terminalId, host, createdAt}
@@ -110,3 +114,5 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 - Changing input validation opens injection vectors
 - Modifying pending links breaks session matching for SSH terminals
 - Ring buffer size affects reconnect replay quality
+- The ring buffer is pre-allocated and uses `Buffer.copy` internally — any code path that still reads `term.outputBuffer` will throw (`undefined`). Use `getTerminalOutputBuffer(id)` or `ringSnapshot(term)` instead.
+- `prefillTerminalOutput` linearizes existing ring content, prepends the saved data, trims to cap, then `ringReset`s. Workspace-snapshot import relies on this for scrollback restore; breaking linearization drops imported history.

@@ -15,6 +15,9 @@ import {
   getOutputBuffer,
   hasPty,
   listPtys,
+  subscribePty,
+  unsubscribePty,
+  removeSubscriberFromAll,
 } from '../ptyHost.js'
 
 export function registerTerminalHandlers(): void {
@@ -55,13 +58,28 @@ export function registerTerminalHandlers(): void {
     return { ok: true }
   })
 
-  // Subscribe to a PTY — returns buffered output for replay
-  ipcMain.handle('pty:subscribe', (_, terminalId: string) => {
+  // Subscribe to a PTY — returns buffered output for replay AND registers
+  // the calling WebContents so the PTY's onData stream only fans out to
+  // renderers actually viewing it. Unsubscribed terminals keep filling their
+  // ring buffer silently; no IPC traffic is generated for background sessions.
+  ipcMain.handle('pty:subscribe', (event, terminalId: string) => {
     if (!hasPty(terminalId)) {
       return { ok: false, error: 'Terminal not found' }
     }
+    subscribePty(terminalId, event.sender)
+    // When the subscribing WebContents dies, drop it from every subscriber set.
+    // Registered with `once` so we don't accumulate listeners on resubscribe.
+    event.sender.once('destroyed', () => {
+      removeSubscriberFromAll(event.sender)
+    })
     const buffer = getOutputBuffer(terminalId)
     return { ok: true, buffer }
+  })
+
+  // Unsubscribe the caller from a PTY without killing it.
+  // Used when the renderer switches to a different terminal.
+  ipcMain.on('pty:unsubscribe', (event, terminalId: string) => {
+    unsubscribePty(terminalId, event.sender)
   })
 
   // Check if a terminal is managed by ptyHost

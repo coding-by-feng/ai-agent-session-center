@@ -18,8 +18,9 @@ Interactive PTY terminal within the dashboard. Users can type commands, view out
 - xterm config: JetBrains Mono, responsive font (11/12/14px), 5000 lines scrollback, bar cursor non-blinking, 200ms resize debounce
 - Addons: FitAddon, Unicode11Addon (activeVersion '11'), WebLinksAddon
 - Custom file path link provider: regex detection -> openFileInProject()
-- Dual transport: isPtyHostTerminal() checks window.electronAPI?.hasPty. IPC: writePty/resizePty/subscribePty/onPtyData. WebSocket: terminal_input/terminal_resize/terminal_subscribe/terminal_output
+- Dual transport: isPtyHostTerminal() checks window.electronAPI?.hasPty. IPC: writePty/resizePty/subscribePty/**unsubscribePty**/onPtyData. WebSocket: terminal_input/terminal_resize/terminal_subscribe/terminal_disconnect/terminal_output
 - Attach lifecycle: skip re-attach to same terminal, save scroll position, clear stale output, subscribe via transport, setupWhenReady (60 retries x 50ms, IntersectionObserver fallback), create xterm, load addons, register key handler, ResizeObserver, forceCanvasRepaint, flush buffered output, restore scroll, safety-net repaint at 150ms
+- Detach lifecycle: save scroll offset to localStorage, clear batched output, **call `electronAPI.unsubscribePty(terminalId)`** for PTY-host terminals so the Electron main process stops streaming `pty:data` IPC for this session (for WS terminals, `terminal_disconnect` is already sent on the attach-of-next-terminal path). Then dispose the ResizeObserver and xterm instance.
 - Output buffering: inactive terminals queue up to 500 items per terminal, stale buffers evicted after 60s, flushed on attach
 - Batched output writes via requestAnimationFrame
 - Scroll preservation: saved as "lines above bottom" to savedScrollRef on detach, restored on attach via pendingScrollRestore flag on ActiveTerminal — ensures saved offset survives the full setup/flush cycle regardless of when buffered data arrives. Guards on pendingScrollRestore in: ResizeObserver, safety-net repaint, handleTerminalReady, and active output handler. If no buffered data in double-RAF, pendingScrollRestore is left set for the active output handler with a 1s fallback timeout
@@ -56,3 +57,4 @@ Interactive PTY terminal within the dashboard. Users can type commands, view out
 - Canvas repaint workaround is fragile — removal causes blank terminals
 - forceCanvasRepaint must not auto-scroll
 - pendingScrollRestore on ActiveTerminal prevents race conditions during session switch — do not remove or the terminal will jump to top when switching sessions
+- Skipping `unsubscribePty` on detach (Electron path) leaves the renderer receiving `pty:data` for terminals the user is no longer viewing. No correctness bug (data is just buffered in `pendingOutputRef`), but typing latency on the active terminal degrades proportionally to the number of background sessions — the original perf bug this path fixes.

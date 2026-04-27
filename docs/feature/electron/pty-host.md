@@ -20,9 +20,12 @@ PtyInstance {
   id: "pty-{Date.now()}-{random6}"
   process: IPty
   config: PtyCreateConfig
-  outputBuffer: Buffer (128KB ring)
+  ring: Buffer (128KB pre-allocated)
+  ringOffset: number         // next write position
+  ringWrapped: boolean       // true once ring is full
   disposables: IDisposable[]
   shellReady: Promise<boolean>
+  subscribers: Set<WebContents>  // renderer windows currently viewing this PTY
 }
 ```
 
@@ -32,8 +35,8 @@ PtyInstance {
 2. Resolve shell (`$SHELL` or `/bin/bash` fallback)
 3. Build environment: `process.env` + `AGENT_MANAGER_TERMINAL_ID` + CLI-specific API key, strip `CLAUDECODE` env var (prevents nested-session detection)
 4. Spawn PTY via `pty.spawn(shell, ['-l'], ...)` with xterm-256color, 120x40, cwd, env
-5. Subscribe output: append to ring buffer + send `pty:data` (base64) to all renderer windows
-6. Subscribe exit: send `pty:exit` (exitCode, signal) + cleanup
+5. Subscribe output: append to ring buffer via `ringWrite()` (O(1) pre-allocated slab, no `Buffer.concat`) + send `pty:data` (base64) **only to subscribed `WebContents`** (see Subscriber Gating below)
+6. Subscribe exit: send `pty:exit` (exitCode, signal) to all windows + cleanup
 7. `detectShellReady()` -- wait for shell prompt (concurrent with steps 8-9)
 8. Register with Express server: `POST /api/terminals/register` (async, best effort)
 9. After shell ready: write launch command + `\r` (e.g. `"claude -n \"agent-manager #1\"\r"`)
@@ -55,9 +58,27 @@ PtyInstance {
 - After 50ms of silence, check if last line matches `/[#$%>]\s*$/`
 - Timeout: 2000ms (local terminals)
 
-### Output Buffer
+### Output Ring Buffer
 
-128KB ring buffer (`OUTPUT_BUFFER_MAX = 128 * 1024`). On `pty:subscribe`, the full buffer is returned for instant replay of terminal history.
+128KB **pre-allocated** ring buffer (`OUTPUT_BUFFER_MAX = 128 * 1024`). Each PTY owns one `Buffer.alloc(128 * 1024)` + a write offset; new chunks are copied in at the offset, wrapping around when the slab is full. This replaces the old `Buffer.concat([old, chunk])` pattern which was O(n) per write and allocated garbage for every PTY data event.
+
+Helpers (file-local, not exported):
+- `ringWrite(inst, chunk)` — O(1) append; handles wrap around and oversized-chunk (> cap) cases.
+- `ringSnapshot(inst)` — linearize the ring into a contiguous `Buffer` (oldest → newest). Used by `getOutputBuffer()` for `pty:subscribe` replay.
+- `ringLength(inst)` — current valid byte count (`ringOffset` until wrapped, then `cap`).
+
+On `pty:subscribe`, `ringSnapshot()` is base64-encoded and returned for instant replay of terminal history.
+
+### Subscriber Gating (performance)
+
+Each `PtyInstance` holds a `Set<WebContents>` of renderer windows currently viewing it. `onData` ALWAYS fills the ring buffer, but only emits `pty:data` IPC when the set is non-empty. `pty:exit` remains a broadcast to all windows (rare event).
+
+This eliminates the main-thread cost of decoding/routing output from background PTYs when many Claude sessions are running. Under the previous `sendToAllWindows` fan-out, every byte from every PTY was decoded in the renderer regardless of visibility, which caused typing latency to degrade proportionally to the number of active sessions.
+
+Subscription management (see `terminalHandlers.ts`):
+- `subscribePty(terminalId, wc)` — adds `wc` to the set; called from `pty:subscribe` IPC handler.
+- `unsubscribePty(terminalId, wc)` — removes it; called from `pty:unsubscribe` IPC handler on session switch.
+- `removeSubscriberFromAll(wc)` — called from `WebContents.once('destroyed', ...)` so a closed/crashed renderer is pruned from every PTY's subscriber set.
 
 ### Server Registration
 
@@ -92,7 +113,10 @@ The PTY host injects CLI-specific API keys into the spawned shell environment:
 | `writePty(id, data)` | Write data to PTY stdin (strips terminal response sequences like focus events and Device Attributes via `TERMINAL_RESPONSE_RE` regex) |
 | `resizePty(id, cols, rows)` | Resize PTY dimensions |
 | `killPty(id)` | Kill PTY process and clean up |
-| `getOutputBuffer(id)` | Get ring buffer contents (string or null) |
+| `getOutputBuffer(id)` | Linearized ring snapshot, base64 or null |
+| `subscribePty(id, wc)` | Add `WebContents` to the PTY's subscriber set |
+| `unsubscribePty(id, wc)` | Remove `WebContents` from the set (PTY keeps running) |
+| `removeSubscriberFromAll(wc)` | Prune a dead `WebContents` from every PTY |
 | `hasPty(id)` | Check if PTY exists |
 | `listPtys()` | List all active PTY IDs |
 | `disposeAll()` | Kill all PTYs and clean subscriptions |
@@ -138,3 +162,6 @@ The PTY host injects CLI-specific API keys into the spawned shell environment:
 - Missing server registration means the session will not appear in the dashboard, breaking the session matching pipeline.
 - The 50ms silence threshold for shell-ready detection is a heuristic -- slow shells or shells with complex prompts may need more time.
 - Changing the ring buffer size affects memory usage proportionally to the number of active terminals.
+- **Subscriber gating** assumes renderers always call `pty:unsubscribe` when switching away from a terminal. If they forget, the PTY keeps streaming IPC to that renderer (wasted CPU but not incorrect). Conversely, if `pty:subscribe` is skipped or races, the renderer goes blank until the next output — the ring buffer replay on subscribe is the only way stale content reaches a new subscriber.
+- `removeSubscriberFromAll` on `destroyed` is essential — without it, a reloaded/crashed renderer would leak subscriber entries forever.
+- `ringWrite` copies with `Buffer.copy`; if ever swapped to `TypedArray.set`, watch for signed-byte coercion (node-pty emits binary).
