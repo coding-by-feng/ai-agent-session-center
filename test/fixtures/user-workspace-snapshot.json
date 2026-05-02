@@ -1,0 +1,360 @@
+{
+  "version": 1,
+  "exportedAt": 1777416360113,
+  "_note": "User-provided real-world snapshot for regression testing. Do not modify — this is the exact JSON the user reported as failing to fully restore on app restart. Reproduces RC-2/RC-5/RC-12/RC-14 issues if regressed.",
+  "sessions": [
+    {
+      "originalSessionId": "term-1777371325930-f0ebt3",
+      "title": "Command 2",
+      "status": "idle",
+      "label": "",
+      "enableOpsTerminal": false,
+      "sshConfig": {
+        "host": "localhost",
+        "port": 22,
+        "username": "kasonzhan",
+        "authMethod": "key",
+        "privateKeyPath": "~/.ssh/id_rsa",
+        "workingDir": "/Users/kasonzhan",
+        "command": "claude --resume '17e6ea98-01d2-40a7-9eef-e86e163a6910' --fork-session"
+      },
+      "startupCommand": "claude --resume 17e6ea98-01d2-40a7-9eef-e86e163a6910 --fork-session",
+      "permissionMode": "default",
+      "projectTabs": {
+        "tabs": [
+          { "id": "default", "label": "kasonzhan", "projectPath": "/Users/kasonzhan" }
+        ],
+        "active": "default"
+      }
+    },
+    {
+      "originalSessionId": "term-1777371325948-gmbpgf",
+      "title": "Story",
+      "status": "idle",
+      "label": "IMPORTANT",
+      "enableOpsTerminal": true,
+      "sshConfig": {
+        "host": "localhost",
+        "port": 22,
+        "username": "kasonzhan",
+        "authMethod": "key",
+        "privateKeyPath": "~/.ssh/id_rsa",
+        "workingDir": "/Users/kasonzhan/Documents/kason-tools/story",
+        "command": "codex --full-auto"
+      },
+      "permissionMode": null,
+      "projectTabs": {
+        "tabs": [
+          { "id": "default", "label": "bgm-recommendations.md", "projectPath": "/Users/kasonzhan/Documents/kason-tools/story", "initialPath": "notes/bgm-recommendations.md", "initialIsFile": true }
+        ],
+        "active": "default"
+      }
+    },
+    {
+      "originalSessionId": "term-1777371326119-in7lt8",
+      "title": "Common",
+      "status": "idle",
+      "label": "IMPORTANT",
+      "enableOpsTerminal": true,
+      "sshConfig": {
+        "host": "localhost",
+        "port": 22,
+        "username": "kasonzhan",
+        "authMethod": "key",
+        "privateKeyPath": "~/.ssh/id_rsa",
+        "workingDir": "/Users/kasonzhan",
+        "command": "claude --dangerously-skip-permissions"
+      },
+      "startupCommand": "claude --dangerously-skip-permissions -n Test",
+      "permissionMode": "bypassPermissions",
+      "projectTabs": {
+        "tabs": [{ "id": "default", "label": "kasonzhan", "projectPath": "/Users/kasonzhan" }],
+        "active": "default"
+      }
+    },
+    {
+      "originalSessionId": "6e0d51a7-4198-4cb3-a231-1f1a78280514",
+      "title": "MD",
+      "status": "idle",
+      "label": "IMPORTANT",
+      "enableOpsTerminal": true,
+      "sshConfig": {
+        "host": "localhost",
+        "port": 22,
+        "username": "kasonzhan",
+        "authMethod": "key",
+        "privateKeyPath": "~/.ssh/id_rsa",
+        "workingDir": "/Users/kasonzhan/Documents/md-portal-automation",
+        "command": "claude --continue 192bd299-15e8-4e88-8cef-3123eaf20c33 --fork-session --dangerously-skip-permissions"
+      },
+      "startupCommand": "claude --dangerously-skip-permissions -n MD",
+      "permissionMode": "bypassPermissions",
+      "projectTabs": {
+        "tabs": [{ "id": "default", "label": "_r6534232_attach_hidden.py", "projectPath": "/Users/kasonzhan/Documents/md-portal-automation", "initialPath": "/scripts/_r6534232_attach_hidden.py", "initialIsFile": true }],
+        "active": "default"
+      }
+    },
+    {
+      "originalSessionId": "16e3ebc9-0e64-497e-a9f6-9e15f4d3f395",
+      "title": "GCP Accounts",
+      "status": "idle",
+      "label": "IMPORTANT",
+      "enableOpsTerminal": true,
+      "sshConfig": {
+        "host": "localhost",
+        "port": 22,
+        "username": "kasonzhan",
+        "authMethod": "key",
+        "privateKeyPath": "~/.ssh/id_rsa",
+        "workingDir": "/Users/kasonzhan/Documents/kason-tools/cloud-accounts",
+        "command": "claude --dangerously-skip-permissions"
+      },
+      "startupCommand": "claude --dangerously-skip-permissions -n GCP Accounts",
+      "permissionMode": null,
+      "projectTabs": {
+        "tabs": [{ "id": "default", "label": "accounts.md", "projectPath": "/Users/kasonzhan/Documents/kason-tools/cloud-accounts", "initialPath": "/gcp/accounts.md", "initialIsFile": true }],
+        "active": "default"
+      }
+    },
+    {
+      "originalSessionId": "76d8a5f3-260e-4b79-9c1c-a8f2471cbb68",
+      "title": "CR",
+      "status": "working",
+      "label": "",
+      "enableOpsTerminal": false,
+      "sshConfig": {
+        "host": "localhost",
+        "port": 22,
+        "username": "kasonzhan",
+        "authMethod": "key",
+        "privateKeyPath": "~/.ssh/id_rsa",
+        "workingDir": "/Users/kasonzhan/Documents/kason-tools/content-repurposer",
+        "command": "claude --continue b39573f8-9e45-4f0a-aca8-59a46edee226 --fork-session --dangerously-skip-permissions"
+      },
+      "startupCommand": "claude --dangerously-skip-permissions --resume a9ddbe4b-0dce-4c75-ac4b-74e30fcefd76",
+      "permissionMode": "bypassPermissions",
+      "projectTabs": {
+        "tabs": [{ "id": "default", "label": "9-16_zh.png", "projectPath": "/Users/kasonzhan/Documents/kason-tools/content-repurposer", "initialPath": "/generation_results/OnePiece/usopp/9-16_zh.png", "initialIsFile": true }],
+        "active": "default"
+      },
+      "queueItems": [
+        { "text": "create a new skill to scan the new popular projects on https://github.com/trending", "position": 0, "createdAt": 1776943685506 },
+        { "text": "/run-pipeline https://developers.openai.com/blog/eval-skills", "position": 1, "createdAt": 1776987892230 }
+      ]
+    },
+    {
+      "originalSessionId": "6683e3ad-4398-4f0f-a1d3-ecece076ee9f",
+      "title": "BTC Commands",
+      "status": "idle",
+      "label": "",
+      "enableOpsTerminal": true,
+      "sshConfig": {
+        "host": "localhost",
+        "port": 22,
+        "username": "kasonzhan",
+        "authMethod": "key",
+        "privateKeyPath": "~/.ssh/id_rsa",
+        "workingDir": "/Users/kasonzhan/Documents/kason-tools/btc-5min-trade",
+        "command": "claude --resume '12ab3275-4d87-4033-a729-f505a465471d' --fork-session"
+      },
+      "startupCommand": "claude --dangerously-skip-permissions -n BTC Profiles",
+      "permissionMode": null,
+      "projectTabs": {
+        "tabs": [{ "id": "default", "label": "donquixote_doflamingo.md", "projectPath": "/Users/kasonzhan/Documents/kason-tools/btc-5min-trade", "initialPath": "/docs/traders/donquixote_doflamingo.md", "initialIsFile": true }],
+        "active": "default"
+      }
+    },
+    {
+      "originalSessionId": "23023590-94b4-4dbf-a4e0-72870d45161a",
+      "title": "IE",
+      "status": "working",
+      "label": "IMPORTANT",
+      "enableOpsTerminal": true,
+      "sshConfig": {
+        "host": "localhost",
+        "port": 22,
+        "username": "kasonzhan",
+        "authMethod": "key",
+        "privateKeyPath": "~/.ssh/id_rsa",
+        "workingDir": "/Users/kasonzhan/Documents/thesis",
+        "command": "claude --dangerously-skip-permissions"
+      },
+      "startupCommand": "claude --dangerously-skip-permissions -n IE",
+      "permissionMode": null,
+      "projectTabs": { "tabs": [{ "id": "default", "label": "thesis", "projectPath": "/Users/kasonzhan/Documents/thesis" }], "active": "default" }
+    },
+    {
+      "originalSessionId": "09a55d4d-5a69-4e62-869d-b637b6afe363",
+      "title": "Community",
+      "status": "idle",
+      "label": "IMPORTANT",
+      "enableOpsTerminal": true,
+      "sshConfig": {
+        "host": "localhost",
+        "port": 22,
+        "username": "kasonzhan",
+        "authMethod": "key",
+        "privateKeyPath": "~/.ssh/id_rsa",
+        "workingDir": "/Users/kasonzhan/Documents/thesis",
+        "command": "claude --dangerously-skip-permissions"
+      },
+      "startupCommand": "claude --dangerously-skip-permissions -n Community",
+      "permissionMode": null,
+      "projectTabs": { "tabs": [{ "id": "default", "label": "thesis", "projectPath": "/Users/kasonzhan/Documents/thesis" }], "active": "default" }
+    },
+    {
+      "originalSessionId": "54eaef8e-b98e-4850-99f4-7896ff3a1f60",
+      "title": "Story Flow",
+      "status": "waiting",
+      "label": "IMPORTANT",
+      "enableOpsTerminal": true,
+      "sshConfig": {
+        "host": "localhost",
+        "port": 22,
+        "username": "kasonzhan",
+        "authMethod": "key",
+        "privateKeyPath": "~/.ssh/id_rsa",
+        "workingDir": "/Users/kasonzhan/Documents/kason-tools/story",
+        "command": "codex --full-auto"
+      },
+      "startupCommand": "claude --dangerously-skip-permissions",
+      "permissionMode": null,
+      "projectTabs": {
+        "tabs": [{ "id": "default", "label": "bgm-recommendations.md", "projectPath": "/Users/kasonzhan/Documents/kason-tools/story", "initialPath": "notes/bgm-recommendations.md", "initialIsFile": true }],
+        "active": "default"
+      }
+    },
+    {
+      "originalSessionId": "95ac5d34-80c0-491b-8945-185fef9717e1",
+      "title": "Portal",
+      "status": "prompting",
+      "label": "IMPORTANT",
+      "enableOpsTerminal": true,
+      "sshConfig": {
+        "host": "localhost",
+        "port": 22,
+        "username": "kasonzhan",
+        "authMethod": "key",
+        "privateKeyPath": "~/.ssh/id_rsa",
+        "workingDir": "/Users/kasonzhan/Documents/thesis",
+        "command": "claude --dangerously-skip-permissions"
+      },
+      "startupCommand": "claude --dangerously-skip-permissions -n Portal",
+      "permissionMode": null,
+      "projectTabs": { "tabs": [{ "id": "default", "label": "thesis", "projectPath": "/Users/kasonzhan/Documents/thesis" }], "active": "default" }
+    },
+    {
+      "originalSessionId": "0f3bea77-1e52-459f-b94f-6a5e7ef10720",
+      "title": "KTS",
+      "status": "idle",
+      "label": "",
+      "enableOpsTerminal": false,
+      "sshConfig": {
+        "host": "localhost",
+        "port": 22,
+        "username": "kasonzhan",
+        "authMethod": "key",
+        "privateKeyPath": "~/.ssh/id_rsa",
+        "workingDir": "/Users/kasonzhan/Documents/kason-tools/kason-tools",
+        "command": "claude --resume '5c4b6f33-8c0c-4fe1-ba6f-377b311d6910' --fork-session --dangerously-skip-permissions"
+      },
+      "startupCommand": "claude --resume 49546e48-1feb-455c-80fa-b460a29478fd --fork-session --dangerously-skip-permissions",
+      "permissionMode": null,
+      "projectTabs": {
+        "tabs": [{ "id": "default", "label": "chill-meditation.mp3", "projectPath": "/Users/kasonzhan/Documents/kason-tools/kason-tools", "initialPath": "FE/public/assets/audio/bgm/chill-meditation.mp3", "initialIsFile": true }],
+        "active": "default"
+      }
+    },
+    {
+      "originalSessionId": "ebde7b01-544e-4e82-8f8e-3d4f9213dd77",
+      "title": "KTS Commands",
+      "status": "waiting",
+      "label": "IMPORTANT",
+      "enableOpsTerminal": true,
+      "sshConfig": {
+        "host": "localhost",
+        "port": 22,
+        "username": "kasonzhan",
+        "authMethod": "key",
+        "privateKeyPath": "~/.ssh/id_rsa",
+        "workingDir": "/Users/kasonzhan/Documents/kason-tools/kason-tools",
+        "command": "claude --dangerously-skip-permissions"
+      },
+      "startupCommand": "claude --dangerously-skip-permissions -n KTS Commands",
+      "permissionMode": null,
+      "projectTabs": { "tabs": [{ "id": "default", "label": "kason-tools", "projectPath": "/Users/kasonzhan/Documents/kason-tools/kason-tools" }], "active": "default" }
+    },
+    {
+      "originalSessionId": "42828ea5-dd7c-443c-83d0-5885d37391f6",
+      "title": "Thesis Written",
+      "status": "waiting",
+      "label": "",
+      "enableOpsTerminal": true,
+      "sshConfig": {
+        "host": "localhost",
+        "port": 22,
+        "username": "kasonzhan",
+        "authMethod": "key",
+        "privateKeyPath": "~/.ssh/id_rsa",
+        "workingDir": "/Users/kasonzhan/Documents/thesis",
+        "command": "claude --dangerously-skip-permissions"
+      },
+      "startupCommand": "claude --dangerously-skip-permissions -n Centrality --resume 6b210add-9b2d-4ca5-978a-75dce1f1ee47",
+      "permissionMode": "bypassPermissions",
+      "projectTabs": {
+        "tabs": [{ "id": "default", "label": "27_community_detection_method_selection.md", "projectPath": "/Users/kasonzhan/Documents/thesis", "initialPath": "/docs/written/27_community_detection_method_selection.md", "initialIsFile": true }],
+        "active": "default"
+      }
+    },
+    {
+      "originalSessionId": "7362fef7-d5c5-47e6-8833-0f5f338a77c7",
+      "title": "Flow Images",
+      "status": "waiting",
+      "label": "",
+      "enableOpsTerminal": false,
+      "sshConfig": {
+        "host": "localhost",
+        "port": 22,
+        "username": "kasonzhan",
+        "authMethod": "key",
+        "privateKeyPath": "~/.ssh/id_rsa",
+        "workingDir": "/Users/kasonzhan/Documents/thesis",
+        "command": "claude --dangerously-skip-permissions -n Centrality --resume 6b210add-9b2d-4ca5-978a-75dce1f1ee47"
+      },
+      "startupCommand": "claude --dangerously-skip-permissions -n Centrality --resume 6b210add-9b2d-4ca5-978a-75dce1f1ee47",
+      "permissionMode": null,
+      "projectTabs": { "tabs": [{ "id": "default", "label": "thesis", "projectPath": "/Users/kasonzhan/Documents/thesis" }], "active": "default" }
+    },
+    {
+      "originalSessionId": "cc4ff1e4-d663-4b32-89fb-889dd93e727f",
+      "title": "AASC",
+      "status": "working",
+      "label": "",
+      "enableOpsTerminal": true,
+      "sshConfig": {
+        "host": "localhost",
+        "port": 22,
+        "username": "kasonzhan",
+        "authMethod": "key",
+        "privateKeyPath": "~/.ssh/id_rsa",
+        "workingDir": "/Users/kasonzhan/Documents/claude/agent-manager",
+        "command": "claude --resume '3899dcaa-a55c-45ac-a461-00f377bb443e' --fork-session"
+      },
+      "startupCommand": "claude --dangerously-skip-permissions",
+      "permissionMode": "acceptEdits",
+      "projectTabs": { "tabs": [{ "id": "default", "label": "agent-manager", "projectPath": "/Users/kasonzhan/Documents/claude/agent-manager" }], "active": "default" }
+    }
+  ],
+  "rooms": [
+    { "id": "room-1773291174892-nkqlv8", "name": "Thesis", "sessionIds": ["42828ea5-dd7c-443c-83d0-5885d37391f6","23023590-94b4-4dbf-a4e0-72870d45161a","09a55d4d-5a69-4e62-869d-b637b6afe363","95ac5d34-80c0-491b-8945-185fef9717e1","ebde7b01-544e-4e82-8f8e-3d4f9213dd77","7362fef7-d5c5-47e6-8833-0f5f338a77c7"], "collapsed": false, "createdAt": 1773291174892, "roomIndex": 0 },
+    { "id": "room-1773292347311-bq6gi0", "name": "AASC", "sessionIds": ["cc4ff1e4-d663-4b32-89fb-889dd93e727f"], "collapsed": false, "createdAt": 1773292347311, "roomIndex": 1 },
+    { "id": "room-1773293905039-zdrow9", "name": "Others", "sessionIds": ["term-1777371326119-in7lt8","term-1777371325930-f0ebt3"], "collapsed": false, "createdAt": 1773293905039, "roomIndex": 2 },
+    { "id": "room-1773294321926-dr9po9", "name": "OpenClaw", "sessionIds": [], "collapsed": false, "createdAt": 1773294321926, "roomIndex": 3 },
+    { "id": "room-1773366293203-ixpld1", "name": "Finance", "sessionIds": ["6683e3ad-4398-4f0f-a1d3-ecece076ee9f"], "collapsed": false, "createdAt": 1773366293203, "roomIndex": 4 },
+    { "id": "room-1773726085154-jeefd4", "name": "Kason Tools", "sessionIds": ["0f3bea77-1e52-459f-b94f-6a5e7ef10720","16e3ebc9-0e64-497e-a9f6-9e15f4d3f395","76d8a5f3-260e-4b79-9c1c-a8f2471cbb68"], "collapsed": false, "createdAt": 1773726085155, "roomIndex": 5 },
+    { "id": "room-1773820403645-wd6y2t", "name": "Dating", "sessionIds": [], "collapsed": false, "createdAt": 1773820403645, "roomIndex": 6 },
+    { "id": "room-1774223810215-t8e12k", "name": "MD", "sessionIds": [], "collapsed": false, "createdAt": 1774223810215, "roomIndex": 7 },
+    { "id": "room-1774415082890-2eyyr6", "name": "Valux", "sessionIds": [], "collapsed": false, "createdAt": 1774415082890, "roomIndex": 8 },
+    { "id": "room-1777283115703-2z3v5v", "name": "Story", "sessionIds": ["term-1777371325948-gmbpgf","54eaef8e-b98e-4850-99f4-7896ff3a1f60"], "collapsed": false, "createdAt": 1777283115703, "roomIndex": 9 }
+  ]
+}

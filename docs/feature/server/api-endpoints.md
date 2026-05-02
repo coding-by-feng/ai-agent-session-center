@@ -29,7 +29,7 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - PUT /api/sessions/:id/title|label|accent-color|character-model|pinned|muted|alerted
 - POST /api/sessions/:id/kill|resume|summarize|fork
 - POST /api/sessions/:id/reconnect-terminal|reconnect-ops-terminal
-- POST /api/sessions/clear-all (removes all sessions, captures terminal output for replay)
+- POST /api/sessions/clear-all (removes all sessions, captures terminal output for replay; accepts JSON body `{ suppressBroadcast?: boolean }` — when `true`, skips the `clearBrowserDb` ws-broadcast so the workspace-import flow can rebuild without racing against the wipe)
 - DELETE /api/sessions/:id
 
 ### Terminal Endpoints
@@ -71,7 +71,7 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - POST /api/tmux-sessions (list tmux sessions on a host)
 
 ### Workspace
-- POST /api/workspace/save (save workspace snapshot)
+- POST /api/workspace/save (save workspace snapshot — server-side dedup key uses 8 fields joined with `\0`: `[title, sshConfig.host, sshConfig.port, sshConfig.username, sshConfig.workingDir, sshConfig.command, startupCommand, originalSessionId]`. Including `originalSessionId` ensures sessions sharing the same SSH config but with distinct snapshot IDs are not collapsed.)
 - GET /api/workspace/load (load workspace snapshot)
 
 ### Agenda

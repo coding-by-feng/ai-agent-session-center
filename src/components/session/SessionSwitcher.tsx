@@ -473,6 +473,17 @@ function SessionTabCard({
         &#x1F4CC;
       </span>
 
+      {/* Attention badge — finished work, needs review */}
+      {needsAttention && (
+        <span
+          className={styles.sessionTabAttentionBadge}
+          aria-label="Finished — needs attention"
+          title="Finished — needs attention"
+        >
+          !
+        </span>
+      )}
+
       {!isCompact && (
         <>
           {/* Mini robot face */}

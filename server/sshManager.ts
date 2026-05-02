@@ -5,7 +5,7 @@
 import pty from 'node-pty';
 import type { IPty, IDisposable } from 'node-pty';
 import { execFile, execSync } from 'child_process';
-import { readdirSync } from 'fs';
+import { readdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir, networkInterfaces, hostname as osHostname } from 'os';
 import log from './logger.js';
@@ -219,17 +219,29 @@ function ringReset(term: Terminal, preload?: Buffer): void {
   if (preload && preload.length > 0) ringWrite(term, preload);
 }
 
-// Pending links: workingDir -> { terminalId, host, createdAt }
-// Used to match incoming SessionStart hooks to the terminal that launched Claude
-const pendingLinks = new Map<string, PendingLink>();
+// Pending links: workingDir -> array of { terminalId, host, createdAt }.
+// Used to match incoming SessionStart hooks to the terminal that launched Claude.
+// Multiple terminals can share the same workDir (e.g. several sessions in the same
+// project on workspace import); FIFO order preserves the launch sequence.
+const pendingLinks = new Map<string, PendingLink[]>();
+
+/** Append a pending link for a workDir, preserving any existing entries (FIFO). */
+function addPendingLink(workDir: string, link: PendingLink): void {
+  const arr = pendingLinks.get(workDir);
+  if (arr) arr.push(link);
+  else pendingLinks.set(workDir, [link]);
+}
 
 // Clean up stale pending links every 30s
 setInterval(() => {
   const now = Date.now();
-  for (const [key, link] of pendingLinks) {
-    if (now - link.createdAt > 60000) {
+  for (const [key, arr] of pendingLinks) {
+    const fresh = arr.filter(link => now - link.createdAt <= 60000);
+    if (fresh.length === 0) {
       log.debug('pty', `Expired pending link for ${key}`);
       pendingLinks.delete(key);
+    } else if (fresh.length !== arr.length) {
+      pendingLinks.set(key, fresh);
     }
   }
 }, 30000);
@@ -363,7 +375,16 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
         // Use -l (login shell) so ~/.zshrc / ~/.bash_profile are sourced
         // and user PATH (e.g. ~/.local/bin for claude) is available.
         args = ['-l'];
-        cwd = workDir;
+        // RC-6: Fall back to homedir() when the resolved workingDir does not
+        // exist on disk — pty.spawn would otherwise throw ENOENT and the
+        // session card would never be created.  The user can `cd` manually
+        // once the shell is open.
+        if (workDir !== homedir() && !existsSync(workDir)) {
+          log.warn('pty', `workingDir does not exist (${workDir}); falling back to homedir() for terminal ${terminalId}`);
+          cwd = homedir();
+        } else {
+          cwd = workDir;
+        }
       } else {
         // Spawn native ssh — uses system SSH config, agent, keys automatically
         shell = 'ssh';
@@ -444,7 +465,7 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
       // Claude's SessionStart hook can bind to the correct terminal card when
       // multiple sessions share a workDir.
       if (!skipAutoLaunch || config.deferredLaunch) {
-        pendingLinks.set(workDir, { terminalId, host: config.host || 'localhost', createdAt: Date.now() });
+        addPendingLink(workDir, { terminalId, host: config.host || 'localhost', createdAt: Date.now() });
       }
 
       // #19: Store disposables for proper cleanup on terminal close
@@ -755,40 +776,59 @@ export function linkSession(terminalId: string, sessionId: string): void {
   }
 }
 
-export function tryLinkByWorkDir(workDir: string, sessionId: string): string | null {
-  const link = pendingLinks.get(workDir);
-  if (link) {
-    linkSession(link.terminalId, sessionId);
-    pendingLinks.delete(workDir);
-    return link.terminalId;
-  }
-  // Also try matching with trailing slash variants
+/**
+ * Find the workDir key in pendingLinks that matches `workDir` (with or without
+ * trailing slash). Returns the actual key in the Map, or null.
+ */
+function findPendingLinksKey(workDir: string): string | null {
+  if (pendingLinks.has(workDir)) return workDir;
   const normalized = workDir.replace(/\/$/, '');
-  for (const [dir, lnk] of pendingLinks) {
-    if (dir.replace(/\/$/, '') === normalized) {
-      linkSession(lnk.terminalId, sessionId);
-      pendingLinks.delete(dir);
-      return lnk.terminalId;
-    }
+  for (const dir of pendingLinks.keys()) {
+    if (dir.replace(/\/$/, '') === normalized) return dir;
   }
   return null;
+}
+
+export function tryLinkByWorkDir(workDir: string, sessionId: string): string | null {
+  const key = findPendingLinksKey(workDir);
+  if (!key) return null;
+  const arr = pendingLinks.get(key);
+  if (!arr || arr.length === 0) {
+    pendingLinks.delete(key);
+    return null;
+  }
+  // FIFO — shift the front entry (oldest first registered)
+  const link = arr.shift()!;
+  if (arr.length === 0) pendingLinks.delete(key);
+  linkSession(link.terminalId, sessionId);
+  return link.terminalId;
 }
 
 /**
  * Consume (remove) a pending link for a given workDir.
  * Called after Priority 0 resume match to prevent stale links from
  * creating duplicate sessions at Priority 2.
+ *
+ * When `terminalId` is provided, removes only the entry whose terminalId
+ * matches; otherwise removes the front (oldest) entry.
+ * If the array becomes empty, the map key is deleted.
  */
-export function consumePendingLink(workDir: string): void {
+export function consumePendingLink(workDir: string, terminalId?: string): void {
   if (!workDir) return;
-  if (pendingLinks.delete(workDir)) return;
-  const normalized = workDir.replace(/\/$/, '');
-  for (const [dir] of pendingLinks) {
-    if (dir.replace(/\/$/, '') === normalized) {
-      pendingLinks.delete(dir);
-      return;
-    }
+  const key = findPendingLinksKey(workDir);
+  if (!key) return;
+  const arr = pendingLinks.get(key);
+  if (!arr || arr.length === 0) {
+    pendingLinks.delete(key);
+    return;
   }
+  if (terminalId) {
+    const idx = arr.findIndex(l => l.terminalId === terminalId);
+    if (idx >= 0) arr.splice(idx, 1);
+  } else {
+    arr.shift();
+  }
+  if (arr.length === 0) pendingLinks.delete(key);
 }
 
 export function getTerminalForSession(sessionId: string): string | null {
@@ -899,9 +939,37 @@ function cleanup(terminalId: string): void {
       }
       term.disposables = [];
     }
-    for (const [key, link] of pendingLinks) {
-      if (link.terminalId === terminalId) pendingLinks.delete(key);
+    for (const [key, arr] of pendingLinks) {
+      const filtered = arr.filter(l => l.terminalId !== terminalId);
+      if (filtered.length === 0) pendingLinks.delete(key);
+      else if (filtered.length !== arr.length) pendingLinks.set(key, filtered);
     }
     terminals.delete(terminalId);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Test-only helpers — exposed so unit tests can manipulate pendingLinks
+// without spawning real PTYs. These have no callers in production code paths.
+// ---------------------------------------------------------------------------
+
+/** @internal — test only */
+export function __addPendingLinkForTest(workDir: string, link: PendingLink): void {
+  addPendingLink(workDir, link);
+}
+
+/** @internal — test only */
+export function __resetPendingLinksForTest(): void {
+  pendingLinks.clear();
+}
+
+/** @internal — test only */
+export function __getPendingLinksSizeForTest(): number {
+  return pendingLinks.size;
+}
+
+/** @internal — test only */
+export function __getPendingLinksForWorkDirForTest(workDir: string): PendingLink[] | undefined {
+  const key = findPendingLinksKey(workDir);
+  return key ? pendingLinks.get(key) : undefined;
 }

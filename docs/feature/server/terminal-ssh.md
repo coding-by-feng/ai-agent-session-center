@@ -107,7 +107,7 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 ### Shared Resources
 - PTY processes
 - Output ring buffers
-- pendingLinks Map
+- pendingLinks Map (`Map<string, PendingLink[]>` — array-per-workDir so multiple terminals sharing a project path don't overwrite each other; `tryLinkByWorkDir` consumes FIFO from the front, `consumePendingLink(workDir, terminalId?)` removes a specific entry or the front)
 
 ## Change Risks
 - Breaking shell-ready detection means commands sent before prompt, causing garbled output
@@ -116,3 +116,4 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 - Ring buffer size affects reconnect replay quality
 - The ring buffer is pre-allocated and uses `Buffer.copy` internally — any code path that still reads `term.outputBuffer` will throw (`undefined`). Use `getTerminalOutputBuffer(id)` or `ringSnapshot(term)` instead.
 - `prefillTerminalOutput` linearizes existing ring content, prepends the saved data, trims to cap, then `ringReset`s. Workspace-snapshot import relies on this for scrollback restore; breaking linearization drops imported history.
+- `createTerminal` falls back to `os.homedir()` for the PTY cwd when the requested `workingDir` no longer exists on disk; without the fallback, `pty.spawn` throws ENOENT and the session card is never created.

@@ -13,6 +13,9 @@ interface FindInFileBarProps {
   onTermChange: (term: string, caseSensitive: boolean) => void;
   /** Expose the currently-focused match so parent can distinguish it visually */
   onActiveMatchChange?: (match: { line: number; col: number } | null) => void;
+  /** Flat 0-based active match index (or -1 when no matches) — used by rendered
+   *  views (markdown, LaTeX) that walk the DOM to highlight matches. */
+  onActiveIdxChange?: (idx: number, total: number) => void;
 }
 
 interface MatchPosition {
@@ -26,6 +29,7 @@ export default function FindInFileBar({
   onScrollToLine,
   onTermChange,
   onActiveMatchChange,
+  onActiveIdxChange,
 }: FindInFileBarProps) {
   const [query, setQuery] = useState<string>('');
   const [caseSensitive, setCaseSensitive] = useState<boolean>(false);
@@ -67,10 +71,12 @@ export default function FindInFileBar({
       const m = matches[activeIdx];
       onScrollToLine(m.line);
       onActiveMatchChange?.({ line: m.line, col: m.col });
+      onActiveIdxChange?.(activeIdx, matches.length);
     } else {
       onActiveMatchChange?.(null);
+      onActiveIdxChange?.(-1, matches.length);
     }
-  }, [activeIdx, matches, onScrollToLine, onActiveMatchChange]);
+  }, [activeIdx, matches, onScrollToLine, onActiveMatchChange, onActiveIdxChange]);
 
   // Reset active index when matches change
   useEffect(() => {

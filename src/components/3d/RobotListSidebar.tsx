@@ -3,7 +3,7 @@
  * Click an entry to select the session and fly the camera to that robot.
  * Shows label, title, and status for each agent.
  */
-import { useMemo, useCallback, useState, useRef, useEffect } from 'react';
+import { useMemo, useCallback, useState } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { useUiStore } from '@/stores/uiStore';
@@ -48,44 +48,22 @@ function RobotEntry({
   isSelected,
   onSelect,
   onClose,
-  onTitleSave,
 }: {
   session: Session;
   isSelected: boolean;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
-  onTitleSave: (id: string, title: string) => void;
 }) {
   const statusColor = STATUS_COLORS[session.status] ?? '#888';
   const needsAttention = session.status === 'approval' || session.status === 'input';
   const title = session.title || 'Unnamed';
   const label = session.label;
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(title);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (editing) {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }
-  }, [editing]);
-
-  const commitEdit = () => {
-    setEditing(false);
-    const trimmed = draft.trim();
-    if (trimmed && trimmed !== title) {
-      onTitleSave(session.sessionId, trimmed);
-    } else {
-      setDraft(title);
-    }
-  };
 
   return (
     <button
       data-session-id={session.sessionId}
       data-status={session.status}
-      onClick={() => { if (!editing) onSelect(session.sessionId); }}
+      onClick={() => onSelect(session.sessionId)}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -101,7 +79,7 @@ function RobotEntry({
           : needsAttention
             ? `color-mix(in srgb, ${statusColor} 8%, transparent)`
             : 'transparent',
-        cursor: editing ? 'default' : 'pointer',
+        cursor: 'pointer',
         textAlign: 'left',
         fontFamily: "'JetBrains Mono', monospace",
         transition: 'all 0.15s ease',
@@ -158,45 +136,19 @@ function RobotEntry({
           </span>
         )}
 
-        {/* Title (editable) */}
-        {editing ? (
-          <input
-            ref={inputRef}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commitEdit}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
-              if (e.key === 'Escape') { setDraft(title); setEditing(false); }
-            }}
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: '100%',
-              background: 'var(--bg-subtle)',
-              border: '1px solid var(--border-accent-strong)',
-              borderRadius: 2,
-              color: 'var(--text-primary)',
-              fontSize: 12,
-              fontFamily: 'inherit',
-              padding: '1px 4px',
-              outline: 'none',
-              lineHeight: 1.3,
-            }}
-          />
-        ) : (
-          <div
-            style={{
-              fontSize: 12,
-              color: isSelected ? 'var(--text-primary)' : 'var(--text-secondary)',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              lineHeight: 1.3,
-            }}
-          >
-            {title}
-          </div>
-        )}
+        {/* Title (read-only — used as the resume key for Claude Code sessions) */}
+        <div
+          style={{
+            fontSize: 12,
+            color: isSelected ? 'var(--text-primary)' : 'var(--text-secondary)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            lineHeight: 1.3,
+          }}
+        >
+          {title}
+        </div>
 
         {/* Status text */}
         <div
@@ -211,45 +163,6 @@ function RobotEntry({
           {session.status}
         </div>
       </div>
-
-      {/* Edit button */}
-      {!editing && (
-        <span
-          role="button"
-          tabIndex={-1}
-          onClick={(e) => {
-            e.stopPropagation();
-            setDraft(title);
-            setEditing(true);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') { e.stopPropagation(); setDraft(title); setEditing(true); }
-          }}
-          style={{
-            flexShrink: 0,
-            width: 18,
-            height: 18,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderRadius: 2,
-            color: 'var(--text-dim)',
-            cursor: 'pointer',
-            transition: 'all 0.15s ease',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.color = 'var(--accent-cyan)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.color = 'var(--text-dim)';
-          }}
-        >
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
-            <path d="m15 5 4 4"/>
-          </svg>
-        </span>
-      )}
 
       {/* Close button */}
       <span
@@ -388,7 +301,6 @@ export default function RobotListSidebar() {
   const sessions = useSessionStore((s) => s.sessions);
   const selectedSessionId = useSessionStore((s) => s.selectedSessionId);
   const removeSession = useSessionStore((s) => s.removeSession);
-  const updateSession = useSessionStore((s) => s.updateSession);
   const rooms = useRoomStore((s) => s.rooms);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
@@ -483,18 +395,6 @@ export default function RobotListSidebar() {
     }).catch(() => {});
     removeSession(sessionId);
   }, [removeSession]);
-
-  const handleTitleSave = useCallback((sessionId: string, title: string) => {
-    const session = sessions.get(sessionId);
-    if (session) {
-      updateSession({ ...session, title });
-    }
-    fetch(`/api/sessions/${sessionId}/title`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title }),
-    }).catch(() => {});
-  }, [sessions, updateSession]);
 
   // Hide sidebar only when there are zero sessions at all
   const hasAnySessions = useMemo(
@@ -611,7 +511,6 @@ export default function RobotListSidebar() {
                         isSelected={selectedSessionId === session.sessionId}
                         onSelect={handleSelect}
                         onClose={handleClose}
-                        onTitleSave={handleTitleSave}
                       />
                     ))}
                   </div>

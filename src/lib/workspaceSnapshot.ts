@@ -223,14 +223,18 @@ export function loadFromFile(file: File): Promise<WorkspaceSnapshot> {
 
 function sessionDedupeKey(snap: SessionSnapshot): string {
   const cfg = snap.sshConfig;
+  // 8-field formula matching the server (RC-2 fix). Adding originalSessionId
+  // ensures sessions with identical title+workdir+command but different IDs
+  // (e.g. multiple Claude resume sessions on the same project) are kept apart.
   return [
-    snap.title,
+    snap.title ?? '',
     cfg?.host ?? '',
     cfg?.port ?? '',
     cfg?.username ?? '',
     cfg?.workingDir ?? '',
     cfg?.command ?? '',
     snap.startupCommand ?? '',
+    snap.originalSessionId ?? '',
   ].join('\0');
 }
 
@@ -257,13 +261,27 @@ export async function importSnapshot(
     onProgress?: (done: number, total: number, currentTitle: string) => void;
     onComplete: (created: number, failed: number) => void;
   },
-): Promise<void> {
+): Promise<{ created: number; failed: number; failedTitles: string[] }> {
+  // Block auto-save for the duration of the import — during clear-all + recreate
+  // the Zustand store transiently holds dying old IDs alongside in-flight new IDs,
+  // and any auto-save firing in that window writes a corrupt accumulated snapshot.
+  _importInProgress = true;
+  cancelAutoSave();
+  // Track titles of sessions whose creation failed so the UX layer can surface them.
+  const failedTitles: string[] = [];
+
   // Clear all existing sessions before loading from the snapshot.
   // This ensures the workspace is fully replaced, not merged.
   // The server returns saved terminal output buffers so we can restore scrollback.
+  // Per Contract C2: pass suppressBroadcast: true so the server skips the
+  // CLEAR_BROWSER_DB broadcast (which would race with our restored localStorage).
   let savedOutputMap = new Map<string, string>(); // key (title\0workDir) -> base64 data
   try {
-    const clearRes = await fetch('/api/sessions/clear-all', { method: 'POST' });
+    const clearRes = await fetch('/api/sessions/clear-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ suppressBroadcast: true }),
+    });
     if (clearRes.ok) {
       const clearData = await clearRes.json();
       if (Array.isArray(clearData.savedOutputs)) {
@@ -317,7 +335,14 @@ export async function importSnapshot(
   for (const sessionSnap of dedupedSessions) {
     callbacks.onProgress?.(processedCount, total, sessionSnap.title);
     const cfg = sessionSnap.sshConfig;
-    if (!cfg) { failed++; processedCount++; continue; }
+    if (!cfg) {
+      failed++;
+      failedTitles.push(
+        sessionSnap.title || sessionSnap.originalSessionId || '(untitled)',
+      );
+      processedCount++;
+      continue;
+    }
 
     try {
       // When originalSessionId looks like a CLI session UUID (not a term-* placeholder
@@ -331,6 +356,24 @@ export async function importSnapshot(
         && !originalId.startsWith('term-')
         && /^[a-zA-Z0-9_-]+$/.test(originalId);
 
+      // RC-14 fix: term-* sessions carry raw user-entered commands that may
+      // contain shell metacharacters (&&, |, >, etc.). The server's validateCommand
+      // (sshManager.ts) rejects these. Route the command through startupCommand
+      // (which has no metachar validation — it's written directly to the PTY shell)
+      // and send command: '' so spawn doesn't auto-launch with the rejected command.
+      // Claude UUID sessions keep their existing flow because the server rebuilds
+      // their command via resumeSessionId.
+      let payloadCommand = cfg.command || 'claude';
+      let payloadStartupCommand = sessionSnap.startupCommand || undefined;
+      const hasRawCommand = !!cfg.command && cfg.command.trim().length > 0;
+      if (!looksLikeRealSessionId && hasRawCommand) {
+        // Prefer existing snapshot startupCommand if set, else fall back to cfg.command.
+        if (!payloadStartupCommand) {
+          payloadStartupCommand = cfg.command;
+        }
+        payloadCommand = '';
+      }
+
       const res = await fetch('/api/terminals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -341,11 +384,11 @@ export async function importSnapshot(
           authMethod: cfg.authMethod,
           privateKeyPath: cfg.privateKeyPath,
           workingDir: cfg.workingDir || '~',
-          command: cfg.command || 'claude',
+          command: payloadCommand,
           sessionTitle: sessionSnap.title,
           label: sessionSnap.label || undefined,
           enableOpsTerminal: sessionSnap.enableOpsTerminal || undefined,
-          startupCommand: sessionSnap.startupCommand || undefined,
+          startupCommand: payloadStartupCommand,
           permissionMode: sessionSnap.permissionMode || undefined,
           originalSessionId: originalId || undefined,
           resumeSessionId: looksLikeRealSessionId ? originalId : undefined,
@@ -434,11 +477,17 @@ export async function importSnapshot(
         }
       } else {
         failed++;
+        failedTitles.push(
+          sessionSnap.title || sessionSnap.originalSessionId || '(untitled)',
+        );
         processedCount++;
         callbacks.onProgress?.(processedCount, total, sessionSnap.title);
       }
     } catch {
       failed++;
+      failedTitles.push(
+        sessionSnap.title || sessionSnap.originalSessionId || '(untitled)',
+      );
       processedCount++;
       callbacks.onProgress?.(processedCount, total, sessionSnap.title);
     }
@@ -494,6 +543,46 @@ export async function importSnapshot(
         sessionIds: [...new Set(mapped)],
       };
     });
+
+    // RC-12 fix: gather session IDs that successfully created (in idRemap.values())
+    // but ended up in NO room after remap. These would otherwise become invisible
+    // in the sidebar. Place them all into a synthesized "Ungrouped" room (or
+    // append to an existing one). We deliberately do NOT match orphans by name —
+    // that would be heuristic and risky. Just bucket them all into "Ungrouped".
+    const referenced = new Set<string>();
+    for (const r of remappedRooms) {
+      for (const id of r.sessionIds) referenced.add(id);
+    }
+    const orphanIds: string[] = [];
+    for (const newId of idRemap.values()) {
+      if (!referenced.has(newId) && !orphanIds.includes(newId)) {
+        orphanIds.push(newId);
+      }
+    }
+    if (orphanIds.length > 0) {
+      const existingUngrouped = remappedRooms.find((r) => r.name === 'Ungrouped');
+      if (existingUngrouped) {
+        const merged = new Set<string>(existingUngrouped.sessionIds);
+        for (const id of orphanIds) merged.add(id);
+        existingUngrouped.sessionIds = [...merged];
+      } else {
+        const usedIndices = new Set(
+          remappedRooms.map((r) => r.roomIndex).filter((ri): ri is number => ri != null),
+        );
+        let nextIndex = 0;
+        while (usedIndices.has(nextIndex)) nextIndex++;
+        remappedRooms.push({
+          id: 'room-orphan-' + Date.now(),
+          name: 'Ungrouped',
+          sessionIds: [...orphanIds],
+          collapsed: false,
+          createdAt: Date.now(),
+          roomIndex: nextIndex,
+        });
+      }
+      console.info(`[workspace] Bucketed ${orphanIds.length} orphan session(s) into "Ungrouped" room`);
+    }
+
     localStorage.setItem('session-rooms', JSON.stringify(remappedRooms));
     // eslint-disable-next-line no-console
     console.info(`[workspace] Saved ${remappedRooms.length} rooms to localStorage. Sessions per room:`,
@@ -536,6 +625,10 @@ export async function importSnapshot(
   }
 
   callbacks.onComplete(created, failed);
+  // Hold the import flag for a brief settle window so any in-flight Zustand
+  // updates (e.g. WS broadcasts mid-creation) finish before auto-save resumes.
+  setTimeout(() => { _importInProgress = false; }, POST_IMPORT_QUIET_MS);
+  return { created, failed, failedTitles };
 }
 
 // ---------------------------------------------------------------------------
@@ -543,7 +636,13 @@ export async function importSnapshot(
 // ---------------------------------------------------------------------------
 
 let _autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let _importInProgress = false;
 const AUTO_SAVE_DEBOUNCE_MS = 5_000;
+const POST_IMPORT_QUIET_MS = 3_000;
+
+export function isImportInProgress(): boolean {
+  return _importInProgress;
+}
 
 /**
  * Schedule a debounced auto-save of the workspace snapshot to the server.
@@ -557,6 +656,10 @@ export function scheduleAutoSave(
   if (_autoSaveTimer) clearTimeout(_autoSaveTimer);
   _autoSaveTimer = setTimeout(async () => {
     _autoSaveTimer = null;
+    // Never auto-save while a snapshot import is in flight — Zustand transiently
+    // mixes the dying old sessions with the freshly-created ones, and persisting
+    // that mid-state silently corrupts the saved snapshot with duplicates.
+    if (_importInProgress) return;
     try {
       const sessions = getSessions();
       const rooms = getRooms();
