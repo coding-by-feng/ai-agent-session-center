@@ -260,6 +260,14 @@ function IconOutline() {
   );
 }
 
+function IconEdit() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11.5 2.5l2 2L6 12l-3 1 1-3 7.5-7.5z" />
+    </svg>
+  );
+}
+
 function IconCollect({ active = false }: { active?: boolean }) {
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
@@ -1136,6 +1144,10 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const [wordWrap, setWordWrap] = useState(false);
   // .tex files default to the rendered preview; toggle to show raw source.
   const [texPreview, setTexPreview] = useState(true);
+  // Markdown edit mode: shows a textarea instead of the rendered preview.
+  const [mdEdit, setMdEdit] = useState(false);
+  const [mdDraft, setMdDraft] = useState('');
+  const [mdSaving, setMdSaving] = useState(false);
   const markdownRef = useRef<HTMLDivElement>(null);
   const mdContainerRef = useRef<HTMLDivElement>(null);
   const codeViewerRef = useRef<HTMLDivElement>(null);
@@ -1382,6 +1394,11 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file?.path]);
 
+  // Exit md edit mode whenever the open file changes
+  useEffect(() => {
+    setMdEdit(false);
+  }, [file?.path]);
+
   // Save scroll on markdown scroll events
   useEffect(() => {
     const el = markdownRef.current;
@@ -1526,6 +1543,31 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const handleCancelNewFile = useCallback(() => {
     setEditingNewFile(null);
     setNewFileContent('');
+  }, []);
+
+  const handleEnterMdEdit = useCallback(() => {
+    if (!file) return;
+    setMdDraft(file.content || '');
+    setMdEdit(true);
+  }, [file]);
+
+  const handleSaveMdEdit = useCallback(async () => {
+    if (!file || mdSaving) return;
+    setMdSaving(true);
+    try {
+      await provider.writeFile(projectPath, file.path, mdDraft);
+      setFile((prev) => (prev ? { ...prev, content: mdDraft, size: new Blob([mdDraft]).size } : prev));
+      setMdEdit(false);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setMdSaving(false);
+    }
+  }, [file, mdDraft, mdSaving, projectPath, provider]);
+
+  const handleCancelMdEdit = useCallback(() => {
+    setMdEdit(false);
+    setMdDraft('');
   }, []);
 
   // New folder
@@ -2198,6 +2240,14 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
           <IconOutline />
         </button>
         <button
+          className={`${styles.iconBtn} ${mdEdit ? styles.iconBtnActive : ''}`}
+          onClick={() => (mdEdit ? handleCancelMdEdit() : handleEnterMdEdit())}
+          disabled={!file || (file.ext !== 'md' && file.ext !== 'mdx')}
+          title={mdEdit ? 'Exit edit mode (discard)' : 'Edit markdown'}
+        >
+          <IconEdit />
+        </button>
+        <button
           className={`${styles.iconBtn} ${texPreview ? styles.iconBtnActive : ''}`}
           onClick={() => setTexPreview((p) => !p)}
           disabled={!file || file.ext !== 'tex'}
@@ -2507,6 +2557,40 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                   </div>
                 ) : file.ext === 'tex' && texPreview ? (
                   <TexViewer source={file.content || ''} fileKey={file.path} />
+                ) : (file.ext === 'md' || file.ext === 'mdx') && mdEdit ? (
+                  <div className={styles.newFileEditor}>
+                    <div className={styles.newFileHeader}>
+                      <span className={styles.newFileName}>{file.path}</span>
+                      <div className={styles.newFileActions}>
+                        <button
+                          className={styles.newFileSave}
+                          onClick={() => { void handleSaveMdEdit(); }}
+                          disabled={mdSaving}
+                        >
+                          {mdSaving ? 'Saving…' : 'Save'}
+                        </button>
+                        <button className={styles.newFileCancel} onClick={handleCancelMdEdit} disabled={mdSaving}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                    <textarea
+                      className={styles.newFileTextarea}
+                      value={mdDraft}
+                      onChange={(e) => setMdDraft(e.target.value)}
+                      autoFocus
+                      spellCheck={false}
+                      onKeyDown={(e) => {
+                        if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+                          e.preventDefault();
+                          void handleSaveMdEdit();
+                        } else if (e.key === 'Escape') {
+                          e.preventDefault();
+                          handleCancelMdEdit();
+                        }
+                      }}
+                    />
+                  </div>
                 ) : file.ext === 'md' || file.ext === 'mdx' ? (
                   <div className={styles.mdContainer} ref={mdContainerRef}>
                     {showOutline && (
