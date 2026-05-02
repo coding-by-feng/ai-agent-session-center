@@ -84,6 +84,9 @@ export function useWebSocket(token: string | null): WsClient | null {
         }
 
         case 'clearBrowserDb': {
+          // Wipe in-memory Zustand sessions too, otherwise autoSave can
+          // re-publish the just-killed sessions back into the snapshot.
+          setSessions(new Map());
           db.delete().then(() => db.open()).catch(() => {});
           break;
         }

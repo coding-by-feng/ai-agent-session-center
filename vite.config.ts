@@ -37,4 +37,11 @@ export default defineConfig({
   build: {
     outDir: 'dist/client',
   },
+  optimizeDeps: {
+    // latex.js dynamically requires `./packages/<name>` and `./documentclasses/<name>`
+    // at runtime; esbuild's pre-bundler glob-includes the directories and trips on
+    // their empty `.keep` sentinel files. Skip pre-bundling — we already lazy-import
+    // it, so it loads on demand without the optimizer.
+    exclude: ['latex.js'],
+  },
 });

@@ -61,3 +61,78 @@
   color: rgba(224, 224, 255, 0.4);
   letter-spacing: 1px;
 }
+
+/* ---------------------------------------------------------------------- */
+/* Error panel — shown after load when one or more sessions failed.        */
+/* ---------------------------------------------------------------------- */
+
+.titleError {
+  color: var(--accent-orange, #ff9100);
+  text-shadow: 0 0 8px rgba(255, 145, 0, 0.4);
+}
+
+.subtitleError {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent-orange, #ff9100);
+  letter-spacing: 0.5px;
+  text-align: center;
+  opacity: 0.85;
+}
+
+.failedList {
+  list-style: none;
+  margin: 0;
+  padding: 8px 12px;
+  width: 100%;
+  max-height: 180px;
+  overflow-y: auto;
+  background: rgba(255, 145, 0, 0.06);
+  border: 1px solid rgba(255, 145, 0, 0.35);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.failedItem {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: rgba(224, 224, 255, 0.85);
+  letter-spacing: 0.3px;
+  padding: 2px 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.failedItem::before {
+  content: '×  ';
+  color: var(--accent-orange, #ff9100);
+  font-weight: 700;
+}
+
+.dismissBtn {
+  margin-top: 6px;
+  padding: 8px 18px;
+  background: transparent;
+  border: 1px solid var(--accent-orange, #ff9100);
+  color: var(--accent-orange, #ff9100);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.dismissBtn:hover {
+  background: rgba(255, 145, 0, 0.12);
+  box-shadow: 0 0 10px rgba(255, 145, 0, 0.3);
+}
+
+.dismissBtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(255, 145, 0, 0.5);
+}

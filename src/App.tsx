@@ -1,9 +1,7 @@
 import { lazy, Suspense, useState, useEffect, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useAuth } from '@/hooks/useAuth';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import LoginScreen from '@/components/auth/LoginScreen';
 import SetupWizard from '@/components/setup/SetupWizard';
 import Header from '@/components/layout/Header';
 import NavBar from '@/components/layout/NavBar';
@@ -116,31 +114,7 @@ function Dashboard({ token }: { token: string | null }) {
 }
 
 function AuthGate() {
-  const { token, loading, needsLogin, login } = useAuth();
-
-  if (loading) {
-    return (
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: '100vh',
-          background: '#0a0a1a',
-          color: '#8888aa',
-          fontFamily: "'JetBrains Mono', monospace",
-        }}
-      >
-        Connecting...
-      </div>
-    );
-  }
-
-  if (needsLogin) {
-    return <LoginScreen onLogin={login} />;
-  }
-
-  return <Dashboard token={token} />;
+  return <Dashboard token={null} />;
 }
 
 export default function App() {

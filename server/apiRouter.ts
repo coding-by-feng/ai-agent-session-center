@@ -362,15 +362,21 @@ router.post('/hooks/uninstall', (_req: Request, res: Response) => {
 // Clear all sessions — kill terminals and remove from memory.
 // MUST be registered before parameterized /sessions/:id routes to avoid
 // Express matching "clear-all" as a session ID.
-router.post('/sessions/clear-all', async (_req: Request, res: Response) => {
+router.post('/sessions/clear-all', async (req: Request, res: Response) => {
   try {
     const { removed, savedOutputs } = clearAllSessions();
-    // Broadcast clearBrowserDb so browsers clear their IndexedDB mirror
-    try {
-      const { broadcast } = await import('./wsManager.js');
-      broadcast({ type: WS_TYPES.CLEAR_BROWSER_DB });
-    } catch { /* ignore */ }
-    log.info('api', `Cleared all sessions: ${removed} removed, ${savedOutputs.length} output buffers saved`);
+    // Broadcast clearBrowserDb so browsers clear their IndexedDB mirror —
+    // unless the caller is the workspace-import flow, which racing against
+    // new SESSION_UPDATE messages would otherwise wipe the freshly-rebuilt
+    // sessions in the browser's IndexedDB mirror.
+    const suppressBroadcast = req.body && req.body.suppressBroadcast === true;
+    if (!suppressBroadcast) {
+      try {
+        const { broadcast } = await import('./wsManager.js');
+        broadcast({ type: WS_TYPES.CLEAR_BROWSER_DB });
+      } catch { /* ignore */ }
+    }
+    log.info('api', `Cleared all sessions: ${removed} removed, ${savedOutputs.length} output buffers saved${suppressBroadcast ? ' (broadcast suppressed)' : ''}`);
     res.json({ ok: true, removed, savedOutputs });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -976,7 +982,7 @@ router.post('/terminals', async (req: Request, res: Response) => {
       authMethod: body.authMethod || 'key',
       privateKeyPath: body.privateKeyPath,
       workingDir: body.workingDir || '~',
-      command: body.command || 'claude',
+      command: body.command ?? 'claude',
       password: body.password,
     };
 
@@ -1052,13 +1058,20 @@ router.post('/terminals', async (req: Request, res: Response) => {
       resumeLaunchCmd = `${baseCmd} --resume '${safeId}' || ${baseCmd} --continue`;
     }
 
+    // Workspace import may intentionally send command='' plus startupCommand for
+    // raw shell commands containing metacharacters. Keep the shell spawn blank,
+    // then write the startup command after the prompt is ready.
+    const startupLaunchCmd = !resumeLaunchCmd && config.command === '' && config.startupCommand
+      ? config.startupCommand
+      : null;
+
     // When resuming, spawn terminal with empty command so createTerminal skips
     // auto-launch (the resume command contains `||` which can't pass shell-metachar
     // validation). We write the actual launch command via writeWhenReady below,
     // after the shell is ready.  Set deferredLaunch=true so sshManager still
     // registers a pendingLink — without it, SessionStart hooks from sessions
     // sharing a workDir collapse onto a single card during workspace import.
-    const terminalConfig: TerminalConfig = resumeLaunchCmd
+    const terminalConfig: TerminalConfig = resumeLaunchCmd || startupLaunchCmd
       ? { ...config, command: '', deferredLaunch: true }
       : config;
     const terminalId = await createTerminal(terminalConfig, null);
@@ -1076,9 +1089,9 @@ router.post('/terminals', async (req: Request, res: Response) => {
     }
 
     // Create session card immediately so it appears in the dashboard.
-    // Always store the ORIGINAL `config` (including the snapshot's `sshConfig.command`)
-    // so subsequent auto-saves export the same command — not the transient empty
-    // command we pass to createTerminal during resume.
+    // Resume imports keep the original config.command while spawning a transient
+    // blank shell. Raw startup-command imports intentionally store command=''
+    // and keep the full launch string in startupCommand.
     await createTerminalSession(terminalId, config, opsTerminalId);
 
     // Register alias so subsequent workspace import calls can dedup by originalSessionId.
@@ -1100,6 +1113,17 @@ router.post('/terminals', async (req: Request, res: Response) => {
       }
       writeWhenReady(terminalId, `${prefix}${resumeLaunchCmd}\r`);
       log.info('api', `Workspace resume: ${resumeId.slice(0, 8)} → terminal ${terminalId.slice(0, 16)} (${resumeLaunchCmd.slice(0, 120)}${resumeLaunchCmd.length > 120 ? '…' : ''})`);
+    }
+
+    if (startupLaunchCmd) {
+      const isRemote = !!(config.host && config.host !== 'localhost' && config.host !== '127.0.0.1');
+      let prefix = '';
+      if (isRemote) {
+        prefix += `export AGENT_MANAGER_TERMINAL_ID='${terminalId.replace(/'/g, "'\\''")}' && `;
+        if (config.workingDir) prefix += `cd '${config.workingDir.replace(/'/g, "'\\''")}' && `;
+      }
+      writeWhenReady(terminalId, `${prefix}${startupLaunchCmd}\r`);
+      log.info('api', `Workspace startup command: terminal ${terminalId.slice(0, 16)} (${startupLaunchCmd.slice(0, 120)}${startupLaunchCmd.length > 120 ? '…' : ''})`);
     }
 
     res.json({ ok: true, terminalId });
@@ -1479,6 +1503,7 @@ const TEXT_EXTENSIONS = new Set([
   '.prettierrc', '.babelrc', '.nvmrc',
   '.csv', '.tsv', '.log', '.diff', '.patch', '.jsonl', '.ndjson',
   '.svelte', '.vue', '.astro', '.mdx',
+  '.tex', '.bib', '.cls', '.sty', '.bst', '.ltx',
 ]);
 
 /** Names that are always considered text (no extension). */
@@ -2101,10 +2126,14 @@ router.post('/workspace/save', (req: Request, res: Response) => {
       res.status(400).json({ error: 'Invalid workspace snapshot' });
       return;
     }
-    // Deduplicate sessions by title + SSH config + startupCommand before saving
+    // Deduplicate sessions by title + SSH config + startupCommand + originalSessionId
+    // before saving.  originalSessionId is required as the 8th field so that two
+    // sessions sharing the same SSH config (e.g. multiple Claude conversations in
+    // the same workdir) are NOT collapsed into one — the snapshot's authoritative
+    // identity is the originalSessionId, not the launch command.
     const seen = new Set<string>();
     const deduped: unknown[] = [];
-    for (const s of snapshot.sessions as { title?: string; startupCommand?: string; sshConfig?: { host?: string; port?: number; username?: string; workingDir?: string; command?: string } }[]) {
+    for (const s of snapshot.sessions as { title?: string; startupCommand?: string; originalSessionId?: string; sshConfig?: { host?: string; port?: number; username?: string; workingDir?: string; command?: string } }[]) {
       const key = [
         s.title ?? '',
         s.sshConfig?.host ?? '',
@@ -2113,6 +2142,7 @@ router.post('/workspace/save', (req: Request, res: Response) => {
         s.sshConfig?.workingDir ?? '',
         s.sshConfig?.command ?? '',
         s.startupCommand ?? '',
+        s.originalSessionId ?? '',
       ].join('\0');
       if (seen.has(key)) continue;
       seen.add(key);

@@ -11,6 +11,7 @@ import 'highlight.js/styles/github-dark-dimmed.css';
 import FileTree, { type FileTreeHandle } from './FileTree';
 import ContentSearchModal from './ContentSearchModal';
 import FindInFileBar, { highlightFindMatches } from './FindInFileBar';
+import TexViewer from './TexViewer';
 import {
   DEFAULT_VIEW,
   PAN_STEP,
@@ -1059,7 +1060,16 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     } catch { /* ignore */ }
     return 220;
   });
-  const [treePanelCollapsed, setTreePanelCollapsed] = useState(false);
+  const [treePanelCollapsed, setTreePanelCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('file-browser:tree-panel-collapsed') === 'true';
+    } catch { return false; }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('file-browser:tree-panel-collapsed', String(treePanelCollapsed));
+    } catch { /* ignore */ }
+  }, [treePanelCollapsed]);
   const treePanelWidthRef = useRef(treePanelWidth);
   treePanelWidthRef.current = treePanelWidth;
   const treePanelRef = useRef<HTMLDivElement>(null);
@@ -1124,6 +1134,8 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   // Markdown outline (side panel with draggable divider)
   const [showOutline, setShowOutline] = useState(false);
   const [wordWrap, setWordWrap] = useState(false);
+  // .tex files default to the rendered preview; toggle to show raw source.
+  const [texPreview, setTexPreview] = useState(true);
   const markdownRef = useRef<HTMLDivElement>(null);
   const mdContainerRef = useRef<HTMLDivElement>(null);
   const codeViewerRef = useRef<HTMLDivElement>(null);
@@ -1871,6 +1883,9 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
 
   const [findScrollTarget, setFindScrollTarget] = useState<{ line: number; key: number } | null>(null);
   const [findActiveMatch, setFindActiveMatch] = useState<{ line: number; col: number } | null>(null);
+  // Flat active match index (and total) — used by rendered views (markdown, TeX)
+  // that walk the DOM rather than scrolling by line number.
+  const [findActiveIdx, setFindActiveIdx] = useState<number>(-1);
 
   const handleFindActiveMatchChange = useCallback(
     (match: { line: number; col: number } | null) => {
@@ -1878,6 +1893,10 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     },
     [],
   );
+
+  const handleFindActiveIdxChange = useCallback((idx: number) => {
+    setFindActiveIdx(idx);
+  }, []);
 
   const handleFindScrollToLine = useCallback((lineNumber: number) => {
     // Virtualized view: element may not be in DOM — pass scroll target via state/props
@@ -1896,7 +1915,99 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     setFindTerm('');
     setFindCaseSensitive(false);
     setFindActiveMatch(null);
+    setFindActiveIdx(-1);
   }, []);
+
+  // ---------------------------------------------------------------------------
+  // DOM-side find highlighting for rendered views (markdown).
+  // The line-anchor approach (`fv-line-N`) only works for raw code views; the
+  // rendered markdown DOM has no line markers. We walk text nodes, wrap matches
+  // with <mark> spans, and scroll the active one into view.
+  // ---------------------------------------------------------------------------
+  const findMarksRef = useRef<HTMLElement[]>([]);
+
+  // Re-wrap matches whenever the term, case mode, or rendered content changes.
+  useEffect(() => {
+    const root = markdownRef.current;
+    if (!root) return;
+    const isRenderedMd = file?.ext === 'md' || file?.ext === 'mdx';
+    if (!isRenderedMd) return;
+
+    // Always unwrap previous marks before (re)wrapping.
+    const unwrap = () => {
+      for (const mark of findMarksRef.current) {
+        const parent = mark.parentNode;
+        if (!parent) continue;
+        while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+        parent.removeChild(mark);
+      }
+      findMarksRef.current = [];
+      root.normalize();
+    };
+    unwrap();
+
+    if (!findTerm) return;
+    const needle = findCaseSensitive ? findTerm : findTerm.toLowerCase();
+    if (!needle) return;
+
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
+        // Skip text inside our own previous marks (defensive — unwrap should
+        // already have removed them).
+        const parent = node.parentElement;
+        if (parent?.classList.contains('find-match')) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    const textNodes: Text[] = [];
+    let cur: Node | null = walker.nextNode();
+    while (cur) {
+      textNodes.push(cur as Text);
+      cur = walker.nextNode();
+    }
+
+    const newMarks: HTMLElement[] = [];
+    for (const text of textNodes) {
+      const value = text.nodeValue ?? '';
+      const haystack = findCaseSensitive ? value : value.toLowerCase();
+      let idx = haystack.indexOf(needle);
+      if (idx === -1) continue;
+      const fragment = document.createDocumentFragment();
+      let last = 0;
+      while (idx !== -1) {
+        if (idx > last) fragment.appendChild(document.createTextNode(value.slice(last, idx)));
+        const mark = document.createElement('mark');
+        mark.className = 'find-match';
+        mark.textContent = value.slice(idx, idx + findTerm.length);
+        fragment.appendChild(mark);
+        newMarks.push(mark);
+        last = idx + findTerm.length;
+        idx = haystack.indexOf(needle, last);
+      }
+      if (last < value.length) fragment.appendChild(document.createTextNode(value.slice(last)));
+      text.parentNode?.replaceChild(fragment, text);
+    }
+    findMarksRef.current = newMarks;
+
+    return unwrap;
+    // We intentionally re-run when the rendered file content changes too.
+  }, [findTerm, findCaseSensitive, file?.ext, file?.content]);
+
+  // Update the active match class + scroll when the active index changes.
+  useEffect(() => {
+    const marks = findMarksRef.current;
+    if (marks.length === 0) return;
+    for (const m of marks) {
+      m.classList.remove('find-match-active');
+      m.classList.add('find-match');
+    }
+    if (findActiveIdx < 0 || findActiveIdx >= marks.length) return;
+    const active = marks[findActiveIdx];
+    active.classList.remove('find-match');
+    active.classList.add('find-match-active');
+    active.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [findActiveIdx, findTerm, findCaseSensitive, file?.content]);
 
   // Listen for content search event (Cmd/Ctrl+F from keyboard shortcut handler)
   useEffect(() => {
@@ -2040,10 +2151,18 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         >
           <IconFindInFile />
         </button>
-        <button className={styles.iconBtn} onClick={() => setCreatingFile(true)} title="New file">
+        <button
+          className={styles.iconBtn}
+          onClick={() => { setTreePanelCollapsed(false); setCreatingFile(true); }}
+          title="New file"
+        >
           <IconNewFile />
         </button>
-        <button className={styles.iconBtn} onClick={() => setCreatingFolder(true)} title="New folder">
+        <button
+          className={styles.iconBtn}
+          onClick={() => { setTreePanelCollapsed(false); setCreatingFolder(true); }}
+          title="New folder"
+        >
           <IconNewFolder />
         </button>
         <button className={styles.iconBtn} onClick={handleOpenProjectView} title="Open project in new tab">
@@ -2077,6 +2196,16 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
           title="Toggle markdown outline"
         >
           <IconOutline />
+        </button>
+        <button
+          className={`${styles.iconBtn} ${texPreview ? styles.iconBtnActive : ''}`}
+          onClick={() => setTexPreview((p) => !p)}
+          disabled={!file || file.ext !== 'tex'}
+          title={texPreview ? 'Show LaTeX source' : 'Render LaTeX preview'}
+        >
+          <span style={{ fontFamily: 'serif', fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px' }}>
+            T<sub style={{ fontSize: '8px', verticalAlign: 'baseline' }}>E</sub>X
+          </span>
         </button>
         <button
           className={`${styles.iconBtn} ${showBookmarkPanel || bookmarks.length > 0 ? styles.iconBtnActive : ''}`}
@@ -2156,7 +2285,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         <button
           className={styles.iconBtn}
           onClick={() => fileTreeRef.current?.collapseAll()}
-          disabled={!!file}
+          disabled={treePanelCollapsed}
           title="Collapse all folders"
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -2167,8 +2296,8 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         </button>
         <button
           className={styles.iconBtn}
-          onClick={() => { void fileTreeRef.current?.refresh(); }}
-          title="Refresh file tree"
+          onClick={handleRefresh}
+          title="Refresh (file tree + current file/folder)"
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M13 3v4h-4" />
@@ -2301,6 +2430,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
               onScrollToLine={handleFindScrollToLine}
               onTermChange={handleFindTermChange}
               onActiveMatchChange={handleFindActiveMatchChange}
+              onActiveIdxChange={handleFindActiveIdxChange}
             />
           )}
           <div className={styles.content} ref={splitContainerRef}>
@@ -2375,6 +2505,8 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                   <div className={styles.empty}>
                     Binary file ({formatSize(file.size)})
                   </div>
+                ) : file.ext === 'tex' && texPreview ? (
+                  <TexViewer source={file.content || ''} fileKey={file.path} />
                 ) : file.ext === 'md' || file.ext === 'mdx' ? (
                   <div className={styles.mdContainer} ref={mdContainerRef}>
                     {showOutline && (
@@ -2405,9 +2537,22 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                         remarkPlugins={[remarkGfm]}
                         rehypePlugins={[rehypeHighlight]}
                         components={{
-                          a: ({ children, ...props }) => (
-                            <a {...props} target="_blank" rel="noopener noreferrer">{children}</a>
-                          ),
+                          a: ({ children, href, ...props }) => {
+                            if (href && /\.mdx?($|#)/.test(href) && !href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('//')) {
+                              const hrefPath = href.split('#')[0];
+                              const dir = (currentPath || '').includes('/') ? (currentPath || '').slice(0, (currentPath || '').lastIndexOf('/')) : '';
+                              const joined = dir ? `${dir}/${hrefPath}` : hrefPath;
+                              const parts = joined.split('/');
+                              const resolved: string[] = [];
+                              for (const part of parts) {
+                                if (part === '..') resolved.pop();
+                                else if (part !== '.') resolved.push(part);
+                              }
+                              const resolvedPath = resolved.join('/');
+                              return <a {...props} href="#" onClick={(e) => { e.preventDefault(); loadFile(resolvedPath); }}>{children}</a>;
+                            }
+                            return <a {...props} href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
+                          },
                           h1: ({ children, ...props }) => <h1 id={headingSlug(String(children))} {...props}>{children}</h1>,
                           h2: ({ children, ...props }) => <h2 id={headingSlug(String(children))} {...props}>{children}</h2>,
                           h3: ({ children, ...props }) => <h3 id={headingSlug(String(children))} {...props}>{children}</h3>,
@@ -2569,6 +2714,8 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                 <ImageViewer key={file.path} src={file.blobUrl} alt={file.name} filePath={file.path} />
               ) : file.binary ? (
                 <div className={styles.empty}>Binary file ({formatSize(file.size)})</div>
+              ) : file.ext === 'tex' && texPreview ? (
+                <TexViewer source={file.content || ''} fileKey={file.path} />
               ) : (file.content || '').split('\n').length > VIRTUALIZE_THRESHOLD ? (
                 <VirtualCodeViewer content={file.content || ''} filePath={file.path} bookmarks={bookmarks} wordWrap={wordWrap} scrollKey={fileScrollKey} findTerm={findTerm} findCaseSensitive={findCaseSensitive} scrollToLine={findScrollTarget} activeMatch={findActiveMatch} />
               ) : (

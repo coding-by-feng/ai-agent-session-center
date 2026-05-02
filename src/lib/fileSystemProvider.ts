@@ -84,6 +84,7 @@ const TEXT_EXTENSIONS = new Set([
   '.sh', '.bash', '.zsh', '.sql', '.graphql', '.c', '.cpp', '.h', '.hpp', '.cs',
   '.rb', '.php', '.swift', '.kt', '.lua', '.r', '.env', '.gitignore', '.dockerignore',
   '.editorconfig', '.prettierrc', '.eslintrc', '.lock', '.jsonl', '.ndjson',
+  '.tex', '.bib', '.cls', '.sty', '.bst', '.ltx',
 ]);
 
 function extOf(name: string): string {

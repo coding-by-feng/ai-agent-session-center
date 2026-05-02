@@ -194,67 +194,13 @@ const OpsTerminalContent = memo(function OpsTerminalContent({
 });
 
 // ---------------------------------------------------------------------------
-// EditableTitle — click-to-edit session title
+// SessionTitle — read-only. The title doubles as the resume key for
+// Claude Code sessions, so it must not be user-editable.
 // ---------------------------------------------------------------------------
 
-function EditableTitle({ session }: { session: Session }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
-
+function SessionTitle({ session }: { session: Session }) {
   const displayTitle = session.title || session.projectName || '(untitled)';
-
-  const startEditing = useCallback(() => {
-    setDraft(session.title || '');
-    setEditing(true);
-  }, [session.title]);
-
-  useEffect(() => {
-    if (editing) inputRef.current?.focus();
-  }, [editing]);
-
-  const save = useCallback(() => {
-    setEditing(false);
-    const trimmed = draft.trim();
-    if (trimmed === (session.title || '')) return;
-    // Optimistic update in the local store
-    useSessionStore.getState().updateSession({ ...session, title: trimmed });
-    // Persist to server
-    fetch(`/api/sessions/${session.sessionId}/title`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: trimmed }),
-    }).catch(() => {});
-  }, [draft, session]);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') save();
-    if (e.key === 'Escape') setEditing(false);
-  }, [save]);
-
-  if (editing) {
-    return (
-      <input
-        ref={inputRef}
-        className={styles.editableTitle}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={save}
-        onKeyDown={handleKeyDown}
-        maxLength={500}
-      />
-    );
-  }
-
-  return (
-    <h3
-      className={styles.clickableTitle}
-      onClick={startEditing}
-      title="Click to rename"
-    >
-      {displayTitle}
-    </h3>
-  );
+  return <h3 className={styles.staticTitle}>{displayTitle}</h3>;
 }
 
 // ---------------------------------------------------------------------------
@@ -626,7 +572,7 @@ export default function DetailPanel() {
               <div className={styles.headerText}>
                 <div className={styles.headerTop}>
                   <div className={styles.headerTitles}>
-                    <EditableTitle session={displaySession} />
+                    <SessionTitle session={displaySession} />
                     {displaySession.title && displaySession.projectName && displaySession.title !== displaySession.projectName && (
                       <div className={styles.titleRow}>
                         <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontStyle: 'italic' }}>
