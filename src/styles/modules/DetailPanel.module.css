@@ -240,6 +240,112 @@
   flex-direction: column;
 }
 
+/* ---- Float (PiP) mode for PROJECT tab ---- */
+
+.floatPanel {
+  position: absolute;
+  z-index: 50;
+  background: var(--bg-secondary, #0e0e1f);
+  border: 1px solid var(--accent-cyan, #00e5ff);
+  border-radius: 6px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55), 0 0 18px rgba(0, 229, 255, 0.12);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 320px;
+  min-height: 220px;
+}
+
+.floatHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+  padding: 0 8px 0 12px;
+  background: linear-gradient(180deg, rgba(0, 229, 255, 0.10), rgba(0, 229, 255, 0.04));
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  cursor: move;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.floatTitle {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--accent-cyan, #00e5ff);
+  text-transform: uppercase;
+}
+
+.floatHeaderBtns { display: flex; gap: 2px; }
+
+.floatHeaderBtn {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--text-dim, #9aa0b4);
+  cursor: pointer;
+  font-size: 11px;
+  transition: color 0.15s, background 0.15s;
+}
+.floatHeaderBtn:hover { color: var(--accent-cyan, #00e5ff); background: rgba(0, 229, 255, 0.12); }
+
+.floatBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.floatResize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  background:
+    linear-gradient(135deg, transparent 6px, var(--accent-cyan, #00e5ff) 6px, var(--accent-cyan, #00e5ff) 8px, transparent 8px),
+    linear-gradient(135deg, transparent 10px, var(--accent-cyan, #00e5ff) 10px, var(--accent-cyan, #00e5ff) 12px, transparent 12px);
+  opacity: 0.55;
+}
+.floatResize:hover { opacity: 1; }
+
+.floatCollapsed {
+  position: absolute;
+  z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  background: var(--bg-secondary, #0e0e1f);
+  color: var(--accent-cyan, #00e5ff);
+  border: 1px solid var(--accent-cyan, #00e5ff);
+  border-radius: 18px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  cursor: grab;
+  user-select: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5), 0 0 12px rgba(0, 229, 255, 0.18);
+  transition: background 0.15s, box-shadow 0.15s;
+}
+.floatCollapsed:hover {
+  background: rgba(0, 229, 255, 0.12);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5), 0 0 16px rgba(0, 229, 255, 0.35);
+}
+.floatCollapsed:active { cursor: grabbing; }
+
+.floatCollapsedIcon { font-size: 13px; line-height: 1; }
+.floatCollapsedLabel { letter-spacing: 1.6px; }
+.floatCollapsedExpand { font-size: 12px; opacity: 0.8; }
+
 /* ---- Panel Search Bar ---- */
 
 .searchBar {
@@ -317,7 +423,7 @@
 
 /* ---- Tab Content ---- */
 
-.tabContent { display: flex; flex-direction: column; flex: 1; overflow: hidden; padding: 16px 20px; min-height: 0; }
+.tabContent { display: flex; flex-direction: column; flex: 1; overflow: hidden; padding: 16px 20px; min-height: 0; position: relative; }
 .tabScroll { flex: 1; overflow-y: auto; min-height: 0; overflow-anchor: auto; overscroll-behavior: contain; }
 .tabContent::-webkit-scrollbar, .tabScroll::-webkit-scrollbar { width: 4px; }
 .tabContent::-webkit-scrollbar-track, .tabScroll::-webkit-scrollbar-track { background: transparent; }
@@ -493,6 +599,18 @@
   gap: 8px;
   flex-shrink: 0;
   padding-right: 4px;
+}
+
+/* Inline controls (KILL/MUTE/ALERT/Room) hosted inside the compact top bar */
+.switcherControls {
+  display: inline-flex;
+  align-items: center;
+}
+.switcherControls :global(select) {
+  height: 22px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  font-size: 10px;
 }
 
 .switcherIconBtn {

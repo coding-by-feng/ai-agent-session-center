@@ -6,6 +6,8 @@ import { useCallback, useMemo } from 'react';
 import { getThemeNames } from './themes';
 import Select from '@/components/ui/Select';
 import type { SelectOption } from '@/components/ui/Select';
+import Tooltip from '@/components/ui/Tooltip';
+import { tooltips } from '@/lib/tooltips';
 import styles from '@/styles/modules/Terminal.module.css';
 
 /** Clipboard/paste SVG icon. */
@@ -241,146 +243,182 @@ export default function TerminalToolbar({
 
   return (
     <div className={styles.toolbar}>
-      <Select
-        value={themeName}
-        onChange={onThemeChange}
-        options={themeOptions}
-        title="Terminal theme"
-      />
+      <Tooltip {...tooltips.termThemePicker}>
+        <Select
+          value={themeName}
+          onChange={onThemeChange}
+          options={themeOptions}
+        />
+      </Tooltip>
 
-      <button
-        className={`${styles.toolbarBtn} ${styles.touchOnlyBtn}`}
-        onClick={onSendEscape}
-        title="Send Escape key to terminal"
-      >
-        <EscIcon />
-      </button>
+      <Tooltip {...tooltips.termSendEsc}>
+        <button
+          className={`${styles.toolbarBtn} ${styles.touchOnlyBtn}`}
+          onClick={onSendEscape}
+          aria-label={tooltips.termSendEsc.label}
+        >
+          <EscIcon />
+        </button>
+      </Tooltip>
 
-      <button
-        className={`${styles.toolbarBtn} ${styles.touchOnlyBtn}`}
-        onClick={onPaste}
-        title="Paste clipboard to terminal"
-      >
-        <PasteIcon />
-      </button>
+      <Tooltip {...tooltips.termPaste}>
+        <button
+          className={`${styles.toolbarBtn} ${styles.touchOnlyBtn}`}
+          onClick={onPaste}
+          aria-label={tooltips.termPaste.label}
+        >
+          <PasteIcon />
+        </button>
+      </Tooltip>
 
-      <button
-        className={`${styles.toolbarBtn} ${styles.touchOnlyBtn}`}
-        onClick={onSendArrowUp}
-        title="Send Up arrow key to terminal"
-      >
-        <ArrowUpIcon />
-      </button>
+      <Tooltip {...tooltips.termSendUp}>
+        <button
+          className={`${styles.toolbarBtn} ${styles.touchOnlyBtn}`}
+          onClick={onSendArrowUp}
+          aria-label={tooltips.termSendUp.label}
+        >
+          <ArrowUpIcon />
+        </button>
+      </Tooltip>
 
-      <button
-        className={`${styles.toolbarBtn} ${styles.touchOnlyBtn}`}
-        onClick={onSendArrowDown}
-        title="Send Down arrow key to terminal"
-      >
-        <ArrowDownIcon />
-      </button>
+      <Tooltip {...tooltips.termSendDown}>
+        <button
+          className={`${styles.toolbarBtn} ${styles.touchOnlyBtn}`}
+          onClick={onSendArrowDown}
+          aria-label={tooltips.termSendDown.label}
+        >
+          <ArrowDownIcon />
+        </button>
+      </Tooltip>
 
-      <button
-        className={`${styles.toolbarBtn} ${styles.touchOnlyBtn}`}
-        onClick={onSendEnter}
-        title="Send Enter key to terminal"
-      >
-        <EnterIcon />
-      </button>
+      <Tooltip {...tooltips.termSendEnter}>
+        <button
+          className={`${styles.toolbarBtn} ${styles.touchOnlyBtn}`}
+          onClick={onSendEnter}
+          aria-label={tooltips.termSendEnter.label}
+        >
+          <EnterIcon />
+        </button>
+      </Tooltip>
 
       {onToggleAutoScroll && (
-        <button
-          className={`${styles.toolbarBtn} ${autoScrollEnabled ? styles.autoScrollActiveBtn : ''}`}
-          onClick={onToggleAutoScroll}
-          title={autoScrollEnabled ? 'Auto-scroll ON — click to disable' : 'Auto-scroll OFF — click to enable'}
-        >
-          <AutoScrollIcon enabled={autoScrollEnabled} />
-        </button>
+        <Tooltip {...(autoScrollEnabled ? tooltips.termAutoScrollOn : tooltips.termAutoScrollOff)}>
+          <button
+            className={`${styles.toolbarBtn} ${autoScrollEnabled ? styles.autoScrollActiveBtn : ''}`}
+            onClick={onToggleAutoScroll}
+            aria-label={(autoScrollEnabled ? tooltips.termAutoScrollOn : tooltips.termAutoScrollOff).label}
+          >
+            <AutoScrollIcon enabled={autoScrollEnabled} />
+          </button>
+        </Tooltip>
       )}
 
       {onScrollToBottom && (
-        <button
-          className={styles.toolbarBtn}
-          onClick={onScrollToBottom}
-          title="Scroll to bottom"
-        >
-          <ScrollToBottomIcon />
-        </button>
+        <Tooltip {...tooltips.termScrollBottom}>
+          <button
+            className={styles.toolbarBtn}
+            onClick={onScrollToBottom}
+            aria-label={tooltips.termScrollBottom.label}
+          >
+            <ScrollToBottomIcon />
+          </button>
+        </Tooltip>
       )}
 
       {onRefreshOutput && (
-        <button
-          className={styles.toolbarBtn}
-          onClick={onRefreshOutput}
-          title="Refresh terminal output (clear + replay)"
-        >
-          <RefreshIcon />
-        </button>
+        <Tooltip {...tooltips.termRefresh}>
+          <button
+            className={styles.toolbarBtn}
+            onClick={onRefreshOutput}
+            aria-label={tooltips.termRefresh.label}
+          >
+            <RefreshIcon />
+          </button>
+        </Tooltip>
       )}
 
       {onBookmark && (
-        <button
-          className={`${styles.toolbarBtn} ${bookmarkCount > 0 ? styles.bookmarkActiveBtn : ''}`}
-          onClick={onBookmark}
-          title={bookmarkCount > 0 ? `Bookmarks (${bookmarkCount}) — select text to add, click to toggle panel` : 'Select terminal text then click to bookmark'}
-          style={{ position: 'relative' }}
+        <Tooltip
+          label={tooltips.termBookmark.label}
+          description={
+            bookmarkCount > 0
+              ? `${bookmarkCount} saved. Select text to add a new one, or click to open the panel.`
+              : tooltips.termBookmark.description
+          }
         >
-          <BookmarkIcon active={bookmarkCount > 0} />
-          {bookmarkCount > 0 && (
-            <span className={styles.bookmarkBadge}>{bookmarkCount}</span>
-          )}
-        </button>
+          <button
+            className={`${styles.toolbarBtn} ${bookmarkCount > 0 ? styles.bookmarkActiveBtn : ''}`}
+            onClick={onBookmark}
+            aria-label={tooltips.termBookmark.label}
+            style={{ position: 'relative' }}
+          >
+            <BookmarkIcon active={bookmarkCount > 0} />
+            {bookmarkCount > 0 && (
+              <span className={styles.bookmarkBadge}>{bookmarkCount}</span>
+            )}
+          </button>
+        </Tooltip>
       )}
 
       {onClone && (
-        <button
-          className={styles.toolbarBtn}
-          onClick={onClone}
-          title="New session — same command and config as this session"
-        >
-          <CloneIcon />
-        </button>
+        <Tooltip {...tooltips.termClone}>
+          <button
+            className={styles.toolbarBtn}
+            onClick={onClone}
+            aria-label={tooltips.termClone.label}
+          >
+            <CloneIcon />
+          </button>
+        </Tooltip>
       )}
 
       {onFork && (
-        <button
-          className={styles.toolbarBtn}
-          onClick={onFork}
-          title="Fork session — create a new Claude session branching from this conversation"
-        >
-          <ForkIcon />
-        </button>
+        <Tooltip {...tooltips.termFork}>
+          <button
+            className={styles.toolbarBtn}
+            onClick={onFork}
+            aria-label={tooltips.termFork.label}
+          >
+            <ForkIcon />
+          </button>
+        </Tooltip>
       )}
 
       {ttsEnabled && onTtsPressStart && onTtsPressEnd && (
-        <button
-          className={`${styles.toolbarBtn}${ttsActive ? ` ${styles.autoScrollActiveBtn}` : ''}`}
-          onPointerDown={(e) => { e.preventDefault(); onTtsPressStart(); }}
-          onPointerUp={onTtsPressEnd}
-          onPointerLeave={() => { if (ttsActive) onTtsPressEnd(); }}
-          onPointerCancel={onTtsPressEnd}
-          title="Hold to speak latest terminal output (also: hold Space while focused)"
-        >
-          <MicIcon active={ttsActive} />
-        </button>
+        <Tooltip {...tooltips.termSpeak}>
+          <button
+            className={`${styles.toolbarBtn}${ttsActive ? ` ${styles.autoScrollActiveBtn}` : ''}`}
+            onPointerDown={(e) => { e.preventDefault(); onTtsPressStart(); }}
+            onPointerUp={onTtsPressEnd}
+            onPointerLeave={() => { if (ttsActive) onTtsPressEnd(); }}
+            onPointerCancel={onTtsPressEnd}
+            aria-label={tooltips.termSpeak.label}
+          >
+            <MicIcon active={ttsActive} />
+          </button>
+        </Tooltip>
       )}
 
-      <button
-        className={styles.toolbarBtn}
-        onClick={onFullscreen}
-        title={isFullscreen ? 'Exit fullscreen (Alt+F11)' : 'Fullscreen (Alt+F11)'}
-      >
-        {isFullscreen ? <MinimizeIcon /> : <MaximizeIcon />}
-      </button>
+      <Tooltip {...(isFullscreen ? tooltips.termFullscreenExit : tooltips.termFullscreen)}>
+        <button
+          className={styles.toolbarBtn}
+          onClick={onFullscreen}
+          aria-label={(isFullscreen ? tooltips.termFullscreenExit : tooltips.termFullscreen).label}
+        >
+          {isFullscreen ? <MinimizeIcon /> : <MaximizeIcon />}
+        </button>
+      </Tooltip>
 
       {showReconnect && onReconnect && (
-        <button
-          className={`${styles.toolbarBtn} ${styles.reconnectBtn}`}
-          onClick={onReconnect}
-          title="Reconnect terminal"
-        >
-          RECONNECT
-        </button>
+        <Tooltip {...tooltips.termReconnect}>
+          <button
+            className={`${styles.toolbarBtn} ${styles.reconnectBtn}`}
+            onClick={onReconnect}
+            aria-label={tooltips.termReconnect.label}
+          >
+            RECONNECT
+          </button>
+        </Tooltip>
       )}
     </div>
   );

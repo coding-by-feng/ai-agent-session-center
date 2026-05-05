@@ -12,6 +12,8 @@ import { useUiStore } from '@/stores/uiStore';
 import { showToast } from '@/components/ui/ToastContainer';
 import Select from '@/components/ui/Select';
 import type { SelectOption } from '@/components/ui/Select';
+import Tooltip from '@/components/ui/Tooltip';
+import { tooltips } from '@/lib/tooltips';
 import { KILL_MODAL_ID } from './KillConfirmModal';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
@@ -129,32 +131,40 @@ export default function SessionControlBar({ session, labelChips }: SessionContro
     <div className={styles.ctrlBar}>
       {labelChips}
       {isDisconnected && (
-        <button
-          className={`${styles.ctrlBtn} ${styles.resume}`}
-          onClick={handleResume}
-          disabled={resuming}
-        >
-          {resuming ? 'RESUMING...' : 'RESUME'}
-        </button>
+        <Tooltip {...tooltips.ctrlResume}>
+          <button
+            className={`${styles.ctrlBtn} ${styles.resume}`}
+            onClick={handleResume}
+            disabled={resuming}
+          >
+            {resuming ? 'RESUMING...' : 'RESUME'}
+          </button>
+        </Tooltip>
       )}
-      <button
-        className={`${styles.ctrlBtn} ${styles.kill}`}
-        onClick={handleKill}
-      >
-        KILL
-      </button>
-      <button
-        className={`${styles.ctrlBtn} ${session.muted ? styles.muted : styles.mute}`}
-        onClick={handleToggleMute}
-      >
-        {session.muted ? 'UNMUTE' : 'MUTE'}
-      </button>
-      <button
-        className={`${styles.ctrlBtn} ${session.alerted ? styles.alertActive : styles.alert}`}
-        onClick={handleToggleAlert}
-      >
-        {session.alerted ? 'ALERT ON' : 'ALERT'}
-      </button>
+      <Tooltip {...tooltips.ctrlKill}>
+        <button
+          className={`${styles.ctrlBtn} ${styles.kill}`}
+          onClick={handleKill}
+        >
+          KILL
+        </button>
+      </Tooltip>
+      <Tooltip {...(session.muted ? tooltips.ctrlUnmute : tooltips.ctrlMute)}>
+        <button
+          className={`${styles.ctrlBtn} ${session.muted ? styles.muted : styles.mute}`}
+          onClick={handleToggleMute}
+        >
+          {session.muted ? 'UNMUTE' : 'MUTE'}
+        </button>
+      </Tooltip>
+      <Tooltip {...(session.alerted ? tooltips.ctrlAlertOn : tooltips.ctrlAlertOff)}>
+        <button
+          className={`${styles.ctrlBtn} ${session.alerted ? styles.alertActive : styles.alert}`}
+          onClick={handleToggleAlert}
+        >
+          {session.alerted ? 'ALERT ON' : 'ALERT'}
+        </button>
+      </Tooltip>
 
       {/* Room select */}
       <Select

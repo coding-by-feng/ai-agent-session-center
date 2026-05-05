@@ -114,12 +114,15 @@ interface Props {
   onClose?: () => void;
   headerCollapsed?: boolean;
   onToggleCollapse?: () => void;
+  controls?: React.ReactNode;
+  model?: string;
 }
 
 export default function SessionSwitcher({
   currentSession, sessions, onSwitch,
   statusLabel, duration, isDisconnected,
   onClose, headerCollapsed, onToggleCollapse,
+  controls, model,
 }: Props) {
   // Track sessions that finished work (transitioned to "waiting") but haven't been viewed
   const [attentionIds, setAttentionIds] = useState<Set<string>>(new Set());
@@ -319,8 +322,14 @@ export default function SessionSwitcher({
               {statusLabel}
             </span>
           )}
+          {model && (
+            <span className={styles.detailModel}>{model}</span>
+          )}
           {duration && (
             <span className={styles.detailDuration}>{duration}</span>
+          )}
+          {controls && (
+            <span className={styles.switcherControls}>{controls}</span>
           )}
           {/* Room filter dropdown (multi-select) */}
           {availableRooms.length > 0 && (

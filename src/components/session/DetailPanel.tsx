@@ -194,16 +194,6 @@ const OpsTerminalContent = memo(function OpsTerminalContent({
 });
 
 // ---------------------------------------------------------------------------
-// SessionTitle — read-only. The title doubles as the resume key for
-// Claude Code sessions, so it must not be user-editable.
-// ---------------------------------------------------------------------------
-
-function SessionTitle({ session }: { session: Session }) {
-  const displayTitle = session.title || session.projectName || '(untitled)';
-  return <h3 className={styles.staticTitle}>{displayTitle}</h3>;
-}
-
-// ---------------------------------------------------------------------------
 // Draggable minimized badge
 // ---------------------------------------------------------------------------
 
@@ -552,7 +542,7 @@ export default function DetailPanel() {
   return (
     <div className={styles.overlay} style={!session ? { display: 'none' } : undefined}>
       <ResizablePanel fullscreen>
-        {/* Session switcher (merged with compact header when collapsed) */}
+        {/* Compact top bar — title, status, model, controls all in one row */}
         <SessionSwitcher
           currentSession={displaySession}
           sessions={sessions}
@@ -563,39 +553,8 @@ export default function DetailPanel() {
           onClose={minimizeDetailPanel}
           headerCollapsed={headerCollapsed}
           onToggleCollapse={toggleDetailHeader}
-        />
-
-        {/* Collapsible header — robot icon, title, meta, controls */}
-        {!headerCollapsed && (
-          <div className={styles.header}>
-            <div className={styles.headerInfo}>
-              <div className={styles.headerText}>
-                <div className={styles.headerTop}>
-                  <div className={styles.headerTitles}>
-                    <SessionTitle session={displaySession} />
-                    {displaySession.title && displaySession.projectName && displaySession.title !== displaySession.projectName && (
-                      <div className={styles.titleRow}>
-                        <span style={{ fontSize: '11px', color: 'var(--text-dim)', fontStyle: 'italic' }}>
-                          {displaySession.projectName}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className={styles.meta}>
-                  <span
-                    className={`${styles.detailStatusBadge} ${isDisconnected ? 'disconnected' : displaySession.status}`}
-                  >
-                    {statusLabel}
-                  </span>
-                  {displaySession.model && (
-                    <span className={styles.detailModel}>{displaySession.model}</span>
-                  )}
-                </div>
-              </div>
-            </div>
-
+          model={displaySession.model}
+          controls={
             <SessionControlBar
               session={displaySession}
               labelChips={
@@ -605,8 +564,8 @@ export default function DetailPanel() {
                 />
               }
             />
-          </div>
-        )}
+          }
+        />
 
         {/* Tabs and content */}
         <DetailTabs
