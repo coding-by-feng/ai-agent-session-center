@@ -115,18 +115,28 @@ export default function FloatingProjectPanel({
 
   // ---- Drag (header / collapsed icon) ----
   const handleDragStart = useCallback((e: React.MouseEvent) => {
-    // Ignore drags initiated on buttons inside the header.
-    if ((e.target as HTMLElement).closest('button')) return;
+    // Ignore drags initiated on buttons *inside* the header (close/min/max),
+    // but not on the root button itself when collapsed.
+    const target = e.target as HTMLElement;
+    const root = e.currentTarget as HTMLElement;
+    const closestBtn = target.closest('button');
+    if (closestBtn && closestBtn !== root) return;
     if (maximized) return;
     e.preventDefault();
     const startX = e.clientX;
     const startY = e.clientY;
     const startPos = pos;
     const currentSize = collapsed ? { w: COLLAPSED_W, h: COLLAPSED_H } : size;
+    if (collapsed) root.dataset.moved = '0';
 
     const onMove = (ev: MouseEvent) => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (collapsed && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+        root.dataset.moved = '1';
+      }
       const next = clampPos(
-        { x: startPos.x + (ev.clientX - startX), y: startPos.y + (ev.clientY - startY) },
+        { x: startPos.x + dx, y: startPos.y + dy },
         currentSize,
         parentRef.current,
       );
