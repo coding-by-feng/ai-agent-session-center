@@ -245,15 +245,21 @@
 .floatPanel {
   position: absolute;
   z-index: 50;
-  background: var(--bg-secondary, #0e0e1f);
-  border: 1px solid var(--accent-cyan, #00e5ff);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-accent-strong);
   border-radius: 6px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55), 0 0 18px rgba(0, 229, 255, 0.12);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.45),
+    0 0 18px var(--bg-accent);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   min-width: 320px;
   min-height: 220px;
+}
+.floatPanelMaximized {
+  border-radius: 0;
+  box-shadow: 0 0 0 1px var(--border-accent-strong);
 }
 
 .floatHeader {
@@ -261,19 +267,20 @@
   align-items: center;
   justify-content: space-between;
   height: 28px;
-  padding: 0 8px 0 12px;
-  background: linear-gradient(180deg, rgba(0, 229, 255, 0.10), rgba(0, 229, 255, 0.04));
-  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  padding: 0 6px 0 12px;
+  background: linear-gradient(180deg, var(--bg-accent), var(--bg-accent-strong));
+  border-bottom: 1px solid var(--border-subtle);
   cursor: move;
   user-select: none;
   flex-shrink: 0;
 }
+.floatPanelMaximized .floatHeader { cursor: default; }
 
 .floatTitle {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 1.5px;
-  color: var(--accent-cyan, #00e5ff);
+  color: var(--accent-cyan);
   text-transform: uppercase;
 }
 
@@ -288,12 +295,13 @@
   background: transparent;
   border: none;
   border-radius: 3px;
-  color: var(--text-dim, #9aa0b4);
+  color: var(--text-dim);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 1;
   transition: color 0.15s, background 0.15s;
 }
-.floatHeaderBtn:hover { color: var(--accent-cyan, #00e5ff); background: rgba(0, 229, 255, 0.12); }
+.floatHeaderBtn:hover { color: var(--accent-cyan); background: var(--bg-accent-strong); }
 
 .floatBody {
   flex: 1;
@@ -301,21 +309,35 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: var(--bg-panel);
+  color: var(--text-primary);
 }
 
 .floatResize {
   position: absolute;
   right: 0;
   bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 2px;
+  z-index: 2;
+}
+.floatResizeGrip {
+  display: block;
   width: 14px;
   height: 14px;
-  cursor: nwse-resize;
   background:
-    linear-gradient(135deg, transparent 6px, var(--accent-cyan, #00e5ff) 6px, var(--accent-cyan, #00e5ff) 8px, transparent 8px),
-    linear-gradient(135deg, transparent 10px, var(--accent-cyan, #00e5ff) 10px, var(--accent-cyan, #00e5ff) 12px, transparent 12px);
-  opacity: 0.55;
+    linear-gradient(135deg, transparent 4px, var(--accent-cyan) 4px, var(--accent-cyan) 6px, transparent 6px),
+    linear-gradient(135deg, transparent 8px, var(--accent-cyan) 8px, var(--accent-cyan) 10px, transparent 10px),
+    linear-gradient(135deg, transparent 12px, var(--accent-cyan) 12px, var(--accent-cyan) 14px, transparent 14px);
+  opacity: 0.7;
+  transition: opacity 0.15s;
 }
-.floatResize:hover { opacity: 1; }
+.floatResize:hover .floatResizeGrip { opacity: 1; }
 
 .floatCollapsed {
   position: absolute;
@@ -324,21 +346,21 @@
   align-items: center;
   gap: 6px;
   padding: 0 10px;
-  background: var(--bg-secondary, #0e0e1f);
-  color: var(--accent-cyan, #00e5ff);
-  border: 1px solid var(--accent-cyan, #00e5ff);
+  background: var(--bg-panel);
+  color: var(--accent-cyan);
+  border: 1px solid var(--border-accent-strong);
   border-radius: 18px;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 1.5px;
   cursor: grab;
   user-select: none;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5), 0 0 12px rgba(0, 229, 255, 0.18);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4), 0 0 12px var(--bg-accent);
   transition: background 0.15s, box-shadow 0.15s;
 }
 .floatCollapsed:hover {
-  background: rgba(0, 229, 255, 0.12);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5), 0 0 16px rgba(0, 229, 255, 0.35);
+  background: var(--bg-accent);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4), 0 0 16px var(--bg-accent-strong);
 }
 .floatCollapsed:active { cursor: grabbing; }
 
