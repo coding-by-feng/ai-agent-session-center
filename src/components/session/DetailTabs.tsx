@@ -6,11 +6,16 @@
  * Terminal (left) + Project (right) side-by-side with a draggable divider.
  */
 import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import styles from '@/styles/modules/DetailPanel.module.css';
+import FloatingProjectPanel from './FloatingProjectPanel';
+import Tooltip from '@/components/ui/Tooltip';
+import { tooltips } from '@/lib/tooltips';
 
 const STORAGE_KEY = 'active-tab';
 const SPLIT_KEY = 'split-terminal-project';
 const SPLIT_RATIO_KEY = 'split-ratio';
+const FLOAT_KEY = 'float-project';
 
 /** Minimum panel width (px) at which the split icon is shown. */
 const SPLIT_MIN_WIDTH = 700;
@@ -68,6 +73,16 @@ function SplitIcon() {
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
       <rect x="1" y="1" width="12" height="12" rx="1" stroke="currentColor" strokeWidth="1.3" />
       <line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" strokeWidth="1.3" strokeDasharray="2 1.5" />
+    </svg>
+  );
+}
+
+/** Picture-in-picture icon – click to float Project panel over Terminal */
+function FloatIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="1" y="1" width="12" height="12" rx="1" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="6.5" y="6.5" width="6" height="5" rx="0.5" fill="currentColor" opacity="0.85" />
     </svg>
   );
 }
@@ -211,6 +226,15 @@ export default function DetailTabs({
     }
   });
 
+  const [floatProject, setFloatProject] = useState<boolean>(() => {
+    try {
+      const key = sessionId ? `${FLOAT_KEY}:${sessionId}` : FLOAT_KEY;
+      return localStorage.getItem(key) === '1';
+    } catch {
+      return false;
+    }
+  });
+
   // Restore per-session split state when switching sessions.
   // If the session has no stored preference, default to off so the previous
   // session's state doesn't leak.
@@ -220,6 +244,15 @@ export default function DetailTabs({
       const key = `${SPLIT_KEY}:${sessionId}`;
       const stored = localStorage.getItem(key);
       setSplitView(stored === '1');
+    } catch { /* ignore */ }
+  }, [sessionId]);
+
+  // Restore per-session float state when switching sessions.
+  useEffect(() => {
+    if (!sessionId) return;
+    try {
+      const key = `${FLOAT_KEY}:${sessionId}`;
+      setFloatProject(localStorage.getItem(key) === '1');
     } catch { /* ignore */ }
   }, [sessionId]);
 
@@ -244,35 +277,79 @@ export default function DetailTabs({
     setSplitView((prev) => {
       const next = !prev;
       try {
-        // Persist per-session
         if (sessionId) {
           localStorage.setItem(`${SPLIT_KEY}:${sessionId}`, next ? '1' : '0');
         }
-      } catch {
-        // ignore
-      }
+      } catch { /* ignore */ }
       return next;
+    });
+    // Mutual exclusivity: turning split on disables float.
+    setFloatProject((prev) => {
+      if (!prev) return prev;
+      try {
+        if (sessionId) localStorage.setItem(`${FLOAT_KEY}:${sessionId}`, '0');
+      } catch { /* ignore */ }
+      return false;
     });
   }, [sessionId]);
 
-  const isSplit = splitView && panelWideEnough;
+  const toggleFloat = useCallback(() => {
+    setFloatProject((prev) => {
+      const next = !prev;
+      try {
+        if (sessionId) localStorage.setItem(`${FLOAT_KEY}:${sessionId}`, next ? '1' : '0');
+      } catch { /* ignore */ }
+      return next;
+    });
+    // Mutual exclusivity: turning float on disables split.
+    setSplitView((prev) => {
+      if (!prev) return prev;
+      try {
+        if (sessionId) localStorage.setItem(`${SPLIT_KEY}:${sessionId}`, '0');
+      } catch { /* ignore */ }
+      return false;
+    });
+  }, [sessionId]);
+
+  const isSplit = splitView && panelWideEnough && !floatProject;
+  const isFloat = floatProject && panelWideEnough;
 
   // When split-view is active on the project or terminal tab, show the
   // combined view instead of the individual tab content.
-  const effectiveTab =
-    isSplit && (activeTab === 'terminal' || activeTab === 'project')
-      ? 'split'
-      : activeTab;
+  // When float mode is active, redirect PROJECT tab → TERMINAL so the
+  // terminal owns the screen while Project lives in the floating overlay.
+  let effectiveTab: string;
+  if (isSplit && (activeTab === 'terminal' || activeTab === 'project')) {
+    effectiveTab = 'split';
+  } else if (isFloat && activeTab === 'project') {
+    effectiveTab = 'terminal';
+  } else {
+    effectiveTab = activeTab;
+  }
 
   const tabs = BASE_TABS;
+
+  // Float mode: portal projectContent between a stable always-mounted host and
+  // the floating panel's body. createPortal preserves component state across
+  // target swaps so the file tree, open files, and edit mode survive toggling.
+  const [floatBodyEl, setFloatBodyEl] = useState<HTMLDivElement | null>(null);
+  const [projectHostEl, setProjectHostEl] = useState<HTMLDivElement | null>(null);
+  const setFloatBodyRef = useCallback((el: HTMLDivElement | null) => {
+    setFloatBodyEl(el);
+  }, []);
+  const setProjectHostRef = useCallback((el: HTMLDivElement | null) => {
+    setProjectHostEl(el);
+  }, []);
 
   // Each scrollable tab gets a unique key so React creates a separate DOM node per tab.
   // Without this, all text tabs share the same div.tabScroll DOM node, meaning scroll
   // position bleeds across tabs (e.g. scrolled-down activity bleeds into conversation).
-  // NOTE: terminal, commands, and output are NOT in this map — they're always-mounted above.
+  // NOTE: terminal, commands, and project are NOT in this map — they're always-mounted above.
+  // In split view, projectContent must NOT also be portaled into the float host;
+  // when split is on, isFloat is false so the portal target is projectHostEl,
+  // which is hidden by class — DraggableSplitView renders its own copy of projectContent.
   const contentMap: Record<string, ReactNode> = {
     conversation: <div key="scroll-conversation" className={styles.tabScroll}>{promptsContent}</div>,
-    project: projectContent,
     queue: <div key="scroll-queue" className={styles.tabScroll}>{queueContent}</div>,
     notes: <div key="scroll-notes" className={styles.tabScroll}>{notesContent}</div>,
     split: (
@@ -283,6 +360,13 @@ export default function DetailTabs({
       />
     ),
   };
+
+  // Resolve the portal target for projectContent. Float-expanded → float body.
+  // Otherwise → the always-mounted host (visible only when project tab is active).
+  // Skipped during split view since DraggableSplitView renders projectContent inline.
+  const portalTarget: HTMLDivElement | null =
+    isFloat && floatBodyEl ? floatBodyEl : projectHostEl;
+  const shouldPortalProject = !isSplit && portalTarget !== null;
 
   const hasMatches = (searchMatchCount ?? 0) > 0;
   const countLabel = searchQuery
@@ -312,22 +396,44 @@ export default function DetailTabs({
               data-tab={tab.id}
             >
               {tab.label}
-              {/* Show merge/split toggle icon on PROJECT tab (wide screens only) */}
+              {/* Show merge/split + float toggle icons on PROJECT tab (wide screens only) */}
               {tab.id === 'project' && panelWideEnough && (
-                <span
-                  className={styles.splitToggle}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleSplit();
-                    // If activating split and not on terminal/project, jump to project
-                    if (!splitView && activeTab !== 'terminal' && activeTab !== 'project') {
-                      handleTabClick('project');
-                    }
-                  }}
-                  title={splitView ? 'Separate tabs' : 'Merge Terminal + Project'}
-                >
-                  {splitView ? <SplitIcon /> : <MergeIcon />}
-                </span>
+                <>
+                  <Tooltip {...(splitView ? tooltips.splitProjectTerminal : tooltips.mergeProjectTerminal)}>
+                    <span
+                      className={styles.splitToggle}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleSplit();
+                        if (!splitView && activeTab !== 'terminal' && activeTab !== 'project') {
+                          handleTabClick('project');
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={(splitView ? tooltips.splitProjectTerminal : tooltips.mergeProjectTerminal).label}
+                    >
+                      {splitView ? <SplitIcon /> : <MergeIcon />}
+                    </span>
+                  </Tooltip>
+                  <Tooltip {...(floatProject ? tooltips.unfloatProject : tooltips.floatProject)}>
+                    <span
+                      className={styles.splitToggle}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleFloat();
+                        if (!floatProject && activeTab !== 'terminal') {
+                          handleTabClick('terminal');
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={(floatProject ? tooltips.unfloatProject : tooltips.floatProject).label}
+                    >
+                      <FloatIcon />
+                    </span>
+                  </Tooltip>
+                </>
               )}
             </button>
           );
@@ -351,9 +457,15 @@ export default function DetailTabs({
         <span className={`${styles.searchCount}${hasMatches ? ` ${styles.hasMatches}` : ''}`}>
           {countLabel}
         </span>
-        <button className={styles.searchNavBtn} onClick={onSearchPrev} disabled={!hasMatches} title="Previous (Shift+Enter)">▲</button>
-        <button className={styles.searchNavBtn} onClick={onSearchNext} disabled={!hasMatches} title="Next (Enter)">▼</button>
-        <button className={styles.searchCloseBtn} onClick={onSearchClose} title="Close (Esc)">✕</button>
+        <Tooltip {...tooltips.searchPrev} disabled={!hasMatches}>
+          <button className={styles.searchNavBtn} onClick={onSearchPrev} disabled={!hasMatches} aria-label={tooltips.searchPrev.label}>▲</button>
+        </Tooltip>
+        <Tooltip {...tooltips.searchNext} disabled={!hasMatches}>
+          <button className={styles.searchNavBtn} onClick={onSearchNext} disabled={!hasMatches} aria-label={tooltips.searchNext.label}>▼</button>
+        </Tooltip>
+        <Tooltip {...tooltips.searchClose}>
+          <button className={styles.searchCloseBtn} onClick={onSearchClose} aria-label={tooltips.searchClose.label}>✕</button>
+        </Tooltip>
       </div>
 
       {/* Always-mount TERMINAL/COMMANDS (preserves xterm scroll) and PROJECT (preserves file state).
@@ -376,13 +488,30 @@ export default function DetailTabs({
             {commandsContent}
           </div>
         )}
-        {/* PROJECT: always mounted to preserve file tree + tabs + viewer state.
-            Unmounted during split view (split view renders its own project instance). */}
-        <div className={
-          effectiveTab === 'project' ? styles.alwaysTabActive : styles.alwaysTabHidden
-        }>
-          {effectiveTab !== 'split' && projectContent}
-        </div>
+        {/* PROJECT: always mounted as an empty stable host. The actual
+            projectContent is portaled into either this host or the floating
+            panel's body, so file tree + open files + edit-mode state survive
+            mode toggles. Hidden during split view (split renders its own copy)
+            and during float mode (panel renders the visible copy). */}
+        <div
+          ref={setProjectHostRef}
+          className={
+            effectiveTab === 'project' && !isFloat
+              ? styles.alwaysTabActive
+              : styles.alwaysTabHidden
+          }
+        />
+        {/* Floating Project panel — only rendered when float mode is active */}
+        {isFloat && (
+          <FloatingProjectPanel
+            sessionId={sessionId}
+            bodyRef={setFloatBodyRef}
+            onClose={toggleFloat}
+          />
+        )}
+        {/* Portal projectContent into the resolved host. Single fiber position
+            preserves component state when the DOM target switches. */}
+        {shouldPortalProject && createPortal(projectContent, portalTarget!)}
         {/* Other tabs (incl. split view): mounted on demand */}
         {effectiveTab !== 'terminal' && effectiveTab !== 'commands' && effectiveTab !== 'project' &&
           contentMap[effectiveTab]}

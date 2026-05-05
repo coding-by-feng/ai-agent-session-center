@@ -30,6 +30,8 @@ import {
 } from './imageViewport';
 import { getFileSystemProvider } from '@/lib/fileSystemProvider';
 import { showToast } from '@/components/ui/ToastContainer';
+import Tooltip from '@/components/ui/Tooltip';
+import { tooltips } from '@/lib/tooltips';
 import styles from '@/styles/modules/ProjectTab.module.css';
 
 interface ProjectTabProps {
@@ -936,18 +938,26 @@ function ImageViewer({ src, alt, filePath, caption }: ImageViewerProps) {
   return (
     <div className={styles.mediaViewer}>
       <div className={styles.imageZoomToolbar}>
-        <button className={styles.imageZoomBtn} onClick={zoomOut} title="Zoom out (-)" disabled={view.zoom <= ZOOM_MIN}>
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="7" cy="7" r="5.5" /><line x1="4" y1="7" x2="10" y2="7" /><line x1="11" y1="11" x2="14.5" y2="14.5" /></svg>
-        </button>
-        <button className={styles.imageZoomLevel} onClick={zoomReset} title="Reset zoom (0)">
-          {Math.round(view.zoom * 100)}%
-        </button>
-        <button className={styles.imageZoomBtn} onClick={fitToScreen} title="Fit to screen (F)">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeDasharray="2 2"><rect x="2.5" y="2.5" width="11" height="11" rx="1" /></svg>
-        </button>
-        <button className={styles.imageZoomBtn} onClick={zoomIn} title="Zoom in (+)" disabled={view.zoom >= ZOOM_MAX}>
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="7" cy="7" r="5.5" /><line x1="4" y1="7" x2="10" y2="7" /><line x1="7" y1="4" x2="7" y2="10" /><line x1="11" y1="11" x2="14.5" y2="14.5" /></svg>
-        </button>
+        <Tooltip {...tooltips.projImageZoomOut}>
+          <button className={styles.imageZoomBtn} onClick={zoomOut} aria-label={tooltips.projImageZoomOut.label} disabled={view.zoom <= ZOOM_MIN}>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="7" cy="7" r="5.5" /><line x1="4" y1="7" x2="10" y2="7" /><line x1="11" y1="11" x2="14.5" y2="14.5" /></svg>
+          </button>
+        </Tooltip>
+        <Tooltip {...tooltips.projImageZoomReset}>
+          <button className={styles.imageZoomLevel} onClick={zoomReset} aria-label={tooltips.projImageZoomReset.label}>
+            {Math.round(view.zoom * 100)}%
+          </button>
+        </Tooltip>
+        <Tooltip {...tooltips.projImageFit}>
+          <button className={styles.imageZoomBtn} onClick={fitToScreen} aria-label={tooltips.projImageFit.label}>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeDasharray="2 2"><rect x="2.5" y="2.5" width="11" height="11" rx="1" /></svg>
+          </button>
+        </Tooltip>
+        <Tooltip {...tooltips.projImageZoomIn}>
+          <button className={styles.imageZoomBtn} onClick={zoomIn} aria-label={tooltips.projImageZoomIn.label} disabled={view.zoom >= ZOOM_MAX}>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="7" cy="7" r="5.5" /><line x1="4" y1="7" x2="10" y2="7" /><line x1="7" y1="4" x2="7" y2="10" /><line x1="11" y1="11" x2="14.5" y2="14.5" /></svg>
+          </button>
+        </Tooltip>
       </div>
       <div
         ref={containerRef}
@@ -1151,6 +1161,11 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const markdownRef = useRef<HTMLDivElement>(null);
   const mdContainerRef = useRef<HTMLDivElement>(null);
   const codeViewerRef = useRef<HTMLDivElement>(null);
+  // Bumped after each successful Refresh so the scroll-restore effect re-fires
+  // (file.path doesn't change on refresh, so we need a separate trigger).
+  // Also used as part of <VirtualCodeViewer>'s React key to force a remount
+  // on refresh — its own onMount restore then reads scrollTop from localStorage.
+  const [refreshNonce, setRefreshNonce] = useState(0);
   // Guard: skip the showHidden effect on first mount (initial load handles it)
   const showHiddenInitRef = useRef(true);
   const [outlineWidth, setOutlineWidth] = useState<number>(() => {
@@ -1377,7 +1392,8 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     return () => { saveCurrentScrollRef.current(); };
   }, []);
 
-  // Restore scroll when a file finishes loading (markdown + regular code)
+  // Restore scroll when a file finishes loading (markdown + regular code).
+  // Re-fires on Refresh via refreshNonce — file.path is unchanged then.
   useEffect(() => {
     if (!file) return;
     const key = scrollKeyForPath(file.path);
@@ -1392,7 +1408,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
       });
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file?.path]);
+  }, [file?.path, refreshNonce]);
 
   // Exit md edit mode whenever the open file changes
   useEffect(() => {
@@ -1725,16 +1741,21 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showHidden]);
 
-  // Refresh
+  // Refresh — keep the user's scroll position. saveCurrentScroll persists the
+  // current scrollTop to localStorage; loadFile() re-fetches and re-renders;
+  // bumping refreshNonce re-fires the restore effect (file.path is unchanged
+  // so without this, the restore wouldn't run).
   const handleRefresh = useCallback(() => {
     if (file) {
+      saveCurrentScroll();
       loadFile(currentPath);
+      setRefreshNonce((n) => n + 1);
     } else {
       loadDir(currentPath);
     }
     // Also refresh the file tree sidebar
     document.dispatchEvent(new CustomEvent('filetree:refresh'));
-  }, [currentPath, file, loadDir, loadFile]);
+  }, [currentPath, file, loadDir, loadFile, saveCurrentScroll]);
 
   // Silent refresh — updates directory listing without clearing file/loading state.
   // Used by the auto-refresh polling interval. Skips when viewing a file (currentPath is a file path).
@@ -2179,181 +2200,225 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     <div ref={rootRef} className={styles.projectTab}>
       {/* Icon toolbar */}
       <div className={styles.iconBar}>
-        <button className={styles.iconBtn} onClick={() => setShowSearch(true)} title="Search files by name (fuzzy)">
-          <IconSearch />
-        </button>
-        <button className={styles.iconBtn} onClick={() => setShowContentSearch(true)} title="Search in file contents (Cmd+F)">
-          <IconContentSearch />
-        </button>
-        <button
-          className={`${styles.iconBtn} ${showFindInFile ? styles.iconBtnActive : ''}`}
-          onClick={() => setShowFindInFile((p) => !p)}
-          disabled={!file || !!file.binary}
-          title="Find in current file (Cmd/Ctrl+F)"
-        >
-          <IconFindInFile />
-        </button>
-        <button
-          className={styles.iconBtn}
-          onClick={() => { setTreePanelCollapsed(false); setCreatingFile(true); }}
-          title="New file"
-        >
-          <IconNewFile />
-        </button>
-        <button
-          className={styles.iconBtn}
-          onClick={() => { setTreePanelCollapsed(false); setCreatingFolder(true); }}
-          title="New folder"
-        >
-          <IconNewFolder />
-        </button>
-        <button className={styles.iconBtn} onClick={handleOpenProjectView} title="Open project in new tab">
-          <IconOpenProjectView />
-        </button>
-        <button
-          className={styles.iconBtn}
-          onClick={() => { void handleOpenExternalPath(); }}
-          title="Open path outside this project (e.g. ~/.config/...)"
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M2 4h5l1.5 1.5H14V13H2V4z" />
-            <path d="M9 9h4M11 7l2 2-2 2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-        <button className={styles.iconBtn} onClick={handleRevealInFinder} title="Reveal in Finder / Explorer">
-          <IconRevealInFinder />
-        </button>
-        <button
-          className={styles.iconBtn}
-          onClick={handleFormatFile}
-          disabled={!file || !!file.binary}
-          title="Format file (JSON / XML)"
-        >
-          <IconFormat />
-        </button>
-        <button
-          className={`${styles.iconBtn} ${showOutline ? styles.iconBtnActive : ''}`}
-          onClick={() => setShowOutline((p) => !p)}
-          disabled={!file || (file.ext !== 'md' && file.ext !== 'mdx')}
-          title="Toggle markdown outline"
-        >
-          <IconOutline />
-        </button>
-        <button
-          className={`${styles.iconBtn} ${mdEdit ? styles.iconBtnActive : ''}`}
-          onClick={() => (mdEdit ? handleCancelMdEdit() : handleEnterMdEdit())}
-          disabled={!file || (file.ext !== 'md' && file.ext !== 'mdx')}
-          title={mdEdit ? 'Exit edit mode (discard)' : 'Edit markdown'}
-        >
-          <IconEdit />
-        </button>
-        <button
-          className={`${styles.iconBtn} ${texPreview ? styles.iconBtnActive : ''}`}
-          onClick={() => setTexPreview((p) => !p)}
-          disabled={!file || file.ext !== 'tex'}
-          title={texPreview ? 'Show LaTeX source' : 'Render LaTeX preview'}
-        >
-          <span style={{ fontFamily: 'serif', fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px' }}>
-            T<sub style={{ fontSize: '8px', verticalAlign: 'baseline' }}>E</sub>X
-          </span>
-        </button>
-        <button
-          className={`${styles.iconBtn} ${showBookmarkPanel || bookmarks.length > 0 ? styles.iconBtnActive : ''}`}
-          onClick={handleBookmarkBtnClick}
-          title="Bookmark selected text / show bookmarks"
-        >
-          <IconBookmark active={bookmarks.length > 0} />
-          {bookmarks.length > 0 && <span className={styles.bookmarkBadge}>{bookmarks.length}</span>}
-        </button>
-        <button
-          className={`${styles.iconBtn} ${isCurrentCollected || showCollectionPanel ? styles.iconBtnActive : ''}`}
-          onClick={handleCollectToggle}
-          style={isCurrentCollected ? { color: 'var(--accent-yellow, #ffd700)' } : undefined}
-          title={isCurrentCollected ? 'Collected — click to view/manage collection' : 'Add to collection'}
-        >
-          <IconCollect active={isCurrentCollected} />
-          {collections.length > 0 && (
-            <span className={styles.bookmarkBadge} style={{ background: 'var(--accent-yellow, #ffd700)' }}>
-              {collections.length}
+        <Tooltip {...tooltips.projSearchFiles}>
+          <button className={styles.iconBtn} onClick={() => setShowSearch(true)} aria-label={tooltips.projSearchFiles.label}>
+            <IconSearch />
+          </button>
+        </Tooltip>
+        <Tooltip {...tooltips.projSearchContent}>
+          <button className={styles.iconBtn} onClick={() => setShowContentSearch(true)} aria-label={tooltips.projSearchContent.label}>
+            <IconContentSearch />
+          </button>
+        </Tooltip>
+        <Tooltip {...tooltips.projFindInFile}>
+          <button
+            className={`${styles.iconBtn} ${showFindInFile ? styles.iconBtnActive : ''}`}
+            onClick={() => setShowFindInFile((p) => !p)}
+            disabled={!file || !!file.binary}
+            aria-label={tooltips.projFindInFile.label}
+          >
+            <IconFindInFile />
+          </button>
+        </Tooltip>
+        <Tooltip {...tooltips.projNewFile}>
+          <button
+            className={styles.iconBtn}
+            onClick={() => { setTreePanelCollapsed(false); setCreatingFile(true); }}
+            aria-label={tooltips.projNewFile.label}
+          >
+            <IconNewFile />
+          </button>
+        </Tooltip>
+        <Tooltip {...tooltips.projNewFolder}>
+          <button
+            className={styles.iconBtn}
+            onClick={() => { setTreePanelCollapsed(false); setCreatingFolder(true); }}
+            aria-label={tooltips.projNewFolder.label}
+          >
+            <IconNewFolder />
+          </button>
+        </Tooltip>
+        <Tooltip {...tooltips.projOpenInTab}>
+          <button className={styles.iconBtn} onClick={handleOpenProjectView} aria-label={tooltips.projOpenInTab.label}>
+            <IconOpenProjectView />
+          </button>
+        </Tooltip>
+        <Tooltip {...tooltips.projOpenExternal}>
+          <button
+            className={styles.iconBtn}
+            onClick={() => { void handleOpenExternalPath(); }}
+            aria-label={tooltips.projOpenExternal.label}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M2 4h5l1.5 1.5H14V13H2V4z" />
+              <path d="M9 9h4M11 7l2 2-2 2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </Tooltip>
+        <Tooltip {...tooltips.projRevealInFinder}>
+          <button className={styles.iconBtn} onClick={handleRevealInFinder} aria-label={tooltips.projRevealInFinder.label}>
+            <IconRevealInFinder />
+          </button>
+        </Tooltip>
+        <Tooltip {...tooltips.projFormat}>
+          <button
+            className={styles.iconBtn}
+            onClick={handleFormatFile}
+            disabled={!file || !!file.binary}
+            aria-label={tooltips.projFormat.label}
+          >
+            <IconFormat />
+          </button>
+        </Tooltip>
+        <Tooltip {...tooltips.projOutline}>
+          <button
+            className={`${styles.iconBtn} ${showOutline ? styles.iconBtnActive : ''}`}
+            onClick={() => setShowOutline((p) => !p)}
+            disabled={!file || (file.ext !== 'md' && file.ext !== 'mdx')}
+            aria-label={tooltips.projOutline.label}
+          >
+            <IconOutline />
+          </button>
+        </Tooltip>
+        <Tooltip {...(mdEdit ? tooltips.projMdEditExit : tooltips.projMdEditEnter)}>
+          <button
+            className={`${styles.iconBtn} ${mdEdit ? styles.iconBtnActive : ''}`}
+            onClick={() => (mdEdit ? handleCancelMdEdit() : handleEnterMdEdit())}
+            disabled={!file || (file.ext !== 'md' && file.ext !== 'mdx')}
+            aria-label={(mdEdit ? tooltips.projMdEditExit : tooltips.projMdEditEnter).label}
+          >
+            <IconEdit />
+          </button>
+        </Tooltip>
+        <Tooltip {...(texPreview ? tooltips.projTexSource : tooltips.projTexPreview)}>
+          <button
+            className={`${styles.iconBtn} ${texPreview ? styles.iconBtnActive : ''}`}
+            onClick={() => setTexPreview((p) => !p)}
+            disabled={!file || file.ext !== 'tex'}
+            aria-label={(texPreview ? tooltips.projTexSource : tooltips.projTexPreview).label}
+          >
+            <span style={{ fontFamily: 'serif', fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px' }}>
+              T<sub style={{ fontSize: '8px', verticalAlign: 'baseline' }}>E</sub>X
             </span>
-          )}
-        </button>
-        <button
-          className={`${styles.iconBtn} ${wordWrap ? styles.iconBtnActive : ''}`}
-          onClick={() => setWordWrap((p) => !p)}
-          disabled={!file || !!file.binary}
-          title="Toggle word wrap"
-        >
-          <IconWordWrap />
-        </button>
-        <button
-          className={styles.iconBtn}
-          onClick={() => setShowFullscreen(true)}
-          disabled={!file}
-          title="Open in fullscreen"
-        >
-          <IconFullscreen />
-        </button>
+          </button>
+        </Tooltip>
+        <Tooltip {...tooltips.projBookmark}>
+          <button
+            className={`${styles.iconBtn} ${showBookmarkPanel || bookmarks.length > 0 ? styles.iconBtnActive : ''}`}
+            onClick={handleBookmarkBtnClick}
+            aria-label={tooltips.projBookmark.label}
+          >
+            <IconBookmark active={bookmarks.length > 0} />
+            {bookmarks.length > 0 && <span className={styles.bookmarkBadge}>{bookmarks.length}</span>}
+          </button>
+        </Tooltip>
+        <Tooltip {...(isCurrentCollected ? tooltips.projCollectManage : tooltips.projCollectAdd)}>
+          <button
+            className={`${styles.iconBtn} ${isCurrentCollected || showCollectionPanel ? styles.iconBtnActive : ''}`}
+            onClick={handleCollectToggle}
+            style={isCurrentCollected ? { color: 'var(--accent-yellow, #ffd700)' } : undefined}
+            aria-label={(isCurrentCollected ? tooltips.projCollectManage : tooltips.projCollectAdd).label}
+          >
+            <IconCollect active={isCurrentCollected} />
+            {collections.length > 0 && (
+              <span className={styles.bookmarkBadge} style={{ background: 'var(--accent-yellow, #ffd700)' }}>
+                {collections.length}
+              </span>
+            )}
+          </button>
+        </Tooltip>
+        <Tooltip {...tooltips.projWordWrap}>
+          <button
+            className={`${styles.iconBtn} ${wordWrap ? styles.iconBtnActive : ''}`}
+            onClick={() => setWordWrap((p) => !p)}
+            disabled={!file || !!file.binary}
+            aria-label={tooltips.projWordWrap.label}
+          >
+            <IconWordWrap />
+          </button>
+        </Tooltip>
+        <Tooltip {...tooltips.projFullscreen}>
+          <button
+            className={styles.iconBtn}
+            onClick={() => setShowFullscreen(true)}
+            disabled={!file}
+            aria-label={tooltips.projFullscreen.label}
+          >
+            <IconFullscreen />
+          </button>
+        </Tooltip>
         <span className={styles.iconBarSep} />
-        <button
-          className={`${styles.iconBtn} ${showHidden ? styles.iconBtnActive : ''}`}
-          onClick={() => setShowHidden(p => {
-            const next = !p;
-            try { localStorage.setItem('file-browser:showHidden', String(next)); } catch { /* ignore */ }
-            return next;
-          })}
-          disabled={!!file}
-          title={showHidden ? 'Hide dotfiles/hidden folders' : 'Show hidden folders (dotfiles)'}
-        >
-          <span style={{ fontFamily: 'monospace', fontSize: '13px', fontWeight: 700 }}>.</span>
-        </button>
-        <button
-          className={`${styles.iconBtn} ${showDateTime ? styles.iconBtnActive : ''}`}
-          onClick={() => setShowDateTime(p => !p)}
-          disabled={!!file}
-          title="Toggle date/time display"
-        >
-          <IconClock />
-        </button>
-        <button
-          className={`${styles.iconBtn} ${sortField === 'name' ? styles.iconBtnActive : ''}`}
-          onClick={() => handleSortToggle('name')}
-          disabled={!!file}
-          title={`Sort by name (${sortField === 'name' ? sortDir : 'asc'})`}
-        >
-          <IconSortAlpha />
-        </button>
-        <button
-          className={`${styles.iconBtn} ${sortField === 'date' ? styles.iconBtnActive : ''}`}
-          onClick={() => handleSortToggle('date')}
-          disabled={!!file}
-          title={`Sort by date (${sortField === 'date' ? sortDir : 'asc'})`}
-        >
-          <IconSortDate />
-        </button>
+        <Tooltip {...(showHidden ? tooltips.projHideHidden : tooltips.projShowHidden)}>
+          <button
+            className={`${styles.iconBtn} ${showHidden ? styles.iconBtnActive : ''}`}
+            onClick={() => setShowHidden(p => {
+              const next = !p;
+              try { localStorage.setItem('file-browser:showHidden', String(next)); } catch { /* ignore */ }
+              return next;
+            })}
+            disabled={!!file}
+            aria-label={(showHidden ? tooltips.projHideHidden : tooltips.projShowHidden).label}
+          >
+            <span style={{ fontFamily: 'monospace', fontSize: '13px', fontWeight: 700 }}>.</span>
+          </button>
+        </Tooltip>
+        <Tooltip {...tooltips.projDateToggle}>
+          <button
+            className={`${styles.iconBtn} ${showDateTime ? styles.iconBtnActive : ''}`}
+            onClick={() => setShowDateTime(p => !p)}
+            disabled={!!file}
+            aria-label={tooltips.projDateToggle.label}
+          >
+            <IconClock />
+          </button>
+        </Tooltip>
+        <Tooltip {...tooltips.projSortByName}>
+          <button
+            className={`${styles.iconBtn} ${sortField === 'name' ? styles.iconBtnActive : ''}`}
+            onClick={() => handleSortToggle('name')}
+            disabled={!!file}
+            aria-label={tooltips.projSortByName.label}
+          >
+            <IconSortAlpha />
+          </button>
+        </Tooltip>
+        <Tooltip {...tooltips.projSortByDate}>
+          <button
+            className={`${styles.iconBtn} ${sortField === 'date' ? styles.iconBtnActive : ''}`}
+            onClick={() => handleSortToggle('date')}
+            disabled={!!file}
+            aria-label={tooltips.projSortByDate.label}
+          >
+            <IconSortDate />
+          </button>
+        </Tooltip>
         <span className={styles.iconBarSep} />
-        <button
-          className={styles.iconBtn}
-          onClick={() => fileTreeRef.current?.collapseAll()}
-          disabled={treePanelCollapsed}
-          title="Collapse all folders"
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M2 4l1.5-1.5h3L8 4h6v8H2V4z" />
-            <path d="M5 9l3-3 3 3" />
-            <path d="M5 12l3-3 3 3" />
-          </svg>
-        </button>
-        <button
-          className={styles.iconBtn}
-          onClick={handleRefresh}
-          title="Refresh (file tree + current file/folder)"
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M13 3v4h-4" />
-            <path d="M13 7a5 5 0 1 0-1.5 3.5" />
-          </svg>
-        </button>
+        <Tooltip {...tooltips.projCollapseAll}>
+          <button
+            className={styles.iconBtn}
+            onClick={() => fileTreeRef.current?.collapseAll()}
+            disabled={treePanelCollapsed}
+            aria-label={tooltips.projCollapseAll.label}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M2 4l1.5-1.5h3L8 4h6v8H2V4z" />
+              <path d="M5 9l3-3 3 3" />
+              <path d="M5 12l3-3 3 3" />
+            </svg>
+          </button>
+        </Tooltip>
+        <Tooltip {...tooltips.projRefresh}>
+          <button
+            className={styles.iconBtn}
+            onClick={handleRefresh}
+            aria-label={tooltips.projRefresh.label}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M13 3v4h-4" />
+              <path d="M13 7a5 5 0 1 0-1.5 3.5" />
+            </svg>
+          </button>
+        </Tooltip>
       </div>
 
       {/* (tabs + breadcrumb are inside the viewer panel below) */}
@@ -2437,13 +2502,15 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                 >
                   <span className={styles.fileTabIcon}>{fileIcon(tab.name, 'file')}</span>
                   <span className={styles.fileTabName}>{tab.name}</span>
-                  <button
-                    className={styles.fileTabClose}
-                    onClick={(e) => handleTabClose(tab.path, e)}
-                    title="Close tab"
-                  >
-                    &times;
-                  </button>
+                  <Tooltip {...tooltips.projCloseTab}>
+                    <button
+                      className={styles.fileTabClose}
+                      onClick={(e) => handleTabClose(tab.path, e)}
+                      aria-label={tooltips.projCloseTab.label}
+                    >
+                      &times;
+                    </button>
+                  </Tooltip>
                 </div>
               ))}
             </div>
@@ -2637,6 +2704,22 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                             }
                             return <a {...props} href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
                           },
+                          img: ({ src, alt, ...props }) => {
+                            if (!src || typeof src !== 'string') return <img {...props} src={src} alt={alt} />;
+                            if (/^(?:[a-z]+:)?\/\//i.test(src) || src.startsWith('data:') || src.startsWith('blob:') || src.startsWith('/api/')) {
+                              return <img {...props} src={src} alt={alt} />;
+                            }
+                            const dir = (currentPath || '').includes('/') ? (currentPath || '').slice(0, (currentPath || '').lastIndexOf('/')) : '';
+                            const joined = src.startsWith('/') ? src.slice(1) : (dir ? `${dir}/${src}` : src);
+                            const parts = joined.split('/');
+                            const resolved: string[] = [];
+                            for (const part of parts) {
+                              if (part === '..') resolved.pop();
+                              else if (part !== '.' && part !== '') resolved.push(part);
+                            }
+                            const resolvedPath = '/' + resolved.join('/');
+                            return <img {...props} src={provider.streamUrl(projectPath, resolvedPath)} alt={alt} />;
+                          },
                           h1: ({ children, ...props }) => <h1 id={headingSlug(String(children))} {...props}>{children}</h1>,
                           h2: ({ children, ...props }) => <h2 id={headingSlug(String(children))} {...props}>{children}</h2>,
                           h3: ({ children, ...props }) => <h3 id={headingSlug(String(children))} {...props}>{children}</h3>,
@@ -2651,6 +2734,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                   </div>
                 ) : (file.content || '').split('\n').length > VIRTUALIZE_THRESHOLD ? (
                   <VirtualCodeViewer
+                    key={`${file.path}:${refreshNonce}`}
                     content={file.content || ''}
                     filePath={file.path}
                     bookmarks={bookmarks}
@@ -2716,11 +2800,13 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                           L{bm.lineStart}{bm.lineEnd !== bm.lineStart ? `–${bm.lineEnd}` : ''}
                         </span>
                         <span className={styles.bookmarkItemFile}>{bm.filePath.split('/').pop()}</span>
-                        <button
-                          className={styles.bookmarkItemDel}
-                          onClick={e => { e.stopPropagation(); handleDeleteBookmark(bm.id); }}
-                          title="Delete bookmark"
-                        >✕</button>
+                        <Tooltip {...tooltips.projDeleteBookmark}>
+                          <button
+                            className={styles.bookmarkItemDel}
+                            onClick={e => { e.stopPropagation(); handleDeleteBookmark(bm.id); }}
+                            aria-label={tooltips.projDeleteBookmark.label}
+                          >✕</button>
+                        </Tooltip>
                       </div>
                       <div className={styles.bookmarkItemText}>{bm.selectedText.slice(0, 120)}</div>
                       <input
@@ -2759,13 +2845,15 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                       <span className={styles.collectionItemIcon}>{col.isFile ? '📄' : '📁'}</span>
                       <span className={styles.collectionItemName}>{col.name}</span>
                       <span className={styles.collectionItemPath}>{col.path}</span>
-                      <button
-                        className={styles.bookmarkItemDel}
-                        onClick={(e) => { e.stopPropagation(); handleDeleteCollection(col.id); }}
-                        title="Remove from collection"
-                      >
-                        ✕
-                      </button>
+                      <Tooltip {...tooltips.projRemoveFromCollection}>
+                        <button
+                          className={styles.bookmarkItemDel}
+                          onClick={(e) => { e.stopPropagation(); handleDeleteCollection(col.id); }}
+                          aria-label={tooltips.projRemoveFromCollection.label}
+                        >
+                          ✕
+                        </button>
+                      </Tooltip>
                     </div>
                   ))}
                 </div>
@@ -2782,12 +2870,14 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
           <div className={styles.fullscreenModal} onClick={(e) => e.stopPropagation()}>
             <div className={styles.fullscreenHeader}>
               <span className={styles.fullscreenTitle}>{file.name}</span>
-              <button className={styles.fullscreenClose} onClick={() => setShowFullscreen(false)} title="Close (Esc)">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
-                  <line x1="3" y1="3" x2="13" y2="13" />
-                  <line x1="13" y1="3" x2="3" y2="13" />
-                </svg>
-              </button>
+              <Tooltip {...tooltips.projFullscreenClose}>
+                <button className={styles.fullscreenClose} onClick={() => setShowFullscreen(false)} aria-label={tooltips.projFullscreenClose.label}>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <line x1="3" y1="3" x2="13" y2="13" />
+                    <line x1="13" y1="3" x2="3" y2="13" />
+                  </svg>
+                </button>
+              </Tooltip>
             </div>
             <div className={styles.fullscreenBody}>
               {file.sheets && file.sheets.length > 0 ? (

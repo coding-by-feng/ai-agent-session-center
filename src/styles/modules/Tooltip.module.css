@@ -1,0 +1,92 @@
+/* Tooltip — themed cyan-on-navy, fade-in, portal-rendered. */
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 10000;
+  max-width: 280px;
+  padding: 8px 10px;
+  background: #07071a;
+  color: var(--text-secondary, #cbd2e0);
+  border: 1px solid var(--accent-cyan, #00e5ff);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55), 0 0 8px rgba(0, 229, 255, 0.18);
+  font-size: 11px;
+  line-height: 1.45;
+  pointer-events: none;
+  animation: tooltipFadeIn 0.12s ease-out;
+}
+
+@keyframes tooltipFadeIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: var(--accent-cyan, #00e5ff);
+  text-transform: uppercase;
+}
+
+.description {
+  margin-top: 4px;
+  color: var(--text-secondary, #cbd2e0);
+  font-weight: 400;
+  letter-spacing: 0.1px;
+  text-transform: none;
+}
+
+.shortcut {
+  margin-top: 6px;
+}
+
+.shortcut kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  background: rgba(0, 229, 255, 0.10);
+  border: 1px solid rgba(0, 229, 255, 0.35);
+  border-radius: 3px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  color: var(--accent-cyan, #00e5ff);
+  letter-spacing: 0.4px;
+}
+
+/* Arrow — small triangular notch pointing at the trigger. */
+.arrow {
+  position: absolute;
+  width: 0;
+  height: 0;
+  border: 5px solid transparent;
+}
+
+.placement_top .arrow {
+  bottom: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-top-color: var(--accent-cyan, #00e5ff);
+}
+.placement_bottom .arrow {
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-bottom-color: var(--accent-cyan, #00e5ff);
+}
+.placement_left .arrow {
+  right: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-left-color: var(--accent-cyan, #00e5ff);
+}
+.placement_right .arrow {
+  left: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-right-color: var(--accent-cyan, #00e5ff);
+}
