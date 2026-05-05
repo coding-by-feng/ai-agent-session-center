@@ -79,12 +79,16 @@ export default function FloatingProjectPanel({
     readJson<boolean>(collapsedKey, false));
   const [pos, setPos] = useState<Pos>(() => readJson<Pos>(posKey, DEFAULT_POS));
   const [size, setSize] = useState<Size>(() => readJson<Size>(sizeKey, DEFAULT_SIZE));
+  const [maximized, setMaximized] = useState<boolean>(false);
+  const restoreRef = useRef<{ pos: Pos; size: Size } | null>(null);
 
   // Restore per-session state when sessionId changes.
   useEffect(() => {
     setCollapsed(readJson<boolean>(collapsedKey, false));
     setPos(readJson<Pos>(posKey, DEFAULT_POS));
     setSize(readJson<Size>(sizeKey, DEFAULT_SIZE));
+    setMaximized(false);
+    restoreRef.current = null;
   }, [collapsedKey, posKey, sizeKey]);
 
   const rootRef = useRef<HTMLElement | null>(null);
@@ -113,6 +117,7 @@ export default function FloatingProjectPanel({
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     // Ignore drags initiated on buttons inside the header.
     if ((e.target as HTMLElement).closest('button')) return;
+    if (maximized) return;
     e.preventDefault();
     const startX = e.clientX;
     const startY = e.clientY;
@@ -137,10 +142,11 @@ export default function FloatingProjectPanel({
     document.body.style.userSelect = 'none';
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
-  }, [pos, size, collapsed, posKey]);
+  }, [pos, size, collapsed, posKey, maximized]);
 
   // ---- Resize (bottom-right corner) ----
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    if (maximized) return;
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
@@ -167,7 +173,7 @@ export default function FloatingProjectPanel({
     document.body.style.cursor = 'nwse-resize';
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
-  }, [pos, size, sizeKey]);
+  }, [pos, size, sizeKey, maximized]);
 
   const handleMinimize = useCallback(() => {
     setCollapsed(true);
@@ -178,6 +184,22 @@ export default function FloatingProjectPanel({
     setCollapsed(false);
     writeJson(collapsedKey, false);
   }, [collapsedKey]);
+
+  const handleToggleMaximize = useCallback(() => {
+    setMaximized((m) => {
+      if (!m) {
+        restoreRef.current = { pos, size };
+        return true;
+      }
+      const prev = restoreRef.current;
+      if (prev) {
+        setPos(prev.pos);
+        setSize(prev.size);
+      }
+      restoreRef.current = null;
+      return false;
+    });
+  }, [pos, size]);
 
   // ---- Render ----
   if (collapsed) {
@@ -206,11 +228,16 @@ export default function FloatingProjectPanel({
     );
   }
 
+  const panelStyle: React.CSSProperties = maximized
+    ? { left: 0, top: 0, right: 0, bottom: 0, width: 'auto', height: 'auto' }
+    : { left: pos.x, top: pos.y, width: size.w, height: size.h };
+  const maxTip = maximized ? tooltips.floatRestore : tooltips.floatMaximize;
+
   return (
     <div
       ref={(el) => { rootRef.current = el; }}
-      className={styles.floatPanel}
-      style={{ left: pos.x, top: pos.y, width: size.w, height: size.h }}
+      className={`${styles.floatPanel}${maximized ? ` ${styles.floatPanelMaximized}` : ''}`}
+      style={panelStyle}
     >
       <div className={styles.floatHeader} onMouseDown={handleDragStart}>
         <span className={styles.floatTitle}>PROJECT</span>
@@ -222,7 +249,17 @@ export default function FloatingProjectPanel({
               onClick={handleMinimize}
               aria-label={tooltips.floatMinimize.label}
             >
-              ▭
+              ▁
+            </button>
+          </Tooltip>
+          <Tooltip {...maxTip} placement="bottom">
+            <button
+              type="button"
+              className={styles.floatHeaderBtn}
+              onClick={handleToggleMaximize}
+              aria-label={maxTip.label}
+            >
+              {maximized ? '❐' : '☐'}
             </button>
           </Tooltip>
           <Tooltip {...tooltips.floatClose} placement="bottom">
@@ -238,12 +275,16 @@ export default function FloatingProjectPanel({
         </div>
       </div>
       <div className={styles.floatBody} ref={bodyRef} />
-      <div
-        className={styles.floatResize}
-        onMouseDown={handleResizeStart}
-        title="Drag to resize"
-        aria-hidden
-      />
+      {!maximized && (
+        <div
+          className={styles.floatResize}
+          onMouseDown={handleResizeStart}
+          title="Drag to resize"
+          aria-hidden
+        >
+          <span className={styles.floatResizeGrip} aria-hidden />
+        </div>
+      )}
     </div>
   );
 }

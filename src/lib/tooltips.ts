@@ -51,6 +51,14 @@ export const tooltips = {
     label: 'Minimize to icon',
     description: 'Collapse this floating panel into a small draggable badge so the Terminal has full focus.',
   },
+  floatMaximize: {
+    label: 'Maximize panel',
+    description: 'Expand the floating Project window to fill the available area.',
+  },
+  floatRestore: {
+    label: 'Restore size',
+    description: 'Return the floating Project window to its previous size and position.',
+  },
   floatClose: {
     label: 'Close float mode',
     description: 'Exit float mode and return Project to its tab. Position and size are remembered.',
