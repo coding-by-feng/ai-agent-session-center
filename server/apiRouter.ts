@@ -693,6 +693,41 @@ router.post('/sessions/:id/clone', async (req: Request, res: Response) => {
   }
 });
 
+// Spawn a "floating" forked session pre-loaded with a synthesized translate /
+// explain prompt. Used by the SelectionPopup (selection-anchored) and the
+// per-surface "Translate" toolbar buttons.
+//   modes: explain-learning | explain-native | translate-answer | translate-file
+router.post('/sessions/spawn-floating', async (req: Request, res: Response) => {
+  const { spawnFloatingSession } = await import('./floatingSessionSpawner.js');
+  const FloatingModeSchema = z.enum([
+    'explain-learning',
+    'explain-native',
+    'translate-answer',
+    'translate-file',
+  ]);
+  const SpawnFloatingSchema = z.object({
+    originSessionId: z.string().min(1).max(200),
+    mode: FloatingModeSchema,
+    selection: z.string().max(64 * 1024).optional(),
+    contextLine: z.string().max(2 * 1024).optional(),
+    fileContent: z.string().max(256 * 1024).optional(),
+    filePath: z.string().max(2048).optional(),
+    nativeLanguage: z.string().min(1).max(64),
+    learningLanguage: z.string().min(1).max(64),
+    inheritContext: z.boolean().optional(),
+  });
+  const body = validateBody(SpawnFloatingSchema, req.body, res);
+  if (!body) return;
+  try {
+    const result = await spawnFloatingSession(body);
+    res.json({ ok: true, ...result });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('api', `Spawn floating session failed: ${msg}`);
+    res.status(400).json({ error: msg });
+  }
+});
+
 // Reconnect (or create) the ops terminal for a session.
 // Creates a new blank shell in the session's project directory.
 router.post('/sessions/:id/reconnect-ops-terminal', async (req: Request, res: Response) => {
@@ -1179,6 +1214,20 @@ router.post('/terminals/register', async (req: Request, res: Response) => {
 router.delete('/terminals/:id', (req: Request, res: Response) => {
   closeTerminal(str(req.params.id));
   res.json({ ok: true });
+});
+
+// Snapshot the ring-buffer output for a terminal. Used by the REVIEW tab to
+// capture floating-session output at close time, but useful for any consumer
+// that wants the current visible buffer without subscribing to the ws stream.
+router.get('/terminals/:id/output', async (req: Request, res: Response) => {
+  const { getTerminalOutputBuffer } = await import('./sshManager.js');
+  const id = str(req.params.id);
+  const base64 = getTerminalOutputBuffer(id);
+  if (base64 === null) {
+    res.status(404).json({ error: 'Terminal not found' });
+    return;
+  }
+  res.json({ ok: true, output: base64 });
 });
 
 // Write data to a terminal's PTY (used by queue prompt send)

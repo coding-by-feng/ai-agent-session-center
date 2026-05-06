@@ -32,6 +32,13 @@ import { getFileSystemProvider } from '@/lib/fileSystemProvider';
 import { showToast } from '@/components/ui/ToastContainer';
 import Tooltip from '@/components/ui/Tooltip';
 import { tooltips } from '@/lib/tooltips';
+import SelectionPopup from '@/components/translate/SelectionPopup';
+import { useSelectionPopup } from '@/hooks/useSelectionPopup';
+import { extractDomSelection } from '@/lib/selectionExtractors';
+import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { useSessionStore } from '@/stores/sessionStore';
+import { createLog } from '@/lib/translationLog';
 import styles from '@/styles/modules/ProjectTab.module.css';
 
 interface ProjectTabProps {
@@ -45,6 +52,10 @@ interface ProjectTabProps {
   persistId?: string;
   onOpenBrowserTab?: (projectPath: string, currentDir: string, isFile?: boolean) => void;
   onPathChange?: (currentPath: string, isFile: boolean) => void;
+  /** Originating session id — required to enable select-to-translate / translate-file
+   *  forking. When omitted (e.g. standalone Project Browser route) those features are
+   *  hidden. */
+  originSessionId?: string;
 }
 
 interface DirEntry {
@@ -258,6 +269,19 @@ function IconOutline() {
       <line x1="4" y1="6.5" x2="13" y2="6.5" />
       <line x1="4" y1="10" x2="11" y2="10" />
       <line x1="2" y1="13.5" x2="9" y2="13.5" />
+    </svg>
+  );
+}
+
+/** Translate / globe icon — used by the "Translate file" toolbar button. */
+function IconTranslate() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12 H21" />
+      <path d="M12 3 C8 7, 8 17, 12 21" />
+      <path d="M12 3 C16 7, 16 17, 12 21" />
     </svg>
   );
 }
@@ -987,7 +1011,7 @@ function ImageViewer({ src, alt, filePath, caption }: ImageViewerProps) {
 
 // ---- Main Component ----
 
-export default function ProjectTab({ projectPath, initialPath, initialIsFile, navigateToFile, persistId, onOpenBrowserTab, onPathChange }: ProjectTabProps) {
+export default function ProjectTab({ projectPath, initialPath, initialIsFile, navigateToFile, persistId, onOpenBrowserTab, onPathChange, originSessionId }: ProjectTabProps) {
   const [currentPath, setCurrentPath] = useState(initialPath || '/');
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [file, setFile] = useState<FileContent | null>(null);
@@ -1161,6 +1185,24 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const markdownRef = useRef<HTMLDivElement>(null);
   const mdContainerRef = useRef<HTMLDivElement>(null);
   const codeViewerRef = useRef<HTMLDivElement>(null);
+
+  // ---- Translation / explain (select-to-translate popup + translate-file button) ----
+  const translationEnabled = useSettingsStore((s) => s.translationEnabled);
+  const translationTrigger = useSettingsStore((s) => s.translationTrigger);
+  const translationNative = useSettingsStore((s) => s.translationNativeLanguage);
+  const translationLearning = useSettingsStore((s) => s.translationLearningLanguage);
+  const openFloat = useFloatingSessionsStore((s) => s.open);
+  const popupExtract = useCallback(
+    (_e: { clientX: number; clientY: number }) => extractDomSelection(markdownRef.current),
+    [],
+  );
+  const popup = useSelectionPopup({
+    enabled: translationEnabled && !!originSessionId && !mdEdit,
+    trigger: translationTrigger,
+    containerRef: markdownRef,
+    extract: popupExtract,
+  });
+  const [translateFileBusy, setTranslateFileBusy] = useState(false);
   // Bumped after each successful Refresh so the scroll-restore effect re-fires
   // (file.path doesn't change on refresh, so we need a separate trigger).
   // Also used as part of <VirtualCodeViewer>'s React key to force a remount
@@ -2198,6 +2240,13 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
 
   return (
     <div ref={rootRef} className={styles.projectTab}>
+      {popup.active && originSessionId && (
+        <SelectionPopup
+          selection={popup.active}
+          originSessionId={originSessionId}
+          onClose={popup.close}
+        />
+      )}
       {/* Icon toolbar */}
       <div className={styles.iconBar}>
         <Tooltip {...tooltips.projSearchFiles}>
@@ -2290,6 +2339,60 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
             <IconEdit />
           </button>
         </Tooltip>
+        {originSessionId && translationEnabled && (
+          <Tooltip
+            label={tooltips.projTranslateFile.label}
+            description={`Translate the current file into ${translationNative}. Opens a floating session.`}
+          >
+            <button
+              className={styles.iconBtn}
+              onClick={async () => {
+                if (!file || !originSessionId || translateFileBusy) return;
+                setTranslateFileBusy(true);
+                try {
+                  const resp = await fetch('/api/sessions/spawn-floating', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      originSessionId,
+                      mode: 'translate-file',
+                      fileContent: file.content || '',
+                      filePath: file.path,
+                      nativeLanguage: translationNative,
+                      learningLanguage: translationLearning,
+                    }),
+                  });
+                  const data = await resp.json();
+                  if (!resp.ok) throw new Error(data.error || 'Failed to translate file');
+                  const origin = useSessionStore.getState().sessions.get(originSessionId);
+                  await createLog({
+                    mode: 'translate-file',
+                    nativeLanguage: translationNative,
+                    learningLanguage: translationLearning,
+                    selection: '',
+                    contextLine: '',
+                    filePath: file.path,
+                    fileContent: (file.content || '').slice(0, 32 * 1024),
+                    prompt: '',
+                    originSessionId,
+                    originProjectName: origin?.projectName ?? '',
+                    originSessionTitle: origin?.title ?? '',
+                    floatTerminalId: data.terminalId,
+                  }).catch(() => { /* non-fatal */ });
+                  openFloat({ terminalId: data.terminalId, label: data.label, originSessionId });
+                } catch (err) {
+                  showToast(err instanceof Error ? err.message : 'Failed to translate file', 'error');
+                } finally {
+                  setTranslateFileBusy(false);
+                }
+              }}
+              disabled={!file || (file.ext !== 'md' && file.ext !== 'mdx') || translateFileBusy}
+              aria-label={tooltips.projTranslateFile.label}
+            >
+              <IconTranslate />
+            </button>
+          </Tooltip>
+        )}
         <Tooltip {...(texPreview ? tooltips.projTexSource : tooltips.projTexPreview)}>
           <button
             className={`${styles.iconBtn} ${texPreview ? styles.iconBtnActive : ''}`}

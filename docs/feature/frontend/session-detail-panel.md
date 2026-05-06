@@ -61,3 +61,9 @@ Primary interface for interacting with a single session. Aggregates terminal, pr
 - Changing tab names/order requires localStorage migration
 - Breaking split view persistence loses user preferences
 - SessionSwitcher's heavy memos depend on `sessionsSignature`, NOT on `sessions`. If you add a field to the card display (e.g. a new status-derived color), include it in the signature or the tab strip won't refresh. The escape hatch is to add `sessions` back to the dep array, but that re-enables the every-update recompute this optimization was added to avoid.
+
+## Floating Terminal Fork
+DetailPanel passes `originSessionId={sessionId}` to TerminalContainer so the
+select-to-translate popup and the "Translate previous answer" toolbar button
+can fork a new floating session. ProjectTabContainer threads the same id into
+ProjectTab. See [Floating Terminal Fork](./floating-terminal-fork.md).

@@ -117,6 +117,7 @@ const TerminalContent = memo(function TerminalContent({
           onClone={handleClone}
           bookmarkPortalTarget={bookmarkTarget}
           projectPath={projectPath}
+          originSessionId={sessionId}
         />
       </div>
       <div className={styles.bottomRow}>

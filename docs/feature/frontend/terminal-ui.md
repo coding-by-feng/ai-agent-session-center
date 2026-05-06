@@ -58,3 +58,8 @@ Interactive PTY terminal within the dashboard. Users can type commands, view out
 - forceCanvasRepaint must not auto-scroll
 - pendingScrollRestore on ActiveTerminal prevents race conditions during session switch — do not remove or the terminal will jump to top when switching sessions
 - Skipping `unsubscribePty` on detach (Electron path) leaves the renderer receiving `pty:data` for terminals the user is no longer viewing. No correctness bug (data is just buffered in `pendingOutputRef`), but typing latency on the active terminal degrades proportionally to the number of background sessions — the original perf bug this path fixes.
+
+## Floating Terminal Fork
+TerminalContainer hosts the surface-agnostic SelectionPopup (xterm extractor)
+and the "Translate previous answer" toolbar button when `originSessionId` is
+set. See [Floating Terminal Fork](./floating-terminal-fork.md).

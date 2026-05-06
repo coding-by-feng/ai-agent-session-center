@@ -26,6 +26,7 @@ const FLOAT_COLLAPSED_KEY = 'float-project-collapsed';
 
 const DEFAULT_SIZE = { w: 520, h: 420 };
 const DEFAULT_POS = { x: 24, y: 24 };
+const DEFAULT_MARGIN = 24;
 const COLLAPSED_W = 132;
 const COLLAPSED_H = 36;
 const MIN_W = 320;
@@ -77,7 +78,12 @@ export default function FloatingProjectPanel({
 
   const [collapsed, setCollapsed] = useState<boolean>(() =>
     readJson<boolean>(collapsedKey, false));
-  const [pos, setPos] = useState<Pos>(() => readJson<Pos>(posKey, DEFAULT_POS));
+  const posStoredRef = useRef<boolean>(false);
+  const [pos, setPos] = useState<Pos>(() => {
+    const stored = readJson<Pos | null>(posKey, null);
+    posStoredRef.current = stored !== null;
+    return stored ?? DEFAULT_POS;
+  });
   const [size, setSize] = useState<Size>(() => readJson<Size>(sizeKey, DEFAULT_SIZE));
   const [maximized, setMaximized] = useState<boolean>(false);
   const restoreRef = useRef<{ pos: Pos; size: Size } | null>(null);
@@ -85,7 +91,9 @@ export default function FloatingProjectPanel({
   // Restore per-session state when sessionId changes.
   useEffect(() => {
     setCollapsed(readJson<boolean>(collapsedKey, false));
-    setPos(readJson<Pos>(posKey, DEFAULT_POS));
+    const stored = readJson<Pos | null>(posKey, null);
+    posStoredRef.current = stored !== null;
+    setPos(stored ?? DEFAULT_POS);
     setSize(readJson<Size>(sizeKey, DEFAULT_SIZE));
     setMaximized(false);
     restoreRef.current = null;
@@ -94,12 +102,24 @@ export default function FloatingProjectPanel({
   const rootRef = useRef<HTMLElement | null>(null);
   const parentRef = useRef<HTMLElement | null>(null);
 
-  // Capture the offsetParent once mounted (the .tabContent container).
+  // Capture the offsetParent once mounted (the .tabContent container) and,
+  // when no stored position exists for this session, anchor the panel to the
+  // top-right corner of the parent so users see it where they expect.
   useLayoutEffect(() => {
     const el = rootRef.current;
     if (!el) return;
-    parentRef.current = el.offsetParent as HTMLElement | null;
-  }, [collapsed]);
+    const parent = el.offsetParent as HTMLElement | null;
+    parentRef.current = parent;
+    if (!posStoredRef.current && parent) {
+      const rect = parent.getBoundingClientRect();
+      const currentSize = collapsed ? { w: COLLAPSED_W, h: COLLAPSED_H } : size;
+      setPos({
+        x: Math.max(0, rect.width - currentSize.w - DEFAULT_MARGIN),
+        y: DEFAULT_MARGIN,
+      });
+      posStoredRef.current = true;
+    }
+  }, [collapsed, posKey, size]);
 
   // Re-clamp position when the parent resizes (window resize, panel resize).
   useEffect(() => {

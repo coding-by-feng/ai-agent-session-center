@@ -28,6 +28,7 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - GET /api/sessions/history (paginated session history with status filter)
 - PUT /api/sessions/:id/title|label|accent-color|character-model|pinned|muted|alerted
 - POST /api/sessions/:id/kill|resume|summarize|fork
+- POST /api/sessions/spawn-floating — spawn a forked session pre-loaded with a translate / explain prompt; see [Floating Session Spawner](./floating-session-spawner.md).
 - POST /api/sessions/:id/reconnect-terminal|reconnect-ops-terminal
 - POST /api/sessions/clear-all (removes all sessions, captures terminal output for replay; accepts JSON body `{ suppressBroadcast?: boolean }` — when `true`, skips the `clearBrowserDb` ws-broadcast so the workspace-import flow can rebuild without racing against the wipe)
 - DELETE /api/sessions/:id

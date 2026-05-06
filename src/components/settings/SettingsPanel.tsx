@@ -6,18 +6,20 @@ import ThemeSettings from './ThemeSettings';
 import SoundSettings from './SoundSettings';
 import HookSettings from './HookSettings';
 import ApiKeySettings from './ApiKeySettings';
+import TranslationSettings from './TranslationSettings';
 
 import ShortcutSettings from './ShortcutSettings';
 import headerStyles from '@/styles/modules/Header.module.css';
 import styles from '@/styles/modules/Settings.module.css';
 
-type SettingsTab = 'appearance' | 'sound' | 'hooks' | 'apikeys' | 'shortcuts' | 'advanced';
+type SettingsTab = 'appearance' | 'sound' | 'hooks' | 'apikeys' | 'translation' | 'shortcuts' | 'advanced';
 
 const TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'appearance', label: 'APPEARANCE' },
   { id: 'sound', label: 'SOUND' },
   { id: 'hooks', label: 'HOOKS' },
   { id: 'apikeys', label: 'API KEYS' },
+  { id: 'translation', label: 'TRANSLATION' },
   { id: 'shortcuts', label: 'SHORTCUTS' },
   { id: 'advanced', label: 'ADVANCED' },
 ];
@@ -105,6 +107,7 @@ export default function SettingsPanel() {
           {activeTab === 'sound' && <SoundSettings />}
           {activeTab === 'hooks' && <HookSettings />}
           {activeTab === 'apikeys' && <ApiKeySettings />}
+          {activeTab === 'translation' && <TranslationSettings />}
           {activeTab === 'shortcuts' && <ShortcutSettings />}
           {activeTab === 'advanced' && (
             <AdvancedSettings

@@ -41,3 +41,9 @@ Enables offline access to session history, survives page reloads, and stores use
 - Changing table keys or indexes can corrupt existing data
 - Removing dedup indexes causes duplicate records
 - deleteSession cascade must stay in sync with table list
+
+## translationLogs (v3)
+Dexie was bumped to schema version 3 to add the `translationLogs` table backing
+the [REVIEW Tab](./review-tab.md). One row per saved explanation/translation,
+indexed by `uuid, mode, createdAt, originSessionId, archived, floatTerminalId`.
+Existing v2 installs upgrade transparently.

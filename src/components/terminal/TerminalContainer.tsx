@@ -10,6 +10,12 @@ import type { TerminalBookmarkPosition } from '@/hooks/useTerminal';
 import TerminalToolbar from './TerminalToolbar';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { ttsEngine } from '@/lib/ttsEngine';
+import SelectionPopup from '@/components/translate/SelectionPopup';
+import { useSelectionPopup } from '@/hooks/useSelectionPopup';
+import { extractXtermSelection } from '@/lib/selectionExtractors';
+import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
+import { useSessionStore } from '@/stores/sessionStore';
+import { createLog } from '@/lib/translationLog';
 import styles from '@/styles/modules/Terminal.module.css';
 import '@xterm/xterm/css/xterm.css';
 
@@ -39,6 +45,10 @@ interface TerminalContainerProps {
   onFork?: () => void;
   /** Clone — new session running the same startupCommand + config */
   onClone?: () => void;
+  /** Originating session id — required for the select-to-translate popup and the
+   *  "Translate previous answer" toolbar button. When omitted, both features are
+   *  hidden (e.g. floating-terminal hosts that have no source session). */
+  originSessionId?: string | null;
 }
 
 const DEFAULT_MIN_HEIGHT = '200px';
@@ -52,6 +62,7 @@ export default memo(function TerminalContainer({
   projectPath,
   onFork,
   onClone,
+  originSessionId,
 }: TerminalContainerProps) {
   const [themeName, setThemeName] = useState<string>(() => {
     try {
@@ -94,6 +105,8 @@ export default memo(function TerminalContainer({
     autoScrollEnabled,
     toggleAutoScroll,
     readRecentText,
+    getXtermSelection,
+    hasXtermSelection,
   } = useTerminal({ ws, themeName, projectPath });
 
   // ---- Hold-to-speak (TTS) ----
@@ -285,6 +298,67 @@ export default memo(function TerminalContainer({
     [setTheme],
   );
 
+  // ---- Select-to-translate / explain popup ----
+  const translationEnabled = useSettingsStore((s) => s.translationEnabled);
+  const translationTrigger = useSettingsStore((s) => s.translationTrigger);
+  const translationNative = useSettingsStore((s) => s.translationNativeLanguage);
+  const translationLearning = useSettingsStore((s) => s.translationLearningLanguage);
+  const openFloat = useFloatingSessionsStore((s) => s.open);
+
+  const popupExtract = useCallback(
+    (e: { clientX: number; clientY: number }) => {
+      const term = { getSelection: () => getXtermSelection() ?? '', hasSelection: () => hasXtermSelection() };
+      return extractXtermSelection(term, rootRef.current, e);
+    },
+    [getXtermSelection, hasXtermSelection],
+  );
+  const popup = useSelectionPopup({
+    enabled: translationEnabled && !!originSessionId,
+    trigger: translationTrigger,
+    containerRef: rootRef,
+    extract: popupExtract,
+  });
+
+  const [translateAnswerBusy, setTranslateAnswerBusy] = useState(false);
+  const handleTranslateAnswer = useCallback(async () => {
+    if (!originSessionId || translateAnswerBusy) return;
+    setTranslateAnswerBusy(true);
+    try {
+      const resp = await fetch('/api/sessions/spawn-floating', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          originSessionId,
+          mode: 'translate-answer',
+          nativeLanguage: translationNative,
+          learningLanguage: translationLearning,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Failed to spawn translation');
+      const origin = useSessionStore.getState().sessions.get(originSessionId);
+      await createLog({
+        mode: 'translate-answer',
+        nativeLanguage: translationNative,
+        learningLanguage: translationLearning,
+        selection: '',
+        contextLine: '',
+        filePath: '',
+        fileContent: '',
+        prompt: '',
+        originSessionId,
+        originProjectName: origin?.projectName ?? '',
+        originSessionTitle: origin?.title ?? '',
+        floatTerminalId: data.terminalId,
+      }).catch(() => { /* non-fatal */ });
+      openFloat({ terminalId: data.terminalId, label: data.label, originSessionId });
+    } catch {
+      // Swallow — error is surfaced via toast layer in a future pass; not critical here.
+    } finally {
+      setTranslateAnswerBusy(false);
+    }
+  }, [originSessionId, translateAnswerBusy, translationNative, translationLearning, openFloat]);
+
   const handleBookmark = useCallback(() => {
     const pos: TerminalBookmarkPosition | null = getTerminalBookmark();
     if (pos) {
@@ -415,6 +489,11 @@ export default memo(function TerminalContainer({
         onToggleAutoScroll={toggleAutoScroll}
         onFork={onFork}
         onClone={onClone}
+        onTranslateAnswer={
+          translationEnabled && originSessionId ? handleTranslateAnswer : undefined
+        }
+        translateAnswerLanguage={translationNative}
+        translateAnswerBusy={translateAnswerBusy}
         isFullscreen={isFullscreen}
         showReconnect={showReconnect || (isClosed && !!onReconnect)}
         ttsEnabled={ttsEnabled}
@@ -422,6 +501,13 @@ export default memo(function TerminalContainer({
         onTtsPressStart={startTts}
         onTtsPressEnd={stopTts}
       />
+      {popup.active && originSessionId && (
+        <SelectionPopup
+          selection={popup.active}
+          originSessionId={originSessionId}
+          onClose={popup.close}
+        />
+      )}
       <div className={styles.terminalArea} style={{ position: 'relative' }}>
         {isClosed && onReconnect && (
           <div className={styles.closedOverlay}>

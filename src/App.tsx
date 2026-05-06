@@ -14,6 +14,7 @@ import ShortcutsPanel from '@/components/modals/ShortcutsPanel';
 import ShortcutSettingsModal from '@/components/modals/ShortcutSettingsModal';
 import GlobalSearchModal from '@/components/modals/GlobalSearchModal';
 import DetailPanel from '@/components/session/DetailPanel';
+import FloatingTerminalRoot from '@/components/session/FloatingTerminalRoot';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useSettingsInit } from '@/hooks/useSettingsInit';
 import { useWorkspaceAutoSave } from '@/hooks/useWorkspaceAutoSave';
@@ -27,6 +28,7 @@ import WorkspaceLoadingOverlay from '@/components/ui/WorkspaceLoadingOverlay';
 const HistoryView = lazy(() => import('@/routes/HistoryView'));
 const QueueView = lazy(() => import('@/routes/QueueView'));
 const AgendaView = lazy(() => import('@/routes/AgendaView'));
+const ReviewView = lazy(() => import('@/routes/ReviewView'));
 const ProjectBrowserView = lazy(() => import('@/routes/ProjectBrowserView'));
 
 const queryClient = new QueryClient({
@@ -59,6 +61,7 @@ function AppLayout() {
       <ShortcutSettingsModal />
       <GlobalSearchModal />
       <DetailPanel />
+      <FloatingTerminalRoot />
     </div>
   );
 }
@@ -105,6 +108,7 @@ function Dashboard({ token }: { token: string | null }) {
             <Route path="/agenda" element={<AgendaView />} />
             <Route path="/history" element={<HistoryView />} />
             <Route path="/queue" element={<QueueView />} />
+            <Route path="/review" element={<ReviewView />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

@@ -38,3 +38,9 @@ Users often want to explore a project's file tree without keeping the whole sess
 - Changing the `?path=` contract breaks every in-app deep link to the browser
 - `ProjectTab` expects a session context in some paths — regressions there can surface as empty-state bugs here
 - Removing the empty-state branch would render a broken `ProjectTab` when `path` is missing
+
+## Floating Terminal Fork
+ProjectTab's markdown viewer hosts the SelectionPopup (DOM extractor) and the
+"Translate file" toolbar button when invoked from a DetailPanel that has an
+active session id. Standalone Project Browser route has no session, so both
+features are hidden there. See [Floating Terminal Fork](./floating-terminal-fork.md).
