@@ -1329,22 +1329,34 @@ export function getSessionsForRespawn(): Array<{ sessionId: string; session: Ses
 }
 
 // ---- #21: Register terminal exit callback to unbind session when PTY dies ----
+// Prefer the session that "owns" the dying terminal (sessionId / replacesId match
+// the terminalId) over any other session whose terminalId happens to point at it.
+// Without this preference, closing a floating fork PTY could iterate sessions
+// in insertion order and steal the unlink from the origin session, disconnecting
+// its terminal in the UI.
 registerTerminalExitCallback((terminalId: string) => {
-  for (const [_id, session] of sessions) {
+  let owner: { id: string; session: Session; isOps: boolean } | null = null;
+  let fallback: { id: string; session: Session; isOps: boolean } | null = null;
+  for (const [id, session] of sessions) {
     if (session.terminalId === terminalId) {
-      session.lastTerminalId = terminalId;
-      session.terminalId = null;
-      invalidateSessionsCache();
-      log.info('session', `Terminal ${terminalId} exited — unlinked from session ${_id.slice(0, 8)}`);
-      break;
-    }
-    if (session.opsTerminalId === terminalId) {
-      session.opsTerminalId = null;
-      invalidateSessionsCache();
-      log.info('session', `Ops terminal ${terminalId} exited — unlinked from session ${_id.slice(0, 8)}`);
-      break;
+      const owns = session.sessionId === terminalId || session.replacesId === terminalId;
+      if (owns) { owner = { id, session, isOps: false }; break; }
+      if (!fallback) fallback = { id, session, isOps: false };
+    } else if (session.opsTerminalId === terminalId) {
+      if (!fallback) fallback = { id, session, isOps: true };
     }
   }
+  const target = owner ?? fallback;
+  if (!target) return;
+  if (target.isOps) {
+    target.session.opsTerminalId = null;
+    log.info('session', `Ops terminal ${terminalId} exited — unlinked from session ${target.id.slice(0, 8)}`);
+  } else {
+    target.session.lastTerminalId = terminalId;
+    target.session.terminalId = null;
+    log.info('session', `Terminal ${terminalId} exited — unlinked from session ${target.id.slice(0, 8)}`);
+  }
+  invalidateSessionsCache();
 });
 
 // ---- Start background monitors ----
