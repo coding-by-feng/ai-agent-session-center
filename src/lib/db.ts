@@ -120,6 +120,41 @@ export interface DbTeam {
   createdAt: number;
 }
 
+/** A saved explanation or translation, captured when the user clicks one of
+ *  the four select-to-translate buttons. The `response` is filled in later
+ *  when the corresponding floating session is closed. */
+export interface DbTranslationLog {
+  id?: number;
+  /** Stable id used to find the row from across spawn-time and close-time. */
+  uuid: string;
+  mode: 'explain-learning' | 'explain-native' | 'translate-answer' | 'translate-file';
+  nativeLanguage: string;
+  learningLanguage: string;
+  /** Selected text (modes 1, 2, 3). For translate-file this is empty. */
+  selection: string;
+  /** Surrounding sentence/line for selection-anchored modes. */
+  contextLine: string;
+  /** Source file path for translate-file. */
+  filePath: string;
+  /** File content for translate-file (≤ 256 KB enforced server-side). */
+  fileContent: string;
+  /** The synthesized prompt sent to the CLI. */
+  prompt: string;
+  /** Captured CLI output, ANSI-stripped. Empty until the float is closed. */
+  response: string;
+  originSessionId: string;
+  originProjectName: string;
+  originSessionTitle: string;
+  /** Terminal id of the floating session that produced this entry. */
+  floatTerminalId: string;
+  /** Optional user-authored note. */
+  notes: string;
+  /** 1 = archived (hidden by default), 0 = active. */
+  archived: 0 | 1;
+  createdAt: number;
+  updatedAt: number;
+}
+
 // ---------------------------------------------------------------------------
 // Database class
 // ---------------------------------------------------------------------------
@@ -137,6 +172,7 @@ class DashboardDb extends Dexie {
   settings!: EntityTable<DbSetting, 'key'>;
   summaryPrompts!: EntityTable<DbSummaryPrompt, 'id'>;
   teams!: EntityTable<DbTeam, 'id'>;
+  translationLogs!: EntityTable<DbTranslationLog, 'id'>;
 
   constructor() {
     super('claude-dashboard');
@@ -166,6 +202,36 @@ class DashboardDb extends Dexie {
         '++id, isDefault',
       teams:
         'id',
+    });
+
+    // v3 — adds translationLogs for the REVIEW tab (saved explanations / translations).
+    this.version(3).stores({
+      sessions:
+        'id, status, projectPath, startedAt, lastActivityAt, archived',
+      prompts:
+        '++id, sessionId, timestamp, [sessionId+timestamp]',
+      responses:
+        '++id, sessionId, timestamp, [sessionId+timestamp]',
+      toolCalls:
+        '++id, sessionId, timestamp, toolName, [sessionId+timestamp]',
+      events:
+        '++id, sessionId, timestamp, [sessionId+timestamp]',
+      notes:
+        '++id, sessionId',
+      promptQueue:
+        '++id, sessionId, [sessionId+position]',
+      alerts:
+        '++id, sessionId',
+      sshProfiles:
+        '++id, name',
+      settings:
+        'key',
+      summaryPrompts:
+        '++id, isDefault',
+      teams:
+        'id',
+      translationLogs:
+        '++id, uuid, mode, createdAt, originSessionId, archived, floatTerminalId',
     });
   }
 }

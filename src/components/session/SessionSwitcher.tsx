@@ -308,9 +308,6 @@ export default function SessionSwitcher({
           {secondaryName && (
             <span className={styles.switcherProject}>{secondaryName}</span>
           )}
-          {currentSession.label && (
-            <span className={styles.switcherLabel}>{currentSession.label}</span>
-          )}
         </div>
 
         {/* Right side: status + duration + display toggle + collapse + close */}

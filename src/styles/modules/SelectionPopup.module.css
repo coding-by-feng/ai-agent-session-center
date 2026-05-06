@@ -1,0 +1,69 @@
+/* SelectionPopup — floating two-button toolbar anchored to a text selection. */
+
+.popup {
+  position: fixed;
+  z-index: 9000;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: var(--panel-bg, rgba(10, 10, 26, 0.96));
+  border: 1px solid var(--panel-border, rgba(0, 255, 255, 0.35));
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 255, 255, 0.08);
+  backdrop-filter: blur(8px);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  user-select: none;
+  animation: selPopupIn 120ms ease-out;
+}
+
+@keyframes selPopupIn {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-primary, #e6f6ff);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 100ms ease, border-color 100ms ease, color 100ms ease;
+}
+
+.btn:hover:not(:disabled) {
+  background: rgba(0, 255, 255, 0.08);
+  border-color: rgba(0, 255, 255, 0.35);
+  color: var(--accent-cyan, #00f0ff);
+}
+
+.btn:active:not(:disabled) {
+  background: rgba(0, 255, 255, 0.16);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: progress;
+}
+
+.label {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.error {
+  padding: 0 8px;
+  color: var(--accent-red, #ff5e7a);
+  font-size: 11px;
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

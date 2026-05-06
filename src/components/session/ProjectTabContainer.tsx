@@ -234,6 +234,7 @@ export default function ProjectTabContainer({ projectPath, sessionId }: ProjectT
               persistId={sessionId ? `${sessionId}:${tab.id}` : tab.id}
               onOpenBrowserTab={handleOpenBrowserTab}
               onPathChange={(path, isFile) => handlePathChange(tab.id, path, isFile)}
+              originSessionId={sessionId}
             />
           </div>
         ))}

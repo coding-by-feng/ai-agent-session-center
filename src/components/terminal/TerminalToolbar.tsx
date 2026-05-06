@@ -131,6 +131,20 @@ function CloneIcon() {
 }
 
 /** Fork/branch SVG icon (git fork). */
+/** Translate / globe-with-fork SVG icon. Used for select-to-translate
+ * toolbar buttons that spawn a floating translation session. */
+function TranslateIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12 H21" />
+      <path d="M12 3 C8 7, 8 17, 12 21" />
+      <path d="M12 3 C16 7, 16 17, 12 21" />
+    </svg>
+  );
+}
+
 function ForkIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -199,6 +213,12 @@ interface TerminalToolbarProps {
   onToggleAutoScroll?: () => void;
   onFork?: () => void;
   onClone?: () => void;
+  /** Open a floating session that translates the previous assistant answer. */
+  onTranslateAnswer?: () => void;
+  /** Target language for the translate-answer button label, e.g. "中文". */
+  translateAnswerLanguage?: string;
+  /** True while the translate-answer request is in-flight. */
+  translateAnswerBusy?: boolean;
   isFullscreen: boolean;
   showReconnect?: boolean;
   /** Show hold-to-speak mic button (TTS enabled in settings). */
@@ -226,6 +246,9 @@ export default function TerminalToolbar({
   onToggleAutoScroll,
   onFork,
   onClone,
+  onTranslateAnswer,
+  translateAnswerLanguage = '',
+  translateAnswerBusy = false,
   isFullscreen,
   showReconnect = false,
   ttsEnabled = false,
@@ -380,6 +403,26 @@ export default function TerminalToolbar({
             aria-label={tooltips.termFork.label}
           >
             <ForkIcon />
+          </button>
+        </Tooltip>
+      )}
+
+      {onTranslateAnswer && (
+        <Tooltip
+          label={tooltips.termTranslateAnswer.label}
+          description={
+            translateAnswerLanguage
+              ? `Translate the previous assistant answer into ${translateAnswerLanguage}. Opens a floating session.`
+              : tooltips.termTranslateAnswer.description
+          }
+        >
+          <button
+            className={styles.toolbarBtn}
+            onClick={onTranslateAnswer}
+            disabled={translateAnswerBusy}
+            aria-label={tooltips.termTranslateAnswer.label}
+          >
+            <TranslateIcon />
           </button>
         </Tooltip>
       )}

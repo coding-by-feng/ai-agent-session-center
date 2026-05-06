@@ -210,6 +210,16 @@ interface SettingsState extends BrowserSettings {
   ttsVoiceZh: string;
   ttsSpeakingRate: number;
 
+  // Translation / Explain (select-to-translate)
+  translationEnabled: boolean;
+  translationNativeLanguage: string;
+  translationLearningLanguage: string;
+  translationTrigger: 'auto' | 'alt' | 'off';
+  /** When true, "Explain" modes fork the origin Claude session so the AI can
+   *  ground the explanation in the prior conversation. Translate modes are
+   *  unaffected (they're self-contained). */
+  translationInheritContext: boolean;
+
   // Autosave flash
   autosaveVisible: boolean;
 
@@ -245,6 +255,11 @@ interface SettingsState extends BrowserSettings {
   setTtsVoiceEn: (voice: string) => void;
   setTtsVoiceZh: (voice: string) => void;
   setTtsSpeakingRate: (rate: number) => void;
+  setTranslationEnabled: (enabled: boolean) => void;
+  setTranslationNativeLanguage: (lang: string) => void;
+  setTranslationLearningLanguage: (lang: string) => void;
+  setTranslationTrigger: (trigger: 'auto' | 'alt' | 'off') => void;
+  setTranslationInheritContext: (enabled: boolean) => void;
   persistSetting: (key: string, value: unknown) => Promise<void>;
   flashAutosave: () => void;
   resetDefaults: () => void;
@@ -302,6 +317,11 @@ const defaultSettings: SettingsData = {
   ttsVoiceEn: 'en-US-Chirp3-HD-Aoede',
   ttsVoiceZh: 'cmn-CN-Chirp3-HD-Aoede',
   ttsSpeakingRate: 1.0,
+  translationEnabled: true,
+  translationNativeLanguage: '简体中文',
+  translationLearningLanguage: 'English',
+  translationTrigger: 'auto',
+  translationInheritContext: true,
   autosaveVisible: false,
 };
 
@@ -519,6 +539,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setTtsVoiceEn: (voice) => { set({ ttsVoiceEn: voice }); get().persistSetting('ttsVoiceEn', voice); },
   setTtsVoiceZh: (voice) => { set({ ttsVoiceZh: voice }); get().persistSetting('ttsVoiceZh', voice); },
   setTtsSpeakingRate: (rate) => { set({ ttsSpeakingRate: rate }); get().persistSetting('ttsSpeakingRate', rate); },
+  setTranslationEnabled: (enabled) => { set({ translationEnabled: enabled }); get().persistSetting('translationEnabled', enabled); },
+  setTranslationNativeLanguage: (lang) => { set({ translationNativeLanguage: lang }); get().persistSetting('translationNativeLanguage', lang); },
+  setTranslationLearningLanguage: (lang) => { set({ translationLearningLanguage: lang }); get().persistSetting('translationLearningLanguage', lang); },
+  setTranslationTrigger: (trigger) => { set({ translationTrigger: trigger }); get().persistSetting('translationTrigger', trigger); },
+  setTranslationInheritContext: (enabled) => { set({ translationInheritContext: enabled }); get().persistSetting('translationInheritContext', enabled); },
 
   // #46: Safe serializer to prevent circular reference crashes
   persistSetting: async (key, value) => {

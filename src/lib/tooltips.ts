@@ -148,6 +148,28 @@ export const tooltips = {
     description: 'Pick a color theme for this terminal. The choice is remembered per session.',
   },
 
+  // ---- Selection popup (translate / explain) ----
+  selExplainLearning: {
+    label: 'Explain (learning language)',
+    description: 'Open a forked session that explains the selected text in your learning language. Same language — deeper unpacking.',
+  },
+  selExplainNative: {
+    label: 'Explain (native language)',
+    description: 'Open a forked session that explains the selected text in your native language. Use when there\'s a language gap.',
+  },
+  termTranslateAnswer: {
+    label: 'Translate previous answer',
+    description: 'Translate the most recent assistant response into your native language. Opens in a floating session.',
+  },
+  projTranslateFile: {
+    label: 'Translate this file',
+    description: 'Translate the current markdown file into your native language. Opens in a floating session.',
+  },
+  floatTerminalClose: {
+    label: 'Close floating session',
+    description: 'Close this floating terminal. The underlying session is killed.',
+  },
+
   // ---- ProjectTab toolbar ----
   projSearchFiles: {
     label: 'Search files by name',

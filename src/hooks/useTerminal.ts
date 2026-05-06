@@ -89,6 +89,10 @@ interface UseTerminalReturn {
   toggleAutoScroll: () => void;
   /** Read plain text from the terminal buffer. Returns current bottom baseY and the text of the last `lines` absolute lines (or all lines since `sinceAbsLine` if provided). */
   readRecentText: (options?: { lines?: number; sinceAbsLine?: number }) => { text: string; absBottom: number };
+  /** Get the current xterm text selection (if any). Returns null when no selection. */
+  getXtermSelection: () => string | null;
+  /** True when xterm currently has a non-empty selection. */
+  hasXtermSelection: () => boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -1296,5 +1300,15 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     autoScrollEnabled,
     toggleAutoScroll,
     readRecentText,
+    getXtermSelection: () => {
+      const t = activeRef.current?.term;
+      if (!t || !t.hasSelection()) return null;
+      const sel = t.getSelection();
+      return sel ? sel : null;
+    },
+    hasXtermSelection: () => {
+      const t = activeRef.current?.term;
+      return !!(t && t.hasSelection());
+    },
   };
 }
