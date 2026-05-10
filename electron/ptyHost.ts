@@ -32,6 +32,8 @@ export interface PtyCreateConfig {
   effortLevel?: string
   /** Model to auto-apply after Claude Code starts (opus/sonnet/haiku) */
   model?: string
+  /** Run `/remote-control <name>` automatically after Claude Code starts. */
+  remoteControlName?: string
 }
 
 interface PtyInstance {
@@ -301,7 +303,7 @@ export function createPty(config: PtyCreateConfig): string {
 
     // Auto-apply model and/or effort level after Claude Code starts
     const baseCommand = config.command || 'claude'
-    if ((config.model || config.effortLevel) && baseCommand.startsWith('claude')) {
+    if ((config.model || config.effortLevel || config.remoteControlName) && baseCommand.startsWith('claude')) {
       let autoBuffer = ''
       let autoSent = false
       const autoDisp = ptyProcess.onData((data: string) => {
@@ -319,6 +321,7 @@ export function createPty(config: PtyCreateConfig): string {
             const cmds: string[] = []
             if (config.model) cmds.push(`/model ${config.model}`)
             if (config.effortLevel) cmds.push(`/effort ${config.effortLevel}`)
+            if (config.remoteControlName) cmds.push(`/remote-control ${config.remoteControlName}`)
             cmds.forEach((cmd, i) => {
               setTimeout(() => {
                 const t2 = terminals.get(terminalId)

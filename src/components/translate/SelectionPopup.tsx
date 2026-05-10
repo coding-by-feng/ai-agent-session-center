@@ -1,8 +1,12 @@
 /**
- * SelectionPopup — the floating two-icon toolbar that appears at a text
- * selection. Two modes:
- *   🔎 Explain in learning language
- *   🌐 Explain in native language
+ * SelectionPopup — the floating action toolbar that appears at a text
+ * selection. Two rows × two modes each:
+ *   Row 1 — Explain (inherits origin context for Claude sessions):
+ *     🔎 Explain in learning language
+ *     🌐 Explain in native language
+ *   Row 2 — Translate (pure, no context inheritance):
+ *     A→ Translate to learning language
+ *     A→ Translate to native language
  *
  * Surface-agnostic: works on terminals (via xterm extractor) and DOM viewers
  * (via DOM extractor). The parent supplies the originSessionId + extracted
@@ -25,8 +29,8 @@ interface SelectionPopupProps {
   onClose: () => void;
 }
 
-const POPUP_W = 230;
-const POPUP_H = 40;
+const POPUP_W = 240;
+const POPUP_H = 84;
 const VIEWPORT_MARGIN = 12;
 
 function clampToViewport(x: number, y: number): { x: number; y: number } {
@@ -59,6 +63,29 @@ function ExplainNativeIcon() {
   );
 }
 
+function TranslateIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      {/* Stylized "A" on the left */}
+      <path d="M2 8 L4 3 L6 8" />
+      <path d="M2.7 6.5 H5.3" />
+      {/* Arrow */}
+      <path d="M7 8 H11" />
+      <path d="M9.5 6.5 L11 8 L9.5 9.5" />
+      {/* CJK-like glyph on the right */}
+      <rect x="11.5" y="3" width="3.5" height="3.5" />
+      <path d="M11.5 9.5 H15" />
+      <path d="M13.25 9.5 V13" />
+    </svg>
+  );
+}
+
+type SpawnMode =
+  | 'explain-learning'
+  | 'explain-native'
+  | 'translate-selection-learning'
+  | 'translate-selection-native';
+
 export default function SelectionPopup({
   selection,
   originSessionId,
@@ -70,7 +97,7 @@ export default function SelectionPopup({
   const openFloat = useFloatingSessionsStore((s) => s.open);
   const sessions = useSessionStore((s) => s.sessions);
 
-  const [busy, setBusy] = useState<null | 'learning' | 'native'>(null);
+  const [busy, setBusy] = useState<SpawnMode | null>(null);
   const [error, setError] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -80,9 +107,9 @@ export default function SelectionPopup({
     selection.anchor.bottom + 6,
   );
 
-  const spawn = useCallback(async (mode: 'explain-learning' | 'explain-native') => {
+  const spawn = useCallback(async (mode: SpawnMode) => {
     if (busy) return;
-    setBusy(mode === 'explain-learning' ? 'learning' : 'native');
+    setBusy(mode);
     setError(null);
     try {
       const resp = await fetch('/api/sessions/spawn-floating', {
@@ -127,7 +154,7 @@ export default function SelectionPopup({
     } finally {
       setBusy(null);
     }
-  }, [busy, originSessionId, selection, nativeLanguage, learningLanguage, openFloat, onClose]);
+  }, [busy, originSessionId, selection, nativeLanguage, learningLanguage, inheritContext, sessions, openFloat, onClose]);
 
   // Auto-dismiss errors after 3s
   useEffect(() => {
@@ -148,38 +175,74 @@ export default function SelectionPopup({
       aria-label="Selection actions"
       onMouseDown={(e) => e.stopPropagation()}
     >
-      <Tooltip
-        label={`Explain (${learningLanguage})`}
-        description={tooltips.selExplainLearning.description}
-        placement="bottom"
-      >
-        <button
-          type="button"
-          className={styles.btn}
-          disabled={busy !== null}
-          onClick={() => spawn('explain-learning')}
-          aria-label={`Explain in ${learningLanguage}`}
+      <div className={styles.row}>
+        <Tooltip
+          label={`Explain (${learningLanguage})`}
+          description={tooltips.selExplainLearning.description}
+          placement="bottom"
         >
-          <ExplainEnIcon />
-          <span className={styles.label}>{learningLanguage}</span>
-        </button>
-      </Tooltip>
-      <Tooltip
-        label={`Explain (${nativeLanguage})`}
-        description={tooltips.selExplainNative.description}
-        placement="bottom"
-      >
-        <button
-          type="button"
-          className={styles.btn}
-          disabled={busy !== null}
-          onClick={() => spawn('explain-native')}
-          aria-label={`Explain in ${nativeLanguage}`}
+          <button
+            type="button"
+            className={styles.btn}
+            disabled={busy !== null}
+            onClick={() => spawn('explain-learning')}
+            aria-label={`Explain in ${learningLanguage}`}
+          >
+            <ExplainEnIcon />
+            <span className={styles.label}>{learningLanguage}</span>
+          </button>
+        </Tooltip>
+        <Tooltip
+          label={`Explain (${nativeLanguage})`}
+          description={tooltips.selExplainNative.description}
+          placement="bottom"
         >
-          <ExplainNativeIcon />
-          <span className={styles.label}>{nativeLanguage}</span>
-        </button>
-      </Tooltip>
+          <button
+            type="button"
+            className={styles.btn}
+            disabled={busy !== null}
+            onClick={() => spawn('explain-native')}
+            aria-label={`Explain in ${nativeLanguage}`}
+          >
+            <ExplainNativeIcon />
+            <span className={styles.label}>{nativeLanguage}</span>
+          </button>
+        </Tooltip>
+      </div>
+      <div className={styles.row}>
+        <Tooltip
+          label={`Translate → ${learningLanguage}`}
+          description={tooltips.selTranslateLearning.description}
+          placement="bottom"
+        >
+          <button
+            type="button"
+            className={styles.btn}
+            disabled={busy !== null}
+            onClick={() => spawn('translate-selection-learning')}
+            aria-label={`Translate to ${learningLanguage}`}
+          >
+            <TranslateIcon />
+            <span className={styles.label}>{learningLanguage}</span>
+          </button>
+        </Tooltip>
+        <Tooltip
+          label={`Translate → ${nativeLanguage}`}
+          description={tooltips.selTranslateNative.description}
+          placement="bottom"
+        >
+          <button
+            type="button"
+            className={styles.btn}
+            disabled={busy !== null}
+            onClick={() => spawn('translate-selection-native')}
+            aria-label={`Translate to ${nativeLanguage}`}
+          >
+            <TranslateIcon />
+            <span className={styles.label}>{nativeLanguage}</span>
+          </button>
+        </Tooltip>
+      </div>
       {error && <span className={styles.error} role="alert">{error}</span>}
     </div>,
     document.body,

@@ -91,8 +91,9 @@ export default function HeaderAgentStrip() {
     [sessions],
   );
 
-  // Build render items: room groups appear where their first (highest-priority)
-  // session would have appeared in the flat sorted list.
+  // Build render items: room groups appear in a stable order (sorted by
+  // roomIndex) so they don't shuffle when session statuses change. Orphan
+  // sessions (no room) render after the room groups, sorted by status.
   const renderItems = useMemo((): RenderItem[] => {
     const sessionToRoom = new Map<string, Room>();
     for (const room of rooms) {
@@ -101,25 +102,23 @@ export default function HeaderAgentStrip() {
       }
     }
 
-    const processedRooms = new Set<string>();
-    const seenSessions = new Set<string>();
     const items: RenderItem[] = [];
 
-    for (const session of activeSessions) {
-      if (seenSessions.has(session.sessionId)) continue;
-      seenSessions.add(session.sessionId);
+    const orderedRooms = [...rooms].sort(
+      (a, b) => (a.roomIndex ?? Number.MAX_SAFE_INTEGER) - (b.roomIndex ?? Number.MAX_SAFE_INTEGER),
+    );
 
-      const room = sessionToRoom.get(session.sessionId);
-      if (room && !processedRooms.has(room.id)) {
-        processedRooms.add(room.id);
-        const roomSessions = activeSessions.filter((s) =>
-          room.sessionIds.includes(s.sessionId),
-        );
-        roomSessions.forEach((s) => seenSessions.add(s.sessionId));
-        items.push({ type: 'room', room, sessions: roomSessions, color: getRoomColor(room) });
-      } else if (!room) {
-        items.push({ type: 'session', session });
-      }
+    for (const room of orderedRooms) {
+      const roomSessions = activeSessions.filter((s) =>
+        room.sessionIds.includes(s.sessionId),
+      );
+      if (roomSessions.length === 0) continue;
+      items.push({ type: 'room', room, sessions: roomSessions, color: getRoomColor(room) });
+    }
+
+    for (const session of activeSessions) {
+      if (sessionToRoom.has(session.sessionId)) continue;
+      items.push({ type: 'session', session });
     }
 
     return items;

@@ -127,7 +127,13 @@ export interface DbTranslationLog {
   id?: number;
   /** Stable id used to find the row from across spawn-time and close-time. */
   uuid: string;
-  mode: 'explain-learning' | 'explain-native' | 'translate-answer' | 'translate-file';
+  mode:
+    | 'explain-learning'
+    | 'explain-native'
+    | 'translate-selection-learning'
+    | 'translate-selection-native'
+    | 'translate-answer'
+    | 'translate-file';
   nativeLanguage: string;
   learningLanguage: string;
   /** Selected text (modes 1, 2, 3). For translate-file this is empty. */

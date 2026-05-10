@@ -15,6 +15,7 @@ interface SessionState {
   togglePin: (sessionId: string) => void;
   toggleMute: (sessionId: string) => void;
   toggleAlert: (sessionId: string) => void;
+  setSessionTitle: (sessionId: string, title: string) => void;
 }
 
 export const useSessionStore = create<SessionState>((set) => ({
@@ -110,6 +111,22 @@ export const useSessionStore = create<SessionState>((set) => ({
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ alerted }),
+      }).catch(() => { /* ignore network errors */ });
+      return { sessions: next };
+    }),
+
+  setSessionTitle: (sessionId, title) =>
+    set((state) => {
+      const session = state.sessions.get(sessionId);
+      if (!session) return state;
+      const trimmed = title.trim();
+      if (!trimmed || trimmed === session.title) return state;
+      const next = new Map(state.sessions);
+      next.set(sessionId, { ...session, title: trimmed });
+      fetch(`/api/sessions/${encodeURIComponent(sessionId)}/title`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: trimmed }),
       }).catch(() => { /* ignore network errors */ });
       return { sessions: next };
     }),

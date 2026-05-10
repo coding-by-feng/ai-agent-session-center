@@ -212,6 +212,14 @@ export interface Session {
   pinned?: boolean;
   /** When true, play loud alert sounds for approval, input, and task completion */
   alerted?: boolean;
+  /**
+   * Marks this session as a forked floating "explain"/"translate" session.
+   * Read by the kill flow to skip the cwd-based PID lookup (which would otherwise
+   * collide with the origin's claude process since they share projectPath).
+   */
+  isFork?: boolean;
+  /** Origin session id this fork was spawned from (for traceability). */
+  originSessionId?: string;
 }
 
 // ---------------------------------------------------------------------------

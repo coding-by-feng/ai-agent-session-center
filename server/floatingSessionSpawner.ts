@@ -7,10 +7,12 @@
  * positional argument.
  *
  * Modes:
- *   explain-learning    — explain the selected text in the user's learning lang
- *   explain-native      — explain the selected text in the user's native lang
- *   translate-answer    — translate the origin's last assistant message → native
- *   translate-file      — translate the supplied file content → native
+ *   explain-learning            — explain the selected text in the user's learning lang
+ *   explain-native              — explain the selected text in the user's native lang
+ *   translate-selection-learning — direct translation of the selection → learning lang
+ *   translate-selection-native   — direct translation of the selection → native lang
+ *   translate-answer            — translate the origin's last assistant message → native
+ *   translate-file              — translate the supplied file content → native
  *
  * For `translate-answer`, the previous assistant message is read from the
  * Claude transcript file (server/extractPreviousAnswer.ts). Cross-CLI support
@@ -26,6 +28,8 @@ import type { TerminalConfig } from '../src/types/terminal.js';
 export type FloatingMode =
   | 'explain-learning'
   | 'explain-native'
+  | 'translate-selection-learning'
+  | 'translate-selection-native'
   | 'translate-answer'
   | 'translate-file';
 
@@ -91,6 +95,8 @@ function floatLabel(mode: FloatingMode, native: string, learning: string): strin
   switch (mode) {
     case 'explain-learning': return `Explain (${learning})`;
     case 'explain-native': return `Explain (${native})`;
+    case 'translate-selection-learning': return `Translate → ${learning}`;
+    case 'translate-selection-native': return `Translate → ${native}`;
     case 'translate-answer': return `Translate answer → ${native}`;
     case 'translate-file': return `Translate file → ${native}`;
   }
@@ -120,6 +126,30 @@ function buildPrompt(args: SpawnFloatingArgs, prevAnswer: string | null): string
         `Explain the following in ${nativeLanguage}. Use ${nativeLanguage} for the explanation. Cover meaning, nuance, and any technical concepts. Be concise.`,
         ctx,
         `Selected text:`,
+        `"""`,
+        selection,
+        `"""`,
+      ].join('\n');
+
+    case 'translate-selection-learning':
+      if (!selection) return null;
+      return [
+        `Translate the following text into ${learningLanguage}.`,
+        `Output ONLY the translation — no explanations, no notes, no surrounding quotes.`,
+        `Preserve original formatting (line breaks, code, lists, markdown).`,
+        ``,
+        `"""`,
+        selection,
+        `"""`,
+      ].join('\n');
+
+    case 'translate-selection-native':
+      if (!selection) return null;
+      return [
+        `Translate the following text into ${nativeLanguage}.`,
+        `Output ONLY the translation — no explanations, no notes, no surrounding quotes.`,
+        `Preserve original formatting (line breaks, code, lists, markdown).`,
+        ``,
         `"""`,
         selection,
         `"""`,
@@ -216,6 +246,8 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
     ...newConfig,
     command: launchCmd,
     sessionTitle: `${label} · ${origin.title || origin.projectName || 'session'}`.slice(0, 200),
+    isFork: true,
+    originSessionId: args.originSessionId,
   });
 
   let prefix = '';

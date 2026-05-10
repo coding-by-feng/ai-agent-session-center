@@ -33,6 +33,8 @@ export interface PtyCreateConfig {
   effortLevel?: string
   /** Model to auto-apply after Claude Code starts (opus/sonnet/haiku) */
   model?: string
+  /** Run `/remote-control <name>` automatically after Claude Code starts. */
+  remoteControlName?: string
 }
 
 export interface PtyCreateResult {

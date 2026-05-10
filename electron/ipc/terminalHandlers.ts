@@ -30,6 +30,8 @@ export function registerTerminalHandlers(): void {
     apiKey?: string
     enableOpsTerminal?: boolean
     effortLevel?: string
+    model?: string
+    remoteControlName?: string
   }) => {
     try {
       const terminalId = createPty(config)
