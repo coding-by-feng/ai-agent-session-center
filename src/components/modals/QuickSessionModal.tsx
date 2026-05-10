@@ -10,6 +10,12 @@ import { useUiStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { useKnownProjects } from '@/hooks/useKnownProjects';
+import {
+  deriveRemoteControlName,
+  loadRemoteControlSettings,
+  saveRemoteControlSettings,
+  sanitizeRemoteControlName,
+} from '@/lib/remoteControlName';
 import styles from '@/styles/modules/Modal.module.css';
 
 // Default CLI command suggestions for the Command field
@@ -109,6 +115,10 @@ export default function QuickSessionModal() {
   const [model, setModel] = useState('');
   const [roomId, setRoomId] = useState('');
   const [enableOpsTerminal, setEnableOpsTerminal] = useState(false);
+  const [remoteControlSettings] = useState(() => loadRemoteControlSettings());
+  const [enableRemoteControl, setEnableRemoteControl] = useState(remoteControlSettings.enabled);
+  const [remoteControlName, setRemoteControlName] = useState('');
+  const [remoteControlNameTouched, setRemoteControlNameTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   // Rooms
@@ -123,6 +133,15 @@ export default function QuickSessionModal() {
   const workingDirValid = workingDir.trim().length > 0;
   const commandValid = command.trim().length > 0;
   const formValid = workingDirValid && commandValid;
+
+  const isClaudeCommand = command.trim().toLowerCase().startsWith('claude');
+  const autoRemoteControlName = useMemo(
+    () => deriveRemoteControlName(sessionTitle, workingDir, useSessionStore.getState().sessions.values()),
+    [sessionTitle, workingDir],
+  );
+  const effectiveRemoteControlName = remoteControlNameTouched && remoteControlName
+    ? sanitizeRemoteControlName(remoteControlName)
+    : autoRemoteControlName;
 
   const allLabels = useMemo(
     () => [...BUILT_IN_LABELS, ...customLabels.filter((l) => !BUILT_IN_LABELS.includes(l))],
@@ -155,6 +174,11 @@ export default function QuickSessionModal() {
     try {
       let terminalId: string | undefined;
 
+      const remoteControlPayload =
+        isClaudeCommand && enableRemoteControl && effectiveRemoteControlName
+          ? effectiveRemoteControlName
+          : undefined;
+
       // Electron: use IPC to create PTY directly (VS Code-style)
       if (window.electronAPI?.createPty) {
         const result = await window.electronAPI.createPty({
@@ -165,6 +189,7 @@ export default function QuickSessionModal() {
           effortLevel: effortLevel || undefined,
           model: model || undefined,
           enableOpsTerminal: enableOpsTerminal || undefined,
+          remoteControlName: remoteControlPayload,
         });
         if (!result.ok) {
           showToast(result.error || 'Failed to create terminal', 'error');
@@ -185,6 +210,7 @@ export default function QuickSessionModal() {
             effortLevel: effortLevel || undefined,
             model: model || undefined,
             enableOpsTerminal: enableOpsTerminal || undefined,
+            remoteControlName: remoteControlPayload,
             forceNew: true,
           }),
         });
@@ -196,6 +222,10 @@ export default function QuickSessionModal() {
         terminalId = data.terminalId;
       }
 
+      saveRemoteControlSettings({
+        enabled: enableRemoteControl,
+        lastName: remoteControlNameTouched ? remoteControlName : undefined,
+      });
       showToast(`Quick session launched${selectedLabel ? ` [${selectedLabel}]` : ''}`, 'success');
       if (terminalId) {
         useSessionStore.getState().selectSession(terminalId);
@@ -315,6 +345,34 @@ export default function QuickSessionModal() {
               />
             </div>
           </div>
+          )}
+
+          {/* Remote control (Claude only) */}
+          {isClaudeCommand && (
+            <div className={styles.quickWorkdirRow}>
+              <label className={styles.opsCheckboxRow} style={{ marginBottom: 4 }}>
+                <input
+                  type="checkbox"
+                  checked={enableRemoteControl}
+                  onChange={(e) => setEnableRemoteControl(e.target.checked)}
+                />
+                <div className={styles.opsCheckboxText}>
+                  <span className={styles.opsCheckboxLabel}>Enable Remote Control</span>
+                  <span className={styles.opsCheckboxHint}>Auto-runs <code>/remote-control &lt;name&gt;</code> after Claude starts</span>
+                </div>
+              </label>
+              {enableRemoteControl && (
+                <input
+                  value={remoteControlNameTouched ? remoteControlName : autoRemoteControlName}
+                  onChange={(e) => {
+                    setRemoteControlName(e.target.value);
+                    setRemoteControlNameTouched(true);
+                  }}
+                  placeholder={autoRemoteControlName}
+                  style={{ marginTop: 4 }}
+                />
+              )}
+            </div>
           )}
 
           {/* Room */}

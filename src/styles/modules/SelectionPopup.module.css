@@ -1,11 +1,13 @@
-/* SelectionPopup — floating two-button toolbar anchored to a text selection. */
+/* SelectionPopup — floating action toolbar anchored to a text selection.
+   Two rows: Explain (top) and Translate (bottom), each with learning/native variants. */
 
 .popup {
   position: fixed;
   z-index: 9000;
   display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
   padding: 4px;
   background: var(--panel-bg, rgba(10, 10, 26, 0.96));
   border: 1px solid var(--panel-border, rgba(0, 255, 255, 0.35));
@@ -20,6 +22,12 @@
 @keyframes selPopupIn {
   from { opacity: 0; transform: translateY(-3px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+.row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .btn {

@@ -223,6 +223,14 @@ function IconOpenProjectView() {
     </svg>
   );
 }
+function IconCopy() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <rect x="5" y="5" width="9" height="9" rx="1" />
+      <path d="M3 11V3a1 1 0 0 1 1-1h7" />
+    </svg>
+  );
+}
 function IconRevealInFinder() {
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -1183,6 +1191,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const [mdDraft, setMdDraft] = useState('');
   const [mdSaving, setMdSaving] = useState(false);
   const markdownRef = useRef<HTMLDivElement>(null);
+  const markdownFsRef = useRef<HTMLDivElement>(null);
   const mdContainerRef = useRef<HTMLDivElement>(null);
   const codeViewerRef = useRef<HTMLDivElement>(null);
 
@@ -1196,11 +1205,21 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     (_e: { clientX: number; clientY: number }) => extractDomSelection(markdownRef.current),
     [],
   );
+  const popupExtractFs = useCallback(
+    (_e: { clientX: number; clientY: number }) => extractDomSelection(markdownFsRef.current),
+    [],
+  );
   const popup = useSelectionPopup({
-    enabled: translationEnabled && !!originSessionId && !mdEdit,
+    enabled: translationEnabled && !!originSessionId && !mdEdit && !showFullscreen,
     trigger: translationTrigger,
     containerRef: markdownRef,
     extract: popupExtract,
+  });
+  const popupFs = useSelectionPopup({
+    enabled: translationEnabled && !!originSessionId && showFullscreen,
+    trigger: translationTrigger,
+    containerRef: markdownFsRef,
+    extract: popupExtractFs,
   });
   const [translateFileBusy, setTranslateFileBusy] = useState(false);
   // Bumped after each successful Refresh so the scroll-restore effect re-fires
@@ -1888,6 +1907,20 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     }
   }, [projectPath, currentPath, file, provider]);
 
+  const handleCopyFilePath = useCallback(async () => {
+    if (!file) return;
+    const rel = file.path.startsWith('/') ? file.path.slice(1) : file.path;
+    const base = projectPath.endsWith('/') ? projectPath.slice(0, -1) : projectPath;
+    const absPath = rel ? `${base}/${rel}` : base;
+    try {
+      await navigator.clipboard.writeText(absPath);
+      showToast('Path copied', 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Copy failed: ${msg}`, 'error');
+    }
+  }, [projectPath, file]);
+
   // Bookmark: add from selection or toggle panel
   const handleBookmarkBtnClick = useCallback(() => {
     const sel = window.getSelection();
@@ -2238,6 +2271,48 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     return currentPath;
   }, [showingFile, showingEditor, currentPath, editingNewFile]);
 
+  // Shared ReactMarkdown components — used by inline + fullscreen viewers.
+  const mdComponents = useMemo(() => ({
+    a: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
+      if (href && /\.mdx?($|#)/.test(href) && !href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('//')) {
+        const hrefPath = href.split('#')[0];
+        const dir = (currentPath || '').includes('/') ? (currentPath || '').slice(0, (currentPath || '').lastIndexOf('/')) : '';
+        const joined = dir ? `${dir}/${hrefPath}` : hrefPath;
+        const parts = joined.split('/');
+        const resolved: string[] = [];
+        for (const part of parts) {
+          if (part === '..') resolved.pop();
+          else if (part !== '.') resolved.push(part);
+        }
+        const resolvedPath = resolved.join('/');
+        return <a {...props} href="#" onClick={(e) => { e.preventDefault(); loadFile(resolvedPath); }}>{children}</a>;
+      }
+      return <a {...props} href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
+    },
+    img: ({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => {
+      if (!src || typeof src !== 'string') return <img {...props} src={src} alt={alt} />;
+      if (/^(?:[a-z]+:)?\/\//i.test(src) || src.startsWith('data:') || src.startsWith('blob:') || src.startsWith('/api/')) {
+        return <img {...props} src={src} alt={alt} />;
+      }
+      const dir = (currentPath || '').includes('/') ? (currentPath || '').slice(0, (currentPath || '').lastIndexOf('/')) : '';
+      const joined = src.startsWith('/') ? src.slice(1) : (dir ? `${dir}/${src}` : src);
+      const parts = joined.split('/');
+      const resolved: string[] = [];
+      for (const part of parts) {
+        if (part === '..') resolved.pop();
+        else if (part !== '.' && part !== '') resolved.push(part);
+      }
+      const resolvedPath = '/' + resolved.join('/');
+      return <img {...props} src={provider.streamUrl(projectPath, resolvedPath)} alt={alt} />;
+    },
+    h1: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h1 id={headingSlug(String(children))} {...props}>{children}</h1>,
+    h2: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h2 id={headingSlug(String(children))} {...props}>{children}</h2>,
+    h3: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h3 id={headingSlug(String(children))} {...props}>{children}</h3>,
+    h4: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h4 id={headingSlug(String(children))} {...props}>{children}</h4>,
+    h5: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h5 id={headingSlug(String(children))} {...props}>{children}</h5>,
+    h6: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h6 id={headingSlug(String(children))} {...props}>{children}</h6>,
+  }), [currentPath, loadFile, provider, projectPath]);
+
   return (
     <div ref={rootRef} className={styles.projectTab}>
       {popup.active && originSessionId && (
@@ -2245,6 +2320,13 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
           selection={popup.active}
           originSessionId={originSessionId}
           onClose={popup.close}
+        />
+      )}
+      {popupFs.active && originSessionId && (
+        <SelectionPopup
+          selection={popupFs.active}
+          originSessionId={originSessionId}
+          onClose={popupFs.close}
         />
       )}
       {/* Icon toolbar */}
@@ -2638,6 +2720,15 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                   );
                 })}
               </div>
+              <Tooltip {...tooltips.projCopyPath}>
+                <button
+                  className={styles.iconBtn}
+                  onClick={handleCopyFilePath}
+                  aria-label={tooltips.projCopyPath.label}
+                >
+                  <IconCopy />
+                </button>
+              </Tooltip>
             </div>
           )}
 
@@ -2790,46 +2881,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         rehypePlugins={[rehypeHighlight]}
-                        components={{
-                          a: ({ children, href, ...props }) => {
-                            if (href && /\.mdx?($|#)/.test(href) && !href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('//')) {
-                              const hrefPath = href.split('#')[0];
-                              const dir = (currentPath || '').includes('/') ? (currentPath || '').slice(0, (currentPath || '').lastIndexOf('/')) : '';
-                              const joined = dir ? `${dir}/${hrefPath}` : hrefPath;
-                              const parts = joined.split('/');
-                              const resolved: string[] = [];
-                              for (const part of parts) {
-                                if (part === '..') resolved.pop();
-                                else if (part !== '.') resolved.push(part);
-                              }
-                              const resolvedPath = resolved.join('/');
-                              return <a {...props} href="#" onClick={(e) => { e.preventDefault(); loadFile(resolvedPath); }}>{children}</a>;
-                            }
-                            return <a {...props} href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
-                          },
-                          img: ({ src, alt, ...props }) => {
-                            if (!src || typeof src !== 'string') return <img {...props} src={src} alt={alt} />;
-                            if (/^(?:[a-z]+:)?\/\//i.test(src) || src.startsWith('data:') || src.startsWith('blob:') || src.startsWith('/api/')) {
-                              return <img {...props} src={src} alt={alt} />;
-                            }
-                            const dir = (currentPath || '').includes('/') ? (currentPath || '').slice(0, (currentPath || '').lastIndexOf('/')) : '';
-                            const joined = src.startsWith('/') ? src.slice(1) : (dir ? `${dir}/${src}` : src);
-                            const parts = joined.split('/');
-                            const resolved: string[] = [];
-                            for (const part of parts) {
-                              if (part === '..') resolved.pop();
-                              else if (part !== '.' && part !== '') resolved.push(part);
-                            }
-                            const resolvedPath = '/' + resolved.join('/');
-                            return <img {...props} src={provider.streamUrl(projectPath, resolvedPath)} alt={alt} />;
-                          },
-                          h1: ({ children, ...props }) => <h1 id={headingSlug(String(children))} {...props}>{children}</h1>,
-                          h2: ({ children, ...props }) => <h2 id={headingSlug(String(children))} {...props}>{children}</h2>,
-                          h3: ({ children, ...props }) => <h3 id={headingSlug(String(children))} {...props}>{children}</h3>,
-                          h4: ({ children, ...props }) => <h4 id={headingSlug(String(children))} {...props}>{children}</h4>,
-                          h5: ({ children, ...props }) => <h5 id={headingSlug(String(children))} {...props}>{children}</h5>,
-                          h6: ({ children, ...props }) => <h6 id={headingSlug(String(children))} {...props}>{children}</h6>,
-                        }}
+                        components={mdComponents}
                       >
                         {file.content || ''}
                       </ReactMarkdown>
@@ -2993,6 +3045,16 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                 <div className={styles.empty}>Binary file ({formatSize(file.size)})</div>
               ) : file.ext === 'tex' && texPreview ? (
                 <TexViewer source={file.content || ''} fileKey={file.path} />
+              ) : file.ext === 'md' || file.ext === 'mdx' ? (
+                <div className={styles.markdown} ref={markdownFsRef}>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    rehypePlugins={[rehypeHighlight]}
+                    components={mdComponents}
+                  >
+                    {file.content || ''}
+                  </ReactMarkdown>
+                </div>
               ) : (file.content || '').split('\n').length > VIRTUALIZE_THRESHOLD ? (
                 <VirtualCodeViewer content={file.content || ''} filePath={file.path} bookmarks={bookmarks} wordWrap={wordWrap} scrollKey={fileScrollKey} findTerm={findTerm} findCaseSensitive={findCaseSensitive} scrollToLine={findScrollTarget} activeMatch={findActiveMatch} />
               ) : (

@@ -19,6 +19,8 @@ import styles from '@/styles/modules/ReviewView.module.css';
 const MODE_LABELS: Record<DbTranslationLog['mode'], string> = {
   'explain-learning': 'Explain (learning)',
   'explain-native': 'Explain (native)',
+  'translate-selection-learning': 'Translate → learning',
+  'translate-selection-native': 'Translate → native',
   'translate-answer': 'Translate answer',
   'translate-file': 'Translate file',
 };
@@ -26,6 +28,8 @@ const MODE_LABELS: Record<DbTranslationLog['mode'], string> = {
 const MODE_ICONS: Record<DbTranslationLog['mode'], string> = {
   'explain-learning': '🔎',
   'explain-native': '🌐',
+  'translate-selection-learning': '🔤',
+  'translate-selection-native': '🔤',
   'translate-answer': '⤴',
   'translate-file': '📝',
 };

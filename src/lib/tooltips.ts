@@ -157,6 +157,14 @@ export const tooltips = {
     label: 'Explain (native language)',
     description: 'Open a forked session that explains the selected text in your native language. Use when there\'s a language gap.',
   },
+  selTranslateLearning: {
+    label: 'Translate (learning language)',
+    description: 'Direct translation of the selection into your learning language. No explanation, no commentary — just the equivalent text.',
+  },
+  selTranslateNative: {
+    label: 'Translate (native language)',
+    description: 'Direct translation of the selection into your native language. No explanation, no commentary — just the equivalent text.',
+  },
   termTranslateAnswer: {
     label: 'Translate previous answer',
     description: 'Translate the most recent assistant response into your native language. Opens in a floating session.',
@@ -204,6 +212,10 @@ export const tooltips = {
   projRevealInFinder: {
     label: 'Reveal in Finder',
     description: 'Show the current file or folder in the OS file manager.',
+  },
+  projCopyPath: {
+    label: 'Copy file path',
+    description: 'Copy the absolute path of the current file to the clipboard.',
   },
   projFormat: {
     label: 'Format file',

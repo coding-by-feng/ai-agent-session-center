@@ -49,6 +49,8 @@ export interface TerminalConfig {
   effortLevel?: string;
   /** Model to auto-apply after Claude Code starts (opus/sonnet/haiku) */
   model?: string;
+  /** Run `/remote-control <name>` automatically after Claude Code starts. */
+  remoteControlName?: string;
   /** Session metadata — set during workspace import so the first WS broadcast includes them */
   pinned?: boolean;
   muted?: boolean;
@@ -64,6 +66,16 @@ export interface TerminalConfig {
    * SessionStart hook to the correct terminal card.
    */
   deferredLaunch?: boolean;
+  /**
+   * Marks this session as a forked floating "explain"/"translate" session.
+   * Forks share the origin's projectPath, which would otherwise cause the
+   * kill-by-PID lookup to match the origin's claude process and accidentally
+   * SIGTERM it. When true, the kill flow skips the PID lookup entirely and
+   * relies on the per-PTY kill (which only affects this fork's process group).
+   */
+  isFork?: boolean;
+  /** Origin session id this fork was spawned from (for traceability). */
+  originSessionId?: string;
 }
 
 // ---------------------------------------------------------------------------

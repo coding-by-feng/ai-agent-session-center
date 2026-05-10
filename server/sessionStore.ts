@@ -985,6 +985,10 @@ export async function createTerminalSession(terminalId: string, config: Terminal
   if (config.alerted) session.alerted = config.alerted;
   if (config.accentColor) session.accentColor = config.accentColor;
   if (config.characterModel) session.characterModel = config.characterModel;
+  if (config.isFork) {
+    session.isFork = true;
+    if (config.originSessionId) session.originSessionId = config.originSessionId;
+  }
   sessions.set(terminalId, session);
   invalidateSessionsCache();
   dbUpsertSession(session);

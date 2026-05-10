@@ -563,7 +563,7 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
           term.pty.write(launchCmd + '\r');
 
           // Auto-apply model and/or effort level after Claude Code starts
-          if ((config.model || config.effortLevel) && baseCommand.startsWith('claude')) {
+          if ((config.model || config.effortLevel || config.remoteControlName) && baseCommand.startsWith('claude')) {
             let autoBuffer = '';
             let autoSent = false;
             const autoDisp = ptyProcess.onData((data: string) => {
@@ -581,6 +581,7 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
                   const cmds: string[] = [];
                   if (config.model) cmds.push(`/model ${config.model}`);
                   if (config.effortLevel) cmds.push(`/effort ${config.effortLevel}`);
+                  if (config.remoteControlName) cmds.push(`/remote-control ${config.remoteControlName}`);
                   // Send commands sequentially with a gap between them
                   cmds.forEach((cmd, i) => {
                     setTimeout(() => {

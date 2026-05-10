@@ -238,9 +238,9 @@ export default function SessionSwitcher({
     return sortedSessions.filter((s) => allowedIds.has(s.sessionId));
   }, [sortedSessions, selectedRoomIds, rooms]);
 
-  // Group same-room sessions into a room-colored frame. Room frames appear
-  // where their first (highest-priority) session would appear in the flat list;
-  // orphan sessions (no room) render inline as bare cards.
+  // Group same-room sessions into a room-colored frame. Room frames appear in
+  // a stable order (sorted by roomIndex) so they don't shuffle when session
+  // statuses change. Orphan sessions (no room) render after room frames.
   const tabRenderItems = useMemo((): TabRenderItem[] => {
     const sessionToRoom = new Map<string, Room>();
     for (const room of rooms) {
@@ -249,25 +249,23 @@ export default function SessionSwitcher({
       }
     }
 
-    const processedRooms = new Set<string>();
-    const seenSessions = new Set<string>();
     const items: TabRenderItem[] = [];
 
-    for (const session of filteredSessions) {
-      if (seenSessions.has(session.sessionId)) continue;
-      seenSessions.add(session.sessionId);
+    const orderedRooms = [...rooms].sort(
+      (a, b) => (a.roomIndex ?? Number.MAX_SAFE_INTEGER) - (b.roomIndex ?? Number.MAX_SAFE_INTEGER),
+    );
 
-      const room = sessionToRoom.get(session.sessionId);
-      if (room && !processedRooms.has(room.id)) {
-        processedRooms.add(room.id);
-        const roomSessions = filteredSessions.filter((s) =>
-          room.sessionIds.includes(s.sessionId),
-        );
-        roomSessions.forEach((s) => seenSessions.add(s.sessionId));
-        items.push({ type: 'room', room, sessions: roomSessions, color: getRoomColor(room) });
-      } else if (!room) {
-        items.push({ type: 'session', session });
-      }
+    for (const room of orderedRooms) {
+      const roomSessions = filteredSessions.filter((s) =>
+        room.sessionIds.includes(s.sessionId),
+      );
+      if (roomSessions.length === 0) continue;
+      items.push({ type: 'room', room, sessions: roomSessions, color: getRoomColor(room) });
+    }
+
+    for (const session of filteredSessions) {
+      if (sessionToRoom.has(session.sessionId)) continue;
+      items.push({ type: 'session', session });
     }
 
     return items;
@@ -292,6 +290,40 @@ export default function SessionSwitcher({
   const currentColor = STATUS_COLORS[currentSession.status] ?? 'var(--text-dim)';
   const isCompact = cardDisplayMode === 'compact';
 
+  // ---- Inline rename for the header title (currentSession) ----
+  const [headerEditing, setHeaderEditing] = useState(false);
+  const [headerDraft, setHeaderDraft] = useState(primaryName);
+  const headerInputRef = useRef<HTMLInputElement | null>(null);
+
+  const beginHeaderEdit = useCallback(() => {
+    setHeaderDraft(currentSession.title || currentSession.projectName || '');
+    setHeaderEditing(true);
+  }, [currentSession.title, currentSession.projectName]);
+
+  const commitHeaderEdit = useCallback(() => {
+    const trimmed = headerDraft.trim();
+    if (trimmed && trimmed !== currentSession.title) {
+      useSessionStore.getState().setSessionTitle(currentSession.sessionId, trimmed);
+    }
+    setHeaderEditing(false);
+  }, [headerDraft, currentSession.sessionId, currentSession.title]);
+
+  const cancelHeaderEdit = useCallback(() => {
+    setHeaderEditing(false);
+  }, []);
+
+  useEffect(() => {
+    if (headerEditing && headerInputRef.current) {
+      headerInputRef.current.focus();
+      headerInputRef.current.select();
+    }
+  }, [headerEditing]);
+
+  // Exit edit mode if user switches sessions mid-edit
+  useEffect(() => {
+    setHeaderEditing(false);
+  }, [currentSession.sessionId]);
+
   return (
     <div className={styles.switcherBar}>
       {/* ── Top row: current session name + meta controls ── */}
@@ -304,7 +336,34 @@ export default function SessionSwitcher({
           {currentIndex > 0 && (
             <span className={styles.switcherIndex}>{currentIndex}</span>
           )}
-          <span className={styles.switcherName}>{primaryName}</span>
+          {headerEditing ? (
+            <input
+              ref={headerInputRef}
+              className={styles.switcherNameInput}
+              value={headerDraft}
+              onChange={(e) => setHeaderDraft(e.target.value)}
+              onBlur={commitHeaderEdit}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  commitHeaderEdit();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  cancelHeaderEdit();
+                }
+              }}
+              aria-label="Session title"
+              maxLength={200}
+            />
+          ) : (
+            <span
+              className={styles.switcherName}
+              onDoubleClick={beginHeaderEdit}
+              title="Double-click to rename"
+            >
+              {primaryName}
+            </span>
+          )}
           {secondaryName && (
             <span className={styles.switcherProject}>{secondaryName}</span>
           )}
@@ -461,6 +520,36 @@ function SessionTabCard({
     useSessionStore.getState().togglePin(session.sessionId);
   }, [session.sessionId]);
 
+  // ---- Inline rename state ----
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(title);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const beginEdit = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDraft(session.title || session.projectName || '');
+    setEditing(true);
+  }, [session.title, session.projectName]);
+
+  const commitEdit = useCallback(() => {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== session.title) {
+      useSessionStore.getState().setSessionTitle(session.sessionId, trimmed);
+    }
+    setEditing(false);
+  }, [draft, session.sessionId, session.title]);
+
+  const cancelEdit = useCallback(() => {
+    setEditing(false);
+  }, []);
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
   return (
     <button
       className={`${styles.sessionTabCard}${isCompact ? ` ${styles.sessionTabCardCompact}` : ''}${needsAttention ? ` ${styles.sessionTabAttention}` : ''}`}
@@ -509,9 +598,37 @@ function SessionTabCard({
       {index > 0 && <span className={styles.sessionTabIndex}>{index}</span>}
 
       {/* Text info */}
-      <div className={styles.sessionTabTitle}>
-        {title}
-      </div>
+      {editing ? (
+        <input
+          ref={inputRef}
+          className={styles.sessionTabTitleInput}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+          onBlur={commitEdit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              commitEdit();
+            } else if (e.key === 'Escape') {
+              e.preventDefault();
+              cancelEdit();
+            }
+          }}
+          aria-label="Session title"
+          maxLength={200}
+        />
+      ) : (
+        <div
+          className={styles.sessionTabTitle}
+          onDoubleClick={beginEdit}
+          title="Double-click to rename"
+        >
+          {title}
+        </div>
+      )}
       {!isCompact && showProject && (
         <div className={styles.sessionTabProject}>{session.projectName}</div>
       )}

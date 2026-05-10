@@ -117,6 +117,12 @@ const terminalCreateSchema = z.object({
   effortLevel: z.enum(['min', 'low', 'medium', 'high', 'max']).optional(),
   /** Model to auto-apply after Claude Code starts */
   model: z.enum(['opus', 'sonnet', 'haiku']).optional(),
+  /** Run `/remote-control <name>` automatically after Claude Code starts. */
+  remoteControlName: z
+    .string()
+    .max(100)
+    .regex(/^[a-zA-Z0-9_.\-]+$/, 'remoteControlName must be alphanumeric, dash, underscore, or dot')
+    .optional(),
   /** Session metadata from workspace snapshot — included in creation so the first WS broadcast has them */
   pinned: z.boolean().optional(),
   muted: z.boolean().optional(),
@@ -696,12 +702,16 @@ router.post('/sessions/:id/clone', async (req: Request, res: Response) => {
 // Spawn a "floating" forked session pre-loaded with a synthesized translate /
 // explain prompt. Used by the SelectionPopup (selection-anchored) and the
 // per-surface "Translate" toolbar buttons.
-//   modes: explain-learning | explain-native | translate-answer | translate-file
+//   modes: explain-learning | explain-native
+//        | translate-selection-learning | translate-selection-native
+//        | translate-answer | translate-file
 router.post('/sessions/spawn-floating', async (req: Request, res: Response) => {
   const { spawnFloatingSession } = await import('./floatingSessionSpawner.js');
   const FloatingModeSchema = z.enum([
     'explain-learning',
     'explain-native',
+    'translate-selection-learning',
+    'translate-selection-native',
     'translate-answer',
     'translate-file',
   ]);
@@ -771,7 +781,11 @@ router.post('/sessions/:id/kill', async (req: Request, res: Response) => {
     res.status(404).json({ success: false, error: 'Session not found' });
     return;
   }
-  const pid = findClaudeProcess(sessionId, mem?.projectPath);
+  // Fork sessions share the origin's projectPath, so the cwd-based PID lookup
+  // would return the ORIGIN's claude PID and SIGTERM the wrong process. Skip
+  // the process.kill cascade for forks — closeTerminal below uses per-PTY
+  // pty.kill (group SIGHUP) which only kills this fork's process tree.
+  const pid = mem.isFork ? null : findClaudeProcess(sessionId, mem?.projectPath);
   const source = detectSessionSource(sessionId);
   if (pid) {
     try {
@@ -1030,6 +1044,7 @@ router.post('/terminals', async (req: Request, res: Response) => {
     if (body.permissionMode) config.permissionMode = body.permissionMode;
     if (body.effortLevel) config.effortLevel = body.effortLevel;
     if (body.model) config.model = body.model;
+    if (body.remoteControlName) config.remoteControlName = body.remoteControlName;
     if (body.pinned) config.pinned = body.pinned;
     if (body.muted) config.muted = body.muted;
     if (body.alerted) config.alerted = body.alerted;

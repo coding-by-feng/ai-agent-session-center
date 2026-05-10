@@ -667,6 +667,19 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: text;
+}
+
+.switcherNameInput {
+  font: inherit;
+  color: var(--text-primary);
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 1px 6px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--accent-cyan, #00f0ff);
+  border-radius: 3px;
+  outline: none;
 }
 
 .switcherIndex {
@@ -1059,6 +1072,22 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
   word-break: break-word;
+}
+
+.sessionTabTitleInput {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: center;
+  width: 100%;
+  padding: 1px 4px;
+  box-sizing: border-box;
+  line-height: 1.2;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--accent-cyan, #00f0ff);
+  border-radius: 3px;
+  outline: none;
 }
 
 .sessionTabProject {

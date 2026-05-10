@@ -13,6 +13,12 @@ import { useUiStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { useKnownProjects } from '@/hooks/useKnownProjects';
+import {
+  deriveRemoteControlName,
+  loadRemoteControlSettings,
+  saveRemoteControlSettings,
+  sanitizeRemoteControlName,
+} from '@/lib/remoteControlName';
 import styles from '@/styles/modules/Modal.module.css';
 
 // ---------------------------------------------------------------------------
@@ -185,6 +191,10 @@ export default function NewSessionModal() {
   const [effortLevel, setEffortLevel] = useState('high');
   const [model, setModel] = useState('');
   const [enableOpsTerminal, setEnableOpsTerminal] = useState(false);
+  const [remoteControlSettings] = useState(() => loadRemoteControlSettings());
+  const [enableRemoteControl, setEnableRemoteControl] = useState(remoteControlSettings.enabled);
+  const [remoteControlName, setRemoteControlName] = useState('');
+  const [remoteControlNameTouched, setRemoteControlNameTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
@@ -213,6 +223,15 @@ export default function NewSessionModal() {
 
   // Mark field as touched on blur
   const markTouched = (field: string) => () => setTouched((prev) => ({ ...prev, [field]: true }));
+
+  const isClaudeCommand = command.trim().toLowerCase().startsWith('claude');
+  const autoRemoteControlName = useMemo(
+    () => deriveRemoteControlName(sessionTitle, workingDir, useSessionStore.getState().sessions.values()),
+    [sessionTitle, workingDir],
+  );
+  const effectiveRemoteControlName = remoteControlNameTouched && remoteControlName
+    ? sanitizeRemoteControlName(remoteControlName)
+    : autoRemoteControlName;
 
   // #33: Client-side form validation — required fields
   const portNum = Number(port);
@@ -244,6 +263,10 @@ export default function NewSessionModal() {
       effortLevel: effortLevel || undefined,
       model: model || undefined,
       enableOpsTerminal: enableOpsTerminal || undefined,
+      remoteControlName:
+        isClaudeCommand && enableRemoteControl && effectiveRemoteControlName
+          ? effectiveRemoteControlName
+          : undefined,
       forceNew: true,
     };
 
@@ -270,6 +293,10 @@ export default function NewSessionModal() {
         };
         saveLastSession(configToSave);
         saveDirSessionConfig(workingDir || '~', configToSave);
+        saveRemoteControlSettings({
+          enabled: enableRemoteControl,
+          lastName: remoteControlNameTouched ? remoteControlName : undefined,
+        });
         // Auto-select the new session so the detail panel stays open
         if (data.terminalId) {
           useSessionStore.getState().selectSession(data.terminalId);
@@ -445,6 +472,34 @@ export default function NewSessionModal() {
             placeholder="Optional"
           />
         </div>
+
+        {/* Remote control (Claude only) */}
+        {isClaudeCommand && (
+          <div className={styles.sshField}>
+            <label className={styles.opsCheckboxRow} style={{ marginBottom: 4 }}>
+              <input
+                type="checkbox"
+                checked={enableRemoteControl}
+                onChange={(e) => setEnableRemoteControl(e.target.checked)}
+              />
+              <div className={styles.opsCheckboxText}>
+                <span className={styles.opsCheckboxLabel}>Enable Remote Control</span>
+                <span className={styles.opsCheckboxHint}>Auto-runs <code>/remote-control &lt;name&gt;</code> after Claude starts</span>
+              </div>
+            </label>
+            {enableRemoteControl && (
+              <input
+                value={remoteControlNameTouched ? remoteControlName : autoRemoteControlName}
+                onChange={(e) => {
+                  setRemoteControlName(e.target.value);
+                  setRemoteControlNameTouched(true);
+                }}
+                placeholder={autoRemoteControlName}
+                style={{ marginTop: 4 }}
+              />
+            )}
+          </div>
+        )}
 
         {/* Model + Effort level (Claude only) */}
         {command.trim().toLowerCase().startsWith('claude') && (
