@@ -23,6 +23,8 @@ import { tooltips } from '@/lib/tooltips';
 const FLOAT_POS_KEY = 'float-project-pos';
 const FLOAT_SIZE_KEY = 'float-project-size';
 const FLOAT_COLLAPSED_KEY = 'float-project-collapsed';
+const FLOAT_MAXIMIZED_KEY = 'float-project-maximized';
+const FLOAT_RESTORE_KEY = 'float-project-restore';
 
 const DEFAULT_SIZE = { w: 520, h: 420 };
 const DEFAULT_POS = { x: 24, y: 24 };
@@ -75,6 +77,8 @@ export default function FloatingProjectPanel({
   const posKey = sessionId ? `${FLOAT_POS_KEY}:${sessionId}` : FLOAT_POS_KEY;
   const sizeKey = sessionId ? `${FLOAT_SIZE_KEY}:${sessionId}` : FLOAT_SIZE_KEY;
   const collapsedKey = sessionId ? `${FLOAT_COLLAPSED_KEY}:${sessionId}` : FLOAT_COLLAPSED_KEY;
+  const maximizedKey = sessionId ? `${FLOAT_MAXIMIZED_KEY}:${sessionId}` : FLOAT_MAXIMIZED_KEY;
+  const restoreKey = sessionId ? `${FLOAT_RESTORE_KEY}:${sessionId}` : FLOAT_RESTORE_KEY;
 
   const [collapsed, setCollapsed] = useState<boolean>(() =>
     readJson<boolean>(collapsedKey, false));
@@ -85,8 +89,11 @@ export default function FloatingProjectPanel({
     return stored ?? DEFAULT_POS;
   });
   const [size, setSize] = useState<Size>(() => readJson<Size>(sizeKey, DEFAULT_SIZE));
-  const [maximized, setMaximized] = useState<boolean>(false);
-  const restoreRef = useRef<{ pos: Pos; size: Size } | null>(null);
+  const [maximized, setMaximized] = useState<boolean>(() =>
+    readJson<boolean>(maximizedKey, false));
+  const restoreRef = useRef<{ pos: Pos; size: Size } | null>(
+    readJson<{ pos: Pos; size: Size } | null>(restoreKey, null),
+  );
 
   // Restore per-session state when sessionId changes.
   useEffect(() => {
@@ -95,9 +102,9 @@ export default function FloatingProjectPanel({
     posStoredRef.current = stored !== null;
     setPos(stored ?? DEFAULT_POS);
     setSize(readJson<Size>(sizeKey, DEFAULT_SIZE));
-    setMaximized(false);
-    restoreRef.current = null;
-  }, [collapsedKey, posKey, sizeKey]);
+    setMaximized(readJson<boolean>(maximizedKey, false));
+    restoreRef.current = readJson<{ pos: Pos; size: Size } | null>(restoreKey, null);
+  }, [collapsedKey, posKey, sizeKey, maximizedKey, restoreKey]);
 
   const rootRef = useRef<HTMLElement | null>(null);
   const parentRef = useRef<HTMLElement | null>(null);
@@ -218,7 +225,10 @@ export default function FloatingProjectPanel({
   const handleToggleMaximize = useCallback(() => {
     setMaximized((m) => {
       if (!m) {
-        restoreRef.current = { pos, size };
+        const snapshot = { pos, size };
+        restoreRef.current = snapshot;
+        writeJson(restoreKey, snapshot);
+        writeJson(maximizedKey, true);
         return true;
       }
       const prev = restoreRef.current;
@@ -227,9 +237,11 @@ export default function FloatingProjectPanel({
         setSize(prev.size);
       }
       restoreRef.current = null;
+      writeJson(restoreKey, null);
+      writeJson(maximizedKey, false);
       return false;
     });
-  }, [pos, size]);
+  }, [pos, size, restoreKey, maximizedKey]);
 
   // ---- Render ----
   if (collapsed) {

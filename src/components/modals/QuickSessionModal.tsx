@@ -116,7 +116,12 @@ export default function QuickSessionModal() {
   const [roomId, setRoomId] = useState('');
   const [enableOpsTerminal, setEnableOpsTerminal] = useState(false);
   const [remoteControlSettings] = useState(() => loadRemoteControlSettings());
-  const [enableRemoteControl, setEnableRemoteControl] = useState(remoteControlSettings.enabled);
+  const [autoEnableRemoteControl, setAutoEnableRemoteControl] = useState(
+    !!remoteControlSettings.autoEnable,
+  );
+  const [enableRemoteControl, setEnableRemoteControl] = useState(
+    !!remoteControlSettings.autoEnable || remoteControlSettings.enabled,
+  );
   const [remoteControlName, setRemoteControlName] = useState('');
   const [remoteControlNameTouched, setRemoteControlNameTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -224,6 +229,7 @@ export default function QuickSessionModal() {
 
       saveRemoteControlSettings({
         enabled: enableRemoteControl,
+        autoEnable: autoEnableRemoteControl,
         lastName: remoteControlNameTouched ? remoteControlName : undefined,
       });
       showToast(`Quick session launched${selectedLabel ? ` [${selectedLabel}]` : ''}`, 'success');
@@ -372,6 +378,17 @@ export default function QuickSessionModal() {
                   style={{ marginTop: 4 }}
                 />
               )}
+              <label className={styles.opsCheckboxRow} style={{ marginTop: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={autoEnableRemoteControl}
+                  onChange={(e) => setAutoEnableRemoteControl(e.target.checked)}
+                />
+                <div className={styles.opsCheckboxText}>
+                  <span className={styles.opsCheckboxLabel}>Auto-enable for future Claude sessions</span>
+                  <span className={styles.opsCheckboxHint}>Pre-checks the box above whenever the command starts with <code>claude</code></span>
+                </div>
+              </label>
             </div>
           )}
 
