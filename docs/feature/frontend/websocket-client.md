@@ -16,6 +16,7 @@ Real-time bridge between server and browser. Handles connection lifecycle, recon
 - Reconnection: 1s base delay, 10s max, formula min(1000 * 2^attempt, 10000), no reconnect on auth failure (code 4001)
 - On reconnect: sends {type: 'replay', sinceSeq: lastSeq} to recover missed events
 - useWebSocket handles: snapshot -> setSessions() bulk replace + setLastSeq + reconcile stale IndexedDB sessions, session_update -> updateSession() with replacesId migration (queue + room + IndexedDB) + persistSessionUpdate() + handleEventSounds() + checkAlarms(), session_removed -> removeSession(), clearBrowserDb -> delete + reopen IndexedDB
+- replacesId migration ordering (useWebSocket.ts:61-70): when `session.replacesId` is set, the handler synchronously calls `useQueueStore.getState().migrateSession(replacesId, newId)` and `useRoomStore.getState().migrateSession(replacesId, newId)` BEFORE awaiting `migrateSessionId()` for IndexedDB. Sync-Zustand-then-async-IDB ordering is intentional (see comment at lines 56-60): `updateSession()` re-keys the in-memory map atomically and may shift `selectedSessionId`, so QueueTab/Room views must already see the new id by the time React re-renders
 - Deduplication: sessions by most recent lastActivityAt
 - Sound integration: handleEventSounds() on every session_update, checkAlarms() for approval/input status
 - Auth failure: WsClient dispatches CustomEvent 'ws-auth-failed' on close code 4001, does not reconnect

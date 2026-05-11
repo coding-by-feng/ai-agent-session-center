@@ -9,7 +9,7 @@ Secure communication between React renderer and node-pty/Electron APIs. The prel
 ## Source Files
 | File | Role |
 |------|------|
-| `electron/ipc/terminalHandlers.ts` | PTY terminal IPC bridge (create, write, resize, kill, subscribe, unsubscribe, has) |
+| `electron/ipc/terminalHandlers.ts` | PTY terminal IPC bridge (create, write, resize, kill, subscribe, unsubscribe, has, **list** at lines 93-95 — registered but not exposed via preload, currently orphan) |
 | `electron/ipc/setupHandlers.ts` | Setup wizard IPC (check-deps, install-hooks, get/save-config) |
 | `electron/ipc/appHandlers.ts` | App lifecycle IPC (app:get-port, app:open-browser, app:rerun-setup, app:quit) |
 | `electron/preload.ts` | contextBridge exposing electronAPI to renderer |
@@ -20,7 +20,7 @@ Secure communication between React renderer and node-pty/Electron APIs. The prel
 
 | Channel | Direction | Pattern | Description |
 |---------|-----------|---------|-------------|
-| `pty:create` | Renderer -> Main | invoke (request/response) | Creates PTY via ptyHost.createPty, returns `{ok, terminalId, error}` |
+| `pty:create` | Renderer -> Main | invoke (request/response) | Creates PTY via ptyHost.createPty, returns `{ok, terminalId, error}`. Payload (`PtyCreateConfig`, electron.d.ts:25-38) now includes optional `effortLevel?: string`, `model?: string`, and `remoteControlName?: string` fields used by ptyHost auto-apply (see [PTY Host](./pty-host.md)). |
 | `pty:write` | Renderer -> Main | on (fire-and-forget) | Writes data to PTY stdin via ptyHost.writePty |
 | `pty:resize` | Renderer -> Main | on (fire-and-forget) | Resizes PTY via ptyHost.resizePty |
 | `pty:kill` | Renderer -> Main | invoke (request/response) | Kills PTY via ptyHost.killPty, returns `{ok}` |
@@ -41,16 +41,18 @@ The distinction between `on` (fire-and-forget) and `invoke` (request/response) i
 
 The preload exposes a comprehensive API surface with three groups. PTY methods are checked at runtime (`window.electronAPI?.createPty`) to determine IPC vs WebSocket transport:
 
+Canonical source: `src/types/electron.d.ts`. The shape below mirrors that file — keep them in sync.
+
 ```typescript
 interface ElectronAPI {
   platform: 'darwin' | 'win32'
 
   // Setup wizard
   isSetup: () => Promise<boolean>
-  checkDeps: () => Promise<Record<string, {ok: boolean, version?: string, hint?: string}>>
-  saveConfig: (cfg: unknown) => Promise<{ok: boolean, error?: string}>
-  installHooks: (cfg: unknown) => Promise<{ok: boolean, error?: string}>
-  completeSetup: () => Promise<{ok: boolean, port?: number}>
+  checkDeps: () => Promise<Record<string, DepCheckResult>>
+  saveConfig: (cfg: SetupConfig) => Promise<{ ok: boolean }>
+  installHooks: (cfg: Pick<SetupConfig, 'hookDensity' | 'enabledClis'>) => Promise<InstallResult>
+  completeSetup: () => Promise<{ ok: boolean; port: number }>
   onInstallLog: (cb: (line: string) => void) => () => void
 
   // Dashboard / lifecycle
@@ -61,18 +63,24 @@ interface ElectronAPI {
   closeReady: () => void
   quitApp: () => void
 
-  // PTY terminal (optional — checked at runtime for transport selection)
-  createPty: (config: PtyCreateConfig) => Promise<{ok: boolean, terminalId?: string, error?: string}>
-  writePty: (id: string, data: string) => void
-  resizePty: (id: string, cols: number, rows: number) => void
-  killPty: (id: string) => Promise<{ok: boolean}>
-  subscribePty: (id: string) => Promise<{ok: boolean, buffer?: string | null}>
-  unsubscribePty: (id: string) => void
-  hasPty: (id: string) => Promise<boolean>
-  onPtyData: (cb: (terminalId: string, base64Data: string) => void) => () => void
-  onPtyExit: (cb: (terminalId: string, exitCode: number, signal: number) => void) => () => void
+  // PTY terminal (all optional — checked at runtime for transport selection)
+  createPty?: (config: PtyCreateConfig) => Promise<PtyCreateResult>
+  writePty?: (id: string, data: string) => void
+  resizePty?: (id: string, cols: number, rows: number) => void
+  killPty?: (id: string) => Promise<{ ok: boolean }>
+  subscribePty?: (id: string) => Promise<PtySubscribeResult>
+  unsubscribePty?: (id: string) => void
+  hasPty?: (id: string) => Promise<boolean>
+  onPtyData?: (cb: (terminalId: string, base64Data: string) => void) => () => void
+  onPtyExit?: (cb: (terminalId: string, exitCode: number, signal: number) => void) => () => void
 }
 ```
+
+Notes:
+- `installHooks` receives only `Pick<SetupConfig, 'hookDensity' | 'enabledClis'>` — not the full config (electron.d.ts:59).
+- `completeSetup` returns `{ ok: boolean; port: number }` — `port` is required, not optional (electron.d.ts:60).
+- `PtyCreateConfig`, `PtyCreateResult`, `PtySubscribeResult` are named types in electron.d.ts (lines 25, 40, 46) — refer by name rather than inlining shapes that drift.
+- Floating-fork / translate sessions reuse the same `pty:*` channels as regular sessions — the channels are surface-agnostic (no separate "floating" IPC namespace).
 
 ### Preload Context Bridge
 

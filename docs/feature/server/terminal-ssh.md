@@ -9,7 +9,8 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 ## Source Files
 | File | Role |
 |------|------|
-| `server/sshManager.ts` (~32KB, ~850 lines) | PTY creation, shell-ready detection, output buffering, pending links |
+| `server/sshManager.ts` (~36KB, ~976 lines) | PTY creation, shell-ready detection, output buffering, pending links |
+| `server/config.ts` | Provides `appendSessionName` (used at sshManager.ts:353 to inject `-n "title"` into Claude commands) |
 | `src/types/terminal.ts` | Shared `Terminal` interface (PTY, wsClient, output ring fields) |
 
 ## Implementation
@@ -45,7 +46,7 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 ### Input Validation
 - Zod + shell metacharacter regex /[;|&$`\\!><()\n\r{}[\]]/
 - workingDir max 1024 chars, command max 512
-- tmuxSession max 128 (only alnum)
+- tmuxSession max 128, regex `/^[a-zA-Z0-9_.\-]+$/` — alphanumerics plus underscore, dot, hyphen (sshManager.ts:35)
 - host max 255, username max 128, port 1-65535
 
 ### Session Name Flag (`-n`)
@@ -81,13 +82,21 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 - listTmuxSessions(config) — list tmux sessions on a host
 - attachToTmuxPane(tmuxPaneId, wsClient) — attach to existing tmux pane
 - writeWhenReady(terminalId, data) — write after shell-ready detection completes
+- writeToTerminal(terminalId, data) (sshManager.ts:719) — direct write to PTY; consumed by `POST /api/terminals/:id/write`
+- resizeTerminal(terminalId, cols, rows) (sshManager.ts:744)
+- closeTerminal(terminalId) (sshManager.ts:759) — sends per-PTY `pty.kill` (group SIGHUP); used by fork/clone close paths to avoid touching the origin's claude PID
 - consumePendingLink(workDir) — manually consume a pendingLink entry
+- tryLinkByWorkDir(workDir, sessionId) (sshManager.ts:793) — used by Priority-2 session matcher
 - getTerminalForSession(sessionId) — look up terminal for a session
 - getTerminalByPtyChild(childPid) — find terminal whose PTY is parent of given PID
-- getTerminalOutputBuffer(terminalId) — get buffered output for replay
+- getTerminalOutputBuffer(terminalId) — get buffered output for replay; consumed by `GET /api/terminals/:id/output` (apiRouter.ts:1237) for the REVIEW tab
 - prefillTerminalOutput(terminalId, base64Data) — inject saved output into buffer
 - getTerminals() — list all active terminals with metadata
 - linkSession(terminalId, sessionId) — associate a session with a terminal
+- setWsClient(terminalId, wsClient) (sshManager.ts:860) — attach a ws client to a terminal and replay the ring buffer to it (used on browser reconnect)
+
+### Fork / Clone / Floating Sessions
+- Fork, clone, and floating-session flows are layered on top of the same `createTerminal` + `createTerminalSession` primitives. The `isFork` flag flows through `createTerminalSession(config)` (session metadata), not through `createTerminal` (PTY spawn) — sshManager has no fork-specific code path.
 
 ### Limits
 - Max 50 terminals simultaneously (enforced by apiRouter)

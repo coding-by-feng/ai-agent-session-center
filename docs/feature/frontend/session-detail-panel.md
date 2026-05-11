@@ -19,15 +19,19 @@ Primary interface for interacting with a single session. Aggregates terminal, pr
 | `src/components/session/LabelChips.tsx` | Session label picker chips |
 | `src/components/session/KillConfirmModal.tsx` | Kill confirmation modal (lazy-mounted) |
 | `src/components/session/ContentSearchModal.tsx` | Content search modal used in ProjectTab for searching file contents |
+| `src/components/session/FloatingProjectPanel.tsx` | Detached, draggable/resizable PROJECT-tab overlay (host for portaled ProjectTabContainer when float mode is on); supports maximize/restore (v2.10.16), minimized PROJECT badge draggable anywhere (v2.10.17), maximized state persisted per-session (v2.10.20) |
+| `src/components/session/FloatingTerminalRoot.tsx` | Sibling root rendering all active fork-translate floating PIP terminals from floatingSessionsStore |
 
 ## Implementation
 - Panel: ResizablePanel with fullscreen mode, minimizable to draggable badge (DraggableMiniBadge, position saved to localStorage['mini-badge-pos'])
 - Header: collapsible (localStorage['detail-header-collapsed']), 64x80px character preview (CSS circle, not 3D Canvas), project name, editable title (EditableTitle component), status badge, model, LabelChips, SessionControlBar
-- Session switcher: SessionSwitcher component with compact header info when collapsed. Mini-robot cards and session tab cards show a **spinning conic-gradient border** when session status is `working` or `prompting` (CSS `@property --spin-angle` animated via `spinBorder` keyframes, 2s linear infinite). Approval/input states use a pulsing border instead.
+- Session switcher: SessionSwitcher component with compact header info when collapsed. Mini-robot cards and session tab cards show a **spinning conic-gradient border** when session status is `working` or `prompting` (CSS `@property --spin-angle` animated via `spinBorder` keyframes, 2s linear infinite). Approval/input states use a pulsing border instead. The `.sessionTabIndex` badge (session number chip) is positioned at `left: -9px` on the card (v2.10.20; was `right: -9px`).
 - **SessionSwitcher recompute gating (perf)**: the `sessions` Map reference changes on every session update (Zustand pattern `new Map(...)`). To avoid re-running the O(N) sort + room-grouping memos on every status tick, SessionSwitcher derives a stable `sessionsSignature` string from the visible fields (`sessionId|status|pinned|title|projectName|label|colorIndex|accentColor|terminalId`) sorted + joined, and keys the heavy memos (`sortedSessions`, `activeSessionIds`, and by extension `filteredSessions`/`tabRenderItems`) to that signature instead of the Map reference. Unchanged-content re-renders skip the sort entirely.
 - 6 tabs: PROJECT, TERMINAL, COMMANDS, PROMPTS (id: conversation), NOTES, QUEUE — TERMINAL/COMMANDS/PROJECT always mounted (preserves xterm + file state), other tabs mounted on demand
 - Tab switching via keyboard: DetailPanel listens to the `detailTabs:switchTab` CustomEvent (dispatched from useKeyboardShortcuts.ts when Cmd/Ctrl+Shift+1..6 is pressed) and drives the existing `externalTab` state. Default bindings: 1=Project, 2=Terminal, 3=Commands, 4=Prompts, 5=Notes, 6=Queue. Event detail: `{ tabId: 'project' | 'terminal' | 'commands' | 'conversation' | 'notes' | 'queue' }`. `externalTab` is cleared ~50ms after set so subsequent user clicks aren't blocked.
 - Split view: >=700px panel width shows Terminal+Project side-by-side (DraggableSplitView) with draggable divider, ratio persisted per-session (localStorage['split-ratio:{sessionId}'])
+- **Float PROJECT mode**: a `toggleFloat` button sits alongside `toggleSplit` and is mutually exclusive with split mode. When enabled, the PROJECT tab content is portaled (`createPortal`) into FloatingProjectPanel so component state — file tree expansion, image viewer state, find-in-file — survives the detach. State persisted via `FLOAT_KEY = float-project:{sessionId}` (DetailTabs.tsx). Maximized state (`float-project-maximized:{sessionId}`) and pre-maximize geometry (`float-project-restore:{sessionId}`) are written on toggle and read back on init and session switch (v2.10.20); previously maximized reset to false on every session switch.
+- TerminalContainer is passed `originSessionId={sessionId}` (DetailPanel.tsx:120) so the select-to-translate popup and "Translate previous answer" toolbar button can fork a floating session
 - Tab state persisted in localStorage['active-tab'], split state in localStorage['split-terminal-project:{sessionId}']
 - Selection: localStorage['selected-session'], restored on refresh
 - Close: Escape (close search first -> restore if minimized; skipped if xterm focused). Escape does NOT deselect the session — deselecting applies display:none which resets scroll positions to 0
@@ -46,6 +50,7 @@ Primary interface for interacting with a single session. Aggregates terminal, pr
 - [Client Persistence](./client-persistence.md) — notes, prompts from IndexedDB
 - [Server API](../server/api-endpoints.md) — kill, resume, summarize, title/label/color updates
 - [Keyboard Shortcuts](./keyboard-shortcuts.md) — receives `detailTabs:switchTab` CustomEvent for programmatic tab switching
+- [Floating Terminal Fork](./floating-terminal-fork.md) — DetailPanel/ProjectTabContainer thread `originSessionId` so select-to-translate, "Translate previous answer", and "Translate file" can spawn floating sessions
 
 ### Depended On By
 - [3D Cyberdrome Scene](../3d/cyberdrome-scene.md) — robot click triggers panel open via selectSession
@@ -54,6 +59,7 @@ Primary interface for interacting with a single session. Aggregates terminal, pr
 
 ### Shared Resources
 - sessionStore.selectedSessionId, localStorage keys for panel state
+- Per-session FloatingProjectPanel localStorage keys: `float-project:{sessionId}` (mode), `float-project-pos:{sessionId}` (position), `float-project-size:{sessionId}` (size), `float-project-collapsed:{sessionId}` (collapsed pill state), `float-project-maximized:{sessionId}` (maximized state, v2.10.16+), `float-project-restore:{sessionId}` (saved pre-maximize geometry)
 
 ## Change Risks
 - Defining TerminalContent inside DetailPanel causes terminal remount on every render
@@ -62,8 +68,3 @@ Primary interface for interacting with a single session. Aggregates terminal, pr
 - Breaking split view persistence loses user preferences
 - SessionSwitcher's heavy memos depend on `sessionsSignature`, NOT on `sessions`. If you add a field to the card display (e.g. a new status-derived color), include it in the signature or the tab strip won't refresh. The escape hatch is to add `sessions` back to the dep array, but that re-enables the every-update recompute this optimization was added to avoid.
 
-## Floating Terminal Fork
-DetailPanel passes `originSessionId={sessionId}` to TerminalContainer so the
-select-to-translate popup and the "Translate previous answer" toolbar button
-can fork a new floating session. ProjectTabContainer threads the same id into
-ProjectTab. See [Floating Terminal Fork](./floating-terminal-fork.md).

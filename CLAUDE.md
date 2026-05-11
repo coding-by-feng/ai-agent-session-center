@@ -47,7 +47,7 @@ npm run reset            # Remove hooks, clean config, backup
 | Domain | Docs | What they cover |
 |--------|------|----------------|
 | [`server/`](docs/feature/server/) | 12 | [Hook System](docs/feature/server/hook-system.md), [Session Management](docs/feature/server/session-management.md), [Session Matching](docs/feature/server/session-matching.md), [Approval Detection](docs/feature/server/approval-detection.md), [WebSocket](docs/feature/server/websocket-manager.md), [API](docs/feature/server/api-endpoints.md), [Database](docs/feature/server/database.md), [Terminal/SSH](docs/feature/server/terminal-ssh.md), [Teams](docs/feature/server/team-subagent.md), [Process Monitor](docs/feature/server/process-monitor.md), [Auth](docs/feature/server/authentication.md), [File Index Cache](docs/feature/server/file-index-cache.md) |
-| [`frontend/`](docs/feature/frontend/) | 15 | [State](docs/feature/frontend/state-management.md), [Persistence](docs/feature/frontend/client-persistence.md), [WS Client](docs/feature/frontend/websocket-client.md), [Detail Panel](docs/feature/frontend/session-detail-panel.md), [File Browser](docs/feature/frontend/file-browser.md), [Terminal UI](docs/feature/frontend/terminal-ui.md), [Settings](docs/feature/frontend/settings-system.md), [Shortcuts](docs/feature/frontend/keyboard-shortcuts.md), [Queue](docs/feature/frontend/prompt-queue.md), [Views](docs/feature/frontend/views-routing.md), [Agenda](docs/feature/frontend/agenda.md), [Workspace Snapshot](docs/feature/frontend/workspace-snapshot.md), [Setup Wizard](docs/feature/frontend/setup-wizard.md), [Auth UI](docs/feature/frontend/auth-ui.md), [Project Browser](docs/feature/frontend/project-browser.md) |
+| [`frontend/`](docs/feature/frontend/) | 17 | [State](docs/feature/frontend/state-management.md), [Persistence](docs/feature/frontend/client-persistence.md), [WS Client](docs/feature/frontend/websocket-client.md), [Detail Panel](docs/feature/frontend/session-detail-panel.md), [File Browser](docs/feature/frontend/file-browser.md), [Terminal UI](docs/feature/frontend/terminal-ui.md), [Settings](docs/feature/frontend/settings-system.md), [Shortcuts](docs/feature/frontend/keyboard-shortcuts.md), [Queue](docs/feature/frontend/prompt-queue.md), [Views](docs/feature/frontend/views-routing.md), [Agenda](docs/feature/frontend/agenda.md), [Workspace Snapshot](docs/feature/frontend/workspace-snapshot.md), [Setup Wizard](docs/feature/frontend/setup-wizard.md), [Auth UI](docs/feature/frontend/auth-ui.md), [Project Browser](docs/feature/frontend/project-browser.md), [Floating Terminal Fork](docs/feature/frontend/floating-terminal-fork.md), [Review Tab](docs/feature/frontend/review-tab.md) |
 | [`3d/`](docs/feature/3d/) | 3 | [Cyberdrome Scene](docs/feature/3d/cyberdrome-scene.md), [Robot System](docs/feature/3d/robot-system.md), [Particles/Effects](docs/feature/3d/particles-effects.md) |
 | [`multimedia/`](docs/feature/multimedia/) | 2 | [Sound & Alarm System](docs/feature/multimedia/sound-alarm-system.md), [TTS Voice Output](docs/feature/multimedia/tts-voice-output.md) |
 | [`electron/`](docs/feature/electron/) | 3 | [App Lifecycle](docs/feature/electron/app-lifecycle.md), [PTY Host](docs/feature/electron/pty-host.md), [IPC Transport](docs/feature/electron/ipc-transport.md) |
@@ -78,10 +78,13 @@ server/
   hookInstaller.js      — auto-install hooks on startup
   portManager.ts        — port resolution, conflict kill
   hookRouter.ts         — POST /api/hooks (HTTP fallback)
-  apiRouter.ts          — all REST endpoints (~78KB, largest file)
+  apiRouter.ts          — all REST endpoints (~96KB, largest file)
   mqReader.ts           — JSONL queue reader
   hookProcessor.ts      — validation + event processing
   fileIndexCache.ts     — cached + fs.watch'd fuzzy file index
+  floatingSessionSpawner.ts — fork-translate / fork-explain floating PTY spawner
+  extractPreviousAnswer.ts  — pulls last assistant turn for translate-answer mode
+  ttsManager.ts         — Google Cloud TTS proxy
   sessionStore.ts       — coordinator (~54KB, delegates to sub-modules)
     sessionMatcher.ts   — 8-priority session matching
     approvalDetector.ts — tool approval timeouts
@@ -103,21 +106,22 @@ server/
 
 ```
 src/
-  stores/               — 9 Zustand stores (session, settings, queue, room, camera, ui, ws, agenda, shortcut)
-  hooks/                — useWebSocket, useTerminal, useSound, useAuth, useKeyboardShortcuts, useKnownProjects, useSettingsInit, useWorkspaceAutoSave, useWorkspaceAutoLoad, useClickOutside
-  lib/                  — wsClient, db (Dexie), soundEngine, ambientEngine, alarmEngine, workspaceSnapshot, cliDetect, cyberdromeScene, fileSystemProvider, format, robot3DGeometry, robot3DModels, robotPositionPersist, robotStateMap, sceneThemes, shortcutKeys
+  stores/               — 10 Zustand stores (session, settings, queue, room, camera, ui, ws, agenda, shortcut, floatingSessions)
+  hooks/                — useWebSocket, useTerminal, useSound, useAuth, useKeyboardShortcuts, useKnownProjects, useSettingsInit, useWorkspaceAutoSave, useWorkspaceAutoLoad, useClickOutside, useSelectionPopup
+  lib/                  — wsClient, db (Dexie), soundEngine, ambientEngine, alarmEngine, workspaceSnapshot, cliDetect, cyberdromeScene, fileSystemProvider, format, robot3DGeometry, robot3DModels, robotPositionPersist, robotStateMap, sceneThemes, shortcutKeys, ansi, remoteControlName, selectionExtractors, tooltips, translationLog, ttsEngine
   components/
     3d/                 — CyberdromeScene, CyberdromeEnvironment, SessionRobot, Robot3DModel, RobotDialogue, RobotLabel, RobotListSidebar, RoomLabels, SceneOverlay, CameraController, StatusParticles, SubagentConnections, robotPositionStore
-    session/            — DetailPanel, DetailTabs, ProjectTab, ProjectTabContainer, FileTree, FindInFileBar, ContentSearchModal, QueueTab, NotesTab, SummaryTab, PromptHistory, SessionControlBar, SessionSwitcher, SummarizeModal, LabelChips, LinkifiedText, KillConfirmModal, AlertModal, imageViewport
+    session/            — DetailPanel, DetailTabs, ProjectTab, ProjectTabContainer, FloatingProjectPanel, FloatingTerminalPanel, FloatingTerminalRoot, FileTree, FindInFileBar, ContentSearchModal, QueueTab, NotesTab, SummaryTab, PromptHistory, SessionControlBar, SessionSwitcher, SummarizeModal, LabelChips, LinkifiedText, KillConfirmModal, AlertModal, TexViewer, imageViewport
     terminal/           — TerminalContainer, TerminalToolbar, themes
-    settings/           — SettingsPanel (6 tabs), ThemeSettings, SoundSettings, ShortcutSettings, HookSettings, ApiKeySettings, SummaryPromptSettings
+    translate/          — SelectionPopup
+    settings/           — SettingsPanel (7 tabs), ThemeSettings, SoundSettings, ShortcutSettings, HookSettings, ApiKeySettings, TranslationSettings, SummaryPromptSettings
     modals/             — NewSessionModal, QuickSessionModal, GlobalSearchModal, ShortcutSettingsModal, ShortcutsPanel, ShortcutRow
     layout/             — NavBar, Header, HeaderAgentStrip, TitleBar, ActivityFeed, WorkdirLauncher
     agenda/             — AddTaskForm, AgendaFilterBar, AgendaTaskCard
     auth/               — LoginScreen
     setup/              — SetupWizard + steps/ (Welcome, DepsCheck, Configure, Install, Done)
-    ui/                 — Combobox, Modal, ResizablePanel, Select, Tabs, ToastContainer, SavingOverlay, WorkspaceLoadingOverlay, SearchInput
-  routes/               — LiveView, HistoryView, ProjectBrowserView, QueueView, AgendaView
+    ui/                 — Combobox, Modal, ResizablePanel, Select, Tabs, ToastContainer, SavingOverlay, WorkspaceLoadingOverlay, SearchInput, Tooltip
+  routes/               — LiveView, HistoryView, ProjectBrowserView, QueueView, AgendaView, ReviewView
   styles/               — CSS modules + 9 theme files
   types/                — shared TypeScript types (server + client)
 ```

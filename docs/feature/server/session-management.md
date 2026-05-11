@@ -10,7 +10,12 @@ Central hub that manages all session state. Every other feature reads from or wr
 | File | Role |
 |------|------|
 | `server/sessionStore.ts` (~54KB) | Coordinator: delegates to sub-modules, handles events, manages Map<string, Session> |
+| `server/sessionMatcher.ts` | 8-priority hook→session linking (delegated from sessionStore) |
+| `server/approvalDetector.ts` | Tool-approval timeout detection |
+| `server/teamManager.ts` | Subagent / team relationship tracking |
+| `server/processMonitor.ts` | PID liveness (`findClaudeProcess` lives here; sessionStore re-exports a wrapper) |
 | `server/autoIdleManager.ts` | Idle transition timers (checks every 10s) |
+| `server/floatingSessionSpawner.ts` | Builds the prompt + config for fork/floating sessions; calls into `createTerminalSession` with `isFork: true` and `originSessionId` |
 | `server/config.ts` | Tool categories, timeouts, animation maps |
 | `server/constants.ts` | All magic strings (events, statuses, WS types) |
 
@@ -30,6 +35,11 @@ Central hub that manages all session state. Every other feature reads from or wr
 
 ### Session Object
 - ~57 fields including sessionId, projectPath, status, animationState, currentPrompt, promptHistory (last 50), toolLog (last 200), responseLog (last 50), events (last 50), model, teamId, terminalId, etc.
+- Fork bookkeeping: `isFork: boolean` and `originSessionId?: string` (sessionStore.ts:988-991) — set in `createTerminalSession` when `config.isFork` is passed by the floating-session spawner / clone flow.
+- Ops-terminal bookkeeping: `opsTerminalId: string | null` and `hadOpsTerminal: boolean` (sessionStore.ts:964-965) — written via `reconnectOpsTerminal` (sessionStore.ts:1293) so a session can carry a separate "ops shell" alongside the AI CLI's PTY.
+
+### Workspace Metadata at Creation
+- `createTerminalSession` applies `pinned`, `muted`, `alerted`, `accentColor`, `characterModel` from `config` at creation time (sessionStore.ts:983-987). Without this, metadata set via separate PUTs after creation would be missing from the first broadcast and a paired auto-save could overwrite the snapshot with stale values.
 
 ### Event Buffer
 - Ring buffer: last 500 events for WebSocket reconnect replay
@@ -39,7 +49,7 @@ Central hub that manages all session state. Every other feature reads from or wr
 - SSH sessions restored as idle (PTY dead), non-SSH ended sessions get ServerRestart event for Priority 0.5 auto-link
 
 ### Broadcast Throttle
-- 250ms per sessionId (max 4/sec), coalesces updates within each window (via hookProcessor.ts scheduleBroadcast)
+- 20ms per sessionId via `BROADCAST_DEBOUNCE_MS` (sessionStore.ts:452) — ~50/sec, coalesces updates per-key within each window. Smaller window than the previous 250ms throttle to keep the 3D scene + status pills feeling live; rely on the per-key coalescing (not the window) to avoid flooding browsers.
 
 ### Heavy Work Variant
 - totalToolCalls > 10 at Stop -> Dance animation instead of Waiting+ThumbsUp
@@ -49,7 +59,9 @@ Central hub that manages all session state. Every other feature reads from or wr
 - getAllSessions() / getSession() — read session state
 - createTerminalSession() — creates session card when terminal connects
 - findActiveSessionByConfig() — deduplicates by config (host, workDir, command, sessionTitle)
-- clearAllSessions() — removes all sessions, captures terminal output buffers for replay
+- clearAllSessions() — removes all sessions, captures terminal output buffers for replay; returns `{ removed: number, savedOutputs: SavedTerminalOutput[] }` (sessionStore.ts:1094-1126) where each `savedOutputs` entry is keyed by `title\0projectPath` for replay after workspace import
+- detectSessionSource(sessionId) (sessionStore.ts:1305) — classifies a session's spawn source; used by kill flow
+- findClaudeProcess(sessionId, projectPath) (sessionStore.ts:1312) — wrapper around processMonitor's resolver; passes internal `sessions` + `pidToSession` state
 - killSession() / deleteSessionFromMemory() — end or remove sessions
 - resumeSession() / reconnectSessionTerminal() / reconnectOpsTerminal() — resume/reconnect workflows
 - setSessionTitle/Label/Pinned/Muted/Alerted/AccentColor/CharacterModel — session metadata setters
@@ -88,3 +100,4 @@ Central hub that manages all session state. Every other feature reads from or wr
 - Changes to state transitions affect 3D animations, sound system, and approval detection
 - Modifying the session object schema affects ALL consumers (frontend stores, DB persistence, WebSocket protocol)
 - Breaking snapshot persistence means sessions lost on restart
+- **Fork-aware kill cascade** — `apiRouter.ts:788` skips `findClaudeProcess` for forks because forks share the origin session's `projectPath`; a cwd-based PID lookup would return the ORIGIN's claude PID and SIGTERM the wrong process. Forks instead rely on per-PTY `pty.kill` (group SIGHUP) via `closeTerminal`. Preserve this branch when modifying the kill flow — without it, closing a floating/fork session disconnects the parent terminal.

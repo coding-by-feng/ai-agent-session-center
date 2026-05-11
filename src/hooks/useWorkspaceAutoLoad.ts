@@ -8,6 +8,10 @@ import { useWsStore } from '@/stores/wsStore';
 import { useUiStore } from '@/stores/uiStore';
 import { loadFromConfig, importSnapshot } from '@/lib/workspaceSnapshot';
 import { reportWorkspaceLoadErrors } from '@/components/ui/WorkspaceLoadingOverlay';
+import {
+  requestRestoreSelection,
+  getAutoResumeAll,
+} from '@/components/modals/RestorePickerModal';
 
 export function useWorkspaceAutoLoad(): void {
   const connected = useWsStore((s) => s.connected);
@@ -26,27 +30,50 @@ export function useWorkspaceAutoLoad(): void {
         const snapshot = await loadFromConfig();
         if (!snapshot || snapshot.sessions.length === 0) return;
 
+        // Show the restore picker unless the user opted into auto-resume-all.
+        // The picker resolves with either:
+        //   - selectedIds: null   → resume every session (legacy / "Resume all")
+        //   - selectedIds: Set    → resume only those originalSessionIds
+        //   - cancelled: true     → resume nothing this restart
+        let sessionFilter: Set<string> | null = null;
+        if (!getAutoResumeAll()) {
+          const result = await requestRestoreSelection(snapshot);
+          if (result.cancelled) return;
+          sessionFilter = result.selectedIds;
+        }
+
+        // Effective count for the progress bar reflects what we'll actually
+        // launch (filter applied client-side here; importSnapshot re-applies it).
+        const willLaunch = sessionFilter
+          ? snapshot.sessions.filter((s) => sessionFilter!.has(s.originalSessionId)).length
+          : snapshot.sessions.length;
+        if (willLaunch === 0) return;
+
         const { startWorkspaceLoad, advanceWorkspaceLoad, finishWorkspaceLoad } = useUiStore.getState();
         // Clear any stale failed-titles from a previous load before we start.
         reportWorkspaceLoadErrors([]);
-        startWorkspaceLoad(snapshot.sessions.length);
+        startWorkspaceLoad(willLaunch);
 
         // Per contract C7, importSnapshot resolves with { created, failed,
         // failedTitles }.  The legacy onComplete callback signature is preserved
         // for compatibility, but we prefer the return value as the source of
         // truth so we know exactly which sessions failed.
-        const { created, failed, failedTitles } = await importSnapshot(snapshot, {
-          onProgress: (done, _total, currentTitle) => {
-            advanceWorkspaceLoad(done, currentTitle);
+        const { created, failed, failedTitles } = await importSnapshot(
+          snapshot,
+          {
+            onProgress: (done, _total, currentTitle) => {
+              advanceWorkspaceLoad(done, currentTitle);
+            },
+            onSessionCreated: () => {
+              // Sessions will appear via WebSocket broadcast — no manual select needed
+            },
+            onComplete: () => {
+              // Aggregate counts and titles come from the resolved promise; nothing
+              // to do here.  Kept to satisfy the existing callback signature.
+            },
           },
-          onSessionCreated: () => {
-            // Sessions will appear via WebSocket broadcast — no manual select needed
-          },
-          onComplete: () => {
-            // Aggregate counts and titles come from the resolved promise; nothing
-            // to do here.  Kept to satisfy the existing callback signature.
-          },
-        });
+          sessionFilter,
+        );
 
         if (created > 0 || failed > 0) {
           console.info(`[workspace] Auto-loaded ${created} session(s)${failed > 0 ? `, ${failed} failed` : ''}`);

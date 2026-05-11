@@ -23,6 +23,7 @@ Hooks must be wired into each CLI's settings file before the dashboard can obser
 
 ## Implementation
 - **Default config**: `{port: 3333, enabledClis: ['claude'], hookDensity: 'medium', debug: false, sessionHistoryHours: 24}`.
+- **Auth bootstrap**: `SetupConfig` (electron.d.ts:11-18) carries an optional `passwordHash?: string` field used to seed first-run auth — when present, the wizard hands the hash off to the server during `saveConfig`/`completeSetup` so the very first launch already has a password set instead of forcing a separate auth-setup pass.
 - **Progress bar** width = `(step / (total - 1)) * 100%`; each label reflects `active`/`done` state.
 - **Hook density**: passed through to `hookInstaller` which filters which events the bash hook emits (`low` / `medium` / `high`).
 - **CLI targets**: each enabled CLI gets its own settings file patched atomically (write-to-tmp + rename per known-issues guardrail).

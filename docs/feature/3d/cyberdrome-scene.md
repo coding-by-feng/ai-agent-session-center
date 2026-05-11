@@ -72,7 +72,7 @@ Imperative update of `scene.fog` color/density and `gl.clearColor` on theme chan
 - Searchable with 150ms debounce (searches title, label, project, status)
 - Sessions grouped by room (sorted by roomIndex), unassigned sessions in "Common Area"
 - Sorted by status priority: working(0) > prompting(1) > approval/input(2) > waiting(3) > idle(4) > connecting(5) > ended(6)
-- Editable session titles, close/kill buttons, collapsible groups per room
+- Single close button per row (`handleClose` POSTs `/api/sessions/:id/kill` then calls `removeSession`, RobotListSidebar.tsx:389-396, wired at line 513). No inline title editing — titles are read-only here; rename UI lives in the detail panel. Collapsible groups per room.
 
 ### RoomLabels
 - drei `<Text>` with SDF rendering, flat horizontal rotation (`-PI/2` on X axis, readable from above)

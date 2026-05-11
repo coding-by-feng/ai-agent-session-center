@@ -9,7 +9,11 @@ The HTTP interface for the React frontend and external integrations. Handles all
 ## Source Files
 | File | Role |
 |------|------|
-| `server/apiRouter.ts` (~78KB, ~2064 lines, largest server file) | All REST endpoints |
+| `server/apiRouter.ts` (~96KB, ~2407 lines, largest server file) | All REST endpoints |
+| `server/index.ts` | Auth endpoints (`/api/auth/*`) and middleware wiring (localhost-only for hooks, authMiddleware for everything else under /api) |
+| `server/hookRouter.ts` | POST /api/hooks (HTTP-fallback hook ingestion) |
+| `server/floatingSessionSpawner.ts` | Implementation of POST /api/sessions/spawn-floating (translate / explain prompt synthesis) |
+| `server/extractPreviousAnswer.ts` | Helper used by floating-session spawner to lift the most recent answer for `translate-answer` mode |
 
 ## Implementation
 
@@ -27,8 +31,11 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - GET /api/sessions/:id/source
 - GET /api/sessions/history (paginated session history with status filter)
 - PUT /api/sessions/:id/title|label|accent-color|character-model|pinned|muted|alerted
-- POST /api/sessions/:id/kill|resume|summarize|fork
+- POST /api/sessions/:id/kill|resume|summarize|fork|clone
+  - `clone` (apiRouter.ts:652) creates a new terminal that re-runs the source session's `startupCommand` with reconstructed permission flags. Distinct from `fork` — clone starts a fresh CLI session, fork resumes the existing one.
+  - `kill` cascade: SIGTERM, then SIGKILL after 3s if the PID is still alive (apiRouter.ts:792-799). Fork sessions skip the `process.kill` cascade (`mem.isFork` check, apiRouter.ts:788) — they share the origin's `projectPath`, so cwd-based PID lookup would target the wrong claude PID. Forks rely on per-PTY `pty.kill` (group SIGHUP) via `closeTerminal` instead.
 - POST /api/sessions/spawn-floating — spawn a forked session pre-loaded with a translate / explain prompt; see [Floating Session Spawner](./floating-session-spawner.md).
+  - Body schema (apiRouter.ts:710-728): required `originSessionId` (≤200), `mode` (one of 6: `explain-learning`, `explain-native`, `translate-selection-learning`, `translate-selection-native`, `translate-answer`, `translate-file`), `nativeLanguage` (≤64), `learningLanguage` (≤64). Optional `selection` (≤64KB), `contextLine` (≤2KB), `fileContent` (≤256KB), `filePath` (≤2KB), `inheritContext: boolean`.
 - POST /api/sessions/:id/reconnect-terminal|reconnect-ops-terminal
 - POST /api/sessions/clear-all (removes all sessions, captures terminal output for replay; accepts JSON body `{ suppressBroadcast?: boolean }` — when `true`, skips the `clearBrowserDb` ws-broadcast so the workspace-import flow can rebuild without racing against the wipe)
 - DELETE /api/sessions/:id
@@ -37,15 +44,18 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - POST /api/terminals (create, max 50)
 - POST /api/terminals/register (Electron PTY registration)
 - POST /api/terminals/:id/prefill-output (base64-encoded output replay)
-- POST /api/terminals/:id/write (write string to PTY)
+- POST /api/terminals/:id/write (write string to PTY; max 50MB per call, apiRouter.ts:1331-1334)
 - GET /api/terminals (list all active terminals)
+- GET /api/terminals/:id/output (apiRouter.ts:1237) — snapshots the PTY ring buffer as base64. Consumed by the REVIEW tab to capture floating-session output at close.
 - DELETE /api/terminals/:id
 
 ### File Browser
 - GET /api/files/list|read|stream|search|grep
+- GET /api/files/resolve (apiRouter.ts:2086) — expands `~`, resolves to an absolute path, classifies as file/dir, and returns suggested project root + relative path so the client can open it in the file browser.
 - POST /api/files/write|mkdir|delete
 - POST /api/files/search/invalidate (clear search cache)
 - POST /api/files/reveal (open in system file manager)
+- **Limits**: `MAX_FILE_SIZE = 10MB` (read/write JSON), `MAX_STREAMABLE_SIZE = 100MB` (PDF/image streaming) — apiRouter.ts:1580-1581. Grep capped at `MAX_RESULTS = 500` (apiRouter.ts:1959).
 
 ### Team Endpoints
 - GET /api/teams/:id/config
@@ -102,6 +112,10 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - Zod schemas for ALL request bodies
 - Shell metacharacter regex for SSH fields
 
+### Auth Middleware Wiring (server/index.ts:180-184)
+- `/api/hooks` uses `localhostOnlyMiddleware` (no auth token; restricts to loopback) — does NOT go through `authMiddleware`.
+- All other routes mounted under `/api` via `apiRouter` are gated by `authMiddleware`.
+
 ### Known Projects
 - GET /api/known-projects decodes ~/.claude/projects/ directory names with greedy filesystem probing
 
@@ -132,7 +146,7 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - DB
 
 ## Change Risks
-- Largest server file (~2064 lines) -- consider splitting if it grows further
+- Largest server file (~2407 lines) -- consider splitting if it grows further
 - Changes to endpoint contracts break frontend
 - Zod schema changes affect request validation
 - Rate limit changes affect hook ingestion

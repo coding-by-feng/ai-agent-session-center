@@ -18,6 +18,12 @@ const STORAGE_KEY = 'remote-control:settings';
 
 interface PersistedSettings {
   enabled: boolean;
+  /**
+   * When true, the "Enable Remote Control" checkbox in session-creation modals
+   * is pre-checked whenever the command starts with `claude`, regardless of
+   * the user's last manual choice.
+   */
+  autoEnable?: boolean;
   /** Last manually-edited name — used as a hint only, not auto-applied. */
   lastName?: string;
 }
@@ -25,11 +31,15 @@ interface PersistedSettings {
 export function loadRemoteControlSettings(): PersistedSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { enabled: false };
+    if (!raw) return { enabled: false, autoEnable: false };
     const parsed = JSON.parse(raw) as PersistedSettings;
-    return { enabled: !!parsed.enabled, lastName: parsed.lastName };
+    return {
+      enabled: !!parsed.enabled,
+      autoEnable: !!parsed.autoEnable,
+      lastName: parsed.lastName,
+    };
   } catch {
-    return { enabled: false };
+    return { enabled: false, autoEnable: false };
   }
 }
 

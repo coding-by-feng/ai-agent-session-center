@@ -1,7 +1,7 @@
 # Dexie.js Client Persistence
 
 ## Function
-Browser-side persistent storage using IndexedDB via Dexie.js with 12 tables mirroring server data plus local-only settings.
+Browser-side persistent storage using IndexedDB via Dexie.js with 13 tables mirroring server data plus local-only settings.
 
 ## Purpose
 Enables offline access to session history, survives page reloads, and stores user preferences that don't need server roundtrips.
@@ -12,15 +12,15 @@ Enables offline access to session history, survives page reloads, and stores use
 | `src/lib/db.ts` (~9KB) | Dexie database definition, 12 tables, persistence functions |
 
 ## Implementation
-- Database name: "claude-dashboard", schema version 2
-- 12 tables: sessions (key: id), prompts (++id), responses (++id), toolCalls (++id), events (++id), notes (++id), promptQueue (++id), alerts (++id), sshProfiles (++id), settings (key: key), summaryPrompts (++id), teams (key: id)
+- Database name: "claude-dashboard", schema version 3 (db.ts:214 declares `this.version(3).stores({...})`; v2 install upgrades transparently)
+- 13 tables: sessions (key: id), prompts (++id), responses (++id), toolCalls (++id), events (++id), notes (++id), promptQueue (++id), alerts (++id), sshProfiles (++id), settings (key: key), summaryPrompts (++id), teams (key: id), translationLogs (++id, indexes: uuid, mode, createdAt, originSessionId, archived, floatTerminalId — added in v3)
 - Compound indexes for dedup: [sessionId+timestamp] on prompts, responses, toolCalls, events
 - Additional indexes: sessions has 5 (status, projectPath, startedAt, lastActivityAt, archived), toolCalls has toolName for analytics
 - DbSession schema: 21 fields (id, projectPath, projectName, title, status, model, source, startedAt, lastActivityAt, endedAt, totalToolCalls, totalPrompts, archived, summary, characterModel, accentColor, teamId, teamRole, terminalId, queueCount, label)
 - DbQueueItem has optional `images` field (JSON-serialized array of {name, dataUrl} image attachments)
 - persistSessionUpdate(): on WS session_update, upserts session + deduplicates child records via Dexie transaction
 - migrateSessionId(oldId, newId): updates sessionId across all child tables when session.replacesId is set
-- deleteSession(sessionId): cascade delete session + all child records in single transaction
+- deleteSession(sessionId): cascade delete session + all child records in single transaction. **Cascade scope** is `CHILD_TABLES` (db.ts:362-370) = 7 tables (prompts, responses, toolCalls, events, notes, promptQueue, alerts). **`translationLogs` is NOT in CHILD_TABLES** — deleting a session does NOT cascade-delete its translation logs, so log rows can be orphaned (referenced via `originSessionId` to a session that no longer exists). The REVIEW tab tolerates this; if you ever need cascade behavior, add `translationLogs` to `CHILD_TABLES`.
 
 ## Dependencies & Connections
 

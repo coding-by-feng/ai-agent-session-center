@@ -1,7 +1,7 @@
-# Zustand State Management (9 Stores)
+# Zustand State Management (10 Stores)
 
 ## Function
-Global state management via 9 Zustand stores providing reactive session, UI, settings, queue, camera, room, WebSocket, shortcut, and agenda state.
+Global state management via 10 Zustand stores providing reactive session, UI, settings, queue, camera, room, WebSocket, shortcut, agenda, and floating-sessions state.
 
 ## Purpose
 Single source of truth for all frontend state. Zustand chosen for its minimal API and compatibility with React Three Fiber (no context providers needed inside Canvas).
@@ -9,10 +9,11 @@ Single source of truth for all frontend state. Zustand chosen for its minimal AP
 ## Source Files
 | File | Role |
 |------|------|
-| `src/stores/sessionStore.ts` | Sessions Map, selectedSessionId, previousSessionId, addSession/removeSession/updateSession/selectSession/deselectSession/setSessions/togglePin/toggleMute/toggleAlert |
+| `src/stores/sessionStore.ts` | Sessions Map, selectedSessionId, previousSessionId, addSession/removeSession/updateSession/selectSession/deselectSession/setSessions/togglePin/toggleMute/toggleAlert/setSessionTitle (optimistic update + PUT /api/sessions/{id}/title) |
 | `src/stores/wsStore.ts` | connected, reconnecting, lastSeq, client, setConnected/setReconnecting/setLastSeq/setClient |
-| `src/stores/uiStore.ts` | activeModal, detailPanelOpen, detailPanelMinimized, activityFeedOpen, detailHeaderCollapsed, pendingFileOpen, cardDisplayMode, workspaceLoad, selectedRoomIds. Actions: openModal/closeModal, panel controls (minimizeDetailPanel, restoreDetailPanel), openFileInProject, toggleCardDisplayMode, workspaceLoad lifecycle (startWorkspaceLoad, advanceWorkspaceLoad, finishWorkspaceLoad), toggleRoomFilter/clearRoomFilter |
-| `src/stores/settingsStore.ts` | 9 themes, 6 robot models, sound profiles (4 CLIs), ambient, hooks, API keys, animationSpeed. Complex store with side effects (DOM CSS vars, data attributes). Actions include per-CLI sound config, label alarms, import/export, resetDefaults |
+| `src/stores/uiStore.ts` | activeModal, detailPanelOpen, detailPanelMinimized, activityFeedOpen, detailHeaderCollapsed, pendingFileOpen, cardDisplayMode, workspaceLoad, selectedRoomIds. Actions: openModal/closeModal, setDetailPanelOpen, panel controls (minimizeDetailPanel, restoreDetailPanel), openFileInProject/clearPendingFileOpen, toggleCardDisplayMode, workspaceLoad lifecycle (startWorkspaceLoad, advanceWorkspaceLoad, finishWorkspaceLoad), toggleRoomFilter/clearRoomFilter |
+| `src/stores/settingsStore.ts` | 9 themes, 6 robot models, sound profiles (4 CLIs), ambient, hooks, API keys (anthropic/openai/gemini/googleTts), animationSpeed. TTS block: googleTtsApiKey, ttsEnabled, ttsVoiceEn, ttsVoiceZh, ttsSpeakingRate. Translation block: translationEnabled, translationNativeLanguage, translationLearningLanguage, translationTrigger ('auto'\|'alt'\|'off'), translationInheritContext. Complex store with side effects (DOM CSS vars, data attributes). Actions: per-CLI sound config, label alarms, setApiKey (provider includes 'googleTts'), TTS setters, translation setters, import/export, resetDefaults |
+| `src/stores/floatingSessionsStore.ts` | floats array (PIP fork-translate terminals), open/close/closeAll, capped at MAX_FLOATS=4, captures terminal output to translationLog via captureResponse before DELETE /api/terminals/{id} |
 | `src/stores/queueStore.ts` | Queues Map<string, QueueItem[]>, per-session prompt queues with image attachments (QueueImageAttachment). Actions: add/remove/reorder/moveToSession/setQueue/migrateSession/loadFromDb. Persist subscription writes changes to IndexedDB |
 | `src/stores/cameraStore.ts` | pendingTarget, isAnimating, flyTo(), completeAnimation(). Exports: `DEFAULT_CAMERA_POSITION` ([18,16,18]), `DEFAULT_CAMERA_TARGET` ([0,1,0]) constants, `CameraTarget` interface (includes `requestId` field) |
 | `src/stores/roomStore.ts` | Rooms with id/name/sessionIds/collapsed/createdAt/roomIndex, persisted to localStorage['session-rooms']. Actions: createRoom/renameRoom/deleteRoom/addSession/removeSession/moveSession/toggleCollapse/setRoomIndex/migrateSession/getRoomForSession/loadFromStorage |
@@ -43,6 +44,8 @@ Single source of truth for all frontend state. Zustand chosen for its minimal AP
 - [3D Cyberdrome Scene](../3d/cyberdrome-scene.md) — reads sessionStore, roomStore, settingsStore, cameraStore from DOM layer
 - [Session Detail Panel](./session-detail-panel.md) — reads selectedSessionId, session data
 - [Sound/Alarm System](../multimedia/sound-alarm-system.md) — reads settingsStore for sound profiles
+- [Floating Terminal Fork](./floating-terminal-fork.md) — floatingSessionsStore drives PIP fork-translate terminals
+- [Review Tab](./review-tab.md) — reads translationLog populated on float close
 
 ### Shared Resources
 - Zustand stores are singletons, accessed via hooks or getState()

@@ -261,6 +261,16 @@ export async function importSnapshot(
     onProgress?: (done: number, total: number, currentTitle: string) => void;
     onComplete: (created: number, failed: number) => void;
   },
+  /**
+   * Optional restore filter: when provided, only sessions whose
+   * `originalSessionId` is in this set are launched. Sessions excluded by the
+   * filter still participate in canonical-map dedup so room remapping doesn't
+   * drop their references, but they will not receive a new terminalId and so
+   * naturally fall out of the restored rooms.
+   *
+   * Pass `null` / `undefined` to restore every session (current behavior).
+   */
+  sessionFilter?: Set<string> | null,
 ): Promise<{ created: number; failed: number; failedTitles: string[] }> {
   // Block auto-save for the duration of the import — during clear-all + recreate
   // the Zustand store transiently holds dying old IDs alongside in-flight new IDs,
@@ -323,10 +333,22 @@ export async function importSnapshot(
   }
 
   // Deduplicate sessions before importing
-  const dedupedSessions = deduplicateSessions(snapshot.sessions);
-  const skipped = snapshot.sessions.length - dedupedSessions.length;
+  const allDedupedSessions = deduplicateSessions(snapshot.sessions);
+  const skipped = snapshot.sessions.length - allDedupedSessions.length;
   if (skipped > 0) {
     console.warn(`[workspace] Skipped ${skipped} duplicate session(s) during import`);
+  }
+
+  // Apply user-selected restore filter (from the RestorePickerModal). When the
+  // filter is null/undefined, all sessions resume — preserves legacy behavior.
+  const dedupedSessions = sessionFilter
+    ? allDedupedSessions.filter((s) => sessionFilter.has(s.originalSessionId))
+    : allDedupedSessions;
+  if (sessionFilter) {
+    const excluded = allDedupedSessions.length - dedupedSessions.length;
+    if (excluded > 0) {
+      console.info(`[workspace] Restore filter: skipping ${excluded} session(s) not selected by user`);
+    }
   }
 
   const total = dedupedSessions.length;

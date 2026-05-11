@@ -25,21 +25,24 @@ Feature documentation organized by domain. Each doc describes function, purpose,
 
 | Doc | Feature | Key Files |
 |-----|---------|-----------|
-| [State Management](frontend/state-management.md) | 9 Zustand stores (session, UI, settings, queue, camera, room, WS, agenda, shortcut) | `src/stores/*.ts` |
-| [Client Persistence](frontend/client-persistence.md) | Dexie.js IndexedDB (12 tables, dedup, migration) | `src/lib/db.ts` |
+| [State Management](frontend/state-management.md) | 10 Zustand stores (session, UI, settings, queue, camera, room, WS, agenda, shortcut, floatingSessions) | `src/stores/*.ts` |
+| [Client Persistence](frontend/client-persistence.md) | Dexie.js IndexedDB (13 tables, schema v3, dedup, migration) | `src/lib/db.ts` |
 | [WebSocket Client](frontend/websocket-client.md) | WS client, reconnect, event replay | `src/lib/wsClient.ts`, `src/hooks/useWebSocket.ts` |
-| [Session Detail Panel](frontend/session-detail-panel.md) | Detail panel, 7 tabs, controls, split view | `src/components/session/DetailPanel.tsx` |
-| [File Browser](frontend/file-browser.md) | Project browser, find-in-file, file tree, bookmarks | `src/components/session/ProjectTab*.tsx` |
-| [Terminal UI](frontend/terminal-ui.md) | xterm.js, dual transport (IPC/WS), bookmarks, fork | `src/hooks/useTerminal.ts`, `src/components/terminal/` |
-| [Settings System](frontend/settings-system.md) | Settings panel, 9 themes, sound profiles, API keys | `src/components/settings/`, `src/stores/settingsStore.ts` |
+| [Session Detail Panel](frontend/session-detail-panel.md) | Detail panel, 6 tabs, controls, split + floating PROJECT modes | `src/components/session/DetailPanel.tsx` |
+| [File Browser](frontend/file-browser.md) | Project browser, find-in-file, file tree, bookmarks, in-pane translate/explain | `src/components/session/ProjectTab*.tsx` |
+| [Terminal UI](frontend/terminal-ui.md) | xterm.js, dual transport (IPC/WS), bookmarks, fork, clone, translate-answer | `src/hooks/useTerminal.ts`, `src/components/terminal/` |
+| [Settings System](frontend/settings-system.md) | Settings panel, 7 tabs (incl. TRANSLATION), 9 themes, sound profiles, API keys | `src/components/settings/`, `src/stores/settingsStore.ts` |
 | [Keyboard Shortcuts](frontend/keyboard-shortcuts.md) | Rebindable shortcuts, context-aware suppression | `src/hooks/useKeyboardShortcuts.ts`, `src/stores/shortcutStore.ts` |
 | [Prompt Queue](frontend/prompt-queue.md) | Per-session prompt queuing, auto-send | `src/stores/queueStore.ts` |
-| [Views / Routing](frontend/views-routing.md) | 5 routes (Live, History, ProjectBrowser, Queue, Agenda) | `src/routes/*.tsx` |
+| [Views / Routing](frontend/views-routing.md) | 6 routes (Live, History, Queue, Agenda, Review, ProjectBrowser) | `src/routes/*.tsx` |
 | [Agenda / Tasks](frontend/agenda.md) | Personal task manager (priority, tags, due dates) + `/api/agenda` CRUD | `src/routes/AgendaView.tsx`, `src/stores/agendaStore.ts`, `src/components/agenda/*` |
-| [Workspace Snapshot](frontend/workspace-snapshot.md) | Save/load live workspace (sessions, sub-tabs, rooms) | `src/lib/workspaceSnapshot.ts`, `src/hooks/useWorkspaceAuto*.ts` |
+| [Workspace Snapshot](frontend/workspace-snapshot.md) | Save/load live workspace (sessions, sub-tabs, rooms, scrollback prefill) | `src/lib/workspaceSnapshot.ts`, `src/hooks/useWorkspaceAuto*.ts` |
 | [Setup Wizard](frontend/setup-wizard.md) | First-run 5-step onboarding (deps, config, hook install) | `src/components/setup/SetupWizard.tsx` |
 | [Auth UI](frontend/auth-ui.md) | Login screen, token-gated app boot | `src/components/auth/LoginScreen.tsx`, `src/hooks/useAuth.ts` |
-| [Project Browser](frontend/project-browser.md) | Standalone `/project-browser` route wrapping `ProjectTab` | `src/routes/ProjectBrowserView.tsx` |
+| [Project Browser](frontend/project-browser.md) | Standalone `/project-browser` route wrapping `ProjectTab`, with origin-session resolution | `src/routes/ProjectBrowserView.tsx` |
+| [Floating Terminal Fork](frontend/floating-terminal-fork.md) | Selection→spawn floating PIP terminal (translate / explain / translate-file modes) | `src/components/session/FloatingTerminal*.tsx`, `src/stores/floatingSessionsStore.ts` |
+| [Review Tab](frontend/review-tab.md) | Saved translation/explanation log browser | `src/routes/ReviewView.tsx`, `src/lib/translationLog.ts` |
+| [Session Creation Modals](frontend/session-creation-modals.md) | NewSessionModal + QuickSessionModal, remote control auto-enable, name derivation | `src/components/modals/NewSessionModal.tsx`, `src/components/modals/QuickSessionModal.tsx`, `src/lib/remoteControlName.ts` |
 
 ### 3D Scene (`3d/`)
 
@@ -86,7 +89,7 @@ Hook System ──────────────────┐
                         │                        │
           ┌─────────────┤                        ▼
           ▼             ▼                 State Management
-    Terminal/SSH    API Endpoints          (9 Zustand stores)
+    Terminal/SSH    API Endpoints          (10 Zustand stores)
     (PTY, buffer)  (REST routes)              │
           │             │              ┌──────┼──────────┐
           ▼             ▼              ▼      ▼          ▼

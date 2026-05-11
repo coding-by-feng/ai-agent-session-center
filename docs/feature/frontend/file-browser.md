@@ -10,18 +10,24 @@ Lets users browse and inspect code/media files in the project directory without 
 | File | Role |
 |------|------|
 | `src/components/session/ProjectTabContainer.tsx` | Tab management (multi-file tabs) |
-| `src/components/session/ProjectTab.tsx` | Directory listing, file preview, toolbar, embedded `ImageViewer` subcomponent |
+| `src/components/session/ProjectTab.tsx` | Directory listing, file preview, toolbar, embedded `ImageViewer` subcomponent. Accepts `originSessionId` to enable in-place translate/explain |
 | `src/components/session/FileTree.tsx` | Hierarchical file tree with lazy loading (`forwardRef<FileTreeHandle>`) |
 | `src/components/session/FindInFileBar.tsx` | Inline find-in-file search (Cmd/Ctrl+F) |
 | `src/components/session/imageViewport.ts` | Pure helpers: zoom/pan clamping, fit-to-screen, cursor-anchored zoom, persistence (de)serialization |
 | `src/components/session/LinkifiedText.tsx` | Clickable file paths in rendered text |
-| `src/lib/fileSystemProvider.ts` (~14KB) | File system API client |
+| `src/components/session/TexViewer.tsx` | LaTeX (`.tex`) renderer used by ProjectTab's preview pane |
+| `src/components/session/FloatingProjectPanel.tsx` | Host overlay for floating PROJECT mode — portals ProjectTab into a draggable/resizable PIP panel |
+| `src/components/translate/SelectionPopup.tsx` | Selection→popup with translate/explain modes (rendered above markdown / fullscreen viewers) |
+| `src/hooks/useSelectionPopup.ts` | Selection capture + popup placement logic |
+| `src/lib/fileSystemProvider.ts` | File system API client (~459 lines) |
 
 ## Implementation
 - Tab management: default tab at project root, open in new tab, double-click to rename, x to close (last tab recreates root), auto-label from deepest path segment
-- Toolbar: search, find-in-file, new file/folder, open in new tab, **open external path** (prompts for an absolute or `~/`-prefixed path; resolves via `GET /api/files/resolve` and opens the file/folder in a fresh sub-tab — useful for viewing files outside the session project, e.g. `~/.config/gcloud/application_default_credentials.json`), format (Prettier), toggle outline/bookmarks/word wrap/fullscreen/hidden/datetime, sort by name/date, **Collapse all folders**, **Refresh file tree**
+- `originSessionId` prop on `ProjectTab` (optional): when set, enables in-pane translate/explain controls — `SelectionPopup` instances on the markdown and fullscreen viewers, plus the **Translate file** toolbar button. Hidden entirely when `originSessionId` is undefined (which can happen in the standalone Project Browser route only when no session matches the path)
+- Toolbar: search, find-in-file, new file/folder, open in new tab, **open external path** (prompts for an absolute or `~/`-prefixed path; resolves via `GET /api/files/resolve` and opens the file/folder in a fresh sub-tab — useful for viewing files outside the session project, e.g. `~/.config/gcloud/application_default_credentials.json`), format (Prettier), toggle outline/bookmarks/word wrap/fullscreen/hidden/datetime, sort by name/date, **Collapse all folders**, **Refresh file tree**, **Translate file** (gated on `originSessionId` — POSTs `/api/sessions/spawn-floating` with `mode='translate-file'`)
 - Reveal-in-Finder: on failure shows a red toast (`showToast`) with the server error message instead of silently swallowing
-- File preview: Markdown (GFM + syntax highlight), Excel (XLSX with sheet tabs), code (line numbers + syntax), PDF (blob URL), image (interactive `ImageViewer`), binary (unsupported indicator)
+- File preview: Markdown (GFM + syntax highlight), LaTeX (`.tex` via `TexViewer`), Excel (XLSX with sheet tabs), code (line numbers + syntax), PDF (blob URL), image (interactive `ImageViewer`), binary (unsupported indicator)
+- SelectionPopup integration: ProjectTab instantiates two popups via `useSelectionPopup` — one for the markdown viewer and a second for the fullscreen markdown viewer — so users can translate/explain selected text via the floating-terminal-fork pipeline. Spawns through `useFloatingSessionsStore.openFloat()`
 - Find-in-file: real-time search, case toggle (Aa), match counter ("X of Y"), Previous/Next bindings — `Enter`/`Shift+Enter`, `ArrowDown`/`ArrowUp`, and document-level `F3`/`Shift+F3` while the bar is mounted; the counter pulses via `.countWrapped` whenever the index wraps past first/last; exports `highlightFindMatches(text, term, caseSensitive, activeLineMatch?, currentLine?)` for code viewer
 - Active-match highlight: `FindInFileBar` exposes `onActiveMatchChange({ line, col } | null)`; `ProjectTab` plumbs the active position through `VirtualCodeViewer` and both non-virtualized viewers so the currently-focused match renders with `.find-match-active` (stronger orange `rgba(255,165,0,0.5)` + white text + outline, from `src/styles/global.css:31`), while other matches keep the softer `.find-match` yellow
 - Image viewer (`ImageViewer` subcomponent in `ProjectTab.tsx`, pure helpers in `imageViewport.ts`):
@@ -48,7 +54,8 @@ Lets users browse and inspect code/media files in the project directory without 
 
 ### Depended On By
 - [Terminal UI](./terminal-ui.md) — clickable file paths open in project tab
-- [Session Detail Panel](./session-detail-panel.md) — split view with terminal
+- [Session Detail Panel](./session-detail-panel.md) — split view with terminal, also hosts `FloatingProjectPanel` overlay
+- [Floating Terminal Fork](./floating-terminal-fork.md) — selection popup + Translate-file forks spawn floating PIP terminals
 
 ### Shared Resources
 - localStorage for tab state, bookmarks, tree state (`agent-manager:tree-state:*`), tree sort (`agent-manager:tree-sort:*`), image viewer state (`agent-manager:image-view:*`)

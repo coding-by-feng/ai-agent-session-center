@@ -41,6 +41,9 @@ Fuzzy search over large repos via `readdir` on every keystroke is too slow. A ca
 - In-memory `cache` Map keyed by absolute project root
 - `watchers` Map keyed by root — one watcher per project
 
+## Caller Contract
+- `searchFiles` returns `{ results, indexing }`. Callers MUST check `indexing: true` (cold-cache signal) and surface a "still indexing" UI state — `apiRouter.ts:1922` (`/api/files/search`) already forwards this flag. Treating an empty `results` as "no matches" while `indexing` is true would hide files during the initial walk.
+
 ## Change Risks
 - Adding a new skip dir without regenerating existing caches keeps stale entries until TTL
 - `MAX_ENTRIES` truncation is silent — repos exceeding the cap lose tail files from search

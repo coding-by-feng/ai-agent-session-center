@@ -15,7 +15,7 @@ Lets the user track tasks alongside AI coding sessions without leaving the dashb
 | `src/components/agenda/AgendaTaskCard.tsx` | Task card: title, description, priority chip, tags, due date, toggle/edit/delete |
 | `src/components/agenda/AddTaskForm.tsx` | Inline new-task form |
 | `src/types/agenda.ts` | `AgendaTask`, `AgendaPriority`, `AgendaFilter` types |
-| `server/apiRouter.ts` (lines 1952-2062) | 5 REST endpoints |
+| `server/apiRouter.ts` (lines 2245-2351) | 5 REST endpoints |
 | `server/db.ts` | `agenda_tasks` table + `getAllAgendaTasks`, `upsertAgendaTask`, `deleteAgendaTask`, `getAgendaTaskById` |
 
 ## Implementation
@@ -25,7 +25,7 @@ Lets the user track tasks alongside AI coding sessions without leaving the dashb
   - `PUT /api/agenda/:id` — update task (preserves `completedAt` logic)
   - `DELETE /api/agenda/:id` — delete task
   - `PATCH /api/agenda/:id/toggle` — flip completed flag, set/clear `completedAt`
-- **Validation**: `agendaCreateSchema` / `agendaUpdateSchema` Zod schemas in apiRouter.ts (line 171).
+- **Validation**: `agendaCreateSchema` (apiRouter.ts:189) / `agendaUpdateSchema` (apiRouter.ts:197) Zod schemas.
 - **Priority order**: urgent > high > medium > low (used by `sortBy: 'priority'`).
 - **Optimistic updates**: createTask inserts a `temp-{timestamp}` entry, swaps to real id on success; failures roll back.
 - **Filter state**: lives in store, not URL — lost on reload.

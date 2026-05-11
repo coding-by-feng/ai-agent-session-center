@@ -10,9 +10,11 @@ Interactive PTY terminal within the dashboard. Users can type commands, view out
 | File | Role |
 |------|------|
 | `src/hooks/useTerminal.ts` (~50KB, largest hook) | xterm lifecycle, dual transport, attach/detach, output buffering |
-| `src/components/terminal/TerminalContainer.tsx` | Composes toolbar + xterm + bookmarks + fullscreen overlay |
-| `src/components/terminal/TerminalToolbar.tsx` | Theme selector, buttons (ESC, paste, arrows, auto-scroll, bookmark, fork, mic/hold-to-speak, fullscreen, reconnect) |
+| `src/components/terminal/TerminalContainer.tsx` | Composes toolbar + xterm + bookmarks + fullscreen overlay; hosts `SelectionPopup` and translate-answer flow (also accepts `onClone?: () => void` prop) |
+| `src/components/terminal/TerminalToolbar.tsx` | Theme selector, buttons (ESC, paste, arrows, auto-scroll, bookmark, **clone** (`onClone` props at lines 215, 248, 386-396), fork, **translate previous answer** (`onTranslateAnswer` / `translateAnswerLanguage` / `translateAnswerBusy` props at lines 217-251, 410+), mic/hold-to-speak, fullscreen, reconnect) |
 | `src/components/terminal/themes.ts` | 7 named themes + auto theme from CSS variables |
+| `src/components/translate/SelectionPopup.tsx`, `src/hooks/useSelectionPopup.ts`, `src/lib/selectionExtractors.ts` | Select-to-translate popup wired into TerminalContainer (imports at lines 13-15) |
+| `src/stores/floatingSessionsStore.ts`, `src/lib/translationLog.ts` | Floating-session orchestration + Dexie translation log used by translate-answer (imports at lines 16, 18) |
 
 ## Implementation
 - xterm config: JetBrains Mono, responsive font (11/12/14px), 5000 lines scrollback, bar cursor non-blinking, 200ms resize debounce
@@ -26,7 +28,8 @@ Interactive PTY terminal within the dashboard. Users can type commands, view out
 - Scroll preservation: saved as "lines above bottom" to savedScrollRef on detach, restored on attach via pendingScrollRestore flag on ActiveTerminal — ensures saved offset survives the full setup/flush cycle regardless of when buffered data arrives. Guards on pendingScrollRestore in: ResizeObserver, safety-net repaint, handleTerminalReady, and active output handler. If no buffered data in double-RAF, pendingScrollRestore is left set for the active output handler with a 1s fallback timeout
 - Auto-scroll mode: disabled by default, toggleable, scrollToBottom after RAF-batched writes
 - Bookmarks: TerminalBookmark {id, terminalId, scrollLine, selectedText, note, timestamp, selStartX/Y, selEndX/Y}, persisted to localStorage per terminal
-- Fork: POST /api/sessions/:id/fork with --continue --fork-session, only for Claude sessions. The forked command preserves the source session's `permissionMode` via `reconstructPermissionFlags` (e.g. `--dangerously-skip-permissions`, `--permission-mode auto-edit|full-auto`), so the child inherits the same permission posture. On success, the forked session is auto-selected and assigned to the same room as the source session (via `roomStore.addSession`)
+- Fork (toolbar `onFork`): POST /api/sessions/:id/fork with --continue --fork-session, only for Claude sessions. The forked command preserves the source session's `permissionMode` via `reconstructPermissionFlags` (e.g. `--dangerously-skip-permissions`, `--permission-mode auto-edit|full-auto`), so the child inherits the same permission posture. On success, the forked session is auto-selected and assigned to the same room as the source session (via `roomStore.addSession`). **This is the in-place fork path — distinct from the floating-fork below.**
+- Floating-fork (translate / explain): TerminalContainer's `handleTranslateAnswer` (lines 322-360) POSTs to `/api/sessions/spawn-floating` with `{ originSessionId, mode: 'translate-answer', nativeLanguage, learningLanguage }`, then opens the result via `useFloatingSessionsStore.open({ terminalId, label, originSessionId })`. The select-to-translate popup uses the same store but with `mode='translate-selection'` / `'explain-selection'`. Floating-terminal hosts pass `originSessionId={null}` to suppress the popup and the translate-answer button (prevents recursion)
 - Paste: 3-strategy fallback (Clipboard API -> execCommand('paste') -> window.prompt), trailing newlines stripped, WS chunked 4KB with 5ms delays
 - Canvas repaint workaround: RAF -> save scroll -> fit -> sendResize -> refresh -> restore scroll
 - Fullscreen: reparent xterm to body portal, display toggle, toolbar duplicated, Alt+F11

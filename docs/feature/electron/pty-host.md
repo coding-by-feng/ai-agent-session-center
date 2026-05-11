@@ -40,16 +40,16 @@ PtyInstance {
 7. `detectShellReady()` -- wait for shell prompt (concurrent with steps 8-9)
 8. Register with Express server: `POST /api/terminals/register` (async, best effort)
 9. After shell ready: write launch command + `\r` (e.g. `"claude -n \"agent-manager #1\"\r"`)
-10. If `config.model` or `config.effortLevel` are set and the command is `claude`, auto-apply `/model <model>` and `/effort <level>` slash commands after Claude Code starts (detected via a brief delay post-launch)
+10. If `config.model`, `config.effortLevel`, or `config.remoteControlName` are set and the command is `claude`, auto-apply `/model <model>`, `/effort <level>`, and `/remote-control <name>` slash commands after Claude Code starts. Detection: a temporary `onData` listener accumulates output (capped at 16KB), strips ANSI, and waits for the literal substring `"Claude Code"` to appear (ptyHost.ts:313-318). On match, the listener disposes itself and a `setTimeout(..., 2500)` defers writing the slash commands so the Claude Code prompt is fully interactive. Multiple slash commands are then staggered 800ms apart in the order model → effort → remote-control (ptyHost.ts:321-329).
 
 ### Session Name Flag (`-n`)
 - Claude commands get `-n "title"` appended automatically
-- If `config.sessionTitle` is provided, uses that; otherwise auto-generates `projectName #N`
-- Auto-name counter is per-project via `ptyProjectCounters` map (e.g. "agent-manager #1", "thesis #2")
-- `autoSessionName()` helper derives the project name from the working directory basename and increments the per-project counter
+- If `config.sessionTitle` is provided, uses that; otherwise auto-generates a name. Special case: if `workDir === os.homedir()` the name is `Home #N`; otherwise `projectName #N` where `projectName` is the working-directory basename (ptyHost.ts:211-214).
+- Auto-name counter is per-project via `ptyProjectCounters` map (e.g. "agent-manager #1", "thesis #2", "Home #1")
+- `autoSessionName()` helper derives the project name from the working directory basename (with the `Home` special case) and increments the per-project counter
 - Only for commands starting with `claude`; skips if `-n` or `--name` already present
 - `appendSessionName()` and `autoSessionName()` helpers defined locally in ptyHost.ts
-10. Return `terminalId` (synchronous -- caller wraps in `{ok, terminalId}`)
+11. Return `terminalId` (synchronous -- caller wraps in `{ok, terminalId}`)
 
 ### Shell-Ready Detection
 
@@ -131,10 +131,16 @@ The PTY host injects CLI-specific API keys into the spawned shell environment:
   sessionTitle?: string
   apiKey?: string
   enableOpsTerminal?: boolean
+  /** Effort level to auto-apply after Claude Code starts (min/low/medium/high/max) */
   effortLevel?: string
+  /** Model to auto-apply after Claude Code starts (opus/sonnet/haiku) */
   model?: string
+  /** Run `/remote-control <name>` automatically after Claude Code starts. */
+  remoteControlName?: string
 }
 ```
+
+(Canonical type: `src/types/electron.d.ts:25-38`. Field JSDoc lives in ptyHost.ts:35-37.)
 
 ### Cleanup
 
