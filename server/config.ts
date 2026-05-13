@@ -178,3 +178,15 @@ export function appendSessionName(command: string, sessionTitle?: string | null)
   const escaped = sessionTitle.replace(/"/g, '\\"');
   return `${command} -n "${escaped}"`;
 }
+
+/**
+ * Strip `-n <value>` / `--name <value>` (and `=` form) from a Claude command,
+ * along with its quoted-or-unquoted argument. Used when cloning/forking a
+ * session so the new session can be given its own name (e.g. "Clone of X")
+ * instead of inheriting the original session's `-n` flag.
+ */
+export function stripClaudeSessionName(command: string): string {
+  return command
+    .replace(/\s+(?:-n|--name)(?:\s+|=)(?:"[^"]*"|'[^']*'|\S+)/g, '')
+    .trim();
+}

@@ -41,6 +41,7 @@ export type {
   TeammateIdlePayload,
   TaskCompletedPayload,
   PreCompactPayload,
+  PostCompactPayload,
   HookPayload,
 } from './hook.js';
 

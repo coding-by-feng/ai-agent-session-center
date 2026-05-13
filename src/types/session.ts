@@ -46,6 +46,7 @@ export type EventType =
   | 'TeammateIdle'
   | 'TaskCompleted'
   | 'PreCompact'
+  | 'PostCompact'
   | 'Notification'
   // Gemini
   | 'BeforeAgent'
@@ -149,6 +150,8 @@ export interface Session {
 
   // Source / origin
   source: SessionSource | string;
+  /** AI CLI family (Claude, Codex, Gemini). Distinct from terminal/source. */
+  cliSource?: string;
   model: string;
   transcriptPath?: string;
   permissionMode?: string | null;

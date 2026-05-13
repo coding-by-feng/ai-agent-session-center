@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, rmSync,
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
+import { removeAllCodexHooksToml } from './install-hooks-core.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..');
@@ -215,30 +216,16 @@ cleanJsonSettings(SETTINGS_PATH, ALL_EVENTS, 'Claude');
 // Gemini
 cleanJsonSettings(GEMINI_SETTINGS_PATH, GEMINI_ALL_EVENTS, 'Gemini');
 
-// Codex (TOML — remove only our comment + notify lines)
-// SAFETY: Only removes lines matching our comment marker or the specific dashboard-hook notify.
-//         All other Codex config lines are preserved untouched.
+// Codex (TOML — remove only our lifecycle hook blocks and legacy notify lines)
 if (existsSync(CODEX_CONFIG_PATH)) {
   try {
     const toml = readFileSync(CODEX_CONFIG_PATH, 'utf8');
-    const lines = toml.split('\n');
-    const kept = [];
-    let removed = 0;
-    for (const line of lines) {
-      const isOurComment = line.includes(`[${HOOK_SOURCE}]`);
-      const isOurNotify = line.includes(HOOK_PATTERN) && line.trimStart().startsWith('notify');
-      if (isOurComment || isOurNotify) {
-        ok(`[Codex] Removing line: ${DIM}${line.trim()}${RESET}`);
-        removed++;
-      } else {
-        kept.push(line);
-      }
-    }
-    if (removed > 0) {
-      writeFileSync(CODEX_CONFIG_PATH, kept.join('\n'));
-      ok(`[Codex] ${removed} line(s) removed from config.toml`);
+    const cleaned = removeAllCodexHooksToml(toml, HOOK_PATTERN, HOOK_SOURCE);
+    if (cleaned.removed > 0) {
+      writeFileSync(CODEX_CONFIG_PATH, cleaned.toml);
+      ok(`[Codex] ${cleaned.removed} dashboard hook block(s) removed from config.toml`);
       // Show what's left
-      const remaining = kept.filter(l => l.trim()).length;
+      const remaining = cleaned.toml.split('\n').filter(l => l.trim()).length;
       if (remaining > 0) {
         info(`${YELLOW}Preserved${RESET} ${remaining} other line(s) in Codex config.toml`);
       }

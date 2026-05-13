@@ -19,6 +19,7 @@ export const EVENT_TYPES = {
   TEAMMATE_IDLE: 'TeammateIdle',
   TASK_COMPLETED: 'TaskCompleted',
   PRE_COMPACT: 'PreCompact',
+  POST_COMPACT: 'PostCompact',
   NOTIFICATION: 'Notification',
   // Gemini events
   BEFORE_AGENT: 'BeforeAgent',
@@ -47,6 +48,17 @@ export const ALL_CLAUDE_HOOK_EVENTS: string[] = [
   EVENT_TYPES.SESSION_END,
 ];
 
+export const CODEX_HOOK_EVENTS: string[] = [
+  EVENT_TYPES.SESSION_START,
+  EVENT_TYPES.USER_PROMPT_SUBMIT,
+  EVENT_TYPES.PRE_TOOL_USE,
+  EVENT_TYPES.POST_TOOL_USE,
+  EVENT_TYPES.PERMISSION_REQUEST,
+  EVENT_TYPES.STOP,
+  EVENT_TYPES.PRE_COMPACT,
+  EVENT_TYPES.POST_COMPACT,
+];
+
 // Known event types set (all transports — Claude, Gemini, Codex)
 export const KNOWN_EVENTS: Set<string> = new Set([
   ...ALL_CLAUDE_HOOK_EVENTS,
@@ -55,7 +67,26 @@ export const KNOWN_EVENTS: Set<string> = new Set([
   EVENT_TYPES.AFTER_TOOL,
   EVENT_TYPES.AFTER_AGENT,
   EVENT_TYPES.AGENT_TURN_COMPLETE,
+  EVENT_TYPES.POST_COMPACT,
 ]);
+
+export const CODEX_DENSITY_EVENTS: Record<string, string[]> = {
+  high: CODEX_HOOK_EVENTS,
+  medium: [
+    EVENT_TYPES.SESSION_START,
+    EVENT_TYPES.USER_PROMPT_SUBMIT,
+    EVENT_TYPES.PRE_TOOL_USE,
+    EVENT_TYPES.POST_TOOL_USE,
+    EVENT_TYPES.PERMISSION_REQUEST,
+    EVENT_TYPES.STOP,
+  ],
+  low: [
+    EVENT_TYPES.SESSION_START,
+    EVENT_TYPES.USER_PROMPT_SUBMIT,
+    EVENT_TYPES.PERMISSION_REQUEST,
+    EVENT_TYPES.STOP,
+  ],
+};
 
 // Hook density presets — which events to register at each density level
 export const DENSITY_EVENTS: Record<string, string[]> = {

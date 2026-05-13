@@ -17,6 +17,20 @@ export type CliName = 'claude' | 'gemini' | 'codex' | 'openclaw';
  * Returns null if the CLI cannot be determined.
  */
 export function detectCli(session: Session): CliName | null {
+  const explicit = (session.cliSource || '').toLowerCase();
+  if (explicit === 'claude' || explicit === 'gemini' || explicit === 'codex' || explicit === 'openclaw') {
+    return explicit;
+  }
+
+  const command = [
+    session.startupCommand,
+    session.sshCommand,
+    session.sshConfig?.command,
+  ].filter(Boolean).join(' ').toLowerCase();
+  if (/(^|\s|\/)claude(\s|$)/.test(command)) return 'claude';
+  if (/(^|\s|\/)codex(\s|$)/.test(command)) return 'codex';
+  if (/(^|\s|\/)gemini(\s|$)/.test(command)) return 'gemini';
+
   const model = (session.model || '').toLowerCase();
 
   // Model-based detection (most reliable)
@@ -42,7 +56,7 @@ export function detectCli(session: Session): CliName | null {
   );
   if (hasGeminiEvent) return 'gemini';
 
-  const hasCodexEvent = events.some(e => e.type === 'agent-turn-complete');
+  const hasCodexEvent = events.some(e => e.type === 'agent-turn-complete' || e.type.startsWith('Codex'));
   if (hasCodexEvent) return 'codex';
 
   const hasClaudeEvent = events.some(e =>

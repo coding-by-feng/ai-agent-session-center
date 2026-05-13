@@ -13,11 +13,14 @@ import { useUiStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { useKnownProjects } from '@/hooks/useKnownProjects';
+import { getCommandSuggestions, saveCommand } from '@/lib/commandSuggestions';
 import {
   deriveRemoteControlName,
   loadRemoteControlSettings,
   saveRemoteControlSettings,
   sanitizeRemoteControlName,
+  loadSessionPrefs,
+  saveSessionPrefs,
 } from '@/lib/remoteControlName';
 import styles from '@/styles/modules/Modal.module.css';
 
@@ -120,56 +123,6 @@ function getUsernameSuggestions(): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Command history (localStorage)
-// ---------------------------------------------------------------------------
-
-const COMMAND_USAGE_KEY = 'command-usage-counts';
-
-// Common CLI commands shown by default in the Command dropdown
-const DEFAULT_COMMANDS: string[] = [
-  'claude',
-  'claude --resume',
-  'claude --continue',
-  'claude --model sonnet',
-  'claude --model opus',
-  'claude --dangerously-skip-permissions',
-  'claude --verbose',
-  'gemini',
-  'gemini --yolo',
-  'codex',
-  'aider',
-];
-
-function loadCommandUsageCounts(): Record<string, number> {
-  try {
-    return JSON.parse(localStorage.getItem(COMMAND_USAGE_KEY) || '{}');
-  } catch {
-    return {};
-  }
-}
-
-/** Sort by usage frequency (most used first), then append unused defaults. */
-function getCommandSuggestions(): string[] {
-  const counts = loadCommandUsageCounts();
-  const usedSorted = Object.entries(counts)
-    .sort(([, a], [, b]) => b - a)
-    .map(([cmd]) => cmd);
-  const seen = new Set(usedSorted);
-  const result = [...usedSorted];
-  for (const cmd of DEFAULT_COMMANDS) {
-    if (!seen.has(cmd)) result.push(cmd);
-  }
-  return result;
-}
-
-function saveCommand(cmd: string): void {
-  if (!cmd) return;
-  const counts = loadCommandUsageCounts();
-  counts[cmd] = (counts[cmd] || 0) + 1;
-  localStorage.setItem(COMMAND_USAGE_KEY, JSON.stringify(counts));
-}
-
-// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -188,8 +141,9 @@ export default function NewSessionModal() {
   const [sessionTitle, setSessionTitle] = useState('');
   const [label, setLabel] = useState('');
   const [roomId, setRoomId] = useState('');
-  const [effortLevel, setEffortLevel] = useState('high');
-  const [model, setModel] = useState('');
+  const [sessionPrefs] = useState(() => loadSessionPrefs());
+  const [effortLevel, setEffortLevel] = useState(sessionPrefs.effortLevel || 'high');
+  const [model, setModel] = useState(sessionPrefs.model || '');
   const [enableOpsTerminal, setEnableOpsTerminal] = useState(false);
   const [remoteControlSettings] = useState(() => loadRemoteControlSettings());
   const [autoEnableRemoteControl, setAutoEnableRemoteControl] = useState(
@@ -298,6 +252,7 @@ export default function NewSessionModal() {
         };
         saveLastSession(configToSave);
         saveDirSessionConfig(workingDir || '~', configToSave);
+        saveSessionPrefs({ model: model || undefined, effortLevel: effortLevel || undefined });
         saveRemoteControlSettings({
           enabled: enableRemoteControl,
           autoEnable: autoEnableRemoteControl,

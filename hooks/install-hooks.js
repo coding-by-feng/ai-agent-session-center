@@ -24,6 +24,16 @@ const VALID_DENSITIES = ['high', 'medium', 'low'];
 let density = 'medium';
 let enabledClis = ['claude'];
 
+// Read saved config first; explicit CLI flags below override it.
+try {
+  const configPath = join(PROJECT_ROOT, 'data', 'server-config.json');
+  const savedConfig = JSON.parse(readFileSync(configPath, 'utf8'));
+  if (savedConfig.hookDensity && VALID_DENSITIES.includes(savedConfig.hookDensity)) {
+    density = savedConfig.hookDensity;
+  }
+  if (savedConfig.enabledClis) enabledClis = savedConfig.enabledClis;
+} catch { /* no saved config, use defaults */ }
+
 const densityArgIdx = process.argv.indexOf('--density');
 if (densityArgIdx >= 0 && process.argv[densityArgIdx + 1]) {
   const val = process.argv[densityArgIdx + 1].toLowerCase();
@@ -33,16 +43,6 @@ if (densityArgIdx >= 0 && process.argv[densityArgIdx + 1]) {
     console.error(`${RED}ERROR${RESET} Invalid density: "${val}" (use: high, medium, low)`);
     process.exit(1);
   }
-} else {
-  // Read from saved config if no CLI flag
-  try {
-    const configPath = join(PROJECT_ROOT, 'data', 'server-config.json');
-    const savedConfig = JSON.parse(readFileSync(configPath, 'utf8'));
-    if (savedConfig.hookDensity && VALID_DENSITIES.includes(savedConfig.hookDensity)) {
-      density = savedConfig.hookDensity;
-    }
-    if (savedConfig.enabledClis) enabledClis = savedConfig.enabledClis;
-  } catch { /* no saved config, use default */ }
 }
 
 // Parse --clis flag (e.g., --clis claude,gemini,codex)

@@ -22,8 +22,8 @@ import { createReadStream, readFileSync, writeFileSync, readdirSync, existsSync,
 import { join, dirname, extname, basename, resolve, sep } from 'path';
 import { homedir, userInfo, networkInterfaces, hostname } from 'os';
 import { fileURLToPath } from 'url';
-import { ALL_CLAUDE_HOOK_EVENTS, DENSITY_EVENTS, SESSION_STATUS, WS_TYPES } from './constants.js';
-import { reconstructPermissionFlags } from './config.js';
+import { ALL_CLAUDE_HOOK_EVENTS, CODEX_DENSITY_EVENTS, CODEX_HOOK_EVENTS, DENSITY_EVENTS, SESSION_STATUS, WS_TYPES } from './constants.js';
+import { reconstructPermissionFlags, appendSessionName, stripClaudeSessionName } from './config.js';
 import log from './logger.js';
 import { searchFiles, invalidateCache, preloadIndex } from './fileIndexCache.js';
 import { synthesize as ttsSynthesize, checkApiKey as ttsCheckApiKey } from './ttsManager.js';
@@ -80,6 +80,72 @@ const noShellMetaWorkDir = z.string().max(1024).refine(
 const usernameSchema = z.string().max(128).regex(/^[a-zA-Z0-9_.\-]+$/, 'username contains invalid characters');
 
 const authMethodSchema = z.enum(['key', 'password']).optional();
+
+function shellEscapeSingle(value: string): string {
+  return value.replace(/'/g, `'"'"'`);
+}
+
+function commandStartsWithCli(command: string | undefined | null, cli: 'claude' | 'codex'): boolean {
+  const cmd = (command || '').trim().toLowerCase();
+  if (!cmd) return cli === 'claude';
+  return new RegExp(`(?:^|\\s|/)${cli}(?:\\s|$)`).test(cmd);
+}
+
+function stripClaudeSessionFlags(command: string): string {
+  return command
+    .replace(/^(\S*\/)claude/, 'claude')
+    .replace(/\s+--(?:resume\s+'[^']*'|resume\s+\S+|continue)\b/g, '')
+    .replace(/\s+--fork-session(?:\s+'[^']*'|\s+\S+)?/g, '')
+    .trim();
+}
+
+function stripCodexSessionSubcommand(command: string): string {
+  return command
+    .replace(/^(\S*\/)codex/, 'codex')
+    .replace(/\s+(?:resume|fork)(?:\s+--last)?(?:\s+'[^']*'|\s+"[^"]*"|\s+[a-zA-Z0-9_-]+)?/g, '')
+    .trim();
+}
+
+function buildResumeCommand(session: { startupCommand?: string; sshCommand?: string; sshConfig?: { command?: string }; permissionMode?: string | null }, sessionId: string): string {
+  const originalCmd = session.startupCommand || session.sshCommand || session.sshConfig?.command || '';
+  const safeId = shellEscapeSingle(sessionId);
+  const canUseSessionId = !sessionId.startsWith('term-');
+
+  if (commandStartsWithCli(originalCmd, 'codex')) {
+    const baseCmd = stripCodexSessionSubcommand(originalCmd || 'codex') || 'codex';
+    return canUseSessionId
+      ? `${baseCmd} resume '${safeId}' || ${baseCmd} resume --last`
+      : `${baseCmd} resume --last`;
+  }
+
+  if (commandStartsWithCli(originalCmd, 'claude')) {
+    let baseCmd = stripClaudeSessionFlags(originalCmd || 'claude') || 'claude';
+    baseCmd = reconstructPermissionFlags(baseCmd, session.permissionMode);
+    return canUseSessionId
+      ? `${baseCmd} --resume '${safeId}' || ${baseCmd} --continue`
+      : `${baseCmd} --continue`;
+  }
+
+  return originalCmd;
+}
+
+function buildForkCommand(session: { startupCommand?: string; sshCommand?: string; sshConfig?: { command?: string }; permissionMode?: string | null }, sessionId: string): string {
+  const originalCmd = session.startupCommand || session.sshCommand || session.sshConfig?.command || '';
+  const safeId = shellEscapeSingle(sessionId);
+  const canUseSessionId = !sessionId.startsWith('term-') && /^[a-zA-Z0-9_-]+$/.test(sessionId);
+
+  if (commandStartsWithCli(originalCmd, 'codex')) {
+    const baseCmd = stripCodexSessionSubcommand(originalCmd || 'codex') || 'codex';
+    return canUseSessionId
+      ? `${baseCmd} fork '${safeId}'`
+      : `${baseCmd} fork --last`;
+  }
+
+  const baseForkCmd = canUseSessionId
+    ? `claude --resume '${safeId}' --fork-session`
+    : 'claude --continue --fork-session';
+  return reconstructPermissionFlags(baseForkCmd, session.permissionMode);
+}
 
 const terminalCreateSchema = z.object({
   host: noShellMeta(255).optional(),
@@ -142,6 +208,7 @@ const tmuxSessionsSchema = z.object({
 
 const hookInstallSchema = z.object({
   density: z.enum(['high', 'medium', 'low']),
+  enabledClis: z.array(z.enum(['claude', 'gemini', 'codex'])).optional(),
 });
 
 const killSessionSchema = z.object({
@@ -290,8 +357,55 @@ router.get('/mq-stats', (_req: Request, res: Response) => {
 // ---- Hook Density Management ----
 
 const CLAUDE_SETTINGS_PATH = join(homedir(), '.claude', 'settings.json');
+const CODEX_CONFIG_PATH = join(homedir(), '.codex', 'config.toml');
 const INSTALL_HOOKS_SCRIPT = join(__apiDirname, '..', 'hooks', 'install-hooks.js');
-const HOOK_PATTERN = 'dashboard-hook.';
+const HOOK_PATTERN = 'dashboard-hook';
+
+function inferHookDensity(installedEvents: string[], densityEvents: Record<string, string[]>): string {
+  if (installedEvents.length === 0) return 'off';
+  for (const [density, expected] of Object.entries(densityEvents)) {
+    if (
+      installedEvents.length === expected.length &&
+      expected.every(e => installedEvents.includes(e))
+    ) {
+      return density;
+    }
+  }
+  return 'custom';
+}
+
+function findCodexHookEvents(toml: string): string[] {
+  const installed: string[] = [];
+  const lines = toml.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const eventMatch = lines[i].trim().match(/^\[\[hooks\.([A-Za-z0-9_]+)\]\]$/);
+    if (!eventMatch) continue;
+
+    const event = eventMatch[1];
+    const block = [lines[i]];
+    i++;
+    while (
+      i < lines.length &&
+      !/^\s*\[\[hooks\.[A-Za-z0-9_]+\]\]\s*$/.test(lines[i]) &&
+      !/^\s*\[[^\[]/.test(lines[i])
+    ) {
+      block.push(lines[i]);
+      i++;
+    }
+    i--;
+
+    if (CODEX_HOOK_EVENTS.includes(event) && block.some(line => line.includes(HOOK_PATTERN))) {
+      installed.push(event);
+    }
+  }
+  return installed;
+}
+
+function readEnabledClis(): string[] {
+  return Array.isArray(serverConfig.enabledClis) && serverConfig.enabledClis.length > 0
+    ? serverConfig.enabledClis
+    : ['claude'];
+}
 
 // Get current hooks status from ~/.claude/settings.json
 router.get('/hooks/status', (_req: Request, res: Response) => {
@@ -306,24 +420,36 @@ router.get('/hooks/status', (_req: Request, res: Response) => {
       hooks[event]?.some(group => group.hooks?.some(h => h.command?.includes(HOOK_PATTERN)))
     );
 
-    // Infer density from installed events
-    let density = 'off';
-    if (installedEvents.length > 0) {
-      if (installedEvents.length === DENSITY_EVENTS.high.length &&
-          DENSITY_EVENTS.high.every(e => installedEvents.includes(e))) {
-        density = 'high';
-      } else if (installedEvents.length === DENSITY_EVENTS.medium.length &&
-                 DENSITY_EVENTS.medium.every(e => installedEvents.includes(e))) {
-        density = 'medium';
-      } else if (installedEvents.length === DENSITY_EVENTS.low.length &&
-                 DENSITY_EVENTS.low.every(e => installedEvents.includes(e))) {
-        density = 'low';
-      } else {
-        density = 'custom';
-      }
-    }
+    const claudeDensity = inferHookDensity(installedEvents, DENSITY_EVENTS);
 
-    res.json({ installed: installedEvents.length > 0, density, events: installedEvents });
+    let codexToml = '';
+    try { codexToml = readFileSync(CODEX_CONFIG_PATH, 'utf8'); } catch { /* file doesn't exist yet */ }
+    const codexEvents = codexToml ? findCodexHookEvents(codexToml) : [];
+    const codexLegacyNotify = /^\s*notify\s*=.*dashboard-hook/m.test(codexToml);
+    const codexDensity = inferHookDensity(codexEvents, CODEX_DENSITY_EVENTS);
+
+    const enabledClis = readEnabledClis();
+    const installed = enabledClis.some(cli => {
+      if (cli === 'claude') return installedEvents.length > 0;
+      if (cli === 'codex') return codexEvents.length > 0;
+      return false;
+    });
+
+    res.json({
+      installed,
+      density: claudeDensity !== 'off' ? claudeDensity : codexDensity,
+      events: installedEvents,
+      enabledClis,
+      clis: {
+        claude: { installed: installedEvents.length > 0, density: claudeDensity, events: installedEvents },
+        codex: {
+          installed: codexEvents.length > 0,
+          density: codexDensity,
+          events: codexEvents,
+          legacyNotify: codexLegacyNotify,
+        },
+      },
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('api', `Hook status check failed: ${msg}`);
@@ -336,16 +462,17 @@ router.post('/hooks/install', (req: Request, res: Response) => {
   const body = validateBody(hookInstallSchema, req.body, res);
   if (!body) return;
   const { density } = body;
+  const enabledClis = body.enabledClis?.length ? body.enabledClis : readEnabledClis();
 
   // Run install-hooks.js with --density flag
-  execFile('node', [INSTALL_HOOKS_SCRIPT, '--density', density], { timeout: 15000 }, (err, stdout, stderr) => {
+  execFile('node', [INSTALL_HOOKS_SCRIPT, '--density', density, '--clis', enabledClis.join(',')], { timeout: 15000 }, (err, stdout, stderr) => {
     if (err) {
       log.error('api', `hooks/install failed: ${err.message}`);
       res.status(500).json({ success: false, error: err.message, stdout, stderr });
       return;
     }
     log.info('api', `hooks/install: ${stdout.trim()}`);
-    res.json({ ok: true, density, events: DENSITY_EVENTS[density as keyof typeof DENSITY_EVENTS], output: stdout });
+    res.json({ ok: true, density, enabledClis, events: DENSITY_EVENTS[density as keyof typeof DENSITY_EVENTS], output: stdout });
   });
 });
 
@@ -405,35 +532,7 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
   const session = getSession(sessionId);
   if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
 
-  // Retrieve the original command used to create this session.
-  // Priority: startupCommand (from hook) > sshCommand > sshConfig.command > default
-  const originalCmd = session.startupCommand || session.sshCommand || session.sshConfig?.command || '';
-
-  // Build resume command preserving original flags/options
-  // Terminal IDs (term-xxx) are agent-manager internal IDs, not Claude conversation IDs.
-  // claude --resume only works with real Claude session IDs, so fall back to --continue.
-  const isClaudeSessionId = !sessionId.startsWith('term-');
-  const safeId = sessionId.replace(/'/g, "'\\''");
-  let resumeCmd: string;
-  // Detect Claude CLI — handles 'claude', '/usr/local/bin/claude', 'node /path/to/claude'
-  const isClaude = !originalCmd || /(?:^|\/)claude(?:\s|$)/.test(originalCmd);
-  if (isClaude) {
-    // Claude CLI: normalize full path, strip any prior --resume/--continue, then append --resume with fallback
-    let baseCmd = (originalCmd || 'claude')
-      .replace(/^(\S*\/)claude/, 'claude')
-      .replace(/\s+--(?:resume\s+'[^']*'|resume\s+\S+|continue)\b/g, '').trim();
-
-    // If permissionMode is known but the corresponding flag isn't already in the
-    // command, reconstruct it so resume preserves the original behavior.
-    baseCmd = reconstructPermissionFlags(baseCmd, session.permissionMode);
-
-    resumeCmd = isClaudeSessionId
-      ? `${baseCmd} --resume '${safeId}' || ${baseCmd} --continue`
-      : `${baseCmd} --continue`;
-  } else {
-    // Non-Claude CLI (gemini, codex, aider, etc.): re-run the original command as-is
-    resumeCmd = originalCmd;
-  }
+  const resumeCmd = buildResumeCommand(session, sessionId);
 
   const allTerminals = getTerminals();
   const terminalExists = session.lastTerminalId && allTerminals.some(t => t.terminalId === session.lastTerminalId);
@@ -576,26 +675,17 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
   }
 });
 
-// Fork a Claude Code session: create a new terminal running
-// `claude --continue <sessionId> --fork-session` in the same working directory.
+// Fork a Claude/Codex session in the same working directory.
 router.post('/sessions/:id/fork', async (req: Request, res: Response) => {
   const sessionId = str(req.params.id);
   const session = getSession(sessionId);
   if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
 
-  // Use --resume <sessionId> (not --continue <sessionId>) because Claude's
-  // --continue flag doesn't take a session ID argument — a trailing ID would
-  // be interpreted as the initial prompt and typed into the Claude input.
-  // Terminal IDs (term-xxx) are agent-manager internal, not Claude conversation
-  // IDs — fall back to --continue in that case.
-  const isClaudeSessionId = !sessionId.startsWith('term-');
-  const safeSessionId = /^[a-zA-Z0-9_\-]+$/.test(sessionId) ? sessionId : '';
-  const baseForkCmd = safeSessionId && isClaudeSessionId
-    ? `claude --resume '${safeSessionId}' --fork-session`
-    : `claude --continue --fork-session`;
-  // Preserve the source session's permission mode (e.g. --dangerously-skip-permissions,
-  // --permission-mode auto-edit) so the forked session behaves the same way.
-  const forkCmd = reconstructPermissionFlags(baseForkCmd, session.permissionMode);
+  const newTitle = `Fork of ${session.title || session.projectName}`;
+  // buildForkCommand produces a fresh `claude --resume ... --fork-session` template
+  // (no `-n` flag). Append `-n "<newTitle>"` so the new fork has its own name
+  // rather than inheriting the original session's name from the resumed state.
+  const forkCmd = appendSessionName(buildForkCommand(session, sessionId), newTitle);
 
   try {
     const cfg = session.sshConfig;
@@ -609,7 +699,7 @@ router.post('/sessions/:id/fork', async (req: Request, res: Response) => {
       await createTerminalSession(newTerminalId, {
         ...newConfig,
         command: forkCmd,
-        sessionTitle: `Fork of ${session.title || session.projectName}`,
+        sessionTitle: newTitle,
       });
 
       const isRemote = cfg.host && cfg.host !== 'localhost' && cfg.host !== '127.0.0.1';
@@ -634,7 +724,7 @@ router.post('/sessions/:id/fork', async (req: Request, res: Response) => {
       await createTerminalSession(newTerminalId, {
         ...newConfig,
         command: forkCmd,
-        sessionTitle: `Fork of ${session.title || session.projectName}`,
+        sessionTitle: newTitle,
       });
 
       writeWhenReady(newTerminalId, `${forkCmd}\r`);
@@ -656,8 +746,13 @@ router.post('/sessions/:id/clone', async (req: Request, res: Response) => {
 
   try {
     const cfg = session.sshConfig;
+    const newTitle = `Clone of ${session.title || session.projectName}`;
     const baseCmd = session.startupCommand || cfg?.command || 'claude';
-    const cloneCmd = reconstructPermissionFlags(baseCmd, session.permissionMode);
+    // Strip the original session's `-n "..."` before reconstructing flags
+    // so the clone gets named after `newTitle`, not the original session.
+    let cloneCmd = stripClaudeSessionName(baseCmd);
+    cloneCmd = reconstructPermissionFlags(cloneCmd, session.permissionMode);
+    cloneCmd = appendSessionName(cloneCmd, newTitle);
 
     if (cfg && cfg.username) {
       const newConfig: TerminalConfig = { ...cfg, workingDir: cfg.workingDir || '~', command: '' };
@@ -666,7 +761,7 @@ router.post('/sessions/:id/clone', async (req: Request, res: Response) => {
       await createTerminalSession(newTerminalId, {
         ...newConfig,
         command: cloneCmd,
-        sessionTitle: `Clone of ${session.title || session.projectName}`,
+        sessionTitle: newTitle,
       });
       const isRemote = cfg.host && cfg.host !== 'localhost' && cfg.host !== '127.0.0.1';
       let prefix = '';
@@ -687,7 +782,7 @@ router.post('/sessions/:id/clone', async (req: Request, res: Response) => {
       await createTerminalSession(newTerminalId, {
         ...newConfig,
         command: cloneCmd,
-        sessionTitle: `Clone of ${session.title || session.projectName}`,
+        sessionTitle: newTitle,
       });
       writeWhenReady(newTerminalId, `${cloneCmd}\r`);
       res.json({ ok: true, terminalId: newTerminalId });
@@ -1084,28 +1179,20 @@ router.post('/terminals', async (req: Request, res: Response) => {
       }
     }
 
-    // Workspace restore resume: rebuild the Claude launch command to --resume the
-    // actual conversation UUID instead of blindly re-running sshConfig.command
-    // (which could fork a fresh session or re-fork from the ancestor, losing work).
-    // Only applies when resumeSessionId is a real Claude UUID (not a term-* id) and
-    // the base command is a Claude CLI invocation.
+    // Workspace restore resume: rebuild Claude/Codex launch commands to resume
+    // the actual conversation instead of blindly re-running sshConfig.command.
     const resumeId = body.resumeSessionId;
     let resumeLaunchCmd: string | null = null;
-    if (
-      resumeId
-      && !resumeId.startsWith('term-')
-      && /(?:^|\/)claude(?:\s|$)/.test(config.command || 'claude')
-    ) {
-      const baseCmdStripped = (config.command || 'claude')
-        .replace(/^(\S*\/)claude/, 'claude')
-        .replace(/\s+--(?:resume|continue)\s+'[^']*'/g, '')
-        .replace(/\s+--(?:resume|continue)\s+[a-f0-9-]+/gi, '')
-        .replace(/\s+--(?:resume|continue)\b/g, '')
-        .replace(/\s+--fork-session\b/g, '')
-        .trim();
-      const baseCmd = reconstructPermissionFlags(baseCmdStripped || 'claude', body.permissionMode);
-      const safeId = resumeId.replace(/'/g, "'\\''");
-      resumeLaunchCmd = `${baseCmd} --resume '${safeId}' || ${baseCmd} --continue`;
+    if (resumeId) {
+      resumeLaunchCmd = buildResumeCommand(
+        {
+          startupCommand: config.startupCommand,
+          sshCommand: config.command || 'claude',
+          sshConfig: { command: config.command || 'claude' },
+          permissionMode: body.permissionMode,
+        },
+        resumeId,
+      );
     }
 
     // Workspace import may intentionally send command='' plus startupCommand for

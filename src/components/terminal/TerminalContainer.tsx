@@ -16,6 +16,7 @@ import { extractXtermSelection } from '@/lib/selectionExtractors';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { createLog } from '@/lib/translationLog';
+import { detectCli } from '@/lib/cliDetect';
 import styles from '@/styles/modules/Terminal.module.css';
 import '@xterm/xterm/css/xterm.css';
 
@@ -41,7 +42,7 @@ interface TerminalContainerProps {
   bookmarkPortalTarget?: HTMLDivElement | null;
   /** Project root path — enables clickable file paths in terminal output */
   projectPath?: string;
-  /** Fork the current Claude Code session (--continue --fork-session) */
+  /** Fork the current Claude/Codex session. */
   onFork?: () => void;
   /** Clone — new session running the same startupCommand + config */
   onClone?: () => void;
@@ -304,6 +305,8 @@ export default memo(function TerminalContainer({
   const translationNative = useSettingsStore((s) => s.translationNativeLanguage);
   const translationLearning = useSettingsStore((s) => s.translationLearningLanguage);
   const openFloat = useFloatingSessionsStore((s) => s.open);
+  const originSession = useSessionStore((s) => originSessionId ? s.sessions.get(originSessionId) : undefined);
+  const canTranslateAnswer = !!originSession && detectCli(originSession) === 'claude';
 
   const popupExtract = useCallback(
     (e: { clientX: number; clientY: number }) => {
@@ -490,7 +493,7 @@ export default memo(function TerminalContainer({
         onFork={onFork}
         onClone={onClone}
         onTranslateAnswer={
-          translationEnabled && originSessionId ? handleTranslateAnswer : undefined
+          translationEnabled && originSessionId && canTranslateAnswer ? handleTranslateAnswer : undefined
         }
         translateAnswerLanguage={translationNative}
         translateAnswerBusy={translateAnswerBusy}

@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import { copyFileSync, chmodSync, mkdirSync, readFileSync, writeFileSync, existsSync, renameSync, unlinkSync } from 'fs';
 import { randomBytes } from 'crypto';
 import log from './logger.js';
+import { configureCodexHooksToml } from '../hooks/install-hooks-core.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -56,6 +57,11 @@ export function ensureHooksInstalled(config) {
   const isWindows = process.platform === 'win32';
   const hookPattern = 'dashboard-hook';
   const hookSource = 'ai-agent-session-center';
+  const codexDensityEvents = {
+    high: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'Stop', 'PreCompact', 'PostCompact'],
+    medium: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'Stop'],
+    low: ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Stop'],
+  };
 
   // Read saved config
   let density = config.hookDensity || 'medium';
@@ -174,19 +180,23 @@ export function ensureHooksInstalled(config) {
 
     syncHookFile(src, dest, hooksDir, false, 'codex');
 
-    // Codex uses TOML config with a notify command
+    // Codex uses TOML lifecycle command hooks.
     try {
       let toml = '';
       try { toml = readFileSync(configPath, 'utf8'); } catch {}
+      const codexEvents = codexDensityEvents[density] || codexDensityEvents.medium;
+      const configured = configureCodexHooksToml(
+        toml,
+        codexEvents,
+        '~/.codex/hooks/dashboard-hook.sh',
+        hookPattern,
+        hookSource,
+      );
 
-      if (!toml.includes(hookPattern)) {
+      if (configured.toml !== toml) {
         mkdirSync(join(homedir(), '.codex'), { recursive: true });
-        const commentLine = `# [${hookSource}] Dashboard hook — safe to remove with "npm run reset"`;
-        const notifyLine = `notify = ["~/.codex/hooks/dashboard-hook.sh"]`;
-        if (toml && !toml.endsWith('\n')) toml += '\n';
-        toml += commentLine + '\n' + notifyLine + '\n';
-        writeFileSync(configPath, toml);
-        log.info('server', 'Registered Codex notify hook in ~/.codex/config.toml');
+        writeFileSync(configPath, configured.toml);
+        log.info('server', `Registered ${codexEvents.length} Codex lifecycle hook events (density: ${density})`);
       }
     } catch (e) {
       log.debug('server', `Codex hook registration skipped: ${e.message}`);

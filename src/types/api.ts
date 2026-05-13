@@ -35,10 +35,18 @@ export interface HooksStatusResponse {
   installed: boolean;
   density: HookDensity | 'off' | 'custom';
   events: string[];
+  enabledClis?: string[];
+  clis?: Record<string, {
+    installed: boolean;
+    density: HookDensity | 'off' | 'custom';
+    events: string[];
+    legacyNotify?: boolean;
+  }>;
 }
 
 export interface HooksInstallRequest {
   density: HookDensity;
+  enabledClis?: Array<'claude' | 'gemini' | 'codex'>;
 }
 
 export interface HooksInstallResponse {

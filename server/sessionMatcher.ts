@@ -119,6 +119,7 @@ function createDefaultSession(
     toolUsage: {},
     totalToolCalls: 0,
     model: hookData.model || '',
+    cliSource: hookData.cli_source,
     subagentCount: 0,
     toolLog: [],
     responseLog: [],

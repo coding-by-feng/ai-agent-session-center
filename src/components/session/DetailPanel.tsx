@@ -68,7 +68,8 @@ const TerminalContent = memo(function TerminalContent({
   const showReconnect = canReconnect && status === 'ended' && !terminalId;
   const [bookmarkTarget, setBookmarkTarget] = useState<HTMLDivElement | null>(null);
 
-  const isClaudeCode = session ? detectCli(session) === 'claude' : false;
+  const cli = session ? detectCli(session) : null;
+  const isForkableCli = cli === 'claude' || cli === 'codex';
 
   const handleReconnect = useCallback(() => {
     fetch(`/api/sessions/${sessionId}/reconnect-terminal`, { method: 'POST' })
@@ -113,7 +114,7 @@ const TerminalContent = memo(function TerminalContent({
           ws={ws}
           showReconnect={showReconnect}
           onReconnect={canReconnect ? handleReconnect : undefined}
-          onFork={isClaudeCode ? handleFork : undefined}
+          onFork={isForkableCli ? handleFork : undefined}
           onClone={handleClone}
           bookmarkPortalTarget={bookmarkTarget}
           projectPath={projectPath}

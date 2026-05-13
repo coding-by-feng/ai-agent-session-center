@@ -4,6 +4,7 @@ import { useUiStore } from '@/stores/uiStore';
 import { useRoomStore } from '@/stores/roomStore';
 import type { Room } from '@/stores/roomStore';
 import type { Session } from '@/types';
+import { detectCli } from '@/lib/cliDetect';
 import styles from '@/styles/modules/Header.module.css';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -49,10 +50,11 @@ const MAX_VISIBLE = 8;
 
 /** Detect CLI tool from session command */
 function getCliBadge(session: Session): string | null {
-  const cmd = (session.sshCommand || session.sshConfig?.command || '').toLowerCase();
-  if (cmd.startsWith('claude') || cmd.includes('/claude')) return 'CLAUDE';
-  if (cmd.startsWith('codex') || cmd.includes('/codex')) return 'CODEX';
-  if (cmd.startsWith('gemini') || cmd.includes('/gemini')) return 'GEMINI';
+  const cli = detectCli(session);
+  if (cli === 'claude') return 'CLAUDE';
+  if (cli === 'codex') return 'CODEX';
+  if (cli === 'gemini') return 'GEMINI';
+  const cmd = (session.startupCommand || session.sshCommand || session.sshConfig?.command || '').toLowerCase();
   if (cmd.startsWith('aider') || cmd.includes('/aider')) return 'AIDER';
   if (session.backendType) {
     const bt = session.backendType.toLowerCase();

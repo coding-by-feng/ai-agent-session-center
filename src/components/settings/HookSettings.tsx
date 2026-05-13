@@ -50,7 +50,7 @@ export default function HookSettings() {
       const resp = await fetch('/api/hooks/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ density: selectedDensity }),
+        body: JSON.stringify({ density: selectedDensity, enabledClis: status?.enabledClis }),
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || 'Install failed');
@@ -132,6 +132,18 @@ export default function HookSettings() {
             <span>Not installed</span>
           )}
         </div>
+
+        {status?.clis && (
+          <div className={styles.settingsHint}>
+            {Object.entries(status.clis).map(([cli, cliStatus]) => (
+              <span key={cli}>
+                {cli}: {cliStatus.installed ? `${cliStatus.density} (${cliStatus.events.length})` : 'off'}
+                {cliStatus.legacyNotify ? ' — legacy notify config detected' : ''}
+                {' '}
+              </span>
+            ))}
+          </div>
+        )}
 
         {error && (
           <div style={{ color: 'var(--accent-red)', fontSize: '11px', marginTop: '8px' }}>
