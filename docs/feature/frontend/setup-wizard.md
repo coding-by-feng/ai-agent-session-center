@@ -25,7 +25,7 @@ Hooks must be wired into each CLI's settings file before the dashboard can obser
 - **Default config**: `{port: 3333, enabledClis: ['claude'], hookDensity: 'medium', debug: false, sessionHistoryHours: 24}`.
 - **Auth bootstrap**: `SetupConfig` (electron.d.ts:11-18) carries an optional `passwordHash?: string` field used to seed first-run auth — when present, the wizard hands the hash off to the server during `saveConfig`/`completeSetup` so the very first launch already has a password set instead of forcing a separate auth-setup pass.
 - **Progress bar** width = `(step / (total - 1)) * 100%`; each label reflects `active`/`done` state.
-- **Hook density**: passed through to `hookInstaller` which filters which events the bash hook emits (`low` / `medium` / `high`).
+- **Hook density**: passed through to `hookInstaller` which selects the lifecycle events registered for each enabled CLI (`low` / `medium` / `high`). Codex uses TOML command lifecycle hooks in `~/.codex/config.toml`, while Claude/Gemini use their settings JSON hook config.
 - **CLI targets**: each enabled CLI gets its own settings file patched atomically (write-to-tmp + rename per known-issues guardrail).
 - **Deps check**: looks for `jq`, `node`, CLI binary on PATH; blocks forward progress if missing.
 - **Step tests**: `ConfigureStep.test.tsx`, `DepsCheckStep.test.tsx`, `InstallStep.test.tsx` cover per-step behavior.
@@ -41,7 +41,7 @@ Hooks must be wired into each CLI's settings file before the dashboard can obser
 - App boot flow — first-run detection decides whether to show the wizard
 
 ### Shared Resources
-- `~/.claude/settings.json` (and equivalents for Gemini/Codex) — modified with atomic write
+- `~/.claude/settings.json`, `~/.gemini/settings.json`, `~/.codex/config.toml` — modified with atomic write / TOML block replacement
 
 ## Change Risks
 - Adding a step without updating the `labels` array in `WizardHeader` desyncs the progress bar

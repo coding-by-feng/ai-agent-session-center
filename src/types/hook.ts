@@ -20,6 +20,9 @@ export interface HookPayloadBase {
   // Process info (added by jq enrichment)
   claude_pid?: number;
   model?: string;
+  /** AI CLI family that emitted the hook; distinct from Codex's SessionStart source. */
+  cli_source?: string;
+  codex_event?: string | null;
 
   // Terminal environment (added by jq enrichment)
   agent_terminal_id?: string;
@@ -95,6 +98,7 @@ export interface PermissionRequestPayload extends HookPayloadBase {
 export interface StopPayload extends HookPayloadBase {
   hook_event_name: 'Stop';
   response?: string;
+  last_assistant_message?: string | null;
   message?: string;
   stop_reason_str?: string;
 }
@@ -144,6 +148,11 @@ export interface PreCompactPayload extends HookPayloadBase {
   hook_event_name: 'PreCompact';
 }
 
+/** PostCompact event payload */
+export interface PostCompactPayload extends HookPayloadBase {
+  hook_event_name: 'PostCompact';
+}
+
 // ---------------------------------------------------------------------------
 // Union
 // ---------------------------------------------------------------------------
@@ -164,4 +173,5 @@ export type HookPayload =
   | TeammateIdlePayload
   | TaskCompletedPayload
   | PreCompactPayload
+  | PostCompactPayload
   | HookPayloadBase;

@@ -10,10 +10,12 @@ The HTTP interface for the React frontend and external integrations. Handles all
 | File | Role |
 |------|------|
 | `server/apiRouter.ts` (~96KB, ~2407 lines, largest server file) | All REST endpoints |
+| `server/constants.ts` | Hook event/density constants used by hook status and install endpoints |
 | `server/index.ts` | Auth endpoints (`/api/auth/*`) and middleware wiring (localhost-only for hooks, authMiddleware for everything else under /api) |
 | `server/hookRouter.ts` | POST /api/hooks (HTTP-fallback hook ingestion) |
 | `server/floatingSessionSpawner.ts` | Implementation of POST /api/sessions/spawn-floating (translate / explain prompt synthesis) |
 | `server/extractPreviousAnswer.ts` | Helper used by floating-session spawner to lift the most recent answer for `translate-answer` mode |
+| `src/types/api.ts` | Shared API response/request types, including per-CLI hook status and `enabledClis` install body |
 
 ## Implementation
 
@@ -33,6 +35,8 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - PUT /api/sessions/:id/title|label|accent-color|character-model|pinned|muted|alerted
 - POST /api/sessions/:id/kill|resume|summarize|fork|clone
   - `clone` (apiRouter.ts:652) creates a new terminal that re-runs the source session's `startupCommand` with reconstructed permission flags. Distinct from `fork` — clone starts a fresh CLI session, fork resumes the existing one.
+  - `resume` rebuilds the launch command by CLI: Claude uses `claude --resume '<SESSION_ID>' || claude --continue`; Codex uses `codex resume '<SESSION_ID>' || codex resume --last`; synthetic `term-*` sessions use the fallback form only.
+  - `fork` rebuilds the launch command by CLI: Claude uses `claude --resume '<SESSION_ID>' --fork-session` (or `--continue --fork-session`); Codex uses `codex fork '<SESSION_ID>'` (or `codex fork --last`). Claude permission mode flags are preserved via `reconstructPermissionFlags`.
   - `kill` cascade: SIGTERM, then SIGKILL after 3s if the PID is still alive (apiRouter.ts:792-799). Fork sessions skip the `process.kill` cascade (`mem.isFork` check, apiRouter.ts:788) — they share the origin's `projectPath`, so cwd-based PID lookup would target the wrong claude PID. Forks rely on per-PTY `pty.kill` (group SIGHUP) via `closeTerminal` instead.
 - POST /api/sessions/spawn-floating — spawn a forked session pre-loaded with a translate / explain prompt; see [Floating Session Spawner](./floating-session-spawner.md).
   - Body schema (apiRouter.ts:710-728): required `originSessionId` (≤200), `mode` (one of 6: `explain-learning`, `explain-native`, `translate-selection-learning`, `translate-selection-native`, `translate-answer`, `translate-file`), `nativeLanguage` (≤64), `learningLanguage` (≤64). Optional `selection` (≤64KB), `contextLine` (≤2KB), `fileContent` (≤256KB), `filePath` (≤2KB), `inheritContext: boolean`.
@@ -62,8 +66,8 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - POST /api/teams/:id/members/:sid/terminal
 
 ### Hook Management
-- GET /api/hooks/status
-- POST /api/hooks/install
+- GET /api/hooks/status — returns aggregate install state plus per-CLI detail under `clis.claude` and `clis.codex`. Codex status is read from `~/.codex/config.toml` lifecycle hook blocks and reports `legacyNotify: true` when an old dashboard `notify` line is still present.
+- POST /api/hooks/install — accepts `{ density, enabledClis? }`, runs `hooks/install-hooks.js --density <density> --clis <enabledClis>`, and preserves the configured CLI set when the settings page reinstalls hooks.
 - POST /api/hooks/uninstall
 
 ### DB/History
@@ -84,6 +88,7 @@ The HTTP interface for the React frontend and external integrations. Handles all
 ### Workspace
 - POST /api/workspace/save (save workspace snapshot — server-side dedup key uses 8 fields joined with `\0`: `[title, sshConfig.host, sshConfig.port, sshConfig.username, sshConfig.workingDir, sshConfig.command, startupCommand, originalSessionId]`. Including `originalSessionId` ensures sessions sharing the same SSH config but with distinct snapshot IDs are not collapsed.)
 - GET /api/workspace/load (load workspace snapshot)
+- POST /api/terminals with `resumeSessionId` shares the same resume builder as `/api/sessions/:id/resume`, so workspace restore resumes Claude with `claude --resume/--continue` and Codex with `codex resume <SESSION_ID>/--last` instead of blindly re-running the saved command.
 
 ### Agenda
 - GET /api/agenda (list tasks, optional ?completed filter)
@@ -124,6 +129,13 @@ The HTTP interface for the React frontend and external integrations. Handles all
 
 ### str() Helper
 - Normalizes Express 5 query/param ambiguity (string | string[] | undefined)
+
+### CLI Command Helpers
+- `commandStartsWithCli()` detects Claude/Codex command ownership from direct binaries or path-qualified binaries.
+- `stripClaudeSessionFlags()` removes stale `--resume`, `--continue`, and `--fork-session` flags before rebuilding Claude resume/fork commands.
+- `stripCodexSessionSubcommand()` removes stale `resume`/`fork` subcommands before rebuilding Codex resume/fork commands.
+- `buildResumeCommand()` and `buildForkCommand()` centralize the Claude/Codex launch logic used by manual resume, workspace restore, and fork endpoints.
+- `findCodexHookEvents()` scans `~/.codex/config.toml` for dashboard-owned `[[hooks.Event]]` command hook blocks; `inferHookDensity()` classifies Claude/Codex hook status as high/medium/low/custom/off.
 
 ## Dependencies & Connections
 

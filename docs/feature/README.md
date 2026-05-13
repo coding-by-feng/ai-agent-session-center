@@ -8,12 +8,13 @@ Feature documentation organized by domain. Each doc describes function, purpose,
 
 | Doc | Feature | Key Files |
 |-----|---------|-----------|
-| [Hook System](server/hook-system.md) | Bash MQ, JSONL delivery, hook processor, density levels | `hooks/dashboard-hook.sh`, `server/mqReader.ts`, `server/hookProcessor.ts` |
+| [Hook System](server/hook-system.md) | Bash MQ, JSONL delivery, hook processor, Claude/Gemini/Codex density levels | `hooks/dashboard-hook.sh`, `hooks/dashboard-hook-codex.sh`, `server/mqReader.ts`, `server/hookProcessor.ts` |
 | [Session Management](server/session-management.md) | Session store, lifecycle, state machine, coordinator pattern | `server/sessionStore.ts`, `server/autoIdleManager.ts` |
 | [Session Matching](server/session-matching.md) | 8-priority hook-to-session matcher | `server/sessionMatcher.ts` |
 | [Approval Detection](server/approval-detection.md) | Tool approval timeouts, PermissionRequest signal | `server/approvalDetector.ts` |
 | [WebSocket Manager](server/websocket-manager.md) | WS broadcast, terminal relay, reconnect replay | `server/wsManager.ts` |
 | [API Endpoints](server/api-endpoints.md) | REST API (sessions, terminals, files, analytics) | `server/apiRouter.ts` |
+| [Floating Session Spawner](server/floating-session-spawner.md) | Translate/explain floating terminal spawn, Claude/Codex inherited forks | `server/floatingSessionSpawner.ts`, `server/extractPreviousAnswer.ts` |
 | [Database](server/database.md) | SQLite persistence (6 tables, WAL mode) | `server/db.ts` |
 | [Terminal / SSH](server/terminal-ssh.md) | PTY creation, SSH, tmux, shell-ready detection | `server/sshManager.ts` |
 | [Team / Subagent](server/team-subagent.md) | Parent-child session tracking, team config | `server/teamManager.ts` |

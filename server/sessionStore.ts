@@ -426,6 +426,15 @@ function makeShortTitle(prompt: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+function inferCliSource(command: string | undefined | null): string | undefined {
+  const cmd = (command || '').trim().toLowerCase();
+  if (!cmd) return undefined;
+  if (/^(?:\S*\/)?claude(?:\s|$)/.test(cmd)) return 'claude';
+  if (/^(?:\S*\/)?codex(?:\s|$)/.test(cmd)) return 'codex';
+  if (/^(?:\S*\/)?gemini(?:\s|$)/.test(cmd)) return 'gemini';
+  return undefined;
+}
+
 // Summarize tool input for the tool log detail panel
 function summarizeToolInput(toolInput: Record<string, unknown> | undefined, toolName: string): string {
   if (!toolInput) return '';
@@ -572,6 +581,12 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
     log.debug('session', `Stored startupCommand for ${session_id?.slice(0,8)}: ${hookData.startup_command.slice(0,80)}`);
   }
 
+  if (hookData.cli_source) {
+    session.cliSource = hookData.cli_source;
+  } else if (!session.cliSource) {
+    session.cliSource = inferCliSource(session.startupCommand || session.sshCommand || session.sshConfig?.command);
+  }
+
   const eventEntry: SessionEvent = {
     type: hook_event_name,
     timestamp: Date.now(),
@@ -706,6 +721,7 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
 
       // Store response if present — try multiple possible field names
       const responseText = ('response' in hookData ? hookData.response : undefined)
+        || ('last_assistant_message' in hookData ? hookData.last_assistant_message : undefined)
         || ('message' in hookData ? hookData.message : undefined)
         || ('stop_reason_str' in hookData ? hookData.stop_reason_str : undefined)
         || '';
@@ -782,6 +798,10 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
 
     case EVENT_TYPES.PRE_COMPACT:
       eventEntry.detail = 'Context compaction starting';
+      break;
+
+    case EVENT_TYPES.POST_COMPACT:
+      eventEntry.detail = 'Context compaction completed';
       break;
 
     case EVENT_TYPES.NOTIFICATION:
@@ -965,6 +985,7 @@ export async function createTerminalSession(terminalId: string, config: Terminal
     hadOpsTerminal: !!opsTerminalId,
     sshHost: config.host || 'localhost',
     sshCommand: config.command || 'claude',
+    cliSource: inferCliSource(config.startupCommand || config.command || 'claude'),
     startupCommand: config.startupCommand,
     permissionMode: config.permissionMode || null,
     sshConfig: {

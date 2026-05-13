@@ -133,8 +133,11 @@ export default function SessionSwitcher({
     const next = new Set(attentionIds);
     sessions.forEach((s) => {
       const prev = prevStatusRef.current.get(s.sessionId);
-      // Detect transition TO "waiting" from an active status
-      if (prev && prev !== 'waiting' && prev !== 'idle' && prev !== 'ended' && s.status === 'waiting') {
+      // Detect transition TO "waiting" from any non-terminal status.
+      // `idle` is included because Codex (legacy `notify`-only mode) jumps
+      // straight from idle to waiting on agent-turn-complete — no working/
+      // prompting intermediate — and we still want the red ! to appear.
+      if (prev && prev !== 'waiting' && prev !== 'ended' && s.status === 'waiting') {
         // Don't mark the currently selected session
         if (s.sessionId !== currentSession.sessionId) {
           next.add(s.sessionId);

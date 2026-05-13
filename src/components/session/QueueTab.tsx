@@ -64,6 +64,12 @@ export default function QueueTab({
       return stored === null ? true : stored === '1';
     } catch { return true; }
   });
+  const [autoEnter, setAutoEnter] = useState(() => {
+    try {
+      const stored = localStorage.getItem('queue-auto-enter');
+      return stored === null ? true : stored === '1';
+    } catch { return true; }
+  });
   const [movingItemId, setMovingItemId] = useState<number | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
 
@@ -109,11 +115,14 @@ export default function QueueTab({
         const paths = await uploadImages(item.images);
         if (paths.length > 0) textToSend += '\n' + paths.join('\n');
       }
+      // \r mimics a real Enter keypress in Claude Code / Codex / Gemini TUIs.
+      // \n in those TUIs only inserts a newline inside the input box and never submits.
+      const terminator = autoEnter ? '\r' : '';
       try {
         const res = await fetch(`/api/terminals/${terminalId}/write`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: textToSend + '\n' }),
+          body: JSON.stringify({ data: textToSend + terminator }),
         });
         if (!res.ok) {
           showToast('Failed to send to terminal', 'error');
@@ -125,7 +134,7 @@ export default function QueueTab({
         return false;
       }
     },
-    [terminalId, uploadImages],
+    [terminalId, uploadImages, autoEnter],
   );
 
 
@@ -365,6 +374,24 @@ export default function QueueTab({
           <span className={styles.queueCount}>({items.length})</span>
         </button>
         <button
+          className={`${styles.autoEnterToggle} ${autoEnter ? styles.autoEnterOn : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            const next = !autoEnter;
+            setAutoEnter(next);
+            try { localStorage.setItem('queue-auto-enter', next ? '1' : '0'); } catch { /* ignore */ }
+            showToast(next ? 'Auto-Enter enabled — prompt will submit' : 'Auto-Enter disabled — prompt typed only, press Enter yourself', 'info', 2000);
+          }}
+          title={autoEnter
+            ? 'Auto-Enter ON — prompt is typed AND submitted (real Enter keystroke)'
+            : 'Auto-Enter OFF — prompt is typed only; press Enter yourself to submit'}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="9 10 4 15 9 20" />
+            <path d="M20 4v7a4 4 0 0 1-4 4H4" />
+          </svg>
+        </button>
+        <button
           className={`${styles.autoSendToggle} ${autoSend ? styles.autoSendOn : ''}`}
           onClick={(e) => {
             e.stopPropagation();
@@ -449,11 +476,7 @@ export default function QueueTab({
 
         {/* Queue list */}
         <div className={styles.queueList}>
-          {items.length === 0 ? (
-            <div className={styles.queueListEmpty}>
-              Queue is empty. Add prompts to auto-send when session is waiting.
-            </div>
-          ) : (
+          {items.length === 0 ? null : (
             items.map((item, idx) => (
               <div
                 key={item.id}

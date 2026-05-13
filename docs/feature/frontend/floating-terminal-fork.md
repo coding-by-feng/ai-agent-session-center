@@ -14,8 +14,10 @@ ProjectTab, they often want to:
 3. **Translate previous answer** — translate the last assistant message into the native language.
 4. **Translate file** — translate a whole markdown file into the native language.
 
-All four spawn a brand-new CLI session in a floating window. **No new model
-auth, no new API key** — they reuse whatever CLI the origin session is running.
+Supported modes spawn a brand-new CLI session in a floating window. **No new
+model auth, no new API key** — they reuse whatever CLI the origin session is
+running. `translate-answer` is currently Claude-only because it reads Claude
+transcripts.
 
 ## Source Files
 
@@ -26,10 +28,12 @@ auth, no new API key** — they reuse whatever CLI the origin session is running
 | `src/hooks/useSelectionPopup.ts` | Surface-agnostic selection-watcher hook. |
 | `src/lib/selectionExtractors.ts` | Strategies: `extractDomSelection` (markdown) and `extractXtermSelection` (terminals). |
 | `src/components/session/FloatingTerminalPanel.tsx` | Picture-in-picture window hosting one TerminalContainer. |
-| `src/components/session/FloatingTerminalPanel.module.css` | Window styling (drag, resize, collapse). |
+| `src/styles/modules/FloatingTerminalPanel.module.css` | Window styling (drag, resize, collapse). |
 | `src/components/session/FloatingTerminalRoot.tsx` | Renders all currently-open floats. Mounted once in `App.tsx` AppLayout. |
 | `src/stores/floatingSessionsStore.ts` | Zustand store holding open floats; capped at 4. |
 | `src/components/settings/TranslationSettings.tsx` | Settings tab for native/learning languages + trigger. |
+| `server/floatingSessionSpawner.ts` | Server-side mode validation, prompt synthesis, CLI detection, and Claude/Codex fork-command construction for inherited explain sessions. |
+| `server/extractPreviousAnswer.ts` | Claude transcript reader used only by `translate-answer`. |
 
 Wired surfaces:
 
@@ -74,8 +78,9 @@ floatingSessionsStore.open() → FloatingTerminalRoot renders
 
 For mode `translate-answer`, the spawner additionally reads the most recent
 assistant message from the Claude transcript via
-`server/extractPreviousAnswer.ts`. Codex / Gemini are best-effort and currently
-fall through with an error (Phase 2).
+`server/extractPreviousAnswer.ts`. TerminalContainer hides the translate-previous-answer
+toolbar action for non-Claude origins; server validation still rejects direct
+Codex / Gemini `translate-answer` calls because no transcript reader exists yet.
 
 ## Modes
 
@@ -92,6 +97,12 @@ The CLI binary is selected from `origin.startupCommand`:
 * `codex '...'` (positional prompt)
 * `gemini -p '...'` (`-p` flag)
 
+When `translationInheritContext` is enabled for explain modes, Claude and Codex
+switch from fresh prompt launches to CLI-native forks:
+
+* `claude --resume '<SESSION_ID>' --fork-session '<prompt>'` or `claude --continue --fork-session '<prompt>'`
+* `codex fork '<SESSION_ID>' '<prompt>'` or `codex fork --last '<prompt>'`
+
 Prompts are shell-escaped (single-quote wrapping) and capped at 256 KB to stay
 well under typical `ARG_MAX`.
 
@@ -102,7 +113,7 @@ well under typical `ARG_MAX`.
 * **Enable translation popup** — master toggle.
 * **Native language** — target for translations / native-language explanations. Default: 简体中文.
 * **Learning language** — target for "deeper" same-language explanation. Default: English.
-* **Inherit conversation context for explain modes** — when enabled, `explain-learning` and `explain-native` fork the origin Claude session via `claude --resume <id> --fork-session '<prompt>'`, so the AI grounds its answer in the prior conversation. Translate modes are unaffected (they're self-contained). No effect for Codex/Gemini origins. Default: on.
+* **Inherit conversation context for explain modes** — when enabled, `explain-learning` and `explain-native` fork the origin Claude or Codex session via the CLI's native fork command, so the AI grounds its answer in the prior conversation. Translate modes are unaffected (they're self-contained). No effect for Gemini origins. Default: on.
 * **Trigger** — `auto` (every selection) / `alt` (require ⌥ held) / `off` (popup disabled, toolbar buttons still work).
 
 No API key field exists — the feature is auth-free.
@@ -122,8 +133,9 @@ No API key field exists — the feature is auth-free.
 * **Origin session must exist server-side.** The endpoint requires a live
   `Session` (`getSession(originSessionId)`); standalone Project Browser route
   has no session, so floats are disabled there.
-* **`translate-answer` only supports Claude origins** in v1. Other CLIs return
-  a 400 error; UI surfaces the message via toast (best-effort).
+* **`translate-answer` only supports Claude origins** in v1. TerminalContainer
+  hides the button for Codex/Gemini/OpenClaw origins; direct API calls from
+  unsupported CLIs return a 400 error.
 * **Prompts are passed as shell-quoted positional args.** Very large markdown
   files may approach `ARG_MAX`; the spawner enforces a 256 KB cap.
 * **Floats share their PTY lifecycle** — closing the window kills the pty via

@@ -73,7 +73,7 @@ function looksLikeRealSessionId(id: string | undefined): boolean {
   return !id.startsWith('term-') && /^[a-zA-Z0-9_-]+$/.test(id);
 }
 function isForkCommand(cmd: string | undefined): boolean {
-  return !!cmd && /--fork-session\b/.test(cmd);
+  return !!cmd && (/--fork-session\b/.test(cmd) || /(?:^|\s|\/)codex(?:\s|$).*?\bfork\b/.test(cmd));
 }
 function shortPath(p: string | undefined): string {
   if (!p) return '~';

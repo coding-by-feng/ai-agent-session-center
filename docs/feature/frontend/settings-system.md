@@ -12,7 +12,7 @@ Lets users customize every aspect of the dashboard: appearance, sounds, hooks, A
 | `src/components/settings/SettingsPanel.tsx` | Modal with 7 tabs (APPEARANCE, SOUND, HOOKS, API KEYS, TRANSLATION, SHORTCUTS, ADVANCED — SettingsPanel.tsx:17-25) |
 | `src/components/settings/ThemeSettings.tsx` | Theme picker, character model, font, scanlines, animation |
 | `src/components/settings/SoundSettings.tsx` | Per-CLI sound profiles, ambient presets, volume controls, Voice (TTS) toggle + EN/zh-CN voice pickers + rate |
-| `src/components/settings/HookSettings.tsx` | Hook density, install/uninstall, auto-send, terminal theme |
+| `src/components/settings/HookSettings.tsx` | Hook density, install/uninstall, per-CLI hook status, Codex legacy-notify warning, auto-send, terminal theme |
 | `src/components/settings/ApiKeySettings.tsx` | API key management (Anthropic, OpenAI, Gemini, Google Cloud TTS — `googleTtsApiKey`; `setApiKey` provider type `'anthropic' \| 'openai' \| 'gemini' \| 'googleTts'`) |
 | `src/components/settings/TranslationSettings.tsx` | Translation/Explain selection-popup settings (native/learning language, trigger mode, inherit-context toggle), ~141 lines |
 | `src/components/settings/ShortcutSettings.tsx` | Rebindable keyboard shortcuts |
@@ -29,6 +29,7 @@ Lets users customize every aspect of the dashboard: appearance, sounds, hooks, A
 - Import/export: JSON file download/upload, strips function keys, resetDefaults() restores all
 - TTS (voice output): 5 persisted keys — `googleTtsApiKey` (required per-user key, stored client-side only; set via `setApiKey('googleTts', …)` alongside the existing `anthropicApiKey`/`openaiApiKey`/`geminiApiKey`), `ttsEnabled` (bool, default false), `ttsVoiceEn` (default `en-US-Chirp3-HD-Aoede`), `ttsVoiceZh` (default `cmn-CN-Chirp3-HD-Aoede`), `ttsSpeakingRate` (0.5–2.0, default 1.0). Setters: `setTtsEnabled`, `setTtsVoiceEn`, `setTtsVoiceZh`, `setTtsSpeakingRate`. No ambient GCP credentials — every user configures their own key
 - Translation: 5 persisted keys driving the selection-popup translate/explain forks — `translationEnabled` (bool, default true), `translationNativeLanguage` (default `简体中文`), `translationLearningLanguage` (default `English`), `translationTrigger` (`'auto' \| 'alt' \| 'off'`, default `'auto'`), `translationInheritContext` (bool, default true). Setters: `setTranslationEnabled`, `setTranslationNativeLanguage`, `setTranslationLearningLanguage`, `setTranslationTrigger`, `setTranslationInheritContext`
+- Hook management: HookSettings reads `GET /api/hooks/status` and renders aggregate install state plus per-CLI details (`clis.claude`, `clis.codex`). Reinstall posts `{ density, enabledClis }` to `/api/hooks/install`, preserving the server's configured CLI set so enabling Codex in the setup config is not lost from the settings tab. Codex status is based on lifecycle hook blocks in `~/.codex/config.toml`; old `notify` installs are surfaced as a legacy warning.
 - useSettingsInit: runs once on startup, loads from Dexie, applies theme/font side effects, syncs volume, unlocks Web Audio
 
 ## Dependencies & Connections

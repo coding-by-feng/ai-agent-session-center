@@ -8,9 +8,9 @@
 
 Backs the [Floating Terminal Fork](../frontend/floating-terminal-fork.md)
 frontend feature. Receives a small JSON payload from the dashboard, resolves
-the user's previous answer (when needed), constructs a prompt, and launches a
-fresh `claude` / `codex` / `gemini` process — pre-loaded with that prompt as
-a positional argument.
+the user's previous answer (when needed), constructs a prompt, and launches the
+same CLI kind as the origin session. Fresh translate sessions pass the prompt as
+an argument; inherited explain sessions use Claude/Codex native fork commands.
 
 ## Source Files
 
@@ -19,6 +19,7 @@ a positional argument.
 | `server/floatingSessionSpawner.ts` | Build prompt + spawn pty. Single exported function `spawnFloatingSession`. |
 | `server/extractPreviousAnswer.ts` | Read the last assistant message from a Claude `~/.claude/projects/<encoded>/<sessionId>.jsonl` transcript. |
 | `server/apiRouter.ts` | Mounts `POST /api/sessions/spawn-floating` (Zod-validated). |
+| `src/lib/cliDetect.ts` | Frontend-side CLI detection that hides translate-answer for non-Claude origins before the request reaches this endpoint. |
 
 ## API
 
@@ -29,13 +30,16 @@ Request body (Zod-validated):
 ```ts
 {
   originSessionId: string,            // required
-  mode: 'explain-learning' | 'explain-native' | 'translate-answer' | 'translate-file',
+  mode: 'explain-learning' | 'explain-native' |
+        'translate-selection-learning' | 'translate-selection-native' |
+        'translate-answer' | 'translate-file',
   selection?: string,                 // required for explain-* (≤ 64 KB)
   contextLine?: string,               // optional surrounding line (≤ 2 KB)
   fileContent?: string,               // required for translate-file (≤ 256 KB)
   filePath?: string,                  // optional, for prompt context
   nativeLanguage: string,             // e.g. "简体中文"
   learningLanguage: string,           // e.g. "English"
+  inheritContext?: boolean,           // explain-* only; defaults true client-side
 }
 ```
 
@@ -59,8 +63,9 @@ spawnFloatingSession(args)
   │     [throws 400 if no transcript or non-Claude origin]
   ├─ buildPrompt(args, prevAnswer)                          [throws 400 if missing inputs]
   ├─ enforce ≤ 256 KB
-  ├─ detectCli(origin.startupCommand)                       [claude | codex | gemini]
-  ├─ buildLaunchCommand(cli, prompt) → shell-escaped
+  ├─ detectCli(origin.startupCommand || sshCommand || sshConfig.command)
+  │                                                      [claude | codex | gemini]
+  ├─ buildLaunchCommand() or buildForkCommand() → shell-escaped
   ├─ createTerminal({ workingDir = origin.projectPath, command: '' })
   ├─ consumePendingLink(workingDir)
   ├─ createTerminalSession(terminalId, { command, sessionTitle })
@@ -95,6 +100,14 @@ translate-answer:
   {prevAnswer}
   """
 
+translate-selection-learning / translate-selection-native:
+  Translate the following text into {learningLanguage|nativeLanguage}.
+  Output ONLY the translation — no explanations, no notes, no surrounding quotes.
+  Preserve original formatting (line breaks, code, lists, markdown).
+  """
+  {selection}
+  """
+
 translate-file:
   Translate the following markdown file into {nativeLanguage}. Preserve
   markdown syntax exactly (headings, code blocks, lists, links, images, tables).
@@ -120,15 +133,16 @@ buildLaunchCommand(cli, prompt) →
 
 Single-quote escaping uses the standard pattern: `'` → `'"'"'`.
 
-### Fork-mode (Claude only, explain-* modes)
+### Fork-mode (Claude/Codex, explain-* modes)
 
-When `inheritContext` is true (the default) and the origin is a Claude
+When `inheritContext` is true (the default) and the origin is a Claude or Codex
 session, the spawner replaces the fresh-launch command with a fork that
 rehydrates the prior conversation, so the AI can ground its explanation in
 the user's existing context:
 
 ```
 claude --resume '<originSessionId>' --fork-session '<escapedPrompt>'
+codex fork '<originSessionId>' '<escapedPrompt>'
 ```
 
 If `originSessionId` looks like a dashboard-internal placeholder
@@ -137,14 +151,18 @@ to:
 
 ```
 claude --continue --fork-session '<escapedPrompt>'
+codex fork --last '<escapedPrompt>'
 ```
 
-`--continue` resumes the most-recent session in the cwd; `--fork-session`
-ensures the original transcript isn't mutated by the user's follow-ups.
+`--continue` / `codex fork --last` use the most recent session in the cwd when
+the dashboard only has an internal `term-*` id. Claude's `--fork-session` and
+Codex's `fork` subcommand ensure the original transcript is not mutated by the
+user's follow-ups.
 
-`reconstructPermissionFlags(cmd, origin.permissionMode)` is then applied so
-the forked session inherits the same permission posture (e.g.
-`--dangerously-skip-permissions`).
+`reconstructPermissionFlags(cmd, origin.permissionMode)` is applied to Claude
+commands so the forked session inherits the same permission posture (e.g.
+`--dangerously-skip-permissions`). Codex fork commands are left as Codex-native
+commands.
 
 **Per-mode policy**:
 
@@ -154,8 +172,7 @@ the forked session inherits the same permission posture (e.g.
 | `translate-answer` | no | Source text is already in the prompt; forking would prime continuation instead of translation. |
 | `translate-file` | no | File is unrelated to the conversation; forking adds noise. |
 
-Codex and Gemini origins always use the fresh-launch path — those CLIs
-don't expose a comparable fork primitive.
+Gemini origins always use the fresh-launch path; Codex uses `codex fork`.
 
 ## Previous-Answer Resolution (translate-answer)
 
@@ -169,8 +186,9 @@ It then reverse-scans the file and returns the first assistant message it
 finds. Multiple message-shape variants are accepted (legacy `content` strings,
 new content-block arrays).
 
-Codex and Gemini transcripts are not yet supported — the endpoint returns a
-400 with a user-readable error.
+Codex and Gemini transcripts are not yet supported. The frontend hides the
+translate-answer button for non-Claude origins; direct endpoint calls still
+return a 400 with a user-readable error.
 
 ## Cross-Feature Dependencies
 

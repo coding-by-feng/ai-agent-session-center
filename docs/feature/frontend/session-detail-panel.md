@@ -21,6 +21,7 @@ Primary interface for interacting with a single session. Aggregates terminal, pr
 | `src/components/session/ContentSearchModal.tsx` | Content search modal used in ProjectTab for searching file contents |
 | `src/components/session/FloatingProjectPanel.tsx` | Detached, draggable/resizable PROJECT-tab overlay (host for portaled ProjectTabContainer when float mode is on); supports maximize/restore (v2.10.16), minimized PROJECT badge draggable anywhere (v2.10.17), maximized state persisted per-session (v2.10.20) |
 | `src/components/session/FloatingTerminalRoot.tsx` | Sibling root rendering all active fork-translate floating PIP terminals from floatingSessionsStore |
+| `src/lib/cliDetect.ts` | Shared CLI detection used to show the in-place fork action for Claude/Codex only |
 
 ## Implementation
 - Panel: ResizablePanel with fullscreen mode, minimizable to draggable badge (DraggableMiniBadge, position saved to localStorage['mini-badge-pos'])
@@ -32,6 +33,7 @@ Primary interface for interacting with a single session. Aggregates terminal, pr
 - Split view: >=700px panel width shows Terminal+Project side-by-side (DraggableSplitView) with draggable divider, ratio persisted per-session (localStorage['split-ratio:{sessionId}'])
 - **Float PROJECT mode**: a `toggleFloat` button sits alongside `toggleSplit` and is mutually exclusive with split mode. When enabled, the PROJECT tab content is portaled (`createPortal`) into FloatingProjectPanel so component state — file tree expansion, image viewer state, find-in-file — survives the detach. State persisted via `FLOAT_KEY = float-project:{sessionId}` (DetailTabs.tsx). Maximized state (`float-project-maximized:{sessionId}`) and pre-maximize geometry (`float-project-restore:{sessionId}`) are written on toggle and read back on init and session switch (v2.10.20); previously maximized reset to false on every session switch.
 - TerminalContainer is passed `originSessionId={sessionId}` (DetailPanel.tsx:120) so the select-to-translate popup and "Translate previous answer" toolbar button can fork a floating session
+- The in-place fork button is shown for Claude and Codex sessions via shared `detectCli(session)` detection; other CLIs hide the action. The server chooses `claude --resume/--continue --fork-session` or `codex fork <SESSION_ID>/--last`.
 - Tab state persisted in localStorage['active-tab'], split state in localStorage['split-terminal-project:{sessionId}']
 - Selection: localStorage['selected-session'], restored on refresh
 - Close: Escape (close search first -> restore if minimized; skipped if xterm focused). Escape does NOT deselect the session — deselecting applies display:none which resets scroll positions to 0
@@ -67,4 +69,3 @@ Primary interface for interacting with a single session. Aggregates terminal, pr
 - Changing tab names/order requires localStorage migration
 - Breaking split view persistence loses user preferences
 - SessionSwitcher's heavy memos depend on `sessionsSignature`, NOT on `sessions`. If you add a field to the card display (e.g. a new status-derived color), include it in the signature or the tab strip won't refresh. The escape hatch is to add `sessions` back to the dep array, but that re-enables the every-update recompute this optimization was added to avoid.
-

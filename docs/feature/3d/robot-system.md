@@ -19,6 +19,7 @@ Each session needs a visual avatar that communicates status through animation (w
 | `src/lib/robotStateMap.ts` | Session status to robot state mapping (8 states) |
 | `src/lib/cliDetect.ts` | `detectCli()` used by SessionRobot for CLI badge rendering |
 | `src/lib/robotPositionPersist.ts` | sessionStorage persistence every 2s |
+| `src/components/layout/HeaderAgentStrip.tsx` | Compact top-strip session badges that reuse `detectCli()` for consistent Claude/Gemini/Codex labels |
 
 ## Implementation
 
@@ -127,7 +128,7 @@ Throttled to minimum 500ms between tool-related updates to prevent bubble spam. 
 `Robot3DModel` reads `useSettingsStore.getState()` imperatively inside `useFrame` to access `animationSpeed` and `animationIntensity` settings. This avoids subscribing to the store reactively (which would cause cross-reconciler issues inside Canvas).
 
 ### Special Behaviors
-- CLI badge: detects CLI type from model string + event types via `detectCli()`, renders badge on the robot chest: C (Claude, cyan), G (Gemini, blue), X (Codex, green), O (OpenClaw, orange), ? (unknown, purple)
+- CLI badge: detects CLI type via `detectCli()`, preferring explicit `session.cliSource`, then startup/SSH command text, then model string, then event fallback. It renders a badge on the robot chest: C (Claude, cyan), G (Gemini, blue), X (Codex, green), O (OpenClaw, orange), ? (unknown, purple). HeaderAgentStrip uses the same helper so mini strip labels and 3D robot badges stay aligned.
 - CLI accent color: when no explicit `accentColor` is set, the robot's neon color is overridden by the CLI badge color
 - Tool-specific working animations (WS7.C): read (head scanning), write (rapid arm typing), bash (arm extended), task (both arms raised), web (brighter antenna), default (standard typing)
 - Alert urgency escalation (WS7.B): after 15s visor pulses faster, after 30s visor intensity + body shake increase

@@ -37,6 +37,9 @@ Hooks fire from CLI processes that don't know about dashboard terminals. The mat
 - reKeyResumedSession() transfers data from old key to new session_id
 - Sets replacesId for DB migration
 
+### CLI Source Preservation
+- `createDefaultSession()` copies hook-provided `cli_source` into the session as `cliSource`. Codex hooks set this explicitly, which keeps robot/header badges and later UI gating from relying only on model-name or event-shape heuristics.
+
 ## Dependencies & Connections
 
 ### Depends On

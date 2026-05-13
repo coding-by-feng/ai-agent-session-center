@@ -76,15 +76,21 @@ function buildLaunchCommand(cli: 'claude' | 'codex' | 'gemini', prompt: string):
   return `${cli} '${escaped}'`;
 }
 
-/** Build a Claude fork-launch command that inherits the origin's history.
- *  - If `originSessionId` looks like a real Claude UUID, pin to it via --resume.
- *  - Otherwise (e.g. dashboard `term-…` placeholder), fall back to --continue
- *    --fork-session, which forks from the most-recent session in the cwd.
+/** Build a Claude/Codex fork-launch command that inherits the origin's history.
+ *  - If `originSessionId` looks like a real CLI session id, pin to it.
+ *  - Otherwise (e.g. dashboard `term-…` placeholder), fork the most recent
+ *    session in the cwd.
  */
-function buildClaudeForkCommand(originSessionId: string, prompt: string): string {
+function buildForkCommand(cli: 'claude' | 'codex', originSessionId: string, prompt: string): string {
   const escapedPrompt = shellEscapeSingle(prompt);
   const isInternalId = originSessionId.startsWith('term-');
   const safeId = /^[a-zA-Z0-9_\-]+$/.test(originSessionId) ? originSessionId : '';
+  if (cli === 'codex') {
+    if (safeId && !isInternalId) {
+      return `codex fork '${safeId}' '${escapedPrompt}'`;
+    }
+    return `codex fork --last '${escapedPrompt}'`;
+  }
   if (safeId && !isInternalId) {
     return `claude --resume '${safeId}' --fork-session '${escapedPrompt}'`;
   }
@@ -193,7 +199,7 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
   let prevAnswer: string | null = null;
   if (args.mode === 'translate-answer') {
     const projectPath = origin.projectPath || '';
-    const cliKind = detectCli(origin.startupCommand);
+    const cliKind = detectCli(origin.startupCommand || origin.sshCommand || origin.sshConfig?.command);
     if (cliKind === 'claude' && projectPath) {
       prevAnswer = readClaudeLastAssistant(
         origin.sessionId || null,
@@ -217,16 +223,16 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
   }
 
   // Spawn the same CLI as the origin session.
-  const cliKind = detectCli(origin.startupCommand);
-  // Inherit the prior conversation only for explain-* modes on Claude origins.
+  const cliKind = detectCli(origin.startupCommand || origin.sshCommand || origin.sshConfig?.command);
+  // Inherit the prior conversation only for explain-* modes on Claude/Codex origins.
   // translate-* modes are self-contained — the answer/file is in the prompt.
   const shouldInheritContext = (
     args.inheritContext !== false &&
-    cliKind === 'claude' &&
+    (cliKind === 'claude' || cliKind === 'codex') &&
     (args.mode === 'explain-learning' || args.mode === 'explain-native')
   );
   const baseLaunchCmd = shouldInheritContext
-    ? buildClaudeForkCommand(args.originSessionId, prompt)
+    ? buildForkCommand(cliKind === 'codex' ? 'codex' : 'claude', args.originSessionId, prompt)
     : buildLaunchCommand(cliKind, prompt);
   const launchCmd = cliKind === 'claude'
     ? reconstructPermissionFlags(baseLaunchCmd, origin.permissionMode)

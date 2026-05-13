@@ -12,7 +12,7 @@ Audio feedback so users can monitor sessions without watching the screen. Approv
 | `src/lib/soundEngine.ts` | SoundEngine singleton, 16 Web Audio API synthesized sounds, 20 actions, playTone() |
 | `src/lib/ambientEngine.ts` | AmbientEngine singleton, 6 procedural presets (rain, lofi, serverRoom, deepSpace, coffeeShop, off) |
 | `src/lib/alarmEngine.ts` | Alarm management: approval alarm (repeating), input notification (one-shot), per-CLI profile routing, mute/alert per session |
-| `src/lib/cliDetect.ts` | detectCli(): model string keywords to CLI type (claude/gemini/codex/openclaw), event type fallback |
+| `src/lib/cliDetect.ts` | detectCli(): explicit `session.cliSource`, startup/SSH command, model keywords, and event fallback to CLI type (claude/gemini/codex/openclaw) |
 | `src/hooks/useSound.ts` | React hook returning {play(action), preview(soundName), enabled, volume} |
 
 ## Implementation
@@ -67,12 +67,15 @@ Base gain: `0.3 * masterVolume`
 
 ### CLI Detection
 
-`detectCli()` uses a two-phase strategy:
+`detectCli()` uses a four-phase strategy:
 
-1. **Model string keywords** (checked first): claude/opus/sonnet/haiku -> Claude, gemini/gemma -> Gemini, gpt/codex/o1/o3/o4 -> Codex, openclaw/claw -> OpenClaw
-2. **Event type fallback**: if model string yields no match, event type is used
+1. **Explicit `session.cliSource`** from hook payloads or terminal creation (Codex hooks set `cli_source: "codex"`).
+2. **Startup/SSH command text** (`startupCommand`, `sshCommand`, `sshConfig.command`), so `codex ...` is recognized even when the model name is ambiguous.
+3. **Model string keywords**: claude/opus/sonnet/haiku -> Claude, gemini/gemma -> Gemini, gpt/codex/o1/o3/o4 -> Codex, openclaw/claw -> OpenClaw.
+4. **Event type fallback**: if the previous checks yield no match, event shape is used.
 
-Order matters -- model string check must come before event type fallback.
+Order matters -- explicit CLI source and launch command must come before model
+and event fallbacks to avoid mislabeling Codex sessions.
 
 ### Tool Sound Mapping
 

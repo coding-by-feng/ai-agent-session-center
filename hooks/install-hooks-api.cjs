@@ -8,7 +8,8 @@ const { homedir } = require('os');
 const { execSync } = require('child_process');
 const {
   atomicWriteJSON, deployHookScript, configureClaudeHooks,
-  removeAllClaudeHooks, configureGeminiHooks,
+  removeAllClaudeHooks, configureGeminiHooks, configureCodexHooksToml,
+  removeAllCodexHooksToml,
 } = require('./install-hooks-core.cjs');
 
 const ALL_EVENTS = [
@@ -27,14 +28,27 @@ const DENSITY_EVENTS = {
   low: ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Stop', 'SessionEnd'],
 };
 
+// BeforeTool/AfterTool must be in medium so Gemini sessions reach the
+// "working" state (orange brightening); without them they sit at
+// idle/prompting and the visual signal never lights up.
 const GEMINI_DENSITY_EVENTS = {
   high: ['SessionStart', 'BeforeAgent', 'BeforeTool', 'AfterTool', 'AfterAgent', 'SessionEnd', 'Notification'],
-  medium: ['SessionStart', 'BeforeAgent', 'AfterAgent', 'SessionEnd', 'Notification'],
+  medium: ['SessionStart', 'BeforeAgent', 'BeforeTool', 'AfterTool', 'AfterAgent', 'SessionEnd', 'Notification'],
   low: ['SessionStart', 'AfterAgent', 'SessionEnd'],
 };
 
+// Codex CLI (>=0.130) natively supports only these 5 lifecycle hooks via
+// [[hooks.X]] blocks. Stop / agent-turn-complete is delivered via the
+// legacy `notify = "..."` config entry, not as a hooks block — listing it
+// here previously made the installer write a block Codex silently ignores.
+const CODEX_DENSITY_EVENTS = {
+  high: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest'],
+  medium: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest'],
+  low: ['SessionStart', 'UserPromptSubmit', 'PermissionRequest'],
+};
+
 const HOOK_SOURCE = 'ai-agent-session-center';
-const HOOK_PATTERN = 'dashboard-hook.';
+const HOOK_PATTERN = 'dashboard-hook';
 
 function formatBytes(bytes) {
   return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
@@ -49,6 +63,7 @@ async function installHooks({ density = 'medium', enabledClis = ['claude'], proj
   const hooksDir = projectRoot ? join(projectRoot, 'hooks') : __dirname;
   const EVENTS = DENSITY_EVENTS[density];
   const GEMINI_EVENTS = GEMINI_DENSITY_EVENTS[density] || GEMINI_DENSITY_EVENTS.medium;
+  const CODEX_EVENTS = CODEX_DENSITY_EVENTS[density] || CODEX_DENSITY_EVENTS.medium;
   const HOOK_SCRIPT = isWindows ? 'dashboard-hook.ps1' : 'dashboard-hook.sh';
   const HOOKS_DEST_DIR = join(homedir(), '.claude', 'hooks');
   const HOOK_DEST = join(HOOKS_DEST_DIR, HOOK_SCRIPT);
@@ -89,9 +104,17 @@ async function installHooks({ density = 'medium', enabledClis = ['claude'], proj
   if (uninstall) {
     log(`[4/${TOTAL_STEPS}] Removing hooks...`);
     const removed = removeAllClaudeHooks(settings, ALL_EVENTS, HOOK_PATTERN);
+    let codexRemoved = 0;
+    const codexConfigPath = join(homedir(), '.codex', 'config.toml');
+    try {
+      const toml = readFileSync(codexConfigPath, 'utf8');
+      const cleaned = removeAllCodexHooksToml(toml, HOOK_PATTERN, HOOK_SOURCE);
+      codexRemoved = cleaned.removed;
+      if (codexRemoved > 0) writeFileSync(codexConfigPath, cleaned.toml);
+    } catch { /* Codex config may not exist */ }
     atomicWriteJSON(SETTINGS_PATH, settings);
-    log(`Uninstall complete -- ${removed} hook(s) removed`);
-    return { success: true, summary: { removed } };
+    log(`Uninstall complete -- ${removed} Claude hook(s), ${codexRemoved} Codex hook block(s) removed`);
+    return { success: true, summary: { removed, codexRemoved } };
   }
 
   log(`[4/${TOTAL_STEPS}] Configuring hook events (density: ${density})...`);
@@ -137,13 +160,18 @@ async function installHooks({ density = 'medium', enabledClis = ['claude'], proj
     const codexConfigPath = join(homedir(), '.codex', 'config.toml');
     try {
       let toml = ''; try { toml = readFileSync(codexConfigPath, 'utf8'); } catch {}
-      if (!toml.includes('dashboard-hook')) {
-        mkdirSync(join(homedir(), '.codex'), { recursive: true });
-        if (toml && !toml.endsWith('\n')) toml += '\n';
-        toml += `# [${HOOK_SOURCE}]\nnotify = ["~/.codex/hooks/dashboard-hook.sh"]\n`;
-        writeFileSync(codexConfigPath, toml);
-        log('Registered Codex notify hook');
-      } else log('Codex hook already registered');
+      const configured = configureCodexHooksToml(
+        toml,
+        CODEX_EVENTS,
+        '~/.codex/hooks/dashboard-hook.sh',
+        HOOK_PATTERN,
+        HOOK_SOURCE,
+      );
+      mkdirSync(join(homedir(), '.codex'), { recursive: true });
+      if (configured.toml !== toml) {
+        writeFileSync(codexConfigPath, configured.toml);
+        log(`Registered ${CODEX_EVENTS.length} Codex lifecycle hook events`);
+      } else log('Codex hooks already registered');
     } catch (e) { log(`Codex: ${e.message}`); }
   }
 

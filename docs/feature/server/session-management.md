@@ -18,6 +18,7 @@ Central hub that manages all session state. Every other feature reads from or wr
 | `server/floatingSessionSpawner.ts` | Builds the prompt + config for fork/floating sessions; calls into `createTerminalSession` with `isFork: true` and `originSessionId` |
 | `server/config.ts` | Tool categories, timeouts, animation maps |
 | `server/constants.ts` | All magic strings (events, statuses, WS types) |
+| `src/types/session.ts`, `src/types/hook.ts`, `src/types/index.ts` | Shared hook/session types (`cliSource`, Codex event metadata, `PostCompact`) |
 
 ## Implementation
 
@@ -35,6 +36,7 @@ Central hub that manages all session state. Every other feature reads from or wr
 
 ### Session Object
 - ~57 fields including sessionId, projectPath, status, animationState, currentPrompt, promptHistory (last 50), toolLog (last 200), responseLog (last 50), events (last 50), model, teamId, terminalId, etc.
+- `cliSource?: string` records the originating CLI when hooks provide `cli_source` (Codex does) or when a terminal is created from a recognizable startup command. Frontend CLI badges prefer this field before guessing from model/event data.
 - Fork bookkeeping: `isFork: boolean` and `originSessionId?: string` (sessionStore.ts:988-991) — set in `createTerminalSession` when `config.isFork` is passed by the floating-session spawner / clone flow.
 - Ops-terminal bookkeeping: `opsTerminalId: string | null` and `hadOpsTerminal: boolean` (sessionStore.ts:964-965) — written via `reconnectOpsTerminal` (sessionStore.ts:1293) so a session can carry a separate "ops shell" alongside the AI CLI's PTY.
 
@@ -53,6 +55,8 @@ Central hub that manages all session state. Every other feature reads from or wr
 
 ### Heavy Work Variant
 - totalToolCalls > 10 at Stop -> Dance animation instead of Waiting+ThumbsUp
+- Codex `Stop` payloads may provide `last_assistant_message`; `handleEvent()` treats it like `response` for responseLog storage.
+- `PostCompact` is a known event and is recorded with detail `Context compaction completed` so Codex compaction completion no longer collapses into a generic stop/unknown state.
 
 ### Key Exported Functions
 - handleEvent() — processes hook events, drives state machine

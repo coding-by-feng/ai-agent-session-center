@@ -85,3 +85,30 @@ export function deriveRemoteControlName(
 }
 
 export { sanitize as sanitizeRemoteControlName };
+
+// ---------------------------------------------------------------------------
+// Session creation prefs (model + effort level) — shared by both modals
+// ---------------------------------------------------------------------------
+
+const SESSION_PREFS_KEY = 'session-create-prefs';
+
+interface SessionPrefs {
+  model?: string;
+  effortLevel?: string;
+}
+
+export function loadSessionPrefs(): SessionPrefs {
+  try {
+    const raw = localStorage.getItem(SESSION_PREFS_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as SessionPrefs;
+  } catch {
+    return {};
+  }
+}
+
+export function saveSessionPrefs(prefs: SessionPrefs): void {
+  try {
+    localStorage.setItem(SESSION_PREFS_KEY, JSON.stringify(prefs));
+  } catch { /* ignore quota errors */ }
+}

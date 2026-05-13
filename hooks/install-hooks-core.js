@@ -36,6 +36,138 @@ export function deployHookScript(srcPath, destPath, isWindows) {
   }
 }
 
+function escapeTomlString(value) {
+  return String(value)
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t');
+}
+
+/**
+ * Remove dashboard-owned Codex hook blocks from config.toml.
+ * Handles the old notify= form and the current [[hooks.Event]] form while
+ * preserving unrelated Codex config and third-party hooks.
+ */
+export function removeAllCodexHooksToml(toml, hookPattern, hookSource) {
+  const lines = String(toml || '').split('\n');
+  const kept = [];
+  let removed = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (
+      line.includes(`[${hookSource}]`) ||
+      (line.includes(hookPattern) && trimmed.startsWith('notify'))
+    ) {
+      removed++;
+      continue;
+    }
+
+    const blockStart = trimmed.match(/^\[\[hooks\.[A-Za-z0-9_]+\]\]$/);
+    if (blockStart) {
+      const block = [line];
+      i++;
+      while (
+        i < lines.length &&
+        !/^\s*\[\[hooks\.[A-Za-z0-9_]+\]\]\s*$/.test(lines[i]) &&
+        !/^\s*\[[^\[]/.test(lines[i])
+      ) {
+        block.push(lines[i]);
+        i++;
+      }
+      i--;
+
+      if (!block.some(l => l.includes(hookPattern))) {
+        kept.push(...block);
+        continue;
+      }
+
+      const eventHeader = block[0];
+      const eventName = blockStart[0].match(/^\[\[hooks\.([A-Za-z0-9_]+)\]\]$/)?.[1];
+      const nestedHookStart = eventName
+        ? new RegExp(`^\\s*\\[\\[hooks\\.${eventName}\\.hooks\\]\\]\\s*$`)
+        : null;
+      const prefix = [eventHeader];
+      const hookBlocks = [];
+      let currentHook = null;
+
+      for (let j = 1; j < block.length; j++) {
+        const blockLine = block[j];
+        if (nestedHookStart?.test(blockLine)) {
+          if (currentHook) hookBlocks.push(currentHook);
+          currentHook = [blockLine];
+          continue;
+        }
+        if (currentHook) {
+          currentHook.push(blockLine);
+        } else {
+          prefix.push(blockLine);
+        }
+      }
+      if (currentHook) hookBlocks.push(currentHook);
+
+      const remainingHookBlocks = [];
+      for (const hookBlock of hookBlocks) {
+        if (hookBlock.some(l => l.includes(hookPattern))) {
+          removed++;
+        } else {
+          remainingHookBlocks.push(hookBlock);
+        }
+      }
+
+      if (remainingHookBlocks.length > 0) {
+        if (kept.length > 0 && kept[kept.length - 1].includes(`[${hookSource}]`)) {
+          kept.pop();
+        }
+        kept.push(...prefix, ...remainingHookBlocks.flat());
+      } else {
+        if (hookBlocks.length === 0) removed++;
+        if (kept.length > 0 && kept[kept.length - 1].includes(`[${hookSource}]`)) {
+          kept.pop();
+        }
+      }
+      continue;
+    }
+
+    kept.push(line);
+  }
+
+  return { toml: kept.join('\n').replace(/\n{3,}/g, '\n\n'), removed };
+}
+
+export function configureCodexHooksToml(toml, events, hookCommand, hookPattern, hookSource) {
+  const cleaned = removeAllCodexHooksToml(toml, hookPattern, hookSource);
+  let nextToml = cleaned.toml.trimEnd();
+  const command = escapeTomlString(hookCommand);
+  // Codex emits Stop / agent-turn-complete only through the legacy `notify`
+  // entry, never through [[hooks.X]] blocks. Keep both forms so the dashboard
+  // gets the full lifecycle: notify → Stop (red ! attention badge), plus the
+  // new [[hooks.X]] blocks → PreToolUse / PostToolUse (orange working state).
+  const blocks = [
+    '',
+    `# [${hookSource}] Dashboard hook -- safe to remove with "npm run reset"`,
+    `notify = "${command}"`,
+    '',
+    `# [${hookSource}] Dashboard Codex lifecycle hooks`,
+    ...events.flatMap(event => [
+      `[[hooks.${event}]]`,
+      `[[hooks.${event}.hooks]]`,
+      'type = "command"',
+      `command = "${command}"`,
+      'async = true',
+      '',
+    ]),
+  ].join('\n');
+
+  nextToml += blocks;
+  if (!nextToml.endsWith('\n')) nextToml += '\n';
+  return { toml: nextToml, added: events.length, removed: cleaned.removed };
+}
+
 // Configure Claude hooks in a settings object.
 // Adds/updates hooks for events in the density set, removes hooks for excluded events.
 // Returns { added, updated, removed, unchanged }.
