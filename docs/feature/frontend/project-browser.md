@@ -11,7 +11,7 @@ Users often want to explore a project's file tree without keeping the whole sess
 |------|------|
 | `src/routes/ProjectBrowserView.tsx` | Route component — parses query params, resolves origin session, renders header + `ProjectTab` |
 | `src/components/session/ProjectTab.tsx` | Shared file browser component (also used inside Detail Panel) |
-| `src/styles/modules/ProjectTab.module.css` | `.standalone`, `.standaloneHeader`, `.standaloneTitle`, `.standalonePath`, `.standaloneContent`, `.standaloneEmpty` classes |
+| `src/styles/modules/ProjectTab.module.css` | `.standalone`, `.standaloneHeader`, `.standaloneTitle`, `.standalonePath`, `.standaloneContent`, `.standaloneEmpty` classes; `.markdown ::selection` cyan highlight for SelectionPopup support |
 
 ## Implementation
 - **Query params**:

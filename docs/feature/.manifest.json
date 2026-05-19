@@ -849,7 +849,7 @@
       ],
       "source_hashes": {
         "src/components/translate/SelectionPopup.tsx": "54c93f47be4e59112fef33cc549d5b6f0b4aa60b",
-        "src/styles/modules/SelectionPopup.module.css": "062289f782b35e78941e57a7b4f9f2ab58c0f9a6",
+        "src/styles/modules/SelectionPopup.module.css": "24fa4dc5bd7d9ee9929bab10144a8e2ec4be3cfe",
         "src/hooks/useSelectionPopup.ts": "f72eb19097d5e363340e937147ccdb5086a23596",
         "src/lib/selectionExtractors.ts": "a926a0e74966feeec44c671fd2834614752fe8cb",
         "src/components/session/FloatingTerminalPanel.tsx": "9ddaa48870192892b43c727e41e7fe06339994b2",
@@ -912,7 +912,7 @@
       "depended_on_by": [
         "frontend/review-tab.md"
       ],
-      "last_updated": "2026-05-12T00:55:26Z",
+      "last_updated": "2026-05-15T22:52:27Z",
       "last_aligned": "2026-05-12T00:54:58Z"
     },
     {
@@ -991,7 +991,7 @@
       "source_hashes": {
         "src/routes/ProjectBrowserView.tsx": "3da1ddccecbbecc75e5a452996b144476820346b",
         "src/components/session/ProjectTab.tsx": "5a039a5e1b05234872ddf5a01a538535602522dc",
-        "src/styles/modules/ProjectTab.module.css": "f6999283d57309b5980ace2458f50b9691cc7455"
+        "src/styles/modules/ProjectTab.module.css": "9e508b90d9406f357f4b86cbdd1909db765d8e5e"
       },
       "symbols": {
         "functions": [
@@ -1063,7 +1063,7 @@
         "server/api-endpoints.md"
       ],
       "depended_on_by": [],
-      "last_updated": "2026-05-10T07:37:38Z",
+      "last_updated": "2026-05-15T22:52:27Z",
       "last_aligned": "2026-05-10T07:37:38Z"
     },
     {

@@ -24,7 +24,7 @@ transcripts.
 | File | Role |
 |------|------|
 | `src/components/translate/SelectionPopup.tsx` | Two-icon floating toolbar at the selection. Modes 1 + 2. |
-| `src/styles/modules/SelectionPopup.module.css` | Popup styling. |
+| `src/styles/modules/SelectionPopup.module.css` | Popup styling — theme-aware via CSS variables (no hardcoded colours). |
 | `src/hooks/useSelectionPopup.ts` | Surface-agnostic selection-watcher hook. |
 | `src/lib/selectionExtractors.ts` | Strategies: `extractDomSelection` (markdown) and `extractXtermSelection` (terminals). |
 | `src/components/session/FloatingTerminalPanel.tsx` | Picture-in-picture window hosting one TerminalContainer. |
@@ -142,6 +142,10 @@ No API key field exists — the feature is auth-free.
   `DELETE /api/terminals/:id`. The origin session is unaffected.
 * **Settings shape changed** (`translationEnabled`, etc.) — exported settings
   files from older versions still load, but new fields fall back to defaults.
+* **Popup colours are fully theme-variable-driven** — `SelectionPopup.module.css` uses
+  `var(--bg-card)`, `var(--glow-accent)`, `var(--bg-accent)`, `var(--border-accent-strong)`,
+  and `var(--bg-accent-strong)`. Adding new themes must define all five variables or the
+  popup will inherit the `:root` defaults.
 
 ## Phase 2 (not yet implemented)
 
