@@ -1209,14 +1209,15 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     (_e: { clientX: number; clientY: number }) => extractDomSelection(markdownFsRef.current),
     [],
   );
+  const isMarkdownFile = file?.ext === 'md' || file?.ext === 'mdx';
   const popup = useSelectionPopup({
-    enabled: translationEnabled && !!originSessionId && !mdEdit && !showFullscreen,
+    enabled: translationEnabled && !!originSessionId && !mdEdit && !showFullscreen && isMarkdownFile,
     trigger: translationTrigger,
     containerRef: markdownRef,
     extract: popupExtract,
   });
   const popupFs = useSelectionPopup({
-    enabled: translationEnabled && !!originSessionId && showFullscreen,
+    enabled: translationEnabled && !!originSessionId && showFullscreen && isMarkdownFile,
     trigger: translationTrigger,
     containerRef: markdownFsRef,
     extract: popupExtractFs,

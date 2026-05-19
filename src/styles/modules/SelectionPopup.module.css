@@ -9,10 +9,10 @@
   align-items: stretch;
   gap: 2px;
   padding: 4px;
-  background: var(--panel-bg, rgba(10, 10, 26, 0.96));
-  border: 1px solid var(--panel-border, rgba(0, 255, 255, 0.35));
+  background: var(--bg-card);
+  border: 1px solid var(--accent-cyan, #00e5ff);
   border-radius: 8px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 255, 255, 0.08);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.65), 0 0 8px var(--glow-accent);
   backdrop-filter: blur(8px);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   user-select: none;
@@ -46,13 +46,13 @@
 }
 
 .btn:hover:not(:disabled) {
-  background: rgba(0, 255, 255, 0.08);
-  border-color: rgba(0, 255, 255, 0.35);
+  background: var(--bg-accent);
+  border-color: var(--border-accent-strong);
   color: var(--accent-cyan, #00f0ff);
 }
 
 .btn:active:not(:disabled) {
-  background: rgba(0, 255, 255, 0.16);
+  background: var(--bg-accent-strong);
 }
 
 .btn:disabled {

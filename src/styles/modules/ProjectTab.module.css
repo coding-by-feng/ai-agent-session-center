@@ -975,6 +975,11 @@
   overflow-y: auto;
 }
 
+.markdown ::selection {
+  background: rgba(0, 229, 255, 0.22);
+  color: inherit;
+}
+
 /* ---- Markdown Outline (side panel) ---- */
 
 .outlinePanel {
