@@ -237,10 +237,6 @@ export const tooltips = {
     label: 'Open fullscreen',
     description: 'Open the current file in a distraction-free fullscreen viewer.',
   },
-  projDateToggle: {
-    label: 'Show modified time',
-    description: 'Toggle the modified-date column in the file tree.',
-  },
   projCollapseAll: {
     label: 'Collapse all',
     description: 'Collapse every expanded folder in the file tree.',
@@ -310,21 +306,9 @@ export const tooltips = {
     label: 'Manage collections',
     description: 'This file is in a collection. Click to view or move it between collections.',
   },
-  projShowHidden: {
-    label: 'Show hidden files',
-    description: 'Reveal dotfiles and dot-folders (.git, .env, .DS_Store, …) in the tree.',
-  },
-  projHideHidden: {
-    label: 'Hide hidden files',
-    description: 'Stop showing dotfiles and dot-folders in the tree.',
-  },
-  projSortByName: {
-    label: 'Sort by name',
-    description: 'Sort the file tree alphabetically. Click again to flip ascending / descending.',
-  },
-  projSortByDate: {
-    label: 'Sort by date',
-    description: 'Sort the file tree by modified date. Click again to flip newest / oldest.',
+  projRecentFiles: {
+    label: 'View history',
+    description: 'Browse recently opened files and click any entry to reopen it.',
   },
 
   // ---- SessionControlBar ----

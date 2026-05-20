@@ -40,11 +40,7 @@ export type ShortcutActionId =
   | 'fileBrowserToggleOutline'
   | 'fileBrowserToggleBookmark'
   | 'fileBrowserToggleWordWrap'
-  | 'fileBrowserFullscreen'
-  | 'fileBrowserToggleHidden'
-  | 'fileBrowserToggleDateTime'
-  | 'fileBrowserSortName'
-  | 'fileBrowserSortDate';
+  | 'fileBrowserFullscreen';
 
 export interface ShortcutBinding {
   actionId: ShortcutActionId;

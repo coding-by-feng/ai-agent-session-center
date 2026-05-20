@@ -208,7 +208,7 @@ function makeNodeRenderer(onRequestDelete?: DeleteRequester) {
 
 const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileTree({
   projectPath,
-  showHidden = false,
+  showHidden = true,
   onFileSelect,
   onDirSelect,
   height: externalHeight,

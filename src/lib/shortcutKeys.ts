@@ -61,10 +61,6 @@ const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
   fileBrowserToggleBookmark:  { label: 'Bookmark',                      section: 'File Browser',  combo: null },
   fileBrowserToggleWordWrap:  { label: 'Toggle word wrap',              section: 'File Browser',  combo: null },
   fileBrowserFullscreen:      { label: 'Open in fullscreen',            section: 'File Browser',  combo: null },
-  fileBrowserToggleHidden:    { label: 'Toggle hidden files',           section: 'File Browser',  combo: null },
-  fileBrowserToggleDateTime:  { label: 'Toggle date/time display',      section: 'File Browser',  combo: null },
-  fileBrowserSortName:        { label: 'Sort by name',                  section: 'File Browser',  combo: null },
-  fileBrowserSortDate:        { label: 'Sort by date',                  section: 'File Browser',  combo: null },
 };
 
 /** All action IDs in display order. */
@@ -79,8 +75,7 @@ export const ACTION_IDS: ShortcutActionId[] = [
   'fileBrowserSearch', 'fileBrowserNewFile', 'fileBrowserNewFolder',
   'fileBrowserRefresh', 'fileBrowserOpenNewTab', 'fileBrowserFormat',
   'fileBrowserToggleOutline', 'fileBrowserToggleBookmark', 'fileBrowserToggleWordWrap',
-  'fileBrowserFullscreen', 'fileBrowserToggleHidden', 'fileBrowserToggleDateTime',
-  'fileBrowserSortName', 'fileBrowserSortDate',
+  'fileBrowserFullscreen',
 ];
 
 /** Section display order. */
