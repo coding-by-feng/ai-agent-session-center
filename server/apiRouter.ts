@@ -758,9 +758,11 @@ router.post('/sessions/:id/clone', async (req: Request, res: Response) => {
     const cfg = session.sshConfig;
     const newTitle = `Clone of ${session.title || session.projectName}`;
     const baseCmd = session.startupCommand || cfg?.command || 'claude';
-    // Strip the original session's `-n "..."` before reconstructing flags
-    // so the clone gets named after `newTitle`, not the original session.
-    let cloneCmd = stripClaudeSessionName(baseCmd);
+    // Strip session-specific flags (--resume, --continue, --fork-session) so a
+    // resumed session's stored startupCommand doesn't bleed into the clone, then
+    // strip the name so the clone gets its own title.
+    let cloneCmd = stripClaudeSessionFlags(baseCmd);
+    cloneCmd = stripClaudeSessionName(cloneCmd);
     cloneCmd = reconstructPermissionFlags(cloneCmd, session.permissionMode);
     cloneCmd = appendSessionName(cloneCmd, newTitle);
 
