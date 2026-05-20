@@ -853,6 +853,10 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
   const result: HandleEventResult = { session: { ...session } };
   // Migrate DB records when session is re-keyed (e.g., after claude --resume)
   if (session.replacesId) {
+    // Keep the old terminal ID resolvable via getSession() so that
+    // FloatingTerminalPanel can still use terminalId as originSessionId
+    // after the session re-keys to its real Claude session ID.
+    sessionAliases.set(session.replacesId, session_id);
     dbMigrateSessionId(session.replacesId, session_id);
   }
   // Clean up one-time re-key flag

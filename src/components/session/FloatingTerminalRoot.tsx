@@ -18,6 +18,7 @@ export default function FloatingTerminalRoot() {
           terminalId={f.terminalId}
           label={f.label}
           stackIndex={i}
+          originSessionId={f.originSessionId}
           onClose={() => close(f.terminalId)}
         />
       ))}

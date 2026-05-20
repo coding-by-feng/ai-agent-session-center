@@ -92,7 +92,6 @@ interface FileTab {
 interface RecentFile {
   path: string;
   name: string;
-  openedAt: number;
 }
 
 interface Bookmark {
@@ -1272,7 +1271,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
       });
       setActiveTabPath(relPath);
       setRecentFiles(prev => {
-        const entry: RecentFile = { path: relPath, name, openedAt: Date.now() };
+        const entry: RecentFile = { path: relPath, name };
         return [entry, ...prev.filter(r => r.path !== relPath)].slice(0, 30);
       });
     } catch (err: unknown) {
