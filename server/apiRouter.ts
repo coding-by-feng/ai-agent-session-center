@@ -106,7 +106,7 @@ function stripCodexSessionSubcommand(command: string): string {
     .trim();
 }
 
-function buildResumeCommand(session: { startupCommand?: string; sshCommand?: string; sshConfig?: { command?: string }; permissionMode?: string | null }, sessionId: string): string {
+function buildResumeCommand(session: { startupCommand?: string; sshCommand?: string; sshConfig?: { command?: string }; permissionMode?: string | null; title?: string | null }, sessionId: string): string {
   const originalCmd = session.startupCommand || session.sshCommand || session.sshConfig?.command || '';
   const safeId = shellEscapeSingle(sessionId);
   const canUseSessionId = !sessionId.startsWith('term-');
@@ -120,7 +120,9 @@ function buildResumeCommand(session: { startupCommand?: string; sshCommand?: str
 
   if (commandStartsWithCli(originalCmd, 'claude')) {
     let baseCmd = stripClaudeSessionFlags(originalCmd || 'claude') || 'claude';
+    baseCmd = stripClaudeSessionName(baseCmd);
     baseCmd = reconstructPermissionFlags(baseCmd, session.permissionMode);
+    baseCmd = appendSessionName(baseCmd, session.title);
     return canUseSessionId
       ? `${baseCmd} --resume '${safeId}' || ${baseCmd} --continue`
       : `${baseCmd} --continue`;
@@ -700,6 +702,8 @@ router.post('/sessions/:id/fork', async (req: Request, res: Response) => {
         ...newConfig,
         command: forkCmd,
         sessionTitle: newTitle,
+        isFork: true,
+        originSessionId: sessionId,
       });
 
       const isRemote = cfg.host && cfg.host !== 'localhost' && cfg.host !== '127.0.0.1';
@@ -725,6 +729,8 @@ router.post('/sessions/:id/fork', async (req: Request, res: Response) => {
         ...newConfig,
         command: forkCmd,
         sessionTitle: newTitle,
+        isFork: true,
+        originSessionId: sessionId,
       });
 
       writeWhenReady(newTerminalId, `${forkCmd}\r`);
@@ -762,6 +768,8 @@ router.post('/sessions/:id/clone', async (req: Request, res: Response) => {
         ...newConfig,
         command: cloneCmd,
         sessionTitle: newTitle,
+        isFork: true,
+        originSessionId: sessionId,
       });
       const isRemote = cfg.host && cfg.host !== 'localhost' && cfg.host !== '127.0.0.1';
       let prefix = '';
@@ -783,6 +791,8 @@ router.post('/sessions/:id/clone', async (req: Request, res: Response) => {
         ...newConfig,
         command: cloneCmd,
         sessionTitle: newTitle,
+        isFork: true,
+        originSessionId: sessionId,
       });
       writeWhenReady(newTerminalId, `${cloneCmd}\r`);
       res.json({ ok: true, terminalId: newTerminalId });

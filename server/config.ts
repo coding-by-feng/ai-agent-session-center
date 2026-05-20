@@ -187,6 +187,6 @@ export function appendSessionName(command: string, sessionTitle?: string | null)
  */
 export function stripClaudeSessionName(command: string): string {
   return command
-    .replace(/\s+(?:-n|--name)(?:\s+|=)(?:"[^"]*"|'[^']*'|\S+)/g, '')
+    .replace(/\s+(?:-n|--name)(?:\s+|=)(?:"[^"]*"|'[^']*'|\S+(?:\s+(?!-)\S+)*)/g, '')
     .trim();
 }
