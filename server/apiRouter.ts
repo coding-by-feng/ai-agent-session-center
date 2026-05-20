@@ -2280,6 +2280,29 @@ router.get('/sessions', (_req: Request, res: Response) => {
   res.json(getAllSessions());
 });
 
+// Returns the resume command for the most recent non-ended session at a given path.
+// Used by the `claude-last` shell function as a server-side fallback.
+router.get('/sessions/resume-command', (req: Request, res: Response) => {
+  const projectPath = str(req.query.path as string | undefined);
+  if (!projectPath) { res.status(400).json({ error: 'path is required' }); return; }
+
+  // Prefer live in-memory session (has full metadata); fall back to DB
+  const live = Object.values(getAllSessions()).find(
+    (s) => s.projectPath === projectPath && s.status !== 'ended',
+  );
+  const sessionId = live?.sessionId ?? db.getSessionsByProjectPath(projectPath)[0]?.id;
+  if (!sessionId || sessionId.startsWith('term-')) {
+    res.status(404).json({ error: 'No resumable session found for this path' }); return;
+  }
+
+  // Use full buildResumeCommand when live session metadata is available;
+  // otherwise fall back to a plain --resume command (DB doesn't store startupCommand).
+  const resumeCommand = live
+    ? buildResumeCommand(live, sessionId)
+    : `claude --resume '${shellEscapeSingle(sessionId)}' || claude --continue`;
+  res.json({ sessionId, resumeCommand });
+});
+
 // ---- Workspace snapshot save/load ----
 
 const WORKSPACE_SNAPSHOT_PATH = process.env.APP_USER_DATA
