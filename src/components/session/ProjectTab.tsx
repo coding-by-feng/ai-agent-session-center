@@ -65,9 +65,6 @@ interface DirEntry {
   mtime?: string;
 }
 
-type SortField = 'name' | 'date';
-type SortDir = 'asc' | 'desc';
-
 interface ExcelSheet {
   name: string;
   data: string[][];
@@ -90,6 +87,12 @@ interface FileContent {
 interface FileTab {
   path: string;
   name: string;
+}
+
+interface RecentFile {
+  path: string;
+  name: string;
+  openedAt: number;
 }
 
 interface Bookmark {
@@ -120,13 +123,6 @@ function formatSize(bytes?: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatDateTime(iso?: string): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function fileIcon(name: string, type: 'dir' | 'file'): string {
@@ -333,33 +329,12 @@ function IconWordWrap() {
   );
 }
 
-function IconClock() {
+function IconHistory() {
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <circle cx="8" cy="8" r="6" />
-      <polyline points="8 4.5 8 8 11 10" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function IconSortAlpha() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <text x="1" y="7" fontSize="6.5" fill="currentColor" stroke="none" fontWeight="700" fontFamily="monospace">A</text>
-      <text x="1" y="14" fontSize="6.5" fill="currentColor" stroke="none" fontWeight="700" fontFamily="monospace">Z</text>
-      <line x1="11" y1="3" x2="11" y2="13" />
-      <polyline points="9 11 11 13 13 11" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function IconSortDate() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <circle cx="5" cy="7.5" r="4" />
-      <polyline points="5 5 5 7.5 7 9" strokeLinecap="round" />
-      <line x1="12" y1="3" x2="12" y2="13" />
-      <polyline points="10 11 12 13 14 11" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M1.5 8a6.5 6.5 0 1 0 1.5-4" strokeLinecap="round" />
+      <polyline points="1.5 2 1.5 5.5 5 5.5" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points="8 5 8 8 10.5 10" strokeLinecap="round" />
     </svg>
   );
 }
@@ -1133,6 +1108,9 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const [collections, setCollections] = useState<Collection[]>([]);
   const [showCollectionPanel, setShowCollectionPanel] = useState(false);
 
+  const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
+  const [showRecentPanel, setShowRecentPanel] = useState(false);
+
   // Fullscreen file viewer
   const [showFullscreen, setShowFullscreen] = useState(false);
 
@@ -1148,38 +1126,6 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [showFullscreen]);
-
-  // File list display options
-  const [showHidden, setShowHidden] = useState(() => {
-    try { return localStorage.getItem('file-browser:showHidden') !== 'false'; } catch { return true; }
-  });
-  const [showDateTime, setShowDateTime] = useState(false);
-  // Sort field/direction — persisted per projectPath so it survives tab unmount
-  const [sortField, setSortField] = useState<SortField>(() => {
-    try {
-      const raw = localStorage.getItem(`agent-manager:tree-sort:${projectPath}`);
-      if (!raw) return 'name';
-      const parsed = JSON.parse(raw) as { field?: string };
-      return parsed.field === 'date' ? 'date' : 'name';
-    } catch { return 'name'; }
-  });
-  const [sortDir, setSortDir] = useState<SortDir>(() => {
-    try {
-      const raw = localStorage.getItem(`agent-manager:tree-sort:${projectPath}`);
-      if (!raw) return 'asc';
-      const parsed = JSON.parse(raw) as { dir?: string };
-      return parsed.dir === 'desc' ? 'desc' : 'asc';
-    } catch { return 'asc'; }
-  });
-  useEffect(() => {
-    if (!projectPath) return;
-    try {
-      localStorage.setItem(
-        `agent-manager:tree-sort:${projectPath}`,
-        JSON.stringify({ field: sortField, dir: sortDir }),
-      );
-    } catch { /* ignore */ }
-  }, [sortField, sortDir, projectPath]);
 
   // Markdown outline (side panel with draggable divider)
   const [showOutline, setShowOutline] = useState(false);
@@ -1228,8 +1174,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   // Also used as part of <VirtualCodeViewer>'s React key to force a remount
   // on refresh — its own onMount restore then reads scrollTop from localStorage.
   const [refreshNonce, setRefreshNonce] = useState(0);
-  // Guard: skip the showHidden effect on first mount (initial load handles it)
-  const showHiddenInitRef = useRef(true);
+
   const [outlineWidth, setOutlineWidth] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('outline-panel-width');
@@ -1269,7 +1214,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     const version = ++dirVersionRef.current;
     setEditingNewFile(null);
     try {
-      const data = await provider.listDir(projectPath, relPath, showHidden);
+      const data = await provider.listDir(projectPath, relPath, true);
       // Only apply if no newer navigation has started
       if (dirVersionRef.current !== version) return;
       setEntries(data.items);
@@ -1279,7 +1224,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
       // Silently ignore — "Not a directory" and other errors are non-fatal
       // since the tree panel handles directory navigation
     }
-  }, [projectPath, onPathChange, showHidden, provider]);
+  }, [projectPath, onPathChange, provider]);
 
   const loadFile = useCallback(async (relPath: string) => {
     ++dirVersionRef.current; // Invalidate any in-flight silentRefreshDir
@@ -1326,6 +1271,10 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         return [...prev, { path: relPath, name }];
       });
       setActiveTabPath(relPath);
+      setRecentFiles(prev => {
+        const entry: RecentFile = { path: relPath, name, openedAt: Date.now() };
+        return [entry, ...prev.filter(r => r.path !== relPath)].slice(0, 30);
+      });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
@@ -1394,6 +1343,17 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   useEffect(() => {
     try { localStorage.setItem(collectionsKey, JSON.stringify(collections)); } catch {}
   }, [collections, collectionsKey]);
+
+  const recentFilesKey = useMemo(() => `agent-manager:recent-files:${projectPath}`, [projectPath]);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(recentFilesKey);
+      if (saved) setRecentFiles(JSON.parse(saved));
+    } catch {}
+  }, [recentFilesKey]);
+  useEffect(() => {
+    try { localStorage.setItem(recentFilesKey, JSON.stringify(recentFiles)); } catch {}
+  }, [recentFiles, recentFilesKey]);
 
   // After cross-file jump: scroll to the pending line once the new file renders
   useEffect(() => {
@@ -1796,13 +1756,6 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     });
   }, [contextMenu, closeContextMenu]);
 
-  // Reload directory when showHidden toggles (skip initial mount — initial load effect handles that)
-  useEffect(() => {
-    if (showHiddenInitRef.current) { showHiddenInitRef.current = false; return; }
-    if (!file) loadDir(currentPath);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showHidden]);
-
   // Refresh — keep the user's scroll position. saveCurrentScroll persists the
   // current scrollTop to localStorage; loadFile() re-fetches and re-renders;
   // bumping refreshNonce re-fires the restore effect (file.path is unchanged
@@ -1826,47 +1779,20 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     if (file) return;
     const version = dirVersionRef.current;
     try {
-      const data = await provider.listDir(projectPath, currentPath, showHidden);
+      const data = await provider.listDir(projectPath, currentPath, true);
       // Only apply if no navigation happened while we were fetching
       if (dirVersionRef.current !== version) return;
       setEntries(data.items);
     } catch {
       // Silently ignore — next poll will retry
     }
-  }, [projectPath, currentPath, showHidden, provider, file]);
+  }, [projectPath, currentPath, provider, file]);
 
   // Auto-refresh: poll directory listing every 5 seconds
   useEffect(() => {
     const interval = setInterval(silentRefreshDir, 5000);
     return () => clearInterval(interval);
   }, [silentRefreshDir]);
-
-  // Sort entries: directories first, then apply user sort preference
-  const sortedEntries = useMemo(() => {
-    const sorted = [...entries];
-    sorted.sort((a, b) => {
-      // Directories always come first
-      if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
-      if (sortField === 'date') {
-        const ta = a.mtime ? new Date(a.mtime).getTime() : 0;
-        const tb = b.mtime ? new Date(b.mtime).getTime() : 0;
-        return sortDir === 'asc' ? ta - tb : tb - ta;
-      }
-      const cmp = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
-    return sorted;
-  }, [entries, sortField, sortDir]);
-
-  // Cycle sort: click same field toggles direction, click different field switches to it asc
-  const handleSortToggle = useCallback((field: SortField) => {
-    if (sortField === field) {
-      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDir('asc');
-    }
-  }, [sortField]);
 
   // Open the project file browser in a standalone new tab
   const handleOpenProjectView = useCallback(() => {
@@ -2186,21 +2112,11 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         case 'fileBrowserToggleBookmark': handleBookmarkBtnClick(); break;
         case 'fileBrowserToggleWordWrap': setWordWrap(p => !p); break;
         case 'fileBrowserFullscreen':     setShowFullscreen(true); break;
-        case 'fileBrowserToggleHidden':
-          setShowHidden(p => {
-            const next = !p;
-            try { localStorage.setItem('file-browser:showHidden', String(next)); } catch { /* ignore */ }
-            return next;
-          });
-          break;
-        case 'fileBrowserToggleDateTime': setShowDateTime(p => !p); break;
-        case 'fileBrowserSortName':       handleSortToggle('name'); break;
-        case 'fileBrowserSortDate':       handleSortToggle('date'); break;
       }
     }
     document.addEventListener('fileBrowser:action', handleFileBrowserAction);
     return () => document.removeEventListener('fileBrowser:action', handleFileBrowserAction);
-  }, [handleRefresh, handleOpenProjectView, handleFormatFile, handleBookmarkBtnClick, handleSortToggle]);
+  }, [handleRefresh, handleOpenProjectView, handleFormatFile, handleBookmarkBtnClick]);
 
   // Split drag handlers
   const handleSplitMouseDown = useCallback((e: React.MouseEvent) => {
@@ -2513,6 +2429,16 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
             )}
           </button>
         </Tooltip>
+        <Tooltip {...tooltips.projRecentFiles}>
+          <button
+            className={`${styles.iconBtn} ${showRecentPanel ? styles.iconBtnActive : ''}`}
+            onClick={() => setShowRecentPanel(p => !p)}
+            aria-label={tooltips.projRecentFiles.label}
+          >
+            <IconHistory />
+            {recentFiles.length > 0 && <span className={styles.bookmarkBadge}>{recentFiles.length}</span>}
+          </button>
+        </Tooltip>
         <Tooltip {...tooltips.projWordWrap}>
           <button
             className={`${styles.iconBtn} ${wordWrap ? styles.iconBtnActive : ''}`}
@@ -2531,51 +2457,6 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
             aria-label={tooltips.projFullscreen.label}
           >
             <IconFullscreen />
-          </button>
-        </Tooltip>
-        <span className={styles.iconBarSep} />
-        <Tooltip {...(showHidden ? tooltips.projHideHidden : tooltips.projShowHidden)}>
-          <button
-            className={`${styles.iconBtn} ${showHidden ? styles.iconBtnActive : ''}`}
-            onClick={() => setShowHidden(p => {
-              const next = !p;
-              try { localStorage.setItem('file-browser:showHidden', String(next)); } catch { /* ignore */ }
-              return next;
-            })}
-            disabled={!!file}
-            aria-label={(showHidden ? tooltips.projHideHidden : tooltips.projShowHidden).label}
-          >
-            <span style={{ fontFamily: 'monospace', fontSize: '13px', fontWeight: 700 }}>.</span>
-          </button>
-        </Tooltip>
-        <Tooltip {...tooltips.projDateToggle}>
-          <button
-            className={`${styles.iconBtn} ${showDateTime ? styles.iconBtnActive : ''}`}
-            onClick={() => setShowDateTime(p => !p)}
-            disabled={!!file}
-            aria-label={tooltips.projDateToggle.label}
-          >
-            <IconClock />
-          </button>
-        </Tooltip>
-        <Tooltip {...tooltips.projSortByName}>
-          <button
-            className={`${styles.iconBtn} ${sortField === 'name' ? styles.iconBtnActive : ''}`}
-            onClick={() => handleSortToggle('name')}
-            disabled={!!file}
-            aria-label={tooltips.projSortByName.label}
-          >
-            <IconSortAlpha />
-          </button>
-        </Tooltip>
-        <Tooltip {...tooltips.projSortByDate}>
-          <button
-            className={`${styles.iconBtn} ${sortField === 'date' ? styles.iconBtnActive : ''}`}
-            onClick={() => handleSortToggle('date')}
-            disabled={!!file}
-            aria-label={tooltips.projSortByDate.label}
-          >
-            <IconSortDate />
           </button>
         </Tooltip>
         <span className={styles.iconBarSep} />
@@ -2658,7 +2539,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
             <FileTree
               ref={fileTreeRef}
               projectPath={projectPath}
-              showHidden={showHidden}
+
               onFileSelect={(relPath) => loadFile(relPath)}
               onDirSelect={(relPath) => {
                 setCurrentPath(relPath);
@@ -3013,6 +2894,35 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+          )}
+          {/* Recent files panel */}
+          {showRecentPanel && (
+            <div className={styles.recentPanel}>
+              <div className={styles.bookmarkPanelHeader}>
+                <span className={styles.recentPanelTitle}>HISTORY ({recentFiles.length})</span>
+                <button className={styles.bookmarkPanelClose} onClick={() => setShowRecentPanel(false)}>✕</button>
+              </div>
+              {recentFiles.length === 0 ? (
+                <div className={styles.bookmarkEmpty}>No files viewed yet.</div>
+              ) : (
+                <>
+                  <div className={styles.recentList}>
+                    {recentFiles.map(rf => (
+                      <div
+                        key={rf.path}
+                        className={`${styles.recentItem}${rf.path === file?.path ? ` ${styles.recentItemActive}` : ''}`}
+                        onClick={() => { void loadFile(rf.path); setShowRecentPanel(false); }}
+                        title={rf.path}
+                      >
+                        <span className={styles.recentItemName}>{rf.name}</span>
+                        <span className={styles.recentItemPath}>{rf.path}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button className={styles.recentClear} onClick={() => setRecentFiles([])}>Clear history</button>
+                </>
               )}
             </div>
           )}
