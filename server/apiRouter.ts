@@ -23,7 +23,7 @@ import { join, dirname, extname, basename, resolve, sep } from 'path';
 import { homedir, userInfo, networkInterfaces, hostname } from 'os';
 import { fileURLToPath } from 'url';
 import { ALL_CLAUDE_HOOK_EVENTS, CODEX_DENSITY_EVENTS, CODEX_HOOK_EVENTS, DENSITY_EVENTS, SESSION_STATUS, WS_TYPES } from './constants.js';
-import { reconstructPermissionFlags, appendSessionName, stripClaudeSessionName } from './config.js';
+import { reconstructPermissionFlags, appendSessionName, stripClaudeSessionName, extractSessionName } from './config.js';
 import log from './logger.js';
 import { searchFiles, invalidateCache, preloadIndex } from './fileIndexCache.js';
 import { synthesize as ttsSynthesize, checkApiKey as ttsCheckApiKey } from './ttsManager.js';
@@ -122,7 +122,8 @@ function buildResumeCommand(session: { startupCommand?: string; sshCommand?: str
     let baseCmd = stripClaudeSessionFlags(originalCmd || 'claude') || 'claude';
     baseCmd = stripClaudeSessionName(baseCmd);
     baseCmd = reconstructPermissionFlags(baseCmd, session.permissionMode);
-    baseCmd = appendSessionName(baseCmd, session.title);
+    const title = session.title ?? extractSessionName(originalCmd);
+    baseCmd = appendSessionName(baseCmd, title);
     return canUseSessionId
       ? `${baseCmd} --resume '${safeId}' || ${baseCmd} --continue`
       : `${baseCmd} --continue`;
@@ -146,7 +147,10 @@ function buildForkCommand(session: { startupCommand?: string; sshCommand?: strin
   const baseForkCmd = canUseSessionId
     ? `claude --resume '${safeId}' --fork-session`
     : 'claude --continue --fork-session';
-  return reconstructPermissionFlags(baseForkCmd, session.permissionMode);
+  const effectiveMode =
+    session.permissionMode ||
+    (originalCmd.includes('--dangerously-skip-permissions') ? 'dangerouslySkipPermissions' : null);
+  return reconstructPermissionFlags(baseForkCmd, effectiveMode);
 }
 
 const terminalCreateSchema = z.object({

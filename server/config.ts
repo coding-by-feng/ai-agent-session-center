@@ -190,3 +190,16 @@ export function stripClaudeSessionName(command: string): string {
     .replace(/\s+(?:-n|--name)(?:\s+|=)(?:"[^"]*"|'[^']*'|\S+(?:\s+(?!-)\S+)*)/g, '')
     .trim();
 }
+
+/**
+ * Extracts the session name from a `-n`/`--name` flag in a command string.
+ * Handles quoted (single/double) and unquoted multi-word values.
+ * Returns null when no name flag is present.
+ */
+export function extractSessionName(command: string): string | null {
+  const m = command.match(
+    /(?:-n|--name)(?:\s+|=)(?:"([^"]*)"|'([^']*)'|(\S+(?:\s+(?!-)\S+)*))/
+  );
+  if (!m) return null;
+  return (m[1] ?? m[2] ?? m[3] ?? '').trim() || null;
+}
