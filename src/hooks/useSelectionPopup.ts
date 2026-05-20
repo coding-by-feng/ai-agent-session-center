@@ -60,6 +60,10 @@ export function useSelectionPopup(opts: UseSelectionPopupOptions): SelectionPopu
     if (!container) return;
 
     const onMouseUp = (e: MouseEvent): void => {
+      // Don't trigger when clicking buttons, links, or other interactive elements
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('button, a, input, select, [role="button"]')) return;
+
       // De-duplicate: ignore quick double-fires
       const now = performance.now();
       if (now - lastUpRef.current < 50) return;
