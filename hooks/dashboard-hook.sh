@@ -142,6 +142,14 @@ if [ -n "$HOOK_TTY" ] && [ -n "$SESSION_ID" ]; then
   esac
 fi
 
+# ── Persist session ID for shell-level resume ──
+# Write the Claude session UUID to .claude/last-session-id so users can
+# run `claude --resume "$(cat .claude/last-session-id)"` after exiting.
+if [ "$EVENT" = "SessionStart" ] && [ -n "$SESSION_ID" ] && [ -n "$CWD" ]; then
+  mkdir -p "$CWD/.claude" 2>/dev/null
+  printf '%s' "$SESSION_ID" > "$CWD/.claude/last-session-id" 2>/dev/null
+fi
+
 # ── Deliver to dashboard via file-based MQ (primary) or HTTP (fallback) ──
 MQ_DIR="/tmp/claude-session-center"
 MQ_FILE="$MQ_DIR/queue.jsonl"
