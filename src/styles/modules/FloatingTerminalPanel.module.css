@@ -123,7 +123,7 @@
   gap: 8px;
   padding: 0 12px;
   background: var(--panel-bg, rgba(10, 10, 26, 0.95));
-  border: 1px solid var(--accent-cyan, rgba(0, 255, 255, 0.55));
+  border: 1px solid var(--pill-accent, var(--accent-cyan, rgba(0, 255, 255, 0.55)));
   border-radius: 18px;
   color: var(--text-primary, #e6f6ff);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
@@ -138,11 +138,11 @@
 }
 
 .collapsed:hover {
-  background: rgba(0, 255, 255, 0.10);
+  background: color-mix(in srgb, var(--pill-accent, var(--accent-cyan, #00f0ff)) 10%, transparent);
 }
 
 .collapsedIcon {
-  color: var(--accent-cyan, #00f0ff);
+  color: var(--pill-accent, var(--accent-cyan, #00f0ff));
   font-size: 14px;
 }
 

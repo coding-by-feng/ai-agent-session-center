@@ -10,6 +10,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom';
 import TerminalContainer from '@/components/terminal/TerminalContainer';
 import { useWsStore } from '@/stores/wsStore';
+import { useSessionStore } from '@/stores/sessionStore';
+import { PALETTE } from '@/lib/robot3DGeometry';
 import Tooltip from '@/components/ui/Tooltip';
 import { tooltips } from '@/lib/tooltips';
 import styles from '@/styles/modules/FloatingTerminalPanel.module.css';
@@ -34,6 +36,7 @@ interface FloatingTerminalPanelProps {
   label: string;
   /** Stack offset — each open float is bumped down/right so they don't overlap. */
   stackIndex: number;
+  originSessionId?: string;
   onClose: () => void;
 }
 
@@ -67,6 +70,7 @@ export default function FloatingTerminalPanel({
   terminalId,
   label,
   stackIndex,
+  originSessionId,
   onClose,
 }: FloatingTerminalPanelProps) {
   const posKey = `${POS_KEY}:${terminalId}`;
@@ -90,6 +94,13 @@ export default function FloatingTerminalPanel({
 
   const client = useWsStore((s) => s.client);
   const ws = useMemo(() => client?.getRawSocket() ?? null, [client]);
+
+  const originSession = useSessionStore((s) =>
+    originSessionId ? s.sessions.get(originSessionId) : undefined,
+  );
+  const pillAccent = originSession
+    ? (originSession.accentColor || PALETTE[(originSession.colorIndex ?? 0) % PALETTE.length])
+    : undefined;
 
   const rootRef = useRef<HTMLElement | null>(null);
 
@@ -204,7 +215,7 @@ export default function FloatingTerminalPanel({
           ref={(el) => { rootRef.current = el; }}
           type="button"
           className={styles.collapsed}
-          style={{ left: pos.x, top: pos.y, width: COLLAPSED_W, height: COLLAPSED_H }}
+          style={{ left: pos.x, top: pos.y, width: COLLAPSED_W, height: COLLAPSED_H, ...(pillAccent ? { '--pill-accent': pillAccent } as React.CSSProperties : {}) }}
           onMouseDown={handleDragStart}
           onClick={(e) => {
             const moved = (e.currentTarget.dataset.moved === '1');
@@ -253,6 +264,7 @@ export default function FloatingTerminalPanel({
           terminalId={terminalId}
           ws={ws}
           showReconnect={false}
+          originSessionId={terminalId}
         />
       </div>
       {!maximized && (
