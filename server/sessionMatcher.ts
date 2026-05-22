@@ -184,14 +184,29 @@ export function matchSession(
   const { session_id, hook_event_name, cwd } = hookData;
   let session = sessions.get(session_id);
 
-  // Cache all process/tab info from hook's enriched environment data
+  // Fork routing: `claude --resume '<originId>' --fork-session` causes the fork to
+  // fire ALL hooks (including SessionEnd and PID updates) with session_id == originId.
+  // Detect the fork BEFORE PID caching so the fork's PID doesn't get mapped to the
+  // origin session (which would let processMonitor end the origin when the fork dies).
+  if (session && hookData.agent_terminal_id) {
+    const termId = hookData.agent_terminal_id;
+    const forkCandidate = sessions.get(termId);
+    if (forkCandidate?.isFork &&
+        (forkCandidate.terminalId === termId || forkCandidate.lastTerminalId === termId)) {
+      session = forkCandidate;
+    }
+  }
+
+  // Cache all process/tab info from hook's enriched environment data.
+  // Uses session.sessionId (not the raw session_id from the hook) so that when
+  // fork routing above redirected to a fork session, the PID maps to the fork.
   if (hookData.claude_pid) {
     const pid = Number(hookData.claude_pid);
     if (pid > 0 && session && session.cachedPid !== pid) {
       if (session.cachedPid) pidToSession.delete(session.cachedPid);
       session.cachedPid = pid;
-      pidToSession.set(pid, session_id);
-      log.debug('session', `CACHED pid=${pid} -> session=${session_id?.slice(0, 8)}`);
+      pidToSession.set(pid, session.sessionId);
+      log.debug('session', `CACHED pid=${pid} -> session=${session.sessionId?.slice(0, 8)}`);
     }
   }
 
