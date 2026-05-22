@@ -1,7 +1,7 @@
 // test/sessionMatcher.test.js — Tests for server/sessionMatcher.js
 import { describe, it, expect } from 'vitest';
-import { detectHookSource, reKeyResumedSession } from '../server/sessionMatcher.js';
-import { SESSION_STATUS, ANIMATION_STATE } from '../server/constants.js';
+import { detectHookSource, reKeyResumedSession, matchSession } from '../server/sessionMatcher.js';
+import { SESSION_STATUS, ANIMATION_STATE, EVENT_TYPES } from '../server/constants.js';
 
 describe('sessionMatcher', () => {
   describe('detectHookSource', () => {
@@ -74,6 +74,94 @@ describe('sessionMatcher', () => {
 
     it('returns "terminal" for empty hook data', () => {
       expect(detectHookSource({})).toBe('terminal');
+    });
+  });
+
+  describe('matchSession — fork routing', () => {
+    function makeSession(id, overrides = {}) {
+      return {
+        sessionId: id, projectPath: '/proj', projectName: 'proj',
+        status: SESSION_STATUS.IDLE, terminalId: null, lastTerminalId: null,
+        cachedPid: null, isFork: false, ...overrides,
+      };
+    }
+
+    it('routes SessionStart to fork session when fork reuses origin session_id', () => {
+      const sessions = new Map();
+      const origin = makeSession('origin-uuid');
+      const fork = makeSession('term-xxx', { terminalId: 'term-xxx', isFork: true, originSessionId: 'origin-uuid' });
+      sessions.set('origin-uuid', origin);
+      sessions.set('term-xxx', fork);
+
+      const result = matchSession(
+        { session_id: 'origin-uuid', hook_event_name: EVENT_TYPES.SESSION_START,
+          cwd: '/proj', agent_terminal_id: 'term-xxx' },
+        sessions, new Map(), new Map(), new Map(),
+      );
+      expect(result).toBe(fork);
+      expect(result).not.toBe(origin);
+    });
+
+    it('routes SessionEnd to fork session (terminalId already nulled, lastTerminalId set)', () => {
+      const sessions = new Map();
+      const origin = makeSession('origin-uuid');
+      // Simulate state after PTY exit: terminalId nulled, lastTerminalId set
+      const fork = makeSession('term-xxx', { terminalId: null, lastTerminalId: 'term-xxx', isFork: true });
+      sessions.set('origin-uuid', origin);
+      sessions.set('term-xxx', fork);
+
+      const result = matchSession(
+        { session_id: 'origin-uuid', hook_event_name: EVENT_TYPES.SESSION_END,
+          cwd: '/proj', agent_terminal_id: 'term-xxx' },
+        sessions, new Map(), new Map(), new Map(),
+      );
+      expect(result).toBe(fork);
+      expect(result).not.toBe(origin);
+    });
+
+    it('caches PID on fork session, not origin', () => {
+      const sessions = new Map();
+      const pidToSession = new Map();
+      const origin = makeSession('origin-uuid');
+      const fork = makeSession('term-xxx', { terminalId: 'term-xxx', isFork: true });
+      sessions.set('origin-uuid', origin);
+      sessions.set('term-xxx', fork);
+
+      matchSession(
+        { session_id: 'origin-uuid', hook_event_name: EVENT_TYPES.USER_PROMPT_SUBMIT,
+          cwd: '/proj', agent_terminal_id: 'term-xxx', claude_pid: '9999' },
+        sessions, new Map(), pidToSession, new Map(),
+      );
+      expect(pidToSession.get(9999)).toBe('term-xxx');
+      expect(origin.cachedPid).toBeNull();
+      expect(fork.cachedPid).toBe(9999);
+    });
+
+    it('does not re-route when agent_terminal_id session is not a fork', () => {
+      const sessions = new Map();
+      const origin = makeSession('origin-uuid');
+      const other = makeSession('term-xxx', { terminalId: 'term-xxx', isFork: false });
+      sessions.set('origin-uuid', origin);
+      sessions.set('term-xxx', other);
+
+      const result = matchSession(
+        { session_id: 'origin-uuid', hook_event_name: EVENT_TYPES.SESSION_START,
+          cwd: '/proj', agent_terminal_id: 'term-xxx' },
+        sessions, new Map(), new Map(), new Map(),
+      );
+      expect(result).toBe(origin);
+    });
+
+    it('does not re-route when no agent_terminal_id in hook payload', () => {
+      const sessions = new Map();
+      const origin = makeSession('origin-uuid');
+      sessions.set('origin-uuid', origin);
+
+      const result = matchSession(
+        { session_id: 'origin-uuid', hook_event_name: EVENT_TYPES.SESSION_START, cwd: '/proj' },
+        sessions, new Map(), new Map(), new Map(),
+      );
+      expect(result).toBe(origin);
     });
   });
 
