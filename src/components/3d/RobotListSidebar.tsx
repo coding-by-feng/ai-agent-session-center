@@ -57,7 +57,6 @@ function RobotEntry({
   const statusColor = STATUS_COLORS[session.status] ?? '#888';
   const needsAttention = session.status === 'approval' || session.status === 'input';
   const title = session.title || 'Unnamed';
-  const label = session.label;
 
   return (
     <button
@@ -113,29 +112,8 @@ function RobotEntry({
         }}
       />
 
-      {/* Label + Title + Status */}
+      {/* Title + Status */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        {/* Label badge */}
-        {label && (
-          <span
-            style={{
-              display: 'inline-block',
-              fontSize: 9,
-              letterSpacing: 0.5,
-              color: 'var(--accent-cyan)',
-              background: 'var(--bg-accent)',
-              border: '1px solid var(--border-accent)',
-              borderRadius: 2,
-              padding: '0px 4px',
-              marginBottom: 2,
-              lineHeight: 1.5,
-              textTransform: 'uppercase',
-            }}
-          >
-            {label}
-          </span>
-        )}
-
         {/* Title (read-only — used as the resume key for Claude Code sessions) */}
         <div
           style={{
@@ -325,10 +303,9 @@ export default function RobotListSidebar() {
       if (s.status === 'ended') return false;
       if (!query) return true;
       const title = (s.title || 'Unnamed').toLowerCase();
-      const label = (s.label || '').toLowerCase();
       const project = (s.projectName || '').toLowerCase();
       const status = s.status.toLowerCase();
-      return title.includes(query) || label.includes(query) || project.includes(query) || status.includes(query);
+      return title.includes(query) || project.includes(query) || status.includes(query);
     });
     const assignedIds = new Set<string>();
     const result: SessionGroup[] = [];

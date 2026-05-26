@@ -1,0 +1,487 @@
+import { describe, it, expect } from 'vitest';
+import {
+  pickNext,
+  advanceAfterFire,
+  applyTypeDefaults,
+  itemType,
+  getActiveStep,
+  isExecuting,
+  isInExcludeWindow,
+  totalChainSteps,
+  currentChainStep,
+} from './queueScheduler';
+import type { ChainStep, ExcludeWindow, QueueItem } from '@/stores/queueStore';
+
+/** Build a unix-ms timestamp for "today at HH:MM" in local time. */
+function todayAt(hour: number, minute: number): number {
+  const d = new Date();
+  d.setHours(hour, minute, 0, 0);
+  return d.getTime();
+}
+
+function win(id: number, start: string, end: string): ExcludeWindow {
+  return { id, startHHMM: start, endHHMM: end };
+}
+
+function step(id: number, text: string): ChainStep {
+  return { id, text };
+}
+
+function mkItem(p: Partial<QueueItem>): QueueItem {
+  return {
+    id: p.id ?? 1,
+    sessionId: 'sess',
+    text: p.text ?? 'hello',
+    position: p.position ?? 0,
+    createdAt: p.createdAt ?? 0,
+    ...p,
+  };
+}
+
+describe('queueScheduler', () => {
+  describe('itemType', () => {
+    it('defaults to once when type missing', () => {
+      expect(itemType(mkItem({}))).toBe('once');
+    });
+    it('respects explicit type', () => {
+      expect(itemType(mkItem({ type: 'loop', intervalMs: 60_000 }))).toBe('loop');
+    });
+  });
+
+  describe('pickNext priority rules', () => {
+    it('drains once items first when session is waiting', () => {
+      const items = [
+        mkItem({ id: 10, type: 'loop', intervalMs: 60_000, nextFireAt: 0 }),
+        mkItem({ id: 11, type: 'once' }),
+        mkItem({ id: 12, type: 'schedule', runAt: 0, nextFireAt: 0 }),
+      ];
+      expect(pickNext(items, 1000, true, true)?.id).toBe(11);
+    });
+
+    it('returns null while session is busy when the only items are once (once needs sessionWaiting)', () => {
+      const items = [mkItem({ id: 11, type: 'once' })];
+      expect(pickNext(items, 1000, false, true)).toBeNull();
+    });
+
+    it('falls through to loop/schedule when session is busy AND idleGuard=false, even with a once item present', () => {
+      const items = [
+        mkItem({ id: 11, type: 'once' }),
+        mkItem({ id: 12, type: 'loop', intervalMs: 60_000, nextFireAt: 0 }),
+      ];
+      // Session is NOT waiting, idleGuard is OFF — loop item with idleGuard=false
+      // must still fire instead of being starved behind the stuck once.
+      expect(pickNext(items, 5000, false, false)?.id).toBe(12);
+    });
+
+    it('once item still wins when session IS waiting, even if loop is also due', () => {
+      const items = [
+        mkItem({ id: 11, type: 'once' }),
+        mkItem({ id: 12, type: 'loop', intervalMs: 60_000, nextFireAt: 0 }),
+      ];
+      expect(pickNext(items, 5000, true, true)?.id).toBe(11);
+    });
+
+    it('selects earliest-due loop/schedule when no once items', () => {
+      const items = [
+        mkItem({ id: 10, type: 'loop', intervalMs: 60_000, nextFireAt: 5_000 }),
+        mkItem({ id: 11, type: 'schedule', runAt: 1_000, nextFireAt: 1_000 }),
+      ];
+      expect(pickNext(items, 10_000, true, true)?.id).toBe(11);
+    });
+
+    it('skips loop/schedule items that are not yet due', () => {
+      const items = [mkItem({ id: 11, type: 'schedule', runAt: 5_000, nextFireAt: 5_000 })];
+      expect(pickNext(items, 1_000, true, true)).toBeNull();
+    });
+
+    it('idleGuard=true blocks loop/schedule while session is busy', () => {
+      const items = [mkItem({ id: 11, type: 'schedule', runAt: 0, nextFireAt: 0 })];
+      expect(pickNext(items, 10_000, false, true)).toBeNull();
+    });
+
+    it('idleGuard=false allows loop/schedule to fire while busy', () => {
+      const items = [mkItem({ id: 11, type: 'schedule', runAt: 0, nextFireAt: 0 })];
+      expect(pickNext(items, 10_000, false, false)?.id).toBe(11);
+    });
+  });
+
+  describe('advanceAfterFire', () => {
+    it('removes once items', () => {
+      expect(advanceAfterFire(mkItem({ type: 'once' }), 100).action).toBe('remove');
+    });
+    it('reschedules loop items by intervalMs and increments totalFires', () => {
+      const item = mkItem({ type: 'loop', intervalMs: 1000, totalFires: 2 });
+      const result = advanceAfterFire(item, 50_000);
+      expect(result.action).toBe('reschedule');
+      if (result.action !== 'reschedule') throw new Error('unreachable');
+      expect(result.patch.nextFireAt).toBe(51_000);
+      expect(result.patch.lastFiredAt).toBe(50_000);
+      expect(result.patch.totalFires).toBe(3);
+    });
+    it('removes loop items missing intervalMs (avoid tight resend)', () => {
+      expect(advanceAfterFire(mkItem({ type: 'loop' }), 100).action).toBe('remove');
+    });
+    it('removes one-shot schedule items', () => {
+      expect(advanceAfterFire(mkItem({ type: 'schedule', runAt: 5 }), 100).action).toBe('remove');
+    });
+  });
+
+  describe('applyTypeDefaults', () => {
+    const base = {
+      id: 1,
+      sessionId: 's',
+      text: 'x',
+      position: 0,
+      createdAt: 0,
+    };
+    it('forces nextFireAt=0 for once', () => {
+      const out = applyTypeDefaults(base, 'once', {});
+      expect(out.nextFireAt).toBe(0);
+      expect(out.type).toBe('once');
+    });
+    it('falls back to 60s interval for loop when intervalMs missing', () => {
+      const out = applyTypeDefaults(base, 'loop', {});
+      expect(out.intervalMs).toBe(60_000);
+      expect(out.nextFireAt).toBeGreaterThan(0);
+    });
+    it('sets nextFireAt=runAt for schedule', () => {
+      const out = applyTypeDefaults(base, 'schedule', { runAt: 999_999 });
+      expect(out.runAt).toBe(999_999);
+      expect(out.nextFireAt).toBe(999_999);
+    });
+  });
+
+  // -----------------------------------------------------------------
+  // Chain (before/main/after) execution
+  // -----------------------------------------------------------------
+
+  describe('chain execution', () => {
+    const loopWithChain = (): QueueItem =>
+      mkItem({
+        id: 100,
+        type: 'loop',
+        intervalMs: 60_000,
+        nextFireAt: 0,
+        text: 'main prompt',
+        beforeChain: [step(1, '/context'), step(2, 'git status')],
+        afterChain: [step(3, '/compact')],
+      });
+
+    it('getActiveStep returns the first before step when item is idle and has a before-chain', () => {
+      const it = loopWithChain();
+      expect(getActiveStep(it).text).toBe('/context');
+    });
+
+    it('getActiveStep returns the in-flight before step', () => {
+      const it: QueueItem = { ...loopWithChain(), execState: 'before', execStepIdx: 1 };
+      expect(getActiveStep(it).text).toBe('git status');
+    });
+
+    it('getActiveStep returns main when execState=main', () => {
+      const it: QueueItem = { ...loopWithChain(), execState: 'main', execStepIdx: 0 };
+      expect(getActiveStep(it).text).toBe('main prompt');
+    });
+
+    it('getActiveStep returns the in-flight after step', () => {
+      const it: QueueItem = { ...loopWithChain(), execState: 'after', execStepIdx: 0 };
+      expect(getActiveStep(it).text).toBe('/compact');
+    });
+
+    it('falls back to main when execStepIdx is out of range', () => {
+      const it: QueueItem = { ...loopWithChain(), execState: 'before', execStepIdx: 99 };
+      expect(getActiveStep(it).text).toBe('main prompt');
+    });
+
+    it('skips the before-chain when empty and idle', () => {
+      const it = mkItem({ type: 'loop', intervalMs: 60_000, text: 'main', afterChain: [step(1, 'after-1')] });
+      expect(getActiveStep(it).text).toBe('main');
+    });
+
+    it('advance from idle into before chain (2 before steps)', () => {
+      const it = loopWithChain();
+      const r = advanceAfterFire(it, 1000);
+      // We've just sent before[0]; next is before[1]
+      expect(r.action).toBe('continue');
+      if (r.action !== 'continue') throw new Error('unreachable');
+      expect(r.patch.execState).toBe('before');
+      expect(r.patch.execStepIdx).toBe(1);
+    });
+
+    it('advance from before[1] (last before) → main', () => {
+      const it: QueueItem = { ...loopWithChain(), execState: 'before', execStepIdx: 1 };
+      const r = advanceAfterFire(it, 1000);
+      expect(r.action).toBe('continue');
+      if (r.action !== 'continue') throw new Error('unreachable');
+      expect(r.patch.execState).toBe('main');
+      expect(r.patch.execStepIdx).toBe(0);
+    });
+
+    it('advance from main → after[0]', () => {
+      const it: QueueItem = { ...loopWithChain(), execState: 'main', execStepIdx: 0 };
+      const r = advanceAfterFire(it, 1000);
+      expect(r.action).toBe('continue');
+      if (r.action !== 'continue') throw new Error('unreachable');
+      expect(r.patch.execState).toBe('after');
+      expect(r.patch.execStepIdx).toBe(0);
+    });
+
+    it('advance from last after → reschedule for loop, with execState reset', () => {
+      const it: QueueItem = { ...loopWithChain(), execState: 'after', execStepIdx: 0 };
+      const r = advanceAfterFire(it, 5000);
+      expect(r.action).toBe('reschedule');
+      if (r.action !== 'reschedule') throw new Error('unreachable');
+      expect(r.patch.execState).toBe('idle');
+      expect(r.patch.execStepIdx).toBeUndefined();
+      expect(r.patch.nextFireAt).toBe(5000 + 60_000);
+      expect(r.patch.totalFires).toBe(1);
+    });
+
+    it('schedule item with chain → remove on completion (one-shot)', () => {
+      const it: QueueItem = {
+        ...loopWithChain(),
+        type: 'schedule',
+        runAt: 0,
+        intervalMs: undefined,
+        execState: 'after',
+        execStepIdx: 0,
+      };
+      const r = advanceAfterFire(it, 1000);
+      expect(r.action).toBe('remove');
+    });
+
+    it('loop with no chain at all → reschedule directly from idle', () => {
+      const it = mkItem({ type: 'loop', intervalMs: 1000, nextFireAt: 0, text: 'just main' });
+      const r = advanceAfterFire(it, 50_000);
+      expect(r.action).toBe('reschedule');
+      if (r.action !== 'reschedule') throw new Error('unreachable');
+      expect(r.patch.nextFireAt).toBe(51_000);
+    });
+
+    it('pickNext returns the in-flight chain item even before its next-fire time', () => {
+      const inFlight: QueueItem = {
+        ...loopWithChain(),
+        nextFireAt: 9_999_999_999_999, // far future
+        execState: 'before',
+        execStepIdx: 0,
+      };
+      const due = mkItem({ id: 200, type: 'schedule', runAt: 0, nextFireAt: 0 });
+      const r = pickNext([inFlight, due], 1000, true, true);
+      expect(r?.id).toBe(100);
+    });
+
+    it('pickNext respects idleGuard for in-flight chains (no fire mid-tool)', () => {
+      const inFlight: QueueItem = {
+        ...loopWithChain(),
+        execState: 'main',
+        execStepIdx: 0,
+      };
+      expect(pickNext([inFlight], 1000, false, true)).toBeNull();
+    });
+
+    it('isInExcludeWindow: undefined / empty → false', () => {
+      expect(isInExcludeWindow(undefined, todayAt(12, 0))).toBe(false);
+      expect(isInExcludeWindow([], todayAt(12, 0))).toBe(false);
+    });
+
+    it('isInExcludeWindow: same-day window blocks inside, allows outside', () => {
+      const windows = [win(1, '09:00', '18:00')];
+      expect(isInExcludeWindow(windows, todayAt(8, 59))).toBe(false);
+      expect(isInExcludeWindow(windows, todayAt(9, 0))).toBe(true);  // start inclusive
+      expect(isInExcludeWindow(windows, todayAt(13, 30))).toBe(true);
+      expect(isInExcludeWindow(windows, todayAt(17, 59))).toBe(true);
+      expect(isInExcludeWindow(windows, todayAt(18, 0))).toBe(false); // end exclusive
+      expect(isInExcludeWindow(windows, todayAt(23, 0))).toBe(false);
+    });
+
+    it('isInExcludeWindow: midnight-wrapping window (22:00 → 06:00)', () => {
+      const windows = [win(1, '22:00', '06:00')];
+      expect(isInExcludeWindow(windows, todayAt(21, 59))).toBe(false);
+      expect(isInExcludeWindow(windows, todayAt(22, 0))).toBe(true);
+      expect(isInExcludeWindow(windows, todayAt(23, 30))).toBe(true);
+      expect(isInExcludeWindow(windows, todayAt(0, 0))).toBe(true);
+      expect(isInExcludeWindow(windows, todayAt(5, 59))).toBe(true);
+      expect(isInExcludeWindow(windows, todayAt(6, 0))).toBe(false);
+    });
+
+    it('isInExcludeWindow: "18:00 → 00:00" interpreted as 18:00 to end-of-day', () => {
+      const windows = [win(1, '18:00', '00:00')];
+      // start > end (18:00 > 00:00) → wraps. [18:00, 24:00) ∪ [00:00, 00:00)
+      // The second range is empty so this effectively blocks only 18:00–24:00.
+      expect(isInExcludeWindow(windows, todayAt(17, 59))).toBe(false);
+      expect(isInExcludeWindow(windows, todayAt(18, 0))).toBe(true);
+      expect(isInExcludeWindow(windows, todayAt(23, 59))).toBe(true);
+      expect(isInExcludeWindow(windows, todayAt(0, 0))).toBe(false);
+    });
+
+    it('isInExcludeWindow: multiple windows — any match blocks', () => {
+      const windows = [win(1, '00:00', '09:00'), win(2, '18:00', '00:00')];
+      expect(isInExcludeWindow(windows, todayAt(3, 0))).toBe(true);   // inside first
+      expect(isInExcludeWindow(windows, todayAt(20, 0))).toBe(true);  // inside second
+      expect(isInExcludeWindow(windows, todayAt(12, 0))).toBe(false); // outside both
+      expect(isInExcludeWindow(windows, todayAt(9, 0))).toBe(false);  // end-exclusive boundary
+      expect(isInExcludeWindow(windows, todayAt(17, 59))).toBe(false);
+      expect(isInExcludeWindow(windows, todayAt(18, 0))).toBe(true);
+    });
+
+    it('isInExcludeWindow: invalid window (start === end) is ignored', () => {
+      const windows = [win(1, '09:00', '09:00')];
+      expect(isInExcludeWindow(windows, todayAt(9, 0))).toBe(false);
+      expect(isInExcludeWindow(windows, todayAt(15, 0))).toBe(false);
+    });
+
+    it('isInExcludeWindow: malformed strings are ignored', () => {
+      const windows = [
+        { id: 1, startHHMM: 'abc', endHHMM: '09:00' },
+        { id: 2, startHHMM: '25:00', endHHMM: '09:00' },
+        { id: 3, startHHMM: '09:60', endHHMM: '10:00' },
+      ];
+      expect(isInExcludeWindow(windows, todayAt(8, 0))).toBe(false);
+    });
+
+    it('pickNext respects exclude window — loop is skipped when inside', () => {
+      // Build a loop that's due now but inside an exclusion that covers 00:00–23:59.
+      const blockAll = [win(1, '00:00', '23:59')];
+      const it = mkItem({
+        id: 50,
+        type: 'loop',
+        intervalMs: 60_000,
+        nextFireAt: 0,
+        excludeWindows: blockAll,
+      });
+      // 12:00 is inside [00:00, 23:59).
+      const r = pickNext([it], todayAt(12, 0), true, true);
+      expect(r).toBeNull();
+    });
+
+    it('pickNext ignores exclude window for in-flight chains (chain finishes mid-window)', () => {
+      const blockAll = [win(1, '00:00', '23:59')];
+      const it = mkItem({
+        id: 51,
+        type: 'loop',
+        intervalMs: 60_000,
+        nextFireAt: 0,
+        excludeWindows: blockAll,
+        execState: 'main',
+        execStepIdx: 0,
+        beforeChain: [step(1, 'b')],
+      });
+      // Even inside the exclusion, an in-flight chain (PRIORITY 0) wins.
+      const r = pickNext([it], todayAt(12, 0), true, true);
+      expect(r?.id).toBe(51);
+    });
+
+    it('pickNext: session-level windows block a loop with no per-item windows', () => {
+      const sessionWindows = [win(1, '00:00', '09:00')];
+      const it = mkItem({
+        id: 60,
+        type: 'loop',
+        intervalMs: 60_000,
+        nextFireAt: 0,
+      });
+      // 03:00 falls in [00:00, 09:00).
+      expect(pickNext([it], todayAt(3, 0), true, true, sessionWindows)).toBeNull();
+      // 12:00 is outside the session window → fires.
+      expect(pickNext([it], todayAt(12, 0), true, true, sessionWindows)?.id).toBe(60);
+    });
+
+    it('pickNext: per-item windows still block when session has none', () => {
+      const it = mkItem({
+        id: 61,
+        type: 'loop',
+        intervalMs: 60_000,
+        nextFireAt: 0,
+        excludeWindows: [win(1, '12:00', '13:00')],
+      });
+      expect(pickNext([it], todayAt(12, 30), true, true)).toBeNull();
+      expect(pickNext([it], todayAt(12, 30), true, true, [])).toBeNull();
+    });
+
+    it('pickNext: session ∪ per-item — either blocks', () => {
+      const sessionWindows = [win(1, '00:00', '09:00')];
+      const it = mkItem({
+        id: 62,
+        type: 'loop',
+        intervalMs: 60_000,
+        nextFireAt: 0,
+        excludeWindows: [win(2, '12:00', '13:00')],
+      });
+      // 03:00 → session window blocks
+      expect(pickNext([it], todayAt(3, 0), true, true, sessionWindows)).toBeNull();
+      // 12:30 → per-item window blocks
+      expect(pickNext([it], todayAt(12, 30), true, true, sessionWindows)).toBeNull();
+      // 10:00 → neither blocks
+      expect(pickNext([it], todayAt(10, 0), true, true, sessionWindows)?.id).toBe(62);
+    });
+
+    it('pickNext: in-flight chain ignores BOTH window lists', () => {
+      const sessionWindows = [win(1, '00:00', '23:59')];
+      const it: QueueItem = {
+        ...mkItem({
+          id: 63,
+          type: 'loop',
+          intervalMs: 60_000,
+          excludeWindows: [win(2, '00:00', '23:59')],
+        }),
+        execState: 'main',
+        execStepIdx: 0,
+      };
+      // Even with everything blocked, the in-flight chain wins via PRIORITY 0.
+      expect(pickNext([it], todayAt(12, 0), true, true, sessionWindows)?.id).toBe(63);
+    });
+
+    it('skipWhenPrompting=true blocks ALL fires (even in-flight chains) when blockedByPrompting flag is true', () => {
+      const inFlight: QueueItem = {
+        ...mkItem({ id: 70, type: 'loop', intervalMs: 60_000 }),
+        execState: 'main',
+        execStepIdx: 0,
+      };
+      const onceItem = mkItem({ id: 71, type: 'once' });
+      const dueLoop = mkItem({ id: 72, type: 'loop', intervalMs: 60_000, nextFireAt: 0 });
+      const items = [inFlight, onceItem, dueLoop];
+      // sessionWaiting=true, idleGuard=false (would fire all 3 normally)
+      expect(pickNext(items, 1000, true, false, undefined, true)).toBeNull();
+    });
+
+    it('skipWhenPrompting=false (or undefined) does not interfere with normal firing', () => {
+      const inFlight: QueueItem = {
+        ...mkItem({ id: 75, type: 'loop', intervalMs: 60_000 }),
+        execState: 'main',
+        execStepIdx: 0,
+      };
+      // With blockedByPrompting=false, in-flight chain fires as before.
+      expect(pickNext([inFlight], 1000, true, true, undefined, false)?.id).toBe(75);
+      expect(pickNext([inFlight], 1000, true, true)?.id).toBe(75);
+    });
+
+    it('pickNext does NOT apply exclude window to schedule items', () => {
+      // Schedules carry their own runAt — the user picked that time explicitly,
+      // so per-day windows shouldn't second-guess them.
+      const blockAll = [win(1, '00:00', '23:59')];
+      const it = mkItem({
+        id: 52,
+        type: 'schedule',
+        runAt: 0,
+        nextFireAt: 0,
+        excludeWindows: blockAll, // present but should be ignored for schedule
+      });
+      const r = pickNext([it], todayAt(12, 0), true, true);
+      expect(r?.id).toBe(52);
+    });
+
+    it('isExecuting / totalChainSteps / currentChainStep', () => {
+      const idle = loopWithChain();
+      expect(isExecuting(idle)).toBe(false);
+      expect(totalChainSteps(idle)).toBe(4); // 2 before + main + 1 after
+      expect(currentChainStep(idle)).toBe(0);
+
+      const midBefore: QueueItem = { ...idle, execState: 'before', execStepIdx: 1 };
+      expect(currentChainStep(midBefore)).toBe(2); // before[1] → step 2 in flat seq
+
+      const midMain: QueueItem = { ...idle, execState: 'main', execStepIdx: 0 };
+      expect(currentChainStep(midMain)).toBe(3); // 2 before + 1 main
+
+      const midAfter: QueueItem = { ...idle, execState: 'after', execStepIdx: 0 };
+      expect(currentChainStep(midAfter)).toBe(4);
+    });
+  });
+});

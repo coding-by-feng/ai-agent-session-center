@@ -17,7 +17,6 @@ import QueueTab from './QueueTab';
 import ProjectTabContainer from './ProjectTabContainer';
 import SessionControlBar from './SessionControlBar';
 import SessionSwitcher from './SessionSwitcher';
-import LabelChips from './LabelChips';
 import KillConfirmModal, { KILL_MODAL_ID } from './KillConfirmModal';
 import TerminalContainer from '@/components/terminal/TerminalContainer';
 import { PALETTE } from '@/lib/robot3DGeometry';
@@ -559,12 +558,6 @@ export default function DetailPanel() {
           controls={
             <SessionControlBar
               session={displaySession}
-              labelChips={
-                <LabelChips
-                  sessionId={displaySession.sessionId}
-                  currentLabel={displaySession.label || ''}
-                />
-              }
             />
           }
         />

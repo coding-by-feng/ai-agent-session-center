@@ -80,7 +80,6 @@ export interface SoundSettings {
     claude: CliSoundConfig;
     gemini: CliSoundConfig;
     codex: CliSoundConfig;
-    openclaw: CliSoundConfig;
   };
 }
 

@@ -39,14 +39,6 @@ export default function NavBar() {
             + NEW
           </button>
 
-          {/* Quick launch (label picker) */}
-          <button
-            className={`${styles.qaBtn} ${styles.quick}`}
-            onClick={() => openModal('quick-session')}
-          >
-            QUICK
-          </button>
-
           {/* Recent directories one-click launcher */}
           <WorkdirLauncher />
         </div>

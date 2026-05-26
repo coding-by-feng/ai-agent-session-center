@@ -5,7 +5,6 @@ const defaultPerCli = {
   claude: { ...CLI_SOUND_PROFILES.claude },
   gemini: { ...CLI_SOUND_PROFILES.gemini },
   codex: { ...CLI_SOUND_PROFILES.codex },
-  openclaw: { ...CLI_SOUND_PROFILES.openclaw },
 };
 
 describe('settingsStore', () => {
@@ -216,7 +215,6 @@ describe('settingsStore', () => {
       expect(soundSettings.perCli.claude.enabled).toBe(true);
       expect(soundSettings.perCli.gemini.enabled).toBe(true);
       expect(soundSettings.perCli.codex.enabled).toBe(true);
-      expect(soundSettings.perCli.openclaw.enabled).toBe(true);
     });
 
     it('has distinct CLI volume defaults', () => {
@@ -230,7 +228,6 @@ describe('settingsStore', () => {
       expect(soundSettings.perCli.claude.actions.sessionStart).toBe('chime');
       expect(soundSettings.perCli.gemini.actions.sessionStart).toBe('ding');
       expect(soundSettings.perCli.codex.actions.sessionStart).toBe('blip');
-      expect(soundSettings.perCli.openclaw.actions.sessionStart).toBe('fanfare');
     });
 
     it('updateCliSoundConfig updates CLI volume immutably', () => {

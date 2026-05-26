@@ -32,7 +32,6 @@ import { startAutoIdle, stopAutoIdle, startPendingResumeCleanup, stopPendingResu
 import {
   upsertSession as dbUpsertSession,
   updateSessionTitle as dbUpdateTitle,
-  updateSessionLabel as dbUpdateLabel,
   updateSessionSummary as dbUpdateSummary,
   updateSessionArchived as dbUpdateArchived,
   migrateSessionId as dbMigrateSessionId,
@@ -660,14 +659,13 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       if (session.promptHistory.length > 50) session.promptHistory.shift();
       eventEntry.detail = (('prompt' in hookData ? hookData.prompt : undefined) || '').substring(0, 80);
 
-      // Auto-generate title from project name + label + counter + short prompt summary
+      // Auto-generate title from project name + counter + short prompt summary
       if (!session.title) {
         const counter = projectSessionCounters.get(session.projectName) || 1;
-        const labelPart = session.label ? ` ${session.label}` : '';
         const shortPrompt = makeShortTitle(('prompt' in hookData ? hookData.prompt : undefined) || '');
         session.title = shortPrompt
-          ? `${session.projectName}${labelPart} #${counter} — ${shortPrompt}`
-          : `${session.projectName}${labelPart} — Session #${counter}`;
+          ? `${session.projectName} #${counter} — ${shortPrompt}`
+          : `${session.projectName} — Session #${counter}`;
       }
       break;
 
@@ -950,18 +948,11 @@ export async function createTerminalSession(terminalId: string, config: Terminal
     ? (config.workingDir.startsWith('~') ? config.workingDir.replace(/^~/, homedir()) : config.workingDir)
     : homedir();
   const projectName = workDir === homedir() ? 'Home' : workDir.split('/').filter(Boolean).pop() || 'SSH Session';
-  // Build default title: projectName + label + counter
   let defaultTitle = `${config.host || 'localhost'}:${workDir}`;
-  if (!config.sessionTitle && config.label) {
-    const counter = (projectSessionCounters.get(projectName) || 0) + 1;
-    projectSessionCounters.set(projectName, counter);
-    defaultTitle = `${projectName} ${config.label} #${counter}`;
-  }
   const session: Session = {
     sessionId: terminalId,
     projectPath: workDir,
     projectName,
-    label: config.label || '',
     title: config.sessionTitle || defaultTitle,
     status: SESSION_STATUS.CONNECTING as Session['status'],
     animationState: ANIMATION_STATE.WALKING,
@@ -1156,11 +1147,6 @@ export function setSessionTitle(sessionId: string, title: string): Session | nul
   return session ? { ...session } : null;
 }
 
-export function setSessionLabel(sessionId: string, label: string): Session | null {
-  const session = sessions.get(sessionId);
-  if (session) { session.label = label; invalidateSessionsCache(); dbUpdateLabel(sessionId, label); }
-  return session ? { ...session } : null;
-}
 
 export function setSummary(sessionId: string, summary: string): Session | null {
   const session = sessions.get(sessionId);

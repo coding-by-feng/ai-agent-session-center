@@ -1,6 +1,6 @@
 /**
  * CLI detection utility.
- * Determines which AI CLI (Claude, Gemini, Codex, OpenClaw) a session belongs to
+ * Determines which AI CLI (Claude, Gemini, Codex) a session belongs to
  * based on the model name and event types.
  *
  * Shared by SessionRobot (badge rendering) and AlarmEngine (per-CLI sound profiles).
@@ -8,7 +8,7 @@
 import type { Session } from '@/types';
 
 /** Supported CLI identifiers matching SoundSettings.perCli keys */
-export type CliName = 'claude' | 'gemini' | 'codex' | 'openclaw';
+export type CliName = 'claude' | 'gemini' | 'codex';
 
 /**
  * Detect which CLI a session belongs to.
@@ -18,7 +18,7 @@ export type CliName = 'claude' | 'gemini' | 'codex' | 'openclaw';
  */
 export function detectCli(session: Session): CliName | null {
   const explicit = (session.cliSource || '').toLowerCase();
-  if (explicit === 'claude' || explicit === 'gemini' || explicit === 'codex' || explicit === 'openclaw') {
+  if (explicit === 'claude' || explicit === 'gemini' || explicit === 'codex') {
     return explicit;
   }
 
@@ -42,9 +42,6 @@ export function detectCli(session: Session): CliName | null {
   }
   if (model.includes('gpt') || model.includes('codex') || model.includes('o1') || model.includes('o3') || model.includes('o4')) {
     return 'codex';
-  }
-  if (model.includes('openclaw') || model.includes('claw')) {
-    return 'openclaw';
   }
 
   // Event-type fallback

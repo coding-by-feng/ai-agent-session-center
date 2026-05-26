@@ -187,7 +187,7 @@ export default function SessionSwitcher({
   const sessionsSignature = useMemo(() => {
     const parts: string[] = [];
     sessions.forEach((s) => {
-      parts.push(`${s.sessionId}|${s.status}|${s.pinned ? 1 : 0}|${s.title ?? ''}|${s.projectName ?? ''}|${s.label ?? ''}|${s.colorIndex ?? ''}|${s.accentColor ?? ''}|${s.terminalId ?? ''}`);
+      parts.push(`${s.sessionId}|${s.status}|${s.pinned ? 1 : 0}|${s.title ?? ''}|${s.projectName ?? ''}|${s.colorIndex ?? ''}|${s.accentColor ?? ''}|${s.terminalId ?? ''}`);
     });
     parts.sort();
     return parts.join('\n');
@@ -559,7 +559,7 @@ function SessionTabCard({
       data-status={session.status}
       style={{ '--robot-color': color } as React.CSSProperties}
       onClick={() => onSwitch(session.sessionId)}
-      title={[title, session.projectName, session.label, session.status].filter(Boolean).join(' · ')}
+      title={[title, session.projectName, session.status].filter(Boolean).join(' · ')}
       type="button"
     >
       {/* Pin icon */}
@@ -637,9 +637,6 @@ function SessionTabCard({
       )}
       {!isCompact && badge && (
         <div className={styles.sessionTabBadge}>{badge}</div>
-      )}
-      {!isCompact && session.label && (
-        <div className={styles.sessionTabLabel}>{session.label}</div>
       )}
     </button>
   );

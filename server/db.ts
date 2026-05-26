@@ -139,11 +139,11 @@ log.info('db', `SQLite database opened: ${DB_PATH}`);
 
 const stmts = {
   upsertSession: db.prepare(`
-    INSERT INTO sessions (id, project_path, project_name, title, model, status, source, label, summary, team_id, team_role, character_model, accent_color, started_at, ended_at, last_activity_at, total_prompts, total_tool_calls, archived)
-    VALUES (@id, @project_path, @project_name, @title, @model, @status, @source, @label, @summary, @team_id, @team_role, @character_model, @accent_color, @started_at, @ended_at, @last_activity_at, @total_prompts, @total_tool_calls, @archived)
+    INSERT INTO sessions (id, project_path, project_name, title, model, status, source, summary, team_id, team_role, character_model, accent_color, started_at, ended_at, last_activity_at, total_prompts, total_tool_calls, archived)
+    VALUES (@id, @project_path, @project_name, @title, @model, @status, @source, @summary, @team_id, @team_role, @character_model, @accent_color, @started_at, @ended_at, @last_activity_at, @total_prompts, @total_tool_calls, @archived)
     ON CONFLICT(id) DO UPDATE SET
       project_path = @project_path, project_name = @project_name, title = @title,
-      model = @model, status = @status, source = @source, label = @label,
+      model = @model, status = @status, source = @source,
       summary = @summary, team_id = @team_id, team_role = @team_role,
       character_model = @character_model, accent_color = @accent_color,
       ended_at = @ended_at, last_activity_at = @last_activity_at,
@@ -178,7 +178,6 @@ const stmts = {
   updateSessionArchived: db.prepare('UPDATE sessions SET archived = ? WHERE id = ?'),
   updateSessionSummary: db.prepare('UPDATE sessions SET summary = ? WHERE id = ?'),
   updateSessionTitle: db.prepare('UPDATE sessions SET title = ? WHERE id = ?'),
-  updateSessionLabel: db.prepare('UPDATE sessions SET label = ? WHERE id = ?'),
 
   getPromptsBySession: db.prepare('SELECT * FROM prompts WHERE session_id = ? ORDER BY timestamp ASC'),
   getResponsesBySession: db.prepare('SELECT * FROM responses WHERE session_id = ? ORDER BY timestamp ASC'),
@@ -227,7 +226,6 @@ const persistSessionTx = db.transaction((session: Session) => {
     model: session.model || '',
     status: session.status || '',
     source: session.source || 'hook',
-    label: session.label || null,
     summary: session.summary || null,
     team_id: session.teamId || null,
     team_role: session.teamRole || null,
@@ -319,10 +317,6 @@ export function updateSessionSummary(id: string, summary: string | null): void {
 
 export function updateSessionTitle(id: string, title: string): void {
   stmts.updateSessionTitle.run(title || '', id);
-}
-
-export function updateSessionLabel(id: string, label: string | null): void {
-  stmts.updateSessionLabel.run(label || null, id);
 }
 
 // ---- Notes ----

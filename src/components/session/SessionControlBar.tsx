@@ -19,10 +19,9 @@ import styles from '@/styles/modules/DetailPanel.module.css';
 
 interface SessionControlBarProps {
   session: Session;
-  labelChips?: React.ReactNode;
 }
 
-export default function SessionControlBar({ session, labelChips }: SessionControlBarProps) {
+export default function SessionControlBar({ session }: SessionControlBarProps) {
   const toggleMute = useSessionStore((s) => s.toggleMute);
   const toggleAlert = useSessionStore((s) => s.toggleAlert);
   const openModal = useUiStore((s) => s.openModal);
@@ -129,7 +128,6 @@ export default function SessionControlBar({ session, labelChips }: SessionContro
 
   return (
     <div className={styles.ctrlBar}>
-      {labelChips}
       {isDisconnected && (
         <Tooltip {...tooltips.ctrlResume}>
           <button

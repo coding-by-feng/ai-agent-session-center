@@ -238,6 +238,114 @@
 .queueImageRemove { position: absolute; top: 1px; right: 1px; width: 14px; height: 14px; background: rgba(0,0,0,0.75); border: none; border-radius: 50%; color: #fff; font-size: 7px; cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1; padding: 0; }
 .queueImageRemove:hover { background: rgba(220,50,50,0.85); }
 
+/* ---- Automation: type selector below the textarea ---- */
+.queueAutomationRow { display: flex; align-items: center; gap: 8px; padding: 3px 2px 6px; font-size: 10px; color: var(--text-secondary, #888); flex-wrap: wrap; }
+.queueTypePills { display: inline-flex; gap: 0; border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; }
+.queueTypePill { background: transparent; color: var(--text-secondary, #888); border: none; padding: 3px 8px; font-family: var(--font-mono); font-size: 10px; cursor: pointer; border-right: 1px solid rgba(255,255,255,0.08); }
+.queueTypePill:last-child { border-right: none; }
+.queueTypePill:hover:not(:disabled) { background: rgba(0,229,255,0.06); color: var(--accent-cyan); }
+.queueTypePillActive { background: rgba(0,229,255,0.15); color: var(--accent-cyan); }
+.queueTypePillDisabled { opacity: 0.35; cursor: not-allowed; text-decoration: line-through; }
+.queueTypePillDisabled:hover { background: transparent; color: var(--text-secondary, #888); }
+
+/* Banner shown when Auto-send is OFF but the queue still has Loop/Schedule items. */
+.queueAutoSendBanner { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; margin-bottom: 6px; background: rgba(255,184,108,0.08); border: 1px solid rgba(255,184,108,0.35); border-radius: 4px; color: var(--accent-orange, #ffb86c); font-size: 11px; }
+.queueAutoSendBannerBtn { background: rgba(255,184,108,0.15); border: 1px solid rgba(255,184,108,0.4); color: var(--accent-orange, #ffb86c); font-family: var(--font-mono); font-size: 10px; padding: 3px 10px; border-radius: 3px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px; }
+.queueAutoSendBannerBtn:hover { background: rgba(255,184,108,0.25); }
+.queueIntervalGroup, .queueScheduleGroup { display: inline-flex; align-items: center; gap: 4px; }
+.queueIntervalInput { width: 50px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 3px; color: var(--text-primary); font-family: var(--font-mono); font-size: 10px; padding: 2px 5px; text-align: right; }
+.queueIntervalInput:focus { border-color: var(--accent-cyan); outline: none; }
+.queueIntervalUnit { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 3px; color: var(--text-primary); font-family: var(--font-mono); font-size: 10px; padding: 2px 4px; cursor: pointer; }
+.queueScheduleInput { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 3px; color: var(--text-primary); font-family: var(--font-mono); font-size: 10px; padding: 2px 5px; color-scheme: dark; }
+.queueScheduleInput:focus { border-color: var(--accent-cyan); outline: none; }
+
+/* ---- Type chips on each queue item ---- */
+.queueItemMeta { display: flex; align-items: center; gap: 4px; font-size: 9px; color: var(--text-dim, #666); flex-shrink: 0; }
+.queueTypeChip { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 8px; font-family: var(--font-mono); font-size: 9px; font-weight: 600; letter-spacing: 0.3px; text-transform: uppercase; border: 1px solid; line-height: 1.4; }
+.queueTypeChipOnce { color: var(--accent-cyan, #00e5ff); border-color: rgba(0,229,255,0.4); background: rgba(0,229,255,0.06); }
+.queueTypeChipLoop { color: var(--accent-orange, #ffb86c); border-color: rgba(255,184,108,0.45); background: rgba(255,184,108,0.08); }
+.queueTypeChipSchedule { color: var(--accent-purple, #bd93f9); border-color: rgba(189,147,249,0.45); background: rgba(189,147,249,0.08); }
+.queueNextFire { color: var(--text-dim, #666); font-size: 9px; font-family: var(--font-mono); }
+
+/* ---- Automation status row (bottom of queue body) ---- */
+.queueStatusRow { display: flex; align-items: center; gap: 10px; padding: 4px 4px 0; margin-top: 6px; border-top: 1px dashed rgba(255,255,255,0.06); font-size: 10px; color: var(--text-secondary, #888); flex-wrap: wrap; }
+.queueStatusRow > span { white-space: nowrap; }
+.queueStatusToggle { background: transparent; border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); font-family: var(--font-mono); font-size: 9px; padding: 2px 7px; border-radius: 3px; cursor: pointer; letter-spacing: 0.3px; text-transform: uppercase; }
+.queueStatusToggle:hover { background: rgba(0,229,255,0.06); color: var(--accent-cyan); border-color: rgba(0,229,255,0.3); }
+.queueStatusToggleOn { color: var(--accent-orange, #ffb86c); border-color: rgba(255,184,108,0.4); background: rgba(255,184,108,0.08); }
+
+/* ---- Item edit inline type controls ---- */
+.queueEditTypeRow { display: flex; align-items: center; gap: 6px; margin-top: 4px; flex-wrap: wrap; font-size: 10px; color: var(--text-secondary); }
+
+/* ---- QueueItemEditModal — three-pane editor for loop/schedule items ---- */
+.chainModalOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); backdrop-filter: blur(2px); z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.chainModalPanel { background: var(--bg-panel, #0d1117); border: 1px solid var(--accent-cyan, #00e5ff); border-radius: 6px; box-shadow: 0 8px 32px rgba(0,0,0,0.6); width: 100%; max-width: 640px; max-height: 90vh; display: flex; flex-direction: column; font-family: var(--font-mono, 'JetBrains Mono', monospace); color: var(--text-primary, #e0e0e0); }
+.chainModalHeader { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.chainModalHeader h3 { margin: 0; font-size: 13px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--accent-cyan, #00e5ff); }
+.chainCloseBtn { background: transparent; border: none; color: var(--text-secondary); font-size: 16px; cursor: pointer; padding: 2px 6px; border-radius: 3px; }
+.chainCloseBtn:hover { background: rgba(255,255,255,0.06); color: var(--text-primary); }
+.chainModalBody { padding: 14px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+
+.chainTypeRow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.chainTypeLabel { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); }
+
+.chainSection { display: flex; flex-direction: column; gap: 4px; }
+.chainSectionHeader { display: flex; align-items: baseline; gap: 8px; padding-bottom: 2px; border-bottom: 1px dashed rgba(255,255,255,0.06); }
+.chainSectionLabel { font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; color: var(--accent-cyan, #00e5ff); }
+.chainSectionHint { font-size: 9px; color: var(--text-dim, #666); }
+.chainEmpty { padding: 4px 0; font-size: 10px; font-style: italic; color: var(--text-dim, #666); }
+
+.chainStepRow { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+.chainStepIdx { width: 18px; text-align: right; color: var(--text-dim, #666); font-size: 10px; flex-shrink: 0; }
+.chainStepTextarea { flex: 1; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 3px; color: var(--text-primary); font-family: var(--font-mono); font-size: 11px; padding: 4px 6px; resize: vertical; min-height: 24px; }
+.chainStepTextarea:focus { outline: none; border-color: var(--accent-cyan); }
+.chainStepBtn { background: transparent; border: 1px solid rgba(255,255,255,0.08); color: var(--text-secondary); font-family: var(--font-mono); font-size: 10px; padding: 2px 6px; border-radius: 3px; cursor: pointer; flex-shrink: 0; }
+.chainStepBtn:hover:not(:disabled) { background: rgba(0,229,255,0.08); color: var(--accent-cyan); border-color: rgba(0,229,255,0.3); }
+.chainStepBtn:disabled { opacity: 0.3; cursor: not-allowed; }
+.chainStepDel:hover:not(:disabled) { background: rgba(255,51,85,0.1); color: var(--accent-red); border-color: rgba(255,51,85,0.3); }
+
+.chainAddBtn { align-self: flex-start; background: transparent; border: 1px dashed rgba(0,229,255,0.3); color: var(--accent-cyan); font-family: var(--font-mono); font-size: 10px; padding: 3px 10px; border-radius: 3px; cursor: pointer; margin-top: 4px; }
+.chainAddBtn:hover { background: rgba(0,229,255,0.08); border-style: solid; }
+
+.chainMainTextarea { background: rgba(0,229,255,0.04); border: 1px solid rgba(0,229,255,0.3); border-radius: 4px; color: var(--text-primary); font-family: var(--font-mono); font-size: 12px; padding: 8px 10px; resize: vertical; min-height: 60px; }
+.chainMainTextarea:focus { outline: none; border-color: var(--accent-cyan); background: rgba(0,229,255,0.06); }
+
+.chainStats { font-size: 10px; color: var(--text-dim, #666); padding-top: 6px; border-top: 1px dashed rgba(255,255,255,0.06); }
+
+.chainModalFooter { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-top: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.2); }
+.chainModalFooterRight { display: flex; gap: 6px; }
+.chainBtn { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.12); color: var(--text-primary); font-family: var(--font-mono); font-size: 11px; padding: 5px 14px; border-radius: 3px; cursor: pointer; letter-spacing: 0.5px; }
+.chainBtn:hover:not(:disabled) { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2); }
+.chainBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.chainBtnPrimary { background: rgba(0,229,255,0.15); color: var(--accent-cyan); border-color: rgba(0,229,255,0.4); }
+.chainBtnPrimary:hover:not(:disabled) { background: rgba(0,229,255,0.25); }
+.chainBtnDanger { color: var(--accent-red, #ff5555); border-color: rgba(255,51,85,0.3); }
+.chainBtnDanger:hover { background: rgba(255,51,85,0.1); border-color: rgba(255,51,85,0.5); }
+
+/* ---- Loop exclude-window rows ---- */
+.excludeWindowRow { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+.excludeWindowInput { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 3px; color: var(--text-primary); font-family: var(--font-mono); font-size: 11px; padding: 3px 6px; color-scheme: dark; min-width: 90px; }
+.excludeWindowInput:focus { outline: none; border-color: var(--accent-cyan); }
+.excludeWindowArrow { color: var(--text-dim, #666); font-size: 11px; flex-shrink: 0; }
+.excludeWindowHint { color: var(--text-dim, #666); font-size: 9px; font-style: italic; padding-left: 4px; }
+.excludeWindowInvalid { color: var(--accent-orange, #ffb86c); font-size: 9px; padding-left: 4px; }
+
+/* ---- Queue autocomplete dropdown (/ commands and @ files) ---- */
+.acDropdown { position: fixed; z-index: 9999; background: var(--bg-panel, #0d1117); border: 1px solid var(--accent-cyan, #00e5ff); border-radius: 4px; box-shadow: 0 4px 16px rgba(0,0,0,0.7); max-height: 60vh; overflow-y: auto; font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 11px; }
+.acDropdownUp { box-shadow: 0 -4px 16px rgba(0,0,0,0.7); }
+.acGroupHeader { padding: 4px 8px; font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--accent-cyan, #00e5ff); background: rgba(0,229,255,0.06); border-top: 1px solid rgba(0,229,255,0.18); border-bottom: 1px solid rgba(0,229,255,0.18); position: sticky; top: 0; }
+.acGroupHeader:first-child { border-top: none; }
+.acItem { display: flex; gap: 8px; align-items: baseline; padding: 5px 8px; cursor: pointer; color: var(--text-primary, #e0e0e0); border-bottom: 1px solid rgba(255,255,255,0.04); }
+.acItem:last-child { border-bottom: none; }
+.acItem:hover { background: rgba(0,229,255,0.08); }
+.acItemSelected { background: rgba(0,229,255,0.12); color: var(--accent-cyan, #00e5ff); }
+.acKindIcon { flex-shrink: 0; width: 12px; text-align: center; opacity: 0.55; font-size: 10px; }
+.acItemSelected .acKindIcon { opacity: 1; }
+.acLabel { flex-shrink: 0; font-weight: 500; }
+.acSub { flex: 1; color: var(--text-dim, #555); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acItemSelected .acSub { color: rgba(0,229,255,0.5); }
+.acFooter { display: flex; justify-content: space-between; padding: 4px 8px; font-size: 9px; color: var(--text-dim, #666); border-top: 1px solid rgba(255,255,255,0.06); background: rgba(0,0,0,0.2); position: sticky; bottom: 0; }
+
 .queueTextCol { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; overflow: hidden; }
 
 .queueItemImages { display: flex; gap: 3px; flex-wrap: wrap; }

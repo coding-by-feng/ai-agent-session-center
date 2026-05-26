@@ -139,7 +139,6 @@ export default function NewSessionModal() {
   const [command, setCommand] = useState(saved.command || '');
   const [apiKey, setApiKey] = useState('');
   const [sessionTitle, setSessionTitle] = useState('');
-  const [label, setLabel] = useState('');
   const [roomId, setRoomId] = useState('');
   const [sessionPrefs] = useState(() => loadSessionPrefs());
   const [effortLevel, setEffortLevel] = useState(sessionPrefs.effortLevel || 'high');
@@ -218,7 +217,6 @@ export default function NewSessionModal() {
       command: command || undefined,
       apiKey: apiKey || undefined,
       sessionTitle: sessionTitle || undefined,
-      label: label || undefined,
       effortLevel: effortLevel || undefined,
       model: model || undefined,
       enableOpsTerminal: enableOpsTerminal || undefined,
@@ -390,21 +388,10 @@ export default function NewSessionModal() {
           )}
         </div>
 
-        {/* Session title + label */}
-        <div className={styles.sshFieldRow}>
-          <div className={`${styles.sshField} ${styles.sshFieldGrow}`}>
-            <label>Session Title</label>
-            <input value={sessionTitle} onChange={(e) => setSessionTitle(e.target.value)} placeholder="Optional" />
-          </div>
-          <div className={`${styles.sshField} ${styles.sshFieldGrow}`}>
-            <label>Label</label>
-            <Combobox
-              value={label}
-              onChange={setLabel}
-              items={['ONEOFF', 'HEAVY', 'IMPORTANT']}
-              placeholder="None"
-            />
-          </div>
+        {/* Session title */}
+        <div className={styles.sshField}>
+          <label>Session Title</label>
+          <input value={sessionTitle} onChange={(e) => setSessionTitle(e.target.value)} placeholder="Optional" />
         </div>
 
         {/* Room */}

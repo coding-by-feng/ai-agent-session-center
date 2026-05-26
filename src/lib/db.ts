@@ -26,7 +26,6 @@ export interface DbSession {
   teamRole: string | null;
   terminalId: string | null;
   queueCount: number;
-  label: string | null;
 }
 
 export interface DbPrompt {
@@ -75,6 +74,28 @@ export interface DbQueueItem {
   createdAt: number;
   /** JSON-serialized array of { name, dataUrl } image attachments */
   images?: string;
+  /** Automation type — defaults to 'once' for legacy rows */
+  type?: 'once' | 'loop' | 'schedule';
+  /** Loop interval in milliseconds (only when type='loop') */
+  intervalMs?: number;
+  /** Schedule one-shot fire time as unix ms (only when type='schedule') */
+  runAt?: number;
+  /** Next fire time as unix ms; 0 for 'once' items so they win priority sort */
+  nextFireAt?: number;
+  /** Last successful send timestamp (unix ms) */
+  lastFiredAt?: number;
+  /** Total successful fires — drives "fired N×" display */
+  totalFires?: number;
+  /** JSON-serialized ChainStep[] that runs before the main prompt */
+  beforeChain?: string;
+  /** JSON-serialized ChainStep[] that runs after the main prompt */
+  afterChain?: string;
+  /** Current chain execution phase — persisted so reloads can resume mid-chain */
+  execState?: string;
+  /** Cursor within before-/after-chain for the active execution */
+  execStepIdx?: number;
+  /** JSON-serialized ExcludeWindow[] — time-of-day pause windows for loops */
+  excludeWindows?: string;
 }
 
 export interface DbAlert {
@@ -118,6 +139,26 @@ export interface DbTeam {
   childSessionIds: string[];
   teamName: string | null;
   createdAt: number;
+}
+
+/**
+ * Per-session queue automation row. Stores user preferences that survive a
+ * restart: pause/idleGuard toggles plus session-level loop quiet hours.
+ *
+ * `loopExcludeWindows` is JSON-serialized for portability — it's a
+ * fixed-length array of {startHHMM, endHHMM} (see ExcludeWindow in
+ * queueStore).
+ */
+export interface DbQueueAutomation {
+  sessionId: string;
+  paused: number;            // 0 / 1 — Dexie indexes booleans poorly so use int
+  idleGuard: number;         // 0 / 1
+  /** 0 / 1 — when 1, scheduler also skips while status==='prompting'. Default 1
+   *  for back-compat: rows from before this field existed are read as `undefined`,
+   *  which the loader maps to true (safe default). */
+  skipWhenPrompting?: number;
+  loopExcludeWindows?: string; // JSON ExcludeWindow[]
+  updatedAt: number;
 }
 
 /** A saved explanation or translation, captured when the user clicks one of
@@ -178,6 +219,7 @@ class DashboardDb extends Dexie {
   settings!: EntityTable<DbSetting, 'key'>;
   summaryPrompts!: EntityTable<DbSummaryPrompt, 'id'>;
   teams!: EntityTable<DbTeam, 'id'>;
+  queueAutomation!: EntityTable<DbQueueAutomation, 'sessionId'>;
   translationLogs!: EntityTable<DbTranslationLog, 'id'>;
 
   constructor() {
@@ -239,6 +281,39 @@ class DashboardDb extends Dexie {
       translationLogs:
         '++id, uuid, mode, createdAt, originSessionId, archived, floatTerminalId',
     });
+
+    // v4 — adds queueAutomation: persisted per-session pause/idle-guard/quiet hours.
+    // Previously this state was in-memory only and silently reset on reload.
+    this.version(4).stores({
+      sessions:
+        'id, status, projectPath, startedAt, lastActivityAt, archived',
+      prompts:
+        '++id, sessionId, timestamp, [sessionId+timestamp]',
+      responses:
+        '++id, sessionId, timestamp, [sessionId+timestamp]',
+      toolCalls:
+        '++id, sessionId, timestamp, toolName, [sessionId+timestamp]',
+      events:
+        '++id, sessionId, timestamp, [sessionId+timestamp]',
+      notes:
+        '++id, sessionId',
+      promptQueue:
+        '++id, sessionId, [sessionId+position]',
+      alerts:
+        '++id, sessionId',
+      sshProfiles:
+        '++id, name',
+      settings:
+        'key',
+      summaryPrompts:
+        '++id, isDefault',
+      teams:
+        'id',
+      queueAutomation:
+        'sessionId',
+      translationLogs:
+        '++id, uuid, mode, createdAt, originSessionId, archived, floatTerminalId',
+    });
   }
 }
 
@@ -272,7 +347,6 @@ export async function persistSessionUpdate(session: Session): Promise<void> {
     teamRole: session.teamRole ?? null,
     terminalId: session.terminalId ?? null,
     queueCount: session.queueCount || 0,
-    label: session.label ?? null,
   };
   await db.sessions.put(record);
 

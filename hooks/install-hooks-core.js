@@ -141,17 +141,33 @@ export function removeAllCodexHooksToml(toml, hookPattern, hookSource) {
 
 export function configureCodexHooksToml(toml, events, hookCommand, hookPattern, hookSource) {
   const cleaned = removeAllCodexHooksToml(toml, hookPattern, hookSource);
-  let nextToml = cleaned.toml.trimEnd();
   const command = escapeTomlString(hookCommand);
-  // Codex emits Stop / agent-turn-complete only through the legacy `notify`
-  // entry, never through [[hooks.X]] blocks. Keep both forms so the dashboard
-  // gets the full lifecycle: notify → Stop (red ! attention badge), plus the
-  // new [[hooks.X]] blocks → PreToolUse / PostToolUse (orange working state).
-  const blocks = [
+
+  // The legacy `notify` key is a top-level Codex setting. It MUST live above
+  // any [section] header — otherwise TOML parses it as `<last-section>.notify`
+  // (e.g. `features.notify`) and Codex rejects it as the wrong type.
+  // Split the cleaned toml into (top-level lines) + (first [section] onward).
+  const cleanedLines = cleaned.toml.split('\n');
+  let firstSectionIdx = cleanedLines.findIndex(l => /^\s*\[/.test(l));
+  if (firstSectionIdx === -1) firstSectionIdx = cleanedLines.length;
+
+  const head = cleanedLines.slice(0, firstSectionIdx);
+  const tail = cleanedLines.slice(firstSectionIdx);
+
+  // Drop trailing blank lines from head so the inserted block sits flush.
+  while (head.length > 0 && head[head.length - 1].trim() === '') head.pop();
+
+  const notifyBlock = [
     '',
     `# [${hookSource}] Dashboard hook -- safe to remove with "npm run reset"`,
-    `notify = "${command}"`,
+    `notify = ["${command}"]`,
     '',
+  ];
+
+  // Codex emits Stop / agent-turn-complete through the top-level `notify`
+  // entry; PreToolUse / PostToolUse / etc. flow through [[hooks.X]] blocks.
+  // Keep both forms so the dashboard gets the full lifecycle.
+  const hookBlocks = [
     `# [${hookSource}] Dashboard Codex lifecycle hooks`,
     ...events.flatMap(event => [
       `[[hooks.${event}]]`,
@@ -161,10 +177,13 @@ export function configureCodexHooksToml(toml, events, hookCommand, hookPattern, 
       'async = true',
       '',
     ]),
-  ].join('\n');
+  ];
 
-  nextToml += blocks;
+  const rebuilt = [...head, ...notifyBlock, ...tail];
+  let nextToml = rebuilt.join('\n').trimEnd();
+  nextToml += '\n\n' + hookBlocks.join('\n');
   if (!nextToml.endsWith('\n')) nextToml += '\n';
+  nextToml = nextToml.replace(/\n{3,}/g, '\n\n');
   return { toml: nextToml, added: events.length, removed: cleaned.removed };
 }
 

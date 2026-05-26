@@ -21,12 +21,13 @@ export const EVENT_TYPES = {
   PRE_COMPACT: 'PreCompact',
   POST_COMPACT: 'PostCompact',
   NOTIFICATION: 'Notification',
-  // Gemini events
+  // Gemini events (google-gemini/gemini-cli docs/hooks/reference.md)
   BEFORE_AGENT: 'BeforeAgent',
   BEFORE_TOOL: 'BeforeTool',
   AFTER_TOOL: 'AfterTool',
   AFTER_AGENT: 'AfterAgent',
-  // Codex events
+  PRE_COMPRESS: 'PreCompress',
+  // Codex legacy notify channel — emits `Stop` / `agent-turn-complete` outside [[hooks.X]]
   AGENT_TURN_COMPLETE: 'agent-turn-complete',
 } as const;
 
@@ -48,15 +49,19 @@ export const ALL_CLAUDE_HOOK_EVENTS: string[] = [
   EVENT_TYPES.SESSION_END,
 ];
 
+// Codex official lifecycle events (openai/codex codex-rs/hooks/src/schema.rs).
+// Codex has no `SessionEnd` — `Stop` is the terminal signal.
 export const CODEX_HOOK_EVENTS: string[] = [
   EVENT_TYPES.SESSION_START,
   EVENT_TYPES.USER_PROMPT_SUBMIT,
   EVENT_TYPES.PRE_TOOL_USE,
   EVENT_TYPES.POST_TOOL_USE,
   EVENT_TYPES.PERMISSION_REQUEST,
-  EVENT_TYPES.STOP,
   EVENT_TYPES.PRE_COMPACT,
   EVENT_TYPES.POST_COMPACT,
+  EVENT_TYPES.SUBAGENT_START,
+  EVENT_TYPES.SUBAGENT_STOP,
+  EVENT_TYPES.STOP,
 ];
 
 // Known event types set (all transports — Claude, Gemini, Codex)
@@ -66,6 +71,7 @@ export const KNOWN_EVENTS: Set<string> = new Set([
   EVENT_TYPES.BEFORE_TOOL,
   EVENT_TYPES.AFTER_TOOL,
   EVENT_TYPES.AFTER_AGENT,
+  EVENT_TYPES.PRE_COMPRESS,
   EVENT_TYPES.AGENT_TURN_COMPLETE,
   EVENT_TYPES.POST_COMPACT,
 ]);

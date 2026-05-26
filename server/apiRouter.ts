@@ -10,7 +10,7 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionLabel, setSessionPinned, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionPinned, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
 import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, attachToTmuxPane, consumePendingLink, prefillTerminalOutput } from './sshManager.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
@@ -26,6 +26,7 @@ import { ALL_CLAUDE_HOOK_EVENTS, CODEX_DENSITY_EVENTS, CODEX_HOOK_EVENTS, DENSIT
 import { reconstructPermissionFlags, appendSessionName, stripClaudeSessionName, extractSessionName } from './config.js';
 import log from './logger.js';
 import { searchFiles, invalidateCache, preloadIndex } from './fileIndexCache.js';
+import { getCommandIndex } from './commandIndex.js';
 import { synthesize as ttsSynthesize, checkApiKey as ttsCheckApiKey } from './ttsManager.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
 
@@ -91,9 +92,22 @@ function commandStartsWithCli(command: string | undefined | null, cli: 'claude' 
   return new RegExp(`(?:^|\\s|/)${cli}(?:\\s|$)`).test(cmd);
 }
 
+// UUID shape used by Claude session IDs (8-4-4-4-12 hex). We strip ONLY this
+// shape from positionals so legitimate first-arg prompts or subcommands like
+// `claude "draft this"` or `claude /init` aren't truncated.
+const CLAUDE_SESSION_UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
 function stripClaudeSessionFlags(command: string): string {
   return command
     .replace(/^(\S*\/)claude/, 'claude')
+    // Strip a UUID-shaped positional immediately after `claude` (optionally
+    // quoted). Older code stripped ANY \S+ here, which broke commands like
+    // `claude "explain X"` or `claude /init` — those positionals are intent,
+    // not session IDs.
+    .replace(
+      new RegExp(`^(claude)\\s+(?:'(${CLAUDE_SESSION_UUID_RE.source})'|"(${CLAUDE_SESSION_UUID_RE.source})"|(${CLAUDE_SESSION_UUID_RE.source}))(?=\\s|$)`, 'i'),
+      '$1',
+    )
     .replace(/\s+--(?:resume\s+'[^']*'|resume\s+\S+|continue)\b/g, '')
     .replace(/\s+--fork-session(?:\s+'[^']*'|\s+\S+)?/g, '')
     .trim();
@@ -225,9 +239,6 @@ const titleSchema = z.object({
   title: z.string().max(500),
 });
 
-const labelSchema = z.object({
-  label: z.string(),
-});
 
 const pinnedSchema = z.object({
   pinned: z.boolean(),
@@ -976,14 +987,6 @@ router.put('/sessions/:id/title', (req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
-// Update session label (in-memory only, no DB write)
-router.put('/sessions/:id/label', (req: Request, res: Response) => {
-  const body = validateBody(labelSchema, req.body, res);
-  if (!body) return;
-  setSessionLabel(str(req.params.id), body.label);
-  res.json({ ok: true });
-});
-
 // Update session pinned state
 router.put('/sessions/:id/pinned', (req: Request, res: Response) => {
   const body = validateBody(pinnedSchema, req.body, res);
@@ -1150,7 +1153,6 @@ router.post('/terminals', async (req: Request, res: Response) => {
     if (body.tmuxSession) config.tmuxSession = body.tmuxSession;
     if (body.useTmux) config.useTmux = true;
     if (body.sessionTitle) config.sessionTitle = body.sessionTitle;
-    if (body.label) config.label = body.label;
     if (body.startupCommand) config.startupCommand = body.startupCommand;
     if (body.permissionMode) config.permissionMode = body.permissionMode;
     if (body.effortLevel) config.effortLevel = body.effortLevel;
@@ -1314,7 +1316,6 @@ router.post('/terminals/register', async (req: Request, res: Response) => {
       workingDir: body.workingDir,
       command: body.command,
       sessionTitle: body.sessionTitle,
-      label: body.label,
     };
 
     // Create the session card (no PTY spawn — ptyHost owns the process)
@@ -2178,6 +2179,29 @@ router.post('/files/search/invalidate', (req: Request, res: Response) => {
   const root = str(req.body?.root);
   if (root) invalidateCache(root);
   res.json({ ok: true });
+});
+
+/**
+ * GET /api/commands?cli=<claude|codex|gemini>&projectPath=<absolute>
+ * Enumerate slash commands and skills for the given CLI, scoped to a project
+ * root when provided. Results include project + global + plugin sources.
+ * Cached server-side for 30 seconds per (cli, projectPath).
+ */
+router.get('/commands', (req: Request, res: Response) => {
+  const cliRaw = str(req.query.cli).toLowerCase();
+  if (cliRaw !== 'claude' && cliRaw !== 'codex' && cliRaw !== 'gemini') {
+    res.status(400).json({ error: 'cli must be one of claude|codex|gemini' });
+    return;
+  }
+  const projectPath = str(req.query.projectPath) || null;
+  try {
+    const entries = getCommandIndex(cliRaw, projectPath);
+    res.json({ entries });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('api', `commands list failed: ${msg}`);
+    res.status(500).json({ error: 'failed to enumerate commands' });
+  }
 });
 
 /**
