@@ -316,6 +316,38 @@ export function advanceAfterFire(
 }
 
 /**
+ * When the scheduler is being blocked by `skipWhenPrompting`, any loop items
+ * that are currently due lose this cycle entirely — we don't want them to
+ * pile up as "due now" indefinitely while the user is mid-prompt-submit.
+ * This returns the patches that should be applied to advance each due loop's
+ * `nextFireAt` to the next interval so the UI countdown rolls forward.
+ *
+ *  - Only `loop` items qualify. Schedule items use a user-chosen runAt and
+ *    keep their original time even if missed (the user can decide what to do).
+ *  - Items already mid-chain (`isExecuting`) are skipped — chain atomicity
+ *    means we shouldn't bump their cadence just because the start of the
+ *    NEXT cycle missed its window; the chain will finish first.
+ *  - Items with no `intervalMs` are skipped (corrupted rows).
+ *  - `totalFires` is NOT incremented — the cycle was skipped, not fired.
+ */
+export function advanceBlockedLoops(
+  items: QueueItem[],
+  now: number,
+): Array<{ id: number; patch: Partial<QueueItem> }> {
+  const out: Array<{ id: number; patch: Partial<QueueItem> }> = [];
+  for (const it of items) {
+    if (itemType(it) !== 'loop') continue;
+    if (isExecuting(it)) continue;
+    const due = effectiveNextFireAt(it);
+    if (due > now) continue;
+    const intervalMs = it.intervalMs ?? 0;
+    if (intervalMs <= 0) continue;
+    out.push({ id: it.id, patch: { nextFireAt: now + intervalMs } });
+  }
+  return out;
+}
+
+/**
  * Decide what execState a freshly-picked (idle) item should be in BEFORE it
  * fires its first step — i.e. which prompt should be sent on this tick.
  * Returns `null` if the item is already mid-execution (the caller should use
