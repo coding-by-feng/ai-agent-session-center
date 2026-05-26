@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   pickNext,
   advanceAfterFire,
+  advanceBlockedLoops,
   applyTypeDefaults,
   itemType,
   getActiveStep,
@@ -440,6 +441,56 @@ describe('queueScheduler', () => {
       const items = [inFlight, onceItem, dueLoop];
       // sessionWaiting=true, idleGuard=false (would fire all 3 normally)
       expect(pickNext(items, 1000, true, false, undefined, true)).toBeNull();
+    });
+
+    it('advanceBlockedLoops rolls due loops forward to now+intervalMs', () => {
+      const dueLoop = mkItem({
+        id: 80,
+        type: 'loop',
+        intervalMs: 60_000,
+        nextFireAt: 0, // due immediately
+      });
+      const futureLoop = mkItem({
+        id: 81,
+        type: 'loop',
+        intervalMs: 60_000,
+        nextFireAt: 99_999_999,
+      });
+      const dueSched = mkItem({
+        id: 82,
+        type: 'schedule',
+        runAt: 0,
+        nextFireAt: 0, // due — but schedules should NOT be advanced
+      });
+      const dueOnce = mkItem({ id: 83, type: 'once' }); // not advanced either
+      const inFlightLoop: QueueItem = {
+        ...mkItem({ id: 84, type: 'loop', intervalMs: 60_000, nextFireAt: 0 }),
+        execState: 'main',
+        execStepIdx: 0,
+      };
+      const patches = advanceBlockedLoops(
+        [dueLoop, futureLoop, dueSched, dueOnce, inFlightLoop],
+        100_000,
+      );
+      // Only the idle, due loop is advanced. Future loop, schedule, once,
+      // and the in-flight chain are all left untouched.
+      expect(patches).toHaveLength(1);
+      expect(patches[0].id).toBe(80);
+      expect(patches[0].patch.nextFireAt).toBe(100_000 + 60_000);
+    });
+
+    it('advanceBlockedLoops returns no patches when nothing is due', () => {
+      const items = [
+        mkItem({ id: 90, type: 'loop', intervalMs: 1000, nextFireAt: 999_999 }),
+      ];
+      expect(advanceBlockedLoops(items, 1000)).toEqual([]);
+    });
+
+    it('advanceBlockedLoops skips loop with no intervalMs (corrupted row)', () => {
+      const items = [
+        mkItem({ id: 91, type: 'loop', nextFireAt: 0 }), // intervalMs missing
+      ];
+      expect(advanceBlockedLoops(items, 1000)).toEqual([]);
     });
 
     it('skipWhenPrompting=false (or undefined) does not interfere with normal firing', () => {

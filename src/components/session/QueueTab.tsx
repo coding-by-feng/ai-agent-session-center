@@ -9,6 +9,7 @@ import { useQueueStore, DEFAULT_AUTOMATION, type QueueItem, type QueueImageAttac
 import {
   pickNext,
   advanceAfterFire,
+  advanceBlockedLoops,
   applyTypeDefaults,
   itemType,
   describeNextFire,
@@ -367,13 +368,24 @@ export default function QueueTab({
       const sessionWaiting = isSendableStatus(s.sessionStatus);
       const blockedByPrompting =
         s.automationConfig.skipWhenPrompting && s.sessionStatus === 'prompting';
+      // When the user has Skip-when-prompting ON and the session just
+      // submitted a prompt, any loop whose cadence happened to land in
+      // this window is forfeited rather than backlogged — bump nextFireAt
+      // forward so the UI countdown rolls to the next interval instead of
+      // showing "due now" forever. Schedules keep their user-chosen time.
+      if (blockedByPrompting) {
+        const advances = advanceBlockedLoops(s.items, Date.now());
+        for (const a of advances) {
+          s.updateItem(s.sessionId, a.id, a.patch);
+        }
+        return;
+      }
       const pick = pickNext(
         s.items,
         Date.now(),
         sessionWaiting,
         s.automationConfig.idleGuard,
         s.automationConfig.loopExcludeWindows,
-        blockedByPrompting,
       );
       if (!pick) return;
 
@@ -1194,21 +1206,37 @@ export default function QueueTab({
             time-based item so the queue stays uncluttered for plain Once use. */}
         {items.some((it) => itemType(it) !== 'once') && (() => {
           const sendable = isSendableStatus(sessionStatus);
-          const blocked =
+          // True when the scheduler is silently held back by idle-guard and
+          // the session isn't sendable — surface this whether the item is
+          // in-flight OR just sitting at its due time. Without this widening,
+          // a loop with nextFireAt in the past during a 'working' state shows
+          // "due now · ..." next to "Loop active" with no explanation.
+          const hasDueOrInflightItem = items.some((it) =>
+            isExecuting(it) ||
+            (itemType(it) !== 'once' && (it.nextFireAt ?? 0) <= Date.now()),
+          );
+          const blockedByIdleGuard =
             !automationConfig.paused &&
             automationConfig.idleGuard &&
             !sendable &&
-            items.some((it) => isExecuting(it));
+            hasDueOrInflightItem;
+          const blockedByPrompting =
+            !automationConfig.paused &&
+            automationConfig.skipWhenPrompting &&
+            sessionStatus === 'prompting' &&
+            hasDueOrInflightItem;
           return (
           <div className={styles.queueStatusRow}>
             <span>
               {automationConfig.paused
                 ? '⏸ Paused'
-                : blocked
-                  ? `⏳ Waiting for session to be idle (status: ${sessionStatus})`
-                  : items.some((it) => itemType(it) === 'loop')
-                    ? '⟳ Loop active'
-                    : '🕐 Scheduler armed'}
+                : blockedByPrompting
+                  ? '⏳ Holding fire — session is mid-prompt (skip-prompting on)'
+                  : blockedByIdleGuard
+                    ? `⏳ Waiting for session to be idle (status: ${sessionStatus})`
+                    : items.some((it) => itemType(it) === 'loop')
+                      ? '⟳ Loop active'
+                      : '🕐 Scheduler armed'}
             </span>
             <button
               className={`${styles.queueStatusToggle}${automationConfig.paused ? ` ${styles.queueStatusToggleOn}` : ''}`}
