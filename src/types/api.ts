@@ -97,11 +97,6 @@ export interface UpdateTitleRequest {
   title: string;
 }
 
-// PUT /api/sessions/:id/label
-export interface UpdateLabelRequest {
-  label: string;
-}
-
 // PUT /api/sessions/:id/accent-color
 export interface UpdateAccentColorRequest {
   color: string;
@@ -160,7 +155,6 @@ export interface CreateTerminalRequest extends SshConnectionConfig {
   tmuxSession?: string;
   useTmux?: boolean;
   sessionTitle?: string;
-  label?: string;
   enableOpsTerminal?: boolean;
   forceNew?: boolean;
   /** Effort level to auto-apply after Claude Code starts (min/low/medium/high/max) */

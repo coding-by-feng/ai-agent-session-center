@@ -32,7 +32,6 @@ export interface SessionSnapshot {
   title: string;
   /** Session status at export time (e.g. 'idle', 'working', 'ended') */
   status?: string;
-  label?: string;
   accentColor?: string;
   characterModel?: string;
   pinned?: boolean;
@@ -118,7 +117,6 @@ export function buildSnapshot(
       originalSessionId: session.sessionId,
       title: session.title,
       status: session.status,
-      label: session.label,
       accentColor: session.accentColor,
       characterModel: session.characterModel,
       pinned: session.pinned,
@@ -408,7 +406,6 @@ export async function importSnapshot(
           workingDir: cfg.workingDir || '~',
           command: payloadCommand,
           sessionTitle: sessionSnap.title,
-          label: sessionSnap.label || undefined,
           enableOpsTerminal: sessionSnap.enableOpsTerminal || undefined,
           startupCommand: payloadStartupCommand,
           permissionMode: sessionSnap.permissionMode || undefined,

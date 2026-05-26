@@ -101,7 +101,6 @@ export type {
   KillSessionRequest,
   KillSessionResponse,
   UpdateTitleRequest,
-  UpdateLabelRequest,
   UpdateAccentColorRequest,
   SummarizeRequest,
   SummarizeResponse,

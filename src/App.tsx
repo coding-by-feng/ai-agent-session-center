@@ -9,7 +9,6 @@ import ActivityFeed from '@/components/layout/ActivityFeed';
 import ToastContainer from '@/components/ui/ToastContainer';
 import SettingsPanel from '@/components/settings/SettingsPanel';
 import NewSessionModal from '@/components/modals/NewSessionModal';
-import QuickSessionModal from '@/components/modals/QuickSessionModal';
 import ShortcutsPanel from '@/components/modals/ShortcutsPanel';
 import ShortcutSettingsModal from '@/components/modals/ShortcutSettingsModal';
 import GlobalSearchModal from '@/components/modals/GlobalSearchModal';
@@ -57,7 +56,6 @@ function AppLayout() {
       <ToastContainer />
       <SettingsPanel />
       <NewSessionModal />
-      <QuickSessionModal />
       <ShortcutsPanel />
       <ShortcutSettingsModal />
       <GlobalSearchModal />

@@ -57,8 +57,13 @@ export function ensureHooksInstalled(config) {
   const isWindows = process.platform === 'win32';
   const hookPattern = 'dashboard-hook';
   const hookSource = 'ai-agent-session-center';
+  // Codex official lifecycle events (openai/codex codex-rs/hooks/src/schema.rs):
+  //   SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PermissionRequest,
+  //   PreCompact, PostCompact, SubagentStart, SubagentStop, Stop
+  // Note: Codex has no `SessionEnd` — `Stop` is the terminal signal, also
+  //       reinforced by the legacy `notify` entry installed by install-hooks-core.
   const codexDensityEvents = {
-    high: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'Stop', 'PreCompact', 'PostCompact'],
+    high: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'PreCompact', 'PostCompact', 'SubagentStart', 'SubagentStop', 'Stop'],
     medium: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'Stop'],
     low: ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Stop'],
   };
@@ -134,9 +139,14 @@ export function ensureHooksInstalled(config) {
 
     syncHookFile(src, dest, hooksDir, false, 'gemini');
 
-    // Gemini events mapped to density
+    // Gemini official lifecycle events (google-gemini/gemini-cli docs/hooks/reference.md):
+    //   Tool: BeforeTool, AfterTool
+    //   Agent: BeforeAgent, AfterAgent
+    //   Model: BeforeModel, BeforeToolSelection, AfterModel  (not registered — high-frequency,
+    //          not useful as session sound triggers)
+    //   Lifecycle: SessionStart, SessionEnd, Notification, PreCompress
     const geminiDensityEvents = {
-      high: ['SessionStart', 'BeforeAgent', 'BeforeTool', 'AfterTool', 'AfterAgent', 'SessionEnd', 'Notification'],
+      high: ['SessionStart', 'BeforeAgent', 'BeforeTool', 'AfterTool', 'AfterAgent', 'PreCompress', 'SessionEnd', 'Notification'],
       medium: ['SessionStart', 'BeforeAgent', 'AfterAgent', 'SessionEnd', 'Notification'],
       low: ['SessionStart', 'AfterAgent', 'SessionEnd'],
     };

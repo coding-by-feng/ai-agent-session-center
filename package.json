@@ -69,7 +69,7 @@
     "@xterm/xterm": "^5.5.0",
     "ansi_up": "^6.0.6",
     "auto-launch": "^5.0.6",
-    "better-sqlite3": "^12.6.2",
+    "better-sqlite3": "^12.10.0",
     "dexie": "^4.3.0",
     "express": "^5.0.0",
     "highlight.js": "^11.11.1",

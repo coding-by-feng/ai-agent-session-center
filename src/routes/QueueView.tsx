@@ -169,9 +169,6 @@ export default function QueueView() {
                   <span className={styles.sessionName}>
                     {session?.projectName || 'Unknown'}
                   </span>
-                  {session?.label && (
-                    <span className={styles.label}>{session.label}</span>
-                  )}
                   <span className={styles.sid}>{sid.slice(0, 8)}</span>
                   <span className={styles.itemCount}>
                     {items.length} item{items.length !== 1 ? 's' : ''}

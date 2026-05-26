@@ -200,7 +200,7 @@ function MiniRobot({
   displayMode: 'detailed' | 'compact';
 }) {
   const color = STATUS_COLORS[session.status] ?? 'var(--text-dim)';
-  const label = session.label || session.title || session.projectName || 'Agent';
+  const label = session.title || session.projectName || 'Agent';
   const badge = getCliBadge(session);
   const isCompact = displayMode === 'compact';
 

@@ -41,7 +41,6 @@ const CLI_BADGES: Record<string, CliBadge> = {
   claude: { letter: 'C', color: '#00f0ff' },
   gemini: { letter: 'G', color: '#4285f4' },
   codex: { letter: 'X', color: '#10a37f' },
-  openclaw: { letter: 'O', color: '#ff6b2b' },
 };
 
 /** Determine CLI badge from session data (model name, events) */
@@ -671,7 +670,6 @@ const SessionRobot = memo(SessionRobotInner, (prev, next) =>
   prev.session.model === next.session.model &&
   prev.session.currentPrompt === next.session.currentPrompt &&
   prev.session.pendingTool === next.session.pendingTool &&
-  prev.session.label === next.session.label &&
   prev.session.characterModel === next.session.characterModel &&
   prev.session.title === next.session.title &&
   prev.session.projectName === next.session.projectName &&

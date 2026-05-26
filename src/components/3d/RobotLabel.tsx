@@ -82,11 +82,6 @@ function RobotLabelInner({ session, robotState, fontSize }: RobotLabelProps) {
     pulseRef.current = 0.8 + 0.2 * Math.sin(performance.now() / 500);
   });
 
-  // Label badge
-  const labelBadge = session.label
-    ? ` [${session.label.toUpperCase()}]`
-    : '';
-
   // Scaled dimensions
   const textSize = BASE_TEXT_SIZE * scale;
   const panelW = BASE_PANEL_W * scale;
@@ -158,7 +153,7 @@ function RobotLabelInner({ session, robotState, fontSize }: RobotLabelProps) {
         maxWidth={maxWidth}
         clipRect={[-panelW / 2, -panelH / 2, panelW / 2, panelH / 2]}
       >
-        {title}{labelBadge}
+        {title}
       </Text>
     </Billboard>
   );
@@ -170,7 +165,6 @@ const RobotLabel = memo(RobotLabelInner, (prev, next) =>
   prev.session.status === next.session.status &&
   prev.session.title === next.session.title &&
   prev.session.projectName === next.session.projectName &&
-  prev.session.label === next.session.label &&
   prev.robotState === next.robotState &&
   prev.isSelected === next.isSelected &&
   prev.isHovered === next.isHovered &&

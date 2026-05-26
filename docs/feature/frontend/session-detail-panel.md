@@ -16,7 +16,6 @@ Primary interface for interacting with a single session. Aggregates terminal, pr
 | `src/components/session/PromptHistory.tsx` | Scrollable prompt history with search highlighting |
 | `src/components/session/NotesTab.tsx` | Per-session notes CRUD |
 | `src/components/session/QueueTab.tsx` | Prompt queue management |
-| `src/components/session/LabelChips.tsx` | Session label picker chips |
 | `src/components/session/KillConfirmModal.tsx` | Kill confirmation modal (lazy-mounted) |
 | `src/components/session/ContentSearchModal.tsx` | Content search modal used in ProjectTab for searching file contents |
 | `src/components/session/FloatingProjectPanel.tsx` | Detached, draggable/resizable PROJECT-tab overlay (host for portaled ProjectTabContainer when float mode is on); supports maximize/restore (v2.10.16), minimized PROJECT badge draggable anywhere (v2.10.17), maximized state persisted per-session (v2.10.20) |
@@ -25,7 +24,7 @@ Primary interface for interacting with a single session. Aggregates terminal, pr
 
 ## Implementation
 - Panel: ResizablePanel with fullscreen mode, minimizable to draggable badge (DraggableMiniBadge, position saved to localStorage['mini-badge-pos'])
-- Header: collapsible (localStorage['detail-header-collapsed']), 64x80px character preview (CSS circle, not 3D Canvas), project name, editable title (EditableTitle component), status badge, model, LabelChips, SessionControlBar
+- Header: collapsible (localStorage['detail-header-collapsed']), 64x80px character preview (CSS circle, not 3D Canvas), project name, editable title (EditableTitle component), status badge, model, SessionControlBar
 - Session switcher: SessionSwitcher component with compact header info when collapsed. Mini-robot cards and session tab cards show a **spinning conic-gradient border** when session status is `working` or `prompting` (CSS `@property --spin-angle` animated via `spinBorder` keyframes, 2s linear infinite). Approval/input states use a pulsing border instead. The `.sessionTabIndex` badge (session number chip) is positioned at `left: -9px` on the card (v2.10.20; was `right: -9px`).
 - **SessionSwitcher recompute gating (perf)**: the `sessions` Map reference changes on every session update (Zustand pattern `new Map(...)`). To avoid re-running the O(N) sort + room-grouping memos on every status tick, SessionSwitcher derives a stable `sessionsSignature` string from the visible fields (`sessionId|status|pinned|title|projectName|label|colorIndex|accentColor|terminalId`) sorted + joined, and keys the heavy memos (`sortedSessions`, `activeSessionIds`, and by extension `filteredSessions`/`tabRenderItems`) to that signature instead of the Map reference. Unchanged-content re-renders skip the sort entirely.
 - 6 tabs: PROJECT, TERMINAL, COMMANDS, PROMPTS (id: conversation), NOTES, QUEUE — TERMINAL/COMMANDS/PROJECT always mounted (preserves xterm + file state), other tabs mounted on demand

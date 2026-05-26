@@ -143,7 +143,6 @@ export interface Session {
   projectName: string;
   projectPath: string;
   title: string;
-  label?: string;
   summary?: string;
   accentColor?: string;
   characterModel?: string;

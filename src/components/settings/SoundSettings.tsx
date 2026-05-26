@@ -22,7 +22,6 @@ const CLI_TABS = [
   { id: 'claude', label: 'Claude' },
   { id: 'gemini', label: 'Gemini' },
   { id: 'codex', label: 'Codex' },
-  { id: 'openclaw', label: 'OpenClaw' },
 ] as const;
 
 type CliTabId = (typeof CLI_TABS)[number]['id'];

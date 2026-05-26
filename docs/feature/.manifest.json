@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-05-10T07:37:38Z",
+  "generated_at": "2026-05-26T20:31:46.121Z",
   "generator": "align-existing-feature-docs",
   "project_type": "desktop-app",
   "domains": [
@@ -32,7 +32,7 @@
         "src/components/3d/CameraController.tsx": "5abd4edccf3cf5d67740c7b5f0d045d9cfccb02c",
         "src/components/3d/RoomLabels.tsx": "712dc24a69c29568973086794f82d839c51a02a2",
         "src/components/3d/SceneOverlay.tsx": "c63059e26e1084bcfd181210115dc6680a2941a0",
-        "src/components/3d/RobotListSidebar.tsx": "ef6a6028d02b0df1dd703ff43b0c595741e15f30",
+        "src/components/3d/RobotListSidebar.tsx": "a9389262be49b765a39bdb60ec1d3e72b3df584c",
         "src/lib/cyberdromeScene.ts": "0bfc29c424340701e0adc5a2909b9212813b18bd",
         "src/lib/sceneThemes.ts": "b96e62f62aff0ee860b95e2a9c2384b5ac566c7a",
         "src/stores/cameraStore.ts": "1cbd74145921367deb5af53cf7d99245119d6f79",
@@ -131,7 +131,7 @@
         "frontend/settings-system.md"
       ],
       "last_updated": "2026-05-10T07:37:38Z",
-      "last_aligned": "2026-05-10T07:37:38Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "3d/particles-effects.md",
@@ -168,7 +168,7 @@
         "3d/cyberdrome-scene.md"
       ],
       "last_updated": "2026-04-23T11:30:29Z",
-      "last_aligned": "2026-04-23T11:30:29Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "3d/robot-system.md",
@@ -187,17 +187,17 @@
         "src/components/layout/HeaderAgentStrip.tsx"
       ],
       "source_hashes": {
-        "src/components/3d/SessionRobot.tsx": "47b55570e285e88b76498ff912c7c07acfa6be94",
+        "src/components/3d/SessionRobot.tsx": "2eb68fdddb391dfadba8feb4bf4012358c2ee8fc",
         "src/components/3d/Robot3DModel.tsx": "72456e6af3ea2a9bd788169ee34b9d4e4e0d3d2a",
         "src/components/3d/RobotDialogue.tsx": "f0eed2acc2139ed3af34e12d5a21f2c91f2489fe",
-        "src/components/3d/RobotLabel.tsx": "d634c271136a0757187aab699c198848b60c2768",
+        "src/components/3d/RobotLabel.tsx": "ae96eca0f3bede0fe25bbd8c2b6fc68084925bbd",
         "src/components/3d/robotPositionStore.ts": "c45622966cc8d8b0d84470c591b5a2b0e0476f36",
         "src/lib/robot3DGeometry.ts": "2322bc962d83e85981ecab0604961ba00ee93648",
         "src/lib/robot3DModels.ts": "5ba85a553c4445e3bae7fc90bcf8ae0052e75363",
         "src/lib/robotStateMap.ts": "7cada7282bbcad62d92973db5ba95eac366361f4",
-        "src/lib/cliDetect.ts": "101b9ba4b51277e443d15d08d497288050138356",
+        "src/lib/cliDetect.ts": "13be01a92fcfe26c33724669d1dfa2dfbaca6ccd",
         "src/lib/robotPositionPersist.ts": "5879d1c2728f1d3aeff31f6b36117600eaac9820",
-        "src/components/layout/HeaderAgentStrip.tsx": "a8a8a6e836c0f1a3029e522c011b2381b6c41568"
+        "src/components/layout/HeaderAgentStrip.tsx": "84d347c380ba1bc639a1c5088ebf73753909450f"
       },
       "symbols": {
         "functions": [
@@ -276,7 +276,7 @@
         "3d/particles-effects.md"
       ],
       "last_updated": "2026-05-12T00:54:58Z",
-      "last_aligned": "2026-04-23T11:30:29Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "electron/app-lifecycle.md",
@@ -346,7 +346,7 @@
         "electron/pty-host.md"
       ],
       "last_updated": "2026-04-23T11:30:29Z",
-      "last_aligned": "2026-04-23T11:30:29Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "electron/ipc-transport.md",
@@ -418,7 +418,7 @@
         "frontend/settings-system.md"
       ],
       "last_updated": "2026-05-10T07:37:38Z",
-      "last_aligned": "2026-05-10T07:37:38Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "electron/pty-host.md",
@@ -467,7 +467,7 @@
         "frontend/terminal-ui.md"
       ],
       "last_updated": "2026-05-10T07:37:38Z",
-      "last_aligned": "2026-05-10T07:37:38Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "frontend/agenda.md",
@@ -489,8 +489,8 @@
         "src/components/agenda/AgendaTaskCard.tsx": "6d2f757544e6f80ef61e56bb1edbeddaa4de3558",
         "src/components/agenda/AddTaskForm.tsx": "aa2e81834480da4d9dcea0093277ad5f935b6828",
         "src/types/agenda.ts": "5c8c5bbac47ab30049890246da7e0051d07eb1b8",
-        "server/apiRouter.ts": "2a8ac2521bdf46544f05f6cdebce9b1261abdd42",
-        "server/db.ts": "3bb88e02672a417ce06e56e72a68f879f8d03f21"
+        "server/apiRouter.ts": "1d51b60dcc15148d639446c0956f9e5d5fbde6d1",
+        "server/db.ts": "b81f182e22a12212b0e3524d4559986ef44e728a"
       },
       "symbols": {
         "functions": [
@@ -624,7 +624,7 @@
         "frontend/keyboard-shortcuts.md"
       ],
       "last_updated": "2026-05-10T07:37:38Z",
-      "last_aligned": "2026-05-10T07:37:38Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "frontend/auth-ui.md",
@@ -671,7 +671,7 @@
       ],
       "depended_on_by": [],
       "last_updated": "2026-04-23T11:30:29Z",
-      "last_aligned": "2026-04-23T11:30:29Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "frontend/client-persistence.md",
@@ -680,7 +680,7 @@
         "src/lib/db.ts"
       ],
       "source_hashes": {
-        "src/lib/db.ts": "3bc106a24c74da17b833d893d254138f0bf8d28d"
+        "src/lib/db.ts": "6152a902fca5b160be278cf5eee6a832816a08e3"
       },
       "symbols": {
         "functions": [
@@ -704,7 +704,7 @@
         "frontend/session-detail-panel.md"
       ],
       "last_updated": "2026-05-10T07:37:38Z",
-      "last_aligned": "2026-05-10T07:37:38Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "frontend/file-browser.md",
@@ -720,8 +720,8 @@
       ],
       "source_hashes": {
         "src/components/session/ProjectTabContainer.tsx": "0a267f63145e5bf6d848610e1a101d3b71498175",
-        "src/components/session/ProjectTab.tsx": "5a039a5e1b05234872ddf5a01a538535602522dc",
-        "src/components/session/FileTree.tsx": "d6d8ddddb6737bace8e0e9d728678d176d6f01bc",
+        "src/components/session/ProjectTab.tsx": "bb50f8e3f4a4c6bc79324bb6cd9485470a355070",
+        "src/components/session/FileTree.tsx": "5274c3e0379a26a083efdfdb60bfef66fefdd198",
         "src/components/session/FindInFileBar.tsx": "755255fe899c4c422ed383f5debd61352ebf2571",
         "src/components/session/imageViewport.ts": "4994e859a9e518aac71de8fb869065f7d2eddc2a",
         "src/components/session/LinkifiedText.tsx": "50960d0ffcbb372c224bc91035c829b8e72516d9",
@@ -822,7 +822,7 @@
         "frontend/session-detail-panel.md"
       ],
       "last_updated": "2026-05-10T07:37:38Z",
-      "last_aligned": "2026-05-10T07:37:38Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "frontend/floating-terminal-fork.md",
@@ -850,22 +850,22 @@
       "source_hashes": {
         "src/components/translate/SelectionPopup.tsx": "54c93f47be4e59112fef33cc549d5b6f0b4aa60b",
         "src/styles/modules/SelectionPopup.module.css": "24fa4dc5bd7d9ee9929bab10144a8e2ec4be3cfe",
-        "src/hooks/useSelectionPopup.ts": "f72eb19097d5e363340e937147ccdb5086a23596",
+        "src/hooks/useSelectionPopup.ts": "cd67456a7b6d1645e22423ada3b3a4ad7a2d7ba3",
         "src/lib/selectionExtractors.ts": "a926a0e74966feeec44c671fd2834614752fe8cb",
-        "src/components/session/FloatingTerminalPanel.tsx": "9ddaa48870192892b43c727e41e7fe06339994b2",
-        "src/components/session/FloatingTerminalRoot.tsx": "c01d7216f4dcfaef89d0ce5cd660c4d90c31aa76",
+        "src/components/session/FloatingTerminalPanel.tsx": "0b27cac4c8a7ff7e01bf21e453ba7767abb2d897",
+        "src/styles/modules/FloatingTerminalPanel.module.css": "d759379d4c67a96a1d81cbf099a9f40271054349",
+        "src/components/session/FloatingTerminalRoot.tsx": "f04d160476020c0b064ba82c610d8cc2a11f4665",
         "src/stores/floatingSessionsStore.ts": "53cc292ec0c1b13944cf10ea56e806b2d787f7ff",
         "src/components/settings/TranslationSettings.tsx": "48c44f732144c825589b1dc40ee58a9cdd33a14a",
         "server/floatingSessionSpawner.ts": "fc917c5891ba0a4e79e16bec7ed8184275cb9d2e",
         "server/extractPreviousAnswer.ts": "61cdb6cb64ef473f137a4f519b0f8fc1e3478212",
         "src/components/terminal/TerminalContainer.tsx": "b29e4d503c76d8b24f0239c0c5973cd083c6c11e",
         "src/components/terminal/TerminalToolbar.tsx": "b2798aef93f48baed6e700e78036e111f2b3df4d",
-        "src/components/session/ProjectTab.tsx": "5a039a5e1b05234872ddf5a01a538535602522dc",
+        "src/components/session/ProjectTab.tsx": "bb50f8e3f4a4c6bc79324bb6cd9485470a355070",
         "src/components/session/ProjectTabContainer.tsx": "0a267f63145e5bf6d848610e1a101d3b71498175",
-        "src/components/session/DetailPanel.tsx": "fdf090eeddd4c194b45146fa33dc3589a81034e9",
-        "src/stores/settingsStore.ts": "852f1d8227a9ae1252cea1c2c8725fd029fa3ac5",
-        "src/lib/cliDetect.ts": "101b9ba4b51277e443d15d08d497288050138356",
-        "src/styles/modules/FloatingTerminalPanel.module.css": "3e01e1c98dfe54c19d47bedcfff0db43cc7d6c49"
+        "src/components/session/DetailPanel.tsx": "0feede5a78feb4d7897c55b2f3b1bf6b8ca93e26",
+        "src/stores/settingsStore.ts": "4a5890b3830365ef7922f1e2140c2d698424a0ef",
+        "src/lib/cliDetect.ts": "13be01a92fcfe26c33724669d1dfa2dfbaca6ccd"
       },
       "symbols": {
         "functions": [
@@ -913,7 +913,7 @@
         "frontend/review-tab.md"
       ],
       "last_updated": "2026-05-15T22:52:27Z",
-      "last_aligned": "2026-05-12T00:54:58Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "frontend/keyboard-shortcuts.md",
@@ -930,8 +930,8 @@
       "source_hashes": {
         "src/hooks/useKeyboardShortcuts.ts": "40a5ae2978dce1e29eb7cc65aa0253c9f8fd4726",
         "src/stores/shortcutStore.ts": "212a44d1213bd0e8c720a8671d59e4964f32a32a",
-        "src/lib/shortcutKeys.ts": "b2c27f3c28e267c12b3b29b1c5e86ddbfec1ffd8",
-        "src/types/shortcut.ts": "f609ed1a4626b9fc99dee51ea28924a83df1f3ae",
+        "src/lib/shortcutKeys.ts": "a76ef489820a43a96fd799e516133090ed20b6bb",
+        "src/types/shortcut.ts": "3b40135c4eca39190fb4b3fd2f1394b562a1de2d",
         "src/components/modals/ShortcutsPanel.tsx": "b24289fa0bb5151353f4e782053343c7cc1548ee",
         "src/components/modals/ShortcutSettingsModal.tsx": "cebacf559d9c54769f09a77b878f8b6369edd7bd",
         "src/components/modals/ShortcutRow.tsx": "cbb7dee2f96e77122cfafe3fb2f09b8f460e3972"
@@ -978,7 +978,7 @@
         "frontend/session-detail-panel.md"
       ],
       "last_updated": "2026-04-23T11:33:29Z",
-      "last_aligned": "2026-04-23T11:30:29Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "frontend/project-browser.md",
@@ -990,8 +990,8 @@
       ],
       "source_hashes": {
         "src/routes/ProjectBrowserView.tsx": "3da1ddccecbbecc75e5a452996b144476820346b",
-        "src/components/session/ProjectTab.tsx": "5a039a5e1b05234872ddf5a01a538535602522dc",
-        "src/styles/modules/ProjectTab.module.css": "9e508b90d9406f357f4b86cbdd1909db765d8e5e"
+        "src/components/session/ProjectTab.tsx": "bb50f8e3f4a4c6bc79324bb6cd9485470a355070",
+        "src/styles/modules/ProjectTab.module.css": "71b628e01d000db8a07392a1cc5d8788aaf4d565"
       },
       "symbols": {
         "functions": [
@@ -1064,7 +1064,7 @@
       ],
       "depended_on_by": [],
       "last_updated": "2026-05-15T22:52:27Z",
-      "last_aligned": "2026-05-10T07:37:38Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "frontend/prompt-queue.md",
@@ -1075,9 +1075,9 @@
         "src/routes/QueueView.tsx"
       ],
       "source_hashes": {
-        "src/stores/queueStore.ts": "6585d363c40d246a7942215aa718e51550ea1cc8",
-        "src/components/session/QueueTab.tsx": "36816fa77cefdf44a2452f6edfc0197744eaf7dc",
-        "src/routes/QueueView.tsx": "a5714563d4cfd9862ab7f2426ecdf1ae65d52276"
+        "src/stores/queueStore.ts": "10113bf2b54e25112837c5e68ee24e3ebe462f63",
+        "src/components/session/QueueTab.tsx": "33acf53d0c2dc01b0d7111ec5e1f0df440aaae9c",
+        "src/routes/QueueView.tsx": "1e41198cd313f11f7cb0c049574ddf88302cf2ba"
       },
       "symbols": {
         "functions": [
@@ -1105,7 +1105,73 @@
         "frontend/views-routing.md"
       ],
       "last_updated": "2026-04-23T11:30:29Z",
-      "last_aligned": "2026-04-23T11:30:29Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
+    },
+    {
+      "doc": "frontend/review-tab.md",
+      "domain": "frontend",
+      "sources": [
+        "src/lib/db.ts",
+        "src/lib/translationLog.ts",
+        "src/lib/ansi.ts",
+        "src/routes/ReviewView.tsx",
+        "src/styles/modules/ReviewView.module.css",
+        "src/components/layout/NavBar.tsx",
+        "src/App.tsx",
+        "src/stores/floatingSessionsStore.ts",
+        "src/components/translate/SelectionPopup.tsx",
+        "src/components/terminal/TerminalContainer.tsx",
+        "src/components/session/ProjectTab.tsx",
+        "server/apiRouter.ts"
+      ],
+      "source_hashes": {
+        "src/lib/db.ts": "6152a902fca5b160be278cf5eee6a832816a08e3",
+        "src/lib/translationLog.ts": "8e00fa203c5a4e28049cd7ed6598732d367e37ab",
+        "src/lib/ansi.ts": "12355fd94f95d5742ceb04988ced8277d3e36074",
+        "src/routes/ReviewView.tsx": "3e7079add0c21d4eb9b2511abf0110c44b49deba",
+        "src/styles/modules/ReviewView.module.css": "92b87649c0837781c0de2c8124816685e436f096",
+        "src/components/layout/NavBar.tsx": "5edf795c2abf0425541544700901519653d3d6ae",
+        "src/App.tsx": "393388da1c7781823997556270da53a34643f094",
+        "src/stores/floatingSessionsStore.ts": "53cc292ec0c1b13944cf10ea56e806b2d787f7ff",
+        "src/components/translate/SelectionPopup.tsx": "54c93f47be4e59112fef33cc549d5b6f0b4aa60b",
+        "src/components/terminal/TerminalContainer.tsx": "b29e4d503c76d8b24f0239c0c5973cd083c6c11e",
+        "src/components/session/ProjectTab.tsx": "bb50f8e3f4a4c6bc79324bb6cd9485470a355070",
+        "server/apiRouter.ts": "1d51b60dcc15148d639446c0956f9e5d5fbde6d1"
+      },
+      "symbols": {
+        "functions": [
+          "createLog",
+          "findByUuid",
+          "findByFloatTerminalId",
+          "updateLog",
+          "captureResponse",
+          "listLogs",
+          "setArchived",
+          "setNotes",
+          "deleteLog"
+        ],
+        "constants": {},
+        "endpoints": [
+          "GET /api/terminals/:id/output"
+        ],
+        "ui_elements": [
+          "REVIEW nav tab",
+          "ReviewView expandable list"
+        ],
+        "cli_commands": [],
+        "storage_keys": [
+          "translationLogs (Dexie table)"
+        ]
+      },
+      "depends_on": [
+        "frontend/floating-terminal-fork.md",
+        "frontend/client-persistence.md",
+        "server/api-endpoints.md",
+        "frontend/state-management.md"
+      ],
+      "depended_on_by": [],
+      "last_updated": "2026-05-26T20:31:46.121Z",
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "frontend/session-creation-modals.md",
@@ -1116,9 +1182,9 @@
         "src/lib/remoteControlName.ts"
       ],
       "source_hashes": {
-        "src/components/modals/NewSessionModal.tsx": "0f8d091b8caa42d5175d346ac7f22b522a30ab98",
-        "src/components/modals/QuickSessionModal.tsx": "ea04bc5958aa02b4f89d190ad3c90d0e1df7fb8e",
-        "src/lib/remoteControlName.ts": "df4d8ec3dd98e08456e6d6a9600a28e3e3fe3e4c"
+        "src/components/modals/NewSessionModal.tsx": "61127c3dcb92cbc5ef154d1d021f8a8a834d7975",
+        "src/components/modals/QuickSessionModal.tsx": "158637520db33e16bdffa331b11302e78c54f911",
+        "src/lib/remoteControlName.ts": "6feb88940e5d153ad8f9e1a00e8058c32fbf64a7"
       },
       "symbols": {
         "functions": [
@@ -1154,7 +1220,7 @@
         "electron/pty-host.md"
       ],
       "last_updated": "2026-05-11T01:15:10Z",
-      "last_aligned": "2026-05-11T01:15:10Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "frontend/session-detail-panel.md",
@@ -1167,7 +1233,6 @@
         "src/components/session/PromptHistory.tsx",
         "src/components/session/NotesTab.tsx",
         "src/components/session/QueueTab.tsx",
-        "src/components/session/LabelChips.tsx",
         "src/components/session/KillConfirmModal.tsx",
         "src/components/session/ContentSearchModal.tsx",
         "src/components/session/FloatingProjectPanel.tsx",
@@ -1175,19 +1240,18 @@
         "src/lib/cliDetect.ts"
       ],
       "source_hashes": {
-        "src/components/session/DetailPanel.tsx": "fdf090eeddd4c194b45146fa33dc3589a81034e9",
+        "src/components/session/DetailPanel.tsx": "0feede5a78feb4d7897c55b2f3b1bf6b8ca93e26",
         "src/components/session/DetailTabs.tsx": "e02bbcef932500618e3f103c7caec8416727d4b7",
-        "src/components/session/SessionControlBar.tsx": "acbb10314617b02750357a5b7b34e1caee36002f",
-        "src/components/session/SessionSwitcher.tsx": "6df8bd2cdd39b07dc59b10edcadd1c53fb5bf894",
+        "src/components/session/SessionControlBar.tsx": "3afe343782716d98e4297984a4a79d09c4655512",
+        "src/components/session/SessionSwitcher.tsx": "2f2d02ef2cc86e6c2f20124eac64eec53184be30",
         "src/components/session/PromptHistory.tsx": "5ff61c613c4068962fd9845e80bf076ee27b109c",
         "src/components/session/NotesTab.tsx": "7fbd7e9a1ac92651e7ca93ff478f323660a6cc6b",
-        "src/components/session/QueueTab.tsx": "36816fa77cefdf44a2452f6edfc0197744eaf7dc",
-        "src/components/session/LabelChips.tsx": "dc74ee92c5fa9cfb20d3cc708a7550d7a2c50ac5",
+        "src/components/session/QueueTab.tsx": "33acf53d0c2dc01b0d7111ec5e1f0df440aaae9c",
         "src/components/session/KillConfirmModal.tsx": "d13efff749a94ab732f9e0eb8ea9cfe81e5712d7",
         "src/components/session/ContentSearchModal.tsx": "6a878ab4e0a554469df3eb0299816f045dd04efa",
         "src/components/session/FloatingProjectPanel.tsx": "63e21e3675b1e91d44bc846d0dc575540d22331e",
         "src/styles/modules/DetailPanel.module.css": "0df41365cb9f72f2b3ed571ca37504e11175f514",
-        "src/lib/cliDetect.ts": "101b9ba4b51277e443d15d08d497288050138356"
+        "src/lib/cliDetect.ts": "13be01a92fcfe26c33724669d1dfa2dfbaca6ccd"
       },
       "symbols": {
         "functions": [
@@ -1270,7 +1334,7 @@
         "frontend/keyboard-shortcuts.md"
       ],
       "last_updated": "2026-05-12T00:54:58Z",
-      "last_aligned": "2026-05-10T07:37:38Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "frontend/settings-system.md",
@@ -1289,11 +1353,11 @@
       "source_hashes": {
         "src/components/settings/SettingsPanel.tsx": "61a9aa256be63c537f886b770839540f3982df51",
         "src/components/settings/ThemeSettings.tsx": "4dfc3c8c9633ab5966acc2edc3fee7fbb7b846f0",
-        "src/components/settings/SoundSettings.tsx": "33812e2355e231d0105c4dea0bfe4e7d04acd6d7",
+        "src/components/settings/SoundSettings.tsx": "b5dc07ee92b1ef60b7ea857d6675f91c818573ec",
         "src/components/settings/HookSettings.tsx": "f3eef9b46b76439bef3b2e4d04d38c6955e3249d",
         "src/components/settings/ApiKeySettings.tsx": "ffa5a07237b3adaf25f158a97ff8cb792499b9dd",
         "src/components/settings/ShortcutSettings.tsx": "b2773b31d4e63d242d9bcc84d95379602c4b95f7",
-        "src/stores/settingsStore.ts": "852f1d8227a9ae1252cea1c2c8725fd029fa3ac5",
+        "src/stores/settingsStore.ts": "4a5890b3830365ef7922f1e2140c2d698424a0ef",
         "src/hooks/useSettingsInit.ts": "97921cfc1da51559a88a895545fe56683e856ccc",
         "src/components/settings/TranslationSettings.tsx": "48c44f732144c825589b1dc40ee58a9cdd33a14a"
       },
@@ -1345,7 +1409,7 @@
         "multimedia/tts-voice-output.md"
       ],
       "last_updated": "2026-05-12T00:54:58Z",
-      "last_aligned": "2026-05-10T07:37:38Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "frontend/setup-wizard.md",
@@ -1371,7 +1435,7 @@
         "src/components/setup/steps/InstallStep.tsx": "48abdadfd418ea7e13dd85947690d1fcd545b9d9",
         "src/components/setup/steps/DoneStep.tsx": "ccde69b89573121b6b67ef0cbd87b039dc5d169a",
         "src/types/electron.d.ts": "21c7f7c20b65c87eaa24ae04c719ef997747cc81",
-        "server/hookInstaller.js": "e184cc2ac603e118587de11a9e5622305c02a034",
+        "server/hookInstaller.js": "2b98674b70cafe83cb055add4686594c26114544",
         "src/__tests__/firstRunFlow.test.tsx": "e4e4f4748199cb42a9ecb37ce69e0eb042951952",
         "src/components/setup/__tests__/SetupWizard.test.tsx": "0d963906f6ae61d46091a06ccd19569a5088a54f",
         "src/components/setup/__tests__/WizardSteps.test.tsx": "dd414fc2ad24aeb4b2622ce8b82d7bd3b16008bc"
@@ -1403,7 +1467,7 @@
       ],
       "depended_on_by": [],
       "last_updated": "2026-05-12T00:54:58Z",
-      "last_aligned": "2026-05-10T07:37:38Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "frontend/state-management.md",
@@ -1423,8 +1487,8 @@
         "src/stores/sessionStore.ts": "b914dc04fb7c031054cf59a8f4cb5f5d41d318ea",
         "src/stores/wsStore.ts": "0bcf2d51cea211c534f4cd2a89a4da59fedc202b",
         "src/stores/uiStore.ts": "b08985bbe0e6861aa040581b1902d82a71a245e9",
-        "src/stores/settingsStore.ts": "852f1d8227a9ae1252cea1c2c8725fd029fa3ac5",
-        "src/stores/queueStore.ts": "6585d363c40d246a7942215aa718e51550ea1cc8",
+        "src/stores/settingsStore.ts": "4a5890b3830365ef7922f1e2140c2d698424a0ef",
+        "src/stores/queueStore.ts": "10113bf2b54e25112837c5e68ee24e3ebe462f63",
         "src/stores/cameraStore.ts": "1cbd74145921367deb5af53cf7d99245119d6f79",
         "src/stores/roomStore.ts": "a254e5a68fd9d35583f2864c9bd6e241b5846711",
         "src/stores/shortcutStore.ts": "212a44d1213bd0e8c720a8671d59e4964f32a32a",
@@ -1470,7 +1534,7 @@
         "multimedia/sound-alarm-system.md"
       ],
       "last_updated": "2026-05-10T07:37:38Z",
-      "last_aligned": "2026-05-10T07:37:38Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "frontend/terminal-ui.md",
@@ -1493,11 +1557,11 @@
         "src/components/terminal/TerminalToolbar.tsx": "b2798aef93f48baed6e700e78036e111f2b3df4d",
         "src/components/terminal/themes.ts": "505b41604c920f629fa21885c7d17e8fa3dc1e99",
         "src/components/translate/SelectionPopup.tsx": "54c93f47be4e59112fef33cc549d5b6f0b4aa60b",
-        "src/hooks/useSelectionPopup.ts": "f72eb19097d5e363340e937147ccdb5086a23596",
+        "src/hooks/useSelectionPopup.ts": "cd67456a7b6d1645e22423ada3b3a4ad7a2d7ba3",
         "src/lib/selectionExtractors.ts": "a926a0e74966feeec44c671fd2834614752fe8cb",
         "src/stores/floatingSessionsStore.ts": "53cc292ec0c1b13944cf10ea56e806b2d787f7ff",
         "src/lib/translationLog.ts": "8e00fa203c5a4e28049cd7ed6598732d367e37ab",
-        "src/lib/cliDetect.ts": "101b9ba4b51277e443d15d08d497288050138356"
+        "src/lib/cliDetect.ts": "13be01a92fcfe26c33724669d1dfa2dfbaca6ccd"
       },
       "symbols": {
         "functions": [
@@ -1569,7 +1633,7 @@
         "multimedia/tts-voice-output.md"
       ],
       "last_updated": "2026-05-12T00:54:58Z",
-      "last_aligned": "2026-05-10T07:37:38Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "frontend/views-routing.md",
@@ -1586,11 +1650,11 @@
       "source_hashes": {
         "src/routes/LiveView.tsx": "136a921d89930a57d4d3301e74ddc8043a69bd28",
         "src/routes/HistoryView.tsx": "85fecf61750a0becd231cd658caff3ecde7a6c78",
-        "src/routes/QueueView.tsx": "a5714563d4cfd9862ab7f2426ecdf1ae65d52276",
+        "src/routes/QueueView.tsx": "1e41198cd313f11f7cb0c049574ddf88302cf2ba",
         "src/routes/AgendaView.tsx": "582da461d8c13afc485dc96fef9e31c4eddf94d7",
         "src/routes/ProjectBrowserView.tsx": "3da1ddccecbbecc75e5a452996b144476820346b",
-        "src/App.tsx": "21022ade72cc9804212b32f5cf4919c259ac79b6",
-        "src/components/layout/NavBar.tsx": "ef51f9cd3ecf07dae5b3012c4ce6c594b20a83b2"
+        "src/App.tsx": "393388da1c7781823997556270da53a34643f094",
+        "src/components/layout/NavBar.tsx": "5edf795c2abf0425541544700901519653d3d6ae"
       },
       "symbols": {
         "functions": [
@@ -1631,7 +1695,7 @@
       ],
       "depended_on_by": [],
       "last_updated": "2026-05-10T07:37:38Z",
-      "last_aligned": "2026-05-10T07:37:38Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "frontend/websocket-client.md",
@@ -1669,7 +1733,7 @@
         "frontend/terminal-ui.md"
       ],
       "last_updated": "2026-05-10T07:37:38Z",
-      "last_aligned": "2026-05-10T07:37:38Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "frontend/workspace-snapshot.md",
@@ -1684,12 +1748,12 @@
         "src/components/modals/RestorePickerModal.tsx"
       ],
       "source_hashes": {
-        "src/lib/workspaceSnapshot.ts": "056912453c0882968c6c92bbd91f3131aa4b0562",
+        "src/lib/workspaceSnapshot.ts": "6745126d2f1e577c05f13763e6075bd5104343b5",
         "src/hooks/useWorkspaceAutoSave.ts": "09ea2658b0f2345706a839d056d7cf4fd75133d9",
         "src/hooks/useWorkspaceAutoLoad.ts": "1a2dc46187aa5f9bab35f4f2b012a1bc38909a7f",
         "src/components/ui/WorkspaceLoadingOverlay.tsx": "80f516f2506dbc7f3b8b18de713b3b9a897a766a",
         "src/components/ui/SavingOverlay.tsx": "a0b5499d74fc95c178f3dc134fc6812b7c67afb0",
-        "server/apiRouter.ts": "2a8ac2521bdf46544f05f6cdebce9b1261abdd42",
+        "server/apiRouter.ts": "1d51b60dcc15148d639446c0956f9e5d5fbde6d1",
         "src/components/modals/RestorePickerModal.tsx": "4b88ee384dfb17ba4faf7a8f1a1802ce653903ff"
       },
       "symbols": {
@@ -1819,7 +1883,7 @@
       ],
       "depended_on_by": [],
       "last_updated": "2026-05-12T00:54:58Z",
-      "last_aligned": "2026-05-10T07:37:38Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "multimedia/sound-alarm-system.md",
@@ -1835,7 +1899,7 @@
         "src/lib/soundEngine.ts": "b309e96dbc97322406449447bc472720686f0d40",
         "src/lib/ambientEngine.ts": "51912f901cdd0be43921e2a6c4972423d637eaff",
         "src/lib/alarmEngine.ts": "24270147ffbb82932c1300dd85062c0fc9841163",
-        "src/lib/cliDetect.ts": "101b9ba4b51277e443d15d08d497288050138356",
+        "src/lib/cliDetect.ts": "13be01a92fcfe26c33724669d1dfa2dfbaca6ccd",
         "src/hooks/useSound.ts": "2c86c46244f7cbe85405edd4093b2977428edeb2"
       },
       "symbols": {
@@ -1876,7 +1940,7 @@
         "frontend/settings-system.md"
       ],
       "last_updated": "2026-05-12T00:54:58Z",
-      "last_aligned": "2026-04-23T11:30:29Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "multimedia/tts-voice-output.md",
@@ -1909,13 +1973,13 @@
         "src/types/api.ts"
       ],
       "source_hashes": {
-        "server/apiRouter.ts": "2a8ac2521bdf46544f05f6cdebce9b1261abdd42",
-        "server/constants.ts": "2d7f9586ca812584b132d150803ea1f41c5e35d3",
+        "server/apiRouter.ts": "1d51b60dcc15148d639446c0956f9e5d5fbde6d1",
+        "server/constants.ts": "50842011fd48a006726e109bc47c7813f59311e5",
         "server/index.ts": "3669c696982d5175b2eda62c9dcd1db7e08f348a",
         "server/hookRouter.ts": "bb009141f575133156a12d55c991c7192255242e",
         "server/floatingSessionSpawner.ts": "fc917c5891ba0a4e79e16bec7ed8184275cb9d2e",
         "server/extractPreviousAnswer.ts": "61cdb6cb64ef473f137a4f519b0f8fc1e3478212",
-        "src/types/api.ts": "f6ab2a16e522c86f2458ba7f7593c36d20685195"
+        "src/types/api.ts": "867ab75e10f09bf4ed69843254a8683edd1387a7"
       },
       "symbols": {
         "functions": [
@@ -2031,7 +2095,7 @@
       ],
       "depended_on_by": [],
       "last_updated": "2026-05-12T00:54:58Z",
-      "last_aligned": "2026-05-10T07:37:38Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "server/approval-detection.md",
@@ -2042,7 +2106,7 @@
       ],
       "source_hashes": {
         "server/approvalDetector.ts": "e1b7e35ff072f06200f5a8b268b58d6b365ad034",
-        "server/config.ts": "5df745040a70bdccf3607ff5b2183a9c15b00577"
+        "server/config.ts": "a51a3bbfe763eb2f66ba1b88d8824db7dd48997e"
       },
       "symbols": {
         "functions": [
@@ -2070,7 +2134,7 @@
       ],
       "depended_on_by": [],
       "last_updated": "2026-04-23T11:30:29Z",
-      "last_aligned": "2026-04-23T11:30:29Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "server/authentication.md",
@@ -2119,7 +2183,7 @@
         "server/websocket-manager.md"
       ],
       "last_updated": "2026-04-23T11:30:29Z",
-      "last_aligned": "2026-04-23T11:30:29Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "server/database.md",
@@ -2128,7 +2192,7 @@
         "server/db.ts"
       ],
       "source_hashes": {
-        "server/db.ts": "3bb88e02672a417ce06e56e72a68f879f8d03f21"
+        "server/db.ts": "b81f182e22a12212b0e3524d4559986ef44e728a"
       },
       "symbols": {
         "functions": [
@@ -2168,7 +2232,7 @@
         "server/api-endpoints.md"
       ],
       "last_updated": "2026-04-23T11:30:29Z",
-      "last_aligned": "2026-04-23T11:30:29Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "server/file-index-cache.md",
@@ -2179,7 +2243,7 @@
       ],
       "source_hashes": {
         "server/fileIndexCache.ts": "cb73609a13c087b5d86de7bdc4167f6ed554812c",
-        "server/apiRouter.ts": "2a8ac2521bdf46544f05f6cdebce9b1261abdd42"
+        "server/apiRouter.ts": "1d51b60dcc15148d639446c0956f9e5d5fbde6d1"
       },
       "symbols": {
         "functions": [
@@ -2292,7 +2356,7 @@
         "frontend/session-detail-panel.md"
       ],
       "last_updated": "2026-05-10T07:37:38Z",
-      "last_aligned": "2026-05-10T07:37:38Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "server/floating-session-spawner.md",
@@ -2306,8 +2370,8 @@
       "source_hashes": {
         "server/floatingSessionSpawner.ts": "fc917c5891ba0a4e79e16bec7ed8184275cb9d2e",
         "server/extractPreviousAnswer.ts": "61cdb6cb64ef473f137a4f519b0f8fc1e3478212",
-        "server/apiRouter.ts": "2a8ac2521bdf46544f05f6cdebce9b1261abdd42",
-        "src/lib/cliDetect.ts": "101b9ba4b51277e443d15d08d497288050138356"
+        "server/apiRouter.ts": "1d51b60dcc15148d639446c0956f9e5d5fbde6d1",
+        "src/lib/cliDetect.ts": "13be01a92fcfe26c33724669d1dfa2dfbaca6ccd"
       },
       "symbols": {
         "functions": [
@@ -2346,7 +2410,7 @@
         "frontend/floating-terminal-fork.md"
       ],
       "last_updated": "2026-05-12T00:54:58Z",
-      "last_aligned": "2026-05-12T00:54:58Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "server/hook-system.md",
@@ -2369,20 +2433,20 @@
         "src/types/hook.ts"
       ],
       "source_hashes": {
-        "hooks/dashboard-hook.sh": "c7abb7fa477f2449b38cc66fb6abe46388b6dd55",
+        "hooks/dashboard-hook.sh": "863a7e233839e2bd1ce7a6934dc4ac0cd173bcfb",
         "server/mqReader.ts": "d232f203d3415a2753816d5ba18bbcd2ffa03891",
         "server/hookProcessor.ts": "64b80fb365a72377b6a09a57e0473e1ca74c0a54",
         "server/hookRouter.ts": "bb009141f575133156a12d55c991c7192255242e",
-        "server/hookInstaller.js": "e184cc2ac603e118587de11a9e5622305c02a034",
+        "server/hookInstaller.js": "2b98674b70cafe83cb055add4686594c26114544",
         "server/hookStats.ts": "6017e30d79b1575a955a63ae1b1460e1f070b146",
         "hooks/dashboard-hook-codex.sh": "19b6d8fc23c70a4ea7ab6fcbb0e47c04c9bd01ff",
         "hooks/install-hooks.js": "e97c77e99f81493b81be87d5489bcff68228eb43",
-        "hooks/install-hooks-api.js": "8c8ec489f01239371f4c8a4afe97c56feab8b4a2",
-        "hooks/install-hooks-api.cjs": "b7c13672f61f8b9144c904a4de8952f12f247885",
-        "hooks/install-hooks-core.js": "c5a3950695216abb8755d8d81b5fb09284f10b55",
-        "hooks/install-hooks-core.cjs": "8e189689c89fefac37d730dab1b32df3ce0deb2d",
+        "hooks/install-hooks-api.js": "dff4ef54a2f1e07723cd69a9730f4acb9f7c8e66",
+        "hooks/install-hooks-api.cjs": "b7958777d0193395053c2e8e5224611fefeada4b",
+        "hooks/install-hooks-core.js": "6dead2e7d046e665a453e23071b19bd55d784541",
+        "hooks/install-hooks-core.cjs": "e288c4aa2538d02be5b8dc391343507f875f818f",
         "hooks/reset.js": "cff11ff97f3ffffb832e986f6f4d24968ec27c6a",
-        "server/constants.ts": "2d7f9586ca812584b132d150803ea1f41c5e35d3",
+        "server/constants.ts": "50842011fd48a006726e109bc47c7813f59311e5",
         "src/types/hook.ts": "e51cd276ca221b1b76ab16192d3c380b107dba05"
       },
       "symbols": {
@@ -2434,7 +2498,7 @@
         "server/team-subagent.md"
       ],
       "last_updated": "2026-05-12T00:59:33Z",
-      "last_aligned": "2026-04-23T11:30:29Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "server/process-monitor.md",
@@ -2447,7 +2511,7 @@
       "source_hashes": {
         "server/processMonitor.ts": "16ab88cd80aad7f6cb52727597688b860321d0e1",
         "server/autoIdleManager.ts": "83faccce7abcf6e5809ad2c38e0b36995417314e",
-        "server/config.ts": "5df745040a70bdccf3607ff5b2183a9c15b00577"
+        "server/config.ts": "a51a3bbfe763eb2f66ba1b88d8824db7dd48997e"
       },
       "symbols": {
         "functions": [
@@ -2483,7 +2547,7 @@
         "server/websocket-manager.md"
       ],
       "last_updated": "2026-04-23T11:30:29Z",
-      "last_aligned": "2026-04-23T11:30:29Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "server/session-management.md",
@@ -2503,18 +2567,18 @@
         "src/types/index.ts"
       ],
       "source_hashes": {
-        "server/sessionStore.ts": "dedc24583af4647f0482bf2984babf08348ac39d",
+        "server/sessionStore.ts": "d295fa4e40bf8f4979e8ab25a1e9551feaddf671",
         "server/autoIdleManager.ts": "83faccce7abcf6e5809ad2c38e0b36995417314e",
-        "server/config.ts": "5df745040a70bdccf3607ff5b2183a9c15b00577",
-        "server/constants.ts": "2d7f9586ca812584b132d150803ea1f41c5e35d3",
-        "server/sessionMatcher.ts": "d9c83f6b890abbc0b1a40e1aed66b16a6ff1a59b",
+        "server/config.ts": "a51a3bbfe763eb2f66ba1b88d8824db7dd48997e",
+        "server/constants.ts": "50842011fd48a006726e109bc47c7813f59311e5",
+        "server/sessionMatcher.ts": "5bf20830bced38b4607d1f6edc13c3cde2bd9728",
         "server/approvalDetector.ts": "e1b7e35ff072f06200f5a8b268b58d6b365ad034",
         "server/teamManager.ts": "f9098c850895e2941f719c5a31ecda8bf8fa67ff",
         "server/processMonitor.ts": "16ab88cd80aad7f6cb52727597688b860321d0e1",
         "server/floatingSessionSpawner.ts": "fc917c5891ba0a4e79e16bec7ed8184275cb9d2e",
-        "src/types/session.ts": "77fee5ba11098eda4e2f26e787c2c76f691a9cad",
+        "src/types/session.ts": "97465c444101197047f65207c8f7235292cb690c",
         "src/types/hook.ts": "e51cd276ca221b1b76ab16192d3c380b107dba05",
-        "src/types/index.ts": "8c5406b01613007ee1090cfb85136786fafa7523"
+        "src/types/index.ts": "a600811b9bb20cd5e504cf1a6f56baa73b815a5c"
       },
       "symbols": {
         "functions": [
@@ -2601,7 +2665,7 @@
         "server/database.md"
       ],
       "last_updated": "2026-05-12T00:54:58Z",
-      "last_aligned": "2026-05-10T07:37:38Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "server/session-matching.md",
@@ -2610,7 +2674,7 @@
         "server/sessionMatcher.ts"
       ],
       "source_hashes": {
-        "server/sessionMatcher.ts": "d9c83f6b890abbc0b1a40e1aed66b16a6ff1a59b"
+        "server/sessionMatcher.ts": "5bf20830bced38b4607d1f6edc13c3cde2bd9728"
       },
       "symbols": {
         "functions": [
@@ -2638,7 +2702,7 @@
         "server/terminal-ssh.md"
       ],
       "last_updated": "2026-05-12T00:54:58Z",
-      "last_aligned": "2026-04-23T11:30:29Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "server/team-subagent.md",
@@ -2680,7 +2744,7 @@
         "server/websocket-manager.md"
       ],
       "last_updated": "2026-04-23T11:30:29Z",
-      "last_aligned": "2026-04-23T11:30:29Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "server/terminal-ssh.md",
@@ -2745,7 +2809,7 @@
         "server/api-endpoints.md"
       ],
       "last_updated": "2026-05-10T07:37:38Z",
-      "last_aligned": "2026-05-10T07:37:38Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     },
     {
       "doc": "server/websocket-manager.md",
@@ -2783,7 +2847,7 @@
       ],
       "depended_on_by": [],
       "last_updated": "2026-04-23T11:30:29Z",
-      "last_aligned": "2026-04-23T11:30:29Z"
+      "last_aligned": "2026-05-26T20:31:46.121Z"
     }
   ],
   "impact_matrix": [

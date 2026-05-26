@@ -1,0 +1,64 @@
+{
+  "task": "Codex CLI compatibility pass",
+  "updated_at": "2026-05-12T00:59:00Z",
+  "docs_updated": [
+    "docs/feature/README.md",
+    "docs/feature/server/hook-system.md",
+    "docs/feature/server/api-endpoints.md",
+    "docs/feature/server/floating-session-spawner.md",
+    "docs/feature/server/session-management.md",
+    "docs/feature/server/session-matching.md",
+    "docs/feature/frontend/terminal-ui.md",
+    "docs/feature/frontend/floating-terminal-fork.md",
+    "docs/feature/frontend/session-detail-panel.md",
+    "docs/feature/frontend/settings-system.md",
+    "docs/feature/frontend/setup-wizard.md",
+    "docs/feature/frontend/workspace-snapshot.md",
+    "docs/feature/3d/robot-system.md",
+    "docs/feature/multimedia/sound-alarm-system.md"
+  ],
+  "manifest_updated": true,
+  "source_coverage": {
+    "mapped_task_sources": [
+      "hooks/dashboard-hook-codex.sh",
+      "hooks/install-hooks-api.cjs",
+      "hooks/install-hooks-api.js",
+      "hooks/install-hooks-core.cjs",
+      "hooks/install-hooks-core.js",
+      "hooks/install-hooks.js",
+      "hooks/reset.js",
+      "server/apiRouter.ts",
+      "server/constants.ts",
+      "server/floatingSessionSpawner.ts",
+      "server/hookInstaller.js",
+      "server/sessionMatcher.ts",
+      "server/sessionStore.ts",
+      "src/components/layout/HeaderAgentStrip.tsx",
+      "src/components/modals/RestorePickerModal.tsx",
+      "src/components/session/DetailPanel.tsx",
+      "src/components/settings/HookSettings.tsx",
+      "src/components/terminal/TerminalContainer.tsx",
+      "src/lib/cliDetect.ts",
+      "src/types/api.ts",
+      "src/types/hook.ts",
+      "src/types/index.ts",
+      "src/types/session.ts"
+    ],
+    "unmapped_unrelated_or_preexisting": [
+      "AGENTS.md",
+      "src/lib/commandSuggestions.ts",
+      "src/lib/commandSuggestions.test.ts"
+    ],
+    "preexisting_mapped_dirty_sources_not_reviewed": [
+      "src/components/modals/NewSessionModal.tsx",
+      "src/components/modals/QuickSessionModal.tsx",
+      "src/lib/remoteControlName.ts"
+    ]
+  },
+  "notes": [
+    "Codex hook docs now describe lifecycle TOML command hooks instead of legacy notify config.",
+    "Resume, restore, and fork docs now distinguish Claude and Codex CLI commands.",
+    "Translate previous answer is documented as Claude-only and hidden for non-Claude origins.",
+    "CLI badge docs now explain explicit cliSource preservation before model/event fallback."
+  ]
+}
