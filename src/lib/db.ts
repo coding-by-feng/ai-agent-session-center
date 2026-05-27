@@ -96,6 +96,13 @@ export interface DbQueueItem {
   execStepIdx?: number;
   /** JSON-serialized ExcludeWindow[] — time-of-day pause windows for loops */
   excludeWindows?: string;
+  /** When this item was saved to the global history, the matching
+   *  queueHistory.id. Lets the UI render a filled ★ and supports "unfavorite"
+   *  toggling. Cleared automatically when the history entry is removed. */
+  historyId?: number;
+  /** When 1, the scheduler skips this item entirely (per-item pause).
+   *  Stored as int because Dexie indexes booleans poorly. Undefined / 0 = enabled. */
+  disabled?: number;
 }
 
 export interface DbAlert {
@@ -161,6 +168,32 @@ export interface DbQueueAutomation {
   updatedAt: number;
 }
 
+/**
+ * A globally favorited queue item. Saved when the user clicks the ★ on any
+ * queue row; lets them re-apply the same pattern to a different session later.
+ *
+ * `item` holds the serialized QueueItem (text, chain, intervals, etc.) at the
+ * moment of save — it's a snapshot, not a reference. If the original queue
+ * row or session is deleted, this entry survives.
+ */
+export interface DbQueueHistory {
+  id?: number;
+  /** JSON-serialized snapshot of the saved QueueItem. Excludes session-local
+   *  fields like position, sessionId, lastFiredAt, execState — those are
+   *  re-derived when applying to a target session. */
+  item: string;
+  /** Display name of the session this item came from (for the breadcrumb in
+   *  the history sheet). Snapshot — survives if the source session is gone. */
+  sourceSessionTitle?: string;
+  /** Source session ID — kept as breadcrumb only, NOT a foreign key. */
+  sourceSessionId?: string;
+  /** Increments each time this entry is applied to a session. */
+  usedCount: number;
+  /** Unix ms of last [+ Apply]. Null until first use. */
+  lastUsedAt?: number;
+  createdAt: number;
+}
+
 /** A saved explanation or translation, captured when the user clicks one of
  *  the four select-to-translate buttons. The `response` is filled in later
  *  when the corresponding floating session is closed. */
@@ -220,6 +253,7 @@ class DashboardDb extends Dexie {
   summaryPrompts!: EntityTable<DbSummaryPrompt, 'id'>;
   teams!: EntityTable<DbTeam, 'id'>;
   queueAutomation!: EntityTable<DbQueueAutomation, 'sessionId'>;
+  queueHistory!: EntityTable<DbQueueHistory, 'id'>;
   translationLogs!: EntityTable<DbTranslationLog, 'id'>;
 
   constructor() {
@@ -311,6 +345,42 @@ class DashboardDb extends Dexie {
         'id',
       queueAutomation:
         'sessionId',
+      translationLogs:
+        '++id, uuid, mode, createdAt, originSessionId, archived, floatTerminalId',
+    });
+
+    // v5 — adds queueHistory: global favorited queue items, reusable across
+    // sessions. Indexed on createdAt + lastUsedAt to support "Recent" sort and
+    // pagination in the history sheet.
+    this.version(5).stores({
+      sessions:
+        'id, status, projectPath, startedAt, lastActivityAt, archived',
+      prompts:
+        '++id, sessionId, timestamp, [sessionId+timestamp]',
+      responses:
+        '++id, sessionId, timestamp, [sessionId+timestamp]',
+      toolCalls:
+        '++id, sessionId, timestamp, toolName, [sessionId+timestamp]',
+      events:
+        '++id, sessionId, timestamp, [sessionId+timestamp]',
+      notes:
+        '++id, sessionId',
+      promptQueue:
+        '++id, sessionId, [sessionId+position]',
+      alerts:
+        '++id, sessionId',
+      sshProfiles:
+        '++id, name',
+      settings:
+        'key',
+      summaryPrompts:
+        '++id, isDefault',
+      teams:
+        'id',
+      queueAutomation:
+        'sessionId',
+      queueHistory:
+        '++id, createdAt, lastUsedAt',
       translationLogs:
         '++id, uuid, mode, createdAt, originSessionId, archived, floatTerminalId',
     });

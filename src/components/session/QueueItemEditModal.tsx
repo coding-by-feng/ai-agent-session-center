@@ -35,6 +35,9 @@ interface QueueItemEditModalProps {
   /** Whether Auto-send is currently enabled on the parent session. When OFF,
    *  Loop and Schedule types are disabled because they wouldn't fire. */
   autoSendEnabled: boolean;
+  /** Header text. Defaults to "Edit queue item". The history sheet passes
+   *  "Edit history entry" so the title reflects what's being modified. */
+  title?: string;
 }
 
 let nextStepId = Date.now();
@@ -64,6 +67,7 @@ export default function QueueItemEditModal({
   onSave,
   onDelete,
   autoSendEnabled,
+  title = 'Edit queue item',
 }: QueueItemEditModalProps) {
   // ---- Form state (initialized from the item, edited locally) -----------
   const [type, setType] = useState<QueueItemType>(item.type ?? 'once');
@@ -267,7 +271,7 @@ export default function QueueItemEditModal({
     <div ref={overlayRef} className={styles.chainModalOverlay} onClick={handleOverlayClick}>
       <div className={styles.chainModalPanel} role="dialog" aria-modal="true">
         <div className={styles.chainModalHeader}>
-          <h3>Edit queue item</h3>
+          <h3>{title}</h3>
           <button className={styles.chainCloseBtn} onClick={onClose} aria-label="Close">
             ✕
           </button>

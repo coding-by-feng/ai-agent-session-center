@@ -7,21 +7,20 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQueueStore, DEFAULT_AUTOMATION, type QueueItem, type QueueImageAttachment, type QueueItemType } from '@/stores/queueStore';
 import {
-  pickNext,
-  advanceAfterFire,
-  advanceBlockedLoops,
   applyTypeDefaults,
   itemType,
   describeNextFire,
   formatInterval,
-  getActiveStep,
   isExecuting,
+  isSendableStatus,
   totalChainSteps,
   currentChainStep,
 } from '@/lib/queueScheduler';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useQueueHistoryStore } from '@/stores/queueHistoryStore';
 import { showToast } from '@/components/ui/ToastContainer';
 import QueueItemEditModal from './QueueItemEditModal';
+import QueueHistorySheet from './QueueHistorySheet';
 import LoopExcludeWindowsModal from './LoopExcludeWindowsModal';
 import {
   fetchCommandIndex,
@@ -43,14 +42,6 @@ function localId(): number {
 
 /** Stable empty array — prevents useSyncExternalStore infinite loop from `?? []` */
 const EMPTY_QUEUE: QueueItem[] = [];
-
-/** Statuses in which the CLI is showing the prompt input box and a new prompt
- *  can be safely typed. Excludes 'working' / 'prompting' / 'approval' / 'ended'.
- *  'idle' is included because slash commands and post-2-minute auto-idle leave
- *  the session in this state while the CLI is still ready to receive input. */
-function isSendableStatus(status: string): boolean {
-  return status === 'waiting' || status === 'input' || status === 'idle';
-}
 
 // ---------------------------------------------------------------------------
 // Autocomplete
@@ -165,7 +156,52 @@ export default function QueueTab({
   const setLoopExcludeWindows = useQueueStore((s) => s.setLoopExcludeWindows);
   /** Open state for the session-level quiet-hours sheet. */
   const [quietHoursOpen, setQuietHoursOpen] = useState(false);
+  /** Open state for the global queue-history sheet. */
+  const [historyOpen, setHistoryOpen] = useState(false);
   const sessions = useSessionStore((s) => s.sessions);
+  const currentSessionTitle = sessions.get(sessionId)?.title ?? '';
+
+  const historyEntries = useQueueHistoryStore((s) => s.entries);
+  const historyCount = historyEntries.length;
+  const saveToHistory = useQueueHistoryStore((s) => s.saveItem);
+  const removeFromHistory = useQueueHistoryStore((s) => s.removeEntry);
+
+  const handleToggleEnabled = useCallback(
+    (item: QueueItem) => {
+      const nowDisabled = !item.disabled;
+      const patch: Partial<QueueItem> = {
+        disabled: nowDisabled ? true : undefined,
+      };
+      // Re-enabling a loop: reset nextFireAt so it waits a full interval
+      // before firing (otherwise a frozen-in-the-past nextFireAt would
+      // immediately trigger on the next scheduler tick).
+      if (!nowDisabled && itemType(item) === 'loop' && item.intervalMs) {
+        patch.nextFireAt = Date.now() + item.intervalMs;
+      }
+      updateItem(sessionId, item.id, patch);
+      showToast(nowDisabled ? 'Item paused' : 'Item enabled', 'info', 1200);
+    },
+    [updateItem, sessionId],
+  );
+
+  const handleToggleFavorite = useCallback(
+    async (item: QueueItem) => {
+      if (item.historyId != null) {
+        // Unfavorite — silent toggle, clear the marker on the live item too.
+        await removeFromHistory(item.historyId);
+        updateItem(sessionId, item.id, { historyId: undefined });
+        showToast('Removed from history', 'info', 1200);
+      } else {
+        const newId = await saveToHistory(item, {
+          sessionId,
+          sessionTitle: currentSessionTitle,
+        });
+        updateItem(sessionId, item.id, { historyId: newId });
+        showToast('Saved to history', 'info', 1200);
+      }
+    },
+    [removeFromHistory, saveToHistory, updateItem, sessionId, currentSessionTitle],
+  );
 
   const [composeText, setComposeText] = useState('');
   const [composeImages, setComposeImages] = useState<QueueImageAttachment[]>([]);
@@ -206,8 +242,6 @@ export default function QueueTab({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const acDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [acMenu, setAcMenu] = useState<AcMenu | null>(null);
-
-  const prevStatusRef = useRef(sessionStatus);
 
   // ---- Snap composeType back to Once when Auto-send turns OFF ----
   // Loop/Schedule items can't fire without Auto-send. If the user toggles
@@ -298,167 +332,10 @@ export default function QueueTab({
   );
 
 
-  // ---- Unified scheduler: handles once + loop + schedule on a 1s tick ----
-  //
-  // Priority rule (see src/lib/queueScheduler.ts):
-  //   0. In-flight chains stay atomic.
-  //   1. 'once' items drain when the session is waiting/input.
-  //   2. 'loop' and 'schedule' fire when due; idle-guard blocks them mid-tool.
-  //
-  // Implementation notes:
-  // - Latest items/status/automation/etc. are held in `schedRef` so the 1s
-  //   `setInterval` doesn't get torn down and recreated on every queue
-  //   mutation (which used to cause cumulative drift in loop timing).
-  // - `firingRef` reentrance guard is *not* in the dep array; it's a stable
-  //   ref that flips for the duration of one async send.
-  // - `coolDownUntilRef` enforces a 2.5s pause after each fire so multiple
-  //   'once' items don't get flooded into the CLI input buffer before the
-  //   first one's UserPromptSubmit hook has updated status away from
-  //   'waiting'.
-  const firingRef = useRef(false);
-  const coolDownUntilRef = useRef(0);
-  const schedRef = useRef({
-    items,
-    sessionStatus,
-    automationConfig,
-    terminalId: terminalId ?? null,
-    sessionId,
-    autoSend,
-    sendItemToTerminal,
-    remove,
-    updateItem,
-  });
-  // Keep the ref in sync with the freshest props/state on every render.
-  schedRef.current = {
-    items,
-    sessionStatus,
-    automationConfig,
-    terminalId: terminalId ?? null,
-    sessionId,
-    autoSend,
-    sendItemToTerminal,
-    remove,
-    updateItem,
-  };
-
-  // Clear the in-flight guard when the user switches sessions — the prior
-  // session's async send can still resolve into its own queue, but we don't
-  // want the new session's queue blocked by it.
-  useEffect(() => {
-    firingRef.current = false;
-    coolDownUntilRef.current = 0;
-  }, [sessionId]);
-
-  useEffect(() => {
-    const evaluate = async () => {
-      if (firingRef.current) return;
-      const s = schedRef.current;
-      if (!s.autoSend) return;
-      if (s.automationConfig.paused) return;
-      if (!s.terminalId) return;
-      if (s.items.length === 0) return;
-      if (Date.now() < coolDownUntilRef.current) return;
-
-      // States in which the CLI is showing the prompt box and can accept a
-      // new prompt. `idle` is included because slash commands (/clear, /compact)
-      // don't always emit hook events, so a session can sit in 'idle' or
-      // 'waiting' indefinitely while ready for input — without 'idle' here,
-      // chain steps after a slash command get permanently blocked by
-      // idle-guard.
-      const sessionWaiting = isSendableStatus(s.sessionStatus);
-      const blockedByPrompting =
-        s.automationConfig.skipWhenPrompting && s.sessionStatus === 'prompting';
-      // When the user has Skip-when-prompting ON and the session just
-      // submitted a prompt, any loop whose cadence happened to land in
-      // this window is forfeited rather than backlogged — bump nextFireAt
-      // forward so the UI countdown rolls to the next interval instead of
-      // showing "due now" forever. Schedules keep their user-chosen time.
-      if (blockedByPrompting) {
-        const advances = advanceBlockedLoops(s.items, Date.now());
-        for (const a of advances) {
-          s.updateItem(s.sessionId, a.id, a.patch);
-        }
-        return;
-      }
-      const pick = pickNext(
-        s.items,
-        Date.now(),
-        sessionWaiting,
-        s.automationConfig.idleGuard,
-        s.automationConfig.loopExcludeWindows,
-      );
-      if (!pick) return;
-
-      firingRef.current = true;
-      try {
-        const active = getActiveStep(pick);
-        const send = { ...pick, text: active.text, images: active.images };
-        const sent = await s.sendItemToTerminal(send);
-        if (!sent) return;
-
-        // Post-fire cool-down: small buffer so the hook pipeline can flip
-        // status out of 'idle/waiting' before we pick the next 'once' item.
-        // 800ms is enough for the UserPromptSubmit/PreToolUse round trip on
-        // localhost; longer values caused the chain to feel "stuck" between
-        // steps when Claude was actually idle the whole time.
-        coolDownUntilRef.current = Date.now() + 800;
-
-        // Re-read sessionId from the ref so a session-switch during the
-        // await doesn't write into the wrong session.
-        const currentSessionId = schedRef.current.sessionId;
-
-        const advance = advanceAfterFire(pick, Date.now());
-        if (advance.action === 'remove') {
-          s.remove(currentSessionId, pick.id);
-        } else {
-          s.updateItem(currentSessionId, pick.id, advance.patch);
-        }
-
-        // Toast label communicates BOTH the trigger type and (when relevant)
-        // the chain phase, so users can see "Loop before-step 2/4 fired".
-        let label: string;
-        const totalSteps = totalChainSteps(pick);
-        if (advance.action === 'continue') {
-          const wasExecuting = isExecuting(pick);
-          const phaseLabel = wasExecuting
-            ? pick.execState === 'main'
-              ? 'main'
-              : pick.execState === 'after'
-                ? `after-step ${(pick.execStepIdx ?? 0) + 1}`
-                : `before-step ${(pick.execStepIdx ?? 0) + 1}`
-            : (pick.beforeChain?.length ?? 0) > 0
-              ? 'before-step 1'
-              : 'main';
-          label = `Chain ${phaseLabel} sent (${currentChainStep({ ...pick, execState: pick.execState ?? 'idle' })} / ${totalSteps})`;
-        } else {
-          label =
-            itemType(pick) === 'once'
-              ? 'Auto-sent queued prompt'
-              : itemType(pick) === 'loop'
-                ? totalSteps > 1
-                  ? 'Loop chain complete'
-                  : 'Loop fired'
-                : totalSteps > 1
-                  ? 'Schedule chain complete'
-                  : 'Scheduled prompt fired';
-        }
-        showToast(label, 'info', 2000);
-      } finally {
-        firingRef.current = false;
-      }
-    };
-
-    // Single immediate evaluate, then a stable 1s tick that never gets
-    // re-created by queue mutations.
-    void evaluate();
-    const interval = setInterval(() => { void evaluate(); }, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Track status for places outside the scheduler that still need it.
-  useEffect(() => {
-    prevStatusRef.current = sessionStatus;
-  }, [sessionStatus]);
+  // The actual 1s scheduler tick lives in `useGlobalQueueScheduler`
+  // (mounted in App.tsx Dashboard) so it keeps evaluating background
+  // sessions even when their QueueTab is unmounted. This tab only handles
+  // UI, compose, and manual "send now".
 
   // Clean up debounce timer on unmount
   useEffect(() => () => { if (acDebounceRef.current) clearTimeout(acDebounceRef.current); }, []);
@@ -795,6 +672,19 @@ export default function QueueTab({
           <span className={styles.queueCount}>({items.length})</span>
         </button>
         <button
+          className={styles.queueHistoryBtn}
+          onClick={(e) => { e.stopPropagation(); setHistoryOpen(true); }}
+          title={historyCount > 0 ? `Queue history (${historyCount} saved)` : 'Queue history — save items to reuse them across sessions'}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+          </svg>
+          {historyCount > 0 && (
+            <span className={styles.queueHistoryBadge}>{historyCount}</span>
+          )}
+        </button>
+        <button
           className={`${styles.autoEnterToggle} ${autoEnter ? styles.autoEnterOn : ''}`}
           onClick={(e) => {
             e.stopPropagation();
@@ -1008,12 +898,25 @@ export default function QueueTab({
             items.map((item, idx) => (
               <div
                 key={item.id}
-                className={`${styles.queueItem}${dragIdx === idx ? ` ${styles.dragging}` : ''}`}
+                className={`${styles.queueItem}${dragIdx === idx ? ` ${styles.dragging}` : ''}${item.disabled ? ` ${styles.queueItemDisabled}` : ''}`}
                 draggable
                 onDragStart={() => handleDragStart(idx)}
                 onDragOver={(e) => handleDragOver(e, idx)}
                 onDragEnd={handleDragEnd}
               >
+                {editingId !== item.id && (
+                  <button
+                    className={`${styles.queueToggleBtn}${item.disabled ? ` ${styles.queueToggleBtnOff}` : ` ${styles.queueToggleBtnOn}`}`}
+                    onClick={(e) => { e.stopPropagation(); handleToggleEnabled(item); }}
+                    title={item.disabled ? 'Paused — click to enable' : 'Enabled — click to pause'}
+                    aria-label={item.disabled ? 'Enable item' : 'Pause item'}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+                      <line x1="12" y1="2" x2="12" y2="12" />
+                    </svg>
+                  </button>
+                )}
                 <span className={styles.queuePos}>{idx + 1}</span>
 
                 {editingId === item.id ? (
@@ -1067,14 +970,18 @@ export default function QueueTab({
                   return (
                     <span className={styles.queueItemMeta}>
                       <span className={`${styles.queueTypeChip} ${chipClass}`}>{chipLabel}</span>
-                      {isExecuting(item) ? (
+                      {item.disabled ? (
+                        <span className={`${styles.queueNextFire} ${styles.queueNextFirePaused}`}>
+                          — paused —
+                        </span>
+                      ) : isExecuting(item) ? (
                         <span className={styles.queueNextFire}>
                           step {cur}/{total}
                         </span>
                       ) : (
                         <span className={styles.queueNextFire}>{describeNextFire(item)}</span>
                       )}
-                      {hasChain && !isExecuting(item) && (
+                      {hasChain && !isExecuting(item) && !item.disabled && (
                         <span className={styles.queueNextFire}>
                           · {beforeCount > 0 ? `${beforeCount} before` : ''}
                           {beforeCount > 0 && afterCount > 0 ? ' · ' : ''}
@@ -1098,6 +1005,18 @@ export default function QueueTab({
                     </button>
                   ) : (
                     <>
+                      <button
+                        className={`${styles.queueFavBtn}${item.historyId != null ? ` ${styles.queueFavBtnOn}` : ''}`}
+                        onClick={() => { void handleToggleFavorite(item); }}
+                        title={
+                          item.historyId != null
+                            ? 'Saved to history — click to remove'
+                            : 'Save to history — reuse this in other sessions later'
+                        }
+                        aria-label="Toggle favorite"
+                      >
+                        {item.historyId != null ? '★' : '☆'}
+                      </button>
                       <button
                         className={`${styles.queueActionBtn} ${styles.queueSend}`}
                         onClick={() => handleSendNow(item)}
@@ -1225,6 +1144,11 @@ export default function QueueTab({
             automationConfig.skipWhenPrompting &&
             sessionStatus === 'prompting' &&
             hasDueOrInflightItem;
+          // Count per-item pauses so the status row can hint "(N paused)"
+          // — otherwise a queue with one paused loop looks identical to a
+          // healthy one at a glance.
+          const pausedCount = items.filter((it) => it.disabled && itemType(it) !== 'once').length;
+          const pausedSuffix = pausedCount > 0 ? ` (${pausedCount} paused)` : '';
           return (
           <div className={styles.queueStatusRow}>
             <span>
@@ -1235,8 +1159,8 @@ export default function QueueTab({
                   : blockedByIdleGuard
                     ? `⏳ Waiting for session to be idle (status: ${sessionStatus})`
                     : items.some((it) => itemType(it) === 'loop')
-                      ? '⟳ Loop active'
-                      : '🕐 Scheduler armed'}
+                      ? `⟳ Loop active${pausedSuffix}`
+                      : `🕐 Scheduler armed${pausedSuffix}`}
             </span>
             <button
               className={`${styles.queueStatusToggle}${automationConfig.paused ? ` ${styles.queueStatusToggleOn}` : ''}`}
@@ -1308,6 +1232,13 @@ export default function QueueTab({
           />
         );
       })()}
+      <QueueHistorySheet
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        currentSessionId={sessionId}
+        currentSessionTitle={currentSessionTitle}
+      />
+
       {acMenu && acMenu.items.length > 0 && (() => {
         const rect = textareaRef.current?.getBoundingClientRect();
         if (!rect) return null;
