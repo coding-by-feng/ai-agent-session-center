@@ -1,0 +1,50 @@
+/* ============================================================
+   TimePicker12 — 3-dropdown 12-hour time picker.
+   Matches the queue editor's existing select aesthetic.
+   ============================================================ */
+
+.group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.select {
+  /* Use theme-aware tokens so the dropdown is visible in BOTH dark and
+   * light themes — `--bg-subtle` and `--border-subtle` are defined per
+   * theme (dark uses white-with-alpha, light uses black-with-alpha). */
+  background: var(--bg-subtle, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  border-radius: 3px;
+  color: var(--text-primary, #e0e0e0);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  padding: 3px 4px;
+  cursor: pointer;
+  min-width: 38px;
+  text-align: center;
+  color-scheme: light dark;
+}
+.select:hover:not(:disabled) {
+  border-color: var(--border-subtle-strong, rgba(255, 255, 255, 0.2));
+}
+.select:focus {
+  outline: none;
+  border-color: var(--accent-cyan, #00e5ff);
+}
+.select:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.colon {
+  color: var(--text-secondary, #888);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  margin: 0 1px;
+}
+
+.ampm {
+  margin-left: 4px;
+  min-width: 44px;
+}

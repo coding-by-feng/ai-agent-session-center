@@ -25,6 +25,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { QueueItem, ChainStep, ExcludeWindow, QueueItemType } from '@/stores/queueStore';
+import TimePicker12 from '@/components/ui/TimePicker12';
 import styles from '@/styles/modules/Terminal.module.css';
 
 interface QueueItemEditModalProps {
@@ -85,6 +86,10 @@ export default function QueueItemEditModal({
   /** Time-of-day exclusion windows — only used for type='loop'. */
   const [excludeWindows, setExcludeWindows] = useState<ExcludeWindow[]>(
     (item.excludeWindows ?? []).map((w) => ({ ...w })),
+  );
+  /** Daily start-time clamp — loop only. Empty string = no clamp. */
+  const [firstFireOfDay, setFirstFireOfDay] = useState<string | undefined>(
+    item.firstFireOfDay,
   );
 
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -192,12 +197,15 @@ export default function QueueItemEditModal({
         (w) => w.startHHMM && w.endHHMM && w.startHHMM !== w.endHHMM,
       );
       patch.excludeWindows = cleanWindows.length > 0 ? cleanWindows : undefined;
+      patch.firstFireOfDay = firstFireOfDay || undefined;
     } else if (type === 'schedule') {
       const parsed = runAt ? Date.parse(runAt) : NaN;
       const runAtMs = Number.isNaN(parsed) ? Date.now() + 60_000 : parsed;
       patch.runAt = runAtMs;
       patch.nextFireAt = runAtMs;
       patch.intervalMs = undefined;
+      // Schedule items ignore the daily clamp by design (they have an explicit runAt).
+      patch.firstFireOfDay = undefined;
     } else {
       // 'once' — clear timing fields, force priority sort to 0. We deliberately
       // do NOT clear excludeWindows here so the user can flip type back to
@@ -205,6 +213,7 @@ export default function QueueItemEditModal({
       patch.intervalMs = undefined;
       patch.runAt = undefined;
       patch.nextFireAt = 0;
+      patch.firstFireOfDay = undefined;
     }
 
     onSave(patch);
@@ -316,6 +325,18 @@ export default function QueueItemEditModal({
                   <option value="min">min</option>
                   <option value="hour">hour</option>
                 </select>
+                <span
+                  className={styles.dailyStartLabel}
+                  title="Optional. When set, this loop won't fire before this local clock time on any given day."
+                >
+                  first fire each day
+                </span>
+                <TimePicker12
+                  value={firstFireOfDay}
+                  onChange={(next) => setFirstFireOfDay(next)}
+                  allowEmpty
+                  ariaLabel="First fire of day"
+                />
               </span>
             )}
             {type === 'schedule' && (
@@ -375,22 +396,20 @@ export default function QueueItemEditModal({
                   const invalid = w.startHHMM === w.endHHMM;
                   return (
                     <div key={w.id} className={styles.excludeWindowRow}>
-                      <input
-                        type="time"
-                        className={styles.excludeWindowInput}
-                        value={w.startHHMM}
-                        onChange={(e) =>
-                          updateExcludeWindow(w.id, 'startHHMM', e.target.value)
+                      <TimePicker12
+                        value={w.startHHMM || '00:00'}
+                        onChange={(next) =>
+                          updateExcludeWindow(w.id, 'startHHMM', next ?? '00:00')
                         }
+                        ariaLabel="Window start"
                       />
                       <span className={styles.excludeWindowArrow}>→</span>
-                      <input
-                        type="time"
-                        className={styles.excludeWindowInput}
-                        value={w.endHHMM}
-                        onChange={(e) =>
-                          updateExcludeWindow(w.id, 'endHHMM', e.target.value)
+                      <TimePicker12
+                        value={w.endHHMM || '00:00'}
+                        onChange={(next) =>
+                          updateExcludeWindow(w.id, 'endHHMM', next ?? '00:00')
                         }
+                        ariaLabel="Window end"
                       />
                       {wraps && (
                         <span className={styles.excludeWindowHint} title="Wraps past midnight">

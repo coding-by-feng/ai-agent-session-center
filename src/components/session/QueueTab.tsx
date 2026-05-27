@@ -11,12 +11,14 @@ import {
   itemType,
   describeNextFire,
   formatInterval,
+  isBeforeDailyStart,
   isExecuting,
   isItemInQuietHours,
   isSendableStatus,
   totalChainSteps,
   currentChainStep,
 } from '@/lib/queueScheduler';
+import { parseHHMM } from '@/lib/timePicker';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useQueueHistoryStore } from '@/stores/queueHistoryStore';
 import { showToast } from '@/components/ui/ToastContainer';
@@ -39,6 +41,13 @@ import styles from '@/styles/modules/Terminal.module.css';
 let nextLocalId = Date.now();
 function localId(): number {
   return nextLocalId++;
+}
+
+/** Format an HH:MM 24-hour string as a 12-hour display string ("9:00 AM"). */
+function formatClampDisplay(hhmm: string | undefined): string {
+  const parts = parseHHMM(hhmm);
+  if (!parts) return hhmm ?? '';
+  return `${parts.hour}:${String(parts.minute).padStart(2, '0')} ${parts.ampm}`;
 }
 
 /** Stable empty array — prevents useSyncExternalStore infinite loop from `?? []` */
@@ -975,6 +984,9 @@ export default function QueueTab({
                     automationConfig.loopExcludeWindows,
                     Date.now(),
                   );
+                  // Daily-start clamp — only relevant for loops with a clamp
+                  // set AND the current time is still before that clamp today.
+                  const beforeDailyStart = isBeforeDailyStart(item, Date.now());
                   return (
                     <span className={styles.queueItemMeta}>
                       <span className={`${styles.queueTypeChip} ${chipClass}`}>{chipLabel}</span>
@@ -989,6 +1001,10 @@ export default function QueueTab({
                       ) : inQuietHours ? (
                         <span className={`${styles.queueNextFire} ${styles.queueNextFirePaused}`}>
                           — in quiet hours —
+                        </span>
+                      ) : beforeDailyStart ? (
+                        <span className={`${styles.queueNextFire} ${styles.queueNextFirePaused}`}>
+                          — waits until {formatClampDisplay(item.firstFireOfDay)} today —
                         </span>
                       ) : (
                         <span className={styles.queueNextFire}>{describeNextFire(item)}</span>
@@ -1156,10 +1172,10 @@ export default function QueueTab({
             automationConfig.skipWhenPrompting &&
             sessionStatus === 'prompting' &&
             hasDueOrInflightItem;
-          // Status-row suffix gathers BOTH per-item pause and quiet-hours
+          // Status-row suffix gathers per-item pause + quiet-hours + daily-start
           // signals so a "Loop active" status doesn't lie when every loop is
-          // currently silenced. We deliberately collapse them into one
-          // parenthetical so it doesn't stack into multiple suffixes.
+          // currently silenced. Collapse into one parenthetical so suffixes
+          // don't visually stack.
           const pausedCount = items.filter((it) => it.disabled && itemType(it) !== 'once').length;
           const nowMs = Date.now();
           const anyLoopInQuietHours = items.some(
@@ -1168,8 +1184,12 @@ export default function QueueTab({
               !it.disabled &&
               isItemInQuietHours(it, automationConfig.loopExcludeWindows, nowMs),
           );
+          const anyLoopBeforeDailyStart = items.some(
+            (it) => !it.disabled && isBeforeDailyStart(it, nowMs),
+          );
           const suffixParts: string[] = [];
           if (anyLoopInQuietHours) suffixParts.push('in quiet hours');
+          if (anyLoopBeforeDailyStart) suffixParts.push('waiting for daily start');
           if (pausedCount > 0) suffixParts.push(`${pausedCount} paused`);
           const statusSuffix = suffixParts.length > 0 ? ` (${suffixParts.join(', ')})` : '';
           return (
