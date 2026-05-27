@@ -98,6 +98,28 @@ export function isSendableStatus(status: string): boolean {
   return status === 'waiting' || status === 'input' || status === 'idle';
 }
 
+/**
+ * True iff this LOOP item is currently silenced by either its own
+ * `excludeWindows` or the supplied session-level windows. Used by the UI
+ * to show "— in quiet hours —" instead of a misleading "due now" when the
+ * loop's nextFireAt has passed but the scheduler is silently holding it
+ * back per the user's time-of-day rules.
+ *
+ * Schedule items return false (they ignore exclude windows by design — the
+ * user picked an explicit runAt). Once items return false (no schedule).
+ */
+export function isItemInQuietHours(
+  item: QueueItem,
+  sessionExcludeWindows: ExcludeWindow[] | undefined,
+  now: number,
+): boolean {
+  if (itemType(item) !== 'loop') return false;
+  return (
+    isInExcludeWindow(item.excludeWindows, now) ||
+    isInExcludeWindow(sessionExcludeWindows, now)
+  );
+}
+
 export function getActiveStep(item: QueueItem): { text: string; images?: ChainStep['images'] } {
   const idx = item.execStepIdx ?? 0;
   if (item.execState === 'before') {
