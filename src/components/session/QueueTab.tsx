@@ -12,6 +12,7 @@ import {
   describeNextFire,
   formatInterval,
   isExecuting,
+  isItemInQuietHours,
   isSendableStatus,
   totalChainSteps,
   currentChainStep,
@@ -967,6 +968,13 @@ export default function QueueTab({
                   const hasChain = beforeCount + afterCount > 0;
                   const total = totalChainSteps(item);
                   const cur = currentChainStep(item);
+                  // Loops silenced by per-item or session-level quiet hours
+                  // get "— in quiet hours —" instead of a misleading "due now".
+                  const inQuietHours = isItemInQuietHours(
+                    item,
+                    automationConfig.loopExcludeWindows,
+                    Date.now(),
+                  );
                   return (
                     <span className={styles.queueItemMeta}>
                       <span className={`${styles.queueTypeChip} ${chipClass}`}>{chipLabel}</span>
@@ -977,6 +985,10 @@ export default function QueueTab({
                       ) : isExecuting(item) ? (
                         <span className={styles.queueNextFire}>
                           step {cur}/{total}
+                        </span>
+                      ) : inQuietHours ? (
+                        <span className={`${styles.queueNextFire} ${styles.queueNextFirePaused}`}>
+                          — in quiet hours —
                         </span>
                       ) : (
                         <span className={styles.queueNextFire}>{describeNextFire(item)}</span>
@@ -1144,11 +1156,22 @@ export default function QueueTab({
             automationConfig.skipWhenPrompting &&
             sessionStatus === 'prompting' &&
             hasDueOrInflightItem;
-          // Count per-item pauses so the status row can hint "(N paused)"
-          // — otherwise a queue with one paused loop looks identical to a
-          // healthy one at a glance.
+          // Status-row suffix gathers BOTH per-item pause and quiet-hours
+          // signals so a "Loop active" status doesn't lie when every loop is
+          // currently silenced. We deliberately collapse them into one
+          // parenthetical so it doesn't stack into multiple suffixes.
           const pausedCount = items.filter((it) => it.disabled && itemType(it) !== 'once').length;
-          const pausedSuffix = pausedCount > 0 ? ` (${pausedCount} paused)` : '';
+          const nowMs = Date.now();
+          const anyLoopInQuietHours = items.some(
+            (it) =>
+              itemType(it) === 'loop' &&
+              !it.disabled &&
+              isItemInQuietHours(it, automationConfig.loopExcludeWindows, nowMs),
+          );
+          const suffixParts: string[] = [];
+          if (anyLoopInQuietHours) suffixParts.push('in quiet hours');
+          if (pausedCount > 0) suffixParts.push(`${pausedCount} paused`);
+          const statusSuffix = suffixParts.length > 0 ? ` (${suffixParts.join(', ')})` : '';
           return (
           <div className={styles.queueStatusRow}>
             <span>
@@ -1159,8 +1182,8 @@ export default function QueueTab({
                   : blockedByIdleGuard
                     ? `⏳ Waiting for session to be idle (status: ${sessionStatus})`
                     : items.some((it) => itemType(it) === 'loop')
-                      ? `⟳ Loop active${pausedSuffix}`
-                      : `🕐 Scheduler armed${pausedSuffix}`}
+                      ? `⟳ Loop active${statusSuffix}`
+                      : `🕐 Scheduler armed${statusSuffix}`}
             </span>
             <button
               className={`${styles.queueStatusToggle}${automationConfig.paused ? ` ${styles.queueStatusToggleOn}` : ''}`}

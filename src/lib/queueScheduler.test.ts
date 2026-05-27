@@ -8,6 +8,7 @@ import {
   getActiveStep,
   isExecuting,
   isInExcludeWindow,
+  isItemInQuietHours,
   totalChainSteps,
   currentChainStep,
 } from './queueScheduler';
@@ -546,6 +547,48 @@ describe('queueScheduler', () => {
       // With blockedByPrompting=false, in-flight chain fires as before.
       expect(pickNext([inFlight], 1000, true, true, undefined, false)?.id).toBe(75);
       expect(pickNext([inFlight], 1000, true, true)?.id).toBe(75);
+    });
+
+    it('isItemInQuietHours: per-item window only', () => {
+      const loop = mkItem({
+        id: 200, type: 'loop', intervalMs: 60_000,
+        excludeWindows: [win(1, '00:00', '23:59')],
+      });
+      expect(isItemInQuietHours(loop, undefined, todayAt(12, 0))).toBe(true);
+    });
+
+    it('isItemInQuietHours: session-level window only', () => {
+      const loop = mkItem({ id: 201, type: 'loop', intervalMs: 60_000 });
+      expect(
+        isItemInQuietHours(loop, [win(2, '00:00', '23:59')], todayAt(12, 0)),
+      ).toBe(true);
+    });
+
+    it('isItemInQuietHours: neither window blocks now', () => {
+      const loop = mkItem({
+        id: 202, type: 'loop', intervalMs: 60_000,
+        excludeWindows: [win(3, '02:00', '04:00')],
+      });
+      expect(
+        isItemInQuietHours(loop, [win(4, '02:00', '04:00')], todayAt(12, 0)),
+      ).toBe(false);
+    });
+
+    it('isItemInQuietHours: schedule items ignore windows by design', () => {
+      const sched = mkItem({
+        id: 203, type: 'schedule', runAt: 0, nextFireAt: 0,
+        excludeWindows: [win(5, '00:00', '23:59')],
+      });
+      expect(
+        isItemInQuietHours(sched, [win(6, '00:00', '23:59')], todayAt(12, 0)),
+      ).toBe(false);
+    });
+
+    it('isItemInQuietHours: once items ignore windows', () => {
+      const once = mkItem({ id: 204, type: 'once' });
+      expect(
+        isItemInQuietHours(once, [win(7, '00:00', '23:59')], todayAt(12, 0)),
+      ).toBe(false);
     });
 
     it('pickNext does NOT apply exclude window to schedule items', () => {
