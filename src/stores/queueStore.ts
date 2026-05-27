@@ -80,6 +80,16 @@ export interface QueueItem {
   execState?: ChainExecState;
   /** Cursor inside `beforeChain`/`afterChain`. Undefined for main/idle. */
   execStepIdx?: number;
+  /** When set, this item is favorited and the value is the matching
+   *  queueHistory.id. Renders a filled ★. Stays set even if the user later
+   *  edits the local row — the saved history entry is a snapshot. Cleared
+   *  by the queueHistoryStore when the matching history entry is removed. */
+  historyId?: number;
+  /** When true, the scheduler completely skips this item — loops don't tick,
+   *  schedules don't fire, once items stay queued. The row is dimmed in the
+   *  UI but stays in place; the user can re-enable any time without losing
+   *  the chain / timing config. Default undefined (=enabled). */
+  disabled?: boolean;
 }
 
 /**
@@ -378,6 +388,8 @@ export const useQueueStore = create<QueueState>((set, get) => ({
           excludeWindows,
           execState,
           execStepIdx: d.execStepIdx,
+          historyId: d.historyId,
+          disabled: d.disabled ? true : undefined,
         });
         bySession.set(d.sessionId, items);
       }
@@ -496,6 +508,8 @@ async function persistSessionQueue(sessionId: string, items: QueueItem[]): Promi
           excludeWindows: item.excludeWindows && item.excludeWindows.length > 0 ? JSON.stringify(item.excludeWindows) : undefined,
           execState: item.execState,
           execStepIdx: item.execStepIdx,
+          historyId: item.historyId,
+          disabled: item.disabled ? 1 : undefined,
         })),
       );
     }

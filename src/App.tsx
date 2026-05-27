@@ -18,6 +18,7 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useSettingsInit } from '@/hooks/useSettingsInit';
 import { useWorkspaceAutoSave } from '@/hooks/useWorkspaceAutoSave';
 import { useWorkspaceAutoLoad } from '@/hooks/useWorkspaceAutoLoad';
+import { useGlobalQueueScheduler } from '@/hooks/useGlobalQueueScheduler';
 import LiveView from '@/routes/LiveView';
 import TitleBar from '@/components/layout/TitleBar';
 import SavingOverlay from '@/components/ui/SavingOverlay';
@@ -70,6 +71,7 @@ function Dashboard({ token }: { token: string | null }) {
   useWebSocket(token);
   useWorkspaceAutoSave();
   useWorkspaceAutoLoad();
+  useGlobalQueueScheduler();
 
   const [saving, setSaving] = useState(false);
 

@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from '@/App';
 import { useQueueStore } from '@/stores/queueStore';
+import { useQueueHistoryStore } from '@/stores/queueHistoryStore';
 import '@/styles/global.css';
 import '@/styles/themes/cyberpunk.css';
 import '@/styles/themes/dracula.css';
@@ -26,6 +27,7 @@ window.addEventListener('keydown', (e) => {
 
 // Load persisted queue items from IndexedDB before rendering
 useQueueStore.getState().loadFromDb();
+useQueueHistoryStore.getState().loadFromDb();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Root element not found');

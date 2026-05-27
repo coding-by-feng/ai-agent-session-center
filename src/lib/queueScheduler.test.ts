@@ -493,6 +493,50 @@ describe('queueScheduler', () => {
       expect(advanceBlockedLoops(items, 1000)).toEqual([]);
     });
 
+    it('pickNext skips per-item disabled items (once)', () => {
+      const items = [
+        mkItem({ id: 100, type: 'once', disabled: true }),
+        mkItem({ id: 101, type: 'once' }),
+      ];
+      expect(pickNext(items, 1000, true, true)?.id).toBe(101);
+    });
+
+    it('pickNext skips per-item disabled items (loop)', () => {
+      const items = [
+        mkItem({ id: 102, type: 'loop', intervalMs: 60_000, nextFireAt: 0, disabled: true }),
+        mkItem({ id: 103, type: 'loop', intervalMs: 60_000, nextFireAt: 500 }),
+      ];
+      expect(pickNext(items, 1000, true, true)?.id).toBe(103);
+    });
+
+    it('pickNext returns null when the only fireable item is disabled', () => {
+      const items = [
+        mkItem({ id: 104, type: 'once', disabled: true }),
+      ];
+      expect(pickNext(items, 1000, true, true)).toBeNull();
+    });
+
+    it('pickNext does NOT resume an in-flight chain that became disabled', () => {
+      // Mid-chain disable: scheduler should respect the user's pause and
+      // leave the chain frozen rather than firing the next step.
+      const it: QueueItem = {
+        ...mkItem({ id: 105, type: 'loop', intervalMs: 60_000, disabled: true }),
+        execState: 'main',
+        execStepIdx: 0,
+      };
+      expect(pickNext([it], 1000, true, true)).toBeNull();
+    });
+
+    it('advanceBlockedLoops skips disabled loops (does not roll their nextFireAt)', () => {
+      const items = [
+        mkItem({ id: 106, type: 'loop', intervalMs: 60_000, nextFireAt: 0, disabled: true }),
+        mkItem({ id: 107, type: 'loop', intervalMs: 60_000, nextFireAt: 0 }),
+      ];
+      const patches = advanceBlockedLoops(items, 100_000);
+      expect(patches).toHaveLength(1);
+      expect(patches[0].id).toBe(107);
+    });
+
     it('skipWhenPrompting=false (or undefined) does not interfere with normal firing', () => {
       const inFlight: QueueItem = {
         ...mkItem({ id: 75, type: 'loop', intervalMs: 60_000 }),

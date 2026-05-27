@@ -141,6 +141,37 @@
 .queuePanel:not(.collapsed) .queueToggleArrow { transform: rotate(90deg); }
 .queueCount { color: var(--accent-cyan, #00e5ff); }
 
+.queueHistoryBtn {
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; flex-shrink: 0;
+  background: none; border: none; border-radius: 4px;
+  color: var(--text-dim, #555); cursor: pointer;
+  margin-right: 2px;
+  transition: all 0.15s ease;
+  opacity: 0.55;
+}
+.queueHistoryBtn:hover {
+  opacity: 1;
+  background: var(--bg-subtle);
+  color: var(--accent-cyan, #00e5ff);
+}
+.queueHistoryBadge {
+  position: absolute;
+  top: -2px; right: -3px;
+  background: var(--accent-cyan, #00e5ff);
+  color: var(--bg-panel, #0d1117);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 6px;
+  min-width: 12px;
+  text-align: center;
+  pointer-events: none;
+}
+
 .autoSendToggle {
   display: flex; align-items: center; justify-content: center;
   width: 24px; height: 24px; flex-shrink: 0;
@@ -210,6 +241,79 @@
 .queueEdit:hover { background: rgba(0, 229, 255, 0.1); border-color: rgba(0, 229, 255, 0.3); }
 .queueDelete { color: var(--accent-red); }
 .queueDelete:hover { background: rgba(255, 51, 85, 0.1) !important; color: var(--accent-red, #ff5555) !important; border-color: rgba(255, 51, 85, 0.3) !important; }
+
+.queueToggleBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px; height: 18px;
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  margin-right: 4px;
+  padding: 0;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.queueToggleBtnOn {
+  color: var(--accent-green, #50fa7b);
+}
+.queueToggleBtnOn:hover {
+  background: rgba(80, 250, 123, 0.12);
+  border-color: rgba(80, 250, 123, 0.4);
+}
+.queueToggleBtnOff {
+  color: var(--text-dim, #555);
+}
+.queueToggleBtnOff:hover {
+  color: var(--accent-green, #50fa7b);
+  background: rgba(80, 250, 123, 0.08);
+  border-color: rgba(80, 250, 123, 0.3);
+}
+
+.queueItemDisabled {
+  opacity: 0.55;
+  position: relative;
+}
+.queueItemDisabled::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 4px; bottom: 4px;
+  width: 2px;
+  background: var(--text-dim, #555);
+  border-radius: 1px;
+}
+.queueItemDisabled:hover {
+  opacity: 0.85;
+}
+.queueNextFirePaused {
+  color: var(--text-dim, #555) !important;
+  font-style: italic;
+}
+
+.queueFavBtn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-dim, #666);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 12px;
+  line-height: 1;
+  padding: 1px 5px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.queueFavBtn:hover {
+  color: var(--accent-yellow, #ffd866);
+  border-color: rgba(255, 216, 102, 0.4);
+  background: rgba(255, 216, 102, 0.08);
+}
+.queueFavBtnOn {
+  color: var(--accent-yellow, #ffd866) !important;
+  border-color: rgba(255, 216, 102, 0.5) !important;
+  background: rgba(255, 216, 102, 0.1) !important;
+}
 .queueMove { color: var(--accent-orange, #ffb86c); }
 .queueMove:hover { background: rgba(255, 184, 108, 0.15); border-color: rgba(255, 184, 108, 0.3); }
 

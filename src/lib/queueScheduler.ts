@@ -88,6 +88,16 @@ export function isInExcludeWindow(
  * A corrupted execStepIdx falls back to the main prompt so the queue never
  * deadlocks on a stale row.
  */
+/**
+ * True when the session's current status indicates the CLI prompt box is
+ * ready to receive a new prompt. 'idle' is included because slash commands
+ * (/clear, /compact) and post-2-minute auto-idle leave the session in this
+ * state while the CLI is still ready to receive input.
+ */
+export function isSendableStatus(status: string): boolean {
+  return status === 'waiting' || status === 'input' || status === 'idle';
+}
+
 export function getActiveStep(item: QueueItem): { text: string; images?: ChainStep['images'] } {
   const idx = item.execStepIdx ?? 0;
   if (item.execState === 'before') {
@@ -138,6 +148,13 @@ export function pickNext(
   blockedByPrompting?: boolean,
 ): QueueItem | null {
   if (items.length === 0) return null;
+  // Per-item disable. Filtered up-front so in-flight detection, once-drain,
+  // and loop/schedule selection all behave as if disabled items don't exist.
+  // We intentionally DON'T resume a chain on a row that became disabled
+  // mid-flight — the user paused it, so wait for them to re-enable.
+  const active = items.filter((it) => !it.disabled);
+  if (active.length === 0) return null;
+  items = active;
   // Hard short-circuit: if the prompting-guard is asking us to wait, no
   // item in any priority bucket should fire. This is checked BEFORE
   // PRIORITY 0 so even in-flight chains pause for one tick rather than
@@ -338,6 +355,10 @@ export function advanceBlockedLoops(
   for (const it of items) {
     if (itemType(it) !== 'loop') continue;
     if (isExecuting(it)) continue;
+    // Disabled loops have their nextFireAt frozen until the user re-enables.
+    // Without this guard, a paused-during-skip-prompting loop would silently
+    // roll forward and lose its scheduled offset for no user-visible reason.
+    if (it.disabled) continue;
     const due = effectiveNextFireAt(it);
     if (due > now) continue;
     const intervalMs = it.intervalMs ?? 0;
