@@ -6,6 +6,7 @@ import {
   applyTypeDefaults,
   itemType,
   getActiveStep,
+  isBeforeDailyStart,
   isExecuting,
   isInExcludeWindow,
   isItemInQuietHours,
@@ -589,6 +590,57 @@ describe('queueScheduler', () => {
       expect(
         isItemInQuietHours(once, [win(7, '00:00', '23:59')], todayAt(12, 0)),
       ).toBe(false);
+    });
+
+    it('isBeforeDailyStart: returns false when no clamp set', () => {
+      const it = mkItem({ id: 300, type: 'loop', intervalMs: 60_000 });
+      expect(isBeforeDailyStart(it, todayAt(6, 0))).toBe(false);
+    });
+
+    it('isBeforeDailyStart: returns true before clamp time', () => {
+      const it = mkItem({ id: 301, type: 'loop', intervalMs: 60_000, firstFireOfDay: '09:00' });
+      expect(isBeforeDailyStart(it, todayAt(6, 0))).toBe(true);
+      expect(isBeforeDailyStart(it, todayAt(8, 59))).toBe(true);
+    });
+
+    it('isBeforeDailyStart: returns false at or after clamp time', () => {
+      const it = mkItem({ id: 302, type: 'loop', intervalMs: 60_000, firstFireOfDay: '09:00' });
+      expect(isBeforeDailyStart(it, todayAt(9, 0))).toBe(false);
+      expect(isBeforeDailyStart(it, todayAt(15, 30))).toBe(false);
+    });
+
+    it('isBeforeDailyStart: schedule items ignore clamp', () => {
+      const it = mkItem({
+        id: 303, type: 'schedule', runAt: 0, nextFireAt: 0,
+        firstFireOfDay: '09:00',
+      });
+      expect(isBeforeDailyStart(it, todayAt(6, 0))).toBe(false);
+    });
+
+    it('isBeforeDailyStart: malformed clamp string returns false (no clamp)', () => {
+      const it = mkItem({ id: 304, type: 'loop', intervalMs: 60_000, firstFireOfDay: 'banana' });
+      expect(isBeforeDailyStart(it, todayAt(6, 0))).toBe(false);
+    });
+
+    it('pickNext skips a due loop when before daily start clamp', () => {
+      const it = mkItem({
+        id: 305, type: 'loop', intervalMs: 60_000, nextFireAt: 0,
+        firstFireOfDay: '09:00',
+      });
+      // 06:00 — clamp blocks
+      expect(pickNext([it], todayAt(6, 0), true, true)).toBeNull();
+      // 09:00 — clamp passed, loop fires
+      expect(pickNext([it], todayAt(9, 0), true, true)?.id).toBe(305);
+    });
+
+    it('advanceBlockedLoops skips loops still before their daily start clamp', () => {
+      const it = mkItem({
+        id: 306, type: 'loop', intervalMs: 60_000, nextFireAt: 0,
+        firstFireOfDay: '09:00',
+      });
+      // 06:00 — clamp blocks; nextFireAt should NOT roll forward
+      const patches = advanceBlockedLoops([it], todayAt(6, 0));
+      expect(patches).toEqual([]);
     });
 
     it('pickNext does NOT apply exclude window to schedule items', () => {

@@ -120,6 +120,29 @@ export function isItemInQuietHours(
   );
 }
 
+/**
+ * True iff this LOOP item has a `firstFireOfDay` clamp AND the current local
+ * time is BEFORE that clamp today.
+ *
+ * Comparison is on local time-of-day only — no calendar / timezone math. The
+ * loop simply can't fire before HH:MM on any given day.
+ */
+export function isBeforeDailyStart(item: QueueItem, now: number): boolean {
+  if (itemType(item) !== 'loop') return false;
+  const clamp = item.firstFireOfDay;
+  if (!clamp) return false;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(clamp);
+  if (!m) return false;
+  const clampHour = Number(m[1]);
+  const clampMin = Number(m[2]);
+  if (!Number.isFinite(clampHour) || !Number.isFinite(clampMin)) return false;
+  if (clampHour < 0 || clampHour > 23 || clampMin < 0 || clampMin > 59) return false;
+  const d = new Date(now);
+  const nowMinutes = d.getHours() * 60 + d.getMinutes();
+  const clampMinutes = clampHour * 60 + clampMin;
+  return nowMinutes < clampMinutes;
+}
+
 export function getActiveStep(item: QueueItem): { text: string; images?: ChainStep['images'] } {
   const idx = item.execStepIdx ?? 0;
   if (item.execState === 'before') {
@@ -223,6 +246,13 @@ export function pickNext(
       (isInExcludeWindow(it.excludeWindows, now) ||
         isInExcludeWindow(sessionExcludeWindows, now))
     ) {
+      continue;
+    }
+    // Daily-start clamp — loop-only, expressed positively in the editor
+    // ("first fire each day at HH:MM"). Equivalent to a 00:00→HH:MM
+    // exclude window but presented to the user as a start time instead of
+    // a quiet window.
+    if (t === 'loop' && isBeforeDailyStart(it, now)) {
       continue;
     }
     if (best === null || effectiveNextFireAt(it) < effectiveNextFireAt(best)) {
@@ -381,6 +411,11 @@ export function advanceBlockedLoops(
     // Without this guard, a paused-during-skip-prompting loop would silently
     // roll forward and lose its scheduled offset for no user-visible reason.
     if (it.disabled) continue;
+    // Daily-start clamp: when the user has set "first fire each day at HH:MM"
+    // and it's still before that time, freeze nextFireAt — same reasoning as
+    // the disabled case. The clamp must take effect at HH:MM exactly, not
+    // immediately on the next tick after midnight.
+    if (isBeforeDailyStart(it, now)) continue;
     const due = effectiveNextFireAt(it);
     if (due > now) continue;
     const intervalMs = it.intervalMs ?? 0;

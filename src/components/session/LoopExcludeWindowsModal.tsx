@@ -10,6 +10,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ExcludeWindow } from '@/stores/queueStore';
+import TimePicker12 from '@/components/ui/TimePicker12';
 import styles from '@/styles/modules/Terminal.module.css';
 
 interface LoopExcludeWindowsModalProps {
@@ -89,18 +90,16 @@ export default function LoopExcludeWindowsModal({
               const invalid = w.startHHMM === w.endHHMM;
               return (
                 <div key={w.id} className={styles.excludeWindowRow}>
-                  <input
-                    type="time"
-                    className={styles.excludeWindowInput}
-                    value={w.startHHMM}
-                    onChange={(e) => updateField(w.id, 'startHHMM', e.target.value)}
+                  <TimePicker12
+                    value={w.startHHMM || '00:00'}
+                    onChange={(next) => updateField(w.id, 'startHHMM', next ?? '00:00')}
+                    ariaLabel="Window start"
                   />
                   <span className={styles.excludeWindowArrow}>→</span>
-                  <input
-                    type="time"
-                    className={styles.excludeWindowInput}
-                    value={w.endHHMM}
-                    onChange={(e) => updateField(w.id, 'endHHMM', e.target.value)}
+                  <TimePicker12
+                    value={w.endHHMM || '00:00'}
+                    onChange={(next) => updateField(w.id, 'endHHMM', next ?? '00:00')}
+                    ariaLabel="Window end"
                   />
                   {wraps && (
                     <span className={styles.excludeWindowHint} title="Wraps past midnight">

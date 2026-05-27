@@ -242,6 +242,15 @@
 .queueDelete { color: var(--accent-red); }
 .queueDelete:hover { background: rgba(255, 51, 85, 0.1) !important; color: var(--accent-red, #ff5555) !important; border-color: rgba(255, 51, 85, 0.3) !important; }
 
+.dailyStartLabel {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary, #888);
+  margin-left: 8px;
+  cursor: help;
+}
+
 .queueToggleBtn {
   display: inline-flex;
   align-items: center;

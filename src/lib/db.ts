@@ -103,6 +103,9 @@ export interface DbQueueItem {
   /** When 1, the scheduler skips this item entirely (per-item pause).
    *  Stored as int because Dexie indexes booleans poorly. Undefined / 0 = enabled. */
   disabled?: number;
+  /** Loop-only daily clamp — 'HH:MM' 24-hour local time. Loop won't fire
+   *  before this clock time on any given day. Non-indexed; no schema bump. */
+  firstFireOfDay?: string;
 }
 
 export interface DbAlert {

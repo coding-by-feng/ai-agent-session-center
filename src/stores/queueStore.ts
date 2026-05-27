@@ -90,6 +90,11 @@ export interface QueueItem {
    *  UI but stays in place; the user can re-enable any time without losing
    *  the chain / timing config. Default undefined (=enabled). */
   disabled?: boolean;
+  /** Loop-only. Local-time 'HH:MM' (24-hour). When set, the scheduler refuses
+   *  to fire the loop before this clock time on any given day — effectively
+   *  a morning quiet window from 00:00 to HH:MM. Schedule items have an
+   *  explicit `runAt` and ignore this. Once items don't repeat. */
+  firstFireOfDay?: string;
 }
 
 /**
@@ -390,6 +395,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
           execStepIdx: d.execStepIdx,
           historyId: d.historyId,
           disabled: d.disabled ? true : undefined,
+          firstFireOfDay: d.firstFireOfDay,
         });
         bySession.set(d.sessionId, items);
       }
@@ -510,6 +516,7 @@ async function persistSessionQueue(sessionId: string, items: QueueItem[]): Promi
           execStepIdx: item.execStepIdx,
           historyId: item.historyId,
           disabled: item.disabled ? 1 : undefined,
+          firstFireOfDay: item.firstFireOfDay,
         })),
       );
     }

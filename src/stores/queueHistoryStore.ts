@@ -96,6 +96,10 @@ function snapshotItem(item: QueueItem): QueueItem {
     // `disabled` is a per-instance pause state, not a property of the saved
     // pattern. Strip so a freshly applied entry comes in enabled.
     disabled: undefined,
+    // `firstFireOfDay` IS part of the pattern (user-configured scheduling).
+    // Carry it through unchanged so an applied entry keeps the same daily
+    // start clamp.
+    firstFireOfDay: item.firstFireOfDay,
   };
 }
 
