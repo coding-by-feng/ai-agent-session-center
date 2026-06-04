@@ -510,6 +510,36 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
       // propagate across SSH.
       // When skipAutoLaunch is true, the caller will write the command itself
       // (e.g., resume with || fallback that contains shell metacharacters).
+      // Auto-confirm Claude Code's "Yes, I trust this folder" safety prompt.
+      // Runs for ALL terminals (including deferredLaunch ones where the caller
+      // writes the launch command) because the trust prompt can appear regardless
+      // of who initiates the claude launch.
+      {
+        let trustBuffer = '';
+        let trustHandled = false;
+        const trustDisp = ptyProcess.onData((data: string) => {
+          if (trustHandled) return;
+          trustBuffer += data;
+          if (trustBuffer.length > 8192) trustBuffer = trustBuffer.slice(-8192);
+          const stripped = trustBuffer.replace(ANSI_ESC_RE, '');
+          // Claude Code's TUI uses cursor-positioning codes between words, so
+          // after ANSI stripping spaces are gone: "Yes,Itrustthisfolder".
+          // Collapse all whitespace and punctuation for a robust match.
+          const collapsed = stripped.replace(/[\s,]+/g, '').toLowerCase();
+          if (collapsed.includes('yesitrustthisfolder')) {
+            trustHandled = true;
+            trustDisp.dispose();
+            const t = terminals.get(terminalId);
+            if (t?.pty) {
+              t.pty.write('\r');
+              log.info('pty', `Auto-confirmed folder trust for ${terminalId}`);
+            }
+          }
+        });
+        // Give up after 60s — if Claude Code isn't asking by then, it never will
+        setTimeout(() => { if (!trustHandled) trustDisp.dispose(); }, 60000);
+      }
+
       if (!skipAutoLaunch) {
         // Build the launch command eagerly — only the write is deferred
         let launchCmd: string;

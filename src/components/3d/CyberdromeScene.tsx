@@ -315,7 +315,13 @@ export default function CyberdromeScene() {
 
   // Pre-compute session array and subagent connections in DOM layer
   const sessionArray = useMemo(
-    () => [...sessions.values()].filter(s => s.status !== 'ended' && s.source === 'ssh'),
+    () => [...sessions.values()].filter(
+      s => s.status !== 'ended'
+        && s.source === 'ssh'
+        // Floating fork sessions (Explain/Translate popups) have their own
+        // PiP UI and shouldn't be represented as 3D robots in the cyberdrome.
+        && !(s.isFork && s.originSessionId)
+    ),
     [sessions],
   );
 

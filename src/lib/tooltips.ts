@@ -165,6 +165,10 @@ export const tooltips = {
     label: 'Translate (native language)',
     description: 'Direct translation of the selection into your native language. No explanation, no commentary — just the equivalent text.',
   },
+  selCustomPrompt: {
+    label: 'Custom prompt',
+    description: 'Type your own instruction; it\'s combined with the selected text to start a fresh floating session. Enter or ⌘/Ctrl+Enter to run.',
+  },
   termTranslateAnswer: {
     label: 'Translate previous answer',
     description: 'Translate the most recent assistant response into your native language. Opens in a floating session.',

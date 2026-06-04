@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useQueueStore, type QueueItem } from './queueStore';
+import { clearLocalStorage } from '../__tests__/setup';
 
 function makeItem(id: number, sessionId: string, position: number): QueueItem {
   return {
@@ -172,5 +173,75 @@ describe('queueStore', () => {
       expect(items[0].text).toBe('Custom prompt text');
       expect(items[0].position).toBe(3);
     });
+
+    it('preserves loop scheduling fields so a resumed loop keeps looping', () => {
+      // A `claude --resume` re-keys the session; the loop must survive the
+      // re-key with its automation intact (it should re-fire, not vanish).
+      const loop: QueueItem = {
+        id: 9,
+        sessionId: 'old-id',
+        text: 'run tests',
+        position: 0,
+        createdAt: 100,
+        type: 'loop',
+        intervalMs: 300_000,
+        nextFireAt: 999_999,
+        totalFires: 7,
+      };
+      useQueueStore.getState().add('old-id', loop);
+
+      useQueueStore.getState().migrateSession('old-id', 'new-id');
+
+      const items = useQueueStore.getState().queues.get('new-id')!;
+      expect(items[0].type).toBe('loop');
+      expect(items[0].intervalMs).toBe(300_000);
+      expect(items[0].nextFireAt).toBe(999_999);
+      expect(items[0].totalFires).toBe(7);
+      expect(items[0].sessionId).toBe('new-id');
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Auto-send / auto-enter are PER-SESSION (they live in each session's
+// QueueAutomationConfig). Toggling one session must never affect another, and
+// both the QueueTab toggle and the scheduler read the same per-session value
+// so the visible toggle and the actual firing can never disagree.
+// ---------------------------------------------------------------------------
+describe('queueStore — per-session auto-send / auto-enter', () => {
+  beforeEach(() => {
+    clearLocalStorage();
+    useQueueStore.setState({ automation: new Map() });
+  });
+
+  it('defaults to ON for a session with no automation row', () => {
+    const cfg = useQueueStore.getState().getAutomation('s1');
+    expect(cfg.autoSend).toBe(true);
+    expect(cfg.autoEnter).toBe(true);
+  });
+
+  it('setAutoSend updates only the targeted session', () => {
+    useQueueStore.getState().setAutoSend('s1', false);
+    expect(useQueueStore.getState().getAutomation('s1').autoSend).toBe(false);
+    // A different session is unaffected — still the default ON.
+    expect(useQueueStore.getState().getAutomation('s2').autoSend).toBe(true);
+
+    useQueueStore.getState().setAutoSend('s1', true);
+    expect(useQueueStore.getState().getAutomation('s1').autoSend).toBe(true);
+  });
+
+  it('setAutoEnter updates only the targeted session', () => {
+    useQueueStore.getState().setAutoEnter('s1', false);
+    expect(useQueueStore.getState().getAutomation('s1').autoEnter).toBe(false);
+    expect(useQueueStore.getState().getAutomation('s2').autoEnter).toBe(true);
+  });
+
+  it('does not clobber sibling automation flags when toggling', () => {
+    useQueueStore.getState().setPaused('s1', true);
+    useQueueStore.getState().setAutoSend('s1', false);
+    const cfg = useQueueStore.getState().getAutomation('s1');
+    expect(cfg.paused).toBe(true);
+    expect(cfg.autoSend).toBe(false);
+    expect(cfg.idleGuard).toBe(true);
   });
 });

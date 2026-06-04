@@ -162,6 +162,12 @@ export interface DbTeam {
 export interface DbQueueAutomation {
   sessionId: string;
   paused: number;            // 0 / 1 — Dexie indexes booleans poorly so use int
+  /** 0 / 1 — per-session auto-send toggle. Optional for back-compat: rows saved
+   *  before auto-send became per-session read as `undefined`, which the loader
+   *  maps to true (the prior global default). Non-indexed, so no schema bump. */
+  autoSend?: number;
+  /** 0 / 1 — per-session auto-enter toggle. Same back-compat handling. */
+  autoEnter?: number;
   idleGuard: number;         // 0 / 1
   /** 0 / 1 — when 1, scheduler also skips while status==='prompting'. Default 1
    *  for back-compat: rows from before this field existed are read as `undefined`,
@@ -181,6 +187,10 @@ export interface DbQueueAutomation {
  */
 export interface DbQueueHistory {
   id?: number;
+  /** Optional user-chosen alias / display name for this saved entry. Lets a
+   *  user label a favorite (e.g. "nightly lint loop") instead of identifying it
+   *  by its prompt text. Non-indexed, so adding it needs no Dexie schema bump. */
+  alias?: string;
   /** JSON-serialized snapshot of the saved QueueItem. Excludes session-local
    *  fields like position, sessionId, lastFiredAt, execState — those are
    *  re-derived when applying to a target session. */
@@ -210,7 +220,8 @@ export interface DbTranslationLog {
     | 'translate-selection-learning'
     | 'translate-selection-native'
     | 'translate-answer'
-    | 'translate-file';
+    | 'translate-file'
+    | 'custom';
   nativeLanguage: string;
   learningLanguage: string;
   /** Selected text (modes 1, 2, 3). For translate-file this is empty. */

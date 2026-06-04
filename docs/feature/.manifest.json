@@ -363,7 +363,7 @@
         "electron/ipc/setupHandlers.ts": "47d7b6907b05ed1eb58e18a3bca373320ee6f0ce",
         "electron/ipc/appHandlers.ts": "a019e9a8c600b4f5f2db1907c565ed1d14caf387",
         "electron/preload.ts": "78cc156236b84da0400eed71db0a10d5b9020644",
-        "src/types/electron.d.ts": "21c7f7c20b65c87eaa24ae04c719ef997747cc81"
+        "src/types/electron.d.ts": "425aacee2da432c1c5354d29b413e9aaced78ec8"
       },
       "symbols": {
         "functions": [
@@ -427,7 +427,7 @@
         "electron/ptyHost.ts"
       ],
       "source_hashes": {
-        "electron/ptyHost.ts": "c07fbc82bf45f3090aab2c477c6d3c77e2879a11"
+        "electron/ptyHost.ts": "29bfa70da8e03cad49bc54cff7b48b638b9ccb12"
       },
       "symbols": {
         "functions": [
@@ -489,7 +489,7 @@
         "src/components/agenda/AgendaTaskCard.tsx": "6d2f757544e6f80ef61e56bb1edbeddaa4de3558",
         "src/components/agenda/AddTaskForm.tsx": "aa2e81834480da4d9dcea0093277ad5f935b6828",
         "src/types/agenda.ts": "5c8c5bbac47ab30049890246da7e0051d07eb1b8",
-        "server/apiRouter.ts": "1d51b60dcc15148d639446c0956f9e5d5fbde6d1",
+        "server/apiRouter.ts": "debb7e24553c597519d68f6acf4a59d5b1c2068e",
         "server/db.ts": "b81f182e22a12212b0e3524d4559986ef44e728a"
       },
       "symbols": {
@@ -680,7 +680,7 @@
         "src/lib/db.ts"
       ],
       "source_hashes": {
-        "src/lib/db.ts": "6152a902fca5b160be278cf5eee6a832816a08e3"
+        "src/lib/db.ts": "3c13bb43db411d74ee13c21308fdce4899f6e34d"
       },
       "symbols": {
         "functions": [
@@ -1075,8 +1075,8 @@
         "src/routes/QueueView.tsx"
       ],
       "source_hashes": {
-        "src/stores/queueStore.ts": "10113bf2b54e25112837c5e68ee24e3ebe462f63",
-        "src/components/session/QueueTab.tsx": "33acf53d0c2dc01b0d7111ec5e1f0df440aaae9c",
+        "src/stores/queueStore.ts": "eb0c7a517e4f345d8f720a777341e406afe89574",
+        "src/components/session/QueueTab.tsx": "ce07a388e582c773e778d506758e49a37b27b86b",
         "src/routes/QueueView.tsx": "1e41198cd313f11f7cb0c049574ddf88302cf2ba"
       },
       "symbols": {
@@ -1091,7 +1091,6 @@
         "ui_elements": [],
         "cli_commands": [],
         "storage_keys": [
-          "queue-auto-send",
           "queue-panel-collapsed"
         ]
       },
@@ -1125,7 +1124,7 @@
         "server/apiRouter.ts"
       ],
       "source_hashes": {
-        "src/lib/db.ts": "6152a902fca5b160be278cf5eee6a832816a08e3",
+        "src/lib/db.ts": "3c13bb43db411d74ee13c21308fdce4899f6e34d",
         "src/lib/translationLog.ts": "8e00fa203c5a4e28049cd7ed6598732d367e37ab",
         "src/lib/ansi.ts": "12355fd94f95d5742ceb04988ced8277d3e36074",
         "src/routes/ReviewView.tsx": "3e7079add0c21d4eb9b2511abf0110c44b49deba",
@@ -1136,7 +1135,7 @@
         "src/components/translate/SelectionPopup.tsx": "54c93f47be4e59112fef33cc549d5b6f0b4aa60b",
         "src/components/terminal/TerminalContainer.tsx": "b29e4d503c76d8b24f0239c0c5973cd083c6c11e",
         "src/components/session/ProjectTab.tsx": "bb50f8e3f4a4c6bc79324bb6cd9485470a355070",
-        "server/apiRouter.ts": "1d51b60dcc15148d639446c0956f9e5d5fbde6d1"
+        "server/apiRouter.ts": "debb7e24553c597519d68f6acf4a59d5b1c2068e"
       },
       "symbols": {
         "functions": [
@@ -1182,9 +1181,9 @@
         "src/lib/remoteControlName.ts"
       ],
       "source_hashes": {
-        "src/components/modals/NewSessionModal.tsx": "61127c3dcb92cbc5ef154d1d021f8a8a834d7975",
-        "src/components/modals/QuickSessionModal.tsx": "158637520db33e16bdffa331b11302e78c54f911",
-        "src/lib/remoteControlName.ts": "6feb88940e5d153ad8f9e1a00e8058c32fbf64a7"
+        "src/components/modals/NewSessionModal.tsx": "3577c5576a9496e2f098f755a9b57648f79c8b19",
+        "src/components/modals/QuickSessionModal.tsx": "4d55c581cca589461d56b5d034669dc791004ffb",
+        "src/lib/remoteControlName.ts": "0d5313dab2559fb10b816200e9007af28acb5ba5"
       },
       "symbols": {
         "functions": [
@@ -1246,7 +1245,7 @@
         "src/components/session/SessionSwitcher.tsx": "2f2d02ef2cc86e6c2f20124eac64eec53184be30",
         "src/components/session/PromptHistory.tsx": "5ff61c613c4068962fd9845e80bf076ee27b109c",
         "src/components/session/NotesTab.tsx": "7fbd7e9a1ac92651e7ca93ff478f323660a6cc6b",
-        "src/components/session/QueueTab.tsx": "33acf53d0c2dc01b0d7111ec5e1f0df440aaae9c",
+        "src/components/session/QueueTab.tsx": "ce07a388e582c773e778d506758e49a37b27b86b",
         "src/components/session/KillConfirmModal.tsx": "d13efff749a94ab732f9e0eb8ea9cfe81e5712d7",
         "src/components/session/ContentSearchModal.tsx": "6a878ab4e0a554469df3eb0299816f045dd04efa",
         "src/components/session/FloatingProjectPanel.tsx": "63e21e3675b1e91d44bc846d0dc575540d22331e",
@@ -1308,7 +1307,6 @@
         "storage_keys": [
           "${SPLIT_KEY}:${sessionId}",
           "active-tab",
-          "queue-auto-send",
           "queue-panel-collapsed",
           "selected-session",
           "float-project-collapsed:{sessionId}",
@@ -1434,7 +1432,7 @@
         "src/components/setup/steps/ConfigureStep.tsx": "400493dd79c55e92d1be672efc1742fce4ddc9c0",
         "src/components/setup/steps/InstallStep.tsx": "48abdadfd418ea7e13dd85947690d1fcd545b9d9",
         "src/components/setup/steps/DoneStep.tsx": "ccde69b89573121b6b67ef0cbd87b039dc5d169a",
-        "src/types/electron.d.ts": "21c7f7c20b65c87eaa24ae04c719ef997747cc81",
+        "src/types/electron.d.ts": "425aacee2da432c1c5354d29b413e9aaced78ec8",
         "server/hookInstaller.js": "2b98674b70cafe83cb055add4686594c26114544",
         "src/__tests__/firstRunFlow.test.tsx": "e4e4f4748199cb42a9ecb37ce69e0eb042951952",
         "src/components/setup/__tests__/SetupWizard.test.tsx": "0d963906f6ae61d46091a06ccd19569a5088a54f",
@@ -1488,7 +1486,7 @@
         "src/stores/wsStore.ts": "0bcf2d51cea211c534f4cd2a89a4da59fedc202b",
         "src/stores/uiStore.ts": "b08985bbe0e6861aa040581b1902d82a71a245e9",
         "src/stores/settingsStore.ts": "4a5890b3830365ef7922f1e2140c2d698424a0ef",
-        "src/stores/queueStore.ts": "10113bf2b54e25112837c5e68ee24e3ebe462f63",
+        "src/stores/queueStore.ts": "eb0c7a517e4f345d8f720a777341e406afe89574",
         "src/stores/cameraStore.ts": "1cbd74145921367deb5af53cf7d99245119d6f79",
         "src/stores/roomStore.ts": "a254e5a68fd9d35583f2864c9bd6e241b5846711",
         "src/stores/shortcutStore.ts": "212a44d1213bd0e8c720a8671d59e4964f32a32a",
@@ -1753,7 +1751,7 @@
         "src/hooks/useWorkspaceAutoLoad.ts": "1a2dc46187aa5f9bab35f4f2b012a1bc38909a7f",
         "src/components/ui/WorkspaceLoadingOverlay.tsx": "80f516f2506dbc7f3b8b18de713b3b9a897a766a",
         "src/components/ui/SavingOverlay.tsx": "a0b5499d74fc95c178f3dc134fc6812b7c67afb0",
-        "server/apiRouter.ts": "1d51b60dcc15148d639446c0956f9e5d5fbde6d1",
+        "server/apiRouter.ts": "debb7e24553c597519d68f6acf4a59d5b1c2068e",
         "src/components/modals/RestorePickerModal.tsx": "4b88ee384dfb17ba4faf7a8f1a1802ce653903ff"
       },
       "symbols": {
@@ -1973,13 +1971,13 @@
         "src/types/api.ts"
       ],
       "source_hashes": {
-        "server/apiRouter.ts": "1d51b60dcc15148d639446c0956f9e5d5fbde6d1",
+        "server/apiRouter.ts": "debb7e24553c597519d68f6acf4a59d5b1c2068e",
         "server/constants.ts": "50842011fd48a006726e109bc47c7813f59311e5",
         "server/index.ts": "3669c696982d5175b2eda62c9dcd1db7e08f348a",
         "server/hookRouter.ts": "bb009141f575133156a12d55c991c7192255242e",
         "server/floatingSessionSpawner.ts": "fc917c5891ba0a4e79e16bec7ed8184275cb9d2e",
         "server/extractPreviousAnswer.ts": "61cdb6cb64ef473f137a4f519b0f8fc1e3478212",
-        "src/types/api.ts": "867ab75e10f09bf4ed69843254a8683edd1387a7"
+        "src/types/api.ts": "70a298c5d7d00637ab21a90ed10897a42ab175e5"
       },
       "symbols": {
         "functions": [
@@ -2243,7 +2241,7 @@
       ],
       "source_hashes": {
         "server/fileIndexCache.ts": "cb73609a13c087b5d86de7bdc4167f6ed554812c",
-        "server/apiRouter.ts": "1d51b60dcc15148d639446c0956f9e5d5fbde6d1"
+        "server/apiRouter.ts": "debb7e24553c597519d68f6acf4a59d5b1c2068e"
       },
       "symbols": {
         "functions": [
@@ -2370,7 +2368,7 @@
       "source_hashes": {
         "server/floatingSessionSpawner.ts": "fc917c5891ba0a4e79e16bec7ed8184275cb9d2e",
         "server/extractPreviousAnswer.ts": "61cdb6cb64ef473f137a4f519b0f8fc1e3478212",
-        "server/apiRouter.ts": "1d51b60dcc15148d639446c0956f9e5d5fbde6d1",
+        "server/apiRouter.ts": "debb7e24553c597519d68f6acf4a59d5b1c2068e",
         "src/lib/cliDetect.ts": "13be01a92fcfe26c33724669d1dfa2dfbaca6ccd"
       },
       "symbols": {
@@ -2755,7 +2753,7 @@
       ],
       "source_hashes": {
         "server/sshManager.ts": "526db6006b3cdb9f2f86ccf84fb2c1850f06171d",
-        "src/types/terminal.ts": "039d38f3c47e3d1e7648b1c80be88626c7c0bb27"
+        "src/types/terminal.ts": "2ba81647be0bf279d6098615c9a1154cfb92fc02"
       },
       "symbols": {
         "functions": [
@@ -3299,5 +3297,5 @@
       ]
     }
   ],
-  "last_updated": "2026-05-12T00:59:33Z"
+  "last_updated": "2026-06-04"
 }

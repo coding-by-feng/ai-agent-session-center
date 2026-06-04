@@ -23,6 +23,7 @@ const MODE_LABELS: Record<DbTranslationLog['mode'], string> = {
   'translate-selection-native': 'Translate → native',
   'translate-answer': 'Translate answer',
   'translate-file': 'Translate file',
+  'custom': 'Custom prompt',
 };
 
 const MODE_ICONS: Record<DbTranslationLog['mode'], string> = {
@@ -32,6 +33,7 @@ const MODE_ICONS: Record<DbTranslationLog['mode'], string> = {
   'translate-selection-native': '🔤',
   'translate-answer': '⤴',
   'translate-file': '📝',
+  'custom': '✦',
 };
 
 function formatDate(ts: number): string {
@@ -130,6 +132,7 @@ export default function ReviewView() {
             <option value="explain-native">{MODE_LABELS['explain-native']}</option>
             <option value="translate-answer">{MODE_LABELS['translate-answer']}</option>
             <option value="translate-file">{MODE_LABELS['translate-file']}</option>
+            <option value="custom">{MODE_LABELS['custom']}</option>
           </select>
           <select
             className={styles.select}

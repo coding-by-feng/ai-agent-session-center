@@ -8,13 +8,22 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+  buildSnapshot,
   deduplicateSessions,
   importSnapshot,
+  scheduleAutoSave,
+  cancelAutoSave,
+  setRestorePending,
+  _resetAutoSaveStateForTests,
   type SessionSnapshot,
   type WorkspaceSnapshot,
 } from './workspaceSnapshot';
+import type { Session } from '@/types';
+import type { Room } from '@/stores/roomStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
+import { useQueueStore, type QueueItem } from '@/stores/queueStore';
+import { itemType } from './queueScheduler';
 import { clearLocalStorage } from '../__tests__/setup';
 
 // ---------------------------------------------------------------------------
@@ -512,5 +521,178 @@ describe('importSnapshot', () => {
     expect(result.created).toBe(1);
     expect(result.failed).toBe(1);
     expect(result.failedTitles).toEqual(['Throwy']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Auto-save restore-pending guard — prevents the snapshot from being overwritten
+// before the user resolves the Restore Workspace dialog. Without this guard,
+// the in-memory session list (a partial reflection of what was saved) gets
+// persisted ~5s after page load, permanently losing any unrestored sessions.
+// ---------------------------------------------------------------------------
+describe('scheduleAutoSave restore-pending guard', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  function sessionWithSsh(id: string): Session {
+    return {
+      sessionId: id,
+      projectPath: '/tmp/x',
+      projectName: 'x',
+      status: 'idle',
+      startedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      sshConfig: { host: 'localhost', port: 22, workingDir: '/tmp/x', command: 'claude' },
+    } as unknown as Session;
+  }
+
+  beforeEach(() => {
+    _resetAutoSaveStateForTests(); // clear leftover _importInProgress/timer from prior tests
+    vi.useFakeTimers();
+    fetchMock = vi.fn(async () =>
+      ({ ok: true, json: async () => ({ ok: true }) }) as unknown as Response,
+    );
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    cancelAutoSave();
+    setRestorePending(false);
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('skips save while restore is pending (snapshot must not be overwritten)', async () => {
+    const sessions = new Map<string, Session>([['s1', sessionWithSsh('s1')]]);
+    const rooms: Room[] = [];
+
+    scheduleAutoSave(() => sessions, () => rooms);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    const saveCalls = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes('/api/workspace/save'),
+    );
+    expect(saveCalls).toHaveLength(0);
+  });
+
+  it('saves once restore is resolved (setRestorePending(false))', async () => {
+    const sessions = new Map<string, Session>([['s1', sessionWithSsh('s1')]]);
+    const rooms: Room[] = [];
+
+    setRestorePending(false);
+    scheduleAutoSave(() => sessions, () => rooms);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    const saveCalls = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes('/api/workspace/save'),
+    );
+    expect(saveCalls.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Loop queue items must survive a workspace export/restore cycle.
+// Regression: the snapshot used to capture only {text, position, createdAt,
+// images}, so a restored loop came back with type=undefined → treated as
+// 'once' → consumed (deleted) on its first fire. The loop "vanished" from the
+// queue panel after every app reopen / Restore-Workspace.
+// ---------------------------------------------------------------------------
+
+function loopSession(id: string): Session {
+  return {
+    sessionId: id,
+    status: 'idle',
+    sshConfig: {
+      host: 'localhost',
+      port: 22,
+      username: 'u',
+      workingDir: '/x',
+      command: 'claude',
+    },
+  } as unknown as Session;
+}
+
+describe('buildSnapshot — queue automation preservation', () => {
+  beforeEach(() => {
+    clearLocalStorage();
+    useSessionStore.getState().setSessions(new Map());
+    useRoomStore.setState({ rooms: [] });
+    useQueueStore.setState({ queues: new Map(), automation: new Map() });
+  });
+
+  it('captures a loop item with its type / intervalMs intact', () => {
+    const loop: QueueItem = {
+      id: 1,
+      sessionId: 'sess-loop',
+      text: 'run tests',
+      position: 0,
+      createdAt: 123,
+      type: 'loop',
+      intervalMs: 300_000,
+      nextFireAt: 999,
+      totalFires: 4,
+    };
+    useQueueStore.getState().setQueue('sess-loop', [loop]);
+
+    const snap = buildSnapshot(
+      new Map([['sess-loop', loopSession('sess-loop')]]),
+      [],
+    );
+    const qi = snap.sessions[0].queueItems?.[0];
+    expect(qi).toBeDefined();
+    expect(qi!.type).toBe('loop');
+    expect(qi!.intervalMs).toBe(300_000);
+  });
+});
+
+describe('importSnapshot — loop round-trip', () => {
+  beforeEach(() => {
+    clearLocalStorage();
+    useSessionStore.getState().setSessions(new Map());
+    useRoomStore.setState({ rooms: [] });
+    useQueueStore.setState({ queues: new Map(), automation: new Map() });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('restores a loop with its loop-ness intact (does not degrade to once)', async () => {
+    setupFetchMock({
+      '/api/sessions/clear-all': () => mockResponse({ savedOutputs: [] }),
+      '/api/terminals': () => mockResponse({ ok: true, terminalId: 'new-loop-1' }),
+    });
+
+    const snap: WorkspaceSnapshot = {
+      version: 1,
+      exportedAt: Date.now(),
+      sessions: [
+        makeSnap({
+          originalSessionId: 'old-loop',
+          queueItems: [
+            {
+              text: 'run tests',
+              position: 0,
+              createdAt: 1,
+              type: 'loop',
+              intervalMs: 300_000,
+            },
+          ],
+        }),
+      ],
+      rooms: [],
+    };
+
+    await importSnapshot(snap, {
+      onSessionCreated: () => {},
+      onComplete: () => {},
+    });
+
+    const restored = useQueueStore.getState().queues.get('new-loop-1');
+    expect(restored).toBeDefined();
+    expect(restored!).toHaveLength(1);
+    expect(itemType(restored![0])).toBe('loop');
+    expect(restored![0].intervalMs).toBe(300_000);
+    expect(restored![0].nextFireAt ?? 0).toBeGreaterThan(Date.now());
   });
 });

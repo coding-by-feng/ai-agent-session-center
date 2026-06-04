@@ -140,7 +140,6 @@ function configureCodexHooksToml(toml, events, hookCommand, hookPattern, hookSou
       `[[hooks.${event}.hooks]]`,
       'type = "command"',
       `command = "${command}"`,
-      'async = true',
       '',
     ]),
   ].join('\n');

@@ -6,13 +6,14 @@
  * caller's mode + selection/file content and feeding it to the CLI as a
  * positional argument.
  *
- * Modes:
- *   explain-learning            — explain the selected text in the user's learning lang
- *   explain-native              — explain the selected text in the user's native lang
- *   translate-selection-learning — direct translation of the selection → learning lang
- *   translate-selection-native   — direct translation of the selection → native lang
- *   translate-answer            — translate the origin's last assistant message → native
- *   translate-file              — translate the supplied file content → native
+ * Modes (prompt synthesis + labels live in ./floatingPrompt.ts):
+ *   explain-learning             — explain the selected text in the learning lang
+ *   explain-native               — explain the selected text in the native lang
+ *   translate-selection-learning — direct translation of the selection → learning
+ *   translate-selection-native   — direct translation of the selection → native
+ *   translate-answer             — translate the origin's last assistant message → native
+ *   translate-file               — translate the supplied file content → native
+ *   custom                       — user's own instruction + the selection → fresh session
  *
  * For `translate-answer`, the previous assistant message is read from the
  * Claude transcript file (server/extractPreviousAnswer.ts). Cross-CLI support
@@ -22,41 +23,23 @@ import { getSession, createTerminalSession } from './sessionStore.js';
 import { createTerminal, consumePendingLink, writeWhenReady } from './sshManager.js';
 import { readClaudeLastAssistant } from './extractPreviousAnswer.js';
 import { reconstructPermissionFlags } from './config.js';
+import {
+  buildPrompt,
+  floatLabel,
+  customFloatLabel,
+  MAX_PROMPT_BYTES,
+  type SpawnFloatingArgs,
+} from './floatingPrompt.js';
 import log from './logger.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
 
-export type FloatingMode =
-  | 'explain-learning'
-  | 'explain-native'
-  | 'translate-selection-learning'
-  | 'translate-selection-native'
-  | 'translate-answer'
-  | 'translate-file';
-
-export interface SpawnFloatingArgs {
-  originSessionId: string;
-  mode: FloatingMode;
-  selection?: string;
-  contextLine?: string;
-  fileContent?: string;
-  filePath?: string;
-  nativeLanguage: string;
-  learningLanguage: string;
-  /**
-   * When true and the origin is a Claude session, explain-* modes use
-   *   claude --resume '<id>' --fork-session '<prompt>'
-   * so the AI inherits the prior conversation. Translate-* modes ignore this
-   * (they're self-contained). Defaults to true client-side.
-   */
-  inheritContext?: boolean;
-}
+// Re-exported so existing importers (apiRouter) keep their import paths.
+export type { FloatingMode, SpawnFloatingArgs } from './floatingPrompt.js';
 
 export interface SpawnFloatingResult {
   terminalId: string;
   label: string;
 }
-
-const MAX_PROMPT_BYTES = 256 * 1024; // 256KB safety cap; well under typical ARG_MAX
 
 function shellEscapeSingle(value: string): string {
   return value.replace(/'/g, `'"'"'`);
@@ -95,92 +78,6 @@ function buildForkCommand(cli: 'claude' | 'codex', originSessionId: string, prom
     return `claude --resume '${safeId}' --fork-session '${escapedPrompt}'`;
   }
   return `claude --continue --fork-session '${escapedPrompt}'`;
-}
-
-function floatLabel(mode: FloatingMode, native: string, learning: string): string {
-  switch (mode) {
-    case 'explain-learning': return `Explain (${learning})`;
-    case 'explain-native': return `Explain (${native})`;
-    case 'translate-selection-learning': return `Translate → ${learning}`;
-    case 'translate-selection-native': return `Translate → ${native}`;
-    case 'translate-answer': return `Translate answer → ${native}`;
-    case 'translate-file': return `Translate file → ${native}`;
-  }
-}
-
-function buildPrompt(args: SpawnFloatingArgs, prevAnswer: string | null): string | null {
-  const { mode, selection, contextLine, fileContent, filePath, nativeLanguage, learningLanguage } = args;
-  const ctx = contextLine && contextLine.trim()
-    ? `Surrounding line: "${contextLine.trim()}"\n`
-    : '';
-
-  switch (mode) {
-    case 'explain-learning':
-      if (!selection) return null;
-      return [
-        `Explain the following in ${learningLanguage}. Cover meaning, nuance, related concepts, and short examples. Be concise.`,
-        ctx,
-        `Selected text:`,
-        `"""`,
-        selection,
-        `"""`,
-      ].join('\n');
-
-    case 'explain-native':
-      if (!selection) return null;
-      return [
-        `Explain the following in ${nativeLanguage}. Use ${nativeLanguage} for the explanation. Cover meaning, nuance, and any technical concepts. Be concise.`,
-        ctx,
-        `Selected text:`,
-        `"""`,
-        selection,
-        `"""`,
-      ].join('\n');
-
-    case 'translate-selection-learning':
-      if (!selection) return null;
-      return [
-        `Translate the following text into ${learningLanguage}.`,
-        `Output ONLY the translation — no explanations, no notes, no surrounding quotes.`,
-        `Preserve original formatting (line breaks, code, lists, markdown).`,
-        ``,
-        `"""`,
-        selection,
-        `"""`,
-      ].join('\n');
-
-    case 'translate-selection-native':
-      if (!selection) return null;
-      return [
-        `Translate the following text into ${nativeLanguage}.`,
-        `Output ONLY the translation — no explanations, no notes, no surrounding quotes.`,
-        `Preserve original formatting (line breaks, code, lists, markdown).`,
-        ``,
-        `"""`,
-        selection,
-        `"""`,
-      ].join('\n');
-
-    case 'translate-answer':
-      if (!prevAnswer) return null;
-      return [
-        `Translate the following text into ${nativeLanguage}. Preserve markdown, code blocks, lists, and structure. Output translation only, no commentary.`,
-        `"""`,
-        prevAnswer,
-        `"""`,
-      ].join('\n');
-
-    case 'translate-file': {
-      if (!fileContent) return null;
-      const fp = filePath ? `\nFile: ${filePath}` : '';
-      return [
-        `Translate the following markdown file into ${nativeLanguage}. Preserve markdown syntax exactly (headings, code blocks, lists, links, images, tables). Output translation only.${fp}`,
-        `"""`,
-        fileContent,
-        `"""`,
-      ].join('\n');
-    }
-  }
 }
 
 /**
@@ -225,7 +122,7 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
   // Spawn the same CLI as the origin session.
   const cliKind = detectCli(origin.startupCommand || origin.sshCommand || origin.sshConfig?.command);
   // Inherit the prior conversation only for explain-* modes on Claude/Codex origins.
-  // translate-* modes are self-contained — the answer/file is in the prompt.
+  // translate-* and custom modes are self-contained — the prompt carries everything.
   const shouldInheritContext = (
     args.inheritContext !== false &&
     (cliKind === 'claude' || cliKind === 'codex') &&
@@ -247,7 +144,9 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
   const terminalId = await createTerminal(newConfig, null);
   consumePendingLink(newConfig.workingDir || origin.projectPath || '');
 
-  const label = floatLabel(args.mode, args.nativeLanguage, args.learningLanguage);
+  const label = args.mode === 'custom'
+    ? customFloatLabel(args.customPrompt || '')
+    : floatLabel(args.mode, args.nativeLanguage, args.learningLanguage);
   await createTerminalSession(terminalId, {
     ...newConfig,
     command: launchCmd,

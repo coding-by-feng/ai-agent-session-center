@@ -65,7 +65,8 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 - For remote SSH connections, password is auto-typed when a password prompt is detected
 
 ### Auto-Apply Model/Effort
-- After Claude Code starts in a terminal, the configured model and effort level are automatically applied
+- After Claude Code starts in a terminal, the configured model and effort level are automatically applied (via `/model <model>` and `/effort <level>` slash commands)
+- Effort levels follow Claude Code's set: `low`/`medium`/`high`/`xhigh`/`max` (default `high`). The `POST /api/terminals` Zod enum validates these; an out-of-set value falls back to "no effort override" (`.catch(undefined)`)
 
 ### Environment
 - `CLAUDECODE` env var is stripped from the spawned PTY environment to avoid conflicts

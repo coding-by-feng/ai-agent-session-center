@@ -22,16 +22,10 @@ import { parseHHMM } from '@/lib/timePicker';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useQueueHistoryStore } from '@/stores/queueHistoryStore';
 import { showToast } from '@/components/ui/ToastContainer';
+import AutocompleteTextarea from '@/components/ui/AutocompleteTextarea';
 import QueueItemEditModal from './QueueItemEditModal';
 import QueueHistorySheet from './QueueHistorySheet';
 import LoopExcludeWindowsModal from './LoopExcludeWindowsModal';
-import {
-  fetchCommandIndex,
-  filterAndGroup,
-  entryDisplayName,
-  type CommandGroup,
-} from '@/lib/commandIndex';
-import { detectCli } from '@/lib/cliDetect';
 import styles from '@/styles/modules/Terminal.module.css';
 
 // ---------------------------------------------------------------------------
@@ -52,82 +46,6 @@ function formatClampDisplay(hhmm: string | undefined): string {
 
 /** Stable empty array — prevents useSyncExternalStore infinite loop from `?? []` */
 const EMPTY_QUEUE: QueueItem[] = [];
-
-// ---------------------------------------------------------------------------
-// Autocomplete
-// ---------------------------------------------------------------------------
-
-interface AcItem {
-  label: string;
-  insert: string;
-  sub?: string;
-  /** 'command' / 'skill' / 'file' — drives the icon shown before the label */
-  kind?: 'command' | 'skill' | 'file';
-}
-
-interface AcMenu {
-  type: 'command' | 'file';
-  query: string;
-  /** Flat list used for ↑/↓ keyboard navigation. */
-  items: AcItem[];
-  /** Optional grouped view for rendering (command type only). */
-  groups?: Array<{ title: string; startIdx: number; count: number }>;
-  selectedIdx: number;
-  triggerStart: number;
-}
-
-/** Render groups + a flat AcItem list from CommandEntry groups. */
-function commandEntriesToMenu(groups: CommandGroup[]): {
-  items: AcItem[];
-  groupSpans: Array<{ title: string; startIdx: number; count: number }>;
-} {
-  const items: AcItem[] = [];
-  const groupSpans: Array<{ title: string; startIdx: number; count: number }> = [];
-  for (const g of groups) {
-    const startIdx = items.length;
-    for (const e of g.entries) {
-      const display = entryDisplayName(e);
-      items.push({
-        label: '/' + display,
-        insert: '/' + display,
-        sub: e.description || (e.kind === 'skill' ? 'skill' : 'command'),
-        kind: e.kind,
-      });
-    }
-    if (items.length > startIdx) {
-      groupSpans.push({ title: g.title, startIdx, count: items.length - startIdx });
-    }
-  }
-  return { items, groupSpans };
-}
-
-/** Detect a session's CLI for the autocomplete fetch. Falls back to 'claude'. */
-function sessionCli(sessionId: string): 'claude' | 'codex' | 'gemini' {
-  const session = useSessionStore.getState().sessions.get(sessionId);
-  if (!session) return 'claude';
-  const cli = detectCli(session);
-  return cli ?? 'claude';
-}
-
-function parseTrigger(
-  text: string,
-  pos: number,
-): { type: 'command' | 'file'; query: string; triggerStart: number } | null {
-  const before = text.slice(0, pos);
-  // @ trigger: @ at start or after whitespace, no space in the fragment
-  const atIdx = before.lastIndexOf('@');
-  if (atIdx >= 0 && (atIdx === 0 || /\s/.test(before[atIdx - 1]))) {
-    const frag = before.slice(atIdx + 1);
-    if (!frag.includes(' ')) return { type: 'file', query: frag, triggerStart: atIdx };
-  }
-  // / trigger: / at start or after whitespace, no space in the fragment
-  const slashIdx = before.lastIndexOf('/');
-  if (slashIdx >= 0 && (slashIdx === 0 || /\s/.test(before[slashIdx - 1]))) {
-    const frag = before.slice(slashIdx + 1);
-    if (!frag.includes(' ')) return { type: 'command', query: frag, triggerStart: slashIdx };
-  }
-  return null;
-}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -169,7 +87,9 @@ export default function QueueTab({
   /** Open state for the global queue-history sheet. */
   const [historyOpen, setHistoryOpen] = useState(false);
   const sessions = useSessionStore((s) => s.sessions);
-  const currentSessionTitle = sessions.get(sessionId)?.title ?? '';
+  const currentSession = sessions.get(sessionId);
+  const currentSessionTitle = currentSession?.title ?? '';
+  const currentProjectPath = currentSession?.projectPath ?? null;
 
   const historyEntries = useQueueHistoryStore((s) => s.entries);
   const historyCount = historyEntries.length;
@@ -234,24 +154,17 @@ export default function QueueTab({
       return stored === null ? true : stored === '1';
     } catch { return true; }
   });
-  const [autoSend, setAutoSend] = useState(() => {
-    try {
-      const stored = localStorage.getItem('queue-auto-send');
-      return stored === null ? true : stored === '1';
-    } catch { return true; }
-  });
-  const [autoEnter, setAutoEnter] = useState(() => {
-    try {
-      const stored = localStorage.getItem('queue-auto-enter');
-      return stored === null ? true : stored === '1';
-    } catch { return true; }
-  });
+  // Per-session auto-send / auto-enter. These live in THIS session's
+  // QueueAutomationConfig (read above as `automationConfig`), so toggling them
+  // affects only the current session. Both QueueTab mounts for a session AND
+  // `useGlobalQueueScheduler` read the same store value, so the visible toggle
+  // and the actual firing stay in lockstep.
+  const autoSend = automationConfig.autoSend;
+  const autoEnter = automationConfig.autoEnter;
+  const setAutoSend = useQueueStore((s) => s.setAutoSend);
+  const setAutoEnter = useQueueStore((s) => s.setAutoEnter);
   const [movingItemId, setMovingItemId] = useState<number | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
-
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const acDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [acMenu, setAcMenu] = useState<AcMenu | null>(null);
 
   // ---- Snap composeType back to Once when Auto-send turns OFF ----
   // Loop/Schedule items can't fire without Auto-send. If the user toggles
@@ -282,8 +195,6 @@ export default function QueueTab({
     setEditingId(null);
     setEditText('');
     setMovingItemId(null);
-    setAcMenu(null);
-    if (acDebounceRef.current) clearTimeout(acDebounceRef.current);
   }, [sessionId]);
 
   // Notify parent of queue count changes
@@ -347,95 +258,9 @@ export default function QueueTab({
   // sessions even when their QueueTab is unmounted. This tab only handles
   // UI, compose, and manual "send now".
 
-  // Clean up debounce timer on unmount
-  useEffect(() => () => { if (acDebounceRef.current) clearTimeout(acDebounceRef.current); }, []);
-
-  // ---- Autocomplete: detect / and @ triggers in the compose textarea ----
-  const handleComposeChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value;
-    const pos = e.target.selectionStart ?? val.length;
-    setComposeText(val);
-
-    const trigger = parseTrigger(val, pos);
-    if (!trigger) { setAcMenu(null); return; }
-
-    if (trigger.type === 'command') {
-      const cli = sessionCli(sessionId);
-      const session = useSessionStore.getState().sessions.get(sessionId);
-      const projectPath = session?.projectPath ?? null;
-      // Show an empty-state menu instantly while the fetch is in flight, then
-      // populate when entries arrive. Subsequent calls hit the 30s memo cache.
-      setAcMenu((prev) =>
-        prev?.type === 'command'
-          ? { ...prev, query: trigger.query, triggerStart: trigger.triggerStart, selectedIdx: 0 }
-          : { type: 'command', query: trigger.query, items: [], groups: [], selectedIdx: 0, triggerStart: trigger.triggerStart },
-      );
-      void (async () => {
-        const entries = await fetchCommandIndex(cli, projectPath);
-        // Group by source. Each item carries kind ('command' / 'skill') so the
-        // icon column disambiguates without separate sub-sections.
-        const cmdGroups = filterAndGroup(entries, trigger.query, 'command');
-        const skillGroups = filterAndGroup(entries, trigger.query, 'skill');
-        // Merge groups with the same source, putting commands before skills.
-        const merged = new Map<string, CommandGroup>();
-        const order: string[] = [];
-        for (const g of [...cmdGroups, ...skillGroups]) {
-          const key = g.title;
-          if (!merged.has(key)) {
-            merged.set(key, { title: g.title, source: g.source, entries: [] });
-            order.push(key);
-          }
-          merged.get(key)!.entries.push(...g.entries);
-        }
-        const { items, groupSpans } = commandEntriesToMenu(order.map((k) => merged.get(k)!));
-        setAcMenu((prev) =>
-          prev && prev.type === 'command' && prev.triggerStart === trigger.triggerStart
-            ? { ...prev, items, groups: groupSpans, selectedIdx: 0 }
-            : prev,
-        );
-      })();
-    } else {
-      if (!trigger.query) { setAcMenu(null); return; }
-      if (acDebounceRef.current) clearTimeout(acDebounceRef.current);
-      setAcMenu((prev) =>
-        prev?.type === 'file'
-          ? { ...prev, query: trigger.query, triggerStart: trigger.triggerStart, selectedIdx: 0 }
-          : { type: 'file', query: trigger.query, items: [], selectedIdx: 0, triggerStart: trigger.triggerStart },
-      );
-      acDebounceRef.current = setTimeout(async () => {
-        const session = useSessionStore.getState().sessions.get(sessionId);
-        const projectPath = session?.projectPath;
-        if (!projectPath) return;
-        try {
-          const res = await fetch(
-            `/api/files/search?root=${encodeURIComponent(projectPath)}&q=${encodeURIComponent(trigger.query)}`,
-          );
-          if (!res.ok) return;
-          const data = await res.json() as { results?: Array<{ path: string; name: string; type: string }> };
-          const acItems: AcItem[] = (data.results ?? []).slice(0, 8).map((r) => ({
-            label: r.name,
-            insert: '@' + r.path.replace(/^\//, ''),
-            sub: r.path.replace(/^\//, ''),
-          }));
-          setAcMenu((prev) => (prev?.type === 'file' ? { ...prev, items: acItems, selectedIdx: 0 } : prev));
-        } catch { /* ignore */ }
-      }, 150);
-    }
-  }, [sessionId]);
-
-  // ---- Autocomplete: insert selected item at cursor ----
-  const handleAcSelect = useCallback((item: AcItem) => {
-    if (!acMenu) return;
-    const textarea = textareaRef.current;
-    const cursorPos = textarea?.selectionStart ?? composeText.length;
-    const newText = composeText.slice(0, acMenu.triggerStart) + item.insert + ' ' + composeText.slice(cursorPos);
-    setComposeText(newText);
-    setAcMenu(null);
-    const newPos = acMenu.triggerStart + item.insert.length + 1;
-    setTimeout(() => {
-      if (textarea) { textarea.setSelectionRange(newPos, newPos); textarea.focus(); }
-    }, 0);
-  }, [acMenu, composeText]);
+  // Autocomplete (slash commands / @ files) is owned by <AutocompleteTextarea>;
+  // both the compose row and every prompt textarea inside QueueItemEditModal
+  // use the same component, so nothing autocomplete-related lives here anymore.
 
   // ---- Image file picker ----
   const handleImagePick = useCallback(() => {
@@ -611,6 +436,9 @@ export default function QueueTab({
   }, [editingId, editText, items, sessionId, remove]);
 
   // ---- Send now (first item or specific item) — only remove after successful send ----
+  // Used for 'once' items: send the text and consume the queue entry. For loop
+  // and schedule items, prefer `handleTriggerNow` which preserves loop config
+  // and advances nextFireAt properly.
   const handleSendNow = useCallback(
     async (item: QueueItem) => {
       const sent = await sendItemToTerminal(item);
@@ -619,6 +447,67 @@ export default function QueueTab({
       }
     },
     [sendItemToTerminal, remove, sessionId],
+  );
+
+  // ---- Trigger now for loop / schedule items ----
+  // Hands the item's FULL before→main→after chain to the global scheduler
+  // (useGlobalQueueScheduler), which drives it step-by-step with the saw-work
+  // gate — each step waits for the previous step's turn to actually finish
+  // before the next is sent, so prompts never pile up in the CLI input box.
+  // `forceStart` makes the scheduler begin immediately, bypassing idle-guard /
+  // quiet-hours / daily-start / skip-prompting AND the auto-send toggle (a
+  // manual trigger is a deliberate user action). On completion the scheduler
+  // reschedules a loop (next cycle = now + interval) or removes a schedule.
+  // The first step fires on the next scheduler tick (≤1s) rather than perfectly
+  // synchronously — the deliberate trade for keeping the gate machinery a
+  // single source of truth instead of duplicating it here. Items with no chain
+  // behave exactly as before (just the main prompt, then reschedule/remove).
+  const handleTriggerNow = useCallback(
+    async (item: QueueItem) => {
+      const t = itemType(item);
+      if (t === 'once') {
+        // 'once' items have no chain — keep the existing send-and-remove path.
+        await handleSendNow(item);
+        return;
+      }
+      // ⚡ NOW only ever STARTS a fresh chain. If this item's chain is already
+      // mid-flight, do nothing: resetting its execState would delete the
+      // saw-work gate and type step 1 on top of the still-working agent,
+      // breaking chain atomicity. (The button is also disabled while running.)
+      if (isExecuting(item)) {
+        showToast('Chain already running', 'info', 1500);
+        return;
+      }
+      // Defensive: a paused row's ⚡ button is disabled, but never force-fire a
+      // disabled item even if the click slips through (pickNext filters it).
+      if (item.disabled) return;
+      // Session-level Pause is a HARD stop — the scheduler bails before any
+      // force path runs (automationConfig.paused), so honor it here rather than
+      // setting forceStart that would sit silently until Resume and then fire
+      // unexpectedly. The button is disabled too; this is the belt-and-braces.
+      if (automationConfig.paused) {
+        showToast('Session automation paused — Resume to fire', 'info', 2200);
+        return;
+      }
+      updateItem(sessionId, item.id, {
+        forceStart: true,
+        // Always start the chain from the top — clear any stale execution
+        // cursor left over from a previous run.
+        execState: undefined,
+        execStepIdx: undefined,
+      });
+      const steps = totalChainSteps(item);
+      showToast(
+        steps > 1
+          ? `Firing chain now — ${steps} steps in sequence…`
+          : t === 'loop'
+            ? 'Loop firing now…'
+            : 'Scheduled prompt firing now…',
+        'info',
+        1800,
+      );
+    },
+    [updateItem, sessionId, handleSendNow, automationConfig.paused],
   );
 
   // ---- Move to another session ----
@@ -699,8 +588,7 @@ export default function QueueTab({
           onClick={(e) => {
             e.stopPropagation();
             const next = !autoEnter;
-            setAutoEnter(next);
-            try { localStorage.setItem('queue-auto-enter', next ? '1' : '0'); } catch { /* ignore */ }
+            setAutoEnter(sessionId, next);
             showToast(next ? 'Auto-Enter enabled — prompt will submit' : 'Auto-Enter disabled — prompt typed only, press Enter yourself', 'info', 2000);
           }}
           title={autoEnter
@@ -717,8 +605,7 @@ export default function QueueTab({
           onClick={(e) => {
             e.stopPropagation();
             const next = !autoSend;
-            setAutoSend(next);
-            try { localStorage.setItem('queue-auto-send', next ? '1' : '0'); } catch { /* ignore */ }
+            setAutoSend(sessionId, next);
             showToast(next ? 'Auto-send enabled' : 'Auto-send disabled', 'info', 1500);
           }}
           title={autoSend ? 'Auto-send ON — prompts sent automatically when session is waiting' : 'Auto-send OFF — prompts stay in queue'}
@@ -746,8 +633,7 @@ export default function QueueTab({
             <button
               className={styles.queueAutoSendBannerBtn}
               onClick={() => {
-                setAutoSend(true);
-                try { localStorage.setItem('queue-auto-send', '1'); } catch { /* ignore */ }
+                setAutoSend(sessionId, true);
                 showToast('Auto-send enabled', 'info', 1500);
               }}
             >
@@ -762,33 +648,16 @@ export default function QueueTab({
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
         >
-          <textarea
-            ref={textareaRef}
+          <AutocompleteTextarea
             className={styles.queueTextarea}
             placeholder="Add a prompt to the queue... (/ for commands, @ for files, Cmd+V for images)"
             rows={2}
             value={composeText}
-            onChange={handleComposeChange}
+            onChange={setComposeText}
+            sessionId={sessionId}
+            projectPath={currentProjectPath}
             onPaste={handlePaste}
-            onBlur={() => setAcMenu(null)}
             onKeyDown={(e) => {
-              if (acMenu && acMenu.items.length > 0) {
-                if (e.key === 'ArrowDown') {
-                  e.preventDefault();
-                  setAcMenu((prev) => prev ? { ...prev, selectedIdx: (prev.selectedIdx + 1) % prev.items.length } : prev);
-                  return;
-                }
-                if (e.key === 'ArrowUp') {
-                  e.preventDefault();
-                  setAcMenu((prev) => prev ? { ...prev, selectedIdx: (prev.selectedIdx - 1 + prev.items.length) % prev.items.length } : prev);
-                  return;
-                }
-                if (e.key === 'Tab' || e.key === 'Enter') {
-                  const item = acMenu.items[acMenu.selectedIdx];
-                  if (item) { e.preventDefault(); handleAcSelect(item); return; }
-                }
-                if (e.key === 'Escape') { e.preventDefault(); setAcMenu(null); return; }
-              }
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
                 handleAdd();
@@ -1045,13 +914,34 @@ export default function QueueTab({
                       >
                         {item.historyId != null ? '★' : '☆'}
                       </button>
-                      <button
-                        className={`${styles.queueActionBtn} ${styles.queueSend}`}
-                        onClick={() => handleSendNow(item)}
-                        title="Send now"
-                      >
-                        SEND
-                      </button>
+                      {itemType(item) === 'once' ? (
+                        <button
+                          className={`${styles.queueActionBtn} ${styles.queueSend}`}
+                          onClick={() => handleSendNow(item)}
+                          title="Send now (and remove)"
+                        >
+                          SEND
+                        </button>
+                      ) : (
+                        <button
+                          className={`${styles.queueActionBtn} ${styles.queueTriggerNow}`}
+                          onClick={() => { void handleTriggerNow(item); }}
+                          disabled={item.disabled || isExecuting(item) || automationConfig.paused}
+                          title={
+                            item.disabled
+                              ? 'Paused — re-enable this item to fire it'
+                              : isExecuting(item)
+                                ? 'Chain already running…'
+                                : automationConfig.paused
+                                  ? 'Session automation paused — Resume to fire'
+                                  : itemType(item) === 'loop'
+                                    ? 'Fire now — runs the full before→main→after chain in sequence, then restarts the cadence'
+                                    : 'Fire now — runs the full before→main→after chain in sequence, then removes'
+                          }
+                        >
+                          ⚡ NOW
+                        </button>
+                      )}
                       <button
                         className={`${styles.queueActionBtn} ${styles.queueEdit}`}
                         onClick={() => startEdit(item)}
@@ -1266,6 +1156,8 @@ export default function QueueTab({
           <QueueItemEditModal
             item={target}
             autoSendEnabled={autoSend}
+            sessionId={sessionId}
+            projectPath={currentProjectPath}
             onClose={() => setChainEditId(null)}
             onSave={(patch) => updateItem(sessionId, target.id, patch)}
             onDelete={() => {
@@ -1281,54 +1173,6 @@ export default function QueueTab({
         currentSessionId={sessionId}
         currentSessionTitle={currentSessionTitle}
       />
-
-      {acMenu && acMenu.items.length > 0 && (() => {
-        const rect = textareaRef.current?.getBoundingClientRect();
-        if (!rect) return null;
-        // Expand UPWARD from the textarea — bottom anchor relative to viewport.
-        const gap = 4;
-        const availableAbove = rect.top - 8;
-        const maxHeight = Math.min(window.innerHeight * 0.6, availableAbove);
-        const groups = acMenu.groups ?? [];
-        // Build a map index → header to render before this row.
-        const headerAt = new Map<number, string>();
-        for (const g of groups) headerAt.set(g.startIdx, g.title);
-        return (
-          <div
-            className={`${styles.acDropdown} ${styles.acDropdownUp}`}
-            style={{
-              bottom: window.innerHeight - rect.top + gap,
-              left: rect.left,
-              width: rect.width,
-              maxHeight: `${maxHeight}px`,
-            }}
-          >
-            {acMenu.items.map((item, i) => (
-              <div key={`row-${i}-${item.insert}`}>
-                {headerAt.has(i) && (
-                  <div className={styles.acGroupHeader}>{headerAt.get(i)}</div>
-                )}
-                <div
-                  className={`${styles.acItem}${i === acMenu.selectedIdx ? ` ${styles.acItemSelected}` : ''}`}
-                  onMouseDown={(e) => { e.preventDefault(); handleAcSelect(item); }}
-                >
-                  {item.kind && (
-                    <span className={styles.acKindIcon}>
-                      {item.kind === 'skill' ? '★' : item.kind === 'file' ? '@' : '▸'}
-                    </span>
-                  )}
-                  <span className={styles.acLabel}>{item.label}</span>
-                  {item.sub && <span className={styles.acSub}>{item.sub}</span>}
-                </div>
-              </div>
-            ))}
-            <div className={styles.acFooter}>
-              <span>{acMenu.items.length} match{acMenu.items.length === 1 ? '' : 'es'}</span>
-              <span>↑↓ navigate · Enter select · Esc close</span>
-            </div>
-          </div>
-        );
-      })()}
     </div>
   );
 }

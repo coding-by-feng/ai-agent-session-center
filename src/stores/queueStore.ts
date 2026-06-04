@@ -95,6 +95,15 @@ export interface QueueItem {
    *  a morning quiet window from 00:00 to HH:MM. Schedule items have an
    *  explicit `runAt` and ignore this. Once items don't repeat. */
   firstFireOfDay?: string;
+  /** Transient, IN-MEMORY ONLY — deliberately absent from the IndexedDB
+   *  mapping (a field whitelist), so it never persists and can never fire a
+   *  stale chain after a reload. Set by the manual "⚡ NOW" button to make the
+   *  global scheduler START this item's FULL before→main→after chain
+   *  immediately, bypassing idle-guard, quiet-hours, the daily-start clamp,
+   *  skip-prompting, AND the auto-send toggle. Cleared automatically once the
+   *  first step fires (the remaining steps proceed via `execState` + the
+   *  saw-work gate, exactly like an automated cycle). */
+  forceStart?: boolean;
 }
 
 /**
@@ -109,6 +118,16 @@ export interface QueueItem {
  */
 export interface QueueAutomationConfig {
   paused: boolean;
+  /** Per-session "auto-send a queued prompt when this session is waiting/input"
+   *  toggle (the ➤ paper-plane icon). Defaults to true. Scoped to ONE session —
+   *  toggling it on session A never affects session B. Both every `QueueTab`
+   *  instance for this session AND `useGlobalQueueScheduler` read this one value,
+   *  so the visible toggle and the actual firing can never disagree. */
+  autoSend: boolean;
+  /** Per-session "append a real Enter keystroke (\r) when sending" toggle (the
+   *  ↵ icon). Defaults to true. Controls HOW a prompt is delivered (auto-send
+   *  governs WHEN). Scoped to ONE session, same as `autoSend`. */
+  autoEnter: boolean;
   /** When true, schedule/loop items only fire while session.status ∈ waiting/input/idle. */
   idleGuard: boolean;
   /**
@@ -125,7 +144,8 @@ export interface QueueAutomationConfig {
 
 interface QueueState {
   queues: Map<string, QueueItem[]>;
-  /** Per-session pause + idle-guard. Defaults to { paused:false, idleGuard:true }. */
+  /** Per-session pause + idle-guard + auto-send/auto-enter. Defaults to
+   *  { paused:false, autoSend:true, autoEnter:true, idleGuard:true }. */
   automation: Map<string, QueueAutomationConfig>;
 
   add: (sessionId: string, item: QueueItem) => void;
@@ -139,6 +159,10 @@ interface QueueState {
   /** Get (or initialize) the automation config for a session. */
   getAutomation: (sessionId: string) => QueueAutomationConfig;
   setPaused: (sessionId: string, paused: boolean) => void;
+  /** Per-session auto-send toggle (the ➤ icon). */
+  setAutoSend: (sessionId: string, autoSend: boolean) => void;
+  /** Per-session auto-enter toggle (the ↵ icon). */
+  setAutoEnter: (sessionId: string, autoEnter: boolean) => void;
   setIdleGuard: (sessionId: string, idleGuard: boolean) => void;
   setSkipWhenPrompting: (sessionId: string, value: boolean) => void;
   /** Replace the session-level loop exclude windows (quiet hours). */
@@ -157,6 +181,8 @@ interface QueueState {
  *  infinite re-render loop). */
 export const DEFAULT_AUTOMATION: QueueAutomationConfig = Object.freeze({
   paused: false,
+  autoSend: true,
+  autoEnter: true,
   idleGuard: true,
   skipWhenPrompting: true,
 }) as QueueAutomationConfig;
@@ -266,6 +292,22 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       return { automation: next };
     }),
 
+  setAutoSend: (sessionId, autoSend) =>
+    set((state) => {
+      const next = new Map(state.automation);
+      const current = next.get(sessionId) ?? DEFAULT_AUTOMATION;
+      next.set(sessionId, { ...current, autoSend });
+      return { automation: next };
+    }),
+
+  setAutoEnter: (sessionId, autoEnter) =>
+    set((state) => {
+      const next = new Map(state.automation);
+      const current = next.get(sessionId) ?? DEFAULT_AUTOMATION;
+      next.set(sessionId, { ...current, autoEnter });
+      return { automation: next };
+    }),
+
   setIdleGuard: (sessionId, idleGuard) =>
     set((state) => {
       const next = new Map(state.automation);
@@ -325,6 +367,11 @@ export const useQueueStore = create<QueueState>((set, get) => ({
           }
           next.set(row.sessionId, {
             paused: row.paused === 1,
+            // Default true when the column is absent on older rows (rows saved
+            // before auto-send/auto-enter became per-session) so the prior
+            // default-ON behavior is preserved after the upgrade.
+            autoSend: row.autoSend === undefined ? true : row.autoSend !== 0,
+            autoEnter: row.autoEnter === undefined ? true : row.autoEnter !== 0,
             idleGuard: row.idleGuard !== 0, // default true if missing/null
             // Default true when the column is absent on older rows so an
             // upgrade-then-reload preserves the safe behavior.
@@ -470,6 +517,8 @@ useQueueStore.subscribe((state) => {
         .put({
           sessionId: sid,
           paused: cfg.paused ? 1 : 0,
+          autoSend: cfg.autoSend ? 1 : 0,
+          autoEnter: cfg.autoEnter ? 1 : 0,
           idleGuard: cfg.idleGuard ? 1 : 0,
           skipWhenPrompting: cfg.skipWhenPrompting ? 1 : 0,
           loopExcludeWindows:

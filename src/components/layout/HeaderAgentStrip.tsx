@@ -84,7 +84,9 @@ export default function HeaderAgentStrip() {
   const activeSessions = useMemo(
     () =>
       Array.from(sessions.values())
-        .filter((s) => s.status !== 'ended')
+        // Hide floating fork sessions (Explain/Translate popups) — they're rendered
+        // as separate draggable windows tied to their origin session, not as agents.
+        .filter((s) => s.status !== 'ended' && !(s.isFork && s.originSessionId))
         .sort((a, b) => {
           if (a.pinned && !b.pinned) return -1;
           if (!a.pinned && b.pinned) return 1;

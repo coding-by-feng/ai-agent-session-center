@@ -11,7 +11,7 @@ import { handleConnection, stopHeartbeat, broadcast } from './wsManager.js';
 import { getAllSessions, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
 import { createTerminal, consumePendingLink, writeWhenReady } from './sshManager.js';
 import { WS_TYPES } from './constants.js';
-import { closeDb } from './db.js';
+import { closeDb, markStaleSessionsEnded } from './db.js';
 import apiRouter, { hookRateLimitMiddleware } from './apiRouter.js';
 import { startMqReader, stopMqReader, getMqOffset } from './mqReader.js';
 import log from './logger.js';
@@ -352,6 +352,12 @@ export function startServer(port?: number): Promise<number> {
 
     // Auto-install hooks (copy script + register in settings.json)
     ensureHooksInstalled(config);
+
+    // Heal stale "live" rows from a previous run (frozen status + runaway
+    // duration in History). Must run before loadSnapshot so any session that
+    // actually resumes this run re-persists with its real live status.
+    const healed = markStaleSessionsEnded();
+    if (healed > 0) log.info('db', `Marked ${healed} stale session(s) as ended on startup`);
 
     // Restore sessions from snapshot (before starting MQ reader)
     const snapshotResult = loadSnapshot();

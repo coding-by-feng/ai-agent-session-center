@@ -18,7 +18,8 @@ Primary UI entry points for creating sessions. NewSessionModal handles complex c
 ### NewSessionModal
 
 - Opened via NavBar "New Session" button or keyboard shortcut
-- Fields: host, port (default 22), username, auth method (key/password), private key path, password, workingDir, command, title, label, room, effortLevel (default `high`), model, ops terminal toggle
+- Fields: host, port (default 22), username, auth method (key/password), private key path, password, workingDir, command, title, label, room, effortLevel (Claude Code levels `low`/`medium`/`high`/`xhigh`/`max`, default `high`), model, ops terminal toggle
+  - Effort levels are centralized in `src/lib/remoteControlName.ts` (`EFFORT_LEVELS`, `DEFAULT_EFFORT_LEVEL`, `normalizeEffortLevel`); `normalizeEffortLevel` coerces a stale stored value (e.g. an old `min`) back to `high` on load. Shared by both modals.
 - Working dir history merged with known Claude Code projects via `useKnownProjects()`
 - Combobox suggestions for host, username, command (from session history)
 - SSH keys fetched from `GET /api/ssh-keys` on mount

@@ -75,7 +75,7 @@ In production, the Express server is started directly in the main process. Port 
 ### Graceful Shutdown
 
 `app.before-quit` triggers (sequential):
-1. Sends `app:before-close` to renderer for workspace save (waits up to 5s for `app:close-ready` response)
+1. Sends `app:before-close` to renderer for workspace save (waits up to 5s for `app:close-ready` response). On receipt the renderer shows a full-screen `SavingOverlay` with a determinate **progress bar** ("Quitting — Saving workspace & config…"): a creep timer ramps the bar toward 90% while `flushSave()` runs, then snaps to 100% when the save resolves and the renderer replies `app:close-ready`.
 2. `disposeAll()` (imported as `disposePtyHost` in main.ts) kills all active PTY processes
 3. Calls `serverShutdown()` to save SQLite snapshot and close DB
 4. Finally calls `app.quit()` to exit

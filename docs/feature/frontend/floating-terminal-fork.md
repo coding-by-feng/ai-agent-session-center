@@ -13,6 +13,7 @@ ProjectTab, they often want to:
 2. **Explain (native lang)** — bridge a language gap on the selected phrase.
 3. **Translate previous answer** — translate the last assistant message into the native language.
 4. **Translate file** — translate a whole markdown file into the native language.
+5. **Custom prompt** — type your own instruction in the popup; it's combined with the selected text to start a **fresh** floating session (never inherits context, works for any CLI).
 
 Supported modes spawn a brand-new CLI session in a floating window. **No new
 model auth, no new API key** — they reuse whatever CLI the origin session is
@@ -23,12 +24,13 @@ transcripts.
 
 | File | Role |
 |------|------|
-| `src/components/translate/SelectionPopup.tsx` | Two-icon floating toolbar at the selection. Modes 1 + 2. |
+| `src/components/translate/SelectionPopup.tsx` | Floating toolbar at the selection: two icon rows (Explain ×2, Translate ×2) + a **custom-prompt row** (textarea + Run) for mode 5. |
+| `server/floatingPrompt.ts` | **Pure** prompt synthesis + window labels (`buildPrompt`, `floatLabel`, `customFloatLabel`, mode types). Extracted from the spawner so it's unit-testable without the db/pty graph. |
 | `src/styles/modules/SelectionPopup.module.css` | Popup styling — theme-aware via CSS variables (no hardcoded colours). |
 | `src/hooks/useSelectionPopup.ts` | Surface-agnostic selection-watcher hook. |
 | `src/lib/selectionExtractors.ts` | Strategies: `extractDomSelection` (markdown) and `extractXtermSelection` (terminals). |
 | `src/components/session/FloatingTerminalPanel.tsx` | Picture-in-picture window hosting one TerminalContainer. |
-| `src/styles/modules/FloatingTerminalPanel.module.css` | Window styling (drag, resize, collapse). |
+| `src/styles/modules/FloatingTerminalPanel.module.css` | Window styling (drag, resize, collapse) — theme-aware via CSS variables (icons/chrome recolour per theme). |
 | `src/components/session/FloatingTerminalRoot.tsx` | Renders all currently-open floats. Mounted once in `App.tsx` AppLayout. |
 | `src/stores/floatingSessionsStore.ts` | Zustand store holding open floats; capped at 4. |
 | `src/components/settings/TranslationSettings.tsx` | Settings tab for native/learning languages + trigger. |
@@ -60,7 +62,7 @@ useSelectionPopup hook (mouseup → extractor → ExtractedSelection)
         ▼
 POST /api/sessions/spawn-floating
    { originSessionId, mode, selection?, contextLine?, fileContent?,
-     filePath?, nativeLanguage, learningLanguage }
+     filePath?, customPrompt?, nativeLanguage, learningLanguage }
         │
         ▼
 server/floatingSessionSpawner.ts
@@ -90,6 +92,7 @@ Codex / Gemini `translate-answer` calls because no transcript reader exists yet.
 | `explain-native` | "Explain the following in `{nativeLanguage}`. Use `{nativeLanguage}` for the explanation…" |
 | `translate-answer` | "Translate the following text into `{nativeLanguage}`. Preserve markdown…" |
 | `translate-file` | "Translate the following markdown file into `{nativeLanguage}`. Preserve markdown syntax exactly…" |
+| `custom` | "`{customPrompt}`" then the selection in a `"""` fence (contextLine prepended if present). **Always a fresh launch** — `custom` is excluded from context inheritance regardless of the setting. Window label is `Custom: {first ~24 chars}`. Logged to the REVIEW tab with `mode='custom'` and `prompt=customPrompt`. |
 
 The CLI binary is selected from `origin.startupCommand`:
 
@@ -146,6 +149,14 @@ No API key field exists — the feature is auth-free.
   `var(--bg-card)`, `var(--glow-accent)`, `var(--bg-accent)`, `var(--border-accent-strong)`,
   and `var(--bg-accent-strong)`. Adding new themes must define all five variables or the
   popup will inherit the `:root` defaults.
+* **Floating window chrome + collapsed pill are theme-variable-driven** —
+  `FloatingTerminalPanel.module.css` mirrors the `DetailPanel.module.css` `.float*` pattern:
+  panel/pill background `var(--bg-panel)`, borders `var(--border-accent*)`, header gradient
+  `var(--bg-accent*)`, and the launch icons / title / resize grip `var(--accent-cyan)`. The
+  collapsed pill keeps per-session identity via `var(--pill-accent, …)` (origin robot colour)
+  and falls back to the theme accent when no origin session is resolved. Earlier versions hard-coded
+  bright cyan (`rgba(0,255,255,…)`) and referenced non-existent `--panel-bg`/`--panel-border`, so
+  the chrome stayed cyan regardless of the selected theme — fixed so it recolours per theme.
 
 ## Phase 2 (not yet implemented)
 

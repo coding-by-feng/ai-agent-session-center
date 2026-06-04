@@ -29,8 +29,9 @@ interface SelectionPopupProps {
   onClose: () => void;
 }
 
-const POPUP_W = 240;
-const POPUP_H = 84;
+const POPUP_W = 260;
+// Two icon rows + the custom-prompt row; used only for viewport clamping.
+const POPUP_H = 156;
 const VIEWPORT_MARGIN = 12;
 
 function clampToViewport(x: number, y: number): { x: number; y: number } {
@@ -84,7 +85,8 @@ type SpawnMode =
   | 'explain-learning'
   | 'explain-native'
   | 'translate-selection-learning'
-  | 'translate-selection-native';
+  | 'translate-selection-native'
+  | 'custom';
 
 export default function SelectionPopup({
   selection,
@@ -99,6 +101,8 @@ export default function SelectionPopup({
 
   const [busy, setBusy] = useState<SpawnMode | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Free-form instruction for the `custom` mode — combined with the selection.
+  const [customPrompt, setCustomPrompt] = useState('');
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   // Position the popup just below the selection's anchor point.
@@ -109,6 +113,9 @@ export default function SelectionPopup({
 
   const spawn = useCallback(async (mode: SpawnMode) => {
     if (busy) return;
+    // The custom mode requires the user's own instruction.
+    const trimmedCustom = customPrompt.trim();
+    if (mode === 'custom' && !trimmedCustom) return;
     setBusy(mode);
     setError(null);
     try {
@@ -120,6 +127,7 @@ export default function SelectionPopup({
           mode,
           selection: selection.selection,
           contextLine: selection.contextLine,
+          customPrompt: mode === 'custom' ? trimmedCustom : undefined,
           nativeLanguage,
           learningLanguage,
           inheritContext,
@@ -136,7 +144,7 @@ export default function SelectionPopup({
         contextLine: selection.contextLine,
         filePath: '',
         fileContent: '',
-        prompt: '',
+        prompt: mode === 'custom' ? trimmedCustom : '',
         originSessionId,
         originProjectName: origin?.projectName ?? '',
         originSessionTitle: origin?.title ?? '',
@@ -154,7 +162,7 @@ export default function SelectionPopup({
     } finally {
       setBusy(null);
     }
-  }, [busy, originSessionId, selection, nativeLanguage, learningLanguage, inheritContext, sessions, openFloat, onClose]);
+  }, [busy, customPrompt, originSessionId, selection, nativeLanguage, learningLanguage, inheritContext, sessions, openFloat, onClose]);
 
   // Auto-dismiss errors after 3s
   useEffect(() => {
@@ -240,6 +248,39 @@ export default function SelectionPopup({
           >
             <TranslateIcon />
             <span className={styles.label}>{nativeLanguage}</span>
+          </button>
+        </Tooltip>
+      </div>
+      <div className={styles.customRow}>
+        <textarea
+          className={styles.customInput}
+          value={customPrompt}
+          onChange={(e) => setCustomPrompt(e.target.value)}
+          onKeyDown={(e) => {
+            // Enter runs; Shift+Enter inserts a newline; ⌘/Ctrl+Enter also runs.
+            if (e.key === 'Enter' && (!e.shiftKey || e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              void spawn('custom');
+            }
+          }}
+          placeholder="Custom prompt + selection → new session…"
+          rows={1}
+          aria-label={tooltips.selCustomPrompt.label}
+          disabled={busy !== null}
+        />
+        <Tooltip
+          label={tooltips.selCustomPrompt.label}
+          description={tooltips.selCustomPrompt.description}
+          placement="bottom"
+        >
+          <button
+            type="button"
+            className={styles.customRun}
+            disabled={busy !== null || !customPrompt.trim()}
+            onClick={() => void spawn('custom')}
+            aria-label="Run custom prompt"
+          >
+            Run ▶
           </button>
         </Tooltip>
       </div>

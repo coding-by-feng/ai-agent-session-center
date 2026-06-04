@@ -31,7 +31,11 @@ Server-side persistence that survives restarts. IndexedDB on frontend is the mir
 - deleteSessionCascade() removes from prompts -> responses -> tool_calls -> events -> notes -> sessions in transaction
 
 ### Session ID Migration
-- migrateSessionId(old, new) updates session_id in all child tables in one transaction
+- migrateSessionId(old, new) updates session_id in all child tables (prompts, responses, tool_calls, events, notes) AND resolves the parent `sessions` row in one transaction: if the new-id row already exists (the normal upsert-then-migrate path on SESSION_START re-key) the old row is DELETEd; otherwise the old row is renamed (`UPDATE sessions SET id=new`). No-ops when old===new.
+- Why this matters: without resolving the parent row, every `claude --resume` / terminal→UUID re-key left the old `sessions` row orphaned — stuck at its last transient status (e.g. `connecting`), `ended_at` NULL (so its History duration grew forever), and 0 prompts/0 tools (children migrated away). These orphans surfaced as duplicate, wrong-status rows in the History view.
+
+### Startup Heal
+- markStaleSessionsEnded() runs once on server boot (in `index.ts`, before `loadSnapshot()`): any `sessions` row whose status is not `ended` is from a process that died on the previous run, so it is set to `status='ended'` with `ended_at = COALESCE(ended_at, last_activity_at, started_at)`. Without this, such rows show a frozen live status (idle/working/…) and a History duration that grows forever (`now − started_at`). Idempotent; logs the healed count. Sessions that genuinely resume this run re-persist with their real live status afterward.
 
 ### Search
 - Text via prompts subquery with LIKE

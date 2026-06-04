@@ -16,6 +16,7 @@ Central hub that manages all session state. Every other feature reads from or wr
 | `server/processMonitor.ts` | PID liveness (`findClaudeProcess` lives here; sessionStore re-exports a wrapper) |
 | `server/autoIdleManager.ts` | Idle transition timers (checks every 10s) |
 | `server/floatingSessionSpawner.ts` | Builds the prompt + config for fork/floating sessions; calls into `createTerminalSession` with `isFork: true` and `originSessionId` |
+| `server/sessionTitle.ts` | Pure title helpers (`makeShortTitle`, `isCloneForkTemplateTitle`, `buildAutoTitle`) — no DB imports so they are unit-testable (`test/sessionTitle.test.ts`) without tripping the better-sqlite3 Vitest worker crash |
 | `server/config.ts` | Tool categories, timeouts, animation maps |
 | `server/constants.ts` | All magic strings (events, statuses, WS types) |
 | `src/types/session.ts`, `src/types/hook.ts`, `src/types/index.ts` | Shared hook/session types (`cliSource`, Codex event metadata, `PostCompact`) |
@@ -43,6 +44,13 @@ Central hub that manages all session state. Every other feature reads from or wr
 ### Workspace Metadata at Creation
 - `createTerminalSession` applies `pinned`, `muted`, `alerted`, `accentColor`, `characterModel` from `config` at creation time (sessionStore.ts:983-987). Without this, metadata set via separate PUTs after creation would be missing from the first broadcast and a paired auto-save could overwrite the snapshot with stale values.
 
+### Session Title Generation
+Title helpers live in `server/sessionTitle.ts` (pure, no DB deps). On `USER_PROMPT_SUBMIT`, `handleEvent` auto-titles a session when it has **no title yet** OR when it still carries the static `"Clone of …"` / `"Fork of …"` template baked in at spawn:
+- Guard: `if (!session.title || isCloneForkTemplateTitle(session.title))` (sessionStore.ts ~line 668). `isCloneForkTemplateTitle` matches `/^(?:Clone|Fork) of /` (case-sensitive — only the generated template, never a manual rename).
+- Title text: `buildAutoTitle(projectName, counter, prompt)` → `"<project> #<n> — <makeShortTitle(prompt)>"`, falling back to `"<project> — Session #<n>"` for an empty/uninformative prompt. `makeShortTitle` strips one leading polite prefix, keeps the first sentence/line up to ~60 chars, and capitalizes.
+- **Clone/fork re-title**: clone/fork sessions spawn with `title = "Clone of X"` / `"Fork of X"` (apiRouter.ts:708,777 via `config.sessionTitle`). The widened guard re-titles them from their *own* first prompt so the card reflects the new session's work, not the origin's name. It is **one-shot** (the regenerated title no longer matches the template) and never clobbers a manual edit. Requires a CLI that emits a prompt hook (Claude/Codex); a clone that never receives one keeps the template title.
+- Persistence + broadcast are free on this path: `USER_PROMPT_SUBMIT` is a DB-persist event (`dbUpsertSession`) and `handleEvent` returns the spread session that rides the next throttled `SESSION_UPDATE` broadcast; the next `saveSnapshot` captures the new title for restart survival.
+
 ### Event Buffer
 - Ring buffer: last 500 events for WebSocket reconnect replay
 
@@ -68,7 +76,7 @@ Central hub that manages all session state. Every other feature reads from or wr
 - findClaudeProcess(sessionId, projectPath) (sessionStore.ts:1312) — wrapper around processMonitor's resolver; passes internal `sessions` + `pidToSession` state
 - killSession() / deleteSessionFromMemory() — end or remove sessions
 - resumeSession() / reconnectSessionTerminal() / reconnectOpsTerminal() — resume/reconnect workflows
-- setSessionTitle/Label/Pinned/Muted/Alerted/AccentColor/CharacterModel — session metadata setters
+- setSessionTitle/Label/Pinned/Muted/Alerted/AccentColor/CharacterModel — session metadata setters. `setSessionTitle` mutates the in-memory session **and** persists to SQLite via `dbUpdateTitle` (it does not broadcast on its own; the title rides the next `SESSION_UPDATE`, and the originating browser updates optimistically).
 - archiveSession() / setSummary() — persistence helpers
 - linkTerminalToSession() / updateQueueCount() — terminal/queue integration
 - registerSessionAlias() — maps old session IDs to new ones
@@ -105,3 +113,4 @@ Central hub that manages all session state. Every other feature reads from or wr
 - Modifying the session object schema affects ALL consumers (frontend stores, DB persistence, WebSocket protocol)
 - Breaking snapshot persistence means sessions lost on restart
 - **Fork-aware kill cascade** — `apiRouter.ts:788` skips `findClaudeProcess` for forks because forks share the origin session's `projectPath`; a cwd-based PID lookup would return the ORIGIN's claude PID and SIGTERM the wrong process. Forks instead rely on per-PTY `pty.kill` (group SIGHUP) via `closeTerminal`. Preserve this branch when modifying the kill flow — without it, closing a floating/fork session disconnects the parent terminal.
+- **Clone/fork auto-rename vs title-based dedup** — once a clone/fork is re-titled from its first prompt (see *Session Title Generation*), `session.title` no longer equals the `sessionTitle` baked into its workspace-snapshot config. `findActiveSessionByConfig` deduplicates partly by `sessionTitle`, so a server-restart workspace reload that relies on the title branch could create a duplicate card. This is mitigated because the `originalSessionId` match path is preferred and title-independent; keep that path intact if you touch dedup.

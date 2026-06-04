@@ -18,10 +18,16 @@
  *   items doesn't flood the CLI input before the first one's
  *   UserPromptSubmit hook has flipped status away from `waiting`.
  *
- * `autoSend` / `autoEnter` are read straight from `localStorage` each tick —
- * they're persisted by `QueueTab` and live as global preferences. Reading
- * once per tick is cheap and means user toggles take effect on the next tick
- * without any cross-component wiring.
+ * `autoSend` / `autoEnter` are read PER SESSION from that session's
+ * `QueueAutomationConfig` each tick — the SAME reactive value the QueueTab
+ * toggle writes (persisted per session to the `queueAutomation` IndexedDB
+ * table). It is the single source of truth for AUTOMATIC firing in that
+ * session: a visible "Auto-send OFF" halts every auto-fire for THAT session
+ * only, leaving other sessions untouched. Two things still run while OFF: a
+ * manual force-start (the "⚡ NOW" button — a deliberate user action that hands
+ * an item's full before→main→after chain to this scheduler) and an already
+ * in-flight chain (chains are atomic and finish what they started). Reading
+ * once per tick is cheap and means user toggles take effect on the next tick.
  */
 
 import { useEffect, useRef } from 'react';
@@ -36,27 +42,25 @@ import {
   pickNext,
   advanceAfterFire,
   advanceBlockedLoops,
+  chainGateDecision,
   itemType,
   getActiveStep,
   isExecuting,
   isSendableStatus,
   totalChainSteps,
   currentChainStep,
+  type ChainGate,
 } from '@/lib/queueScheduler';
 import { showToast } from '@/components/ui/ToastContainer';
 
-const AUTO_SEND_KEY = 'queue-auto-send';
-const AUTO_ENTER_KEY = 'queue-auto-enter';
-
-function readBoolPref(key: string, fallback: boolean): boolean {
-  try {
-    const v = localStorage.getItem(key);
-    if (v === null) return fallback;
-    return v === '1';
-  } catch {
-    return fallback;
-  }
-}
+/**
+ * How long the chain gate will wait for a step to visibly go to "work" before
+ * giving up and firing the next step anyway. Covers the rare step that the
+ * agent answers instantly without ever flipping status to working/prompting —
+ * without this, such a step would stall the whole chain forever. Generous
+ * enough not to fire inside the stale-status window right after a send.
+ */
+const NO_WORK_FALLBACK_MS = 12_000;
 
 async function uploadImages(images: QueueImageAttachment[]): Promise<string[]> {
   try {
@@ -101,6 +105,9 @@ async function sendToTerminal(
 export function useGlobalQueueScheduler(): void {
   const firingRefs = useRef<Map<string, boolean>>(new Map());
   const coolDownRefs = useRef<Map<string, number>>(new Map());
+  // Per-session chain gate: holds the next chain step until the step we just
+  // sent has actually finished running (observed go busy → back to sendable).
+  const chainGateRefs = useRef<Map<string, ChainGate>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -128,17 +135,67 @@ export function useGlobalQueueScheduler(): void {
       const cooldownUntil = coolDownRefs.current.get(sessionId) ?? 0;
       if (now < cooldownUntil) return;
 
+      // Auto-send OFF halts all AUTOMATIC firing, but a manual force-start and
+      // an already in-flight chain must still run (see header). Bail early when
+      // OFF and there is neither, so an idle/disabled queue costs ~nothing per
+      // tick (one scan) instead of walking the whole evaluation. Per-session:
+      // read off THIS session's automation config, not a global flag.
+      const autoSend = automationConfig.autoSend;
+      const hasActiveWork = items.some(
+        (it) => !it.disabled && (it.forceStart || isExecuting(it)),
+      );
+      if (!autoSend && !hasActiveWork) return;
+
       const sessionStatus = session.status;
       const sessionWaiting = isSendableStatus(sessionStatus);
+
+      // Chain-gate observation: if a gate is open for this session and the
+      // session is currently busy, record that the prior step's work has
+      // begun. This MUST run before any early-return below (idle-guard,
+      // skip-prompting) so a busy tick is never missed just because no item
+      // was picked this cycle.
+      const openGate = chainGateRefs.current.get(sessionId);
+      if (openGate && !sessionWaiting && !openGate.sawWork) {
+        chainGateRefs.current.set(sessionId, { ...openGate, sawWork: true });
+      }
+
+      // A FRESH force-start (manual ⚡ NOW) bypasses skip-prompting too — it is
+      // a deliberate user action. Disabled rows never force-fire.
+      const hasFreshForce = items.some(
+        (it) => !it.disabled && it.forceStart && !isExecuting(it),
+      );
+
       const blockedByPrompting =
         automationConfig.skipWhenPrompting && sessionStatus === 'prompting';
 
-      if (blockedByPrompting) {
-        const advances = advanceBlockedLoops(items, now);
-        for (const a of advances) {
-          queueState.updateItem(sessionId, a.id, a.patch);
+      if (blockedByPrompting && !hasFreshForce) {
+        // Only roll loop cadence forward while auto-send is ON — when OFF the
+        // loops are frozen and must not silently lose their scheduled offset.
+        if (autoSend) {
+          const advances = advanceBlockedLoops(items, now);
+          for (const a of advances) {
+            queueState.updateItem(sessionId, a.id, a.patch);
+          }
         }
         return;
+      }
+
+      // SKIP-while-running: if ANY chain is mid-flight in this session, the
+      // in-flight cycle must finish before any new cycle starts — and a loop
+      // cycle that comes due in the meantime is DROPPED, not deferred. Rolling
+      // every OTHER due loop's nextFireAt forward each tick (advanceBlockedLoops
+      // excludes the executing item) means a blocked loop never fires a stale
+      // cycle the instant the session frees up. The in-flight item's own steps
+      // are still HELD step-by-step by the chain gate below — they complete the
+      // current cycle, they aren't skipped. Cadence is only advanced while
+      // auto-send is ON (a force-started chain running with auto-send OFF must
+      // not roll other loops forward).
+      const hasInFlightChain = items.some(isExecuting);
+      if (autoSend && hasInFlightChain) {
+        const skips = advanceBlockedLoops(items, now);
+        for (const s of skips) {
+          queueState.updateItem(sessionId, s.id, s.patch);
+        }
       }
 
       const pick = pickNext(
@@ -150,8 +207,34 @@ export function useGlobalQueueScheduler(): void {
       );
       if (!pick) return;
 
-      // Read autoEnter at fire time so toggles take effect immediately.
-      const autoEnter = readBoolPref(AUTO_ENTER_KEY, true);
+      // Auto-send OFF gate: only a manual force-start or an in-flight chain may
+      // fire. Normal due loops/schedules/once items are held until the user
+      // turns auto-send back on.
+      if (!autoSend && !pick.forceStart && !isExecuting(pick)) return;
+
+      // Chain gate: a mid-chain step must wait for the PREVIOUS step's work to
+      // finish before firing. Fresh (non-executing) picks clear any stale gate
+      // and fire immediately.
+      if (isExecuting(pick)) {
+        // `atRest` (status === 'waiting') is the genuine Stop signal — the only
+        // reliable "prior step finished" marker. Decayed `idle` must not count.
+        const atRest = sessionStatus === 'waiting';
+        const decision = chainGateDecision(
+          chainGateRefs.current.get(sessionId),
+          pick.id,
+          atRest,
+          sessionWaiting,
+          now,
+          NO_WORK_FALLBACK_MS,
+        );
+        if (decision === 'hold') return;
+      } else {
+        chainGateRefs.current.delete(sessionId);
+      }
+
+      // Read this session's autoEnter at fire time so toggles take effect
+      // immediately (per-session, from the same automation config).
+      const autoEnter = automationConfig.autoEnter;
 
       firingRefs.current.set(sessionId, true);
       try {
@@ -165,8 +248,19 @@ export function useGlobalQueueScheduler(): void {
         const advance = advanceAfterFire(pick, Date.now());
         if (advance.action === 'remove') {
           useQueueStore.getState().remove(sessionId, pick.id);
-        } else {
+          chainGateRefs.current.delete(sessionId);
+        } else if (advance.action === 'continue') {
           useQueueStore.getState().updateItem(sessionId, pick.id, advance.patch);
+          // Open a gate so the NEXT step waits for THIS step's work to finish.
+          chainGateRefs.current.set(sessionId, {
+            itemId: pick.id,
+            sawWork: false,
+            openedAt: Date.now(),
+          });
+        } else {
+          // reschedule — chain completed, no gate needed for the next cycle.
+          useQueueStore.getState().updateItem(sessionId, pick.id, advance.patch);
+          chainGateRefs.current.delete(sessionId);
         }
 
         // Toast — always prefixed with session name so background fires are
@@ -207,7 +301,10 @@ export function useGlobalQueueScheduler(): void {
 
     const evaluateAll = (): void => {
       if (cancelled) return;
-      if (!readBoolPref(AUTO_SEND_KEY, true)) return;
+      // The auto-send gate now lives INSIDE evaluateSession: a manual
+      // force-start or an in-flight chain must run even while auto-send is OFF,
+      // so we no longer short-circuit the whole tick on the toggle here. Each
+      // session re-reads `autoSend` and bails early when there's nothing to do.
       const sessionIds = Array.from(useSessionStore.getState().sessions.keys());
       // Fire-and-forget per session — independent firingRefs let multiple
       // sessions fire in parallel without blocking each other.

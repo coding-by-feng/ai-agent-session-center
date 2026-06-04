@@ -1,0 +1,91 @@
+/* ============================================================
+   AutocompleteTextarea — `/` slash + `@` file autocomplete dropdown.
+   Lifted out of Terminal.module.css so the component is self-contained.
+   ============================================================ */
+
+.acDropdown {
+  position: fixed;
+  z-index: 10100;
+  background: var(--bg-panel, #0d1117);
+  border: 1px solid var(--accent-cyan, #00e5ff);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.7);
+  overflow-y: auto;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+}
+
+.acGroupHeader {
+  padding: 4px 8px;
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--accent-cyan, #00e5ff);
+  background: rgba(0, 229, 255, 0.06);
+  border-top: 1px solid rgba(0, 229, 255, 0.18);
+  border-bottom: 1px solid rgba(0, 229, 255, 0.18);
+  position: sticky;
+  top: 0;
+}
+.acGroupHeader:first-child {
+  border-top: none;
+}
+
+.acItem {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 5px 8px;
+  cursor: pointer;
+  color: var(--text-primary, #e0e0e0);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.acItem:last-child {
+  border-bottom: none;
+}
+.acItem:hover {
+  background: rgba(0, 229, 255, 0.08);
+}
+.acItemSelected {
+  background: rgba(0, 229, 255, 0.12);
+  color: var(--accent-cyan, #00e5ff);
+}
+
+.acKindIcon {
+  flex-shrink: 0;
+  width: 12px;
+  text-align: center;
+  opacity: 0.55;
+  font-size: 10px;
+}
+.acItemSelected .acKindIcon {
+  opacity: 1;
+}
+
+.acLabel {
+  flex-shrink: 0;
+  font-weight: 500;
+}
+.acSub {
+  flex: 1;
+  color: var(--text-dim, #555);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acItemSelected .acSub {
+  color: rgba(0, 229, 255, 0.5);
+}
+
+.acFooter {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 8px;
+  font-size: 9px;
+  color: var(--text-dim, #666);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.2);
+  position: sticky;
+  bottom: 0;
+}

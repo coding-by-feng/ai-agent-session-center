@@ -14,6 +14,7 @@ import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from '
 import { join } from 'path';
 import log from './logger.js';
 import { getWaitingLabel } from './config.js';
+import { isCloneForkTemplateTitle, buildAutoTitle } from './sessionTitle.js';
 import {
   EVENT_TYPES, SESSION_STATUS, ANIMATION_STATE, EMOTE, WS_TYPES,
 } from './constants.js';
@@ -35,6 +36,7 @@ import {
   updateSessionSummary as dbUpdateSummary,
   updateSessionArchived as dbUpdateArchived,
   migrateSessionId as dbMigrateSessionId,
+  getPromptsForSession as dbGetPrompts,
 } from './db.js';
 import type { Session, HandleEventResult, BufferedEvent, PendingResume, SessionEvent } from '../src/types/session.js';
 import type { HookPayload } from '../src/types/hook.js';
@@ -412,19 +414,6 @@ export function stopPeriodicSave(): void {
   }
 }
 
-// Extract a short title from the first prompt (first sentence or first ~60 chars)
-function makeShortTitle(prompt: string): string {
-  if (!prompt) return '';
-  // Strip leading whitespace and common prefixes
-  let text = prompt.trim().replace(/^(please|can you|could you|help me|i want to|i need to)\s+/i, '');
-  if (!text) return '';
-  // Take first sentence (up to . ! ? or newline)
-  const match = text.match(/^[^\n.!?]{1,60}/);
-  if (match) text = match[0].trim();
-  // Capitalize first letter
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
 function inferCliSource(command: string | undefined | null): string | undefined {
   const cmd = (command || '').trim().toLowerCase();
   if (!cmd) return undefined;
@@ -615,6 +604,17 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
         log.info('session', `Updated SSH projectPath: ${oldPath} → ${cwd} (from hook cwd)`);
       }
 
+      // Restore prompt history from DB when it was cleared (e.g. after importSnapshot's
+      // clear-all wipe). This ensures the PROMPTS tab is populated even after a workspace
+      // resume that wiped the in-memory state before re-creating sessions.
+      if (session.promptHistory.length === 0) {
+        const dbPrompts = dbGetPrompts(session_id);
+        if (dbPrompts.length > 0) {
+          session.promptHistory = dbPrompts.slice(-50); // match in-memory cap
+          log.info('session', `Restored ${dbPrompts.length} prompt(s) from DB for ${session_id?.slice(0,8)}`);
+        }
+      }
+
       eventEntry.detail = `Session started (${('source' in hookData ? hookData.source : undefined) || 'startup'})`;
       log.debug('session', `SessionStart: ${session_id?.slice(0,8)} project=${session.projectName} model=${session.model}`);
 
@@ -659,13 +659,19 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       if (session.promptHistory.length > 50) session.promptHistory.shift();
       eventEntry.detail = (('prompt' in hookData ? hookData.prompt : undefined) || '').substring(0, 80);
 
-      // Auto-generate title from project name + counter + short prompt summary
-      if (!session.title) {
+      // Auto-generate a title from project name + counter + short prompt summary.
+      // Fires when the session has no title yet, OR when it still carries the
+      // static "Clone of …" / "Fork of …" template — so a cloned/forked session
+      // is re-titled from its own first prompt instead of keeping the origin's
+      // name. The template check makes this one-shot (the regenerated title no
+      // longer matches the template) and never clobbers a manual rename.
+      if (!session.title || isCloneForkTemplateTitle(session.title)) {
         const counter = projectSessionCounters.get(session.projectName) || 1;
-        const shortPrompt = makeShortTitle(('prompt' in hookData ? hookData.prompt : undefined) || '');
-        session.title = shortPrompt
-          ? `${session.projectName} #${counter} — ${shortPrompt}`
-          : `${session.projectName} — Session #${counter}`;
+        session.title = buildAutoTitle(
+          session.projectName,
+          counter,
+          ('prompt' in hookData ? hookData.prompt : undefined) || ''
+        );
       }
       break;
 

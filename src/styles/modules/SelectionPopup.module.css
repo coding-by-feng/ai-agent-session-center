@@ -66,6 +66,74 @@
   white-space: nowrap;
 }
 
+/* Custom-prompt row: user types an instruction; it's combined with the
+   selection to start a fresh floating session. */
+.customRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-accent-strong, rgba(0, 229, 255, 0.25));
+}
+
+.customInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: 88px;
+  padding: 5px 8px;
+  background: var(--bg-accent, rgba(0, 229, 255, 0.06));
+  border: 1px solid var(--border-accent-strong, rgba(0, 229, 255, 0.25));
+  border-radius: 6px;
+  color: var(--text-primary, #e6f6ff);
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1.4;
+  resize: none;
+  user-select: text;
+  transition: border-color 100ms ease, box-shadow 100ms ease;
+}
+
+.customInput::placeholder {
+  color: var(--text-dim, rgba(230, 246, 255, 0.4));
+}
+
+.customInput:focus {
+  outline: none;
+  border-color: var(--accent-cyan, #00f0ff);
+  box-shadow: 0 0 6px var(--glow-accent);
+}
+
+.customInput:disabled {
+  opacity: 0.4;
+  cursor: progress;
+}
+
+.customRun {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  background: var(--bg-accent, rgba(0, 229, 255, 0.06));
+  border: 1px solid var(--border-accent-strong, rgba(0, 229, 255, 0.25));
+  border-radius: 6px;
+  color: var(--accent-cyan, #00f0ff);
+  font-size: 11px;
+  font-family: inherit;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 100ms ease, border-color 100ms ease, opacity 100ms ease;
+}
+
+.customRun:hover:not(:disabled) {
+  background: var(--bg-accent-strong);
+  border-color: var(--accent-cyan, #00f0ff);
+}
+
+.customRun:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .error {
   padding: 0 8px;
   color: var(--accent-red, #ff5e7a);

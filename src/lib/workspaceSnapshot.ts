@@ -9,6 +9,7 @@ import type { Room } from '@/stores/roomStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useQueueStore } from '@/stores/queueStore';
 import type { QueueItem } from '@/stores/queueStore';
+import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 
 // ---------------------------------------------------------------------------
 // Snapshot shape
@@ -46,8 +47,32 @@ export interface SessionSnapshot {
   projectTabs: { tabs: ProjectSubTab[]; active: string } | null;
   /** Open file tabs per project sub-tab: key = subTabId, value = { tabs, active } */
   fileTabs?: Record<string, { tabs: { path: string; name: string }[]; active: string | null }>;
-  /** Queued prompts at export time — restored on import without image binary data */
-  queueItems?: Array<{ text: string; position: number; createdAt: number; images?: Array<{ name: string; dataUrl: string }> }>;
+  /** Queued prompts at export time. Carries the full loop/schedule automation
+   *  so a restored loop keeps looping — previously only text/position/images
+   *  survived, so a loop came back with no `type` (→ treated as 'once') and was
+   *  consumed/deleted on its first fire. */
+  queueItems?: Array<
+    Pick<
+      QueueItem,
+      | 'text'
+      | 'position'
+      | 'createdAt'
+      | 'images'
+      | 'type'
+      | 'intervalMs'
+      | 'runAt'
+      | 'beforeChain'
+      | 'afterChain'
+      | 'excludeWindows'
+      | 'firstFireOfDay'
+      | 'disabled'
+      | 'totalFires'
+    >
+  >;
+  /** True for floating Explain/Translate popup sessions — kept out of the agents list and rendered as PiP windows. */
+  isFork?: boolean;
+  /** Origin session ID — required to re-attach the floating window to its parent after restart. */
+  originSessionId?: string;
 }
 
 export interface WorkspaceSnapshot {
@@ -111,7 +136,23 @@ export function buildSnapshot(
     const projectTabs = getProjectTabs(session.sessionId);
     const rawQueue = useQueueStore.getState().queues.get(session.sessionId);
     const queueItems = rawQueue && rawQueue.length > 0
-      ? rawQueue.map(({ text, position, createdAt, images }) => ({ text, position, createdAt, images }))
+      ? rawQueue.map((q) => ({
+          text: q.text,
+          position: q.position,
+          createdAt: q.createdAt,
+          images: q.images,
+          // Automation metadata — required for a loop/schedule to survive a
+          // restore as the same type instead of degrading to a 'once' item.
+          type: q.type,
+          intervalMs: q.intervalMs,
+          runAt: q.runAt,
+          beforeChain: q.beforeChain,
+          afterChain: q.afterChain,
+          excludeWindows: q.excludeWindows,
+          firstFireOfDay: q.firstFireOfDay,
+          disabled: q.disabled,
+          totalFires: q.totalFires,
+        }))
       : undefined;
     sessionSnapshots.push({
       originalSessionId: session.sessionId,
@@ -129,6 +170,8 @@ export function buildSnapshot(
       projectTabs,
       fileTabs: getFileTabs(session.sessionId, projectTabs),
       queueItems,
+      isFork: session.isFork,
+      originSessionId: session.originSessionId,
     });
   }
 
@@ -418,6 +461,10 @@ export async function importSnapshot(
           alerted: sessionSnap.alerted || undefined,
           accentColor: sessionSnap.accentColor || undefined,
           characterModel: sessionSnap.characterModel || undefined,
+          // Floating popup sessions: preserve fork status so they stay PiP
+          // (and out of the sidebar list) across restarts.
+          isFork: sessionSnap.isFork || undefined,
+          originSessionId: sessionSnap.originSessionId || undefined,
         }),
       });
       const data = await res.json();
@@ -427,6 +474,17 @@ export async function importSnapshot(
         // Track the old -> new ID mapping for room remapping
         if (sessionSnap.originalSessionId) {
           idRemap.set(sessionSnap.originalSessionId, data.terminalId);
+        }
+
+        // Re-open the floating popup window for fork sessions (Explain/Translate).
+        // Without this, the session is restored but the PiP UI never reappears
+        // — the user would have to re-trigger the popup manually.
+        if (sessionSnap.isFork && sessionSnap.originSessionId) {
+          useFloatingSessionsStore.getState().open({
+            terminalId: data.terminalId,
+            label: sessionSnap.title || 'Floating',
+            originSessionId: sessionSnap.originSessionId,
+          });
         }
 
         processedCount++;
@@ -469,16 +527,45 @@ export async function importSnapshot(
           }
         }
 
-        // Restore queued prompts under the new session ID
+        // Restore queued prompts under the new session ID, preserving the
+        // loop/schedule automation so an enabled loop keeps looping. Timing is
+        // re-armed from now (a loop counts a fresh interval; a schedule keeps
+        // its absolute runAt; once items sort first at 0). execState is NOT
+        // restored — a chain can't safely resume into a freshly recreated
+        // terminal, so the item comes back idle.
         if (sessionSnap.queueItems && sessionSnap.queueItems.length > 0) {
-          const restoredItems: QueueItem[] = sessionSnap.queueItems.map((item, idx) => ({
-            id: Date.now() + idx,
-            sessionId: data.terminalId,
-            text: item.text,
-            position: item.position,
-            createdAt: item.createdAt,
-            images: item.images,
-          }));
+          const restoreNow = Date.now();
+          const restoredItems: QueueItem[] = sessionSnap.queueItems.map((item, idx) => {
+            const type = item.type ?? 'once';
+            const safeInterval =
+              Number.isFinite(item.intervalMs) && (item.intervalMs as number) > 0
+                ? (item.intervalMs as number)
+                : 60_000;
+            const nextFireAt =
+              type === 'loop'
+                ? restoreNow + safeInterval
+                : type === 'schedule'
+                  ? item.runAt ?? restoreNow + 60_000
+                  : 0;
+            return {
+              id: restoreNow + idx,
+              sessionId: data.terminalId,
+              text: item.text,
+              position: item.position,
+              createdAt: item.createdAt,
+              images: item.images,
+              type: item.type,
+              intervalMs: item.intervalMs,
+              runAt: item.runAt,
+              beforeChain: item.beforeChain,
+              afterChain: item.afterChain,
+              excludeWindows: item.excludeWindows,
+              firstFireOfDay: item.firstFireOfDay,
+              disabled: item.disabled,
+              totalFires: item.totalFires,
+              nextFireAt,
+            };
+          });
           useQueueStore.getState().setQueue(data.terminalId, restoredItems);
         }
 
@@ -656,11 +743,33 @@ export async function importSnapshot(
 
 let _autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let _importInProgress = false;
+// Block auto-save until the workspace auto-load decides what to do.
+// Default true so the first auto-save can never overwrite the snapshot file
+// before the user has had a chance to resolve the Restore dialog. Cleared by
+// useWorkspaceAutoLoad once it has either skipped restore or completed import.
+let _restorePending = true;
 const AUTO_SAVE_DEBOUNCE_MS = 5_000;
 const POST_IMPORT_QUIET_MS = 3_000;
 
 export function isImportInProgress(): boolean {
   return _importInProgress;
+}
+
+/** Set by useWorkspaceAutoLoad: blocks auto-save until restore is resolved. */
+export function setRestorePending(v: boolean): void {
+  _restorePending = v;
+}
+
+export function isRestorePending(): boolean {
+  return _restorePending;
+}
+
+/** Test-only: reset module state between tests to avoid cross-test pollution. */
+export function _resetAutoSaveStateForTests(): void {
+  if (_autoSaveTimer) clearTimeout(_autoSaveTimer);
+  _autoSaveTimer = null;
+  _importInProgress = false;
+  _restorePending = true;
 }
 
 /**
@@ -672,6 +781,9 @@ export function scheduleAutoSave(
   getSessions: () => Map<string, Session>,
   getRooms: () => Room[],
 ): void {
+  // Short-circuit before touching the timer when restore is still pending —
+  // the callback would be a guaranteed no-op, so avoid the clearTimeout/setTimeout churn.
+  if (_restorePending) return;
   if (_autoSaveTimer) clearTimeout(_autoSaveTimer);
   _autoSaveTimer = setTimeout(async () => {
     _autoSaveTimer = null;
@@ -710,6 +822,10 @@ export async function flushSave(
   getRooms: () => Room[],
 ): Promise<void> {
   cancelAutoSave();
+  // Honour the same restore-pending guard as scheduleAutoSave: if the Restore
+  // dialog has not been resolved yet, the in-memory list is partial and writing
+  // it would permanently drop unrestored sessions.
+  if (_restorePending) return;
   const sessions = getSessions();
   const rooms = getRooms();
   const hasExportable = Array.from(sessions.values()).some((s) => !!s.sshConfig);

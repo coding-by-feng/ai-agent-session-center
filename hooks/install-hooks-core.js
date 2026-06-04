@@ -174,7 +174,6 @@ export function configureCodexHooksToml(toml, events, hookCommand, hookPattern, 
       `[[hooks.${event}.hooks]]`,
       'type = "command"',
       `command = "${command}"`,
-      'async = true',
       '',
     ]),
   ];
