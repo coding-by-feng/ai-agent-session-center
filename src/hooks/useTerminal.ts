@@ -20,6 +20,11 @@ interface ActiveTerminal {
   term: Terminal;
   fitAddon: FitAddon;
   resizeObserver: ResizeObserver;
+  /** Watches container visibility so we can refit+repaint when the tab is switched
+   *  back to terminal. Without this, xterm's canvas stays blank because
+   *  display:none → display:flex doesn't reliably trigger a useful ResizeObserver
+   *  callback (dimensions may already match the cached canvas size). */
+  visibilityObserver?: IntersectionObserver;
   /** True after fitAddon.fit() has run and layout is stable */
   layoutReady: boolean;
   /** Saved scroll offset (lines from bottom) to restore after buffer flush.
@@ -345,6 +350,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         subscribedTerminalIdRef.current = null;
       }
       activeRef.current.resizeObserver.disconnect();
+      activeRef.current.visibilityObserver?.disconnect();
       activeRef.current.term.dispose();
       activeRef.current = null;
     }
@@ -738,7 +744,36 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           } catch { /* ignore */ }
         }
 
-        activeRef.current = { terminalId, term, fitAddon, resizeObserver, layoutReady: false, pendingScrollRestore };
+        // Visibility observer — detects when the always-mounted terminal
+        // becomes visible after being hidden (e.g. user switches from PROMPTS
+        // tab back to TERMINAL tab). The ResizeObserver alone is unreliable here
+        // because display:none → display:flex may not register as a size change
+        // if xterm's canvas dimensions already match the new container size.
+        let wasVisible = container.offsetWidth > 0 && container.offsetHeight > 0;
+        const visibilityObserver = new IntersectionObserver((entries) => {
+          const entry = entries[0];
+          if (!entry) return;
+          const visible = entry.isIntersecting && container.offsetWidth > 0 && container.offsetHeight > 0;
+          if (visible && !wasVisible) {
+            // Becoming visible — force fit + canvas repaint so blank canvas
+            // is replaced with the actual buffered content.
+            requestAnimationFrame(() => {
+              if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
+              if (!container.offsetWidth || !container.offsetHeight) return;
+              const savedViewportY = term.buffer.active.viewportY;
+              try { fitAddon.fit(); } catch { /* fit may throw if container is mid-layout */ }
+              sendResize(wsRef.current, terminalId, term.cols, term.rows);
+              term.refresh(0, term.rows - 1);
+              if (activeRef.current.pendingScrollRestore === undefined) {
+                term.scrollToLine(savedViewportY);
+              }
+            });
+          }
+          wasVisible = visible;
+        });
+        visibilityObserver.observe(container);
+
+        activeRef.current = { terminalId, term, fitAddon, resizeObserver, visibilityObserver, layoutReady: false, pendingScrollRestore };
         setIsAttached(true);
         setActiveTerminalId(terminalId);
 

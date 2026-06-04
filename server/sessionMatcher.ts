@@ -73,6 +73,33 @@ export function reKeyResumedSession(
     }
   }
 
+  // If the target session ID already exists in the map (e.g. restored from
+  // server snapshot on a second restart), preserve its accumulated data
+  // (promptHistory, toolLog, etc.) rather than overwriting with the fresh
+  // term-* session's empty state.  Archive the new terminal's data (if any)
+  // into previousSessions of the existing session, then just update the
+  // terminal linkage fields.
+  const existing = sessions.get(newSessionId);
+  if (existing && existing.sessionId === newSessionId) {
+    sessions.delete(oldSessionId);
+    // Transfer terminal binding from the new terminal to the existing session
+    if (oldSession.terminalId) existing.terminalId = oldSession.terminalId;
+    if (oldSession.opsTerminalId) existing.opsTerminalId = oldSession.opsTerminalId;
+    if (oldSession.sshConfig) existing.sshConfig = oldSession.sshConfig;
+    if (oldSession.sshHost) existing.sshHost = oldSession.sshHost;
+    if (oldSession.sshCommand) existing.sshCommand = oldSession.sshCommand;
+    existing.replacesId = oldSessionId;
+    existing.status = SESSION_STATUS.IDLE;
+    existing.animationState = ANIMATION_STATE.IDLE;
+    existing.emote = null;
+    existing.endedAt = null;
+    existing.isHistorical = false;
+    existing.currentPrompt = '';
+    existing.events = [...(existing.events || []), { type: 'SessionResumed', timestamp: Date.now(), detail: `Resumed from ${oldSessionId?.slice(0, 8)} (existing session merged)` }];
+    log.info('session', `Re-key merged into existing session ${newSessionId?.slice(0, 8)} — promptHistory preserved (${existing.promptHistory.length} entries)`);
+    return existing;
+  }
+
   oldSession.replacesId = oldSessionId;
   oldSession.sessionId = newSessionId;
   oldSession.status = SESSION_STATUS.IDLE;

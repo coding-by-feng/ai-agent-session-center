@@ -6,7 +6,7 @@
 import { useEffect, useRef } from 'react';
 import { useWsStore } from '@/stores/wsStore';
 import { useUiStore } from '@/stores/uiStore';
-import { loadFromConfig, importSnapshot } from '@/lib/workspaceSnapshot';
+import { loadFromConfig, importSnapshot, setRestorePending } from '@/lib/workspaceSnapshot';
 import { reportWorkspaceLoadErrors } from '@/components/ui/WorkspaceLoadingOverlay';
 import {
   requestRestoreSelection,
@@ -76,6 +76,8 @@ export function useWorkspaceAutoLoad(): void {
         );
 
         if (created > 0 || failed > 0) {
+          // intentional: workspace load summary is operational info, not a debug log
+          // eslint-disable-next-line no-console
           console.info(`[workspace] Auto-loaded ${created} session(s)${failed > 0 ? `, ${failed} failed` : ''}`);
         }
 
@@ -93,6 +95,12 @@ export function useWorkspaceAutoLoad(): void {
       } catch {
         // Silent failure — auto-load is best-effort
         useUiStore.getState().finishWorkspaceLoad();
+      } finally {
+        // Always unblock auto-save once the restore decision is made —
+        // regardless of which branch (success, cancel, error, or early-return)
+        // we exit through. Without this, a WS reconnect that cancels the 1s
+        // startup timer would leave _restorePending=true permanently.
+        setRestorePending(false);
       }
     }, 1000);
 

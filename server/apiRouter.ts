@@ -123,7 +123,10 @@ function stripCodexSessionSubcommand(command: string): string {
 function buildResumeCommand(session: { startupCommand?: string; sshCommand?: string; sshConfig?: { command?: string }; permissionMode?: string | null; title?: string | null }, sessionId: string): string {
   const originalCmd = session.startupCommand || session.sshCommand || session.sshConfig?.command || '';
   const safeId = shellEscapeSingle(sessionId);
-  const canUseSessionId = !sessionId.startsWith('term-');
+  // Only try --resume when the ID looks like a real CLI session UUID.
+  // AASC-internal terminal IDs (term-*, test-*, and anything else that isn't
+  // a UUID) would open Claude's interactive session picker and block the shell.
+  const canUseSessionId = CLAUDE_SESSION_UUID_RE.test(sessionId);
 
   if (commandStartsWithCli(originalCmd, 'codex')) {
     const baseCmd = stripCodexSessionSubcommand(originalCmd || 'codex') || 'codex';
@@ -140,7 +143,7 @@ function buildResumeCommand(session: { startupCommand?: string; sshCommand?: str
     baseCmd = appendSessionName(baseCmd, title);
     return canUseSessionId
       ? `${baseCmd} --resume '${safeId}' || ${baseCmd} --continue`
-      : `${baseCmd} --continue`;
+      : baseCmd;  // no session ID → start fresh (--continue fails in empty dirs)
   }
 
   return originalCmd;
@@ -199,8 +202,8 @@ const terminalCreateSchema = z.object({
     .max(200)
     .regex(/^[a-zA-Z0-9_-]+$/, 'resumeSessionId contains invalid characters')
     .optional(),
-  /** Effort level to auto-apply after Claude Code starts */
-  effortLevel: z.enum(['min', 'low', 'medium', 'high', 'max']).optional(),
+  /** Effort level to auto-apply after Claude Code starts (Claude Code: low/medium/high/xhigh/max) */
+  effortLevel: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional().catch(undefined),
   /** Model to auto-apply after Claude Code starts */
   model: z.enum(['opus', 'sonnet', 'haiku']).optional(),
   /** Run `/remote-control <name>` automatically after Claude Code starts. */
@@ -215,6 +218,10 @@ const terminalCreateSchema = z.object({
   alerted: z.boolean().optional(),
   accentColor: z.string().max(50).optional(),
   characterModel: z.string().max(100).optional(),
+  /** Fork (Explain/Translate popup) flag — restored from workspace snapshot so PiP sessions stay PiP after restart. */
+  isFork: z.boolean().optional(),
+  /** Origin session that the fork popup belongs to. */
+  originSessionId: z.string().max(200).optional(),
 });
 
 const tmuxSessionsSchema = z.object({
@@ -836,6 +843,7 @@ router.post('/sessions/spawn-floating', async (req: Request, res: Response) => {
     'translate-selection-native',
     'translate-answer',
     'translate-file',
+    'custom',
   ]);
   const SpawnFloatingSchema = z.object({
     originSessionId: z.string().min(1).max(200),
@@ -844,6 +852,8 @@ router.post('/sessions/spawn-floating', async (req: Request, res: Response) => {
     contextLine: z.string().max(2 * 1024).optional(),
     fileContent: z.string().max(256 * 1024).optional(),
     filePath: z.string().max(2048).optional(),
+    // Free-form instruction for the `custom` mode (combined with the selection).
+    customPrompt: z.string().max(64 * 1024).optional(),
     nativeLanguage: z.string().min(1).max(64),
     learningLanguage: z.string().min(1).max(64),
     inheritContext: z.boolean().optional(),
@@ -979,7 +989,9 @@ router.get('/sessions/:id/source', (req: Request, res: Response) => {
   res.json({ source });
 });
 
-// Update session title (in-memory only, no DB write)
+// Update session title. setSessionTitle mutates the in-memory session AND
+// persists to SQLite (dbUpdateTitle); the new title rides the next SESSION_UPDATE
+// broadcast (the originating browser also updates its store optimistically).
 router.put('/sessions/:id/title', (req: Request, res: Response) => {
   const body = validateBody(titleSchema, req.body, res);
   if (!body) return;
@@ -1163,6 +1175,8 @@ router.post('/terminals', async (req: Request, res: Response) => {
     if (body.alerted) config.alerted = body.alerted;
     if (body.accentColor) config.accentColor = body.accentColor;
     if (body.characterModel) config.characterModel = body.characterModel;
+    if (body.isFork) config.isFork = true;
+    if (body.originSessionId) config.originSessionId = body.originSessionId;
 
     // Resolve API key from request body only (no DB lookup)
     if (body.apiKey) {

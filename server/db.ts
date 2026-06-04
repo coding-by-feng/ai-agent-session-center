@@ -289,6 +289,14 @@ export function getSessionDetail(id: string): SessionDetailResponse | null {
   };
 }
 
+/** Return persisted prompts for a session — used to restore promptHistory after a server clear-all. */
+export function getPromptsForSession(id: string): Array<{ text: string; timestamp: number }> {
+  return (stmts.getPromptsBySession.all(id) as DbPromptRow[]).map((r) => ({
+    text: r.text ?? '',
+    timestamp: r.timestamp ?? 0,
+  }));
+}
+
 export function getSessionsByProjectPath(projectPath: string): DbSessionRow[] {
   return stmts.getSessionsByProjectPath.all(projectPath) as DbSessionRow[];
 }
@@ -473,12 +481,42 @@ export function deleteAgendaTask(id: string): void {
 // ---- Session ID migration ----
 
 export const migrateSessionId: (oldId: string, newId: string) => void = db.transaction((oldId: string, newId: string) => {
+  if (oldId === newId) return;
   db.prepare('UPDATE prompts SET session_id = ? WHERE session_id = ?').run(newId, oldId);
   db.prepare('UPDATE responses SET session_id = ? WHERE session_id = ?').run(newId, oldId);
   db.prepare('UPDATE tool_calls SET session_id = ? WHERE session_id = ?').run(newId, oldId);
   db.prepare('UPDATE events SET session_id = ? WHERE session_id = ?').run(newId, oldId);
   db.prepare('UPDATE notes SET session_id = ? WHERE session_id = ?').run(newId, oldId);
+
+  // Resolve the parent `sessions` row too — without this the old row is
+  // orphaned in history (stale status, ever-growing duration, 0 prompts/tools
+  // because the child records above just moved to newId). If the new row
+  // already exists (the upsert-then-migrate path), drop the old one; otherwise
+  // rename the old row in place so no session row is ever lost.
+  const newExists = db.prepare('SELECT 1 FROM sessions WHERE id = ?').get(newId);
+  if (newExists) {
+    db.prepare('DELETE FROM sessions WHERE id = ?').run(oldId);
+  } else {
+    db.prepare('UPDATE sessions SET id = ? WHERE id = ?').run(newId, oldId);
+  }
 });
+
+/**
+ * Heal stale "live" session rows left over from a previous run. Any row that is
+ * not already ended is from a process that has since died — without this its
+ * History status stays frozen (idle/working/…) and its computed duration grows
+ * forever (now − started_at). Marks them ended and stamps ended_at from the best
+ * available timestamp. Returns the number of rows healed. Idempotent.
+ */
+export function markStaleSessionsEnded(): number {
+  const info = db.prepare(`
+    UPDATE sessions
+    SET status = 'ended',
+        ended_at = COALESCE(ended_at, last_activity_at, started_at)
+    WHERE status != 'ended'
+  `).run();
+  return info.changes;
+}
 
 // ---- Shutdown ----
 

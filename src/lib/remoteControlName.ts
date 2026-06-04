@@ -92,6 +92,21 @@ export { sanitize as sanitizeRemoteControlName };
 
 const SESSION_PREFS_KEY = 'session-create-prefs';
 
+/**
+ * Claude Code effort levels (newest feature, Opus 4.8/4.7).
+ * `xhigh` is the extended level above `high`; `min` (an older value) was removed
+ * because it is not a valid Claude Code `/effort` level.
+ */
+export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+export const DEFAULT_EFFORT_LEVEL = 'high';
+
+/** Coerce a possibly-stale stored value to a valid level, falling back to the default. */
+export function normalizeEffortLevel(value: string | undefined): string {
+  return value && (EFFORT_LEVELS as readonly string[]).includes(value)
+    ? value
+    : DEFAULT_EFFORT_LEVEL;
+}
+
 interface SessionPrefs {
   model?: string;
   effortLevel?: string;

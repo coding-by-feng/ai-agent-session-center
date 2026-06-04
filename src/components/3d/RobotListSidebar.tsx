@@ -301,6 +301,9 @@ export default function RobotListSidebar() {
     const query = searchQuery.toLowerCase().trim();
     const activeSessions = [...sessions.values()].filter(s => {
       if (s.status === 'ended') return false;
+      // Floating popups (Explain/Translate forks) belong to their parent session
+      // and are rendered as draggable PiP windows, not as standalone agents.
+      if (s.isFork && s.originSessionId) return false;
       if (!query) return true;
       const title = (s.title || 'Unnamed').toLowerCase();
       const project = (s.projectName || '').toLowerCase();

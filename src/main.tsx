@@ -25,15 +25,27 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-// Load persisted queue items from IndexedDB before rendering
-useQueueStore.getState().loadFromDb();
-useQueueHistoryStore.getState().loadFromDb();
-
 const root = document.getElementById('root');
 if (!root) throw new Error('Root element not found');
 
-createRoot(root).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+// Hydrate persisted queue items from IndexedDB BEFORE rendering <App>.
+// <App> mounts the WebSocket; a `session_update` carrying `replacesId`
+// (a `claude --resume` re-key) calls queueStore.migrateSession() synchronously.
+// If the queue map isn't hydrated yet, migrateSession sees an empty queue and
+// no-ops, leaving the loop orphaned in IndexedDB under the OLD sessionId
+// (invisible under the new session). Awaiting load first makes the ordering
+// deterministic: load → render → WS connect → session_update. loadFromDb()
+// swallows its own errors, so a failure still falls through to render.
+async function bootstrap(): Promise<void> {
+  await Promise.all([
+    useQueueStore.getState().loadFromDb(),
+    useQueueHistoryStore.getState().loadFromDb(),
+  ]);
+  createRoot(root!).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+}
+
+void bootstrap();

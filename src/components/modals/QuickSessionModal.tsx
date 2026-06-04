@@ -18,6 +18,8 @@ import {
   sanitizeRemoteControlName,
   loadSessionPrefs,
   saveSessionPrefs,
+  EFFORT_LEVELS,
+  normalizeEffortLevel,
 } from '@/lib/remoteControlName';
 import styles from '@/styles/modules/Modal.module.css';
 
@@ -72,7 +74,7 @@ export default function QuickSessionModal() {
   });
   const [command, setCommand] = useState('claude');
   const [sessionPrefs] = useState(() => loadSessionPrefs());
-  const [effortLevel, setEffortLevel] = useState(sessionPrefs.effortLevel || 'high');
+  const [effortLevel, setEffortLevel] = useState(normalizeEffortLevel(sessionPrefs.effortLevel));
   const [model, setModel] = useState(sessionPrefs.model || '');
   const [roomId, setRoomId] = useState('');
   const [enableOpsTerminal, setEnableOpsTerminal] = useState(false);
@@ -308,7 +310,7 @@ export default function QuickSessionModal() {
               <Combobox
                 value={effortLevel}
                 onChange={setEffortLevel}
-                items={['min', 'low', 'medium', 'high', 'max']}
+                items={[...EFFORT_LEVELS]}
                 placeholder="high"
               />
             </div>

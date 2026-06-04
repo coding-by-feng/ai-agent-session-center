@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useCallback } from 'react';
+import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useWebSocket } from '@/hooks/useWebSocket';
@@ -74,17 +74,42 @@ function Dashboard({ token }: { token: string | null }) {
   useGlobalQueueScheduler();
 
   const [saving, setSaving] = useState(false);
+  const [saveProgress, setSaveProgress] = useState(0);
+  const creepRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Listen for Electron's before-close signal to flush workspace save
   const handleBeforeClose = useCallback(async () => {
     setSaving(true);
-    const { flushSave } = await import('@/lib/workspaceSnapshot');
-    const { useSessionStore } = await import('@/stores/sessionStore');
-    const { useRoomStore } = await import('@/stores/roomStore');
-    await flushSave(
-      () => useSessionStore.getState().sessions,
-      () => useRoomStore.getState().rooms,
-    );
+    setSaveProgress(8);
+
+    // Slow "creep" toward 90% so the bar always reads as in-progress while the
+    // save runs. The real completion below snaps it to 100%.
+    if (creepRef.current) clearInterval(creepRef.current);
+    creepRef.current = setInterval(() => {
+      setSaveProgress((p) => (p < 90 ? p + Math.max(1, (90 - p) * 0.12) : p));
+    }, 120);
+
+    try {
+      const { flushSave } = await import('@/lib/workspaceSnapshot');
+      const { useSessionStore } = await import('@/stores/sessionStore');
+      const { useRoomStore } = await import('@/stores/roomStore');
+      await flushSave(
+        () => useSessionStore.getState().sessions,
+        () => useRoomStore.getState().rooms,
+      );
+    } finally {
+      if (creepRef.current) {
+        clearInterval(creepRef.current);
+        creepRef.current = null;
+      }
+      setSaveProgress(100);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (creepRef.current) clearInterval(creepRef.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -94,7 +119,13 @@ function Dashboard({ token }: { token: string | null }) {
 
   return (
     <>
-      {saving && <SavingOverlay />}
+      {saving && (
+        <SavingOverlay
+          progress={saveProgress}
+          label="Quitting"
+          detail={saveProgress >= 100 ? 'Saved — closing…' : 'Saving workspace & config…'}
+        />
+      )}
       <RestorePickerModal />
       <WorkspaceLoadingOverlay />
       <BrowserRouter>

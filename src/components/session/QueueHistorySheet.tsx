@@ -17,7 +17,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { QueueItem, QueueItemType } from '@/stores/queueStore';
 import { useQueueHistoryStore, type QueueHistoryEntry } from '@/stores/queueHistoryStore';
+import { useSessionStore } from '@/stores/sessionStore';
 import { itemType, formatInterval, totalChainSteps } from '@/lib/queueScheduler';
+import {
+  serializeEntries,
+  parseImportFile,
+  defaultExportFilename,
+  downloadAsFile,
+  type ExportedFile,
+  type ImportError,
+} from '@/lib/queueHistoryExport';
 import { showToast } from '@/components/ui/ToastContainer';
 import QueueItemEditModal from './QueueItemEditModal';
 import styles from '@/styles/modules/QueueHistory.module.css';
@@ -42,11 +51,31 @@ export default function QueueHistorySheet({
   const entries = useQueueHistoryStore((s) => s.entries);
   const removeEntry = useQueueHistoryStore((s) => s.removeEntry);
   const updateEntry = useQueueHistoryStore((s) => s.updateEntry);
+  const setAlias = useQueueHistoryStore((s) => s.setAlias);
   const applyToSession = useQueueHistoryStore((s) => s.applyToSession);
+  const bulkImport = useQueueHistoryStore((s) => s.bulkImport);
+
+  // Reactive selector so QueueItemEditModal always gets a fresh projectPath
+  // even if the session updates while the sheet is open.
+  const currentProjectPath = useSessionStore(
+    (s) => s.sessions.get(currentSessionId)?.projectPath ?? null,
+  );
 
   const [filter, setFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState<FilterType>('all');
   const [sortMode, setSortMode] = useState<SortMode>('recent');
+
+  /** Import preview — the parsed file shown to the user before commit. Null
+   *  while no import is in progress, or while picking. */
+  const [importPreview, setImportPreview] = useState<
+    | {
+        filename: string;
+        file: ExportedFile;
+        skipped: number;
+      }
+    | null
+  >(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [viewEntry, setViewEntry] = useState<QueueHistoryEntry | null>(null);
   const [editEntry, setEditEntry] = useState<QueueHistoryEntry | null>(null);
@@ -78,7 +107,7 @@ export default function QueueHistorySheet({
     const filtered = entries.filter((e) => {
       if (typeFilter !== 'all' && itemType(e.item) !== typeFilter) return false;
       if (!q) return true;
-      const hay = `${e.item.text} ${e.sourceSessionTitle ?? ''}`.toLowerCase();
+      const hay = `${e.alias ?? ''} ${e.item.text} ${e.sourceSessionTitle ?? ''}`.toLowerCase();
       return hay.includes(q);
     });
     if (sortMode === 'used') {
@@ -122,6 +151,81 @@ export default function QueueHistorySheet({
     [editEntry, updateEntry],
   );
 
+  // ---- Export: dump every entry to a JSON file the browser downloads. ----
+  const handleExport = useCallback(() => {
+    if (entries.length === 0) {
+      showToast('Nothing to export — history is empty', 'info', 2000);
+      return;
+    }
+    try {
+      const text = serializeEntries(entries);
+      downloadAsFile(text, defaultExportFilename());
+      showToast(`Exported ${entries.length} entries`, 'info', 1800);
+    } catch {
+      showToast('Export failed', 'error', 2500);
+    }
+  }, [entries]);
+
+  // ---- Import: pick a file → parse → preview → confirm commits. ----
+  const handlePickFile = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileChosen = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      // Reset the input so picking the same file again re-fires onChange.
+      if (e.target) e.target.value = '';
+      if (!file) return;
+
+      let text: string;
+      try {
+        text = await file.text();
+      } catch {
+        showToast('Could not read file', 'error', 2500);
+        return;
+      }
+      const result = parseImportFile(text, file.size);
+      if (!result.ok) {
+        showToast(importErrorMessage(result.error), 'error', 3000);
+        return;
+      }
+      setImportPreview({
+        filename: file.name,
+        file: result.file,
+        skipped: result.skipped,
+      });
+    },
+    [],
+  );
+
+  const handleConfirmImport = useCallback(async () => {
+    if (!importPreview) return;
+    const written = await bulkImport(
+      importPreview.file.entries.map((e) => ({
+        alias: e.alias ?? null,
+        item: e.item,
+        sourceSessionTitle: e.sourceSessionTitle ?? null,
+        sourceSessionId: e.sourceSessionId ?? null,
+        usedCount: e.usedCount,
+        createdAt: e.createdAt,
+        lastUsedAt: e.lastUsedAt ?? null,
+      })),
+    );
+    setImportPreview(null);
+    if (written === 0) {
+      showToast('Import failed', 'error', 3000);
+    } else if (written < importPreview.file.entries.length) {
+      showToast(
+        `Imported ${written} of ${importPreview.file.entries.length} (some rows rejected)`,
+        'info',
+        3000,
+      );
+    } else {
+      showToast(`Imported ${written} entries`, 'info', 1800);
+    }
+  }, [importPreview, bulkImport]);
+
   if (!open) return null;
 
   return (
@@ -133,9 +237,42 @@ export default function QueueHistorySheet({
       <div className={styles.panel} role="dialog" aria-modal="true">
         <div className={styles.header}>
           <h3>📚 Queue history</h3>
-          <button className={styles.closeBtn} onClick={onClose} aria-label="Close">
-            ✕
-          </button>
+          <div className={styles.headerActions}>
+            <button
+              className={styles.headerIconBtn}
+              onClick={handleExport}
+              title="Export all queue history to a JSON file"
+              aria-label="Export queue history"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+            </button>
+            <button
+              className={styles.headerIconBtn}
+              onClick={handlePickFile}
+              title="Import queue history from a JSON file (entries are appended)"
+              aria-label="Import queue history"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/json,.json"
+              style={{ display: 'none' }}
+              onChange={(e) => { void handleFileChosen(e); }}
+            />
+            <button className={styles.closeBtn} onClick={onClose} aria-label="Close">
+              ✕
+            </button>
+          </div>
         </div>
 
         <div className={styles.targetStrip} title="Apply will add to this session">
@@ -190,6 +327,7 @@ export default function QueueHistorySheet({
                 onEdit={() => setEditEntry(entry)}
                 onApply={() => handleApply(entry)}
                 onRemove={() => handleRemove(entry)}
+                onSetAlias={(alias) => { void setAlias(entry.id, alias); }}
               />
             ))
           )}
@@ -219,7 +357,9 @@ export default function QueueHistorySheet({
         />
       )}
 
-      {/* Edit entry — reuses QueueItemEditModal */}
+      {/* Edit entry — reuses QueueItemEditModal. Autocomplete is bound to
+       *  the current session's CLI + project so `/` commands and `@` file
+       *  lookups stay meaningful while editing a globally-saved entry. */}
       {editEntry && (
         <QueueItemEditModal
           item={editEntry.item}
@@ -233,10 +373,38 @@ export default function QueueHistorySheet({
           }}
           /* Loop/Schedule are always editable here — autoSend doesn't gate history. */
           autoSendEnabled={true}
+          sessionId={currentSessionId}
+          projectPath={currentProjectPath}
+        />
+      )}
+
+      {/* Import preview / confirmation. Sits on top of the sheet because the
+       *  user shouldn't be interacting with the list while pending commit. */}
+      {importPreview && (
+        <ImportPreviewModal
+          preview={importPreview}
+          existingCount={entries.length}
+          onCancel={() => setImportPreview(null)}
+          onConfirm={() => { void handleConfirmImport(); }}
         />
       )}
     </div>
   );
+}
+
+function importErrorMessage(err: ImportError): string {
+  switch (err) {
+    case 'too-large':
+      return 'File too large (> 50 MB)';
+    case 'invalid-json':
+      return "Couldn't parse file — not valid JSON";
+    case 'wrong-schema':
+      return 'Not a queue-history file';
+    case 'newer-version':
+      return 'File was created by a newer version of AASC — upgrade to import';
+    case 'malformed':
+      return 'Malformed queue-history file';
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -249,12 +417,15 @@ function HistoryRow({
   onEdit,
   onApply,
   onRemove,
+  onSetAlias,
 }: {
   entry: QueueHistoryEntry;
   onView: () => void;
   onEdit: () => void;
   onApply: () => void;
   onRemove: () => void;
+  /** Persist a new alias (empty string clears it). */
+  onSetAlias: (alias: string) => void;
 }) {
   const t = itemType(entry.item);
   const typeLabel =
@@ -268,8 +439,66 @@ function HistoryRow({
     ? entry.item.text.slice(0, 120) + '…'
     : entry.item.text;
 
+  // Inline alias editing. `aliasCommittedRef` guards against a double-commit
+  // when Enter/Escape is followed by the input's blur event.
+  const [editingAlias, setEditingAlias] = useState(false);
+  const [aliasDraft, setAliasDraft] = useState('');
+  const aliasCommittedRef = useRef(false);
+
+  const startAlias = () => {
+    setAliasDraft(entry.alias ?? '');
+    aliasCommittedRef.current = false;
+    setEditingAlias(true);
+  };
+  const commitAlias = () => {
+    if (aliasCommittedRef.current) return;
+    aliasCommittedRef.current = true;
+    setEditingAlias(false);
+    const next = aliasDraft.trim();
+    // Only write when the value actually changed (avoids a redundant DB write).
+    if (next !== (entry.alias ?? '')) onSetAlias(next);
+  };
+  const cancelAlias = () => {
+    aliasCommittedRef.current = true; // suppress the trailing blur commit
+    setEditingAlias(false);
+  };
+
   return (
     <div className={styles.row}>
+      <div className={styles.rowAliasLine}>
+        {editingAlias ? (
+          <input
+            className={styles.rowAliasInput}
+            value={aliasDraft}
+            autoFocus
+            maxLength={80}
+            placeholder="Name this saved item…"
+            onChange={(e) => setAliasDraft(e.target.value)}
+            onBlur={commitAlias}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); commitAlias(); }
+              else if (e.key === 'Escape') { e.preventDefault(); cancelAlias(); }
+            }}
+          />
+        ) : entry.alias ? (
+          <button
+            className={styles.rowAlias}
+            onClick={startAlias}
+            title="Rename this saved item"
+          >
+            <span className={styles.rowAliasText}>{entry.alias}</span>
+            <span className={styles.rowAliasPencil} aria-hidden>✎</span>
+          </button>
+        ) : (
+          <button
+            className={styles.rowAliasEmpty}
+            onClick={startAlias}
+            title="Add a name for this saved item"
+          >
+            + Add name
+          </button>
+        )}
+      </div>
       <div className={styles.rowMain}>
         <span className={styles.rowTypeChip}>{typeLabel}</span>
         <span className={styles.rowText} title={entry.item.text}>{preview}</span>
@@ -343,6 +572,7 @@ function QueueHistoryViewModal({
           </button>
         </div>
         <div className={styles.viewBody}>
+          {entry.alias && <Field label="Name">{entry.alias}</Field>}
           <Field label="Type">
             {t === 'loop'
               ? `⟳ Loop`
@@ -404,6 +634,92 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div className={styles.viewField}>
       <span className={styles.viewFieldLabel}>{label}</span>
       <div className={styles.viewFieldValue}>{children}</div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Import preview / confirm modal
+// ---------------------------------------------------------------------------
+
+function ImportPreviewModal({
+  preview,
+  existingCount,
+  onCancel,
+  onConfirm,
+}: {
+  preview: { filename: string; file: ExportedFile; skipped: number };
+  existingCount: number;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const handleOverlayClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.target === overlayRef.current) onCancel();
+    },
+    [onCancel],
+  );
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onCancel();
+      }
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
+  const exportedAt = (() => {
+    try {
+      return new Date(preview.file.exportedAt).toLocaleString();
+    } catch {
+      return preview.file.exportedAt;
+    }
+  })();
+
+  const importCount = preview.file.entries.length;
+
+  return (
+    <div ref={overlayRef} className={styles.viewOverlay} onClick={handleOverlayClick}>
+      <div className={styles.viewPanel} role="dialog" aria-modal="true">
+        <div className={styles.header}>
+          <h3>Import queue history</h3>
+          <button className={styles.closeBtn} onClick={onCancel} aria-label="Cancel">
+            ✕
+          </button>
+        </div>
+        <div className={styles.viewBody}>
+          <Field label="File">{preview.filename}</Field>
+          <Field label="Exported">{exportedAt}</Field>
+          <Field label="Entries">{importCount}</Field>
+          {preview.skipped > 0 && (
+            <Field label="Skipped">
+              {preview.skipped} (missing required fields)
+            </Field>
+          )}
+          <Field label="Existing history">
+            {existingCount === 0
+              ? 'empty — these will be your first saved entries'
+              : `${existingCount} entries — imports are appended, your existing entries are untouched`}
+          </Field>
+        </div>
+        <div className={styles.footer}>
+          <span />
+          <div className={styles.footerRight}>
+            <button className={styles.btnGhost} onClick={onCancel}>Cancel</button>
+            <button
+              className={styles.btnPrimary}
+              onClick={onConfirm}
+              disabled={importCount === 0}
+            >
+              Import {importCount}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

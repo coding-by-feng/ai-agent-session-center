@@ -5,10 +5,10 @@
   z-index: 8500;
   display: flex;
   flex-direction: column;
-  background: var(--panel-bg, rgba(10, 10, 26, 0.97));
-  border: 1px solid var(--panel-border, rgba(0, 255, 255, 0.35));
+  background: var(--bg-panel, rgba(10, 10, 26, 0.97));
+  border: 1px solid var(--border-accent-strong, rgba(0, 229, 255, 0.3));
   border-radius: 10px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(0, 255, 255, 0.08);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.65), 0 0 18px var(--bg-accent, rgba(0, 229, 255, 0.1));
   overflow: hidden;
   animation: floatTermIn 140ms ease-out;
 }
@@ -27,8 +27,8 @@
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  background: linear-gradient(180deg, rgba(0, 255, 255, 0.08) 0%, rgba(0, 255, 255, 0.02) 100%);
-  border-bottom: 1px solid var(--panel-border, rgba(0, 255, 255, 0.25));
+  background: linear-gradient(180deg, var(--bg-accent-strong, rgba(0, 229, 255, 0.15)) 0%, var(--bg-accent, rgba(0, 229, 255, 0.08)) 100%);
+  border-bottom: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15));
   cursor: grab;
   user-select: none;
 }
@@ -38,7 +38,7 @@
 }
 
 .titleIcon {
-  color: var(--accent-cyan, #00f0ff);
+  color: var(--accent-cyan, #00e5ff);
   font-size: 13px;
 }
 
@@ -76,9 +76,9 @@
 }
 
 .headerBtn:hover {
-  background: rgba(0, 255, 255, 0.10);
-  border-color: rgba(0, 255, 255, 0.35);
-  color: var(--accent-cyan, #00f0ff);
+  background: var(--bg-accent-strong, rgba(0, 229, 255, 0.15));
+  border-color: var(--border-accent-strong, rgba(0, 229, 255, 0.3));
+  color: var(--accent-cyan, #00e5ff);
 }
 
 .body {
@@ -110,8 +110,8 @@
   bottom: 3px;
   width: 10px;
   height: 10px;
-  border-right: 2px solid rgba(0, 255, 255, 0.45);
-  border-bottom: 2px solid rgba(0, 255, 255, 0.45);
+  border-right: 2px solid var(--accent-cyan, rgba(0, 229, 255, 0.45));
+  border-bottom: 2px solid var(--accent-cyan, rgba(0, 229, 255, 0.45));
 }
 
 /* Collapsed pill */
@@ -122,8 +122,8 @@
   align-items: center;
   gap: 8px;
   padding: 0 12px;
-  background: var(--panel-bg, rgba(10, 10, 26, 0.95));
-  border: 1px solid var(--pill-accent, var(--accent-cyan, rgba(0, 255, 255, 0.55)));
+  background: var(--bg-panel, rgba(10, 10, 26, 0.95));
+  border: 1px solid var(--pill-accent, var(--border-accent-strong, rgba(0, 229, 255, 0.4)));
   border-radius: 18px;
   color: var(--text-primary, #e6f6ff);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
@@ -138,11 +138,11 @@
 }
 
 .collapsed:hover {
-  background: color-mix(in srgb, var(--pill-accent, var(--accent-cyan, #00f0ff)) 10%, transparent);
+  background: color-mix(in srgb, var(--pill-accent, var(--accent-cyan, #00e5ff)) 12%, transparent);
 }
 
 .collapsedIcon {
-  color: var(--pill-accent, var(--accent-cyan, #00f0ff));
+  color: var(--pill-accent, var(--accent-cyan, #00e5ff));
   font-size: 14px;
 }
 

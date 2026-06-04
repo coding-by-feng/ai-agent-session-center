@@ -3,6 +3,7 @@ import {
   pickNext,
   advanceAfterFire,
   advanceBlockedLoops,
+  chainGateDecision,
   applyTypeDefaults,
   itemType,
   getActiveStep,
@@ -48,6 +49,68 @@ describe('queueScheduler', () => {
     });
     it('respects explicit type', () => {
       expect(itemType(mkItem({ type: 'loop', intervalMs: 60_000 }))).toBe('loop');
+    });
+  });
+
+  describe('chainGateDecision', () => {
+    const FALLBACK = 12_000;
+    // args: (gate, pickId, atRest, sessionSendable, now, fallbackMs)
+
+    it('fires when there is no gate (not mid-chain or gate lost)', () => {
+      expect(chainGateDecision(undefined, 7, true, true, 1000, FALLBACK)).toBe('fire');
+    });
+
+    it('fires when the gate guards a different item', () => {
+      const gate = { itemId: 99, sawWork: false, openedAt: 0 };
+      expect(chainGateDecision(gate, 7, true, true, 1000, FALLBACK)).toBe('fire');
+    });
+
+    it('holds during the stale-status window (sendable, work not yet seen)', () => {
+      // Just sent the prior step; status still reads sendable but the hook
+      // hasn't flipped it to working yet. Must NOT fire the next step.
+      const gate = { itemId: 7, sawWork: false, openedAt: 1000 };
+      expect(chainGateDecision(gate, 7, true, true, 1500, FALLBACK)).toBe('hold');
+    });
+
+    it('holds while the prior step is still running (working, not at rest)', () => {
+      const gate = { itemId: 7, sawWork: true, openedAt: 1000 };
+      // atRest=false (status='working'), sendable=false
+      expect(chainGateDecision(gate, 7, false, false, 5000, FALLBACK)).toBe('hold');
+    });
+
+    it('fires once work was seen and the session reaches waiting (Stop)', () => {
+      const gate = { itemId: 7, sawWork: true, openedAt: 1000 };
+      // atRest=true (status='waiting'), sendable=true
+      expect(chainGateDecision(gate, 7, true, true, 5000, FALLBACK)).toBe('fire');
+    });
+
+    it('HOLDS on decayed idle — a busy step that auto-idled is not done', () => {
+      const gate = { itemId: 7, sawWork: true, openedAt: 1000 };
+      // status='idle' → sendable=true but atRest=false. Long task that the
+      // 3-min working→idle timeout flipped to idle must NOT release, even far
+      // past the no-work fallback window.
+      expect(chainGateDecision(gate, 7, false, true, 1_000_000, FALLBACK)).toBe('hold');
+    });
+
+    it('HOLDS on input — the running agent is asking the user, not finished', () => {
+      const gate = { itemId: 7, sawWork: true, openedAt: 1000 };
+      // status='input' → sendable=true, atRest=false
+      expect(chainGateDecision(gate, 7, false, true, 5000, FALLBACK)).toBe('hold');
+    });
+
+    it('fires via the no-work fallback for a step that never goes busy', () => {
+      const gate = { itemId: 7, sawWork: false, openedAt: 1000 };
+      // Local slash command (e.g. /clear): never observed busy, stays sendable.
+      // atRest=false the whole time; only the fallback can release it.
+      expect(chainGateDecision(gate, 7, false, true, 1000 + FALLBACK, FALLBACK)).toBe('fire');
+      // One ms short of the fallback → still holding.
+      expect(chainGateDecision(gate, 7, false, true, 1000 + FALLBACK - 1, FALLBACK)).toBe('hold');
+    });
+
+    it('no fallback escape once work was seen (waits strictly for Stop)', () => {
+      const gate = { itemId: 7, sawWork: true, openedAt: 1000 };
+      // Even way past the fallback, a real running turn (working) must hold.
+      expect(chainGateDecision(gate, 7, false, false, 1000 + FALLBACK * 100, FALLBACK)).toBe('hold');
     });
   });
 
@@ -121,8 +184,22 @@ describe('queueScheduler', () => {
       expect(result.patch.lastFiredAt).toBe(50_000);
       expect(result.patch.totalFires).toBe(3);
     });
-    it('removes loop items missing intervalMs (avoid tight resend)', () => {
-      expect(advanceAfterFire(mkItem({ type: 'loop' }), 100).action).toBe('remove');
+    it('keeps a loop alive (reschedule with clamped 60s interval) when intervalMs is missing', () => {
+      const r = advanceAfterFire(mkItem({ type: 'loop' }), 100);
+      // A loop the user explicitly enabled must NEVER be silently deleted just
+      // because its interval is missing — it self-heals to the 60s default.
+      expect(r.action).toBe('reschedule');
+      if (r.action !== 'reschedule') throw new Error('unreachable');
+      expect(r.patch.intervalMs).toBe(60_000);
+      expect(r.patch.nextFireAt).toBe(100 + 60_000);
+    });
+    it('keeps a loop alive when intervalMs is zero or negative (heals to 60s)', () => {
+      for (const bad of [0, -5, Number.NaN]) {
+        const r = advanceAfterFire(mkItem({ type: 'loop', intervalMs: bad }), 100);
+        expect(r.action).toBe('reschedule');
+        if (r.action !== 'reschedule') throw new Error('unreachable');
+        expect(r.patch.intervalMs).toBe(60_000);
+      }
     });
     it('removes one-shot schedule items', () => {
       expect(advanceAfterFire(mkItem({ type: 'schedule', runAt: 5 }), 100).action).toBe('remove');
@@ -495,6 +572,29 @@ describe('queueScheduler', () => {
       expect(advanceBlockedLoops(items, 1000)).toEqual([]);
     });
 
+    it('skips OTHER due loops while one item is mid-chain, leaving the in-flight item untouched', () => {
+      // SKIP-while-running semantics: loop A is executing its chain; loop B
+      // comes due. B's cycle must be dropped (nextFireAt rolled forward), and
+      // the in-flight A must NOT be advanced — it completes its own cycle.
+      const inFlight = mkItem({
+        id: 200,
+        type: 'loop',
+        intervalMs: 60_000,
+        nextFireAt: 0, // would be "due" but it's executing
+        execState: 'main',
+        execStepIdx: 0,
+      });
+      const dueOther = mkItem({
+        id: 201,
+        type: 'loop',
+        intervalMs: 60_000,
+        nextFireAt: 0, // due now
+      });
+      const patches = advanceBlockedLoops([inFlight, dueOther], 100_000);
+      // Only the non-executing due loop is skipped forward.
+      expect(patches).toEqual([{ id: 201, patch: { nextFireAt: 160_000 } }]);
+    });
+
     it('pickNext skips per-item disabled items (once)', () => {
       const items = [
         mkItem({ id: 100, type: 'once', disabled: true }),
@@ -672,6 +772,94 @@ describe('queueScheduler', () => {
 
       const midAfter: QueueItem = { ...idle, execState: 'after', execStepIdx: 0 };
       expect(currentChainStep(midAfter)).toBe(4);
+    });
+  });
+
+  // The manual "⚡ NOW" button hands the FULL before→main→after chain to the
+  // scheduler by setting `forceStart`. The scheduler must start it immediately,
+  // ignoring every start-edge timing rule, while still letting an already
+  // in-flight chain finish first (chain atomicity).
+  describe('force-start (manual ⚡ NOW)', () => {
+    it('fires a force-started loop immediately — bypasses due-time + idle-guard', () => {
+      const it = mkItem({
+        id: 400, type: 'loop', intervalMs: 60_000,
+        nextFireAt: 9_999_999, // not due yet
+        forceStart: true,
+      });
+      // session busy (sessionWaiting=false), idleGuard ON → would normally hold.
+      expect(pickNext([it], 1000, false, true)?.id).toBe(400);
+    });
+
+    it('fires a force-started loop even inside a quiet-hours window (per-item AND session-level)', () => {
+      const it = mkItem({
+        id: 401, type: 'loop', intervalMs: 60_000, nextFireAt: 0,
+        excludeWindows: [win(1, '00:00', '23:59')],
+        forceStart: true,
+      });
+      expect(pickNext([it], todayAt(12, 0), true, true)?.id).toBe(401);
+      expect(
+        pickNext([it], todayAt(12, 0), true, true, [win(2, '00:00', '23:59')])?.id,
+      ).toBe(401);
+    });
+
+    it('fires a force-started loop even before its daily-start clamp', () => {
+      const it = mkItem({
+        id: 402, type: 'loop', intervalMs: 60_000, nextFireAt: 0,
+        firstFireOfDay: '09:00',
+        forceStart: true,
+      });
+      expect(pickNext([it], todayAt(6, 0), true, true)?.id).toBe(402);
+    });
+
+    it('a force-started item wins over a due once item', () => {
+      const items = [
+        mkItem({ id: 410, type: 'once' }),
+        mkItem({ id: 411, type: 'loop', intervalMs: 60_000, nextFireAt: 9_999_999, forceStart: true }),
+      ];
+      expect(pickNext(items, 1000, true, true)?.id).toBe(411);
+    });
+
+    it('an in-flight chain still beats a fresh force-started item (no interleaving)', () => {
+      const inFlight: QueueItem = {
+        ...mkItem({ id: 420, type: 'loop', intervalMs: 60_000 }),
+        execState: 'main', execStepIdx: 0,
+      };
+      const forced = mkItem({
+        id: 421, type: 'loop', intervalMs: 60_000, nextFireAt: 0, forceStart: true,
+      });
+      expect(pickNext([inFlight, forced], 1000, true, true)?.id).toBe(420);
+    });
+
+    it('a disabled item is never fired, even with forceStart set', () => {
+      const it = mkItem({
+        id: 430, type: 'loop', intervalMs: 60_000, nextFireAt: 0,
+        disabled: true, forceStart: true,
+      });
+      expect(pickNext([it], 1000, true, true)).toBeNull();
+    });
+
+    it('advanceAfterFire clears forceStart when a no-chain force loop reschedules', () => {
+      const it = mkItem({ id: 440, type: 'loop', intervalMs: 60_000, forceStart: true });
+      const r = advanceAfterFire(it, 1000);
+      expect(r.action).toBe('reschedule');
+      if (r.action === 'reschedule') {
+        expect('forceStart' in r.patch).toBe(true); // explicitly cleared
+        expect(r.patch.forceStart).toBeUndefined();
+      }
+    });
+
+    it('advanceAfterFire clears forceStart on the first continue of a force-started chain', () => {
+      const it = mkItem({
+        id: 441, type: 'loop', intervalMs: 60_000,
+        beforeChain: [step(1, 'a'), step(2, 'b')],
+        forceStart: true,
+      });
+      const r = advanceAfterFire(it, 1000);
+      expect(r.action).toBe('continue');
+      if (r.action === 'continue') {
+        expect('forceStart' in r.patch).toBe(true);
+        expect(r.patch.forceStart).toBeUndefined();
+      }
     });
   });
 });

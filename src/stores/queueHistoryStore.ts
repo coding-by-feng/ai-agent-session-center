@@ -31,6 +31,8 @@ import { useQueueStore, type QueueItem } from '@/stores/queueStore';
 
 export interface QueueHistoryEntry {
   id: number;
+  /** User-chosen alias / display name. null when the user hasn't named it. */
+  alias: string | null;
   /** Snapshot of the saved QueueItem. session-local fields are stripped. */
   item: QueueItem;
   sourceSessionTitle: string | null;
@@ -57,6 +59,10 @@ interface QueueHistoryState {
    *  Edit action). The breadcrumb / usedCount / timestamps are NOT touched. */
   updateEntry: (id: number, itemPatch: Partial<QueueItem>) => Promise<void>;
 
+  /** Set (or clear) a saved entry's display alias. Pass an empty/blank string
+   *  to clear it back to null. Only touches `alias` — never the snapshot. */
+  setAlias: (id: number, alias: string) => Promise<void>;
+
   /** Delete a saved entry AND clear `historyId` from any live queue item
    *  that pointed at it. */
   removeEntry: (id: number) => Promise<void>;
@@ -68,10 +74,24 @@ interface QueueHistoryState {
    *  fresh id, resets loop timing / execState, links the new item back to
    *  the history entry via `historyId`, and increments usedCount. */
   applyToSession: (entryId: number, targetSessionId: string) => Promise<void>;
+
+  /** Append a batch of entries from a parsed import file. Each `entry.id` is
+   *  ignored; Dexie mints fresh auto-increment ids so the imported entries
+   *  don't collide with the user's existing ones. Returns the number of
+   *  entries actually written (0 if all writes failed). */
+  bulkImport: (entries: Array<Omit<QueueHistoryEntry, 'id'>>) => Promise<number>;
 }
 
 /** Strip per-session fields off a QueueItem so the snapshot is portable. */
 function snapshotItem(item: QueueItem): QueueItem {
+  // A loop must carry a valid interval — a missing/≤0 value would make the
+  // applied item deletable on its first fire. Clamp to the 60s default so a
+  // corrupt interval never enters the saved pattern.
+  const intervalMs =
+    item.type === 'loop' &&
+    !(Number.isFinite(item.intervalMs) && (item.intervalMs as number) > 0)
+      ? 60_000
+      : item.intervalMs;
   return {
     // id/sessionId/position are session-local; placeholder values get rewritten
     // when applied to a target session.
@@ -82,7 +102,7 @@ function snapshotItem(item: QueueItem): QueueItem {
     text: item.text,
     images: item.images,
     type: item.type,
-    intervalMs: item.intervalMs,
+    intervalMs,
     runAt: item.runAt,
     // Reset execution state — a fresh apply starts at the beginning of any chain.
     nextFireAt: undefined,
@@ -105,6 +125,7 @@ function snapshotItem(item: QueueItem): QueueItem {
 
 function rowToEntry(row: {
   id?: number;
+  alias?: string;
   item: string;
   sourceSessionTitle?: string;
   sourceSessionId?: string;
@@ -121,6 +142,7 @@ function rowToEntry(row: {
   }
   return {
     id: row.id,
+    alias: row.alias ?? null,
     item: parsed,
     sourceSessionTitle: row.sourceSessionTitle ?? null,
     sourceSessionId: row.sourceSessionId ?? null,
@@ -156,6 +178,7 @@ export const useQueueHistoryStore = create<QueueHistoryState>((set, get) => ({
     });
     const entry: QueueHistoryEntry = {
       id: newId as number,
+      alias: null,
       item: snapshot,
       sourceSessionTitle: source.sessionTitle ?? null,
       sourceSessionId: source.sessionId ?? null,
@@ -165,6 +188,15 @@ export const useQueueHistoryStore = create<QueueHistoryState>((set, get) => ({
     };
     set((s) => ({ entries: [entry, ...s.entries] }));
     return entry.id;
+  },
+
+  setAlias: async (id, alias) => {
+    const trimmed = alias.trim();
+    const next = trimmed.length > 0 ? trimmed : null;
+    await db.queueHistory.update(id, { alias: next ?? undefined });
+    set((s) => ({
+      entries: s.entries.map((e) => (e.id === id ? { ...e, alias: next } : e)),
+    }));
   },
 
   updateEntry: async (id, itemPatch) => {
@@ -209,6 +241,50 @@ export const useQueueHistoryStore = create<QueueHistoryState>((set, get) => ({
         e.id === id ? { ...e, usedCount: e.usedCount + 1, lastUsedAt: now } : e,
       ),
     }));
+  },
+
+  bulkImport: async (entries) => {
+    if (entries.length === 0) return 0;
+    const rows = entries.map((e) => ({
+      alias: e.alias ?? undefined,
+      item: JSON.stringify(e.item),
+      sourceSessionTitle: e.sourceSessionTitle ?? undefined,
+      sourceSessionId: e.sourceSessionId ?? undefined,
+      usedCount: e.usedCount ?? 0,
+      lastUsedAt: e.lastUsedAt ?? undefined,
+      createdAt: e.createdAt,
+    }));
+    let written = 0;
+    try {
+      // bulkAdd returns the auto-inc id of the LAST inserted row; we need
+      // each row's id to update in-memory state. Use a transaction + sequential
+      // add() so we can capture every id without a separate read-back query.
+      const newIds: number[] = [];
+      await db.transaction('rw', db.queueHistory, async () => {
+        for (const row of rows) {
+          const id = await db.queueHistory.add(row);
+          newIds.push(id as number);
+        }
+      });
+      written = newIds.length;
+      const appended: QueueHistoryEntry[] = entries.map((e, i) => ({
+        id: newIds[i],
+        alias: e.alias ?? null,
+        item: e.item,
+        sourceSessionTitle: e.sourceSessionTitle ?? null,
+        sourceSessionId: e.sourceSessionId ?? null,
+        usedCount: e.usedCount ?? 0,
+        lastUsedAt: e.lastUsedAt ?? null,
+        createdAt: e.createdAt,
+      }));
+      // Imported entries land at the top of the in-memory list (newest first)
+      // so they're immediately visible without scrolling.
+      set((s) => ({ entries: [...appended, ...s.entries] }));
+    } catch {
+      // Whole-transaction failure — nothing was written (Dexie rolled back).
+      written = 0;
+    }
+    return written;
   },
 
   applyToSession: async (entryId, targetSessionId) => {

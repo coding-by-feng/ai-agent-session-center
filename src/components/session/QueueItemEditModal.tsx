@@ -26,6 +26,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { QueueItem, ChainStep, ExcludeWindow, QueueItemType } from '@/stores/queueStore';
 import TimePicker12 from '@/components/ui/TimePicker12';
+import AutocompleteTextarea from '@/components/ui/AutocompleteTextarea';
 import styles from '@/styles/modules/Terminal.module.css';
 
 interface QueueItemEditModalProps {
@@ -39,6 +40,13 @@ interface QueueItemEditModalProps {
   /** Header text. Defaults to "Edit queue item". The history sheet passes
    *  "Edit history entry" so the title reflects what's being modified. */
   title?: string;
+  /** Session id — passed through to the autocomplete in every prompt textarea
+   *  so `/` lookups use the right CLI's command/skill index. */
+  sessionId: string;
+  /** Project path — passed through to autocomplete so `@` file lookups have
+   *  a directory to search. Optional; when missing, file autocomplete is
+   *  silently disabled. */
+  projectPath?: string | null;
 }
 
 let nextStepId = Date.now();
@@ -69,6 +77,8 @@ export default function QueueItemEditModal({
   onDelete,
   autoSendEnabled,
   title = 'Edit queue item',
+  sessionId,
+  projectPath,
 }: QueueItemEditModalProps) {
   // ---- Form state (initialized from the item, edited locally) -----------
   const [type, setType] = useState<QueueItemType>(item.type ?? 'once');
@@ -237,12 +247,15 @@ export default function QueueItemEditModal({
         chain.map((step, idx) => (
           <div key={step.id} className={styles.chainStepRow}>
             <span className={styles.chainStepIdx}>{idx + 1}</span>
-            <textarea
+            <AutocompleteTextarea
               className={styles.chainStepTextarea}
               value={step.text}
-              onChange={(e) => updateStep(which, step.id, e.target.value)}
+              onChange={(next) => updateStep(which, step.id, next)}
+              sessionId={sessionId}
+              projectPath={projectPath}
               placeholder={which === 'before' ? 'Run before main…' : 'Run after main…'}
               rows={1}
+              ariaLabel={which === 'before' ? 'Before-chain step' : 'After-chain step'}
             />
             <button
               className={styles.chainStepBtn}
@@ -362,13 +375,16 @@ export default function QueueItemEditModal({
               <span className={styles.chainSectionLabel}>MAIN prompt</span>
               <span className={styles.chainSectionHint}>Required</span>
             </div>
-            <textarea
+            <AutocompleteTextarea
               className={styles.chainMainTextarea}
               value={mainText}
-              onChange={(e) => setMainText(e.target.value)}
+              onChange={setMainText}
+              sessionId={sessionId}
+              projectPath={projectPath}
               placeholder="What should this trigger send to the session?"
               rows={3}
               autoFocus
+              ariaLabel="Main prompt"
             />
           </div>
 

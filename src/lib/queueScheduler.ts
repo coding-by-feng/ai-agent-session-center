@@ -217,6 +217,17 @@ export function pickNext(
     return inFlight;
   }
 
+  // PRIORITY 0.5: a manually force-started item (the "⚡ NOW" button set
+  // `forceStart`) begins its chain immediately, bypassing EVERY start-edge
+  // timing rule — due-time, idle-guard, quiet-hours, and the daily-start
+  // clamp. The user explicitly asked for it to fire now. Only a FRESH
+  // (non-executing) item qualifies; once it starts, its remaining steps flow
+  // through PRIORITY 0 above and are paced by the saw-work gate. An in-flight
+  // chain still wins (checked first) so two chains never interleave. Disabled
+  // items were already filtered out, so a paused row never force-fires.
+  const forced = items.find((it) => it.forceStart && !isExecuting(it));
+  if (forced) return forced;
+
   // PRIORITY 1: drain 'once' items first — but ONLY when the session is
   // idle. Once items always need the CLI to be waiting (they're typed prompts,
   // not automation). If the session is busy we MUST fall through so that a
@@ -277,7 +288,9 @@ export function pickNext(
  *                       └─→ main directly when no before
  *
  * Once items have no chain — `idle` advance goes straight to COMPLETE / remove.
- * A loop with no intervalMs (corrupted row) is removed to avoid tight resend.
+ * A loop with a missing/invalid intervalMs is NOT removed — it is rescheduled
+ * with a clamped 60s default (and the value is healed) so an enabled loop can
+ * never vanish from the queue.
  */
 export function advanceAfterFire(
   item: QueueItem,
@@ -356,10 +369,15 @@ export function advanceAfterFire(
   }
 
   // ---- mid-chain: keep going ------------------------------------------
+  // `forceStart` is cleared on the FIRST advance (this is always step 1's
+  // outcome) — the manual bypass only needs to apply to the opening step; the
+  // rest of the chain is driven by `execState` + the saw-work gate, exactly
+  // like an automated cycle. Clearing it here means the pure helper owns the
+  // lifecycle and the scheduler hook doesn't special-case force fires.
   if (nextPhase !== 'done') {
     return {
       action: 'continue',
-      patch: { execState: nextPhase, execStepIdx: nextIdx },
+      patch: { execState: nextPhase, execStepIdx: nextIdx, forceStart: undefined },
     };
   }
 
@@ -370,15 +388,24 @@ export function advanceAfterFire(
     execStepIdx: undefined,
     lastFiredAt: now,
     totalFires,
+    forceStart: undefined,
   };
 
   if (type === 'once') return { action: 'remove' };
   if (type === 'schedule') return { action: 'remove' };
   if (type === 'loop') {
-    if (!item.intervalMs || item.intervalMs <= 0) return { action: 'remove' };
+    // A loop the user explicitly enabled must NEVER be silently deleted just
+    // because its interval is missing/zero/NaN — that is exactly the "my loop
+    // vanished" bug. Clamp to the same 60s default applyTypeDefaults uses and
+    // HEAL the stored value (patch.intervalMs) so the row self-repairs instead
+    // of disappearing on the next fire.
+    const intervalMs =
+      Number.isFinite(item.intervalMs) && (item.intervalMs as number) > 0
+        ? (item.intervalMs as number)
+        : 60_000;
     return {
       action: 'reschedule',
-      patch: { ...completePatch, nextFireAt: now + item.intervalMs },
+      patch: { ...completePatch, nextFireAt: now + intervalMs, intervalMs },
     };
   }
   return { action: 'remove' };
@@ -423,6 +450,73 @@ export function advanceBlockedLoops(
     out.push({ id: it.id, patch: { nextFireAt: now + intervalMs } });
   }
   return out;
+}
+
+/**
+ * Per-session gate that holds the NEXT chain step until the step we just sent
+ * has actually finished running.
+ *
+ * Why this is needed: right after a chain step's prompt is typed into the CLI,
+ * the session status still reads as a "sendable" state (waiting/idle/input)
+ * for a brief window — the `UserPromptSubmit` hook hasn't flipped it to
+ * `working` yet. Without a gate, the scheduler sees "session is waiting" on the
+ * very next tick and fires the FOLLOWING step (e.g. the after / post-chain
+ * prompt) on top of the still-running main prompt.
+ *
+ * The gate closes only after we have OBSERVED the session leave the sendable
+ * state (`sawWork = true`, meaning the prior step's prompt was consumed and the
+ * agent started working) AND then return to a sendable state. A fallback
+ * timeout releases the gate for steps that never visibly go to work (instant
+ * no-op prompts) so a chain can never stall forever.
+ */
+export interface ChainGate {
+  /** The in-flight item this gate guards. Cleared/reset when the item id changes. */
+  itemId: number;
+  /** True once we've seen the session go busy after the prior step's send. */
+  sawWork: boolean;
+  /** When the gate was opened (unix ms) — drives the no-work fallback. */
+  openedAt: number;
+}
+
+/**
+ * Pure decision for whether an in-flight chain's NEXT step may fire this tick.
+ *
+ * The only RELIABLE "the prior step's turn actually finished" signal is the
+ * Stop event, i.e. the session reaching the `'waiting'` status (`atRest`).
+ * Auto-idle decays a genuinely-busy session `working → idle` after 3 minutes
+ * of no hook events, so `idle` must NOT be treated as completion — a long task
+ * that thinks silently would otherwise look "done" and the next step would be
+ * typed on top of the still-running agent.
+ *
+ * - No gate, or a gate for a different item → not gated, fire.
+ * - `sawWork === true` (a real turn started): fire ONLY when `atRest`
+ *   ('waiting' / Stop). Any other status — `working`, decayed `idle`, or
+ *   `input` (agent is asking the user something) — holds. No time fallback in
+ *   this branch: we wait strictly for the Stop signal.
+ * - `sawWork === false` (we never saw it go busy): still busy → hold; sendable
+ *   past `noWorkFallbackMs` → fire (covers local slash commands like `/clear`
+ *   that never emit Stop); sendable but inside the window → hold (this is the
+ *   stale-status window right after the send).
+ *
+ * `sawWork` itself is observed/updated by the caller each tick (it must run
+ * even on ticks where the idle-guard makes `pickNext` return null), so this
+ * helper only reads it.
+ */
+export function chainGateDecision(
+  gate: ChainGate | undefined,
+  pickId: number,
+  /** status === 'waiting' — the genuine Stop / turn-complete signal. */
+  atRest: boolean,
+  /** isSendableStatus(status) — waiting/idle/input. Used for the no-op fallback. */
+  sessionSendable: boolean,
+  now: number,
+  noWorkFallbackMs: number,
+): 'fire' | 'hold' {
+  if (!gate || gate.itemId !== pickId) return 'fire';
+  if (gate.sawWork) return atRest ? 'fire' : 'hold';
+  if (!sessionSendable) return 'hold';
+  if (now - gate.openedAt >= noWorkFallbackMs) return 'fire';
+  return 'hold';
 }
 
 /**

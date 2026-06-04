@@ -2,9 +2,11 @@ import { afterEach } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 
 // Node 22+ exposes a built-in `localStorage` that lacks standard Web Storage
-// methods (getItem, setItem, clear, etc.). When vitest uses jsdom, it should
-// override this, but the override may arrive too late. Polyfill if needed.
-if (typeof globalThis.localStorage !== 'undefined' &&
+// methods (getItem, setItem, clear, etc.), and jsdom here is configured without
+// a storage-backing URL so `localStorage` can be entirely absent. Polyfill a
+// Map-backed Storage when it's either MISSING or present-but-broken, so tests
+// can assert persistence directly instead of relying on the ambient impl.
+if (typeof globalThis.localStorage === 'undefined' ||
     typeof globalThis.localStorage.getItem !== 'function') {
   const store = new Map<string, string>();
   const storage: Storage = {

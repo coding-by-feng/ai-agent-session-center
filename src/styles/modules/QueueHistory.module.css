@@ -57,6 +57,29 @@
   color: var(--text-primary);
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.headerIconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px; height: 26px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--text-secondary, #888);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.headerIconBtn:hover {
+  background: var(--bg-subtle, rgba(0, 229, 255, 0.08));
+  border-color: var(--border-subtle, rgba(0, 229, 255, 0.3));
+  color: var(--accent-cyan, #00e5ff);
+}
+
 .targetStrip {
   display: flex;
   align-items: center;
@@ -143,6 +166,72 @@
   border-color: rgba(0, 229, 255, 0.25);
   background: rgba(255, 255, 255, 0.035);
 }
+.rowAliasLine {
+  display: flex;
+  align-items: center;
+  min-height: 18px;
+}
+/* Named entry — clickable to rename. */
+.rowAlias {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  color: var(--accent-cyan);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  max-width: 100%;
+}
+.rowAliasText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rowAliasPencil {
+  font-size: 10px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  flex-shrink: 0;
+}
+.rowAlias:hover .rowAliasPencil {
+  opacity: 0.7;
+}
+/* Unnamed entry — muted "+ Add name" affordance. */
+.rowAliasEmpty {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-dim, #666);
+  opacity: 0.65;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+.rowAliasEmpty:hover {
+  opacity: 1;
+  color: var(--accent-cyan);
+}
+.rowAliasInput {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(0, 229, 255, 0.4);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 3px 6px;
+  outline: none;
+}
+.rowAliasInput:focus {
+  border-color: var(--accent-cyan);
+}
+
 .rowMain {
   display: flex;
   align-items: flex-start;
