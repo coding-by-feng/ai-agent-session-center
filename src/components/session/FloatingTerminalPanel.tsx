@@ -12,6 +12,9 @@ import TerminalContainer from '@/components/terminal/TerminalContainer';
 import { useWsStore } from '@/stores/wsStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
+import { useShortcutStore } from '@/stores/shortcutStore';
+import { keyComboToString } from '@/lib/shortcutKeys';
+import type { ShortcutActionId } from '@/types/shortcut';
 import { PALETTE } from '@/lib/robot3DGeometry';
 import Tooltip from '@/components/ui/Tooltip';
 import { tooltips } from '@/lib/tooltips';
@@ -107,6 +110,9 @@ export default function FloatingTerminalPanel({
   // Hide the in-app panel on success so only the popout window subscribes to the
   // PTY; FloatingTerminalRoot re-docks it when that window closes.
   const setPoppedOut = useFloatingSessionsStore((s) => s.setPoppedOut);
+  const shortcutBindings = useShortcutStore((s) => s.bindings);
+  const comboFor = (id: ShortcutActionId): string =>
+    keyComboToString(shortcutBindings.find((b) => b.actionId === id)?.combo ?? null);
   const canPopOut = typeof window !== 'undefined' && !!window.electronAPI?.openTerminalWindow;
   const handlePopOut = useCallback(() => {
     window.electronAPI?.openTerminalWindow?.({ terminalId, originSessionId, label })
@@ -218,6 +224,20 @@ export default function FloatingTerminalPanel({
     });
   }, [pos, size]);
 
+  // Floating-window hotkeys (⌥⌘↓ / ⌥⌘↑ / ⌥⌘W by default, rebindable in Settings)
+  // — only the float that currently holds focus reacts.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      if (!rootRef.current?.contains(document.activeElement)) return;
+      const action = (e as CustomEvent<{ action?: string }>).detail?.action;
+      if (action === 'minimize') handleMinimize();
+      else if (action === 'maximize') handleToggleMaximize();
+      else if (action === 'close') onClose();
+    };
+    document.addEventListener('floatTerminal:hotkey', handler);
+    return () => document.removeEventListener('floatTerminal:hotkey', handler);
+  }, [handleMinimize, handleToggleMaximize, onClose]);
+
   if (typeof document === 'undefined') return null;
 
   if (collapsed) {
@@ -263,15 +283,15 @@ export default function FloatingTerminalPanel({
               <button type="button" className={styles.headerBtn} onClick={handlePopOut} aria-label="Pop out to a window">⧉</button>
             </Tooltip>
           )}
-          <Tooltip label="Minimize to icon" placement="bottom">
+          <Tooltip label={`Minimize to icon (${comboFor('floatMinimize')})`} placement="bottom">
             <button type="button" className={styles.headerBtn} onClick={handleMinimize} aria-label="Minimize">▁</button>
           </Tooltip>
-          <Tooltip label={maximized ? 'Restore size' : 'Maximize'} placement="bottom">
+          <Tooltip label={`${maximized ? 'Restore size' : 'Maximize'} (${comboFor('floatMaximize')})`} placement="bottom">
             <button type="button" className={styles.headerBtn} onClick={handleToggleMaximize} aria-label={maximized ? 'Restore' : 'Maximize'}>
               {maximized ? '❐' : '☐'}
             </button>
           </Tooltip>
-          <Tooltip {...tooltips.floatTerminalClose} placement="bottom">
+          <Tooltip label={`Close (${comboFor('floatClose')})`} description={tooltips.floatTerminalClose.description} placement="bottom">
             <button type="button" className={styles.headerBtn} onClick={onClose} aria-label="Close floating terminal">✕</button>
           </Tooltip>
         </div>
