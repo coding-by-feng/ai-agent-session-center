@@ -164,6 +164,15 @@ commands so the forked session inherits the same permission posture (e.g.
 `--dangerously-skip-permissions`). Codex fork commands are left as Codex-native
 commands.
 
+The popup also **inherits the origin session's `model` and `effortLevel`**: they
+are forwarded into the new `TerminalConfig` and applied to the launch command via
+`applyClaudeLaunchFlags` (`--model`/`--effort` flags), so they take effect before
+the popup's first prompt runs. `ultracode` effort cannot be a launch flag, so it
+is injected as a `/effort ultracode` slash command once Claude Code is ready
+(`injectClaudeCommandsWhenReady` in `sshManager.ts`) — the popup's first answer
+may begin at the default effort. `characterModel` is forwarded too so the popup's
+robot icon matches the parent.
+
 **Per-mode policy**:
 
 | Mode | Fork? | Why |

@@ -38,9 +38,15 @@ vi.mock('./DetailTabs', () => ({
   ),
 }));
 
-vi.mock('./PromptHistory', () => ({
+vi.mock('./ConversationView', () => ({
   default: ({ prompts }: { prompts: unknown[] }) => (
-    <div data-testid="prompt-history">Prompts: {prompts.length}</div>
+    <div data-testid="conversation-view">Prompts: {prompts.length}</div>
+  ),
+}));
+
+vi.mock('./AiPopupHistory', () => ({
+  default: ({ sessionId }: { sessionId: string }) => (
+    <div data-testid="ai-popup-history">AI popups for {sessionId}</div>
   ),
 }));
 

@@ -94,10 +94,13 @@ const SESSION_PREFS_KEY = 'session-create-prefs';
 
 /**
  * Claude Code effort levels (newest feature, Opus 4.8/4.7).
- * `xhigh` is the extended level above `high`; `min` (an older value) was removed
- * because it is not a valid Claude Code `/effort` level.
+ * `xhigh` is the extended level above `high`; `max` is the highest level the
+ * `--effort` launch flag accepts. `ultracode` is a Claude Code menu-only level
+ * (xhigh effort + standing multi-agent permission) — the `--effort` flag rejects
+ * it, so it is applied via a post-startup `/effort ultracode` slash command.
+ * `min` (an older value) was removed because it is not a valid `/effort` level.
  */
-export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'] as const;
 export const DEFAULT_EFFORT_LEVEL = 'high';
 
 /** Coerce a possibly-stale stored value to a valid level, falling back to the default. */

@@ -1,7 +1,7 @@
 # Session Detail Panel
 
 ## Function
-Slide-in panel showing comprehensive session information with 6 tabs, session controls, session switcher, and split view.
+Slide-in panel showing comprehensive session information with 7 tabs, session controls, session switcher, and split view.
 
 ## Purpose
 Primary interface for interacting with a single session. Aggregates terminal, project browser, commands, prompts, notes, and queue in one view.
@@ -10,10 +10,11 @@ Primary interface for interacting with a single session. Aggregates terminal, pr
 | File | Role |
 |------|------|
 | `src/components/session/DetailPanel.tsx` | Main panel container, header, control bar, tab system, TerminalContent/OpsTerminalContent wrappers |
-| `src/components/session/DetailTabs.tsx` | 6-tab system (PROJECT, TERMINAL, COMMANDS, PROMPTS, NOTES, QUEUE) with always-mounted + on-demand mounting, split view |
+| `src/components/session/DetailTabs.tsx` | 7-tab system (PROJECT, TERMINAL, COMMANDS, CONVERSATION, AI POPUPS, NOTES, QUEUE) with always-mounted + on-demand mounting, split view |
 | `src/components/session/SessionControlBar.tsx` | Resume/Kill/Mute/Alert buttons + Room select dropdown |
 | `src/components/session/SessionSwitcher.tsx` | Horizontal session tab strip with pinned-first sort |
-| `src/components/session/PromptHistory.tsx` | Scrollable prompt history with search highlighting |
+| `src/components/session/ConversationView.tsx` | CONVERSATION tab — full interleaved history (user prompts / assistant replies / tool calls / tool results / events). Reads the real Claude JSONL transcript via `GET /api/sessions/:id/transcript` (`src/lib/transcript.ts`), falling back to in-memory logs. Replaced the old prompts-only `PromptHistory.tsx`. |
+| `src/components/session/AiPopupHistory.tsx` | AI POPUPS tab — per-session trace of floating translate/explain/vocab sub-sessions, `translationLogs` filtered by `originSessionId` (favorite ★ / alias / notes / archive / delete) |
 | `src/components/session/NotesTab.tsx` | Per-session notes CRUD |
 | `src/components/session/QueueTab.tsx` | Prompt queue management |
 | `src/components/session/KillConfirmModal.tsx` | Kill confirmation modal (lazy-mounted) |

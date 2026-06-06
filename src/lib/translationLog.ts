@@ -116,6 +116,11 @@ export async function listLogs(filters: ListFilters = {}): Promise<DbTranslation
   return rows;
 }
 
+/** Thin wrapper: active (non-archived) logs spawned from a given session. */
+export async function listByOriginSession(sessionId: string): Promise<DbTranslationLog[]> {
+  return listLogs({ originSessionId: sessionId, archived: 'active' });
+}
+
 export async function setArchived(uuidValue: string, archived: boolean): Promise<void> {
   await updateLog(uuidValue, { archived: archived ? 1 : 0 });
 }

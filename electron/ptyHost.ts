@@ -28,7 +28,7 @@ export interface PtyCreateConfig {
   sessionTitle?: string
   apiKey?: string
   enableOpsTerminal?: boolean
-  /** Effort level to auto-apply after Claude Code starts (low/medium/high/xhigh/max) */
+  /** Effort level to auto-apply after Claude Code starts (low/medium/high/xhigh/max/ultracode) */
   effortLevel?: string
   /** Model to auto-apply after Claude Code starts (opus/sonnet/haiku) */
   model?: string
@@ -226,11 +226,33 @@ function appendSessionName(cmd: string, title?: string | null): string {
   return `${cmd} -n "${escaped}"`
 }
 
+const FLAG_EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
+
+/**
+ * Append `--model`/`--effort` launch flags to a claude command so model/effort
+ * apply deterministically at launch (mirrors server/config.ts applyClaudeLaunchFlags).
+ * `ultracode` is excluded — the flag rejects it; it is set via /effort injection.
+ */
+function applyClaudeLaunchFlags(command: string, model?: string | null, effortLevel?: string | null): string {
+  if (!command.startsWith('claude')) return command
+  const flags: string[] = []
+  if (model && !/--model\b/.test(command)) flags.push(`--model ${model}`)
+  if (effortLevel && FLAG_EFFORT_LEVELS.has(effortLevel) && !/--effort\b/.test(command)) {
+    flags.push(`--effort ${effortLevel}`)
+  }
+  if (flags.length === 0) return command
+  return command.replace(/^claude\b/, `claude ${flags.join(' ')}`)
+}
+
 export function createPty(config: PtyCreateConfig): string {
   const terminalId = `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const workDir = resolveWorkDir(config.workingDir)
   const sessionName = config.sessionTitle || autoSessionName(workDir)
-  const command = appendSessionName(config.command || 'claude', sessionName)
+  const command = applyClaudeLaunchFlags(
+    appendSessionName(config.command || 'claude', sessionName),
+    config.model,
+    config.effortLevel,
+  )
   const shell = getDefaultShell()
 
   // Build env — strip CLAUDECODE to prevent nested-session detection
@@ -301,9 +323,10 @@ export function createPty(config: PtyCreateConfig): string {
     }
     inst.process.write(command + '\r')
 
-    // Auto-apply model and/or effort level after Claude Code starts
+    // model + standard effort are applied via --model/--effort launch flags above.
+    // Only ultracode effort (rejected by the flag) and remote-control need slash injection.
     const baseCommand = config.command || 'claude'
-    if ((config.model || config.effortLevel || config.remoteControlName) && baseCommand.startsWith('claude')) {
+    if ((config.effortLevel === 'ultracode' || config.remoteControlName) && baseCommand.startsWith('claude')) {
       let autoBuffer = ''
       let autoSent = false
       const autoDisp = ptyProcess.onData((data: string) => {
@@ -319,8 +342,8 @@ export function createPty(config: PtyCreateConfig): string {
             const t = terminals.get(terminalId)
             if (!t) return
             const cmds: string[] = []
-            if (config.model) cmds.push(`/model ${config.model}`)
-            if (config.effortLevel) cmds.push(`/effort ${config.effortLevel}`)
+            // ultracode isn't a valid --effort flag value; set it via /effort after ready.
+            if (config.effortLevel === 'ultracode') cmds.push('/effort ultracode')
             if (config.remoteControlName) cmds.push(`/remote-control ${config.remoteControlName}`)
             cmds.forEach((cmd, i) => {
               setTimeout(() => {

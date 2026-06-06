@@ -9,7 +9,7 @@ import { readdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir, networkInterfaces, hostname as osHostname } from 'os';
 import log from './logger.js';
-import { appendSessionName } from './config.js';
+import { appendSessionName, applyClaudeLaunchFlags } from './config.js';
 import type { Terminal, TerminalConfig, TerminalInfo, TmuxSessionInfo, SshKeyInfo } from '../src/types/terminal.js';
 import type { PendingLink } from '../src/types/session.js';
 import type WebSocket from 'ws';
@@ -350,7 +350,13 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
     const baseCommand = config.command || 'claude';
     // Append -n "title" to Claude commands for session naming
     const sessionName = config.sessionTitle || autoSessionName(workDir);
-    const command = appendSessionName(baseCommand, sessionName);
+    // Apply --model/--effort as launch flags (deterministic, before the prompt
+    // runs). ultracode is handled by slash injection below since the flag rejects it.
+    const command = applyClaudeLaunchFlags(
+      appendSessionName(baseCommand, sessionName),
+      config.model,
+      config.effortLevel,
+    );
     const skipAutoLaunch = config.command === '';
     const local = isLocal(config.host);
 
@@ -592,8 +598,10 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
           }
           term.pty.write(launchCmd + '\r');
 
-          // Auto-apply model and/or effort level after Claude Code starts
-          if ((config.model || config.effortLevel || config.remoteControlName) && baseCommand.startsWith('claude')) {
+          // model + standard effort are applied via --model/--effort launch flags
+          // (applyClaudeLaunchFlags above). Only ultracode effort (which the flag
+          // rejects) and remote-control still need post-startup slash injection.
+          if ((config.effortLevel === 'ultracode' || config.remoteControlName) && baseCommand.startsWith('claude')) {
             let autoBuffer = '';
             let autoSent = false;
             const autoDisp = ptyProcess.onData((data: string) => {
@@ -609,8 +617,9 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
                   const t = terminals.get(terminalId);
                   if (!t?.pty) return;
                   const cmds: string[] = [];
-                  if (config.model) cmds.push(`/model ${config.model}`);
-                  if (config.effortLevel) cmds.push(`/effort ${config.effortLevel}`);
+                  // ultracode isn't a valid --effort flag value, so it must be set
+                  // via the interactive /effort command after Claude Code is ready.
+                  if (config.effortLevel === 'ultracode') cmds.push('/effort ultracode');
                   if (config.remoteControlName) cmds.push(`/remote-control ${config.remoteControlName}`);
                   // Send commands sequentially with a gap between them
                   cmds.forEach((cmd, i) => {
@@ -768,6 +777,43 @@ export async function writeWhenReady(terminalId: string, data: string): Promise<
   if (!termNow || !termNow.pty) return false;
   termNow.pty.write(data);
   return true;
+}
+
+/**
+ * Watch a terminal for Claude Code readiness, then inject one or more slash
+ * commands (e.g. `/effort ultracode`). Used by the floating-session spawner,
+ * which writes its own launch command and so bypasses createTerminal's inline
+ * auto-inject. Mirrors that inline logic (2.5s settle + 800ms gaps).
+ */
+export function injectClaudeCommandsWhenReady(terminalId: string, cmds: string[]): void {
+  if (cmds.length === 0) return;
+  const term = terminals.get(terminalId);
+  if (!term || !term.pty) return;
+  const ptyProcess = term.pty;
+  let autoBuffer = '';
+  let autoSent = false;
+  const autoDisp = ptyProcess.onData((data: string) => {
+    if (autoSent) return;
+    autoBuffer += data;
+    if (autoBuffer.length > 16384) autoBuffer = autoBuffer.slice(-16384);
+    const stripped = autoBuffer.replace(ANSI_ESC_RE, '');
+    if (stripped.includes('Claude Code')) {
+      autoSent = true;
+      autoDisp.dispose();
+      setTimeout(() => {
+        cmds.forEach((cmd, i) => {
+          setTimeout(() => {
+            const t = terminals.get(terminalId);
+            if (t?.pty) {
+              t.pty.write(cmd + '\r');
+              log.info('pty', `Injected ${cmd} for ${terminalId}`);
+            }
+          }, i * 800);
+        });
+      }, 2500);
+    }
+  });
+  setTimeout(() => { if (!autoSent) autoDisp.dispose(); }, 30000);
 }
 
 // #31: Returns error message on failure so wsManager can relay to client

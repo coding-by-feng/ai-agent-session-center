@@ -444,12 +444,21 @@
 .convEntry { padding: 10px 12px; border-bottom: 1px solid var(--border-faint); border-left: 3px solid transparent; }
 .convUser { border-left-color: var(--accent-cyan, #00e5ff); }
 .convClaude { border-left-color: var(--accent-green, #00ff88); }
+.convAssistant { border-left-color: var(--accent-green, #00ff88); }
 .convTool { padding: 6px 12px; border-left-color: var(--accent-orange, #ff9100); opacity: 0.85; }
+.convToolFailed { padding: 6px 12px; border-left-color: var(--accent-red, #ff3b6b); opacity: 0.9; }
+.convEvent { padding: 6px 12px; border-left-color: var(--text-dim, #6a6a8a); opacity: 0.7; }
 
 .convRole { font-size: 9px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; display: inline-block; padding: 1px 6px; border-radius: 2px; margin-right: 8px; }
 .convUser .convRole { color: var(--accent-cyan, #00e5ff); background: rgba(0, 229, 255, 0.1); }
 .convClaude .convRole { color: var(--accent-green, #00ff88); background: rgba(0, 255, 136, 0.1); }
+.convAssistant .convRole { color: var(--accent-green, #00ff88); background: rgba(0, 255, 136, 0.1); }
 .convTool .convRole { color: var(--accent-orange, #ff9100); background: rgba(255, 145, 0, 0.1); }
+.convToolFailed .convRole { color: var(--accent-red, #ff3b6b); background: rgba(255, 59, 107, 0.12); }
+.convEvent .convRole { color: var(--text-dim, #6a6a8a); background: rgba(255, 255, 255, 0.05); }
+
+.convToolFailed .convToolName { color: var(--accent-red, #ff3b6b); }
+.convEvent .convText { color: var(--text-dim, #6a6a8a); }
 
 .convTime { font-size: 9px; color: var(--text-dim); letter-spacing: 0.5px; }
 .convText { font-size: 12px; color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap; word-break: break-word; margin-top: 4px; }

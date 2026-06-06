@@ -31,6 +31,7 @@ The HTTP interface for the React frontend and external integrations. Handles all
 ### Session Endpoints
 - GET /api/sessions
 - GET /api/sessions/:id/source
+- GET /api/sessions/:id/transcript — full interleaved Claude JSONL transcript (user/assistant/tool_use/tool_result entries) for the CONVERSATION tab. Never 500s: returns `{ success: true, data: [] }` on a missing session/transcript so the client falls back to in-memory logs.
 - GET /api/sessions/history (paginated session history with status filter)
 - PUT /api/sessions/:id/title|label|accent-color|character-model|pinned|muted|alerted
 - POST /api/sessions/:id/kill|resume|summarize|fork|clone

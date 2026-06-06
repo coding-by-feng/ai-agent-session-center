@@ -152,6 +152,8 @@ export interface Session {
   /** AI CLI family (Claude, Codex, Gemini). Distinct from terminal/source. */
   cliSource?: string;
   model: string;
+  /** Effort level (low/medium/high/xhigh/max/ultracode) — set at creation from config so popups can inherit it. */
+  effortLevel?: string;
   transcriptPath?: string;
   permissionMode?: string | null;
 

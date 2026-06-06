@@ -23,11 +23,12 @@ import { join, dirname, extname, basename, resolve, sep } from 'path';
 import { homedir, userInfo, networkInterfaces, hostname } from 'os';
 import { fileURLToPath } from 'url';
 import { ALL_CLAUDE_HOOK_EVENTS, CODEX_DENSITY_EVENTS, CODEX_HOOK_EVENTS, DENSITY_EVENTS, SESSION_STATUS, WS_TYPES } from './constants.js';
-import { reconstructPermissionFlags, appendSessionName, stripClaudeSessionName, extractSessionName } from './config.js';
+import { reconstructPermissionFlags, appendSessionName, stripClaudeSessionName, extractSessionName, applyClaudeLaunchFlags } from './config.js';
 import log from './logger.js';
 import { searchFiles, invalidateCache, preloadIndex } from './fileIndexCache.js';
 import { getCommandIndex } from './commandIndex.js';
 import { synthesize as ttsSynthesize, checkApiKey as ttsCheckApiKey } from './ttsManager.js';
+import { readClaudeTranscript } from './extractPreviousAnswer.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
 
 const __apiDirname = dirname(fileURLToPath(import.meta.url));
@@ -120,7 +121,7 @@ function stripCodexSessionSubcommand(command: string): string {
     .trim();
 }
 
-function buildResumeCommand(session: { startupCommand?: string; sshCommand?: string; sshConfig?: { command?: string }; permissionMode?: string | null; title?: string | null }, sessionId: string): string {
+function buildResumeCommand(session: { startupCommand?: string; sshCommand?: string; sshConfig?: { command?: string }; permissionMode?: string | null; title?: string | null; model?: string; effortLevel?: string }, sessionId: string): string {
   const originalCmd = session.startupCommand || session.sshCommand || session.sshConfig?.command || '';
   const safeId = shellEscapeSingle(sessionId);
   // Only try --resume when the ID looks like a real CLI session UUID.
@@ -139,6 +140,9 @@ function buildResumeCommand(session: { startupCommand?: string; sshCommand?: str
     let baseCmd = stripClaudeSessionFlags(originalCmd || 'claude') || 'claude';
     baseCmd = stripClaudeSessionName(baseCmd);
     baseCmd = reconstructPermissionFlags(baseCmd, session.permissionMode);
+    // Preserve the session's model + effort across resume (idempotent — skipped
+    // if the stored command already carries the flags).
+    baseCmd = applyClaudeLaunchFlags(baseCmd, session.model, session.effortLevel);
     const title = session.title ?? extractSessionName(originalCmd);
     baseCmd = appendSessionName(baseCmd, title);
     return canUseSessionId
@@ -149,7 +153,7 @@ function buildResumeCommand(session: { startupCommand?: string; sshCommand?: str
   return originalCmd;
 }
 
-function buildForkCommand(session: { startupCommand?: string; sshCommand?: string; sshConfig?: { command?: string }; permissionMode?: string | null }, sessionId: string): string {
+function buildForkCommand(session: { startupCommand?: string; sshCommand?: string; sshConfig?: { command?: string }; permissionMode?: string | null; model?: string; effortLevel?: string }, sessionId: string): string {
   const originalCmd = session.startupCommand || session.sshCommand || session.sshConfig?.command || '';
   const safeId = shellEscapeSingle(sessionId);
   const canUseSessionId = !sessionId.startsWith('term-') && /^[a-zA-Z0-9_-]+$/.test(sessionId);
@@ -167,7 +171,13 @@ function buildForkCommand(session: { startupCommand?: string; sshCommand?: strin
   const effectiveMode =
     session.permissionMode ||
     (originalCmd.includes('--dangerously-skip-permissions') ? 'dangerouslySkipPermissions' : null);
-  return reconstructPermissionFlags(baseForkCmd, effectiveMode);
+  // A fork rebuilds a fresh `claude --resume … --fork-session` template, so the
+  // parent's model/effort would otherwise be lost — re-apply them as launch flags.
+  return applyClaudeLaunchFlags(
+    reconstructPermissionFlags(baseForkCmd, effectiveMode),
+    session.model,
+    session.effortLevel,
+  );
 }
 
 const terminalCreateSchema = z.object({
@@ -202,8 +212,8 @@ const terminalCreateSchema = z.object({
     .max(200)
     .regex(/^[a-zA-Z0-9_-]+$/, 'resumeSessionId contains invalid characters')
     .optional(),
-  /** Effort level to auto-apply after Claude Code starts (Claude Code: low/medium/high/xhigh/max) */
-  effortLevel: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).optional().catch(undefined),
+  /** Effort level to auto-apply after Claude Code starts (Claude Code: low/medium/high/xhigh/max/ultracode) */
+  effortLevel: z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode']).optional().catch(undefined),
   /** Model to auto-apply after Claude Code starts */
   model: z.enum(['opus', 'sonnet', 'haiku']).optional(),
   /** Run `/remote-control <name>` automatically after Claude Code starts. */
@@ -782,6 +792,8 @@ router.post('/sessions/:id/clone', async (req: Request, res: Response) => {
     let cloneCmd = stripClaudeSessionFlags(baseCmd);
     cloneCmd = stripClaudeSessionName(cloneCmd);
     cloneCmd = reconstructPermissionFlags(cloneCmd, session.permissionMode);
+    // Preserve the session's model + effort on the clone (idempotent).
+    cloneCmd = applyClaudeLaunchFlags(cloneCmd, session.model, session.effortLevel);
     cloneCmd = appendSessionName(cloneCmd, newTitle);
 
     if (cfg && cfg.username) {
@@ -989,6 +1001,30 @@ router.delete('/sessions/:id', async (req: Request, res: Response) => {
 router.get('/sessions/:id/source', (req: Request, res: Response) => {
   const source = detectSessionSource(str(req.params.id));
   res.json({ source });
+});
+
+// Full interleaved conversation transcript for the CONVERSATION tab. Reads the
+// real Claude Code JSONL (constrained to ~/.claude/projects by the helper) for
+// untruncated fidelity. Never 500s — on any error we return an empty array so
+// the client falls back to its in-memory logs.
+router.get('/sessions/:id/transcript', (req: Request, res: Response) => {
+  try {
+    const id = str(req.params.id);
+    const session = getSession(id);
+    if (!session || !session.projectPath) {
+      res.json({ success: true, data: [] });
+      return;
+    }
+    const entries = readClaudeTranscript(
+      session.sessionId || id,
+      session.projectPath,
+      session.transcriptPath ?? null,
+    );
+    res.json({ success: true, data: entries });
+  } catch (err) {
+    log.warn('api', `transcript read failed: ${err instanceof Error ? err.message : String(err)}`);
+    res.json({ success: true, data: [] });
+  }
 });
 
 // Update session title. setSessionTitle mutates the in-memory session AND
