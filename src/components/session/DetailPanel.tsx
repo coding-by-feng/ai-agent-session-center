@@ -11,7 +11,8 @@ import { useWsStore } from '@/stores/wsStore';
 import { useRoomStore } from '@/stores/roomStore';
 import ResizablePanel from '@/components/ui/ResizablePanel';
 import DetailTabs from './DetailTabs';
-import PromptHistory from './PromptHistory';
+import ConversationView from './ConversationView';
+import AiPopupHistory from './AiPopupHistory';
 import NotesTab from './NotesTab';
 import QueueTab from './QueueTab';
 import ProjectTabContainer from './ProjectTabContainer';
@@ -570,10 +571,21 @@ export default function DetailPanel() {
             />
           }
           promptsContent={
-            <PromptHistory
+            <ConversationView
+              sessionId={displaySession.sessionId}
+              transcriptPath={displaySession.transcriptPath}
               prompts={displaySession.promptHistory || []}
+              responses={displaySession.responseLog || []}
+              toolCalls={displaySession.toolLog || []}
+              events={displaySession.events || []}
               previousSessions={displaySession.previousSessions}
               searchQuery={searchQuery}
+              projectPath={displaySession.projectPath}
+            />
+          }
+          aiPopupsContent={
+            <AiPopupHistory
+              sessionId={displaySession.sessionId}
               projectPath={displaySession.projectPath}
             />
           }

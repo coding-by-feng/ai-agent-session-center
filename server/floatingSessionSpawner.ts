@@ -20,9 +20,9 @@
  * for codex/gemini transcripts is a phase-2 follow-up.
  */
 import { getSession, getSessionByTerminalId, createTerminalSession } from './sessionStore.js';
-import { createTerminal, consumePendingLink, writeWhenReady } from './sshManager.js';
+import { createTerminal, consumePendingLink, writeWhenReady, injectClaudeCommandsWhenReady } from './sshManager.js';
 import { readClaudeLastAssistant } from './extractPreviousAnswer.js';
-import { reconstructPermissionFlags } from './config.js';
+import { reconstructPermissionFlags, applyClaudeLaunchFlags } from './config.js';
 import {
   buildPrompt,
   floatLabel,
@@ -137,15 +137,25 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
   const baseLaunchCmd = shouldInheritContext
     ? buildForkCommand(cliKind === 'codex' ? 'codex' : 'claude', forkParentId, prompt)
     : buildLaunchCommand(cliKind, prompt);
-  const launchCmd = cliKind === 'claude'
+  const permsCmd = cliKind === 'claude'
     ? reconstructPermissionFlags(baseLaunchCmd, origin.permissionMode)
     : baseLaunchCmd;
+  // Inherit the parent's model + effort as launch flags so they apply before the
+  // popup's first prompt runs. ultracode is handled by slash injection below.
+  const launchCmd = applyClaudeLaunchFlags(permsCmd, origin.model, origin.effortLevel);
 
   const cfg = origin.sshConfig;
   const isSsh = !!(cfg && cfg.username);
+  // Inherit model/effort/characterModel from the origin so the popup matches the
+  // parent (also persisted onto the popup's session for display + recursive forks).
+  const inherit = {
+    model: origin.model || undefined,
+    effortLevel: origin.effortLevel,
+    characterModel: origin.characterModel,
+  };
   const newConfig: TerminalConfig = isSsh
-    ? { ...cfg!, workingDir: cfg!.workingDir || '~', command: '' }
-    : { host: 'localhost', workingDir: origin.projectPath || '~', command: '' };
+    ? { ...cfg!, workingDir: cfg!.workingDir || '~', command: '', ...inherit }
+    : { host: 'localhost', workingDir: origin.projectPath || '~', command: '', ...inherit };
 
   const terminalId = await createTerminal(newConfig, null);
   consumePendingLink(newConfig.workingDir || origin.projectPath || '');
@@ -170,7 +180,13 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
   }
   writeWhenReady(terminalId, `${prefix}${launchCmd}\r`);
 
-  log.info('floating-spawn', `Spawned ${args.mode} float (terminalId=${terminalId}, cli=${cliKind}, originSession=${origin.sessionId}, forkParent=${forkParentId}, inheritContext=${shouldInheritContext})`);
+  // ultracode effort can't be expressed as a launch flag, so inject it once Claude
+  // Code is ready (the first answer may begin at the default effort — accepted tradeoff).
+  if (cliKind === 'claude' && origin.effortLevel === 'ultracode') {
+    injectClaudeCommandsWhenReady(terminalId, ['/effort ultracode']);
+  }
+
+  log.info('floating-spawn', `Spawned ${args.mode} float (terminalId=${terminalId}, cli=${cliKind}, originSession=${origin.sessionId}, originModel=${origin.model || '-'}, originEffort=${origin.effortLevel || '-'}, forkParent=${forkParentId}, inheritContext=${shouldInheritContext})`);
 
   return { terminalId, label };
 }

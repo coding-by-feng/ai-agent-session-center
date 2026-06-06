@@ -25,6 +25,7 @@ const SPLIT_MIN_WIDTH = 700;
 interface DetailTabsProps {
   terminalContent: ReactNode;
   promptsContent: ReactNode;
+  aiPopupsContent?: ReactNode;
   notesContent: ReactNode;
   queueContent: ReactNode;
   projectContent: ReactNode;
@@ -50,7 +51,8 @@ const BASE_TABS = [
   { id: 'project', label: 'PROJECT' },
   { id: 'terminal', label: 'TERMINAL' },
   { id: 'commands', label: 'COMMANDS' },
-  { id: 'conversation', label: 'PROMPTS' },
+  { id: 'conversation', label: 'CONVERSATION' },
+  { id: 'aiPopups', label: 'AI POPUPS' },
   { id: 'notes', label: 'NOTES' },
   { id: 'queue', label: 'QUEUE' },
 ] as const;
@@ -287,6 +289,7 @@ function StackedSplitView({
 export default function DetailTabs({
   terminalContent,
   promptsContent,
+  aiPopupsContent,
   notesContent,
   queueContent,
   projectContent,
@@ -492,6 +495,7 @@ export default function DetailTabs({
   // which is hidden by class — DraggableSplitView renders its own copy of projectContent.
   const contentMap: Record<string, ReactNode> = {
     conversation: <div key="scroll-conversation" className={styles.tabScroll}>{promptsContent}</div>,
+    aiPopups: <div key="scroll-aiPopups" className={styles.tabScroll}>{aiPopupsContent}</div>,
     queue: <div key="scroll-queue" className={styles.tabScroll}>{queueContent}</div>,
     notes: <div key="scroll-notes" className={styles.tabScroll}>{notesContent}</div>,
     split: (

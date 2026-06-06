@@ -29,7 +29,7 @@ export interface PtyCreateConfig {
   sessionTitle?: string
   apiKey?: string
   enableOpsTerminal?: boolean
-  /** Effort level to auto-apply after Claude Code starts (low/medium/high/xhigh/max) */
+  /** Effort level to auto-apply after Claude Code starts (low/medium/high/xhigh/max/ultracode) */
   effortLevel?: string
   /** Model to auto-apply after Claude Code starts (opus/sonnet/haiku) */
   model?: string

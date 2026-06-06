@@ -1,0 +1,255 @@
+/* AiPopupHistory — per-session list of AI-popup (translate/explain/vocab)
+   sub-sessions, mirroring the ReviewView row but scoped to the detail panel. */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 4px;
+}
+
+.empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-dim);
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+.row {
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-card);
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.row:hover {
+  border-color: rgba(0, 229, 255, 0.3);
+}
+
+.rowExpanded {
+  border-color: rgba(0, 229, 255, 0.4);
+}
+
+.rowHeaderWrap {
+  display: flex;
+  align-items: flex-start;
+}
+
+.favToggle {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 16px;
+  line-height: 1;
+  padding: 10px 6px 10px 10px;
+  cursor: pointer;
+  transition: transform 0.12s, color 0.12s;
+}
+
+.favToggle[aria-pressed='true'] {
+  color: var(--accent-yellow, #ffd166);
+}
+
+.favToggle:hover {
+  color: var(--accent-yellow, #ffd166);
+  transform: scale(1.15);
+}
+
+.rowHeader {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: left;
+  padding: 10px 10px 10px 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.modeIcon {
+  font-size: 14px;
+  line-height: 1.3;
+  flex-shrink: 0;
+}
+
+.rowMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.rowTitle {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.modeLabel {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: var(--text-primary);
+}
+
+.aliasLabel {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-cyan, #00e5ff);
+}
+
+.langChip {
+  font-size: 9px;
+  color: var(--text-dim);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+.rowMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 9px;
+  color: var(--text-dim);
+  margin-top: 3px;
+}
+
+.rowSnippet {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.expandIcon {
+  font-size: 10px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.detail {
+  border-top: 1px solid var(--border-faint);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sectionLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.linkBtn {
+  background: none;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.linkBtn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-dim);
+}
+
+.body {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  max-height: 280px;
+  overflow: auto;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-faint);
+  border-radius: 4px;
+  padding: 8px;
+  font-family: var(--font-mono);
+}
+
+.aliasInput,
+.notes {
+  width: 100%;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  resize: vertical;
+}
+
+.aliasInput:focus,
+.notes:focus {
+  outline: none;
+  border-color: var(--accent-cyan, #00f0ff);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.actionBtn {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle-strong);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.actionBtn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-dim);
+}
+
+.danger {
+  color: var(--accent-red, #ff3b6b);
+  border-color: rgba(255, 59, 107, 0.4);
+}
+
+.danger:hover {
+  background: rgba(255, 59, 107, 0.12);
+  border-color: var(--accent-red, #ff3b6b);
+}
+
+.timestamp {
+  margin-left: auto;
+  font-size: 9px;
+  color: var(--text-dim);
+}

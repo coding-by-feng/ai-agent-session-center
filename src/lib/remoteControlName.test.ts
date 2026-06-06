@@ -6,8 +6,8 @@ import {
 } from './remoteControlName';
 
 describe('EFFORT_LEVELS', () => {
-  it('matches Claude Code\'s canonical effort set (low → max, with xhigh)', () => {
-    expect([...EFFORT_LEVELS]).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+  it('matches Claude Code\'s canonical effort set (low → ultracode)', () => {
+    expect([...EFFORT_LEVELS]).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode']);
   });
 
   it('does not include the removed legacy "min" level', () => {

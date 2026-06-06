@@ -164,6 +164,41 @@ export function reconstructPermissionFlags(baseCmd: string, permissionMode?: str
 }
 
 /**
+ * Effort levels accepted by Claude Code's `--effort` launch flag. `ultracode` is
+ * deliberately excluded — it is a menu-only level (xhigh effort + standing
+ * multi-agent permission) and the flag silently falls back to the default when
+ * given it. ultracode is applied via a post-startup `/effort ultracode` slash
+ * command instead (see sshManager / ptyHost auto-inject).
+ */
+export const FLAG_EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+
+/**
+ * Append `--model <model>` and `--effort <level>` launch flags to a Claude
+ * command so model/effort are applied deterministically at launch — before the
+ * first prompt runs — instead of via racy post-startup slash injection (which
+ * was dropping the `/effort` keystrokes behind the `/model` re-render, leaving
+ * effort at its `high` default).
+ *
+ * Only `claude` commands are touched; codex/gemini pass through unchanged. Flags
+ * are inserted right after the leading `claude` token and skipped if already
+ * present. `ultracode` is never emitted as a flag (handled by slash injection).
+ */
+export function applyClaudeLaunchFlags(
+  command: string,
+  model?: string | null,
+  effortLevel?: string | null,
+): string {
+  if (!command.startsWith('claude')) return command;
+  const flags: string[] = [];
+  if (model && !/--model\b/.test(command)) flags.push(`--model ${model}`);
+  if (effortLevel && FLAG_EFFORT_LEVELS.has(effortLevel) && !/--effort\b/.test(command)) {
+    flags.push(`--effort ${effortLevel}`);
+  }
+  if (flags.length === 0) return command;
+  return command.replace(/^claude\b/, `claude ${flags.join(' ')}`);
+}
+
+/**
  * Append `-n "title"` to a Claude command for session naming.
  * Only applies to Claude CLI commands (starts with "claude").
  * Skips if the command already contains a `-n` flag.

@@ -1020,6 +1020,10 @@ export async function createTerminalSession(terminalId: string, config: Terminal
   if (config.alerted) session.alerted = config.alerted;
   if (config.accentColor) session.accentColor = config.accentColor;
   if (config.characterModel) session.characterModel = config.characterModel;
+  // Persist effort + model on the session so floating popups can inherit them
+  // (model is otherwise only set later by hooks, which may not have fired yet).
+  if (config.effortLevel) session.effortLevel = config.effortLevel;
+  if (config.model) session.model = config.model;
   if (config.isFork) {
     session.isFork = true;
     if (config.originSessionId) session.originSessionId = config.originSessionId;

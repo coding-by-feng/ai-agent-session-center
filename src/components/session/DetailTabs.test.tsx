@@ -7,6 +7,7 @@ describe('DetailTabs', () => {
   const defaultProps = {
     terminalContent: <div>Terminal Content</div>,
     promptsContent: <div>Prompts Content</div>,
+    aiPopupsContent: <div>AI Popups Content</div>,
     projectContent: <div>Project Content</div>,
     notesContent: <div>Notes Content</div>,
     queueContent: <div>Queue Content</div>,
@@ -17,12 +18,13 @@ describe('DetailTabs', () => {
     try { localStorage.removeItem('active-tab'); } catch { /* ignore */ }
   });
 
-  it('renders all 6 tab buttons', () => {
+  it('renders all 7 tab buttons', () => {
     render(<DetailTabs {...defaultProps} />);
     expect(screen.getByText('PROJECT')).toBeInTheDocument();
     expect(screen.getByText('TERMINAL')).toBeInTheDocument();
     expect(screen.getByText('COMMANDS')).toBeInTheDocument();
-    expect(screen.getByText('PROMPTS')).toBeInTheDocument();
+    expect(screen.getByText('CONVERSATION')).toBeInTheDocument();
+    expect(screen.getByText('AI POPUPS')).toBeInTheDocument();
     expect(screen.getByText('NOTES')).toBeInTheDocument();
     expect(screen.getByText('QUEUE')).toBeInTheDocument();
   });
@@ -32,10 +34,16 @@ describe('DetailTabs', () => {
     expect(screen.getByText('Terminal Content')).toBeInTheDocument();
   });
 
-  it('switches to prompts tab on click', () => {
+  it('switches to conversation tab on click', () => {
     render(<DetailTabs {...defaultProps} />);
-    fireEvent.click(screen.getByText('PROMPTS'));
+    fireEvent.click(screen.getByText('CONVERSATION'));
     expect(screen.getByText('Prompts Content')).toBeInTheDocument();
+  });
+
+  it('switches to AI popups tab on click', () => {
+    render(<DetailTabs {...defaultProps} />);
+    fireEvent.click(screen.getByText('AI POPUPS'));
+    expect(screen.getByText('AI Popups Content')).toBeInTheDocument();
   });
 
   it('switches to notes tab on click', () => {
