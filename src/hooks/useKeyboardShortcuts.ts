@@ -143,6 +143,16 @@ function dispatchAction(actionId: string): void {
         }
         return;
       }
+      // Floating window controls — the focused float reacts.
+      if (actionId.startsWith('float')) {
+        const action = actionId === 'floatMinimize' ? 'minimize'
+          : actionId === 'floatMaximize' ? 'maximize'
+          : 'close';
+        document.dispatchEvent(
+          new CustomEvent('floatTerminal:hotkey', { detail: { action } }),
+        );
+        return;
+      }
       // Handle switchSession1..switchSession9
       if (actionId.startsWith('switchSession')) {
         const idx = parseInt(actionId.replace('switchSession', ''), 10) - 1;

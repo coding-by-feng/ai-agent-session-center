@@ -61,6 +61,11 @@ const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
   fileBrowserToggleBookmark:  { label: 'Bookmark',                      section: 'File Browser',  combo: null },
   fileBrowserToggleWordWrap:  { label: 'Toggle word wrap',              section: 'File Browser',  combo: null },
   fileBrowserFullscreen:      { label: 'Open in fullscreen',            section: 'File Browser',  combo: null },
+  // Floating terminal window — act on the focused float. Modifier-switch combos
+  // so they fire even while the float's terminal has focus.
+  floatMinimize:              { label: 'Minimize floating window',       section: 'Floating Window', combo: sw('ArrowDown') },
+  floatMaximize:              { label: 'Maximize floating window',       section: 'Floating Window', combo: sw('ArrowUp') },
+  floatClose:                 { label: 'Close floating window',          section: 'Floating Window', combo: sw('w') },
 };
 
 /** All action IDs in display order. */
@@ -76,10 +81,11 @@ export const ACTION_IDS: ShortcutActionId[] = [
   'fileBrowserRefresh', 'fileBrowserOpenNewTab', 'fileBrowserFormat',
   'fileBrowserToggleOutline', 'fileBrowserToggleBookmark', 'fileBrowserToggleWordWrap',
   'fileBrowserFullscreen',
+  'floatMinimize', 'floatMaximize', 'floatClose',
 ];
 
 /** Section display order. */
-export const SECTION_ORDER = ['Session Switch', 'Detail Tabs', 'Terminal', 'File Browser'];
+export const SECTION_ORDER = ['Session Switch', 'Detail Tabs', 'Terminal', 'Floating Window', 'File Browser'];
 
 /** Build ShortcutBinding[] from defaults + optional overrides. */
 export function buildBindings(
@@ -113,6 +119,10 @@ export function keyComboToString(combo: KeyCombo | null): string {
   // Friendly key name
   let keyName = combo.key;
   if (keyName === ' ') keyName = 'Space';
+  else if (keyName === 'ArrowDown') keyName = '↓';
+  else if (keyName === 'ArrowUp') keyName = '↑';
+  else if (keyName === 'ArrowLeft') keyName = '←';
+  else if (keyName === 'ArrowRight') keyName = '→';
   else if (keyName.length === 1) keyName = keyName.toUpperCase();
 
   parts.push(keyName);

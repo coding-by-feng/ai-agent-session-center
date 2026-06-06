@@ -40,7 +40,11 @@ export type ShortcutActionId =
   | 'fileBrowserToggleOutline'
   | 'fileBrowserToggleBookmark'
   | 'fileBrowserToggleWordWrap'
-  | 'fileBrowserFullscreen';
+  | 'fileBrowserFullscreen'
+  // Floating terminal window (acts on the focused float)
+  | 'floatMinimize'
+  | 'floatMaximize'
+  | 'floatClose';
 
 export interface ShortcutBinding {
   actionId: ShortcutActionId;
