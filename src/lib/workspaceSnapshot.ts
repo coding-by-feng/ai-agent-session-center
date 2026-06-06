@@ -358,6 +358,17 @@ export async function importSnapshot(
   // Map old session IDs to new terminal IDs for room remapping
   const idRemap = new Map<string, string>();
 
+  // Floating popups (Explain/Translate PiP windows) are re-opened in a SECOND
+  // pass, after idRemap is fully built, so each is re-linked to its origin
+  // session's NEW id. Re-opening inline would pin the popup to the stale
+  // snapshot id (and a fork may be processed before its origin), leaving it
+  // unable to match any selectable session — i.e. invisible forever.
+  const pendingFloatReopens: Array<{
+    terminalId: string;
+    label: string;
+    snapshotOriginId: string;
+  }> = [];
+
   // Build a map of dropped (duplicate) session IDs to their canonical session ID,
   // so rooms referencing duplicate sessions can still be remapped correctly.
   const canonicalMap = new Map<string, string>(); // droppedOriginalId -> canonicalOriginalId
@@ -382,14 +393,27 @@ export async function importSnapshot(
 
   // Apply user-selected restore filter (from the RestorePickerModal). When the
   // filter is null/undefined, all sessions resume — preserves legacy behavior.
-  const dedupedSessions = sessionFilter
+  const userFiltered = sessionFilter
     ? allDedupedSessions.filter((s) => sessionFilter.has(s.originalSessionId))
     : allDedupedSessions;
   if (sessionFilter) {
-    const excluded = allDedupedSessions.length - dedupedSessions.length;
+    const excluded = allDedupedSessions.length - userFiltered.length;
     if (excluded > 0) {
       console.info(`[workspace] Restore filter: skipping ${excluded} session(s) not selected by user`);
     }
+  }
+
+  // Drop floating popups whose origin session isn't part of this restore. A
+  // popup only renders under its origin session, so without that session it
+  // could never be shown — and we'd still spawn its PTY, leaking an invisible
+  // orphan. (Forks whose origin IS restored are re-linked in the second pass.)
+  const restoredOriginalIds = new Set(userFiltered.map((s) => s.originalSessionId));
+  const dedupedSessions = userFiltered.filter(
+    (s) => !s.isFork || !s.originSessionId || restoredOriginalIds.has(s.originSessionId),
+  );
+  const droppedForks = userFiltered.length - dedupedSessions.length;
+  if (droppedForks > 0) {
+    console.info(`[workspace] Skipping ${droppedForks} floating popup(s) whose origin session is not in this restore`);
   }
 
   const total = dedupedSessions.length;
@@ -476,14 +500,15 @@ export async function importSnapshot(
           idRemap.set(sessionSnap.originalSessionId, data.terminalId);
         }
 
-        // Re-open the floating popup window for fork sessions (Explain/Translate).
-        // Without this, the session is restored but the PiP UI never reappears
-        // — the user would have to re-trigger the popup manually.
+        // Queue the floating popup re-open for the second pass (after idRemap is
+        // complete), so it re-links to the origin session's NEW id rather than
+        // the stale snapshot id. Without this the PiP UI never reappears, or
+        // worse, reappears pinned to a dead id and can never be shown.
         if (sessionSnap.isFork && sessionSnap.originSessionId) {
-          useFloatingSessionsStore.getState().open({
+          pendingFloatReopens.push({
             terminalId: data.terminalId,
             label: sessionSnap.title || 'Floating',
-            originSessionId: sessionSnap.originSessionId,
+            snapshotOriginId: sessionSnap.originSessionId,
           });
         }
 
@@ -605,6 +630,22 @@ export async function importSnapshot(
   for (const [droppedId, canonicalId] of canonicalMap) {
     const newId = idRemap.get(canonicalId);
     if (newId) idRemap.set(droppedId, newId);
+  }
+
+  // Second pass: re-open floating popups now that idRemap is complete, mapping
+  // each to its origin session's NEW id. Skip any whose origin wasn't actually
+  // created (e.g. it failed to launch) so we never pin a popup to a dead id.
+  for (const pf of pendingFloatReopens) {
+    const newOriginId = idRemap.get(pf.snapshotOriginId);
+    if (newOriginId) {
+      useFloatingSessionsStore.getState().open({
+        terminalId: pf.terminalId,
+        label: pf.label,
+        originSessionId: newOriginId,
+      });
+    } else {
+      console.info(`[workspace] Float "${pf.label}" not re-linked — origin session not restored`);
+    }
   }
 
   // Restore rooms with remapped session IDs.

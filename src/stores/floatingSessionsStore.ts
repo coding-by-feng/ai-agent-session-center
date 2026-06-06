@@ -26,10 +26,44 @@ interface FloatingSessionsState {
   open: (input: Omit<FloatingSession, 'createdAt'>) => void;
   close: (terminalId: string) => void;
   closeAll: () => void;
+  /**
+   * Close every float spawned by a given main session. Used when that session
+   * is removed — its popups only render under their origin session, so once the
+   * origin is gone they'd be invisible AND their PTYs would leak. Closing them
+   * snapshots output, kills the PTY, and drops them from the store.
+   */
+  closeByOriginSession: (originSessionId: string) => void;
+  /**
+   * Re-point floats from an old origin session id to a new one. Used when a
+   * session is re-keyed (clone/fork/resume via `replacesId`) so its popups stay
+   * attached to the surviving session instead of orphaning on the dead id.
+   */
+  migrateOriginSession: (oldSessionId: string, newSessionId: string) => void;
+  /**
+   * Close every float whose origin session is NOT in `liveSessionIds`. Used when
+   * the session set is replaced wholesale (a fresh WS snapshot) — sessions that
+   * vanished never fire `session_removed`, so their popups would otherwise leak.
+   */
+  closeOrphans: (liveSessionIds: Set<string>) => void;
+  /**
+   * terminalIds currently popped out into their own native (Electron) window.
+   * Their in-app panel is hidden — but the float entry + server PTY are kept —
+   * so only the popout window is the WS subscriber. Re-docked (removed from this
+   * list) when the popout window closes.
+   */
+  poppedOut: string[];
+  setPoppedOut: (terminalId: string, on: boolean) => void;
 }
 
 export const useFloatingSessionsStore = create<FloatingSessionsState>((set, get) => ({
   floats: [],
+  poppedOut: [],
+
+  setPoppedOut: (terminalId, on) => set((s) => ({
+    poppedOut: on
+      ? (s.poppedOut.includes(terminalId) ? s.poppedOut : [...s.poppedOut, terminalId])
+      : s.poppedOut.filter((id) => id !== terminalId),
+  })),
 
   open: (input) => {
     const existing = get().floats;
@@ -37,11 +71,19 @@ export const useFloatingSessionsStore = create<FloatingSessionsState>((set, get)
     // mostly defensive (e.g. double-click).
     if (existing.some((f) => f.terminalId === input.terminalId)) return;
     const next: FloatingSession = { ...input, createdAt: Date.now() };
-    // Drop the oldest if we'd exceed the cap.
-    const trimmed = existing.length >= MAX_FLOATS
-      ? existing.slice(existing.length - MAX_FLOATS + 1)
-      : existing;
-    set({ floats: [...trimmed, next] });
+    // Drop the oldest if we'd exceed the cap — and kill the evicted PTYs, else
+    // the panel just unmounts and nothing would ever DELETE them (leak).
+    if (existing.length >= MAX_FLOATS) {
+      const cut = existing.length - MAX_FLOATS + 1;
+      const dropped = existing.slice(0, cut);
+      set({ floats: [...existing.slice(cut), next] });
+      for (const f of dropped) {
+        fetch(`/api/terminals/${encodeURIComponent(f.terminalId)}`, { method: 'DELETE' })
+          .catch(() => { /* ignore */ });
+      }
+    } else {
+      set({ floats: [...existing, next] });
+    }
   },
 
   close: (terminalId) => {
@@ -74,5 +116,34 @@ export const useFloatingSessionsStore = create<FloatingSessionsState>((set, get)
       fetch(`/api/terminals/${encodeURIComponent(id)}`, { method: 'DELETE' })
         .catch(() => { /* ignore */ });
     }
+  },
+
+  closeByOriginSession: (originSessionId) => {
+    const targets = get().floats.filter((f) => f.originSessionId === originSessionId);
+    // Reuse close() per terminal so each gets the same snapshot-then-kill path.
+    for (const f of targets) get().close(f.terminalId);
+  },
+
+  migrateOriginSession: (oldSessionId, newSessionId) => {
+    if (oldSessionId === newSessionId) return;
+    set((state) => {
+      if (!state.floats.some((f) => f.originSessionId === oldSessionId)) return state;
+      return {
+        floats: state.floats.map((f) =>
+          f.originSessionId === oldSessionId
+            ? { ...f, originSessionId: newSessionId }
+            : f,
+        ),
+      };
+    });
+  },
+
+  closeOrphans: (liveSessionIds) => {
+    const orphanOrigins = new Set(
+      get().floats
+        .map((f) => f.originSessionId)
+        .filter((id) => !liveSessionIds.has(id)),
+    );
+    for (const originId of orphanOrigins) get().closeByOriginSession(originId);
   },
 }));

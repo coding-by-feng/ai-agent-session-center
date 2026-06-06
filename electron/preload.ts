@@ -67,6 +67,15 @@ const api: ElectronAPI = {
     ipcRenderer.on('pty:exit', handler)
     return () => { ipcRenderer.removeListener('pty:exit', handler) }
   },
+
+  // ── Pop-out floating terminal window ──
+  openTerminalWindow: (opts) => ipcRenderer.invoke('window:open-terminal', opts),
+
+  onPopoutClosed: (cb) => {
+    const handler = (_: unknown, terminalId: string) => cb(terminalId)
+    ipcRenderer.on('popout:closed', handler)
+    return () => { ipcRenderer.removeListener('popout:closed', handler) }
+  },
 }
 
 contextBridge.exposeInMainWorld('electronAPI', api)

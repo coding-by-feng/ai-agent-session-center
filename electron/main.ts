@@ -80,6 +80,55 @@ async function createWindow(): Promise<BrowserWindow> {
   return win
 }
 
+// ── Pop-out floating terminal windows (draggable to another monitor) ──
+let mainWindowRef: BrowserWindow | null = null
+const popoutWindows = new Map<string, BrowserWindow>()
+
+function registerPopoutHandler() {
+  ipcMain.handle('window:open-terminal', (_e, opts: { terminalId?: string; originSessionId?: string; label?: string }) => {
+    const terminalId = opts?.terminalId
+    if (!terminalId) return { ok: false }
+    // Don't duplicate — focus an existing popout for this terminal.
+    const existing = popoutWindows.get(terminalId)
+    if (existing && !existing.isDestroyed()) { existing.focus(); return { ok: true } }
+
+    const port = process.env.SERVER_PORT ?? '3333'
+    const qs = new URLSearchParams({ popout: 'terminal', terminalId })
+    if (opts.originSessionId) qs.set('originSessionId', opts.originSessionId)
+    if (opts.label) qs.set('label', opts.label)
+
+    const w = new BrowserWindow({
+      width: 820, height: 560, minWidth: 480, minHeight: 320,
+      backgroundColor: '#0a0a1a',
+      title: opts.label || 'Floating terminal',
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    })
+    // Same guards as the main window: no reload (loses terminal), no in-app nav.
+    w.webContents.on('before-input-event', (ev, input) => {
+      if ((input.key === 'r' && (input.meta || input.control)) || input.key === 'F5') ev.preventDefault()
+    })
+    w.webContents.setWindowOpenHandler(({ url }) => {
+      try { const p = new URL(url); if (p.protocol === 'https:' || p.protocol === 'http:') shell.openExternal(url) } catch { /* ignore */ }
+      return { action: 'deny' }
+    })
+    popoutWindows.set(terminalId, w)
+    w.on('closed', () => {
+      popoutWindows.delete(terminalId)
+      // Tell the main window to re-dock the in-app float.
+      if (mainWindowRef && !mainWindowRef.isDestroyed()) {
+        mainWindowRef.webContents.send('popout:closed', terminalId)
+      }
+    })
+    void w.loadURL(`http://localhost:${port}/?${qs.toString()}`)
+    return { ok: true }
+  })
+}
+
 function js(win: BrowserWindow, expr: string) {
   win.webContents.executeJavaScript(expr).catch(() => {})
 }
@@ -123,9 +172,11 @@ app.whenReady().then(async () => {
   registerSetupHandlers()
   registerAppHandlers()
   registerTerminalHandlers()
+  registerPopoutHandler()
 
   // Create window immediately — shows loading screen in production
   const win = await createWindow()
+  mainWindowRef = win
   setupTray(win)
   buildAppMenu(win)
 

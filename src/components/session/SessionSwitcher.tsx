@@ -1,6 +1,6 @@
 /**
  * SessionSwitcher — bar at the top of the DetailPanel.
- * Top row: current session name + status badge + duration + display toggle + collapse/close buttons.
+ * Top row: current session name + status badge + duration + display toggle + minimize button.
  * Below: always-visible horizontal tab strip showing all other active sessions
  *        as mini robot cards (icon + title + project name + label).
  */
@@ -112,8 +112,6 @@ interface Props {
   duration?: string;
   isDisconnected?: boolean;
   onClose?: () => void;
-  headerCollapsed?: boolean;
-  onToggleCollapse?: () => void;
   controls?: React.ReactNode;
   model?: string;
 }
@@ -121,7 +119,7 @@ interface Props {
 export default function SessionSwitcher({
   currentSession, sessions, onSwitch,
   statusLabel, duration, isDisconnected,
-  onClose, headerCollapsed, onToggleCollapse,
+  onClose,
   controls, model,
 }: Props) {
   // Track sessions that finished work (transitioned to "waiting") but haven't been viewed
@@ -372,7 +370,7 @@ export default function SessionSwitcher({
           )}
         </div>
 
-        {/* Right side: status + duration + display toggle + collapse + close */}
+        {/* Right side: status + duration + display toggle + minimize */}
         <div className={styles.switcherMeta}>
           {statusLabel && (
             <span
@@ -434,16 +432,6 @@ export default function SessionSwitcher({
           >
             {isCompact ? <DetailedModeIcon /> : <CompactModeIcon />}
           </button>
-          {onToggleCollapse && (
-            <button
-              className={styles.switcherIconBtn}
-              onClick={onToggleCollapse}
-              title={headerCollapsed ? 'Expand header' : 'Collapse header'}
-              type="button"
-            >
-              {headerCollapsed ? '\u25BC' : '\u25B2'}
-            </button>
-          )}
           {onClose && (
             <button
               className={styles.switcherIconBtn}

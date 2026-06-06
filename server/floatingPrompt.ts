@@ -10,6 +10,9 @@
 export type FloatingMode =
   | 'explain-learning'
   | 'explain-native'
+  // Dictionary-style explanation of the selected word/phrase, written in the
+  // native language. Self-contained (never inherits context).
+  | 'vocab-native'
   | 'translate-selection-learning'
   | 'translate-selection-native'
   | 'translate-answer'
@@ -19,7 +22,14 @@ export type FloatingMode =
   | 'custom';
 
 export interface SpawnFloatingArgs {
+  /** Root/origin session — drives cwd, CLI kind, and (client-side) float
+   *  visibility scoping. Stays the root even for recursively-nested floats. */
   originSessionId: string;
+  /** The terminal the selection was spawned from, when hosted in one. The server
+   *  resolves that terminal's session as the fork parent (recursive context
+   *  inheritance from a floating session). Absent for project-tab selections,
+   *  which fork from originSessionId. */
+  spawnTerminalId?: string;
   mode: FloatingMode;
   selection?: string;
   contextLine?: string;
@@ -46,6 +56,7 @@ export function floatLabel(mode: FloatingMode, native: string, learning: string)
   switch (mode) {
     case 'explain-learning': return `Explain (${learning})`;
     case 'explain-native': return `Explain (${native})`;
+    case 'vocab-native': return `Vocab (${native})`;
     case 'translate-selection-learning': return `Translate → ${learning}`;
     case 'translate-selection-native': return `Translate → ${native}`;
     case 'translate-answer': return `Translate answer → ${native}`;
@@ -71,13 +82,15 @@ export function buildPrompt(args: SpawnFloatingArgs, prevAnswer: string | null):
   const ctx = contextLine && contextLine.trim()
     ? `Surrounding line: "${contextLine.trim()}"\n`
     : '';
+  // Optional source-file hint for explain modes (opt-in from the client).
+  const fileHint = filePath && filePath.trim() ? `Source file: ${filePath.trim()}\n` : '';
 
   switch (mode) {
     case 'explain-learning':
       if (!selection) return null;
       return [
         `Explain the following in ${learningLanguage}. Cover meaning, nuance, related concepts, and short examples. Be concise.`,
-        ctx,
+        fileHint + ctx,
         `Selected text:`,
         `"""`,
         selection,
@@ -88,8 +101,20 @@ export function buildPrompt(args: SpawnFloatingArgs, prevAnswer: string | null):
       if (!selection) return null;
       return [
         `Explain the following in ${nativeLanguage}. Use ${nativeLanguage} for the explanation. Cover meaning, nuance, and any technical concepts. Be concise.`,
-        ctx,
+        fileHint + ctx,
         `Selected text:`,
+        `"""`,
+        selection,
+        `"""`,
+      ].join('\n');
+
+    case 'vocab-native':
+      if (!selection) return null;
+      return [
+        `Act as a bilingual dictionary. Explain the following word or phrase as a vocabulary entry, written in ${nativeLanguage}.`,
+        `Include: part of speech; pronunciation (IPA) for a single word; a clear definition in ${nativeLanguage}; 2–3 example sentences in ${learningLanguage}, each followed by its ${nativeLanguage} translation; common synonyms or related words; and what it means specifically as used in the surrounding line. Be concise and well structured.`,
+        ctx,
+        `Word or phrase:`,
         `"""`,
         selection,
         `"""`,

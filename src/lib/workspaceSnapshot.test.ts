@@ -22,6 +22,7 @@ import type { Session } from '@/types';
 import type { Room } from '@/stores/roomStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
+import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useQueueStore, type QueueItem } from '@/stores/queueStore';
 import { itemType } from './queueScheduler';
 import { clearLocalStorage } from '../__tests__/setup';
@@ -694,5 +695,109 @@ describe('importSnapshot — loop round-trip', () => {
     expect(itemType(restored![0])).toBe('loop');
     expect(restored![0].intervalMs).toBe(300_000);
     expect(restored![0].nextFireAt ?? 0).toBeGreaterThan(Date.now());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Floating popup re-link — popups must reattach to their origin session's NEW
+// id after restore, and must not be re-created (orphaned) when their origin is
+// excluded from a selective restore.
+// ---------------------------------------------------------------------------
+
+describe('importSnapshot — floating popup re-link', () => {
+  // Hand out a fresh terminal id per CREATE so origin and fork get distinct
+  // ids, letting us assert the float re-links to the origin's NEW id.
+  function setupIncrementingFetchMock(): { calls: CapturedCall[] } {
+    let n = 0;
+    const calls: CapturedCall[] = [];
+    const fetchMock = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const u = String(url);
+      calls.push({ url: u, init });
+      if (u.includes('/api/sessions/clear-all')) {
+        return mockResponse({ savedOutputs: [] }) as unknown as Response;
+      }
+      // CREATE is POST to exactly /api/terminals (not the /…/prefill-output subpath).
+      if (/\/api\/terminals$/.test(u) && (init?.method ?? 'POST') === 'POST') {
+        n += 1;
+        return mockResponse({ ok: true, terminalId: `new-${n}` }) as unknown as Response;
+      }
+      return mockResponse({ ok: true }) as unknown as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    return { calls };
+  }
+
+  beforeEach(() => {
+    clearLocalStorage();
+    useSessionStore.getState().setSessions(new Map());
+    useRoomStore.setState({ rooms: [] });
+    useFloatingSessionsStore.setState({ floats: [] });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    useFloatingSessionsStore.setState({ floats: [] });
+  });
+
+  it('re-links a restored popup to its origin session\'s NEW id (not the stale snapshot id)', async () => {
+    setupIncrementingFetchMock();
+
+    const snap: WorkspaceSnapshot = {
+      version: 1,
+      exportedAt: Date.now(),
+      sessions: [
+        // Origin first → new-1, fork second → new-2.
+        makeSnap({ originalSessionId: 'mainA', title: 'Main A' }),
+        makeSnap({
+          originalSessionId: 'forkSess',
+          title: 'Explain (中文)',
+          isFork: true,
+          originSessionId: 'mainA',
+        }),
+      ],
+      rooms: [],
+    };
+
+    await importSnapshot(snap, { onSessionCreated: () => {}, onComplete: () => {} });
+
+    const floats = useFloatingSessionsStore.getState().floats;
+    expect(floats).toHaveLength(1);
+    expect(floats[0].terminalId).toBe('new-2');
+    // Re-linked to the origin's NEW id — NOT the stale 'mainA'.
+    expect(floats[0].originSessionId).toBe('new-1');
+  });
+
+  it('drops a popup whose origin session is excluded by the restore filter (no orphan, no PTY)', async () => {
+    const { calls } = setupIncrementingFetchMock();
+
+    const snap: WorkspaceSnapshot = {
+      version: 1,
+      exportedAt: Date.now(),
+      sessions: [
+        makeSnap({ originalSessionId: 'mainA', title: 'Main A' }),
+        makeSnap({
+          originalSessionId: 'forkSess',
+          title: 'Explain (中文)',
+          isFork: true,
+          originSessionId: 'mainA',
+        }),
+      ],
+      rooms: [],
+    };
+
+    // Restore ONLY the fork, excluding its origin 'mainA'.
+    await importSnapshot(snap, {
+      onSessionCreated: () => {},
+      onComplete: () => {},
+    }, new Set(['forkSess']));
+
+    // No float opened…
+    expect(useFloatingSessionsStore.getState().floats).toHaveLength(0);
+    // …and the orphan fork's PTY was never created.
+    const creates = calls.filter(
+      (c) => /\/api\/terminals$/.test(c.url) && (c.init?.method ?? 'POST') === 'POST',
+    );
+    expect(creates).toHaveLength(0);
   });
 });

@@ -36,6 +36,22 @@
   outline: 1px solid rgba(255, 165, 0, 0.7);
 }
 
+/* Saved (favorited) AI-popup selections, highlighted back in the markdown viewer.
+   Injected as <mark className="saved-selection"> by makeSavedSelectionsPlugin;
+   clicking opens the saved record in the REVIEW tab. */
+.saved-selection {
+  background: rgba(0, 229, 255, 0.18);
+  color: inherit;
+  border-bottom: 1px dashed var(--accent-cyan, #00e5ff);
+  border-radius: 2px;
+  padding: 0 1px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.saved-selection:hover {
+  background: rgba(0, 229, 255, 0.34);
+}
+
 /* 3D Robot label animation (used by RobotLabel's Html portal) */
 @keyframes pulse-label {
   0%, 100% { opacity: 1; transform: scale(1); }

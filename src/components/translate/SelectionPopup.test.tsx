@@ -40,6 +40,16 @@ describe('SelectionPopup — custom prompt mode', () => {
     vi.clearAllMocks();
   });
 
+  it('shows a preview of the captured selection so it is not "lost" when the textarea steals focus', () => {
+    render(<SelectionPopup selection={mkSelection()} originSessionId="s1" onClose={vi.fn()} />);
+    // The captured selection is mirrored into the popup as a read-only preview.
+    // Focusing the custom-prompt textarea collapses the browser's native
+    // selection highlight, so this preview is what reassures the user the
+    // selected text is still attached to the spawn.
+    const preview = screen.getByTestId('selection-preview');
+    expect(preview).toHaveTextContent('const x = 1');
+  });
+
   it('Run is disabled until a custom prompt is typed', () => {
     render(<SelectionPopup selection={mkSelection()} originSessionId="s1" onClose={vi.fn()} />);
     const run = screen.getByRole('button', { name: 'Run custom prompt' }) as HTMLButtonElement;

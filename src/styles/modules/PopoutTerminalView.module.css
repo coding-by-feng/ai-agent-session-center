@@ -1,0 +1,30 @@
+/* PopoutTerminalView — fills the popped-out native window with one terminal. */
+.root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel, #0a0a1a);
+  color: var(--text-primary, #e6f6ff);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.titlebar {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--accent-cyan, #00e5ff);
+  background: var(--bg-accent, rgba(0, 229, 255, 0.06));
+  border-bottom: 1px solid var(--border-accent-strong, rgba(0, 229, 255, 0.25));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+}

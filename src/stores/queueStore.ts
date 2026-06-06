@@ -304,7 +304,17 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     set((state) => {
       const next = new Map(state.automation);
       const current = next.get(sessionId) ?? DEFAULT_AUTOMATION;
-      next.set(sessionId, { ...current, autoEnter });
+      // Enabling Auto-Enter implies the user wants prompts to actually be sent,
+      // so it also turns Auto-send ON. Auto-send is the WHEN gate (does the
+      // scheduler fire at all); Auto-Enter is only HOW (append a real Enter).
+      // Without this coupling, "Auto-Enter ON but Auto-send OFF" silently never
+      // fires — the reported bug. Disabling Auto-Enter leaves Auto-send untouched
+      // (auto-fire + typed-only is a valid combo).
+      next.set(sessionId, {
+        ...current,
+        autoEnter,
+        autoSend: autoEnter ? true : current.autoSend,
+      });
       return { automation: next };
     }),
 
@@ -365,13 +375,18 @@ export const useQueueStore = create<QueueState>((set, get) => ({
             try { windows = JSON.parse(row.loopExcludeWindows) as ExcludeWindow[]; }
             catch { /* tolerate malformed JSON — fall back to default */ }
           }
+          const rowAutoEnter = row.autoEnter === undefined ? true : row.autoEnter !== 0;
+          const rowAutoSend = row.autoSend === undefined ? true : row.autoSend !== 0;
           next.set(row.sessionId, {
             paused: row.paused === 1,
+            // Invariant: Auto-Enter ON implies Auto-send ON. Self-heal any
+            // persisted `autoEnter && !autoSend` row (the silent "typed but
+            // never fired" bug) so existing sessions auto-fix on next load.
             // Default true when the column is absent on older rows (rows saved
             // before auto-send/auto-enter became per-session) so the prior
             // default-ON behavior is preserved after the upgrade.
-            autoSend: row.autoSend === undefined ? true : row.autoSend !== 0,
-            autoEnter: row.autoEnter === undefined ? true : row.autoEnter !== 0,
+            autoSend: rowAutoEnter ? true : rowAutoSend,
+            autoEnter: rowAutoEnter,
             idleGuard: row.idleGuard !== 0, // default true if missing/null
             // Default true when the column is absent on older rows so an
             // upgrade-then-reload preserves the safe behavior.

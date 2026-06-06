@@ -508,6 +508,9 @@ export default memo(function TerminalContainer({
         <SelectionPopup
           selection={popup.active}
           originSessionId={originSessionId}
+          // The host terminal: a popup spawned here forks from this terminal's
+          // session (the main terminal forks itself; a float forks recursively).
+          spawnTerminalId={terminalId}
           onClose={popup.close}
         />
       )}

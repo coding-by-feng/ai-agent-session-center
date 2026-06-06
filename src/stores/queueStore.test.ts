@@ -244,4 +244,25 @@ describe('queueStore — per-session auto-send / auto-enter', () => {
     expect(cfg.autoSend).toBe(false);
     expect(cfg.idleGuard).toBe(true);
   });
+
+  it('enabling auto-enter also enables auto-send (so a queued prompt actually fires)', () => {
+    // Reproduce the reported broken state: Auto-send OFF, Auto-Enter about to go ON.
+    useQueueStore.getState().setAutoSend('s1', false);
+    expect(useQueueStore.getState().getAutomation('s1').autoSend).toBe(false);
+
+    // Turning Auto-Enter ON must also turn Auto-send ON — "Auto-Enter on" should
+    // always mean the prompt is actually sent AND submitted.
+    useQueueStore.getState().setAutoEnter('s1', true);
+    const cfg = useQueueStore.getState().getAutomation('s1');
+    expect(cfg.autoEnter).toBe(true);
+    expect(cfg.autoSend).toBe(true);
+  });
+
+  it('disabling auto-enter leaves auto-send untouched (auto-fire + typed-only is valid)', () => {
+    useQueueStore.getState().setAutoSend('s1', true);
+    useQueueStore.getState().setAutoEnter('s1', false);
+    const cfg = useQueueStore.getState().getAutomation('s1');
+    expect(cfg.autoEnter).toBe(false);
+    expect(cfg.autoSend).toBe(true);
+  });
 });

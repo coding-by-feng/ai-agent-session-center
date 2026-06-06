@@ -588,8 +588,20 @@ export default function QueueTab({
           onClick={(e) => {
             e.stopPropagation();
             const next = !autoEnter;
+            // Enabling Auto-Enter also flips Auto-send ON (handled in the store),
+            // so a queued prompt is actually fired AND submitted. Surface that
+            // when it changed something the user didn't directly click.
+            const enabledAutoSend = next && !autoSend;
             setAutoEnter(sessionId, next);
-            showToast(next ? 'Auto-Enter enabled — prompt will submit' : 'Auto-Enter disabled — prompt typed only, press Enter yourself', 'info', 2000);
+            showToast(
+              next
+                ? enabledAutoSend
+                  ? 'Auto-Enter ON — also enabled Auto-send, so prompts now send & submit automatically'
+                  : 'Auto-Enter ON — prompts send & submit automatically'
+                : 'Auto-Enter disabled — prompt typed only, press Enter yourself',
+              'info',
+              2200,
+            );
           }}
           title={autoEnter
             ? 'Auto-Enter ON — prompt is typed AND submitted (real Enter keystroke)'

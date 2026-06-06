@@ -217,6 +217,7 @@ export interface DbTranslationLog {
   mode:
     | 'explain-learning'
     | 'explain-native'
+    | 'vocab-native'
     | 'translate-selection-learning'
     | 'translate-selection-native'
     | 'translate-answer'
@@ -245,6 +246,17 @@ export interface DbTranslationLog {
   notes: string;
   /** 1 = archived (hidden by default), 0 = active. */
   archived: 0 | 1;
+  /** 1 = user-favorited (★), 0 = not. Favorited selections are highlighted
+   *  back in their source markdown file. */
+  favorite: 0 | 1;
+  /** Optional user-chosen short label for the record (shown in the REVIEW
+   *  header and the md-highlight tooltip). */
+  alias: string;
+  /** Path of the markdown file the selection came from (file viewer). Recorded
+   *  for every selection regardless of whether it was attached to the prompt,
+   *  so favorited selections can be highlighted in that file. Distinct from
+   *  `filePath`, which is the prompt-attached path. */
+  sourceFilePath: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -397,6 +409,49 @@ class DashboardDb extends Dexie {
         '++id, createdAt, lastUsedAt',
       translationLogs:
         '++id, uuid, mode, createdAt, originSessionId, archived, floatTerminalId',
+    });
+
+    // v6 — REVIEW favorites + aliases + md highlighting. Adds favorite (★),
+    // alias, and sourceFilePath to translationLogs (indexed on favorite +
+    // sourceFilePath); existing rows back-filled with defaults.
+    this.version(6).stores({
+      sessions:
+        'id, status, projectPath, startedAt, lastActivityAt, archived',
+      prompts:
+        '++id, sessionId, timestamp, [sessionId+timestamp]',
+      responses:
+        '++id, sessionId, timestamp, [sessionId+timestamp]',
+      toolCalls:
+        '++id, sessionId, timestamp, toolName, [sessionId+timestamp]',
+      events:
+        '++id, sessionId, timestamp, [sessionId+timestamp]',
+      notes:
+        '++id, sessionId',
+      promptQueue:
+        '++id, sessionId, [sessionId+position]',
+      alerts:
+        '++id, sessionId',
+      sshProfiles:
+        '++id, name',
+      settings:
+        'key',
+      summaryPrompts:
+        '++id, isDefault',
+      teams:
+        'id',
+      queueAutomation:
+        'sessionId',
+      queueHistory:
+        '++id, createdAt, lastUsedAt',
+      translationLogs:
+        '++id, uuid, mode, createdAt, originSessionId, archived, favorite, sourceFilePath, floatTerminalId',
+    }).upgrade(async (tx) => {
+      await tx.table('translationLogs').toCollection().modify((row) => {
+        const r = row as Partial<DbTranslationLog>;
+        r.favorite ??= 0;
+        r.alias ??= '';
+        r.sourceFilePath ??= '';
+      });
     });
   }
 }

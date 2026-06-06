@@ -9,6 +9,10 @@
   align-items: stretch;
   gap: 2px;
   padding: 4px;
+  /* Cap the width (border-box) so a long selection preview truncates with an
+     ellipsis instead of stretching the popup past the viewport's right edge.
+     Keep in sync with POPUP_W in SelectionPopup.tsx, which clamps position. */
+  max-width: 260px;
   background: var(--bg-card);
   border: 1px solid var(--accent-cyan, #00e5ff);
   border-radius: 8px;
@@ -66,6 +70,37 @@
   white-space: nowrap;
 }
 
+/* Captured-selection preview: read-only mirror of the selected text. The
+   browser collapses the native selection highlight once the textarea below
+   takes focus, so this reassures the user the selection is still attached. */
+.selectionPreview {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  max-width: 100%;
+  margin-top: 2px;
+  padding: 5px 8px 4px;
+  border-top: 1px solid var(--border-accent-strong, rgba(0, 229, 255, 0.25));
+  color: var(--text-dim, rgba(230, 246, 255, 0.55));
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.selectionQuote {
+  flex: 0 0 auto;
+  color: var(--accent-cyan, #00f0ff);
+  font-size: 13px;
+}
+
+.selectionText {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-style: italic;
+}
+
 /* Custom-prompt row: user types an instruction; it's combined with the
    selection to start a fresh floating session. */
 .customRow {
@@ -73,8 +108,6 @@
   align-items: flex-end;
   gap: 6px;
   margin-top: 2px;
-  padding-top: 6px;
-  border-top: 1px solid var(--border-accent-strong, rgba(0, 229, 255, 0.25));
 }
 
 .customInput {
@@ -132,6 +165,90 @@
 .customRun:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* Inline "Attach file path?" confirm — shown when an Explain mode is clicked
+   while a file is open and the preference is still "ask". Replaces the custom
+   row for that one decision. */
+.attachConfirm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+  padding: 6px 8px;
+  background: var(--bg-accent, rgba(0, 229, 255, 0.06));
+  border: 1px solid var(--border-accent-strong, rgba(0, 229, 255, 0.25));
+  border-radius: 6px;
+}
+
+.attachConfirmText {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+}
+
+.attachConfirmLabel {
+  flex: 0 0 auto;
+  color: var(--text-primary, #e6f6ff);
+  font-weight: 600;
+}
+
+.attachConfirmPath {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent-cyan, #00f0ff);
+  font-style: italic;
+}
+
+.attachConfirmBtns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.attachNo,
+.attachYes {
+  flex: 0 0 auto;
+  padding: 4px 14px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-family: inherit;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background 100ms ease, border-color 100ms ease, color 100ms ease;
+}
+
+.attachNo {
+  background: transparent;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.15));
+  color: var(--text-dim, rgba(230, 246, 255, 0.6));
+}
+
+.attachNo:hover:not(:disabled) {
+  border-color: var(--border-accent-strong);
+  color: var(--text-primary, #e6f6ff);
+}
+
+.attachYes {
+  background: var(--bg-accent-strong, rgba(0, 229, 255, 0.14));
+  border: 1px solid var(--accent-cyan, #00f0ff);
+  color: var(--accent-cyan, #00f0ff);
+}
+
+.attachYes:hover:not(:disabled) {
+  background: var(--bg-accent-strong);
+  border-color: var(--accent-cyan, #00f0ff);
+}
+
+.attachNo:disabled,
+.attachYes:disabled {
+  opacity: 0.4;
+  cursor: progress;
 }
 
 .error {

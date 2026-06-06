@@ -12,6 +12,9 @@ import FileTree, { type FileTreeHandle } from './FileTree';
 import ContentSearchModal from './ContentSearchModal';
 import FindInFileBar, { highlightFindMatches } from './FindInFileBar';
 import TexViewer from './TexViewer';
+import { useNavigate } from 'react-router';
+import { listFavoritedByFile } from '@/lib/translationLog';
+import { makeSavedSelectionsPlugin, type SavedSelectionTerm } from '@/lib/rehypeSavedSelections';
 import {
   DEFAULT_VIEW,
   PAN_STEP,
@@ -2187,6 +2190,31 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     return currentPath;
   }, [showingFile, showingEditor, currentPath, editingNewFile]);
 
+  const navigate = useNavigate();
+
+  // Favorited saved selections for the open markdown file — highlighted inline
+  // (click a highlight → open the saved record in the REVIEW tab).
+  const [savedSelTerms, setSavedSelTerms] = useState<SavedSelectionTerm[]>([]);
+  // Key on the extension, not the whole `file` object — the highlight set only
+  // depends on which file is open, so editing its content must not re-query.
+  const activeFileExt = file?.ext;
+  useEffect(() => {
+    const isMd = activeFileExt === 'md' || activeFileExt === 'mdx';
+    if (!activeTabPath || !isMd) { setSavedSelTerms([]); return; }
+    let cancelled = false;
+    listFavoritedByFile(activeTabPath)
+      .then((rows) => {
+        if (!cancelled) setSavedSelTerms(rows.map((r) => ({ text: r.selection, uuid: r.uuid, alias: r.alias })));
+      })
+      .catch(() => { if (!cancelled) setSavedSelTerms([]); });
+    return () => { cancelled = true; };
+  }, [activeTabPath, activeFileExt]);
+
+  const mdRehypePlugins = useMemo(
+    () => [rehypeHighlight, makeSavedSelectionsPlugin(savedSelTerms)],
+    [savedSelTerms],
+  );
+
   // Shared ReactMarkdown components — used by inline + fullscreen viewers.
   const mdComponents = useMemo(() => ({
     a: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
@@ -2227,7 +2255,24 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     h4: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h4 id={headingSlug(String(children))} {...props}>{children}</h4>,
     h5: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h5 id={headingSlug(String(children))} {...props}>{children}</h5>,
     h6: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h6 id={headingSlug(String(children))} {...props}>{children}</h6>,
-  }), [currentPath, loadFile, provider, projectPath]);
+    // Saved-selection highlight marks injected by makeSavedSelectionsPlugin carry
+    // a data-saved-uuid; clicking opens the record in REVIEW. Other <mark>s pass through.
+    mark: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => {
+      const uuid = (props as Record<string, unknown>)['data-saved-uuid'] as string | undefined;
+      if (!uuid) return <mark {...props}>{children}</mark>;
+      return (
+        <mark
+          className="saved-selection"
+          title={props.title}
+          role="button"
+          tabIndex={0}
+          onClick={() => navigate(`/review?uuid=${encodeURIComponent(uuid)}`)}
+        >
+          {children}
+        </mark>
+      );
+    },
+  }), [currentPath, loadFile, provider, projectPath, navigate]);
 
   return (
     <div ref={rootRef} className={styles.projectTab}>
@@ -2236,6 +2281,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
           selection={popup.active}
           originSessionId={originSessionId}
           onClose={popup.close}
+          currentFilePath={activeTabPath || undefined}
         />
       )}
       {popupFs.active && originSessionId && (
@@ -2243,6 +2289,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
           selection={popupFs.active}
           originSessionId={originSessionId}
           onClose={popupFs.close}
+          currentFilePath={activeTabPath || undefined}
         />
       )}
       {/* Icon toolbar */}
@@ -2761,7 +2808,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                     <div className={styles.markdown} ref={markdownRef}>
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
-                        rehypePlugins={[rehypeHighlight]}
+                        rehypePlugins={mdRehypePlugins}
                         components={mdComponents}
                       >
                         {file.content || ''}
@@ -2959,7 +3006,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                 <div className={styles.markdown} ref={markdownFsRef}>
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
-                    rehypePlugins={[rehypeHighlight]}
+                    rehypePlugins={mdRehypePlugins}
                     components={mdComponents}
                   >
                     {file.content || ''}

@@ -3,8 +3,11 @@ import { WsClient } from '@/lib/wsClient';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { useRoomStore } from '@/stores/roomStore';
+import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useWsStore } from '@/stores/wsStore';
 import { db, migrateSessionId, persistSessionUpdate } from '@/lib/db';
+import { isImportInProgress } from '@/lib/workspaceSnapshot';
+import { onSessionEnded } from '@/lib/pinnedRespawn';
 import type { Session, ServerMessage } from '@/types';
 import { handleEventSounds, checkAlarms } from '@/lib/alarmEngine';
 
@@ -34,6 +37,15 @@ export function useWebSocket(token: string | null): WsClient | null {
           setSessions(deduped);
           setLastSeq(msg.seq);
 
+          // Close floating popups whose origin session vanished from the snapshot
+          // (server pruned it while we were disconnected) — they could never
+          // render again and their PTYs would leak. Skip during a workspace
+          // restore: floats are being re-opened then and the in-flight session
+          // set is intentionally partial.
+          if (!isImportInProgress()) {
+            useFloatingSessionsStore.getState().closeOrphans(new Set(deduped.keys()));
+          }
+
           // Persist all sessions to IndexedDB
           for (const session of deduped.values()) {
             persistSessionUpdate(session).catch(() => {});
@@ -53,6 +65,10 @@ export function useWebSocket(token: string | null): WsClient | null {
         case 'session_update': {
           const { session } = msg;
 
+          // Capture the prior status BEFORE updateSession so we can detect a
+          // fresh transition into 'ended' (for pinned auto-respawn).
+          const prevStatus = useSessionStore.getState().sessions.get(session.sessionId)?.status;
+
           // Fix 6: handle replacesId migration in IndexedDB
           // Note: do NOT call removeSession() here — updateSession() handles
           // the re-key atomically (deletes old key + adds new key + follows
@@ -63,6 +79,11 @@ export function useWebSocket(token: string | null): WsClient | null {
             // changes the selectedSessionId so QueueTab reads with the new ID)
             useQueueStore.getState().migrateSession(session.replacesId, session.sessionId);
             useRoomStore.getState().migrateSession(session.replacesId, session.sessionId);
+            // Keep floating popups attached to the surviving session id, else
+            // they'd render only under the dead origin id (i.e. never).
+            useFloatingSessionsStore
+              .getState()
+              .migrateOriginSession(session.replacesId, session.sessionId);
 
             migrateSessionId(session.replacesId, session.sessionId)
               .then(() => db.sessions.delete(session.replacesId!))
@@ -72,6 +93,13 @@ export function useWebSocket(token: string | null): WsClient | null {
           updateSession(session);
           persistSessionUpdate(session).catch(() => {});
 
+          // Pinned auto-respawn: when a session FRESHLY transitions to 'ended'
+          // (its process died / connection lost), relaunch it if it's pinned and
+          // wasn't deliberately closed. onSessionEnded is a no-op otherwise.
+          if (session.status === 'ended' && prevStatus && prevStatus !== 'ended') {
+            onSessionEnded(session);
+          }
+
           // Sound system: play event sounds and manage alarms
           handleEventSounds(session);
           checkAlarms(session, () => useSessionStore.getState().sessions);
@@ -79,11 +107,18 @@ export function useWebSocket(token: string | null): WsClient | null {
         }
 
         case 'session_removed': {
+          // A removed session's floating popups can no longer be reached (they
+          // only render under their origin session). Close them first so their
+          // PTYs don't leak server-side as invisible orphans.
+          useFloatingSessionsStore.getState().closeByOriginSession(msg.sessionId);
           removeSession(msg.sessionId);
           break;
         }
 
         case 'clearBrowserDb': {
+          // Everything is being wiped — close floating popups too so their PTYs
+          // don't leak as invisible orphans (their origins are about to vanish).
+          useFloatingSessionsStore.getState().closeAll();
           // Wipe in-memory Zustand sessions too, otherwise autoSave can
           // re-publish the just-killed sessions back into the snapshot.
           setSessions(new Map());

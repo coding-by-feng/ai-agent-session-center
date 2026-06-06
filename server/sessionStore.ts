@@ -910,6 +910,19 @@ export function getSession(sessionId: string): Session | null {
 }
 
 /**
+ * Find the live session currently bound to a terminalId (its `terminalId`
+ * field, which survives CLI-session re-keying). Used to resolve the fork parent
+ * for a popup spawned from inside a floating terminal, enabling recursive
+ * context inheritance.
+ */
+export function getSessionByTerminalId(terminalId: string): Session | null {
+  for (const s of sessions.values()) {
+    if (s.terminalId === terminalId) return { ...s };
+  }
+  return null;
+}
+
+/**
  * Register an alias so that getSession(originalId) resolves to the session
  * stored under newId. Used during workspace import to map snapshot IDs to
  * freshly created terminal IDs.

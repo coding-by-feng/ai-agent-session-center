@@ -839,6 +839,7 @@ router.post('/sessions/spawn-floating', async (req: Request, res: Response) => {
   const FloatingModeSchema = z.enum([
     'explain-learning',
     'explain-native',
+    'vocab-native',
     'translate-selection-learning',
     'translate-selection-native',
     'translate-answer',
@@ -847,6 +848,7 @@ router.post('/sessions/spawn-floating', async (req: Request, res: Response) => {
   ]);
   const SpawnFloatingSchema = z.object({
     originSessionId: z.string().min(1).max(200),
+    spawnTerminalId: z.string().max(200).optional(),
     mode: FloatingModeSchema,
     selection: z.string().max(64 * 1024).optional(),
     contextLine: z.string().max(2 * 1024).optional(),
