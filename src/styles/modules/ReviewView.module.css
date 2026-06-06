@@ -331,3 +331,70 @@
   font-size: 10px;
   color: var(--text-secondary, #8ea0b8);
 }
+
+/* Favorites filter pill (header) */
+.favFilter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-card, rgba(255, 255, 255, 0.04));
+  color: var(--text-secondary, #8ea0b8);
+  border: 1px solid var(--panel-border, rgba(0, 255, 255, 0.15));
+  border-radius: 6px;
+  padding: 0 12px;
+  height: 32px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+.favFilter:hover { color: var(--text-primary); border-color: rgba(0, 255, 255, 0.32); }
+.favFilterActive {
+  color: var(--accent-yellow, #ffd166);
+  border-color: var(--accent-yellow, #ffd166);
+  background: rgba(255, 209, 102, 0.10);
+}
+
+/* Per-row favorite star (sibling of the expand header so it isn't a nested button) */
+.rowHeaderWrap {
+  display: flex;
+  align-items: stretch;
+}
+.rowHeaderWrap .rowHeader {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+.favToggle {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  color: var(--text-secondary, #8ea0b8);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 12px;
+  cursor: pointer;
+  transition: color 120ms ease, transform 80ms ease;
+}
+.favToggle[aria-pressed='true'] { color: var(--accent-yellow, #ffd166); }
+.favToggle:hover { color: var(--accent-yellow, #ffd166); transform: scale(1.15); }
+
+/* Alias: bold label in the header (replaces the mode label) + editor input */
+.aliasLabel {
+  font-weight: 700;
+  color: var(--accent-cyan, #00f0ff);
+  text-transform: none;
+}
+.aliasInput {
+  width: 100%;
+  background: var(--bg-card, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--panel-border, rgba(0, 255, 255, 0.15));
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  padding: 5px 8px;
+  outline: none;
+  transition: border-color 120ms ease;
+}
+.aliasInput:focus { border-color: var(--accent-cyan, #00f0ff); }

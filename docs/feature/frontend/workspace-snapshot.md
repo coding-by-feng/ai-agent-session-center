@@ -12,7 +12,10 @@ So users can recreate their multi-session layout after a server restart, across 
 | `src/lib/workspaceSnapshot.ts` | Snapshot types (`SessionSnapshot`, `ProjectSubTab`), serializer, `importSnapshot`, `flushSave`, `sessionDedupeKey` (8-field), orphan room bucketing, `failedTitles` tracking, `term-*` command rerouting, `reportWorkspaceLoadErrors` publisher |
 | `src/lib/workspaceSnapshot.test.ts` | Vitest coverage (11 tests): dedup-key 8-field, orphan room synth, term-* rewrite, failedTitles, suppressBroadcast body |
 | `src/hooks/useWorkspaceAutoSave.ts` | Debounced save triggered when session/room state changes |
-| `src/hooks/useWorkspaceAutoLoad.ts` | One-shot load on app boot. Opens `RestorePickerModal` first (unless auto-resume-all is set), then passes the user's selected `originalSessionId` set into `importSnapshot` as a filter. Forwards `failedTitles` to overlay via `reportWorkspaceLoadErrors`. |
+| `src/hooks/useWorkspaceAutoLoad.ts` | One-shot load on app boot. Opens `RestorePickerModal` first (unless auto-resume-all is set), then passes the user's selected `originalSessionId` set into `importSnapshot` as a filter. **Pinned sessions are forced into the restore set regardless of the picker** (see [Pinned sessions](#pinned-sessions--always-on-recreate)). Forwards `failedTitles` to overlay via `reportWorkspaceLoadErrors`. |
+| `src/lib/pinnedRespawn.ts` | **Live respawn** of pinned sessions. `onSessionEnded(session)` (called from `useWebSocket` on a fresh `ended` transition) relaunches an eligible pinned session via `POST /api/terminals` with exponential backoff (2s→4s→8s) and a crash-loop cap (`MAX_ATTEMPTS=3` per `WINDOW_MS=60s`, keyed by the **stable** `projectPath+title`, not the changing sessionId). `markUserClosing(session)` suppresses respawn for a deliberate close. |
+| `src/lib/pinnedRespawn.test.ts` | 12 tests: backoff curve, resume-vs-`term-*` body, user-close suppression, crash-loop cap. |
+| `src/lib/sessionSort.ts` + `.test.ts` | Sidebar ordering — **pinned float to the top** of their group, then status, then title (3 tests). |
 | `src/components/ui/WorkspaceLoadingOverlay.tsx` | Blocking overlay while hydrating; on partial-failure swaps to error panel with dismiss button |
 | `src/components/modals/RestorePickerModal.tsx` | Restore picker shown on every restart (skippable). Groups sessions by room, supports search + All/None/★Pinned, flags `⚠ new` (non-UUID — fresh conversation) and `⚠ fork` (Claude `--fork-session` or Codex `fork` command) per row, persists last selection and "Don't ask again" via `localStorage`. Module-level `requestRestoreSelection(snapshot)` returns `Promise<PickerResult>`. |
 | `src/styles/modules/RestorePickerModal.module.css` | Styling for the picker. |
@@ -49,6 +52,15 @@ So users can recreate their multi-session layout after a server restart, across 
 - **Room merge**: existing rooms in `localStorage['session-rooms']` are merged with the snapshot's `rooms` before remap (lines 517, 586), then filtered through `idRemap` so the user's pre-import room layout is preserved alongside imported rooms.
 - **`canonicalMap` for dropped duplicates**: when import-time dedup drops a snapshot session because an existing session already matches its key, the dropped session's `originalSessionId` is added to `canonicalMap` (lines 312-323) and then folded into `idRemap` pointing at the canonical session's `terminalId` (lines 499-502). This preserves room bindings for sessions that referenced the dropped duplicate by `originalSessionId`.
 - **Floating / translation sessions are NOT in the snapshot**: serializer skips any session with no `sshConfig` (line 105: `if (!session.sshConfig) continue`). Floating-fork and translate-* sessions have no `sshConfig`, so they are never exported, never re-imported, and never part of the dedup-key set.
+
+### Pinned sessions — "always-on" recreate
+
+A session pinned from the sidebar (`RobotListSidebar` pin toggle → `sessionStore.togglePin` → `PUT /api/sessions/:id/pinned`, persisted in the snapshot's `pinned` field) is treated as **"always there"**:
+
+- **Sidebar**: pinned sessions sort to the **top of their project group** (`src/lib/sessionSort.ts`) with a yellow left-accent bar + filled pin icon.
+- **Auto-restore on restart** (`useWorkspaceAutoLoad`): pinned `originalSessionId`s are unioned into the restore filter **regardless of the picker outcome** — they restore even if the user cancels, and the picker is skipped entirely when every snapshot session is pinned. A pin therefore overrides an unchecked pinned row; to stop a pinned session restoring, unpin it.
+- **Live respawn** (`src/lib/pinnedRespawn.ts`): when a pinned session's process dies (a fresh `status → 'ended'` transition seen in `useWebSocket`'s `session_update`), `onSessionEnded` relaunches it with the same config (`buildRespawnBody` mirrors `importSnapshot`'s per-session create body — real CLI ids resume via `resumeSessionId`, `term-*` raw commands route through `startupCommand`). Backoff 2s→4s→8s; a crash-loop cap (3 deaths / 60s, keyed by the **stable** `projectPath+title` so it survives the id change a respawn causes) gives up with a toast.
+- **Deliberate close vs. crash**: closing a pinned session from the sidebar `✕` confirms, then **unpins** it (so it won't auto-recreate) AND calls `markUserClosing(session)` (belt-and-suspenders against the async unpin race), so its imminent `ended` event — and any already-scheduled respawn — is cancelled. Only an *unexpected* death of a *still-pinned* session respawns.
 
 ## Dependencies & Connections
 

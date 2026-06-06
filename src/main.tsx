@@ -1,6 +1,8 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { BrowserRouter } from 'react-router';
 import App from '@/App';
+import PopoutTerminalView from '@/components/session/PopoutTerminalView';
 import { useQueueStore } from '@/stores/queueStore';
 import { useQueueHistoryStore } from '@/stores/queueHistoryStore';
 import '@/styles/global.css';
@@ -48,4 +50,21 @@ async function bootstrap(): Promise<void> {
   );
 }
 
-void bootstrap();
+const popoutParams = new URLSearchParams(window.location.search);
+if (popoutParams.get('popout') === 'terminal') {
+  // This window is a popped-out floating terminal — render just that terminal,
+  // not the whole dashboard.
+  createRoot(root).render(
+    <StrictMode>
+      <BrowserRouter>
+        <PopoutTerminalView
+          terminalId={popoutParams.get('terminalId') || ''}
+          originSessionId={popoutParams.get('originSessionId') || undefined}
+          label={popoutParams.get('label') || undefined}
+        />
+      </BrowserRouter>
+    </StrictMode>,
+  );
+} else {
+  void bootstrap();
+}

@@ -26,12 +26,26 @@ import styles from '@/styles/modules/SelectionPopup.module.css';
 interface SelectionPopupProps {
   selection: ExtractedSelection;
   originSessionId: string;
+  /**
+   * The terminal this popup is hosted in, if any. Sent to the server so a popup
+   * spawned from inside a floating terminal forks recursively from that
+   * terminal's session. Unset on the project-tab markdown viewer (forks from the
+   * origin). The main terminal passes its own id → the main session forks itself.
+   */
+  spawnTerminalId?: string;
   onClose: () => void;
+  /**
+   * Path of the file the selection came from, when one is known (the project
+   * file viewer). Absent for terminal selections. Only the Explain modes use
+   * it — they may offer to attach it to the prompt.
+   */
+  currentFilePath?: string;
 }
 
 const POPUP_W = 260;
-// Two icon rows + the custom-prompt row; used only for viewport clamping.
-const POPUP_H = 156;
+// Two icon rows + the selection preview + the custom-prompt row; used only
+// for viewport clamping.
+const POPUP_H = 184;
 const VIEWPORT_MARGIN = 12;
 
 function clampToViewport(x: number, y: number): { x: number; y: number } {
@@ -81,9 +95,21 @@ function TranslateIcon() {
   );
 }
 
+function VocabIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      {/* Open book / dictionary */}
+      <path d="M8 4 C6.5 3, 4 3, 2.5 3.5 V12.5 C4 12, 6.5 12, 8 13" />
+      <path d="M8 4 C9.5 3, 12 3, 13.5 3.5 V12.5 C12 12, 9.5 12, 8 13" />
+      <line x1="8" y1="4" x2="8" y2="13" />
+    </svg>
+  );
+}
+
 type SpawnMode =
   | 'explain-learning'
   | 'explain-native'
+  | 'vocab-native'
   | 'translate-selection-learning'
   | 'translate-selection-native'
   | 'custom';
@@ -91,7 +117,9 @@ type SpawnMode =
 export default function SelectionPopup({
   selection,
   originSessionId,
+  spawnTerminalId,
   onClose,
+  currentFilePath,
 }: SelectionPopupProps) {
   const nativeLanguage = useSettingsStore((s) => s.translationNativeLanguage);
   const learningLanguage = useSettingsStore((s) => s.translationLearningLanguage);
@@ -103,6 +131,9 @@ export default function SelectionPopup({
   const [error, setError] = useState<string | null>(null);
   // Free-form instruction for the `custom` mode — combined with the selection.
   const [customPrompt, setCustomPrompt] = useState('');
+  // When an Explain mode is clicked with a file open and the preference is
+  // "ask", we pause to confirm attaching the file path. Holds the pending mode.
+  const [pendingExplain, setPendingExplain] = useState<SpawnMode | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   // Position the popup just below the selection's anchor point.
@@ -111,11 +142,14 @@ export default function SelectionPopup({
     selection.anchor.bottom + 6,
   );
 
-  const spawn = useCallback(async (mode: SpawnMode) => {
+  const spawn = useCallback(async (mode: SpawnMode, opts?: { attachFile?: boolean }) => {
     if (busy) return;
     // The custom mode requires the user's own instruction.
     const trimmedCustom = customPrompt.trim();
     if (mode === 'custom' && !trimmedCustom) return;
+    // Only the Explain modes opt into attaching the file path, and only when a
+    // file is actually known (the project viewer).
+    const attachedPath = opts?.attachFile && currentFilePath ? currentFilePath : undefined;
     setBusy(mode);
     setError(null);
     try {
@@ -124,10 +158,12 @@ export default function SelectionPopup({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           originSessionId,
+          spawnTerminalId,
           mode,
           selection: selection.selection,
           contextLine: selection.contextLine,
           customPrompt: mode === 'custom' ? trimmedCustom : undefined,
+          filePath: attachedPath,
           nativeLanguage,
           learningLanguage,
           inheritContext,
@@ -142,7 +178,11 @@ export default function SelectionPopup({
         learningLanguage,
         selection: selection.selection,
         contextLine: selection.contextLine,
-        filePath: '',
+        filePath: attachedPath ?? '',
+        // Always record where the selection came from (when known) so favorited
+        // selections can be highlighted back in their file — independent of
+        // whether the path was attached to the prompt.
+        sourceFilePath: currentFilePath ?? '',
         fileContent: '',
         prompt: mode === 'custom' ? trimmedCustom : '',
         originSessionId,
@@ -162,7 +202,29 @@ export default function SelectionPopup({
     } finally {
       setBusy(null);
     }
-  }, [busy, customPrompt, originSessionId, selection, nativeLanguage, learningLanguage, inheritContext, sessions, openFloat, onClose]);
+  }, [busy, customPrompt, originSessionId, spawnTerminalId, selection, currentFilePath, nativeLanguage, learningLanguage, inheritContext, sessions, openFloat, onClose]);
+
+  // Explain buttons: with a file open and the preference "ask", pause to confirm
+  // attaching the file path; otherwise honor the remembered choice. In the
+  // terminal (no current file) Explain always spawns immediately.
+  const onExplainClick = useCallback((mode: SpawnMode) => {
+    if (!currentFilePath) { void spawn(mode); return; }
+    // Read the preference lazily — it only matters at click time, so subscribing
+    // would re-render every mounted popup whenever the preference changes.
+    const pref = useSettingsStore.getState().explainAttachFilePath;
+    if (pref === 'always') { void spawn(mode, { attachFile: true }); return; }
+    if (pref === 'never') { void spawn(mode, { attachFile: false }); return; }
+    setPendingExplain(mode);
+  }, [currentFilePath, spawn]);
+
+  // Resolve the inline "Attach file path?" confirm: remember the choice and spawn.
+  const resolveExplain = useCallback((attach: boolean) => {
+    if (!pendingExplain) return;
+    const mode = pendingExplain;
+    setPendingExplain(null);
+    useSettingsStore.getState().setExplainAttachFilePath(attach ? 'always' : 'never');
+    void spawn(mode, { attachFile: attach });
+  }, [pendingExplain, spawn]);
 
   // Auto-dismiss errors after 3s
   useEffect(() => {
@@ -172,6 +234,10 @@ export default function SelectionPopup({
   }, [error]);
 
   if (typeof document === 'undefined') return null;
+
+  // All four mode buttons freeze while a spawn is in flight or the file-path
+  // confirm is open.
+  const actionsDisabled = busy !== null || pendingExplain !== null;
 
   return createPortal(
     <div
@@ -192,8 +258,8 @@ export default function SelectionPopup({
           <button
             type="button"
             className={styles.btn}
-            disabled={busy !== null}
-            onClick={() => spawn('explain-learning')}
+            disabled={actionsDisabled}
+            onClick={() => onExplainClick('explain-learning')}
             aria-label={`Explain in ${learningLanguage}`}
           >
             <ExplainEnIcon />
@@ -208,8 +274,8 @@ export default function SelectionPopup({
           <button
             type="button"
             className={styles.btn}
-            disabled={busy !== null}
-            onClick={() => spawn('explain-native')}
+            disabled={actionsDisabled}
+            onClick={() => onExplainClick('explain-native')}
             aria-label={`Explain in ${nativeLanguage}`}
           >
             <ExplainNativeIcon />
@@ -226,7 +292,7 @@ export default function SelectionPopup({
           <button
             type="button"
             className={styles.btn}
-            disabled={busy !== null}
+            disabled={actionsDisabled}
             onClick={() => spawn('translate-selection-learning')}
             aria-label={`Translate to ${learningLanguage}`}
           >
@@ -242,7 +308,7 @@ export default function SelectionPopup({
           <button
             type="button"
             className={styles.btn}
-            disabled={busy !== null}
+            disabled={actionsDisabled}
             onClick={() => spawn('translate-selection-native')}
             aria-label={`Translate to ${nativeLanguage}`}
           >
@@ -251,6 +317,63 @@ export default function SelectionPopup({
           </button>
         </Tooltip>
       </div>
+      <div className={styles.row}>
+        <Tooltip
+          label={`Vocabulary (${nativeLanguage})`}
+          description={tooltips.selVocabNative.description}
+          placement="bottom"
+        >
+          <button
+            type="button"
+            className={styles.btn}
+            disabled={actionsDisabled}
+            onClick={() => spawn('vocab-native')}
+            aria-label={`Explain vocabulary in ${nativeLanguage}`}
+          >
+            <VocabIcon />
+            <span className={styles.label}>Vocabulary</span>
+          </button>
+        </Tooltip>
+      </div>
+      {/* Mirror the captured selection. Focusing the textarea below collapses
+          the browser's native selection highlight, so this read-only preview
+          is what tells the user the selected text is still attached. */}
+      <div
+        className={styles.selectionPreview}
+        data-testid="selection-preview"
+        title={selection.selection}
+        aria-label="Captured selection"
+      >
+        <span className={styles.selectionQuote} aria-hidden>“</span>
+        <span className={styles.selectionText}>{selection.selection}</span>
+      </div>
+      {pendingExplain && (
+        <div className={styles.attachConfirm} data-testid="attach-file-confirm">
+          <div className={styles.attachConfirmText}>
+            <span className={styles.attachConfirmLabel}>Attach file path?</span>
+            <span className={styles.attachConfirmPath} title={currentFilePath}>{currentFilePath}</span>
+          </div>
+          <div className={styles.attachConfirmBtns}>
+            <button
+              type="button"
+              className={styles.attachNo}
+              disabled={busy !== null}
+              onClick={() => resolveExplain(false)}
+            >
+              No
+            </button>
+            <button
+              type="button"
+              className={styles.attachYes}
+              disabled={busy !== null}
+              onClick={() => resolveExplain(true)}
+            >
+              Yes
+            </button>
+          </div>
+        </div>
+      )}
+      {!pendingExplain && (
       <div className={styles.customRow}>
         <textarea
           className={styles.customInput}
@@ -284,6 +407,7 @@ export default function SelectionPopup({
           </button>
         </Tooltip>
       </div>
+      )}
       {error && <span className={styles.error} role="alert">{error}</span>}
     </div>,
     document.body,

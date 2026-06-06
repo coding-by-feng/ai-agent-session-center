@@ -19,7 +19,6 @@ interface UiState {
   detailPanelOpen: boolean;
   detailPanelMinimized: boolean;
   activityFeedOpen: boolean;
-  detailHeaderCollapsed: boolean;
   pendingFileOpen: PendingFileOpen | null;
   cardDisplayMode: CardDisplayMode;
   workspaceLoad: WorkspaceLoadState;
@@ -32,7 +31,6 @@ interface UiState {
   minimizeDetailPanel: () => void;
   restoreDetailPanel: () => void;
   setActivityFeedOpen: (open: boolean) => void;
-  toggleDetailHeader: () => void;
   openFileInProject: (filePath: string, projectPath: string) => void;
   clearPendingFileOpen: () => void;
   toggleCardDisplayMode: () => void;
@@ -41,12 +39,6 @@ interface UiState {
   finishWorkspaceLoad: () => void;
   toggleRoomFilter: (roomId: string) => void;
   clearRoomFilter: () => void;
-}
-
-function loadHeaderCollapsed(): boolean {
-  try {
-    return localStorage.getItem('detail-header-collapsed') !== '0';
-  } catch { return true; }
 }
 
 function loadCardDisplayMode(): CardDisplayMode {
@@ -82,7 +74,6 @@ export const useUiStore = create<UiState>((set) => ({
   detailPanelOpen: false,
   detailPanelMinimized: false,
   activityFeedOpen: false,
-  detailHeaderCollapsed: loadHeaderCollapsed(),
   pendingFileOpen: null,
   cardDisplayMode: loadCardDisplayMode(),
   workspaceLoad: { active: false, total: 0, done: 0, currentTitle: '' },
@@ -94,11 +85,6 @@ export const useUiStore = create<UiState>((set) => ({
   minimizeDetailPanel: () => set({ detailPanelMinimized: true }),
   restoreDetailPanel: () => set({ detailPanelMinimized: false }),
   setActivityFeedOpen: (open) => set({ activityFeedOpen: open }),
-  toggleDetailHeader: () => set((s) => {
-    const next = !s.detailHeaderCollapsed;
-    try { localStorage.setItem('detail-header-collapsed', next ? '1' : '0'); } catch { /* ignore */ }
-    return { detailHeaderCollapsed: next };
-  }),
   openFileInProject: (filePath, projectPath) => set({ pendingFileOpen: { filePath, projectPath } }),
   clearPendingFileOpen: () => set({ pendingFileOpen: null }),
   toggleCardDisplayMode: () => set((s) => {

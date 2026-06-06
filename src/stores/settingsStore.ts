@@ -193,6 +193,11 @@ interface SettingsState extends BrowserSettings {
    *  ground the explanation in the prior conversation. Translate modes are
    *  unaffected (they're self-contained). */
   translationInheritContext: boolean;
+  /** For "Explain" modes only: whether to attach the current file path to the
+   *  prompt. 'ask' shows an inline Yes/No the first time; the answer is
+   *  remembered as 'always'/'never'. Only applies when a file is open (file
+   *  viewer) — terminal selections have no current file. */
+  explainAttachFilePath: 'ask' | 'always' | 'never';
 
   // Autosave flash
   autosaveVisible: boolean;
@@ -234,6 +239,7 @@ interface SettingsState extends BrowserSettings {
   setTranslationLearningLanguage: (lang: string) => void;
   setTranslationTrigger: (trigger: 'auto' | 'alt' | 'off') => void;
   setTranslationInheritContext: (enabled: boolean) => void;
+  setExplainAttachFilePath: (mode: 'ask' | 'always' | 'never') => void;
   persistSetting: (key: string, value: unknown) => Promise<void>;
   flashAutosave: () => void;
   resetDefaults: () => void;
@@ -295,6 +301,7 @@ const defaultSettings: SettingsData = {
   translationLearningLanguage: 'English',
   translationTrigger: 'auto',
   translationInheritContext: true,
+  explainAttachFilePath: 'ask',
   autosaveVisible: false,
 };
 
@@ -517,6 +524,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setTranslationLearningLanguage: (lang) => { set({ translationLearningLanguage: lang }); get().persistSetting('translationLearningLanguage', lang); },
   setTranslationTrigger: (trigger) => { set({ translationTrigger: trigger }); get().persistSetting('translationTrigger', trigger); },
   setTranslationInheritContext: (enabled) => { set({ translationInheritContext: enabled }); get().persistSetting('translationInheritContext', enabled); },
+  setExplainAttachFilePath: (mode) => { set({ explainAttachFilePath: mode }); get().persistSetting('explainAttachFilePath', mode); },
 
   // #46: Safe serializer to prevent circular reference crashes
   persistSetting: async (key, value) => {

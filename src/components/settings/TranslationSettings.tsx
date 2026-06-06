@@ -28,6 +28,43 @@ const LANGUAGE_OPTIONS = [
   'Tiếng Việt',
 ];
 
+/** A vertical list of mutually-exclusive radio options. */
+function RadioGroup<T extends string>({ name, value, options, onChange }: {
+  name: string;
+  value: T;
+  options: readonly { id: T; label: string }[];
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+      {options.map((opt) => (
+        <label key={opt.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <input
+            type="radio"
+            name={name}
+            value={opt.id}
+            checked={value === opt.id}
+            onChange={() => onChange(opt.id)}
+          />
+          <span>{opt.label}</span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
+const ATTACH_FILE_OPTIONS = [
+  { id: 'ask', label: 'Ask, then remember my choice' },
+  { id: 'always', label: 'Always attach the file path' },
+  { id: 'never', label: 'Never attach the file path' },
+] as const;
+
+const TRIGGER_OPTIONS = [
+  { id: 'auto', label: 'Auto — show on every selection' },
+  { id: 'alt', label: 'Hold ⌥ + select' },
+  { id: 'off', label: 'Disabled' },
+] as const;
+
 export default function TranslationSettings() {
   const enabled = useSettingsStore((s) => s.translationEnabled);
   const native = useSettingsStore((s) => s.translationNativeLanguage);
@@ -39,6 +76,8 @@ export default function TranslationSettings() {
   const setLearning = useSettingsStore((s) => s.setTranslationLearningLanguage);
   const setTrigger = useSettingsStore((s) => s.setTranslationTrigger);
   const setInheritContext = useSettingsStore((s) => s.setTranslationInheritContext);
+  const attachFilePath = useSettingsStore((s) => s.explainAttachFilePath);
+  const setAttachFilePath = useSettingsStore((s) => s.setExplainAttachFilePath);
 
   return (
     <div>
@@ -112,29 +151,33 @@ export default function TranslationSettings() {
       </div>
 
       <div className={styles.section}>
+        <h4>Attach file path (explain)</h4>
+        <p className={styles.settingsHint}>
+          When you use an &ldquo;Explain&rdquo; mode on a selection inside an open file,
+          optionally include that file&rsquo;s path in the prompt so the AI knows the
+          source. Only applies in the file viewer — terminal selections have no file.
+          &ldquo;Ask&rdquo; prompts once, then remembers your choice (change it here anytime).
+        </p>
+        <RadioGroup
+          name="explain-attach-file"
+          value={attachFilePath}
+          options={ATTACH_FILE_OPTIONS}
+          onChange={setAttachFilePath}
+        />
+      </div>
+
+      <div className={styles.section}>
         <h4>Trigger</h4>
         <p className={styles.settingsHint}>
           When the popup should appear. &ldquo;Auto&rdquo; shows it on every selection;
           &ldquo;Hold ⌥&rdquo; only shows the popup if the Alt/Option key was held.
         </p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          {([
-            { id: 'auto', label: 'Auto — show on every selection' },
-            { id: 'alt', label: 'Hold ⌥ + select' },
-            { id: 'off', label: 'Disabled' },
-          ] as const).map((opt) => (
-            <label key={opt.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <input
-                type="radio"
-                name="trans-trigger"
-                value={opt.id}
-                checked={trigger === opt.id}
-                onChange={() => setTrigger(opt.id)}
-              />
-              <span>{opt.label}</span>
-            </label>
-          ))}
-        </div>
+        <RadioGroup
+          name="trans-trigger"
+          value={trigger}
+          options={TRIGGER_OPTIONS}
+          onChange={setTrigger}
+        />
       </div>
     </div>
   );

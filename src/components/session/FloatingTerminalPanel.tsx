@@ -11,6 +11,7 @@ import { createPortal } from 'react-dom';
 import TerminalContainer from '@/components/terminal/TerminalContainer';
 import { useWsStore } from '@/stores/wsStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { PALETTE } from '@/lib/robot3DGeometry';
 import Tooltip from '@/components/ui/Tooltip';
 import { tooltips } from '@/lib/tooltips';
@@ -101,6 +102,17 @@ export default function FloatingTerminalPanel({
   const pillAccent = originSession
     ? (originSession.accentColor || PALETTE[(originSession.colorIndex ?? 0) % PALETTE.length])
     : undefined;
+
+  // Pop out into a native window (Electron only) — draggable to another monitor.
+  // Hide the in-app panel on success so only the popout window subscribes to the
+  // PTY; FloatingTerminalRoot re-docks it when that window closes.
+  const setPoppedOut = useFloatingSessionsStore((s) => s.setPoppedOut);
+  const canPopOut = typeof window !== 'undefined' && !!window.electronAPI?.openTerminalWindow;
+  const handlePopOut = useCallback(() => {
+    window.electronAPI?.openTerminalWindow?.({ terminalId, originSessionId, label })
+      .then((r) => { if (r?.ok) setPoppedOut(terminalId, true); })
+      .catch(() => { /* ignore — panel stays in-app */ });
+  }, [terminalId, originSessionId, label, setPoppedOut]);
 
   const rootRef = useRef<HTMLElement | null>(null);
 
@@ -246,6 +258,11 @@ export default function FloatingTerminalPanel({
         <span className={styles.titleIcon} aria-hidden>⤴</span>
         <span className={styles.title}>{label}</span>
         <div className={styles.headerBtns}>
+          {canPopOut && (
+            <Tooltip label="Pop out to a window (drag to another monitor)" placement="bottom">
+              <button type="button" className={styles.headerBtn} onClick={handlePopOut} aria-label="Pop out to a window">⧉</button>
+            </Tooltip>
+          )}
           <Tooltip label="Minimize to icon" placement="bottom">
             <button type="button" className={styles.headerBtn} onClick={handleMinimize} aria-label="Minimize">▁</button>
           </Tooltip>
@@ -264,7 +281,13 @@ export default function FloatingTerminalPanel({
           terminalId={terminalId}
           ws={ws}
           showReconnect={false}
-          originSessionId={terminalId}
+          // originSessionId stays the ROOT session: it drives the float's
+          // translate/explain lookups AND float-visibility scoping (nested floats
+          // must remain visible under the selected root session, never orphaned).
+          // Recursive fork is handled server-side: TerminalContainer sends this
+          // float's `terminalId` as spawnTerminalId, and the server resolves its
+          // session as the fork parent (see floatingSessionSpawner).
+          originSessionId={originSessionId}
         />
       </div>
       {!maximized && (

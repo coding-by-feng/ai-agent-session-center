@@ -15,6 +15,8 @@ import { tooltips } from '@/lib/tooltips';
 const STORAGE_KEY = 'active-tab';
 const SPLIT_KEY = 'split-terminal-project';
 const SPLIT_RATIO_KEY = 'split-ratio';
+const STACKED_KEY = 'split-stacked-terminal-project';
+const STACKED_RATIO_KEY = 'split-stacked-ratio';
 const FLOAT_KEY = 'float-project';
 
 /** Minimum panel width (px) at which the split icon is shown. */
@@ -73,6 +75,26 @@ function SplitIcon() {
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
       <rect x="1" y="1" width="12" height="12" rx="1" stroke="currentColor" strokeWidth="1.3" />
       <line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" strokeWidth="1.3" strokeDasharray="2 1.5" />
+    </svg>
+  );
+}
+
+/** Two-rows icon – shown when tabs are separate; click to stack vertically */
+function StackIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="1" y="1" width="12" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="1" y="8" width="12" height="5" rx="1" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  );
+}
+
+/** Single-box, horizontal divider – shown when stacked; click to unstack */
+function UnstackIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="1" y="1" width="12" height="12" rx="1" stroke="currentColor" strokeWidth="1.3" />
+      <line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" strokeWidth="1.3" strokeDasharray="2 1.5" />
     </svg>
   );
 }
@@ -175,6 +197,90 @@ function DraggableSplitView({
 }
 
 // ---------------------------------------------------------------------------
+// Draggable stacked view (Terminal top + Project bottom) — vertical sibling of
+// DraggableSplitView. Divides the panel along a horizontal divider so each pane
+// keeps the full panel width (fits the ~480px detail panel better than the
+// side-by-side split, which needs a wide window).
+// ---------------------------------------------------------------------------
+
+function StackedSplitView({
+  top,
+  bottom,
+  ratioKey,
+}: {
+  top: ReactNode;
+  bottom: ReactNode;
+  ratioKey: string;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const ratioKeyRef = useRef(ratioKey);
+  ratioKeyRef.current = ratioKey;
+
+  const [ratio, setRatio] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem(ratioKey) ?? localStorage.getItem(STACKED_RATIO_KEY);
+      return stored ? parseFloat(stored) : 0.5;
+    } catch {
+      return 0.5;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(ratioKey);
+      setRatio(stored ? parseFloat(stored) : 0.5);
+    } catch { /* ignore */ }
+  }, [ratioKey]);
+
+  const ratioRef = useRef(ratio);
+  ratioRef.current = ratio;
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const container = containerRef.current;
+    if (!container) return;
+    const startY = e.clientY;
+    const startRatio = ratioRef.current;
+    const containerHeight = container.offsetHeight;
+
+    const onMouseMove = (ev: MouseEvent) => {
+      const delta = ev.clientY - startY;
+      // Clamp tighter than side-by-side (0.2..0.8) so neither pane collapses to
+      // an unusable sliver at the panel's typical height.
+      const newRatio = Math.max(0.2, Math.min(0.8, startRatio + delta / containerHeight));
+      setRatio(newRatio);
+    };
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      const finalRatio = ratioRef.current;
+      try {
+        localStorage.setItem(ratioKeyRef.current, String(finalRatio));
+        localStorage.setItem(STACKED_RATIO_KEY, String(finalRatio));
+      } catch { /* ignore */ }
+    };
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, []);
+
+  return (
+    <div className={styles.stackedView} ref={containerRef}>
+      <div className={styles.stackedTop} style={{ flex: `0 0 ${ratio * 100}%` }}>
+        {top}
+      </div>
+      <div className={styles.stackedDivider} onMouseDown={handleMouseDown} />
+      <div className={styles.stackedBottom} style={{ flex: 1 }}>
+        {bottom}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -226,6 +332,17 @@ export default function DetailTabs({
     }
   });
 
+  const [stackedView, setStackedView] = useState<boolean>(() => {
+    try {
+      const key = sessionId ? `${STACKED_KEY}:${sessionId}` : STACKED_KEY;
+      const stored = localStorage.getItem(key);
+      if (stored !== null) return stored === '1';
+      return localStorage.getItem(STACKED_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+
   const [floatProject, setFloatProject] = useState<boolean>(() => {
     try {
       const key = sessionId ? `${FLOAT_KEY}:${sessionId}` : FLOAT_KEY;
@@ -244,6 +361,15 @@ export default function DetailTabs({
       const key = `${SPLIT_KEY}:${sessionId}`;
       const stored = localStorage.getItem(key);
       setSplitView(stored === '1');
+    } catch { /* ignore */ }
+  }, [sessionId]);
+
+  // Restore per-session stacked state when switching sessions.
+  useEffect(() => {
+    if (!sessionId) return;
+    try {
+      const key = `${STACKED_KEY}:${sessionId}`;
+      setStackedView(localStorage.getItem(key) === '1');
     } catch { /* ignore */ }
   }, [sessionId]);
 
@@ -273,54 +399,70 @@ export default function DetailTabs({
     [onTabChange],
   );
 
+  // Persist a per-session layout flag and return the value (helper for toggles).
+  const persistFlag = useCallback((key: string, val: boolean) => {
+    try {
+      if (sessionId) localStorage.setItem(`${key}:${sessionId}`, val ? '1' : '0');
+    } catch { /* ignore */ }
+  }, [sessionId]);
+
+  // The three layout modes (side-by-side split, stacked, float) are mutually
+  // exclusive — turning one ON turns the other two OFF.
+  const turnOff = useCallback(
+    (setter: React.Dispatch<React.SetStateAction<boolean>>, key: string) => {
+      setter((prev) => {
+        if (!prev) return prev;
+        persistFlag(key, false);
+        return false;
+      });
+    },
+    [persistFlag],
+  );
+
   const toggleSplit = useCallback(() => {
     setSplitView((prev) => {
       const next = !prev;
-      try {
-        if (sessionId) {
-          localStorage.setItem(`${SPLIT_KEY}:${sessionId}`, next ? '1' : '0');
-        }
-      } catch { /* ignore */ }
+      persistFlag(SPLIT_KEY, next);
       return next;
     });
-    // Mutual exclusivity: turning split on disables float.
-    setFloatProject((prev) => {
-      if (!prev) return prev;
-      try {
-        if (sessionId) localStorage.setItem(`${FLOAT_KEY}:${sessionId}`, '0');
-      } catch { /* ignore */ }
-      return false;
+    turnOff(setStackedView, STACKED_KEY);
+    turnOff(setFloatProject, FLOAT_KEY);
+  }, [persistFlag, turnOff]);
+
+  const toggleStacked = useCallback(() => {
+    setStackedView((prev) => {
+      const next = !prev;
+      persistFlag(STACKED_KEY, next);
+      return next;
     });
-  }, [sessionId]);
+    turnOff(setSplitView, SPLIT_KEY);
+    turnOff(setFloatProject, FLOAT_KEY);
+  }, [persistFlag, turnOff]);
 
   const toggleFloat = useCallback(() => {
     setFloatProject((prev) => {
       const next = !prev;
-      try {
-        if (sessionId) localStorage.setItem(`${FLOAT_KEY}:${sessionId}`, next ? '1' : '0');
-      } catch { /* ignore */ }
+      persistFlag(FLOAT_KEY, next);
       return next;
     });
-    // Mutual exclusivity: turning float on disables split.
-    setSplitView((prev) => {
-      if (!prev) return prev;
-      try {
-        if (sessionId) localStorage.setItem(`${SPLIT_KEY}:${sessionId}`, '0');
-      } catch { /* ignore */ }
-      return false;
-    });
-  }, [sessionId]);
+    turnOff(setSplitView, SPLIT_KEY);
+    turnOff(setStackedView, STACKED_KEY);
+  }, [persistFlag, turnOff]);
 
-  const isSplit = splitView && panelWideEnough && !floatProject;
   const isFloat = floatProject && panelWideEnough;
+  const isSplit = splitView && panelWideEnough && !floatProject && !stackedView;
+  const isStacked = stackedView && panelWideEnough && !floatProject && !splitView;
 
-  // When split-view is active on the project or terminal tab, show the
+  // When split or stacked is active on the project or terminal tab, show the
   // combined view instead of the individual tab content.
   // When float mode is active, redirect PROJECT tab → TERMINAL so the
   // terminal owns the screen while Project lives in the floating overlay.
+  const isTermOrProj = activeTab === 'terminal' || activeTab === 'project';
   let effectiveTab: string;
-  if (isSplit && (activeTab === 'terminal' || activeTab === 'project')) {
+  if (isSplit && isTermOrProj) {
     effectiveTab = 'split';
+  } else if (isStacked && isTermOrProj) {
+    effectiveTab = 'stacked';
   } else if (isFloat && activeTab === 'project') {
     effectiveTab = 'terminal';
   } else {
@@ -359,6 +501,13 @@ export default function DetailTabs({
         ratioKey={sessionId ? `${SPLIT_RATIO_KEY}:${sessionId}` : SPLIT_RATIO_KEY}
       />
     ),
+    stacked: (
+      <StackedSplitView
+        top={terminalContent}
+        bottom={projectContent}
+        ratioKey={sessionId ? `${STACKED_RATIO_KEY}:${sessionId}` : STACKED_RATIO_KEY}
+      />
+    ),
   };
 
   // Resolve the portal target for projectContent. Float-expanded → float body.
@@ -366,7 +515,7 @@ export default function DetailTabs({
   // Skipped during split view since DraggableSplitView renders projectContent inline.
   const portalTarget: HTMLDivElement | null =
     isFloat && floatBodyEl ? floatBodyEl : projectHostEl;
-  const shouldPortalProject = !isSplit && portalTarget !== null;
+  const shouldPortalProject = !isSplit && !isStacked && portalTarget !== null;
 
   const hasMatches = (searchMatchCount ?? 0) > 0;
   const countLabel = searchQuery
@@ -379,18 +528,17 @@ export default function DetailTabs({
     <>
       <div className={styles.tabs}>
         {tabs.map((tab) => {
-          const isActive =
-            isSplit && (tab.id === 'terminal' || tab.id === 'project')
-              ? activeTab === 'terminal' || activeTab === 'project'
-              : activeTab === tab.id;
+          const tabIsTermOrProj = tab.id === 'terminal' || tab.id === 'project';
+          const combinedTermProj = (isSplit || isStacked) && tabIsTermOrProj;
+          const isActive = combinedTermProj
+            ? activeTab === 'terminal' || activeTab === 'project'
+            : activeTab === tab.id;
 
           return (
             <button
               key={tab.id}
               className={`${styles.tab}${isActive ? ` ${styles.active}` : ''}${
-                isSplit && (tab.id === 'terminal' || tab.id === 'project')
-                  ? ` ${styles.tabSplit}`
-                  : ''
+                combinedTermProj ? ` ${styles.tabSplit}` : ''
               }`}
               onClick={() => handleTabClick(tab.id)}
               data-tab={tab.id}
@@ -414,6 +562,23 @@ export default function DetailTabs({
                       aria-label={(splitView ? tooltips.splitProjectTerminal : tooltips.mergeProjectTerminal).label}
                     >
                       {splitView ? <SplitIcon /> : <MergeIcon />}
+                    </span>
+                  </Tooltip>
+                  <Tooltip {...(stackedView ? tooltips.unstackProjectTerminal : tooltips.stackProjectTerminal)}>
+                    <span
+                      className={styles.splitToggle}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleStacked();
+                        if (!stackedView && activeTab !== 'terminal' && activeTab !== 'project') {
+                          handleTabClick('project');
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={(stackedView ? tooltips.unstackProjectTerminal : tooltips.stackProjectTerminal).label}
+                    >
+                      {stackedView ? <UnstackIcon /> : <StackIcon />}
                     </span>
                   </Tooltip>
                   <Tooltip {...(floatProject ? tooltips.unfloatProject : tooltips.floatProject)}>
@@ -476,9 +641,10 @@ export default function DetailTabs({
         <div className={
           effectiveTab === 'terminal' ? styles.alwaysTabActive : styles.alwaysTabHidden
         }>
-          {/* Don't render terminal inside wrapper when split view is active
-              to avoid duplicate xterm subscriptions */}
-          {effectiveTab !== 'split' && terminalContent}
+          {/* Don't render terminal inside wrapper when split/stacked view is
+              active to avoid duplicate xterm subscriptions (those views render
+              their own terminal copy). */}
+          {effectiveTab !== 'split' && effectiveTab !== 'stacked' && terminalContent}
         </div>
         {/* COMMANDS (ops terminal): always mounted if exists */}
         {commandsContent && (

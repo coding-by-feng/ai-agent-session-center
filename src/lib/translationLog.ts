@@ -20,8 +20,8 @@ function uuid(): string {
 
 export type NewTranslationLog = Omit<
   DbTranslationLog,
-  'id' | 'uuid' | 'response' | 'notes' | 'archived' | 'createdAt' | 'updatedAt'
-> & { uuid?: string };
+  'id' | 'uuid' | 'response' | 'notes' | 'archived' | 'favorite' | 'alias' | 'sourceFilePath' | 'createdAt' | 'updatedAt'
+> & { uuid?: string; sourceFilePath?: string };
 
 /** Create a draft log with no captured response. Returns the assigned uuid. */
 export async function createLog(input: NewTranslationLog): Promise<string> {
@@ -33,6 +33,9 @@ export async function createLog(input: NewTranslationLog): Promise<string> {
     response: '',
     notes: '',
     archived: 0,
+    favorite: 0,
+    alias: '',
+    sourceFilePath: input.sourceFilePath ?? '',
     createdAt: now,
     updatedAt: now,
   });
@@ -77,6 +80,7 @@ export async function captureResponse(floatTerminalId: string, rawOutput: string
 export interface ListFilters {
   mode?: DbTranslationLog['mode'] | 'all';
   archived?: 'all' | 'active' | 'archived';
+  favorite?: boolean;
   originSessionId?: string;
   search?: string;
 }
@@ -91,6 +95,9 @@ export async function listLogs(filters: ListFilters = {}): Promise<DbTranslation
     collection = collection.filter((row) => row.archived === 0);
   } else if (filters.archived === 'archived') {
     collection = collection.filter((row) => row.archived === 1);
+  }
+  if (filters.favorite) {
+    collection = collection.filter((row) => row.favorite === 1);
   }
   if (filters.originSessionId) {
     collection = collection.filter((row) => row.originSessionId === filters.originSessionId);
@@ -115,6 +122,24 @@ export async function setArchived(uuidValue: string, archived: boolean): Promise
 
 export async function setNotes(uuidValue: string, notes: string): Promise<void> {
   await updateLog(uuidValue, { notes });
+}
+
+export async function setFavorite(uuidValue: string, favorite: boolean): Promise<void> {
+  await updateLog(uuidValue, { favorite: favorite ? 1 : 0 });
+}
+
+export async function setAlias(uuidValue: string, alias: string): Promise<void> {
+  await updateLog(uuidValue, { alias });
+}
+
+/** Favorited logs whose selection came from a given markdown file — used to
+ *  highlight those selections back in the file viewer. */
+export async function listFavoritedByFile(sourceFilePath: string): Promise<DbTranslationLog[]> {
+  if (!sourceFilePath) return [];
+  return db.translationLogs
+    .where('sourceFilePath').equals(sourceFilePath)
+    .filter((row) => row.favorite === 1)
+    .toArray();
 }
 
 export async function deleteLog(uuidValue: string): Promise<void> {

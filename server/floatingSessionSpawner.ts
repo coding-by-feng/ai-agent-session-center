@@ -19,7 +19,7 @@
  * Claude transcript file (server/extractPreviousAnswer.ts). Cross-CLI support
  * for codex/gemini transcripts is a phase-2 follow-up.
  */
-import { getSession, createTerminalSession } from './sessionStore.js';
+import { getSession, getSessionByTerminalId, createTerminalSession } from './sessionStore.js';
 import { createTerminal, consumePendingLink, writeWhenReady } from './sshManager.js';
 import { readClaudeLastAssistant } from './extractPreviousAnswer.js';
 import { reconstructPermissionFlags } from './config.js';
@@ -128,8 +128,14 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
     (cliKind === 'claude' || cliKind === 'codex') &&
     (args.mode === 'explain-learning' || args.mode === 'explain-native')
   );
+  // Recursive fork: a popup spawned from inside a floating terminal forks from
+  // that terminal's session — resolved here from spawnTerminalId — so context
+  // chains down (root → A → B → …). Selections without a host terminal (e.g. the
+  // project-tab markdown viewer) have no spawnTerminalId and fork from the root.
+  const spawnParent = args.spawnTerminalId ? getSessionByTerminalId(args.spawnTerminalId) : null;
+  const forkParentId = spawnParent ? spawnParent.sessionId : args.originSessionId;
   const baseLaunchCmd = shouldInheritContext
-    ? buildForkCommand(cliKind === 'codex' ? 'codex' : 'claude', args.originSessionId, prompt)
+    ? buildForkCommand(cliKind === 'codex' ? 'codex' : 'claude', forkParentId, prompt)
     : buildLaunchCommand(cliKind, prompt);
   const launchCmd = cliKind === 'claude'
     ? reconstructPermissionFlags(baseLaunchCmd, origin.permissionMode)
@@ -164,7 +170,7 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
   }
   writeWhenReady(terminalId, `${prefix}${launchCmd}\r`);
 
-  log.info('floating-spawn', `Spawned ${args.mode} float (terminalId=${terminalId}, cli=${cliKind}, originSession=${origin.sessionId}, inheritContext=${shouldInheritContext})`);
+  log.info('floating-spawn', `Spawned ${args.mode} float (terminalId=${terminalId}, cli=${cliKind}, originSession=${origin.sessionId}, forkParent=${forkParentId}, inheritContext=${shouldInheritContext})`);
 
   return { terminalId, label };
 }

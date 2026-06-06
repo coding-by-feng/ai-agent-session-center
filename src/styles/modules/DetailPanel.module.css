@@ -67,39 +67,6 @@
 }
 .closeBtn:hover { color: var(--text-primary); background: var(--bg-subtle); }
 
-/* Collapse / expand header toggle */
-.collapseBtn {
-  position: absolute; top: 12px; right: 52px;
-  background: none; border: 1px solid var(--border-subtle);
-  color: var(--text-dim); font-size: 10px; cursor: pointer;
-  width: 28px; height: 28px;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 4px; transition: color 0.2s, background 0.2s, border-color 0.2s; z-index: 1;
-  -webkit-app-region: no-drag;
-}
-.collapseBtn:hover { color: var(--accent-cyan); border-color: var(--accent-cyan); background: var(--bg-subtle); }
-
-/* Compact header (collapsed state) */
-.headerCompact {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 90px 8px 20px;
-  border-bottom: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-}
-.headerCompactName {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-  flex: 1;
-}
-
 /* ---- Header ---- */
 
 .header {
@@ -147,28 +114,6 @@
 .charSelect { font-family: var(--font-mono); font-size: 10px; background: var(--bg-card); color: var(--text-dim); border: 1px solid var(--border-subtle); border-radius: 4px; padding: 3px 6px; cursor: pointer; flex-shrink: 0; transition: border-color 0.2s, color 0.2s; }
 .charSelect:hover { color: var(--text-secondary); border-color: var(--border-subtle-strong); }
 .charSelect:focus { outline: none; border-color: var(--accent-cyan); color: var(--text-primary); }
-
-/* Collapse toggle inside expanded header (near action buttons) */
-.headerCollapseBtn {
-  background: none;
-  border: 1px solid var(--border-subtle);
-  color: var(--text-dim);
-  font-size: 9px;
-  cursor: pointer;
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  flex-shrink: 0;
-  transition: color 0.15s, background 0.15s, border-color 0.15s;
-}
-.headerCollapseBtn:hover {
-  color: var(--accent-cyan);
-  border-color: var(--accent-cyan);
-  background: var(--bg-subtle);
-}
 
 .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
 .detailStatusBadge { font-size: 9px; font-weight: 700; letter-spacing: 1.5px; padding: 2px 8px; border-radius: 3px; text-transform: uppercase; }
@@ -235,6 +180,44 @@
   flex: 1;
   min-width: 0;
   min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- Stacked view (Terminal top + Project bottom) ---- */
+
+.stackedView {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  gap: 0;
+}
+.stackedTop {
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.stackedDivider {
+  height: 5px;
+  background: var(--border-subtle);
+  flex-shrink: 0;
+  cursor: row-resize;
+  position: relative;
+  transition: background 0.15s;
+}
+.stackedDivider:hover {
+  background: var(--accent-cyan);
+  box-shadow: 0 0 6px rgba(0, 229, 255, 0.3);
+}
+.stackedBottom {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;

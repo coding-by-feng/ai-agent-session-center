@@ -30,6 +30,13 @@ export function useWorkspaceAutoLoad(): void {
         const snapshot = await loadFromConfig();
         if (!snapshot || snapshot.sessions.length === 0) return;
 
+        // PINNED sessions are "always there" — they auto-recreate on every
+        // restart without asking. Compute their ids up front so we can force
+        // them into the restore set regardless of the picker outcome.
+        const pinnedIds = new Set(
+          snapshot.sessions.filter((s) => s.pinned).map((s) => s.originalSessionId),
+        );
+
         // Show the restore picker unless the user opted into auto-resume-all.
         // The picker resolves with either:
         //   - selectedIds: null   → resume every session (legacy / "Resume all")
@@ -37,9 +44,25 @@ export function useWorkspaceAutoLoad(): void {
         //   - cancelled: true     → resume nothing this restart
         let sessionFilter: Set<string> | null = null;
         if (!getAutoResumeAll()) {
-          const result = await requestRestoreSelection(snapshot);
-          if (result.cancelled) return;
-          sessionFilter = result.selectedIds;
+          const nonPinned = snapshot.sessions.filter((s) => !s.pinned);
+          if (nonPinned.length === 0) {
+            // Nothing to ask about — every snapshot session is pinned. Skip the
+            // picker entirely and restore them all.
+            if (pinnedIds.size === 0) return;
+            sessionFilter = pinnedIds;
+          } else {
+            const result = await requestRestoreSelection(snapshot);
+            if (result.cancelled) {
+              // Even on cancel, pinned sessions still come back.
+              if (pinnedIds.size === 0) return;
+              sessionFilter = pinnedIds;
+            } else if (result.selectedIds === null) {
+              sessionFilter = null; // resume everything (pinned included)
+            } else {
+              // User's picks ∪ pinned — a pin overrides an unchecked pinned row.
+              sessionFilter = new Set([...result.selectedIds, ...pinnedIds]);
+            }
+          }
         }
 
         // Effective count for the progress bar reflects what we'll actually

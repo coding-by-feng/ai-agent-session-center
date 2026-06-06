@@ -81,6 +81,13 @@ export interface ElectronAPI {
   hasPty?(terminalId: string):                            Promise<boolean>
   onPtyData?(cb: (terminalId: string, base64Data: string) => void): () => void
   onPtyExit?(cb: (terminalId: string, exitCode: number, signal: number) => void): () => void
+
+  // Pop a floating terminal out into its own native window (draggable to another
+  // monitor). Optional — only present under Electron.
+  openTerminalWindow?(opts: { terminalId: string; originSessionId?: string; label?: string }): Promise<{ ok: boolean }>
+  /** Fires (in the main window) when a popped-out terminal window is closed, so
+   *  the in-app float can re-dock. Returns an unsubscribe fn. */
+  onPopoutClosed?(cb: (terminalId: string) => void): () => void
 }
 
 declare global {

@@ -8,6 +8,8 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { useUiStore } from '@/stores/uiStore';
 import SearchInput from '@/components/ui/SearchInput';
+import { markUserClosing } from '@/lib/pinnedRespawn';
+import { sortSessions } from '@/lib/sessionSort';
 import type { Session } from '@/types/session';
 
 // ---------------------------------------------------------------------------
@@ -25,19 +27,6 @@ const STATUS_COLORS: Record<string, string> = {
   connecting: 'var(--text-dim)',
 };
 
-const STATUS_ORDER: Record<string, number> = {
-  working: 0, prompting: 1, approval: 2, input: 2,
-  waiting: 3, idle: 4, connecting: 5, ended: 6,
-};
-
-function sortSessions(sessions: Session[]): Session[] {
-  return [...sessions].sort((a, b) => {
-    const oa = STATUS_ORDER[a.status] ?? 5;
-    const ob = STATUS_ORDER[b.status] ?? 5;
-    if (oa !== ob) return oa - ob;
-    return (a.title || 'Unnamed').localeCompare(b.title || 'Unnamed');
-  });
-}
 
 // ---------------------------------------------------------------------------
 // Entry Component
@@ -48,14 +37,17 @@ function RobotEntry({
   isSelected,
   onSelect,
   onClose,
+  onTogglePin,
 }: {
   session: Session;
   isSelected: boolean;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
+  onTogglePin: (id: string) => void;
 }) {
   const statusColor = STATUS_COLORS[session.status] ?? '#888';
   const needsAttention = session.status === 'approval' || session.status === 'input';
+  const pinned = !!session.pinned;
   const title = session.title || 'Unnamed';
 
   return (
@@ -82,7 +74,13 @@ function RobotEntry({
         textAlign: 'left',
         fontFamily: "'JetBrains Mono', monospace",
         transition: 'all 0.15s ease',
-        boxShadow: needsAttention ? `0 0 8px ${statusColor}, inset 0 0 4px color-mix(in srgb, ${statusColor} 10%, transparent)` : undefined,
+        boxShadow: [
+          needsAttention
+            ? `0 0 8px ${statusColor}, inset 0 0 4px color-mix(in srgb, ${statusColor} 10%, transparent)`
+            : '',
+          // Pinned sessions get a left accent bar so "fixed" is visible at a glance.
+          pinned ? 'inset 3px 0 0 var(--accent-yellow)' : '',
+        ].filter(Boolean).join(', ') || undefined,
         animation: needsAttention ? 'sidebarApprovalPulse 1.2s ease-in-out infinite' : undefined,
       }}
       onMouseEnter={(e) => {
@@ -141,6 +139,53 @@ function RobotEntry({
           {session.status}
         </div>
       </div>
+
+      {/* Pin toggle — pinned sessions stay fixed at the top and auto-recreate. */}
+      <span
+        role="button"
+        tabIndex={-1}
+        aria-pressed={pinned}
+        title={pinned
+          ? 'Pinned — stays in the list and auto-recreates on restart / if it dies. Click to unpin.'
+          : 'Pin — keep this session fixed and auto-recreate it.'}
+        onClick={(e) => {
+          e.stopPropagation();
+          onTogglePin(session.sessionId);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.stopPropagation(); onTogglePin(session.sessionId); }
+        }}
+        style={{
+          flexShrink: 0,
+          width: 18,
+          height: 18,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: 2,
+          fontSize: 11,
+          lineHeight: 1,
+          color: pinned ? 'var(--accent-yellow)' : 'var(--text-dim)',
+          opacity: pinned ? 1 : 0.55,
+          cursor: 'pointer',
+          transition: 'all 0.15s ease',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.opacity = '1';
+          e.currentTarget.style.color = 'var(--accent-yellow)';
+          e.currentTarget.style.background = 'color-mix(in srgb, var(--accent-yellow) 15%, transparent)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.opacity = pinned ? '1' : '0.55';
+          e.currentTarget.style.color = pinned ? 'var(--accent-yellow)' : 'var(--text-dim)';
+          e.currentTarget.style.background = 'transparent';
+        }}
+      >
+        <svg width="11" height="11" viewBox="0 0 24 24" fill={pinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M12 17v5" />
+          <path d="M9 10.76V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v6.76a2 2 0 0 0 .59 1.41l1.7 1.7A1 1 0 0 1 17.59 16H6.41a1 1 0 0 1-.7-1.71l1.7-1.7A2 2 0 0 0 8 10.76" />
+        </svg>
+      </span>
 
       {/* Close button */}
       <span
@@ -279,6 +324,7 @@ export default function RobotListSidebar() {
   const sessions = useSessionStore((s) => s.sessions);
   const selectedSessionId = useSessionStore((s) => s.selectedSessionId);
   const removeSession = useSessionStore((s) => s.removeSession);
+  const togglePin = useSessionStore((s) => s.togglePin);
   const rooms = useRoomStore((s) => s.rooms);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
@@ -366,7 +412,23 @@ export default function RobotListSidebar() {
     );
   }, [selectSession, detailPanelMinimized, restoreDetailPanel]);
 
+  const handleTogglePin = useCallback((sessionId: string) => {
+    togglePin(sessionId);
+  }, [togglePin]);
+
   const handleClose = useCallback((sessionId: string) => {
+    // Closing a PINNED session is a deliberate "stop keeping this alive" — confirm,
+    // then unpin (so it won't auto-recreate) and flag it so its death is not
+    // treated as an unexpected crash to respawn.
+    const session = useSessionStore.getState().sessions.get(sessionId);
+    if (session?.pinned) {
+      const ok = window.confirm(
+        `"${session.title || 'This session'}" is pinned and auto-recreates.\n\nClose and unpin it?`,
+      );
+      if (!ok) return;
+      markUserClosing(session);
+      togglePin(sessionId);
+    }
     // Kill the process and remove from view
     fetch(`/api/sessions/${sessionId}/kill`, {
       method: 'POST',
@@ -374,7 +436,7 @@ export default function RobotListSidebar() {
       body: JSON.stringify({ confirm: true }),
     }).catch(() => {});
     removeSession(sessionId);
-  }, [removeSession]);
+  }, [removeSession, togglePin]);
 
   // Hide sidebar only when there are zero sessions at all
   const hasAnySessions = useMemo(
@@ -491,6 +553,7 @@ export default function RobotListSidebar() {
                         isSelected={selectedSessionId === session.sessionId}
                         onSelect={handleSelect}
                         onClose={handleClose}
+                        onTogglePin={handleTogglePin}
                       />
                     ))}
                   </div>

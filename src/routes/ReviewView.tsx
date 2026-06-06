@@ -5,11 +5,14 @@
  * Each row can be expanded inline to view the source, the captured AI
  * response, and a small notes textarea. Filters: mode, archived, search.
  */
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router';
 import {
   listLogs,
   setArchived,
   setNotes,
+  setFavorite,
+  setAlias,
   deleteLog,
   type ListFilters,
 } from '@/lib/translationLog';
@@ -19,6 +22,7 @@ import styles from '@/styles/modules/ReviewView.module.css';
 const MODE_LABELS: Record<DbTranslationLog['mode'], string> = {
   'explain-learning': 'Explain (learning)',
   'explain-native': 'Explain (native)',
+  'vocab-native': 'Vocabulary (native)',
   'translate-selection-learning': 'Translate → learning',
   'translate-selection-native': 'Translate → native',
   'translate-answer': 'Translate answer',
@@ -29,6 +33,7 @@ const MODE_LABELS: Record<DbTranslationLog['mode'], string> = {
 const MODE_ICONS: Record<DbTranslationLog['mode'], string> = {
   'explain-learning': '🔎',
   'explain-native': '🌐',
+  'vocab-native': '📖',
   'translate-selection-learning': '🔤',
   'translate-selection-native': '🔤',
   'translate-answer': '⤴',
@@ -54,11 +59,19 @@ function relativeTime(ts: number): string {
 }
 
 export default function ReviewView() {
+  // Deep-link from the md-highlight click (/review?uuid=…) — ReviewView is always
+  // mounted fresh by that navigation, so we seed initial state from the param
+  // (expand + widen the archived filter so the record is visible) and scroll to
+  // it once loaded, rather than mutating state inside an effect.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepLinkUuid = searchParams.get('uuid');
   const [mode, setMode] = useState<ListFilters['mode']>('all');
-  const [archived, setArchivedFilter] = useState<ListFilters['archived']>('active');
+  const [archived, setArchivedFilter] = useState<ListFilters['archived']>(deepLinkUuid ? 'all' : 'active');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [expandedUuid, setExpandedUuid] = useState<string | null>(null);
+  const [expandedUuid, setExpandedUuid] = useState<string | null>(deepLinkUuid);
+  const [favoriteOnly, setFavoriteOnly] = useState(false);
+  const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 200);
@@ -66,8 +79,8 @@ export default function ReviewView() {
   }, [search]);
 
   const filters = useMemo<ListFilters>(
-    () => ({ mode, archived, search: debouncedSearch }),
-    [mode, archived, debouncedSearch],
+    () => ({ mode, archived, favorite: favoriteOnly || undefined, search: debouncedSearch }),
+    [mode, archived, favoriteOnly, debouncedSearch],
   );
 
   const [rows, setRows] = useState<DbTranslationLog[]>([]);
@@ -106,6 +119,29 @@ export default function ReviewView() {
     reload();
   }, [reload]);
 
+  const handleFavorite = useCallback(async (uuid: string, isFav: boolean) => {
+    await setFavorite(uuid, !isFav);
+    reload();
+  }, [reload]);
+
+  const handleAlias = useCallback(async (uuid: string, value: string) => {
+    await setAlias(uuid, value.trim());
+    reload();
+  }, [reload]);
+
+  // Once the deep-linked record is loaded, scroll to it and drop the url param.
+  // The param itself is the one-shot flag — clearing it ends the scroll.
+  useEffect(() => {
+    const target = searchParams.get('uuid');
+    if (!target || !rows.some((r) => r.uuid === target)) return;
+    requestAnimationFrame(() => {
+      rowRefs.current.get(target)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+    const next = new URLSearchParams(searchParams);
+    next.delete('uuid');
+    setSearchParams(next, { replace: true });
+  }, [rows, searchParams, setSearchParams]);
+
   const handleCopy = useCallback((text: string) => {
     navigator.clipboard?.writeText(text).catch(() => { /* ignore */ });
   }, []);
@@ -130,6 +166,7 @@ export default function ReviewView() {
             <option value="all">All modes</option>
             <option value="explain-learning">{MODE_LABELS['explain-learning']}</option>
             <option value="explain-native">{MODE_LABELS['explain-native']}</option>
+            <option value="vocab-native">{MODE_LABELS['vocab-native']}</option>
             <option value="translate-answer">{MODE_LABELS['translate-answer']}</option>
             <option value="translate-file">{MODE_LABELS['translate-file']}</option>
             <option value="custom">{MODE_LABELS['custom']}</option>
@@ -143,6 +180,15 @@ export default function ReviewView() {
             <option value="archived">Archived only</option>
             <option value="all">All</option>
           </select>
+          <button
+            type="button"
+            className={`${styles.favFilter}${favoriteOnly ? ` ${styles.favFilterActive}` : ''}`}
+            aria-pressed={favoriteOnly}
+            onClick={() => setFavoriteOnly((v) => !v)}
+            title="Show only favorited entries"
+          >
+            {favoriteOnly ? '★' : '☆'} Favorites
+          </button>
         </div>
       </div>
 
@@ -163,7 +209,21 @@ export default function ReviewView() {
               ? row.fileContent || row.filePath
               : row.selection;
             return (
-              <div key={row.uuid} className={`${styles.row}${expanded ? ` ${styles.rowExpanded}` : ''}`}>
+              <div
+                key={row.uuid}
+                ref={(el) => { if (el) rowRefs.current.set(row.uuid, el); else rowRefs.current.delete(row.uuid); }}
+                className={`${styles.row}${expanded ? ` ${styles.rowExpanded}` : ''}`}
+              >
+                <div className={styles.rowHeaderWrap}>
+                  <button
+                    type="button"
+                    className={styles.favToggle}
+                    aria-pressed={row.favorite === 1}
+                    title={row.favorite === 1 ? 'Unfavorite' : 'Favorite — highlights it in the source file'}
+                    onClick={() => handleFavorite(row.uuid, row.favorite === 1)}
+                  >
+                    {row.favorite === 1 ? '★' : '☆'}
+                  </button>
                 <button
                   type="button"
                   className={styles.rowHeader}
@@ -173,7 +233,9 @@ export default function ReviewView() {
                   <span className={styles.modeIcon} aria-hidden>{MODE_ICONS[row.mode]}</span>
                   <div className={styles.rowMain}>
                     <div className={styles.rowTitle}>
-                      <span className={styles.modeLabel}>{MODE_LABELS[row.mode]}</span>
+                      {row.alias
+                        ? <span className={styles.aliasLabel}>{row.alias}</span>
+                        : <span className={styles.modeLabel}>{MODE_LABELS[row.mode]}</span>}
                       <span className={styles.langChip}>→ {row.nativeLanguage}</span>
                       {row.archived === 1 && <span className={styles.archivedChip}>archived</span>}
                     </div>
@@ -188,9 +250,23 @@ export default function ReviewView() {
                   </div>
                   <span className={styles.expandIcon} aria-hidden>{expanded ? '▾' : '▸'}</span>
                 </button>
+                </div>
 
                 {expanded && (
                   <div className={styles.detail}>
+                    <div className={styles.section}>
+                      <div className={styles.sectionLabel}>Alias</div>
+                      <input
+                        type="text"
+                        className={styles.aliasInput}
+                        defaultValue={row.alias}
+                        placeholder="Short label for this record (shown here and in the file highlight)"
+                        onBlur={(e) => {
+                          if (e.target.value.trim() !== row.alias) handleAlias(row.uuid, e.target.value);
+                        }}
+                      />
+                    </div>
+
                     <div className={styles.section}>
                       <div className={styles.sectionLabel}>Source</div>
                       {row.mode === 'translate-file' && row.filePath && (
@@ -206,7 +282,7 @@ export default function ReviewView() {
 
                     <div className={styles.section}>
                       <div className={styles.sectionLabel}>
-                        AI response
+                        Conversation
                         {row.response && (
                           <button
                             type="button"

@@ -440,8 +440,6 @@ export default function DetailPanel() {
     }
   }, [selectedSessionId]);
 
-  const headerCollapsed = useUiStore((s) => s.detailHeaderCollapsed);
-  const toggleDetailHeader = useUiStore((s) => s.toggleDetailHeader);
   const [activeTab, setActiveTab] = useState<string>(() => {
     try { return localStorage.getItem('active-tab') || 'terminal'; } catch { return 'terminal'; }
   });
@@ -552,8 +550,6 @@ export default function DetailPanel() {
           duration={durText}
           isDisconnected={isDisconnected}
           onClose={minimizeDetailPanel}
-          headerCollapsed={headerCollapsed}
-          onToggleCollapse={toggleDetailHeader}
           model={displaySession.model}
           controls={
             <SessionControlBar

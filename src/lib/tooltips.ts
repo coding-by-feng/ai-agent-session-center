@@ -22,6 +22,14 @@ export const tooltips = {
     label: 'Separate tabs',
     description: 'Stop the side-by-side view and return Terminal and Project to individual tabs.',
   },
+  stackProjectTerminal: {
+    label: 'Stack over Terminal',
+    description: 'Show Terminal on top and Project below in this tab, split by a draggable horizontal divider.',
+  },
+  unstackProjectTerminal: {
+    label: 'Separate tabs',
+    description: 'Stop the stacked view and return Terminal and Project to individual tabs.',
+  },
   floatProject: {
     label: 'Float Project panel',
     description: 'Pop Project out into a draggable, resizable mini-window over the Terminal.',
@@ -156,6 +164,10 @@ export const tooltips = {
   selExplainNative: {
     label: 'Explain (native language)',
     description: 'Open a forked session that explains the selected text in your native language. Use when there\'s a language gap.',
+  },
+  selVocabNative: {
+    label: 'Vocabulary (native language)',
+    description: 'Open a session that explains the selected word or phrase as a dictionary entry in your native language — part of speech, definition, examples, synonyms, and its meaning in context.',
   },
   selTranslateLearning: {
     label: 'Translate (learning language)',
