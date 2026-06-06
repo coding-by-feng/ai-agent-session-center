@@ -465,7 +465,11 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           letterSpacing: 0,
           theme: resolveTheme(themeNameRef.current),
           allowProposedApi: true,
-          scrollback: 5000, // #86: reduced from 10000 to save ~1MB per terminal
+          // Keep (effectively) all output. xterm allocates scrollback lazily, so
+          // this only consumes memory for lines actually produced — a runaway
+          // process is the only way to grow it large. The fold/unfold control
+          // (planned) is the lever to reclaim that memory on demand.
+          scrollback: 100_000,
           convertEol: false,
           drawBoldTextInBrightColors: true,
           minimumContrastRatio: 1,
