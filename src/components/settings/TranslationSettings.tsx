@@ -134,11 +134,11 @@ export default function TranslationSettings() {
       <div className={styles.section}>
         <h4>Conversation context</h4>
         <p className={styles.settingsHint}>
-          When enabled, &ldquo;Explain&rdquo; modes fork the origin Claude session
-          (<code>claude --resume &lt;id&gt; --fork-session</code>) so the AI can ground
-          the explanation in the prior conversation. Translate modes are unaffected
-          because the source text is already in the prompt. Has no effect for
-          Codex / Gemini origins.
+          When enabled, <strong>all</strong> AI-popup modes (explain, translate,
+          vocab, custom) fork the origin session
+          (<code>claude --resume &lt;id&gt; --fork-session</code> / <code>codex fork</code>)
+          so the AI can ground its answer in the prior conversation. When disabled,
+          popups start fresh. Has no effect for Gemini origins (no fork support).
         </p>
         <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <input
@@ -146,7 +146,7 @@ export default function TranslationSettings() {
             checked={inheritContext}
             onChange={(e) => setInheritContext(e.target.checked)}
           />
-          <span>Inherit conversation context for explain modes</span>
+          <span>Inherit conversation context for AI popups</span>
         </label>
       </div>
 
