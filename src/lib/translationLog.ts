@@ -6,7 +6,7 @@
  * AI response when the corresponding floating session is closed.
  */
 import { db, type DbTranslationLog } from './db';
-import { stripAnsi } from './ansi';
+import { cleanCapturedOutput } from './ansi';
 
 const RESPONSE_CAP_BYTES = 256 * 1024; // safety cap so IndexedDB stays small
 
@@ -67,7 +67,7 @@ export async function updateLog(uuidValue: string, patch: Partial<DbTranslationL
 export async function captureResponse(floatTerminalId: string, rawOutput: string): Promise<void> {
   const row = await findByFloatTerminalId(floatTerminalId);
   if (!row || row.id === undefined) return;
-  const cleaned = stripAnsi(rawOutput).trim();
+  const cleaned = cleanCapturedOutput(rawOutput).trim();
   const capped = cleaned.length > RESPONSE_CAP_BYTES
     ? cleaned.slice(cleaned.length - RESPONSE_CAP_BYTES)
     : cleaned;
