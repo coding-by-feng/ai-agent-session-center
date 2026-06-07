@@ -13,7 +13,7 @@ ProjectTab, they often want to:
 2. **Explain (native lang)** — bridge a language gap on the selected phrase.
 3. **Translate previous answer** — translate the last assistant message into the native language.
 4. **Translate file** — translate a whole markdown file into the native language.
-5. **Custom prompt** — type your own instruction in the popup; it's combined with the selected text to start a **fresh** floating session (never inherits context, works for any CLI).
+5. **Custom prompt** — type your own instruction in the popup; it's combined with the selected text. Like the other modes it forks the origin Claude/Codex session to inherit context when the inherit-context setting is on; Gemini custom stays fresh (no fork).
 
 Supported modes spawn a brand-new CLI session in a floating window. **No new
 model auth, no new API key** — they reuse whatever CLI the origin session is
@@ -34,7 +34,7 @@ transcripts.
 | `src/components/session/FloatingTerminalRoot.tsx` | Renders the open floats **belonging to the currently selected session** (`originSessionId === selectedSessionId`); renders none when nothing is selected. Mounted once in `App.tsx` AppLayout. See [Per-session scoping](#per-session-popup-scoping). |
 | `src/stores/floatingSessionsStore.ts` | Zustand store holding open floats; capped at 4 (`open` now **DELETEs the evicted PTY** so it doesn't leak). Adds `closeByOriginSession(id)` (kill a session's popups on removal), `migrateOriginSession(oldId, newId)` (follow a session re-key), and `closeOrphans(liveIds)` (kill popups whose origin vanished from a fresh snapshot). |
 | `src/components/settings/TranslationSettings.tsx` | Settings tab for native/learning languages + trigger. |
-| `server/floatingSessionSpawner.ts` | Server-side mode validation, prompt synthesis, CLI detection, and Claude/Codex fork-command construction for inherited explain sessions. |
+| `server/floatingSessionSpawner.ts` | Server-side mode validation, prompt synthesis, CLI detection, and Claude/Codex fork-command construction for context inheritance (all modes; gated by the inherit-context setting). Also forwards the origin's model/effort/characterModel. |
 | `server/extractPreviousAnswer.ts` | Claude transcript reader used only by `translate-answer`. |
 
 Wired surfaces:
@@ -92,7 +92,7 @@ Codex / Gemini `translate-answer` calls because no transcript reader exists yet.
 | `explain-native` | "Explain the following in `{nativeLanguage}`. Use `{nativeLanguage}` for the explanation…" |
 | `translate-answer` | "Translate the following text into `{nativeLanguage}`. Preserve markdown…" |
 | `translate-file` | "Translate the following markdown file into `{nativeLanguage}`. Preserve markdown syntax exactly…" |
-| `custom` | "`{customPrompt}`" then the selection in a `"""` fence (contextLine prepended if present). **Always a fresh launch** — `custom` is excluded from context inheritance regardless of the setting. Window label is `Custom: {first ~24 chars}`. Logged to the REVIEW tab with `mode='custom'` and `prompt=customPrompt`. |
+| `custom` | "`{customPrompt}`" then the selection in a `"""` fence (contextLine prepended if present). Forks the origin Claude/Codex session for context like the other modes when the inherit-context setting is on (Gemini custom stays fresh). Window label is `Custom: {first ~24 chars}`. Logged to the REVIEW tab with `mode='custom'` and `prompt=customPrompt`. |
 
 The CLI binary is selected from `origin.startupCommand`:
 
@@ -100,8 +100,8 @@ The CLI binary is selected from `origin.startupCommand`:
 * `codex '...'` (positional prompt)
 * `gemini -p '...'` (`-p` flag)
 
-When `translationInheritContext` is enabled for explain modes, Claude and Codex
-switch from fresh prompt launches to CLI-native forks:
+When `translationInheritContext` is enabled (default), all modes on Claude and
+Codex origins switch from fresh prompt launches to CLI-native forks:
 
 * `claude --resume '<SESSION_ID>' --fork-session '<prompt>'` or `claude --continue --fork-session '<prompt>'`
 * `codex fork '<SESSION_ID>' '<prompt>'` or `codex fork --last '<prompt>'`
@@ -116,7 +116,7 @@ well under typical `ARG_MAX`.
 * **Enable translation popup** — master toggle.
 * **Native language** — target for translations / native-language explanations. Default: 简体中文.
 * **Learning language** — target for "deeper" same-language explanation. Default: English.
-* **Inherit conversation context for explain modes** — when enabled, `explain-learning` and `explain-native` fork the origin Claude or Codex session via the CLI's native fork command, so the AI grounds its answer in the prior conversation. Translate modes are unaffected (they're self-contained). No effect for Gemini origins. Default: on.
+* **Inherit conversation context for AI popups** — when enabled, **all** popup modes fork the origin Claude or Codex session via the CLI's native fork command, so the AI grounds its answer in the prior conversation. No effect for Gemini origins (no fork support). Default: on.
 * **Trigger** — `auto` (every selection) / `alt` (require ⌥ held) / `off` (popup disabled, toolbar buttons still work).
 
 No API key field exists — the feature is auth-free.
@@ -172,8 +172,8 @@ that floating session — not the original root — so context chains down
   resolve. This keeps the fork-graph resolution in `sessionStore` rather than
   reconstructing it in a React component.
 
-Only the **explain** modes inherit context, so recursion only applies to them;
-translate/vocab/custom remain self-contained regardless of nesting.
+All modes inherit context when the setting is on, so recursive forking applies to
+every mode on Claude/Codex origins (Gemini stays fresh).
 
 ## Pop-out to a native window (Electron)
 

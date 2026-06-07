@@ -121,19 +121,27 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
 
   // Spawn the same CLI as the origin session.
   const cliKind = detectCli(origin.startupCommand || origin.sshCommand || origin.sshConfig?.command);
-  // Inherit the prior conversation only for explain-* modes on Claude/Codex origins.
-  // translate-* and custom modes are self-contained — the prompt carries everything.
-  const shouldInheritContext = (
-    args.inheritContext !== false &&
-    (cliKind === 'claude' || cliKind === 'codex') &&
-    (args.mode === 'explain-learning' || args.mode === 'explain-native')
-  );
   // Recursive fork: a popup spawned from inside a floating terminal forks from
   // that terminal's session — resolved here from spawnTerminalId — so context
   // chains down (root → A → B → …). Selections without a host terminal (e.g. the
   // project-tab markdown viewer) have no spawnTerminalId and fork from the root.
   const spawnParent = args.spawnTerminalId ? getSessionByTerminalId(args.spawnTerminalId) : null;
+  const forkParentSession = spawnParent ?? origin;
   const forkParentId = spawnParent ? spawnParent.sessionId : args.originSessionId;
+  // Fork from (inherit the conversation context of) the parent session for ALL
+  // popup modes on Claude/Codex origins — surrounding context improves
+  // explanations, translations, and vocab sense. BUT only when that parent has a
+  // resumable conversation: a brand-new session with no prompts yet has no
+  // transcript, so `claude --resume <id> --fork-session` fails with "No
+  // conversation found" — fall back to a fresh launch (the popup prompt is
+  // self-contained anyway). Gemini has no fork (stays fresh); an explicit
+  // inheritContext:false (the Settings toggle) opts out.
+  const parentHasConversation = (forkParentSession?.promptHistory?.length ?? 0) > 0;
+  const shouldInheritContext = (
+    args.inheritContext !== false &&
+    (cliKind === 'claude' || cliKind === 'codex') &&
+    parentHasConversation
+  );
   const baseLaunchCmd = shouldInheritContext
     ? buildForkCommand(cliKind === 'codex' ? 'codex' : 'claude', forkParentId, prompt)
     : buildLaunchCommand(cliKind, prompt);

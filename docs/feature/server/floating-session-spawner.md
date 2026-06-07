@@ -173,15 +173,22 @@ is injected as a `/effort ultracode` slash command once Claude Code is ready
 may begin at the default effort. `characterModel` is forwarded too so the popup's
 robot icon matches the parent.
 
-**Per-mode policy**:
+**Per-mode policy**: **all** popup modes fork the origin Claude/Codex session to
+inherit its conversation context, gated by the `inheritContext` Settings toggle
+(`translationInheritContext`, default on) **and by the parent having a resumable
+conversation**. A brand-new session with no prompts yet has no transcript, so
+`claude --resume <id> --fork-session` would fail with "No conversation found" —
+the spawner detects this (`forkParentSession.promptHistory.length > 0`) and falls
+back to a fresh launch (the popup prompt is self-contained). Gemini origins always
+use the fresh-launch path (no fork support); Codex uses `codex fork`.
 
-| Mode | Fork? | Why |
-|------|-------|-----|
-| `explain-learning` / `explain-native` | yes | Selection often depends on the conversation; inherited history grounds the explanation. |
-| `translate-answer` | no | Source text is already in the prompt; forking would prime continuation instead of translation. |
-| `translate-file` | no | File is unrelated to the conversation; forking adds noise. |
-
-Gemini origins always use the fresh-launch path; Codex uses `codex fork`.
+| Mode | Fork? | Notes |
+|------|-------|-------|
+| `explain-learning` / `explain-native` | yes | Inherited history grounds the explanation. |
+| `translate-selection-*` / `vocab-native` | yes | Surrounding conversation improves word/phrase sense and terminology. |
+| `translate-answer` | yes | Prompt still carries the prior answer; the fork adds conversation context. |
+| `translate-file` | yes | Whole-file translation; the fork supplies project/terminology context. |
+| `custom` | yes (Claude/Codex) | Forks when the origin supports it; Gemini custom stays fresh. |
 
 ## Previous-Answer Resolution (translate-answer)
 

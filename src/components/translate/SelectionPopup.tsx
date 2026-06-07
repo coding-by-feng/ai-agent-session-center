@@ -1,12 +1,15 @@
 /**
  * SelectionPopup — the floating action toolbar that appears at a text
  * selection. Two rows × two modes each:
- *   Row 1 — Explain (inherits origin context for Claude sessions):
+ *   Row 1 — Explain:
  *     🔎 Explain in learning language
  *     🌐 Explain in native language
- *   Row 2 — Translate (pure, no context inheritance):
+ *   Row 2 — Translate:
  *     A→ Translate to learning language
  *     A→ Translate to native language
+ *
+ * All modes fork the origin Claude/Codex session to inherit its conversation
+ * context when the "Inherit conversation context" setting is on (default).
  *
  * Surface-agnostic: works on terminals (via xterm extractor) and DOM viewers
  * (via DOM extractor). The parent supplies the originSessionId + extracted
