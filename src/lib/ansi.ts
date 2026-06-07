@@ -28,3 +28,28 @@ export function stripAnsi(input: string): string {
     .replace(SINGLE_RE, '')
     .replace(CR_RE, '');
 }
+
+// TUI chrome that is never answer content: box-drawing + block elements +
+// geometric shapes (U+2500–25FF) and Braille glyphs (U+2800–28FF, used for
+// Claude Code's "thinking" spinner).
+const TUI_GLYPH_RE = /[─-◿⠀-⣿]/gu;
+// Trailing whitespace left behind after stripping the chrome, per line.
+const TRAILING_WS_RE = /[ \t]+$/gm;
+// Collapse the big runs of blank lines that screen redraws leave behind.
+const EXTRA_BLANKS_RE = /\n{3,}/g;
+
+/**
+ * Clean raw terminal scrollback captured from an interactive CLI (TUI) into
+ * readable text: strip ANSI, then remove box-drawing / block / Braille-spinner
+ * chrome and collapse the whitespace those redraws leave behind.
+ *
+ * Used when storing an AI-popup response to the REVIEW / AI POPUPS history,
+ * where the raw capture is a Claude Code TUI screen, not clean prose.
+ */
+export function cleanCapturedOutput(input: string): string {
+  if (!input) return '';
+  return stripAnsi(input)
+    .replace(TUI_GLYPH_RE, '')
+    .replace(TRAILING_WS_RE, '')
+    .replace(EXTRA_BLANKS_RE, '\n\n');
+}

@@ -98,7 +98,10 @@ export const useFloatingSessionsStore = create<FloatingSessionsState>((set, get)
         if (resp.ok) {
           const data = await resp.json();
           if (typeof data.output === 'string' && data.output) {
-            const decoded = atob(data.output);
+            // Base64 → bytes → UTF-8. `atob` alone yields a Latin-1 binary
+            // string, which mojibakes multibyte chars (e.g. `·` → `Â·`).
+            const bytes = Uint8Array.from(atob(data.output), (c) => c.charCodeAt(0));
+            const decoded = new TextDecoder().decode(bytes);
             await captureResponse(terminalId, decoded);
           }
         }
