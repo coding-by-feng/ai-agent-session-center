@@ -655,11 +655,42 @@
 }
 
 .switcherName {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  cursor: text;
+}
+
+.switcherNameText {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: text;
+}
+
+.switcherEditHint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 2px;
+  border: none;
+  background: none;
+  border-radius: 3px;
+  color: var(--text-dim);
+  opacity: 0.55;
+  cursor: pointer;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.switcherName:hover .switcherEditHint {
+  opacity: 1;
+}
+
+.switcherEditHint:hover {
+  color: var(--accent-cyan);
+  background: var(--bg-accent, rgba(0, 240, 255, 0.12));
 }
 
 .switcherNameInput {

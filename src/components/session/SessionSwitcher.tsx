@@ -82,6 +82,21 @@ function RoomFilterIcon({ active }: { active: boolean }) {
   );
 }
 
+/** Pencil icon — hints that the title can be clicked to rename */
+function EditIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M8.5 1.5l2 2L4 10l-2.5.5L2 8l6.5-6.5Z"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 /** Two-column grid icon — shown in compact mode; click to switch to detailed */
 function DetailedModeIcon() {
   return (
@@ -360,9 +375,17 @@ export default function SessionSwitcher({
             <span
               className={styles.switcherName}
               onDoubleClick={beginHeaderEdit}
-              title="Double-click to rename"
             >
-              {primaryName}
+              <span className={styles.switcherNameText}>{primaryName}</span>
+              <button
+                type="button"
+                className={styles.switcherEditHint}
+                onClick={beginHeaderEdit}
+                title="Rename session"
+                aria-label="Rename session"
+              >
+                <EditIcon />
+              </button>
             </span>
           )}
           {secondaryName && (

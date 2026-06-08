@@ -3,6 +3,7 @@
  * Features: tree navigation, file tabs, fuzzy search, content search, new file/folder.
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -2976,8 +2977,11 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         </div>{/* end viewerPanel */}
       </div>{/* end vscodeSplit */}
 
-      {/* Fullscreen file viewer popup */}
-      {showFullscreen && file && (
+      {/* Fullscreen file viewer popup — portaled to document.body so it escapes
+          the detail panel's transformed/contained ancestors (which otherwise trap
+          the fixed overlay below the session tab strip, letting the session
+          numbers/labels bleed through at the top). */}
+      {showFullscreen && file && createPortal(
         <div className={styles.fullscreenOverlay} onClick={() => setShowFullscreen(false)}>
           <div className={styles.fullscreenModal} onClick={(e) => e.stopPropagation()}>
             <div className={styles.fullscreenHeader}>
@@ -3030,7 +3034,8 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
               )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Context menu */}
