@@ -9,15 +9,17 @@
 Backs the [Floating Terminal Fork](../frontend/floating-terminal-fork.md)
 frontend feature. Receives a small JSON payload from the dashboard, resolves
 the user's previous answer (when needed), constructs a prompt, and launches the
-same CLI kind as the origin session. Fresh translate sessions pass the prompt as
-an argument; inherited explain sessions use Claude/Codex native fork commands.
+same CLI kind as the origin session. Every mode forks the parent Claude/Codex
+conversation when that parent has a resumable transcript (so the AI inherits
+context); otherwise it falls back to a fresh launch with a self-contained prompt.
 
 ## Source Files
 
 | File | Role |
 |------|------|
-| `server/floatingSessionSpawner.ts` | Build prompt + spawn pty. Single exported function `spawnFloatingSession`. |
-| `server/extractPreviousAnswer.ts` | Read the last assistant message from a Claude `~/.claude/projects/<encoded>/<sessionId>.jsonl` transcript. |
+| `server/floatingSessionSpawner.ts` | Resolve origin/parent, pick fresh-vs-fork launch, spawn the pty. Exports `spawnFloatingSession` (re-exports `FloatingMode`/`SpawnFloatingArgs` from `floatingPrompt.ts`). |
+| `server/floatingPrompt.ts` | Pure, dependency-free prompt synthesis + labels. Exports `buildPrompt`, `floatLabel`, `customFloatLabel`, `MAX_PROMPT_BYTES`, and the `FloatingMode`/`SpawnFloatingArgs` types. Extracted so prompt logic is unit-testable without the db/pty module graph. |
+| `server/extractPreviousAnswer.ts` | Read the last assistant message (`readClaudeLastAssistant`, for translate-answer) and the full ordered transcript (`readClaudeTranscript`, backs the [Conversation tab](../frontend/conversation-view.md)) from a Claude `~/.claude/projects/<encoded>/<sessionId>.jsonl` file. |
 | `server/apiRouter.ts` | Mounts `POST /api/sessions/spawn-floating` (Zod-validated). |
 | `src/lib/cliDetect.ts` | Frontend-side CLI detection that hides translate-answer for non-Claude origins before the request reaches this endpoint. |
 
@@ -29,48 +31,80 @@ Request body (Zod-validated):
 
 ```ts
 {
-  originSessionId: string,            // required
-  mode: 'explain-learning' | 'explain-native' |
+  originSessionId: string,            // required (1–200 chars) — root/origin session
+  spawnTerminalId?: string,           // optional (≤ 200) — host terminal the selection
+                                      //   came from; resolves the recursive fork parent
+  mode: 'explain-learning' | 'explain-native' | 'vocab-native' |
         'translate-selection-learning' | 'translate-selection-native' |
-        'translate-answer' | 'translate-file',
-  selection?: string,                 // required for explain-* (≤ 64 KB)
+        'translate-answer' | 'translate-file' | 'custom',
+  selection?: string,                 // required for explain-*/vocab/translate-selection/custom (≤ 64 KB)
   contextLine?: string,               // optional surrounding line (≤ 2 KB)
   fileContent?: string,               // required for translate-file (≤ 256 KB)
-  filePath?: string,                  // optional, for prompt context
-  nativeLanguage: string,             // e.g. "简体中文"
-  learningLanguage: string,           // e.g. "English"
-  inheritContext?: boolean,           // explain-* only; defaults true client-side
+  filePath?: string,                  // optional, for prompt context (≤ 2048)
+  customPrompt?: string,              // required for `custom` mode (≤ 64 KB)
+  nativeLanguage: string,             // required (1–64) e.g. "简体中文"
+  learningLanguage: string,           // required (1–64) e.g. "English"
+  inheritContext?: boolean,           // opt out of forking; defaults true client-side
 }
 ```
 
 Response:
 
 ```ts
-// success
-{ ok: true, terminalId: 'term-…', label: 'Explain (中文) · …' }
+// success — spreads SpawnFloatingResult { terminalId, label }
+{ ok: true, terminalId: 'term-…', label: 'Explain (中文)' }
 
 // error
 { error: '<message>' }   // 400 status
 ```
 
+Note: `label` is the bare mode label (e.g. `Translate → English`); the origin
+title is appended only into the spawned session's `sessionTitle`, not the
+response `label`.
+
 ## Spawn Pipeline
 
 ```
 spawnFloatingSession(args)
-  ├─ getSession(originSessionId)                           [throws 400 on miss]
+  ├─ getSession(originSessionId)                           [throws on miss]
   ├─ if mode = translate-answer:
   │     readClaudeLastAssistant(sessionId, projectPath, transcriptPath)
-  │     [throws 400 if no transcript or non-Claude origin]
-  ├─ buildPrompt(args, prevAnswer)                          [throws 400 if missing inputs]
-  ├─ enforce ≤ 256 KB
+  │     [throws if non-Claude origin, no projectPath, or no transcript]
+  ├─ buildPrompt(args, prevAnswer)        [throws if required input missing]
+  ├─ enforce ≤ MAX_PROMPT_BYTES (256 KB)
   ├─ detectCli(origin.startupCommand || sshCommand || sshConfig.command)
-  │                                                      [claude | codex | gemini]
-  ├─ buildLaunchCommand() or buildForkCommand() → shell-escaped
-  ├─ createTerminal({ workingDir = origin.projectPath, command: '' })
+  │                                                   [claude | codex | gemini]
+  ├─ resolve fork parent:
+  │     spawnParent = spawnTerminalId ? getSessionByTerminalId(...) : null
+  │     forkParentSession = spawnParent ?? origin
+  │     forkParentId      = spawnParent ? spawnParent.sessionId : originSessionId
+  ├─ shouldInheritContext =
+  │       inheritContext !== false
+  │       && cli ∈ {claude, codex}
+  │       && forkParentSession.promptHistory.length > 0
+  ├─ baseLaunchCmd = shouldInheritContext
+  │                    ? buildForkCommand(cli, forkParentId, prompt)
+  │                    : buildLaunchCommand(cli, prompt)            [shell-escaped]
+  ├─ permsCmd  = claude ? reconstructPermissionFlags(base, origin.permissionMode)
+  │                     : base
+  ├─ launchCmd = applyClaudeLaunchFlags(permsCmd, origin.model, origin.effortLevel)
+  ├─ build TerminalConfig (SSH passthrough or localhost), inheriting
+  │     { model, effortLevel, characterModel } from origin
+  ├─ createTerminal(config)
   ├─ consumePendingLink(workingDir)
-  ├─ createTerminalSession(terminalId, { command, sessionTitle })
-  └─ writeWhenReady(terminalId, prefix + launchCmd + '\r')
+  ├─ createTerminalSession(terminalId, { command: launchCmd, sessionTitle,
+  │       isFork: true, originSessionId })
+  ├─ writeWhenReady(terminalId, prefix + launchCmd + '\r')
+  └─ if claude && origin.effortLevel === 'ultracode':
+        injectClaudeCommandsWhenReady(terminalId, ['/effort ultracode'])
 ```
+
+`spawnParent` enables **recursive forks**: a popup opened from inside a floating
+terminal forks from that terminal's session (resolved via `spawnTerminalId` →
+`getSessionByTerminalId`), so context chains down (root → A → B → …). Selections
+with no host terminal (e.g. the project-tab markdown viewer) fork from
+`originSessionId`. `originSessionId` always stays the root for client-side float
+scoping.
 
 ## Prompt Templates
 
@@ -116,37 +150,65 @@ translate-file:
   """
   {fileContent}
   """
+
+vocab-native:
+  Act as a bilingual dictionary. Explain the following word or phrase as a
+  vocabulary entry, written in {nativeLanguage}.
+  Include: part of speech; pronunciation (IPA) for a single word; a clear
+  definition in {nativeLanguage}; 2–3 example sentences in {learningLanguage},
+  each followed by its {nativeLanguage} translation; common synonyms or related
+  words; and what it means specifically as used in the surrounding line.
+  Surrounding line: "{contextLine}"
+  Word or phrase:
+  """
+  {selection}
+  """
+
+custom:
+  {customPrompt}
+  Surrounding line: "{contextLine}"   # only when contextLine present
+  Selected text:
+  """
+  {selection}
+  """
 ```
+
+`explain-*` prompts also prepend an optional `Source file: {filePath}` hint when
+`filePath` is supplied.
 
 ## CLI Detection & Launch
 
+This module ships its own server-side `detectCli` (distinct from the frontend
+`src/lib/cliDetect.ts`), keyed off the origin's launch command:
+
 ```ts
-detectCli(startupCommand) →
-  startupCommand starts with 'codex'   → 'codex'
-  startupCommand starts with 'gemini'  → 'gemini'
-  otherwise                            → 'claude'
+detectCli(startupCommand) →                  // startupCommand || sshCommand || sshConfig.command
+  cmd starts with 'codex'   → 'codex'
+  cmd starts with 'gemini'  → 'gemini'
+  otherwise                 → 'claude'
 
 buildLaunchCommand(cli, prompt) →
   'gemini'           → `gemini -p '<escapedPrompt>'`
   'claude' / 'codex' → `<cli> '<escapedPrompt>'`
 ```
 
-Single-quote escaping uses the standard pattern: `'` → `'"'"'`.
+Single-quote escaping (`shellEscapeSingle`) uses the standard pattern:
+`'` → `'"'"'`.
 
-### Fork-mode (Claude/Codex, explain-* modes)
+### Fork-mode (Claude/Codex)
 
-When `inheritContext` is true (the default) and the origin is a Claude or Codex
-session, the spawner replaces the fresh-launch command with a fork that
-rehydrates the prior conversation, so the AI can ground its explanation in
-the user's existing context:
+When `shouldInheritContext` holds (see Spawn Pipeline) and the origin is a Claude
+or Codex session, the spawner replaces the fresh-launch command with a
+`buildForkCommand(cli, forkParentId, prompt)` fork that rehydrates the prior
+conversation, so the AI can ground its answer in the user's existing context:
 
 ```
-claude --resume '<originSessionId>' --fork-session '<escapedPrompt>'
-codex fork '<originSessionId>' '<escapedPrompt>'
+claude --resume '<forkParentId>' --fork-session '<escapedPrompt>'
+codex fork '<forkParentId>' '<escapedPrompt>'
 ```
 
-If `originSessionId` looks like a dashboard-internal placeholder
-(`term-…` or fails the `^[a-zA-Z0-9_\-]+$` regex), the spawner falls back
+If `forkParentId` looks like a dashboard-internal placeholder
+(`term-…` prefix or fails the `^[a-zA-Z0-9_\-]+$` regex), the spawner falls back
 to:
 
 ```
@@ -185,22 +247,40 @@ use the fresh-launch path (no fork support); Codex uses `codex fork`.
 | Mode | Fork? | Notes |
 |------|-------|-------|
 | `explain-learning` / `explain-native` | yes | Inherited history grounds the explanation. |
-| `translate-selection-*` / `vocab-native` | yes | Surrounding conversation improves word/phrase sense and terminology. |
+| `vocab-native` | yes | Surrounding conversation sharpens word/phrase sense. |
+| `translate-selection-learning` / `translate-selection-native` | yes | Surrounding conversation improves terminology. |
 | `translate-answer` | yes | Prompt still carries the prior answer; the fork adds conversation context. |
 | `translate-file` | yes | Whole-file translation; the fork supplies project/terminology context. |
-| `custom` | yes (Claude/Codex) | Forks when the origin supports it; Gemini custom stays fresh. |
+| `custom` | yes (Claude/Codex) | Forks when the parent supports it; Gemini custom stays fresh. |
 
-## Previous-Answer Resolution (translate-answer)
+> The runtime decision (`shouldInheritContext`) is uniform across modes — it does
+> not special-case `vocab-native`/`custom`, even though their type comments in
+> `floatingPrompt.ts` describe them as "self-contained, never inherits context".
+> The fork still produces a correct answer because each prompt is fully
+> self-contained regardless.
 
-`server/extractPreviousAnswer.ts` resolves the JSONL transcript in this order:
+## Transcript Reading (translate-answer)
+
+`server/extractPreviousAnswer.ts` exposes two readers; both resolve the JSONL
+transcript (`findTranscriptFile`) in this order:
 
 1. Use the explicit `transcriptPath` from the Session if it exists.
-2. `~/.claude/projects/-<dashed-projectPath>/<sessionId>.jsonl`
+2. `<sessionId>.jsonl` in the encoded project dir. `projectDirCandidates`
+   tries three encodings: leading-dash + slashes→dashes, no leading dash, and
+   dashes for both slashes and dots.
 3. Fallback: newest `.jsonl` in that directory.
 
-It then reverse-scans the file and returns the first assistant message it
-finds. Multiple message-shape variants are accepted (legacy `content` strings,
-new content-block arrays).
+`readClaudeLastAssistant(sessionId, projectPath, transcriptPath?)` reverse-scans
+the file and returns the first assistant message it finds — used here for
+`translate-answer`. Multiple message-shape variants are accepted (legacy
+`content` strings, new content-block arrays via `extractText`/`blocksToText`).
+
+`readClaudeTranscript(...)` parses the whole file into an ordered
+`ConversationEntry[]` (user / assistant / tool_use / tool_result / event),
+capping tool input at `TOOL_INPUT_CAP = 2 KB`, tool result at
+`TOOL_RESULT_CAP = 4 KB`, and the entry list at `MAX_ENTRIES = 2000` (most
+recent, file order preserved). This backs the
+[Conversation tab](../frontend/conversation-view.md), not the spawner itself.
 
 Codex and Gemini transcripts are not yet supported. The frontend hides the
 translate-answer button for non-Claude origins; direct endpoint calls still
@@ -210,11 +290,14 @@ return a 400 with a user-readable error.
 
 | Connected feature | Why |
 |-------------------|-----|
-| [Session management](./session-management.md) | Reads `Session` object via `getSession`; calls `createTerminalSession` to register the spawn. |
-| [Session matching](./session-matching.md) | Inserts a pending-link entry via the same path as fork/clone. |
-| [Terminal/SSH](./terminal-ssh.md) | Pty creation, `writeWhenReady`, and pendingLink wiring all live in `sshManager.ts`. |
-| [API endpoints](./api-endpoints.md) | New route `POST /api/sessions/spawn-floating`. |
-| [Hook system](./hook-system.md) | New session emits the standard SessionStart hook so it appears in the dashboard. |
+| [Floating Terminal Fork](../frontend/floating-terminal-fork.md) | Frontend client that builds the payload and renders the spawned float; this module is its server backend. |
+| [Session management](./session-management.md) | Reads `Session` via `getSession`/`getSessionByTerminalId`; inherits `model`/`effortLevel`/`characterModel`/`permissionMode`; calls `createTerminalSession` to register the spawn (`isFork: true`). |
+| [Session matching](./session-matching.md) | Inserts a pending-link entry (`consumePendingLink`) via the same path as fork/clone. |
+| [Terminal/SSH](./terminal-ssh.md) | `createTerminal`, `writeWhenReady`, `injectClaudeCommandsWhenReady`, and pendingLink wiring all live in `sshManager.ts`. |
+| [API endpoints](./api-endpoints.md) | Route `POST /api/sessions/spawn-floating`. |
+| [Settings system](../frontend/settings-system.md) | `translationInheritContext` toggle gates whether the spawner forks the parent. |
+| [Conversation view](../frontend/conversation-view.md) | Reuses `readClaudeTranscript` from `extractPreviousAnswer.ts` (folded into this doc's source set). |
+| [Hook system](./hook-system.md) | The spawned session emits the standard SessionStart hook so it appears in the dashboard. |
 
 ## Change Risks
 
@@ -228,5 +311,12 @@ return a 400 with a user-readable error.
 * **Transcript path encoding** can drift between Claude versions. The
   resolver tries three encoded variants plus a "newest jsonl" fallback;
   unknown encodings will fall back to the newest transcript in the dir.
-* **`origin.projectPath`** is the only `cwd` source. If a session has no
-  project path the spawner falls back to `~`.
+* **cwd resolution.** SSH origins reuse `sshConfig.workingDir`; local origins use
+  `origin.projectPath`. Either falls back to `~` when empty.
+* **Effort/model inheritance.** `model` and `effortLevel` apply as `--model` /
+  `--effort` launch flags, but `ultracode` cannot be a launch flag — it is
+  injected as `/effort ultracode` once Claude Code is ready, so the popup's first
+  answer may begin at the default effort (accepted tradeoff).
+* **Recursive forks** depend on `spawnTerminalId` resolving to a live session. If
+  the host terminal's session is gone, the spawner falls back to forking the
+  root `originSessionId`.

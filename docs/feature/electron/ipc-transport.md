@@ -10,9 +10,12 @@ Secure communication between React renderer and node-pty/Electron APIs. The prel
 | File | Role |
 |------|------|
 | `electron/ipc/terminalHandlers.ts` | PTY terminal IPC bridge (create, write, resize, kill, subscribe, unsubscribe, has, **list** at lines 93-95 — registered but not exposed via preload, currently orphan) |
-| `electron/ipc/setupHandlers.ts` | Setup wizard IPC (check-deps, install-hooks, get/save-config) |
+| `electron/ipc/setupHandlers.ts` | Setup wizard IPC (is-complete, check-deps, save-config, install-hooks, complete) |
 | `electron/ipc/appHandlers.ts` | App lifecycle IPC (app:get-port, app:open-browser, app:rerun-setup, app:quit) |
 | `electron/preload.ts` | contextBridge exposing electronAPI to renderer |
+| `src/types/electron.d.ts` | Canonical `ElectronAPI` contract + payload/result types (`PtyCreateConfig`, `PtyCreateResult`, `PtySubscribeResult`, `SetupConfig`, etc.) |
+
+Note: the `window:open-terminal` / `popout:closed` channels are *registered* in `electron/main.ts` (not in `terminalHandlers.ts`) but bridged through `preload.ts`; they are documented here because they ride the same `electronAPI` surface.
 
 ## Implementation
 
@@ -29,6 +32,9 @@ Secure communication between React renderer and node-pty/Electron APIs. The prel
 | `pty:has` | Renderer -> Main | invoke (request/response) | Checks PTY existence via ptyHost.hasPty, returns boolean |
 | `pty:data` | Main -> Renderer | push (webContents.send) | Base64 encoded terminal output. **Gated**: only sent to `WebContents` in the PTY's subscriber set. |
 | `pty:exit` | Main -> Renderer | push (webContents.send) | PTY exit with exitCode and signal. Broadcast to all windows (rare event). |
+| `pty:list` | Renderer -> Main | invoke (request/response) | Returns ptyHost.listPtys(). **Registered in terminalHandlers but NOT exposed via preload** — currently orphan (no `electronAPI` method). |
+| `window:open-terminal` | Renderer -> Main | invoke (request/response) | Pops a floating terminal out into its own native `BrowserWindow` (draggable to another monitor). Registered in `electron/main.ts`. Payload `{ terminalId, originSessionId?, label? }`, returns `{ ok }`. |
+| `popout:closed` | Main -> Renderer | push (webContents.send) | Fires in the **main** window when a popped-out terminal window is closed, so the in-app float can re-dock. Carries `terminalId`. |
 
 ### Fire-and-Forget vs Request/Response
 
@@ -73,6 +79,10 @@ interface ElectronAPI {
   hasPty?: (id: string) => Promise<boolean>
   onPtyData?: (cb: (terminalId: string, base64Data: string) => void) => () => void
   onPtyExit?: (cb: (terminalId: string, exitCode: number, signal: number) => void) => () => void
+
+  // Pop-out floating terminal window (optional — Electron only)
+  openTerminalWindow?: (opts: { terminalId: string; originSessionId?: string; label?: string }) => Promise<{ ok: boolean }>
+  onPopoutClosed?: (cb: (terminalId: string) => void) => () => void
 }
 ```
 
@@ -80,7 +90,9 @@ Notes:
 - `installHooks` receives only `Pick<SetupConfig, 'hookDensity' | 'enabledClis'>` — not the full config (electron.d.ts:59).
 - `completeSetup` returns `{ ok: boolean; port: number }` — `port` is required, not optional (electron.d.ts:60).
 - `PtyCreateConfig`, `PtyCreateResult`, `PtySubscribeResult` are named types in electron.d.ts (lines 25, 40, 46) — refer by name rather than inlining shapes that drift.
-- Floating-fork / translate sessions reuse the same `pty:*` channels as regular sessions — the channels are surface-agnostic (no separate "floating" IPC namespace).
+- `PtyCreateConfig` carries terminal-launch options consumed by ptyHost auto-apply: `workingDir?`, `command?`, `label?`, `sessionTitle?`, `apiKey?`, `enableOpsTerminal?`, `effortLevel?` (low/medium/high/xhigh/max/ultracode), `model?` (opus/sonnet/haiku), and `remoteControlName?` (runs `/remote-control <name>`).
+- Floating-fork / translate sessions reuse the same `pty:*` channels as regular sessions — the channels are surface-agnostic (no separate "floating" IPC namespace). See [Floating Terminal Fork](../frontend/floating-terminal-fork.md).
+- `openTerminalWindow?` / `onPopoutClosed?` are optional, Electron-only methods for the native pop-out terminal window. The handler lives in `electron/main.ts`, not in `terminalHandlers.ts`.
 
 ### Preload Context Bridge
 
@@ -136,6 +148,7 @@ In `useTerminal`, transport is selected at runtime per-terminal:
 ### Depended On By
 - [Frontend Terminal UI](../frontend/terminal-ui.md) -- useTerminal selects IPC transport when available
 - [Frontend Settings System](../frontend/settings-system.md) -- setup wizard uses setup IPC channels
+- [Floating Terminal Fork](../frontend/floating-terminal-fork.md) -- FloatingTerminalPanel/FloatingTerminalRoot use `openTerminalWindow` / `onPopoutClosed` for native pop-out windows
 
 ### Shared Resources
 - Electron IPC main/renderer channels

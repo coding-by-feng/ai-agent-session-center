@@ -1,7 +1,7 @@
 # Sound, Ambient & Alarm System
 
 ## Function
-Three-layer audio system: event-driven sound effects (16 synthesized sounds), procedural ambient presets (6 presets), and session alarm management (approval repeating, input one-shot).
+Three-layer audio system: event-driven sound effects (15 synthesized sounds + `none` no-op), procedural ambient presets (5 active presets + `off`), and session alarm management (approval repeating, input one-shot).
 
 ## Purpose
 Audio feedback so users can monitor sessions without watching the screen. Approval alarms alert when Claude needs permission.
@@ -9,11 +9,11 @@ Audio feedback so users can monitor sessions without watching the screen. Approv
 ## Source Files
 | File | Role |
 |------|------|
-| `src/lib/soundEngine.ts` | SoundEngine singleton, 16 Web Audio API synthesized sounds, 20 actions, playTone() |
-| `src/lib/ambientEngine.ts` | AmbientEngine singleton, 6 procedural presets (rain, lofi, serverRoom, deepSpace, coffeeShop, off) |
-| `src/lib/alarmEngine.ts` | Alarm management: approval alarm (repeating), input notification (one-shot), per-CLI profile routing, mute/alert per session |
-| `src/lib/cliDetect.ts` | detectCli(): explicit `session.cliSource`, startup/SSH command, model keywords, and event fallback to CLI type (claude/gemini/codex/openclaw) |
-| `src/hooks/useSound.ts` | React hook returning {play(action), preview(soundName), enabled, volume} |
+| `src/lib/soundEngine.ts` | SoundEngine singleton, 15 Web Audio API synthesized sounds + `none`, 20 actions, playTone()/playSequence(), action overrides |
+| `src/lib/ambientEngine.ts` | AmbientEngine singleton, 5 procedural presets (rain, lofi, serverRoom, deepSpace, coffeeShop) + `off` |
+| `src/lib/alarmEngine.ts` | Alarm management: approval alarm (repeating), input notification (one-shot), per-CLI profile routing, mute/alert per session, event-to-sound routing |
+| `src/lib/cliDetect.ts` | detectCli(): explicit `session.cliSource`, startup/SSH command, model keywords, and event fallback to CLI type (claude/gemini/codex) |
+| `src/hooks/useSound.ts` | React hook returning {play(action), preview(soundName), enabled, volume}; auto-unlocks AudioContext, syncs volume |
 
 ## Implementation
 
@@ -21,28 +21,30 @@ Audio feedback so users can monitor sessions without watching the screen. Approv
 
 All sounds are synthesized from Web Audio API (oscillators, gain nodes, filters, noise buffers). Zero audio files are shipped.
 
-AudioContext is created lazily -- only initialized after user interaction to comply with browser autoplay policy.
+AudioContext is created lazily (`getCtx()`) and resumed if suspended; `unlock()` must be called after a user gesture (`SoundEngine.play()` returns `false` until `unlocked`). Default master volume is `0.5`.
 
-**16 synthesized sounds:**
+**15 synthesized sounds + `none`** (no-op). `playTone(freq, dur, type, vol)` and `playSequence(freqs, spacing, dur, type)` are the synthesis primitives:
 
 | Sound | Synthesis |
 |-------|-----------|
 | chirp | 1200Hz sine, 80ms |
 | ping | 660Hz sine, 200ms |
-| chime | 523 -> 659 -> 784Hz sequence |
+| chime | 523 -> 659 -> 784Hz sequence (80ms spacing) |
 | ding | 800Hz triangle, 250ms |
-| blip | 880Hz square, 50ms |
-| swoosh | 300 -> 1200Hz ramp, 250ms |
-| click | 1200Hz square, 30ms |
-| beep | 440Hz square, 150ms |
+| blip | 880Hz square, 50ms (vol 0.5) |
+| swoosh | 300 -> 1200Hz ramp, 300ms |
+| click | 1200Hz square, 30ms (vol 0.2) |
+| beep | 440Hz square, 150ms (vol 0.4) |
 | warble | 600Hz sine + 12Hz LFO, 300ms |
-| buzz | 200Hz sawtooth, 120ms |
+| buzz | 200Hz sawtooth, 120ms (vol 0.4) |
 | cascade | 784 -> 659 -> 523 -> 392 descending |
 | fanfare | 523 -> 659 -> 784 -> 1047 -> 1319 ascending |
 | alarm | 880 -> 660 -> 880 -> 660 square sequence, 150ms spacing |
 | thud | 80 -> 30Hz ramp, 350ms |
-| urgentAlarm | 3 bursts: 1000 -> 800 -> 1000Hz + 200Hz undertone |
+| urgentAlarm | 3 bursts (0.4s apart): 1000 -> 800 -> 1000Hz square + 200Hz sawtooth undertone |
 | none | no-op |
+
+Each action resolves to a sound via `DEFAULT_ACTION_SOUNDS` merged with per-action overrides (`setActionSound()` / `loadOverrides()`); `getActionSound()` returns the resolved name.
 
 ### Sound Actions
 
@@ -52,27 +54,26 @@ AudioContext is created lazily -- only initialized after user interaction to com
 - **Tool:** toolRead, toolWrite, toolEdit, toolBash, toolGrep, toolGlob, toolWebFetch, toolTask, toolOther
 - **System:** approvalNeeded, inputNeeded, alert, kill, archive, subagentStart, subagentStop
 
-Base gain: `0.3 * masterVolume`
+Per-tone gain in `playTone`: `vol * masterVolume * 0.3` (default `vol` = 1). Default master volume `0.5`.
 
 ### Per-CLI Sound Profiles
 
-4 per-CLI sound profiles with independent action-to-sound mappings:
+3 per-CLI sound profiles (defined in `settingsStore` as `CLI_SOUND_PROFILES`, exposed via `soundSettings.perCli`) with independent action-to-sound mappings and per-CLI enable flag:
 
-| CLI | Volume |
+| CLI | Default Volume |
 |-----|--------|
 | claude | 0.7 |
 | gemini | 0.7 |
 | codex | 0.5 |
-| openclaw | 0.7 |
 
 ### CLI Detection
 
-`detectCli()` uses a four-phase strategy:
+`detectCli()` (returns `CliName = 'claude' | 'gemini' | 'codex'` or `null`) uses a four-phase strategy:
 
 1. **Explicit `session.cliSource`** from hook payloads or terminal creation (Codex hooks set `cli_source: "codex"`).
 2. **Startup/SSH command text** (`startupCommand`, `sshCommand`, `sshConfig.command`), so `codex ...` is recognized even when the model name is ambiguous.
-3. **Model string keywords**: claude/opus/sonnet/haiku -> Claude, gemini/gemma -> Gemini, gpt/codex/o1/o3/o4 -> Codex, openclaw/claw -> OpenClaw.
-4. **Event type fallback**: if the previous checks yield no match, event shape is used.
+3. **Model string keywords**: claude/opus/sonnet/haiku -> Claude, gemini/gemma -> Gemini, gpt/codex/o1/o3/o4 -> Codex.
+4. **Event type fallback**: BeforeAgent/AfterAgent/BeforeTool/AfterTool -> Gemini, agent-turn-complete or `Codex*` -> Codex, SessionStart/PreToolUse/PostToolUse/UserPromptSubmit -> Claude.
 
 Order matters -- explicit CLI source and launch command must come before model
 and event fallbacks to avoid mislabeling Codex sessions.
@@ -85,7 +86,7 @@ Read -> toolRead, Write -> toolWrite, Edit -> toolEdit, Bash -> toolBash, Grep -
 
 ### Ambient Presets
 
-6 procedural presets built from Web Audio nodes:
+5 procedural presets built from Web Audio nodes, plus `off`. The `ambientEngine` singleton has its own AudioContext (default volume `0.3`); `start(preset, volume?)` stops any current preset before building the new one, and `stop()` clears all intervals/timeouts, stops sources, and disconnects gains:
 
 | Preset | Synthesis |
 |--------|-----------|
@@ -129,9 +130,10 @@ Read -> toolRead, Write -> toolWrite, Edit -> toolEdit, Bash -> toolBash, Grep -
 ### useSound Hook
 
 React hook returning `{play, preview, enabled, volume}`. Additional features:
-- Per-category muting: `muteApproval` and `muteInput` settings suppress approval/input sounds via `useSound.play()`
-- Auto-unlocks AudioContext on first user interaction (click/keydown/touchstart)
+- Per-category muting: `muteApproval` and `muteInput` settings (default `false`) suppress approval/input sounds via `useSound.play()`
+- Auto-unlocks AudioContext on first user interaction (click/keydown/touchstart), guarded by `soundEngine.isUnlocked()`
 - Syncs `soundEngine.setVolume()` on volume setting changes
+- Re-exports `ACTION_LABELS`, `ACTION_CATEGORIES`, and the `SoundAction` / `SoundName` types
 
 ### Event Sound Routing
 
@@ -140,13 +142,14 @@ React hook returning `{play, preview, enabled, volume}`. Additional features:
 ## Dependencies & Connections
 
 ### Depends On
-- [State Management](../frontend/state-management.md) -- settingsStore provides sound profiles, volume, enabled, per-CLI configs, ambient settings
-- [WebSocket Client](../frontend/websocket-client.md) -- useWebSocket triggers handleEventSounds() on session_update
-- [Server Session Management](../server/session-management.md) -- session status drives alarm triggers
+- [State Management](../frontend/state-management.md) -- settingsStore provides `soundSettings` (enabled, volume, per-CLI `perCli` profiles, `muteApproval`/`muteInput`) and `ambientSettings` (preset, volume)
+- [WebSocket Client](../frontend/websocket-client.md) -- `useWebSocket` calls `handleEventSounds(session)` and `checkAlarms(session, getSessions)` on every session update
+- [Server Session Management](../server/session-management.md) -- session status (`approval` / `input`) drives alarm triggers
 
 ### Depended On By
-- [WebSocket Client](../frontend/websocket-client.md) -- integrates sound on every session update
-- [Settings System](../frontend/settings-system.md) -- SoundSettings tab controls sound profiles
+- [WebSocket Client](../frontend/websocket-client.md) -- integrates sound + alarm checks on every session update
+- [Settings System](../frontend/settings-system.md) -- SoundSettings tab controls sound profiles, per-CLI mappings, and ambient preset/volume (drives `ambientEngine.start/stop/setVolume`)
+- [Session Detail Panel](../frontend/session-detail-panel.md) -- SessionControlBar toggles per-session `muteSession`/`unmuteSession` and `alertSession`/`unalertSession`
 
 ### Shared Resources
 - Web Audio AudioContext (singleton per engine)
@@ -158,5 +161,5 @@ React hook returning `{play, preview, enabled, volume}`. Additional features:
 - Changing alarm intervals affects user experience significantly.
 - Alert volume boost (2.5x) can exceed 1.0 without the cap -- the cap is essential.
 - Multiple concurrent approval alarms can be overwhelming -- each session has an independent timer.
-- CLI detection order matters -- model string check must come before event type fallback.
+- CLI detection order matters -- explicit cliSource and launch command must come before model and event fallbacks. `detectCli()` returns only `claude`/`gemini`/`codex`; `CliName` and `settingsStore.perCli` keys must stay in sync.
 - Removing or reordering sounds in the TOOL_SOUND_MAP silently changes audio behavior with no visual indicator.

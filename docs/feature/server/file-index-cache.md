@@ -10,7 +10,7 @@ Fuzzy search over large repos via `readdir` on every keystroke is too slow. A ca
 | File | Role |
 |------|------|
 | `server/fileIndexCache.ts` | Cache, watcher, fuzzy scorer, public API (`searchFiles`, `preloadIndex`, `invalidateCache`) |
-| `server/apiRouter.ts` | File search endpoint that consumes `searchFiles` |
+| `server/apiRouter.ts` | `GET /api/files/search` (consumes `searchFiles` / `preloadIndex`), `POST /api/files/search/invalidate` (consumes `invalidateCache`), and proactive `invalidateCache` calls in the write/mkdir/delete file endpoints |
 
 ## Implementation
 - **Constants**:
@@ -23,9 +23,11 @@ Fuzzy search over large repos via `readdir` on every keystroke is too slow. A ca
   - `searchFiles(root: string, query: string, maxResults = 50) → { results: SearchResult[]; indexing: boolean }` — sync lookup using cached entries; triggers `ensureIndex` if missing. Returns `{ results: [], indexing: true }` when the cache is cold (still building)
   - `preloadIndex(root)` — warms the cache without blocking
   - `invalidateCache(root)` — drops the cached entries (watcher rebuilds on next query)
-- **Fuzzy scorer** (`fuzzyScore`): matches on both filename and full path (lowercase), with bonuses for contiguous matches, word boundaries, and filename vs. path hits.
-- **Watcher**: one `fs.watch` per root with a 300ms debounce timer (`debounceTimers` Map) before rebuilding.
+- **Fuzzy scorer** (`fuzzyScore`): tiered scoring on the lowercased name then path — exact name (1000), name prefix (800+), name substring (600+), path substring (400+), in-order fuzzy on name (200+ with a +10/char contiguity bonus), in-order fuzzy on path (50+ with a +5/char contiguity bonus); `-1` if no match. Results are sorted by score desc, then `name.localeCompare`, and sliced to `maxResults`. Returned `path` is prefixed with `/` (e.g. `/src/utils/format.ts`).
+- **Watcher**: one recursive `fs.watch` per root (`watchers` Map). The callback skips events whose filename includes `node_modules` or `/.git/`, then debounces 300ms (`debounceTimers` Map) and **deletes** the cache for that root (a lazy rebuild on next `searchFiles`). Watch errors and unsupported recursive-watch platforms are swallowed silently. `ensureIndex` starts/refreshes the watcher whenever it runs.
 - **In-flight guard**: `building` Set prevents concurrent rebuilds of the same root.
+- **Endpoint behavior** (`GET /api/files/search?root=&q=`): per-IP rate limited (20 req/window, `429` over cap), validates `root` via `isAllowedProjectRoot` (`400` if invalid), and for an **empty/whitespace query** fires `preloadIndex(root)` and returns `{ results: [] }` (no `indexing` key) — used by the frontend on mount to warm the cache. Non-empty queries forward `{ results, indexing }` from `searchFiles`.
+- **Proactive invalidation**: `POST /api/files/search/invalidate` (`{ root }`) calls `invalidateCache`, and the write/mkdir/delete file endpoints call `invalidateCache(root)` after a successful mutation so dashboard-initiated edits drop the stale index immediately rather than waiting on `fs.watch`.
 
 ## Dependencies & Connections
 
@@ -42,7 +44,7 @@ Fuzzy search over large repos via `readdir` on every keystroke is too slow. A ca
 - `watchers` Map keyed by root — one watcher per project
 
 ## Caller Contract
-- `searchFiles` returns `{ results, indexing }`. Callers MUST check `indexing: true` (cold-cache signal) and surface a "still indexing" UI state — `apiRouter.ts:1922` (`/api/files/search`) already forwards this flag. Treating an empty `results` as "no matches" while `indexing` is true would hide files during the initial walk.
+- `searchFiles` returns `{ results, indexing }`. Callers MUST check `indexing: true` (cold-cache signal) and surface a "still indexing" UI state — `GET /api/files/search` in `apiRouter.ts` already forwards this flag. Treating an empty `results` as "no matches" while `indexing` is true would hide files during the initial walk.
 
 ## Change Risks
 - Adding a new skip dir without regenerating existing caches keeps stale entries until TTL

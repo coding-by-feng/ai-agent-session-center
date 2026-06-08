@@ -1,74 +1,133 @@
 # Project File Browser
 
 ## Function
-Multi-tab file browser for exploring session project directories with find-in-file search, file bookmarks, split view, code preview, and an interactive image viewer.
+VS Code-style file browser for a session's project directory: a lazy-loading tree on the left and a multi-file-tab viewer on the right, with fuzzy file search, grep-across-project content search, inline find-in-file, file/folder create/delete/upload, bookmarks, collections, recent-files history, markdown editing, LaTeX preview, an interactive image viewer, and a fullscreen mode.
 
 ## Purpose
-Lets users browse and inspect code/media files in the project directory without leaving the dashboard. Integrates with terminal via clickable file paths.
+Lets users browse and inspect code/media files in the project directory without leaving the dashboard. Integrates with the terminal via clickable file paths and with the translate/review pipeline via in-place select-to-translate and saved-selection highlights.
 
 ## Source Files
 | File | Role |
 |------|------|
-| `src/components/session/ProjectTabContainer.tsx` | Tab management (multi-file tabs) |
-| `src/components/session/ProjectTab.tsx` | Directory listing, file preview, toolbar, embedded `ImageViewer` subcomponent. Accepts `originSessionId` to enable in-place translate/explain |
-| `src/components/session/FileTree.tsx` | Hierarchical file tree with lazy loading (`forwardRef<FileTreeHandle>`) |
-| `src/components/session/FindInFileBar.tsx` | Inline find-in-file search (Cmd/Ctrl+F) |
+| `src/components/session/ProjectTabContainer.tsx` | Sub-tab management — each sub-tab is an independent `ProjectTab` instance; opens new sub-tabs, renames (double-click), closes (last tab recreates a root sub-tab), persists per session |
+| `src/components/session/ProjectTab.tsx` | Main browser: tree + viewer split, file tabs, toolbar, preview renderers, and embedded subcomponents (`ImageViewer`, `ExcelViewer`, `VirtualCodeViewer`, `SearchOverlay`, `InlineInput`, `DeleteConfirmOverlay`). Accepts `originSessionId` to enable in-place translate/explain |
+| `src/components/session/FileTree.tsx` | react-arborist tree with lazy loading (`forwardRef<FileTreeHandle>`), per-project state persistence, auto-refresh, auto-reveal, per-row delete |
+| `src/components/session/FindInFileBar.tsx` | Inline find-in-file bar (Cmd/Ctrl+F); exports `highlightFindMatches()` |
+| `src/components/session/ContentSearchModal.tsx` | Grep-across-project content-search modal (Cmd/Ctrl+Shift+F) |
 | `src/components/session/imageViewport.ts` | Pure helpers: zoom/pan clamping, fit-to-screen, cursor-anchored zoom, persistence (de)serialization |
 | `src/components/session/LinkifiedText.tsx` | Clickable file paths in rendered text |
-| `src/components/session/TexViewer.tsx` | LaTeX (`.tex`) renderer used by ProjectTab's preview pane |
+| `src/components/session/TexViewer.tsx` | LaTeX (`.tex`) renderer (lazy-loaded `latex.js`) used by ProjectTab's preview pane |
+| `src/lib/fileSystemProvider.ts` | File system abstraction (459 lines) — `ApiFileSystemProvider` (default, fetches `/api/files/*`) and `LocalFileSystemProvider` (File System Access API, Chromium/localhost) |
 | `src/components/session/FloatingProjectPanel.tsx` | Host overlay for floating PROJECT mode — portals ProjectTab into a draggable/resizable PIP panel |
-| `src/components/translate/SelectionPopup.tsx` | Selection→popup with translate/explain modes (rendered above markdown / fullscreen viewers) |
+| `src/components/translate/SelectionPopup.tsx` | Selection→popup with translate/explain modes (rendered above the markdown / fullscreen viewers) |
 | `src/hooks/useSelectionPopup.ts` | Selection capture + popup placement logic |
-| `src/lib/fileSystemProvider.ts` | File system API client (~459 lines) |
 
 ## Implementation
-- Tab management: default tab at project root, open in new tab, double-click to rename, x to close (last tab recreates root), auto-label from deepest path segment
-- `originSessionId` prop on `ProjectTab` (optional): when set, enables in-pane translate/explain controls — `SelectionPopup` instances on the markdown and fullscreen viewers, plus the **Translate file** toolbar button. Hidden entirely when `originSessionId` is undefined (which can happen in the standalone Project Browser route only when no session matches the path)
-- Toolbar: search, find-in-file, new file/folder, open in new tab, **open external path** (prompts for an absolute or `~/`-prefixed path; resolves via `GET /api/files/resolve` and opens the file/folder in a fresh sub-tab — useful for viewing files outside the session project, e.g. `~/.config/gcloud/application_default_credentials.json`), format (Prettier), toggle outline/bookmarks/word wrap/fullscreen/hidden/datetime, sort by name/date, **Collapse all folders**, **Refresh file tree**, **Translate file** (gated on `originSessionId` — POSTs `/api/sessions/spawn-floating` with `mode='translate-file'`)
-- Reveal-in-Finder: on failure shows a red toast (`showToast`) with the server error message instead of silently swallowing
-- File preview: Markdown (GFM + syntax highlight), LaTeX (`.tex` via `TexViewer`), Excel (XLSX with sheet tabs), code (line numbers + syntax), PDF (blob URL), image (interactive `ImageViewer`), binary (unsupported indicator)
-- SelectionPopup integration: ProjectTab instantiates two popups via `useSelectionPopup` — one for the markdown viewer and a second for the fullscreen markdown viewer — so users can translate/explain selected text via the floating-terminal-fork pipeline. Spawns through `useFloatingSessionsStore.openFloat()`
-- Find-in-file: real-time search, case toggle (Aa), match counter ("X of Y"), Previous/Next bindings — `Enter`/`Shift+Enter`, `ArrowDown`/`ArrowUp`, and document-level `F3`/`Shift+F3` while the bar is mounted; the counter pulses via `.countWrapped` whenever the index wraps past first/last; exports `highlightFindMatches(text, term, caseSensitive, activeLineMatch?, currentLine?)` for code viewer
-- Active-match highlight: `FindInFileBar` exposes `onActiveMatchChange({ line, col } | null)`; `ProjectTab` plumbs the active position through `VirtualCodeViewer` and both non-virtualized viewers so the currently-focused match renders with `.find-match-active` (stronger orange `rgba(255,165,0,0.5)` + white text + outline, from `src/styles/global.css:31`), while other matches keep the softer `.find-match` yellow
-- Image viewer (`ImageViewer` subcomponent in `ProjectTab.tsx`, pure helpers in `imageViewport.ts`):
-  - Zoom `0.25x`–`5x` via the toolbar (+/-), the `+`/`=` and `-`/`_` keys, and mouse wheel (cursor-anchored via `zoomAroundCursor`)
-  - `0` resets to 100%, `f` fits to the container via `fitToScreenRatio`, double-click on the image also resets
-  - When `zoom > 1` the image is pannable: mouse drag (`.dragging` class for cursor feedback) or arrow keys in `PAN_STEP` increments, clamped by `clampPan`
-  - Dedicated fit-to-screen toolbar button next to zoom controls
-  - Per-file view state persisted in `localStorage['agent-manager:image-view:${filePath}']` as `{ zoom, panX, panY, v: 1 }` with `PERSIST_DEBOUNCE_MS` (200ms) debouncing; serialization via `serializeView`/`parseView` guards malformed/legacy payloads
-- LinkifiedText: regex `/(?:\.{0,2}\/)?(?:[\w@.+-]+\/)+[\w@.+-]+\.[\w]+/g`, click opens file via uiStore.openFileInProject()
-- FileTree: lazy loading on expand, loadingDirs Set prevents duplicate API requests, empty results not cached (retry on next expand), auto-reveal scrolls to activeFilePath, self-sizing via internal ResizeObserver (measures own container height for react-arborist virtualization — no external height prop required), refresh preserves expanded directories (captures open node IDs via TreeApi.get().isOpen before clearing, reloads all previously-loaded dirs in parallel, rebuilds tree depth-first, then re-opens nodes via requestAnimationFrame), auto-refresh polls all loaded directories every 5s via silentRefresh (no loading state flash, no loadedDirs clearing, guarded against overlapping refreshes)
-  - Now exported as `forwardRef<FileTreeHandle>`. `FileTreeHandle` exposes `collapseAll()` (closes every open internal node via `TreeApi.close`, then schedules a persist write since react-arborist does not fire `onToggle` on programmatic close) and `refresh()` (awaits the existing refresh routine). ProjectTab wires these to the new toolbar icons via `fileTreeRef`.
-- Tree state persistence (per project):
-  - `localStorage['agent-manager:tree-state:${projectPath}']` holds `{ openIds: string[], scrollTop: number, v: 1 }`. On mount, persisted open dirs (minus `/`) are loaded in parallel — shallow-first so parents apply before children — then opened via `requestAnimationFrame`; `scrollTop` is restored on the next rAF using `TreeApi.list.current.scrollTo`. Stale openIds that no longer resolve to a dir are skipped silently. Writes are debounced 200ms and scheduled from both `onToggle` and `onScroll`; a flush-on-unmount timer cleanup avoids dangling writes.
-  - `localStorage['agent-manager:tree-sort:${projectPath}']` persists `{ field: 'name' | 'date', dir: 'asc' | 'desc' }` and is initialized lazily from storage so the toolbar reflects the last choice per project.
-- Per-session tab state persisted in localStorage (separate from tree state)
-- File bookmarks: per-project in localStorage['agent-manager:bookmarks:{projectPath}'], records file path, line range, selected text, note
+
+### Layout & tabs
+- VS Code split (`vscodeSplit`): collapsible tree panel on the left (drag divider, width 140–600px persisted), viewer panel with file-tab bar on the right.
+- `ProjectTabContainer` manages sub-tabs; the sub-tab bar only appears when >1 sub-tab exists. Labels auto-derive from the deepest path segment and disambiguate against conflicts by prepending the parent dir.
+- `ProjectTab` manages file tabs (one per opened file): clicking a tab restores cached content instantly; closing the active tab falls back to the last tab (or the welcome screen). File content is cached in a ref `Map` for instant tab switching; cached blob URLs are revoked on close/unmount.
+- `originSessionId` prop (optional): when set, enables in-pane translate/explain controls — `SelectionPopup` instances on the markdown and fullscreen viewers, plus the **Translate file** toolbar button. Hidden entirely when `originSessionId` is undefined (e.g. standalone Project Browser route with no matching session).
+
+### Toolbar
+Search files, content search, find-in-file (toggle), new file, new folder, open project in new tab, **open external path** (prompts for an absolute or `~/`-prefixed path; resolves via `GET /api/files/resolve` and opens the file/folder in a fresh sub-tab — useful for files outside the session project, e.g. `~/.config/gcloud/application_default_credentials.json`), reveal in Finder, **format** (in-browser JSON pretty-print / XML/SVG/HTML re-indent via `formatXml` — not Prettier), toggle markdown outline, markdown **edit** mode, **Translate file** (gated on `originSessionId` + `translationEnabled`; POSTs `/api/sessions/spawn-floating` with `mode='translate-file'`), **TₑX** preview/source toggle (`.tex` only), bookmarks panel (badge = count), collection (★, badge = count), recent-files history panel (badge = count), word wrap, fullscreen, then a separator and **Collapse all folders** + **Refresh** (re-fetches file, preserving scroll, and dispatches `filetree:refresh`).
+- Reveal-in-Finder / open-external / copy-path failures show a red toast (`showToast`) with the server error message instead of silently swallowing.
+
+### File preview renderers
+Dispatched by extension/streamable flags inside `fileViewer`:
+- **Excel** (`.xlsx`/`.xls`) — parsed in-browser with `xlsx` (SheetJS) into `ExcelViewer` (sheet tabs, padded columns).
+- **PDF** — `<iframe>` over a blob URL.
+- **Image** — interactive `ImageViewer` (keyed by `file.path`).
+- **Video / Audio** — native `<video>`/`<audio>` over the stream URL.
+- **Binary** — "Binary file (size)" placeholder.
+- **LaTeX** (`.tex`) — `TexViewer` when `texPreview` is on, else raw code view.
+- **Markdown** (`.md`/`.mdx`) — `ReactMarkdown` (GFM + `rehypeHighlight` + saved-selection plugin) when not in edit mode; a `<textarea>` editor when `mdEdit` is on (Cmd/Ctrl+S saves via `writeFile`, Esc cancels).
+- **Code** — line-numbered viewer. Files with more than `VIRTUALIZE_THRESHOLD` (10,000) lines use `VirtualCodeViewer` (absolute-positioned rows, `LINE_HEIGHT_PX=20`, `OVERSCAN=30`); smaller files render every line.
+- A portaled **fullscreen** overlay re-runs the same dispatch (Escape closes).
+
+### Markdown extras
+- Relative `.md`/`.mdx` links open the target in-app (resolved against the current dir); relative `<img>` srcs are rewritten to `provider.streamUrl(...)`; external links open in a new tab.
+- Headings get slug `id`s (`headingSlug`) matching the **outline** side panel (draggable divider, width 120–400px persisted under `outline-panel-width`).
+- **Saved-selection highlights**: favorited selections for the open file (`listFavoritedByFile`) are injected as `<mark data-saved-uuid>` via `makeSavedSelectionsPlugin`; clicking one navigates to `/review?uuid=…` (see [Review Tab](./review-tab.md)).
+
+### Find-in-file (`FindInFileBar`)
+Real-time search, case toggle (Aa), match counter ("X of Y" / "No results"), navigation via `Enter`/`Shift+Enter`, `ArrowDown`/`ArrowUp`, and document-level `F3`/`Shift+F3` while the bar is mounted; the counter pulses via `.countWrapped` (600ms) when the index wraps. Exposes `onTermChange`, `onActiveMatchChange({line,col})`, and `onActiveIdxChange(idx,total)`. Exports `highlightFindMatches(text, term, caseSensitive, activeLineMatch?, currentLine?)` for the code viewers.
+- Code/virtualized views highlight via line-anchored `<mark>`s (`fv-line-N`); the currently-focused match gets `.find-match-active`, others `.find-match`.
+- Rendered markdown has no line anchors, so ProjectTab walks the DOM text nodes, wraps matches in `<mark class="find-match">`, and scrolls the active one (by flat `findActiveIdx`) into view.
+
+### Image viewer (`ImageViewer` + `imageViewport.ts`)
+- Zoom range `ZOOM_MIN=0.1`–`ZOOM_MAX=8` (0.1x–8x). Toolbar +/- and the `+`/`=` / `-`/`_` keys step by `ZOOM_STEP=0.25`; the mouse wheel zooms multiplicatively (`zoom * Math.exp(-deltaY * 0.001)`, cursor-anchored via `zoomAroundCursor`). Ctrl/Meta+wheel always zooms; plain wheel zooms only when the container is focused.
+- `0` resets to 100%, `f`/`F` fits to the container via `fitToScreenRatio`, double-click resets.
+- When `zoom > 1` the image is pannable: mouse drag (window-level listeners; `grab`/`grabbing` cursor) or arrow keys in `PAN_STEP` (30px) increments, clamped by `clampPan`.
+- Per-file view persisted in `localStorage['agent-manager:image-view:${filePath}']` as `{ zoom, panX, panY, v: 1 }`, debounced `PERSIST_DEBOUNCE_MS` (200ms); `serializeView`/`parseView` guard malformed/legacy payloads.
+
+### FileTree (`FileTree.tsx`)
+- Lazy loads children on expand; `loadingDirs` Set prevents duplicate requests; empty results are not cached (retry on next expand).
+- Self-sizing via an internal `ResizeObserver` (measures its own container height for react-arborist virtualization — no external `height` prop required).
+- **Auto-reveal**: when `activeFilePath` changes, sequentially loads ancestor dirs then opens them and `scrollTo`s the file (double rAF).
+- **Refresh** (`filetree:refresh` event or `FileTreeHandle.refresh()`): captures open node IDs via `TreeApi.get().isOpen`, clears `loadedDirs`, reloads root + all previously-loaded dirs in parallel, rebuilds depth-first (parents before children so `updateNodeInTree` can find parents), then re-opens via `requestAnimationFrame`.
+- **Auto-refresh**: `silentRefresh` polls all loaded directories every 5s (no loading flash, no `loadedDirs` clear, guarded by `refreshingRef`; open-state snapshot taken *after* the awaits to respect concurrent collapses).
+- **Per-row delete**: trash button + Cmd/Ctrl+Delete (or Backspace) on the focused row call `onRequestDelete(relPath, name, isDir)`; the parent confirms via `DeleteConfirmOverlay` and deletes via `provider.deleteEntry` → `POST /api/files/delete`.
+- **`FileTreeHandle`** (via `forwardRef`): `collapseAll()` closes every open internal node via `TreeApi.close` then schedules a persist write (react-arborist does not fire `onToggle` on programmatic close), and `refresh()` awaits the refresh routine. ProjectTab wires both to toolbar buttons via `fileTreeRef`.
+
+### File operations
+- **Create**: inline `InlineInput` for new file (opens a textarea editor that saves via `writeFile`) / new folder (`mkdir`, then `filetree:refresh`).
+- **Upload**: paste or drag-drop files onto the tree panel → `provider.uploadFile` per file (text via `text()`, binary via base64), then `filetree:refresh` + a success/warning toast.
+- **Context menu** on directory entries: Open, Open in new browser tab, Delete.
+- **Bookmarks**: select text + click the bookmark icon to record `{ filePath, lineStart, lineEnd, selectedText, note }`; jump-to scrolls to `fv-line-N` (loading the file first if needed). Per-project in `localStorage['agent-manager:bookmarks:${projectPath}']`.
+- **Collections**: ★ collects the current file/dir; shared across sessions per project in `localStorage['agent-manager:collections:${projectPath}']`.
+- **Recent files**: every opened file is pushed (deduped, capped at 30) to `localStorage['agent-manager:recent-files:${projectPath}']`; the history panel re-opens or clears them.
+
+### Scroll position persistence
+Markdown + code viewers save/restore `scrollTop` per file under `localStorage['file-browser:scroll:${projectPath}:${filePath}']` across tab switches, app restarts, refresh (re-fired via `refreshNonce`), and tab-visibility changes (a root `ResizeObserver` restores on `display:none → flex`).
+
+### Search overlays
+- **Fuzzy file search** (`SearchOverlay`): debounced (80ms) `provider.searchFiles`; invalidates + preloads the index on open; retries up to 5× while the server reports `indexing`.
+- **Content search** (`ContentSearchModal`): grep across project files; selecting a result loads the file and queues a pending scroll line.
+
+### Keyboard / event wiring
+Listens for global custom events on `document` (only acts when this instance is visible via `offsetParent`): `projectTab:contentSearch`, `projectTab:findInFile`, and `fileBrowser:action` (dispatched by the shortcut system with `actionId` ∈ search / contentSearch / newFile / newFolder / refresh / openNewTab / format / toggleOutline / toggleBookmark / toggleWordWrap / fullscreen).
+
+### LinkifiedText
+Regex `/(?:\.{0,2}\/)?(?:[\w@.+-]+\/)+[\w@.+-]+\.[\w]+/g` detects file paths in plain text; clicking calls `uiStore.openFileInProject(clean, projectPath)`.
+
+### TexViewer
+Lazy-imports `latex.js` (~5MB) and renders a `DocumentFragment` into a host div. On parse failure it retries with `buildFallbackSource` — strips the preamble + `UNSUPPORTED_CMDS` (page/layout, counters, macro defs, fonts, hooks, bibliography, etc.), drops external `\input`/`\include`, converts `\cite` to bracketed text, de-stars sectioning — wraps the body in a minimal `article` scaffold, and shows a warning that custom packages/macros were dropped. Recomputes when `source` or `fileKey` changes.
+
+### Tree state persistence (per project)
+- `localStorage['agent-manager:tree-state:${projectPath}']` holds `{ openIds: string[], scrollTop: number, v: 1 }` (`TREE_STATE_VERSION = 1`). On mount, persisted open dirs (minus `/`) load in parallel shallow-first, then open via `requestAnimationFrame`; `scrollTop` restores on the next rAF via `TreeApi.list.current.scrollTo`. Stale openIds that no longer resolve are skipped. Writes debounce 200ms from both `onToggle` and `onScroll`, with a flush-on-unmount cleanup.
+- Tree panel width/collapsed state persist under `file-browser:tree-panel-width` and `file-browser:tree-panel-collapsed`.
 
 ## Dependencies & Connections
 
 ### Depends On
-- [Server API](../server/api-endpoints.md) — GET /api/files/list|read|stream|search|resolve, POST /api/files/write|mkdir
-- [State Management](./state-management.md) — uiStore.pendingFileOpen for terminal->project tab navigation
-- [Session Detail Panel](./session-detail-panel.md) — rendered inside PROJECT tab
+- [Server API](../server/api-endpoints.md) — GET `/api/files/list|read|stream|search|grep|resolve`, POST `/api/files/write|mkdir|delete|reveal|search/invalidate`, POST `/api/sessions/spawn-floating`
+- [State Management](./state-management.md) — `uiStore.pendingFileOpen`/`openFileInProject` for terminal→project-tab navigation
+- [Session Detail Panel](./session-detail-panel.md) — rendered inside the PROJECT tab
+- [Floating Terminal Fork](./floating-terminal-fork.md) — Translate-file + selection-popup forks spawn floating PIP terminals
+- [Review Tab](./review-tab.md) — saved-selection highlights deep-link to `/review?uuid=…`
 
 ### Depended On By
-- [Terminal UI](./terminal-ui.md) — clickable file paths open in project tab
-- [Session Detail Panel](./session-detail-panel.md) — split view with terminal, also hosts `FloatingProjectPanel` overlay
-- [Floating Terminal Fork](./floating-terminal-fork.md) — selection popup + Translate-file forks spawn floating PIP terminals
+- [Terminal UI](./terminal-ui.md) — clickable file paths open in the project tab
+- [Session Detail Panel](./session-detail-panel.md) — split view with terminal, also hosts the `FloatingProjectPanel` overlay
+- [Project Browser](./project-browser.md) — standalone `/project-browser` route reuses `ProjectTab`
 
 ### Shared Resources
-- localStorage for tab state, bookmarks, tree state (`agent-manager:tree-state:*`), tree sort (`agent-manager:tree-sort:*`), image viewer state (`agent-manager:image-view:*`)
-- uiStore.pendingFileOpen
-- Toast container (`showToast`) for Reveal-in-Finder errors
+- localStorage: sub-tab state (`agent-manager:project-tabs:*`), file-tab state (`agent-manager:file-tabs:*`), bookmarks (`agent-manager:bookmarks:*`), collections (`agent-manager:collections:*`), recent files (`agent-manager:recent-files:*`), tree state (`agent-manager:tree-state:*`), image-view (`agent-manager:image-view:*`), scroll positions (`file-browser:scroll:*`), tree panel width/collapsed, outline width
+- `uiStore.pendingFileOpen`
+- Toast container (`showToast`)
+- `document` custom events: `filetree:refresh`, `projectTab:contentSearch`, `projectTab:findInFile`, `fileBrowser:action`
 
 ## Change Risks
-- Breaking fileSystemProvider API calls blocks all file operations
-- Changing file path regex affects linkified text detection
-- loadingDirs dedup prevents duplicate requests — removing it causes API spam
-- Auto-reveal must handle async directory loading sequentially
-- FileTree refresh reload order: must apply children depth-first (parents before children) so updateNodeInTree can find parent nodes in the tree
-- FileTree self-sizing ResizeObserver must stay on the container div — removing it causes tree to render with stale/incorrect height
-- `FileTreeHandle` contract (collapseAll/refresh) is consumed by ProjectTab toolbar — renaming or removing a method breaks the toolbar buttons
-- localStorage payload shape: any change to `agent-manager:tree-state:*`, `agent-manager:tree-sort:*`, or `agent-manager:image-view:*` must bump the embedded `v` field (currently `1`) so stale entries are discarded instead of silently misapplied
-- Image viewer pan clamp depends on the container dimensions at transform time — if ProjectTab reflows the preview pane without re-running `clampPan`, the image can land off-screen until the next interaction
+- Breaking fileSystemProvider API calls blocks all file operations.
+- Changing the LinkifiedText path regex affects clickable-path detection.
+- `loadingDirs` dedup prevents duplicate requests — removing it causes API spam.
+- Auto-reveal must load ancestor dirs sequentially before opening/scrolling.
+- FileTree refresh reload order must apply children depth-first (parents before children) so `updateNodeInTree` can find parent nodes.
+- FileTree self-sizing `ResizeObserver` must stay on the container div — removing it renders the tree with stale/incorrect height.
+- `silentRefresh` must snapshot open state *after* its awaits, or a concurrent collapse will be re-opened.
+- `FileTreeHandle` contract (`collapseAll`/`refresh`) is consumed by the ProjectTab toolbar — renaming/removing a method breaks the buttons.
+- localStorage payload shapes: any change to `agent-manager:tree-state:*` or `agent-manager:image-view:*` must bump the embedded `v` field (currently `1` / `TREE_STATE_VERSION` / `PERSIST_VERSION`) so stale entries are discarded rather than misapplied.
+- Image viewer pan clamp depends on container dimensions at transform time — reflowing the preview pane without re-running `clampPan` can land the image off-screen until the next interaction.
+- `VIRTUALIZE_THRESHOLD`/`LINE_HEIGHT_PX` must stay in sync with the CSS line height, or virtual scroll math drifts.

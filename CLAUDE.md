@@ -42,17 +42,19 @@ npm run reset            # Remove hooks, clean config, backup
 2. Read the corresponding feature doc(s) in `docs/feature/` to understand the current implementation, source files, dependencies, and change risks
 3. Check the Impact Matrix below to identify connected features that may be affected
 4. Read those connected feature docs too, so you don't introduce regressions
-5. After completing the work, update every feature doc that was affected by the change
+5. After completing the work, update every feature doc that was affected by the change (via `/update-feature-docs`)
+
+**Feature docs are manifest-backed.** `docs/feature/.manifest.json` is the machine-readable source of truth for file→doc mapping, symbol inventory, and last-aligned timestamps. Skills read and update it — do not edit it by hand. If it drifts, run `/align-existing-feature-docs` (use `--rebuild-manifest` if the manifest itself is corrupted).
 
 | Domain | Docs | What they cover |
 |--------|------|----------------|
-| [`server/`](docs/feature/server/) | 12 | [Hook System](docs/feature/server/hook-system.md), [Session Management](docs/feature/server/session-management.md), [Session Matching](docs/feature/server/session-matching.md), [Approval Detection](docs/feature/server/approval-detection.md), [WebSocket](docs/feature/server/websocket-manager.md), [API](docs/feature/server/api-endpoints.md), [Database](docs/feature/server/database.md), [Terminal/SSH](docs/feature/server/terminal-ssh.md), [Teams](docs/feature/server/team-subagent.md), [Process Monitor](docs/feature/server/process-monitor.md), [Auth](docs/feature/server/authentication.md), [File Index Cache](docs/feature/server/file-index-cache.md) |
-| [`frontend/`](docs/feature/frontend/) | 17 | [State](docs/feature/frontend/state-management.md), [Persistence](docs/feature/frontend/client-persistence.md), [WS Client](docs/feature/frontend/websocket-client.md), [Detail Panel](docs/feature/frontend/session-detail-panel.md), [File Browser](docs/feature/frontend/file-browser.md), [Terminal UI](docs/feature/frontend/terminal-ui.md), [Settings](docs/feature/frontend/settings-system.md), [Shortcuts](docs/feature/frontend/keyboard-shortcuts.md), [Queue](docs/feature/frontend/prompt-queue.md), [Views](docs/feature/frontend/views-routing.md), [Agenda](docs/feature/frontend/agenda.md), [Workspace Snapshot](docs/feature/frontend/workspace-snapshot.md), [Setup Wizard](docs/feature/frontend/setup-wizard.md), [Auth UI](docs/feature/frontend/auth-ui.md), [Project Browser](docs/feature/frontend/project-browser.md), [Floating Terminal Fork](docs/feature/frontend/floating-terminal-fork.md), [Review Tab](docs/feature/frontend/review-tab.md) |
+| [`server/`](docs/feature/server/) | 13 | [Hook System](docs/feature/server/hook-system.md), [Session Management](docs/feature/server/session-management.md), [Session Matching](docs/feature/server/session-matching.md), [Approval Detection](docs/feature/server/approval-detection.md), [WebSocket](docs/feature/server/websocket-manager.md), [API](docs/feature/server/api-endpoints.md), [Database](docs/feature/server/database.md), [Terminal/SSH](docs/feature/server/terminal-ssh.md), [Teams](docs/feature/server/team-subagent.md), [Process Monitor](docs/feature/server/process-monitor.md), [Auth](docs/feature/server/authentication.md), [File Index Cache](docs/feature/server/file-index-cache.md), [Floating Session Spawner](docs/feature/server/floating-session-spawner.md) |
+| [`frontend/`](docs/feature/frontend/) | 23 | [State](docs/feature/frontend/state-management.md), [Persistence](docs/feature/frontend/client-persistence.md), [WS Client](docs/feature/frontend/websocket-client.md), [Detail Panel](docs/feature/frontend/session-detail-panel.md), [Conversation View](docs/feature/frontend/conversation-view.md), [Session Summary](docs/feature/frontend/summary-tab.md), [File Browser](docs/feature/frontend/file-browser.md), [Terminal UI](docs/feature/frontend/terminal-ui.md), [Settings](docs/feature/frontend/settings-system.md), [Shortcuts](docs/feature/frontend/keyboard-shortcuts.md), [Queue](docs/feature/frontend/prompt-queue.md), [Queue Scheduler](docs/feature/frontend/queue-scheduler.md), [Command Autocomplete](docs/feature/frontend/command-autocomplete.md), [Views](docs/feature/frontend/views-routing.md), [Agenda](docs/feature/frontend/agenda.md), [Workspace Snapshot](docs/feature/frontend/workspace-snapshot.md), [Setup Wizard](docs/feature/frontend/setup-wizard.md), [Auth UI](docs/feature/frontend/auth-ui.md), [Project Browser](docs/feature/frontend/project-browser.md), [Floating Terminal Fork](docs/feature/frontend/floating-terminal-fork.md), [Review Tab](docs/feature/frontend/review-tab.md), [Session Creation Modals](docs/feature/frontend/session-creation-modals.md), [UI Primitives](docs/feature/frontend/ui-primitives.md) |
 | [`3d/`](docs/feature/3d/) | 3 | [Cyberdrome Scene](docs/feature/3d/cyberdrome-scene.md), [Robot System](docs/feature/3d/robot-system.md), [Particles/Effects](docs/feature/3d/particles-effects.md) |
 | [`multimedia/`](docs/feature/multimedia/) | 2 | [Sound & Alarm System](docs/feature/multimedia/sound-alarm-system.md), [TTS Voice Output](docs/feature/multimedia/tts-voice-output.md) |
 | [`electron/`](docs/feature/electron/) | 3 | [App Lifecycle](docs/feature/electron/app-lifecycle.md), [PTY Host](docs/feature/electron/pty-host.md), [IPC Transport](docs/feature/electron/ipc-transport.md) |
 
-See [`docs/feature/README.md`](docs/feature/README.md) for the full index, dependency graph, and impact matrix.
+See [`docs/feature/README.md`](docs/feature/README.md) for the full index (44 docs), dependency graph, and impact matrix.
 
 ## Architecture
 
@@ -78,22 +80,25 @@ server/
   hookInstaller.js      — auto-install hooks on startup
   portManager.ts        — port resolution, conflict kill
   hookRouter.ts         — POST /api/hooks (HTTP fallback)
-  apiRouter.ts          — all REST endpoints (~96KB, largest file)
+  apiRouter.ts          — all REST endpoints (~102KB, largest file)
   mqReader.ts           — JSONL queue reader
   hookProcessor.ts      — validation + event processing
   fileIndexCache.ts     — cached + fs.watch'd fuzzy file index
+  commandIndex.ts       — slash-command catalog for prompt autocomplete
   floatingSessionSpawner.ts — fork-translate / fork-explain floating PTY spawner
+  floatingPrompt.ts     — synthesizes the prompt body for floating fork sessions
   extractPreviousAnswer.ts  — pulls last assistant turn for translate-answer mode
   ttsManager.ts         — Google Cloud TTS proxy
-  sessionStore.ts       — coordinator (~54KB, delegates to sub-modules)
+  sessionStore.ts       — coordinator (~57KB, delegates to sub-modules)
     sessionMatcher.ts   — 8-priority session matching
+    sessionTitle.ts     — derives/normalizes session display titles
     approvalDetector.ts — tool approval timeouts
     teamManager.ts      — subagent team tracking
     processMonitor.ts   — PID liveness checking
     autoIdleManager.ts  — idle transition timers
   wsManager.ts          — WebSocket broadcast + terminal relay
   sshManager.ts         — SSH/PTY terminal management
-  db.ts                 — SQLite (WAL mode, 6 tables)
+  db.ts                 — SQLite (WAL mode, 7 tables)
   authManager.ts        — password auth + tokens
   hookStats.ts          — performance metrics
   config.ts             — tool categories, timeouts
@@ -106,21 +111,21 @@ server/
 
 ```
 src/
-  stores/               — 10 Zustand stores (session, settings, queue, room, camera, ui, ws, agenda, shortcut, floatingSessions)
-  hooks/                — useWebSocket, useTerminal, useSound, useAuth, useKeyboardShortcuts, useKnownProjects, useSettingsInit, useWorkspaceAutoSave, useWorkspaceAutoLoad, useClickOutside, useSelectionPopup
-  lib/                  — wsClient, db (Dexie), soundEngine, ambientEngine, alarmEngine, workspaceSnapshot, cliDetect, cyberdromeScene, fileSystemProvider, format, robot3DGeometry, robot3DModels, robotPositionPersist, robotStateMap, sceneThemes, shortcutKeys, ansi, remoteControlName, selectionExtractors, tooltips, translationLog, ttsEngine
+  stores/               — 11 Zustand stores (session, settings, queue, queueHistory, room, camera, ui, ws, agenda, shortcut, floatingSessions)
+  hooks/                — useWebSocket, useTerminal, useSound, useAuth, useKeyboardShortcuts, useKnownProjects, useSettingsInit, useWorkspaceAutoSave, useWorkspaceAutoLoad, useGlobalQueueScheduler, useClickOutside, useSelectionPopup
+  lib/                  — wsClient, db (Dexie), soundEngine, ambientEngine, alarmEngine, workspaceSnapshot, cliDetect, cyberdromeScene, fileSystemProvider, format, robot3DGeometry, robot3DModels, robotPositionPersist, robotStateMap, sceneThemes, shortcutKeys, ansi, remoteControlName, selectionExtractors, tooltips, translationLog, ttsEngine, transcript, queueScheduler, queueHistoryExport, pinnedRespawn, sessionSort, commandIndex, commandSuggestions, timePicker, rehypeSavedSelections
   components/
     3d/                 — CyberdromeScene, CyberdromeEnvironment, SessionRobot, Robot3DModel, RobotDialogue, RobotLabel, RobotListSidebar, RoomLabels, SceneOverlay, CameraController, StatusParticles, SubagentConnections, robotPositionStore
-    session/            — DetailPanel, DetailTabs, ProjectTab, ProjectTabContainer, FloatingProjectPanel, FloatingTerminalPanel, FloatingTerminalRoot, FileTree, FindInFileBar, ContentSearchModal, QueueTab, NotesTab, SummaryTab, PromptHistory, SessionControlBar, SessionSwitcher, SummarizeModal, LabelChips, LinkifiedText, KillConfirmModal, AlertModal, TexViewer, imageViewport
+    session/            — DetailPanel, DetailTabs, ConversationView, ProjectTab, ProjectTabContainer, FloatingProjectPanel, FloatingTerminalPanel, FloatingTerminalRoot, PopoutTerminalView, FileTree, FindInFileBar, ContentSearchModal, QueueTab, QueueHistorySheet, QueueItemEditModal, LoopExcludeWindowsModal, NotesTab, SummaryTab, SummarizeModal, AiPopupHistory, SessionControlBar, SessionSwitcher, LabelChips, LinkifiedText, KillConfirmModal, AlertModal, TexViewer, imageViewport
     terminal/           — TerminalContainer, TerminalToolbar, themes
     translate/          — SelectionPopup
     settings/           — SettingsPanel (7 tabs), ThemeSettings, SoundSettings, ShortcutSettings, HookSettings, ApiKeySettings, TranslationSettings, SummaryPromptSettings
-    modals/             — NewSessionModal, QuickSessionModal, GlobalSearchModal, ShortcutSettingsModal, ShortcutsPanel, ShortcutRow
+    modals/             — NewSessionModal, QuickSessionModal, GlobalSearchModal, RestorePickerModal, ShortcutSettingsModal, ShortcutsPanel, ShortcutRow
     layout/             — NavBar, Header, HeaderAgentStrip, TitleBar, ActivityFeed, WorkdirLauncher
     agenda/             — AddTaskForm, AgendaFilterBar, AgendaTaskCard
     auth/               — LoginScreen
     setup/              — SetupWizard + steps/ (Welcome, DepsCheck, Configure, Install, Done)
-    ui/                 — Combobox, Modal, ResizablePanel, Select, Tabs, ToastContainer, SavingOverlay, WorkspaceLoadingOverlay, SearchInput, Tooltip
+    ui/                 — Combobox, Modal, ResizablePanel, Select, Tabs, AutocompleteTextarea, TimePicker12, ToastContainer, SavingOverlay, WorkspaceLoadingOverlay, SearchInput, Tooltip
   routes/               — LiveView, HistoryView, ProjectBrowserView, QueueView, AgendaView, ReviewView
   styles/               — CSS modules + 9 theme files
   types/                — shared TypeScript types (server + client)
@@ -170,6 +175,11 @@ Before modifying a feature, check what else it can break:
 | Zustand store shapes | ALL subscribing components |
 | Theme CSS variables | ALL visual components (2D + 3D), Terminal themes |
 | Electron IPC channels | Preload bridge, Terminal UI dual transport |
+| Queue scheduler tick / `queueHistoryStore` | Prompt Queue, Loops, per-session automation, Client Persistence (queueHistory) |
+| Command/file index (`commandIndex`) | Command Autocomplete, Prompt Queue editor, Queue Tab |
+| Transcript reconstruction (`transcript.ts`) | Conversation View, Review Tab (AI Popups) |
+| Floating session spawn / fork | Floating Terminal Fork, Floating Session Spawner, Review Tab, pop-out window, Session Matching |
+| Shared UI primitives (Modal/Select/Tabs/Tooltip) | ALL components that consume them (Settings, modals, panels) |
 | TTS / GCP API key | Settings toggle, Terminal UI hold-to-speak, `/api/tts/*` endpoints — per-user `googleTtsApiKey` stored client-side, forwarded per request. **Never** reintroduce ambient credentials (gcloud ADC / service-account files) — leaks across users |
 
 ## Key Invariants

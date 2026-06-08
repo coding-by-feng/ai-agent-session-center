@@ -9,15 +9,16 @@ Server-side persistence that survives restarts. IndexedDB on frontend is the mir
 ## Source Files
 | File | Role |
 |------|------|
-| `server/db.ts` (~20KB) | Schema definition, prepared statements, upsert/query functions |
+| `server/db.ts` (~21KB) | Schema definition, prepared statements, upsert/query functions |
 
 ## Implementation
 
 ### Storage
-- Location: data/sessions.db (or APP_USER_DATA/data/sessions.db in Electron), WAL mode for concurrent reads/writes
+- Location: `data/sessions.db` (or `APP_USER_DATA/data/sessions.db` in packaged Electron, where `APP_USER_DATA = app.getPath('userData')`), WAL mode for concurrent reads/writes
 
 ### Schema
 - 7 tables: sessions (19 cols, 4 indexes), prompts (unique session_id+timestamp), responses (unique session_id+timestamp), tool_calls (unique session_id+timestamp+tool_name, additional tool_name index), events, notes, agenda_tasks (priority + completed indexes)
+- The `label` column on `sessions` is vestigial: it still exists in the schema for backward compatibility, but `upsertSession` no longer writes it and there is no `updateSessionLabel` export (removed). Do not rely on it.
 
 ### Upsert Strategy
 - INSERT OR IGNORE for child records (dedup)
@@ -56,11 +57,20 @@ Server-side persistence that survives restarts. IndexedDB on frontend is the mir
 - upsertAgendaTask(task) — create or update
 - deleteAgendaTask(id) — remove task
 
+### Detail & Restore Queries
+- getSessionDetail(id) — single session row + all child records (prompts, responses, tool_calls, events, notes); backs the History/detail view
+- getPromptsForSession(id) — persisted prompts (text + timestamp) for one session; used by `sessionStore` to restore in-memory `promptHistory` after a server clear-all
+
+### Notes CRUD
+- getNotes(sessionId) — notes for a session (newest first)
+- addNote(sessionId, text) — insert a note, returns the new row
+- deleteNote(id) — remove a single note by row id
+
 ### Additional Exports
 - closeDb() — graceful shutdown
 - getAllPersistedSessions() — all sessions ordered by last_activity_at
 - getSessionsByProjectPath(path) — filter by project
-- updateSessionTitle/Label/Summary/Archived — individual field updates
+- updateSessionTitle/Summary/Archived — individual field updates (no `updateSessionLabel` — removed)
 - fullTextSearch() — cross-table search across prompts.text and responses.text_excerpt
 
 ## Dependencies & Connections
@@ -70,7 +80,8 @@ Server-side persistence that survives restarts. IndexedDB on frontend is the mir
 
 ### Depended On By
 - [API Endpoints](./api-endpoints.md) — all /api/db/* endpoints query the database
-- Frontend client persistence — IndexedDB mirrors server DB data
+- [Session Management](./session-management.md) — calls `upsertSession`, `migrateSessionId`, `getPromptsForSession` on key events / re-key / restore
+- [Client Persistence](../frontend/client-persistence.md) — IndexedDB mirrors server DB data
 
 ### Shared Resources
 - SQLite file

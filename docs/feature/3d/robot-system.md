@@ -13,13 +13,13 @@ Each session needs a visual avatar that communicates status through animation (w
 | `src/components/3d/Robot3DModel.tsx` | Mesh + animation: 8 state animations, tool-specific working variants, charging effect, label frame effects |
 | `src/components/3d/RobotDialogue.tsx` | Floating speech bubbles (ref-based, no React state) |
 | `src/components/3d/RobotLabel.tsx` | WebGL floating name plates (drei Billboard + Text, no HTML) |
-| `src/components/3d/robotPositionStore.ts` | Non-reactive position registry (plain Map) |
-| `src/lib/robot3DGeometry.ts` | 16-color neon palette, 10 body + 4 edge geometries, 2 base + 32 per-color materials |
+| `src/components/3d/robotPositionStore.ts` | Two non-reactive registries: `robotPositionStore` (world position, plain Map) + `navInfoMap` (full nav state for persistence) |
+| `src/lib/robot3DGeometry.ts` | 16-color neon palette, 10 body + 4 edge geometries, 2 base materials + 16 neon + 16 edge per-color material pools |
 | `src/lib/robot3DModels.ts` | 6 model variants (robot, mech, drone, spider, orb, tank) with per-part overrides |
-| `src/lib/robotStateMap.ts` | Session status to robot state mapping (8 states) |
-| `src/lib/cliDetect.ts` | `detectCli()` used by SessionRobot for CLI badge rendering |
-| `src/lib/robotPositionPersist.ts` | sessionStorage persistence every 2s |
-| `src/components/layout/HeaderAgentStrip.tsx` | Compact top-strip session badges that reuse `detectCli()` for consistent Claude/Gemini/Codex labels |
+| `src/lib/robotStateMap.ts` | Session status -> robot state mapping (8 states) + per-state behavior hints (`getRobotStateBehavior`) |
+| `src/lib/cliDetect.ts` | `detectCli()` -> `'claude' \| 'gemini' \| 'codex' \| null`; used by SessionRobot for CLI badge + accent color |
+| `src/lib/robotPositionPersist.ts` | sessionStorage save/load/clear helpers (the 2s save interval itself lives in CyberdromeScene) |
+| `src/components/layout/HeaderAgentStrip.tsx` | Compact top-strip session badges that reuse `detectCli()` for consistent Claude/Gemini/Codex (and Aider) labels |
 
 ## Implementation
 
@@ -34,7 +34,7 @@ No `useState` is used in the render loop. This is critical for performance -- Re
 
 ### Memoization Strategy
 
-`SessionRobot` is wrapped in `React.memo` with a 22-field custom equality check covering session fields (sessionId, status, accentColor, colorIndex, model, currentPrompt, pendingTool, label, characterModel, title, projectName, toolLog.length, events.length) and prop fields (sceneBound, onSelect, workstations, wallRects, rooms, doors, roomIndex, globalCharacterModel, fontSize). This prevents re-renders when unrelated session data changes (e.g., another session's status update).
+`SessionRobot` is wrapped in `React.memo` with a 21-field custom equality check covering session fields (sessionId, status, accentColor, colorIndex, model, currentPrompt, pendingTool, characterModel, title, projectName, toolLog.length, events.length) and prop fields (sceneBound, onSelect, workstations, wallRects, rooms, doors, roomIndex, globalCharacterModel, fontSize). This prevents re-renders when unrelated session data changes (e.g., another session's status update). (The `label` field is no longer part of the comparator.)
 
 ### Frame Throttling
 
@@ -51,40 +51,45 @@ Navigation AI updates every 3rd frame per robot:
 | `NAV_SIT` | 2 | Seated at a desk (Y offset -0.12, rotation locked to desk facing direction) |
 | `NAV_IDLE` | 3 | Stationary, no movement updates |
 
-Mode transitions are driven by robot state: thinking/working triggers desk seeking (`NAV_GOTO` then `NAV_SIT`), idle/waiting triggers coffee lounge seeking (`NAV_GOTO` then `NAV_SIT`), alert/input freezes in place (`NAV_IDLE` if standing, stays `NAV_SIT` if seated), offline/connecting triggers stationary (`NAV_IDLE`).
+Mode transitions are driven by robot state: thinking/working triggers desk seeking (`NAV_GOTO` then `NAV_SIT`), idle/waiting triggers coffee-workstation (zone `-2`) seeking (`NAV_GOTO` then `NAV_SIT`), alert/input freezes in place (`NAV_IDLE` if standing, stays `NAV_SIT` if seated), offline/connecting triggers stationary (`NAV_IDLE`). Desk selection is zone-aware: a robot with a `roomIndex` seeks unoccupied desks in its room zone, an unassigned robot prefers corridor desks (zone `-1`), and when all candidate desks are full it stands behind the nearest occupied desk (overflow). Per-state behavior hints come from `getRobotStateBehavior()` in `robotStateMap.ts` (`seekDesk`, `wander`, `urgentFlash`, `visorColorOverride`, `speedMultiplier`, `casualTarget: 'coffee' | null`); `speedMultiplier` scales walk speed (working 1.2x, waiting 0.6x, alert/input/offline/connecting 0).
 
 ### Robot States (8 Total)
-| State | Animation | Visual |
-|-------|-----------|--------|
-| `idle` | Subtle breathing oscillation | Normal colors |
-| `thinking` | Typing motion at desk | Cyan accents |
-| `working` | Running animation | Orange accents |
-| `waiting` | Standing pose | Green accents |
-| `alert` | Flashing body | Yellow/red pulsing |
-| `input` | Arm oscillation | Purple accents |
-| `offline` | Dimmed, no animation | Desaturated colors |
-| `connecting` | Boot-up scale animation | Flickering |
+`sessionStatusToRobotState()` (in `robotStateMap.ts`) maps each `SessionStatus` to one `Robot3DState`:
+
+| Robot State | Source SessionStatus | Animation | Visual |
+|-------------|----------------------|-----------|--------|
+| `idle` | `idle` | Subtle breathing oscillation | Normal colors |
+| `thinking` | `prompting` | Chin-scratch / head-tilt at desk (seated) or head-bob (standing) | Cyan accents |
+| `working` | `working` | Tool-specific working motion + charging body effect | Orange accents |
+| `waiting` | `waiting` | Hopping standing pose | Green accents |
+| `alert` | `approval` | Flashing visor + body shake | Yellow visor (#ffdd00) |
+| `input` | `input` | Raised-arm oscillation | Purple visor (#aa66ff) |
+| `offline` | `ended` | Slumped, glow decays to 0 | Desaturated visor (#333344) |
+| `connecting` | `connecting` | 1.5s boot-up scale-in animation | Scale ramps from 0 |
 
 ### Model Variants (6 Total)
-All variants hover (`hovers: true`) and use the same skeletal structure with per-part geometry/position overrides.
+All variants hover (`hovers: true`) and share the same skeletal structure with per-part geometry/position overrides. Legs are hidden on every variant (`legL`/`legR` `visible: false`) — robots float; leg refs still exist for animation but render nothing. Descriptions below are the `label` / `description` strings from `robot3DModels.ts`.
 
 | Variant | Description | baseY |
 |---------|-------------|-------|
-| `robot` | Standard humanoid (default) | 0.2 |
+| `robot` | Standard humanoid robot (default) | 0.2 |
 | `mech` | Bulkier torso, wider stance, angular head | 0.2 |
-| `drone` | Smaller hovering unit with antenna-like arms | 0.3 |
-| `spider` | Low body with forward-mounted head (legs hidden) | 0.05 |
-| `orb` | Spherical torso with stubby arms | 0.2 |
+| `drone` | Smaller hovering unit with antenna array | 0.3 |
+| `spider` | Low body with 4 stubby legs (forward-mounted head) | 0.05 |
+| `orb` | Spherical body with stubby arms and short legs | 0.2 |
 | `tank` | Wide body with one thick arm, treads for legs | 0.15 |
+
+Public API: `ROBOT_MODEL_TYPES` (ordered list), `getModelDef()`, `getModelLabel()`, `getModelDescription()`.
 
 ### Shared Resources for Rendering
 - 16-color neon palette (`PALETTE`) shared across all robots
 - 10 shared body geometries in `robotGeo` (head, visor, antenna, aTip, torso, core, joint, arm, leg, foot)
 - 4 shared edge geometries in `robotEdgeGeo` (head, torso, arm, leg)
-- 2 shared base materials: `metalMat` (body), `darkMat` (joints)
-- 16 pre-built neon material pool (`neonMats`) + 16 edge material pool (`edgeMats`)
+- 2 shared base materials: `metalMat` (body, #2a2a3e), `darkMat` (joints/limbs, #1c1c2c)
+- Pre-built per-palette pools: 16 neon materials (`neonMats`) + 16 edge materials (`edgeMats`); a robot whose color is not in the palette falls back to `createNeonMat()`/`createEdgeMat()` (disposed on unmount)
 - 3 static visor override materials: `ALERT_VISOR_MAT` (#ffdd00), `INPUT_VISOR_MAT` (#aa66ff), `OFFLINE_VISOR_MAT` (#333344)
-- Per-robot cloned body materials (bodyMat, bodyEdgeMat) to avoid cross-contamination during animation
+- Per-robot cloned body materials (`bodyMat`, `bodyEdgeMat`) to avoid cross-contamination during animation
+- Per-robot `EdgesGeometry` instances are built per part and disposed on unmount (#50, #58); edge geometry is skipped for invisible parts (legs)
 
 ### Dialogue System
 
@@ -111,38 +116,42 @@ Throttled to minimum 500ms between tool-related updates to prevent bubble spam. 
 
 ### RobotLabel (WebGL)
 - drei `Billboard` + `Text` for pure WebGL rendering (no HTML portals)
-- 9-field equality memoization
-- Displays: status dot + project name + optional label badge
-- Alert banner with pulsing opacity for approval/input states
+- 8-field equality memoization (sessionId, status, title, projectName, robotState, isSelected, isHovered, fontSize)
+- Displays a status dot + a single title line (`session.title || session.projectName || 'Unnamed'`, truncated at 28 chars). There is no separate label badge.
+- Alert banner with pulsing opacity above the panel: "APPROVAL NEEDED" (alert) / "INPUT NEEDED" (input)
+- All dimensions scale with the Font Size setting (`scale = fontSize / BASE_FONT`, `BASE_FONT = 13`)
 
 ### Position Persistence
-- Writes to `sessionStorage` (key: `cyberdrome-robot-positions`) every 2 seconds via `robotPositionPersist.ts`
-- Persists: `posX`, `posZ`, `rotY`, `mode` (NAV_WALK=0, NAV_GOTO=1, NAV_SIT=2, NAV_IDLE=3), `deskIdx`
-- On restore: `NAV_GOTO` is reset to `NAV_WALK` to prevent stale target seeking; `NAV_SIT` robots reclaim their workstation on mount
+- `robotPositionPersist.ts` exposes `saveRobotPositions()`, `loadRobotPositions()`, and `clearPersistedPosition()` against `sessionStorage` key `cyberdrome-robot-positions`. The 2-second save interval itself runs in `CyberdromeScene.tsx`, which reads `getAllNavInfo()` and writes the snapshot.
+- Persisted shape (`PersistedRobotState`): `posX`, `posZ`, `rotY`, `mode` (NAV_WALK=0, NAV_GOTO=1, NAV_SIT=2, NAV_IDLE=3), `deskIdx` (workstation index or -1)
+- On restore (in `SessionRobot`): `NAV_GOTO` is reset to `NAV_WALK` to prevent stale target seeking; `NAV_SIT` robots reclaim their workstation on first mount
 
 ### robotPositionStore
-- Plain object with `set`/`get`/`delete`/`has` methods wrapping an internal `Map` (NOT a Zustand store) for sharing positions between `SubagentConnections` and camera fly-to
-- Must remain non-reactive to avoid triggering Canvas re-renders
+Two registries in `robotPositionStore.ts`, both plain `Map`s (NOT Zustand) so they never trigger Canvas re-renders:
+- `robotPositionStore` — `set`/`get`/`delete`/`has` over `{x, y, z}` world positions; written every 3rd frame by `SessionRobot` (y offset +1.0 for beam endpoints) and read by `SubagentConnections` / camera fly-to
+- `navInfoMap` — `updateNavInfo`/`getNavInfo`/`getAllNavInfo`/`removeNavInfo` over full `StoredNavInfo` (`x, y, z, rotY, mode, deskIdx`); drained by CyberdromeScene's 2s persistence loop
 
 ### Imperative Settings Access
 `Robot3DModel` reads `useSettingsStore.getState()` imperatively inside `useFrame` to access `animationSpeed` and `animationIntensity` settings. This avoids subscribing to the store reactively (which would cause cross-reconciler issues inside Canvas).
 
 ### Special Behaviors
-- CLI badge: detects CLI type via `detectCli()`, preferring explicit `session.cliSource`, then startup/SSH command text, then model string, then event fallback. It renders a badge on the robot chest: C (Claude, cyan), G (Gemini, blue), X (Codex, green), O (OpenClaw, orange), ? (unknown, purple). HeaderAgentStrip uses the same helper so mini strip labels and 3D robot badges stay aligned.
-- CLI accent color: when no explicit `accentColor` is set, the robot's neon color is overridden by the CLI badge color
-- Tool-specific working animations (WS7.C): read (head scanning), write (rapid arm typing), bash (arm extended), task (both arms raised), web (brighter antenna), default (standard typing)
-- Alert urgency escalation (WS7.B): after 15s visor pulses faster, after 30s visor intensity + body shake increase
+- CLI badge: detects CLI type via `detectCli()`, preferring explicit `session.cliSource`, then startup/SSH command text, then model string, then event-type fallback. `detectCli()` returns only `'claude' | 'gemini' | 'codex' | null`. The chest badge (`CLI_BADGES` in SessionRobot) renders: C (Claude, #00f0ff), G (Gemini, #4285f4), X (Codex, #10a37f), or ? (unknown/null, #aa66ff). HeaderAgentStrip reuses the same helper for its mini-strip labels (and additionally surfaces AIDER via command/`backendType` heuristics) so labels and 3D badges stay aligned.
+- CLI accent color: when no explicit `accentColor` is set, the robot's neon color is overridden by the CLI badge color (`cliNeonColor`)
+- Tool-specific working animations (WS7.C, via `classifyTool`): read — head scanning (Read/Grep/Glob/NotebookEdit), write — rapid arm typing (Write/Edit), bash — one arm extended (Bash), task — both arms raised (Task), web — brighter antenna (WebFetch/WebSearch), default — standard typing (everything else)
+- Alert urgency escalation (WS7.B), keyed off `statusStartTime`: pulse speed increases after 15s; after 30s visor base intensity rises (1.5→2.5) and a subtle body shake is added
 
 ## Dependencies & Connections
 
 ### Depends On
-- [Cyberdrome Scene](./cyberdrome-scene.md) -- renders SessionRobot per session, provides room/workstation/wall data as props
-- [State Management](../frontend/state-management.md) -- session data, characterModel from settingsStore (via props from DOM layer)
+- [Cyberdrome Scene](./cyberdrome-scene.md) -- renders SessionRobot per session, provides room/workstation/wall/door data as props, runs the 2s position-persistence loop
+- [State Management](../frontend/state-management.md) -- session data drives robot state; `roomStore` assignment drives navigation (HeaderAgentStrip groups by room)
+- [Settings System](../frontend/settings-system.md) -- `animationSpeed`/`animationIntensity` read imperatively in `Robot3DModel`, Font Size scales `RobotLabel`, global + per-session `characterModel` select the variant
 - [Server Session Management](../server/session-management.md) -- session status drives robot state transitions
 
 ### Depended On By
 - [Cyberdrome Scene](./cyberdrome-scene.md) -- robot positions used for camera fly-to targeting
-- [Particles & Effects](./particles-effects.md) -- SubagentConnections reads from robotPositionStore for beam endpoints
+- [Particles & Effects](./particles-effects.md) -- SubagentConnections + StatusParticles read from robotPositionStore / robot state for beam endpoints
+- [Sound & Alarm System](../multimedia/sound-alarm-system.md) -- `alarmEngine` reuses `detectCli()` for per-CLI sound profiles
 
 ### Shared Resources
 - `robotPositionStore` (plain Map, read/write)

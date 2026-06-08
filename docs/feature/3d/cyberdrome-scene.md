@@ -9,16 +9,19 @@ Visual representation of all active AI sessions. Users can see at a glance which
 ## Source Files
 | File | Role |
 |------|------|
-| `src/components/3d/CyberdromeScene.tsx` | DOM-side orchestrator: all Zustand subscriptions, CustomEvent bridge, precomputed props for Canvas |
-| `src/components/3d/CyberdromeEnvironment.tsx` | Floor grid, walls, desks, lighting, coffee lounge, particles, stars |
+| `src/components/3d/CyberdromeScene.tsx` | DOM-side orchestrator: all Zustand subscriptions, CustomEvent bridge, precomputed props for Canvas, MapControls overlay |
+| `src/components/3d/CyberdromeEnvironment.tsx` | Floor grid, room walls/desks/chairs, coffee lounge, particles, stars, lighting (all theme-driven) |
 | `src/components/3d/CameraController.tsx` | Smooth fly-to animation via LERP inside Canvas |
-| `src/components/3d/RoomLabels.tsx` | 3D text floating above room centers + casual area labels |
-| `src/components/3d/SceneOverlay.tsx` | HUD overlay (units online, mute toggle, 3D on/off toggle, room management) |
-| `src/components/3d/RobotListSidebar.tsx` | DOM agent list panel (top-left), sorted by status priority, searchable |
-| `src/lib/cyberdromeScene.ts` (~17KB) | Layout constants, room grid math, workstation placement, collision, pathfinding |
-| `src/lib/sceneThemes.ts` | 9 theme palettes for 3D scene (36 properties each) |
-| `src/stores/cameraStore.ts` | Camera fly-to state (pendingTarget, isAnimating) |
-| `src/stores/roomStore.ts` | Room management (localStorage persistence) |
+| `src/components/3d/RoomLabels.tsx` | 3D text floating above room centers + coffee-lounge label |
+| `src/components/3d/SceneOverlay.tsx` | Bottom-right HUD panel (units online, mute toggle, 3D on/off toggle, room-management panel) |
+| `src/components/3d/RobotListSidebar.tsx` | DOM agent list panel (top-left), grouped by room, sorted pinned-then-status, searchable, per-row pin + close |
+| `src/lib/cyberdromeScene.ts` (517 lines) | Layout constants, room grid math, workstation placement, collision, pathfinding |
+| `src/lib/sceneThemes.ts` | 9 theme palettes for 3D scene (36 `Scene3DTheme` properties each) |
+| `src/lib/robotPositionPersist.ts` | sessionStorage persistence of robot positions (`saveRobotPositions` / `loadRobotPositions`) |
+| `src/lib/sessionSort.ts` | `sortSessions` + `STATUS_ORDER` — shared sidebar ordering (pinned first, then status, then title) |
+| `src/lib/pinnedRespawn.ts` | `markUserClosing` — flags a pinned session's death as intentional so it is not auto-respawned |
+| `src/stores/cameraStore.ts` | Camera fly-to state (`pendingTarget`, `isAnimating`, `DEFAULT_CAMERA_POSITION/TARGET`) |
+| `src/stores/roomStore.ts` | Room management (localStorage persistence under `session-rooms`) |
 
 ## Implementation
 
@@ -62,44 +65,52 @@ Imperative update of `scene.fog` color/density and `gl.clearColor` on theme chan
 - Pathfinding: `computePathWaypoints()` routes robots through door waypoints when moving between rooms
 
 ### MapControls
-- Bottom-left DOM overlay with zoom in/out, top-down view, and reset view buttons
-- Zoom uses `flyTo()` with distance factor (0.65 for in, 1.5 for out)
-- Top-down places camera 30 units above current target
-- Reset returns to default position `[18, 16, 18]` looking at `[0, 1, 0]`
+- Bottom-left DOM overlay (`zIndex: 11`), defined inside `CyberdromeScene.tsx`, with zoom in/out, top-down view, and reset view buttons
+- Zoom uses `flyTo()` with a distance factor applied to the camera-to-target vector: `0.65` for zoom in, `1.5` for zoom out
+- Top-down places camera `+30` units above current target (with a tiny `±0.01` X/Z offset so OrbitControls keeps a valid orientation)
+- Reset returns to default position `[18, 16, 18]` looking at `[0, 1, 0]` (`DEFAULT_CAMERA_POSITION` / `DEFAULT_CAMERA_TARGET` in `cameraStore.ts`)
 
 ### RobotListSidebar
-- 280px panel width with backdrop blur, collapsible panel header
-- Searchable with 150ms debounce (searches title, label, project, status)
-- Sessions grouped by room (sorted by roomIndex), unassigned sessions in "Common Area"
-- Sorted by status priority: working(0) > prompting(1) > approval/input(2) > waiting(3) > idle(4) > connecting(5) > ended(6)
-- Single close button per row (`handleClose` POSTs `/api/sessions/:id/kill` then calls `removeSession`, RobotListSidebar.tsx:389-396, wired at line 513). No inline title editing — titles are read-only here; rename UI lives in the detail panel. Collapsible groups per room.
+- Top-left panel (`top:16, left:20`), 280px wide expanded / `auto` when collapsed, backdrop blur, collapsible header ("Agents (N)"). Hidden entirely when there are zero sessions.
+- Searchable via the shared `SearchInput` primitive with 150ms debounce (matches title, project name, status). Floating-fork popups are filtered out, same as the 3D scene.
+- Sessions grouped by room (rooms sorted by `roomIndex`, only rooms with `roomIndex != null`); unassigned sessions fall into a "Common Area" group. Per-group collapse state lives in a local `collapsedGroups` Set.
+- Within each group, ordered by `sortSessions` (`sessionSort.ts`): **pinned first**, then status priority via `STATUS_ORDER` (working 0 > prompting 1 > approval/input 2 > waiting 3 > idle 4 > connecting 5 > ended 6), then title (localeCompare).
+- Each row has **two action affordances**: a pin toggle and a close button (titles are read-only — rename UI lives in the detail panel).
+  - **Pin** (`onTogglePin` → `sessionStore.togglePin`): pinned sessions float to the top of their group, get a left accent bar, and auto-recreate on restart / if they die.
+  - **Close** (`handleClose`): if the session is pinned, prompts a `window.confirm`, and on confirm calls `markUserClosing(session)` (`pinnedRespawn.ts`, so the death isn't treated as a crash) then unpins it; in all cases POSTs `/api/sessions/:id/kill` with body `{ confirm: true }` then calls `removeSession`.
+- Rows for `approval`/`input` status pulse (`sidebarApprovalPulse` animation) to flag sessions needing attention.
 
 ### RoomLabels
 - drei `<Text>` with SDF rendering, flat horizontal rotation (`-PI/2` on X axis, readable from above)
-- Room labels: name (uppercase, fontSize 0.7) + unit count (fontSize 0.35) at Y=2.8
-- Strip color alternates cyan (`#00f0ff`) / magenta (`#ff00aa`) based on room index parity
+- Room labels: name (uppercase, fontSize 0.7) at Y=2.8; below it a unit count rendered as "N UNIT" / "N UNITS" (fontSize 0.35) at Y=2.8, `cz + 1.0`. Count excludes `ended` sessions.
+- Strip color (and label color) alternates cyan (`#00f0ff`) / magenta (`#ff00aa`) by room-index parity (`STRIP_COLORS`), with dimmer hex variants for the unit-count text (`STRIP_COLORS_DIM`)
 - Coffee lounge label: "COFFEE LOUNGE" in orange (`#ff9944`), fontSize 0.8
 
 ### Scene Themes
 9 theme palettes with 36 color/density/lighting properties each (command-center, cyberpunk, warm, dracula, solarized, nord, monokai, light, blonde).
 
 ### Session Filtering
-Only sessions with `status !== 'ended'` AND `source === 'ssh'` are rendered as robots. This ensures only terminal-launched sessions appear in the 3D scene.
+Sessions are rendered as robots only when `status !== 'ended'` AND `source === 'ssh'` AND they are NOT floating forks (`!(session.isFork && session.originSessionId)`). This keeps the scene to terminal-launched sessions; Explain/Translate floating-fork popups have their own PiP UI and are excluded here (and likewise from `RobotListSidebar`).
+
+### Robot Position Persistence
+`CyberdromeScene` runs a `setInterval` every **2000ms** that reads `getAllNavInfo()` from `robotPositionStore` and calls `saveRobotPositions()` (`robotPositionPersist.ts`), persisting `posX/posZ/rotY/mode/deskIdx` per session to `sessionStorage['cyberdrome-robot-positions']` so robots resume their spots across page reloads. `loadRobotPositions()` reads it back on robot mount.
 
 ### Store Dependencies
-`CyberdromeScene` reads from `sessionStore`, `roomStore`, `settingsStore`, `cameraStore`, and `uiStore` in the DOM layer. `RobotListSidebar` reads `detailPanelMinimized` and `restoreDetailPanel` from `uiStore`. ALL Canvas-side components use zero store access (props only, or imperative `getState()` reads where necessary).
+`CyberdromeScene` reads `sessions`/`selectSession` (sessionStore), `rooms` (roomStore), `themeName`/`characterModel`/`fontSize` (settingsStore), and `flyTo` (cameraStore) in the DOM layer. `RobotListSidebar` additionally reads `selectedSessionId`/`removeSession`/`togglePin` (sessionStore), `rooms` (roomStore), and `detailPanelMinimized`/`restoreDetailPanel` (uiStore). `SceneOverlay` reads `soundSettings`/`scene3dEnabled` (settingsStore) plus room CRUD actions (roomStore) and `flyTo` (cameraStore). ALL Canvas-side components (`SceneContent`, `CameraController`, `SceneThemeSync`, `RoomLabels`, etc.) use zero store subscriptions — props only, or imperative `getState()` reads where necessary (`CameraController` polls `cameraStore.getState()` in `useFrame`).
 
 ## Dependencies & Connections
 
 ### Depends On
-- [State Management](../frontend/state-management.md) -- sessionStore (sessions), roomStore (rooms), settingsStore (theme, characterModel, fontSize), cameraStore (fly-to)
+- [State Management](../frontend/state-management.md) -- sessionStore (sessions, selectSession, removeSession, togglePin), roomStore (rooms + CRUD), settingsStore (theme, characterModel, fontSize, sound/scene3d toggles), cameraStore (fly-to), uiStore (detailPanelMinimized/restore)
 - [Robot System](./robot-system.md) -- SessionRobot rendered per session inside Canvas
 - [Particles & Effects](./particles-effects.md) -- StatusParticles rendered per-robot inside SessionRobot (not at scene level), SubagentConnections rendered inside Canvas
+- [UI Primitives](../frontend/ui-primitives.md) -- `RobotListSidebar` uses the shared `SearchInput` (debounced) primitive
+- [Floating Terminal Fork](../frontend/floating-terminal-fork.md) -- floating-fork sessions (`isFork` + `originSessionId`) are excluded from both the 3D scene and the sidebar
 
 ### Depended On By
 - [Views/Routing](../frontend/views-routing.md) -- LiveView renders CyberdromeScene
-- [Session Detail Panel](../frontend/session-detail-panel.md) -- robot click triggers panel open
-- [Settings System](../frontend/settings-system.md) -- theme changes update scene visuals
+- [Session Detail Panel](../frontend/session-detail-panel.md) -- robot/sidebar click triggers panel open (and restores it if minimized)
+- [Settings System](../frontend/settings-system.md) -- theme changes update scene visuals; `scene3dEnabled` toggle mounts/unmounts the scene
 
 ### Shared Resources
 - Three.js Canvas (single instance, shared by all 3D components)
@@ -113,3 +124,6 @@ Only sessions with `status !== 'ended'` AND `source === 'ssh'` are rendered as r
 - Changing room layout constants in `cyberdromeScene.ts` affects all robot navigation paths and workstation placement.
 - Scene theme changes must update both 3D fog/lighting and CSS theme variables in sync.
 - OrbitControls `maxPolar` prevents camera from going below the floor -- relaxing this breaks the visual.
+- The fork-exclusion filter (`isFork && originSessionId`) must stay aligned between `CyberdromeScene` and `RobotListSidebar`; dropping it in one place makes floating popups appear as duplicate robots/rows.
+- Closing a pinned session must `markUserClosing` + unpin before killing, or `pinnedRespawn` will treat the death as a crash and immediately recreate it.
+- `Scene3DTheme` has exactly 36 properties — every theme palette must define all of them or the scene renders with `undefined` colors.

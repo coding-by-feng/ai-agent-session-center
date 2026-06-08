@@ -39,17 +39,18 @@ PtyInstance {
 6. Subscribe exit: send `pty:exit` (exitCode, signal) to all windows + cleanup
 7. `detectShellReady()` -- wait for shell prompt (concurrent with steps 8-9)
 8. Register with Express server: `POST /api/terminals/register` (async, best effort)
-9. After shell ready: write launch command + `\r` (e.g. `"claude -n \"agent-manager #1\"\r"`)
-10. If `config.model`, `config.effortLevel`, or `config.remoteControlName` are set and the command is `claude`, auto-apply `/model <model>`, `/effort <level>`, and `/remote-control <name>` slash commands after Claude Code starts. Detection: a temporary `onData` listener accumulates output (capped at 16KB), strips ANSI, and waits for the literal substring `"Claude Code"` to appear (ptyHost.ts:313-318). On match, the listener disposes itself and a `setTimeout(..., 2500)` defers writing the slash commands so the Claude Code prompt is fully interactive. Multiple slash commands are then staggered 800ms apart in the order model → effort → remote-control (ptyHost.ts:321-329).
+9. **Model + standard effort apply as launch flags, not slash injection.** Before spawn, `applyClaudeLaunchFlags()` rewrites a `claude` command to inject `--model <model>` and `--effort <level>` (only when `level ∈ FLAG_EFFORT_LEVELS`), so model/effort apply deterministically at launch. This mirrors `server/config.ts` `applyClaudeLaunchFlags()` (config.ts:186). `ultracode` is excluded because the `--effort` flag rejects it.
+10. After shell ready: write launch command + `\r` (e.g. `"claude --model opus --effort high -n \"agent-manager #1\"\r"`)
+11. **Slash injection only for `ultracode` effort and remote-control name.** If `config.effortLevel === 'ultracode'` OR `config.remoteControlName` is set and the *base* command starts with `claude`, a temporary `onData` listener accumulates output (capped at 16KB), strips ANSI, and waits for the literal substring `"Claude Code"` to appear (ptyHost.ts:337). On match the listener disposes itself and a `setTimeout(..., 2500)` defers writing the slash commands so the Claude Code prompt is fully interactive. The commands (`/effort ultracode` then `/remote-control <name>`) are staggered 800ms apart (ptyHost.ts:341-354). A 30s safety timeout disposes the listener if `"Claude Code"` is never seen (ptyHost.ts:358-360).
 
 ### Session Name Flag (`-n`)
 - Claude commands get `-n "title"` appended automatically
-- If `config.sessionTitle` is provided, uses that; otherwise auto-generates a name. Special case: if `workDir === os.homedir()` the name is `Home #N`; otherwise `projectName #N` where `projectName` is the working-directory basename (ptyHost.ts:211-214).
+- If `config.sessionTitle` is provided, uses that; otherwise auto-generates a name. Special case: if `workDir === os.homedir()` the name is `Home #N`; otherwise `projectName #N` where `projectName` is the working-directory basename (ptyHost.ts:211-218).
 - Auto-name counter is per-project via `ptyProjectCounters` map (e.g. "agent-manager #1", "thesis #2", "Home #1")
 - `autoSessionName()` helper derives the project name from the working directory basename (with the `Home` special case) and increments the per-project counter
 - Only for commands starting with `claude`; skips if `-n` or `--name` already present
 - `appendSessionName()` and `autoSessionName()` helpers defined locally in ptyHost.ts
-11. Return `terminalId` (synchronous -- caller wraps in `{ok, terminalId}`)
+12. Return `terminalId` (synchronous -- caller wraps in `{ok, terminalId}`)
 
 ### Shell-Ready Detection
 
@@ -131,7 +132,7 @@ The PTY host injects CLI-specific API keys into the spawned shell environment:
   sessionTitle?: string
   apiKey?: string
   enableOpsTerminal?: boolean
-  /** Effort level to auto-apply after Claude Code starts (low/medium/high/xhigh/max) */
+  /** Effort level to auto-apply after Claude Code starts (low/medium/high/xhigh/max/ultracode) */
   effortLevel?: string
   /** Model to auto-apply after Claude Code starts (opus/sonnet/haiku) */
   model?: string
@@ -140,7 +141,11 @@ The PTY host injects CLI-specific API keys into the spawned shell environment:
 }
 ```
 
-(Canonical type: `src/types/electron.d.ts:25-38`. Field JSDoc lives in ptyHost.ts:35-37.)
+(Canonical type: `src/types/electron.d.ts:25-42`. Field JSDoc lives in ptyHost.ts:31-37.)
+
+### Launch Flags vs Slash Injection
+
+`FLAG_EFFORT_LEVELS = Set(['low', 'medium', 'high', 'xhigh', 'max'])` (ptyHost.ts:229) gates which effort values become `--effort` launch flags. `applyClaudeLaunchFlags(command, model, effortLevel)` (ptyHost.ts:236) rewrites a `claude` command, prepending `--model <model>` and/or `--effort <level>` after the `claude` token (skipped if those flags are already present). This is the local mirror of `server/config.ts` `applyClaudeLaunchFlags()`; keeping both in sync is a change risk. `ultracode` is intentionally **not** in the set — the `--effort` flag rejects it, so it is applied post-launch via `/effort ultracode` slash injection.
 
 ### Cleanup
 
@@ -171,3 +176,5 @@ The PTY host injects CLI-specific API keys into the spawned shell environment:
 - **Subscriber gating** assumes renderers always call `pty:unsubscribe` when switching away from a terminal. If they forget, the PTY keeps streaming IPC to that renderer (wasted CPU but not incorrect). Conversely, if `pty:subscribe` is skipped or races, the renderer goes blank until the next output — the ring buffer replay on subscribe is the only way stale content reaches a new subscriber.
 - `removeSubscriberFromAll` on `destroyed` is essential — without it, a reloaded/crashed renderer would leak subscriber entries forever.
 - `ringWrite` copies with `Buffer.copy`; if ever swapped to `TypedArray.set`, watch for signed-byte coercion (node-pty emits binary).
+- **Two `applyClaudeLaunchFlags` / `FLAG_EFFORT_LEVELS` copies** — one in `electron/ptyHost.ts`, one in `server/config.ts`. They must stay in sync; if `ultracode` is ever accepted by the real `--effort` flag, add it to both sets and drop the slash-injection branch.
+- Slash injection (ultracode/remote-control) relies on the literal `"Claude Code"` banner substring appearing in PTY output. If the CLI changes its startup banner, detection silently fails after the 30s safety timeout and neither command is sent.

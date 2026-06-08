@@ -1,53 +1,121 @@
 # Views & Routing
 
 ## Function
-React Router v7 client-side routing providing 6 views: Live, Agenda, History, Queue, Review, Project Browser.
+
+Defines the app's entry point, the React Router route tree, the persistent layout chrome (title bar, header, nav bar, activity feed, toasts, global modals), and the top-level view that each route renders. This is the "shell" the rest of the frontend mounts inside.
 
 ## Purpose
-Organizes the dashboard into distinct functional areas accessible via navigation bar.
+
+Give the dashboard a single, predictable mount path: bootstrap persisted state, decide between the setup wizard / popout-terminal window / full dashboard, render a code-split route tree, and keep app-wide UI (settings, search, detail panel, floating terminals) mounted regardless of which route is active. Heavy views (3D scene, History, Queue, Agenda, Review, Project Browser) are lazy-loaded so the LIVE view paints fast.
 
 ## Source Files
+
 | File | Role |
 |------|------|
-| `src/routes/LiveView.tsx` | 3D Cyberdrome scene (or flat list when 3D disabled) with Suspense + error boundary |
-| `src/routes/HistoryView.tsx` | Paginated session archive with filters (uses @tanstack/react-query) |
-| `src/routes/QueueView.tsx` | Global prompt queue across all sessions |
-| `src/routes/AgendaView.tsx` | Task management |
-| `src/routes/ReviewView.tsx` | Review view — translation/explain log review (translationLog) |
-| `src/routes/ProjectBrowserView.tsx` | Standalone file browser (route: /project-browser, no AppLayout chrome) |
-| `src/App.tsx` | Router + layout + providers (QueryClientProvider, SetupWizard gate, AuthGate, Dashboard, AppLayout) |
-| `src/components/layout/NavBar.tsx` | Navigation bar (LIVE, AGENDA, HISTORY, QUEUE, REVIEW + NEW/QUICK session buttons + WorkdirLauncher) |
-| `src/components/layout/TitleBar.tsx` | Window title bar (Electron drag region + window controls) |
-| `src/components/session/FloatingTerminalRoot.tsx` | Renders all PIP fork-translate floating terminals from floatingSessionsStore |
+| `src/main.tsx` | App entry. Hydrates persisted queue stores from IndexedDB, then renders `<App>` (or `PopoutTerminalView` when `?popout=terminal`). Blocks Cmd/Ctrl+R / F5 reloads. Imports all theme CSS. |
+| `src/App.tsx` | Setup gate, `QueryClientProvider`, `BrowserRouter`, the `<Routes>` tree, `AppLayout` (shared chrome via `<Outlet>`), `Dashboard` (mounts WebSocket + workspace hooks + scheduler), Electron before-close save flow. |
+| `src/components/layout/TitleBar.tsx` | Fixed 28px draggable macOS-style title bar (z-index 99999) with Save & Quit button (Electron only). |
+| `src/components/layout/Header.tsx` | App title, workspace export/import menus, settings button, exit button. |
+| `src/components/layout/NavBar.tsx` | Primary nav links (LIVE / AGENDA / HISTORY / QUEUE / REVIEW), "+ NEW" session button, recent-dir launcher, shortcuts help button, agenda incomplete-task badge. |
+| `src/components/layout/ActivityFeed.tsx` | Collapsible bottom feed of recent hook events across all sessions (off by default). |
+| `src/components/modals/GlobalSearchModal.tsx` | Cmd/Ctrl+Shift+F search across all in-memory sessions' prompts, responses, tool calls, and events. |
+| `src/routes/LiveView.tsx` | Default `/` route. 3D Cyberdrome scene (lazy) wrapped in an error boundary, or a flat sidebar view when 3D is disabled. |
+| `src/routes/HistoryView.tsx` | `/history` route. SQLite-backed session search with filters, pagination, and a per-session detail overlay (conversation + activity tabs). |
+| `src/routes/QueueView.tsx` | `/queue` route. Global prompt-queue table grouped by session (add / remove / move-between-sessions). |
+| `src/routes/AgendaView.tsx` | `/agenda` route. Personal task list. Detailed behavior in [agenda.md](./agenda.md). |
+| `src/routes/ProjectBrowserView.tsx` | Standalone `/project-browser?path=…` route (no chrome). Detailed behavior in [project-browser.md](./project-browser.md). |
+| `src/lib/sessionSort.ts` | `sortSessions()` / `STATUS_ORDER` — shared session list ordering (pinned → live status → title). |
+| `src/types/analytics.ts` | `DistinctProject` type for the `GET /api/db/projects` filter dropdown. |
 
 ## Implementation
-- LiveView: lazy-loads CyberdromeScene via Suspense with SceneErrorBoundary. When scene3dEnabled is false, shows FlatView (RobotListSidebar + SceneOverlay, no WebGL)
-- HistoryView: filters (query, project, status, date range, sort), paginated 50/page, uses @tanstack/react-query for data fetching
-- AgendaView: task priorities (Urgent/High/Medium/Low), collapsible Done section, search + priority + tag filters (uses agendaStore)
-- QueueView: global view of all session queues, grouped by session with table layout, add prompt to any session via Select dropdown
-- ProjectBrowserView: standalone at /project-browser?path=<path>, optional file=<path> query param, no AppLayout chrome
-- App.tsx: QueryClientProvider wraps everything. SetupWizard gate via `isSetup` from electronAPI (App.tsx:127-135) renders the wizard until setup completes. After setup, AuthGate handles login flow. Dashboard wires up useSettingsInit + useWebSocket + useWorkspaceAutoSave/Load. AppLayout provides Header + NavBar + ActivityFeed + modals + DetailPanel + FloatingTerminalRoot rendered alongside DetailPanel (App.tsx:64)
-- NavBar: 5 nav links (LIVE, AGENDA, HISTORY, QUEUE, REVIEW — NavBar.tsx:17) + NEW/QUICK session buttons + WorkdirLauncher + shortcuts help button (?)
+
+### Entry & bootstrap (`main.tsx`)
+
+`main.tsx` first inspects the URL query string. If `?popout=terminal`, the window is a popped-out floating terminal: it renders only `<PopoutTerminalView>` (inside a `BrowserRouter`), passing `terminalId`, `originSessionId`, and `label` query params — not the whole dashboard.
+
+Otherwise it runs `bootstrap()`, which **awaits** `useQueueStore.loadFromDb()` and `useQueueHistoryStore.loadFromDb()` (IndexedDB hydration) **before** rendering `<App>`. This ordering is load-bearing: `<App>` mounts the WebSocket, and an incoming `session_update` carrying `replacesId` (a `claude --resume` re-key) calls `queueStore.migrateSession()` synchronously. If the queue map were not hydrated first, `migrateSession` would see an empty queue and orphan the loop under the old session id. `loadFromDb()` swallows its own errors, so a hydration failure still falls through to render.
+
+A global `keydown` listener blocks Cmd+R / Ctrl+R / F5 to prevent accidental page reloads (which would lose all terminal sessions and in-memory state). All eight theme CSS files plus `light-overrides.css` are imported here so themes can be switched at runtime.
+
+### App shell & routing (`App.tsx`)
+
+`App` resolves a setup gate: in web mode (no `window.electronAPI`) it skips setup; in Electron it calls `electronAPI.isSetup()`. While `isSetup === null` it shows a loading screen; `false` renders `<SetupWizard>`; `true` renders the dashboard inside `QueryClientProvider`. `<TitleBar>` is rendered in all three states. The shared `QueryClient` uses `staleTime: 30_000` and `retry: 1`.
+
+`AuthGate` currently just renders `<Dashboard token={null} />` — the password-auth gate is bypassed (see [authentication.md](../server/authentication.md) / [auth-ui.md](./auth-ui.md)).
+
+`Dashboard` is where the app's lifecycle hooks mount: `useSettingsInit`, `useWebSocket(token)`, `useWorkspaceAutoSave`, `useWorkspaceAutoLoad`, and `useGlobalQueueScheduler` (the **single** global queue scheduler — see [queue-scheduler.md](./queue-scheduler.md)). It also wires the Electron `onBeforeClose` handler: on quit it shows a `<SavingOverlay>` whose progress bar "creeps" toward 90% (`setInterval` every 120ms) while `flushSave()` persists the workspace snapshot, then snaps to 100%. `<RestorePickerModal>` and `<WorkspaceLoadingOverlay>` (see [workspace-snapshot.md](./workspace-snapshot.md)) are mounted alongside the router.
+
+The route tree:
+
+| Path | Element | Lazy | Chrome |
+|------|---------|------|--------|
+| `/project-browser` | `ProjectBrowserView` | yes | none (standalone) |
+| `/` | `LiveView` | no (eager) | `AppLayout` |
+| `/agenda` | `AgendaView` | yes | `AppLayout` |
+| `/history` | `HistoryView` | yes | `AppLayout` |
+| `/queue` | `QueueView` | yes | `AppLayout` |
+| `/review` | `ReviewView` | yes | `AppLayout` |
+| `*` | `<Navigate to="/" replace>` | — | `AppLayout` |
+
+`AppLayout` is the shared chrome rendered for every route except `/project-browser`. It mounts `useKeyboardShortcuts()` and lays out: `<Header>`, `<NavBar>`, a `<main>` with `<Suspense>` + `<Outlet>` (lazy route fallback = "Loading…"), then the always-mounted app-wide UI: `<ActivityFeed>`, `<ToastContainer>`, `<SettingsPanel>`, `<NewSessionModal>`, `<ShortcutsPanel>`, `<ShortcutSettingsModal>`, `<GlobalSearchModal>`, `<DetailPanel>`, `<FloatingTerminalRoot>`. Because these live in the layout, they persist across route changes.
+
+### Layout chrome
+
+**TitleBar** — fixed 28px draggable bar at the very top on macOS Electron, z-index 99999 so it sits above all overlays; native traffic-light buttons render above even this. Shows the app name and (Electron only) a Save & Quit power button calling `electronAPI.quitApp()`.
+
+**Header** — app title plus a `stats` cluster: `WorkspaceButtons` (Export menu → "Save as JSON file" / "Save to AASC config"; Import menu → "Load from JSON file" / "Load from AASC config", driven by `buildSnapshot` / `downloadSnapshot` / `saveToConfig` / `loadFromConfig` / `loadFromFile` / `importSnapshot` from `lib/workspaceSnapshot`), `SettingsButton`, and (Electron only) an `ExitButton`. Import/export feedback goes through `showToast`.
+
+**NavBar** — renders `NAV_ITEMS` (`/` LIVE, `/agenda` AGENDA, `/history` HISTORY, `/queue` QUEUE, `/review` REVIEW) as `NavLink`s (the `/` link uses `end` for exact match). The AGENDA link shows a count badge of incomplete tasks (`tasks` where `!completed`). A "+ NEW" button opens the `new-session` modal via `uiStore.openModal`, `<WorkdirLauncher>` offers recent directories, and a "?" button opens the `shortcuts` modal.
+
+**ActivityFeed** — collapsible feed pinned at the bottom. Hidden entirely unless `settingsStore.activityFeedVisible` (default off). To avoid an O(N×events) sort on every hook event when hidden, the `useMemo` short-circuits to `[]` while not visible. When visible it flattens every session's `events`, sorts newest-first, slices to `maxEntries` (50), and renders rows that call `selectSession(sessionId)` on click. Open/closed state lives in `uiStore.activityFeedOpen`.
+
+### GlobalSearchModal
+
+Opened when `uiStore.activeModal === 'global-search'` (bound to Cmd/Ctrl+Shift+F via the keyboard shortcuts). `runSearch(sessions, query)` is a pure, in-memory scan over each session's `promptHistory`, `responseLog`, `toolLog`, and `events`, producing `SearchHit`s tagged with `field` (`prompt` | `response` | `tool` | `event`). Results are sorted by a `STATUS_ORDER` map (working 0 → ended 6, with `approval`/`input` both 2) then by recency, and capped at **100** hits. `highlightSnippet` truncates around the match (max 200 chars, ~60 chars of left context), HTML-escapes, and wraps matches in `<mark>`. Keyboard nav: Up/Down move selection, Enter selects, Esc closes. Selecting a hit calls `selectSession(hit.sessionId)`, closes the modal, then (after 150ms) dispatches a `detail-panel:find` `CustomEvent` so the now-open `DetailPanel` re-runs the same query in its in-panel find bar.
+
+### Views
+
+- **LiveView** (`/`, eager) — when `settingsStore.scene3dEnabled`, lazy-loads `CyberdromeScene` inside a `SceneErrorBoundary` (catches WebGL/3D crashes and offers RETRY) with an "INITIALIZING CYBERDROME…" suspense fallback. When 3D is disabled it renders `FlatView` (a "3D Scene Paused" placeholder + `SceneOverlay` + `RobotListSidebar`) to save CPU/GPU. See [cyberdrome-scene.md](../3d/cyberdrome-scene.md) and [robot-system.md](../3d/robot-system.md).
+- **HistoryView** (`/history`) — TanStack Query against the SQLite store. Filters: free-text query, project (from `GET /api/db/projects`), status (idle/working/waiting/ended/archived — `archived` maps to `?archived=true`), date range, and sort (`date`→`started_at`, `duration`→`last_activity_at`, plus `prompts`/`tools` which currently both map to `started_at`) with an asc/desc toggle. `PAGE_SIZE = 50`. Each row offers Resume (`POST /api/sessions/:id/resume`) and Delete (`DELETE /api/db/sessions/:id`, confirm-gated). Clicking a row opens a detail overlay with `Conversation` (interleaved prompts + responses) and `Activity` (merged tool calls + events) tabs. See [database.md](../server/database.md) and [api-endpoints.md](../server/api-endpoints.md).
+- **QueueView** (`/queue`) — table view of `queueStore.queues` grouped by session id (only sessions with ≥1 item). A compose row (session `Select` + textarea, Cmd/Ctrl+Enter to add) appends items; rows support DEL (`remove`) and MOVE (`moveToSession`, via an inline session picker). This is the global manual queue surface; automation/scheduling lives in [queue-scheduler.md](./queue-scheduler.md) and the underlying model in [prompt-queue.md](./prompt-queue.md).
+- **AgendaView** (`/agenda`) — personal task management; full detail in [agenda.md](./agenda.md).
+- **ReviewView** (`/review`) — git diff review surface; full detail in [review-tab.md](./review-tab.md).
+- **ProjectBrowserView** (`/project-browser?path=…`, standalone) — full-page file browser; resolves an `originSessionId` for the translate/explain popup; full detail in [project-browser.md](./project-browser.md).
+
+### Shared session ordering (`sessionSort.ts`)
+
+`STATUS_ORDER` maps statuses to a sort weight (`working` 0, `prompting` 1, `approval`/`input` 2, `waiting` 3, `idle` 4, `connecting` 5, `ended` 6). `sortSessions()` floats pinned sessions to the top of their group, then orders by status weight, then by title (`localeCompare`, falling back to "Unnamed"). Used by the sidebar and unit-tested in isolation. The GlobalSearchModal embeds the same status weighting inline.
 
 ## Dependencies & Connections
 
-### Depends On
-- [3D Cyberdrome Scene](../3d/cyberdrome-scene.md) — LiveView renders it
-- [Session Detail Panel](./session-detail-panel.md) — AppLayout renders DetailPanel (not inside LiveView)
-- [File Browser](./file-browser.md) — ProjectBrowserView reuses file browser
-- [Server API](../server/api-endpoints.md) — HistoryView queries server DB via @tanstack/react-query
-- [State Management](./state-management.md) — agendaStore for AgendaView, settingsStore for scene3dEnabled in LiveView
-- [Review Tab](./review-tab.md) — ReviewView renders the translation/explain log
-- [Floating Terminal Fork](./floating-terminal-fork.md) — FloatingTerminalRoot mounts PIP terminals globally
+**Depends on:**
+- [state-management.md](./state-management.md) — `sessionStore`, `uiStore`, `settingsStore`, `roomStore`, `queueStore`, `queueHistoryStore`, `agendaStore`.
+- [client-persistence.md](./client-persistence.md) — IndexedDB hydration of queue stores at bootstrap.
+- [websocket-client.md](./websocket-client.md) — `useWebSocket` mounted in `Dashboard`.
+- [workspace-snapshot.md](./workspace-snapshot.md) — auto-save/auto-load hooks, before-close flush, Header import/export, RestorePickerModal.
+- [queue-scheduler.md](./queue-scheduler.md) — `useGlobalQueueScheduler` mounted once in `Dashboard`.
+- [keyboard-shortcuts.md](./keyboard-shortcuts.md) — `useKeyboardShortcuts` in `AppLayout`; opens NavBar/search modals.
+- [settings-system.md](./settings-system.md) — `useSettingsInit`, `SettingsPanel`/`SettingsButton`, `scene3dEnabled`, `activityFeedVisible`.
+- [ui-primitives.md](./ui-primitives.md) — `ToastContainer`/`showToast`, `Select`, `Tabs`, `SearchInput`, `SavingOverlay`, `WorkspaceLoadingOverlay`.
+- [session-detail-panel.md](./session-detail-panel.md) — `DetailPanel` and the `detail-panel:find` event consumer.
+- [session-creation-modals.md](./session-creation-modals.md) — `NewSessionModal` (and shortcut/restore modals).
+- [floating-terminal-fork.md](./floating-terminal-fork.md) — `FloatingTerminalRoot`, popout-terminal window mode.
+- [setup-wizard.md](./setup-wizard.md) — setup gate target.
+- [cyberdrome-scene.md](../3d/cyberdrome-scene.md) / [robot-system.md](../3d/robot-system.md) — LiveView 3D scene + sidebar.
+- [agenda.md](./agenda.md), [review-tab.md](./review-tab.md), [project-browser.md](./project-browser.md), [prompt-queue.md](./prompt-queue.md) — the views that own their own behavior docs.
+- [api-endpoints.md](../server/api-endpoints.md), [database.md](../server/database.md) — HistoryView queries.
+- [app-lifecycle.md](../electron/app-lifecycle.md) — `isSetup`, `quitApp`, `onBeforeClose`, theme.
 
-### Depended On By
-- Top-level App.tsx renders routes
-
-### Shared Resources
-- React Router, navigation state
+**Depended on by:**
+- [keyboard-shortcuts.md](./keyboard-shortcuts.md) — shortcuts navigate routes and open the global modals mounted here.
+- [session-detail-panel.md](./session-detail-panel.md) — relies on `DetailPanel` being mounted app-wide in `AppLayout`.
 
 ## Change Risks
-- Adding heavy components to LiveView degrades 3D performance
-- LiveView SceneErrorBoundary catches 3D crashes — removing it causes full app crash
-- HistoryView uses react-query — changing API response shapes requires updating types
-- Lazy-loaded routes (HistoryView, QueueView, AgendaView, ProjectBrowserView) must have Suspense fallbacks
+
+- **Route element / lazy-import names** drift from `App.tsx` — keep the route table in sync with the actual `lazy()` imports and the standalone `/project-browser` exception.
+- **NAV_ITEMS** must match the `<Route path>` set; adding a nav link without a route (or vice-versa) produces dead links or unreachable views.
+- **Bootstrap ordering** in `main.tsx` (await queue hydration → render → WS connect) is required for `migrateSession` correctness on `claude --resume` re-keys. Do not move rendering before `loadFromDb()`.
+- **App-wide modals/panels live in `AppLayout`**, so they unmount on the standalone `/project-browser` route — anything that must be globally available there needs separate mounting.
+- **GlobalSearchModal** reads only in-memory session arrays (`promptHistory`/`responseLog`/`toolLog`/`events`); it does not hit the DB, so ended/evicted sessions won't appear. The 100-hit / 200-char caps are intentional performance limits.
+- **HistoryView sort map** has `prompts`/`tools` aliased to `started_at` (no dedicated DB sort columns yet); changing labels without backend support silently no-ops.
+- **`useGlobalQueueScheduler` must remain mounted exactly once** (in `Dashboard`) — mounting it elsewhere would double-fire queued prompts.

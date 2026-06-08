@@ -14,18 +14,25 @@ Real-time communication channel between server and all connected browser clients
 ## Implementation
 
 ### Connection Lifecycle
-- connect -> enforce max 50 connections -> auth check performed in `server/index.ts` (lines ~226-233) BEFORE `handleConnection()` is called (wsManager does NO auth) -> send snapshot (all sessions + teams + seq) -> heartbeat loop
-- Per-client rate limit: max 100 messages/sec, close with code 4004 if exceeded
-- Max inbound message size: 512KB (oversized messages silently dropped)
+Origin validation and auth both happen in `server/index.ts` (`wss.on('connection')`, lines ~206-236) BEFORE `handleConnection()` runs — wsManager itself does NO origin/auth checks:
+- Origin validation (anti-CSWSH): if `origin`'s host differs from the request `host`, close with code **4003** (`Forbidden: origin mismatch`); an unparseable origin closes 4003 (`Forbidden: invalid origin`)
+- Auth: only when password protection is enabled (`isPasswordEnabled()`), the token is read from the `auth_token` cookie (preferred) or `extractToken(req)`; an invalid token closes with code **4001** (`Unauthorized`)
+- `handleConnection()` then: enforces max **50** connections (close code **4003**, `Too many connections`) -> registers client -> starts the heartbeat (on first client only) -> sends a `snapshot` (all sessions + teams + event seq) -> wires message/close/error handlers
+
+Per-client guards inside the message handler:
+- Rate limit: max **100** messages/sec; on exceed, close with code **4004** (`Rate limit exceeded`)
+- Max inbound message size: **524288** bytes (512KB) — oversized messages are dropped (not parsed)
 
 ### Heartbeat
-- ping every 30s; on each tick, terminate any client that hasn't replied with a pong since the previous ping (effective drop window: up to 30s)
+- ping every 30s (`HEARTBEAT_INTERVAL_MS = 30000`); on each tick, terminate any client that hasn't replied with a pong since the previous ping (effective drop window: up to 30s). Started lazily on the first connection and stopped when the last client disconnects.
 
 ### Server-to-Client Messages
-- snapshot, session_update, session_removed, team_update, hook_stats, terminal_output, terminal_ready, terminal_closed, terminal_error, clearBrowserDb, replay
+- `snapshot`, `session_update`, `session_removed`, `team_update`, `hook_stats`, `terminal_output`, `terminal_ready`, `terminal_closed`, `terminal_error`, `clearBrowserDb`
+- Replay responses: the server answers a client `replay` request by re-sending each missed event's raw `data` payload individually (not as a wrapped `replay` message)
 
 ### Client-to-Server Messages
-- terminal_input, terminal_resize, terminal_disconnect, terminal_subscribe, update_queue_count, replay
+- `terminal_input`, `terminal_resize`, `terminal_disconnect`, `terminal_subscribe`, `update_queue_count`, `replay`
+- Unknown message types are silently ignored
 
 ### Broadcast Throttle
 - session_update broadcasts are throttled to 250ms per sessionId (max 4/sec) via hookProcessor.ts scheduleBroadcast, coalescing updates within each window
@@ -39,27 +46,28 @@ Real-time communication channel between server and all connected browser clients
 ### Event Ring Buffer
 - 500 events, client sends replay {sinceSeq: N} to recover missed events
 
-### Terminal Input Validation
-- Max terminal input data size: 262,144 bytes (256KB); oversized payloads rejected
-- Terminal resize bounds enforced: cols 1-500, rows 1-200
+### Terminal Input Validation & Subscription Enforcement
+- A client may only write/resize/disconnect terminals it has subscribed to — `terminal_input`, `terminal_resize`, and `terminal_disconnect` are ignored for terminal IDs not in the client's `_terminalIds` set
+- Max terminal input data size: **262144** bytes (256KB); oversized payloads rejected
+- Terminal resize bounds enforced: cols 1-500, rows 1-200; a `resizeTerminal()` error is relayed back to the client as a `terminal_error`
 
 ### Terminal Relay
-- terminal_subscribe registers WS client for terminal output
-- Buffer replay sent immediately on subscribe
+- `terminal_subscribe` registers the client via `setWsClient()` only if the terminal actually exists; the buffered scrollback is replayed immediately on subscribe (handled in `sshManager.ts`). Non-existent terminals are ignored
+- `terminal_disconnect` unsubscribes the client (`setWsClient(id, null)`) WITHOUT killing the PTY — the PTY is only destroyed by `DELETE /api/terminals/:id` or a session kill
 
-### Authentication
-- Rejected with WS code 4001 if password enabled and token invalid
+### Queue Count Sync
+- `update_queue_count` (sessionId + count, validated 0-10000) calls `updateQueueCount()`; if the session exists, the resulting session is re-broadcast as a `session_update`
 
 ## Dependencies & Connections
 
 ### Depends On
-- [Session Management](./session-management.md) — reads session data for snapshot and updates
-- [Authentication](./authentication.md) — validates tokens on connection
-- [Terminal/SSH](./terminal-ssh.md) — relays terminal I/O to/from PTY processes
+- [Session Management](./session-management.md) — `getAllSessions`/`getAllTeams`/`getEventSeq`/`getEventsSince`/`updateQueueCount` for snapshot, replay, and queue-count sync
+- [Authentication](./authentication.md) — token validation happens in `index.ts` (origin + auth gate) before `handleConnection()`
+- [Terminal/SSH](./terminal-ssh.md) — `writeToTerminal`/`resizeTerminal`/`setWsClient` for terminal I/O relay
 
 ### Depended On By
-- Frontend websocket client — receives all real-time data
-- Frontend terminal UI — terminal I/O relay (browser transport)
+- [Frontend WebSocket Client](../frontend/websocket-client.md) — receives all real-time data and issues `replay` on reconnect
+- [Terminal UI](../frontend/terminal-ui.md) — terminal I/O relay (browser transport)
 
 ### Shared Resources
 - WebSocket server instance

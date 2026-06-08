@@ -17,7 +17,7 @@ Visual feedback for state changes (burst when robot starts working, confetti whe
 ### StatusParticles
 
 #### Buffer Strategy
-Always mounted with `bufferGeo.setDrawRange(0, 0)` to hide particles when inactive. Uses pre-allocated `Float32Array(MAX_PARTICLES * 3)` where `MAX_PARTICLES = 25`. Per-instance `PointsMaterial` with `AdditiveBlending` and `depthWrite: false` for glow effect.
+Takes a single `state: Robot3DState` prop; a burst is triggered (ref-only, via `useEffect`) when that prop changes between renders. Always mounted with `bufferGeo.setDrawRange(0, 0)` to hide particles when inactive. Uses a pre-allocated `Float32Array(MAX_PARTICLES * 3)` where `MAX_PARTICLES = 25`. Per-instance `PointsMaterial` with `AdditiveBlending`, `opacity: 0`, and `depthWrite: false` for the glow effect; only `instanceMat` is disposed on unmount (the `bufferGeo` lives for the component's lifetime).
 
 #### Burst Configurations
 | Transition | Color | Count | Pattern | Speed | Gravity | Duration | Size |
@@ -45,16 +45,17 @@ Always mounted with `bufferGeo.setDrawRange(0, 0)` to hide particles when inacti
 ### SubagentConnections
 
 #### Detection Logic
-Receives precomputed `ConnectionData[]` from the DOM layer (zero Zustand access inside Canvas). Detection criteria:
+Receives precomputed `ConnectionData[]` (`{ parentId, childId, color }`) from the DOM layer (zero Zustand access inside Canvas). The list is built in `CyberdromeScene.tsx` via a `useMemo` over `sessions`. Detection criteria:
 1. Session has `teamRole === 'member'` and `teamId` exists
-2. Parent ID derived from `teamId.replace('team-', '')`
-3. Both parent and child sessions are non-ended
+2. Parent ID derived from `teamId.replace(/^team-/, '')`; skipped when empty or equal to the session's own `sessionId`
+3. Parent session exists and neither parent nor child has `status === 'ended'`
+4. Connection color = parent's `accentColor`, falling back to `PALETTE[(colorIndex ?? 0) % PALETTE.length]` (`PALETTE` from `@/lib/robot3DGeometry`)
 
 #### Line Rendering
 - Raw `THREE.Line` with `LineDashedMaterial`
 - Dash size: 0.3, gap size: 0.2
 - Opacity: 0.3
-- Color: parent's `accentColor` or fallback from palette
+- Color: parent's `accentColor` or `PALETTE`-derived fallback (passed in via `ConnectionData.color`)
 
 #### Animation
 - `useFrame` updates endpoint positions from `robotPositionStore` each frame
@@ -72,7 +73,8 @@ Geometry and material are disposed on unmount via `useEffect` cleanup to prevent
 - [Server Team/Subagent](../server/team-subagent.md) -- team relationships (teamId, teamRole) determine which sessions are connected
 
 ### Depended On By
-- [Cyberdrome Scene](./cyberdrome-scene.md) -- renders StatusParticles and SubagentConnections inside Canvas
+- [Cyberdrome Scene](./cyberdrome-scene.md) -- computes `ConnectionData[]` and renders `SubagentConnections` inside the Canvas
+- [Robot System](./robot-system.md) -- `SessionRobot` mounts `StatusParticles` (passing the robot's `Robot3DState`) inside each robot group
 
 ### Shared Resources
 - `robotPositionStore` (read-only access for beam endpoint positions)

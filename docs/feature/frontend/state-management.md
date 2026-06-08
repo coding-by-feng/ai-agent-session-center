@@ -1,7 +1,7 @@
-# Zustand State Management (10 Stores)
+# Zustand State Management (11 Stores)
 
 ## Function
-Global state management via 10 Zustand stores providing reactive session, UI, settings, queue, camera, room, WebSocket, shortcut, agenda, and floating-sessions state.
+Global state management via 11 Zustand stores providing reactive session, WebSocket, UI, settings, queue, queue-history, camera, room, shortcut, agenda, and floating-sessions state.
 
 ## Purpose
 Single source of truth for all frontend state. Zustand chosen for its minimal API and compatibility with React Three Fiber (no context providers needed inside Canvas).
@@ -9,49 +9,76 @@ Single source of truth for all frontend state. Zustand chosen for its minimal AP
 ## Source Files
 | File | Role |
 |------|------|
-| `src/stores/sessionStore.ts` | Sessions Map, selectedSessionId, previousSessionId, addSession/removeSession/updateSession/selectSession/deselectSession/setSessions/togglePin/toggleMute/toggleAlert/setSessionTitle (optimistic update + PUT /api/sessions/{id}/title) |
-| `src/stores/wsStore.ts` | connected, reconnecting, lastSeq, client, setConnected/setReconnecting/setLastSeq/setClient |
-| `src/stores/uiStore.ts` | activeModal, detailPanelOpen, detailPanelMinimized, activityFeedOpen, detailHeaderCollapsed, pendingFileOpen, cardDisplayMode, workspaceLoad, selectedRoomIds. Actions: openModal/closeModal, setDetailPanelOpen, panel controls (minimizeDetailPanel, restoreDetailPanel), openFileInProject/clearPendingFileOpen, toggleCardDisplayMode, workspaceLoad lifecycle (startWorkspaceLoad, advanceWorkspaceLoad, finishWorkspaceLoad), toggleRoomFilter/clearRoomFilter |
-| `src/stores/settingsStore.ts` | 9 themes, 6 robot models, sound profiles (4 CLIs), ambient, hooks, API keys (anthropic/openai/gemini/googleTts), animationSpeed. TTS block: googleTtsApiKey, ttsEnabled, ttsVoiceEn, ttsVoiceZh, ttsSpeakingRate. Translation block: translationEnabled, translationNativeLanguage, translationLearningLanguage, translationTrigger ('auto'\|'alt'\|'off'), translationInheritContext. Complex store with side effects (DOM CSS vars, data attributes). Actions: per-CLI sound config, label alarms, setApiKey (provider includes 'googleTts'), TTS setters, translation setters, import/export, resetDefaults |
-| `src/stores/floatingSessionsStore.ts` | floats array (PIP fork-translate terminals), open/close/closeAll, capped at MAX_FLOATS=4, captures terminal output to translationLog via captureResponse before DELETE /api/terminals/{id} |
-| `src/stores/queueStore.ts` | Queues Map<string, QueueItem[]>, per-session prompt queues with image attachments (QueueImageAttachment). Actions: add/remove/reorder/moveToSession/setQueue/migrateSession/loadFromDb. Persist subscription writes changes to IndexedDB |
-| `src/stores/cameraStore.ts` | pendingTarget, isAnimating, flyTo(), completeAnimation(). Exports: `DEFAULT_CAMERA_POSITION` ([18,16,18]), `DEFAULT_CAMERA_TARGET` ([0,1,0]) constants, `CameraTarget` interface (includes `requestId` field) |
-| `src/stores/roomStore.ts` | Rooms with id/name/sessionIds/collapsed/createdAt/roomIndex, persisted to localStorage['session-rooms']. Actions: createRoom/renameRoom/deleteRoom/addSession/removeSession/moveSession/toggleCollapse/setRoomIndex/migrateSession/getRoomForSession/loadFromStorage |
-| `src/stores/shortcutStore.ts` | Rebindable keyboard shortcuts. bindings array, rebind/resetOne/resetAll/getConflict/findActionForEvent/loadFromDb. Persisted to IndexedDB via db.settings key 'shortcutBindings' |
-| `src/stores/agendaStore.ts` | Tasks Map<string, AgendaTask>, loading, filter (AgendaFilter). Actions: fetchTasks/createTask/updateTask/deleteTask/toggleTask/setFilter. Server-backed via /api/agenda |
+| `src/stores/sessionStore.ts` | `sessions: Map<string, Session>`, selectedSessionId, previousSessionId. Actions: addSession/removeSession/updateSession/selectSession/deselectSession/setSessions/togglePin/toggleMute/toggleAlert/setSessionTitle. togglePin/toggleMute/toggleAlert/setSessionTitle optimistically update local state and fire `PUT /api/sessions/{id}/{pinned,muted,alerted,title}`. updateSession follows `replacesId` (deletes the old entry, re-points selection) |
+| `src/stores/wsStore.ts` | connected, reconnecting, lastSeq, client (WsClient). Actions: setConnected/setReconnecting/setLastSeq/setClient |
+| `src/stores/uiStore.ts` | activeModal, detailPanelOpen, detailPanelMinimized, activityFeedOpen, pendingFileOpen, cardDisplayMode (`'detailed'\|'compact'`), workspaceLoad (WorkspaceLoadState), selectedRoomIds (`Set<string>`). Actions: openModal/closeModal, setDetailPanelOpen, minimizeDetailPanel/restoreDetailPanel, setActivityFeedOpen, openFileInProject/clearPendingFileOpen, toggleCardDisplayMode, workspaceLoad lifecycle (startWorkspaceLoad/advanceWorkspaceLoad/finishWorkspaceLoad), toggleRoomFilter/clearRoomFilter |
+| `src/stores/settingsStore.ts` | Extends `BrowserSettings`. 9 themes (THEMES), per-CLI sound profiles (CLI_SOUND_PROFILES: claude/gemini/codex), ambient (DEFAULT_AMBIENT_SETTINGS), label alarms, hookDensity, API keys (anthropic/openai/gemini/googleTts), TTS block (ttsEnabled, ttsVoiceEn, ttsVoiceZh, ttsSpeakingRate), translation/explain block (translationEnabled, translationNativeLanguage, translationLearningLanguage, translationTrigger `'auto'\|'alt'\|'off'`, translationInheritContext, explainAttachFilePath `'ask'\|'always'\|'never'`). Complex store with DOM side effects (CSS vars, data-theme). Actions: per-CLI sound config, label alarms, setApiKey (provider includes `'googleTts'`), TTS/translation setters, loadFromDb/saveToDb, persistSetting, flashAutosave, resetDefaults |
+| `src/stores/queueStore.ts` | `queues: Map<string, QueueItem[]>` + `automation: Map<string, QueueAutomationConfig>`. Actions: add/remove/reorder/moveToSession/setQueue/updateItem, automation setters (getAutomation/setPaused/setAutoSend/setAutoEnter/setIdleGuard/setSkipWhenPrompting/setLoopExcludeWindows), migrateSession, loadFromDb. Persist subscription writes queues→`db.promptQueue` and automation→`db.queueAutomation`. Scheduling/chain semantics live in [Prompt Queue](./prompt-queue.md) / [Queue Scheduler](./queue-scheduler.md) |
+| `src/stores/queueHistoryStore.ts` | Global favorited queue items (★). `entries: QueueHistoryEntry[]`, loaded. Actions: loadFromDb/saveItem/updateEntry/setAlias/removeEntry/incrementUsed/applyToSession/bulkImport. Own Dexie table `db.queueHistory`. Cross-store: stamps/clears `historyId` on live `queueStore` items. UI + apply flow documented in [Queue Scheduler](./queue-scheduler.md) |
+| `src/stores/cameraStore.ts` | pendingTarget, isAnimating; flyTo()/completeAnimation(). Exports `DEFAULT_CAMERA_POSITION` (`[18, 16, 18]`), `DEFAULT_CAMERA_TARGET` (`[0, 1, 0]`), `CameraTarget` interface (position, lookAt, `requestId`). Incrementing requestId avoids sub-ms flyTo collisions |
+| `src/stores/roomStore.ts` | `rooms: Room[]` (id/name/sessionIds/collapsed/createdAt/roomIndex), persisted to `localStorage['session-rooms']`. Actions: createRoom/renameRoom/deleteRoom/addSession/removeSession/moveSession/toggleCollapse/setRoomIndex/migrateSession/getRoomForSession/loadFromStorage |
+| `src/stores/shortcutStore.ts` | Rebindable keyboard shortcuts. `bindings: ShortcutBinding[]`; rebind/resetOne/resetAll/getConflict/findActionForEvent/loadFromDb. Non-default overrides persisted to IndexedDB via `db.settings` key `'shortcutBindings'` |
+| `src/stores/agendaStore.ts` | `tasks: Map<string, AgendaTask>`, loading, filter (AgendaFilter). Actions: fetchTasks/createTask/updateTask/deleteTask/toggleTask/setFilter. Server-backed via `/api/agenda` (optimistic updates with revert on failure) |
+| `src/stores/floatingSessionsStore.ts` | `floats: FloatingSession[]` (PIP fork-translate/fork-explain terminals) + `poppedOut: string[]` (terminals popped into native Electron windows). Capped at `MAX_FLOATS = 4` (oldest evicted, its PTY DELETEd). Actions: open/close/closeAll/closeByOriginSession/migrateOriginSession/closeOrphans/setPoppedOut. close() snapshots terminal output to translationLog via captureResponse before `DELETE /api/terminals/{id}` |
 
 ## Implementation
-- Immutability: `set((s) => ({ sessions: new Map(s.sessions) }))` — always new Map for sessions
-- Session deduplication (most recent lastActivityAt wins) is handled in `useWebSocket.ts` snapshot handler, not sessionStore
-- sessionStore: togglePin/toggleMute/toggleAlert optimistically update local state and fire PUT to server
-- settingsStore persistence: each setter calls persistSetting(key, value) -> Dexie db.settings.put(), 2s autosave flash, safe serialization (catches circular refs)
-- settingsStore side effects: theme -> data-theme attribute on body, fontSize -> documentElement.style.fontSize, scanlines -> no-scanlines class, animationIntensity + animationSpeed -> CSS variables
-- uiStore: detailHeaderCollapsed persisted to localStorage['detail-header-collapsed'], cardDisplayMode to localStorage['card-display-mode'], selectedRoomIds to localStorage['room-filter']
-- queueStore: persist subscription tracks changed sessions and writes to IndexedDB via bulkDelete+bulkAdd. loadFromDb uses _skipPersist Set to avoid delete+re-insert cycle during initial load. Supports image attachments (QueueImageAttachment: name + dataUrl)
-- roomStore: auto-assigns next available roomIndex on createRoom. migrateSession re-keys sessionIds when session is replaced
-- agendaStore: server-backed via /api/agenda REST API, tasks stored as Map<string, AgendaTask>, filter state with search/priority/tag/showCompleted/sortBy
-- Map for session collections (not arrays) for O(1) lookup
-- Zero Zustand subscriptions inside Canvas (critical rule — prevents React Error #185)
+
+### Cross-cutting conventions
+- Immutability: `set((s) => ({ sessions: new Map(s.sessions) }))` — always a new Map for collection updates; never mutate existing objects.
+- `Map` for session/queue/agenda collections (not arrays) for O(1) lookup.
+- Zero Zustand subscriptions inside the R3F Canvas (critical rule — prevents React Error #185). All store reads happen in the DOM layer; data flows into Canvas via props.
+
+### sessionStore
+- togglePin/toggleMute/toggleAlert optimistically flip the flag in a new Map and fire `PUT /api/sessions/{id}/pinned|muted|alerted`; network errors are ignored.
+- setSessionTitle trims, no-ops on empty/unchanged, then fires `PUT /api/sessions/{id}/title`.
+- updateSession honors `replacesId`: deletes the replaced entry and, if it was selected, re-points `selectedSessionId` to the new id. removeSession clears selection if the removed session was selected.
+- Session deduplication (most recent lastActivityAt wins) is handled in `useWebSocket.ts` snapshot handler, not sessionStore.
+
+### settingsStore
+- Persistence is per-setter: each setter calls `persistSetting(key, value)` → `db.settings.put({ key, value, updatedAt })`, then `flashAutosave()` (2s `autosaveVisible` flash). `persistSetting` validates `JSON.stringify` before writing (skips circular refs).
+- DOM side effects (applied on set and in `loadFromDb`/`resetDefaults`): themeName → `data-theme` attribute on `document.body` (`command-center` removes the attribute), fontSize → `documentElement.style.fontSize`, scanlineEnabled → `no-scanlines` body class toggle, animationIntensity → `--anim-intensity` CSS var, animationSpeed → `--anim-speed` CSS var.
+- Defaults of note: fontSize `13`, hookDensity `'medium'`, ttsVoiceEn `'en-US-Chirp3-HD-Aoede'`, ttsVoiceZh `'cmn-CN-Chirp3-HD-Aoede'`, ttsSpeakingRate `1.0`, translationNativeLanguage `'简体中文'`, translationLearningLanguage `'English'`, translationTrigger `'auto'`, explainAttachFilePath `'ask'`. API keys default to empty strings (privacy).
+- `loadFromDb` hydrates from Dexie and re-applies all DOM side effects; `resetDefaults` resets in-memory state, re-applies side effects, and re-persists every default key.
+
+### uiStore
+- cardDisplayMode persisted to `localStorage['card-display-mode']`; selectedRoomIds persisted to `localStorage['room-filter']` (removed when empty). Both load on store init.
+- workspaceLoad is an ephemeral progress object `{ active, total, done, currentTitle }` driving the workspace-load overlay.
+
+### queueStore
+- The store is the shared, persisted source of truth for queues. `queues` items are written to `db.promptQueue`, `automation` configs to `db.queueAutomation`, via a single `subscribe` that diffs prev/next maps and persists only changed sessions (bulkDelete + bulkAdd per session).
+- `loadFromDb` hydrates automation rows first (so the scheduler reads fresh config on first tick), then queue items, using `_skipPersist`/`_skipAutomationPersist` sets to avoid a delete+re-insert echo (which would mint new auto-inc IDs and duplicate rows).
+- `DEFAULT_AUTOMATION` is a frozen sentinel `{ paused:false, autoSend:true, autoEnter:true, idleGuard:true, skipWhenPrompting:true }` returned for sessions with no config — selectors fall back to this stable reference to avoid a re-render loop.
+- Item shape, image attachments, scheduling/chain fields, and the global scheduler are documented in [Prompt Queue](./prompt-queue.md) and [Queue Scheduler](./queue-scheduler.md).
+
+### queueHistoryStore
+- Separate from queueStore because a favorite outlives its source queue item and session, carries breadcrumbs (sourceSessionTitle, usedCount), and uses its own table. `saveItem` snapshots the QueueItem (strips per-session id/sessionId/position, resets execution state), `applyToSession` clones the snapshot into a target queue with a fresh id and recomputed timing. `removeEntry` walks every queueStore item and clears any matching `historyId`. Detailed UI/flow in [Queue Scheduler](./queue-scheduler.md).
+
+### roomStore / agendaStore / floatingSessionsStore
+- roomStore: every mutation writes the whole array to `localStorage['session-rooms']`; createRoom auto-assigns the next free `roomIndex`; migrateSession re-keys sessionIds when a session is replaced.
+- agendaStore: server-backed via `/api/agenda`; all mutations are optimistic (temp id on create) and revert on a non-ok response or network error.
+- floatingSessionsStore: open() de-dupes by terminalId and evicts+kills the oldest float past `MAX_FLOATS`; closeByOriginSession/closeOrphans/migrateOriginSession keep popups attached to live sessions across removal/re-key/snapshot; poppedOut tracks terminals whose panel is hidden because they live in a native Electron window.
 
 ## Dependencies & Connections
 
 ### Depends On
-- [Client Persistence](./client-persistence.md) — settings persist to Dexie IndexedDB
-- [WebSocket Client](./websocket-client.md) — wsStore tracks connection state
+- [Client Persistence](./client-persistence.md) — settings, queues, queue automation, queue history, and shortcut overrides persist to Dexie IndexedDB
+- [WebSocket Client](./websocket-client.md) — wsStore tracks connection state (WsClient)
 
 ### Depended On By
 - ALL frontend components read from stores
-- [3D Cyberdrome Scene](../3d/cyberdrome-scene.md) — reads sessionStore, roomStore, settingsStore, cameraStore from DOM layer
+- [3D Cyberdrome Scene](../3d/cyberdrome-scene.md) — reads sessionStore, roomStore, settingsStore, cameraStore from the DOM layer
 - [Session Detail Panel](./session-detail-panel.md) — reads selectedSessionId, session data
-- [Sound/Alarm System](../multimedia/sound-alarm-system.md) — reads settingsStore for sound profiles
-- [Floating Terminal Fork](./floating-terminal-fork.md) — floatingSessionsStore drives PIP fork-translate terminals
+- [Sound/Alarm System](../multimedia/sound-alarm-system.md) — reads settingsStore sound profiles
+- [Prompt Queue](./prompt-queue.md) / [Queue Scheduler](./queue-scheduler.md) — read/write queueStore and queueHistoryStore
+- [Floating Terminal Fork](./floating-terminal-fork.md) — floatingSessionsStore drives PIP fork-translate/explain terminals
 - [Review Tab](./review-tab.md) — reads translationLog populated on float close
 
 ### Shared Resources
-- Zustand stores are singletons, accessed via hooks or getState()
+- Zustand stores are singletons, accessed via hooks or `getState()`
 
 ## Change Risks
 - Mutating session objects directly (instead of new Map) causes stale renders
 - Adding Zustand subscriptions inside Canvas causes React Error #185
-- Changing settingsStore keys breaks persistence migration
-- Modifying sessionStore actions affects all consumers
+- Changing settingsStore keys breaks persistence migration (keys are Dexie row keys)
+- Modifying sessionStore actions affects all consumers and the `/api/sessions/{id}/*` PUT contracts
+- Altering queueStore item/automation shape must stay in sync with the Dexie schema and the scheduler ([Prompt Queue](./prompt-queue.md))

@@ -1,44 +1,63 @@
 # WebSocket Client
 
 ## Function
-Manages WebSocket connection to server with auto-reconnect, event replay, and message handling for session updates and terminal I/O.
+Manages the browser's WebSocket connection to the server with auto-reconnect, event replay, backpressure protection, and message routing for session updates, terminal I/O relay, and DB-wipe signals.
 
 ## Purpose
-Real-time bridge between server and browser. Handles connection lifecycle, reconnection with exponential backoff, and event deduplication.
+Real-time bridge between server and browser. Handles connection lifecycle, reconnection with exponential backoff, sequence-based event replay after a disconnect, and fan-out of incoming session deltas into the Zustand stores, IndexedDB, the sound/alarm engine, pinned auto-respawn, and floating-popup lifecycle.
 
 ## Source Files
 | File | Role |
 |------|------|
-| `src/lib/wsClient.ts` (~4KB) | WebSocket client class with reconnect logic |
-| `src/hooks/useWebSocket.ts` | React hook that creates WsClient, handles 4 message types (snapshot, session_update, session_removed, clearBrowserDb); team_update/hook_stats/terminal_output/terminal_ready/terminal_closed are silently dropped (`break;`). Integrates sound + persistence |
+| `src/lib/wsClient.ts` (~4KB) | `WsClient` class: connect/reconnect, send with backpressure guard, replay request on reconnect, auth-failure handling, raw-socket access for terminal relay |
+| `src/hooks/useWebSocket.ts` | React hook that creates one `WsClient`, routes `ServerMessage`s (snapshot, session_update, session_removed, clearBrowserDb), and integrates sound, persistence, pinned respawn, and floating-popup cleanup. `team_update`/`hook_stats`/`terminal_output`/`terminal_ready`/`terminal_closed` are no-ops here (`break;`) — handled by other hooks/components |
+| `src/types/websocket.ts` | Discriminated-union message contracts shared by server + client: `ServerMessage` / `ClientMessage` and every member interface, plus `HookStats` shape |
 
 ## Implementation
-- Reconnection: 1s base delay, 10s max, formula min(1000 * 2^attempt, 10000), no reconnect on auth failure (code 4001)
-- On reconnect: sends {type: 'replay', sinceSeq: lastSeq} to recover missed events
-- useWebSocket handles: snapshot -> setSessions() bulk replace + setLastSeq + reconcile stale IndexedDB sessions, session_update -> updateSession() with replacesId migration (queue + room + IndexedDB) + persistSessionUpdate() + handleEventSounds() + checkAlarms(), session_removed -> removeSession(), clearBrowserDb -> delete + reopen IndexedDB
-- replacesId migration ordering (useWebSocket.ts:61-70): when `session.replacesId` is set, the handler synchronously calls `useQueueStore.getState().migrateSession(replacesId, newId)` and `useRoomStore.getState().migrateSession(replacesId, newId)` BEFORE awaiting `migrateSessionId()` for IndexedDB. Sync-Zustand-then-async-IDB ordering is intentional (see comment at lines 56-60): `updateSession()` re-keys the in-memory map atomically and may shift `selectedSessionId`, so QueueTab/Room views must already see the new id by the time React re-renders
-- Deduplication: sessions by most recent lastActivityAt
-- Sound integration: handleEventSounds() on every session_update, checkAlarms() for approval/input status
-- Auth failure: WsClient dispatches CustomEvent 'ws-auth-failed' on close code 4001, does not reconnect
-- Backpressure: WsClient checks bufferedAmount before sending, drops non-critical messages above 64KB threshold (terminal_input always sent)
-- Additional WsClient methods: `setToken()` (update auth token), `getRawSocket()` (access underlying WebSocket), `getLastSeq()` (current sequence number)
+
+### WsClient (`wsClient.ts`)
+- **Constructor options**: `{ url, token?, onMessage, onStatus }`.
+- **URL build**: resolves `url` against `window.location.origin`, upgrades scheme to `wss:`/`ws:`, appends `?token=` when a token is set.
+- **Reconnection**: `BASE_DELAY = 1000` (1s), `MAX_DELAY = 10000` (10s), delay `= min(1000 * 2^attempt, 10000)`; attempt counter resets to 0 on a successful `onopen`.
+- **No reconnect on auth failure**: close code `4001` → emits `disconnected` status, dispatches `document` CustomEvent `'ws-auth-failed'`, and stops (no reconnect).
+- **Replay on reconnect**: `onopen` sends `{ type: 'replay', sinceSeq: lastSeq }` when `lastSeq > 0`. `lastSeq` is tracked from `snapshot` messages (`msg.seq`).
+- **Backpressure**: `MAX_BUFFERED = 64 * 1024` (64KB). `send()` only writes when `readyState === OPEN`; if `bufferedAmount > 64KB` it drops the message unless `type === 'terminal_input'` (terminal input is always sent).
+- **Other methods**: `setToken(token)` updates the auth token for the next connect; `getRawSocket()` returns the underlying `WebSocket` (used by the terminal relay for direct message access); `getLastSeq()` returns the current sequence; `dispose()` clears the reconnect timer, detaches all handlers, and closes the socket.
+
+### useWebSocket hook (`useWebSocket.ts`)
+Creates the client with `url: '/ws'`, registers it in `wsStore` via `setClient`, calls `connect()`, and disposes on cleanup (re-runs when `token` changes). `handleStatus` maps status → `wsStore.setConnected` / `setReconnecting`.
+
+Message handlers:
+- **`snapshot`**: dedupes `msg.sessions` by `sessionId`, keeping the entry with the highest `lastActivityAt`; `setSessions(deduped)` (bulk replace) + `setLastSeq(msg.seq)`. Unless a workspace import is in progress (`isImportInProgress()`), calls `floatingSessionsStore.closeOrphans(liveIds)` to close popups whose origin session vanished (prevents leaked PTYs). Persists every session via `persistSessionUpdate`, then reconciles IndexedDB by `bulkDelete`-ing stored sessions absent from the snapshot.
+- **`session_update`**: captures `prevStatus` before mutating. If `session.replacesId` is set, migrates the old id → new id **synchronously in Zustand first** (`queueStore.migrateSession`, `roomStore.migrateSession`, `floatingSessionsStore.migrateOriginSession`) **before** the async IndexedDB migration (`migrateSessionId(...).then(delete old)`). This ordering is intentional: `updateSession()` re-keys the in-memory map atomically and may shift `selectedSessionId`, so QueueTab/Room/floating views must already see the new id by the time React re-renders. It does NOT call `removeSession()` (that would clear `selectedSessionId` before `updateSession` can follow it). Then `updateSession(session)` + `persistSessionUpdate`. On a **fresh** transition to `status === 'ended'` (had a prior non-ended status), calls `onSessionEnded(session)` for pinned auto-respawn (no-op for unpinned/user-closed sessions). Finally `handleEventSounds(session)` and `checkAlarms(session, ...)`.
+- **`session_removed`**: `floatingSessionsStore.closeByOriginSession(msg.sessionId)` (close that session's popups so their PTYs don't leak), then `removeSession(msg.sessionId)`.
+- **`clearBrowserDb`**: `floatingSessionsStore.closeAll()`, `setSessions(new Map())` (so autoSave can't re-publish killed sessions), then `db.delete().then(db.open())` to wipe + reopen IndexedDB.
+
+### Message contracts (`types/websocket.ts`)
+- **`ServerMessage`** union: `snapshot` (`{ sessions, teams, seq }`), `session_update` (`{ session, team? }`), `session_removed` (`{ sessionId }`), `team_update` (`{ team }`), `hook_stats` (`{ stats }`), `terminal_output` (`{ terminalId, data }`), `terminal_ready` (`{ terminalId }`), `terminal_closed` (`{ terminalId, reason? }`), `clearBrowserDb`.
+- **`ClientMessage`** union: `terminal_input` (`{ terminalId, data }`), `terminal_resize` (`{ terminalId, cols, rows }`), `terminal_disconnect` (`{ terminalId }`), `terminal_subscribe` (`{ terminalId }`), `update_queue_count` (`{ sessionId, count }`), `replay` (`{ sinceSeq }`).
+- **`HookStats`**: `{ totalHooks, hooksPerMin, events: Record<string, HookEventStats>, sampledAt }`, with per-event `count`/`rate`/`latency`/`processing` (`HookTimingStats` = `{ avg, min, max, p95 }`). Consumed elsewhere (hook stats UI), not in this hook.
 
 ## Dependencies & Connections
 
 ### Depends On
-- [Server WebSocket Manager](../server/websocket-manager.md) — connects to server WS
-- [State Management](./state-management.md) — updates sessionStore, wsStore
-- [Client Persistence](./client-persistence.md) — persists session data to IndexedDB
-- [Sound/Alarm System](../multimedia/sound-alarm-system.md) — triggers sounds on events
+- [Server WebSocket Manager](../server/websocket-manager.md) — connects to the server WS endpoint, source of all `ServerMessage`s
+- [State Management](./state-management.md) — updates sessionStore, wsStore, queueStore, roomStore, floatingSessionsStore
+- [Client Persistence](./client-persistence.md) — `persistSessionUpdate`, `migrateSessionId`, IndexedDB reconcile/wipe
+- [Sound & Alarm System](../multimedia/sound-alarm-system.md) — `handleEventSounds` / `checkAlarms` on each `session_update`
+- [Floating Terminal Fork](./floating-terminal-fork.md) — floatingSessionsStore popup-lifecycle calls in every handler
+- [Workspace Snapshot](./workspace-snapshot.md) — `isImportInProgress()` gate that suppresses orphan-close during restore
 
 ### Depended On By
-- [Terminal UI](./terminal-ui.md) — terminal I/O relay (browser transport)
-- ALL real-time UI updates depend on this
+- [Terminal UI](./terminal-ui.md) — terminal I/O relay (browser transport) via `getRawSocket()` and the terminal `ClientMessage`s
+- ALL real-time session UI updates depend on this hook
 
 ### Shared Resources
-- Single WsClient instance, wsStore state
+- Single `WsClient` instance registered in `wsStore`; the `ServerMessage`/`ClientMessage` contracts are shared verbatim with the server.
 
 ## Change Risks
-- Breaking reconnect logic means clients lose connection permanently
-- Changing message types requires server-side changes
-- Missing sound integration silences all event notifications
+- Breaking reconnect or replay logic means clients silently lose events after a disconnect.
+- Changing any `ServerMessage`/`ClientMessage` shape requires matching server-side changes (the union in `types/websocket.ts` is the shared contract).
+- The synchronous-Zustand-then-async-IDB ordering in the `replacesId` path is load-bearing: reversing it can orphan queue/room/floating state under the dead session id.
+- Skipping the floating-popup cleanup calls (`closeOrphans`/`closeByOriginSession`/`closeAll`) leaks server-side PTYs as invisible orphans.
+- Dropping `handleEventSounds`/`checkAlarms` silences all event notifications and alarms.
