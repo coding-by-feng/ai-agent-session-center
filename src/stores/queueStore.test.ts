@@ -199,6 +199,47 @@ describe('queueStore', () => {
       expect(items[0].totalFires).toBe(7);
       expect(items[0].sessionId).toBe('new-id');
     });
+
+    it('carries the per-session automation (paused / auto-send) across the re-key', () => {
+      // A session the user explicitly PAUSED must come back paused after a
+      // `claude --resume` re-keys it — otherwise the paused loop silently
+      // re-arms and fires one interval after the restore.
+      useQueueStore.setState({ automation: new Map() });
+      useQueueStore.getState().add('old-id', makeItem(1, 'old-id', 0));
+      useQueueStore.getState().setPaused('old-id', true);
+      useQueueStore.getState().setAutoSend('old-id', false);
+
+      useQueueStore.getState().migrateSession('old-id', 'new-id');
+
+      expect(useQueueStore.getState().automation.has('old-id')).toBe(false);
+      const cfg = useQueueStore.getState().getAutomation('new-id');
+      expect(cfg.paused).toBe(true);
+      expect(cfg.autoSend).toBe(false);
+    });
+
+    it('does not clobber an automation config the new id already has', () => {
+      useQueueStore.setState({ automation: new Map() });
+      useQueueStore.getState().add('old-id', makeItem(1, 'old-id', 0));
+      useQueueStore.getState().setPaused('old-id', true);
+      // The new id was already configured (e.g. an explicit restore set it).
+      useQueueStore.getState().setPaused('new-id', false);
+
+      useQueueStore.getState().migrateSession('old-id', 'new-id');
+
+      // new-id keeps its own config, not old-id's.
+      expect(useQueueStore.getState().getAutomation('new-id').paused).toBe(false);
+      expect(useQueueStore.getState().automation.has('old-id')).toBe(false);
+    });
+
+    it('migrates automation even when the session has no queue items', () => {
+      useQueueStore.setState({ automation: new Map(), queues: new Map() });
+      useQueueStore.getState().setPaused('old-id', true);
+
+      useQueueStore.getState().migrateSession('old-id', 'new-id');
+
+      expect(useQueueStore.getState().getAutomation('new-id').paused).toBe(true);
+      expect(useQueueStore.getState().automation.has('old-id')).toBe(false);
+    });
   });
 });
 

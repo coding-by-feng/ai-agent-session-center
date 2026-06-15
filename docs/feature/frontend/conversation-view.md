@@ -12,20 +12,21 @@ The in-memory session logs that drive most of the UI are truncated and split int
 
 | File | Role |
 |------|------|
-| `src/components/session/ConversationView.tsx` | React component: fetches transcript on mount, renders each entry (`EntryRow`), the per-entry `CopyButton`, and collapsible `PrevSessionSection` blocks; shows loading / empty states. |
-| `src/lib/transcript.ts` | Client helpers: `ConversationEntry` union type, `fetchTranscript()` (calls the server endpoint), and `reconstructFromLogs()` (in-memory fallback builder). |
+| `src/components/session/ConversationView.tsx` | React component: fetches transcript on mount, runs it through `transformEntries`, renders each entry (`EntryRow`), the per-entry `CopyButton`, collapsible `PrevSessionSection` and `SystemRow` blocks, and a sticky toolbar (role filter + jump-to-latest); shows loading / empty states. |
+| `src/lib/transcript.ts` | Client helpers: `ConversationEntry` union type (incl. client-only `command`/`system` roles), `fetchTranscript()` (calls the server endpoint), and `reconstructFromLogs()` (in-memory fallback builder). |
+| `src/lib/commandMessage.ts` | `transformEntries()` — rewrites Claude Code harness plumbing (`<command-name>` / `<command-args>` / `<local-command-stdout>` / `<local-command-caveat>`) in raw `user` entries into compact `command` chips (stdout folded in) and collapsible `system` rows. |
 | `src/components/session/DetailPanel.tsx` | Host: passes session logs + `searchQuery` + `projectPath` into `ConversationView` as `promptsContent`, and drives search-match highlight/navigation over the rendered `.search-highlight` nodes. |
 | `src/components/session/DetailTabs.tsx` | Defines the `conversation` tab (label `CONVERSATION`) and wraps `promptsContent` in a `tabScroll` container. |
-| `src/components/session/LinkifiedText.tsx` | Renders entry text, turning file paths / URLs into clickable links (used for user/assistant/previous-session text). |
+| `src/components/session/LinkifiedText.tsx` | Renders entry text, turning file paths / URLs into clickable links (used for user/assistant/previous-session text). Clicking a path opens the [File-Open Chooser](./file-open-chooser.md) popover anchored at the cursor. |
 | `server/extractPreviousAnswer.ts` | Server source of the transcript: `readClaudeTranscript()` parses the Claude JSONL into the matching `ConversationEntry[]` (also defines `readClaudeLastAssistant`). |
 | `server/apiRouter.ts` | Hosts `GET /api/sessions/:id/transcript`, which calls `readClaudeTranscript` and never 500s (returns empty array on any error). |
-| `src/styles/modules/DetailPanel.module.css` | All `conv*` / `prevSession*` styles (entry rows, role badges, tool name/input, copy button, collapsible headers). |
+| `src/styles/modules/DetailPanel.module.css` | All `conv*` / `prevSession*` styles (entry rows, role badges, tool name/input, copy button, collapsible headers, the sticky `convToolbar` filter pills + jump-to-latest, `convCommand*` chip, and `convSystemRow*` collapsible). |
 
 ## Implementation
 
 ### Data structure — `ConversationEntry` (discriminated union)
 
-Defined identically in `src/lib/transcript.ts` and `server/extractPreviousAnswer.ts` (kept in sync by convention):
+The first five roles are defined identically in `src/lib/transcript.ts` and `server/extractPreviousAnswer.ts` (kept in sync by convention). The `command` and `system` roles are **client-only** — the server never emits them; they are synthesized in the browser by `transformEntries` (`src/lib/commandMessage.ts`) from raw `user` entries:
 
 ```ts
 type ConversationEntry =
@@ -34,7 +35,20 @@ type ConversationEntry =
   | { role: 'tool_use';    tool: string; input: string; timestamp: number }
   | { role: 'tool_result'; tool?: string; output: string; timestamp: number; isError?: boolean }
   | { role: 'event';       eventType: string; detail: string; timestamp: number }
+  // client-only — synthesized by transformEntries():
+  | { role: 'command';     name: string; args?: string; stdout?: string; timestamp: number }
+  | { role: 'system';      text: string; timestamp: number }
 ```
+
+### Harness-plumbing transform — `transformEntries` (`commandMessage.ts`)
+
+Claude Code emits internal `user` messages wrapped in harness tags. Rendering them verbatim buries the real conversation, so on load every entry list is post-processed (both the fetched transcript and the in-memory fallback):
+
+- A `user` entry containing `<command-name>…</command-name>` → a `command` entry: `name` (e.g. `/clear`), `args` (from `<command-args>`, only when non-empty), and `stdout` (from `<local-command-stdout>`, when present).
+- A standalone `<local-command-stdout>` entry → folded into the immediately preceding `command` entry that has no `stdout` yet (spread into a new object); if there is none, it becomes its own `system` entry.
+- A `<local-command-caveat>` entry (the "DO NOT respond…" boilerplate) → a `system` entry holding only the inner text.
+- All other entries pass through unchanged; order is preserved.
+- A cheap `RE_ANY_TAG` pre-check (`<command-name>|<local-command-caveat>|<local-command-stdout>`) skips regex work for ordinary messages.
 
 ### Component props — `ConversationViewProps`
 
@@ -42,11 +56,22 @@ type ConversationEntry =
 
 ### Local state
 
-- `entries: ConversationEntry[]` — the rendered thread (`useState([])`).
+- `entries: ConversationEntry[]` — the rendered thread, already passed through `transformEntries` (`useState([])`).
 - `loading: boolean` — true while the fetch is in flight (`useState(true)`).
+- `filter: RoleFilter` — `'all' | 'user' | 'asst' | 'tool'` (starts `'all'`); drives the toolbar pills and `visibleEntries`.
+- `atBottom: boolean` — whether the bottom sentinel is in view; disables the jump-to-latest button (starts `true`).
+- `rootRef` / `bottomRef` — refs to the view root (for scroll-parent discovery) and the bottom sentinel `<div>` (scroll target + IntersectionObserver subject).
 - `query` — `searchQuery?.toLowerCase() || ''`, used for highlight matching.
 - `CopyButton`: `copied: boolean` (resets after **1500 ms**).
 - `PrevSessionSection`: `collapsed: boolean` (starts `true` — collapsed by default).
+- `SystemRow`: `collapsed: boolean` (starts `true` — caveat hidden by default).
+
+### Role filter & jump-to-latest
+
+- `FILTERS` = `[All, User, Asst, Tool]`. `matchesFilter(role, filter)`: **User** → `user` + `command`; **Asst** → `assistant`; **Tool** → `tool_use` + `tool_result`; **All** → everything. `system`/`event` and previous-session blocks only appear under **All**.
+- `visibleEntries` (`useMemo`) is `entries` filtered by `matchesFilter` (or all of `entries` when `filter === 'all'`).
+- `getScrollParent(el)` walks up from `rootRef` to the nearest ancestor whose computed `overflow-y` is `auto`/`scroll` and that actually overflows; used as the IntersectionObserver `root` so "at bottom" is measured against the real tab scroll container, not the viewport.
+- An `IntersectionObserver` (guarded by `typeof IntersectionObserver !== 'undefined'`, re-created on `visibleEntries.length` change) observes `bottomRef` and sets `atBottom`. `jumpToLatest` calls `bottomRef.current.scrollIntoView({ block: 'end', behavior: 'smooth' })`.
 
 ### Constants & caps
 
@@ -64,6 +89,10 @@ Server (`extractPreviousAnswer.ts`, applied before the data is sent):
 | Element | Label / content | Handler / behavior |
 |---------|-----------------|--------------------|
 | Role badge (`convRole`) | `USER`, `ASSISTANT`, `TOOL`, `TOOL RESULT`, `TOOL ERROR`, or the raw `eventType` for events | static |
+| Filter pills (`convFilterPill` / `convFilterPillActive`) | `All` / `User` / `Asst` / `Tool` in the sticky `convToolbar` | `onClick` → `setFilter(key)` |
+| Jump-to-latest (`convJumpLatest`) | `↓ latest` | `onClick` → `jumpToLatest()`; `disabled` while `atBottom` |
+| Command chip (`convCommand`) | `⌘ {name}` (`convCommandName`) + optional `{args}` (`convCommandArgs`), and a folded `↳ {stdout}` line (`convCommandStdout`) | static; carries a `USER` badge |
+| System row (`convSystemRow`) | `▶ system (1 hidden)` header (`convSystemHeader`); expands to raw caveat/plumbing text (`convSystemBody`) | `onClick` header toggles `collapsed` |
 | Timestamp (`convTime`) | `formatTime(ts)` → `toLocaleTimeString('en-US', { hour12: false })`; empty string when `ts <= 0` | static |
 | Copy button (`convCopy`) | `COPY` → `COPIED` (1.5 s) | `handleCopy`: `e.stopPropagation()`, `navigator.clipboard.writeText(text.trim())`; shown on user & assistant entries only |
 | Tool name (`convToolName`) / input (`convToolInput`) | `entry.tool` + capped input/output | static; error results use `convToolFailed` class instead of `convTool` |
@@ -88,8 +117,8 @@ Server (`extractPreviousAnswer.ts`, applied before the data is sent):
 
 1. On mount and on every `sessionId` change, the `useEffect` sets `loading = true` and calls `fetchTranscript(sessionId)`.
 2. `fetchTranscript` issues `GET /api/sessions/${encodeURIComponent(sessionId)}/transcript`. On non-ok response, malformed body, missing `success`, or thrown error it returns `[]`.
-3. If the returned array is non-empty → `setEntries(transcript)`.
-4. If empty → `setEntries(reconstructFromLogs(prompts, responses, toolCalls, events))` (in-memory fallback, captured at fetch time).
+3. The raw list is `transcript` when non-empty, else `reconstructFromLogs(prompts, responses, toolCalls, events)` (in-memory fallback, captured at fetch time).
+4. The raw list is run through `transformEntries(raw)` before `setEntries(...)`, so command/system synthesis applies to both the real transcript and the fallback.
 5. `finally` → `setLoading(false)` (guarded by a `cancelled` flag so a fast session switch doesn't overwrite newer state).
 
 > The effect deliberately depends on `sessionId` only (`exhaustive-deps` disabled); in-memory logs are the fallback captured at fetch time, so live prop updates do not re-run the fetch.
@@ -104,9 +133,11 @@ Server (`extractPreviousAnswer.ts`, applied before the data is sent):
 
 ### Flow C — render
 
-1. Previous sessions (if any) render first, **reversed** (most recent prior session first), each as a collapsed `PrevSessionSection`.
-2. Then the current-session `entries` render via `EntryRow` (keyed `` `${entry.timestamp}-${i}` ``).
-3. If `entries` is empty: show `Loading transcript…` while loading, otherwise `No conversation yet` (unless previous sessions exist, in which case nothing extra is shown).
+1. The sticky `convToolbar` (role pills + `↓ latest`) renders first inside the view root.
+2. Previous sessions (if any, and only when `filter === 'all'`) render next, **reversed** (most recent prior session first), each as a collapsed `PrevSessionSection`.
+3. Then `visibleEntries` render: `system` entries via `SystemRow`, everything else via `EntryRow` (keyed `` `${entry.timestamp}-${i}` ``).
+4. A bottom sentinel `<div ref={bottomRef} />` is the scroll target for jump-to-latest and the IntersectionObserver subject for `atBottom`.
+5. If `visibleEntries` is empty: show `Loading transcript…` while loading; otherwise `No conversation yet` (filter `all`) or `No matching messages` (a narrowing filter is active) — unless previous sessions are shown, in which case nothing extra is shown.
 
 ## Dependencies & Connections
 
@@ -127,11 +158,14 @@ Server (`extractPreviousAnswer.ts`, applied before the data is sent):
 - **`ConversationEntry` union** — duplicated in `src/lib/transcript.ts` and `server/extractPreviousAnswer.ts`; the two **must stay in sync** (no shared import across the server/client boundary here).
 - **Claude Code JSONL transcripts** — `~/.claude/projects/<encoded-project>/<sessionId>.jsonl`, read by the server; also the data source for last-assistant extraction used by floating sessions ([server/floating-session-spawner.md](../server/floating-session-spawner.md)).
 - **Global `.search-highlight` / `.search-highlight-active` classes** (`src/styles/base.css`) — shared with DetailPanel's cross-tab search navigation.
-- **`LinkifiedText`** — shared text renderer for clickable paths/URLs.
+- **`LinkifiedText`** — shared text renderer for clickable paths/URLs. File-path clicks call `uiStore.openFileChooser(path, projectPath, { x, y })` (cursor coords; keyboard Enter anchors to the link's bounding rect) to show the [File-Open Chooser](./file-open-chooser.md) popover instead of opening directly.
 
 ## Change Risks
 
-- **`ConversationEntry` shape drift** — changing the union in one file without the other silently breaks parsing: server fields the client doesn't render are dropped, and client expectations the server stops sending cause blank entries. Update both `src/lib/transcript.ts` and `server/extractPreviousAnswer.ts` together.
+- **`ConversationEntry` shape drift** — the **five base roles** must stay in sync across `src/lib/transcript.ts` and `server/extractPreviousAnswer.ts`: server fields the client doesn't render are dropped, and client expectations the server stops sending cause blank entries. The `command`/`system` roles are **client-only** (synthesized by `transformEntries`); the server must never emit them, and `EntryRow` returns `null` for any non-`event` role it doesn't explicitly handle (so a future client-only role won't render until a branch is added).
+- **`transformEntries` tag coupling** — the parser keys off the literal Claude Code tags (`<command-name>`, `<command-args>`, `<local-command-stdout>`, `<local-command-caveat>`). If the CLI renames or restructures these, commands silently fall back to raw `user` text again. The pre-check `RE_ANY_TAG` and the per-tag regexes in `commandMessage.ts` must be updated together (covered by `src/lib/commandMessage.test.ts`).
+- **Role filter hides content** — `User`/`Asst`/`Tool` deliberately drop `system`/`event` rows and previous-session blocks; only **All** shows everything. A stuck non-`all` filter can make the view look empty (`No matching messages`).
+- **Jump-to-latest scroll root** — `getScrollParent` must find the real scrolling ancestor (`DetailTabs` `tabScroll`); if the tab's overflow styling changes so no ancestor reports `auto`/`scroll`, the IntersectionObserver falls back to the viewport `root` and `atBottom` (button enable/disable) can read incorrectly.
 - **Endpoint contract** — `fetchTranscript` requires `{ success: true, data: [...] }`; any other shape (or a real 500) forces the in-memory fallback, which only shows failed tool results and truncated logs. Keep the endpoint returning an empty array (200) on error rather than throwing. Affects [server/api-endpoints.md](../server/api-endpoints.md).
 - **`sessionId`-only effect dependency** — because the fetch is keyed on `sessionId`, prop updates to `prompts`/`responses`/`toolCalls`/`events` after mount do **not** refresh the view; the fallback snapshot is captured once. Reworking the effect deps changes refresh semantics and could cause flicker on every store update.
 - **CSS-module vs global class** — the highlight class `search-highlight` is intentionally global; renaming it to a module class would silently break DetailPanel's match navigation (which queries the global selector). Affects [frontend/session-detail-panel.md](./session-detail-panel.md).

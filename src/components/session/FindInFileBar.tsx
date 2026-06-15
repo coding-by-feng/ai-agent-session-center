@@ -3,6 +3,7 @@
  * Triggered by Cmd/Ctrl+F or the toolbar icon.
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { normalizeForSearch } from '@/lib/searchNormalize';
 import styles from '@/styles/modules/FindInFileBar.module.css';
 
 interface FindInFileBarProps {
@@ -48,9 +49,9 @@ export default function FindInFileBar({
     if (!query || !fileContent) return [];
     const lines = fileContent.split('\n');
     const result: MatchPosition[] = [];
-    const needle = caseSensitive ? query : query.toLowerCase();
+    const needle = normalizeForSearch(query, caseSensitive);
     for (let i = 0; i < lines.length; i++) {
-      const haystack = caseSensitive ? lines[i] : lines[i].toLowerCase();
+      const haystack = normalizeForSearch(lines[i], caseSensitive);
       let col = haystack.indexOf(needle);
       while (col !== -1) {
         result.push({ line: i + 1, col });
@@ -235,8 +236,8 @@ export function highlightFindMatches(
   currentLine?: number,
 ): React.ReactNode {
   if (!term || !text) return text || '\u00A0';
-  const needle = caseSensitive ? term : term.toLowerCase();
-  const haystack = caseSensitive ? text : text.toLowerCase();
+  const needle = normalizeForSearch(term, caseSensitive);
+  const haystack = normalizeForSearch(text, caseSensitive);
   const parts: React.ReactNode[] = [];
   let lastIdx = 0;
   let col = haystack.indexOf(needle);

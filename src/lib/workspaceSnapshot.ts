@@ -8,7 +8,7 @@ import { useRoomStore } from '@/stores/roomStore';
 import type { Room } from '@/stores/roomStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useQueueStore } from '@/stores/queueStore';
-import type { QueueItem } from '@/stores/queueStore';
+import type { QueueItem, QueueAutomationConfig } from '@/stores/queueStore';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 
 // ---------------------------------------------------------------------------
@@ -69,8 +69,20 @@ export interface SessionSnapshot {
       | 'totalFires'
     >
   >;
-  /** True for floating Explain/Translate popup sessions — kept out of the agents list and rendered as PiP windows. */
+  /** Per-session queue automation (paused / quiet-hours / auto-send / auto-enter).
+   *  Carried through restore so a session the user paused or silenced stays
+   *  that way — without this, the config reset to defaults on every restart and
+   *  a paused loop came back armed and fired one interval later. */
+  automation?: QueueAutomationConfig;
+  /** Process-isolation marker (clone/fork/popup). Restored so the kill flow keeps guarding the origin's PID after restart. */
   isFork?: boolean;
+  /**
+   * True for floating Explain/Translate popup sessions — kept out of the agents
+   * list and rendered as PiP windows. Always written by new exports (false for
+   * clone/fork sessions); absent only in legacy snapshots, where
+   * `isFork && originSessionId` is the fallback floating heuristic.
+   */
+  isFloating?: boolean;
   /** Origin session ID — required to re-attach the floating window to its parent after restart. */
   originSessionId?: string;
 }
@@ -80,6 +92,17 @@ export interface WorkspaceSnapshot {
   exportedAt: number;
   sessions: SessionSnapshot[];
   rooms: Room[];
+}
+
+/**
+ * Whether a snapshot entry is a floating PiP popup. Legacy snapshots (exported
+ * before isFloating existed) never carry the field — for those, fall back to
+ * the old `isFork && originSessionId` heuristic, matching how those sessions
+ * behaved before the upgrade. New snapshots always write the field, so clones
+ * (isFloating: false) restore as visible sessions.
+ */
+export function isFloatingSnapshot(s: SessionSnapshot): boolean {
+  return s.isFloating ?? !!(s.isFork && s.originSessionId);
 }
 
 // ---------------------------------------------------------------------------
@@ -134,6 +157,20 @@ export function buildSnapshot(
 
     exportedSessionIds.add(session.sessionId);
     const projectTabs = getProjectTabs(session.sessionId);
+    // Capture the per-session automation config only when it deviates from the
+    // defaults — a default config carries no information and just bloats the
+    // snapshot. A restored config keeps a paused/silenced session that way.
+    const rawAutomation = useQueueStore.getState().automation.get(session.sessionId);
+    const automation =
+      rawAutomation &&
+      (rawAutomation.paused ||
+        !rawAutomation.autoSend ||
+        !rawAutomation.autoEnter ||
+        !rawAutomation.idleGuard ||
+        !rawAutomation.skipWhenPrompting ||
+        (rawAutomation.loopExcludeWindows?.length ?? 0) > 0)
+        ? { ...rawAutomation }
+        : undefined;
     const rawQueue = useQueueStore.getState().queues.get(session.sessionId);
     const queueItems = rawQueue && rawQueue.length > 0
       ? rawQueue.map((q) => ({
@@ -170,7 +207,11 @@ export function buildSnapshot(
       projectTabs,
       fileTabs: getFileTabs(session.sessionId, projectTabs),
       queueItems,
+      automation,
       isFork: session.isFork,
+      // Explicit false (not undefined) so import can tell a new-format clone
+      // from a legacy-snapshot float (the field is absent entirely pre-isFloating).
+      isFloating: !!session.isFloating,
       originSessionId: session.originSessionId,
     });
   }
@@ -409,7 +450,7 @@ export async function importSnapshot(
   // orphan. (Forks whose origin IS restored are re-linked in the second pass.)
   const restoredOriginalIds = new Set(userFiltered.map((s) => s.originalSessionId));
   const dedupedSessions = userFiltered.filter(
-    (s) => !s.isFork || !s.originSessionId || restoredOriginalIds.has(s.originSessionId),
+    (s) => !isFloatingSnapshot(s) || !s.originSessionId || restoredOriginalIds.has(s.originSessionId),
   );
   const droppedForks = userFiltered.length - dedupedSessions.length;
   if (droppedForks > 0) {
@@ -485,9 +526,11 @@ export async function importSnapshot(
           alerted: sessionSnap.alerted || undefined,
           accentColor: sessionSnap.accentColor || undefined,
           characterModel: sessionSnap.characterModel || undefined,
-          // Floating popup sessions: preserve fork status so they stay PiP
-          // (and out of the sidebar list) across restarts.
+          // Preserve fork status (kill-guard for the origin's PID) and floating
+          // status (PiP, hidden from the sidebar) separately: clones restore
+          // with isFork only and stay visible in the session lists.
           isFork: sessionSnap.isFork || undefined,
+          isFloating: isFloatingSnapshot(sessionSnap) || undefined,
           originSessionId: sessionSnap.originSessionId || undefined,
         }),
       });
@@ -504,7 +547,7 @@ export async function importSnapshot(
         // complete), so it re-links to the origin session's NEW id rather than
         // the stale snapshot id. Without this the PiP UI never reappears, or
         // worse, reappears pinned to a dead id and can never be shown.
-        if (sessionSnap.isFork && sessionSnap.originSessionId) {
+        if (isFloatingSnapshot(sessionSnap) && sessionSnap.originSessionId) {
           pendingFloatReopens.push({
             terminalId: data.terminalId,
             label: sessionSnap.title || 'Floating',
@@ -592,6 +635,14 @@ export async function importSnapshot(
             };
           });
           useQueueStore.getState().setQueue(data.terminalId, restoredItems);
+        }
+
+        // Restore the per-session automation (paused / quiet-hours / auto-send)
+        // under the new terminal id BEFORE any loop re-arms, so a paused or
+        // silenced session stays suppressed. migrateSession later carries this
+        // forward when the CLI re-keys term-* → hookSessionId.
+        if (sessionSnap.automation) {
+          useQueueStore.getState().setAutomation(data.terminalId, sessionSnap.automation);
         }
 
         // Restore terminal output from saved buffer (previous session's scrollback)

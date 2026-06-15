@@ -97,7 +97,11 @@ export default function FloatingTerminalPanel({
   const restoreRef = useRef<{ pos: Pos; size: Size } | null>(null);
 
   const client = useWsStore((s) => s.client);
-  const ws = useMemo(() => client?.getRawSocket() ?? null, [client]);
+  // Re-derive on reconnect: the stable WsClient swaps its socket in place, so
+  // [client] alone freezes the floating terminal on the dead pre-reconnect
+  // socket after a server restart.
+  const connected = useWsStore((s) => s.connected);
+  const ws = useMemo(() => client?.getRawSocket() ?? null, [client, connected]);
 
   const originSession = useSessionStore((s) =>
     originSessionId ? s.sessions.get(originSessionId) : undefined,

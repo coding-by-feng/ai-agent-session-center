@@ -1,8 +1,8 @@
 process.env.ELECTRON = '1'
 
-import { app, BrowserWindow, shell, Menu, ipcMain } from 'electron'
+import { app, BrowserWindow, shell, Menu, ipcMain, screen } from 'electron'
 import path from 'path'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { setupTray } from './tray.js'
 import { registerSetupHandlers } from './ipc/setupHandlers.js'
 import { registerAppHandlers } from './ipc/appHandlers.js'
@@ -84,6 +84,64 @@ async function createWindow(): Promise<BrowserWindow> {
 let mainWindowRef: BrowserWindow | null = null
 const popoutWindows = new Map<string, BrowserWindow>()
 
+const POPOUT_DEFAULT_SIZE = { width: 820, height: 560 }
+// Last-used popout window bounds, persisted so the window re-opens where the
+// user last placed it — e.g. dragged onto a second monitor.
+const POPOUT_BOUNDS_FILE = path.join(app.getPath('userData'), 'popout-bounds.json')
+
+interface WindowBounds { x: number; y: number; width: number; height: number }
+
+function loadPopoutBounds(): WindowBounds | null {
+  try {
+    const raw = readFileSync(POPOUT_BOUNDS_FILE, 'utf8')
+    const b = JSON.parse(raw) as Partial<WindowBounds>
+    if (
+      typeof b.x === 'number' && typeof b.y === 'number' &&
+      typeof b.width === 'number' && typeof b.height === 'number'
+    ) {
+      return { x: b.x, y: b.y, width: b.width, height: b.height }
+    }
+  } catch { /* missing or malformed — fall back to auto-placement */ }
+  return null
+}
+
+function savePopoutBounds(bounds: WindowBounds): void {
+  try { writeFileSync(POPOUT_BOUNDS_FILE, JSON.stringify(bounds)) } catch { /* ignore */ }
+}
+
+/** True when the window's center sits inside some currently-connected display.
+ *  Guards against restoring onto a monitor that has since been unplugged. */
+function boundsOnSomeDisplay(b: WindowBounds): boolean {
+  const cx = b.x + b.width / 2
+  const cy = b.y + b.height / 2
+  return screen.getAllDisplays().some((d) => {
+    const { x, y, width, height } = d.bounds
+    return cx >= x && cx <= x + width && cy >= y && cy <= y + height
+  })
+}
+
+/** Where a fresh popout should open: the last-saved bounds when still visible,
+ *  otherwise centered on a secondary monitor if one exists, else the display
+ *  under the cursor (falls back to primary). */
+function computePopoutBounds(): WindowBounds {
+  const saved = loadPopoutBounds()
+  if (saved && boundsOnSomeDisplay(saved)) return saved
+
+  const displays = screen.getAllDisplays()
+  const primary = screen.getPrimaryDisplay()
+  const target =
+    displays.find((d) => d.id !== primary.id) ??
+    screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+  const { x, y, width, height } = target.workArea
+  const { width: w, height: h } = POPOUT_DEFAULT_SIZE
+  return {
+    x: Math.round(x + (width - w) / 2),
+    y: Math.round(y + (height - h) / 2),
+    width: w,
+    height: h,
+  }
+}
+
 function registerPopoutHandler() {
   ipcMain.handle('window:open-terminal', (_e, opts: { terminalId?: string; originSessionId?: string; label?: string }) => {
     const terminalId = opts?.terminalId
@@ -97,8 +155,10 @@ function registerPopoutHandler() {
     if (opts.originSessionId) qs.set('originSessionId', opts.originSessionId)
     if (opts.label) qs.set('label', opts.label)
 
+    const bounds = computePopoutBounds()
     const w = new BrowserWindow({
-      width: 820, height: 560, minWidth: 480, minHeight: 320,
+      x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
+      minWidth: 480, minHeight: 320,
       backgroundColor: '#0a0a1a',
       title: opts.label || 'Floating terminal',
       webPreferences: {
@@ -108,6 +168,11 @@ function registerPopoutHandler() {
         sandbox: true,
       },
     })
+
+    // Remember where the user leaves it (incl. which monitor) for next time.
+    const persistBounds = () => { if (!w.isDestroyed()) savePopoutBounds(w.getBounds()) }
+    w.on('moved', persistBounds)
+    w.on('resized', persistBounds)
     // Same guards as the main window: no reload (loses terminal), no in-app nav.
     w.webContents.on('before-input-event', (ev, input) => {
       if ((input.key === 'r' && (input.meta || input.control)) || input.key === 'F5') ev.preventDefault()

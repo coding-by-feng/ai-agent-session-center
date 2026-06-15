@@ -1,6 +1,7 @@
 /**
  * LinkifiedText — renders plain text with clickable file paths.
- * File paths are detected via regex and open in the PROJECT tab on click.
+ * File paths are detected via regex; clicking opens the FileOpenChooser
+ * popover (open in app / default app / reveal in Finder).
  */
 import { useMemo } from 'react';
 import { useUiStore } from '@/stores/uiStore';
@@ -49,16 +50,18 @@ export default function LinkifiedText({ text, projectPath }: LinkifiedTextProps)
               textDecorationColor: 'rgba(0, 212, 255, 0.4)',
               cursor: 'pointer',
             }}
-            title={`Open ${part.value} in Project tab`}
+            title={`Choose how to open ${part.value}`}
             onClick={(e) => {
               e.stopPropagation();
               const clean = part.value.replace(/^\.\//, '');
-              useUiStore.getState().openFileInProject(clean, projectPath || '');
+              useUiStore.getState().openFileChooser(clean, projectPath || '', { x: e.clientX, y: e.clientY });
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 const clean = part.value.replace(/^\.\//, '');
-                useUiStore.getState().openFileInProject(clean, projectPath || '');
+                // No cursor position on keyboard activation — anchor to the link element.
+                const rect = e.currentTarget.getBoundingClientRect();
+                useUiStore.getState().openFileChooser(clean, projectPath || '', { x: rect.left, y: rect.bottom });
               }
             }}
           >

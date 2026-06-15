@@ -10,7 +10,7 @@ The bridge between AI CLI processes (Claude, Gemini, Codex) and the dashboard. W
 | File | Role |
 |------|------|
 | `hooks/dashboard-hook.sh` | Claude Code bash hook relay (reads stdin JSON, enriches with PID/TTY/env vars via jq, appends to JSONL queue) |
-| `hooks/dashboard-hook-gemini.sh` | Gemini CLI hook relay (event name from `$1`, session/cwd from `GEMINI_SESSION_ID`/`GEMINI_CWD`; prints `{"decision":"allow"}` synchronously since Gemini hooks block, maps Gemini events → dashboard events, tags `source: "gemini"` + `gemini_event`, appends to JSONL queue) |
+| `hooks/dashboard-hook-gemini.sh` | Gemini CLI hook relay (event name from `$1`, session/cwd from `GEMINI_SESSION_ID`/`GEMINI_CWD`; prints `{"decision":"allow"}` synchronously since Gemini hooks block, maps Gemini events → dashboard events, tags `source: "gemini"` + `cli_source: "gemini"` + `gemini_event`, appends to JSONL queue) |
 | `hooks/dashboard-hook-codex.sh` | Codex lifecycle hook relay (reads JSON from stdin with `$1` legacy fallback, normalizes `hook_event_name`/`type` → event, maps `last_assistant_message`/`last-assistant-message` → `response`, tags `cli_source: "codex"` + `codex_event`, appends to JSONL queue) |
 | `hooks/install-hooks.js`, `hooks/install-hooks-api.js`, `hooks/install-hooks-api.cjs` | CLI/API installers for Claude, Gemini, and Codex hook registration |
 | `hooks/install-hooks-core.js`, `hooks/install-hooks-core.cjs` | Pure install helpers, including Codex TOML lifecycle hook block generation/removal |
@@ -37,7 +37,7 @@ The bridge between AI CLI processes (Claude, Gemini, Codex) and the dashboard. W
 - Gemini hooks are **synchronous/blocking**, so the script prints `{"decision":"allow"}` to stdout immediately, then enriches in the background subshell
 - Event name arrives as `$1`; session/cwd come from `GEMINI_SESSION_ID` / `GEMINI_CWD` env vars
 - Event mapping → dashboard names: `SessionStart`→`SessionStart`, `BeforeAgent`→`UserPromptSubmit`, `BeforeTool`→`PreToolUse`, `AfterTool`→`PostToolUse`, `AfterAgent`→`Stop`, `SessionEnd`→`SessionEnd`, `Notification`→`Notification` (others pass through)
-- Tags `source: "gemini"` + `gemini_event`; maps `prompt`/`llm_request` and `response`/`llm_response`/`prompt_response`; TTY cache in `/tmp/gemini-tty-cache/$PPID`
+- Tags `source: "gemini"` + `cli_source: "gemini"` (authoritative CLI family read by `sessionStore` and the floating-popup spawner's `resolveOriginCli`) + `gemini_event`; maps `prompt`/`llm_request` and `response`/`llm_response`/`prompt_response`; TTY cache in `/tmp/gemini-tty-cache/$PPID`
 
 ### Codex Hook Script (`dashboard-hook-codex.sh`)
 - Codex command hooks read JSON from stdin; keeps a legacy `$1` fallback only for old `notify` installs

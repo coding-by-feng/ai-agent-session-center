@@ -32,6 +32,15 @@ interface FloatingSessionsState {
    * origin is gone they'd be invisible AND their PTYs would leak. Closing them
    * snapshots output, kills the PTY, and drops them from the store.
    */
+  /**
+   * Snapshot the popup's on-screen output into its REVIEW/AI-popup log row
+   * WITHOUT killing the PTY. Previously the response was only captured in
+   * close(), so any restart/reload while a popup was still open lost the
+   * answer permanently (the entry forever showed "response not captured").
+   * Idempotent — re-capturing just overwrites the draft with the latest text,
+   * so a panel can poll this safely while it's open.
+   */
+  captureNow: (terminalId: string) => Promise<void>;
   closeByOriginSession: (originSessionId: string) => void;
   /**
    * Re-point floats from an old origin session id to a new one. Used when a
@@ -86,6 +95,22 @@ export const useFloatingSessionsStore = create<FloatingSessionsState>((set, get)
     }
   },
 
+  captureNow: async (terminalId) => {
+    try {
+      const resp = await fetch(`/api/terminals/${encodeURIComponent(terminalId)}/output`);
+      if (resp.ok) {
+        const data = await resp.json();
+        if (typeof data.output === 'string' && data.output) {
+          // Base64 → bytes → UTF-8. `atob` alone yields a Latin-1 binary
+          // string, which mojibakes multibyte chars (e.g. `·` → `Â·`).
+          const bytes = Uint8Array.from(atob(data.output), (c) => c.charCodeAt(0));
+          const decoded = new TextDecoder().decode(bytes);
+          await captureResponse(terminalId, decoded);
+        }
+      }
+    } catch { /* ignore — log entry stays without a captured response */ }
+  },
+
   close: (terminalId) => {
     set((state) => ({
       floats: state.floats.filter((f) => f.terminalId !== terminalId),
@@ -93,19 +118,7 @@ export const useFloatingSessionsStore = create<FloatingSessionsState>((set, get)
     // Snapshot the terminal output BEFORE killing it, then kill the pty.
     // Both calls are best-effort; failures don't block the UI.
     void (async () => {
-      try {
-        const resp = await fetch(`/api/terminals/${encodeURIComponent(terminalId)}/output`);
-        if (resp.ok) {
-          const data = await resp.json();
-          if (typeof data.output === 'string' && data.output) {
-            // Base64 → bytes → UTF-8. `atob` alone yields a Latin-1 binary
-            // string, which mojibakes multibyte chars (e.g. `·` → `Â·`).
-            const bytes = Uint8Array.from(atob(data.output), (c) => c.charCodeAt(0));
-            const decoded = new TextDecoder().decode(bytes);
-            await captureResponse(terminalId, decoded);
-          }
-        }
-      } catch { /* ignore — log entry stays without a captured response */ }
+      await get().captureNow(terminalId);
       try {
         await fetch(`/api/terminals/${encodeURIComponent(terminalId)}`, { method: 'DELETE' });
       } catch { /* ignore */ }

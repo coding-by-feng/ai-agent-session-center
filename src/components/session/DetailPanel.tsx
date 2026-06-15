@@ -60,7 +60,11 @@ const TerminalContent = memo(function TerminalContent({
   projectPath,
 }: TerminalContentProps) {
   const client = useWsStore((s) => s.client);
-  const ws = useMemo(() => client?.getRawSocket() ?? null, [client]);
+  // `connected` in the deps re-derives the socket on reconnect — the WsClient
+  // instance is stable but swaps its socket, so [client] alone freezes the
+  // terminal on the dead pre-reconnect socket after a server restart.
+  const connected = useWsStore((s) => s.connected);
+  const ws = useMemo(() => client?.getRawSocket() ?? null, [client, connected]);
   const isSSH = source === 'ssh';
   const session = useSessionStore((s) => s.sessions.get(sessionId));
   const hasStartupCommand = !!session?.startupCommand;
@@ -149,7 +153,10 @@ const OpsTerminalContent = memo(function OpsTerminalContent({
   projectPath,
 }: OpsTerminalContentProps) {
   const client = useWsStore((s) => s.client);
-  const ws = useMemo(() => client?.getRawSocket() ?? null, [client]);
+  // See note above: re-derive on reconnect so the ops terminal doesn't freeze
+  // on the dead socket after a server restart.
+  const connected = useWsStore((s) => s.connected);
+  const ws = useMemo(() => client?.getRawSocket() ?? null, [client, connected]);
   const [connecting, setConnecting] = useState(false);
 
   const handleReconnect = useCallback(() => {

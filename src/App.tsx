@@ -14,7 +14,10 @@ import ShortcutSettingsModal from '@/components/modals/ShortcutSettingsModal';
 import GlobalSearchModal from '@/components/modals/GlobalSearchModal';
 import DetailPanel from '@/components/session/DetailPanel';
 import FloatingTerminalRoot from '@/components/session/FloatingTerminalRoot';
+import FileOpenChooser from '@/components/session/FileOpenChooser';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useAuth } from '@/hooks/useAuth';
+import LoginScreen from '@/components/auth/LoginScreen';
 import { useSettingsInit } from '@/hooks/useSettingsInit';
 import { useWorkspaceAutoSave } from '@/hooks/useWorkspaceAutoSave';
 import { useWorkspaceAutoLoad } from '@/hooks/useWorkspaceAutoLoad';
@@ -62,6 +65,7 @@ function AppLayout() {
       <GlobalSearchModal />
       <DetailPanel />
       <FloatingTerminalRoot />
+      <FileOpenChooser />
     </div>
   );
 }
@@ -151,7 +155,29 @@ function Dashboard({ token }: { token: string | null }) {
 }
 
 function AuthGate() {
-  return <Dashboard token={null} />;
+  // Wire the real auth flow. The previous stub always rendered the Dashboard
+  // with token=null, so on a password-protected server the WS handshake was
+  // closed with 4001, the client gave up reconnecting, and the app bricked with
+  // no login UI and no workspace restore. useAuth probes /api/auth/status,
+  // listens for the `ws-auth-failed` event wsClient fires on 4001, and flips
+  // `needsLogin` so a fresh login can re-establish the session. When no password
+  // is configured (the default), `needsLogin` stays false and this behaves
+  // exactly like before (Dashboard with a null/absent token).
+  const { token, loading, needsLogin, login } = useAuth();
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0a0a1a', color: '#8888aa', fontFamily: "'JetBrains Mono', monospace" }}>
+        Connecting…
+      </div>
+    );
+  }
+
+  if (needsLogin) {
+    return <LoginScreen onLogin={login} />;
+  }
+
+  return <Dashboard token={token} />;
 }
 
 export default function App() {

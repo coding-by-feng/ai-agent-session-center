@@ -5,9 +5,10 @@ import { useQueueStore } from '@/stores/queueStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useWsStore } from '@/stores/wsStore';
-import { db, migrateSessionId, persistSessionUpdate } from '@/lib/db';
+import { db, migrateSessionId, persistSessionUpdate, deleteSessionChildrenBatch } from '@/lib/db';
 import { isImportInProgress } from '@/lib/workspaceSnapshot';
 import { onSessionEnded } from '@/lib/pinnedRespawn';
+import { migrateOriginSessionId } from '@/lib/translationLog';
 import type { Session, ServerMessage } from '@/types';
 import { handleEventSounds, checkAlarms } from '@/lib/alarmEngine';
 
@@ -51,12 +52,21 @@ export function useWebSocket(token: string | null): WsClient | null {
             persistSessionUpdate(session).catch(() => {});
           }
 
-          // #39: Reconcile IndexedDB — delete sessions not in snapshot
+          // #39: Reconcile IndexedDB — delete sessions not in snapshot, AND
+          // cascade their child rows (prompts/responses/toolCalls/events/notes/
+          // promptQueue/alerts/queueAutomation). Pruning only db.sessions left
+          // orphan child rows that accumulated one generation per restart and
+          // re-hydrated as zombie "Unknown" queue groups; it also strands rows
+          // under a session that was re-keyed while we were disconnected (the
+          // snapshot carries only the new id and the server already dropped the
+          // replacesId mapping, so those old-id rows can never be migrated —
+          // cleaning them is the only correct outcome).
           db.sessions.toCollection().primaryKeys().then((keys) => {
             const snapshotIds = new Set(deduped.keys());
             const staleKeys = keys.filter((k) => !snapshotIds.has(String(k)));
             if (staleKeys.length > 0) {
               db.sessions.bulkDelete(staleKeys).catch(() => {});
+              deleteSessionChildrenBatch(staleKeys.map((k) => String(k))).catch(() => {});
             }
           }).catch(() => {});
           break;
@@ -84,6 +94,10 @@ export function useWebSocket(token: string | null): WsClient | null {
             useFloatingSessionsStore
               .getState()
               .migrateOriginSession(session.replacesId, session.sessionId);
+            // Re-point persisted AI-popup/REVIEW rows too, so AiPopupHistory
+            // (which lists by originSessionId) doesn't go empty for the resumed
+            // session after a re-key.
+            migrateOriginSessionId(session.replacesId, session.sessionId).catch(() => {});
 
             migrateSessionId(session.replacesId, session.sessionId)
               .then(() => db.sessions.delete(session.replacesId!))

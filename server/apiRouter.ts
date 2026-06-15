@@ -214,8 +214,16 @@ const terminalCreateSchema = z.object({
     .optional(),
   /** Effort level to auto-apply after Claude Code starts (Claude Code: low/medium/high/xhigh/max/ultracode) */
   effortLevel: z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode']).optional().catch(undefined),
-  /** Model to auto-apply after Claude Code starts */
-  model: z.enum(['opus', 'sonnet', 'haiku']).optional(),
+  /**
+   * Model to auto-apply after Claude Code starts — an alias (fable/opus/sonnet/haiku)
+   * or a full model ID (e.g. claude-fable-5, claude-opus-4-8). Charset is restricted
+   * because the value is interpolated unquoted into the `--model` launch flag.
+   */
+  model: z
+    .string()
+    .max(100)
+    .regex(/^[a-zA-Z0-9._-]+$/, 'model contains invalid characters')
+    .optional(),
   /** Run `/remote-control <name>` automatically after Claude Code starts. */
   remoteControlName: z
     .string()
@@ -228,9 +236,11 @@ const terminalCreateSchema = z.object({
   alerted: z.boolean().optional(),
   accentColor: z.string().max(50).optional(),
   characterModel: z.string().max(100).optional(),
-  /** Fork (Explain/Translate popup) flag — restored from workspace snapshot so PiP sessions stay PiP after restart. */
+  /** Process-isolation flag for sessions spawned from another session (clone/fork/popup) — guards the kill flow's PID lookup. */
   isFork: z.boolean().optional(),
-  /** Origin session that the fork popup belongs to. */
+  /** Floating PiP popup flag — hidden from session lists, rendered as a floating panel. Restored from workspace snapshot so PiP sessions stay PiP after restart. */
+  isFloating: z.boolean().optional(),
+  /** Origin session that the fork/popup was spawned from. */
   originSessionId: z.string().max(200).optional(),
 });
 
@@ -1214,6 +1224,7 @@ router.post('/terminals', async (req: Request, res: Response) => {
     if (body.accentColor) config.accentColor = body.accentColor;
     if (body.characterModel) config.characterModel = body.characterModel;
     if (body.isFork) config.isFork = true;
+    if (body.isFloating) config.isFloating = true;
     if (body.originSessionId) config.originSessionId = body.originSessionId;
 
     // Resolve API key from request body only (no DB lookup)
@@ -2331,6 +2342,41 @@ router.post('/files/reveal', (req: Request, res: Response) => {
 
   execFile(cmd, args, (err) => {
     if (err) log.error('files-reveal', err.message);
+  });
+  res.json({ ok: true });
+});
+
+/** POST /api/files/open-external — open file with the OS default application */
+router.post('/files/open-external', (req: Request, res: Response) => {
+  const root = str(req.body?.root);
+  if (!root) { res.status(400).json({ error: 'root required' }); return; }
+  if (!isAllowedProjectRoot(root)) { res.status(400).json({ error: 'Invalid project root' }); return; }
+
+  const body = filePathSchema.safeParse({ path: req.body?.path || '/' });
+  if (!body.success) { res.status(400).json({ error: 'Invalid path' }); return; }
+
+  const fullPath = resolveProjectPath(root, body.data.path);
+  if (!fullPath) { res.status(400).json({ error: 'Path outside project root' }); return; }
+  if (!existsSync(fullPath)) { res.status(404).json({ error: 'Path not found' }); return; }
+
+  const platform = process.platform;
+  let cmd: string;
+  let args: string[];
+
+  if (platform === 'darwin') {
+    cmd = 'open';
+    args = [fullPath];
+  } else if (platform === 'win32') {
+    // `start` is a cmd builtin; the empty string is the (ignored) window title.
+    cmd = 'cmd';
+    args = ['/c', 'start', '', fullPath];
+  } else {
+    cmd = 'xdg-open';
+    args = [fullPath];
+  }
+
+  execFile(cmd, args, (err) => {
+    if (err) log.error('files-open-external', err.message);
   });
   res.json({ ok: true });
 });

@@ -33,6 +33,7 @@ import {
   type ImageView,
 } from './imageViewport';
 import { getFileSystemProvider } from '@/lib/fileSystemProvider';
+import { normalizeForSearch } from '@/lib/searchNormalize';
 import { showToast } from '@/components/ui/ToastContainer';
 import Tooltip from '@/components/ui/Tooltip';
 import { tooltips } from '@/lib/tooltips';
@@ -1098,6 +1099,19 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
       localStorage.setItem('file-browser:tree-panel-collapsed', String(treePanelCollapsed));
     } catch { /* ignore */ }
   }, [treePanelCollapsed]);
+
+  // Collapse the whole file-viewer pane (tree + tabs + content) down to a thin
+  // breadcrumb strip. Persisted per session via persistId so each session keeps
+  // its own collapsed state across reloads.
+  const paneCollapsedKey = persistId ? `agent-manager:project-collapsed:${persistId}` : null;
+  const [paneCollapsed, setPaneCollapsed] = useState<boolean>(() => {
+    if (!paneCollapsedKey) return false;
+    try { return localStorage.getItem(paneCollapsedKey) === 'true'; } catch { return false; }
+  });
+  useEffect(() => {
+    if (!paneCollapsedKey) return;
+    try { localStorage.setItem(paneCollapsedKey, String(paneCollapsed)); } catch { /* ignore */ }
+  }, [paneCollapsed, paneCollapsedKey]);
   const treePanelWidthRef = useRef(treePanelWidth);
   treePanelWidthRef.current = treePanelWidth;
   const treePanelRef = useRef<HTMLDivElement>(null);
@@ -2015,7 +2029,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     unwrap();
 
     if (!findTerm) return;
-    const needle = findCaseSensitive ? findTerm : findTerm.toLowerCase();
+    const needle = normalizeForSearch(findTerm, findCaseSensitive);
     if (!needle) return;
 
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
@@ -2038,7 +2052,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     const newMarks: HTMLElement[] = [];
     for (const text of textNodes) {
       const value = text.nodeValue ?? '';
-      const haystack = findCaseSensitive ? value : value.toLowerCase();
+      const haystack = normalizeForSearch(value, findCaseSensitive);
       let idx = haystack.indexOf(needle);
       if (idx === -1) continue;
       const fragment = document.createDocumentFragment();
@@ -2176,6 +2190,46 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const breadcrumbs = currentPath.split('/').filter(Boolean);
   const projectName = projectPath.split('/').filter(Boolean).pop() || projectPath;
 
+  // The collapse toggle lives in the breadcrumb row, which only exists when a
+  // file is open — so a collapsed pane only makes sense with a file open.
+  const collapsed = paneCollapsed && !!file;
+
+  // Reusable breadcrumb element (shown in both the normal toolbar and the
+  // collapsed strip) so the two stay in sync.
+  const breadcrumbNode = (
+    <div className={styles.breadcrumb}>
+      {breadcrumbs.map((seg, i) => {
+        const isLast = i === breadcrumbs.length - 1;
+        const segPath = '/' + breadcrumbs.slice(0, i + 1).join('/');
+        return (
+          <span key={segPath}>
+            {i > 0 && <span className={styles.breadSep}>/</span>}
+            {isLast ? (
+              <span className={styles.breadCurrent}>{seg}</span>
+            ) : (
+              <span className={styles.breadSep} style={{ color: 'var(--text-dim)' }}>{seg}</span>
+            )}
+          </span>
+        );
+      })}
+    </div>
+  );
+
+  // Chevron toggle button — collapses the pane to a strip, or expands it again.
+  // Down chevron = open (click to collapse); right chevron = collapsed (click to expand).
+  const collapseToggleBtn = (
+    <button
+      className={styles.iconBtn}
+      onClick={() => setPaneCollapsed((c) => !c)}
+      title={collapsed ? 'Expand file viewer' : 'Collapse file viewer'}
+      aria-label={collapsed ? 'Expand file viewer' : 'Collapse file viewer'}
+    >
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+        {collapsed ? <path d="M6 2l6 6-6 6V2z" /> : <path d="M2 6l6 6 6-6H2z" />}
+      </svg>
+    </button>
+  );
+
   // Determine if we're showing file content (from tab or direct) or directory listing
   const showingFile = file && activeTabPath;
   const showingEditor = editingNewFile !== null;
@@ -2293,7 +2347,26 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
           currentFilePath={activeTabPath || undefined}
         />
       )}
+      {/* Collapsed strip — the whole pane folds to this single breadcrumb row.
+          The expand chevron lives here so it survives the collapse. */}
+      {collapsed && (
+        <div className={`${styles.toolbar} ${styles.collapsedStrip}`}>
+          {collapseToggleBtn}
+          {breadcrumbNode}
+          <Tooltip {...tooltips.projCopyPath}>
+            <button
+              className={styles.iconBtn}
+              onClick={handleCopyFilePath}
+              aria-label={tooltips.projCopyPath.label}
+            >
+              <IconCopy />
+            </button>
+          </Tooltip>
+        </div>
+      )}
+
       {/* Icon toolbar */}
+      {!collapsed && (
       <div className={styles.iconBar}>
         <Tooltip {...tooltips.projSearchFiles}>
           <button className={styles.iconBtn} onClick={() => setShowSearch(true)} aria-label={tooltips.projSearchFiles.label}>
@@ -2535,9 +2608,12 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         </Tooltip>
       </div>
 
+      )}
+
       {/* (tabs + breadcrumb are inside the viewer panel below) */}
 
       {/* VS Code-style split: tree left + viewer right */}
+      {!collapsed && (
       <div className={styles.vscodeSplit}>
         {/* Left: File tree panel (supports paste & drag-drop file upload) */}
         <div
@@ -2633,22 +2709,8 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
           {/* File path indicator (read-only breadcrumb, no navigation — use tree on left) */}
           {file && (
             <div className={styles.toolbar}>
-              <div className={styles.breadcrumb}>
-                {breadcrumbs.map((seg, i) => {
-                  const isLast = i === breadcrumbs.length - 1;
-                  const segPath = '/' + breadcrumbs.slice(0, i + 1).join('/');
-                  return (
-                    <span key={segPath}>
-                      {i > 0 && <span className={styles.breadSep}>/</span>}
-                      {isLast ? (
-                        <span className={styles.breadCurrent}>{seg}</span>
-                      ) : (
-                        <span className={styles.breadSep} style={{ color: 'var(--text-dim)' }}>{seg}</span>
-                      )}
-                    </span>
-                  );
-                })}
-              </div>
+              {collapseToggleBtn}
+              {breadcrumbNode}
               <Tooltip {...tooltips.projCopyPath}>
                 <button
                   className={styles.iconBtn}
@@ -2975,7 +3037,8 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
           )}
           </div>{/* end contentCol */}
         </div>{/* end viewerPanel */}
-      </div>{/* end vscodeSplit */}
+      </div>
+      )}{/* end vscodeSplit */}
 
       {/* Fullscreen file viewer popup — portaled to document.body so it escapes
           the detail panel's transformed/contained ancestors (which otherwise trap

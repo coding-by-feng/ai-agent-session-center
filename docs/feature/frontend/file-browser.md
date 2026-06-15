@@ -30,6 +30,12 @@ Lets users browse and inspect code/media files in the project directory without 
 - `ProjectTab` manages file tabs (one per opened file): clicking a tab restores cached content instantly; closing the active tab falls back to the last tab (or the welcome screen). File content is cached in a ref `Map` for instant tab switching; cached blob URLs are revoked on close/unmount.
 - `originSessionId` prop (optional): when set, enables in-pane translate/explain controls — `SelectionPopup` instances on the markdown and fullscreen viewers, plus the **Translate file** toolbar button. Hidden entirely when `originSessionId` is undefined (e.g. standalone Project Browser route with no matching session).
 
+### Collapse/expand pane
+- A chevron toggle (`collapseToggleBtn`) is rendered as the leftmost control in the breadcrumb row (only present when a file is open). It sets `paneCollapsed`; `collapsed = paneCollapsed && !!file`.
+- When `collapsed`, the whole pane folds to a single breadcrumb strip (`toolbar collapsedStrip`): the icon toolbar (`iconBar`) and the entire `vscodeSplit` (tree + tabs + content) are both gated behind `{!collapsed && (…)}`. The strip carries the chevron (now an expand glyph), the reusable `breadcrumbNode`, and the copy-path button so the expand affordance survives the collapse.
+- The breadcrumb render is extracted into a `breadcrumbNode` element reused by both the normal toolbar and the collapsed strip; `collapseToggleBtn` swaps its chevron path on `collapsed`.
+- Per-session persistence: `localStorage['agent-manager:project-collapsed:${persistId}']` (only when `persistId` is provided), mirroring the `treePanelCollapsed` pattern. State restores on mount and writes on change.
+
 ### Toolbar
 Search files, content search, find-in-file (toggle), new file, new folder, open project in new tab, **open external path** (prompts for an absolute or `~/`-prefixed path; resolves via `GET /api/files/resolve` and opens the file/folder in a fresh sub-tab — useful for files outside the session project, e.g. `~/.config/gcloud/application_default_credentials.json`), reveal in Finder, **format** (in-browser JSON pretty-print / XML/SVG/HTML re-indent via `formatXml` — not Prettier), toggle markdown outline, markdown **edit** mode, **Translate file** (gated on `originSessionId` + `translationEnabled`; POSTs `/api/sessions/spawn-floating` with `mode='translate-file'`), **TₑX** preview/source toggle (`.tex` only), bookmarks panel (badge = count), collection (★, badge = count), recent-files history panel (badge = count), word wrap, fullscreen, then a separator and **Collapse all folders** + **Refresh** (re-fetches file, preserving scroll, and dispatches `filetree:refresh`).
 - Reveal-in-Finder / open-external / copy-path failures show a red toast (`showToast`) with the server error message instead of silently swallowing.
@@ -90,7 +96,7 @@ Markdown + code viewers save/restore `scrollTop` per file under `localStorage['f
 Listens for global custom events on `document` (only acts when this instance is visible via `offsetParent`): `projectTab:contentSearch`, `projectTab:findInFile`, and `fileBrowser:action` (dispatched by the shortcut system with `actionId` ∈ search / contentSearch / newFile / newFolder / refresh / openNewTab / format / toggleOutline / toggleBookmark / toggleWordWrap / fullscreen).
 
 ### LinkifiedText
-Regex `/(?:\.{0,2}\/)?(?:[\w@.+-]+\/)+[\w@.+-]+\.[\w]+/g` detects file paths in plain text; clicking calls `uiStore.openFileInProject(clean, projectPath)`.
+Regex `/(?:\.{0,2}\/)?(?:[\w@.+-]+\/)+[\w@.+-]+\.[\w]+/g` detects file paths in plain text; clicking calls `uiStore.openFileChooser(clean, projectPath, { x, y })`, which shows the [File-Open Chooser](./file-open-chooser.md) popover. Its "Open in app" action then routes through `uiStore.openFileInProject(clean, projectPath)` (the pre-existing PROJECT-tab flow).
 
 ### TexViewer
 Lazy-imports `latex.js` (~5MB) and renders a `DocumentFragment` into a host div. On parse failure it retries with `buildFallbackSource` — strips the preamble + `UNSUPPORTED_CMDS` (page/layout, counters, macro defs, fonts, hooks, bibliography, etc.), drops external `\input`/`\include`, converts `\cite` to bracketed text, de-stars sectioning — wraps the body in a minimal `article` scaffold, and shows a warning that custom packages/macros were dropped. Recomputes when `source` or `fileKey` changes.
@@ -98,11 +104,12 @@ Lazy-imports `latex.js` (~5MB) and renders a `DocumentFragment` into a host div.
 ### Tree state persistence (per project)
 - `localStorage['agent-manager:tree-state:${projectPath}']` holds `{ openIds: string[], scrollTop: number, v: 1 }` (`TREE_STATE_VERSION = 1`). On mount, persisted open dirs (minus `/`) load in parallel shallow-first, then open via `requestAnimationFrame`; `scrollTop` restores on the next rAF via `TreeApi.list.current.scrollTo`. Stale openIds that no longer resolve are skipped. Writes debounce 200ms from both `onToggle` and `onScroll`, with a flush-on-unmount cleanup.
 - Tree panel width/collapsed state persist under `file-browser:tree-panel-width` and `file-browser:tree-panel-collapsed`.
+- Whole-pane collapse state persists per session under `agent-manager:project-collapsed:${persistId}`.
 
 ## Dependencies & Connections
 
 ### Depends On
-- [Server API](../server/api-endpoints.md) — GET `/api/files/list|read|stream|search|grep|resolve`, POST `/api/files/write|mkdir|delete|reveal|search/invalidate`, POST `/api/sessions/spawn-floating`
+- [Server API](../server/api-endpoints.md) — GET `/api/files/list|read|stream|search|grep|resolve`, POST `/api/files/write|mkdir|delete|reveal|open-external|search/invalidate`, POST `/api/sessions/spawn-floating`
 - [State Management](./state-management.md) — `uiStore.pendingFileOpen`/`openFileInProject` for terminal→project-tab navigation
 - [Session Detail Panel](./session-detail-panel.md) — rendered inside the PROJECT tab
 - [Floating Terminal Fork](./floating-terminal-fork.md) — Translate-file + selection-popup forks spawn floating PIP terminals
@@ -114,7 +121,7 @@ Lazy-imports `latex.js` (~5MB) and renders a `DocumentFragment` into a host div.
 - [Project Browser](./project-browser.md) — standalone `/project-browser` route reuses `ProjectTab`
 
 ### Shared Resources
-- localStorage: sub-tab state (`agent-manager:project-tabs:*`), file-tab state (`agent-manager:file-tabs:*`), bookmarks (`agent-manager:bookmarks:*`), collections (`agent-manager:collections:*`), recent files (`agent-manager:recent-files:*`), tree state (`agent-manager:tree-state:*`), image-view (`agent-manager:image-view:*`), scroll positions (`file-browser:scroll:*`), tree panel width/collapsed, outline width
+- localStorage: sub-tab state (`agent-manager:project-tabs:*`), file-tab state (`agent-manager:file-tabs:*`), bookmarks (`agent-manager:bookmarks:*`), collections (`agent-manager:collections:*`), recent files (`agent-manager:recent-files:*`), tree state (`agent-manager:tree-state:*`), image-view (`agent-manager:image-view:*`), scroll positions (`file-browser:scroll:*`), tree panel width/collapsed, whole-pane collapse (`agent-manager:project-collapsed:*`), outline width
 - `uiStore.pendingFileOpen`
 - Toast container (`showToast`)
 - `document` custom events: `filetree:refresh`, `projectTab:contentSearch`, `projectTab:findInFile`, `fileBrowser:action`

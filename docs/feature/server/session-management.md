@@ -15,7 +15,7 @@ Central hub that manages all session state. Every other feature reads from or wr
 | `server/teamManager.ts` | Subagent / team relationship tracking |
 | `server/processMonitor.ts` | PID liveness (`findClaudeProcess` lives here; sessionStore re-exports a wrapper) |
 | `server/autoIdleManager.ts` | Idle transition timers (checks every 10s) + stale `pendingResume` cleanup (checks every 15s) |
-| `server/floatingSessionSpawner.ts` | Builds the prompt + config for fork/floating sessions; calls into `createTerminalSession` with `isFork: true` and `originSessionId`. Detailed in [Floating Session Spawner](./floating-session-spawner.md) |
+| `server/floatingSessionSpawner.ts` | Builds the prompt + config for fork/floating sessions; calls into `createTerminalSession` with `isFork: true`, `isFloating: true`, and `originSessionId`. Detailed in [Floating Session Spawner](./floating-session-spawner.md) |
 | `server/sessionTitle.ts` | Pure title helpers (`makeShortTitle`, `isCloneForkTemplateTitle`, `buildAutoTitle`) — no DB imports so they are unit-testable (`test/sessionTitle.test.ts`) without tripping the better-sqlite3 Vitest worker crash |
 | `server/config.ts` | Tool categories, timeouts, animation maps, permission-flag + launch-flag command helpers |
 | `server/constants.ts` | All magic strings (events, statuses, WS types) |
@@ -38,8 +38,8 @@ Central hub that manages all session state. Every other feature reads from or wr
 
 ### Session Object
 - 61 fields on the `Session` interface (`src/types/session.ts:136-227`) including sessionId, projectPath, status, animationState, currentPrompt, promptHistory (last 50), toolLog (last 200), responseLog (last 50), events, model, teamId, terminalId, etc.
-- `cliSource?: string` records the originating CLI when hooks provide `cli_source` (Codex does) or when a terminal is created from a recognizable startup command (`inferCliSource`). Frontend CLI badges prefer this field before guessing from model/event data.
-- Fork bookkeeping: `isFork: boolean` and `originSessionId?: string` (sessionStore.ts:1027-1030) — set in `createTerminalSession` when `config.isFork` is passed by the floating-session spawner / clone flow.
+- `cliSource?: string` records the originating CLI when hooks provide `cli_source` (the Codex and Gemini hooks both emit it) or when a terminal is created from a recognizable startup command (`inferCliSource`). Frontend CLI badges prefer this field before guessing from model/event data, and the floating-popup spawner's `resolveOriginCli` reads it first so a popup inherits the parent's CLI.
+- Fork bookkeeping: `isFork: boolean` and `originSessionId?: string` — set in `createTerminalSession` when `config.isFork` is passed (floating spawner, clone/fork endpoints, snapshot restore). `isFork` is the process-isolation marker (kill-guard, hook fork-routing) and does NOT control visibility. `isFloating: boolean` is set separately (floating spawner + snapshot restore only) and marks hidden PiP popups; clone/fork sessions carry `isFork` without `isFloating` and stay visible in the session lists.
 - Ops-terminal bookkeeping: `opsTerminalId: string | null` and `hadOpsTerminal: boolean` (sessionStore.ts:998-999) — written via `reconnectOpsTerminal` (sessionStore.ts:1327) so a session can carry a separate "ops shell" alongside the AI CLI's PTY.
 
 ### Workspace Metadata at Creation
@@ -102,7 +102,7 @@ Title helpers live in `server/sessionTitle.ts` (pure, no DB deps). On `USER_PROM
 - [WebSocket Manager](./websocket-manager.md) — broadcasts session state changes
 - [API Endpoints](./api-endpoints.md) — reads/writes session data
 - [Database](./database.md) — persists session state on key events
-- [Floating Session Spawner](./floating-session-spawner.md) — calls `createTerminalSession` (with `isFork`/`originSessionId`) to spawn fork/floating sessions
+- [Floating Session Spawner](./floating-session-spawner.md) — calls `createTerminalSession` (with `isFork`/`isFloating`/`originSessionId`) to spawn floating sessions
 
 ### Shared Resources
 - sessions Map

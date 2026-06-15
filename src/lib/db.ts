@@ -612,4 +612,27 @@ export async function deleteSession(sessionId: string): Promise<void> {
       await table.bulkDelete(ids);
     }
   }
+  // queueAutomation is keyed by sessionId (not ++id) — delete by key.
+  await db.queueAutomation.delete(sessionId).catch(() => {});
+}
+
+/**
+ * Cascade-delete child rows (every CHILD_TABLES row + the per-session
+ * queueAutomation row) for a BATCH of session ids whose parent was already
+ * removed from db.sessions. Used by the snapshot reconciliation so orphaned
+ * promptQueue / queueAutomation / event rows don't accumulate one generation
+ * per restart and re-hydrate as zombie "Unknown" queue groups. The caller is
+ * responsible for deleting the db.sessions rows themselves.
+ */
+export async function deleteSessionChildrenBatch(sessionIds: string[]): Promise<void> {
+  if (sessionIds.length === 0) return;
+  for (const tableName of CHILD_TABLES) {
+    const table = db.table(tableName);
+    const keys = await table.where('sessionId').anyOf(sessionIds).primaryKeys();
+    if (keys.length > 0) {
+      await table.bulkDelete(keys as number[]).catch(() => {});
+    }
+  }
+  // queueAutomation primary key is sessionId itself.
+  await db.queueAutomation.bulkDelete(sessionIds).catch(() => {});
 }

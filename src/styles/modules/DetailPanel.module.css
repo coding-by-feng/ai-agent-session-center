@@ -475,6 +475,32 @@
   .convCopy { opacity: 0.5; }
 }
 
+/* ---- Conversation toolbar (role filter + jump-to-latest) ---- */
+.convToolbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--bg-card); border-bottom: 1px solid var(--border-subtle); }
+.convFilterPills { display: flex; gap: 4px; }
+.convFilterPill { background: none; border: 1px solid var(--border-subtle); color: var(--text-dim); font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; padding: 3px 9px; border-radius: 3px; cursor: pointer; transition: color 0.15s, border-color 0.15s, background 0.15s; }
+.convFilterPill:hover { color: var(--text-secondary); border-color: var(--text-dim); }
+.convFilterPillActive { color: var(--accent-cyan, #00e5ff); border-color: var(--accent-cyan, #00e5ff); background: rgba(0, 229, 255, 0.1); }
+.convJumpLatest { margin-left: auto; background: none; border: 1px solid var(--border-subtle); color: var(--text-dim); font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.8px; padding: 3px 9px; border-radius: 3px; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
+.convJumpLatest:hover:not(:disabled) { color: var(--accent-cyan, #00e5ff); border-color: var(--accent-cyan, #00e5ff); }
+.convJumpLatest:disabled { opacity: 0.35; cursor: default; }
+
+/* ---- Command chip (parsed slash command) ---- */
+.convCommand { border-left-color: var(--accent-purple, #aa66ff); }
+.convCommandName { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--accent-purple, #aa66ff); margin-right: 8px; }
+.convCommandArgs { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
+.convCommandStdout { font-size: 11px; color: var(--text-dim); line-height: 1.5; white-space: pre-wrap; word-break: break-word; margin-top: 4px; padding-left: 12px; }
+
+/* ---- System row (collapsed harness plumbing / caveats) ---- */
+.convSystemRow { border-bottom: 1px solid var(--border-faint); }
+.convSystemHeader { cursor: pointer; padding: 4px 12px; display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.5px; color: var(--text-dim); opacity: 0.6; transition: opacity 0.15s; }
+.convSystemHeader:hover { opacity: 1; }
+.convSystemToggle { font-size: 8px; transition: transform 0.2s; display: inline-block; }
+.convSystemRowOpen .convSystemToggle { transform: rotate(90deg); }
+.convSystemLabel { text-transform: uppercase; font-weight: 700; }
+.convSystemCount { color: var(--text-dim); }
+.convSystemBody { padding: 4px 12px 8px 30px; font-size: 11px; color: var(--text-dim); line-height: 1.5; white-space: pre-wrap; word-break: break-word; opacity: 0.75; }
+
 /* ---- Session Control Buttons ---- */
 
 /* Control buttons — inline within header */

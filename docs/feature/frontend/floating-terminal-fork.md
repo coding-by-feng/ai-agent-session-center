@@ -45,7 +45,7 @@ transcript reader exists.
 | `src/components/session/FloatingTerminalPanel.tsx` | Picture-in-picture window hosting one TerminalContainer. Forwards its **`originSessionId`** prop (the **root** session) to TerminalContainer so the float's translate/explain lookups resolve a real session **and float-visibility scoping keeps nested floats visible under the selected root** (never orphaned). Recursive fork is handled server-side: the inner `TerminalContainer` sends this float's `terminalId` as `spawnTerminalId`, and the server resolves *its* session as the fork parent. Also hosts the **⧉ pop-out** button (Electron) and rebindable hotkeys (`floatMinimize`/`floatMaximize`/`floatClose`). See [Recursive fork](#recursive-fork). |
 | `src/styles/modules/FloatingTerminalPanel.module.css` | Window styling (drag, resize, collapse, popout chrome) — theme-aware via CSS variables (icons/chrome recolour per theme). |
 | `src/components/session/FloatingTerminalRoot.tsx` | Renders the open floats **belonging to the currently selected session** (`originSessionId === selectedSessionId`), excluding any that are **popped out** into a native window. Mounted once in AppLayout. Listens for `popout:closed` to re-dock. See [Per-session scoping](#per-session-popup-scoping). |
-| `src/components/session/PopoutTerminalView.tsx` | The **entire renderer** when the window is a popped-out float (`/?popout=terminal&terminalId=…`). Sets up its own `useWebSocket(null)` + `useSettingsInit` and hosts one `TerminalContainer` attached to the existing PTY by id. Auth tokens are *not* carried in (localhost Electron only). |
+| `src/components/session/PopoutTerminalView.tsx` | The **entire renderer** when the window is a popped-out float (`/?popout=terminal&terminalId=…`). Sets up its own `useWebSocket(null)` + `useSettingsInit` and hosts one `TerminalContainer` attached to the existing PTY by id, plus its own `<FileOpenChooser>` mount (separate React root from AppLayout, so the popover for terminal file-path clicks needs a local mount). Auth tokens are *not* carried in (localhost Electron only). |
 | `src/styles/modules/PopoutTerminalView.module.css` | Layout for the popout window (titlebar + full-height terminal body). |
 | `src/stores/floatingSessionsStore.ts` | Zustand store holding open floats; capped at `MAX_FLOATS = 4` (`open` **DELETEs the evicted PTY** so it doesn't leak). Adds `closeByOriginSession(id)`, `migrateOriginSession(oldId, newId)`, `closeOrphans(liveIds)`, and the `poppedOut: string[]` list + `setPoppedOut(id, on)`. `close()` snapshots the PTY output (base64 → UTF-8 via `TextDecoder`) into the REVIEW log before DELETE. |
 | `src/components/settings/TranslationSettings.tsx` | Settings tab for native/learning languages, inherit-context toggle, explain attach-file-path policy, and trigger mode. |
@@ -85,13 +85,18 @@ POST /api/sessions/spawn-floating
         │
         ▼
 server/floatingSessionSpawner.ts
-   resolves CLI kind (claude | codex | gemini) from the origin's startupCommand
+   resolves CLI kind (claude | codex | gemini) via resolveOriginCli(origin):
+     cliSource (authoritative) → command → model → 'claude' — so a codex/gemini
+     parent spawns the SAME CLI instead of defaulting to claude
    resolves fork parent (spawnTerminalId → its session, else origin)
    buildPrompt(args, prevAnswer?)  [floatingPrompt.ts]
    forks (--fork-session / codex fork) when inheritContext + claude/codex
      + parent has a conversation; else fresh launch
    applies permission + model/effort launch flags
    createTerminal + createTerminalSession + writeWhenReady in originCwd
+   session is marked isFork (kill-guard) + isFloating (hidden from the
+     agents sidebar / header strip / 3D scene — rendered only as a PiP panel;
+     main-session clone/fork set isFork WITHOUT isFloating and stay listed)
         │
         ▼
 { terminalId, label }
@@ -127,8 +132,14 @@ turns into a 400):
 | `translate-file` | "Translate the following markdown file into `{nativeLanguage}`. Preserve markdown syntax exactly…" over `fileContent`. |
 | `custom` | `{customPrompt}` leads, then the surrounding line (if any) + the selection in a `"""` fence. Requires both a selection and a custom prompt. Window label is `Custom: {first ~24 chars}` (`customFloatLabel`). Logged to the REVIEW tab with `mode='custom'` and `prompt=customPrompt`. |
 
-The CLI binary is selected from `origin.startupCommand` (falling back to the SSH
-command/config) via the spawner's `detectCli`:
+The CLI binary is selected by the spawner's `resolveOriginCli(origin)`, which
+prefers the authoritative `origin.cliSource` (set by the codex/gemini hooks'
+`cli_source`, or `inferCliSource`), then the launch command, then the model id,
+defaulting to `claude` only when nothing matches. This ensures the popup runs the
+**same CLI as its parent** — a Codex/Gemini parent no longer mis-spawns `claude`
+(which previously also leaked the parent's model onto the launch, e.g.
+`claude --model gpt-5.5`, because the Claude-only flag helper saw a `claude`
+command):
 
 * `claude '...'` (positional prompt)
 * `codex '...'` (positional prompt)
@@ -235,6 +246,12 @@ monitor — a DOM panel can't leave the app window.
   `BrowserWindow` (820×560, same `webPreferences`/reload-block/`setWindowOpenHandler`
   as the main window) loading `http://localhost:${port}/?popout=terminal&terminalId=…`.
   It's tracked per `terminalId` (re-focused instead of duplicated).
+* **Monitor placement.** `computePopoutBounds()` (main process) sets the window's
+  `x`/`y` so a fresh popout opens on a **second monitor** when one exists (centered
+  on the first non-primary display, else the display under the cursor). The bounds
+  are remembered across opens — saved to `popout-bounds.json` on `moved`/`resized`
+  and restored next time (validated against connected displays so an unplugged
+  monitor falls back to auto-placement). See [App lifecycle](../electron/app-lifecycle.md).
 * **The renderer.** `src/main.tsx` detects `?popout=terminal` and renders
   `PopoutTerminalView` (its own `useWebSocket` + `useSettingsInit` + one
   `TerminalContainer` attached to the existing PTY by id) **instead of** the full

@@ -43,6 +43,8 @@ Single source of truth for all frontend state. Zustand chosen for its minimal AP
 ### uiStore
 - cardDisplayMode persisted to `localStorage['card-display-mode']`; selectedRoomIds persisted to `localStorage['room-filter']` (removed when empty). Both load on store init.
 - workspaceLoad is an ephemeral progress object `{ active, total, done, currentTitle }` driving the workspace-load overlay.
+- `pendingFileOpen: { filePath, projectPath } | null` — transient "open this file in the PROJECT tab" request set via `openFileInProject()`, consumed (and cleared via `clearPendingFileOpen()`) by DetailPanel + ProjectTabContainer.
+- `pendingFileChooser: { filePath, projectPath, anchor: { x, y } } | null` — transient request to show the [File-Open Chooser](./file-open-chooser.md) popover at viewport coords `anchor`. Set via `openFileChooser()` from file-path link clicks (LinkifiedText, terminal link provider), cleared via `clearFileChooser()`. The chooser's "Open in app" action then routes through `openFileInProject()`.
 
 ### queueStore
 - The store is the shared, persisted source of truth for queues. `queues` items are written to `db.promptQueue`, `automation` configs to `db.queueAutomation`, via a single `subscribe` that diffs prev/next maps and persists only changed sessions (bulkDelete + bulkAdd per session).

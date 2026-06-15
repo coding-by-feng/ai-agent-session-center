@@ -175,14 +175,29 @@ export function loadSnapshot(): { mqOffset: number } | null {
       return null;
     }
 
+    // Seed the MQ offset from the snapshot so an early periodic save (which can
+    // fire ~500ms after boot, before the reader has advanced) records the
+    // resumed offset rather than 0 — otherwise a crash shortly after restart
+    // replays the entire queue from the top.
+    if (typeof snapshot.mqOffset === 'number') {
+      lastSnapshotMqOffset = snapshot.mqOffset;
+    }
+
     let restored = 0;
     let ended = 0;
     for (const [id, session] of Object.entries(snapshot.sessions) as [string, Session][]) {
       // SSH-only mode: skip non-SSH sessions entirely
       if (session.source !== 'ssh') continue;
 
+      // Skip ephemeral floating popups (Explain/Translate PiP). They have no
+      // standalone UI presence and no PTY recovery path, so reviving them
+      // server-side just creates invisible idle zombies hidden from every list.
+      // The dashboard re-opens any still-relevant popup during workspace import.
+      if (session.isFloating || (session.isFork && session.originSessionId)) continue;
+
       // Skip sessions that were already ended
       if (session.status === SESSION_STATUS.ENDED) {
+        ended++;
         // Still restore ended SSH sessions (historical)
         if (session.isHistorical) {
           sessions.set(id, session);
@@ -963,6 +978,16 @@ export function findActiveSessionByConfig(config: TerminalConfig): Session | nul
  * Create a session card immediately when SSH terminal connects (before hooks arrive).
  */
 export async function createTerminalSession(terminalId: string, config: TerminalConfig, opsTerminalId?: string): Promise<Session> {
+  // When a command is intentionally routed through startupCommand instead of
+  // config.command — which happens for term-* sessions whose raw shell command
+  // (e.g. `bash`, or anything with shell metachars) is rejected by SSH command
+  // validation, so importSnapshot sends command:'' + startupCommand:'<cmd>' —
+  // the real command lives in startupCommand. Fall back to it for the stored
+  // metadata, otherwise an empty command silently becomes 'claude', which
+  // corrupts the workspace snapshot (cmd flips bash→claude), breaks snapshot
+  // dedup (the recreated session no longer matches its original), and picks the
+  // wrong claude-vs-other connecting timeout.
+  const effectiveCommand = config.command || config.startupCommand || 'claude';
   const workDir = config.workingDir
     ? (config.workingDir.startsWith('~') ? config.workingDir.replace(/^~/, homedir()) : config.workingDir)
     : homedir();
@@ -998,8 +1023,8 @@ export async function createTerminalSession(terminalId: string, config: Terminal
     opsTerminalId: opsTerminalId || null,
     hadOpsTerminal: !!opsTerminalId,
     sshHost: config.host || 'localhost',
-    sshCommand: config.command || 'claude',
-    cliSource: inferCliSource(config.startupCommand || config.command || 'claude'),
+    sshCommand: effectiveCommand,
+    cliSource: inferCliSource(effectiveCommand),
     startupCommand: config.startupCommand,
     permissionMode: config.permissionMode || null,
     sshConfig: {
@@ -1009,7 +1034,7 @@ export async function createTerminalSession(terminalId: string, config: Terminal
       authMethod: config.authMethod || 'key',
       privateKeyPath: config.privateKeyPath,
       workingDir: config.workingDir || '~',
-      command: config.command || 'claude',
+      command: effectiveCommand,
     },
   };
   // Apply optional metadata from workspace snapshot so the first broadcast includes them.
@@ -1028,6 +1053,7 @@ export async function createTerminalSession(terminalId: string, config: Terminal
     session.isFork = true;
     if (config.originSessionId) session.originSessionId = config.originSessionId;
   }
+  if (config.isFloating) session.isFloating = true;
   sessions.set(terminalId, session);
   invalidateSessionsCache();
   dbUpsertSession(session);
@@ -1041,7 +1067,7 @@ export async function createTerminalSession(terminalId: string, config: Terminal
   // Claude: 30s fallback — hooks should arrive via SessionStart, but if the
   // session_id or path doesn't match (e.g. SSH remote path mismatch), the card
   // would be stuck in connecting forever without this safety net.
-  const command = config.command || 'claude';
+  const command = effectiveCommand;
   const connectingTimeout = command.startsWith('claude') ? 30_000 : 3_000;
   setTimeout(async () => {
     const s = sessions.get(terminalId);
@@ -1143,7 +1169,15 @@ export function clearAllSessions(): { removed: number; savedOutputs: SavedTermin
     if (session.terminalId) {
       const buf = getTerminalOutputBuffer(session.terminalId);
       if (buf) {
-        const key = (session.title || '') + '\0' + (session.projectPath || '');
+        // Key by the RAW sshConfig.workingDir, not the resolved projectPath:
+        // the client's workspace snapshot carries cfg.workingDir verbatim
+        // (e.g. '~') and looks the scrollback up by `title\0cfg.workingDir`.
+        // Keying by the tilde-expanded projectPath ('/Users/x') here meant the
+        // lookup never matched for '~' / relative paths, silently dropping the
+        // restored scrollback. Fall back to projectPath only when there is no
+        // sshConfig (shouldn't happen for SSH sessions, but stays safe).
+        const workDir = session.sshConfig?.workingDir || session.projectPath || '';
+        const key = (session.title || '') + '\0' + workDir;
         savedOutputs.push({ key, data: buf });
       }
       closeTerminal(session.terminalId);

@@ -217,11 +217,20 @@ export interface Session {
   /** When true, play loud alert sounds for approval, input, and task completion */
   alerted?: boolean;
   /**
-   * Marks this session as a forked floating "explain"/"translate" session.
-   * Read by the kill flow to skip the cwd-based PID lookup (which would otherwise
-   * collide with the origin's claude process since they share projectPath).
+   * Process-isolation marker for any session spawned from another session
+   * (main-session clone/fork actions AND floating popups). Read by the kill
+   * flow to skip the cwd-based PID lookup (which would otherwise collide with
+   * the origin's claude process since they share projectPath) and by hook
+   * fork-routing in sessionMatcher. Does NOT control visibility.
    */
   isFork?: boolean;
+  /**
+   * Marks a floating Explain/Translate PiP popup. Hidden from the agents
+   * sidebar, header strip, and 3D scene; rendered as a floating panel over its
+   * origin session instead. Distinct from isFork: clone/fork sessions set
+   * isFork only and stay visible in the session lists.
+   */
+  isFloating?: boolean;
   /** Origin session id this fork was spawned from (for traceability). */
   originSessionId?: string;
 }

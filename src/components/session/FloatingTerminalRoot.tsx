@@ -19,6 +19,7 @@ export default function FloatingTerminalRoot() {
   const poppedOut = useFloatingSessionsStore((s) => s.poppedOut);
   const close = useFloatingSessionsStore((s) => s.close);
   const setPoppedOut = useFloatingSessionsStore((s) => s.setPoppedOut);
+  const captureNow = useFloatingSessionsStore((s) => s.captureNow);
   const selectedSessionId = useSessionStore((s) => s.selectedSessionId);
 
   // Re-dock a float (show its in-app panel again) when its popped-out native
@@ -26,6 +27,26 @@ export default function FloatingTerminalRoot() {
   useEffect(() => {
     return window.electronAPI?.onPopoutClosed?.((terminalId) => setPoppedOut(terminalId, false));
   }, [setPoppedOut]);
+
+  // Periodically snapshot each open popup's response into its REVIEW/AI-popup
+  // log. The response used to be captured ONLY on explicit close(), so a
+  // restart/reload (or just quitting) while a popup was still open lost the
+  // answer permanently. captureResponse is an idempotent overwrite keyed by
+  // terminalId, so polling + a beforeunload flush are safe. `floatKey` keeps
+  // the effect stable while the set of open floats is unchanged.
+  const floatKey = floats.map((f) => f.terminalId).join(',');
+  useEffect(() => {
+    if (!floatKey) return;
+    const ids = floatKey.split(',');
+    const captureAll = () => { for (const id of ids) void captureNow(id); };
+    const timer = setInterval(captureAll, 6000);
+    window.addEventListener('beforeunload', captureAll);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('beforeunload', captureAll);
+      captureAll(); // final flush when the float set changes or root unmounts
+    };
+  }, [floatKey, captureNow]);
 
   // Popups belong to the session that spawned them. With nothing selected, none
   // are shown. A popped-out float lives in its own native window, so it's hidden

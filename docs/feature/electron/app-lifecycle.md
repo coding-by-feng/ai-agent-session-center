@@ -89,7 +89,12 @@ Registered by `registerAppHandlers()`.
 
 ### Pop-out Terminal Windows
 
-`registerPopoutHandler()` exposes the `window:open-terminal` IPC handler (called from the renderer as `electronAPI.openTerminalWindow({ terminalId, originSessionId?, label? })`). It opens a separate, draggable BrowserWindow (820x560, min 480x320, same `#0a0a1a` background and security webPreferences as the main window) loading `http://localhost:${SERVER_PORT ?? 3333}/?popout=terminal&terminalId=…` (with optional `originSessionId` / `label` query params). Open windows are tracked in a `popoutWindows` Map keyed by `terminalId` — re-opening an existing terminal focuses its window instead of duplicating. When a pop-out window closes, the main process sends `popout:closed` (with the `terminalId`) to the main window so it can re-dock the in-app float. The same `before-input-event` reload guard and `setWindowOpenHandler` link restriction apply to pop-out windows. The renderer side is documented in [Floating Terminal Fork](../frontend/floating-terminal-fork.md).
+`registerPopoutHandler()` exposes the `window:open-terminal` IPC handler (called from the renderer as `electronAPI.openTerminalWindow({ terminalId, originSessionId?, label? })`). It opens a separate, draggable BrowserWindow (`POPOUT_DEFAULT_SIZE` = 820x560, min 480x320, same `#0a0a1a` background and security webPreferences as the main window) loading `http://localhost:${SERVER_PORT ?? 3333}/?popout=terminal&terminalId=…` (with optional `originSessionId` / `label` query params). Open windows are tracked in a `popoutWindows` Map keyed by `terminalId` — re-opening an existing terminal focuses its window instead of duplicating. When a pop-out window closes, the main process sends `popout:closed` (with the `terminalId`) to the main window so it can re-dock the in-app float. The same `before-input-event` reload guard and `setWindowOpenHandler` link restriction apply to pop-out windows. The renderer side is documented in [Floating Terminal Fork](../frontend/floating-terminal-fork.md).
+
+**Multi-monitor placement & position memory** (`computePopoutBounds()`, uses Electron's `screen` API):
+- The window's `x`/`y`/`width`/`height` are computed before creation rather than left to OS defaults, so a fresh pop-out **opens on a second monitor when one exists**.
+- Placement order: (1) the **last-saved bounds** if still visible (`boundsOnSomeDisplay()` checks the window center against every connected `screen.getAllDisplays()` display); else (2) **centered on the first non-primary display**'s `workArea`; else (3) centered on the display under the cursor (`getDisplayNearestPoint(getCursorScreenPoint())`, falling back to primary).
+- The window's bounds are persisted on every `moved` / `resized` event to `popout-bounds.json` in userData (`savePopoutBounds(w.getBounds())`, guarded by `!w.isDestroyed()`), so the next pop-out re-opens where the user last left it (e.g. dragged onto monitor 2). `loadPopoutBounds()` validates the JSON shape and falls back to auto-placement when missing/malformed or when that monitor is no longer connected.
 
 ### Graceful Shutdown
 
@@ -107,6 +112,7 @@ Registered by `registerAppHandlers()`.
 |-----|-----------------|---------|
 | `setup.json` (`SETUP_FLAG`) | `userData/setup.json` | First-run flag; presence = setup complete (`{ completedAt }`) |
 | `server-config.json` (`CONFIG_PATH`) | `userData/server-config.json` | Persisted server config from setup wizard |
+| `popout-bounds.json` (`POPOUT_BOUNDS_FILE`) | `userData/popout-bounds.json` | Last-used pop-out terminal window bounds (`{x,y,width,height}`) for second-monitor placement / position memory |
 | `APP_USER_DATA` | env var | Points the embedded server at the writable userData dir |
 | `SERVER_PORT` | env var | Resolved server port, shared across IPC handlers, tray, and pop-out windows (dev default `3332`, IPC/tray fallback `3333`) |
 | `ELECTRON` | env var (`'1'`) | Set at the top of `main.ts` so server code can detect the Electron host |
@@ -169,3 +175,4 @@ Registered by `registerAppHandlers()`.
 - Missing `loading.html` (it must be copied into `dist/electron/` during `electron:build`) causes a blank screen during server startup.
 - The `before-quit` 5s timeout is best-effort: if `flushSave()` exceeds it, the app quits anyway and workspace state may be lost. Don't lengthen it without UX consideration.
 - The TS→CJS rename step (`scripts/cjs-rename.sh`) is required because `main` is `main.cjs`; skipping it leaves Electron unable to find its entry point.
+- Pop-out window placement depends on `boundsOnSomeDisplay()` to reject saved bounds on a disconnected monitor; weakening that check can strand the window off-screen. The `screen` API is only valid after `app.whenReady()` — `computePopoutBounds()` runs inside the IPC handler (post-ready), so it must not be hoisted to module load.

@@ -36,12 +36,12 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - GET /api/sessions/history (paginated session history with status filter)
 - PUT /api/sessions/:id/title|accent-color|character-model|pinned|muted|alerted
 - POST /api/sessions/:id/kill|resume|summarize|fork|clone
-  - `clone` creates a new terminal that re-runs the source session's `startupCommand` with session-specific flags stripped (`--resume`/`--continue`/`--fork-session` removed via `stripClaudeSessionFlags`), name stripped, then permission flags + model/effort re-applied. Distinct from `fork` — clone starts a fresh CLI session, fork resumes the existing one. Both run via `createTerminalSession({ isFork: true, originSessionId })`.
+  - `clone` creates a new terminal that re-runs the source session's `startupCommand` with session-specific flags stripped (`--resume`/`--continue`/`--fork-session` removed via `stripClaudeSessionFlags`), name stripped, then permission flags + model/effort re-applied. Distinct from `fork` — clone starts a fresh CLI session, fork resumes the existing one. Both run via `createTerminalSession({ isFork: true, originSessionId })` — `isFork` only (kill-guard), NOT `isFloating`, so clone/fork sessions appear in the session lists like any other agent (only floating PiP popups set `isFloating` and are hidden).
   - `resume` rebuilds the launch command via `buildResumeCommand`: Claude uses `claude --resume '<SESSION_ID>' || claude --continue`; Codex uses `codex resume '<SESSION_ID>' || codex resume --last`. Non-UUID IDs (synthetic `term-*` etc.) use the fallback form only.
   - `fork` rebuilds the launch command via `buildForkCommand`: Claude uses `claude --resume '<SESSION_ID>' --fork-session` (or `--continue --fork-session`); Codex uses `codex fork '<SESSION_ID>'` (or `codex fork --last`). Permission mode + model/effort are preserved via `reconstructPermissionFlags` + `applyClaudeLaunchFlags`; the new fork gets its own `-n "<newTitle>"`.
   - `summarize` pipes the transcript to `claude -p --model haiku` (60s timeout, 1MB buffer); rate-limited to `MAX_CONCURRENT_SUMMARIZE = 2`. Prompt precedence: `custom_prompt` > `promptTemplate` > default. See [Summary Tab](../frontend/summary-tab.md).
   - `kill` cascade: SIGTERM, then SIGKILL after 3s if the PID is still alive. Fork sessions skip the `process.kill` cascade (`mem.isFork` check) — they share the origin's `projectPath`, so cwd-based PID lookup would target the wrong claude PID. Forks rely on per-PTY `pty.kill` (group SIGHUP) via `closeTerminal` instead.
-- POST /api/sessions/spawn-floating — spawn a forked/floating session pre-loaded with a synthesized translate / explain / vocab / custom prompt; see [Floating Session Spawner](./floating-session-spawner.md).
+- POST /api/sessions/spawn-floating — spawn a forked/floating session (`isFork: true` + `isFloating: true` — hidden from session lists, rendered as a PiP panel) pre-loaded with a synthesized translate / explain / vocab / custom prompt; see [Floating Session Spawner](./floating-session-spawner.md).
   - Body schema: required `originSessionId` (1–200), `mode` (one of 8: `explain-learning`, `explain-native`, `vocab-native`, `translate-selection-learning`, `translate-selection-native`, `translate-answer`, `translate-file`, `custom`), `nativeLanguage` (1–64), `learningLanguage` (1–64). Optional `spawnTerminalId` (≤200, enables recursive fork from a floating terminal), `selection` (≤64KB), `contextLine` (≤2KB), `fileContent` (≤256KB), `filePath` (≤2KB), `customPrompt` (≤64KB, for `custom` mode), `inheritContext: boolean` (default true — fork inherits parent context only when the parent already has a conversation).
 - POST /api/sessions/:id/reconnect-terminal|reconnect-ops-terminal
 - POST /api/sessions/clear-all (removes all sessions, captures terminal output for replay; accepts JSON body `{ suppressBroadcast?: boolean }` — when `true`, skips the `clearBrowserDb` ws-broadcast so the workspace-import flow can rebuild without racing against the wipe). Registered before parameterized `/sessions/:id` routes so "clear-all" isn't matched as a session ID.
@@ -49,7 +49,7 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - DELETE /api/sessions/:id
 
 ### Terminal Endpoints
-- POST /api/terminals (create, max 50)
+- POST /api/terminals (create, max 50). `model` accepts an alias (`fable`/`opus`/`sonnet`/`haiku`) or a full model ID (e.g. `claude-fable-5`, `claude-opus-4-8`) — validated by regex `^[a-zA-Z0-9._-]+$` (max 100, shell-safe because the value is interpolated unquoted into the `--model` launch flag), no longer a fixed enum.
 - POST /api/terminals/register (Electron PTY registration)
 - POST /api/terminals/:id/prefill-output (base64-encoded output replay — restores scrollback during workspace import)
 - POST /api/terminals/:id/write (write string to PTY; max 50MB per call)
@@ -63,6 +63,7 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - POST /api/files/write|mkdir|delete
 - POST /api/files/search/invalidate (clear search cache)
 - POST /api/files/reveal (open in system file manager — `open -R` / `explorer /select,` / `xdg-open`)
+- POST /api/files/open-external (open file with the OS default application — `open` / `cmd /c start "" <path>` / `xdg-open`; same `{ root, path }` body and validation as reveal, fire-and-forget `execFile`, errors only logged). Consumed by the [File-Open Chooser](../frontend/file-open-chooser.md).
 - **Limits**: `MAX_FILE_SIZE = 10MB` (read/write JSON), `MAX_STREAMABLE_SIZE = 100MB` (PDF/image/video/audio streaming, with HTTP Range support for media). Grep capped at `MAX_RESULTS = 500` (ripgrep, falling back to grep). All file paths validated via `isAllowedProjectRoot()` + `resolveProjectPath()` to block traversal.
 
 ### Slash Commands

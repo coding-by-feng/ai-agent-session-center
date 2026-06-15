@@ -140,7 +140,7 @@ export interface SessionSourceResponse {
 export interface SshConnectionConfig {
   host?: string;
   port?: number;
-  username: string;
+  username?: string;
   password?: string;
   privateKeyPath?: string;
   authMethod?: 'key' | 'password';
@@ -159,7 +159,7 @@ export interface CreateTerminalRequest extends SshConnectionConfig {
   forceNew?: boolean;
   /** Effort level to auto-apply after Claude Code starts (low/medium/high/xhigh/max/ultracode) */
   effortLevel?: string;
-  /** Model to auto-apply after Claude Code starts (opus/sonnet/haiku) */
+  /** Model to auto-apply after Claude Code starts — alias (fable/opus/sonnet/haiku) or full ID (e.g. claude-fable-5) */
   model?: string;
   /** If set, run `/remote-control <name>` automatically after Claude Code starts. */
   remoteControlName?: string;

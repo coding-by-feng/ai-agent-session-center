@@ -103,6 +103,26 @@ const SESSION_PREFS_KEY = 'session-create-prefs';
 export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'] as const;
 export const DEFAULT_EFFORT_LEVEL = 'high';
 
+/**
+ * Claude Code `--model` options offered in the session creation modals.
+ * Aliases (fable/opus/sonnet/haiku) resolve to the latest model in each tier;
+ * full IDs pin a specific snapshot. Lineup per platform.claude.com models
+ * overview, June 2026: Fable 5 (top tier), Opus 4.8, Sonnet 4.6, Haiku 4.5,
+ * with Opus 4.7/4.6 still active. The Combobox also accepts any typed model ID.
+ */
+export const MODEL_OPTIONS = [
+  'fable',
+  'opus',
+  'sonnet',
+  'haiku',
+  'claude-fable-5',
+  'claude-opus-4-8',
+  'claude-opus-4-7',
+  'claude-opus-4-6',
+  'claude-sonnet-4-6',
+  'claude-haiku-4-5',
+] as const;
+
 /** Coerce a possibly-stale stored value to a valid level, falling back to the default. */
 export function normalizeEffortLevel(value: string | undefined): string {
   return value && (EFFORT_LEVELS as readonly string[]).includes(value)

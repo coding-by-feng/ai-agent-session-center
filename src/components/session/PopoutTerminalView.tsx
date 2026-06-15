@@ -12,6 +12,7 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import { useSettingsInit } from '@/hooks/useSettingsInit';
 import { useWsStore } from '@/stores/wsStore';
 import TerminalContainer from '@/components/terminal/TerminalContainer';
+import FileOpenChooser from '@/components/session/FileOpenChooser';
 import styles from '@/styles/modules/PopoutTerminalView.module.css';
 
 interface Props {
@@ -26,7 +27,14 @@ export default function PopoutTerminalView({ terminalId, originSessionId, label 
   // without auth. (Password-protected setups would need token plumbing here.)
   useWebSocket(null);
   const client = useWsStore((s) => s.client);
-  const ws = useMemo(() => client?.getRawSocket() ?? null, [client]);
+  // Re-derive the raw socket whenever the connection re-establishes. The
+  // WsClient instance is stable across reconnects (it swaps its internal
+  // socket in place), so memoizing on `client` alone pins every WS-transport
+  // terminal to the dead pre-reconnect socket — output stops and input is
+  // swallowed with no error. `connected` flips on each reconnect, forcing a
+  // fresh getRawSocket() that useTerminal's [ws] effect then re-subscribes on.
+  const connected = useWsStore((s) => s.connected);
+  const ws = useMemo(() => client?.getRawSocket() ?? null, [client, connected]);
 
   return (
     <div className={styles.root}>
@@ -39,6 +47,7 @@ export default function PopoutTerminalView({ terminalId, originSessionId, label 
           originSessionId={originSessionId ?? null}
         />
       </div>
+      <FileOpenChooser />
     </div>
   );
 }

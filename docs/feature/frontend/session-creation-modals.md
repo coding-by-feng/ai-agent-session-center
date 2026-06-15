@@ -1,36 +1,36 @@
 # Session Creation Modals
 
 ## Function
-UI entry points for launching new terminal/agent sessions. The active path is **NewSessionModal** (full-featured SSH + local form) plus **WorkdirLauncher** (one-click NavBar dropdown that relaunches a recent directory). **QuickSessionModal** is a fast-launch form that still exists in the codebase but is currently **not mounted** (see note below). All paths can auto-enable Claude Code remote control and apply a model/effort level.
+UI entry points for launching new terminal/agent sessions. The active path is **NewSessionModal** (local-only form — remote/SSH mode was removed) plus **WorkdirLauncher** (one-click NavBar dropdown that relaunches a recent directory). **QuickSessionModal** is a fast-launch form that still exists in the codebase but is currently **not mounted** (see note below). All paths create **local** sessions only and can auto-enable Claude Code remote control and apply a model/effort level.
 
 ## Purpose
-Create sessions without leaving the dashboard. NewSessionModal covers complex configurations (SSH host/auth, model, effort, remote control, commands terminal). WorkdirLauncher provides a zero-form relaunch of a previously-used directory. QuickSessionModal was the original fast local-launch form.
+Create sessions without leaving the dashboard. NewSessionModal covers local session configuration (working dir, command, model, effort, remote control, commands terminal). WorkdirLauncher provides a zero-form relaunch of a previously-used directory. QuickSessionModal was the original fast local-launch form. Remote/SSH session creation is no longer offered in the UI; the server's SSH path remains only for restoring previously-saved SSH sessions from workspace snapshots.
 
 ## Source Files
 | File | Role |
 |------|------|
-| `src/components/modals/NewSessionModal.tsx` | Full session creation form: SSH host/port/auth, working dir, command, title, room, API key, model, effort, remote control, commands terminal. Rendered in `App.tsx`; opened by NavBar `+ NEW` button (`openModal('new-session')`). |
-| `src/components/layout/WorkdirLauncher.tsx` | `DIRS` dropdown in the NavBar. Lists recent + known working directories; one click relaunches a `claude` session there using saved per-directory config. |
+| `src/components/modals/NewSessionModal.tsx` | Local session creation form: working dir, command, title, room, API key, model, effort, remote control, commands terminal. Rendered in `App.tsx`; opened by NavBar `+ NEW` button (`openModal('new-session')`). |
+| `src/components/layout/WorkdirLauncher.tsx` | `DIRS` dropdown in the NavBar. Lists recent + known working directories; one click relaunches a local `claude` session there using the saved per-directory command. |
 | `src/components/modals/QuickSessionModal.tsx` | Fast local launch form with label chips, model, effort, remote control. **Orphaned: not imported, rendered, or opened by any shortcut/handler** — kept for reference, code below still describes its behavior. |
-| `src/lib/remoteControlName.ts` | Remote control name derivation, remote-control settings persistence (`remote-control:settings`), and shared model/effort prefs + `EFFORT_LEVELS` (`session-create-prefs`). |
+| `src/lib/remoteControlName.ts` | Remote control name derivation, remote-control settings persistence (`remote-control:settings`), and shared model/effort prefs + `EFFORT_LEVELS` + `MODEL_OPTIONS` (`session-create-prefs`). |
 
 ## Implementation
 
 ### NewSessionModal
 
 - Opened via NavBar `+ NEW` button → `useUiStore.openModal('new-session')`. Rendered unconditionally in `App.tsx`; the shared `Modal` shows it only when `activeModal === 'new-session'`.
-- Fields: host, port (default `22`), username, auth method (key/password via a `SSH Key`/`Password` Combobox), private key path, password, working dir (default `~`), command, session title, room, API key (overrides `ANTHROPIC_API_KEY`), model, effort level, remote control, commands terminal toggle. (No `label` field — session labels were removed from this modal.)
-- **Validation**: required fields are host, port (`1`–`65535`), username, working dir, command. Submit is disabled until all valid; per-field "Required"/"1-65535" errors show after blur/touch.
-- **Working dir / suggestions**: working-dir options come from `useKnownProjects()` (history merged with `GET /api/known-projects`). Host (`host-history` + `localhost`), username (`username-history`), and command (`getCommandSuggestions`) all use Combobox suggestions from localStorage history (max 20 each).
-- **SSH keys**: fetched from `GET /api/ssh-keys` on mount; populate the private-key-path Combobox.
-- **Model + Effort** (shown only when command starts with `claude`): model Combobox offers `opus`/`sonnet`/`haiku` (free-text allowed); effort Combobox lists `EFFORT_LEVELS`. Persisted via `saveSessionPrefs({ model, effortLevel })` and reloaded on next open via `loadSessionPrefs()` + `normalizeEffortLevel()`.
-- **Submit** (`handleSubmit`): always `POST /api/terminals` with `forceNew: true` (NewSessionModal has no Electron-IPC branch). On success: saves workdir/host/username/command history, `lastSession`, per-dir config (`dir-session-configs`), session prefs, and remote-control settings; auto-selects the new session (`selectSession`) and assigns it to the chosen room.
+- Fields: working dir (default `~`), command, session title, room, API key (overrides `ANTHROPIC_API_KEY`), model, effort level, remote control, commands terminal toggle. (No `label` field — session labels were removed from this modal. No host/port/username/auth fields — remote/SSH mode was removed.)
+- **Local-only**: the create request carries no host/port/username/auth fields. The server resolves a host-less request to `localhost` and spawns a local PTY (`apiRouter` defaults `host → 'localhost'`, `username → OS user`); see [Terminal & SSH](../server/terminal-ssh.md).
+- **Validation**: required fields are working dir and command. Submit is disabled until both valid; per-field "Required" errors show after submit/touch.
+- **Working dir / suggestions**: working-dir options come from `useKnownProjects()` (history merged with `GET /api/known-projects`); command suggestions come from `getCommandSuggestions` (localStorage history, max 20).
+- **Model + Effort** (shown only when command starts with `claude`): model Combobox offers `MODEL_OPTIONS` — aliases `fable`/`opus`/`sonnet`/`haiku` plus full IDs `claude-fable-5`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-opus-4-6`, `claude-sonnet-4-6`, `claude-haiku-4-5` (free-text still allowed; server validates with shell-safe regex `^[a-zA-Z0-9._-]+$`); effort Combobox lists `EFFORT_LEVELS`. Persisted via `saveSessionPrefs({ model, effortLevel })` and reloaded on next open via `loadSessionPrefs()` + `normalizeEffortLevel()`.
+- **Submit** (`handleSubmit`): always `POST /api/terminals` with `forceNew: true` (NewSessionModal has no Electron-IPC branch). On success: saves workdir/command history, `lastSession` and per-dir config (`dir-session-configs`) — both now `{ workingDir, command }` only — session prefs, and remote-control settings; auto-selects the new session (`selectSession`) and assigns it to the chosen room.
 
 ### WorkdirLauncher
 
 - `DIRS` toggle button in the NavBar opens a dropdown listing recent directories: `workdir-history` merged with `useKnownProjects()` (deduped). Closes on outside click (`useClickOutside`) or `Escape`.
-- Clicking a directory calls `handleLaunch(dir)`: it resolves saved connection params with a 3-tier fallback — per-directory config (`dir-session-configs`) → most-recent live session in the store with a matching `sshConfig.workingDir` → global `lastSession` — then `POST /api/terminals` with `command` defaulting to `claude` and `host` defaulting to `window.location.hostname`/`localhost`.
-- On success: auto-selects the new session and re-saves the per-directory config so the next click reuses it. Toasts success/error.
+- Clicking a directory calls `handleLaunch(dir)`: it resolves the saved **command** with a 3-tier fallback — per-directory config (`dir-session-configs`) → most-recent live session in the store with a matching `sshConfig.workingDir` → global `lastSession` — then `POST /api/terminals` with body `{ workingDir, command }` (`command` defaults to `claude`). No host/auth params are sent — the launch is always local; stale SSH fields in old saved configs are ignored.
+- On success: auto-selects the new session and re-saves the per-directory config (`{ workingDir, command }`) so the next click reuses it. Toasts success/error.
 - A per-row `x` removes a directory from `workdir-history` (does not affect known projects, which re-merge on next open).
 
 ### QuickSessionModal (orphaned)
@@ -70,7 +70,7 @@ Still compiles but is not wired into the app (nothing opens `modalId="quick-sess
 - [UI Primitives](./ui-primitives.md) — `Modal`, `Combobox`, `ToastContainer.showToast`, `useClickOutside`.
 - [Project Browser](./project-browser.md) — `useKnownProjects()` / `GET /api/known-projects` for working-dir suggestions.
 - [Command Autocomplete](./command-autocomplete.md) — `getCommandSuggestions`/`saveCommand` for the command field.
-- [API Endpoints](../server/api-endpoints.md) — `POST /api/terminals`, `GET /api/ssh-keys`, `GET /api/known-projects`.
+- [API Endpoints](../server/api-endpoints.md) — `POST /api/terminals`, `GET /api/known-projects`. (`GET /api/ssh-keys` is no longer called — the private-key-path field was removed with remote mode.)
 - [IPC Transport](../electron/ipc-transport.md) — QuickSessionModal branches on `window.electronAPI?.createPty` (orphaned path).
 - [PTY Host](../electron/pty-host.md) — receives `remoteControlName`/`effortLevel`/`model` in the create config for auto-apply.
 
@@ -80,10 +80,12 @@ Still compiles but is not wired into the app (nothing opens `modalId="quick-sess
 
 ### Shared Resources
 - localStorage `remote-control:settings` and `session-create-prefs` — shared between both modals (last value wins).
-- localStorage `workdir-history`, `lastSession`, `dir-session-configs` — shared by NewSessionModal and WorkdirLauncher.
-- localStorage `host-history`, `username-history`, command-suggestion history.
+- localStorage `workdir-history`, `lastSession`, `dir-session-configs` — shared by NewSessionModal and WorkdirLauncher; both write only `{ workingDir, command }` now.
+- localStorage command-suggestion history. (`host-history` / `username-history` are no longer read or written; stale entries may linger in localStorage.)
 
 ## Change Risks
+- **Remote/SSH mode is UI-removed, not server-removed**: `POST /api/terminals` still accepts host/port/username/auth (all optional in `terminalCreateSchema`), and the server SSH path still exists for snapshot-restored SSH sessions. Re-adding remote creation only requires reintroducing the form fields — but `SshConnectionConfig.username` is now optional (`src/types/api.ts`), so don't assume it's always present.
+- **Stale localStorage**: `lastSession` / `dir-session-configs` entries written before the removal may still contain `host`/`username`/`authMethod` keys. Both readers only access `.workingDir`/`.command`, so these can't leak into a create request — keep it that way.
 - **QuickSessionModal is dead code**: changes there have no runtime effect until it is re-mounted. Do not assume edits to it change app behavior; if reviving it, wire `openModal('quick-session')` to a shortcut/button and render `<QuickSessionModal />` in `App.tsx`.
 - `isClaudeCommand` is a case-insensitive prefix match — `claude-code` and similar also trigger the remote-control/model/effort sections.
 - `deriveRemoteControlName` reads `useSessionStore.getState()` directly (not a hook) to avoid stale closures; a store-shape change breaks it silently.

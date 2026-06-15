@@ -72,7 +72,7 @@ Imperative update of `scene.fog` color/density and `gl.clearColor` on theme chan
 
 ### RobotListSidebar
 - Top-left panel (`top:16, left:20`), 280px wide expanded / `auto` when collapsed, backdrop blur, collapsible header ("Agents (N)"). Hidden entirely when there are zero sessions.
-- Searchable via the shared `SearchInput` primitive with 150ms debounce (matches title, project name, status). Floating-fork popups are filtered out, same as the 3D scene.
+- Searchable via the shared `SearchInput` primitive with 150ms debounce (matches title, project name, status). Floating PiP popups (`session.isFloating`) are filtered out, same as the 3D scene; clone/fork sessions (`isFork` only) are listed.
 - Sessions grouped by room (rooms sorted by `roomIndex`, only rooms with `roomIndex != null`); unassigned sessions fall into a "Common Area" group. Per-group collapse state lives in a local `collapsedGroups` Set.
 - Within each group, ordered by `sortSessions` (`sessionSort.ts`): **pinned first**, then status priority via `STATUS_ORDER` (working 0 > prompting 1 > approval/input 2 > waiting 3 > idle 4 > connecting 5 > ended 6), then title (localeCompare).
 - Each row has **two action affordances**: a pin toggle and a close button (titles are read-only — rename UI lives in the detail panel).
@@ -90,7 +90,7 @@ Imperative update of `scene.fog` color/density and `gl.clearColor` on theme chan
 9 theme palettes with 36 color/density/lighting properties each (command-center, cyberpunk, warm, dracula, solarized, nord, monokai, light, blonde).
 
 ### Session Filtering
-Sessions are rendered as robots only when `status !== 'ended'` AND `source === 'ssh'` AND they are NOT floating forks (`!(session.isFork && session.originSessionId)`). This keeps the scene to terminal-launched sessions; Explain/Translate floating-fork popups have their own PiP UI and are excluded here (and likewise from `RobotListSidebar`).
+Sessions are rendered as robots only when `status !== 'ended'` AND `source === 'ssh'` AND they are NOT floating popups (`!session.isFloating`). This keeps the scene to terminal-launched sessions; Explain/Translate floating popups have their own PiP UI and are excluded here (and likewise from `RobotListSidebar`). Clone/fork sessions set `isFork` without `isFloating` and DO get robots/rows.
 
 ### Robot Position Persistence
 `CyberdromeScene` runs a `setInterval` every **2000ms** that reads `getAllNavInfo()` from `robotPositionStore` and calls `saveRobotPositions()` (`robotPositionPersist.ts`), persisting `posX/posZ/rotY/mode/deskIdx` per session to `sessionStorage['cyberdrome-robot-positions']` so robots resume their spots across page reloads. `loadRobotPositions()` reads it back on robot mount.
@@ -105,7 +105,7 @@ Sessions are rendered as robots only when `status !== 'ended'` AND `source === '
 - [Robot System](./robot-system.md) -- SessionRobot rendered per session inside Canvas
 - [Particles & Effects](./particles-effects.md) -- StatusParticles rendered per-robot inside SessionRobot (not at scene level), SubagentConnections rendered inside Canvas
 - [UI Primitives](../frontend/ui-primitives.md) -- `RobotListSidebar` uses the shared `SearchInput` (debounced) primitive
-- [Floating Terminal Fork](../frontend/floating-terminal-fork.md) -- floating-fork sessions (`isFork` + `originSessionId`) are excluded from both the 3D scene and the sidebar
+- [Floating Terminal Fork](../frontend/floating-terminal-fork.md) -- floating popups (`isFloating`) are excluded from both the 3D scene and the sidebar
 
 ### Depended On By
 - [Views/Routing](../frontend/views-routing.md) -- LiveView renders CyberdromeScene
@@ -124,6 +124,6 @@ Sessions are rendered as robots only when `status !== 'ended'` AND `source === '
 - Changing room layout constants in `cyberdromeScene.ts` affects all robot navigation paths and workstation placement.
 - Scene theme changes must update both 3D fog/lighting and CSS theme variables in sync.
 - OrbitControls `maxPolar` prevents camera from going below the floor -- relaxing this breaks the visual.
-- The fork-exclusion filter (`isFork && originSessionId`) must stay aligned between `CyberdromeScene` and `RobotListSidebar`; dropping it in one place makes floating popups appear as duplicate robots/rows.
+- The floating-exclusion filter (`isFloating`) must stay aligned across `CyberdromeScene`, `RobotListSidebar`, and `HeaderAgentStrip`; dropping it in one place makes floating popups appear as duplicate robots/rows. Do NOT filter on `isFork` — clone/fork sessions carry it and must stay visible.
 - Closing a pinned session must `markUserClosing` + unpin before killing, or `pinnedRespawn` will treat the death as a crash and immediately recreate it.
 - `Scene3DTheme` has exactly 36 properties — every theme palette must define all of them or the scene renders with `undefined` colors.

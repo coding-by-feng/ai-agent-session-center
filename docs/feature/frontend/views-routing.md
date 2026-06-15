@@ -57,7 +57,7 @@ The route tree:
 | `/review` | `ReviewView` | yes | `AppLayout` |
 | `*` | `<Navigate to="/" replace>` | — | `AppLayout` |
 
-`AppLayout` is the shared chrome rendered for every route except `/project-browser`. It mounts `useKeyboardShortcuts()` and lays out: `<Header>`, `<NavBar>`, a `<main>` with `<Suspense>` + `<Outlet>` (lazy route fallback = "Loading…"), then the always-mounted app-wide UI: `<ActivityFeed>`, `<ToastContainer>`, `<SettingsPanel>`, `<NewSessionModal>`, `<ShortcutsPanel>`, `<ShortcutSettingsModal>`, `<GlobalSearchModal>`, `<DetailPanel>`, `<FloatingTerminalRoot>`. Because these live in the layout, they persist across route changes.
+`AppLayout` is the shared chrome rendered for every route except `/project-browser`. It mounts `useKeyboardShortcuts()` and lays out: `<Header>`, `<NavBar>`, a `<main>` with `<Suspense>` + `<Outlet>` (lazy route fallback = "Loading…"), then the always-mounted app-wide UI: `<ActivityFeed>`, `<ToastContainer>`, `<SettingsPanel>`, `<NewSessionModal>`, `<ShortcutsPanel>`, `<ShortcutSettingsModal>`, `<GlobalSearchModal>`, `<DetailPanel>`, `<FloatingTerminalRoot>`, `<FileOpenChooser>`. Because these live in the layout, they persist across route changes.
 
 ### Layout chrome
 

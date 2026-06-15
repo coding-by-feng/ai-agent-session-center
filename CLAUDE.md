@@ -113,7 +113,7 @@ server/
 src/
   stores/               — 11 Zustand stores (session, settings, queue, queueHistory, room, camera, ui, ws, agenda, shortcut, floatingSessions)
   hooks/                — useWebSocket, useTerminal, useSound, useAuth, useKeyboardShortcuts, useKnownProjects, useSettingsInit, useWorkspaceAutoSave, useWorkspaceAutoLoad, useGlobalQueueScheduler, useClickOutside, useSelectionPopup
-  lib/                  — wsClient, db (Dexie), soundEngine, ambientEngine, alarmEngine, workspaceSnapshot, cliDetect, cyberdromeScene, fileSystemProvider, format, robot3DGeometry, robot3DModels, robotPositionPersist, robotStateMap, sceneThemes, shortcutKeys, ansi, remoteControlName, selectionExtractors, tooltips, translationLog, ttsEngine, transcript, queueScheduler, queueHistoryExport, pinnedRespawn, sessionSort, commandIndex, commandSuggestions, timePicker, rehypeSavedSelections
+  lib/                  — wsClient, db (Dexie), soundEngine, ambientEngine, alarmEngine, workspaceSnapshot, cliDetect, cyberdromeScene, fileSystemProvider, format, robot3DGeometry, robot3DModels, robotPositionPersist, robotStateMap, sceneThemes, shortcutKeys, ansi, remoteControlName, selectionExtractors, tooltips, translationLog, ttsEngine, transcript, commandMessage, queueScheduler, queueHistoryExport, pinnedRespawn, sessionSort, commandIndex, commandSuggestions, timePicker, rehypeSavedSelections
   components/
     3d/                 — CyberdromeScene, CyberdromeEnvironment, SessionRobot, Robot3DModel, RobotDialogue, RobotLabel, RobotListSidebar, RoomLabels, SceneOverlay, CameraController, StatusParticles, SubagentConnections, robotPositionStore
     session/            — DetailPanel, DetailTabs, ConversationView, ProjectTab, ProjectTabContainer, FloatingProjectPanel, FloatingTerminalPanel, FloatingTerminalRoot, PopoutTerminalView, FileTree, FindInFileBar, ContentSearchModal, QueueTab, QueueHistorySheet, QueueItemEditModal, LoopExcludeWindowsModal, NotesTab, SummaryTab, SummarizeModal, AiPopupHistory, SessionControlBar, SessionSwitcher, LabelChips, LinkifiedText, KillConfirmModal, AlertModal, TexViewer, imageViewport
@@ -177,7 +177,7 @@ Before modifying a feature, check what else it can break:
 | Electron IPC channels | Preload bridge, Terminal UI dual transport |
 | Queue scheduler tick / `queueHistoryStore` | Prompt Queue, Loops, per-session automation, Client Persistence (queueHistory) |
 | Command/file index (`commandIndex`) | Command Autocomplete, Prompt Queue editor, Queue Tab |
-| Transcript reconstruction (`transcript.ts`) | Conversation View, Review Tab (AI Popups) |
+| Transcript reconstruction (`transcript.ts` / `commandMessage.ts`) | Conversation View, Review Tab (AI Popups) |
 | Floating session spawn / fork | Floating Terminal Fork, Floating Session Spawner, Review Tab, pop-out window, Session Matching |
 | Shared UI primitives (Modal/Select/Tabs/Tooltip) | ALL components that consume them (Settings, modals, panels) |
 | TTS / GCP API key | Settings toggle, Terminal UI hold-to-speak, `/api/tts/*` endpoints — per-user `googleTtsApiKey` stored client-side, forwarded per request. **Never** reintroduce ambient credentials (gcloud ADC / service-account files) — leaks across users |

@@ -105,10 +105,13 @@ describe('pinnedRespawn', () => {
     it('true for a pinned, non-fork session with sshConfig', () => {
       expect(shouldRespawn(mkSession())).toBe(true);
     });
-    it('false when unpinned / fork / no sshConfig', () => {
+    it('false when unpinned / floating popup / no sshConfig', () => {
       expect(shouldRespawn(mkSession({ pinned: false }))).toBe(false);
-      expect(shouldRespawn(mkSession({ isFork: true }))).toBe(false);
+      expect(shouldRespawn(mkSession({ isFork: true, isFloating: true }))).toBe(false);
       expect(shouldRespawn(mkSession({ sshConfig: undefined }))).toBe(false);
+    });
+    it('true for a pinned clone/fork (isFork without isFloating)', () => {
+      expect(shouldRespawn(mkSession({ isFork: true }))).toBe(true);
     });
   });
 

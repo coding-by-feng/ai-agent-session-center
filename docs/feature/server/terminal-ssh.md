@@ -108,7 +108,7 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 - `__addPendingLinkForTest` / `__resetPendingLinksForTest` / `__getPendingLinksSizeForTest` / `__getPendingLinksForWorkDirForTest` — test-only helpers, no production callers
 
 ### Fork / Clone / Floating Sessions
-- Fork, clone, and floating-session flows are layered on top of the same `createTerminal` + `createTerminalSession` primitives. The `isFork` flag flows through `createTerminalSession(config)` (session metadata), not through `createTerminal` (PTY spawn) — sshManager has no fork-specific code path.
+- Fork, clone, and floating-session flows are layered on top of the same `createTerminal` + `createTerminalSession` primitives. The `isFork`/`isFloating` flags flow through `createTerminalSession(config)` (session metadata), not through `createTerminal` (PTY spawn) — sshManager has no fork-specific code path. `isFork` guards the kill flow; `isFloating` (floating popups only) hides the session from the lists.
 
 ### Limits
 - Max 50 terminals simultaneously (enforced by apiRouter)

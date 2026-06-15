@@ -69,6 +69,8 @@ export interface FileSystemProvider {
   searchFiles(projectRoot: string, query: string): Promise<{ results: Array<{ path: string; name: string; type: 'dir' | 'file' }>; indexing: boolean }>;
   grepContent(projectRoot: string, query: string, glob?: string): Promise<GrepResult>;
   reveal(projectRoot: string, relPath: string): Promise<void>;
+  /** Open the file with the OS default application (server-side `open`). */
+  openExternal(projectRoot: string, relPath: string): Promise<void>;
   invalidateSearchCache(projectRoot: string): Promise<void>;
   /** Resolve an absolute (or `~/...`) path to its canonical form + suggested browser root. */
   resolvePath(rawPath: string): Promise<ResolvedPath>;
@@ -211,6 +213,14 @@ export class ApiFileSystemProvider implements FileSystemProvider {
 
   async reveal(projectRoot: string, relPath: string) {
     await fetch('/api/files/reveal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ root: projectRoot, path: relPath }),
+    }).catch(() => {});
+  }
+
+  async openExternal(projectRoot: string, relPath: string) {
+    await fetch('/api/files/open-external', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ root: projectRoot, path: relPath }),
@@ -421,6 +431,12 @@ export class LocalFileSystemProvider implements FileSystemProvider {
     // Fall back to API (requires server-side open command)
     const api = new ApiFileSystemProvider();
     return api.reveal(projectRoot, relPath);
+  }
+
+  async openExternal(projectRoot: string, relPath: string) {
+    // Fall back to API (requires server-side open command)
+    const api = new ApiFileSystemProvider();
+    return api.openExternal(projectRoot, relPath);
   }
 
   async invalidateSearchCache(projectRoot: string) {
