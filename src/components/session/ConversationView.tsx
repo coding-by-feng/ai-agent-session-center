@@ -7,7 +7,7 @@
  * Claude Code JSONL transcript for untruncated fidelity, falling back to the
  * in-memory session logs when no transcript is available.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   PromptEntry,
   ResponseEntry,
@@ -16,12 +16,43 @@ import type {
   ArchivedSession,
 } from '@/types';
 import { fetchTranscript, reconstructFromLogs, type ConversationEntry } from '@/lib/transcript';
+import { transformEntries } from '@/lib/commandMessage';
 import LinkifiedText from './LinkifiedText';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 function formatTime(ts: number): string {
   if (!ts || ts <= 0) return '';
   return new Date(ts).toLocaleTimeString('en-US', { hour12: false });
+}
+
+// Role filter for the conversation toolbar.
+type RoleFilter = 'all' | 'user' | 'asst' | 'tool';
+const FILTERS: { key: RoleFilter; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'user', label: 'User' },
+  { key: 'asst', label: 'Asst' },
+  { key: 'tool', label: 'Tool' },
+];
+
+function matchesFilter(role: ConversationEntry['role'], filter: RoleFilter): boolean {
+  switch (filter) {
+    case 'user': return role === 'user' || role === 'command';
+    case 'asst': return role === 'assistant';
+    case 'tool': return role === 'tool_use' || role === 'tool_result';
+    default: return true;
+  }
+}
+
+/** Find the nearest scrollable ancestor so the jump-to-latest observer/scroll
+ *  targets the actual tab scroll container, not the viewport. */
+function getScrollParent(el: HTMLElement | null): HTMLElement | null {
+  let node: HTMLElement | null = el?.parentElement ?? null;
+  while (node) {
+    const { overflowY } = getComputedStyle(node);
+    if (/(auto|scroll)/.test(overflowY) && node.scrollHeight > node.clientHeight) return node;
+    node = node.parentElement;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -149,6 +180,22 @@ function EntryRow({
     );
   }
 
+  if (entry.role === 'command') {
+    return (
+      <div className={`${styles.convEntry} ${styles.convCommand}${highlightClass(`${entry.name} ${entry.args || ''} ${entry.stdout || ''}`, query)}`}>
+        <div className={styles.convHeader}>
+          <span className={styles.convRole}>USER</span>
+          <span className={styles.convTime}>{time}</span>
+        </div>
+        <div className={styles.convText}>
+          <span className={styles.convCommandName}>&#8984; {entry.name}</span>
+          {entry.args && <span className={styles.convCommandArgs}>{entry.args}</span>}
+        </div>
+        {entry.stdout && <div className={styles.convCommandStdout}>&#8627; {entry.stdout}</div>}
+      </div>
+    );
+  }
+
   if (entry.role === 'tool_use') {
     const input = entry.input.length > 240 ? `${entry.input.slice(0, 240)}…` : entry.input;
     return (
@@ -182,6 +229,9 @@ function EntryRow({
     );
   }
 
+  // system entries are rendered by SystemRow, not here
+  if (entry.role !== 'event') return null;
+
   // event
   return (
     <div className={`${styles.convEntry} ${styles.convEvent}${highlightClass(`${entry.eventType} ${entry.detail}`, query)}`}>
@@ -190,6 +240,30 @@ function EntryRow({
         <span className={styles.convTime}>{time}</span>
       </div>
       {entry.detail && <div className={styles.convText}>{entry.detail}</div>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// System row (collapsed harness plumbing / caveats)
+// ---------------------------------------------------------------------------
+
+function SystemRow({
+  entry,
+  query,
+}: {
+  entry: Extract<ConversationEntry, { role: 'system' }>;
+  query: string;
+}) {
+  const [collapsed, setCollapsed] = useState(true);
+  return (
+    <div className={`${styles.convSystemRow}${collapsed ? '' : ` ${styles.convSystemRowOpen}`}${highlightClass(entry.text, query)}`}>
+      <div className={styles.convSystemHeader} onClick={() => setCollapsed((c) => !c)}>
+        <span className={styles.convSystemToggle}>&#9654;</span>
+        <span className={styles.convSystemLabel}>system</span>
+        <span className={styles.convSystemCount}>(1 hidden)</span>
+      </div>
+      {!collapsed && <div className={styles.convSystemBody}>{entry.text}</div>}
     </div>
   );
 }
@@ -222,6 +296,10 @@ export default function ConversationView({
 }: ConversationViewProps) {
   const [entries, setEntries] = useState<ConversationEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<RoleFilter>('all');
+  const [atBottom, setAtBottom] = useState(true);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
   const query = searchQuery?.toLowerCase() || '';
 
   useEffect(() => {
@@ -230,11 +308,10 @@ export default function ConversationView({
     fetchTranscript(sessionId)
       .then((transcript) => {
         if (cancelled) return;
-        if (transcript.length > 0) {
-          setEntries(transcript);
-        } else {
-          setEntries(reconstructFromLogs(prompts, responses, toolCalls, events));
-        }
+        const raw = transcript.length > 0
+          ? transcript
+          : reconstructFromLogs(prompts, responses, toolCalls, events);
+        setEntries(transformEntries(raw));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -248,11 +325,57 @@ export default function ConversationView({
   }, [sessionId]);
 
   const hasPrev = !!previousSessions && previousSessions.length > 0;
+  const showPrev = hasPrev && filter === 'all';
+
+  const visibleEntries = useMemo(
+    () => (filter === 'all' ? entries : entries.filter((e) => matchesFilter(e.role, filter))),
+    [entries, filter],
+  );
+
+  // Disable the jump-to-latest button while the bottom sentinel is in view.
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return;
+    const sentinel = bottomRef.current;
+    if (!sentinel) return;
+    const io = new IntersectionObserver(([e]) => setAtBottom(e.isIntersecting), {
+      root: getScrollParent(rootRef.current),
+      threshold: 0,
+    });
+    io.observe(sentinel);
+    return () => io.disconnect();
+  }, [visibleEntries.length]);
+
+  const jumpToLatest = useCallback(() => {
+    bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  }, []);
 
   return (
-    <div>
-      {/* Previous sessions */}
-      {hasPrev &&
+    <div ref={rootRef}>
+      {/* Sticky toolbar — role filter + jump-to-latest */}
+      <div className={styles.convToolbar}>
+        <div className={styles.convFilterPills}>
+          {FILTERS.map((f) => (
+            <button
+              key={f.key}
+              className={`${styles.convFilterPill}${filter === f.key ? ` ${styles.convFilterPillActive}` : ''}`}
+              onClick={() => setFilter(f.key)}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <button
+          className={styles.convJumpLatest}
+          onClick={jumpToLatest}
+          disabled={atBottom}
+          title="Jump to latest"
+        >
+          &#8595; latest
+        </button>
+      </div>
+
+      {/* Previous sessions (only in the All view) */}
+      {showPrev &&
         [...previousSessions!]
           .reverse()
           .map((prev, i) => (
@@ -260,15 +383,23 @@ export default function ConversationView({
           ))}
 
       {/* Current session conversation */}
-      {entries.length > 0 ? (
-        entries.map((entry, i) => (
-          <EntryRow key={`${entry.timestamp}-${i}`} entry={entry} query={query} projectPath={projectPath} />
-        ))
+      {visibleEntries.length > 0 ? (
+        visibleEntries.map((entry, i) =>
+          entry.role === 'system' ? (
+            <SystemRow key={`${entry.timestamp}-${i}`} entry={entry} query={query} />
+          ) : (
+            <EntryRow key={`${entry.timestamp}-${i}`} entry={entry} query={query} projectPath={projectPath} />
+          ),
+        )
       ) : loading ? (
         <div className={styles.tabEmpty}>Loading transcript…</div>
-      ) : hasPrev ? null : (
-        <div className={styles.tabEmpty}>No conversation yet</div>
+      ) : showPrev ? null : (
+        <div className={styles.tabEmpty}>
+          {filter === 'all' ? 'No conversation yet' : 'No matching messages'}
+        </div>
       )}
+
+      <div ref={bottomRef} />
     </div>
   );
 }

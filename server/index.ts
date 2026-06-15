@@ -371,9 +371,27 @@ export function startServer(port?: number): Promise<number> {
     // Start auth token cleanup (every hour)
     startTokenCleanup();
 
-    // Auto-respawn SSH terminals for sessions that survived restart
+    // Auto-respawn SSH terminals for sessions that survived restart.
+    //
+    // DISABLED BY DEFAULT. The dashboard's RestorePicker (client-side
+    // useWorkspaceAutoLoad → importSnapshot) is the authoritative restore
+    // path: it always issues POST /api/sessions/clear-all *first*, which
+    // SIGHUP-kills whatever this respawn launched. So in the normal
+    // Electron/browser flow a server-side respawn here is pure waste, and it
+    // actively causes the bugs the restart audit found — every session is
+    // resumed twice, the picker's "Resume nothing" can't be honored, the
+    // retry loop leaks orphan PTYs and steals pending workDir links during the
+    // concurrent client import, and ephemeral fork popups get `--continue`'d
+    // into hijacking their origin's conversation.
+    //
+    // Headless deployments (a standalone server that no dashboard client will
+    // ever connect to) can opt back in with AASC_SERVER_AUTORESPAWN=1.
     if (snapshotResult) {
-      setTimeout(() => respawnSshTerminals(), 500);
+      if (process.env.AASC_SERVER_AUTORESPAWN === '1') {
+        setTimeout(() => respawnSshTerminals(), 500);
+      } else {
+        log.info('server', 'Previous SSH session(s) loaded idle — resume them from the dashboard (set AASC_SERVER_AUTORESPAWN=1 to auto-resume headlessly)');
+      }
     }
 
     // Open browser after a brief delay (let server fully initialize)

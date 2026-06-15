@@ -32,6 +32,7 @@ import {
 } from './floatingPrompt.js';
 import log from './logger.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
+import type { Session } from '../src/types/session.js';
 
 // Re-exported so existing importers (apiRouter) keep their import paths.
 export type { FloatingMode, SpawnFloatingArgs } from './floatingPrompt.js';
@@ -45,14 +46,49 @@ function shellEscapeSingle(value: string): string {
   return value.replace(/'/g, `'"'"'`);
 }
 
-function detectCli(startupCommand: string | undefined | null): 'claude' | 'codex' | 'gemini' {
-  const cmd = (startupCommand || '').toLowerCase().trim();
-  if (cmd.startsWith('codex')) return 'codex';
-  if (cmd.startsWith('gemini')) return 'gemini';
-  return 'claude';
+type CliKind = 'claude' | 'codex' | 'gemini';
+
+/** Sniff a CLI family from a launch command string (tolerates a leading path). */
+function detectCliFromCommand(command: string | undefined | null): CliKind | null {
+  const cmd = (command || '').toLowerCase().trim();
+  if (/^(?:\S*\/)?codex(?:\s|$)/.test(cmd)) return 'codex';
+  if (/^(?:\S*\/)?gemini(?:\s|$)/.test(cmd)) return 'gemini';
+  if (/^(?:\S*\/)?claude(?:\s|$)/.test(cmd)) return 'claude';
+  return null;
 }
 
-function buildLaunchCommand(cli: 'claude' | 'codex' | 'gemini', prompt: string): string {
+/** Sniff a CLI family from a model id (e.g. gpt-5 → codex, gemini-2 → gemini).
+ *  Keyword set + order mirror the canonical client detector (src/lib/cliDetect.ts)
+ *  to avoid backend/frontend divergence. */
+function detectCliFromModel(model: string | undefined | null): CliKind | null {
+  const m = (model || '').toLowerCase();
+  if (!m) return null;
+  if (m.includes('claude') || m.includes('opus') || m.includes('sonnet') || m.includes('haiku')) return 'claude';
+  if (m.includes('gemini') || m.includes('gemma')) return 'gemini';
+  if (m.includes('gpt') || m.includes('codex') || m.includes('o1') || m.includes('o3') || m.includes('o4')) return 'codex';
+  return null;
+}
+
+/**
+ * Resolve which AI CLI an origin session is running so the popup spawns the same
+ * one as its parent. Precedence mirrors the canonical client detector
+ * (src/lib/cliDetect.ts):
+ *   1. cliSource — authoritative (codex/gemini hooks set it; inferCliSource fills it otherwise)
+ *   2. launch command string
+ *   3. model id
+ * Falls back to 'claude' when nothing matches (the historical default).
+ */
+export function resolveOriginCli(origin: Pick<Session, 'cliSource' | 'startupCommand' | 'sshCommand' | 'sshConfig' | 'model'>): CliKind {
+  const explicit = (origin.cliSource || '').toLowerCase();
+  if (explicit === 'claude' || explicit === 'codex' || explicit === 'gemini') return explicit;
+  return (
+    detectCliFromCommand(origin.startupCommand || origin.sshCommand || origin.sshConfig?.command) ||
+    detectCliFromModel(origin.model) ||
+    'claude'
+  );
+}
+
+function buildLaunchCommand(cli: CliKind, prompt: string): string {
   const escaped = shellEscapeSingle(prompt);
   // Claude/Codex accept a positional prompt; Gemini uses -p.
   if (cli === 'gemini') return `gemini -p '${escaped}'`;
@@ -96,7 +132,7 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
   let prevAnswer: string | null = null;
   if (args.mode === 'translate-answer') {
     const projectPath = origin.projectPath || '';
-    const cliKind = detectCli(origin.startupCommand || origin.sshCommand || origin.sshConfig?.command);
+    const cliKind = resolveOriginCli(origin);
     if (cliKind === 'claude' && projectPath) {
       prevAnswer = readClaudeLastAssistant(
         origin.sessionId || null,
@@ -119,8 +155,9 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
     throw new Error(`Prompt is too large (${(promptBytes / 1024).toFixed(0)}KB > ${MAX_PROMPT_BYTES / 1024}KB cap). Try selecting a smaller portion.`);
   }
 
-  // Spawn the same CLI as the origin session.
-  const cliKind = detectCli(origin.startupCommand || origin.sshCommand || origin.sshConfig?.command);
+  // Spawn the same CLI as the origin session (prefers the authoritative
+  // cliSource so codex/gemini parents aren't misdetected as claude).
+  const cliKind = resolveOriginCli(origin);
   // Recursive fork: a popup spawned from inside a floating terminal forks from
   // that terminal's session — resolved here from spawnTerminalId — so context
   // chains down (root → A → B → …). Selections without a host terminal (e.g. the
@@ -176,6 +213,7 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
     command: launchCmd,
     sessionTitle: `${label} · ${origin.title || origin.projectName || 'session'}`.slice(0, 200),
     isFork: true,
+    isFloating: true,
     originSessionId: args.originSessionId,
   });
 

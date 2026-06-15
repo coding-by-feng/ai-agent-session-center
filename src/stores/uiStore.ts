@@ -5,6 +5,13 @@ interface PendingFileOpen {
   projectPath: string;
 }
 
+export interface PendingFileChooser {
+  filePath: string;
+  projectPath: string;
+  /** Viewport coordinates the chooser popover anchors to (click position). */
+  anchor: { x: number; y: number };
+}
+
 export type CardDisplayMode = 'detailed' | 'compact';
 
 export interface WorkspaceLoadState {
@@ -20,6 +27,7 @@ interface UiState {
   detailPanelMinimized: boolean;
   activityFeedOpen: boolean;
   pendingFileOpen: PendingFileOpen | null;
+  pendingFileChooser: PendingFileChooser | null;
   cardDisplayMode: CardDisplayMode;
   workspaceLoad: WorkspaceLoadState;
   /** Room filter: persisted across session switches */
@@ -33,6 +41,8 @@ interface UiState {
   setActivityFeedOpen: (open: boolean) => void;
   openFileInProject: (filePath: string, projectPath: string) => void;
   clearPendingFileOpen: () => void;
+  openFileChooser: (filePath: string, projectPath: string, anchor: { x: number; y: number }) => void;
+  clearFileChooser: () => void;
   toggleCardDisplayMode: () => void;
   startWorkspaceLoad: (total: number) => void;
   advanceWorkspaceLoad: (done: number, currentTitle: string) => void;
@@ -75,6 +85,7 @@ export const useUiStore = create<UiState>((set) => ({
   detailPanelMinimized: false,
   activityFeedOpen: false,
   pendingFileOpen: null,
+  pendingFileChooser: null,
   cardDisplayMode: loadCardDisplayMode(),
   workspaceLoad: { active: false, total: 0, done: 0, currentTitle: '' },
   selectedRoomIds: loadRoomFilter(),
@@ -87,6 +98,8 @@ export const useUiStore = create<UiState>((set) => ({
   setActivityFeedOpen: (open) => set({ activityFeedOpen: open }),
   openFileInProject: (filePath, projectPath) => set({ pendingFileOpen: { filePath, projectPath } }),
   clearPendingFileOpen: () => set({ pendingFileOpen: null }),
+  openFileChooser: (filePath, projectPath, anchor) => set({ pendingFileChooser: { filePath, projectPath, anchor } }),
+  clearFileChooser: () => set({ pendingFileChooser: null }),
   toggleCardDisplayMode: () => set((s) => {
     const next: CardDisplayMode = s.cardDisplayMode === 'detailed' ? 'compact' : 'detailed';
     try { localStorage.setItem('card-display-mode', next); } catch { /* ignore */ }

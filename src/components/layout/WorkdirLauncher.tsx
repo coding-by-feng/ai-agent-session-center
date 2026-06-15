@@ -1,7 +1,7 @@
 /**
  * WorkdirLauncher - Dropdown popover in the NavBar that lists recent working
- * directories. Clicking a directory instantly launches a terminal session
- * in that directory using saved connection config from localStorage.
+ * directories. Clicking a directory instantly launches a local terminal
+ * session in that directory using the saved command from localStorage.
  */
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useClickOutside } from '@/hooks/useClickOutside';
@@ -15,11 +15,6 @@ const LAST_SESSION_KEY = 'lastSession';
 const DIR_SESSION_CONFIGS_KEY = 'dir-session-configs';
 
 interface LastSessionConfig {
-  host?: string;
-  port?: number;
-  username?: string;
-  authMethod?: 'key' | 'password';
-  privateKeyPath?: string;
   command?: string;
   workingDir?: string;
 }
@@ -78,11 +73,6 @@ function findLiveSessionConfigForDir(dir: string): LastSessionConfig | null {
       best = {
         startedAt,
         cfg: {
-          host: ssh.host,
-          port: ssh.port,
-          username: ssh.username,
-          authMethod: ssh.authMethod,
-          privateKeyPath: ssh.privateKeyPath,
           command: ssh.command,
           workingDir: ssh.workingDir,
         },
@@ -142,19 +132,15 @@ export default function WorkdirLauncher() {
   async function handleLaunch(workingDir: string) {
     close();
 
-    // Prefer params from a previous session in THIS directory, falling back
-    // to a live session in the store, then the global lastSession.
+    // Prefer the command from a previous session in THIS directory, falling
+    // back to a live session in the store, then the global lastSession.
+    // No host/username — the server spawns a local PTY for host-less requests.
     const dirSaved = loadDirSessionConfig(workingDir);
     const liveSaved = dirSaved ? null : findLiveSessionConfigForDir(workingDir);
     const globalSaved = dirSaved || liveSaved ? null : loadLastSession();
     const saved: LastSessionConfig = dirSaved ?? liveSaved ?? globalSaved ?? {};
 
     const body = {
-      host: saved.host || window.location.hostname || 'localhost',
-      port: saved.port || undefined,
-      username: saved.username || undefined,
-      authMethod: saved.authMethod || undefined,
-      privateKeyPath: saved.privateKeyPath || undefined,
       workingDir,
       command: saved.command || 'claude',
     };
@@ -174,11 +160,6 @@ export default function WorkdirLauncher() {
         // Persist per-directory config so the next click reuses it without
         // relying on live sessions or the global lastSession.
         saveDirSessionConfig(workingDir, {
-          host: body.host,
-          port: body.port,
-          username: body.username,
-          authMethod: body.authMethod,
-          privateKeyPath: body.privateKeyPath,
           command: body.command,
           workingDir,
         });

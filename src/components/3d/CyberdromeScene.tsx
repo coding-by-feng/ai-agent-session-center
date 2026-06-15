@@ -318,9 +318,10 @@ export default function CyberdromeScene() {
     () => [...sessions.values()].filter(
       s => s.status !== 'ended'
         && s.source === 'ssh'
-        // Floating fork sessions (Explain/Translate popups) have their own
+        // Floating PiP sessions (Explain/Translate popups) have their own
         // PiP UI and shouldn't be represented as 3D robots in the cyberdrome.
-        && !(s.isFork && s.originSessionId)
+        // Clone/fork sessions set isFork only and DO get robots.
+        && !s.isFloating
     ),
     [sessions],
   );

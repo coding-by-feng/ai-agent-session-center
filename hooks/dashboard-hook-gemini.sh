@@ -85,12 +85,13 @@ ENRICHED=$(echo "$INPUT" | jq -c \
     response: (.response // .llm_response // .prompt_response // null),
     model: (.model // null),
     source: "gemini",
+    cli_source: "gemini",
     gemini_event: $gemini_event,
     startup_command: (if $startup_cmd != "" then $startup_cmd else null end)
   }
   ' 2>/dev/null)
 
-[ -z "$ENRICHED" ] && ENRICHED="{\"hook_event_name\":\"$MAPPED_EVENT\",\"session_id\":\"$SESSION_ID\",\"cwd\":\"$CWD\",\"source\":\"gemini\"}"
+[ -z "$ENRICHED" ] && ENRICHED="{\"hook_event_name\":\"$MAPPED_EVENT\",\"session_id\":\"$SESSION_ID\",\"cwd\":\"$CWD\",\"source\":\"gemini\",\"cli_source\":\"gemini\"}"
 
 # ── Deliver to dashboard via file-based MQ (primary) or HTTP (fallback) ──
 MQ_DIR="/tmp/claude-session-center"

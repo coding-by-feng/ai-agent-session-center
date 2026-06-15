@@ -17,7 +17,10 @@ export type ConversationEntry =
   | { role: 'assistant'; text: string; timestamp: number }
   | { role: 'tool_use'; tool: string; input: string; timestamp: number }
   | { role: 'tool_result'; tool?: string; output: string; timestamp: number; isError?: boolean }
-  | { role: 'event'; eventType: string; detail: string; timestamp: number };
+  | { role: 'event'; eventType: string; detail: string; timestamp: number }
+  // Synthesized client-side by transformEntries() from harness plumbing:
+  | { role: 'command'; name: string; args?: string; stdout?: string; timestamp: number }
+  | { role: 'system'; text: string; timestamp: number };
 
 interface TranscriptResponse {
   success: boolean;

@@ -1,10 +1,9 @@
 /**
- * NewSessionModal - Full SSH terminal creation form.
- * Fields: host, port, username, auth method, key path, working dir,
- * tmux mode, tmux session, command, API key, session title, label.
+ * NewSessionModal - Local terminal creation form.
+ * Fields: working dir, command, session title, room, API key,
+ * remote control, model, effort level, commands terminal.
  */
-import { useState, useEffect, useMemo } from 'react';
-import type { SshKeyInfo } from '@/types';
+import { useState, useMemo } from 'react';
 import type { CreateTerminalRequest } from '@/types/api';
 import Modal from '@/components/ui/Modal';
 import Combobox from '@/components/ui/Combobox';
@@ -22,6 +21,7 @@ import {
   loadSessionPrefs,
   saveSessionPrefs,
   EFFORT_LEVELS,
+  MODEL_OPTIONS,
   normalizeEffortLevel,
 } from '@/lib/remoteControlName';
 import styles from '@/styles/modules/Modal.module.css';
@@ -36,14 +36,8 @@ const LAST_SESSION_KEY = 'lastSession';
 const DIR_SESSION_CONFIGS_KEY = 'dir-session-configs';
 
 interface LastSessionConfig {
-  host?: string;
-  port?: number;
-  username?: string;
-  authMethod?: 'key' | 'password';
-  privateKeyPath?: string;
   workingDir?: string;
   command?: string;
-  terminalTheme?: string;
 }
 
 function loadLastSession(): LastSessionConfig {
@@ -87,56 +81,12 @@ function saveWorkdir(dir: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Host & username history (localStorage)
-// ---------------------------------------------------------------------------
-
-const HOST_HISTORY_KEY = 'host-history';
-const USERNAME_HISTORY_KEY = 'username-history';
-const MAX_HISTORY = 20;
-
-function loadHistory(key: string): string[] {
-  try {
-    return JSON.parse(localStorage.getItem(key) || '[]');
-  } catch {
-    return [];
-  }
-}
-
-function saveHistory(key: string, value: string, max = MAX_HISTORY): void {
-  if (!value) return;
-  const history = loadHistory(key).filter((v) => v !== value);
-  history.unshift(value);
-  localStorage.setItem(key, JSON.stringify(history.slice(0, max)));
-}
-
-function getHostSuggestions(): string[] {
-  const history = loadHistory(HOST_HISTORY_KEY);
-  const defaults = ['localhost'];
-  const seen = new Set(history);
-  const merged = [...history];
-  for (const d of defaults) {
-    if (!seen.has(d)) merged.push(d);
-  }
-  return merged;
-}
-
-function getUsernameSuggestions(): string[] {
-  return loadHistory(USERNAME_HISTORY_KEY);
-}
-
-// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export default function NewSessionModal() {
   const closeModal = useUiStore((s) => s.closeModal);
   const [saved] = useState(() => loadLastSession());
-  const [host, setHost] = useState(saved.host || window.location.hostname || '');
-  const [port, setPort] = useState(String(saved.port || 22));
-  const [username, setUsername] = useState(saved.username || '');
-  const [authMethod, setAuthMethod] = useState<'key' | 'password'>(saved.authMethod || 'key');
-  const [privateKeyPath, setPrivateKeyPath] = useState(saved.privateKeyPath || '');
-  const [password, setPassword] = useState('');
   const [workingDir, setWorkingDir] = useState(saved.workingDir || '~');
   const [command, setCommand] = useState(saved.command || '');
   const [apiKey, setApiKey] = useState('');
@@ -158,31 +108,15 @@ export default function NewSessionModal() {
   const [submitting, setSubmitting] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
-  // SSH keys from server
-  const [sshKeys, setSshKeys] = useState<SshKeyInfo[]>([]);
-
   // Working directory history (merged with known Claude Code projects)
   const workdirHistory = useKnownProjects();
 
-  // Host, username, and command history
-  const hostSuggestions = useMemo(() => getHostSuggestions(), []);
-  const usernameSuggestions = useMemo(() => getUsernameSuggestions(), []);
+  // Command history
   const commandSuggestions = useMemo(() => getCommandSuggestions(), []);
 
   // Rooms
   const rooms = useRoomStore((s) => s.rooms);
   const roomOptions = useMemo(() => rooms.map((r) => r.name), [rooms]);
-
-  // Fetch SSH keys on mount
-  useEffect(() => {
-    fetch('/api/ssh-keys')
-      .then((r) => r.json())
-      .then((data: { keys: SshKeyInfo[] }) => setSshKeys(data.keys ?? []))
-      .catch(() => {});
-  }, []);
-
-  // Mark field as touched on blur
-  const markTouched = (field: string) => () => setTouched((prev) => ({ ...prev, [field]: true }));
 
   const isClaudeCommand = command.trim().toLowerCase().startsWith('claude');
   const autoRemoteControlName = useMemo(
@@ -194,27 +128,19 @@ export default function NewSessionModal() {
     : autoRemoteControlName;
 
   // #33: Client-side form validation — required fields
-  const portNum = Number(port);
-  const portValid = Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535;
-  const hostValid = host.trim().length > 0;
-  const usernameValid = username.trim().length > 0;
   const workingDirValid = workingDir.trim().length > 0;
   const commandValid = command.trim().length > 0;
-  const formValid = portValid && hostValid && usernameValid && workingDirValid && commandValid;
+  const formValid = workingDirValid && commandValid;
 
   async function handleSubmit() {
     // Mark all required fields as touched so validation errors show
-    setTouched({ host: true, port: true, username: true, workingDir: true, command: true });
+    setTouched({ workingDir: true, command: true });
     if (submitting || !formValid) return;
     setSubmitting(true);
 
+    // No host/username — the server resolves a host-less request to a local
+    // PTY and falls back to the OS user.
     const body: CreateTerminalRequest = {
-      host: host || window.location.hostname || 'localhost',
-      port: portNum || 22,
-      username: username || '',
-      authMethod,
-      privateKeyPath: authMethod === 'key' && privateKeyPath ? privateKeyPath : undefined,
-      password: authMethod === 'password' && password ? password : undefined,
       workingDir: workingDir || '~',
       command: command || undefined,
       apiKey: apiKey || undefined,
@@ -239,14 +165,7 @@ export default function NewSessionModal() {
       if (data.ok) {
         saveWorkdir(workingDir);
         if (command) saveCommand(command);
-        if (body.host) saveHistory(HOST_HISTORY_KEY, body.host);
-        if (body.username) saveHistory(USERNAME_HISTORY_KEY, body.username);
         const configToSave: LastSessionConfig = {
-          host: body.host,
-          port: body.port,
-          username: body.username,
-          authMethod,
-          privateKeyPath: authMethod === 'key' ? privateKeyPath : undefined,
           workingDir: workingDir || '~',
           command: command || undefined,
         };
@@ -281,85 +200,6 @@ export default function NewSessionModal() {
   return (
     <Modal modalId="new-session" title="New Terminal Session" panelClassName={styles.newSessionPanel}>
       <div className={styles.newSessionBody}>
-        {/* Host + Port */}
-        <div className={styles.sshFieldRow}>
-          <div className={`${styles.sshField} ${styles.sshFieldGrow}`}>
-            <label>Host <span className={styles.sshFieldRequired}>*</span></label>
-            <Combobox
-              value={host}
-              onChange={(v) => { setHost(v); setTouched((t) => ({ ...t, host: true })); }}
-              items={hostSuggestions}
-              placeholder="hostname / IP / domain"
-            />
-            {touched.host && !hostValid && (
-              <span className={styles.sshFieldError}>Required</span>
-            )}
-          </div>
-          <div className={`${styles.sshField} ${styles.sshFieldSmall}`}>
-            <label>Port <span className={styles.sshFieldRequired}>*</span></label>
-            <input
-              value={port}
-              onChange={(e) => setPort(e.target.value)}
-              onBlur={markTouched('port')}
-              placeholder="22"
-              style={port && !portValid ? { borderColor: '#ff5555' } : undefined}
-            />
-            {port && !portValid && (
-              <span className={styles.sshFieldError}>1-65535</span>
-            )}
-          </div>
-        </div>
-
-        {/* Username */}
-        <div className={styles.sshField}>
-          <label>Username <span className={styles.sshFieldRequired}>*</span></label>
-          <Combobox
-            value={username}
-            onChange={(v) => { setUsername(v); setTouched((t) => ({ ...t, username: true })); }}
-            items={usernameSuggestions}
-            placeholder="e.g. root"
-          />
-          {touched.username && !usernameValid && (
-            <span className={styles.sshFieldError}>Required</span>
-          )}
-        </div>
-
-        {/* Auth method */}
-        <div className={styles.sshField}>
-          <label>Auth Method</label>
-          <Combobox
-            value={authMethod === 'key' ? 'SSH Key' : 'Password'}
-            onChange={(v) => setAuthMethod(v === 'Password' ? 'password' : 'key')}
-            items={['SSH Key', 'Password']}
-            placeholder="SSH Key"
-          />
-        </div>
-
-        {/* Key path or password */}
-        {authMethod === 'key' ? (
-          <div className={styles.sshField}>
-            <label>
-              Private Key Path <span className={styles.sshFieldHint}>(optional)</span>
-            </label>
-            <Combobox
-              value={privateKeyPath}
-              onChange={setPrivateKeyPath}
-              items={sshKeys.map((k) => k.path)}
-              placeholder="Default (~/.ssh/id_*)"
-            />
-          </div>
-        ) : (
-          <div className={styles.sshField}>
-            <label>Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="SSH password"
-            />
-          </div>
-        )}
-
         {/* Working directory */}
         <div className={styles.sshField}>
           <label>Working Directory <span className={styles.sshFieldRequired}>*</span></label>
@@ -377,7 +217,7 @@ export default function NewSessionModal() {
         {/* Command */}
         <div className={styles.sshField}>
           <label>
-            Command <span className={styles.sshFieldRequired}>*</span> <span className={styles.sshFieldHint}>(runs after connect)</span>
+            Command <span className={styles.sshFieldRequired}>*</span> <span className={styles.sshFieldHint}>(runs in directory)</span>
           </label>
           <Combobox
             value={command}
@@ -470,7 +310,7 @@ export default function NewSessionModal() {
             <Combobox
               value={model}
               onChange={setModel}
-              items={['opus', 'sonnet', 'haiku']}
+              items={[...MODEL_OPTIONS]}
               placeholder="Default"
             />
           </div>

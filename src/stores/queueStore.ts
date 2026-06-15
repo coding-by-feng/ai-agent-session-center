@@ -167,8 +167,13 @@ interface QueueState {
   setSkipWhenPrompting: (sessionId: string, value: boolean) => void;
   /** Replace the session-level loop exclude windows (quiet hours). */
   setLoopExcludeWindows: (sessionId: string, windows: ExcludeWindow[]) => void;
+  /** Replace the entire automation config for a session. Used by workspace
+   *  restore to re-attach the snapshot's paused/quiet-hours/auto-send state
+   *  under the freshly-created terminal id. */
+  setAutomation: (sessionId: string, config: QueueAutomationConfig) => void;
 
-  /** Re-key queue items when a session is replaced (e.g., claude --resume). */
+  /** Re-key queue items (and automation config) when a session is replaced
+   *  (e.g., claude --resume). */
   migrateSession: (oldSessionId: string, newSessionId: string) => void;
 
   /** Load all queues from IndexedDB. Call once on app mount. */
@@ -346,18 +351,49 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       return { automation: next };
     }),
 
+  setAutomation: (sessionId, config) =>
+    set((state) => {
+      const next = new Map(state.automation);
+      next.set(sessionId, { ...config });
+      return { automation: next };
+    }),
+
   migrateSession: (oldSessionId, newSessionId) =>
     set((state) => {
       const items = state.queues.get(oldSessionId);
-      if (!items || items.length === 0) return state;
-      const next = new Map(state.queues);
-      next.delete(oldSessionId);
-      // Re-key each item's sessionId to the new ID
-      next.set(
-        newSessionId,
-        items.map((i) => ({ ...i, sessionId: newSessionId })),
-      );
-      return { queues: next };
+      const auto = state.automation.get(oldSessionId);
+      // Nothing to carry across — leave both maps untouched.
+      if ((!items || items.length === 0) && !auto) return state;
+
+      const patch: Partial<QueueState> = {};
+
+      if (items && items.length > 0) {
+        const nextQueues = new Map(state.queues);
+        nextQueues.delete(oldSessionId);
+        // Re-key each item's sessionId to the new ID
+        nextQueues.set(
+          newSessionId,
+          items.map((i) => ({ ...i, sessionId: newSessionId })),
+        );
+        patch.queues = nextQueues;
+      }
+
+      // Carry the per-session automation (paused / quiet-hours / auto-send)
+      // across the re-key too. Without this, a session the user explicitly
+      // paused (or silenced overnight) silently reverts to DEFAULT_AUTOMATION
+      // on every `claude --resume` re-key — a paused loop comes back armed.
+      if (auto) {
+        const nextAutomation = new Map(state.automation);
+        nextAutomation.delete(oldSessionId);
+        // Don't clobber a config the new id may already have (e.g. set by an
+        // explicit restore) — only carry forward when the target is unset.
+        if (!nextAutomation.has(newSessionId)) {
+          nextAutomation.set(newSessionId, { ...auto });
+        }
+        patch.automation = nextAutomation;
+      }
+
+      return patch;
     }),
 
   loadFromDb: async () => {
@@ -547,43 +583,71 @@ useQueueStore.subscribe((state) => {
   }
 });
 
-async function persistSessionQueue(sessionId: string, items: QueueItem[]): Promise<void> {
+/**
+ * Per-session serialization of queue persists. The persist subscription can
+ * fire two updates for the same session in quick succession (e.g.
+ * `advanceBlockedLoops` patching multiple due loops in a tight loop). Each
+ * persist is a delete-then-add, so two overlapping runs would both read the
+ * pre-delete state and re-add the rows, leaving Dexie with duplicate copies
+ * that hydrate as doubled queue items on next restart. Chaining per-session
+ * guarantees they run strictly one-after-another.
+ */
+const _persistChains = new Map<string, Promise<void>>();
+
+function persistSessionQueue(sessionId: string, items: QueueItem[]): Promise<void> {
+  // Snapshot the items now so a later mutation can't change what this enqueued
+  // write persists once it reaches the head of the chain.
+  const snapshot = items.map((i) => ({ ...i }));
+  const prev = _persistChains.get(sessionId) ?? Promise.resolve();
+  const next = prev
+    .catch(() => { /* a prior failure must not block later writes */ })
+    .then(() => doPersistSessionQueue(sessionId, snapshot));
+  _persistChains.set(sessionId, next);
+  // Self-clean the map entry once this is the tail (avoid unbounded growth).
+  void next.finally(() => {
+    if (_persistChains.get(sessionId) === next) _persistChains.delete(sessionId);
+  });
+  return next;
+}
+
+async function doPersistSessionQueue(sessionId: string, items: QueueItem[]): Promise<void> {
   try {
-    const existing = await db.promptQueue
-      .where('sessionId')
-      .equals(sessionId)
-      .toArray();
-    const existingIds = existing
-      .map((e) => e.id)
-      .filter((id): id is number => id != null);
-    if (existingIds.length > 0) {
-      await db.promptQueue.bulkDelete(existingIds);
-    }
-    if (items.length > 0) {
-      await db.promptQueue.bulkAdd(
-        items.map((item, idx) => ({
-          sessionId,
-          text: item.text,
-          position: idx,
-          createdAt: item.createdAt,
-          images: item.images ? JSON.stringify(item.images) : undefined,
-          type: item.type,
-          intervalMs: item.intervalMs,
-          runAt: item.runAt,
-          nextFireAt: item.nextFireAt,
-          lastFiredAt: item.lastFiredAt,
-          totalFires: item.totalFires,
-          beforeChain: item.beforeChain && item.beforeChain.length > 0 ? JSON.stringify(item.beforeChain) : undefined,
-          afterChain: item.afterChain && item.afterChain.length > 0 ? JSON.stringify(item.afterChain) : undefined,
-          excludeWindows: item.excludeWindows && item.excludeWindows.length > 0 ? JSON.stringify(item.excludeWindows) : undefined,
-          execState: item.execState,
-          execStepIdx: item.execStepIdx,
-          historyId: item.historyId,
-          disabled: item.disabled ? 1 : undefined,
-          firstFireOfDay: item.firstFireOfDay,
-        })),
-      );
-    }
+    // Atomic delete+add: an interrupted write (e.g. quit mid-persist) either
+    // commits fully or not at all, so the session's queue can never be left
+    // deleted-but-not-re-added (whole-queue data loss).
+    await db.transaction('rw', db.promptQueue, async () => {
+      const existingIds = (
+        await db.promptQueue.where('sessionId').equals(sessionId).primaryKeys()
+      ).filter((id): id is number => id != null);
+      if (existingIds.length > 0) {
+        await db.promptQueue.bulkDelete(existingIds);
+      }
+      if (items.length > 0) {
+        await db.promptQueue.bulkAdd(
+          items.map((item, idx) => ({
+            sessionId,
+            text: item.text,
+            position: idx,
+            createdAt: item.createdAt,
+            images: item.images ? JSON.stringify(item.images) : undefined,
+            type: item.type,
+            intervalMs: item.intervalMs,
+            runAt: item.runAt,
+            nextFireAt: item.nextFireAt,
+            lastFiredAt: item.lastFiredAt,
+            totalFires: item.totalFires,
+            beforeChain: item.beforeChain && item.beforeChain.length > 0 ? JSON.stringify(item.beforeChain) : undefined,
+            afterChain: item.afterChain && item.afterChain.length > 0 ? JSON.stringify(item.afterChain) : undefined,
+            excludeWindows: item.excludeWindows && item.excludeWindows.length > 0 ? JSON.stringify(item.excludeWindows) : undefined,
+            execState: item.execState,
+            execStepIdx: item.execStepIdx,
+            historyId: item.historyId,
+            disabled: item.disabled ? 1 : undefined,
+            firstFireOfDay: item.firstFireOfDay,
+          })),
+        );
+      }
+    });
   } catch {
     // silent
   }

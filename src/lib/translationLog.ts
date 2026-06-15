@@ -77,6 +77,26 @@ export async function captureResponse(floatTerminalId: string, rawOutput: string
   });
 }
 
+/**
+ * Re-point AI-popup/REVIEW log rows from an old origin session id to a new one.
+ * Called when a session is re-keyed (clone/fork/`claude --resume` via
+ * replacesId). Without this, every popup spawned before the re-key keeps
+ * pointing at the dead origin id, so AiPopupHistory — which lists by
+ * originSessionId — shows EMPTY for the resumed session after a restart.
+ */
+export async function migrateOriginSessionId(oldId: string, newId: string): Promise<void> {
+  if (!oldId || oldId === newId) return;
+  const rows = await db.translationLogs.where('originSessionId').equals(oldId).toArray();
+  if (rows.length === 0) return;
+  await db.transaction('rw', db.translationLogs, async () => {
+    for (const row of rows) {
+      if (row.id !== undefined) {
+        await db.translationLogs.update(row.id, { originSessionId: newId, updatedAt: Date.now() });
+      }
+    }
+  });
+}
+
 export interface ListFilters {
   mode?: DbTranslationLog['mode'] | 'all';
   archived?: 'all' | 'active' | 'archived';

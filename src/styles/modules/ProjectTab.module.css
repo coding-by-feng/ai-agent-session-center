@@ -136,6 +136,13 @@
   flex-shrink: 0;
 }
 
+/* Collapsed pane strip — the whole file viewer folds down to this single row.
+   No bottom border since there is nothing rendered beneath it. */
+.collapsedStrip {
+  padding: 6px 8px;
+  border-bottom: none;
+}
+
 .backBtn {
   background: none;
   border: 1px solid var(--border-subtle);

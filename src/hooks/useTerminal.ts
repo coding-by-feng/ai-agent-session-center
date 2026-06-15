@@ -579,7 +579,8 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           },
         });
 
-        // File path link provider — makes file paths clickable to open in PROJECT tab
+        // File path link provider — clicking opens the FileOpenChooser popover
+        // (open in app / default app / reveal in Finder).
         // Matches: path/to/file.ext, ./path/to/file.ext, ../path/to/file.ext
         const FILE_PATH_RE = /(?:\.{0,2}\/)?(?:[\w@.+-]+\/)+[\w@.+-]+\.[\w]+/g;
         term.registerLinkProvider({
@@ -590,7 +591,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
             const links: Array<{
               range: { start: { x: number; y: number }; end: { x: number; y: number } };
               text: string;
-              activate: () => void;
+              activate: (event: MouseEvent) => void;
               tooltip?: string;
             }> = [];
             let match: RegExpExecArray | null;
@@ -605,11 +606,11 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
                   end: { x: endX, y: bufferLineNumber },
                 },
                 text: filePath,
-                tooltip: 'Click to open in Project tab',
-                activate() {
+                tooltip: 'Click to choose how to open',
+                activate(event: MouseEvent) {
                   const clean = filePath.replace(/^\.\//, '');
                   const pp = projectPathRef.current;
-                  useUiStore.getState().openFileInProject(clean, pp || '');
+                  useUiStore.getState().openFileChooser(clean, pp || '', { x: event.clientX, y: event.clientY });
                 },
               });
             }

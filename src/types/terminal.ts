@@ -67,13 +67,20 @@ export interface TerminalConfig {
    */
   deferredLaunch?: boolean;
   /**
-   * Marks this session as a forked floating "explain"/"translate" session.
-   * Forks share the origin's projectPath, which would otherwise cause the
-   * kill-by-PID lookup to match the origin's claude process and accidentally
-   * SIGTERM it. When true, the kill flow skips the PID lookup entirely and
-   * relies on the per-PTY kill (which only affects this fork's process group).
+   * Process-isolation marker for any session spawned from another session
+   * (clone/fork actions and floating popups). Forks share the origin's
+   * projectPath, which would otherwise cause the kill-by-PID lookup to match
+   * the origin's claude process and accidentally SIGTERM it. When true, the
+   * kill flow skips the PID lookup entirely and relies on the per-PTY kill
+   * (which only affects this fork's process group).
    */
   isFork?: boolean;
+  /**
+   * Marks a floating Explain/Translate PiP popup (set by floatingSessionSpawner
+   * and workspace restore). Controls visibility only: floating sessions are
+   * hidden from the session lists and rendered as PiP panels.
+   */
+  isFloating?: boolean;
   /** Origin session id this fork was spawned from (for traceability). */
   originSessionId?: string;
 }

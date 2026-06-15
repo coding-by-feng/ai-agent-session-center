@@ -19,6 +19,7 @@ import {
   loadSessionPrefs,
   saveSessionPrefs,
   EFFORT_LEVELS,
+  MODEL_OPTIONS,
   normalizeEffortLevel,
 } from '@/lib/remoteControlName';
 import styles from '@/styles/modules/Modal.module.css';
@@ -301,7 +302,7 @@ export default function QuickSessionModal() {
               <Combobox
                 value={model}
                 onChange={setModel}
-                items={['opus', 'sonnet', 'haiku']}
+                items={[...MODEL_OPTIONS]}
                 placeholder="Default"
               />
             </div>

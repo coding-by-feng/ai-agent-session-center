@@ -1,0 +1,82 @@
+/* FileOpenChooser — anchored popover offering open-in-app / default-app /
+   reveal actions for a clicked file-path link. */
+
+.popup {
+  position: fixed;
+  z-index: 9000;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 6px;
+  /* Keep in sync with POPUP_W in FileOpenChooser.tsx, which clamps position. */
+  width: 240px;
+  background: var(--bg-card);
+  border: 1px solid var(--accent-cyan, #00e5ff);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.65), 0 0 8px var(--glow-accent);
+  backdrop-filter: blur(8px);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  user-select: none;
+  animation: chooserIn 120ms ease-out;
+}
+
+@keyframes chooserIn {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.header {
+  padding: 4px 10px 6px;
+  color: var(--accent-cyan, #00d4ff);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid var(--border-accent, rgba(0, 212, 255, 0.2));
+  margin-bottom: 2px;
+}
+
+.action,
+.cancel {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-primary, #e6f6ff);
+  font-size: 12px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 100ms ease, border-color 100ms ease, color 100ms ease;
+}
+
+.action:hover:not(:disabled),
+.cancel:hover {
+  background: var(--bg-accent);
+  border-color: var(--border-accent-strong);
+  color: var(--accent-cyan, #00f0ff);
+}
+
+.action:active:not(:disabled),
+.cancel:active {
+  background: var(--bg-accent-strong);
+}
+
+.action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.cancel {
+  color: var(--text-secondary, #8888aa);
+}
+
+.divider {
+  height: 1px;
+  margin: 2px 6px;
+  background: var(--border-accent, rgba(0, 212, 255, 0.2));
+}

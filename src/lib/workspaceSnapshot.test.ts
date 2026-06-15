@@ -11,6 +11,7 @@ import {
   buildSnapshot,
   deduplicateSessions,
   importSnapshot,
+  isFloatingSnapshot,
   scheduleAutoSave,
   cancelAutoSave,
   setRestorePending,
@@ -799,5 +800,52 @@ describe('importSnapshot — floating popup re-link', () => {
       (c) => /\/api\/terminals$/.test(c.url) && (c.init?.method ?? 'POST') === 'POST',
     );
     expect(creates).toHaveLength(0);
+  });
+
+  it('restores a clone (isFork, isFloating: false) as a visible session even without its origin', async () => {
+    const { calls } = setupIncrementingFetchMock();
+
+    const snap: WorkspaceSnapshot = {
+      version: 1,
+      exportedAt: Date.now(),
+      sessions: [
+        makeSnap({
+          originalSessionId: 'cloneSess',
+          title: 'Clone of Thesis',
+          isFork: true,
+          isFloating: false,
+          originSessionId: 'mainA', // origin NOT part of this restore
+        }),
+      ],
+      rooms: [],
+    };
+
+    await importSnapshot(snap, { onSessionCreated: () => {}, onComplete: () => {} });
+
+    // Restored as a normal session (PTY created, not dropped as an orphan popup)…
+    const creates = calls.filter(
+      (c) => /\/api\/terminals$/.test(c.url) && (c.init?.method ?? 'POST') === 'POST',
+    );
+    expect(creates).toHaveLength(1);
+    // …keeping the kill-guard but NOT the floating flag…
+    const body = JSON.parse((creates[0].init?.body ?? '{}') as string);
+    expect(body.isFork).toBe(true);
+    expect(body.isFloating).toBeUndefined();
+    // …and no PiP float was opened for it.
+    expect(useFloatingSessionsStore.getState().floats).toHaveLength(0);
+  });
+});
+
+describe('isFloatingSnapshot', () => {
+  it('trusts an explicit isFloating value', () => {
+    expect(isFloatingSnapshot(makeSnap({ isFloating: true }))).toBe(true);
+    expect(
+      isFloatingSnapshot(makeSnap({ isFloating: false, isFork: true, originSessionId: 'x' })),
+    ).toBe(false);
+  });
+  it('falls back to isFork+originSessionId for legacy snapshots', () => {
+    expect(isFloatingSnapshot(makeSnap({ isFork: true, originSessionId: 'x' }))).toBe(true);
+    expect(isFloatingSnapshot(makeSnap({ isFork: true }))).toBe(false);
+    expect(isFloatingSnapshot(makeSnap())).toBe(false);
   });
 });
