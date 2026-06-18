@@ -886,10 +886,14 @@ export function scheduleAutoSave(
     try {
       const sessions = getSessions();
       const rooms = getRooms();
-      // Only auto-save if there are sessions with SSH config
-      const hasExportable = Array.from(sessions.values()).some((s) => !!s.sshConfig);
-      if (!hasExportable) return;
       const snapshot = buildSnapshot(sessions, rooms);
+      // Never overwrite a good snapshot with an empty one. buildSnapshot drops
+      // non-SSH, archived, and ENDED sessions — so a set that is all-ended (e.g.
+      // after a restart, where the client re-registers its IndexedDB sessions as
+      // ENDED before reconnecting to live PTYs) reduces to zero here. The old
+      // guard only checked sshConfig presence, so it persisted that empty snapshot
+      // and silently wiped the saved workspace, breaking restart-to-resume.
+      if (snapshot.sessions.length === 0) return;
       await saveToConfig(snapshot);
     } catch {
       // Silent failure — auto-save is best-effort
@@ -920,8 +924,9 @@ export async function flushSave(
   if (_restorePending) return;
   const sessions = getSessions();
   const rooms = getRooms();
-  const hasExportable = Array.from(sessions.values()).some((s) => !!s.sshConfig);
-  if (!hasExportable) return;
   const snapshot = buildSnapshot(sessions, rooms);
+  // Same guard as scheduleAutoSave: never flush an empty snapshot over a good one
+  // (all-ended/archived/non-SSH sessions reduce to zero exportable sessions).
+  if (snapshot.sessions.length === 0) return;
   await saveToConfig(snapshot);
 }

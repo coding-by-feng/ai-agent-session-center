@@ -19,6 +19,7 @@ import {
   currentChainStep,
 } from '@/lib/queueScheduler';
 import { parseHHMM } from '@/lib/timePicker';
+import { sendPromptToTerminal } from '@/lib/terminalSend';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useQueueHistoryStore } from '@/stores/queueHistoryStore';
 import { showToast } from '@/components/ui/ToastContainer';
@@ -230,24 +231,16 @@ export default function QueueTab({
         const paths = await uploadImages(item.images);
         if (paths.length > 0) textToSend += '\n' + paths.join('\n');
       }
-      // \r mimics a real Enter keypress in Claude Code / Codex / Gemini TUIs.
-      // \n in those TUIs only inserts a newline inside the input box and never submits.
-      const terminator = autoEnter ? '\r' : '';
-      try {
-        const res = await fetch(`/api/terminals/${terminalId}/write`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: textToSend + terminator }),
-        });
-        if (!res.ok) {
-          showToast('Failed to send to terminal', 'error');
-          return false;
-        }
-        return true;
-      } catch {
-        showToast('Network error sending to terminal', 'error');
+      // Auto-Enter submits with a SEPARATE Enter keystroke. Concatenating "\r"
+      // onto the text makes Claude Code / Codex / Gemini TUIs insert a newline in
+      // the input box instead of submitting; a standalone "\r" sent after the text
+      // registers as a real Enter keypress. See sendPromptToTerminal.
+      const ok = await sendPromptToTerminal(terminalId, textToSend, autoEnter);
+      if (!ok) {
+        showToast('Failed to send to terminal', 'error');
         return false;
       }
+      return true;
     },
     [terminalId, uploadImages, autoEnter],
   );

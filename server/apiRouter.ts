@@ -121,7 +121,7 @@ function stripCodexSessionSubcommand(command: string): string {
     .trim();
 }
 
-function buildResumeCommand(session: { startupCommand?: string; sshCommand?: string; sshConfig?: { command?: string }; permissionMode?: string | null; title?: string | null; model?: string; effortLevel?: string }, sessionId: string): string {
+export function buildResumeCommand(session: { startupCommand?: string; sshCommand?: string; sshConfig?: { command?: string }; permissionMode?: string | null; title?: string | null; model?: string; effortLevel?: string }, sessionId: string): string {
   const originalCmd = session.startupCommand || session.sshCommand || session.sshConfig?.command || '';
   const safeId = shellEscapeSingle(sessionId);
   // Only try --resume when the ID looks like a real CLI session UUID.
@@ -131,9 +131,12 @@ function buildResumeCommand(session: { startupCommand?: string; sshCommand?: str
 
   if (commandStartsWithCli(originalCmd, 'codex')) {
     const baseCmd = stripCodexSessionSubcommand(originalCmd || 'codex') || 'codex';
+    // Same rationale as the Claude branch below: fall back to a FRESH codex, NOT
+    // `codex resume --last`, which would resume an UNRELATED most-recent session
+    // in this dir and hijack it on restore.
     return canUseSessionId
-      ? `${baseCmd} resume '${safeId}' || ${baseCmd} resume --last`
-      : `${baseCmd} resume --last`;
+      ? `${baseCmd} resume '${safeId}' || ${baseCmd}`
+      : baseCmd;
   }
 
   if (commandStartsWithCli(originalCmd, 'claude')) {
@@ -145,9 +148,19 @@ function buildResumeCommand(session: { startupCommand?: string; sshCommand?: str
     baseCmd = applyClaudeLaunchFlags(baseCmd, session.model, session.effortLevel);
     const title = session.title ?? extractSessionName(originalCmd);
     baseCmd = appendSessionName(baseCmd, title);
+    // Fallback is a FRESH `claude`, NOT `claude --continue`. When `--resume <id>`
+    // fails (the session never persisted a transcript — common for short-lived
+    // sessions killed before Claude's periodic flush), `--continue` would resume
+    // the most-recent UNRELATED conversation in that directory (a background
+    // session, or another agent's live session in the same dir) and hijack it —
+    // re-keying the restored card onto that conversation's id, which corrupts the
+    // session's identity and drops it out of its room on workspace restore. A
+    // fresh start keeps the card's title/room/config intact (the scrollback is
+    // still prefilled from the saved buffer); only the live conversation is new,
+    // which is unavoidable when the original transcript is gone.
     return canUseSessionId
-      ? `${baseCmd} --resume '${safeId}' || ${baseCmd} --continue`
-      : baseCmd;  // no session ID → start fresh (--continue fails in empty dirs)
+      ? `${baseCmd} --resume '${safeId}' || ${baseCmd}`
+      : baseCmd;  // no resumable session ID → start fresh
   }
 
   return originalCmd;
@@ -203,8 +216,9 @@ const terminalCreateSchema = z.object({
   originalSessionId: z.string().max(200).optional(),
   /**
    * Claude session UUID to resume on restart. When provided and the base command is Claude,
-   * the server rebuilds the launch command as `<baseCmd> --resume '<UUID>' || <baseCmd> --continue`
-   * so the user picks up their actual conversation instead of forking/starting fresh.
+   * the server rebuilds the launch command as `<baseCmd> --resume '<UUID>' || <baseCmd>`
+   * so the user picks up their actual conversation if it persisted, and otherwise starts
+   * FRESH (never `--continue`, which would hijack an unrelated most-recent conversation).
    * Must be alphanumeric + dashes/underscores (no shell metacharacters).
    */
   resumeSessionId: z

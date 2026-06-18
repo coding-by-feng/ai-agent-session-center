@@ -14,6 +14,10 @@ export interface PendingFileChooser {
 
 export type CardDisplayMode = 'detailed' | 'compact';
 
+/** Where the DetailPanel session-navigation bar sits: a horizontal strip on top
+ *  (default) or a vertical rail down the left side (reclaims vertical space). */
+export type NavPosition = 'top' | 'left';
+
 export interface WorkspaceLoadState {
   active: boolean;
   total: number;
@@ -29,6 +33,12 @@ interface UiState {
   pendingFileOpen: PendingFileOpen | null;
   pendingFileChooser: PendingFileChooser | null;
   cardDisplayMode: CardDisplayMode;
+  /** DetailPanel nav-bar position: 'top' (default) or 'left' rail. Persisted. */
+  navPosition: NavPosition;
+  /** Maximize mode: hide the detail panel's own session-chip strip for more
+   *  terminal space. The global Header + NavBar stay pinned at all times.
+   *  Ephemeral (not persisted) so a reload returns to the normal panel layout. */
+  maximized: boolean;
   workspaceLoad: WorkspaceLoadState;
   /** Room filter: persisted across session switches */
   selectedRoomIds: Set<string>;
@@ -44,6 +54,10 @@ interface UiState {
   openFileChooser: (filePath: string, projectPath: string, anchor: { x: number; y: number }) => void;
   clearFileChooser: () => void;
   toggleCardDisplayMode: () => void;
+  setNavPosition: (pos: NavPosition) => void;
+  toggleNavPosition: () => void;
+  setMaximized: (on: boolean) => void;
+  toggleMaximized: () => void;
   startWorkspaceLoad: (total: number) => void;
   advanceWorkspaceLoad: (done: number, currentTitle: string) => void;
   finishWorkspaceLoad: () => void;
@@ -56,6 +70,12 @@ function loadCardDisplayMode(): CardDisplayMode {
     const v = localStorage.getItem('card-display-mode');
     return v === 'compact' ? 'compact' : 'detailed';
   } catch { return 'detailed'; }
+}
+
+function loadNavPosition(): NavPosition {
+  try {
+    return localStorage.getItem('nav-position') === 'left' ? 'left' : 'top';
+  } catch { return 'top'; }
 }
 
 function loadRoomFilter(): Set<string> {
@@ -87,6 +107,8 @@ export const useUiStore = create<UiState>((set) => ({
   pendingFileOpen: null,
   pendingFileChooser: null,
   cardDisplayMode: loadCardDisplayMode(),
+  navPosition: loadNavPosition(),
+  maximized: false,
   workspaceLoad: { active: false, total: 0, done: 0, currentTitle: '' },
   selectedRoomIds: loadRoomFilter(),
 
@@ -105,6 +127,17 @@ export const useUiStore = create<UiState>((set) => ({
     try { localStorage.setItem('card-display-mode', next); } catch { /* ignore */ }
     return { cardDisplayMode: next };
   }),
+  setNavPosition: (pos) => set(() => {
+    try { localStorage.setItem('nav-position', pos); } catch { /* ignore */ }
+    return { navPosition: pos };
+  }),
+  toggleNavPosition: () => set((s) => {
+    const next: NavPosition = s.navPosition === 'left' ? 'top' : 'left';
+    try { localStorage.setItem('nav-position', next); } catch { /* ignore */ }
+    return { navPosition: next };
+  }),
+  setMaximized: (on) => set({ maximized: on }),
+  toggleMaximized: () => set((s) => ({ maximized: !s.maximized })),
   startWorkspaceLoad: (total) => set({ workspaceLoad: { active: true, total, done: 0, currentTitle: '' } }),
   advanceWorkspaceLoad: (done, currentTitle) => set((s) => ({ workspaceLoad: { ...s.workspaceLoad, done, currentTitle } })),
   finishWorkspaceLoad: () => set({ workspaceLoad: { active: false, total: 0, done: 0, currentTitle: '' } }),

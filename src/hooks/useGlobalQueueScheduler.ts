@@ -51,6 +51,7 @@ import {
   currentChainStep,
   type ChainGate,
 } from '@/lib/queueScheduler';
+import { sendPromptToTerminal } from '@/lib/terminalSend';
 import { showToast } from '@/components/ui/ToastContainer';
 
 /**
@@ -89,17 +90,10 @@ async function sendToTerminal(
     const paths = await uploadImages(item.images);
     if (paths.length > 0) textToSend += '\n' + paths.join('\n');
   }
-  const terminator = autoEnter ? '\r' : '';
-  try {
-    const res = await fetch(`/api/terminals/${terminalId}/write`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ data: textToSend + terminator }),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
+  // Auto-Enter submits with a SEPARATE Enter keystroke — concatenating "\r" onto
+  // the text makes the TUI insert a newline instead of submitting. See
+  // sendPromptToTerminal.
+  return sendPromptToTerminal(terminalId, textToSend, autoEnter);
 }
 
 export function useGlobalQueueScheduler(): void {

@@ -27,6 +27,20 @@ const STATUS_ORDER: Record<string, number> = {
   waiting: 3, idle: 4, connecting: 5, ended: 6,
 };
 
+// Ordered status → human label for the colour-legend popover. Order follows
+// STATUS_ORDER; each swatch is drawn from STATUS_COLORS, so the legend always
+// reflects the active theme's accent palette (body[data-theme]).
+const STATUS_LEGEND: ReadonlyArray<{ status: string; label: string }> = [
+  { status: 'working', label: 'Working' },
+  { status: 'prompting', label: 'Prompting' },
+  { status: 'approval', label: 'Approval needed' },
+  { status: 'input', label: 'Waiting for input' },
+  { status: 'waiting', label: 'Waiting' },
+  { status: 'idle', label: 'Idle' },
+  { status: 'connecting', label: 'Connecting' },
+  { status: 'ended', label: 'Disconnected' },
+];
+
 // One color per room slot — cycles if more than 8 rooms exist.
 // Must match the palette in HeaderAgentStrip so colors agree across the UI.
 const ROOM_COLOR_PALETTE = [
@@ -119,6 +133,58 @@ function CompactModeIcon() {
   );
 }
 
+/** Legend / key icon — opens the status-colour legend popover */
+function LegendIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="3" cy="3" r="1.5" fill="currentColor" />
+      <circle cx="3" cy="7" r="1.5" fill="currentColor" />
+      <circle cx="3" cy="11" r="1.5" fill="currentColor" />
+      <path d="M6.5 3H12M6.5 7H12M6.5 11H12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Panel-with-left-rail icon — shown when nav is on top; click to dock it left */
+function DockLeftIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="1" y="1" width="12" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="1" y="1" width="4.5" height="12" rx="1.5" fill="currentColor" opacity="0.85" />
+    </svg>
+  );
+}
+
+/** Panel-with-top-bar icon — shown when nav is on left; click to dock it top */
+function DockTopIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="1" y="1" width="12" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+      <rect x="1" y="1" width="12" height="4.5" rx="1.5" fill="currentColor" opacity="0.85" />
+    </svg>
+  );
+}
+
+/** Expand-to-corners icon — maximize the detail panel (hide its session strip) */
+function MaximizeIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M2 5V2.5A.5.5 0 0 1 2.5 2H5M9 2h2.5a.5.5 0 0 1 .5.5V5M12 9v2.5a.5.5 0 0 1-.5.5H9M5 12H2.5a.5.5 0 0 1-.5-.5V9"
+        stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Contract-from-corners icon — restore the detail panel's session strip */
+function RestoreSizeIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M5 2v2.5a.5.5 0 0 1-.5.5H2M9 2v2.5a.5.5 0 0 0 .5.5H12M12 9H9.5a.5.5 0 0 0-.5.5V12M2 9h2.5a.5.5 0 0 1 .5.5V12"
+        stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 interface Props {
   currentSession: Session;
   sessions: Map<string, Session>;
@@ -173,6 +239,13 @@ export default function SessionSwitcher({
   }, [onSwitch]);
   const cardDisplayMode = useUiStore((s) => s.cardDisplayMode);
   const toggleCardDisplayMode = useUiStore((s) => s.toggleCardDisplayMode);
+  const navPosition = useUiStore((s) => s.navPosition);
+  const toggleNavPosition = useUiStore((s) => s.toggleNavPosition);
+  const maximized = useUiStore((s) => s.maximized);
+  const toggleMaximized = useUiStore((s) => s.toggleMaximized);
+  // Vertical rail only when docked-left AND not maximized
+  // (maximizing always collapses the nav to the slim top bar).
+  const isVertical = navPosition === 'left' && !maximized;
   const rooms = useRoomStore((s) => s.rooms);
 
   const selectedRoomIds = useUiStore((s) => s.selectedRoomIds);
@@ -192,6 +265,20 @@ export default function SessionSwitcher({
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [roomDropdownOpen]);
+
+  // Status-colour legend popover (hint for what each session colour means)
+  const [legendOpen, setLegendOpen] = useState(false);
+  const legendRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!legendOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (legendRef.current && !legendRef.current.contains(e.target as Node)) {
+        setLegendOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [legendOpen]);
 
   // Derive a stable content signature from `sessions`. The Map reference changes
   // on every session update (pattern `new Map(...)`), but if the visible fields
@@ -341,7 +428,7 @@ export default function SessionSwitcher({
   }, [currentSession.sessionId]);
 
   return (
-    <div className={styles.switcherBar}>
+    <div className={`${styles.switcherBar}${isVertical ? ` ${styles.switcherBarVertical}` : ''}`}>
       {/* ── Top row: current session name + meta controls ── */}
       <div className={styles.switcherToggle}>
         <div className={styles.switcherNameDisplay}>
@@ -447,6 +534,39 @@ export default function SessionSwitcher({
             </div>
           )}
 
+          {/* Status-colour legend — hint for what each session-title/badge colour
+              means under the currently selected theme */}
+          <div className={styles.roomFilterWrap} ref={legendRef}>
+            <button
+              className={`${styles.displayModeToggle}${legendOpen ? ` ${styles.roomFilterActive}` : ''}`}
+              onClick={() => setLegendOpen((o) => !o)}
+              title="Status colour legend"
+              aria-label="Status colour legend"
+              aria-expanded={legendOpen}
+              type="button"
+            >
+              <LegendIcon />
+            </button>
+            {legendOpen && (
+              <div className={styles.statusLegendDropdown} role="group" aria-label="Session status colours">
+                <div className={styles.statusLegendTitle}>STATUS COLOURS</div>
+                {STATUS_LEGEND.map(({ status, label }) => {
+                  const c = STATUS_COLORS[status] ?? 'var(--text-dim)';
+                  return (
+                    <div key={status} className={styles.statusLegendRow}>
+                      <span
+                        className={styles.statusLegendSwatch}
+                        style={{ background: c, boxShadow: `0 0 5px ${c}` }}
+                        aria-hidden="true"
+                      />
+                      <span className={styles.statusLegendLabel}>{label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <button
             className={styles.displayModeToggle}
             onClick={toggleCardDisplayMode}
@@ -454,6 +574,27 @@ export default function SessionSwitcher({
             type="button"
           >
             {isCompact ? <DetailedModeIcon /> : <CompactModeIcon />}
+          </button>
+          {/* Dock the session nav bar on top (default) or as a left rail */}
+          <button
+            className={`${styles.displayModeToggle}${navPosition === 'left' ? ` ${styles.roomFilterActive}` : ''}`}
+            onClick={toggleNavPosition}
+            title={navPosition === 'left' ? 'Dock session bar on top' : 'Dock session bar on left'}
+            aria-label={navPosition === 'left' ? 'Dock session bar on top' : 'Dock session bar on left'}
+            type="button"
+          >
+            {navPosition === 'left' ? <DockTopIcon /> : <DockLeftIcon />}
+          </button>
+          {/* Maximize — collapses the panel's own session strip for more terminal
+              space. The global dashboard header (+ NEW, tabs) always stays pinned. */}
+          <button
+            className={`${styles.displayModeToggle}${maximized ? ` ${styles.roomFilterActive}` : ''}`}
+            onClick={toggleMaximized}
+            title={maximized ? 'Restore session strip (Esc)' : 'Maximize — hide session strip for more space'}
+            aria-label={maximized ? 'Restore session strip' : 'Maximize'}
+            type="button"
+          >
+            {maximized ? <RestoreSizeIcon /> : <MaximizeIcon />}
           </button>
           {onClose && (
             <button
@@ -468,8 +609,8 @@ export default function SessionSwitcher({
         </div>
       </div>
 
-      {/* ── Session tab strip ── */}
-      {filteredSessions.length > 0 && (
+      {/* ── Session tab strip ── (hidden when the panel is maximized) */}
+      {!maximized && filteredSessions.length > 0 && (
         <div className={styles.sessionTabStrip}>
           {tabRenderItems.map((item) => {
             if (item.type === 'room') {

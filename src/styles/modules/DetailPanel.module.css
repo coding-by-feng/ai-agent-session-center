@@ -6,8 +6,12 @@
 
 /* ---- Overlay ---- */
 
-.overlay {
-  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+/* Detail panel overlay — bounded to its positioned ancestor (<main>) so it sits
+   *below* the pinned Header + NavBar rather than covering the whole viewport.
+   (Each modal/overlay component defines its OWN scoped .overlay; this class is the
+   session detail panel's, intentionally position:absolute rather than fixed.) */
+.detailOverlay {
+  position: absolute; inset: 0;
   z-index: 100; background: var(--overlay-bg);
   animation: fade-in 0.2s ease;
 }
@@ -16,7 +20,7 @@
    The terminal fullscreen portal (z-index: 10000) covers the viewport, but the
    panel's will-change:transform compositor layer can bleed through in some browsers.
    The body.term-fullscreen class is set by TerminalContainer when fullscreen is active. */
-:global(body.term-fullscreen) .overlay {
+:global(body.term-fullscreen) .detailOverlay {
   visibility: hidden;
 }
 
@@ -598,6 +602,75 @@
   position: relative;
   flex-shrink: 0;
   border-bottom: 1px solid var(--border-subtle);
+}
+
+/* ---- Panel inner layout (session nav-bar dock position) ----
+   Default: column (nav bar on top, content below). Left dock: row. The content
+   stays wrapped in .mainCol so toggling direction never remounts the terminal. */
+.panelInner {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+.panelInnerLeft {
+  flex-direction: row;
+}
+.mainCol {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ---- Vertical (left-rail) session bar ---- */
+.switcherBarVertical {
+  display: flex;
+  flex-direction: column;
+  width: 210px;
+  flex-shrink: 0;
+  height: 100%;
+  border-bottom: none;
+  border-right: 1px solid var(--border-subtle);
+  /* overflow stays visible so the room-filter dropdown isn't clipped; the chip
+     list below provides its own scroll. */
+}
+.switcherBarVertical .switcherToggle {
+  flex-direction: column;
+  align-items: stretch;
+  height: auto;
+  gap: 8px;
+  padding: 10px 8px;
+}
+.switcherBarVertical .switcherNameDisplay {
+  flex: 0 0 auto;
+  height: auto;
+  padding: 0;
+}
+.switcherBarVertical .switcherMeta {
+  flex-wrap: wrap;
+  padding-right: 0;
+  row-gap: 6px;
+}
+.switcherBarVertical .sessionTabStrip {
+  flex-direction: column;
+  align-items: stretch;
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-bottom: none;
+  border-top: 1px solid var(--border-faint);
+  padding: 10px 8px;
+}
+.switcherBarVertical .sessionTabRoomGroup {
+  flex-direction: column;
+  align-items: stretch;
+}
+.switcherBarVertical .sessionTabCard {
+  width: 100%;
+  max-width: none;
 }
 
 
@@ -1269,6 +1342,47 @@
   font-size: 10px;
 }
 
+/* ---- Status colour legend popover ---- */
+.statusLegendDropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 156px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 6px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+.statusLegendTitle {
+  font-size: 9px;
+  letter-spacing: 0.8px;
+  color: var(--text-dim);
+  padding: 2px 6px 5px;
+}
+.statusLegendRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+.statusLegendSwatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.statusLegendLabel {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 /* ---- Session tab pin icon ---- */
 
 .sessionTabPin {
@@ -1487,8 +1601,6 @@
   cursor: not-allowed;
 }
 
-/* macOS Electron: push panel below the 28px TitleBar so close/collapse buttons are reachable */
-:global(html.electron-mac) .panel {
-  top: 28px;
-  height: calc(100% - 28px);
-}
+/* macOS Electron: no panel-level offset needed. The detail panel is bounded to
+   <main>, which already sits below the 28px fixed TitleBar (the Header's
+   electron-mac padding clears it), so the panel fills <main> at top:0 / height:100%. */

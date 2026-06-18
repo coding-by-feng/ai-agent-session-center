@@ -8,6 +8,7 @@ CLAUDE.md
 .claude
 .github
 .playwright-mcp/
+.playwright-cli/
 test-results/
 test-screenshots/
 *.mov

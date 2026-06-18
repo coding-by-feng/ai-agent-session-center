@@ -22,7 +22,7 @@ import {
 // Sub-module imports
 import { matchSession, detectHookSource } from './sessionMatcher.js';
 import { startApprovalTimer, clearApprovalTimer, hasChildProcesses } from './approvalDetector.js';
-import { closeTerminal, registerTerminalExitCallback, getTerminalOutputBuffer } from './sshManager.js';
+import { closeTerminal, registerTerminalExitCallback, getTerminalOutputBuffer, getTerminals } from './sshManager.js';
 import {
   findPendingSubagentMatch, handleTeamMemberEnd, addPendingSubagent,
   linkByParentSessionId,
@@ -528,27 +528,44 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
   //   - Workspace auto-load created a fresh CONNECTING session for the same path
   //   - Without merging, the CONNECTING card persists as a duplicate
   // By merging, the re-keyed session gets the fresh SSH terminal and the orphan is removed.
-  // Safe for Priority 1/2/3 re-keys too: those consume the CONNECTING session during re-key,
-  // so no orphan exists for the same path and the loop finds nothing to merge.
+  //
+  // BUT only when this session does NOT already own a LIVE terminal. The original
+  // comment claimed this was "safe for Priority 1/2/3 because those consume the
+  // CONNECTING session during re-key" — that's false when TWO sessions share a
+  // workDir (e.g. two restored/created in the same dir): session #1 matches its
+  // OWN terminal via Priority 1, but session #2's CONNECTING placeholder is still
+  // in the map. Without this guard, session #1 would absorb #2's terminal,
+  // overwriting its live terminalId — then #2's Claude matches the now-stolen id
+  // and both collapse into one card (data loss). The Priority-0.5 case this merge
+  // exists for keeps a DEAD terminalId (its PTY died on server restart), so its
+  // own terminal is not live and the merge still runs.
   if (session.replacesId && cwd) {
-    const normalizedCwd = cwd.replace(/\/$/, '');
-    for (const [orphanKey, orphan] of sessions) {
-      if (
-        orphanKey !== session.sessionId &&
-        orphan.terminalId &&
-        orphan.status === SESSION_STATUS.CONNECTING &&
-        orphan.projectPath?.replace(/\/$/, '') === normalizedCwd
-      ) {
-        session.terminalId = orphan.terminalId;
-        if (orphan.opsTerminalId) session.opsTerminalId = orphan.opsTerminalId;
-        if (orphan.sshConfig) session.sshConfig = orphan.sshConfig;
-        if (orphan.sshHost) session.sshHost = orphan.sshHost;
-        if (orphan.sshCommand) session.sshCommand = orphan.sshCommand;
-        sessions.delete(orphanKey);
-        invalidateSessionsCache();
-        broadcastAsync({ type: WS_TYPES.SESSION_REMOVED, sessionId: orphanKey });
-        log.info('session', `Merged orphan CONNECTING terminal ${orphan.terminalId?.slice(0,8)} into re-keyed session ${session.sessionId?.slice(0,8)} (path=${normalizedCwd})`);
-        break;
+    // Guard: only absorb when this session's OWN terminal is NOT live. Priority 0.5
+    // keeps a DEAD terminalId (its PTY died on server restart) and genuinely needs
+    // the fresh auto-load terminal; a same-dir Priority-1 re-key just bound a LIVE
+    // terminal, and the other CONNECTING placeholder is a DIFFERENT session.
+    const ownTerminalLive = !!session.terminalId
+      && getTerminals().some((t) => t.terminalId === session.terminalId);
+    if (!ownTerminalLive) {
+      const normalizedCwd = cwd.replace(/\/$/, '');
+      for (const [orphanKey, orphan] of sessions) {
+        if (
+          orphanKey !== session.sessionId &&
+          orphan.terminalId &&
+          orphan.status === SESSION_STATUS.CONNECTING &&
+          orphan.projectPath?.replace(/\/$/, '') === normalizedCwd
+        ) {
+          session.terminalId = orphan.terminalId;
+          if (orphan.opsTerminalId) session.opsTerminalId = orphan.opsTerminalId;
+          if (orphan.sshConfig) session.sshConfig = orphan.sshConfig;
+          if (orphan.sshHost) session.sshHost = orphan.sshHost;
+          if (orphan.sshCommand) session.sshCommand = orphan.sshCommand;
+          sessions.delete(orphanKey);
+          invalidateSessionsCache();
+          broadcastAsync({ type: WS_TYPES.SESSION_REMOVED, sessionId: orphanKey });
+          log.info('session', `Merged orphan CONNECTING terminal ${orphan.terminalId?.slice(0,8)} into re-keyed session ${session.sessionId?.slice(0,8)} (path=${normalizedCwd})`);
+          break;
+        }
       }
     }
   }
