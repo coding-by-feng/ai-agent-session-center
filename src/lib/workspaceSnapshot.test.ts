@@ -589,6 +589,42 @@ describe('scheduleAutoSave restore-pending guard', () => {
     );
     expect(saveCalls.length).toBeGreaterThan(0);
   });
+
+  it('does NOT clobber the snapshot when every session is ENDED (buildSnapshot yields zero)', async () => {
+    // Regression: after a server restart, the client re-registers its IndexedDB
+    // sessions as ENDED (they still carry sshConfig) before reconnecting to live
+    // PTYs. The old guard only checked sshConfig presence, so it persisted an
+    // EMPTY snapshot (buildSnapshot drops ended sessions) over the good one —
+    // silently breaking restart-to-resume.
+    const ended = { ...sessionWithSsh('s1'), status: 'ended' } as unknown as Session;
+    const sessions = new Map<string, Session>([['s1', ended]]);
+    const rooms: Room[] = [];
+
+    setRestorePending(false);
+    scheduleAutoSave(() => sessions, () => rooms);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    const saveCalls = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes('/api/workspace/save'),
+    );
+    expect(saveCalls).toHaveLength(0);
+  });
+
+  it('still saves when an active session sits alongside ended ones', async () => {
+    const active = sessionWithSsh('s1');
+    const ended = { ...sessionWithSsh('s2'), status: 'ended' } as unknown as Session;
+    const sessions = new Map<string, Session>([['s1', active], ['s2', ended]]);
+    const rooms: Room[] = [];
+
+    setRestorePending(false);
+    scheduleAutoSave(() => sessions, () => rooms);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    const saveCalls = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes('/api/workspace/save'),
+    );
+    expect(saveCalls.length).toBeGreaterThan(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

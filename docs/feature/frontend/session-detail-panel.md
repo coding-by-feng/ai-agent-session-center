@@ -81,7 +81,8 @@ The PROJECT tab shows three toggle icons (wide panels only, `SPLIT_MIN_WIDTH = 7
 ### Persistence
 - Selection: `localStorage['selected-session']`, restored on refresh.
 - Visited projects: a Map of every visited sessionId keeps each `ProjectTabContainer` mounted; on session re-key (e.g. after `/clear`, via `replacesId`) the per-session `agent-manager:project-tabs:session:{id}` and `agent-manager:file-tabs:{id}:{tabId}` localStorage keys are migrated from the old id to the new one.
-- Close: Escape closes search first, else restores a minimized panel; it does **not** deselect (deselect would apply `display:none` and reset scroll to 0). Escape is ignored when an xterm has focus.
+- Close: Escape closes search first, else restores a minimized panel; it does **not** deselect (deselect would apply `display:none` and reset scroll to 0). Escape is ignored when an xterm has focus. The SessionSwitcher "‒" button calls `minimizeDetailPanel` (sets `detailPanelMinimized`), the panel's only non-destructive close gesture; full deselect (`selectedSessionId → null`) happens only on kill (`KillConfirmModal`).
+- **Dashboard Header auto-hide**: while the panel is in view, `AppLayout` hides the global `<Header>` (`hideHeader = !!selectedSessionId && !detailPanelMinimized`) so the panel reclaims that height; `<NavBar>` stays pinned. Minimizing to a badge or deselecting restores the header. See [Views & Routing](./views-routing.md) "Header auto-hide".
 
 ## Dependencies & Connections
 

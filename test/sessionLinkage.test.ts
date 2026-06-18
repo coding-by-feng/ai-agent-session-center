@@ -88,6 +88,8 @@ describe('matchSession — 5-priority session matching', () => {
     consumePendingLink: vi.fn(),
     registerTerminalExitCallback: vi.fn(),
     closeTerminal: vi.fn(),
+    getTerminals: vi.fn(() => []),
+    getTerminalOutputBuffer: vi.fn(() => null),
   }));
 
   let sessions: Map<string, Session>;
@@ -311,6 +313,49 @@ describe('matchSession — 5-priority session matching', () => {
       expect(result.sessionId).toBe('hook-new-ssh');
       expect(result.source).toBe('ssh');
       expect(result.terminalId).toBe('term-orphan');
+    });
+
+    it('does NOT steal a fresh terminal on a non-SessionStart event from an already-running session', async () => {
+      // Regression: an already-running Claude whose own SessionStart predates the
+      // server (so its first OBSERVED event is a PreToolUse, with no
+      // agent_terminal_id) must NOT consume the pending workDir link of a freshly
+      // spawned dashboard terminal in the same directory. Previously Priority 2
+      // fired on any event type and re-keyed the fresh CONNECTING placeholder onto
+      // the unrelated running session, producing a duplicate/mislabeled card.
+      const { tryLinkByWorkDir } = await import('../server/sshManager.js');
+      // NOTE: deliberately do NOT queue a mockReturnValueOnce — with the fix,
+      // tryLinkByWorkDir is never called for a non-SessionStart event, so a
+      // *Once value would leak into the next test. The default mock returns null;
+      // the hijack the fix prevents here is the Priority 3 CONNECTING path-scan.
+
+      // Fresh dashboard terminal placeholder, CONNECTING, in the shared dir.
+      sessions.set('term-fresh', makeSession({
+        sessionId: 'term-fresh',
+        terminalId: 'term-fresh',
+        status: SESSION_STATUS.CONNECTING as Session['status'],
+        projectPath: '/home/user/project',
+      }));
+
+      const result = matchSession(
+        {
+          session_id: 'already-running-claude',
+          hook_event_name: 'PreToolUse', // NOT SessionStart
+          cwd: '/home/user/project',
+          // no agent_terminal_id / claude_pid — exactly the hijack scenario
+        } as HookPayloadBase,
+        sessions,
+        pendingResumeMap,
+        pidToSession,
+        projectCounters,
+      );
+
+      // The workDir link must never be consumed by a non-SessionStart event.
+      expect(vi.mocked(tryLinkByWorkDir)).not.toHaveBeenCalled();
+      // The fresh placeholder must remain untouched (not re-keyed/stolen).
+      expect(sessions.has('term-fresh')).toBe(true);
+      expect(sessions.get('term-fresh')?.sessionId).toBe('term-fresh');
+      // Nothing legitimately matched → SSH-only mode drops the event.
+      expect(result).toBeNull();
     });
   });
 

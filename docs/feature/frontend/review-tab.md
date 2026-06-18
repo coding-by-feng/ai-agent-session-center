@@ -29,7 +29,7 @@ floating windows are ephemeral. The REVIEW tab is the persistent journal:
 | `src/lib/ansi.ts` | `stripAnsi` + `cleanCapturedOutput` (the latter also drops box-drawing / block / Braille-spinner TUI chrome). `captureResponse` uses `cleanCapturedOutput`. |
 | `src/lib/rehypeSavedSelections.ts` | rehype plugin `makeSavedSelectionsPlugin(terms)` — wraps favorited selection strings in the rendered markdown with `<mark className="saved-selection">` for click-to-open deep-links. |
 | `src/routes/ReviewView.tsx` | The REVIEW view: filters (mode / archived / favorites / search), list, expandable rows, alias + notes inputs, deep-link scroll-to. |
-| `src/styles/modules/ReviewView.module.css` | REVIEW view styling. |
+| `src/styles/modules/ReviewView.module.css` | REVIEW view styling. **Theme-aware**: references the canonical `body[data-theme]` CSS vars (`--bg-primary`/`--bg-card`/`--bg-accent`/`--bg-subtle-strong`, `--border-subtle`/`--border-accent`, `--text-primary`/`--text-secondary`, `--accent-cyan`/`--accent-red`/`--accent-yellow`) so it follows the selected theme. Previously it used the **non-existent** `--bg-deep` / `--panel-border` vars (always falling back to hardcoded `#0a0a1a` navy + cyan `rgba`), so the tab stayed cyberpunk-dark under every theme. Red/yellow accent tints with no themed bg-var use `color-mix(in srgb, var(--accent-*) N%, transparent)`. Do not reintroduce `--bg-deep`/`--panel-border` or raw color literals. |
 | `src/components/session/AiPopupHistory.tsx` | Per-session detail-tab list of AI-popups spawned FROM that session (`listByOriginSession`). Same expandable-row UI as REVIEW. |
 | `src/styles/modules/AiPopupHistory.module.css` | AI POPUPS tab styling. |
 | `src/components/layout/NavBar.tsx` | Adds the `REVIEW` link (`/review`). |

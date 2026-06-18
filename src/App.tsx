@@ -27,6 +27,9 @@ import TitleBar from '@/components/layout/TitleBar';
 import SavingOverlay from '@/components/ui/SavingOverlay';
 import WorkspaceLoadingOverlay from '@/components/ui/WorkspaceLoadingOverlay';
 import RestorePickerModal from '@/components/modals/RestorePickerModal';
+import { useSessionStore } from '@/stores/sessionStore';
+import { useUiStore } from '@/stores/uiStore';
+import appLayout from '@/styles/modules/AppLayout.module.css';
 
 // Lazy-load non-default routes for code splitting
 const HistoryView = lazy(() => import('@/routes/HistoryView'));
@@ -47,14 +50,28 @@ const queryClient = new QueryClient({
 function AppLayout() {
   useKeyboardShortcuts();
 
+  // While a session detail panel is open and in view, hide the dashboard Header
+  // so the panel + scene reclaim its vertical space. NavBar stays pinned for
+  // route navigation. The header returns the instant the panel closes
+  // (selectedSessionId → null) or is minimized to a corner badge
+  // (detailPanelMinimized → true). The session detail panel renders *inside*
+  // <main>, so it overlays the routed view but never covers NavBar.
+  const selectedSessionId = useSessionStore((s) => s.selectedSessionId);
+  const detailPanelMinimized = useUiStore((s) => s.detailPanelMinimized);
+  const hideHeader = !!selectedSessionId && !detailPanelMinimized;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      <Header />
+      {/* Header is hidden when a detail panel is in view. On macOS Electron the
+          spacer takes over the Header's job of clearing the fixed 28px TitleBar
+          (it collapses to zero height elsewhere). */}
+      {hideHeader ? <div className={appLayout.titleBarSpacer} /> : <Header />}
       <NavBar />
       <main style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
         <Suspense fallback={<div style={{ padding: '2rem', color: '#8888aa', textAlign: 'center' }}>Loading...</div>}>
           <Outlet />
         </Suspense>
+        <DetailPanel />
       </main>
       <ActivityFeed />
       <ToastContainer />
@@ -63,7 +80,6 @@ function AppLayout() {
       <ShortcutsPanel />
       <ShortcutSettingsModal />
       <GlobalSearchModal />
-      <DetailPanel />
       <FloatingTerminalRoot />
       <FileOpenChooser />
     </div>

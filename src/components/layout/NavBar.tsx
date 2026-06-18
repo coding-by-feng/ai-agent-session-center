@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router';
 import { useUiStore } from '@/stores/uiStore';
 import { useAgendaStore } from '@/stores/agendaStore';
+import { useSessionStore } from '@/stores/sessionStore';
 import WorkdirLauncher from './WorkdirLauncher';
 import styles from '@/styles/modules/NavBar.module.css';
 
@@ -24,6 +25,7 @@ const NAV_ITEMS: NavItem[] = [
 export default function NavBar() {
   const openModal = useUiStore((s) => s.openModal);
   const tasks = useAgendaStore((s) => s.tasks);
+  const deselectSession = useSessionStore((s) => s.deselectSession);
 
   const incompleteCount = Array.from(tasks.values()).filter((t) => !t.completed).length;
 
@@ -60,6 +62,10 @@ export default function NavBar() {
           key={item.to}
           to={item.to}
           end={item.to === '/'}
+          // Switching top-level tabs closes any open session detail panel so the
+          // target view is actually visible (the panel overlays every route) and
+          // the dashboard Header (hidden while a detail is open) returns.
+          onClick={() => deselectSession()}
           className={({ isActive }) =>
             `${styles.navBtn} ${isActive ? styles.active : ''}`
           }

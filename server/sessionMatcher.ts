@@ -409,9 +409,17 @@ export function matchSession(
     }
   }
 
+  // Priorities 2 & 3 re-key a freshly-spawned dashboard terminal onto the Claude
+  // that starts inside it — both must only fire on SESSION_START (like Priorities
+  // 1b/1.5 above). Otherwise an unrelated, already-running Claude in the same
+  // workDir — whose own SessionStart predates the server, so its first OBSERVED
+  // event is a PreToolUse (no agent_terminal_id) — would consume the pending
+  // workDir link (Priority 2) or grab the CONNECTING placeholder by path
+  // (Priority 3) and hijack the terminal, producing a duplicate/mislabeled card.
+  const isSessionStart = hook_event_name === EVENT_TYPES.SESSION_START;
   // Priority 2: Match via pending workDir link
   if (!session) {
-    const linkedTerminalId = tryLinkByWorkDir(cwd || '', session_id);
+    const linkedTerminalId = isSessionStart ? tryLinkByWorkDir(cwd || '', session_id) : null;
     if (linkedTerminalId) {
       // Check if there's a pre-created terminal session with this terminalId as its key
       let preSession = sessions.get(linkedTerminalId);
@@ -451,11 +459,15 @@ export function matchSession(
       let found = false;
       const normalizedCwd = (cwd || '').replace(/\/$/, '');
       const connectingMatches: Array<{ key: string; s: Session }> = [];
-      for (const [key, s] of sessions) {
-        if (s.terminalId && s.status === SESSION_STATUS.CONNECTING && s.projectPath) {
-          const normalizedSessionPath = s.projectPath.replace(/\/$/, '');
-          if (normalizedSessionPath === normalizedCwd || s.projectPath === cwd) {
-            connectingMatches.push({ key, s });
+      // Gate on SESSION_START — a non-SessionStart event (e.g. PreToolUse from a
+      // pre-existing Claude in the same dir) must not adopt a CONNECTING placeholder.
+      if (isSessionStart) {
+        for (const [key, s] of sessions) {
+          if (s.terminalId && s.status === SESSION_STATUS.CONNECTING && s.projectPath) {
+            const normalizedSessionPath = s.projectPath.replace(/\/$/, '');
+            if (normalizedSessionPath === normalizedCwd || s.projectPath === cwd) {
+              connectingMatches.push({ key, s });
+            }
           }
         }
       }

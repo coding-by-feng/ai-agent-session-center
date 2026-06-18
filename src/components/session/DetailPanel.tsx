@@ -301,6 +301,9 @@ export default function DetailPanel() {
   const detailPanelMinimized = useUiStore((s) => s.detailPanelMinimized);
   const minimizeDetailPanel = useUiStore((s) => s.minimizeDetailPanel);
   const restoreDetailPanel = useUiStore((s) => s.restoreDetailPanel);
+  const navPosition = useUiStore((s) => s.navPosition);
+  const maximized = useUiStore((s) => s.maximized);
+  const setMaximized = useUiStore((s) => s.setMaximized);
 
   const session: Session | undefined = selectedSessionId
     ? sessions.get(selectedSessionId)
@@ -415,6 +418,8 @@ export default function DetailPanel() {
       if (e.key === 'Escape' && !(e.target as HTMLElement)?.closest?.('.xterm')) {
         if (searchOpen) {
           closeSearch();
+        } else if (maximized) {
+          setMaximized(false);
         } else if (detailPanelMinimized) {
           restoreDetailPanel();
         }
@@ -423,13 +428,19 @@ export default function DetailPanel() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [selectedSessionId, searchOpen, closeSearch, detailPanelMinimized, restoreDetailPanel]);
+  }, [selectedSessionId, searchOpen, closeSearch, detailPanelMinimized, restoreDetailPanel, maximized, setMaximized]);
 
   // Reset minimized state when a new session is selected
   useEffect(() => {
     if (selectedSessionId) restoreDetailPanel();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSessionId]);
+
+  // Exit maximized mode when the panel closes (no session) so reopening always
+  // starts with the session strip visible.
+  useEffect(() => {
+    if (!selectedSessionId && maximized) setMaximized(false);
+  }, [selectedSessionId, maximized, setMaximized]);
 
   // Persist selection
   useEffect(() => {
@@ -546,9 +557,14 @@ export default function DetailPanel() {
     );
   }
 
+  // When the nav bar is docked left, the panel becomes a horizontal row
+  // (rail | content). Maximized mode always collapses back to the slim top bar.
+  const navLeft = navPosition === 'left' && !maximized;
+
   return (
-    <div className={styles.overlay} style={!session ? { display: 'none' } : undefined}>
+    <div className={styles.detailOverlay} style={!session ? { display: 'none' } : undefined}>
       <ResizablePanel fullscreen>
+        <div className={`${styles.panelInner}${navLeft ? ` ${styles.panelInnerLeft}` : ''}`}>
         {/* Compact top bar — title, status, model, controls all in one row */}
         <SessionSwitcher
           currentSession={displaySession}
@@ -567,6 +583,7 @@ export default function DetailPanel() {
         />
 
         {/* Tabs and content */}
+        <div className={styles.mainCol}>
         <DetailTabs
           terminalContent={
             <TerminalContent
@@ -646,10 +663,12 @@ export default function DetailPanel() {
           onSearchNext={() => navigateMatch('next')}
           searchInputRef={searchInputRef}
         />
+        </div>
 
         {/* Modals — only mount when their modal is active to avoid unnecessary
             zustand subscriptions during DetailPanel mount (reduces cascading re-renders). */}
         <LazyModal modalId={KILL_MODAL_ID}><KillConfirmModal /></LazyModal>
+        </div>
       </ResizablePanel>
     </div>
   );

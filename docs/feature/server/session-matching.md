@@ -29,8 +29,8 @@ After fork routing, the matcher caches `claude_pid → session.sessionId` in `pi
 | 1 | agent_terminal_id direct Map key (pre-created terminal) | Low |
 | 1b | Scan by terminalId property (subsequent starts in same terminal) | Low |
 | 1.5 | Cached PID match (same process, new session_id) | Medium |
-| 2 | tryLinkByWorkDir via pendingLinks Map (SSH terminal) | Medium |
-| 3 | Path scan of CONNECTING sessions (picks newest if >1) | Medium |
+| 2 | tryLinkByWorkDir via pendingLinks Map (SSH terminal) — **`SessionStart` only** | Medium |
+| 3 | Path scan of CONNECTING sessions (picks newest if >1) — **`SessionStart` only** | Medium |
 | 4 | PID parent check via pgrep -P (unreliable across shells) | High |
 
 ### SSH-Only Mode
@@ -77,6 +77,7 @@ After fork routing, the matcher caches `claude_pid → session.sessionId` in `pi
 - Wrong matches cause events to appear on wrong sessions
 - Breaking Priority 1 blocks all SSH terminal integration
 - Breaking Priority 0 blocks session resume
-- Priority 2 misfire risk if two sessions share same workDir
+- Priorities 2 & 3 are gated on `hook_event_name === SESSION_START` (`isSessionStart` in `matchSession`, mirroring Priorities 1b/1.5). **Bug fixed (Jun 2026):** they previously fired on ANY event type, so a `PreToolUse` from an unrelated, already-running Claude in the same workDir — whose own `SessionStart` predated the server, so its first observed event was a tool event with no `agent_terminal_id` — would consume a freshly-spawned dashboard terminal's pending workDir link (P2) or adopt its `CONNECTING` placeholder by path (P3), hijacking the terminal and producing a duplicate/mislabeled card. Do NOT remove these guards. Note: the gate wraps only P2's `tryLinkByWorkDir` call and P3's CONNECTING scan — Priority 4 (PID parent) and the SSH-only null-return stay reachable for all event types.
+- **Orphan-merge guard (`sessionStore.handleEvent`, post-`matchSession`)**: after a re-key (`session.replacesId` set), the handler absorbs a same-path `CONNECTING` "orphan" terminal into the re-keyed session — intended for the Priority-0.5 restart case (a re-keyed ENDED session kept a now-DEAD terminalId and needs the fresh auto-load terminal). **Bug fixed (Jun 2026):** it ran unconditionally, so with TWO sessions in the same workDir, session #1 (matched via Priority 1 to its OWN live terminal) absorbed session #2's still-`CONNECTING` placeholder, overwriting #1's live `terminalId` with #2's → #2's Claude then matched the stolen id (Priority-1b scan) and the two collapsed into one card (data loss; also broke scrollback prefill). Now gated on `!ownTerminalLive` (`getTerminals().some(t => t.terminalId === session.terminalId)`): only merge when the re-keyed session's own terminal is NOT live (the dead-terminalId Priority-0.5 case). Do NOT remove the guard.
 - Fork routing must stay BEFORE PID caching — moving it after would map a fork's PID onto the origin session and let `processMonitor` end the origin when the fork dies
 - The source-code module docstring still says "5-priority"; the real cascade has more steps (0, 0-fallback, 0.5, 1, 1b, 1.5, 2, 3, 4) — trust the table above, not the comment

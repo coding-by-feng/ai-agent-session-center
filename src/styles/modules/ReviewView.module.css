@@ -1,12 +1,18 @@
-/* ReviewView — saved explanations & translations */
+/* ReviewView — saved explanations & translations.
+   Colors reference the shared theme contract (body[data-theme] CSS vars defined
+   in src/styles/base.css + src/styles/themes/*.css) so the Review tab follows the
+   selected theme. Previously this used the non-existent --bg-deep / --panel-border
+   vars (always falling back to hardcoded cyberpunk navy/cyan) plus raw rgba
+   literals, so it ignored the theme. Accent tints with no themed bg-var (red/yellow)
+   use color-mix on the matching --accent-* so they re-tint per theme. */
 
 .view {
   height: 100%;
   display: flex;
   flex-direction: column;
   padding: 16px 24px;
-  background: var(--bg-deep, #0a0a1a);
-  color: var(--text-primary, #e6f6ff);
+  background: var(--bg-primary);
+  color: var(--text-primary);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   overflow: hidden;
 }
@@ -16,14 +22,14 @@
   flex-direction: column;
   gap: 12px;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--panel-border, rgba(0, 255, 255, 0.18));
+  border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
 }
 
 .title {
   font-size: 13px;
   letter-spacing: 0.18em;
-  color: var(--accent-cyan, #00f0ff);
+  color: var(--accent-cyan);
   text-transform: uppercase;
 }
 
@@ -38,8 +44,8 @@
   flex: 1 1 260px;
   min-width: 220px;
   padding: 6px 10px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--panel-border, rgba(0, 255, 255, 0.25));
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
   border-radius: 6px;
   color: inherit;
   font: inherit;
@@ -48,13 +54,13 @@
 
 .search:focus {
   outline: none;
-  border-color: var(--accent-cyan, #00f0ff);
+  border-color: var(--accent-cyan);
 }
 
 .select {
   padding: 6px 10px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--panel-border, rgba(0, 255, 255, 0.25));
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
   border-radius: 6px;
   color: inherit;
   font: inherit;
@@ -64,7 +70,7 @@
 
 .select:focus {
   outline: none;
-  border-color: var(--accent-cyan, #00f0ff);
+  border-color: var(--accent-cyan);
 }
 
 .empty {
@@ -74,7 +80,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  color: var(--text-secondary, #8ea0b8);
+  color: var(--text-secondary);
   text-align: center;
   padding: 32px;
 }
@@ -95,19 +101,19 @@
 }
 
 .row {
-  background: rgba(255, 255, 255, 0.025);
-  border: 1px solid var(--panel-border, rgba(0, 255, 255, 0.15));
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
   transition: border-color 120ms ease, background 120ms ease;
 }
 
 .row:hover {
-  border-color: rgba(0, 255, 255, 0.32);
+  border-color: var(--border-accent);
 }
 
 .rowExpanded {
-  border-color: var(--accent-cyan, #00f0ff);
-  background: rgba(0, 255, 255, 0.04);
+  border-color: var(--accent-cyan);
+  background: var(--bg-accent);
 }
 
 .rowHeader {
@@ -148,13 +154,13 @@
 
 .modeLabel {
   text-transform: uppercase;
-  color: var(--accent-cyan, #00f0ff);
+  color: var(--accent-cyan);
 }
 
 .langChip {
   padding: 1px 6px;
   border-radius: 4px;
-  background: rgba(0, 255, 255, 0.10);
+  background: var(--bg-accent);
   color: var(--text-primary);
   font-size: 11px;
 }
@@ -162,15 +168,15 @@
 .archivedChip {
   padding: 1px 6px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-secondary, #8ea0b8);
+  background: var(--bg-subtle-strong);
+  color: var(--text-secondary);
   font-size: 10px;
   text-transform: uppercase;
 }
 
 .rowMeta {
   font-size: 11px;
-  color: var(--text-secondary, #8ea0b8);
+  color: var(--text-secondary);
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
@@ -186,7 +192,7 @@
 }
 
 .expandIcon {
-  color: var(--text-secondary, #8ea0b8);
+  color: var(--text-secondary);
   font-size: 12px;
   margin-top: 4px;
 }
@@ -196,7 +202,7 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  border-top: 1px dashed rgba(0, 255, 255, 0.18);
+  border-top: 1px dashed var(--border-subtle);
   margin-top: 4px;
   padding-top: 14px;
 }
@@ -211,7 +217,7 @@
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--text-secondary, #8ea0b8);
+  color: var(--text-secondary);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -220,7 +226,7 @@
 .linkBtn {
   background: transparent;
   border: none;
-  color: var(--accent-cyan, #00f0ff);
+  color: var(--accent-cyan);
   font-size: 11px;
   font-family: inherit;
   text-transform: lowercase;
@@ -230,14 +236,14 @@
 }
 
 .linkBtn:hover {
-  background: rgba(0, 255, 255, 0.10);
+  background: var(--bg-accent);
 }
 
 .body {
   margin: 0;
   padding: 10px 12px;
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(0, 255, 255, 0.10);
+  background: var(--bg-subtle-strong);
+  border: 1px solid var(--border-subtle);
   border-radius: 6px;
   font-size: 12px;
   font-family: inherit;
@@ -250,13 +256,13 @@
 
 .contextLine {
   font-size: 11px;
-  color: var(--text-secondary, #8ea0b8);
+  color: var(--text-secondary);
   font-style: italic;
   padding: 2px 0;
 }
 
 .metaLabel {
-  color: var(--text-secondary, #8ea0b8);
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-size: 10px;
@@ -265,7 +271,7 @@
 
 .filePath {
   font-size: 11px;
-  color: var(--accent-cyan, #00f0ff);
+  color: var(--accent-cyan);
   font-family: inherit;
   word-break: break-all;
 }
@@ -273,8 +279,8 @@
 .notes {
   width: 100%;
   padding: 8px 10px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--panel-border, rgba(0, 255, 255, 0.18));
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
   border-radius: 6px;
   color: inherit;
   font: inherit;
@@ -285,7 +291,7 @@
 
 .notes:focus {
   outline: none;
-  border-color: var(--accent-cyan, #00f0ff);
+  border-color: var(--accent-cyan);
 }
 
 .actions {
@@ -298,7 +304,7 @@
 .actionBtn {
   padding: 5px 12px;
   background: transparent;
-  border: 1px solid var(--panel-border, rgba(0, 255, 255, 0.30));
+  border: 1px solid var(--border-subtle);
   border-radius: 5px;
   color: var(--text-primary);
   font: inherit;
@@ -310,26 +316,26 @@
 }
 
 .actionBtn:hover {
-  background: rgba(0, 255, 255, 0.10);
-  border-color: var(--accent-cyan, #00f0ff);
-  color: var(--accent-cyan, #00f0ff);
+  background: var(--bg-accent);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
 }
 
 .actionBtn.danger {
-  border-color: rgba(255, 94, 122, 0.45);
-  color: var(--accent-red, #ff5e7a);
+  border-color: color-mix(in srgb, var(--accent-red) 50%, transparent);
+  color: var(--accent-red);
 }
 
 .actionBtn.danger:hover {
-  background: rgba(255, 94, 122, 0.10);
-  border-color: var(--accent-red, #ff5e7a);
-  color: var(--accent-red, #ff5e7a);
+  background: color-mix(in srgb, var(--accent-red) 12%, transparent);
+  border-color: var(--accent-red);
+  color: var(--accent-red);
 }
 
 .timestamp {
   margin-left: auto;
   font-size: 10px;
-  color: var(--text-secondary, #8ea0b8);
+  color: var(--text-secondary);
 }
 
 /* Favorites filter pill (header) */
@@ -337,9 +343,9 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: var(--bg-card, rgba(255, 255, 255, 0.04));
-  color: var(--text-secondary, #8ea0b8);
-  border: 1px solid var(--panel-border, rgba(0, 255, 255, 0.15));
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
   border-radius: 6px;
   padding: 0 12px;
   height: 32px;
@@ -348,11 +354,11 @@
   white-space: nowrap;
   transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
 }
-.favFilter:hover { color: var(--text-primary); border-color: rgba(0, 255, 255, 0.32); }
+.favFilter:hover { color: var(--text-primary); border-color: var(--border-accent); }
 .favFilterActive {
-  color: var(--accent-yellow, #ffd166);
-  border-color: var(--accent-yellow, #ffd166);
-  background: rgba(255, 209, 102, 0.10);
+  color: var(--accent-yellow);
+  border-color: var(--accent-yellow);
+  background: color-mix(in srgb, var(--accent-yellow) 13%, transparent);
 }
 
 /* Per-row favorite star (sibling of the expand header so it isn't a nested button) */
@@ -369,26 +375,26 @@
   flex: 0 0 auto;
   background: none;
   border: none;
-  color: var(--text-secondary, #8ea0b8);
+  color: var(--text-secondary);
   font-size: 16px;
   line-height: 1;
   padding: 0 12px;
   cursor: pointer;
   transition: color 120ms ease, transform 80ms ease;
 }
-.favToggle[aria-pressed='true'] { color: var(--accent-yellow, #ffd166); }
-.favToggle:hover { color: var(--accent-yellow, #ffd166); transform: scale(1.15); }
+.favToggle[aria-pressed='true'] { color: var(--accent-yellow); }
+.favToggle:hover { color: var(--accent-yellow); transform: scale(1.15); }
 
 /* Alias: bold label in the header (replaces the mode label) + editor input */
 .aliasLabel {
   font-weight: 700;
-  color: var(--accent-cyan, #00f0ff);
+  color: var(--accent-cyan);
   text-transform: none;
 }
 .aliasInput {
   width: 100%;
-  background: var(--bg-card, rgba(255, 255, 255, 0.04));
-  border: 1px solid var(--panel-border, rgba(0, 255, 255, 0.15));
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
   border-radius: 4px;
   color: var(--text-primary);
   font-family: var(--font-mono, monospace);
@@ -397,4 +403,4 @@
   outline: none;
   transition: border-color 120ms ease;
 }
-.aliasInput:focus { border-color: var(--accent-cyan, #00f0ff); }
+.aliasInput:focus { border-color: var(--accent-cyan); }

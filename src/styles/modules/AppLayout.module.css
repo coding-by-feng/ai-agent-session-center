@@ -1,0 +1,17 @@
+/* AppLayout chrome.
+   When the dashboard Header is hidden (a session detail panel is open and in
+   view), NavBar becomes the topmost element. On macOS Electron a fixed 28px
+   TitleBar overlays the very top — a clearance normally provided by the Header's
+   own electron-mac padding (see Header.module.css). This spacer takes over that
+   role only in that environment; everywhere else (browser, Windows/Linux Electron)
+   it collapses to nothing so NavBar simply rises into the freed space. */
+.titleBarSpacer {
+  display: none;
+}
+
+:global(html.electron-mac) .titleBarSpacer {
+  display: block;
+  flex: 0 0 auto;
+  height: 28px;
+  -webkit-app-region: drag;
+}
