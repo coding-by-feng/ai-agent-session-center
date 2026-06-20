@@ -13,6 +13,13 @@ export interface KeyCombo {
 export type ShortcutActionId =
   | 'toggleFullscreen'
   | 'scrollToBottom'
+  // Terminal toolbar buttons (act on the selected session's terminal)
+  | 'terminalToggleAutoScroll'
+  | 'terminalRefresh'
+  | 'terminalBookmark'
+  | 'terminalClone'
+  | 'terminalFork'
+  | 'terminalPopOut'
   | 'switchSession1'
   | 'switchSession2'
   | 'switchSession3'

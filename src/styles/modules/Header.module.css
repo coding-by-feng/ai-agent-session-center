@@ -391,6 +391,41 @@
   z-index: 1;
 }
 
+/* Collapse/expand a room group in the header strip. */
+.roomGroupCollapsed {
+  gap: 3px;
+}
+
+.roomCollapseToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--room-color, var(--text-dim));
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.roomCollapseToggle:hover {
+  opacity: 1;
+}
+
+.roomCollapsedCount {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--room-color, var(--text-dim));
+  padding: 1px 6px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--room-color, transparent) 16%, transparent);
+}
+
 /* ---- Workspace export/import menu ---- */
 
 .workspaceMenu {

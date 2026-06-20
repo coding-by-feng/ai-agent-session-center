@@ -19,6 +19,7 @@ import {
 import styles from '@/styles/modules/DetailPanel.module.css';
 import Tooltip from '@/components/ui/Tooltip';
 import { tooltips } from '@/lib/tooltips';
+import { useSessionStore } from '@/stores/sessionStore';
 
 const FLOAT_POS_KEY = 'float-project-pos';
 const FLOAT_SIZE_KEY = 'float-project-size';
@@ -33,6 +34,9 @@ const COLLAPSED_W = 132;
 const COLLAPSED_H = 36;
 const MIN_W = 320;
 const MIN_H = 220;
+// How far past the container edge the cursor must travel mid-drag to arm the
+// "release to pop out into its own window" gesture.
+const POPOUT_EDGE_THRESHOLD = 56;
 
 interface Pos { x: number; y: number }
 interface Size { w: number; h: number }
@@ -140,6 +144,37 @@ export default function FloatingProjectPanel({
     return () => ro.disconnect();
   }, [collapsed, size]);
 
+  // Pop the panel out into a separate OS window (draggable to another monitor).
+  // In-app DOM panels are confined to the app window; only a real window can move
+  // across monitors. Reuses the standalone /project-browser route — a native
+  // Electron window when available, else a browser window/tab. Returns whether a
+  // window was actually opened (a browser pop-up blocker can veto window.open).
+  const projectPath = useSessionStore((s) =>
+    sessionId ? s.sessions.get(sessionId)?.projectPath : undefined);
+  const canPopOut = !!projectPath;
+  const handlePopOut = useCallback(async (): Promise<boolean> => {
+    if (!projectPath) return false;
+    const api = typeof window !== 'undefined' ? window.electronAPI : undefined;
+    if (api?.openProjectWindow) {
+      // Await the IPC so callers only act on a window that actually opened.
+      try {
+        const r = await api.openProjectWindow({ path: projectPath, label: 'Project' });
+        return r?.ok !== false;
+      } catch {
+        return false;
+      }
+    }
+    // Stable per-path window name so repeated pop-outs refocus the same tab
+    // instead of spawning duplicates (mirrors the Electron de-dupe by path).
+    const name = `aasc-project-${projectPath.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const win = window.open(`/project-browser?path=${encodeURIComponent(projectPath)}`, name);
+    return !!win;
+  }, [projectPath]);
+
+  // True while an in-progress drag has pushed the cursor past the container edge:
+  // shows the "release to pop out" hint and arms the gesture.
+  const [popoutArmed, setPopoutArmed] = useState(false);
+
   // ---- Drag (header / collapsed icon) ----
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     // Ignore drags initiated on buttons *inside* the header (close/min/max),
@@ -155,6 +190,10 @@ export default function FloatingProjectPanel({
     const startPos = pos;
     const currentSize = collapsed ? { w: COLLAPSED_W, h: COLLAPSED_H } : size;
     if (collapsed) root.dataset.moved = '0';
+    // Auto-pop-out is offered only from the expanded panel (not the pill) and
+    // only when there's a project to open in the standalone window.
+    const popoutEligible = canPopOut && !collapsed;
+    let armed = false;
 
     const onMove = (ev: MouseEvent) => {
       const dx = ev.clientX - startX;
@@ -162,24 +201,45 @@ export default function FloatingProjectPanel({
       if (collapsed && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
         root.dataset.moved = '1';
       }
-      const next = clampPos(
-        { x: startPos.x + dx, y: startPos.y + dy },
-        currentSize,
-        parentRef.current,
-      );
+      const desired = { x: startPos.x + dx, y: startPos.y + dy };
+      const next = clampPos(desired, currentSize, parentRef.current);
       setPos(next);
+      if (popoutEligible) {
+        // The panel is clamped inside the container; how far the user keeps
+        // pushing PAST that clamp (in any direction) is the "throw it out"
+        // signal. Measuring overshoot from the clamped edge keeps all four
+        // edges symmetric regardless of where the header was grabbed.
+        const T = POPOUT_EDGE_THRESHOLD;
+        const over =
+          desired.x < next.x - T ||
+          desired.x > next.x + T ||
+          desired.y < next.y - T ||
+          desired.y > next.y + T;
+        if (over !== armed) { armed = over; setPopoutArmed(over); }
+      }
     };
-    const onUp = () => {
+    const onUp = async () => {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
       document.body.style.userSelect = '';
+      // Dragged past the edge → pop the project into its own window (draggable
+      // to another monitor) and close the in-app float, so the project isn't
+      // live in two places. Only on a confirmed-open window; a blocked/failed
+      // pop-out leaves the panel where it is.
+      if (armed) {
+        setPopoutArmed(false);
+        if (await handlePopOut()) {
+          onClose();
+          return;
+        }
+      }
       // Persist final position
       setPos((p) => { writeJson(posKey, p); return p; });
     };
     document.body.style.userSelect = 'none';
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
-  }, [pos, size, collapsed, posKey, maximized]);
+  }, [pos, size, collapsed, posKey, maximized, canPopOut, handlePopOut, onClose]);
 
   // ---- Resize (bottom-right corner) ----
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
@@ -278,12 +338,24 @@ export default function FloatingProjectPanel({
   return (
     <div
       ref={(el) => { rootRef.current = el; }}
-      className={`${styles.floatPanel}${maximized ? ` ${styles.floatPanelMaximized}` : ''}`}
+      className={`${styles.floatPanel}${maximized ? ` ${styles.floatPanelMaximized}` : ''}${popoutArmed ? ` ${styles.floatPanelPopoutArmed}` : ''}`}
       style={panelStyle}
     >
       <div className={styles.floatHeader} onMouseDown={handleDragStart}>
         <span className={styles.floatTitle}>PROJECT</span>
         <div className={styles.floatHeaderBtns}>
+          {canPopOut && (
+            <Tooltip {...tooltips.floatPopOut} placement="bottom">
+              <button
+                type="button"
+                className={styles.floatHeaderBtn}
+                onClick={() => { void handlePopOut().then((ok) => { if (ok) onClose(); }); }}
+                aria-label={tooltips.floatPopOut.label}
+              >
+                ⧉
+              </button>
+            </Tooltip>
+          )}
           <Tooltip {...tooltips.floatMinimize} placement="bottom">
             <button
               type="button"
@@ -317,6 +389,12 @@ export default function FloatingProjectPanel({
         </div>
       </div>
       <div className={styles.floatBody} ref={bodyRef} />
+      {popoutArmed && (
+        <div className={styles.floatPopoutHint} aria-hidden>
+          <span aria-hidden>⧉</span>
+          <span>Release to pop out</span>
+        </div>
+      )}
       {!maximized && (
         <div
           className={styles.floatResize}

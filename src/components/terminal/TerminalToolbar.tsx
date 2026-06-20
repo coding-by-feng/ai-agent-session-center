@@ -2,7 +2,7 @@
  * TerminalToolbar shows theme selector, ESC, paste icon, expand/collapse,
  * fullscreen toggle, and reconnect.
  */
-import { useCallback, useMemo } from 'react';
+import { useMemo } from 'react';
 import { getThemeNames } from './themes';
 import Select from '@/components/ui/Select';
 import type { SelectOption } from '@/components/ui/Select';
@@ -130,21 +130,18 @@ function CloneIcon() {
   );
 }
 
-/** Fork/branch SVG icon (git fork). */
-/** Translate / globe-with-fork SVG icon. Used for select-to-translate
- * toolbar buttons that spawn a floating translation session. */
-function TranslateIcon() {
+/** Pop-out SVG icon (open in a separate window — two offset panes). */
+function PopOutIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M3 12 H21" />
-      <path d="M12 3 C8 7, 8 17, 12 21" />
-      <path d="M12 3 C16 7, 16 17, 12 21" />
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="12" height="12" rx="1.5" />
+      <path d="M9 9h11a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H10a1 1 0 0 1-1-1V9z" fill="var(--bg-panel)" />
     </svg>
   );
 }
 
+/** Fork/branch SVG icon (git fork). */
 function ForkIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -213,12 +210,8 @@ interface TerminalToolbarProps {
   onToggleAutoScroll?: () => void;
   onFork?: () => void;
   onClone?: () => void;
-  /** Open a floating session that translates the previous assistant answer. */
-  onTranslateAnswer?: () => void;
-  /** Target language for the translate-answer button label, e.g. "中文". */
-  translateAnswerLanguage?: string;
-  /** True while the translate-answer request is in-flight. */
-  translateAnswerBusy?: boolean;
+  /** Pop this terminal out into its own OS window (Electron only). */
+  onPopOut?: () => void;
   isFullscreen: boolean;
   showReconnect?: boolean;
   /** Show hold-to-speak mic button (TTS enabled in settings). */
@@ -246,9 +239,7 @@ export default function TerminalToolbar({
   onToggleAutoScroll,
   onFork,
   onClone,
-  onTranslateAnswer,
-  translateAnswerLanguage = '',
-  translateAnswerBusy = false,
+  onPopOut,
   isFullscreen,
   showReconnect = false,
   ttsEnabled = false,
@@ -407,22 +398,15 @@ export default function TerminalToolbar({
         </Tooltip>
       )}
 
-      {onTranslateAnswer && (
-        <Tooltip
-          label={tooltips.termTranslateAnswer.label}
-          description={
-            translateAnswerLanguage
-              ? `Translate the previous assistant answer into ${translateAnswerLanguage}. Opens a floating session.`
-              : tooltips.termTranslateAnswer.description
-          }
-        >
+
+      {onPopOut && (
+        <Tooltip {...tooltips.termPopOut}>
           <button
             className={styles.toolbarBtn}
-            onClick={onTranslateAnswer}
-            disabled={translateAnswerBusy}
-            aria-label={tooltips.termTranslateAnswer.label}
+            onClick={onPopOut}
+            aria-label={tooltips.termPopOut.label}
           >
-            <TranslateIcon />
+            <PopOutIcon />
           </button>
         </Tooltip>
       )}

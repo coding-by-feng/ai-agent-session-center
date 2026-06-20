@@ -78,7 +78,6 @@
   justify-content: space-between;
   gap: 8px;
   padding: 8px 12px;
-  cursor: pointer;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   transition: background 0.12s;
 }
@@ -88,7 +87,41 @@
 }
 
 .dirItem:hover {
-  background: rgba(0, 255, 136, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* ---- Per-CLI launch buttons (Claude / Codex / Gemini) ---- */
+
+.dirLaunchers {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.dirLaunchBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: var(--bg-card, #12122a);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0.9;
+  transition: opacity 0.15s, border-color 0.15s, background 0.15s, transform 0.1s;
+}
+
+.dirLaunchBtn:hover {
+  opacity: 1;
+  border-color: var(--accent-cyan, #00e5ff);
+  background: var(--bg-subtle, rgba(255, 255, 255, 0.06));
+}
+
+.dirLaunchBtn:active {
+  transform: scale(0.92);
 }
 
 .dirInfo {

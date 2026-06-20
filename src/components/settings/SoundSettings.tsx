@@ -100,8 +100,6 @@ export default function SoundSettings() {
   const ttsKeyConfigured = googleTtsApiKey.trim().length > 0;
 
   // Notifications
-  const activityFeedVisible = useSettingsStore((s) => s.activityFeedVisible);
-  const setActivityFeedVisible = useSettingsStore((s) => s.setActivityFeedVisible);
   const toastEnabled = useSettingsStore((s) => s.toastEnabled);
   const setToastEnabled = useSettingsStore((s) => s.setToastEnabled);
 
@@ -472,15 +470,6 @@ export default function SoundSettings() {
       {/* Notifications */}
       <div className={styles.section}>
         <h4>Notifications</h4>
-        <label className={styles.toggleLabel}>
-          <input
-            type="checkbox"
-            checked={activityFeedVisible}
-            onChange={(e) => setActivityFeedVisible(e.target.checked)}
-          />
-          <span className={styles.toggleSwitch} />
-          <span>Show activity feed</span>
-        </label>
         <label className={styles.toggleLabel}>
           <input
             type="checkbox"

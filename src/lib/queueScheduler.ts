@@ -520,6 +520,50 @@ export function chainGateDecision(
 }
 
 /**
+ * Per-session gate that sequences independent `once` items: after one once
+ * prompt is sent, the NEXT one is held until the prior one's task has actually
+ * finished (observed go busy → back to 'waiting'). Multiple queued once items
+ * therefore drain one-at-a-time instead of flooding the CLI in an ~1s burst.
+ *
+ * Unlike `ChainGate` this is NOT keyed to an item id — each once item is a
+ * separate prompt with its own id, so the gate guards "the previous once's
+ * turn", whatever id comes next.
+ */
+export interface OnceGate {
+  /** True once we've seen the session go busy after the prior once's send. */
+  sawWork: boolean;
+  /** When the gate was opened (unix ms) — drives the no-work fallback. */
+  openedAt: number;
+}
+
+/**
+ * Pure decision for whether the NEXT queued `once` item may fire this tick.
+ * Same completion semantics as {@link chainGateDecision} (wait for the prior
+ * turn to start, then reach the Stop/'waiting' signal), with a no-work fallback
+ * for instant no-op prompts so the queue can never stall.
+ *
+ * - No gate → fire.
+ * - `sawWork === true`: fire ONLY when `atRest` ('waiting'); any other status
+ *   (working, decayed idle, input) holds — wait strictly for Stop.
+ * - `sawWork === false`: busy → hold; sendable past `noWorkFallbackMs` → fire;
+ *   sendable but inside the window → hold (the stale-status window right after
+ *   the prior send).
+ */
+export function onceGateDecision(
+  gate: OnceGate | undefined,
+  atRest: boolean,
+  sessionSendable: boolean,
+  now: number,
+  noWorkFallbackMs: number,
+): 'fire' | 'hold' {
+  if (!gate) return 'fire';
+  if (gate.sawWork) return atRest ? 'fire' : 'hold';
+  if (!sessionSendable) return 'hold';
+  if (now - gate.openedAt >= noWorkFallbackMs) return 'fire';
+  return 'hold';
+}
+
+/**
  * Decide what execState a freshly-picked (idle) item should be in BEFORE it
  * fires its first step — i.e. which prompt should be sent on this tick.
  * Returns `null` if the item is already mid-execution (the caller should use

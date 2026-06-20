@@ -4,6 +4,7 @@ import {
   advanceAfterFire,
   advanceBlockedLoops,
   chainGateDecision,
+  onceGateDecision,
   applyTypeDefaults,
   itemType,
   getActiveStep,
@@ -111,6 +112,43 @@ describe('queueScheduler', () => {
       const gate = { itemId: 7, sawWork: true, openedAt: 1000 };
       // Even way past the fallback, a real running turn (working) must hold.
       expect(chainGateDecision(gate, 7, false, false, 1000 + FALLBACK * 100, FALLBACK)).toBe('hold');
+    });
+  });
+
+  describe('onceGateDecision (sequential once dispatch)', () => {
+    const FALLBACK = 12_000;
+    // args: (gate, atRest, sessionSendable, now, fallbackMs)
+
+    it('fires when there is no gate (first once, nothing pending before it)', () => {
+      expect(onceGateDecision(undefined, true, true, 1000, FALLBACK)).toBe('fire');
+    });
+
+    it('holds in the stale-status window right after the prior once was sent', () => {
+      // once#1 just sent; status still reads sendable but work has not begun.
+      const gate = { sawWork: false, openedAt: 1000 };
+      expect(onceGateDecision(gate, true, true, 1500, FALLBACK)).toBe('hold');
+    });
+
+    it('holds while the prior once is still running (working)', () => {
+      const gate = { sawWork: true, openedAt: 1000 };
+      expect(onceGateDecision(gate, false, false, 5000, FALLBACK)).toBe('hold');
+    });
+
+    it('fires the next once only after the prior one reaches waiting (Stop)', () => {
+      const gate = { sawWork: true, openedAt: 1000 };
+      expect(onceGateDecision(gate, true, true, 5000, FALLBACK)).toBe('fire');
+    });
+
+    it('HOLDS on decayed idle — a long once task that auto-idled is not done', () => {
+      const gate = { sawWork: true, openedAt: 1000 };
+      // status='idle' → sendable but atRest=false; must not release the next once.
+      expect(onceGateDecision(gate, false, true, 1_000_000, FALLBACK)).toBe('hold');
+    });
+
+    it('fires via the no-work fallback for an instant no-op once', () => {
+      const gate = { sawWork: false, openedAt: 1000 };
+      expect(onceGateDecision(gate, false, true, 1000 + FALLBACK, FALLBACK)).toBe('fire');
+      expect(onceGateDecision(gate, false, true, 1000 + FALLBACK - 1, FALLBACK)).toBe('hold');
     });
   });
 

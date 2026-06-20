@@ -21,6 +21,9 @@ const api: ElectronAPI = {
   openInBrowser: ()    => { ipcRenderer.invoke('app:open-browser') },
   rerunSetup:    ()    => { ipcRenderer.invoke('app:rerun-setup') },
 
+  // Native OS folder picker (used by the session-creation modals)
+  selectDirectory: (opts) => ipcRenderer.invoke('dialog:select-directory', opts),
+
   // Lifecycle IPC
   onBeforeClose: (cb) => {
     const handler = async () => {
@@ -70,6 +73,9 @@ const api: ElectronAPI = {
 
   // ── Pop-out floating terminal window ──
   openTerminalWindow: (opts) => ipcRenderer.invoke('window:open-terminal', opts),
+
+  // ── Pop-out floating project panel into its own window ──
+  openProjectWindow: (opts) => ipcRenderer.invoke('window:open-project', opts),
 
   onPopoutClosed: (cb) => {
     const handler = (_: unknown, terminalId: string) => cb(terminalId)

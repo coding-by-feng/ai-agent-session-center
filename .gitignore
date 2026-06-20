@@ -11,8 +11,17 @@ CLAUDE.md
 .playwright-cli/
 test-results/
 test-screenshots/
+# Images/video that ship live in static/ ONLY. Every other image/video file
+# (debug screenshots, Playwright captures, scratch PNGs) is ignored so it never
+# gets committed. Put scratch screenshots in test-screenshots/ or /tmp — NEVER
+# the project root.
 *.mov
+*.mp4
 *.png
-!static/*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+!static/**
 docs/feature/.manifest.json.bak
 docs/feature/.manifest.json.tmp.*

@@ -1,0 +1,24 @@
+.browseBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 12px;
+  background: var(--bg-card, #12122a);
+  border: 1px solid var(--border-accent, rgba(0, 229, 255, 0.25));
+  border-radius: 4px;
+  color: var(--text-secondary, #aab);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: border-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.browseBtn:hover {
+  border-color: var(--accent-cyan, #00e5ff);
+  color: var(--text-primary, #e0e0ff);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.25);
+}

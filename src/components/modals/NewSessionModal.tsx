@@ -7,6 +7,7 @@ import { useState, useMemo } from 'react';
 import type { CreateTerminalRequest } from '@/types/api';
 import Modal from '@/components/ui/Modal';
 import Combobox from '@/components/ui/Combobox';
+import BrowseDirButton from '@/components/ui/BrowseDirButton';
 import { showToast } from '@/components/ui/ToastContainer';
 import { useUiStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -203,12 +204,16 @@ export default function NewSessionModal() {
         {/* Working directory */}
         <div className={styles.sshField}>
           <label>Working Directory <span className={styles.sshFieldRequired}>*</span></label>
-          <Combobox
-            value={workingDir}
-            onChange={setWorkingDir}
-            items={workdirHistory}
-            placeholder="~"
-          />
+          <div className={styles.workdirInputRow}>
+            <Combobox
+              value={workingDir}
+              onChange={setWorkingDir}
+              items={workdirHistory}
+              placeholder="~"
+              className={styles.workdirCombo}
+            />
+            <BrowseDirButton onPick={setWorkingDir} defaultPath={workingDir} />
+          </div>
           {touched.workingDir && !workingDirValid && (
             <span className={styles.sshFieldError}>Required</span>
           )}

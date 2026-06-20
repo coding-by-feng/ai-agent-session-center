@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 import App from '@/App';
 import PopoutTerminalView from '@/components/session/PopoutTerminalView';
+import PopoutProjectView from '@/components/session/PopoutProjectView';
 import { useQueueStore } from '@/stores/queueStore';
 import { useQueueHistoryStore } from '@/stores/queueHistoryStore';
 import '@/styles/global.css';
@@ -51,9 +52,10 @@ async function bootstrap(): Promise<void> {
 }
 
 const popoutParams = new URLSearchParams(window.location.search);
-if (popoutParams.get('popout') === 'terminal') {
-  // This window is a popped-out floating terminal — render just that terminal,
-  // not the whole dashboard.
+const popoutKind = popoutParams.get('popout');
+if (popoutKind === 'terminal') {
+  // This window is a popped-out terminal (main / commands / fork) — render just
+  // that terminal, not the whole dashboard.
   createRoot(root).render(
     <StrictMode>
       <BrowserRouter>
@@ -62,6 +64,15 @@ if (popoutParams.get('popout') === 'terminal') {
           originSessionId={popoutParams.get('originSessionId') || undefined}
           label={popoutParams.get('label') || undefined}
         />
+      </BrowserRouter>
+    </StrictMode>,
+  );
+} else if (popoutKind === 'project') {
+  // Popped-out PROJECT tab — render just the file browser, not the whole app.
+  createRoot(root).render(
+    <StrictMode>
+      <BrowserRouter>
+        <PopoutProjectView />
       </BrowserRouter>
     </StrictMode>,
   );

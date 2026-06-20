@@ -10,6 +10,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { resolveTheme } from '@/components/terminal/themes';
 import { useUiStore } from '@/stores/uiStore';
+import { createFilePathRegex, mapLineColumns } from '@/lib/filePathLink';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -581,25 +582,29 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
 
         // File path link provider — clicking opens the FileOpenChooser popover
         // (open in app / default app / reveal in Finder).
-        // Matches: path/to/file.ext, ./path/to/file.ext, ../path/to/file.ext
-        const FILE_PATH_RE = /(?:\.{0,2}\/)?(?:[\w@.+-]+\/)+[\w@.+-]+\.[\w]+/g;
+        // Matches path/to/file.ext, ./… and ../… including non-ASCII (CJK,
+        // Cyrillic, …) segments. Columns are derived from the buffer cells via
+        // mapLineColumns so wide (double-width) characters stay aligned —
+        // match.index/length are UTF-16 offsets, not terminal columns.
         term.registerLinkProvider({
           provideLinks(bufferLineNumber, callback) {
             const line = term.buffer.active.getLine(bufferLineNumber - 1);
             if (!line) { callback(undefined); return; }
-            const text = line.translateToString(true);
+            const { text, startCol, endCol } = mapLineColumns(line);
             const links: Array<{
               range: { start: { x: number; y: number }; end: { x: number; y: number } };
               text: string;
               activate: (event: MouseEvent) => void;
               tooltip?: string;
             }> = [];
+            const filePathRe = createFilePathRegex();
             let match: RegExpExecArray | null;
-            FILE_PATH_RE.lastIndex = 0;
-            while ((match = FILE_PATH_RE.exec(text)) !== null) {
+            while ((match = filePathRe.exec(text)) !== null) {
               const filePath = match[0];
-              const startX = match.index + 1; // xterm columns are 1-indexed
-              const endX = startX + filePath.length - 1;
+              const startIdx = match.index;
+              const endIdx = startIdx + filePath.length - 1;
+              const startX = startCol[startIdx] + 1; // xterm columns are 1-indexed
+              const endX = endCol[endIdx] + 1;       // inclusive, wide-char aware
               links.push({
                 range: {
                   start: { x: startX, y: bufferLineNumber },

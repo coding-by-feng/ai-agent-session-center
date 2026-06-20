@@ -9,6 +9,8 @@ import type { Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useRoomStore, type Room } from '@/stores/roomStore';
+import { useLabelStore } from '@/stores/labelStore';
+import LabelPicker, { LabelChip } from './LabelPicker';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -107,6 +109,21 @@ function EditIcon() {
         strokeLinejoin="round"
         strokeLinecap="round"
       />
+    </svg>
+  );
+}
+
+/** Tag icon — opens the label picker for the current session */
+function TagIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M1.5 1.5h4l5 5-4 4-5-5v-4Z"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinejoin="round"
+      />
+      <circle cx="3.6" cy="3.6" r="0.8" fill="currentColor" />
     </svg>
   );
 }
@@ -247,6 +264,7 @@ export default function SessionSwitcher({
   // (maximizing always collapses the nav to the slim top bar).
   const isVertical = navPosition === 'left' && !maximized;
   const rooms = useRoomStore((s) => s.rooms);
+  const toggleRoomCollapse = useRoomStore((s) => s.toggleCollapse);
 
   const selectedRoomIds = useUiStore((s) => s.selectedRoomIds);
   const toggleRoomFilter = useUiStore((s) => s.toggleRoomFilter);
@@ -427,6 +445,24 @@ export default function SessionSwitcher({
     setHeaderEditing(false);
   }, [currentSession.sessionId]);
 
+  // ---- Label picker (client-only session labels) ----
+  const currentLabel = useLabelStore((s) => s.labels[currentSession.sessionId]);
+  const labelColor = useLabelStore((s) => s.labelColor);
+  const [labelAnchor, setLabelAnchor] = useState<{ x: number; y: number } | null>(null);
+
+  const openLabelPicker = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setLabelAnchor({ x: rect.left, y: rect.bottom });
+  }, []);
+
+  const closeLabelPicker = useCallback(() => setLabelAnchor(null), []);
+
+  // Close the picker if the user switches sessions while it is open.
+  useEffect(() => {
+    setLabelAnchor(null);
+  }, [currentSession.sessionId]);
+
   return (
     <div className={`${styles.switcherBar}${isVertical ? ` ${styles.switcherBarVertical}` : ''}`}>
       {/* ── Top row: current session name + meta controls ── */}
@@ -473,7 +509,19 @@ export default function SessionSwitcher({
               >
                 <EditIcon />
               </button>
+              <button
+                type="button"
+                className={`${styles.switcherEditHint}${labelAnchor ? ` ${styles.switcherLabelHintActive}` : ''}`}
+                onClick={openLabelPicker}
+                title={currentLabel ? `Label: ${currentLabel}` : 'Add label'}
+                aria-label="Set session label"
+              >
+                <TagIcon />
+              </button>
             </span>
+          )}
+          {currentLabel && (
+            <LabelChip name={currentLabel} color={labelColor(currentLabel)} />
           )}
           {secondaryName && (
             <span className={styles.switcherProject}>{secondaryName}</span>
@@ -609,29 +657,67 @@ export default function SessionSwitcher({
         </div>
       </div>
 
+      {labelAnchor && (
+        <LabelPicker
+          sessionId={currentSession.sessionId}
+          anchor={labelAnchor}
+          onClose={closeLabelPicker}
+        />
+      )}
+
       {/* ── Session tab strip ── (hidden when the panel is maximized) */}
       {!maximized && filteredSessions.length > 0 && (
         <div className={styles.sessionTabStrip}>
           {tabRenderItems.map((item) => {
             if (item.type === 'room') {
+              const collapsed = item.room.collapsed;
               return (
                 <div
                   key={item.room.id}
-                  className={styles.sessionTabRoomGroup}
+                  className={`${styles.sessionTabRoomGroup}${collapsed ? ` ${styles.sessionTabRoomGroupCollapsed}` : ''}`}
                   style={{ '--room-color': item.color } as React.CSSProperties}
                   title={item.room.name}
                 >
                   <span className={styles.sessionTabRoomGroupLabel}>{item.room.name}</span>
-                  {item.sessions.map((s) => (
-                    <SessionTabCard
-                      key={s.sessionId}
-                      session={s}
-                      onSwitch={handleSwitch}
-                      isCompact={isCompact}
-                      index={sessionIndexMap.get(s.sessionId) ?? 0}
-                      needsAttention={attentionIds.has(s.sessionId)}
-                    />
-                  ))}
+                  <button
+                    type="button"
+                    className={styles.roomCollapseToggle}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleRoomCollapse(item.room.id);
+                    }}
+                    title={collapsed ? `Expand ${item.room.name}` : `Collapse ${item.room.name}`}
+                    aria-label={collapsed ? `Expand room ${item.room.name}` : `Collapse room ${item.room.name}`}
+                    aria-expanded={!collapsed}
+                  >
+                    <svg
+                      width="11"
+                      height="11"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{ transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s ease' }}
+                    >
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </button>
+                  {collapsed ? (
+                    <span className={styles.roomCollapsedCount}>{item.sessions.length}</span>
+                  ) : (
+                    item.sessions.map((s) => (
+                      <SessionTabCard
+                        key={s.sessionId}
+                        session={s}
+                        onSwitch={handleSwitch}
+                        isCompact={isCompact}
+                        index={sessionIndexMap.get(s.sessionId) ?? 0}
+                        needsAttention={attentionIds.has(s.sessionId)}
+                      />
+                    ))
+                  )}
                 </div>
               );
             }
@@ -669,6 +755,8 @@ function SessionTabCard({
   const title = session.title || session.projectName || '(untitled)';
   const showProject = session.projectName && session.projectName !== session.title;
   const badge = getCliBadge(session);
+  const label = useLabelStore((s) => s.labels[session.sessionId]);
+  const labelColor = useLabelStore((s) => s.labelColor);
 
   const handlePinClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -723,14 +811,15 @@ function SessionTabCard({
         &#x1F4CC;
       </span>
 
-      {/* Attention badge — finished work, needs review */}
+      {/* Completed badge — session finished its work and is ready for review.
+          Green ✓ (not a red alarm) since completing is a good state. */}
       {needsAttention && (
         <span
           className={styles.sessionTabAttentionBadge}
-          aria-label="Finished — needs attention"
-          title="Finished — needs attention"
+          aria-label="Completed — ready for review"
+          title="Completed — ready for review"
         >
-          !
+          ✓
         </span>
       )}
 
@@ -783,6 +872,17 @@ function SessionTabCard({
         >
           {title}
         </div>
+      )}
+      {label && isCompact && (
+        <span
+          className={styles.sessionTabLabelDot}
+          style={{ background: labelColor(label), boxShadow: `0 0 4px ${labelColor(label)}` }}
+          title={`Label: ${label}`}
+          aria-label={`Label: ${label}`}
+        />
+      )}
+      {label && !isCompact && (
+        <LabelChip name={label} color={labelColor(label)} small />
       )}
       {!isCompact && showProject && (
         <div className={styles.sessionTabProject}>{session.projectName}</div>

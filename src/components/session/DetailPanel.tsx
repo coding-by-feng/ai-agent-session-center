@@ -16,6 +16,7 @@ import AiPopupHistory from './AiPopupHistory';
 import NotesTab from './NotesTab';
 import QueueTab from './QueueTab';
 import ProjectTabContainer from './ProjectTabContainer';
+import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import SessionControlBar from './SessionControlBar';
 import SessionSwitcher from './SessionSwitcher';
 import KillConfirmModal, { KILL_MODAL_ID } from './KillConfirmModal';
@@ -52,6 +53,27 @@ interface TerminalContentProps {
   projectPath?: string;
 }
 
+// Shown in place of the live terminal while it's popped out into its own OS
+// window — keeps a single WS subscriber on the PTY. Closing that window fires
+// `popout:closed`, which FloatingTerminalRoot turns into setPoppedOut(id,false),
+// re-mounting the live terminal here.
+function PoppedOutTerminalPlaceholder({ label, onFocus }: { label: string; onFocus: () => void }) {
+  return (
+    <div className={styles.opsReconnectPlaceholder}>
+      <div className={styles.opsReconnectIcon} aria-hidden>⧉</div>
+      <div className={styles.opsReconnectLabel}>
+        {label} is open in a separate window — close that window to dock it here again.
+      </div>
+      <button className={styles.opsReconnectBtn} onClick={onFocus}>FOCUS WINDOW</button>
+    </div>
+  );
+}
+
+/** True under Electron where native pop-out windows are available. */
+function canPopOutWindow(): boolean {
+  return typeof window !== 'undefined' && !!window.electronAPI?.openTerminalWindow;
+}
+
 const TerminalContent = memo(function TerminalContent({
   sessionId,
   terminalId,
@@ -74,6 +96,27 @@ const TerminalContent = memo(function TerminalContent({
 
   const cli = session ? detectCli(session) : null;
   const isForkableCli = cli === 'claude' || cli === 'codex';
+
+  const poppedOut = useFloatingSessionsStore((s) => s.poppedOut);
+  const isPoppedOut = !!terminalId && poppedOut.includes(terminalId);
+  const handlePopOut = useCallback(() => {
+    if (!terminalId) return;
+    const api = window.electronAPI;
+    if (!api?.openTerminalWindow) return;
+    const sess = useSessionStore.getState().sessions.get(sessionId);
+    const label = sess?.title ? `${sess.title} — terminal` : 'Terminal';
+    api.openTerminalWindow({ terminalId, originSessionId: sessionId, label })
+      .then((r) => {
+        if (r?.ok !== false) {
+          useFloatingSessionsStore.getState().setPoppedOut(terminalId, true);
+          // The in-app TerminalContainer unmounts to a placeholder; explicitly
+          // release its PTY-host subscription (unmount alone doesn't) so the
+          // popout window is the sole subscriber. No-op for WS terminals.
+          try { window.electronAPI?.unsubscribePty?.(terminalId); } catch { /* ignore */ }
+        }
+      })
+      .catch(() => {});
+  }, [terminalId, sessionId]);
 
   const handleReconnect = useCallback(() => {
     fetch(`/api/sessions/${sessionId}/reconnect-terminal`, { method: 'POST' })
@@ -113,17 +156,22 @@ const TerminalContent = memo(function TerminalContent({
   return (
     <div className={styles.terminalWithQueue}>
       <div className={styles.terminalSection}>
-        <TerminalContainer
-          terminalId={terminalId}
-          ws={ws}
-          showReconnect={showReconnect}
-          onReconnect={canReconnect ? handleReconnect : undefined}
-          onFork={isForkableCli ? handleFork : undefined}
-          onClone={handleClone}
-          bookmarkPortalTarget={bookmarkTarget}
-          projectPath={projectPath}
-          originSessionId={sessionId}
-        />
+        {isPoppedOut ? (
+          <PoppedOutTerminalPlaceholder label="Terminal" onFocus={handlePopOut} />
+        ) : (
+          <TerminalContainer
+            terminalId={terminalId}
+            ws={ws}
+            showReconnect={showReconnect}
+            onReconnect={canReconnect ? handleReconnect : undefined}
+            onFork={isForkableCli ? handleFork : undefined}
+            onClone={handleClone}
+            onPopOut={canPopOutWindow() && terminalId ? handlePopOut : undefined}
+            bookmarkPortalTarget={bookmarkTarget}
+            projectPath={projectPath}
+            originSessionId={sessionId}
+          />
+        )}
       </div>
       <div className={styles.bottomRow}>
         <QueueTab
@@ -159,6 +207,22 @@ const OpsTerminalContent = memo(function OpsTerminalContent({
   const ws = useMemo(() => client?.getRawSocket() ?? null, [client, connected]);
   const [connecting, setConnecting] = useState(false);
 
+  const poppedOut = useFloatingSessionsStore((s) => s.poppedOut);
+  const isPoppedOut = !!opsTerminalId && poppedOut.includes(opsTerminalId);
+  const handlePopOut = useCallback(() => {
+    if (!opsTerminalId) return;
+    const api = window.electronAPI;
+    if (!api?.openTerminalWindow) return;
+    api.openTerminalWindow({ terminalId: opsTerminalId, originSessionId: sessionId, label: 'Commands' })
+      .then((r) => {
+        if (r?.ok !== false) {
+          useFloatingSessionsStore.getState().setPoppedOut(opsTerminalId, true);
+          try { window.electronAPI?.unsubscribePty?.(opsTerminalId); } catch { /* ignore */ }
+        }
+      })
+      .catch(() => {});
+  }, [opsTerminalId, sessionId]);
+
   const handleReconnect = useCallback(() => {
     setConnecting(true);
     fetch(`/api/sessions/${sessionId}/reconnect-ops-terminal`, { method: 'POST' })
@@ -189,6 +253,14 @@ const OpsTerminalContent = memo(function OpsTerminalContent({
     );
   }
 
+  if (isPoppedOut) {
+    return (
+      <div className={styles.terminalSection} style={{ height: '100%' }}>
+        <PoppedOutTerminalPlaceholder label="Commands terminal" onFocus={handlePopOut} />
+      </div>
+    );
+  }
+
   return (
     <div className={styles.terminalSection} style={{ height: '100%' }}>
       <TerminalContainer
@@ -196,6 +268,7 @@ const OpsTerminalContent = memo(function OpsTerminalContent({
         ws={ws}
         showReconnect={false}
         onReconnect={handleReconnect}
+        onPopOut={canPopOutWindow() ? handlePopOut : undefined}
         projectPath={projectPath}
       />
     </div>

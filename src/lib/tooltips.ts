@@ -75,6 +75,14 @@ export const tooltips = {
     label: 'Open Project panel',
     description: 'Restore the floating Project window. Drag this badge anywhere first if you want.',
   },
+  floatPopOut: {
+    label: 'Pop out to a window',
+    description: 'Open this project in a separate window you can drag to another monitor.',
+  },
+  termPopOut: {
+    label: 'Pop out to a window',
+    description: 'Open this terminal in a separate window you can drag to another monitor.',
+  },
 
   // ---- TerminalToolbar ----
   termTheme: {
@@ -181,14 +189,6 @@ export const tooltips = {
     label: 'Custom prompt',
     description: 'Type your own instruction; it\'s combined with the selected text to start a fresh floating session. Enter or ⌘/Ctrl+Enter to run.',
   },
-  termTranslateAnswer: {
-    label: 'Translate previous answer',
-    description: 'Translate the most recent assistant response into your native language. Opens in a floating session.',
-  },
-  projTranslateFile: {
-    label: 'Translate this file',
-    description: 'Translate the current markdown file into your native language. Opens in a floating session.',
-  },
   floatTerminalClose: {
     label: 'Close floating session',
     description: 'Close this floating terminal. The underlying session is killed.',
@@ -241,10 +241,6 @@ export const tooltips = {
     label: 'Markdown outline',
     description: 'Toggle the heading outline for the current Markdown file.',
   },
-  projBookmark: {
-    label: 'Bookmarks',
-    description: 'Bookmark the current selection or open the bookmark list for this project.',
-  },
   projWordWrap: {
     label: 'Word wrap',
     description: 'Wrap long lines in the file viewer instead of horizontal scrolling.',
@@ -290,14 +286,6 @@ export const tooltips = {
     description: 'Exit the fullscreen viewer.',
     shortcut: 'Esc',
   },
-  projDeleteBookmark: {
-    label: 'Delete bookmark',
-    description: 'Remove this bookmark permanently.',
-  },
-  projRemoveFromCollection: {
-    label: 'Remove from collection',
-    description: 'Take this item out of the current collection without deleting the file.',
-  },
   projMdEditEnter: {
     label: 'Edit markdown',
     description: 'Switch the current Markdown file into inline edit mode. Save with Cmd+S.',
@@ -305,26 +293,6 @@ export const tooltips = {
   projMdEditExit: {
     label: 'Exit edit mode',
     description: 'Discard unsaved edits and return to the rendered preview.',
-  },
-  projTexPreview: {
-    label: 'Render LaTeX',
-    description: 'Compile the current .tex file and show the rendered output.',
-  },
-  projTexSource: {
-    label: 'Show LaTeX source',
-    description: 'Hide the rendered preview and show the raw .tex source.',
-  },
-  projCollectAdd: {
-    label: 'Add to collection',
-    description: 'Save this file to a named collection so you can find it again quickly.',
-  },
-  projCollectManage: {
-    label: 'Manage collections',
-    description: 'This file is in a collection. Click to view or move it between collections.',
-  },
-  projRecentFiles: {
-    label: 'View history',
-    description: 'Browse recently opened files and click any entry to reopen it.',
   },
 
   // ---- SessionControlBar ----

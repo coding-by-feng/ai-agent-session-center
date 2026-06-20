@@ -186,7 +186,8 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
     ? reconstructPermissionFlags(baseLaunchCmd, origin.permissionMode)
     : baseLaunchCmd;
   // Inherit the parent's model + effort as launch flags so they apply before the
-  // popup's first prompt runs. ultracode is handled by slash injection below.
+  // popup's first prompt runs. ultracode launches as `--effort xhigh` (its valid
+  // base) and is upgraded to true ultracode via the slash injection below.
   const launchCmd = applyClaudeLaunchFlags(permsCmd, origin.model, origin.effortLevel);
 
   const cfg = origin.sshConfig;
@@ -226,8 +227,8 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
   }
   writeWhenReady(terminalId, `${prefix}${launchCmd}\r`);
 
-  // ultracode effort can't be expressed as a launch flag, so inject it once Claude
-  // Code is ready (the first answer may begin at the default effort — accepted tradeoff).
+  // ultracode launches as `--effort xhigh` (above); upgrade it to true ultracode
+  // via /effort once Claude Code is ready (the raw flag rejects `ultracode`).
   if (cliKind === 'claude' && origin.effortLevel === 'ultracode') {
     injectClaudeCommandsWhenReady(terminalId, ['/effort ultracode']);
   }

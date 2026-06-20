@@ -33,6 +33,13 @@ function tb(key: string): KeyCombo {
 const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
   toggleFullscreen:           { label: 'Toggle fullscreen',             section: 'Terminal',      combo: { key: 'F11', altKey: true } },
   scrollToBottom:             { label: 'Scroll to bottom',              section: 'Terminal',      combo: isMac ? { key: 'b', altKey: true, metaKey: true } : { key: 'b', altKey: true, ctrlKey: true } },
+  // Terminal toolbar buttons — unbound by default; the user assigns keys in Settings.
+  terminalToggleAutoScroll:   { label: 'Toggle auto-scroll',            section: 'Terminal',      combo: null },
+  terminalRefresh:            { label: 'Clear & replay output',         section: 'Terminal',      combo: null },
+  terminalBookmark:           { label: 'Add / view bookmarks',          section: 'Terminal',      combo: null },
+  terminalClone:              { label: 'Duplicate session',             section: 'Terminal',      combo: null },
+  terminalFork:               { label: 'Branch (fork) session',         section: 'Terminal',      combo: null },
+  terminalPopOut:             { label: 'Pop out into a window',         section: 'Terminal',      combo: null },
   switchLatestSession:        { label: 'Switch to previous session',    section: 'Session Switch', combo: isMac ? { key: 'p', shiftKey: true, metaKey: true } : { key: 'p', shiftKey: true, ctrlKey: true } },
   switchSession1:             { label: 'Switch to session 1',           section: 'Session Switch', combo: sw('1') },
   switchSession2:             { label: 'Switch to session 2',           section: 'Session Switch', combo: sw('2') },
@@ -71,6 +78,8 @@ const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
 /** All action IDs in display order. */
 export const ACTION_IDS: ShortcutActionId[] = [
   'toggleFullscreen', 'scrollToBottom',
+  'terminalToggleAutoScroll', 'terminalRefresh', 'terminalBookmark',
+  'terminalClone', 'terminalFork', 'terminalPopOut',
   'switchLatestSession',
   'switchSession1', 'switchSession2', 'switchSession3',
   'switchSession4', 'switchSession5', 'switchSession6',

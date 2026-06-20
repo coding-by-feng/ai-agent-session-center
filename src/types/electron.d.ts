@@ -85,9 +85,17 @@ export interface ElectronAPI {
   // Pop a floating terminal out into its own native window (draggable to another
   // monitor). Optional — only present under Electron.
   openTerminalWindow?(opts: { terminalId: string; originSessionId?: string; label?: string }): Promise<{ ok: boolean }>
+  // Pop the floating PROJECT panel out into its own native window (draggable to
+  // another monitor) on the standalone /project-browser route. Electron-only.
+  openProjectWindow?(opts: { path: string; file?: string; label?: string }): Promise<{ ok: boolean }>
   /** Fires (in the main window) when a popped-out terminal window is closed, so
    *  the in-app float can re-dock. Returns an unsubscribe fn. */
   onPopoutClosed?(cb: (terminalId: string) => void): () => void
+
+  /** Open the native OS folder picker and resolve to the chosen absolute
+   *  directory path, or null if the user cancelled. Electron-only — the browser
+   *  sandbox can't return an absolute path, so this is undefined there. */
+  selectDirectory?(opts?: { defaultPath?: string }): Promise<string | null>
 }
 
 declare global {

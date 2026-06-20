@@ -5,7 +5,6 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import SetupWizard from '@/components/setup/SetupWizard';
 import Header from '@/components/layout/Header';
 import NavBar from '@/components/layout/NavBar';
-import ActivityFeed from '@/components/layout/ActivityFeed';
 import ToastContainer from '@/components/ui/ToastContainer';
 import SettingsPanel from '@/components/settings/SettingsPanel';
 import NewSessionModal from '@/components/modals/NewSessionModal';
@@ -50,30 +49,35 @@ const queryClient = new QueryClient({
 function AppLayout() {
   useKeyboardShortcuts();
 
-  // While a session detail panel is open and in view, hide the dashboard Header
-  // so the panel + scene reclaim its vertical space. NavBar stays pinned for
-  // route navigation. The header returns the instant the panel closes
-  // (selectedSessionId → null) or is minimized to a corner badge
-  // (detailPanelMinimized → true). The session detail panel renders *inside*
-  // <main>, so it overlays the routed view but never covers NavBar.
+  // While a session detail panel is open and in view, hide both the dashboard
+  // Header and the NavBar so the panel + scene reclaim the full vertical space.
+  // They return the instant the panel closes (selectedSessionId → null) or is
+  // minimized to a corner badge (detailPanelMinimized → true). The panel renders
+  // *inside* <main> and carries its own close/minimize controls, so hiding the
+  // NavBar's route tabs doesn't trap the user.
   const selectedSessionId = useSessionStore((s) => s.selectedSessionId);
   const detailPanelMinimized = useUiStore((s) => s.detailPanelMinimized);
-  const hideHeader = !!selectedSessionId && !detailPanelMinimized;
+  const hideTopBars = !!selectedSessionId && !detailPanelMinimized;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      {/* Header is hidden when a detail panel is in view. On macOS Electron the
-          spacer takes over the Header's job of clearing the fixed 28px TitleBar
-          (it collapses to zero height elsewhere). */}
-      {hideHeader ? <div className={appLayout.titleBarSpacer} /> : <Header />}
-      <NavBar />
+      {/* Header + NavBar are hidden when a detail panel is in view. On macOS
+          Electron the spacer takes over the Header's job of clearing the fixed
+          28px TitleBar (it collapses to zero height elsewhere). */}
+      {hideTopBars ? (
+        <div className={appLayout.titleBarSpacer} />
+      ) : (
+        <>
+          <Header />
+          <NavBar />
+        </>
+      )}
       <main style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
         <Suspense fallback={<div style={{ padding: '2rem', color: '#8888aa', textAlign: 'center' }}>Loading...</div>}>
           <Outlet />
         </Suspense>
         <DetailPanel />
       </main>
-      <ActivityFeed />
       <ToastContainer />
       <SettingsPanel />
       <NewSessionModal />

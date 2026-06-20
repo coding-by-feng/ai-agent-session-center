@@ -13,10 +13,6 @@ import { ttsEngine } from '@/lib/ttsEngine';
 import SelectionPopup from '@/components/translate/SelectionPopup';
 import { useSelectionPopup } from '@/hooks/useSelectionPopup';
 import { extractXtermSelection } from '@/lib/selectionExtractors';
-import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
-import { useSessionStore } from '@/stores/sessionStore';
-import { createLog } from '@/lib/translationLog';
-import { detectCli } from '@/lib/cliDetect';
 import styles from '@/styles/modules/Terminal.module.css';
 import '@xterm/xterm/css/xterm.css';
 
@@ -46,6 +42,10 @@ interface TerminalContainerProps {
   onFork?: () => void;
   /** Clone — new session running the same startupCommand + config */
   onClone?: () => void;
+  /** Pop this terminal out into its own OS window (Electron only). When omitted
+   *  the toolbar pop-out button is hidden (e.g. floating forks / the popout view
+   *  itself, which must not re-pop-out). */
+  onPopOut?: () => void;
   /** Originating session id — required for the select-to-translate popup and the
    *  "Translate previous answer" toolbar button. When omitted, both features are
    *  hidden (e.g. floating-terminal hosts that have no source session). */
@@ -63,6 +63,7 @@ export default memo(function TerminalContainer({
   projectPath,
   onFork,
   onClone,
+  onPopOut,
   originSessionId,
 }: TerminalContainerProps) {
   const [themeName, setThemeName] = useState<string>(() => {
@@ -302,11 +303,6 @@ export default memo(function TerminalContainer({
   // ---- Select-to-translate / explain popup ----
   const translationEnabled = useSettingsStore((s) => s.translationEnabled);
   const translationTrigger = useSettingsStore((s) => s.translationTrigger);
-  const translationNative = useSettingsStore((s) => s.translationNativeLanguage);
-  const translationLearning = useSettingsStore((s) => s.translationLearningLanguage);
-  const openFloat = useFloatingSessionsStore((s) => s.open);
-  const originSession = useSessionStore((s) => originSessionId ? s.sessions.get(originSessionId) : undefined);
-  const canTranslateAnswer = !!originSession && detectCli(originSession) === 'claude';
 
   const popupExtract = useCallback(
     (e: { clientX: number; clientY: number }) => {
@@ -321,46 +317,6 @@ export default memo(function TerminalContainer({
     containerRef: rootRef,
     extract: popupExtract,
   });
-
-  const [translateAnswerBusy, setTranslateAnswerBusy] = useState(false);
-  const handleTranslateAnswer = useCallback(async () => {
-    if (!originSessionId || translateAnswerBusy) return;
-    setTranslateAnswerBusy(true);
-    try {
-      const resp = await fetch('/api/sessions/spawn-floating', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          originSessionId,
-          mode: 'translate-answer',
-          nativeLanguage: translationNative,
-          learningLanguage: translationLearning,
-        }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || 'Failed to spawn translation');
-      const origin = useSessionStore.getState().sessions.get(originSessionId);
-      await createLog({
-        mode: 'translate-answer',
-        nativeLanguage: translationNative,
-        learningLanguage: translationLearning,
-        selection: '',
-        contextLine: '',
-        filePath: '',
-        fileContent: '',
-        prompt: '',
-        originSessionId,
-        originProjectName: origin?.projectName ?? '',
-        originSessionTitle: origin?.title ?? '',
-        floatTerminalId: data.terminalId,
-      }).catch(() => { /* non-fatal */ });
-      openFloat({ terminalId: data.terminalId, label: data.label, originSessionId });
-    } catch {
-      // Swallow — error is surfaced via toast layer in a future pass; not critical here.
-    } finally {
-      setTranslateAnswerBusy(false);
-    }
-  }, [originSessionId, translateAnswerBusy, translationNative, translationLearning, openFloat]);
 
   const handleBookmark = useCallback(() => {
     const pos: TerminalBookmarkPosition | null = getTerminalBookmark();
@@ -403,6 +359,27 @@ export default memo(function TerminalContainer({
       selEndY: bm.selEndY,
     });
   }, [jumpToBookmark]);
+
+  // Keyboard-shortcut bridge: a 'terminal:action' event (dispatched by
+  // useKeyboardShortcuts) runs the matching toolbar action, but ONLY for the
+  // selected session's terminal (scoped by terminalId so other mounted /
+  // floating terminals never react — clone/fork must not fan out).
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ action: string; terminalId: string }>).detail;
+      if (!detail || detail.terminalId !== terminalId) return;
+      switch (detail.action) {
+        case 'toggleAutoScroll': toggleAutoScroll(); break;
+        case 'refresh': refreshOutput(); break;
+        case 'bookmark': handleBookmark(); break;
+        case 'clone': onClone?.(); break;
+        case 'fork': onFork?.(); break;
+        case 'popOut': onPopOut?.(); break;
+      }
+    };
+    document.addEventListener('terminal:action', handler);
+    return () => document.removeEventListener('terminal:action', handler);
+  }, [terminalId, toggleAutoScroll, refreshOutput, handleBookmark, onClone, onFork, onPopOut]);
 
   const bookmarkPanelContent = (
     <div className={styles.termBookmarkPanel}>
@@ -492,11 +469,7 @@ export default memo(function TerminalContainer({
         onToggleAutoScroll={toggleAutoScroll}
         onFork={onFork}
         onClone={onClone}
-        onTranslateAnswer={
-          translationEnabled && originSessionId && canTranslateAnswer ? handleTranslateAnswer : undefined
-        }
-        translateAnswerLanguage={translationNative}
-        translateAnswerBusy={translateAnswerBusy}
+        onPopOut={onPopOut}
         isFullscreen={isFullscreen}
         showReconnect={showReconnect || (isClosed && !!onReconnect)}
         ttsEnabled={ttsEnabled}

@@ -38,7 +38,7 @@ export default function SettingsPanel() {
       'setThemeName', 'setTheme', 'setFontSize', 'setScanlineEnabled',
       'setAnimationIntensity', 'setAnimationSpeed', 'setCharacterModel',
       'setHookDensity', 'setCompactMode', 'setShowArchived', 'setGroupBy',
-      'setSortBy', 'setActivityFeedVisible', 'setToastEnabled',
+      'setSortBy', 'setToastEnabled',
       'setAutoSendQueue', 'setDefaultTerminalTheme', 'setSoundAction',
       'setMovementAction', 'setApiKey', 'persistSetting',
       'flashAutosave', 'resetDefaults', 'autosaveVisible',

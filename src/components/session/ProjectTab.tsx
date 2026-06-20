@@ -40,10 +40,7 @@ import { tooltips } from '@/lib/tooltips';
 import SelectionPopup from '@/components/translate/SelectionPopup';
 import { useSelectionPopup } from '@/hooks/useSelectionPopup';
 import { extractDomSelection } from '@/lib/selectionExtractors';
-import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { useSessionStore } from '@/stores/sessionStore';
-import { createLog } from '@/lib/translationLog';
 import styles from '@/styles/modules/ProjectTab.module.css';
 
 interface ProjectTabProps {
@@ -92,28 +89,6 @@ interface FileContent {
 interface FileTab {
   path: string;
   name: string;
-}
-
-interface RecentFile {
-  path: string;
-  name: string;
-}
-
-interface Bookmark {
-  id: string;
-  filePath: string;
-  lineStart: number;
-  lineEnd: number;
-  selectedText: string;
-  note: string;
-}
-
-interface Collection {
-  id: string;
-  path: string;
-  name: string;
-  isFile: boolean;
-  addedAt: number;
 }
 
 interface SearchResult {
@@ -262,14 +237,6 @@ function IconFormat() {
   );
 }
 
-function IconBookmark({ active = false }: { active?: boolean }) {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5">
-      <path d="M3 2h10v13l-5-3.5L3 15V2z" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
 function IconOutline() {
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -281,31 +248,10 @@ function IconOutline() {
   );
 }
 
-/** Translate / globe icon — used by the "Translate file" toolbar button. */
-function IconTranslate() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M3 12 H21" />
-      <path d="M12 3 C8 7, 8 17, 12 21" />
-      <path d="M12 3 C16 7, 16 17, 12 21" />
-    </svg>
-  );
-}
-
 function IconEdit() {
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M11.5 2.5l2 2L6 12l-3 1 1-3 7.5-7.5z" />
-    </svg>
-  );
-}
-
-function IconCollect({ active = false }: { active?: boolean }) {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
-      <polygon points="8 1.5 9.9 5.9 14.5 6.2 11.2 9.1 12.2 13.6 8 11.2 3.8 13.6 4.8 9.1 1.5 6.2 6.1 5.9 8 1.5" />
     </svg>
   );
 }
@@ -329,16 +275,6 @@ function IconWordWrap() {
       <path d="M11 6v0a2.5 2.5 0 0 1 0 5h-2" strokeLinecap="round" />
       <polyline points="10.5 9.5 9 11 10.5 12.5" strokeLinecap="round" strokeLinejoin="round" />
       <line x1="2" y1="13" x2="7" y2="13" />
-    </svg>
-  );
-}
-
-function IconHistory() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M1.5 8a6.5 6.5 0 1 0 1.5-4" strokeLinecap="round" />
-      <polyline points="1.5 2 1.5 5.5 5 5.5" strokeLinecap="round" strokeLinejoin="round" />
-      <polyline points="8 5 8 8 10.5 10" strokeLinecap="round" />
     </svg>
   );
 }
@@ -439,8 +375,6 @@ function ExcelViewer({ sheets }: { sheets: ExcelSheet[] }) {
 /** Virtualised code viewer for very large files. */
 function VirtualCodeViewer({
   content,
-  filePath,
-  bookmarks: bmarks,
   wordWrap,
   scrollKey,
   findTerm: vFindTerm,
@@ -450,7 +384,6 @@ function VirtualCodeViewer({
 }: {
   content: string;
   filePath: string;
-  bookmarks: Bookmark[];
   wordWrap: boolean;
   scrollKey?: string;
   findTerm?: string;
@@ -508,16 +441,6 @@ function VirtualCodeViewer({
   const startIdx = Math.max(0, Math.floor(scrollTop / LINE_HEIGHT_PX) - OVERSCAN);
   const endIdx = Math.min(lines.length, Math.ceil((scrollTop + viewHeight) / LINE_HEIGHT_PX) + OVERSCAN);
 
-  const bookmarkedSet = useMemo(() => {
-    const set = new Set<number>();
-    for (const b of bmarks) {
-      if (b.filePath === filePath) {
-        for (let l = b.lineStart; l <= b.lineEnd; l++) set.add(l);
-      }
-    }
-    return set;
-  }, [bmarks, filePath]);
-
   return (
     <div
       ref={containerRef}
@@ -528,12 +451,11 @@ function VirtualCodeViewer({
         {Array.from({ length: endIdx - startIdx }, (_, offset) => {
           const i = startIdx + offset;
           const lineNum = i + 1;
-          const isBookmarked = bookmarkedSet.has(lineNum);
           return (
             <div
               key={i}
               id={`fv-line-${lineNum}`}
-              className={`${styles.codeLine}${isBookmarked ? ` ${styles.bookmarkedLine}` : ''}`}
+              className={styles.codeLine}
               style={{ position: 'absolute', top: i * LINE_HEIGHT_PX, left: 0, right: 0, height: LINE_HEIGHT_PX }}
             >
               <span className={styles.lineNum}>{lineNum}</span>
@@ -1116,17 +1038,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   treePanelWidthRef.current = treePanelWidth;
   const treePanelRef = useRef<HTMLDivElement>(null);
 
-  // Bookmarks
-  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
-  const [showBookmarkPanel, setShowBookmarkPanel] = useState(false);
   const pendingScrollLine = useRef<number | null>(null);
-
-  // Collections — shared across sessions by projectPath
-  const [collections, setCollections] = useState<Collection[]>([]);
-  const [showCollectionPanel, setShowCollectionPanel] = useState(false);
-
-  const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
-  const [showRecentPanel, setShowRecentPanel] = useState(false);
 
   // Fullscreen file viewer
   const [showFullscreen, setShowFullscreen] = useState(false);
@@ -1147,8 +1059,6 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   // Markdown outline (side panel with draggable divider)
   const [showOutline, setShowOutline] = useState(false);
   const [wordWrap, setWordWrap] = useState(false);
-  // .tex files default to the rendered preview; toggle to show raw source.
-  const [texPreview, setTexPreview] = useState(true);
   // Markdown edit mode: shows a textarea instead of the rendered preview.
   const [mdEdit, setMdEdit] = useState(false);
   const [mdDraft, setMdDraft] = useState('');
@@ -1158,12 +1068,9 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const mdContainerRef = useRef<HTMLDivElement>(null);
   const codeViewerRef = useRef<HTMLDivElement>(null);
 
-  // ---- Translation / explain (select-to-translate popup + translate-file button) ----
+  // ---- Translation / explain (select-to-translate popup) ----
   const translationEnabled = useSettingsStore((s) => s.translationEnabled);
   const translationTrigger = useSettingsStore((s) => s.translationTrigger);
-  const translationNative = useSettingsStore((s) => s.translationNativeLanguage);
-  const translationLearning = useSettingsStore((s) => s.translationLearningLanguage);
-  const openFloat = useFloatingSessionsStore((s) => s.open);
   const popupExtract = useCallback(
     (_e: { clientX: number; clientY: number }) => extractDomSelection(markdownRef.current),
     [],
@@ -1185,7 +1092,6 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     containerRef: markdownFsRef,
     extract: popupExtractFs,
   });
-  const [translateFileBusy, setTranslateFileBusy] = useState(false);
   // Bumped after each successful Refresh so the scroll-restore effect re-fires
   // (file.path doesn't change on refresh, so we need a separate trigger).
   // Also used as part of <VirtualCodeViewer>'s React key to force a remount
@@ -1288,10 +1194,6 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         return [...prev, { path: relPath, name }];
       });
       setActiveTabPath(relPath);
-      setRecentFiles(prev => {
-        const entry: RecentFile = { path: relPath, name };
-        return [entry, ...prev.filter(r => r.path !== relPath)].slice(0, 30);
-      });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
@@ -1335,42 +1237,6 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigateToFile]);
-
-  // Bookmark persistence — keyed per project
-  const bookmarkKey = useMemo(() => `agent-manager:bookmarks:${projectPath}`, [projectPath]);
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(bookmarkKey);
-      if (saved) setBookmarks(JSON.parse(saved));
-    } catch {}
-  }, [bookmarkKey]);
-
-  // Collection persistence — keyed per projectPath, shared across all sessions
-  const collectionsKey = useMemo(() => `agent-manager:collections:${projectPath}`, [projectPath]);
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(collectionsKey);
-      if (saved) setCollections(JSON.parse(saved));
-    } catch {}
-  }, [collectionsKey]);
-  useEffect(() => {
-    try { localStorage.setItem(bookmarkKey, JSON.stringify(bookmarks)); } catch {}
-  }, [bookmarks, bookmarkKey]);
-
-  useEffect(() => {
-    try { localStorage.setItem(collectionsKey, JSON.stringify(collections)); } catch {}
-  }, [collections, collectionsKey]);
-
-  const recentFilesKey = useMemo(() => `agent-manager:recent-files:${projectPath}`, [projectPath]);
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(recentFilesKey);
-      if (saved) setRecentFiles(JSON.parse(saved));
-    } catch {}
-  }, [recentFilesKey]);
-  useEffect(() => {
-    try { localStorage.setItem(recentFilesKey, JSON.stringify(recentFiles)); } catch {}
-  }, [recentFiles, recentFilesKey]);
 
   // After cross-file jump: scroll to the pending line once the new file renders
   useEffect(() => {
@@ -1865,83 +1731,6 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     }
   }, [projectPath, file]);
 
-  // Bookmark: add from selection or toggle panel
-  const handleBookmarkBtnClick = useCallback(() => {
-    const sel = window.getSelection();
-    const selectedText = sel?.toString().trim() ?? '';
-    if (file && selectedText && file.content?.includes(selectedText)) {
-      const content = file.content;
-      const idx = content.indexOf(selectedText);
-      const lineStart = content.slice(0, idx).split('\n').length;
-      const lineEnd = lineStart + selectedText.split('\n').length - 1;
-      const bookmark: Bookmark = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        filePath: file.path,
-        lineStart,
-        lineEnd,
-        selectedText: selectedText.slice(0, 300),
-        note: '',
-      };
-      setBookmarks(prev => [...prev, bookmark]);
-      setShowBookmarkPanel(true);
-      sel!.removeAllRanges();
-    } else {
-      setShowBookmarkPanel(prev => !prev);
-    }
-  }, [file]);
-
-  const handleDeleteBookmark = useCallback((id: string) => {
-    setBookmarks(prev => prev.filter(b => b.id !== id));
-  }, []);
-
-  const handleBookmarkNoteChange = useCallback((id: string, note: string) => {
-    setBookmarks(prev => prev.map(b => b.id === id ? { ...b, note } : b));
-  }, []);
-
-  const handleJumpToBookmark = useCallback((bookmark: Bookmark) => {
-    if (bookmark.filePath !== file?.path) {
-      pendingScrollLine.current = bookmark.lineStart;
-      loadFile(bookmark.filePath);
-    } else {
-      document.getElementById(`fv-line-${bookmark.lineStart}`)
-        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }, [file, loadFile]);
-
-  // Collection: add/remove current path; toggle panel
-  const isCurrentCollected = collections.some((c) => c.path === currentPath);
-
-  const handleCollectToggle = useCallback(() => {
-    if (isCurrentCollected) {
-      setShowCollectionPanel((p) => !p);
-    } else {
-      const name = currentPath.split('/').filter(Boolean).pop() || projectPath.split('/').filter(Boolean).pop() || currentPath;
-      setCollections((prev) => [
-        ...prev,
-        {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          path: currentPath,
-          name,
-          isFile: !!file,
-          addedAt: Date.now(),
-        },
-      ]);
-      setShowCollectionPanel(true);
-    }
-  }, [currentPath, isCurrentCollected, file, projectPath]);
-
-  const handleDeleteCollection = useCallback((id: string) => {
-    setCollections((prev) => prev.filter((c) => c.id !== id));
-  }, []);
-
-  const handleCollectionItemClick = useCallback((col: Collection) => {
-    if (col.isFile) {
-      loadFile(col.path);
-    } else {
-      loadDir(col.path);
-    }
-  }, [loadFile, loadDir]);
-
   // Format the currently viewed file (JSON / XML / SVG)
   const handleFormatFile = useCallback(() => {
     if (!file || file.binary || !file.content) return;
@@ -2126,14 +1915,13 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         case 'fileBrowserOpenNewTab':     handleOpenProjectView(); break;
         case 'fileBrowserFormat':         handleFormatFile(); break;
         case 'fileBrowserToggleOutline':  setShowOutline(p => !p); break;
-        case 'fileBrowserToggleBookmark': handleBookmarkBtnClick(); break;
         case 'fileBrowserToggleWordWrap': setWordWrap(p => !p); break;
         case 'fileBrowserFullscreen':     setShowFullscreen(true); break;
       }
     }
     document.addEventListener('fileBrowser:action', handleFileBrowserAction);
     return () => document.removeEventListener('fileBrowser:action', handleFileBrowserAction);
-  }, [handleRefresh, handleOpenProjectView, handleFormatFile, handleBookmarkBtnClick]);
+  }, [handleRefresh, handleOpenProjectView, handleFormatFile]);
 
   // Split drag handlers
   const handleSplitMouseDown = useCallback((e: React.MouseEvent) => {
@@ -2458,107 +2246,6 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
             <IconEdit />
           </button>
         </Tooltip>
-        {originSessionId && translationEnabled && (
-          <Tooltip
-            label={tooltips.projTranslateFile.label}
-            description={`Translate the current file into ${translationNative}. Opens a floating session.`}
-          >
-            <button
-              className={styles.iconBtn}
-              onClick={async () => {
-                if (!file || !originSessionId || translateFileBusy) return;
-                setTranslateFileBusy(true);
-                try {
-                  const resp = await fetch('/api/sessions/spawn-floating', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      originSessionId,
-                      mode: 'translate-file',
-                      fileContent: file.content || '',
-                      filePath: file.path,
-                      nativeLanguage: translationNative,
-                      learningLanguage: translationLearning,
-                    }),
-                  });
-                  const data = await resp.json();
-                  if (!resp.ok) throw new Error(data.error || 'Failed to translate file');
-                  const origin = useSessionStore.getState().sessions.get(originSessionId);
-                  await createLog({
-                    mode: 'translate-file',
-                    nativeLanguage: translationNative,
-                    learningLanguage: translationLearning,
-                    selection: '',
-                    contextLine: '',
-                    filePath: file.path,
-                    fileContent: (file.content || '').slice(0, 32 * 1024),
-                    prompt: '',
-                    originSessionId,
-                    originProjectName: origin?.projectName ?? '',
-                    originSessionTitle: origin?.title ?? '',
-                    floatTerminalId: data.terminalId,
-                  }).catch(() => { /* non-fatal */ });
-                  openFloat({ terminalId: data.terminalId, label: data.label, originSessionId });
-                } catch (err) {
-                  showToast(err instanceof Error ? err.message : 'Failed to translate file', 'error');
-                } finally {
-                  setTranslateFileBusy(false);
-                }
-              }}
-              disabled={!file || (file.ext !== 'md' && file.ext !== 'mdx') || translateFileBusy}
-              aria-label={tooltips.projTranslateFile.label}
-            >
-              <IconTranslate />
-            </button>
-          </Tooltip>
-        )}
-        <Tooltip {...(texPreview ? tooltips.projTexSource : tooltips.projTexPreview)}>
-          <button
-            className={`${styles.iconBtn} ${texPreview ? styles.iconBtnActive : ''}`}
-            onClick={() => setTexPreview((p) => !p)}
-            disabled={!file || file.ext !== 'tex'}
-            aria-label={(texPreview ? tooltips.projTexSource : tooltips.projTexPreview).label}
-          >
-            <span style={{ fontFamily: 'serif', fontSize: '11px', fontWeight: 700, letterSpacing: '0.5px' }}>
-              T<sub style={{ fontSize: '8px', verticalAlign: 'baseline' }}>E</sub>X
-            </span>
-          </button>
-        </Tooltip>
-        <Tooltip {...tooltips.projBookmark}>
-          <button
-            className={`${styles.iconBtn} ${showBookmarkPanel || bookmarks.length > 0 ? styles.iconBtnActive : ''}`}
-            onClick={handleBookmarkBtnClick}
-            aria-label={tooltips.projBookmark.label}
-          >
-            <IconBookmark active={bookmarks.length > 0} />
-            {bookmarks.length > 0 && <span className={styles.bookmarkBadge}>{bookmarks.length}</span>}
-          </button>
-        </Tooltip>
-        <Tooltip {...(isCurrentCollected ? tooltips.projCollectManage : tooltips.projCollectAdd)}>
-          <button
-            className={`${styles.iconBtn} ${isCurrentCollected || showCollectionPanel ? styles.iconBtnActive : ''}`}
-            onClick={handleCollectToggle}
-            style={isCurrentCollected ? { color: 'var(--accent-yellow, #ffd700)' } : undefined}
-            aria-label={(isCurrentCollected ? tooltips.projCollectManage : tooltips.projCollectAdd).label}
-          >
-            <IconCollect active={isCurrentCollected} />
-            {collections.length > 0 && (
-              <span className={styles.bookmarkBadge} style={{ background: 'var(--accent-yellow, #ffd700)' }}>
-                {collections.length}
-              </span>
-            )}
-          </button>
-        </Tooltip>
-        <Tooltip {...tooltips.projRecentFiles}>
-          <button
-            className={`${styles.iconBtn} ${showRecentPanel ? styles.iconBtnActive : ''}`}
-            onClick={() => setShowRecentPanel(p => !p)}
-            aria-label={tooltips.projRecentFiles.label}
-          >
-            <IconHistory />
-            {recentFiles.length > 0 && <span className={styles.bookmarkBadge}>{recentFiles.length}</span>}
-          </button>
-        </Tooltip>
         <Tooltip {...tooltips.projWordWrap}>
           <button
             className={`${styles.iconBtn} ${wordWrap ? styles.iconBtnActive : ''}`}
@@ -2807,7 +2494,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                   <div className={styles.empty}>
                     Binary file ({formatSize(file.size)})
                   </div>
-                ) : file.ext === 'tex' && texPreview ? (
+                ) : file.ext === 'tex' ? (
                   <TexViewer source={file.content || ''} fileKey={file.path} />
                 ) : (file.ext === 'md' || file.ext === 'mdx') && mdEdit ? (
                   <div className={styles.newFileEditor}>
@@ -2883,7 +2570,6 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                     key={`${file.path}:${refreshNonce}`}
                     content={file.content || ''}
                     filePath={file.path}
-                    bookmarks={bookmarks}
                     wordWrap={wordWrap}
                     scrollKey={fileScrollKey}
                     findTerm={findTerm}
@@ -2898,14 +2584,11 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                   >
                     {(file.content || '').split('\n').map((line, i) => {
                       const lineNum = i + 1;
-                      const isBookmarked = bookmarks.some(
-                        b => b.filePath === file.path && lineNum >= b.lineStart && lineNum <= b.lineEnd
-                      );
                       return (
                         <div
                           key={i}
                           id={`fv-line-${lineNum}`}
-                          className={`${styles.codeLine}${isBookmarked ? ` ${styles.bookmarkedLine}` : ''}`}
+                          className={styles.codeLine}
                         >
                           <span className={styles.lineNum}>{lineNum}</span>
                           <span className={styles.lineText}>
@@ -2922,119 +2605,6 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
             )}
           </div>
 
-          {/* Bookmark panel */}
-          {showBookmarkPanel && (
-            <div className={styles.bookmarkPanel}>
-              <div className={styles.bookmarkPanelHeader}>
-                <span className={styles.bookmarkPanelTitle}>BOOKMARKS ({bookmarks.length})</span>
-                <button className={styles.bookmarkPanelClose} onClick={() => setShowBookmarkPanel(false)}>✕</button>
-              </div>
-              {bookmarks.length === 0 ? (
-                <div className={styles.bookmarkEmpty}>
-                  Select text in the viewer, then click the bookmark icon to add.
-                </div>
-              ) : (
-                <div className={styles.bookmarkList}>
-                  {bookmarks.map(bm => (
-                    <div
-                      key={bm.id}
-                      className={`${styles.bookmarkItem}${bm.filePath !== file?.path ? ` ${styles.bookmarkItemOther}` : ''}`}
-                      onClick={() => handleJumpToBookmark(bm)}
-                    >
-                      <div className={styles.bookmarkItemTop}>
-                        <span className={styles.bookmarkItemLine}>
-                          L{bm.lineStart}{bm.lineEnd !== bm.lineStart ? `–${bm.lineEnd}` : ''}
-                        </span>
-                        <span className={styles.bookmarkItemFile}>{bm.filePath.split('/').pop()}</span>
-                        <Tooltip {...tooltips.projDeleteBookmark}>
-                          <button
-                            className={styles.bookmarkItemDel}
-                            onClick={e => { e.stopPropagation(); handleDeleteBookmark(bm.id); }}
-                            aria-label={tooltips.projDeleteBookmark.label}
-                          >✕</button>
-                        </Tooltip>
-                      </div>
-                      <div className={styles.bookmarkItemText}>{bm.selectedText.slice(0, 120)}</div>
-                      <input
-                        className={styles.bookmarkItemNote}
-                        placeholder="Add note..."
-                        value={bm.note}
-                        onChange={e => handleBookmarkNoteChange(bm.id, e.target.value)}
-                        onClick={e => e.stopPropagation()}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-          {/* Collection panel */}
-          {showCollectionPanel && (
-            <div className={styles.collectionPanel}>
-              <div className={styles.bookmarkPanelHeader}>
-                <span className={styles.collectionPanelTitle}>COLLECTION ({collections.length})</span>
-                <button className={styles.bookmarkPanelClose} onClick={() => setShowCollectionPanel(false)}>✕</button>
-              </div>
-              {collections.length === 0 ? (
-                <div className={styles.bookmarkEmpty}>
-                  Navigate to any file or folder and click ★ to collect it.
-                </div>
-              ) : (
-                <div className={styles.collectionList}>
-                  {collections.map((col) => (
-                    <div
-                      key={col.id}
-                      className={`${styles.collectionItem}${col.path === currentPath ? ` ${styles.collectionItemActive}` : ''}`}
-                      onClick={() => handleCollectionItemClick(col)}
-                      title={col.path}
-                    >
-                      <span className={styles.collectionItemIcon}>{col.isFile ? '📄' : '📁'}</span>
-                      <span className={styles.collectionItemName}>{col.name}</span>
-                      <span className={styles.collectionItemPath}>{col.path}</span>
-                      <Tooltip {...tooltips.projRemoveFromCollection}>
-                        <button
-                          className={styles.bookmarkItemDel}
-                          onClick={(e) => { e.stopPropagation(); handleDeleteCollection(col.id); }}
-                          aria-label={tooltips.projRemoveFromCollection.label}
-                        >
-                          ✕
-                        </button>
-                      </Tooltip>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-          {/* Recent files panel */}
-          {showRecentPanel && (
-            <div className={styles.recentPanel}>
-              <div className={styles.bookmarkPanelHeader}>
-                <span className={styles.recentPanelTitle}>HISTORY ({recentFiles.length})</span>
-                <button className={styles.bookmarkPanelClose} onClick={() => setShowRecentPanel(false)}>✕</button>
-              </div>
-              {recentFiles.length === 0 ? (
-                <div className={styles.bookmarkEmpty}>No files viewed yet.</div>
-              ) : (
-                <>
-                  <div className={styles.recentList}>
-                    {recentFiles.map(rf => (
-                      <div
-                        key={rf.path}
-                        className={`${styles.recentItem}${rf.path === file?.path ? ` ${styles.recentItemActive}` : ''}`}
-                        onClick={() => { void loadFile(rf.path); setShowRecentPanel(false); }}
-                        title={rf.path}
-                      >
-                        <span className={styles.recentItemName}>{rf.name}</span>
-                        <span className={styles.recentItemPath}>{rf.path}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <button className={styles.recentClear} onClick={() => setRecentFiles([])}>Clear history</button>
-                </>
-              )}
-            </div>
-          )}
           </div>{/* end contentCol */}
         </div>{/* end viewerPanel */}
       </div>
@@ -3067,7 +2637,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                 <ImageViewer key={file.path} src={file.blobUrl} alt={file.name} filePath={file.path} />
               ) : file.binary ? (
                 <div className={styles.empty}>Binary file ({formatSize(file.size)})</div>
-              ) : file.ext === 'tex' && texPreview ? (
+              ) : file.ext === 'tex' ? (
                 <TexViewer source={file.content || ''} fileKey={file.path} />
               ) : file.ext === 'md' || file.ext === 'mdx' ? (
                 <div className={styles.markdown} ref={markdownFsRef}>
@@ -3080,7 +2650,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                   </ReactMarkdown>
                 </div>
               ) : (file.content || '').split('\n').length > VIRTUALIZE_THRESHOLD ? (
-                <VirtualCodeViewer content={file.content || ''} filePath={file.path} bookmarks={bookmarks} wordWrap={wordWrap} scrollKey={fileScrollKey} findTerm={findTerm} findCaseSensitive={findCaseSensitive} scrollToLine={findScrollTarget} activeMatch={findActiveMatch} />
+                <VirtualCodeViewer content={file.content || ''} filePath={file.path} wordWrap={wordWrap} scrollKey={fileScrollKey} findTerm={findTerm} findCaseSensitive={findCaseSensitive} scrollToLine={findScrollTarget} activeMatch={findActiveMatch} />
               ) : (
                 <div className={`${styles.codeLines}${wordWrap ? ` ${styles.codeLinesWrap}` : ''}`}>
                   {(file.content || '').split('\n').map((line, i) => (

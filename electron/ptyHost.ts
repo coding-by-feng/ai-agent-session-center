@@ -231,14 +231,18 @@ const FLAG_EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
 /**
  * Append `--model`/`--effort` launch flags to a claude command so model/effort
  * apply deterministically at launch (mirrors server/config.ts applyClaudeLaunchFlags).
- * `ultracode` is excluded — the flag rejects it; it is set via /effort injection.
+ * `ultracode` launches as `--effort xhigh` (its valid base — the raw flag rejects
+ * ultracode) and is upgraded to true ultracode via /effort injection.
  */
 function applyClaudeLaunchFlags(command: string, model?: string | null, effortLevel?: string | null): string {
   if (!command.startsWith('claude')) return command
   const flags: string[] = []
   if (model && !/--model\b/.test(command)) flags.push(`--model ${model}`)
-  if (effortLevel && FLAG_EFFORT_LEVELS.has(effortLevel) && !/--effort\b/.test(command)) {
-    flags.push(`--effort ${effortLevel}`)
+  // ultracode can't be an --effort value; launch at its base (xhigh) so effort is
+  // still a real CLI parameter, then /effort ultracode upgrades it once ready.
+  const flagEffort = effortLevel === 'ultracode' ? 'xhigh' : effortLevel
+  if (flagEffort && FLAG_EFFORT_LEVELS.has(flagEffort) && !/--effort\b/.test(command)) {
+    flags.push(`--effort ${flagEffort}`)
   }
   if (flags.length === 0) return command
   return command.replace(/^claude\b/, `claude ${flags.join(' ')}`)

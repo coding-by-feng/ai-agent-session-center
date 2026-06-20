@@ -351,7 +351,8 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
     // Append -n "title" to Claude commands for session naming
     const sessionName = config.sessionTitle || autoSessionName(workDir);
     // Apply --model/--effort as launch flags (deterministic, before the prompt
-    // runs). ultracode is handled by slash injection below since the flag rejects it.
+    // runs). ultracode launches as `--effort xhigh` (its valid base) and is
+    // upgraded to true ultracode via the /effort slash injection below.
     const command = applyClaudeLaunchFlags(
       appendSessionName(baseCommand, sessionName),
       config.model,

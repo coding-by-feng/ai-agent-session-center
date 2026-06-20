@@ -5,6 +5,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import Modal from '@/components/ui/Modal';
 import Combobox from '@/components/ui/Combobox';
+import BrowseDirButton from '@/components/ui/BrowseDirButton';
 import { showToast } from '@/components/ui/ToastContainer';
 import { useUiStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -275,12 +276,16 @@ export default function QuickSessionModal() {
           {/* Working directory override */}
           <div className={styles.quickWorkdirRow}>
             <label>Working Directory <span style={{ color: 'var(--accent-cyan)', fontWeight: 700 }}>*</span></label>
-            <Combobox
-              value={workingDir}
-              onChange={setWorkingDir}
-              items={workdirSuggestions}
-              placeholder="~"
-            />
+            <div className={styles.workdirInputRow}>
+              <Combobox
+                value={workingDir}
+                onChange={setWorkingDir}
+                items={workdirSuggestions}
+                placeholder="~"
+                className={styles.workdirCombo}
+              />
+              <BrowseDirButton onPick={setWorkingDir} defaultPath={workingDir} />
+            </div>
           </div>
 
           {/* Command */}

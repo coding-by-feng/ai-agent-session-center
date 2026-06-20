@@ -6,7 +6,6 @@ describe('uiStore', () => {
     useUiStore.setState({
       activeModal: null,
       detailPanelOpen: false,
-      activityFeedOpen: false,
     });
   });
 
@@ -39,19 +38,6 @@ describe('uiStore', () => {
       useUiStore.getState().setDetailPanelOpen(true);
       useUiStore.getState().setDetailPanelOpen(false);
       expect(useUiStore.getState().detailPanelOpen).toBe(false);
-    });
-  });
-
-  describe('setActivityFeedOpen', () => {
-    it('opens the activity feed', () => {
-      useUiStore.getState().setActivityFeedOpen(true);
-      expect(useUiStore.getState().activityFeedOpen).toBe(true);
-    });
-
-    it('closes the activity feed', () => {
-      useUiStore.getState().setActivityFeedOpen(true);
-      useUiStore.getState().setActivityFeedOpen(false);
-      expect(useUiStore.getState().activityFeedOpen).toBe(false);
     });
   });
 

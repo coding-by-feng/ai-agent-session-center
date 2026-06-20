@@ -649,8 +649,8 @@ function seatAt(nav: NavState, workstations: Workstation[]) {
 
 /** Extract a short filename from a tool input string (path or JSON) */
 function extractFilename(input: string): string {
-  // Try to extract a file path from the input
-  const pathMatch = input.match(/(?:\/[\w.-]+)+/);
+  // Try to extract a file path from the input (Unicode-aware: CJK, Cyrillic, …)
+  const pathMatch = input.match(/(?:\/[\p{L}\p{N}\p{M}_.-]+)+/u);
   if (pathMatch) {
     const parts = pathMatch[0].split('/');
     return parts[parts.length - 1] || pathMatch[0];
