@@ -14,7 +14,7 @@ The in-memory session logs that drive most of the UI are truncated and split int
 |------|------|
 | `src/components/session/ConversationView.tsx` | React component: fetches transcript on mount, runs it through `transformEntries`, renders each entry (`EntryRow`), the per-entry `CopyButton`, collapsible `PrevSessionSection` and `SystemRow` blocks, and a sticky toolbar (role filter + jump-to-latest); shows loading / empty states. |
 | `src/lib/transcript.ts` | Client helpers: `ConversationEntry` union type (incl. client-only `command`/`system` roles), `fetchTranscript()` (calls the server endpoint), and `reconstructFromLogs()` (in-memory fallback builder). |
-| `src/lib/commandMessage.ts` | `transformEntries()` — rewrites Claude Code harness plumbing (`<command-name>` / `<command-args>` / `<local-command-stdout>` / `<local-command-caveat>`) in raw `user` entries into compact `command` chips (stdout folded in) and collapsible `system` rows. |
+| `src/lib/commandMessage.ts` | `transformEntries()` + `classifyInjection()` — rewrites Claude Code harness plumbing (`<command-name>` / `<command-args>` / `<local-command-stdout>` / `<local-command-caveat>`) into compact `command` chips, and demotes **injected** `user` content the user never typed (skill bodies, `<system-reminder>`, hook context) into labelled, collapsible `system` rows (`kind`: `plumbing`/`skill`/`reminder`/`hook`). |
 | `src/components/session/DetailPanel.tsx` | Host: passes session logs + `searchQuery` + `projectPath` into `ConversationView` as `promptsContent`, and drives search-match highlight/navigation over the rendered `.search-highlight` nodes. |
 | `src/components/session/DetailTabs.tsx` | Defines the `conversation` tab (label `CONVERSATION`) and wraps `promptsContent` in a `tabScroll` container. |
 | `src/components/session/LinkifiedText.tsx` | Renders entry text, turning file paths into clickable links (used for user/assistant/previous-session text) via the shared Unicode-aware `createFilePathRegex()` (`src/lib/filePathLink.ts`) — so non-English paths like `客户版-业务流程确认.md` linkify too. Clicking a path opens the [File-Open Chooser](./file-open-chooser.md) popover anchored at the cursor. |
@@ -37,18 +37,26 @@ type ConversationEntry =
   | { role: 'event';       eventType: string; detail: string; timestamp: number }
   // client-only — synthesized by transformEntries():
   | { role: 'command';     name: string; args?: string; stdout?: string; timestamp: number }
-  | { role: 'system';      text: string; timestamp: number }
+  | { role: 'system';      text: string; timestamp: number; kind?: SystemKind; label?: string }
 ```
 
-### Harness-plumbing transform — `transformEntries` (`commandMessage.ts`)
+`SystemKind = 'plumbing' | 'skill' | 'reminder' | 'hook'` distinguishes *why* a `system` row exists, so injected content can be labelled instead of masquerading as a genuine `USER` prompt.
 
-Claude Code emits internal `user` messages wrapped in harness tags. Rendering them verbatim buries the real conversation, so on load every entry list is post-processed (both the fetched transcript and the in-memory fallback):
+### Harness-plumbing + injected-content transform — `transformEntries` (`commandMessage.ts`)
 
+Claude Code wraps internal `user` messages in harness tags **and** injects content into `user`-role turns that the user never typed (skill bodies, `<system-reminder>` blocks, SessionStart/hook context). Rendering all of it verbatim as `USER` buries the real prompts, so on load every entry list is post-processed (both the fetched transcript and the in-memory fallback):
+
+- **Injected, non-tagged content** (classified first, via `classifyInjection`, anchored at the start of the message to avoid false positives) → a labelled `system` row:
+  - `^Base directory for this skill: <path>` (or "full content of … '<name>' skill") → `kind: 'skill'`, `label` = the skill name (last path segment / quoted name).
+  - leading `<system-reminder>` → `kind: 'reminder'`.
+  - leading `<EXTREMELY_IMPORTANT>`/`<IMPORTANT>` or "… hook additional context" → `kind: 'hook'`.
 - A `user` entry containing `<command-name>…</command-name>` → a `command` entry: `name` (e.g. `/clear`), `args` (from `<command-args>`, only when non-empty), and `stdout` (from `<local-command-stdout>`, when present).
-- A standalone `<local-command-stdout>` entry → folded into the immediately preceding `command` entry that has no `stdout` yet (spread into a new object); if there is none, it becomes its own `system` entry.
-- A `<local-command-caveat>` entry (the "DO NOT respond…" boilerplate) → a `system` entry holding only the inner text.
-- All other entries pass through unchanged; order is preserved.
+- A standalone `<local-command-stdout>` entry → folded into the immediately preceding `command` entry that has no `stdout` yet (spread into a new object); if there is none, it becomes its own `system` entry (`kind: 'plumbing'`).
+- A `<local-command-caveat>` entry (the "DO NOT respond…" boilerplate) → a `system` entry (`kind: 'plumbing'`) holding only the inner text.
+- All other entries pass through unchanged; order is preserved. A genuine user prompt that merely *mentions* "skill"/"Base directory" mid-sentence is **not** reclassified (patterns are start-anchored).
 - A cheap `RE_ANY_TAG` pre-check (`<command-name>|<local-command-caveat>|<local-command-stdout>`) skips regex work for ordinary messages.
+
+`SystemRow` renders the kind as a coloured, collapsed header — e.g. `▶ SKILL · systematic-debugging` (gold), `▶ SYSTEM REMINDER` (orange), `▶ HOOK CONTEXT` (blue) — with a one-line preview of the hidden text, so genuine `USER` prompts stand alone. Because injected content is now `system` (not `user`), the **User** filter shows only real prompts + slash commands.
 
 ### Component props — `ConversationViewProps`
 
@@ -92,7 +100,7 @@ Server (`extractPreviousAnswer.ts`, applied before the data is sent):
 | Filter pills (`convFilterPill` / `convFilterPillActive`) | `All` / `User` / `Asst` / `Tool` in the sticky `convToolbar` | `onClick` → `setFilter(key)` |
 | Jump-to-latest (`convJumpLatest`) | `↓ latest` | `onClick` → `jumpToLatest()`; `disabled` while `atBottom` |
 | Command chip (`convCommand`) | `⌘ {name}` (`convCommandName`) + optional `{args}` (`convCommandArgs`), and a folded `↳ {stdout}` line (`convCommandStdout`) | static; carries a `USER` badge |
-| System row (`convSystemRow`) | `▶ system (1 hidden)` header (`convSystemHeader`); expands to raw caveat/plumbing text (`convSystemBody`) | `onClick` header toggles `collapsed` |
+| System row (`convSystemRow`) | `▶ <kind-label>` header (`convSystemHeader`, e.g. `SKILL · systematic-debugging`) + one-line preview; `data-kind` drives the accent colour; expands to the full injected text (`convSystemBody`) | `onClick` header toggles `collapsed` (starts collapsed) |
 | Timestamp (`convTime`) | `formatTime(ts)` → `toLocaleTimeString('en-US', { hour12: false })`; empty string when `ts <= 0` | static |
 | Copy button (`convCopy`) | `COPY` → `COPIED` (1.5 s) | `handleCopy`: `e.stopPropagation()`, `navigator.clipboard.writeText(text.trim())`; shown on user & assistant entries only |
 | Tool name (`convToolName`) / input (`convToolInput`) | `entry.tool` + capped input/output | static; error results use `convToolFailed` class instead of `convTool` |

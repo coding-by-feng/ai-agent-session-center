@@ -15,7 +15,7 @@ import type {
   SessionEvent,
   ArchivedSession,
 } from '@/types';
-import { fetchTranscript, reconstructFromLogs, type ConversationEntry } from '@/lib/transcript';
+import { fetchTranscript, reconstructFromLogs, type ConversationEntry, type SystemKind } from '@/lib/transcript';
 import { transformEntries } from '@/lib/commandMessage';
 import LinkifiedText from './LinkifiedText';
 import styles from '@/styles/modules/DetailPanel.module.css';
@@ -248,6 +248,15 @@ function EntryRow({
 // System row (collapsed harness plumbing / caveats)
 // ---------------------------------------------------------------------------
 
+// Short label per injected-content kind, so a collapsed row reads e.g.
+// "SKILL · systematic-debugging" instead of an anonymous "system".
+const SYSTEM_KIND_LABEL: Record<SystemKind, string> = {
+  plumbing: 'system',
+  skill: 'skill',
+  reminder: 'system reminder',
+  hook: 'hook context',
+};
+
 function SystemRow({
   entry,
   query,
@@ -256,12 +265,21 @@ function SystemRow({
   query: string;
 }) {
   const [collapsed, setCollapsed] = useState(true);
+  const kind = entry.kind ?? 'plumbing';
+  const label =
+    kind === 'skill' && entry.label ? `skill · ${entry.label}` : SYSTEM_KIND_LABEL[kind];
+  // Only needed while collapsed; slice first so the whitespace-collapse never
+  // scans a multi-KB injected body to keep ~64 chars.
+  const preview = collapsed ? entry.text.slice(0, 160).replace(/\s+/g, ' ').trim().slice(0, 64) : '';
   return (
-    <div className={`${styles.convSystemRow}${collapsed ? '' : ` ${styles.convSystemRowOpen}`}${highlightClass(entry.text, query)}`}>
+    <div
+      className={`${styles.convSystemRow}${collapsed ? '' : ` ${styles.convSystemRowOpen}`}${highlightClass(entry.text, query)}`}
+      data-kind={kind}
+    >
       <div className={styles.convSystemHeader} onClick={() => setCollapsed((c) => !c)}>
         <span className={styles.convSystemToggle}>&#9654;</span>
-        <span className={styles.convSystemLabel}>system</span>
-        <span className={styles.convSystemCount}>(1 hidden)</span>
+        <span className={styles.convSystemLabel}>{label}</span>
+        {collapsed && <span className={styles.convSystemCount}>{preview}</span>}
       </div>
       {!collapsed && <div className={styles.convSystemBody}>{entry.text}</div>}
     </div>

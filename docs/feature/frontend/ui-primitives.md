@@ -52,6 +52,19 @@ CSS modules: `Modal.module.css` (also used by `ToastContainer`), `Select.module.
   4. Keyboard: ArrowDown/ArrowUp navigate (wrap-around), Enter / Space select highlighted (or open if closed), Escape closes + refocuses trigger + `stopPropagation`, Tab closes.
   5. `handleSelect` calls `onChange`, closes, refocuses trigger.
 - **UI**: trigger `<button role="combobox" aria-haspopup="listbox" aria-expanded aria-activedescendant>` with caret `▾`. Dropdown `<ul role="listbox">` (`styles.dropdownUp` when `flipUp`); items `<li role="option" id="sel-item-{i}">` with `itemHighlighted` / `itemSelected` classes; `onMouseDown` preventDefault + select, `onMouseEnter` highlights.
+- **Edge handling**: `Select` only handles the **vertical** edge (`flipUp`) and anchors `left: 0`, so it does not clip horizontally. It has **no** horizontal logic — overlays that anchor toward the right (`right: 0`) need the shared hook below instead.
+
+### Viewport-edge safety (shared invariant for all overlays)
+
+Floating overlays must never clip against the window edge. The codebase provides three reusable mechanisms — pick by overlay type, do not re-roll positioning:
+
+| Mechanism | Where | Use for |
+|-----------|-------|---------|
+| `flipUp` vertical flip | `Select.tsx` (`checkFlip`) | down-opening menus low in the viewport |
+| `useDropdownFlipX(open, ref)` | [`src/hooks/useDropdownFlipX.ts`](../../../src/hooks/useDropdownFlipX.ts) | `right: 0` / edge-anchored menus that extend toward a side (e.g. SessionSwitcher's room-filter & status-legend dropdowns). Measures the rendered menu and writes a `translateX` to nudge it back inside (8px pad) |
+| `clampToViewport(...)` + `VIEWPORT_MARGIN` | `FileOpenChooser` / `LabelPicker` / `SelectionPopup` | cursor-/right-click-anchored `position: fixed` popups |
+
+**Invariant:** a new `position: absolute`/`fixed` dropdown/popover/menu with an edge anchor (`right: 0`, `left: 100%`, `bottom: 100%`, …) must wire one of these. This is a runtime bug no linter catches — see "Floating UI & Viewport Safety" in `.claude/rules/frontend.md`.
 
 ### Combobox (`Combobox.tsx`)
 

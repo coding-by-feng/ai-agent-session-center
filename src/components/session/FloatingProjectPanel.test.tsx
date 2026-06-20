@@ -14,50 +14,7 @@ vi.mock('@/stores/sessionStore', () => ({
     selector({ sessions: new Map([['s1', { projectPath: mockProjectPath }]]) }),
 }));
 
-const POP_LABEL = 'Pop out to a window';
-
-describe('FloatingProjectPanel — pop-out (button)', () => {
-  beforeEach(() => {
-    localStorage.clear();
-    mockProjectPath = '/Users/me/proj';
-  });
-  afterEach(() => {
-    localStorage.clear();
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
-  });
-
-  it('opens a native window via electronAPI when the ⧉ button is clicked', () => {
-    const openProjectWindow = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal('electronAPI', { openProjectWindow });
-
-    render(<FloatingProjectPanel sessionId="s1" bodyRef={() => {}} onClose={vi.fn()} />);
-    fireEvent.click(screen.getByLabelText(POP_LABEL));
-
-    expect(openProjectWindow).toHaveBeenCalledWith({ path: '/Users/me/proj', label: 'Project' });
-  });
-
-  it('hides the pop-out button when the session has no project path', () => {
-    mockProjectPath = undefined;
-    render(<FloatingProjectPanel sessionId="s1" bodyRef={() => {}} onClose={vi.fn()} />);
-    expect(screen.queryByLabelText(POP_LABEL)).toBeNull();
-  });
-
-  it('falls back to window.open with a stable per-path name in the browser', () => {
-    vi.stubGlobal('electronAPI', undefined);
-    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
-
-    render(<FloatingProjectPanel sessionId="s1" bodyRef={() => {}} onClose={vi.fn()} />);
-    fireEvent.click(screen.getByLabelText(POP_LABEL));
-
-    expect(openSpy).toHaveBeenCalledWith(
-      expect.stringContaining('/project-browser?path='),
-      'aasc-project-_Users_me_proj',
-    );
-  });
-});
-
-describe('FloatingProjectPanel — drag-to-edge auto pop-out', () => {
+describe('FloatingProjectPanel — drag-to-edge pop-out', () => {
   // jsdom computes no layout, so stub the geometry the drag math reads:
   // offsetParent (→ parentRef) and a fixed container rect.
   const RECT = {
@@ -124,6 +81,41 @@ describe('FloatingProjectPanel — drag-to-edge auto pop-out', () => {
 
     startDrag(100);
     moveTo(130); // small move, never crosses the edge threshold
+    expect(screen.queryByText('Release to pop out')).toBeNull();
+    await release();
+
+    expect(openProjectWindow).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('falls back to window.open with a stable per-path name in the browser', async () => {
+    vi.stubGlobal('electronAPI', undefined);
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    const onClose = vi.fn();
+
+    render(<FloatingProjectPanel sessionId="s1" bodyRef={() => {}} onClose={onClose} />);
+
+    startDrag(100);
+    moveTo(360); // far past the right edge → arms the gesture
+    await release();
+
+    expect(openSpy).toHaveBeenCalledWith(
+      expect.stringContaining('/project-browser?path='),
+      'aasc-project-_Users_me_proj',
+    );
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it('does NOT arm or pop out when the session has no project path', async () => {
+    mockProjectPath = undefined;
+    const openProjectWindow = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('electronAPI', { openProjectWindow });
+    const onClose = vi.fn();
+
+    render(<FloatingProjectPanel sessionId="s1" bodyRef={() => {}} onClose={onClose} />);
+
+    startDrag(100);
+    moveTo(360); // far past the right edge, but canPopOut is false
     expect(screen.queryByText('Release to pop out')).toBeNull();
     await release();
 
