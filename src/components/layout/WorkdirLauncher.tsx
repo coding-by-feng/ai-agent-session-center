@@ -1,20 +1,28 @@
 /**
  * WorkdirLauncher - Dropdown popover in the NavBar that lists recent working
- * directories. Clicking a directory instantly launches a local terminal
- * session in that directory using the saved command from localStorage.
+ * directories. Each directory row carries a Claude / Codex / Gemini launch
+ * button; clicking one starts a local terminal session in that directory
+ * running the chosen CLI.
  */
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useClickOutside } from '@/hooks/useClickOutside';
 import { showToast } from '@/components/ui/ToastContainer';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useKnownProjects } from '@/hooks/useKnownProjects';
+import { ClaudeIcon, CodexIcon, GeminiIcon } from './CliBrandIcons';
 import styles from '@/styles/modules/WorkdirLauncher.module.css';
 
 const WORKDIR_HISTORY_KEY = 'workdir-history';
-const LAST_SESSION_KEY = 'lastSession';
 const DIR_SESSION_CONFIGS_KEY = 'dir-session-configs';
 
-interface LastSessionConfig {
+/** The CLIs the launcher can start, with their official-style brand icons. */
+const CLI_OPTIONS = [
+  { command: 'claude', label: 'Claude', Icon: ClaudeIcon },
+  { command: 'codex', label: 'Codex', Icon: CodexIcon },
+  { command: 'gemini', label: 'Gemini', Icon: GeminiIcon },
+] as const;
+
+interface DirSessionConfig {
   command?: string;
   workingDir?: string;
 }
@@ -31,55 +39,16 @@ function saveWorkdirHistory(dirs: string[]): void {
   localStorage.setItem(WORKDIR_HISTORY_KEY, JSON.stringify(dirs));
 }
 
-function loadLastSession(): LastSessionConfig {
-  try {
-    return JSON.parse(localStorage.getItem(LAST_SESSION_KEY) || '{}');
-  } catch {
-    return {};
-  }
-}
-
-function loadDirSessionConfig(dir: string): LastSessionConfig | null {
-  try {
-    const all: Record<string, LastSessionConfig> = JSON.parse(
-      localStorage.getItem(DIR_SESSION_CONFIGS_KEY) || '{}',
-    );
-    return all[dir] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function saveDirSessionConfig(dir: string, config: LastSessionConfig): void {
+/** Remember the last CLI launched in a directory (read by the session modals). */
+function saveDirSessionConfig(dir: string, config: DirSessionConfig): void {
   if (!dir) return;
   try {
-    const all: Record<string, LastSessionConfig> = JSON.parse(
+    const all: Record<string, DirSessionConfig> = JSON.parse(
       localStorage.getItem(DIR_SESSION_CONFIGS_KEY) || '{}',
     );
     all[dir] = { ...config, workingDir: dir };
     localStorage.setItem(DIR_SESSION_CONFIGS_KEY, JSON.stringify(all));
   } catch { /* ignore quota errors */ }
-}
-
-/** Look up the most recent live session whose sshConfig.workingDir matches `dir`. */
-function findLiveSessionConfigForDir(dir: string): LastSessionConfig | null {
-  const sessions = useSessionStore.getState().sessions;
-  let best: { startedAt: number; cfg: LastSessionConfig } | null = null;
-  for (const session of sessions.values()) {
-    const ssh = session.sshConfig;
-    if (!ssh || ssh.workingDir !== dir) continue;
-    const startedAt = session.startedAt ?? 0;
-    if (!best || startedAt > best.startedAt) {
-      best = {
-        startedAt,
-        cfg: {
-          command: ssh.command,
-          workingDir: ssh.workingDir,
-        },
-      };
-    }
-  }
-  return best?.cfg ?? null;
 }
 
 /** Extract the last meaningful segment from a path for display. */
@@ -129,21 +98,12 @@ export default function WorkdirLauncher() {
     return () => document.removeEventListener('keydown', handleKey);
   }, [open, close]);
 
-  async function handleLaunch(workingDir: string) {
+  async function handleLaunch(workingDir: string, command: string) {
     close();
 
-    // Prefer the command from a previous session in THIS directory, falling
-    // back to a live session in the store, then the global lastSession.
+    // The command is the CLI the user explicitly picked (claude/codex/gemini).
     // No host/username — the server spawns a local PTY for host-less requests.
-    const dirSaved = loadDirSessionConfig(workingDir);
-    const liveSaved = dirSaved ? null : findLiveSessionConfigForDir(workingDir);
-    const globalSaved = dirSaved || liveSaved ? null : loadLastSession();
-    const saved: LastSessionConfig = dirSaved ?? liveSaved ?? globalSaved ?? {};
-
-    const body = {
-      workingDir,
-      command: saved.command || 'claude',
-    };
+    const body = { workingDir, command };
 
     try {
       const res = await fetch('/api/terminals', {
@@ -157,13 +117,10 @@ export default function WorkdirLauncher() {
         if (data.terminalId) {
           useSessionStore.getState().selectSession(data.terminalId);
         }
-        // Persist per-directory config so the next click reuses it without
-        // relying on live sessions or the global lastSession.
-        saveDirSessionConfig(workingDir, {
-          command: body.command,
-          workingDir,
-        });
-        showToast(`Session launched in ${shortenPath(workingDir)}`, 'success');
+        // Remember the last CLI used for this directory (consumed by the
+        // session-creation modals when they prefill a command).
+        saveDirSessionConfig(workingDir, { command, workingDir });
+        showToast(`Launched ${command} in ${shortenPath(workingDir)}`, 'success');
       } else {
         showToast(data.error || 'Failed to launch session', 'error');
       }
@@ -198,20 +155,30 @@ export default function WorkdirLauncher() {
             </div>
           ) : (
             dirs.map((dir) => (
-              <div
-                key={dir}
-                className={styles.dirItem}
-                onClick={() => handleLaunch(dir)}
-                title={`Launch session in ${dir}`}
-              >
-                <div className={styles.dirInfo}>
+              <div key={dir} className={styles.dirItem}>
+                <div className={styles.dirInfo} title={dir}>
                   <span className={styles.dirName}>{shortenPath(dir)}</span>
                   <span className={styles.dirPath}>{dir}</span>
+                </div>
+                <div className={styles.dirLaunchers}>
+                  {CLI_OPTIONS.map(({ command, label, Icon }) => (
+                    <button
+                      key={command}
+                      type="button"
+                      className={styles.dirLaunchBtn}
+                      onClick={() => handleLaunch(dir, command)}
+                      title={`Launch ${label} in ${shortenPath(dir)}`}
+                      aria-label={`Launch ${label} in ${shortenPath(dir)}`}
+                    >
+                      <Icon />
+                    </button>
+                  ))}
                 </div>
                 <button
                   className={styles.dirRemove}
                   onClick={(e) => handleRemove(dir, e)}
                   title="Remove from history"
+                  aria-label="Remove from history"
                 >
                   x
                 </button>

@@ -166,7 +166,6 @@ interface SettingsState extends BrowserSettings {
 
   // UI
   scene3dEnabled: boolean;
-  activityFeedVisible: boolean;
   toastEnabled: boolean;
   autoSendQueue: boolean;
   defaultTerminalTheme: string;
@@ -223,7 +222,6 @@ interface SettingsState extends BrowserSettings {
   setGroupBy: (groupBy: BrowserSettings['groupBy']) => void;
   setSortBy: (sortBy: BrowserSettings['sortBy']) => void;
   setScene3dEnabled: (enabled: boolean) => void;
-  setActivityFeedVisible: (visible: boolean) => void;
   setToastEnabled: (enabled: boolean) => void;
   setAutoSendQueue: (enabled: boolean) => void;
   setDefaultTerminalTheme: (theme: string) => void;
@@ -284,7 +282,6 @@ const defaultSettings: SettingsData = {
   movementActions: {},
   hookDensity: 'medium',
   scene3dEnabled: true,
-  activityFeedVisible: true,
   toastEnabled: true,
   autoSendQueue: false,
   defaultTerminalTheme: 'auto',
@@ -466,11 +463,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setScene3dEnabled: (scene3dEnabled) => {
     set({ scene3dEnabled });
     get().persistSetting('scene3dEnabled', scene3dEnabled);
-  },
-
-  setActivityFeedVisible: (activityFeedVisible) => {
-    set({ activityFeedVisible });
-    get().persistSetting('activityFeedVisible', activityFeedVisible);
   },
 
   setToastEnabled: (toastEnabled) => {

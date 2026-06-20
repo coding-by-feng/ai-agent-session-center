@@ -19,7 +19,7 @@ Each session needs a visual avatar that communicates status through animation (w
 | `src/lib/robotStateMap.ts` | Session status -> robot state mapping (8 states) + per-state behavior hints (`getRobotStateBehavior`) |
 | `src/lib/cliDetect.ts` | `detectCli()` -> `'claude' \| 'gemini' \| 'codex' \| null`; used by SessionRobot for CLI badge + accent color |
 | `src/lib/robotPositionPersist.ts` | sessionStorage save/load/clear helpers (the 2s save interval itself lives in CyberdromeScene) |
-| `src/components/layout/HeaderAgentStrip.tsx` | Compact top-strip session badges that reuse `detectCli()` for consistent Claude/Gemini/Codex (and Aider) labels |
+| `src/components/layout/HeaderAgentStrip.tsx` | Compact top-strip session badges that reuse `detectCli()` for consistent Claude/Gemini/Codex (and Aider) labels. Room frames carry a collapse chevron (`roomStore.toggleCollapse`, persisted `room.collapsed`) that folds a room to a session-count pill — the same toggle and shared state as the [Session Detail Panel](../frontend/session-detail-panel.md) strip |
 
 ## Implementation
 
@@ -107,6 +107,8 @@ Ref-based (`dialogueRef`) -- zero React state. `RobotDialogue` reads from parent
 - Read/Grep/Glob -> "Reading <filename>..."
 - Bash -> "$ <command>" (40 char max)
 - Edit/Write -> "Editing <filename>..."
+
+> `<filename>` comes from `extractFilename()`, whose path regex is Unicode-aware (`/…/u`), so non-English filenames (CJK, Cyrillic, …) display correctly instead of collapsing to a parent directory name.
 - Task -> "Spawning agent..."
 - WebFetch/WebSearch -> "Fetching..."
 

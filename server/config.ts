@@ -52,8 +52,15 @@ export const WAITING_LABELS: Record<string, (toolName: string, detail: string) =
 // Sessions transition to idle/waiting if no activity for these durations (ms)
 export const AUTO_IDLE_TIMEOUTS: Record<string, number> = {
   prompting: 30_000,    // prompting -> waiting (user likely cancelled)
-  waiting: 120_000,     // waiting -> idle (2 min)
-  working: 180_000,     // working -> idle (3 min)
+  waiting: 300_000,     // waiting -> idle (5 min)
+  // working -> idle is a pure SAFETY NET for a crashed/abandoned tool whose
+  // Stop/PostToolUse hook was lost. A genuinely busy agent can think (or run a
+  // single long tool) for minutes WITHOUT emitting any hook event — in the
+  // Electron app the server never sees the streaming terminal output — so a
+  // short timeout here mislabels a running session as green "Idle". Keep the
+  // transition (the chain gate depends on decayed-idle NOT counting as a Stop
+  // signal) but make it patient: 15 min covers real long turns.
+  working: 900_000,     // working -> idle (15 min safety net)
   approval: 600_000,    // approval -> idle (10 min safety net)
   input: 600_000,       // input -> idle (10 min safety net)
 };
@@ -165,10 +172,11 @@ export function reconstructPermissionFlags(baseCmd: string, permissionMode?: str
 
 /**
  * Effort levels accepted by Claude Code's `--effort` launch flag. `ultracode` is
- * deliberately excluded — it is a menu-only level (xhigh effort + standing
- * multi-agent permission) and the flag silently falls back to the default when
- * given it. ultracode is applied via a post-startup `/effort ultracode` slash
- * command instead (see sshManager / ptyHost auto-inject).
+ * NOT in this set — it is a menu-only level (xhigh effort + standing multi-agent
+ * permission) and the flag silently falls back to the default when given it.
+ * Instead, ultracode launches at its valid base level `--effort xhigh` (see
+ * `applyClaudeLaunchFlags`) and is upgraded to true ultracode via a post-startup
+ * `/effort ultracode` slash command (see sshManager / ptyHost auto-inject).
  */
 export const FLAG_EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
@@ -181,7 +189,9 @@ export const FLAG_EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'ma
  *
  * Only `claude` commands are touched; codex/gemini pass through unchanged. Flags
  * are inserted right after the leading `claude` token and skipped if already
- * present. `ultracode` is never emitted as a flag (handled by slash injection).
+ * present. `ultracode` is launched as `--effort xhigh` (its valid base level — the
+ * raw `--effort ultracode` flag is rejected by the CLI) and upgraded to true
+ * ultracode by the post-startup `/effort ultracode` slash injection.
  */
 export function applyClaudeLaunchFlags(
   command: string,
@@ -191,8 +201,11 @@ export function applyClaudeLaunchFlags(
   if (!command.startsWith('claude')) return command;
   const flags: string[] = [];
   if (model && !/--model\b/.test(command)) flags.push(`--model ${model}`);
-  if (effortLevel && FLAG_EFFORT_LEVELS.has(effortLevel) && !/--effort\b/.test(command)) {
-    flags.push(`--effort ${effortLevel}`);
+  // ultracode can't be an --effort value; launch at its base (xhigh) so effort is
+  // still a real CLI parameter, then /effort ultracode upgrades it once ready.
+  const flagEffort = effortLevel === 'ultracode' ? 'xhigh' : effortLevel;
+  if (flagEffort && FLAG_EFFORT_LEVELS.has(flagEffort) && !/--effort\b/.test(command)) {
+    flags.push(`--effort ${flagEffort}`);
   }
   if (flags.length === 0) return command;
   return command.replace(/^claude\b/, `claude ${flags.join(' ')}`);

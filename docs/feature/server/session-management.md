@@ -9,7 +9,7 @@ Central hub that manages all session state. Every other feature reads from or wr
 ## Source Files
 | File | Role |
 |------|------|
-| `server/sessionStore.ts` (~60KB, ~1420 lines) | Coordinator: delegates to sub-modules, handles events, manages Map<string, Session> |
+| `server/sessionStore.ts` (~60KB, ~1471 lines) | Coordinator: delegates to sub-modules, handles events, manages Map<string, Session> |
 | `server/sessionMatcher.ts` | 8-priority hook→session linking (delegated from sessionStore) |
 | `server/approvalDetector.ts` | Tool-approval timeout detection |
 | `server/teamManager.ts` | Subagent / team relationship tracking |
@@ -33,23 +33,23 @@ Central hub that manages all session state. Every other feature reads from or wr
 - Idle/Walking/Running/Waiting/Death/Dance with emotes (Wave, ThumbsUp, Jump, Yes)
 
 ### Auto-Idle Timeouts
-- `AUTO_IDLE_TIMEOUTS` (config.ts): prompting 30s → waiting, waiting 2min → idle, working 3min → idle, approval/input 10min → idle (safety net). `startAutoIdle` checks every 10s.
+- `AUTO_IDLE_TIMEOUTS` (config.ts): prompting 30s → waiting, waiting 5min → idle, working 15min → idle, approval/input 10min → idle (safety net). `startAutoIdle` checks every 10s. The `waiting`/`working` timeouts are deliberately lenient: a busy agent can think or run a single long tool for minutes WITHOUT emitting any hook event, and in the Electron app the server never sees the streaming terminal output — short timeouts therefore mislabel a running session as green "Idle". `working → idle` is kept (the queue [chain gate](../frontend/queue-scheduler.md) relies on decayed-`idle` NOT counting as a Stop signal) but made patient.
 - `startPendingResumeCleanup` (autoIdleManager.ts) runs every 15s and reverts a session still stuck in `connecting` for >2min back to idle, clearing its `pendingResume` entry (gives slow SessionStart hooks time to arrive).
 
 ### Session Object
-- 61 fields on the `Session` interface (`src/types/session.ts:136-227`) including sessionId, projectPath, status, animationState, currentPrompt, promptHistory (last 50), toolLog (last 200), responseLog (last 50), events, model, teamId, terminalId, etc.
+- 62 fields on the `Session` interface (`src/types/session.ts:136-236`) including sessionId, projectPath, status, animationState, currentPrompt, promptHistory (last 50), toolLog (last 200), responseLog (last 50), events, model, teamId, terminalId, etc.
 - `cliSource?: string` records the originating CLI when hooks provide `cli_source` (the Codex and Gemini hooks both emit it) or when a terminal is created from a recognizable startup command (`inferCliSource`). Frontend CLI badges prefer this field before guessing from model/event data, and the floating-popup spawner's `resolveOriginCli` reads it first so a popup inherits the parent's CLI.
 - Fork bookkeeping: `isFork: boolean` and `originSessionId?: string` — set in `createTerminalSession` when `config.isFork` is passed (floating spawner, clone/fork endpoints, snapshot restore). `isFork` is the process-isolation marker (kill-guard, hook fork-routing) and does NOT control visibility. `isFloating: boolean` is set separately (floating spawner + snapshot restore only) and marks hidden PiP popups; clone/fork sessions carry `isFork` without `isFloating` and stay visible in the session lists.
-- Ops-terminal bookkeeping: `opsTerminalId: string | null` and `hadOpsTerminal: boolean` (sessionStore.ts:998-999) — written via `reconnectOpsTerminal` (sessionStore.ts:1327) so a session can carry a separate "ops shell" alongside the AI CLI's PTY.
+- Ops-terminal bookkeeping: `opsTerminalId: string | null` and `hadOpsTerminal: boolean` (sessionStore.ts:1040-1041) — written via `reconnectOpsTerminal` (sessionStore.ts:1378) so a session can carry a separate "ops shell" alongside the AI CLI's PTY.
 
 ### Workspace Metadata at Creation
-- `createTerminalSession` applies `pinned`, `muted`, `alerted`, `accentColor`, `characterModel` from `config` at creation time (sessionStore.ts:1018-1022), plus `effortLevel` and `model` (1025-1026) so floating popups can inherit them before any hook sets `model`. Without this, metadata set via separate PUTs after creation would be missing from the first broadcast and a paired auto-save could overwrite the snapshot with stale values.
+- `createTerminalSession` applies `pinned`, `muted`, `alerted`, `accentColor`, `characterModel` from `config` at creation time (sessionStore.ts:1060-1064), plus `effortLevel` and `model` (1067-1068) so floating popups can inherit them before any hook sets `model`. Without this, metadata set via separate PUTs after creation would be missing from the first broadcast and a paired auto-save could overwrite the snapshot with stale values.
 
 ### Session Title Generation
 Title helpers live in `server/sessionTitle.ts` (pure, no DB deps). On `USER_PROMPT_SUBMIT`, `handleEvent` auto-titles a session when it has **no title yet** OR when it still carries the static `"Clone of …"` / `"Fork of …"` template baked in at spawn:
-- Guard: `if (!session.title || isCloneForkTemplateTitle(session.title))` (sessionStore.ts:668). `isCloneForkTemplateTitle` matches `/^(?:Clone|Fork) of /` (case-sensitive — only the generated template, never a manual rename).
+- Guard: `if (!session.title || isCloneForkTemplateTitle(session.title))` (sessionStore.ts:700). `isCloneForkTemplateTitle` matches `/^(?:Clone|Fork) of /` (case-sensitive — only the generated template, never a manual rename).
 - Title text: `buildAutoTitle(projectName, counter, prompt)` → `"<project> #<n> — <makeShortTitle(prompt)>"`, falling back to `"<project> — Session #<n>"` for an empty/uninformative prompt. `makeShortTitle` strips one leading polite prefix, keeps the first sentence/line up to ~60 chars, and capitalizes.
-- **Clone/fork re-title**: clone/fork sessions spawn with `title = "Fork of X"` / `"Clone of X"` (apiRouter.ts:718,787 via `config.sessionTitle`). The widened guard re-titles them from their *own* first prompt so the card reflects the new session's work, not the origin's name. It is **one-shot** (the regenerated title no longer matches the template) and never clobbers a manual edit. Requires a CLI that emits a prompt hook (Claude/Codex); a clone that never receives one keeps the template title.
+- **Clone/fork re-title**: clone/fork sessions spawn with `title = "Fork of X"` / `"Clone of X"` (apiRouter.ts:742,811 via `config.sessionTitle`). The widened guard re-titles them from their *own* first prompt so the card reflects the new session's work, not the origin's name. It is **one-shot** (the regenerated title no longer matches the template) and never clobbers a manual edit. Requires a CLI that emits a prompt hook (Claude/Codex); a clone that never receives one keeps the template title.
 - Persistence + broadcast are free on this path: `USER_PROMPT_SUBMIT` is a DB-persist event (`dbUpsertSession`) and `handleEvent` returns the spread session that rides the next throttled `SESSION_UPDATE` broadcast; the next `saveSnapshot` captures the new title for restart survival.
 
 ### Event Buffer
@@ -60,10 +60,10 @@ Title helpers live in `server/sessionTitle.ts` (pure, no DB deps). On `USER_PROM
 - On `loadSnapshot`, SSH sessions are restored as idle (PTY dead) with a `ServerRestart` event; non-SSH ended sessions are tagged with a `ServerRestart` event for Priority 0.5 auto-link eligibility. Sessions whose Claude process survived can be auto-revived from `ended`.
 
 ### Broadcast Throttle
-- 20ms debounce via `BROADCAST_DEBOUNCE_MS` (sessionStore.ts:449, reduced from the earlier 50ms) — ~50/sec. `debouncedBroadcast` batches all broadcasts in the window then deduplicates: `session_update` collapses to the latest per `sessionId`, every other type collapses to one per message type. Smaller window keeps the 3D scene + status pills feeling live; rely on the per-key coalescing (not the window) to avoid flooding browsers.
+- 20ms debounce via `BROADCAST_DEBOUNCE_MS` (sessionStore.ts:464, reduced from the earlier 50ms) — ~50/sec. `debouncedBroadcast` batches all broadcasts in the window then deduplicates: `session_update` collapses to the latest per `sessionId`, every other type collapses to one per message type. Smaller window keeps the 3D scene + status pills feeling live; rely on the per-key coalescing (not the window) to avoid flooding browsers.
 
 ### Heavy Work Variant
-- At `Stop`, `wasHeavyWork = totalToolCalls > 10 && status === WORKING` -> Dance animation instead of Waiting+ThumbsUp (sessionStore.ts:713). `totalToolCalls` is reset to 0 after each Stop.
+- At `Stop`, `wasHeavyWork = totalToolCalls > 10 && status === WORKING` -> Dance animation instead of Waiting+ThumbsUp (sessionStore.ts:745). `totalToolCalls` is reset to 0 after each Stop.
 - Codex `Stop` payloads may provide `last_assistant_message`; `handleEvent()` reads `response` / `last_assistant_message` / `message` / `stop_reason_str` (first non-empty), stores a 2000-char excerpt in `responseLog` (last 50).
 - `PostCompact` is a known event recorded with detail `Context compaction completed` (and `PreCompact` → `Context compaction starting`) so Codex compaction completion no longer collapses into a generic stop/unknown state.
 
@@ -72,9 +72,9 @@ Title helpers live in `server/sessionTitle.ts` (pure, no DB deps). On `USER_PROM
 - getAllSessions() / getSession() — read session state
 - createTerminalSession() — creates session card when terminal connects
 - findActiveSessionByConfig() — deduplicates by config (host, workDir, command, sessionTitle)
-- clearAllSessions() — removes all sessions, captures terminal output buffers for replay; returns `{ removed: number, savedOutputs: SavedTerminalOutput[] }` (sessionStore.ts:1133-1165) where each `savedOutputs` entry is keyed by `title\0projectPath` for replay after workspace import
-- detectSessionSource(sessionId) (sessionStore.ts:1339) — classifies a session's spawn source (returns `session.source`, defaulting to `'ssh'`); used by kill flow
-- findClaudeProcess(sessionId, projectPath) (sessionStore.ts:1346) — wrapper around processMonitor's resolver; passes internal `sessions` + `pidToSession` state
+- clearAllSessions() — removes all sessions, captures terminal output buffers for replay; returns `{ removed: number, savedOutputs: SavedTerminalOutput[] }` (sessionStore.ts:1176-1213) where each `savedOutputs` entry is keyed by `title\0workDir` (the raw `sshConfig.workingDir`, falling back to `projectPath`) for replay after workspace import
+- detectSessionSource(sessionId) (sessionStore.ts:1390) — classifies a session's spawn source (returns `session.source`, defaulting to `'ssh'`); used by kill flow
+- findClaudeProcess(sessionId, projectPath) (sessionStore.ts:1397) — wrapper around processMonitor's resolver; passes internal `sessions` + `pidToSession` state
 - killSession() / deleteSessionFromMemory() — end or remove sessions
 - resumeSession() / reconnectSessionTerminal() / reconnectOpsTerminal() — resume/reconnect workflows
 - setSessionTitle / setSessionPinned / setSessionMuted / setSessionAlerted / setSessionAccentColor / setSessionCharacterModel — session metadata setters. `setSessionTitle` mutates the in-memory session **and** persists to SQLite via `dbUpdateTitle` (it does not broadcast on its own; the title rides the next `SESSION_UPDATE`, and the originating browser updates optimistically).
@@ -114,5 +114,5 @@ Title helpers live in `server/sessionTitle.ts` (pure, no DB deps). On `USER_PROM
 - Changes to state transitions affect 3D animations, sound system, and approval detection
 - Modifying the session object schema affects ALL consumers (frontend stores, DB persistence, WebSocket protocol)
 - Breaking snapshot persistence means sessions lost on restart
-- **Fork-aware kill cascade** — `apiRouter.ts:934` (`const pid = mem.isFork ? null : findClaudeProcess(...)`) skips `findClaudeProcess` for forks because forks share the origin session's `projectPath`; a cwd-based PID lookup would return the ORIGIN's claude PID and SIGTERM the wrong process. Forks instead rely on per-PTY `pty.kill` (group SIGHUP) via `closeTerminal`. Preserve this branch when modifying the kill flow — without it, closing a floating/fork session disconnects the parent terminal.
+- **Fork-aware kill cascade** — `apiRouter.ts:958` (`const pid = mem.isFork ? null : findClaudeProcess(...)`) skips `findClaudeProcess` for forks because forks share the origin session's `projectPath`; a cwd-based PID lookup would return the ORIGIN's claude PID and SIGTERM the wrong process. Forks instead rely on per-PTY `pty.kill` (group SIGHUP) via `closeTerminal`. Preserve this branch when modifying the kill flow — without it, closing a floating/fork session disconnects the parent terminal.
 - **Clone/fork auto-rename vs title-based dedup** — once a clone/fork is re-titled from its first prompt (see *Session Title Generation*), `session.title` no longer equals the `sessionTitle` baked into its workspace-snapshot config. `findActiveSessionByConfig` deduplicates partly by `sessionTitle`, so a server-restart workspace reload that relies on the title branch could create a duplicate card. This is mitigated because the `originalSessionId` match path is preferred and title-independent; keep that path intact if you touch dedup.

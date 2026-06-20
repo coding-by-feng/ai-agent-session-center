@@ -70,7 +70,7 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 
 ### Auto-Apply Model/Effort
 - **Standard model + effort are applied as launch flags**, not slash commands. `applyClaudeLaunchFlags(command, model, effortLevel)` (server/config.ts) appends `--model <model>` and `--effort <level>` to the `claude` command before it runs, so the flags take effect deterministically before the first prompt (fixes the prior race where `/effort` keystrokes were dropped behind the `/model` re-render, leaving effort at `high`).
-- Flag-eligible effort levels (`config.ts` `FLAG_EFFORT_LEVELS`): `low`/`medium`/`high`/`xhigh`/`max`. `ultracode` is deliberately excluded — the `--effort` flag rejects it, so it is applied via post-startup slash injection instead.
+- Flag-eligible effort levels (`config.ts` `FLAG_EFFORT_LEVELS`): `low`/`medium`/`high`/`xhigh`/`max`. `ultracode` is not in that set (the raw `--effort` flag rejects it) — instead it launches as `--effort xhigh` (its valid base level) and is then upgraded to true ultracode via the post-startup `/effort ultracode` slash injection.
 - The `POST /api/terminals` Zod enum accepts `low/medium/high/xhigh/max/ultracode`; an out-of-set value falls back to "no effort override" (`.catch(undefined)`). Model enum: `opus/sonnet/haiku`.
 
 ### Post-Startup Slash Injection (ultracode / remote-control)

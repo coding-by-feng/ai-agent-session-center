@@ -17,7 +17,7 @@ The in-memory session logs that drive most of the UI are truncated and split int
 | `src/lib/commandMessage.ts` | `transformEntries()` — rewrites Claude Code harness plumbing (`<command-name>` / `<command-args>` / `<local-command-stdout>` / `<local-command-caveat>`) in raw `user` entries into compact `command` chips (stdout folded in) and collapsible `system` rows. |
 | `src/components/session/DetailPanel.tsx` | Host: passes session logs + `searchQuery` + `projectPath` into `ConversationView` as `promptsContent`, and drives search-match highlight/navigation over the rendered `.search-highlight` nodes. |
 | `src/components/session/DetailTabs.tsx` | Defines the `conversation` tab (label `CONVERSATION`) and wraps `promptsContent` in a `tabScroll` container. |
-| `src/components/session/LinkifiedText.tsx` | Renders entry text, turning file paths / URLs into clickable links (used for user/assistant/previous-session text). Clicking a path opens the [File-Open Chooser](./file-open-chooser.md) popover anchored at the cursor. |
+| `src/components/session/LinkifiedText.tsx` | Renders entry text, turning file paths into clickable links (used for user/assistant/previous-session text) via the shared Unicode-aware `createFilePathRegex()` (`src/lib/filePathLink.ts`) — so non-English paths like `客户版-业务流程确认.md` linkify too. Clicking a path opens the [File-Open Chooser](./file-open-chooser.md) popover anchored at the cursor. |
 | `server/extractPreviousAnswer.ts` | Server source of the transcript: `readClaudeTranscript()` parses the Claude JSONL into the matching `ConversationEntry[]` (also defines `readClaudeLastAssistant`). |
 | `server/apiRouter.ts` | Hosts `GET /api/sessions/:id/transcript`, which calls `readClaudeTranscript` and never 500s (returns empty array on any error). |
 | `src/styles/modules/DetailPanel.module.css` | All `conv*` / `prevSession*` styles (entry rows, role badges, tool name/input, copy button, collapsible headers, the sticky `convToolbar` filter pills + jump-to-latest, `convCommand*` chip, and `convSystemRow*` collapsible). |
@@ -158,7 +158,7 @@ Server (`extractPreviousAnswer.ts`, applied before the data is sent):
 - **`ConversationEntry` union** — duplicated in `src/lib/transcript.ts` and `server/extractPreviousAnswer.ts`; the two **must stay in sync** (no shared import across the server/client boundary here).
 - **Claude Code JSONL transcripts** — `~/.claude/projects/<encoded-project>/<sessionId>.jsonl`, read by the server; also the data source for last-assistant extraction used by floating sessions ([server/floating-session-spawner.md](../server/floating-session-spawner.md)).
 - **Global `.search-highlight` / `.search-highlight-active` classes** (`src/styles/base.css`) — shared with DetailPanel's cross-tab search navigation.
-- **`LinkifiedText`** — shared text renderer for clickable paths/URLs. File-path clicks call `uiStore.openFileChooser(path, projectPath, { x, y })` (cursor coords; keyboard Enter anchors to the link's bounding rect) to show the [File-Open Chooser](./file-open-chooser.md) popover instead of opening directly.
+- **`LinkifiedText`** — shared text renderer for clickable paths. Paths are detected with the shared Unicode-aware `createFilePathRegex()` (`src/lib/filePathLink.ts`), so non-ASCII (CJK, Cyrillic, …) paths are clickable. File-path clicks call `uiStore.openFileChooser(path, projectPath, { x, y })` (cursor coords; keyboard Enter anchors to the link's bounding rect) to show the [File-Open Chooser](./file-open-chooser.md) popover instead of opening directly.
 
 ## Change Risks
 

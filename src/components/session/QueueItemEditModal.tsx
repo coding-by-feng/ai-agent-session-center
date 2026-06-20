@@ -24,7 +24,13 @@
  * QueueTab can carry per-item state in its own component scope.
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { QueueItem, ChainStep, ExcludeWindow, QueueItemType } from '@/stores/queueStore';
+import type {
+  QueueItem,
+  ChainStep,
+  ExcludeWindow,
+  QueueItemType,
+  QueueImageAttachment,
+} from '@/stores/queueStore';
 import TimePicker12 from '@/components/ui/TimePicker12';
 import AutocompleteTextarea from '@/components/ui/AutocompleteTextarea';
 import styles from '@/styles/modules/Terminal.module.css';
@@ -52,6 +58,24 @@ interface QueueItemEditModalProps {
 let nextStepId = Date.now();
 function newStepId(): number {
   return nextStepId++;
+}
+
+/** Read up to 5 dropped/pasted/picked files into base64 image attachments. */
+function filesToImages(files: File[]): Promise<QueueImageAttachment[]> {
+  const readers = files.slice(0, 5).map(
+    (f) =>
+      new Promise<QueueImageAttachment>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve({ name: f.name, dataUrl: reader.result as string });
+        reader.onerror = reject;
+        reader.readAsDataURL(f);
+      }),
+  );
+  return Promise.allSettled(readers).then((results) =>
+    results
+      .filter((r): r is PromiseFulfilledResult<QueueImageAttachment> => r.status === 'fulfilled')
+      .map((r) => r.value),
+  );
 }
 
 /** Convert an item's intervalMs into the (value, unit) tuple used by the form. */
@@ -101,8 +125,54 @@ export default function QueueItemEditModal({
   const [firstFireOfDay, setFirstFireOfDay] = useState<string | undefined>(
     item.firstFireOfDay,
   );
+  /** Image attachments sent with the main prompt — paste / pick / remove here. */
+  const [images, setImages] = useState<QueueImageAttachment[]>(
+    (item.images ?? []).map((img) => ({ ...img })),
+  );
 
   const overlayRef = useRef<HTMLDivElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  const addImages = useCallback((files: File[]) => {
+    if (files.length === 0) return;
+    void filesToImages(files).then((imgs) =>
+      setImages((prev) => [...prev, ...imgs].slice(0, 5)),
+    );
+  }, []);
+
+  const handlePasteImages = useCallback(
+    (e: React.ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].kind === 'file') {
+          const f = items[i].getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      if (files.length === 0) return;
+      e.preventDefault();
+      addImages(files);
+    },
+    [addImages],
+  );
+
+  const handleImagePick = useCallback(() => {
+    imageInputRef.current?.click();
+  }, []);
+
+  const handleImageFiles = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      addImages(Array.from(e.target.files ?? []));
+      e.target.value = ''; // allow re-selecting the same file
+    },
+    [addImages],
+  );
+
+  const handleRemoveImage = useCallback((idx: number) => {
+    setImages((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
 
   // ESC to close
   useEffect(() => {
@@ -187,6 +257,7 @@ export default function QueueItemEditModal({
     const patch: Partial<QueueItem> = {
       type,
       text: trimmedMain,
+      images: images.length > 0 ? [...images] : undefined,
       beforeChain: cleanBefore.length > 0 ? cleanBefore : undefined,
       afterChain: cleanAfter.length > 0 ? cleanAfter : undefined,
     };
@@ -381,11 +452,49 @@ export default function QueueItemEditModal({
               onChange={setMainText}
               sessionId={sessionId}
               projectPath={projectPath}
-              placeholder="What should this trigger send to the session?"
+              placeholder="What should this trigger send to the session? (Cmd+V to paste an image)"
               rows={3}
               autoFocus
               ariaLabel="Main prompt"
+              onPaste={handlePasteImages}
             />
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*,.pdf,.txt,.md,.json,.csv,.xml,.yaml,.yml,.log"
+              multiple
+              style={{ display: 'none' }}
+              onChange={handleImageFiles}
+            />
+            <div className={styles.queueEditImageRow}>
+              <button
+                type="button"
+                className={`${styles.toolbarBtn} ${styles.queueAttachBtn}`}
+                onClick={handleImagePick}
+                title="Attach images"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                </svg>
+              </button>
+              {images.length > 0 && (
+                <div className={styles.queueComposeImages}>
+                  {images.map((img, i) => (
+                    <div key={i} className={styles.queueImageThumb}>
+                      <img src={img.dataUrl} alt={img.name} />
+                      <button
+                        type="button"
+                        className={styles.queueImageRemove}
+                        onClick={() => handleRemoveImage(i)}
+                        title="Remove image"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* After chain */}

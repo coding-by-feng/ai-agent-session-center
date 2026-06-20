@@ -114,6 +114,7 @@ Notes:
 |---------|-----------|---------|--------|
 | `app:get-port` | Renderer -> Main | invoke | Returns resolved server port (Number) |
 | `app:open-browser` | Renderer -> Main | invoke | Opens `http://localhost:{port}` via `shell.openExternal` |
+| `dialog:select-directory` | Renderer -> Main | invoke | Opens the native OS folder picker (`dialog.showOpenDialog`, `['openDirectory','createDirectory']`); resolves the chosen absolute path or `null` if cancelled. Backs `electronAPI.selectDirectory` (the session-creation "Browse…" button) |
 | `app:rerun-setup` | Renderer -> Main | invoke | Deletes setup flag, relaunches app |
 | `app:quit` | Renderer -> Main | invoke | Triggers graceful shutdown sequence |
 | `app:before-close` | Main -> Renderer | push | Notifies renderer to save workspace before quit |

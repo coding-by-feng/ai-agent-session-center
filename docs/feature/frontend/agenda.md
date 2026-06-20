@@ -16,7 +16,7 @@ Lets the user track tasks alongside AI coding sessions without leaving the dashb
 | `src/components/agenda/AddTaskForm.tsx` | Inline new-task form (title required, priority defaults medium, optional due date + tags) |
 | `src/types/agenda.ts` | `AgendaTask`, `AgendaPriority`, `AgendaFilter` types (shared server + client) |
 | `src/components/layout/NavBar.tsx` | `/agenda` nav link + incomplete-count badge |
-| `server/apiRouter.ts` | `agendaCreateSchema` / `agendaUpdateSchema` Zod schemas (lines 290 / 298) + 5 REST endpoints (lines 2447-2555) |
+| `server/apiRouter.ts` | `agendaCreateSchema` / `agendaUpdateSchema` Zod schemas (lines 314 / 322) + 5 REST endpoints (lines 2507-2615) |
 | `server/db.ts` | `agenda_tasks` table + `getAllAgendaTasks`, `getAgendaTaskById`, `upsertAgendaTask`, `deleteAgendaTask` |
 
 ## Implementation
@@ -30,8 +30,8 @@ All agenda routes return a non-standard success envelope `{ ok: true, data }` (e
 - `PATCH /api/agenda/:id/toggle` — flip `completed`, set `completedAt=now` when becoming complete / clear when becoming incomplete; 404 if missing.
 
 ### Validation
-- `agendaCreateSchema` (apiRouter.ts:290): `title` 1-500 chars (required), `description` ≤5000 optional, `priority` enum default `medium`, `tags` array (≤20 items, each ≤100 chars) default `[]`, `dueDate` optional string.
-- `agendaUpdateSchema` (apiRouter.ts:298): same fields all optional, plus `completed` boolean; `dueDate` is `string().nullable().optional()`.
+- `agendaCreateSchema` (apiRouter.ts:314): `title` 1-500 chars (required), `description` ≤5000 optional, `priority` enum default `medium`, `tags` array (≤20 items, each ≤100 chars) default `[]`, `dueDate` optional string.
+- `agendaUpdateSchema` (apiRouter.ts:322): same fields all optional, plus `completed` boolean; `dueDate` is `string().nullable().optional()`.
 
 ### Store (`agendaStore.ts`)
 - `fetchTasks` — GET, replaces the whole `tasks` Map (keyed by id).

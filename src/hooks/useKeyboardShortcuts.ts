@@ -153,6 +153,22 @@ function dispatchAction(actionId: string): void {
         );
         return;
       }
+      // Terminal toolbar buttons — act on the SELECTED session's terminal only.
+      // Scoped by terminalId so floating / other mounted terminals don't react
+      // (firing clone/fork on every terminal would be destructive).
+      if (actionId.startsWith('terminal')) {
+        const action = TERMINAL_ACTION_MAP[actionId];
+        if (!action) return;
+        const st = useSessionStore.getState();
+        const sel = st.selectedSessionId;
+        const terminalId = sel ? st.sessions.get(sel)?.terminalId ?? null : null;
+        if (terminalId) {
+          document.dispatchEvent(
+            new CustomEvent('terminal:action', { detail: { action, terminalId } }),
+          );
+        }
+        return;
+      }
       // Handle switchSession1..switchSession9
       if (actionId.startsWith('switchSession')) {
         const idx = parseInt(actionId.replace('switchSession', ''), 10) - 1;
@@ -169,6 +185,15 @@ const TAB_ACTION_MAP: Record<string, string> = {
   switchTabPrompts: 'conversation',
   switchTabNotes: 'notes',
   switchTabQueue: 'queue',
+};
+
+const TERMINAL_ACTION_MAP: Record<string, string> = {
+  terminalToggleAutoScroll: 'toggleAutoScroll',
+  terminalRefresh: 'refresh',
+  terminalBookmark: 'bookmark',
+  terminalClone: 'clone',
+  terminalFork: 'fork',
+  terminalPopOut: 'popOut',
 };
 
 // ---------------------------------------------------------------------------

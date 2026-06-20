@@ -9,11 +9,12 @@ The scheduler used to live inside `QueueTab.tsx`, bound to the selected session 
 ## Source Files
 | File | Role |
 |------|------|
-| `src/lib/queueScheduler.ts` | Pure scheduling helpers — `pickNext`, `advanceAfterFire`, `advanceBlockedLoops`, `chainGateDecision`, exclude-window / daily-start / quiet-hours predicates, chain-step math, `describeNextFire`, `formatInterval`. No DOM / fetch / Dexie. |
+| `src/lib/queueScheduler.ts` | Pure scheduling helpers — `pickNext`, `advanceAfterFire`, `advanceBlockedLoops`, `chainGateDecision`, `onceGateDecision`, exclude-window / daily-start / quiet-hours predicates, chain-step math, `describeNextFire`, `formatInterval`. No DOM / fetch / Dexie. |
+| `src/lib/terminalSend.ts` | Owns the actual prompt→PTY write — `sendPromptToTerminal(terminalId, text, autoEnter, delayMs=SUBMIT_ENTER_DELAY_MS)` and `SUBMIT_ENTER_DELAY_MS = 1000`. Writes the prompt text via `POST /api/terminals/{id}/write`, then (only when `autoEnter`) writes a **separate** submitting `'\r'` after `delayMs`; never concatenates the `'\r'` onto the text. Used by the scheduler tick and the manual "send now". |
 | `src/hooks/useGlobalQueueScheduler.ts` | App-level `setInterval(…, 1000)` tick mounted once in `App.tsx`; iterates every session each tick, applies the helpers, and POSTs the prompt to the session's terminal. Owns per-session re-entrance, cooldown, and chain-gate refs. |
 | `src/stores/queueHistoryStore.ts` | Zustand store of saved favorites (`QueueHistoryEntry[]`), backed by the Dexie `queueHistory` table (v5 schema). save/update/setAlias/remove/incrementUsed/applyToSession/bulkImport/loadFromDb. |
 | `src/components/session/QueueHistorySheet.tsx` | 📚 overlay sheet — filter/sort, per-row View/Edit/Apply/Remove, inline alias rename, export & import-with-preview. |
-| `src/components/session/QueueItemEditModal.tsx` | Three-pane editor (before chain / main / after chain) for a Loop or Schedule item; type pills, interval + daily-start, datetime-local, per-item exclude windows. Reused by both QueueTab and the history sheet's Edit. |
+| `src/components/session/QueueItemEditModal.tsx` | Three-pane editor (before chain / main / after chain) for a Loop or Schedule item; type pills, interval + daily-start, datetime-local, per-item exclude windows, and **main-prompt image attachments** (paste / pick / remove, seeded from `item.images`, saved back into the patch). Reused by both QueueTab and the history sheet's Edit. |
 | `src/components/session/LoopExcludeWindowsModal.tsx` | Session-level "quiet hours" editor — windows that apply to every loop in the session, OR'd with each loop's own windows. |
 | `src/lib/queueHistoryExport.ts` | Pure serialize / parse / validate for the `aasc-queue-history` JSON file envelope, plus `downloadAsFile`. |
 | `src/lib/pinnedRespawn.ts` | Keeps PINNED sessions alive — relaunches a pinned session whose process died, with a crash-loop cap + backoff. |
@@ -31,12 +32,14 @@ Closely-related, documented elsewhere (cross-linked, not duplicated):
 - **`ChainStep`**: `{ id, text, images? }`. **`ExcludeWindow`**: `{ id, startHHMM, endHHMM }`. **`ChainExecState`**: `'idle' | 'before' | 'main' | 'after'`. **`QueueItemType`**: `'once' | 'loop' | 'schedule'`.
 - **`QueueHistoryEntry`**: `{ id, alias: string|null, item: QueueItem, sourceSessionTitle, sourceSessionId, usedCount, createdAt, lastUsedAt }`.
 - **`ChainGate`** (per-session ref): `{ itemId, sawWork, openedAt }` — holds the next chain step until the prior step's turn has visibly finished.
-- **Scheduler refs** (all `useRef<Map<string, …>>`): `firingRefs` (re-entrance guard), `coolDownRefs` (800ms post-fire buffer), `chainGateRefs` (the gate above), all keyed by sessionId.
+- **`OnceGate`** (per-session ref): `{ sawWork, openedAt }` — same completion semantics as `ChainGate` but NOT keyed to an item id; sequences independent `once` items so a queue of several `once` prompts drains one-at-a-time (the next fires only after the previous one's task reaches Stop), instead of flooding the CLI in an ~1s burst.
+- **Scheduler refs** (all `useRef<Map<string, …>>`): `firingRefs` (re-entrance guard), `coolDownRefs` (800ms post-fire buffer), `chainGateRefs` (the chain gate), `onceGateRefs` (the once gate), all keyed by sessionId.
 - **`QueueAutomationConfig`** (read per session each tick from `queueStore.automation`, default `DEFAULT_AUTOMATION`): `{ paused, autoSend, autoEnter, idleGuard, skipWhenPrompting, loopExcludeWindows? }`.
 
 ### Constants & values
 - `NO_WORK_FALLBACK_MS = 12_000` (`useGlobalQueueScheduler.ts`) — gate release for a step that never visibly goes to "work" (instant no-op prompts) so a chain can't stall forever.
 - Cooldown buffer `= 800` ms; scheduler interval `= 1000` ms.
+- `SUBMIT_ENTER_DELAY_MS = 1000` ms (`terminalSend.ts`) — delay between writing a prompt's text and writing the standalone submitting `'\r'` when Auto-Enter is on.
 - Loop interval clamp / default `= 60_000` ms (60s) — used by `snapshotItem`, `advanceAfterFire`, `applyTypeDefaults`, and `coerceEntry` so an enabled loop with a missing/≤0/NaN interval is **healed to 60s, never silently deleted**.
 - `applyTypeDefaults`: `once → nextFireAt = 0`; `loop → nextFireAt = Date.now() + intervalMs`; `schedule → runAt = options.runAt ?? Date.now() + 60_000`, `nextFireAt = runAt`.
 - Export: `EXPORT_SCHEMA = 'aasc-queue-history'`, `EXPORT_VERSION = 1`, `MAX_IMPORT_SIZE = 50 * 1024 * 1024` (50 MB).
@@ -49,26 +52,27 @@ Closely-related, documented elsewhere (cross-linked, not duplicated):
   - **Short-circuit** — `blockedByPrompting` → return `null` (checked before everything, so even in-flight chains pause one tick rather than typing over a just-submitted prompt).
   - **Priority 0** — any in-flight chain (`isExecuting`) keeps firing until complete (chains are atomic relative to other items); still respects idle-guard.
   - **Priority 0.5** — a fresh (non-executing) `forceStart` item begins immediately, bypassing due-time, idle-guard, quiet-hours, and daily-start. An in-flight chain still wins.
-  - **Priority 1** — drain `once` items, but only when `sessionWaiting`.
+  - **Priority 1** — drain `once` items, but only when `sessionWaiting`; consecutive `once` items are then paced one-at-a-time by the once gate (see the tick walkthrough) so each waits for the previous one's task to finish.
   - **Priority 2** — earliest-due `loop`/`schedule` with `nextFireAt ≤ now`; loops additionally skip if inside any exclude window (item OR session) or before the daily-start clamp.
 - **`getActiveStep(item)`** — what to send *now*: the current before/after step text+images, or the main prompt; a fresh item with a before-chain sends `beforeChain[0]`. A corrupt `execStepIdx` falls back to the main prompt.
 - **`startExecution(item)`** — initial `execState` for a fresh pick (`before`/`main`), or `null` if already executing.
 - **`advanceAfterFire(item, now)`** → `{action:'continue', patch}` | `{action:'remove'}` | `{action:'reschedule', patch}`. Walks `idle → before(0..N) → main → after(0..M) → done`; clears `forceStart` on the first advance. `once`/`schedule` → remove; `loop` → reschedule `nextFireAt = now + intervalMs` (interval healed to 60s if invalid) and bumps `totalFires`.
 - **`advanceBlockedLoops(items, now)`** — rolls due loops' `nextFireAt` forward (skipping disabled, before-daily-start, executing, or interval-less rows) without incrementing `totalFires`. Used while `skipWhenPrompting` or a foreign in-flight chain blocks the session, so a missed cycle is dropped, not stockpiled.
 - **`chainGateDecision(gate, pickId, atRest, sessionSendable, now, noWorkFallbackMs)`** → `'fire' | 'hold'`. No gate / different item → fire. `sawWork === true` → fire only when `atRest` (status `'waiting'` = the genuine Stop signal); decayed `idle` does **not** count. `sawWork === false` → fire if sendable past `noWorkFallbackMs`, else hold.
+- **`onceGateDecision(gate, atRest, sessionSendable, now, noWorkFallbackMs)`** → `'fire' | 'hold'`. Identical logic to `chainGateDecision` minus the item-id match — used to sequence consecutive `once` items: after one `once` fires, the next is held until the prior one's turn reaches `atRest` (Stop), with the same `noWorkFallbackMs` escape for instant no-op prompts.
 - Exclude/clamp predicates: `isInExcludeWindow` (same-day `[start,end)` or wrap-midnight `[start,1440)∪[0,end)`; `start===end` ignored), `isItemInQuietHours` (loops only, item ∨ session windows), `isBeforeDailyStart` (loops only, local time-of-day before `firstFireOfDay`).
 - Display: `describeNextFire` (once→"next when idle", loop→live countdown "in 5m 12s"/"due now", schedule→absolute time + "(overdue)"), `formatInterval`, `totalChainSteps`, `currentChainStep`.
 
 ### Scheduler tick flow (`useGlobalQueueScheduler.ts`, per session, every 1s)
 1. Skip if `firingRefs[sid]` is set (re-entrance), session/queue missing, `automationConfig.paused`, no `terminalId`, or inside the cooldown window.
 2. **Early bail** when `autoSend` is OFF and there is no active work (no enabled `forceStart`/in-flight item) — keeps an idle queue ~free per tick.
-3. **Chain-gate observation** (before any early-return): if a gate is open and the session is now busy, set `sawWork = true`. This MUST run on busy ticks even when no item is picked.
+3. **Gate observation** (before any early-return): if a chain gate is open and the session is now busy, set its `sawWork = true`; the same observation runs for an open once gate. This MUST run on busy ticks even when no item is picked.
 4. If `blockedByPrompting` (`skipWhenPrompting && status === 'prompting'`) and no fresh force → roll blocked loops forward (only while `autoSend` ON) and return.
 5. If any foreign chain is in flight and `autoSend` ON → `advanceBlockedLoops` for the others.
 6. `pickNext(...)`. If a pick exists but `autoSend` is OFF and it's neither `forceStart` nor executing → hold.
-7. If the pick is executing → `chainGateDecision`; `'hold'` returns. Otherwise clear any stale gate.
-8. Set `firingRefs[sid]`, `getActiveStep`, then `sendToTerminal` (POST the prompt; `\\n`→newline; uploaded image paths appended; `autoEnter ? '\r' : ''` terminator).
-9. On success: set 800ms cooldown, run `advanceAfterFire`, then `remove` / `updateItem(patch)` on the queue store. On `continue`, open a fresh gate `{itemId, sawWork:false, openedAt:now}`. Emit a session-prefixed toast (e.g. `[name] Chain main sent (2 / 4)`, `Loop fired`, `Auto-sent queued prompt`).
+7. If the pick is executing → `chainGateDecision`; `'hold'` returns. Otherwise (fresh pick): a `once` pick consults `onceGateDecision` and `'hold'` returns until the prior once finished; then clear any stale chain gate.
+8. Set `firingRefs[sid]`, `getActiveStep`, then `sendToTerminal`, which delegates to `sendPromptToTerminal(terminalId, text, autoEnter)` (`@/lib/terminalSend`). It POSTs the prompt text (`\\n`→newline; uploaded image paths appended), then — only when `autoEnter` — submits a **separate, standalone `'\r'` keystroke after 1000ms (`SUBMIT_ENTER_DELAY_MS`)**. The `'\r'` is never concatenated onto the text (that concatenation made the TUI insert a literal newline instead of submitting — the bug this avoids).
+9. On success: set 800ms cooldown, run `advanceAfterFire`, then `remove` / `updateItem(patch)` on the queue store. On `continue`, open a fresh chain gate `{itemId, sawWork:false, openedAt:now}`. On `remove` of a `once`, open a fresh once gate `{sawWork:false, openedAt:now}` so the next `once` holds until this one's task finishes. Emit a session-prefixed toast (e.g. `[name] Chain main sent (2 / 4)`, `Loop fired`, `Auto-sent queued prompt`).
 10. `finally` clears `firingRefs[sid]`. Sessions are evaluated fire-and-forget in parallel.
 
 ### Endpoints (called by the scheduler / respawn)

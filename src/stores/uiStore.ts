@@ -29,15 +29,15 @@ interface UiState {
   activeModal: string | null;
   detailPanelOpen: boolean;
   detailPanelMinimized: boolean;
-  activityFeedOpen: boolean;
   pendingFileOpen: PendingFileOpen | null;
   pendingFileChooser: PendingFileChooser | null;
   cardDisplayMode: CardDisplayMode;
   /** DetailPanel nav-bar position: 'top' (default) or 'left' rail. Persisted. */
   navPosition: NavPosition;
   /** Maximize mode: hide the detail panel's own session-chip strip for more
-   *  terminal space. The global Header + NavBar stay pinned at all times.
-   *  Ephemeral (not persisted) so a reload returns to the normal panel layout. */
+   *  terminal space (the global Header + NavBar are already hidden whenever a
+   *  detail panel is in view — see AppLayout `hideTopBars`). Ephemeral (not
+   *  persisted) so a reload returns to the normal panel layout. */
   maximized: boolean;
   workspaceLoad: WorkspaceLoadState;
   /** Room filter: persisted across session switches */
@@ -48,7 +48,6 @@ interface UiState {
   setDetailPanelOpen: (open: boolean) => void;
   minimizeDetailPanel: () => void;
   restoreDetailPanel: () => void;
-  setActivityFeedOpen: (open: boolean) => void;
   openFileInProject: (filePath: string, projectPath: string) => void;
   clearPendingFileOpen: () => void;
   openFileChooser: (filePath: string, projectPath: string, anchor: { x: number; y: number }) => void;
@@ -103,7 +102,6 @@ export const useUiStore = create<UiState>((set) => ({
   activeModal: null,
   detailPanelOpen: false,
   detailPanelMinimized: false,
-  activityFeedOpen: false,
   pendingFileOpen: null,
   pendingFileChooser: null,
   cardDisplayMode: loadCardDisplayMode(),
@@ -117,7 +115,6 @@ export const useUiStore = create<UiState>((set) => ({
   setDetailPanelOpen: (open) => set({ detailPanelOpen: open }),
   minimizeDetailPanel: () => set({ detailPanelMinimized: true }),
   restoreDetailPanel: () => set({ detailPanelMinimized: false }),
-  setActivityFeedOpen: (open) => set({ activityFeedOpen: open }),
   openFileInProject: (filePath, projectPath) => set({ pendingFileOpen: { filePath, projectPath } }),
   clearPendingFileOpen: () => set({ pendingFileOpen: null }),
   openFileChooser: (filePath, projectPath, anchor) => set({ pendingFileChooser: { filePath, projectPath, anchor } }),

@@ -9,7 +9,7 @@ Hooks fire from CLI processes that don't know about dashboard terminals. The mat
 ## Source Files
 | File | Role |
 |------|------|
-| `server/sessionMatcher.ts` (~25KB, 535 lines) | 8-priority matching engine + fork routing + source detection |
+| `server/sessionMatcher.ts` (~25KB, 547 lines) | 8-priority matching engine + fork routing + source detection |
 
 ## Implementation
 

@@ -43,6 +43,7 @@ import {
   advanceAfterFire,
   advanceBlockedLoops,
   chainGateDecision,
+  onceGateDecision,
   itemType,
   getActiveStep,
   isExecuting,
@@ -50,6 +51,7 @@ import {
   totalChainSteps,
   currentChainStep,
   type ChainGate,
+  type OnceGate,
 } from '@/lib/queueScheduler';
 import { sendPromptToTerminal } from '@/lib/terminalSend';
 import { showToast } from '@/components/ui/ToastContainer';
@@ -102,6 +104,10 @@ export function useGlobalQueueScheduler(): void {
   // Per-session chain gate: holds the next chain step until the step we just
   // sent has actually finished running (observed go busy → back to sendable).
   const chainGateRefs = useRef<Map<string, ChainGate>>(new Map());
+  // Per-session once gate: holds the NEXT 'once' item until the previous once's
+  // task has actually finished, so multiple queued once items drain one-at-a-
+  // time instead of flooding the CLI in a burst.
+  const onceGateRefs = useRef<Map<string, OnceGate>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -151,6 +157,14 @@ export function useGlobalQueueScheduler(): void {
       const openGate = chainGateRefs.current.get(sessionId);
       if (openGate && !sessionWaiting && !openGate.sawWork) {
         chainGateRefs.current.set(sessionId, { ...openGate, sawWork: true });
+      }
+
+      // Same observation for the once gate: record that the previously-sent
+      // once item's task has begun the moment the session goes busy. Must also
+      // run before any early-return so a busy tick is never missed.
+      const openOnceGate = onceGateRefs.current.get(sessionId);
+      if (openOnceGate && !sessionWaiting && !openOnceGate.sawWork) {
+        onceGateRefs.current.set(sessionId, { ...openOnceGate, sawWork: true });
       }
 
       // A FRESH force-start (manual ⚡ NOW) bypasses skip-prompting too — it is
@@ -223,6 +237,20 @@ export function useGlobalQueueScheduler(): void {
         );
         if (decision === 'hold') return;
       } else {
+        // Fresh (non-executing) pick. Sequence 'once' items: hold the next one
+        // until the PREVIOUS once's task has finished (observed busy → back to
+        // 'waiting'). Other item types keep their existing pacing.
+        if (itemType(pick) === 'once') {
+          const onceDecision = onceGateDecision(
+            onceGateRefs.current.get(sessionId),
+            sessionStatus === 'waiting',
+            sessionWaiting,
+            now,
+            NO_WORK_FALLBACK_MS,
+          );
+          if (onceDecision === 'hold') return;
+          onceGateRefs.current.delete(sessionId);
+        }
         chainGateRefs.current.delete(sessionId);
       }
 
@@ -243,6 +271,14 @@ export function useGlobalQueueScheduler(): void {
         if (advance.action === 'remove') {
           useQueueStore.getState().remove(sessionId, pick.id);
           chainGateRefs.current.delete(sessionId);
+          // If we just sent a 'once' item, open the once gate so the NEXT once
+          // waits for THIS one's task to finish before it fires.
+          if (itemType(pick) === 'once') {
+            onceGateRefs.current.set(sessionId, {
+              sawWork: false,
+              openedAt: Date.now(),
+            });
+          }
         } else if (advance.action === 'continue') {
           useQueueStore.getState().updateItem(sessionId, pick.id, advance.patch);
           // Open a gate so the NEXT step waits for THIS step's work to finish.

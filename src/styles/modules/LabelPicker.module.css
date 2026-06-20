@@ -1,0 +1,238 @@
+/* LabelPicker — anchored popover for assigning a single label to a session.
+   Dark navy card with neon accents, consistent with FileOpenChooser. */
+
+.popup {
+  position: fixed;
+  z-index: 9000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--accent-cyan, #00e5ff);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.65), 0 0 8px var(--glow-accent);
+  backdrop-filter: blur(8px);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  outline: none;
+  animation: labelPickerIn 120ms ease-out;
+}
+
+@keyframes labelPickerIn {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.header {
+  color: var(--accent-cyan, #00d4ff);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-accent, rgba(0, 212, 255, 0.2));
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chipWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.optionChip {
+  display: inline-flex;
+  align-items: center;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: filter 0.12s ease, transform 0.08s ease;
+}
+
+.optionChip:hover {
+  filter: brightness(1.18);
+}
+
+.optionChip:active {
+  transform: scale(0.96);
+}
+
+.optionChipActive {
+  box-shadow: 0 0 0 1px currentColor inset;
+}
+
+.removeCustom {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-primary, #e6f6ff);
+  background: var(--bg-accent-strong, rgba(0, 0, 0, 0.7));
+  border: 1px solid var(--border-accent, rgba(0, 212, 255, 0.3));
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+
+.chipWrap:hover .removeCustom {
+  opacity: 1;
+}
+
+.removeCustom:hover {
+  color: var(--accent-red, #ff4444);
+  border-color: var(--accent-red, #ff4444);
+}
+
+.clear {
+  align-self: flex-start;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--text-secondary, #8888aa);
+  background: transparent;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+
+.clear:hover:not(:disabled) {
+  color: var(--accent-red, #ff4444);
+  border-color: var(--accent-red, #ff4444);
+}
+
+.clear:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.divider {
+  height: 1px;
+  background: var(--border-accent, rgba(0, 212, 255, 0.2));
+}
+
+.addRow {
+  display: flex;
+  gap: 6px;
+}
+
+.nameInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text-primary, #e6f6ff);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  border-radius: 6px;
+  padding: 5px 8px;
+  outline: none;
+  transition: border-color 0.12s ease;
+}
+
+.nameInput:focus {
+  border-color: var(--accent-cyan, #00f0ff);
+}
+
+.addBtn {
+  flex-shrink: 0;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-cyan, #00f0ff);
+  background: var(--bg-accent, rgba(0, 240, 255, 0.1));
+  border: 1px solid var(--border-accent-strong, rgba(0, 212, 255, 0.45));
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.addBtn:hover:not(:disabled) {
+  background: var(--bg-accent-strong, rgba(0, 240, 255, 0.2));
+}
+
+.addBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.08s ease, box-shadow 0.12s ease;
+}
+
+.swatch:hover {
+  transform: scale(1.12);
+}
+
+.swatchActive {
+  box-shadow: 0 0 0 2px var(--bg-card), 0 0 6px currentColor;
+}
+
+.preview {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.previewLabel {
+  font-size: 10px;
+  color: var(--text-dim, #6a6a88);
+}
+
+/* ---- Shared label chip (also used read-only in the strip) ---- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  padding: 1px 6px;
+  border: 1px solid;
+  border-radius: 10px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipSmall {
+  font-size: 8px;
+  padding: 0 4px;
+  border-radius: 7px;
+  letter-spacing: 0;
+}

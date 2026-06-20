@@ -145,7 +145,7 @@ Prompt delivery itself rides POST /api/terminals/:id/write; the scheduling/autom
 - `commandStartsWithCli()` detects Claude/Codex command ownership from direct binaries or path-qualified binaries.
 - `stripClaudeSessionFlags()` removes stale `--resume`, `--continue`, and `--fork-session` flags before rebuilding Claude resume/fork commands.
 - `stripCodexSessionSubcommand()` removes stale `resume`/`fork` subcommands before rebuilding Codex resume/fork commands.
-- `buildResumeCommand()` and `buildForkCommand()` centralize the Claude/Codex launch logic used by manual resume, workspace restore, fork, and `resume-command` endpoints. Both re-apply the session's permission mode, model, and effort via `reconstructPermissionFlags` + `applyClaudeLaunchFlags` (`ultracode` effort is menu-only, injected separately, not a launch flag).
+- `buildResumeCommand()` and `buildForkCommand()` centralize the Claude/Codex launch logic used by manual resume, workspace restore, fork, and `resume-command` endpoints. Both re-apply the session's permission mode, model, and effort via `reconstructPermissionFlags` + `applyClaudeLaunchFlags` (`ultracode` effort launches as `--effort xhigh` — its valid base — and is upgraded via a separate post-startup `/effort ultracode`).
 - `findCodexHookEvents()` scans `~/.codex/config.toml` for dashboard-owned `[[hooks.Event]]` command hook blocks; `inferHookDensity()` classifies Claude/Codex hook status as high/medium/low/custom/off.
 
 ## Dependencies & Connections

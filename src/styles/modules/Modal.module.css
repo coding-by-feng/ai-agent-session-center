@@ -132,6 +132,9 @@
 .quickLabelInputRow input:focus { border-color: var(--accent-cyan); box-shadow: 0 0 6px var(--glow-accent); }
 
 .quickWorkdirRow { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+/* Combobox + native "Browse…" button on one row (Electron only). */
+.workdirInputRow { display: flex; gap: 8px; align-items: stretch; }
+.workdirCombo { flex: 1; min-width: 0; }
 .quickWorkdirRow label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
 .quickWorkdirRow input { width: 100%; background: var(--bg-secondary); border: 2px solid var(--border-accent); color: var(--text-primary); font-family: var(--font-mono); font-size: 12px; padding: 8px 10px; border-radius: 4px; outline: none; }
 .quickWorkdirRow input:focus { border-color: var(--accent-cyan); box-shadow: 0 0 6px var(--glow-accent); }

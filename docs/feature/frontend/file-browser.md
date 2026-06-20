@@ -1,7 +1,7 @@
 # Project File Browser
 
 ## Function
-VS Code-style file browser for a session's project directory: a lazy-loading tree on the left and a multi-file-tab viewer on the right, with fuzzy file search, grep-across-project content search, inline find-in-file, file/folder create/delete/upload, bookmarks, collections, recent-files history, markdown editing, LaTeX preview, an interactive image viewer, and a fullscreen mode.
+VS Code-style file browser for a session's project directory: a lazy-loading tree on the left and a multi-file-tab viewer on the right, with fuzzy file search, grep-across-project content search, inline find-in-file, file/folder create/delete/upload, markdown editing, LaTeX preview, an interactive image viewer, and a fullscreen mode.
 
 ## Purpose
 Lets users browse and inspect code/media files in the project directory without leaving the dashboard. Integrates with the terminal via clickable file paths and with the translate/review pipeline via in-place select-to-translate and saved-selection highlights.
@@ -13,11 +13,12 @@ Lets users browse and inspect code/media files in the project directory without 
 | `src/components/session/ProjectTab.tsx` | Main browser: tree + viewer split, file tabs, toolbar, preview renderers, and embedded subcomponents (`ImageViewer`, `ExcelViewer`, `VirtualCodeViewer`, `SearchOverlay`, `InlineInput`, `DeleteConfirmOverlay`). Accepts `originSessionId` to enable in-place translate/explain |
 | `src/components/session/FileTree.tsx` | react-arborist tree with lazy loading (`forwardRef<FileTreeHandle>`), per-project state persistence, auto-refresh, auto-reveal, per-row delete |
 | `src/components/session/FindInFileBar.tsx` | Inline find-in-file bar (Cmd/Ctrl+F); exports `highlightFindMatches()` |
+| `src/lib/searchNormalize.ts` | Length-preserving text normalization for find-in-file (`normalizeForSearch`/`foldDashes`/`DASH_RE`) — folds dash/hyphen variants to `-` and case-folds so match offsets stay aligned |
 | `src/components/session/ContentSearchModal.tsx` | Grep-across-project content-search modal (Cmd/Ctrl+Shift+F) |
 | `src/components/session/imageViewport.ts` | Pure helpers: zoom/pan clamping, fit-to-screen, cursor-anchored zoom, persistence (de)serialization |
 | `src/components/session/LinkifiedText.tsx` | Clickable file paths in rendered text |
 | `src/components/session/TexViewer.tsx` | LaTeX (`.tex`) renderer (lazy-loaded `latex.js`) used by ProjectTab's preview pane |
-| `src/lib/fileSystemProvider.ts` | File system abstraction (459 lines) — `ApiFileSystemProvider` (default, fetches `/api/files/*`) and `LocalFileSystemProvider` (File System Access API, Chromium/localhost) |
+| `src/lib/fileSystemProvider.ts` | File system abstraction (475 lines) — `ApiFileSystemProvider` (default, fetches `/api/files/*`) and `LocalFileSystemProvider` (File System Access API, Chromium/localhost) |
 | `src/components/session/FloatingProjectPanel.tsx` | Host overlay for floating PROJECT mode — portals ProjectTab into a draggable/resizable PIP panel |
 | `src/components/translate/SelectionPopup.tsx` | Selection→popup with translate/explain modes (rendered above the markdown / fullscreen viewers) |
 | `src/hooks/useSelectionPopup.ts` | Selection capture + popup placement logic |
@@ -28,7 +29,7 @@ Lets users browse and inspect code/media files in the project directory without 
 - VS Code split (`vscodeSplit`): collapsible tree panel on the left (drag divider, width 140–600px persisted), viewer panel with file-tab bar on the right.
 - `ProjectTabContainer` manages sub-tabs; the sub-tab bar only appears when >1 sub-tab exists. Labels auto-derive from the deepest path segment and disambiguate against conflicts by prepending the parent dir.
 - `ProjectTab` manages file tabs (one per opened file): clicking a tab restores cached content instantly; closing the active tab falls back to the last tab (or the welcome screen). File content is cached in a ref `Map` for instant tab switching; cached blob URLs are revoked on close/unmount.
-- `originSessionId` prop (optional): when set, enables in-pane translate/explain controls — `SelectionPopup` instances on the markdown and fullscreen viewers, plus the **Translate file** toolbar button. Hidden entirely when `originSessionId` is undefined (e.g. standalone Project Browser route with no matching session).
+- `originSessionId` prop (optional): when set, enables in-pane translate/explain controls — `SelectionPopup` instances on the markdown and fullscreen viewers. Hidden entirely when `originSessionId` is undefined (e.g. standalone Project Browser route with no matching session). (The former **Translate file** toolbar button was removed.)
 
 ### Collapse/expand pane
 - A chevron toggle (`collapseToggleBtn`) is rendered as the leftmost control in the breadcrumb row (only present when a file is open). It sets `paneCollapsed`; `collapsed = paneCollapsed && !!file`.
@@ -37,7 +38,8 @@ Lets users browse and inspect code/media files in the project directory without 
 - Per-session persistence: `localStorage['agent-manager:project-collapsed:${persistId}']` (only when `persistId` is provided), mirroring the `treePanelCollapsed` pattern. State restores on mount and writes on change.
 
 ### Toolbar
-Search files, content search, find-in-file (toggle), new file, new folder, open project in new tab, **open external path** (prompts for an absolute or `~/`-prefixed path; resolves via `GET /api/files/resolve` and opens the file/folder in a fresh sub-tab — useful for files outside the session project, e.g. `~/.config/gcloud/application_default_credentials.json`), reveal in Finder, **format** (in-browser JSON pretty-print / XML/SVG/HTML re-indent via `formatXml` — not Prettier), toggle markdown outline, markdown **edit** mode, **Translate file** (gated on `originSessionId` + `translationEnabled`; POSTs `/api/sessions/spawn-floating` with `mode='translate-file'`), **TₑX** preview/source toggle (`.tex` only), bookmarks panel (badge = count), collection (★, badge = count), recent-files history panel (badge = count), word wrap, fullscreen, then a separator and **Collapse all folders** + **Refresh** (re-fetches file, preserving scroll, and dispatches `filetree:refresh`).
+Search files, content search, find-in-file (toggle), new file, new folder, open project in new tab, **open external path** (prompts for an absolute or `~/`-prefixed path; resolves via `GET /api/files/resolve` and opens the file/folder in a fresh sub-tab — useful for files outside the session project, e.g. `~/.config/gcloud/application_default_credentials.json`), reveal in Finder, **format** (in-browser JSON pretty-print / XML/SVG/HTML re-indent via `formatXml` — not Prettier), toggle markdown outline, markdown **edit** mode, word wrap, fullscreen, then a separator and **Collapse all folders** + **Refresh** (re-fetches file, preserving scroll, and dispatches `filetree:refresh`).
+  - The translate-file, TₑX preview/source toggle, bookmarks, collection, and recent-files toolbar buttons were removed to declutter the bar (along with their panels, handlers, per-project `localStorage` persistence, and tooltip entries). `.tex` files now render unconditionally via `TexViewer` (the former default), and the cross-cutting `fileBrowserToggleBookmark` shortcut definition + the separate TerminalContainer bookmark portal were left intact.
 - Reveal-in-Finder / open-external / copy-path failures show a red toast (`showToast`) with the server error message instead of silently swallowing.
 
 ### File preview renderers
@@ -47,7 +49,7 @@ Dispatched by extension/streamable flags inside `fileViewer`:
 - **Image** — interactive `ImageViewer` (keyed by `file.path`).
 - **Video / Audio** — native `<video>`/`<audio>` over the stream URL.
 - **Binary** — "Binary file (size)" placeholder.
-- **LaTeX** (`.tex`) — `TexViewer` when `texPreview` is on, else raw code view.
+- **LaTeX** (`.tex`) — `TexViewer` (rendered preview; the source/preview toggle was removed).
 - **Markdown** (`.md`/`.mdx`) — `ReactMarkdown` (GFM + `rehypeHighlight` + saved-selection plugin) when not in edit mode; a `<textarea>` editor when `mdEdit` is on (Cmd/Ctrl+S saves via `writeFile`, Esc cancels).
 - **Code** — line-numbered viewer. Files with more than `VIRTUALIZE_THRESHOLD` (10,000) lines use `VirtualCodeViewer` (absolute-positioned rows, `LINE_HEIGHT_PX=20`, `OVERSCAN=30`); smaller files render every line.
 - A portaled **fullscreen** overlay re-runs the same dispatch (Escape closes).
@@ -61,6 +63,7 @@ Dispatched by extension/streamable flags inside `fileViewer`:
 Real-time search, case toggle (Aa), match counter ("X of Y" / "No results"), navigation via `Enter`/`Shift+Enter`, `ArrowDown`/`ArrowUp`, and document-level `F3`/`Shift+F3` while the bar is mounted; the counter pulses via `.countWrapped` (600ms) when the index wraps. Exposes `onTermChange`, `onActiveMatchChange({line,col})`, and `onActiveIdxChange(idx,total)`. Exports `highlightFindMatches(text, term, caseSensitive, activeLineMatch?, currentLine?)` for the code viewers.
 - Code/virtualized views highlight via line-anchored `<mark>`s (`fv-line-N`); the currently-focused match gets `.find-match-active`, others `.find-match`.
 - Rendered markdown has no line anchors, so ProjectTab walks the DOM text nodes, wraps matches in `<mark class="find-match">`, and scrolls the active one (by flat `findActiveIdx`) into view.
+- Matching is **dash/hyphen-insensitive and case-fold-aware** via `normalizeForSearch` (`src/lib/searchNormalize.ts`, added v2.10.31): `foldDashes`/`DASH_RE` map en/em dash, minus sign, fullwidth hyphen, and the rest of U+2010..U+2015 / U+2212 / U+FE58 / U+FE63 / U+FF0D to plain `-` (U+002D). The fold is length-preserving (every variant is a single UTF-16 code unit) so match offsets stay aligned. `FindInFileBar.tsx` applies it to both the term and the searched text; `ProjectTab.tsx` reuses it for markdown/code highlighting.
 
 ### Image viewer (`ImageViewer` + `imageViewport.ts`)
 - Zoom range `ZOOM_MIN=0.1`–`ZOOM_MAX=8` (0.1x–8x). Toolbar +/- and the `+`/`=` / `-`/`_` keys step by `ZOOM_STEP=0.25`; the mouse wheel zooms multiplicatively (`zoom * Math.exp(-deltaY * 0.001)`, cursor-anchored via `zoomAroundCursor`). Ctrl/Meta+wheel always zooms; plain wheel zooms only when the container is focused.
@@ -81,9 +84,8 @@ Real-time search, case toggle (Aa), match counter ("X of Y" / "No results"), nav
 - **Create**: inline `InlineInput` for new file (opens a textarea editor that saves via `writeFile`) / new folder (`mkdir`, then `filetree:refresh`).
 - **Upload**: paste or drag-drop files onto the tree panel → `provider.uploadFile` per file (text via `text()`, binary via base64), then `filetree:refresh` + a success/warning toast.
 - **Context menu** on directory entries: Open, Open in new browser tab, Delete.
-- **Bookmarks**: select text + click the bookmark icon to record `{ filePath, lineStart, lineEnd, selectedText, note }`; jump-to scrolls to `fv-line-N` (loading the file first if needed). Per-project in `localStorage['agent-manager:bookmarks:${projectPath}']`.
-- **Collections**: ★ collects the current file/dir; shared across sessions per project in `localStorage['agent-manager:collections:${projectPath}']`.
-- **Recent files**: every opened file is pushed (deduped, capped at 30) to `localStorage['agent-manager:recent-files:${projectPath}']`; the history panel re-opens or clears them.
+
+> Bookmarks, Collections, and Recent-files history were removed from the file browser (toolbar buttons, panels, and their `localStorage['agent-manager:{bookmarks,collections,recent-files}:${projectPath}']` persistence). The separate terminal-selection bookmark portal (TerminalContainer / `DetailPanel.bookmarkPortalTarget`) is unrelated and remains.
 
 ### Scroll position persistence
 Markdown + code viewers save/restore `scrollTop` per file under `localStorage['file-browser:scroll:${projectPath}:${filePath}']` across tab switches, app restarts, refresh (re-fired via `refreshNonce`), and tab-visibility changes (a root `ResizeObserver` restores on `display:none → flex`).

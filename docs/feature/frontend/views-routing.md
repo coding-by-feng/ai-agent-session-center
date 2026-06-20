@@ -2,7 +2,7 @@
 
 ## Function
 
-Defines the app's entry point, the React Router route tree, the persistent layout chrome (title bar, header, nav bar, activity feed, toasts, global modals), and the top-level view that each route renders. This is the "shell" the rest of the frontend mounts inside.
+Defines the app's entry point, the React Router route tree, the persistent layout chrome (title bar, header, nav bar, toasts, global modals), and the top-level view that each route renders. This is the "shell" the rest of the frontend mounts inside.
 
 ## Purpose
 
@@ -12,12 +12,11 @@ Give the dashboard a single, predictable mount path: bootstrap persisted state, 
 
 | File | Role |
 |------|------|
-| `src/main.tsx` | App entry. Hydrates persisted queue stores from IndexedDB, then renders `<App>` (or `PopoutTerminalView` when `?popout=terminal`). Blocks Cmd/Ctrl+R / F5 reloads. Imports all theme CSS. |
+| `src/main.tsx` | App entry. Hydrates persisted queue stores from IndexedDB, then renders `<App>` (or `PopoutTerminalView` when `?popout=terminal`, or `PopoutProjectView` when `?popout=project`). Blocks Cmd/Ctrl+R / F5 reloads. Imports all theme CSS. |
 | `src/App.tsx` | Setup gate, `QueryClientProvider`, `BrowserRouter`, the `<Routes>` tree, `AppLayout` (shared chrome via `<Outlet>`), `Dashboard` (mounts WebSocket + workspace hooks + scheduler), Electron before-close save flow. |
 | `src/components/layout/TitleBar.tsx` | Fixed 28px draggable macOS-style title bar (z-index 99999) with Save & Quit button (Electron only). |
 | `src/components/layout/Header.tsx` | App title, workspace export/import menus, settings button, exit button. |
 | `src/components/layout/NavBar.tsx` | Primary nav links (LIVE / AGENDA / HISTORY / QUEUE / REVIEW), "+ NEW" session button, recent-dir launcher, shortcuts help button, agenda incomplete-task badge. |
-| `src/components/layout/ActivityFeed.tsx` | Collapsible bottom feed of recent hook events across all sessions (off by default). |
 | `src/components/modals/GlobalSearchModal.tsx` | Cmd/Ctrl+Shift+F search across all in-memory sessions' prompts, responses, tool calls, and events. |
 | `src/routes/LiveView.tsx` | Default `/` route. 3D Cyberdrome scene (lazy) wrapped in an error boundary, or a flat sidebar view when 3D is disabled. |
 | `src/routes/HistoryView.tsx` | `/history` route. SQLite-backed session search with filters, pagination, and a per-session detail overlay (conversation + activity tabs). |
@@ -31,7 +30,7 @@ Give the dashboard a single, predictable mount path: bootstrap persisted state, 
 
 ### Entry & bootstrap (`main.tsx`)
 
-`main.tsx` first inspects the URL query string. If `?popout=terminal`, the window is a popped-out floating terminal: it renders only `<PopoutTerminalView>` (inside a `BrowserRouter`), passing `terminalId`, `originSessionId`, and `label` query params — not the whole dashboard.
+`main.tsx` first inspects the URL query string. If `?popout=terminal`, the window is a popped-out terminal (a fork float, or the main/commands terminal): it renders only `<PopoutTerminalView>` (inside a `BrowserRouter`), passing `terminalId`, `originSessionId`, and `label` query params — not the whole dashboard. If `?popout=project`, it renders only `<PopoutProjectView>` (which wraps the standalone `ProjectBrowserView`, reading `?path=`/`?file=`) — the lightweight content-only window used by the PROJECT tab's `⧉` pop-out. Any other URL bootstraps the full `<App>`.
 
 Otherwise it runs `bootstrap()`, which **awaits** `useQueueStore.loadFromDb()` and `useQueueHistoryStore.loadFromDb()` (IndexedDB hydration) **before** rendering `<App>`. This ordering is load-bearing: `<App>` mounts the WebSocket, and an incoming `session_update` carrying `replacesId` (a `claude --resume` re-key) calls `queueStore.migrateSession()` synchronously. If the queue map were not hydrated first, `migrateSession` would see an empty queue and orphan the loop under the old session id. `loadFromDb()` swallows its own errors, so a hydration failure still falls through to render.
 
@@ -57,19 +56,17 @@ The route tree:
 | `/review` | `ReviewView` | yes | `AppLayout` |
 | `*` | `<Navigate to="/" replace>` | — | `AppLayout` |
 
-`AppLayout` is the shared chrome rendered for every route except `/project-browser`. It mounts `useKeyboardShortcuts()` and lays out: `<Header>`, `<NavBar>`, a `<main>` with `<Suspense>` + `<Outlet>` (lazy route fallback = "Loading…"), then the always-mounted app-wide UI: `<ActivityFeed>`, `<ToastContainer>`, `<SettingsPanel>`, `<NewSessionModal>`, `<ShortcutsPanel>`, `<ShortcutSettingsModal>`, `<GlobalSearchModal>`, `<DetailPanel>`, `<FloatingTerminalRoot>`, `<FileOpenChooser>`. Because these live in the layout, they persist across route changes.
+`AppLayout` is the shared chrome rendered for every route except `/project-browser`. It mounts `useKeyboardShortcuts()` and lays out: `<Header>`, `<NavBar>`, a `<main>` with `<Suspense>` + `<Outlet>` (lazy route fallback = "Loading…"), then the always-mounted app-wide UI: `<ToastContainer>`, `<SettingsPanel>`, `<NewSessionModal>`, `<ShortcutsPanel>`, `<ShortcutSettingsModal>`, `<GlobalSearchModal>`, `<DetailPanel>`, `<FloatingTerminalRoot>`, `<FileOpenChooser>`. Because these live in the layout, they persist across route changes.
 
-**Header auto-hide when a session detail is open.** `AppLayout` subscribes to `sessionStore.selectedSessionId` and `uiStore.detailPanelMinimized` and computes `hideHeader = !!selectedSessionId && !detailPanelMinimized`. While a detail panel is in view, the `<Header>` is replaced by a spacer so the panel + scene reclaim its vertical height; `<NavBar>` stays pinned for navigation. The header returns the instant the panel closes (`selectedSessionId → null`, e.g. after a kill) or is minimized to a corner badge (`detailPanelMinimized → true`). The spacer (`AppLayout.module.css` `.titleBarSpacer`) is `display:none` everywhere except macOS Electron, where it takes over the `Header`'s job of clearing the fixed 28px `TitleBar` (28px draggable region) — without it, `NavBar`/`<main>` would slide under the titlebar. Reading these stores in `AppLayout` is safe because `AppLayout` is the DOM layer, not inside the R3F `<Canvas>`.
+**Top-bars auto-hide when a session detail is open.** `AppLayout` subscribes to `sessionStore.selectedSessionId` and `uiStore.detailPanelMinimized` and computes `hideTopBars = !!selectedSessionId && !detailPanelMinimized`. While a detail panel is in view, **both** `<Header>` and `<NavBar>` are hidden (replaced by a spacer) so the panel + scene reclaim the full vertical height. Both bars return the instant the panel closes (`selectedSessionId → null`, e.g. after a kill) or is minimized to a corner badge (`detailPanelMinimized → true`) — the panel carries its own close/minimize controls, so hiding the NavBar's route tabs doesn't trap the user. The spacer (`AppLayout.module.css` `.titleBarSpacer`) is `display:none` everywhere except macOS Electron, where it takes over the `Header`'s job of clearing the fixed 28px `TitleBar` (28px draggable region) — without it, `<main>` would slide under the titlebar. Reading these stores in `AppLayout` is safe because `AppLayout` is the DOM layer, not inside the R3F `<Canvas>`.
 
 ### Layout chrome
 
 **TitleBar** — fixed 28px draggable bar at the very top on macOS Electron, z-index 99999 so it sits above all overlays; native traffic-light buttons render above even this. Shows the app name and (Electron only) a Save & Quit power button calling `electronAPI.quitApp()`.
 
-**Header** — app title plus a `stats` cluster: `WorkspaceButtons` (Export menu → "Save as JSON file" / "Save to AASC config"; Import menu → "Load from JSON file" / "Load from AASC config", driven by `buildSnapshot` / `downloadSnapshot` / `saveToConfig` / `loadFromConfig` / `loadFromFile` / `importSnapshot` from `lib/workspaceSnapshot`), `SettingsButton`, and (Electron only) an `ExitButton`. Import/export feedback goes through `showToast`. Hidden by `AppLayout` while a session detail panel is in view (see "Header auto-hide" above).
+**Header** — app title plus a `stats` cluster: `WorkspaceButtons` (Export menu → "Save as JSON file" / "Save to AASC config"; Import menu → "Load from JSON file" / "Load from AASC config", driven by `buildSnapshot` / `downloadSnapshot` / `saveToConfig` / `loadFromConfig` / `loadFromFile` / `importSnapshot` from `lib/workspaceSnapshot`), `SettingsButton`, and (Electron only) an `ExitButton`. Import/export feedback goes through `showToast`. Hidden by `AppLayout` while a session detail panel is in view (see "Top-bars auto-hide" above).
 
-**NavBar** — renders `NAV_ITEMS` (`/` LIVE, `/agenda` AGENDA, `/history` HISTORY, `/queue` QUEUE, `/review` REVIEW) as `NavLink`s (the `/` link uses `end` for exact match). The AGENDA link shows a count badge of incomplete tasks (`tasks` where `!completed`). A "+ NEW" button opens the `new-session` modal via `uiStore.openModal`, `<WorkdirLauncher>` offers recent directories, and a "?" button opens the `shortcuts` modal. Each `NavLink`'s `onClick` calls `sessionStore.deselectSession()` — because `DetailPanel` is mounted app-wide in `AppLayout` and overlays *every* route when `selectedSessionId` is set, switching tabs while a session detail is open would otherwise leave the panel covering the target view (and the Header hidden); deselecting on tab click closes the panel so the chosen view is visible and the Header returns. (ActivityFeed-driven selection is unaffected — it doesn't route through NavBar.)
-
-**ActivityFeed** — collapsible feed pinned at the bottom. Hidden entirely unless `settingsStore.activityFeedVisible` (default off). To avoid an O(N×events) sort on every hook event when hidden, the `useMemo` short-circuits to `[]` while not visible. When visible it flattens every session's `events`, sorts newest-first, slices to `maxEntries` (50), and renders rows that call `selectSession(sessionId)` on click. Open/closed state lives in `uiStore.activityFeedOpen`.
+**NavBar** — renders `NAV_ITEMS` (`/` LIVE, `/agenda` AGENDA, `/history` HISTORY, `/queue` QUEUE, `/review` REVIEW) as `NavLink`s (the `/` link uses `end` for exact match). The AGENDA link shows a count badge of incomplete tasks (`tasks` where `!completed`). A "+ NEW" button opens the `new-session` modal via `uiStore.openModal`, `<WorkdirLauncher>` offers recent directories, and a "?" button opens the `shortcuts` modal. The NavBar is itself hidden while a detail panel is in view (see "Top-bars auto-hide"), so its tabs are only reachable with no session selected or while the panel is minimized to a badge. Each `NavLink`'s `onClick` still calls `sessionStore.deselectSession()` — in the minimized state a session is selected *and* the NavBar is visible, so clicking a tab closes the panel (which `DetailPanel` overlays *every* route with when `selectedSessionId` is set) and restores the top bars on the chosen view.
 
 ### GlobalSearchModal
 
@@ -97,7 +94,7 @@ Opened when `uiStore.activeModal === 'global-search'` (bound to Cmd/Ctrl+Shift+F
 - [workspace-snapshot.md](./workspace-snapshot.md) — auto-save/auto-load hooks, before-close flush, Header import/export, RestorePickerModal.
 - [queue-scheduler.md](./queue-scheduler.md) — `useGlobalQueueScheduler` mounted once in `Dashboard`.
 - [keyboard-shortcuts.md](./keyboard-shortcuts.md) — `useKeyboardShortcuts` in `AppLayout`; opens NavBar/search modals.
-- [settings-system.md](./settings-system.md) — `useSettingsInit`, `SettingsPanel`/`SettingsButton`, `scene3dEnabled`, `activityFeedVisible`.
+- [settings-system.md](./settings-system.md) — `useSettingsInit`, `SettingsPanel`/`SettingsButton`, `scene3dEnabled`.
 - [ui-primitives.md](./ui-primitives.md) — `ToastContainer`/`showToast`, `Select`, `Tabs`, `SearchInput`, `SavingOverlay`, `WorkspaceLoadingOverlay`.
 - [session-detail-panel.md](./session-detail-panel.md) — `DetailPanel` and the `detail-panel:find` event consumer.
 - [session-creation-modals.md](./session-creation-modals.md) — `NewSessionModal` (and shortcut/restore modals).

@@ -5,23 +5,22 @@
  */
 import { useMemo } from 'react';
 import { useUiStore } from '@/stores/uiStore';
+import { createFilePathRegex } from '@/lib/filePathLink';
 
 interface LinkifiedTextProps {
   text: string;
   projectPath?: string;
 }
 
-// Matches: path/to/file.ext, ./path/to/file.ext, ../path/to/file.ext
-const FILE_PATH_RE = /(?:\.{0,2}\/)?(?:[\w@.+-]+\/)+[\w@.+-]+\.[\w]+/g;
-
 export default function LinkifiedText({ text, projectPath }: LinkifiedTextProps) {
   const parts = useMemo(() => {
     if (!text || !projectPath) return null;
     const result: Array<{ type: 'text' | 'path'; value: string }> = [];
     let lastIndex = 0;
-    FILE_PATH_RE.lastIndex = 0;
+    // Matches path/to/file.ext, ./… and ../… including non-ASCII segments.
+    const filePathRe = createFilePathRegex();
     let match: RegExpExecArray | null;
-    while ((match = FILE_PATH_RE.exec(text)) !== null) {
+    while ((match = filePathRe.exec(text)) !== null) {
       if (match.index > lastIndex) {
         result.push({ type: 'text', value: text.slice(lastIndex, match.index) });
       }

@@ -20,9 +20,10 @@ Power user efficiency — quick navigation, session control, and modal toggling 
 
 ## Implementation
 - Hardcoded shortcuts in useKeyboardShortcuts.ts (not rebindable): Cmd/Ctrl+Shift+F (global search toggle — `global-search` modal), Cmd/Ctrl+F (find-in-file when a session is selected — dispatches `projectTab:findInFile`; falls through to native browser find when no session), Escape (close modal, else skip if xterm focused), `[` (previous session, only when a session is selected and not typing), `]` (jump to latest finished session)
-- Rebindable shortcuts via shortcutStore (31 actions, see `DEFAULTS` in shortcutKeys.ts):
+- Rebindable shortcuts via shortcutStore (37 actions, see `DEFAULTS` in shortcutKeys.ts):
   - Alt+F11 (`toggleFullscreen`)
   - Cmd/Ctrl+Alt+B (`scrollToBottom`)
+  - Terminal-toolbar actions, all **unbound by default** (section `'Terminal'`): `terminalToggleAutoScroll`, `terminalRefresh`, `terminalBookmark`, `terminalClone`, `terminalFork`, `terminalPopOut`. These run the matching toolbar button on the **selected session's** terminal only (dispatched as CustomEvent `terminal:action` with `{ action, terminalId }`; `TerminalContainer` reacts only when `detail.terminalId` matches its own, so clone/fork never fan out to other/floating terminals).
   - Cmd/Ctrl+Shift+P (`switchLatestSession` — labelled "Switch to previous session"; routes to `switchToPreviousSession`)
   - Cmd/Ctrl+Alt+1-9 (`switchSession1..9`)
   - Cmd/Ctrl+Shift+1-6 (detail-panel tab switch — Project/Terminal/Commands/Prompts/Notes/Queue; the Prompts row maps to tab id `conversation` via `TAB_ACTION_MAP`)
@@ -52,7 +53,7 @@ Power user efficiency — quick navigation, session control, and modal toggling 
 - Rebindable in two equivalent editors: the standalone `shortcut-settings` modal (`ShortcutSettingsModal`) and the Settings panel's Shortcuts tab (`ShortcutSettings`). Both use a capture-phase keydown listener for recording mode (click a `<kbd>` to record, Escape cancels), reject modifier-only/reserved keys (`isReservedOrModifierOnly` — `Control/Shift/Alt/Meta`, `Tab/Enter/Space`), and check `getConflict` before applying. `ShortcutsPanel` is read-only and links to the modal via a "Customize..." button.
 - File browser shortcuts: all 10 unbound by default (`fileBrowserSearch`, `NewFile`, `NewFolder`, `Refresh`, `OpenNewTab`, `Format`, `ToggleOutline`, `ToggleBookmark`, `ToggleWordWrap`, `Fullscreen`); they fire only when the Project tab is open
 - Shortcuts persisted to IndexedDB via `db.settings` key `'shortcutBindings'` (`DB_KEY`); only non-default overrides are stored as a JSON map of `actionId → KeyCombo`
-- `dispatchAction` routes to: `toggleFullscreen` (`document.documentElement.requestFullscreen` / `exitFullscreen`), `scrollToBottom` (CustomEvent `terminal:scrollToBottom`), `switchLatestSession` (→ `switchToPreviousSession`), `switchSession1-9` (→ `switchToSessionByIndex`), `switchTab*` → CustomEvent `detailTabs:switchTab` with `{ tabId }` mapped via `TAB_ACTION_MAP` (project/terminal/commands/conversation/notes/queue), `float*` → CustomEvent `floatTerminal:hotkey` with `{ action }` (minimize/maximize/close), `fileBrowser*` → CustomEvent `fileBrowser:action` with `{ actionId }`
+- `dispatchAction` routes to: `toggleFullscreen` (`document.documentElement.requestFullscreen` / `exitFullscreen`), `scrollToBottom` (CustomEvent `terminal:scrollToBottom`), `switchLatestSession` (→ `switchToPreviousSession`), `switchSession1-9` (→ `switchToSessionByIndex`), `switchTab*` → CustomEvent `detailTabs:switchTab` with `{ tabId }` mapped via `TAB_ACTION_MAP` (project/terminal/commands/conversation/notes/queue), `float*` → CustomEvent `floatTerminal:hotkey` with `{ action }` (minimize/maximize/close), `fileBrowser*` → CustomEvent `fileBrowser:action` with `{ actionId }`, `terminal*` → CustomEvent `terminal:action` with `{ action, terminalId }` (terminalId read from the selected session via `TERMINAL_ACTION_MAP`; consumed by `TerminalContainer` only when it owns that terminalId)
 
 ## Dependencies & Connections
 

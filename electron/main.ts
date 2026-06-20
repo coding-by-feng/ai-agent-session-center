@@ -1,6 +1,6 @@
 process.env.ELECTRON = '1'
 
-import { app, BrowserWindow, shell, Menu, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, shell, Menu, ipcMain, screen, dialog } from 'electron'
 import path from 'path'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { setupTray } from './tray.js'
@@ -194,6 +194,66 @@ function registerPopoutHandler() {
   })
 }
 
+// Project popout windows, keyed by projectPath (focus the existing one instead
+// of opening a duplicate for the same project).
+const projectPopoutWindows = new Map<string, BrowserWindow>()
+
+/** Open the standalone /project-browser route in its own native window so the
+ *  PROJECT panel can be dragged onto another monitor (mirrors the terminal popout:
+ *  secondary-monitor placement + bounds persistence via computePopoutBounds). */
+function registerProjectPopoutHandler() {
+  // Native OS folder picker for the "Browse…" button in the session-creation
+  // modals. Returns the chosen absolute directory path, or null when cancelled.
+  ipcMain.handle('dialog:select-directory', async (_e, opts?: { defaultPath?: string }) => {
+    const parent = mainWindowRef && !mainWindowRef.isDestroyed() ? mainWindowRef : undefined
+    const result = await dialog.showOpenDialog(parent as BrowserWindow, {
+      properties: ['openDirectory', 'createDirectory'],
+      defaultPath: opts?.defaultPath || app.getPath('home'),
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths[0]
+  })
+
+  ipcMain.handle('window:open-project', (_e, opts: { path?: string; file?: string; label?: string }) => {
+    const projectPath = opts?.path
+    if (!projectPath) return { ok: false }
+    const existing = projectPopoutWindows.get(projectPath)
+    if (existing && !existing.isDestroyed()) { existing.focus(); return { ok: true } }
+
+    const port = process.env.SERVER_PORT ?? '3333'
+    const qs = new URLSearchParams({ popout: 'project', path: projectPath })
+    if (opts.file) qs.set('file', opts.file)
+
+    const bounds = computePopoutBounds()
+    const w = new BrowserWindow({
+      x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
+      minWidth: 480, minHeight: 320,
+      backgroundColor: '#0a0a1a',
+      title: opts.label || 'Project',
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    })
+
+    // Remember where the user leaves it (incl. which monitor) for next time.
+    const persistBounds = () => { if (!w.isDestroyed()) savePopoutBounds(w.getBounds()) }
+    w.on('moved', persistBounds)
+    w.on('resized', persistBounds)
+    // Open external links in the system browser; never navigate the window away.
+    w.webContents.setWindowOpenHandler(({ url }) => {
+      try { const p = new URL(url); if (p.protocol === 'https:' || p.protocol === 'http:') shell.openExternal(url) } catch { /* ignore */ }
+      return { action: 'deny' }
+    })
+    projectPopoutWindows.set(projectPath, w)
+    w.on('closed', () => { projectPopoutWindows.delete(projectPath) })
+    void w.loadURL(`http://localhost:${port}/?${qs.toString()}`)
+    return { ok: true }
+  })
+}
+
 function js(win: BrowserWindow, expr: string) {
   win.webContents.executeJavaScript(expr).catch(() => {})
 }
@@ -238,6 +298,7 @@ app.whenReady().then(async () => {
   registerAppHandlers()
   registerTerminalHandlers()
   registerPopoutHandler()
+  registerProjectPopoutHandler()
 
   // Create window immediately — shows loading screen in production
   const win = await createWindow()

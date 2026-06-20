@@ -169,6 +169,7 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
         value={currentRoomId}
         onChange={handleRoomChange}
         options={roomOptions}
+        className={styles.roomSelect}
       />
     </div>
   );

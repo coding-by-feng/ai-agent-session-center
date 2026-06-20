@@ -244,10 +244,10 @@ commands.
 The popup also **inherits the origin session's `model` and `effortLevel`**: they
 are forwarded into the new `TerminalConfig` and applied to the launch command via
 `applyClaudeLaunchFlags` (`--model`/`--effort` flags), so they take effect before
-the popup's first prompt runs. `ultracode` effort cannot be a launch flag, so it
-is injected as a `/effort ultracode` slash command once Claude Code is ready
-(`injectClaudeCommandsWhenReady` in `sshManager.ts`) — the popup's first answer
-may begin at the default effort. `characterModel` is forwarded too so the popup's
+the popup's first prompt runs. `ultracode` launches as `--effort xhigh` (its valid
+base level — the raw `ultracode` value is rejected by the flag) and is then
+upgraded to true ultracode via a `/effort ultracode` slash command once Claude
+Code is ready (`injectClaudeCommandsWhenReady` in `sshManager.ts`). `characterModel` is forwarded too so the popup's
 robot icon matches the parent.
 
 **Per-mode policy**: **all** popup modes fork the origin Claude/Codex session to
@@ -329,9 +329,9 @@ return a 400 with a user-readable error.
 * **cwd resolution.** SSH origins reuse `sshConfig.workingDir`; local origins use
   `origin.projectPath`. Either falls back to `~` when empty.
 * **Effort/model inheritance.** `model` and `effortLevel` apply as `--model` /
-  `--effort` launch flags, but `ultracode` cannot be a launch flag — it is
-  injected as `/effort ultracode` once Claude Code is ready, so the popup's first
-  answer may begin at the default effort (accepted tradeoff).
+  `--effort` launch flags. `ultracode` launches as `--effort xhigh` (its valid
+  base level) and is upgraded to true ultracode via `/effort ultracode` once
+  Claude Code is ready.
 * **CLI misdetection leaks the parent's model.** `applyClaudeLaunchFlags` only
   rewrites commands that start with `claude`, so correct CLI detection is what
   prevents a Codex/Gemini model (e.g. `gpt-5.5`) from being injected as a Claude

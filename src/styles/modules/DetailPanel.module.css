@@ -248,6 +248,37 @@
   border-radius: 0;
   box-shadow: 0 0 0 1px var(--border-accent-strong);
 }
+/* Drag pushed past the container edge — release pops the panel into its own window. */
+.floatPanelPopoutArmed {
+  border-color: var(--accent-cyan);
+  box-shadow:
+    0 0 0 2px var(--accent-cyan),
+    0 8px 32px rgba(0, 0, 0, 0.45),
+    0 0 28px var(--bg-accent);
+}
+.floatPopoutHint {
+  position: absolute;
+  /* Center within the body, not the panel — offset by the 28px header. */
+  top: calc(50% + 14px);
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--accent-cyan);
+  background: var(--bg-panel);
+  border: 1px solid var(--accent-cyan);
+  border-radius: 6px;
+  box-shadow: 0 0 18px var(--bg-accent);
+  pointer-events: none;
+  z-index: 5;
+}
 
 .floatHeader {
   display: flex;
@@ -652,7 +683,25 @@
 .switcherBarVertical .switcherMeta {
   flex-wrap: wrap;
   padding-right: 0;
+  row-gap: 8px;
+  /* Each wrapped line is justified edge-to-edge: the full-width control block
+     sits on its own line(s), and the toggle icons spread evenly on theirs. */
+  justify-content: space-between;
+}
+/* In the narrow left rail, lay the controls out as clean stacked rows instead
+   of cramming KILL/MUTE/ALERT + the room dropdown + 5 toggles onto wrapping
+   lines: the control block takes a full row (KILL/MUTE/ALERT on one line, the
+   room dropdown dropping to its own full-width line), then the toggle icons. */
+.switcherBarVertical .switcherControls {
+  flex: 1 1 100%;
+}
+.switcherBarVertical .switcherControls .ctrlBar {
+  width: 100%;
   row-gap: 6px;
+}
+.switcherBarVertical .roomSelect {
+  flex: 1 1 100%;
+  width: 100%;
 }
 .switcherBarVertical .sessionTabStrip {
   flex-direction: column;
@@ -788,6 +837,13 @@
 }
 
 .switcherEditHint:hover {
+  color: var(--accent-cyan);
+  background: var(--bg-accent, rgba(0, 240, 255, 0.12));
+}
+
+/* Tag/label hint stays lit while its picker popover is open. */
+.switcherLabelHintActive {
+  opacity: 1;
   color: var(--accent-cyan);
   background: var(--bg-accent, rgba(0, 240, 255, 0.12));
 }
@@ -1162,21 +1218,21 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--accent-red, #ff4444);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
+  background: var(--accent-green, #00ff88);
+  color: #06210f;
+  font-size: 9px;
+  font-weight: 800;
   line-height: 1;
   border-radius: 50%;
-  box-shadow: 0 0 6px rgba(255, 68, 68, 0.7);
+  box-shadow: 0 0 6px rgba(0, 255, 136, 0.7);
   z-index: 3;
   pointer-events: none;
   animation: attentionBadgePulse 1.4s ease-in-out infinite;
 }
 
 @keyframes attentionBadgePulse {
-  0%, 100% { box-shadow: 0 0 6px rgba(255, 68, 68, 0.7); }
-  50% { box-shadow: 0 0 12px rgba(255, 68, 68, 0.95); }
+  0%, 100% { box-shadow: 0 0 6px rgba(0, 255, 136, 0.7); }
+  50% { box-shadow: 0 0 12px rgba(0, 255, 136, 0.95); }
 }
 
 .sessionTabTitle {
@@ -1186,7 +1242,10 @@
   color: var(--text-primary);
   text-align: center;
   width: 100%;
-  padding: 0 10px;
+  /* Keep the title clear of the absolutely-positioned corner badges — the
+     index badge (top-left, ~18px + glow) and the red attention badge
+     (top-right, ~14px + glow) — so the text never sits underneath them. */
+  padding: 0 18px;
   box-sizing: border-box;
   line-height: 1.2;
   display: -webkit-box;
@@ -1237,6 +1296,15 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Compact-mode session label: a small colored dot so it doesn't crowd the card. */
+.sessionTabLabelDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 2px;
 }
 
 /* ---- Session tab index badge ---- */
@@ -1463,9 +1531,47 @@
   z-index: 4;
 }
 
+/* Collapse/expand a room group in the tab strip. */
+.sessionTabRoomGroupCollapsed {
+  gap: 4px;
+  padding: 8px 8px 6px;
+}
+
+.roomCollapseToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--room-color, var(--text-dim));
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.roomCollapseToggle:hover {
+  opacity: 1;
+}
+
+.roomCollapsedCount {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--room-color, var(--text-dim));
+  padding: 2px 7px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--room-color, transparent) 16%, transparent);
+}
+
 .sessionTabCardCompact .sessionTabTitle {
   font-size: 8px;
   text-align: left;
+  /* Left-aligned compact title still needs to clear the corner badges. */
+  padding: 0 14px;
 }
 
 /* ---- Responsive ---- */

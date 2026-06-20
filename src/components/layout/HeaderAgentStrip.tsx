@@ -75,6 +75,7 @@ export default function HeaderAgentStrip() {
   const selectedSessionId = useSessionStore((s) => s.selectedSessionId);
   const cardDisplayMode = useUiStore((s) => s.cardDisplayMode);
   const rooms = useRoomStore((s) => s.rooms);
+  const toggleRoomCollapse = useRoomStore((s) => s.toggleCollapse);
   const [expanded, setExpanded] = useState(false);
 
   const handleSelect = useCallback((sessionId: string) => {
@@ -139,23 +140,53 @@ export default function HeaderAgentStrip() {
     <div className={styles.agentStrip}>
       {visible.map((item) => {
         if (item.type === 'room') {
+          const collapsed = item.room.collapsed;
           return (
             <div
               key={item.room.id}
-              className={styles.roomGroup}
+              className={`${styles.roomGroup}${collapsed ? ` ${styles.roomGroupCollapsed}` : ''}`}
               style={{ '--room-color': item.color } as React.CSSProperties}
               title={item.room.name}
             >
               <span className={styles.roomGroupLabel}>{item.room.name}</span>
-              {item.sessions.map((session) => (
-                <MiniRobot
-                  key={session.sessionId}
-                  session={session}
-                  isSelected={session.sessionId === selectedSessionId}
-                  onSelect={handleSelect}
-                  displayMode={cardDisplayMode}
-                />
-              ))}
+              <button
+                type="button"
+                className={styles.roomCollapseToggle}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleRoomCollapse(item.room.id);
+                }}
+                title={collapsed ? `Expand ${item.room.name}` : `Collapse ${item.room.name}`}
+                aria-label={collapsed ? `Expand room ${item.room.name}` : `Collapse room ${item.room.name}`}
+                aria-expanded={!collapsed}
+              >
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s ease' }}
+                >
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </button>
+              {collapsed ? (
+                <span className={styles.roomCollapsedCount}>{item.sessions.length}</span>
+              ) : (
+                item.sessions.map((session) => (
+                  <MiniRobot
+                    key={session.sessionId}
+                    session={session}
+                    isSelected={session.sessionId === selectedSessionId}
+                    onSelect={handleSelect}
+                    displayMode={cardDisplayMode}
+                  />
+                ))
+              )}
             </div>
           );
         }

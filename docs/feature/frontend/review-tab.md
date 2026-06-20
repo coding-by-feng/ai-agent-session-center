@@ -1,8 +1,9 @@
 # REVIEW Tab — Saved Explanations & Translations
 
 > **Function** Persist every selection-popup / translate-toolbar / AI-popup
-> action together with its surrounding context, capture the CLI response when the
-> floating session is closed, and surface the entire history both in a dedicated
+> action together with its surrounding context, capture the CLI response
+> continuously while the floating session is open (and at close), and surface the
+> entire history both in a dedicated
 > nav tab (REVIEW) and in a per-session detail tab (AI POPUPS) — with favorites,
 > aliases, notes, archive, and source-file highlighting for later review.
 
@@ -13,8 +14,9 @@ feature, every explanation or translation they request is worth keeping — but
 floating windows are ephemeral. The REVIEW tab is the persistent journal:
 
 - Every spawn writes a draft entry with the prompt context.
-- Closing the float captures the CLI output (ANSI- + TUI-chrome-stripped) into
-  the same entry.
+- The CLI output (ANSI- + TUI-chrome-stripped) is captured into the same entry
+  continuously while the float is open (6 s poll + `beforeunload`) and again at
+  close, so a reload/quit mid-stream doesn't lose the answer.
 - The user can browse, search, favorite, alias, archive, annotate, and delete
   entries.
 - Favorited selections are highlighted back inside the source markdown file
@@ -25,7 +27,7 @@ floating windows are ephemeral. The REVIEW tab is the persistent journal:
 | File | Role |
 |------|------|
 | `src/lib/db.ts` | `DbTranslationLog` interface + `translationLogs` table. Schema reached **v6** (favorite + alias + sourceFilePath added in v6, with an `.upgrade()` back-fill). |
-| `src/lib/translationLog.ts` | CRUD helpers: `createLog`, `findByUuid`, `findByFloatTerminalId`, `updateLog`, `captureResponse`, `listLogs`, `listByOriginSession`, `listFavoritedByFile`, `setArchived`, `setNotes`, `setFavorite`, `setAlias`, `deleteLog`. |
+| `src/lib/translationLog.ts` | CRUD helpers: `createLog`, `findByUuid`, `findByFloatTerminalId`, `updateLog`, `captureResponse`, `listLogs`, `listByOriginSession`, `listFavoritedByFile`, `setArchived`, `setNotes`, `setFavorite`, `setAlias`, `deleteLog`, `migrateOriginSessionId(oldId, newId)` (lines 87-98) — re-points rows from an old origin session id to a new one on re-key (clone/fork/`claude --resume` via `replacesId`), called from `useWebSocket.ts:100` so `AiPopupHistory` (lists by `originSessionId`) isn't empty for a resumed session. |
 | `src/lib/ansi.ts` | `stripAnsi` + `cleanCapturedOutput` (the latter also drops box-drawing / block / Braille-spinner TUI chrome). `captureResponse` uses `cleanCapturedOutput`. |
 | `src/lib/rehypeSavedSelections.ts` | rehype plugin `makeSavedSelectionsPlugin(terms)` — wraps favorited selection strings in the rendered markdown with `<mark className="saved-selection">` for click-to-open deep-links. |
 | `src/routes/ReviewView.tsx` | The REVIEW view: filters (mode / archived / favorites / search), list, expandable rows, alias + notes inputs, deep-link scroll-to. |
@@ -34,7 +36,7 @@ floating windows are ephemeral. The REVIEW tab is the persistent journal:
 | `src/styles/modules/AiPopupHistory.module.css` | AI POPUPS tab styling. |
 | `src/components/layout/NavBar.tsx` | Adds the `REVIEW` link (`/review`). |
 | `src/App.tsx` | Lazy-loads + registers `<Route path="/review" />`. |
-| `src/stores/floatingSessionsStore.ts` | On `close()`: GETs `/api/terminals/:id/output`, base64 → bytes → UTF-8 (`TextDecoder`), calls `captureResponse(terminalId, decoded)` before killing the pty. |
+| `src/stores/floatingSessionsStore.ts` | `captureNow(terminalId)` (lines 98-112) — GETs `/api/terminals/:id/output`, base64 → bytes → UTF-8 (`TextDecoder`), calls `captureResponse(terminalId, decoded)` **without** killing the pty. `close()` delegates to `captureNow` before issuing the `DELETE`. `migrateOriginSession(oldId, newId)` re-points live float entries on session re-key. |
 | `src/components/translate/SelectionPopup.tsx` | Calls `createLog` after a successful spawn (explain / vocab / translate-selection / custom modes). |
 | `src/components/terminal/TerminalContainer.tsx` | Calls `createLog` for `translate-answer`. |
 | `src/components/session/ProjectTab.tsx` | Calls `createLog` for `translate-file`; renders the saved-selection `<mark>` (via `makeSavedSelectionsPlugin` + `listFavoritedByFile`) and navigates to `/review?uuid=…` on click. |
@@ -96,18 +98,27 @@ POST /api/sessions/spawn-floating  →  { terminalId, label }
    ▼
 floatingSessionsStore.open()    →  FloatingTerminalPanel renders
    ⋮  user reads the CLI response in the floating window
+   ⋮
+   ├─ WHILE OPEN — FloatingTerminalRoot snapshots continuously:
+   │     setInterval(captureNow, 6000) + window 'beforeunload'
+   │     + a final flush on unmount / float-set change.
+   │     captureNow(terminalId) is an idempotent overwrite (keyed by
+   │     floatTerminalId), so polling never duplicates rows.
    ▼
 floatingSessionsStore.close(terminalId)
-   ├─ GET /api/terminals/:id/output  →  { ok: true, output: <base64> }
-   ├─ base64 → Uint8Array → TextDecoder('utf-8') → captureResponse(terminalId, decoded)
+   ├─ captureNow(terminalId):
+   │     GET /api/terminals/:id/output  →  { ok: true, output: <base64> }
+   │     base64 → Uint8Array → TextDecoder('utf-8') → captureResponse(terminalId, decoded)
    │       ├─ cleanCapturedOutput (strip ANSI + TUI chrome)
    │       └─ db.translationLogs.update(…, { response, updatedAt })
-   └─ DELETE /api/terminals/:id     (kills pty)
+   └─ DELETE /api/terminals/:id     (kills pty — capture already done)
 ```
 
-The base64 is decoded via `TextDecoder` (not bare `atob`) so multibyte UTF-8
-characters survive — bare `atob` yields a Latin-1 string that mojibakes (e.g.
-`·` → `Â·`).
+`close()` and the periodic snapshot share the same `captureNow(terminalId)`
+helper — it captures WITHOUT killing the PTY, and `close()` simply calls it
+before the `DELETE`. The base64 is decoded via `TextDecoder` (not bare `atob`)
+so multibyte UTF-8 characters survive — bare `atob` yields a Latin-1 string that
+mojibakes (e.g. `·` → `Â·`).
 
 ## REVIEW View
 
@@ -171,8 +182,12 @@ All data lives in the local browser IndexedDB (`claude-dashboard` /
   leaves rows intact but those fields unindexed/unused.
 * **Response capture is best-effort**: the PTY output ring buffer is only
   `OUTPUT_BUFFER_MAX = 128 KB` (server/sshManager.ts) and the CLI may still be
-  streaming when the user closes the float. We capture whatever's present at
-  that moment.
+  streaming. The latest output is snapshotted continuously while the float is
+  open — `FloatingTerminalRoot` runs `captureNow` on a 6 s interval, on
+  `beforeunload`, and as a final flush on unmount/float-set change (idempotent
+  overwrite keyed by `floatTerminalId`), not only at close — so a reload/quit
+  while a popup is open no longer loses the answer. We still capture whatever's
+  present at each snapshot, so a mid-stream snapshot may be partial.
 * **ANSI / TUI stripping is pragmatic, not exhaustive** — `cleanCapturedOutput`
   removes box-drawing / block / Braille-spinner chrome and common escapes, but
   unusual sequences could leak through. Add cases to `src/lib/ansi.ts` as needed.

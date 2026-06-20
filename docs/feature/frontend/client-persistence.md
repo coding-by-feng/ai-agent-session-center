@@ -9,7 +9,7 @@ Enables offline access to session history, survives page reloads, and stores use
 ## Source Files
 | File | Role |
 |------|------|
-| `src/lib/db.ts` (~20KB, 615 lines) | Dexie database definition, 15 tables, persistence functions |
+| `src/lib/db.ts` (~21KB, 638 lines) | Dexie database definition, 15 tables, persistence functions |
 
 ## Implementation
 - Database name: `claude-dashboard`, current schema **version 6** (`db.ts` declares `this.version(2..6).stores({...})`; older installs upgrade transparently through each version).
@@ -21,6 +21,7 @@ Enables offline access to session history, survives page reloads, and stores use
 - **persistSessionUpdate(session)**: on WS `session_update`, upserts the session record then bulk-adds new prompt/tool/response/event rows, deduplicating each child set by `timestamp` against existing rows.
 - **migrateSessionId(oldId, newId)**: updates `sessionId` across all `CHILD_TABLES` when a session is re-keyed (e.g. `replacesId`).
 - **deleteSession(sessionId)**: deletes the session record then cascade-deletes from `CHILD_TABLES`. **Cascade scope** is `CHILD_TABLES` (`db.ts:575-583`) = 7 tables (prompts, responses, toolCalls, events, notes, promptQueue, alerts). **`translationLogs`, `queueAutomation`, and `queueHistory` are NOT in `CHILD_TABLES`** — deleting a session does NOT cascade-delete them. Translation logs can thus be orphaned (referenced via `originSessionId`); the [REVIEW Tab](./review-tab.md) tolerates this. `queueHistory` rows are intentionally session-independent snapshots.
+- **deleteSessionChildrenBatch(sessionIds)** (`db.ts:627-638`): cascade-deletes every `CHILD_TABLES` row plus the per-session `queueAutomation` row for a **batch** of session ids whose parent was already removed from `db.sessions`. Used by snapshot reconciliation in `useWebSocket.ts` so orphaned `promptQueue` / `queueAutomation` / `event` rows don't accumulate one generation per restart; the caller is responsible for deleting the `db.sessions` rows themselves.
 
 ### Schema migration history
 - **v2** — base schema (12 tables).

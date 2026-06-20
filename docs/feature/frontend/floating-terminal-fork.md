@@ -41,13 +41,13 @@ transcript reader exists.
 | `src/hooks/useSelectionPopup.ts` | Surface-agnostic selection-watcher hook (`auto`/`alt`/`off` triggers; mouseup + click-outside + Esc to dismiss; `open()` for programmatic show). |
 | `src/lib/selectionExtractors.ts` | Strategies: `extractDomSelection` (markdown) and `extractXtermSelection` (terminals). Selection capped at `MAX_SELECTION = 4000`, context line at `MAX_CONTEXT_LINE = 400`. |
 | `src/lib/cliDetect.ts` | `detectCli(session)` → `'claude' | 'gemini' | 'codex' | null`; used client-side to gate the Claude-only `translate-answer` button. |
-| `src/lib/translationLog.ts` | Dexie helpers `createLog` (draft on spawn) / `captureResponse` (on close) feeding the REVIEW tab. |
+| `src/lib/translationLog.ts` | Dexie helpers `createLog` (draft on spawn) / `captureResponse` (called periodically while the float is open — every 6s — plus on `beforeunload` and on close, keyed/overwritten by `terminalId` so it's idempotent) feeding the REVIEW tab. |
 | `src/components/session/FloatingTerminalPanel.tsx` | Picture-in-picture window hosting one TerminalContainer. Forwards its **`originSessionId`** prop (the **root** session) to TerminalContainer so the float's translate/explain lookups resolve a real session **and float-visibility scoping keeps nested floats visible under the selected root** (never orphaned). Recursive fork is handled server-side: the inner `TerminalContainer` sends this float's `terminalId` as `spawnTerminalId`, and the server resolves *its* session as the fork parent. Also hosts the **⧉ pop-out** button (Electron) and rebindable hotkeys (`floatMinimize`/`floatMaximize`/`floatClose`). See [Recursive fork](#recursive-fork). |
 | `src/styles/modules/FloatingTerminalPanel.module.css` | Window styling (drag, resize, collapse, popout chrome) — theme-aware via CSS variables (icons/chrome recolour per theme). |
 | `src/components/session/FloatingTerminalRoot.tsx` | Renders the open floats **belonging to the currently selected session** (`originSessionId === selectedSessionId`), excluding any that are **popped out** into a native window. Mounted once in AppLayout. Listens for `popout:closed` to re-dock. See [Per-session scoping](#per-session-popup-scoping). |
 | `src/components/session/PopoutTerminalView.tsx` | The **entire renderer** when the window is a popped-out float (`/?popout=terminal&terminalId=…`). Sets up its own `useWebSocket(null)` + `useSettingsInit` and hosts one `TerminalContainer` attached to the existing PTY by id, plus its own `<FileOpenChooser>` mount (separate React root from AppLayout, so the popover for terminal file-path clicks needs a local mount). Auth tokens are *not* carried in (localhost Electron only). |
 | `src/styles/modules/PopoutTerminalView.module.css` | Layout for the popout window (titlebar + full-height terminal body). |
-| `src/stores/floatingSessionsStore.ts` | Zustand store holding open floats; capped at `MAX_FLOATS = 4` (`open` **DELETEs the evicted PTY** so it doesn't leak). Adds `closeByOriginSession(id)`, `migrateOriginSession(oldId, newId)`, `closeOrphans(liveIds)`, and the `poppedOut: string[]` list + `setPoppedOut(id, on)`. `close()` snapshots the PTY output (base64 → UTF-8 via `TextDecoder`) into the REVIEW log before DELETE. |
+| `src/stores/floatingSessionsStore.ts` | Zustand store holding open floats; capped at `MAX_FLOATS = 4` (`open` **DELETEs the evicted PTY** so it doesn't leak). Adds `closeByOriginSession(id)`, `migrateOriginSession(oldId, newId)`, `closeOrphans(liveIds)`, `captureNow(terminalId)`, and the `poppedOut: string[]` list + `setPoppedOut(id, on)`. `captureNow(terminalId)` GETs `/api/terminals/:id/output` and snapshots the PTY output (base64 → UTF-8 via `TextDecoder`) into the REVIEW log via `captureResponse` **without killing the PTY** — idempotent/pollable (overwrite keyed by `terminalId`). `close()` delegates to `captureNow()` to take a final snapshot before it DELETEs the PTY. |
 | `src/components/settings/TranslationSettings.tsx` | Settings tab for native/learning languages, inherit-context toggle, explain attach-file-path policy, and trigger mode. |
 | `server/floatingSessionSpawner.ts` | Server-side: resolve origin + fork parent (via `spawnTerminalId`), detect CLI, build the launch/fork command (Claude `--resume … --fork-session` / `--continue --fork-session`; Codex `fork`/`fork --last`), apply permission + model/effort launch flags, create the PTY, and write the command. Forwards the origin's model/effort/characterModel onto the popup session; injects `/effort ultracode` post-launch when the origin is on ultracode. |
 | `server/extractPreviousAnswer.ts` | Claude transcript reader: `readClaudeLastAssistant` (used by `translate-answer`) and `readClaudeTranscript` (used by the CONVERSATION tab — see [conversation-view](./conversation-view.md)). |
@@ -237,6 +237,15 @@ A floating terminal can be **popped out** into its own native OS window (the ⧉
 header button, shown only under Electron) so it can be dragged to another
 monitor — a DOM panel can't leave the app window.
 
+> **Reused by the main TERMINAL and COMMANDS tabs.** The same machinery
+> (`openTerminalWindow` → `PopoutTerminalView` via `?popout=terminal` →
+> `popout:closed` re-dock) now also backs the `⧉` pop-out on the main terminal
+> and the COMMANDS (ops) terminal in `DetailPanel`. Those use the **same**
+> `floatingSessionsStore.poppedOut` list and the `FloatingTerminalRoot`
+> `popout:closed` listener, but render a `PoppedOutTerminalPlaceholder` in the
+> detail panel (not a hidden float) while out. See [Session detail panel →
+> Pop-out to a native window](./session-detail-panel.md#pop-out-to-a-native-window).
+
 * **Trigger.** `FloatingTerminalPanel` calls `electronAPI.openTerminalWindow({
   terminalId, originSessionId, label })` and, on success, marks the float
   `poppedOut` in `floatingSessionsStore`. `FloatingTerminalRoot` then **hides**
@@ -278,7 +287,7 @@ token plumbing. Nested floats spawned from inside a popout window aren't rendere
 | [UI primitives](./ui-primitives.md) | Popup/toolbar buttons use the shared `Tooltip` + `tooltips` registry: `selExplainLearning`, `selExplainNative`, `selVocabNative`, `selTranslateLearning`, `selTranslateNative`, `selCustomPrompt`, `termTranslateAnswer`, `projTranslateFile`, `floatTerminalClose`. |
 | [Terminal UI](./terminal-ui.md) | TerminalContainer mounts the popup, fires `translate-answer`, and re-attaches/replays the PTY buffer on re-dock. |
 | [Conversation view](./conversation-view.md) | Shares `extractPreviousAnswer.ts` — `readClaudeTranscript` backs the CONVERSATION tab; `readClaudeLastAssistant` backs `translate-answer`. |
-| [REVIEW tab](./review-tab.md) | Each spawn writes a draft via `createLog`; the response is captured on close via `captureResponse`. |
+| [REVIEW tab](./review-tab.md) | Each spawn writes a draft via `createLog`; the response is captured via `captureResponse` — periodically while the float is open (every 6s), on `beforeunload`, and on close — through the idempotent `captureNow`, so a restart/reload with a popup open no longer loses the answer. |
 | [Session management](../server/session-management.md) | Float visibility is keyed to `sessionStore.selectedSessionId`; removal/re-key cleanup is wired in `useWebSocket` next to the queue/room migrations. |
 | [Workspace snapshot](./workspace-snapshot.md) | `importSnapshot` re-links popups to the origin's new id via `idRemap` and drops popups whose origin isn't restored. |
 | [IPC transport](../electron/ipc-transport.md) | Pop-out uses the `window:open-terminal` IPC + `popout:closed` event bridged in `preload.ts`. |
@@ -328,5 +337,9 @@ token plumbing. Nested floats spawned from inside a popout window aren't rendere
 
 ## REVIEW Tab (persistence)
 Every spawn writes a draft entry to the `translationLogs` Dexie table; the
-response is captured when the float is closed. Browse, search, archive, and
-annotate entries via the [REVIEW Tab](./review-tab.md).
+response is captured periodically while the float is open (a `setInterval` every
+6s in `FloatingTerminalRoot`), on window `beforeunload`, on a final flush when the
+float set changes / the root unmounts, and on close — all routed through the
+idempotent `floatingSessionsStore.captureNow(terminalId)` (overwrite keyed by
+`terminalId`), so a restart/reload with a popup open no longer loses the answer.
+Browse, search, archive, and annotate entries via the [REVIEW Tab](./review-tab.md).
