@@ -344,18 +344,6 @@ export default function FloatingProjectPanel({
       <div className={styles.floatHeader} onMouseDown={handleDragStart}>
         <span className={styles.floatTitle}>PROJECT</span>
         <div className={styles.floatHeaderBtns}>
-          {canPopOut && (
-            <Tooltip {...tooltips.floatPopOut} placement="bottom">
-              <button
-                type="button"
-                className={styles.floatHeaderBtn}
-                onClick={() => { void handlePopOut().then((ok) => { if (ok) onClose(); }); }}
-                aria-label={tooltips.floatPopOut.label}
-              >
-                ⧉
-              </button>
-            </Tooltip>
-          )}
           <Tooltip {...tooltips.floatMinimize} placement="bottom">
             <button
               type="button"

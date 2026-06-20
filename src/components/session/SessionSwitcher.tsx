@@ -10,6 +10,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useRoomStore, type Room } from '@/stores/roomStore';
 import { useLabelStore } from '@/stores/labelStore';
+import { useDropdownFlipX } from '@/hooks/useDropdownFlipX';
 import LabelPicker, { LabelChip } from './LabelPicker';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
@@ -42,6 +43,88 @@ const STATUS_LEGEND: ReadonlyArray<{ status: string; label: string }> = [
   { status: 'connecting', label: 'Connecting' },
   { status: 'ended', label: 'Disconnected' },
 ];
+
+/** Shared SVG props for the stroked status glyphs — hoisted to module scope so
+ *  it isn't re-allocated on every card render. */
+const GLYPH_PROPS = {
+  width: 10,
+  height: 10,
+  viewBox: '0 0 14 14',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.8,
+  strokeLinecap: 'round' as const,
+  strokeLinejoin: 'round' as const,
+};
+
+/**
+ * Distinct glyph per session status so completed / approval / input / working
+ * etc. are tellable apart at a glance — not by colour alone (waiting and
+ * prompting even share cyan, and accent colours repeat across themes). The
+ * glyph inherits the badge colour via `currentColor`.
+ *
+ * The status→glyph mapping is backend-agnostic: status is derived identically
+ * for Claude and Codex (same hook events → same status in sessionStore), so a
+ * Codex session and a Claude session in the same real-world state show the
+ * same icon.
+ */
+function StatusGlyph({ status }: { status: string }) {
+  switch (status) {
+    case 'waiting': // completed — finished its turn, ready for review
+      return <svg {...GLYPH_PROPS}><polyline points="3,7.4 6,10.2 11,4.2" /></svg>;
+    case 'approval': // needs you to approve a tool — "!"
+      return (
+        <svg {...GLYPH_PROPS}>
+          <line x1="7" y1="2.8" x2="7" y2="8.4" />
+          <circle cx="7" cy="11" r="0.75" fill="currentColor" stroke="none" />
+        </svg>
+      );
+    case 'input': // needs you to answer a question — "?"
+      return (
+        <svg {...GLYPH_PROPS}>
+          <path d="M4.9 4.7a2.1 2.1 0 1 1 3.5 1.7c-.9.8-1.4 1.1-1.4 2.1" />
+          <circle cx="7" cy="11" r="0.75" fill="currentColor" stroke="none" />
+        </svg>
+      );
+    case 'working': // tool running — spinner
+      return (
+        <svg {...GLYPH_PROPS}>
+          <path d="M12 7a5 5 0 1 1-1.6-3.7" />
+          <polyline points="11.9,1.7 11.9,4 9.6,4" />
+        </svg>
+      );
+    case 'prompting': // prompt submitted — up arrow
+      return (
+        <svg {...GLYPH_PROPS}>
+          <line x1="7" y1="11.2" x2="7" y2="3.3" />
+          <polyline points="3.9,6.4 7,3.3 10.1,6.4" />
+        </svg>
+      );
+    case 'ended': // disconnected — ✕
+      return (
+        <svg {...GLYPH_PROPS}>
+          <line x1="3.9" y1="3.9" x2="10.1" y2="10.1" />
+          <line x1="10.1" y1="3.9" x2="3.9" y2="10.1" />
+        </svg>
+      );
+    case 'connecting': // handshaking — ellipsis
+      return (
+        <svg width="10" height="10" viewBox="0 0 14 14" fill="currentColor">
+          <circle cx="3.3" cy="7" r="1.05" />
+          <circle cx="7" cy="7" r="1.05" />
+          <circle cx="10.7" cy="7" r="1.05" />
+        </svg>
+      );
+    case 'idle': // available, doing nothing — pause bars
+    default:
+      return (
+        <svg {...GLYPH_PROPS}>
+          <line x1="5.2" y1="3.8" x2="5.2" y2="10.2" />
+          <line x1="8.8" y1="3.8" x2="8.8" y2="10.2" />
+        </svg>
+      );
+  }
+}
 
 // One color per room slot — cycles if more than 8 rooms exist.
 // Must match the palette in HeaderAgentStrip so colors agree across the UI.
@@ -101,7 +184,7 @@ function RoomFilterIcon({ active }: { active: boolean }) {
 /** Pencil icon — hints that the title can be clicked to rename */
 function EditIcon() {
   return (
-    <svg width="11" height="11" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <svg width="13" height="13" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
         d="M8.5 1.5l2 2L4 10l-2.5.5L2 8l6.5-6.5Z"
         stroke="currentColor"
@@ -116,7 +199,7 @@ function EditIcon() {
 /** Tag icon — opens the label picker for the current session */
 function TagIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <svg width="13" height="13" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path
         d="M1.5 1.5h4l5 5-4 4-5-5v-4Z"
         stroke="currentColor"
@@ -271,6 +354,9 @@ export default function SessionSwitcher({
   const clearRoomFilter = useUiStore((s) => s.clearRoomFilter);
   const [roomDropdownOpen, setRoomDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  // Menu element (inside the wrap) — measured to keep it inside the viewport.
+  const roomMenuRef = useRef<HTMLDivElement>(null);
+  useDropdownFlipX(roomDropdownOpen, roomMenuRef);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -287,6 +373,8 @@ export default function SessionSwitcher({
   // Status-colour legend popover (hint for what each session colour means)
   const [legendOpen, setLegendOpen] = useState(false);
   const legendRef = useRef<HTMLDivElement>(null);
+  const legendMenuRef = useRef<HTMLDivElement>(null);
+  useDropdownFlipX(legendOpen, legendMenuRef);
   useEffect(() => {
     if (!legendOpen) return;
     const handler = (e: MouseEvent) => {
@@ -558,7 +646,7 @@ export default function SessionSwitcher({
                 <RoomFilterIcon active={selectedRoomIds.size > 0} />
               </button>
               {roomDropdownOpen && (
-                <div className={styles.roomFilterDropdown}>
+                <div className={styles.roomFilterDropdown} ref={roomMenuRef}>
                   <button
                     className={`${styles.roomFilterOption}${selectedRoomIds.size === 0 ? ` ${styles.roomFilterOptionActive}` : ''}`}
                     onClick={() => { clearRoomFilter(); setRoomDropdownOpen(false); }}
@@ -596,7 +684,12 @@ export default function SessionSwitcher({
               <LegendIcon />
             </button>
             {legendOpen && (
-              <div className={styles.statusLegendDropdown} role="group" aria-label="Session status colours">
+              <div
+                className={styles.statusLegendDropdown}
+                ref={legendMenuRef}
+                role="group"
+                aria-label="Session status colours"
+              >
                 <div className={styles.statusLegendTitle}>STATUS COLOURS</div>
                 {STATUS_LEGEND.map(({ status, label }) => {
                   const c = STATUS_COLORS[status] ?? 'var(--text-dim)';
@@ -752,6 +845,7 @@ function SessionTabCard({
   needsAttention?: boolean;
 }) {
   const color = STATUS_COLORS[session.status] ?? 'var(--text-dim)';
+  const statusTitle = STATUS_LEGEND.find((s) => s.status === session.status)?.label ?? session.status;
   const title = session.title || session.projectName || '(untitled)';
   const showProject = session.projectName && session.projectName !== session.title;
   const badge = getCliBadge(session);
@@ -811,15 +905,25 @@ function SessionTabCard({
         &#x1F4CC;
       </span>
 
-      {/* Completed badge — session finished its work and is ready for review.
-          Green ✓ (not a red alarm) since completing is a good state. */}
-      {needsAttention && (
+      {/* Top-right corner badge. When the session has just finished work it
+          shows the green ✓ "completed" badge; otherwise it shows a distinct
+          per-status glyph (approval "!", input "?", working spinner, etc.) so
+          statuses are tellable apart by icon, not colour alone. */}
+      {needsAttention ? (
         <span
           className={styles.sessionTabAttentionBadge}
           aria-label="Completed — ready for review"
           title="Completed — ready for review"
         >
           ✓
+        </span>
+      ) : (
+        <span
+          className={styles.sessionTabStatusBadge}
+          aria-label={statusTitle}
+          title={statusTitle}
+        >
+          <StatusGlyph status={session.status} />
         </span>
       )}
 

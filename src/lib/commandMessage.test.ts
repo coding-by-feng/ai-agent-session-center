@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { transformEntries } from './commandMessage';
+import { transformEntries, classifyInjection } from './commandMessage';
 import type { ConversationEntry } from './transcript';
 
 const CAVEAT =
@@ -73,6 +73,47 @@ describe('transformEntries', () => {
       { role: 'user', text: '<local-command-stdout>orphan output</local-command-stdout>', timestamp: 9 },
     ];
     const out = transformEntries(input);
-    expect(out[1]).toEqual({ role: 'system', text: 'orphan output', timestamp: 9 });
+    expect(out[1]).toEqual({ role: 'system', text: 'orphan output', timestamp: 9, kind: 'plumbing' });
+  });
+
+  it('demotes an injected skill body to a labelled skill system row', () => {
+    const skillText =
+      'Base directory for this skill: /Users/kason/.claude/plugins/cache/superpowers/6.0.3/skills/systematic-debugging\n\n' +
+      '# Systematic Debugging\n## Overview\nRandom fixes waste time.';
+    const out = transformEntries([{ role: 'user', text: skillText, timestamp: 10 }]);
+    expect(out[0]).toMatchObject({ role: 'system', kind: 'skill', label: 'systematic-debugging' });
+  });
+
+  it('detects the SessionStart skill-intro phrasing', () => {
+    const intro =
+      "Below is the full content of your 'superpowers:using-superpowers' skill - your introduction.";
+    const out = transformEntries([{ role: 'user', text: intro, timestamp: 11 }]);
+    expect(out[0]).toMatchObject({ role: 'system', kind: 'skill', label: 'superpowers:using-superpowers' });
+  });
+
+  it('demotes a leading system-reminder block', () => {
+    const reminder = '<system-reminder>\nAs you answer the question, you can use the following context.\n</system-reminder>';
+    const out = transformEntries([{ role: 'user', text: reminder, timestamp: 12 }]);
+    expect(out[0]).toMatchObject({ role: 'system', kind: 'reminder' });
+  });
+
+  it('demotes injected hook additional-context', () => {
+    const hook = '<EXTREMELY_IMPORTANT>\nYou have superpowers.\n</EXTREMELY_IMPORTANT>';
+    const out = transformEntries([{ role: 'user', text: hook, timestamp: 13 }]);
+    expect(out[0]).toMatchObject({ role: 'system', kind: 'hook' });
+  });
+
+  it('does NOT misclassify a genuine user prompt that merely mentions a skill', () => {
+    const prompt = 'can you run the systematic-debugging skill on this? Base directory looks wrong.';
+    const out = transformEntries([{ role: 'user', text: prompt, timestamp: 14 }]);
+    expect(out[0]).toEqual({ role: 'user', text: prompt, timestamp: 14 });
+  });
+
+  it('classifyInjection returns null for genuine prompts and a kind for injections', () => {
+    expect(classifyInjection('why are there previous trade records on the table?')).toBeNull();
+    expect(classifyInjection('Base directory for this skill: /a/b/skills/foo-bar')).toEqual({
+      kind: 'skill',
+      label: 'foo-bar',
+    });
   });
 });

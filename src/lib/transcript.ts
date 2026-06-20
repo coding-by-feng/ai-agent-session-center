@@ -11,6 +11,16 @@
  */
 import type { PromptEntry, ResponseEntry, ToolLogEntry, SessionEvent } from '@/types';
 
+/**
+ * Why a `system` row exists — lets the CONVERSATION tab label/route injected
+ * content that arrives with a `user` role but was NOT typed by the user:
+ * - `plumbing`  — slash-command caveats / stdout / harness boilerplate
+ * - `skill`     — an injected skill body (e.g. "Base directory for this skill: …")
+ * - `reminder`  — a `<system-reminder>` block injected into a turn
+ * - `hook`      — SessionStart / hook additional-context injected into a turn
+ */
+export type SystemKind = 'plumbing' | 'skill' | 'reminder' | 'hook';
+
 /** One interleaved conversation entry. */
 export type ConversationEntry =
   | { role: 'user'; text: string; timestamp: number }
@@ -20,7 +30,7 @@ export type ConversationEntry =
   | { role: 'event'; eventType: string; detail: string; timestamp: number }
   // Synthesized client-side by transformEntries() from harness plumbing:
   | { role: 'command'; name: string; args?: string; stdout?: string; timestamp: number }
-  | { role: 'system'; text: string; timestamp: number };
+  | { role: 'system'; text: string; timestamp: number; kind?: SystemKind; label?: string };
 
 interface TranscriptResponse {
   success: boolean;

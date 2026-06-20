@@ -526,15 +526,27 @@
 .convCommandArgs { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
 .convCommandStdout { font-size: 11px; color: var(--text-dim); line-height: 1.5; white-space: pre-wrap; word-break: break-word; margin-top: 4px; padding-left: 12px; }
 
-/* ---- System row (collapsed harness plumbing / caveats) ---- */
-.convSystemRow { border-bottom: 1px solid var(--border-faint); }
+/* ---- System row (collapsed injected content: plumbing / skill / reminder / hook) ---- */
+.convSystemRow { border-bottom: 1px solid var(--border-faint); border-left: 3px solid transparent; }
 .convSystemHeader { cursor: pointer; padding: 4px 12px; display: flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.5px; color: var(--text-dim); opacity: 0.6; transition: opacity 0.15s; }
 .convSystemHeader:hover { opacity: 1; }
-.convSystemToggle { font-size: 8px; transition: transform 0.2s; display: inline-block; }
+.convSystemToggle { font-size: 8px; transition: transform 0.2s; display: inline-block; flex-shrink: 0; }
 .convSystemRowOpen .convSystemToggle { transform: rotate(90deg); }
-.convSystemLabel { text-transform: uppercase; font-weight: 700; }
-.convSystemCount { color: var(--text-dim); }
+.convSystemLabel { text-transform: uppercase; font-weight: 700; flex-shrink: 0; }
+.convSystemCount { color: var(--text-dim); min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.7; }
 .convSystemBody { padding: 4px 12px 8px 30px; font-size: 11px; color: var(--text-dim); line-height: 1.5; white-space: pre-wrap; word-break: break-word; opacity: 0.75; }
+
+/* Injected (not user-typed) content gets a distinct accent so it never reads as
+   a genuine user prompt. Kept subdued — it stays collapsed and subordinate. */
+.convSystemRow[data-kind='skill'] { border-left-color: color-mix(in srgb, var(--accent-yellow, #ffcc00) 55%, transparent); }
+.convSystemRow[data-kind='skill'] .convSystemLabel { color: var(--accent-yellow, #ffcc00); }
+.convSystemRow[data-kind='reminder'] { border-left-color: color-mix(in srgb, var(--accent-orange, #ff9100) 50%, transparent); }
+.convSystemRow[data-kind='reminder'] .convSystemLabel { color: var(--accent-orange, #ff9100); }
+.convSystemRow[data-kind='hook'] { border-left-color: color-mix(in srgb, #4a9eff 50%, transparent); }
+.convSystemRow[data-kind='hook'] .convSystemLabel { color: #4a9eff; }
+.convSystemRow[data-kind='skill'] .convSystemHeader,
+.convSystemRow[data-kind='reminder'] .convSystemHeader,
+.convSystemRow[data-kind='hook'] .convSystemHeader { opacity: 0.82; }
 
 /* ---- Session Control Buttons ---- */
 
@@ -660,7 +672,7 @@
 .switcherBarVertical {
   display: flex;
   flex-direction: column;
-  width: 210px;
+  width: 230px;
   flex-shrink: 0;
   height: 100%;
   border-bottom: none;
@@ -679,6 +691,11 @@
   flex: 0 0 auto;
   height: auto;
   padding: 0;
+  /* Let the label chip + project name wrap below the title in the narrow rail
+     so they don't crush the title onto a 4-character ellipsis. */
+  flex-wrap: wrap;
+  row-gap: 6px;
+  overflow: visible;
 }
 .switcherBarVertical .switcherMeta {
   flex-wrap: wrap;
@@ -727,11 +744,11 @@
   display: flex;
   align-items: center;
   width: 100%;
-  height: 32px;
+  height: 38px;
   background: color-mix(in srgb, var(--bg-card) 60%, transparent);
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .switcherNameBtn {
@@ -796,8 +813,8 @@
 }
 
 .switcherDot {
-  width: 7px;
-  height: 7px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   flex-shrink: 0;
 }
@@ -805,7 +822,7 @@
 .switcherName {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 7px;
   min-width: 0;
   cursor: text;
 }
@@ -815,6 +832,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .switcherEditHint {
@@ -822,7 +842,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  padding: 2px;
+  padding: 3px;
   border: none;
   background: none;
   border-radius: 3px;
@@ -864,21 +884,20 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
   border-radius: 4px;
   background: var(--bg-elevated, rgba(255, 255, 255, 0.08));
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   color: var(--accent-cyan);
-  margin-right: 5px;
   flex-shrink: 0;
   letter-spacing: 0.5px;
 }
 
 .switcherProject {
-  font-size: 9px;
+  font-size: 10px;
   color: var(--text-dim);
   flex-shrink: 1;
   min-width: 0;
@@ -1235,6 +1254,26 @@
   50% { box-shadow: 0 0 12px rgba(0, 255, 136, 0.95); }
 }
 
+/* Per-status glyph badge (top-right). Shown for every status except the
+   just-completed "attention" case (which keeps its green ✓). The status colour
+   fills the badge; the glyph itself is a dark icon for contrast on the neon. */
+.sessionTabStatusBadge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 15px;
+  height: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--robot-color, var(--text-dim));
+  color: #0a0a16;
+  border-radius: 50%;
+  box-shadow: 0 0 5px color-mix(in srgb, var(--robot-color, #888) 70%, transparent);
+  z-index: 3;
+  pointer-events: none;
+}
+
 .sessionTabTitle {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -1356,6 +1395,11 @@
 
 /* ---- Room filter ---- */
 
+/* VIEWPORT-EDGE GUARD: .roomFilterDropdown and .statusLegendDropdown below anchor
+   `right: 0` and extend leftward — near the window's left edge they clip. The
+   consuming SessionSwitcher calls useDropdownFlipX(open, menuRef) to nudge them
+   back on-screen. If you copy this pattern for a new menu, wire that hook too
+   (see "Floating UI & Viewport Safety" in .claude/rules/frontend.md). */
 .roomFilterWrap {
   position: relative;
 }
