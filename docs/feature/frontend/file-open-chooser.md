@@ -10,6 +10,7 @@ Assistant output and terminal logs often list document files (PDFs, spreadsheets
 | File | Role |
 |------|------|
 | `src/components/session/FileOpenChooser.tsx` | The popover component: portaled `position: fixed` menu at the click anchor, three actions + Cancel, Esc / click-outside dismissal. |
+| `src/components/session/FileOpenChooser.test.tsx` | Vitest coverage (9 tests): render gating, the three actions, no-project guard, Esc / click-outside dismissal. |
 | `src/styles/modules/FileOpenChooser.module.css` | Popover styling (dark navy card, cyan accents, 240px wide, fade-in animation). |
 | `src/stores/uiStore.ts` | `pendingFileChooser` state + `openFileChooser(filePath, projectPath, anchor)` / `clearFileChooser()` actions. |
 | `src/lib/filePathLink.ts` | Shared path detector: `createFilePathRegex()` (Unicode-aware `/gu` regex — matches non-ASCII segments like `客户版-业务流程确认.md`) and `mapLineColumns(line)` (maps string code-unit offsets → terminal columns, accounting for double-width CJK cells). Used by both triggers so they never drift. |
@@ -29,7 +30,7 @@ Assistant output and terminal logs often list document files (PDFs, spreadsheets
   - **Reveal in Finder** (label "Reveal in file explorer" off-macOS, detected via `navigator.platform`) — `getFileSystemProvider().reveal(projectPath, filePath)` → existing `POST /api/files/reveal`.
   - **Cancel** — dismiss only. Esc (capture-phase keydown) and click-outside (`useClickOutside`, mousedown) also dismiss.
 - **No-project guard**: when `projectPath` is empty (e.g. a popout terminal without session context), the two external actions are `disabled` with an explanatory tooltip; "Open in app" stays enabled.
-- **Mount points**: once in `AppLayout` ([Views & Routing](./views-routing.md)) and once in `PopoutTerminalView` (separate React root — see [Floating Terminal Fork](./floating-terminal-fork.md)).
+- **Mount points**: once in `AppLayout` ([Views & Routing](./views-routing.md)), once in `PopoutTerminalView`, and once in `PopoutProjectView` — each popout is a separate React root (see [Floating Terminal Fork](./floating-terminal-fork.md) / [Project Browser](./project-browser.md)).
 - **Server endpoint** `POST /api/files/open-external` (body `{ root, path }`): validation identical to `/api/files/reveal` (`isAllowedProjectRoot` → `filePathSchema` (max 1024 chars) → `resolveProjectPath` traversal check → `existsSync`). Platform commands: macOS `open <path>`, Windows `cmd /c start "" <path>`, Linux `xdg-open <path>`. Fire-and-forget `execFile`; errors logged as `files-open-external`, response is `{ ok: true }`.
 
 ## Dependencies & Connections
@@ -43,6 +44,7 @@ Assistant output and terminal logs often list document files (PDFs, spreadsheets
 - [Conversation View](./conversation-view.md) — LinkifiedText file-path clicks open the chooser
 - [Terminal UI](./terminal-ui.md) — terminal file-path link provider opens the chooser
 - [Floating Terminal Fork](./floating-terminal-fork.md) — PopoutTerminalView mounts its own chooser instance
+- [Project Browser](./project-browser.md) — `PopoutProjectView` (the popped-out PROJECT window) mounts its own chooser instance
 
 ### Shared Resources
 - `pendingFileOpen` uiStore flow (chooser's "Open in app" feeds the same consumer chain: DetailPanel → ProjectTabContainer → ProjectTab.loadFile)
@@ -53,5 +55,5 @@ Assistant output and terminal logs often list document files (PDFs, spreadsheets
 - **Relative-path semantics**: paths resolve against the session's `projectPath` (not the terminal's live cwd, which is untracked). If path cleaning in the triggers (`replace(/^\.\//, '')`) diverges from `resolveProjectPath` on the server, external open and in-app open can disagree about which file they target.
 - **Unicode/regex contract**: `createFilePathRegex()` must keep the `u` flag and the ASCII-only extension. Narrowing segment classes back to `\w` re-breaks non-English paths (the original bug); widening the extension to `\p{L}` makes it greedily swallow trailing CJK text. The terminal trigger must keep using `mapLineColumns()` — reverting to `match.index + 1` columns mis-aligns links on any line containing wide characters.
 - **OS-execution surface**: `open`/`start`/`xdg-open` launch the file's default handler — for executable types (`.sh`, `.command`, `.app`) that can mean *running* it. Path validation confines this to files inside an allowed project root; loosening `isAllowedProjectRoot`/`resolveProjectPath` widens this directly.
-- **Both mounts must survive refactors**: removing the `PopoutTerminalView` mount silently breaks the chooser in popped-out terminals (separate React root — the AppLayout instance can't render there).
-- **z-index 9000** sits alongside SelectionPopup (9000) and below TitleBar (99999); raising fullscreen-viewer overlays above 9000 would bury the chooser.
+- **All three mounts must survive refactors**: removing the `PopoutTerminalView` or `PopoutProjectView` mount silently breaks the chooser in that window (separate React root — the AppLayout instance can't render there).
+- **z-index 9000** sits below SelectionPopup (10050, deliberately raised above the terminal fullscreen overlay at 10000 — `Terminal.module.css`) and below TitleBar (99999). The chooser is therefore **already occluded by the terminal fullscreen overlay**; supporting file links inside fullscreen terminals would require raising it to ≥10000.

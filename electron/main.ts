@@ -194,16 +194,10 @@ function registerPopoutHandler() {
   })
 }
 
-// Project popout windows, keyed by projectPath (focus the existing one instead
-// of opening a duplicate for the same project).
-const projectPopoutWindows = new Map<string, BrowserWindow>()
-
-/** Open the standalone /project-browser route in its own native window so the
- *  PROJECT panel can be dragged onto another monitor (mirrors the terminal popout:
- *  secondary-monitor placement + bounds persistence via computePopoutBounds). */
-function registerProjectPopoutHandler() {
-  // Native OS folder picker for the "Browse…" button in the session-creation
-  // modals. Returns the chosen absolute directory path, or null when cancelled.
+/** Register the native OS folder picker used by the "Browse…" button in the
+ *  session-creation modals. Returns the chosen absolute directory path, or null
+ *  when cancelled. */
+function registerDirectoryPickerHandler() {
   ipcMain.handle('dialog:select-directory', async (_e, opts?: { defaultPath?: string }) => {
     const parent = mainWindowRef && !mainWindowRef.isDestroyed() ? mainWindowRef : undefined
     const result = await dialog.showOpenDialog(parent as BrowserWindow, {
@@ -213,7 +207,18 @@ function registerProjectPopoutHandler() {
     if (result.canceled || result.filePaths.length === 0) return null
     return result.filePaths[0]
   })
+}
 
+// Native PROJECT windows, keyed by projectPath. The PROJECT "float" button opens
+// the project browser in its own OS window (draggable to another monitor); a DOM
+// panel can't leave the app window. De-duped by path — a second open focuses the
+// existing window instead of spawning a duplicate.
+const projectPopoutWindows = new Map<string, BrowserWindow>()
+
+/** Register the `window:open-project` IPC: open the standalone /project-browser
+ *  route in its own native window, placed on a secondary monitor when one exists
+ *  (computePopoutBounds) with bounds persisted across opens. */
+function registerProjectWindowHandler() {
   ipcMain.handle('window:open-project', (_e, opts: { path?: string; file?: string; label?: string }) => {
     const projectPath = opts?.path
     if (!projectPath) return { ok: false }
@@ -298,7 +303,8 @@ app.whenReady().then(async () => {
   registerAppHandlers()
   registerTerminalHandlers()
   registerPopoutHandler()
-  registerProjectPopoutHandler()
+  registerDirectoryPickerHandler()
+  registerProjectWindowHandler()
 
   // Create window immediately — shows loading screen in production
   const win = await createWindow()

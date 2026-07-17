@@ -33,6 +33,14 @@ After fork routing, the matcher caches `claude_pid → session.sessionId` in `pi
 | 3 | Path scan of CONNECTING sessions (picks newest if >1) — **`SessionStart` only** | Medium |
 | 4 | PID parent check via pgrep -P (unreliable across shells) | High |
 
+### Priority 0.5 (snapshot restore auto-link)
+Gated on `hook_event_name === SESSION_START` + a `cwd` (sessionMatcher.ts:310-353). Collects candidates whose `projectPath` (trailing slash stripped) equals the hook `cwd`, via three independent matches:
+- **Match 1 — restored ended card**: `status === ENDED` + carries a `ServerRestart` event + `Date.now() - endedAt < 30 * 60 * 1000` (30-min window, so an ancient ended card is never adopted).
+- **Match 2 — process survived the restart**: `status === IDLE` + carries a `ServerRestart` event + no `terminalId`. Covers the case where the PID match failed because the PID wasn't cached or changed.
+- **Match 3 — zombie SSH safety net**: `source === 'ssh'`, not ended, no `terminalId`, *no* `ServerRestart` event, and `lastActivityAt` stale by >60s.
+
+Resolution: **exactly one candidate** → `reKeyResumedSession` adopts it. With multiple candidates, the **#47 tie-break** applies — if exactly one is ENDED and at least one zombie is present, the ENDED one wins; otherwise the match is skipped as ambiguous and a new card is created (path alone can't disambiguate two sessions sharing a directory).
+
 ### SSH-Only Mode
 - Unmatched events silently dropped (no display-only cards)
 
@@ -47,8 +55,8 @@ After fork routing, the matcher caches `claude_pid → session.sessionId` in `pi
 - Merge branch: if the target `newSessionId` already exists in the map (e.g. restored from a server snapshot on a second restart), the existing session's accumulated data is preserved and only the terminal-linkage fields (`terminalId`, `opsTerminalId`, `sshConfig`/`sshHost`/`sshCommand`) are transferred from the new terminal — avoiding overwrite with the fresh `term-*` session's empty state.
 - Sets `replacesId` so the DB / IndexedDB mirror can migrate the old record to the new ID.
 
-### Team & Counter Side-effects (new sessions)
-- For newly created sessions, `matchSession()` copies enriched team fields when present and not already set: `agent_name`, `agent_type`, `team_name`, `agent_color`.
+### Team & Counter Side-effects (cascade-resolved sessions)
+- For every session resolved via the priority cascade — new *or* re-keyed; sessions found by the direct Map lookup return early (sessionMatcher.ts:252) and skip both side-effects — `matchSession()` copies enriched team fields when present and not already set: `agent_name`, `agent_type`, `team_name`, `agent_color`.
 - Increments a per-project counter in `projectSessionCounters` keyed by `projectName`.
 
 ### CLI Source Preservation

@@ -144,6 +144,13 @@ export interface Session {
   projectPath: string;
   title: string;
   summary?: string;
+  /**
+   * Short user-authored note on what this session is currently doing, shown
+   * inline under the title in the detail rail so it is readable without opening
+   * a tab. Distinct from the NOTES tab (long-form, multi-entry) and from
+   * `summary` (AI-generated). User-owned: nothing but an explicit edit changes it.
+   */
+  remark?: string;
   accentColor?: string;
   characterModel?: string;
 

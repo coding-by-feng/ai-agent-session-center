@@ -31,12 +31,8 @@ export const tooltips = {
     description: 'Stop the stacked view and return Terminal and Project to individual tabs.',
   },
   floatProject: {
-    label: 'Float Project panel',
-    description: 'Pop Project out into a draggable, resizable mini-window over the Terminal.',
-  },
-  unfloatProject: {
-    label: 'Disable float mode',
-    description: 'Close the floating Project window and return Project to its tab.',
+    label: 'Open Project in a window',
+    description: 'Open the Project browser in its own OS window you can drag to another monitor.',
   },
   searchPrev: {
     label: 'Previous match',
@@ -54,31 +50,6 @@ export const tooltips = {
     shortcut: 'Esc',
   },
 
-  // ---- FloatingProjectPanel ----
-  floatMinimize: {
-    label: 'Minimize to icon',
-    description: 'Collapse this floating panel into a small draggable badge so the Terminal has full focus.',
-  },
-  floatMaximize: {
-    label: 'Maximize panel',
-    description: 'Expand the floating Project window to fill the available area.',
-  },
-  floatRestore: {
-    label: 'Restore size',
-    description: 'Return the floating Project window to its previous size and position.',
-  },
-  floatClose: {
-    label: 'Close float mode',
-    description: 'Exit float mode and return Project to its tab. Position and size are remembered.',
-  },
-  floatExpand: {
-    label: 'Open Project panel',
-    description: 'Restore the floating Project window. Drag this badge anywhere first if you want.',
-  },
-  floatPopOut: {
-    label: 'Pop out to a window',
-    description: 'Open this project in a separate window you can drag to another monitor.',
-  },
   termPopOut: {
     label: 'Pop out to a window',
     description: 'Open this terminal in a separate window you can drag to another monitor.',

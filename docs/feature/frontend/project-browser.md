@@ -12,6 +12,7 @@ Users often want to explore a project's file tree without keeping the whole sess
 | `src/routes/ProjectBrowserView.tsx` | Route component — parses query params, resolves origin session, renders header + `ProjectTab` |
 | `src/hooks/useKnownProjects.ts` | Hook merging localStorage `workdir-history` with server-discovered project paths from `/api/known-projects` |
 | `src/components/session/ProjectTab.tsx` | Shared file browser component (also used inside Detail Panel) — see [File Browser](./file-browser.md) for the full feature surface |
+| `src/components/session/PopoutProjectView.tsx` | Electron popped-out PROJECT window renderer (`/?popout=project&path=…`) — wraps `ProjectBrowserView` and supplies the `useSettingsInit` (theme) + `useWebSocket(null)` (populates the sessions store for the origin-session resolver) context a fresh `<App>` boot would otherwise provide, plus its own `<FileOpenChooser/>` |
 | `src/styles/modules/ProjectTab.module.css` | `.standalone`, `.standaloneHeader`, `.standaloneTitle`, `.standalonePath`, `.standaloneContent`, `.standaloneEmpty` classes; `.markdown ::selection` cyan highlight for SelectionPopup support |
 
 ## Implementation
@@ -25,7 +26,14 @@ Users often want to explore a project's file tree without keeping the whole sess
 - **Origin-session resolution**: reads `useSessionStore` and picks a session whose normalized `projectPath` (trailing slash stripped) matches the requested path. A non-`ended` session is preferred (`live`); otherwise the first match of any status (`any`) is used. The resolved id is passed to `ProjectTab` as `originSessionId`, enabling the SelectionPopup (translate/explain) and "Translate file" controls in the standalone view
 - **Props passed to `ProjectTab`**: `projectPath`, `initialPath`/`initialIsFile` (from `?file=`), `persistId={`browser-${projectPath}`}` (namespaces tab/tree localStorage keys, e.g. `agent-manager:file-tabs:browser-<path>`), `originSessionId` (or `undefined` if no matching session)
 - **Route registration**: declared in `App.tsx` **outside** `AppLayout` (no nav/header chrome) and lazy-loaded behind a `Suspense` fallback
-- **Navigation source**: the "open in new tab" button inside a session's project tab. When `ProjectTab` runs inside the Detail Panel it prefers the `onOpenBrowserTab` callback (opens an in-app sub-tab); only when that callback is absent does it `window.open('/project-browser?path=...', '_blank')` — which is the path that lands on this standalone route
+- **Navigation sources**:
+  - The "open in new tab" button inside a session's project tab. When `ProjectTab` runs inside the Detail Panel it prefers the `onOpenBrowserTab` callback (opens an in-app sub-tab); only when that callback is absent does it `window.open('/project-browser?path=...', '_blank')` — which is the path that lands on this standalone route
+  - **Popped-out PROJECT tab** (`openProjectWindow`, `DetailTabs.tsx:433`): under Electron calls `window.electronAPI.openProjectWindow({ path, label: 'Project' })` → native window rendering `PopoutProjectView` (de-duped by path — a second click focuses the existing window); in a plain browser falls back to `window.open('/project-browser?path=…', name)`, landing on this standalone route. Covered by `DetailTabs.test.tsx` (Electron call, browser fallback, no-call when unavailable)
+
+### Popped-out window (`PopoutProjectView.tsx`)
+- Rendered as the *entire* renderer when the window is loaded as `/?popout=project&path=…` (dispatched in `src/main.tsx`; the window is created in `electron/main.ts` via `new URLSearchParams({ popout: 'project', path: projectPath })`). It replaces the old `⧉` behaviour of opening `/project-browser` inside a fresh `<App>` boot ("another chrome instance")
+- Wraps `ProjectBrowserView` (which still reads `?path=` / `?file=` itself) and adds `useSettingsInit()` for the theme and `useWebSocket(null)` to populate the sessions store the origin-session resolver needs
+- **Gotcha**: auth tokens are *not* carried into the popout (`useWebSocket(null)` — localhost Electron runs without auth). A password-protected setup would need token plumbing here
 
 ### Known projects hook (`useKnownProjects.ts`)
 - Returns a deduplicated `string[]` of working directories, ordered **history first, then known projects** (`mergeDirectories` preserves history order and appends only unseen known paths)
@@ -45,6 +53,7 @@ Users often want to explore a project's file tree without keeping the whole sess
 
 ### Depended On By
 - Session-level project tab "open in new tab" button (standalone route)
+- `PopoutProjectView` — the Electron popout window renders this route's component directly (not via react-router)
 - [Session Creation Modals](./session-creation-modals.md) — `NewSessionModal` / `QuickSessionModal` workdir pickers consume `useKnownProjects`
 - `WorkdirLauncher` (header quick-launch) workdir picker consumes `useKnownProjects`
 

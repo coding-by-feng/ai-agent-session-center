@@ -1,7 +1,9 @@
 # Particles, Connection Beams & Visual Effects
 
 ## Function
-Status transition particle bursts, animated subagent connection beams between parent/child robots, and scene-level visual effects.
+Status transition particle bursts and animated subagent connection beams between parent/child robots.
+
+> Scene-level ambient effects (`DataParticles`, `Stars`) live in `CyberdromeEnvironment.tsx` — see [Cyberdrome Scene](./cyberdrome-scene.md).
 
 ## Purpose
 Visual feedback for state changes (burst when robot starts working, confetti when task completes) and team relationships (laser lines between parent and subagent robots).

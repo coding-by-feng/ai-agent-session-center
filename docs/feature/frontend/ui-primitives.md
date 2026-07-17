@@ -80,7 +80,7 @@ Floating overlays must never clip against the window edge. The codebase provides
 
 ### Tabs (`Tabs.tsx`)
 
-- **Type**: `Tab = { id: string; label: string; content: ReactNode }`.
+- **Type** (module-private, not exported): `Tab = { id: string; label: string; content: ReactNode }`.
 - **Props**: `tabs: Tab[]`, `activeTab`, `onTabChange(tabId)`, plus optional class overrides: `containerClassName`, `panelClassName`, `tabListClassName`, `tabClassName`, `activeTabClassName`.
 - **Behavior**: renders `<div role="tablist">` of `<button role="tab" aria-selected>` buttons; the panel `<div role="tabpanel">` renders `tabs.find(t => t.id === activeTab)?.content`. When class overrides are absent, falls back to inline styles using theme CSS variables (`--accent-cyan #00e5ff`, `--text-secondary #8888aa`, `--border-subtle`, `--bg-accent`, `--font-mono`).
 
@@ -136,11 +136,10 @@ Floating overlays must never clip against the window edge. The codebase provides
 
 - **Types**: `TooltipCopy = { label; description?; shortcut? }`; `tooltips` is a `satisfies Record<string, TooltipCopy>` object; `TooltipKey = keyof typeof tooltips`.
 - **Grouped registry** (keys) covering icon buttons across the app:
-  - DetailTabs split/float/search: `mergeProjectTerminal`, `splitProjectTerminal`, `stackProjectTerminal`, `unstackProjectTerminal`, `floatProject`, `unfloatProject`, `searchPrev`, `searchNext`, `searchClose`.
-  - FloatingProjectPanel: `floatMinimize`, `floatMaximize`, `floatRestore`, `floatClose`, `floatExpand`.
-  - TerminalToolbar: `termTheme`, `termSendEsc`, `termPaste`, `termSendUp`, `termSendDown`, `termSendEnter`, `termScrollBottom`, `termRefresh`, `termNewSession`, `termFork`, `termSpeak`, `termReconnect`, `termAutoScrollOn`, `termAutoScrollOff`, `termBookmark`, `termClone`, `termFullscreen`, `termFullscreenExit`, `termThemePicker`.
-  - Selection popup (translate/explain): `selExplainLearning`, `selExplainNative`, `selVocabNative`, `selTranslateLearning`, `selTranslateNative`, `selCustomPrompt`, `termTranslateAnswer`, `projTranslateFile`, `floatTerminalClose`.
-  - ProjectTab toolbar: `projSearchFiles`, `projSearchContent`, `projFindInFile`, `projNewFile`, `projNewFolder`, `projOpenInTab`, `projOpenExternal`, `projRevealInFinder`, `projCopyPath`, `projFormat`, `projOutline`, `projBookmark`, `projWordWrap`, `projFullscreen`, `projCollapseAll`, `projRefresh`, `projCloseTab`, `projImageZoomOut`, `projImageZoomReset`, `projImageFit`, `projImageZoomIn`, `projFullscreenClose`, `projDeleteBookmark`, `projRemoveFromCollection`, `projMdEditEnter`, `projMdEditExit`, `projTexPreview`, `projTexSource`, `projCollectAdd`, `projCollectManage`, `projRecentFiles`.
+  - DetailTabs split/stack toggles, Project pop-out, and search: `mergeProjectTerminal`, `splitProjectTerminal`, `stackProjectTerminal`, `unstackProjectTerminal`, `floatProject` (label 'Open Project in a window' — drives the pop-out action, not a float toggle, so there is no un-float counterpart), `searchPrev`, `searchNext`, `searchClose`.
+  - TerminalToolbar: `termPopOut`, `termTheme`, `termSendEsc`, `termPaste`, `termSendUp`, `termSendDown`, `termSendEnter`, `termScrollBottom`, `termRefresh`, `termNewSession`, `termFork`, `termSpeak`, `termReconnect`, `termAutoScrollOn`, `termAutoScrollOff`, `termBookmark`, `termClone`, `termFullscreen`, `termFullscreenExit`, `termThemePicker`.
+  - Selection popup (translate/explain): `selExplainLearning`, `selExplainNative`, `selVocabNative`, `selTranslateLearning`, `selTranslateNative`, `selCustomPrompt`, `floatTerminalClose`.
+  - ProjectTab toolbar: `projSearchFiles`, `projSearchContent`, `projFindInFile`, `projNewFile`, `projNewFolder`, `projOpenInTab`, `projOpenExternal`, `projRevealInFinder`, `projCopyPath`, `projFormat`, `projOutline`, `projWordWrap`, `projFullscreen`, `projCollapseAll`, `projRefresh`, `projCloseTab`, `projImageZoomOut`, `projImageZoomReset`, `projImageFit`, `projImageZoomIn`, `projFullscreenClose`, `projMdEditEnter`, `projMdEditExit`.
   - SessionControlBar: `ctrlResume`, `ctrlKill`, `ctrlMute`, `ctrlUnmute`, `ctrlAlertOff`, `ctrlAlertOn`.
 - Conventions (from the file header): label ≤ 4 words, description one sentence (≤ 120 chars). Entries include optional `shortcut` hints (e.g. `searchNext` → `Enter`, `projSearchContent` → `Cmd+F`, `termFullscreen` → `Alt+F11`).
 
@@ -161,7 +160,7 @@ Floating overlays must never clip against the window edge. The codebase provides
 - [session-creation-modals.md](session-creation-modals.md) — `Modal`, `Select`, `Combobox`, `showToast`.
 - [prompt-queue.md](prompt-queue.md) / [queue-scheduler.md](queue-scheduler.md) — `Modal`, `Select`, toasts in queue UI and scheduler feedback.
 - [keyboard-shortcuts.md](keyboard-shortcuts.md) — fires `showToast`; `data-search-input` is a focus target.
-- [floating-terminal-fork.md](floating-terminal-fork.md) — `Tooltip` copy for fork/translate buttons; `FloatingProjectPanel` tooltips.
+- [floating-terminal-fork.md](floating-terminal-fork.md) — `Tooltip` copy for fork/translate buttons and the floating-session close button (`floatTerminalClose`).
 - [views-routing.md](views-routing.md) — `showToast` used across History/Queue views; `Tabs` for view headers.
 - [summary-tab.md](summary-tab.md), [agenda.md](agenda.md), [setup-wizard.md](setup-wizard.md), [auth-ui.md](auth-ui.md) — assorted `Modal`/`Select`/`Tooltip`/toast usage.
 
@@ -177,8 +176,8 @@ Floating overlays must never clip against the window edge. The codebase provides
 - **uiStore modal contract**: `Modal` assumes a single `activeModal` string. Changing `uiStore` to allow stacked modals, or renaming `openModal`/`closeModal`, breaks every `Modal` consumer (NewSession/QuickSession modals, KillConfirm, Summarize, queue/loop modals).
 - **`showToast` signature / bus**: it is imported widely and called from non-React code (stores, scheduler, shortcut hooks). Changing the argument order, the listener `Set` pattern, or `typeMap` colors affects all notification call sites and theming.
 - **localStorage keys in ResizablePanel**: renaming `detail-panel-width` (or the `:{tab}` suffix scheme) silently resets saved panel widths and must be coordinated with client-persistence docs.
-- **`tooltips` keys**: keys are referenced by string across toolbars (`TerminalToolbar`, `ProjectTab`, `SessionControlBar`, `SelectionPopup`, `DetailTabs`, `FloatingProjectPanel`). Removing/renaming a key removes its tooltip with no compile error at the call site unless callers use `TooltipKey`. Editing copy here changes hover text app-wide.
-- **`SelectOption` / `Tab` shapes**: changing these exported interfaces ripples to every `Select` options array and `Tabs` config.
+- **`tooltips` keys**: keys are referenced by string across toolbars (`TerminalToolbar`, `ProjectTab`, `SessionControlBar`, `SelectionPopup`, `DetailTabs`). Removing/renaming a key removes its tooltip with no compile error at the call site unless callers use `TooltipKey`. Editing copy here changes hover text app-wide.
+- **`SelectOption` / `Tab` shapes**: changing `SelectOption` (exported from `Select.tsx`) ripples to every `Select` options array and to callers that type-import it; `Tab` is module-private to `Tabs.tsx`, so changing it breaks the inline `tabs` config literals every consumer passes, with no external type imports to update.
 - **`format.ts` label maps**: `getStatusLabel` mirrors the session state machine; if a new status is added without an entry it falls through to `.toUpperCase()`. `getSourceLabel` must track new editor/terminal source IDs.
 - **`data-search-input` attribute**: used as a keyboard-shortcut focus target; renaming it breaks focus-search shortcuts (see keyboard-shortcuts).
 - **Portal/positioning in Tooltip**: changes to `VIEWPORT_PAD`/`GAP`/`computePosition` or the `document.body` portal affect tooltip placement everywhere; CSS class names (`placement_top` etc.) are coupled to `Tooltip.module.css`.

@@ -56,7 +56,30 @@ interface PtyInstance {
 // Constants
 // ---------------------------------------------------------------------------
 
-const OUTPUT_BUFFER_MAX = 128 * 1024  // 128 KB ring buffer per terminal
+// Replay ring buffer size — how much scrollback is restored when a terminal
+// reconnects / the app reloads / a session resumes. Configurable via
+// Settings ▸ ADVANCED ▸ Terminal, pushed over IPC (pty:set-replay-buffer →
+// setReplayBufferBytes). Applies to terminals created AFTER the change (the
+// ring is pre-allocated once at create time).
+//
+// These constants mirror src/types/terminal.ts — ptyHost runs in the Electron
+// main process and does not import that module at runtime, so keep them in sync.
+const DEFAULT_REPLAY_BUFFER_BYTES = 2 * 1024 * 1024  // 2 MB
+const MIN_REPLAY_BUFFER_BYTES = 256 * 1024           // 0.25 MB
+const MAX_REPLAY_BUFFER_BYTES = 32 * 1024 * 1024     // 32 MB
+
+let replayBufferBytes = DEFAULT_REPLAY_BUFFER_BYTES
+
+/**
+ * Set the replay buffer size (bytes) for newly created PTYs. Clamped to the
+ * valid range so a bad value can't allocate gigabytes. Returns the applied value.
+ */
+export function setReplayBufferBytes(bytes: number): number {
+  replayBufferBytes = Number.isFinite(bytes)
+    ? Math.min(MAX_REPLAY_BUFFER_BYTES, Math.max(MIN_REPLAY_BUFFER_BYTES, Math.round(bytes)))
+    : DEFAULT_REPLAY_BUFFER_BYTES
+  return replayBufferBytes
+}
 
 // ANSI escape sequences (CSI + OSC) for stripping from PTY output
 const ANSI_ESC_RE = /\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?(?:\x07|\x1b\\)/g
@@ -248,6 +271,24 @@ function applyClaudeLaunchFlags(command: string, model?: string | null, effortLe
   return command.replace(/^claude\b/, `claude ${flags.join(' ')}`)
 }
 
+/**
+ * Env defaults for spawned PTYs (mirrors server/config.ts CLAUDE_TUI_ENV_DEFAULTS).
+ * Claude Code's fullscreen alt-screen renderer captures the mouse (DECSET
+ * 1000/1002/1003/1006), which kills xterm.js drag-selection — and with it the
+ * select-to-translate/explain AI popup. The official opt-out forces the classic
+ * main-screen renderer. A pre-existing value (user opt-back-in) wins.
+ */
+const CLAUDE_TUI_ENV_DEFAULTS: Record<string, string> = {
+  CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1',
+}
+
+function withClaudeTuiEnvDefaults(env: Record<string, string>): Record<string, string> {
+  const defaults = Object.fromEntries(
+    Object.entries(CLAUDE_TUI_ENV_DEFAULTS).filter(([key]) => !(key in env)),
+  )
+  return { ...env, ...defaults }
+}
+
 export function createPty(config: PtyCreateConfig): string {
   const terminalId = `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const workDir = resolveWorkDir(config.workingDir)
@@ -259,12 +300,14 @@ export function createPty(config: PtyCreateConfig): string {
   )
   const shell = getDefaultShell()
 
-  // Build env — strip CLAUDECODE to prevent nested-session detection
+  // Build env — strip CLAUDECODE to prevent nested-session detection.
+  // Classic Claude renderer (no alt screen / mouse capture) so xterm selection
+  // and the AI popup keep working — see CLAUDE_TUI_ENV_DEFAULTS.
   const { CLAUDECODE: _drop, ...parentEnv } = process.env as Record<string, string>
-  const env: Record<string, string> = {
+  const env: Record<string, string> = withClaudeTuiEnvDefaults({
     ...parentEnv,
     AGENT_MANAGER_TERMINAL_ID: terminalId,
-  }
+  })
 
   // Inject API key
   if (config.apiKey) {
@@ -288,7 +331,7 @@ export function createPty(config: PtyCreateConfig): string {
     id: terminalId,
     process: ptyProcess,
     config,
-    ring: Buffer.alloc(OUTPUT_BUFFER_MAX),
+    ring: Buffer.alloc(replayBufferBytes),
     ringOffset: 0,
     ringWrapped: false,
     disposables: [],

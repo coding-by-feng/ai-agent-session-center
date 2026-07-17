@@ -2,7 +2,7 @@
  * KillConfirmModal confirms killing a session process (SIGTERM -> SIGKILL).
  * Ported from the kill modal logic in public/js/sessionControls.js.
  */
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
 import { showToast } from '@/components/ui/ToastContainer';
@@ -39,7 +39,7 @@ export default function KillConfirmModal() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ confirm: true }),
       });
-      const data: KillSessionResponse & ApiResponse = await resp.json();
+      const data: KillSessionResponse & ApiResponse & { killedPid?: number | null; stillAlivePid?: number } = await resp.json();
       if (data.ok) {
         if (session?.terminalId) {
           try {
@@ -48,10 +48,22 @@ export default function KillConfirmModal() {
             showToast('Failed to close terminal', 'error');
           }
         }
-        showToast(`PID ${data.pid || 'N/A'} terminated`, 'success');
+        // Distinguish "terminated a real process" from "no live process found" so
+        // we never claim a phantom kill ("PID N/A terminated").
+        const killedPid = data.killedPid ?? data.pid ?? null;
+        showToast(
+          killedPid ? `PID ${killedPid} terminated` : 'Session closed — no running process found',
+          'success',
+        );
         deselectSession();
       } else {
-        showToast(data.error || 'Kill failed', 'error');
+        // Server verified the process outlived SIGKILL — surface the survivor.
+        showToast(
+          data.stillAlivePid
+            ? `Failed to kill process ${data.stillAlivePid} — it survived SIGKILL`
+            : data.error || 'Kill failed',
+          'error',
+        );
       }
     } catch (err) {
       showToast((err as Error).message, 'error');

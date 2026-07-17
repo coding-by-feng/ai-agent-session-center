@@ -53,22 +53,24 @@ Navigation AI updates every 3rd frame per robot:
 
 Mode transitions are driven by robot state: thinking/working triggers desk seeking (`NAV_GOTO` then `NAV_SIT`), idle/waiting triggers coffee-workstation (zone `-2`) seeking (`NAV_GOTO` then `NAV_SIT`), alert/input freezes in place (`NAV_IDLE` if standing, stays `NAV_SIT` if seated), offline/connecting triggers stationary (`NAV_IDLE`). Desk selection is zone-aware: a robot with a `roomIndex` seeks unoccupied desks in its room zone, an unassigned robot prefers corridor desks (zone `-1`), and when all candidate desks are full it stands behind the nearest occupied desk (overflow). Per-state behavior hints come from `getRobotStateBehavior()` in `robotStateMap.ts` (`seekDesk`, `wander`, `urgentFlash`, `visorColorOverride`, `speedMultiplier`, `casualTarget: 'coffee' | null`); `speedMultiplier` scales walk speed (working 1.2x, waiting 0.6x, alert/input/offline/connecting 0).
 
+> Only `seekDesk` (`SessionRobot.tsx:404`) and `speedMultiplier` (`SessionRobot.tsx:366`) are actually consumed — `wander`, `urgentFlash`, `visorColorOverride` and `casualTarget` are declared on `RobotStateBehavior` but read by nothing. The behaviours they name are hardcoded elsewhere: coffee seeking is an `idle`/`waiting` check plus a `ws.zone === -2` filter in `SessionRobot`, the visor override is the material switch in `Robot3DModel`, and alert flashing lives in `animateAlert`. `wander` is `false` for all 8 states.
+
 ### Robot States (8 Total)
 `sessionStatusToRobotState()` (in `robotStateMap.ts`) maps each `SessionStatus` to one `Robot3DState`:
 
 | Robot State | Source SessionStatus | Animation | Visual |
 |-------------|----------------------|-----------|--------|
 | `idle` | `idle` | Subtle breathing oscillation | Normal colors |
-| `thinking` | `prompting` | Chin-scratch / head-tilt at desk (seated) or head-bob (standing) | Cyan accents |
-| `working` | `working` | Tool-specific working motion + charging body effect | Orange accents |
-| `waiting` | `waiting` | Hopping standing pose | Green accents |
+| `thinking` | `prompting` | Chin-scratch / head-tilt at desk (seated) or head-bob (standing) | Session neon color (no state override) |
+| `working` | `working` | Tool-specific working motion + charging body effect | Session neon color (no state override) |
+| `waiting` | `waiting` | Hopping standing pose | Session neon color (no state override) |
 | `alert` | `approval` | Flashing visor + body shake | Yellow visor (#ffdd00) |
 | `input` | `input` | Raised-arm oscillation | Purple visor (#aa66ff) |
 | `offline` | `ended` | Slumped, glow decays to 0 | Desaturated visor (#333344) |
 | `connecting` | `connecting` | 1.5s boot-up scale-in animation | Scale ramps from 0 |
 
 ### Model Variants (6 Total)
-All variants hover (`hovers: true`) and share the same skeletal structure with per-part geometry/position overrides. Legs are hidden on every variant (`legL`/`legR` `visible: false`) — robots float; leg refs still exist for animation but render nothing. Descriptions below are the `label` / `description` strings from `robot3DModels.ts`.
+All variants hover (`hovers: true`) and share the same skeletal structure with per-part geometry/position overrides. Legs are hidden on every variant (`legL`/`legR` `visible: false`) — robots float; leg refs still exist for animation but render nothing. Descriptions below are the `description` strings from `robot3DModels.ts`, with clarifying notes in parentheses.
 
 | Variant | Description | baseY |
 |---------|-------------|-------|
@@ -89,7 +91,7 @@ Public API: `ROBOT_MODEL_TYPES` (ordered list), `getModelDef()`, `getModelLabel(
 - Pre-built per-palette pools: 16 neon materials (`neonMats`) + 16 edge materials (`edgeMats`); a robot whose color is not in the palette falls back to `createNeonMat()`/`createEdgeMat()` (disposed on unmount)
 - 3 static visor override materials: `ALERT_VISOR_MAT` (#ffdd00), `INPUT_VISOR_MAT` (#aa66ff), `OFFLINE_VISOR_MAT` (#333344)
 - Per-robot cloned body materials (`bodyMat`, `bodyEdgeMat`) to avoid cross-contamination during animation
-- Per-robot `EdgesGeometry` instances are built per part and disposed on unmount (#50, #58); edge geometry is skipped for invisible parts (legs)
+- Per-robot `EdgesGeometry` instances are built per part and disposed on unmount (#50, #88); edge geometry is skipped for invisible parts (legs)
 
 ### Dialogue System
 
@@ -119,6 +121,7 @@ Throttled to minimum 500ms between tool-related updates to prevent bubble spam. 
 ### RobotLabel (WebGL)
 - drei `Billboard` + `Text` for pure WebGL rendering (no HTML portals)
 - 8-field equality memoization (sessionId, status, title, projectName, robotState, isSelected, isHovered, fontSize)
+- `isSelected` / `isHovered` are currently **inert** — `RobotLabelInner` never reads them, `SessionRobot` hardcodes `isSelected = false` (`SessionRobot.tsx:115`), and `isHovered` is read from a ref that can't trigger a re-render. The label has no selection/hover state today; the two props survive only in the memo comparator.
 - Displays a status dot + a single title line (`session.title || session.projectName || 'Unnamed'`, truncated at 28 chars). There is no separate label badge.
 - Alert banner with pulsing opacity above the panel: "APPROVAL NEEDED" (alert) / "INPUT NEEDED" (input)
 - All dimensions scale with the Font Size setting (`scale = fontSize / BASE_FONT`, `BASE_FONT = 13`)
@@ -140,7 +143,7 @@ Two registries in `robotPositionStore.ts`, both plain `Map`s (NOT Zustand) so th
 - CLI badge: detects CLI type via `detectCli()`, preferring explicit `session.cliSource`, then startup/SSH command text, then model string, then event-type fallback. `detectCli()` returns only `'claude' | 'gemini' | 'codex' | null`. The chest badge (`CLI_BADGES` in SessionRobot) renders: C (Claude, #00f0ff), G (Gemini, #4285f4), X (Codex, #10a37f), or ? (unknown/null, #aa66ff). HeaderAgentStrip reuses the same helper for its mini-strip labels (and additionally surfaces AIDER via command/`backendType` heuristics) so labels and 3D badges stay aligned.
 - CLI accent color: when no explicit `accentColor` is set, the robot's neon color is overridden by the CLI badge color (`cliNeonColor`)
 - Tool-specific working animations (WS7.C, via `classifyTool`): read — head scanning (Read/Grep/Glob/NotebookEdit), write — rapid arm typing (Write/Edit), bash — one arm extended (Bash), task — both arms raised (Task), web — brighter antenna (WebFetch/WebSearch), default — standard typing (everything else)
-- Alert urgency escalation (WS7.B), keyed off `statusStartTime`: pulse speed increases after 15s; after 30s visor base intensity rises (1.5→2.5) and a subtle body shake is added
+- Alert urgency escalation (WS7.B), keyed off `statusStartTime`: pulse speed rises after 15s (8→12); after 30s the visor base intensity rises (1.5→2.5), the pulse range widens (1.0→1.5), and the standing body shake intensifies (`t*12` x0.02 → `t*16` x0.03). Only standing robots shake — the seated branch has no shake.
 
 ## Dependencies & Connections
 

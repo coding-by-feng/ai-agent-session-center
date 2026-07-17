@@ -15,7 +15,7 @@ Visual representation of all active AI sessions. Users can see at a glance which
 | `src/components/3d/RoomLabels.tsx` | 3D text floating above room centers + coffee-lounge label |
 | `src/components/3d/SceneOverlay.tsx` | Bottom-right HUD panel (units online, mute toggle, 3D on/off toggle, room-management panel) |
 | `src/components/3d/RobotListSidebar.tsx` | DOM agent list panel (top-left), grouped by room, sorted pinned-then-status, searchable, per-row pin + close |
-| `src/lib/cyberdromeScene.ts` (517 lines) | Layout constants, room grid math, workstation placement, collision, pathfinding |
+| `src/lib/cyberdromeScene.ts` (517 lines) | Layout constants, room grid math, workstation placement, collision helpers (currently fed an empty rect list), pathfinding |
 | `src/lib/sceneThemes.ts` | 9 theme palettes for 3D scene (36 `Scene3DTheme` properties each) |
 | `src/lib/robotPositionPersist.ts` | sessionStorage persistence of robot positions (`saveRobotPositions` / `loadRobotPositions`) |
 | `src/lib/sessionSort.ts` | `sortSessions` + `STATUS_ORDER` — shared sidebar ordering (pinned first, then status, then title) |
@@ -63,12 +63,13 @@ Imperative update of `scene.fog` color/density and `gl.clearColor` on theme chan
 - Each room has 10 desks (5 rows x 2 facing each other), walls with doorways on north/south sides
 - Room zoom: `computeRoomCameraTarget()` places camera at 45-degree angle, 14 units out, 10 units high
 - Pathfinding: `computePathWaypoints()` routes robots through door waypoints when moving between rooms
+- Walls are **visual only** — `CyberdromeScene` passes an empty `wallRects` array ("Walls removed for performance"), so `collidesAnyWall()` never blocks movement and robots walk through walls. `buildDynamicWallRects()` still exists in `cyberdromeScene.ts` but is currently called from nowhere.
 
 ### MapControls
 - Bottom-left DOM overlay (`zIndex: 11`), defined inside `CyberdromeScene.tsx`, with zoom in/out, top-down view, and reset view buttons
 - Zoom uses `flyTo()` with a distance factor applied to the camera-to-target vector: `0.65` for zoom in, `1.5` for zoom out
 - Top-down places camera `+30` units above current target (with a tiny `±0.01` X/Z offset so OrbitControls keeps a valid orientation)
-- Reset returns to default position `[18, 16, 18]` looking at `[0, 1, 0]` (`DEFAULT_CAMERA_POSITION` / `DEFAULT_CAMERA_TARGET` in `cameraStore.ts`)
+- Reset returns to `[18, 16, 18]` looking at `[0, 1, 0]` — note MapControls hardcodes these literals; the matching `DEFAULT_CAMERA_POSITION` / `DEFAULT_CAMERA_TARGET` constants in `cameraStore.ts` are used only by `SceneOverlay`'s room-panel Overview button
 
 ### RobotListSidebar
 - Top-left panel (`top:16, left:20`), 280px wide expanded / `auto` when collapsed, backdrop blur, collapsible header ("Agents (N)"). Hidden entirely when there are zero sessions.
@@ -92,11 +93,13 @@ Imperative update of `scene.fog` color/density and `gl.clearColor` on theme chan
 ### Session Filtering
 Sessions are rendered as robots only when `status !== 'ended'` AND `source === 'ssh'` AND they are NOT floating popups (`!session.isFloating`). This keeps the scene to terminal-launched sessions; Explain/Translate floating popups have their own PiP UI and are excluded here (and likewise from `RobotListSidebar`). Clone/fork sessions set `isFork` without `isFloating` and DO get robots/rows.
 
+`RobotListSidebar` does **not** apply the `source === 'ssh'` filter — it excludes only `ended` and `isFloating` sessions. Non-ssh (hook-only) sessions therefore appear as sidebar rows with no robot, and "Agents (N)" can exceed `SceneOverlay`'s "Units Online" (which counts the ssh-filtered `sessionArray`).
+
 ### Robot Position Persistence
 `CyberdromeScene` runs a `setInterval` every **2000ms** that reads `getAllNavInfo()` from `robotPositionStore` and calls `saveRobotPositions()` (`robotPositionPersist.ts`), persisting `posX/posZ/rotY/mode/deskIdx` per session to `sessionStorage['cyberdrome-robot-positions']` so robots resume their spots across page reloads. `loadRobotPositions()` reads it back on robot mount.
 
 ### Store Dependencies
-`CyberdromeScene` reads `sessions`/`selectSession` (sessionStore), `rooms` (roomStore), `themeName`/`characterModel`/`fontSize` (settingsStore), and `flyTo` (cameraStore) in the DOM layer. `RobotListSidebar` additionally reads `selectedSessionId`/`removeSession`/`togglePin` (sessionStore), `rooms` (roomStore), and `detailPanelMinimized`/`restoreDetailPanel` (uiStore). `SceneOverlay` reads `soundSettings`/`scene3dEnabled` (settingsStore) plus room CRUD actions (roomStore) and `flyTo` (cameraStore). ALL Canvas-side components (`SceneContent`, `CameraController`, `SceneThemeSync`, `RoomLabels`, etc.) use zero store subscriptions — props only, or imperative `getState()` reads where necessary (`CameraController` polls `cameraStore.getState()` in `useFrame`).
+`CyberdromeScene` reads `sessions`/`selectSession` (sessionStore), `rooms` (roomStore), `themeName`/`characterModel`/`fontSize` (settingsStore), and `flyTo` (cameraStore) in the DOM layer. `RobotListSidebar` additionally reads `selectedSessionId`/`removeSession`/`togglePin` (sessionStore), `rooms` (roomStore), and `detailPanelMinimized`/`restoreDetailPanel` (uiStore). `SceneOverlay` reads `soundSettings`/`scene3dEnabled` (settingsStore), `sessions` (sessionStore, for `RoomPanel`'s per-room active-count badge), plus room CRUD actions (roomStore) and `flyTo` (cameraStore). ALL Canvas-side components (`SceneContent`, `CameraController`, `SceneThemeSync`, `RoomLabels`, etc.) use zero store subscriptions — props only, or imperative `getState()` reads where necessary (`CameraController` polls `cameraStore.getState()` in `useFrame`).
 
 ## Dependencies & Connections
 

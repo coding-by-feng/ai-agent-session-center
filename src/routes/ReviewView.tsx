@@ -17,6 +17,7 @@ import {
   type ListFilters,
 } from '@/lib/translationLog';
 import type { DbTranslationLog } from '@/lib/db';
+import PopupResponse from '@/components/session/PopupResponse';
 import styles from '@/styles/modules/ReviewView.module.css';
 
 const MODE_LABELS: Record<DbTranslationLog['mode'], string> = {
@@ -141,10 +142,6 @@ export default function ReviewView() {
     next.delete('uuid');
     setSearchParams(next, { replace: true });
   }, [rows, searchParams, setSearchParams]);
-
-  const handleCopy = useCallback((text: string) => {
-    navigator.clipboard?.writeText(text).catch(() => { /* ignore */ });
-  }, []);
 
   return (
     <div className={styles.view}>
@@ -280,23 +277,7 @@ export default function ReviewView() {
                       )}
                     </div>
 
-                    <div className={styles.section}>
-                      <div className={styles.sectionLabel}>
-                        Conversation
-                        {row.response && (
-                          <button
-                            type="button"
-                            className={styles.linkBtn}
-                            onClick={() => handleCopy(row.response)}
-                          >
-                            copy
-                          </button>
-                        )}
-                      </div>
-                      <pre className={styles.body}>
-                        {row.response || '(response not captured — close the floating session to capture it)'}
-                      </pre>
-                    </div>
+                    <PopupResponse response={row.response} label="Conversation" />
 
                     <div className={styles.section}>
                       <div className={styles.sectionLabel}>Notes</div>

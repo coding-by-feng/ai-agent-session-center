@@ -219,6 +219,7 @@ export interface DbSessionRow {
   source: string;
   label: string | null;
   summary: string | null;
+  remark: string | null;
   team_id: string | null;
   team_role: string | null;
   character_model: string | null;

@@ -16,6 +16,8 @@ interface SessionState {
   toggleMute: (sessionId: string) => void;
   toggleAlert: (sessionId: string) => void;
   setSessionTitle: (sessionId: string, title: string) => void;
+  /** Set the inline progress remark. Empty string clears it. */
+  setSessionRemark: (sessionId: string, remark: string) => void;
 }
 
 export const useSessionStore = create<SessionState>((set) => ({
@@ -127,6 +129,24 @@ export const useSessionStore = create<SessionState>((set) => ({
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: trimmed }),
+      }).catch(() => { /* ignore network errors */ });
+      return { sessions: next };
+    }),
+
+  setSessionRemark: (sessionId, remark) =>
+    set((state) => {
+      const session = state.sessions.get(sessionId);
+      if (!session) return state;
+      // Unlike the title, an EMPTY remark is meaningful — it clears the note.
+      // So only bail when the value is unchanged, never merely because it's ''.
+      const trimmed = remark.trim();
+      if (trimmed === (session.remark ?? '')) return state;
+      const next = new Map(state.sessions);
+      next.set(sessionId, { ...session, remark: trimmed });
+      fetch(`/api/sessions/${encodeURIComponent(sessionId)}/remark`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ remark: trimmed }),
       }).catch(() => { /* ignore network errors */ });
       return { sessions: next };
     }),

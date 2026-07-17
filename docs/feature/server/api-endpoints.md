@@ -1,7 +1,7 @@
 # REST API Router
 
 ## Function
-Provides all HTTP REST API endpoints for session management, terminal creation, file browsing, analytics, notes, hooks, and admin operations.
+Provides all HTTP REST API endpoints for session management, terminal creation, file browsing, notes, hooks, and admin operations.
 
 ## Purpose
 The HTTP interface for the React frontend and external integrations. Handles all CRUD operations not covered by WebSocket.
@@ -9,7 +9,7 @@ The HTTP interface for the React frontend and external integrations. Handles all
 ## Source Files
 | File | Role |
 |------|------|
-| `server/apiRouter.ts` (~2609 lines, largest server file) | All REST endpoints |
+| `server/apiRouter.ts` (~2687 lines, largest server file) | All REST endpoints |
 | `server/constants.ts` | Hook event/density constants (`ALL_CLAUDE_HOOK_EVENTS`, `CODEX_HOOK_EVENTS`, `DENSITY_EVENTS`, `CODEX_DENSITY_EVENTS`, `SESSION_STATUS`, `WS_TYPES`) used by hook status/install and broadcast endpoints |
 | `server/index.ts` | Auth endpoints (`/api/auth/*`) and middleware wiring (localhost-only for hooks, authMiddleware for everything else under /api) |
 | `server/hookRouter.ts` | POST /api/hooks (HTTP-fallback hook ingestion) — delegates to `processHookEvent` |
@@ -34,7 +34,7 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - GET /api/sessions/:id/source
 - GET /api/sessions/:id/transcript — full interleaved Claude JSONL transcript (user/assistant/tool_use/tool_result entries) via `readClaudeTranscript`, for the [Conversation tab](../frontend/conversation-view.md). Never 500s: returns `{ success: true, data: [] }` on a missing session/transcript so the client falls back to in-memory logs.
 - GET /api/sessions/history (paginated session history with status filter)
-- PUT /api/sessions/:id/title|accent-color|character-model|pinned|muted|alerted
+- PUT /api/sessions/:id/title|remark|accent-color|character-model|pinned|muted|alerted
 - POST /api/sessions/:id/kill|resume|summarize|fork|clone
   - `clone` creates a new terminal that re-runs the source session's `startupCommand` with session-specific flags stripped (`--resume`/`--continue`/`--fork-session` removed via `stripClaudeSessionFlags`), name stripped, then permission flags + model/effort re-applied. Distinct from `fork` — clone starts a fresh CLI session, fork resumes the existing one. Both run via `createTerminalSession({ isFork: true, originSessionId })` — `isFork` only (kill-guard), NOT `isFloating`, so clone/fork sessions appear in the session lists like any other agent (only floating PiP popups set `isFloating` and are hidden).
   - `resume` rebuilds the launch command via `buildResumeCommand`: Claude uses `claude --resume '<SESSION_ID>' || claude --continue`; Codex uses `codex resume '<SESSION_ID>' || codex resume --last`. Non-UUID IDs (synthetic `term-*` etc.) use the fallback form only.
@@ -56,6 +56,7 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - GET /api/terminals (list all active terminals)
 - GET /api/terminals/:id/output — snapshots the PTY ring buffer as base64 (via `getTerminalOutputBuffer`). Consumed by the REVIEW tab to capture floating-session output at close.
 - DELETE /api/terminals/:id
+- POST /api/config/terminal-buffer — sets the scrollback replay buffer size for newly created (WS/SSH) terminals. Body `{ bytes: number }` (Zod `z.number().finite()`); calls `setReplayBufferBytes()` which clamps to `[0.25 MB, 32 MB]` and returns `{ success: true, data: { bytes: <applied> } }`. Pushed by the browser from the `terminalReplayBufferBytes` setting (Settings ▸ ADVANCED ▸ Terminal, see [Settings System](../frontend/settings-system.md)); the Electron PTY host is configured separately over the `pty:set-replay-buffer` IPC channel. See [Terminal/SSH](./terminal-ssh.md).
 
 ### File Browser
 - GET /api/files/list|read|stream|search|grep
@@ -64,7 +65,7 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - POST /api/files/search/invalidate (clear search cache)
 - POST /api/files/reveal (open in system file manager — `open -R` / `explorer /select,` / `xdg-open`)
 - POST /api/files/open-external (open file with the OS default application — `open` / `cmd /c start "" <path>` / `xdg-open`; same `{ root, path }` body and validation as reveal, fire-and-forget `execFile`, errors only logged). Consumed by the [File-Open Chooser](../frontend/file-open-chooser.md).
-- **Limits**: `MAX_FILE_SIZE = 10MB` (read/write JSON), `MAX_STREAMABLE_SIZE = 100MB` (PDF/image/video/audio streaming, with HTTP Range support for media). Grep capped at `MAX_RESULTS = 500` (ripgrep, falling back to grep). All file paths validated via `isAllowedProjectRoot()` + `resolveProjectPath()` to block traversal.
+- **Limits**: `MAX_FILE_SIZE = 10MB` (read/write JSON), `MAX_STREAMABLE_SIZE = 100MB` (PDF/Word/spreadsheet/image/video/audio streaming, with HTTP Range support for media; `STREAMABLE_EXTENSIONS` includes `.docx`/`.doc`, streamed as bytes for client-side mammoth rendering, plus `.xlsx`/`.xls`). Grep capped at `MAX_RESULTS = 500` (ripgrep, falling back to grep). All file paths validated via `isAllowedProjectRoot()` + `resolveProjectPath()` to block traversal.
 
 ### Slash Commands
 - GET /api/commands?cli=<claude|codex|gemini>&projectPath=<absolute> — enumerates slash commands + skills (project + global + plugin sources) for the CLI, cached 30s per (cli, projectPath). Backs slash-command autocomplete in prompt inputs; see [Command Autocomplete](../frontend/command-autocomplete.md).
@@ -135,7 +136,7 @@ Prompt delivery itself rides POST /api/terminals/:id/write; the scheduling/autom
 - GET /api/known-projects decodes ~/.claude/projects/ directory names with greedy filesystem probing
 
 ### Rate Limiting
-- In-memory sliding window (`isRateLimited` per-key per-second): 100/sec hooks, 5/sec DB full-text search, 20/sec file fuzzy-search, 5/sec TTS synthesize.
+- In-memory fixed 1s window (`isRateLimited` per-key per-second — the bucket resets wholesale once the window elapses): 100/sec hooks, 5/sec DB full-text search, 20/sec file fuzzy-search, 5/sec TTS synthesize.
 - Concurrency/count caps: `MAX_CONCURRENT_SUMMARIZE = 2`, `MAX_TERMINALS = 50` (also enforced on team-member terminal attach).
 
 ### str() Helper
@@ -153,7 +154,7 @@ Prompt delivery itself rides POST /api/terminals/:id/write; the scheduling/autom
 ### Depends On
 - [Session Management](./session-management.md) — reads/writes session data
 - [Terminal/SSH](./terminal-ssh.md) — creates/manages terminals
-- [Database](./database.md) — queries SQLite for history/analytics
+- [Database](./database.md) — queries SQLite for history
 - [Authentication](./authentication.md) — auth middleware protects routes
 - [Hook System](./hook-system.md) — hook ingestion endpoint
 - [Floating Session Spawner](./floating-session-spawner.md) — POST /api/sessions/spawn-floating delegates here
@@ -176,7 +177,7 @@ Prompt delivery itself rides POST /api/terminals/:id/write; the scheduling/autom
 - DB
 
 ## Change Risks
-- Largest server file (~2609 lines) -- consider splitting if it grows further
+- Largest server file (~2687 lines) -- consider splitting if it grows further
 - Changes to endpoint contracts break frontend
 - Zod schema changes affect request validation
 - Rate limit changes affect hook ingestion

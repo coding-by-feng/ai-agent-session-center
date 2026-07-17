@@ -16,7 +16,7 @@ Lets the user track tasks alongside AI coding sessions without leaving the dashb
 | `src/components/agenda/AddTaskForm.tsx` | Inline new-task form (title required, priority defaults medium, optional due date + tags) |
 | `src/types/agenda.ts` | `AgendaTask`, `AgendaPriority`, `AgendaFilter` types (shared server + client) |
 | `src/components/layout/NavBar.tsx` | `/agenda` nav link + incomplete-count badge |
-| `server/apiRouter.ts` | `agendaCreateSchema` / `agendaUpdateSchema` Zod schemas (lines 314 / 322) + 5 REST endpoints (lines 2507-2615) |
+| `server/apiRouter.ts` | `agendaCreateSchema` / `agendaUpdateSchema` Zod schemas (lines 314 / 322) + 5 REST endpoints (lines 2523-2633) |
 | `server/db.ts` | `agenda_tasks` table + `getAllAgendaTasks`, `getAgendaTaskById`, `upsertAgendaTask`, `deleteAgendaTask` |
 
 ## Implementation

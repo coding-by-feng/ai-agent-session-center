@@ -48,10 +48,12 @@ If the key field is blank:
 
 ### Bilingual synthesis
 `splitByLanguage(text)` walks char-by-char, classifying CJK vs ASCII/punctuation
-(`CJK_RE = /[一-鿿㐀-䶿＀-￯　-〿]/`). Whitespace
-and punctuation stick to the current run. `synthesize()` then runs each segment
-through `chunkSegment(text, MAX_CHARS_PER_REQUEST)` to keep every request under
-`MAX_CHARS_PER_REQUEST = 4500` chars (Google's hard limit is 5000 bytes),
+(`CJK_RE = /[\u4e00-\u9fff\u3400-\u4dbf\uff00-\uffef\u3000-\u303f]/` — CJK
+Unified, CJK Ext-A, Halfwidth/Fullwidth Forms, CJK Symbols & Punctuation).
+Whitespace and punctuation stick to the current run. `synthesize()` then runs
+each segment through `chunkSegment(text, MAX_CHARS_PER_REQUEST)` to keep every
+request under `MAX_CHARS_PER_REQUEST = 4500` chars (Google's hard limit is 5000
+bytes),
 cutting at `\n`, `. `, `。`, or space boundaries. Each chunk is synthesized via
 `callSynth()` with its voice (`en-US-Chirp3-HD-*` for `en-US`, or
 `cmn-CN-Chirp3-HD-*` for `cmn-CN`) at `audioConfig.effectsProfileId =
@@ -85,8 +87,8 @@ audio, and revokes the active blob URL. `checkTTSStatus(apiKey)` POSTs to
 `/api/tts/status` and returns the `data` envelope (`{ ok, error? }`).
 
 ### API surface
-- `POST /api/tts/synthesize` — body `{ apiKey, text, voiceEn?, voiceZh?, speakingRate?, lang? }` → `audio/mpeg` (`Cache-Control: no-store`); errors → 500 `{ success: false, error }` (key redacted)
-- `POST /api/tts/status` — body `{ apiKey }` → `{ success: true, data: { ok, error? } }` (probes Google's `voices` REST list with the key)
+- `POST /api/tts/synthesize` — body `{ apiKey, text, voiceEn?, voiceZh?, speakingRate?, lang? }` → `audio/mpeg` (`Cache-Control: no-store`); errors → 500 `{ success: false, error }` (key redacted). Zod bounds: `apiKey` 10–200 chars, `text` 1–12000 chars, `voiceEn`/`voiceZh` ≤100 chars, `speakingRate` 0.25–4.0, `lang` one of `en`/`zh`/`auto`; violations → 400. The 12000-char `text` cap sits above ttsManager's own `MAX_CHARS_PER_REQUEST = 4500` chunker, so a long hold-to-speak buffer is chunked server-side but a single oversize request is still rejected at the boundary.
+- `POST /api/tts/status` — body `{ apiKey }` (Zod: 1–200 chars) → `{ success: true, data: { ok, error? } }` (probes Google's `voices` REST list with the key)
 
 ### Rate limiting
 - 5 req/sec/client at the HTTP endpoint (`isRateLimited('tts-synthesize', 5)`); over limit → 429.

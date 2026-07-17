@@ -1,0 +1,278 @@
+/* PopupResponse — shared response display for the AI POPUPS tab and the REVIEW
+   history view. Renders a captured AI answer as themed markdown, with a raw
+   fallback. Theme-aware (canonical CSS vars) and horizontally contained so long
+   code / tables scroll inside the box instead of blowing out a docked panel. */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sectionLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.toolBtn {
+  background: none;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.toolBtn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-dim);
+}
+
+.toolBtn[aria-pressed='true'] {
+  color: var(--accent-cyan, #00e5ff);
+  border-color: var(--accent-cyan, #00e5ff);
+}
+
+.empty,
+.rawNote {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-style: italic;
+  padding: 6px 8px;
+  line-height: 1.5;
+}
+
+.rawNote {
+  padding-bottom: 2px;
+}
+
+.raw {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-faint);
+  border-radius: 4px;
+  padding: 8px;
+  font-family: var(--font-mono);
+}
+
+/* ---- Rendered markdown answer ---- */
+
+.markdown {
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--text-primary);
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
+  max-height: 460px;
+  overflow-y: auto;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-faint);
+  border-radius: 4px;
+  padding: 10px 12px;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  line-height: 1.35;
+  font-weight: 700;
+}
+.markdown h1 {
+  font-size: 16px;
+  margin: 14px 0 8px;
+  color: var(--accent-cyan, #00e5ff);
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 5px;
+}
+.markdown h2 {
+  font-size: 14px;
+  margin: 14px 0 6px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-faint);
+  padding-bottom: 4px;
+}
+.markdown h3 {
+  font-size: 13px;
+  margin: 12px 0 4px;
+  color: var(--text-secondary);
+}
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  font-size: 11px;
+  margin: 10px 0 4px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.markdown p {
+  margin: 0 0 10px;
+}
+
+.markdown strong {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+.markdown em {
+  font-style: italic;
+  color: var(--text-secondary);
+}
+.markdown del {
+  color: var(--text-dim);
+  text-decoration: line-through;
+}
+
+.markdown a {
+  color: var(--accent-cyan, #00e5ff);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s;
+}
+.markdown a:hover {
+  border-bottom-color: var(--accent-cyan, #00e5ff);
+}
+
+.markdown hr {
+  border: none;
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 14px 0;
+}
+
+.markdown ul,
+.markdown ol {
+  margin: 6px 0 10px;
+  padding-left: 20px;
+}
+.markdown ul {
+  list-style: disc;
+}
+.markdown ol {
+  list-style: decimal;
+}
+.markdown li {
+  margin: 3px 0;
+  padding-left: 2px;
+  line-height: 1.6;
+}
+.markdown ul ul {
+  list-style: circle;
+}
+
+.markdown blockquote {
+  margin: 10px 0;
+  padding: 6px 12px;
+  border-left: 3px solid var(--accent-cyan, #00e5ff);
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 6%, transparent);
+  border-radius: 0 4px 4px 0;
+  color: var(--text-secondary);
+}
+.markdown blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* Inline code */
+.markdown code:not(pre code) {
+  background: var(--bg-accent, rgba(255, 255, 255, 0.06));
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  color: var(--accent-orange, #ffb454);
+  border: 1px solid var(--border-faint);
+}
+
+/* Code block — scrolls horizontally inside its box */
+.markdown pre {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  margin: 10px 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.markdown pre code {
+  display: block;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+}
+
+/* Tables (GFM) — wrapped so a wide table scrolls, never overflows the panel */
+.markdown table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 11px;
+}
+.markdown thead th {
+  text-align: left;
+  padding: 6px 10px;
+  font-weight: 700;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--accent-cyan, #00e5ff);
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 5%, transparent);
+  border-bottom: 2px solid var(--border-subtle);
+}
+.markdown tbody td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-faint);
+  color: var(--text-secondary);
+  vertical-align: top;
+}
+.markdown tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.markdown img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 6px 0;
+  border: 1px solid var(--border-subtle);
+}

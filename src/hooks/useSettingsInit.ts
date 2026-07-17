@@ -59,6 +59,26 @@ export function useSettingsInit(): void {
     soundEngine.setVolume(volume);
   }, [volume]);
 
+  // Push the terminal replay-buffer size to BOTH backends whenever it changes
+  // (and once on mount / after settings load). Electron mode has both an IPC PTY
+  // host AND the embedded server, so we push to both channels unconditionally —
+  // each is best-effort. Backends clamp + default, so a failed push is harmless.
+  const replayBufferBytes = useSettingsStore((s) => s.terminalReplayBufferBytes);
+  useEffect(() => {
+    try {
+      window.electronAPI?.setPtyReplayBuffer?.(replayBufferBytes);
+    } catch {
+      // Electron bridge unavailable (browser mode) — ignore.
+    }
+    fetch('/api/config/terminal-buffer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bytes: replayBufferBytes }),
+    }).catch(() => {
+      // Server unreachable — it keeps its default; will re-push on next change.
+    });
+  }, [replayBufferBytes]);
+
   // Unlock Web Audio on first user interaction so alarm sounds can play
   useEffect(() => {
     if (soundEngine.isUnlocked()) return;

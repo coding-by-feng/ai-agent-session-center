@@ -14,6 +14,7 @@ import {
   deleteLog,
 } from '@/lib/translationLog';
 import type { DbTranslationLog } from '@/lib/db';
+import PopupResponse from './PopupResponse';
 import styles from '@/styles/modules/AiPopupHistory.module.css';
 
 const MODE_LABELS: Record<DbTranslationLog['mode'], string> = {
@@ -117,12 +118,6 @@ export default function AiPopupHistory({ sessionId }: AiPopupHistoryProps) {
     [reload],
   );
 
-  const handleCopy = useCallback((text: string) => {
-    navigator.clipboard?.writeText(text).catch(() => {
-      /* ignore */
-    });
-  }, []);
-
   if (rows.length === 0) {
     return <div className={styles.empty}>No AI popups from this session yet</div>;
   }
@@ -196,24 +191,7 @@ export default function AiPopupHistory({ sessionId }: AiPopupHistoryProps) {
                   <pre className={styles.body}>{sourceText || '(no source captured)'}</pre>
                 </div>
 
-                <div className={styles.section}>
-                  <div className={styles.sectionLabel}>
-                    Response
-                    {row.response && (
-                      <button
-                        type="button"
-                        className={styles.linkBtn}
-                        onClick={() => handleCopy(row.response)}
-                      >
-                        copy
-                      </button>
-                    )}
-                  </div>
-                  <pre className={styles.body}>
-                    {row.response ||
-                      '(response not captured — close the floating session to capture it)'}
-                  </pre>
-                </div>
+                <PopupResponse response={row.response} label="Response" />
 
                 <div className={styles.section}>
                   <div className={styles.sectionLabel}>Notes</div>

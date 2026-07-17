@@ -9,13 +9,13 @@ Secure communication between React renderer and node-pty/Electron APIs. The prel
 ## Source Files
 | File | Role |
 |------|------|
-| `electron/ipc/terminalHandlers.ts` | PTY terminal IPC bridge (create, write, resize, kill, subscribe, unsubscribe, has, **list** at lines 93-95 — registered but not exposed via preload, currently orphan) |
+| `electron/ipc/terminalHandlers.ts` | PTY terminal IPC bridge (create, write, resize, kill, subscribe, unsubscribe, has, **list** — registered but not exposed via preload, currently orphan; **set-replay-buffer**) |
 | `electron/ipc/setupHandlers.ts` | Setup wizard IPC (is-complete, check-deps, save-config, install-hooks, complete) |
 | `electron/ipc/appHandlers.ts` | App lifecycle IPC (app:get-port, app:open-browser, app:rerun-setup, app:quit) |
 | `electron/preload.ts` | contextBridge exposing electronAPI to renderer |
 | `src/types/electron.d.ts` | Canonical `ElectronAPI` contract + payload/result types (`PtyCreateConfig`, `PtyCreateResult`, `PtySubscribeResult`, `SetupConfig`, etc.) |
 
-Note: the `window:open-terminal` / `popout:closed` channels are *registered* in `electron/main.ts` (not in `terminalHandlers.ts`) but bridged through `preload.ts`; they are documented here because they ride the same `electronAPI` surface.
+Note: the `window:open-terminal` / `window:open-project` / `dialog:select-directory` / `popout:closed` channels are *registered* in `electron/main.ts` (not in `terminalHandlers.ts` or `appHandlers.ts`) but bridged through `preload.ts`; they are documented here because they ride the same `electronAPI` surface.
 
 ## Implementation
 
@@ -33,19 +33,21 @@ Note: the `window:open-terminal` / `popout:closed` channels are *registered* in 
 | `pty:data` | Main -> Renderer | push (webContents.send) | Base64 encoded terminal output. **Gated**: only sent to `WebContents` in the PTY's subscriber set. |
 | `pty:exit` | Main -> Renderer | push (webContents.send) | PTY exit with exitCode and signal. Broadcast to all windows (rare event). |
 | `pty:list` | Renderer -> Main | invoke (request/response) | Returns ptyHost.listPtys(). **Registered in terminalHandlers but NOT exposed via preload** — currently orphan (no `electronAPI` method). |
+| `pty:set-replay-buffer` | Renderer -> Main | on (fire-and-forget) | Sets the scrollback replay buffer size (bytes) for newly created PTYs via `ptyHost.setReplayBufferBytes` (clamped 0.25–32 MB). Pushed from the renderer when the `terminalReplayBufferBytes` setting loads/changes (see [Settings System](../frontend/settings-system.md)). Bridged as `electronAPI.setPtyReplayBuffer(bytes)`. |
 | `window:open-terminal` | Renderer -> Main | invoke (request/response) | Pops a floating terminal out into its own native `BrowserWindow` (draggable to another monitor). Registered in `electron/main.ts`. Payload `{ terminalId, originSessionId?, label? }`, returns `{ ok }`. |
-| `popout:closed` | Main -> Renderer | push (webContents.send) | Fires in the **main** window when a popped-out terminal window is closed, so the in-app float can re-dock. Carries `terminalId`. |
+| `window:open-project` | Renderer -> Main | invoke (request/response) | Opens the PROJECT tab in its own native `BrowserWindow` (draggable to another monitor) on the standalone project-browser route. Registered in `electron/main.ts`. Payload `{ path, file?, label? }`, returns `{ ok }`. De-duped by `path` — a second open focuses the existing window. Called from `DetailTabs.tsx:437`. |
+| `popout:closed` | Main -> Renderer | push (webContents.send) | Fires in the **main** window when a popped-out terminal window is closed, so the in-app float can re-dock. Carries `terminalId`. Terminal pop-outs only — closing a project window pushes nothing. |
 
 ### Fire-and-Forget vs Request/Response
 
 The distinction between `on` (fire-and-forget) and `invoke` (request/response) is intentional:
 
-- **`pty:write`, `pty:resize`, `pty:unsubscribe` use `on`** -- these are high-frequency or best-effort operations where waiting for a response adds unnecessary latency
+- **`pty:write`, `pty:resize`, `pty:unsubscribe`, `pty:set-replay-buffer` use `on`** -- these are high-frequency or best-effort operations where waiting for a response adds unnecessary latency
 - **`pty:create`, `pty:kill`, `pty:subscribe`, `pty:has` use `invoke`** -- these need confirmation or return data
 
 ### ElectronAPI Interface
 
-The preload exposes a comprehensive API surface with three groups. PTY methods are checked at runtime (`window.electronAPI?.createPty`) to determine IPC vs WebSocket transport:
+The preload exposes a comprehensive API surface, grouped by concern (setup wizard, dashboard/lifecycle, native folder picker, PTY terminal, pop-out windows). PTY methods are checked at runtime (`window.electronAPI?.createPty`) to determine IPC vs WebSocket transport:
 
 Canonical source: `src/types/electron.d.ts`. The shape below mirrors that file — keep them in sync.
 
@@ -69,6 +71,10 @@ interface ElectronAPI {
   closeReady: () => void
   quitApp: () => void
 
+  // Native OS folder picker (optional — Electron only; the browser sandbox
+  // can't return an absolute path, so this is undefined there)
+  selectDirectory?: (opts?: { defaultPath?: string }) => Promise<string | null>
+
   // PTY terminal (all optional — checked at runtime for transport selection)
   createPty?: (config: PtyCreateConfig) => Promise<PtyCreateResult>
   writePty?: (id: string, data: string) => void
@@ -77,11 +83,13 @@ interface ElectronAPI {
   subscribePty?: (id: string) => Promise<PtySubscribeResult>
   unsubscribePty?: (id: string) => void
   hasPty?: (id: string) => Promise<boolean>
+  setPtyReplayBuffer?: (bytes: number) => void
   onPtyData?: (cb: (terminalId: string, base64Data: string) => void) => () => void
   onPtyExit?: (cb: (terminalId: string, exitCode: number, signal: number) => void) => () => void
 
-  // Pop-out floating terminal window (optional — Electron only)
+  // Pop-out floating terminal / project windows (optional — Electron only)
   openTerminalWindow?: (opts: { terminalId: string; originSessionId?: string; label?: string }) => Promise<{ ok: boolean }>
+  openProjectWindow?: (opts: { path: string; file?: string; label?: string }) => Promise<{ ok: boolean }>
   onPopoutClosed?: (cb: (terminalId: string) => void) => () => void
 }
 ```
@@ -92,7 +100,8 @@ Notes:
 - `PtyCreateConfig`, `PtyCreateResult`, `PtySubscribeResult` are named types in electron.d.ts (lines 25, 40, 46) — refer by name rather than inlining shapes that drift.
 - `PtyCreateConfig` carries terminal-launch options consumed by ptyHost auto-apply: `workingDir?`, `command?`, `label?`, `sessionTitle?`, `apiKey?`, `enableOpsTerminal?`, `effortLevel?` (low/medium/high/xhigh/max/ultracode), `model?` (opus/sonnet/haiku), and `remoteControlName?` (runs `/remote-control <name>`).
 - Floating-fork / translate sessions reuse the same `pty:*` channels as regular sessions — the channels are surface-agnostic (no separate "floating" IPC namespace). See [Floating Terminal Fork](../frontend/floating-terminal-fork.md).
-- `openTerminalWindow?` / `onPopoutClosed?` are optional, Electron-only methods for the native pop-out terminal window. The handler lives in `electron/main.ts`, not in `terminalHandlers.ts`.
+- `openTerminalWindow?` / `openProjectWindow?` / `onPopoutClosed?` / `selectDirectory?` are optional, Electron-only methods. Their handlers live in `electron/main.ts`, not in `terminalHandlers.ts` / `appHandlers.ts`.
+- `openProjectWindow?` (electron.d.ts:92, preload.ts:82) opens the PROJECT tab in its own native window — the live replacement for the retired in-app floating PROJECT overlay. See [App Lifecycle → Pop-out PROJECT Windows](./app-lifecycle.md).
 
 ### Preload Context Bridge
 
@@ -114,12 +123,12 @@ Notes:
 |---------|-----------|---------|--------|
 | `app:get-port` | Renderer -> Main | invoke | Returns resolved server port (Number) |
 | `app:open-browser` | Renderer -> Main | invoke | Opens `http://localhost:{port}` via `shell.openExternal` |
-| `dialog:select-directory` | Renderer -> Main | invoke | Opens the native OS folder picker (`dialog.showOpenDialog`, `['openDirectory','createDirectory']`); resolves the chosen absolute path or `null` if cancelled. Backs `electronAPI.selectDirectory` (the session-creation "Browse…" button) |
+| `dialog:select-directory` | Renderer -> Main | invoke | **(registered in `electron/main.ts`, not `appHandlers.ts`)** Opens the native OS folder picker (`dialog.showOpenDialog`, `['openDirectory','createDirectory']`); resolves the chosen absolute path or `null` if cancelled. Backs `electronAPI.selectDirectory` (the session-creation "Browse…" button) |
 | `app:rerun-setup` | Renderer -> Main | invoke | Deletes setup flag, relaunches app |
 | `app:quit` | Renderer -> Main | invoke | Triggers graceful shutdown sequence |
 | `app:before-close` | Main -> Renderer | push | Notifies renderer to save workspace before quit |
 | `app:close-ready` | Renderer -> Main | send (fire-and-forget) | Renderer signals workspace save complete |
-| `app:trigger-rerun-setup` | Main -> Renderer | push | Sent from tray "Re-run Setup Wizard" menu item |
+| `app:trigger-rerun-setup` | Main -> Renderer | push | Sent from tray "Re-run Setup Wizard" menu item. **No preload bridge and no renderer listener** — currently orphan (`tray.ts:53` is its only occurrence across `src/` and `electron/`), so nothing receives it. The working re-run path is `app:rerun-setup`. |
 
 ### Lifecycle Push Channels
 

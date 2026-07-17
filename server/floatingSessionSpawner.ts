@@ -22,7 +22,7 @@
 import { getSession, getSessionByTerminalId, createTerminalSession } from './sessionStore.js';
 import { createTerminal, consumePendingLink, writeWhenReady, injectClaudeCommandsWhenReady } from './sshManager.js';
 import { readClaudeLastAssistant } from './extractPreviousAnswer.js';
-import { reconstructPermissionFlags, applyClaudeLaunchFlags } from './config.js';
+import { reconstructPermissionFlags, applyClaudeLaunchFlags, sanitizeModelId } from './config.js';
 import {
   buildPrompt,
   floatLabel,
@@ -194,8 +194,11 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
   const isSsh = !!(cfg && cfg.username);
   // Inherit model/effort/characterModel from the origin so the popup matches the
   // parent (also persisted onto the popup's session for display + recursive forks).
+  // Sanitize the inherited model so a contaminated origin (e.g. a stripped-ANSI
+  // `claude-opus-4-8[1m]` from an older session) doesn't propagate down the fork
+  // chain or get persisted/displayed on the popup.
   const inherit = {
-    model: origin.model || undefined,
+    model: sanitizeModelId(origin.model) || undefined,
     effortLevel: origin.effortLevel,
     characterModel: origin.characterModel,
   };

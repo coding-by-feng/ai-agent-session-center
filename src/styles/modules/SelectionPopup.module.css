@@ -3,7 +3,10 @@
 
 .popup {
   position: fixed;
-  z-index: 9000;
+  /* Above the terminal fullscreen overlay (z-index 10000, Terminal.module.css)
+     so the popup is visible when selecting inside distraction-free mode; still
+     below the app title bar (99999). */
+  z-index: 10050;
   display: inline-flex;
   flex-direction: column;
   align-items: stretch;

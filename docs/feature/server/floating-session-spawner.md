@@ -89,8 +89,11 @@ spawnFloatingSession(args)
   ├─ permsCmd  = claude ? reconstructPermissionFlags(base, origin.permissionMode)
   │                     : base
   ├─ launchCmd = applyClaudeLaunchFlags(permsCmd, origin.model, origin.effortLevel)
+  │     [model is run through sanitizeModelId — strips ANSI/[1m] junk, drops the
+  │      flag if no safe token remains, so a contaminated origin can't break the
+  │      unquoted --model flag]
   ├─ build TerminalConfig (SSH passthrough or localhost), inheriting
-  │     { model, effortLevel, characterModel } from origin
+  │     { model: sanitizeModelId(origin.model), effortLevel, characterModel }
   ├─ createTerminal(config)
   ├─ consumePendingLink(workingDir)
   ├─ createTerminalSession(terminalId, { command: launchCmd, sessionTitle,
@@ -158,7 +161,8 @@ vocab-native:
   Include: part of speech; pronunciation (IPA) for a single word; a clear
   definition in {nativeLanguage}; 2–3 example sentences in {learningLanguage},
   each followed by its {nativeLanguage} translation; common synonyms or related
-  words; and what it means specifically as used in the surrounding line.
+  words; and what it means specifically as used in the surrounding line. Be
+  concise and well structured.
   Surrounding line: "{contextLine}"
   Word or phrase:
   """
@@ -244,7 +248,15 @@ commands.
 The popup also **inherits the origin session's `model` and `effortLevel`**: they
 are forwarded into the new `TerminalConfig` and applied to the launch command via
 `applyClaudeLaunchFlags` (`--model`/`--effort` flags), so they take effect before
-the popup's first prompt runs. `ultracode` launches as `--effort xhigh` (its valid
+the popup's first prompt runs. The inherited model is first run through
+`sanitizeModelId` (`config.ts`) — both for the persisted `TerminalConfig.model`
+and inside `applyClaudeLaunchFlags`. This guards a long-standing bug: an older
+session could store a model polluted with a stripped ANSI bold escape (e.g.
+`claude-opus-4-8[1m]`), and because `--model <model>` is interpolated **unquoted**,
+zsh treated `[1m]` as a glob (`no matches found: claude-opus-4-8[1m]`) and the
+popup failed to launch. The sanitizer strips the junk (recovering
+`claude-opus-4-8`) or drops the flag if nothing safe remains, and a one-time
+`db.ts` migration cleans already-stored contaminated models on startup. `ultracode` launches as `--effort xhigh` (its valid
 base level — the raw `ultracode` value is rejected by the flag) and is then
 upgraded to true ultracode via a `/effort ultracode` slash command once Claude
 Code is ready (`injectClaudeCommandsWhenReady` in `sshManager.ts`). `characterModel` is forwarded too so the popup's
@@ -277,9 +289,12 @@ use the fresh-launch path (no fork support); Codex uses `codex fork`.
 ## Transcript Reading (translate-answer)
 
 `server/extractPreviousAnswer.ts` exposes two readers; both resolve the JSONL
-transcript (`findTranscriptFile`) in this order:
+transcript in this order:
 
-1. Use the explicit `transcriptPath` from the Session if it exists.
+1. The explicit `transcriptPath` from the Session, when set and existing. This
+   check lives in each reader (`readClaudeLastAssistant` / `readClaudeTranscript`),
+   *before* it calls `findTranscriptFile` — which itself takes no `transcriptPath`
+   parameter and only does steps 2-3.
 2. `<sessionId>.jsonl` in the encoded project dir. `projectDirCandidates`
    tries three encodings: leading-dash + slashes→dashes, no leading dash, and
    dashes for both slashes and dots.

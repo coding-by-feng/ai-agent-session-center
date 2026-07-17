@@ -9,8 +9,10 @@ import { readdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir, networkInterfaces, hostname as osHostname } from 'os';
 import log from './logger.js';
-import { appendSessionName, applyClaudeLaunchFlags } from './config.js';
+import { reapPtyChildren } from './processMonitor.js';
+import { appendSessionName, applyClaudeLaunchFlags, withClaudeTuiEnvDefaults } from './config.js';
 import type { Terminal, TerminalConfig, TerminalInfo, TmuxSessionInfo, SshKeyInfo } from '../src/types/terminal.js';
+import { DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES, clampReplayBufferBytes } from '../src/types/terminal.js';
 import type { PendingLink } from '../src/types/session.js';
 import type WebSocket from 'ws';
 
@@ -166,8 +168,22 @@ function autoSessionName(workDir: string): string {
 // Active terminals: terminalId -> Terminal
 const terminals = new Map<string, Terminal>();
 
-// Ring buffer size for PTY output replay (128KB — enough for ~2 full screens of scrollback)
-const OUTPUT_BUFFER_MAX = 128 * 1024;
+// Ring buffer size for PTY output replay — how much scrollback is restored when
+// a terminal reconnects / the app reloads / a session resumes. Configurable via
+// Settings ▸ ADVANCED ▸ Terminal; pushed from the browser through
+// POST /api/config/terminal-buffer → setReplayBufferBytes(). Applies to terminals
+// created AFTER the change (the ring is pre-allocated once at create time).
+let replayBufferBytes = DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES;
+
+/**
+ * Set the replay buffer size (bytes) for newly created terminals. The value is
+ * clamped to the valid range, so a bad client value can't allocate gigabytes.
+ * Returns the clamped value actually applied.
+ */
+export function setReplayBufferBytes(bytes: number): number {
+  replayBufferBytes = clampReplayBufferBytes(bytes);
+  return replayBufferBytes;
+}
 
 // ---------------------------------------------------------------------------
 // Ring-buffer helpers — pre-allocated slab + write offset, O(1) append.
@@ -368,7 +384,12 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
       // Build environment — API keys go here instead of shell command strings.
       // Remove CLAUDECODE so spawned Claude Code sessions don't think they're nested.
       const { CLAUDECODE: _drop, ...parentEnv } = process.env as Record<string, string>;
-      const env: Record<string, string> = { ...parentEnv, AGENT_MANAGER_TERMINAL_ID: terminalId };
+      // Force Claude Code's classic renderer (no alt screen / mouse capture) so
+      // xterm selection and the AI popup keep working — see CLAUDE_TUI_ENV_DEFAULTS.
+      const env: Record<string, string> = withClaudeTuiEnvDefaults({
+        ...parentEnv,
+        AGENT_MANAGER_TERMINAL_ID: terminalId,
+      });
 
       if (config.apiKey) {
         const envVar = command.startsWith('codex') ? 'OPENAI_API_KEY'
@@ -457,7 +478,7 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
         config: { ...config, workingDir: workDir },
         wsClient,
         createdAt: Date.now(),
-        outputRing: Buffer.alloc(OUTPUT_BUFFER_MAX),
+        outputRing: Buffer.alloc(replayBufferBytes),
         outputOffset: 0,
         outputWrapped: false,
         shellReady,
@@ -561,6 +582,9 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
           if (!local) {
             // Export terminal ID for hook matching over SSH
             innerCmd += `export AGENT_MANAGER_TERMINAL_ID='${shellEscapeSingleQuote(terminalId)}' && `;
+            // Classic Claude renderer on the remote side too (env doesn't cross
+            // SSH). ${VAR:-1} keeps a remote pre-set value authoritative.
+            innerCmd += `export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN="\${CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN:-1}" && `;
             if (config.apiKey) {
               const envVar = command.startsWith('codex') ? 'OPENAI_API_KEY'
                 : command.startsWith('gemini') ? 'GEMINI_API_KEY'
@@ -579,6 +603,9 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
             // forward env vars from the local PTY).
             if (launchCmd) launchCmd += ' && ';
             launchCmd += `export AGENT_MANAGER_TERMINAL_ID='${shellEscapeSingleQuote(terminalId)}'`;
+            // Classic Claude renderer on the remote side too (env doesn't cross
+            // SSH). ${VAR:-1} keeps a remote pre-set value authoritative.
+            launchCmd += ` && export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN="\${CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN:-1}"`;
             if (config.apiKey) {
               const envVar = command.startsWith('codex') ? 'OPENAI_API_KEY'
                 : command.startsWith('gemini') ? 'GEMINI_API_KEY'
@@ -678,7 +705,10 @@ export function attachToTmuxPane(tmuxPaneId: string, wsClient: WebSocket | null)
       // Then attach to that session targeting the specific pane
       const shell = getDefaultShell();
       const { CLAUDECODE: _dropTmux, ...tmuxParentEnv } = process.env as Record<string, string>;
-      const env: Record<string, string> = { ...tmuxParentEnv, AGENT_MANAGER_TERMINAL_ID: terminalId };
+      const env: Record<string, string> = withClaudeTuiEnvDefaults({
+        ...tmuxParentEnv,
+        AGENT_MANAGER_TERMINAL_ID: terminalId,
+      });
 
       const ptyProcess: IPty = pty.spawn(shell, ['-l'], {
         name: 'xterm-256color',
@@ -696,7 +726,7 @@ export function attachToTmuxPane(tmuxPaneId: string, wsClient: WebSocket | null)
         config: { host: 'localhost', workingDir: homedir(), command: `tmux (pane ${tmuxPaneId})` },
         wsClient,
         createdAt: Date.now(),
-        outputRing: Buffer.alloc(OUTPUT_BUFFER_MAX),
+        outputRing: Buffer.alloc(replayBufferBytes),
         outputOffset: 0,
         outputWrapped: false,
       });
@@ -837,6 +867,15 @@ export function closeTerminal(terminalId: string): void {
   const term = terminals.get(terminalId);
   if (term) {
     if (term.pty) {
+      // node-pty's kill() SIGHUPs the login SHELL only. The agent (`claude`) runs
+      // in its own process group as a child of that shell, so it (and its tool/MCP
+      // tree) would be orphaned. Reap the shell's descendant groups first, then
+      // kill the shell itself. reapPtyChildren is fire-and-forget (SIGTERM->SIGKILL
+      // per child group) so this stays synchronous.
+      try {
+        const shellPid = (term.pty as { pid?: number }).pid;
+        if (shellPid) reapPtyChildren(shellPid);
+      } catch { /* pty may already be gone */ }
       try { term.pty.kill(); } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         log.debug('pty', `Kill failed for ${terminalId}: ${msg}`);
@@ -968,6 +1007,18 @@ export function getTerminalOutputBuffer(terminalId: string): string | null {
 }
 
 /**
+ * Return the last `maxBytes` of a terminal's output ring as a UTF-8 string.
+ * Used by server-side heuristics (e.g. approval/thinking-spinner detection) that
+ * only need the live tail of the screen, not the whole scrollback.
+ */
+export function getTerminalOutputTail(terminalId: string, maxBytes = 2048): string | null {
+  const term = terminals.get(terminalId);
+  if (!term || ringLength(term) === 0) return null;
+  const snap = ringSnapshot(term);
+  return snap.subarray(Math.max(0, snap.length - maxBytes)).toString('utf8');
+}
+
+/**
  * Prepend saved output (base64) into a terminal's ring buffer.
  * Used during workspace import to restore previous terminal scrollback.
  * The saved output is prepended before any new PTY output.
@@ -978,8 +1029,11 @@ export function prefillTerminalOutput(terminalId: string, base64Data: string): b
   const saved = Buffer.from(base64Data, 'base64');
   const existing = ringSnapshot(term);
   const combined = Buffer.concat([saved, existing]);
-  const trimmed = combined.length > OUTPUT_BUFFER_MAX
-    ? combined.slice(combined.length - OUTPUT_BUFFER_MAX)
+  // Trim to this terminal's own ring capacity (set when it was created — which
+  // may differ from the current global setting).
+  const cap = term.outputRing.length;
+  const trimmed = combined.length > cap
+    ? combined.slice(combined.length - cap)
     : combined;
   ringReset(term, trimmed);
   return true;

@@ -6,17 +6,23 @@ Client-side half of the password auth layer: a single-field login form (`LoginSc
 ## Purpose
 The server-side auth layer (see [authentication.md](../server/authentication.md)) protects all `/api` and WS traffic with a password, in-memory tokens, and an HttpOnly cookie. This module is the frontend counterpart that obtains the password, holds the resulting bearer token, and keeps it fresh.
 
-> **Current wiring caveat:** The `App` boot flow does **not** gate on auth. `AuthGate` in `src/App.tsx` is a stub that renders `<Dashboard token={null} />` directly — it never calls `useAuth()` and never renders `<LoginScreen>`. As a result `LoginScreen` and the `useAuth` *hook* are presently dormant (not mounted), while the standalone helpers `authFetch` / `getAuthToken` remain the live integration points (HistoryView uses `authFetch`; `wsClient` attaches the token to the WS URL). The form, hook, refresh loop, and server endpoints all still exist and work — they are simply not mounted in the current app shell. Re-enabling the gate means wiring `useAuth()` + `<LoginScreen>` back into `AuthGate`.
+> **Why the gate exists:** `AuthGate` (`src/App.tsx`) is the *only* mount point for both `LoginScreen` and the `useAuth` hook. It previously was a stub that rendered `<Dashboard token={null} />` directly — on a password-protected server that meant the WS handshake was closed with `4001`, the client gave up reconnecting, and the app bricked with no login UI and no workspace restore. When no password is configured (the default), `needsLogin` stays false and the gate behaves exactly like the old stub (Dashboard with a null/absent token).
 
 ## Source Files
 | File | Role |
 |------|------|
-| `src/components/auth/LoginScreen.tsx` | Login form, submit handler, inline error display (currently not mounted) |
+| `src/components/auth/LoginScreen.tsx` | Login form, submit handler, inline error display |
 | `src/hooks/useAuth.ts` | `useAuth` hook (status check, login/logout, token persistence, silent refresh) + exported `authFetch` / `getAuthToken` helpers |
 | `src/hooks/useAuth.test.ts` | Unit tests for `authFetch` / `getAuthToken` |
 | `src/styles/modules/Login.module.css` | Form styling |
 
 ## Implementation
+
+### AuthGate (`src/App.tsx`)
+The mount point that picks one of three branches from `useAuth()`:
+- `loading` → an inline "Connecting…" splash (centred, `#0a0a1a` background, JetBrains Mono). Because the status check retries up to `MAX_RETRIES = 8` times at `RETRY_DELAY_MS = 800`, this is what users see for up to ~6.4s against a slow or absent server.
+- `needsLogin` → `<LoginScreen onLogin={login} />`.
+- otherwise → `<Dashboard token={token} />`, which prop-drills the token into `useWebSocket(token)`.
 
 ### LoginScreen (`LoginScreen.tsx`)
 - **Props**: `onLogin(password) → Promise<{ success: boolean; error?: string }>` — caller owns the network request and token storage.
@@ -35,25 +41,25 @@ The server-side auth layer (see [authentication.md](../server/authentication.md)
 
 ### Helpers (`authFetch` / `getAuthToken`)
 - `authFetch(input, init?)`: if a stored token exists and the request has no `Authorization` header yet, adds `Authorization: Bearer <token>`; otherwise passes through untouched. Used by HistoryView for protected fetches.
-- `getAuthToken()`: returns the stored token (or `null`). Consumed where the raw token is needed (e.g. WS handshake token via `wsClient`).
+- `getAuthToken()`: returns the stored token (or `null`). Currently has **no in-app consumer** (only covered by `useAuth.test.ts`) — the WS handshake token is prop-drilled from `useAuth`'s returned `token` through `Dashboard` → `useWebSocket(token)` → `wsClient` (`url.searchParams.set('token', this.options.token)`), not read from this helper.
 
 ## Dependencies & Connections
 
 ### Depends On
 - [Authentication](../server/authentication.md) — server-side password check, token issuance/refresh/revoke, `authMiddleware`, status endpoint, rate limiting
-- [WebSocket Client](./websocket-client.md) — dispatches the `ws-auth-failed` event on close code `4001`; consumes the token via `getAuthToken`
+- [WebSocket Client](./websocket-client.md) — dispatches the `ws-auth-failed` event on close code `4001`; consumes the token via its `options.token`
 
 ### Depended On By
-- [Views & Routing](./views-routing.md) — `App` boot flow (`AuthGate` stub currently renders the dashboard directly; `LoginScreen` is the intended gate when re-enabled)
+- [Views & Routing](./views-routing.md) — `App` boot flow: `AuthGate` calls `useAuth()` and renders `<LoginScreen>` when `needsLogin`, else `<Dashboard token={token} />`
 - HistoryView and other protected fetches via `authFetch`
-- [WebSocket Client](./websocket-client.md) — WS handshake attaches `getAuthToken()` to the connection URL
+- [WebSocket Client](./websocket-client.md) — WS handshake attaches the token from `useAuth()` (prop-drilled via `Dashboard` → `useWebSocket(token)`) to the connection URL
 
 ### Shared Resources
 - `localStorage['auth_token']` — the bearer token, shared across `authFetch`, `getAuthToken`, and the `useAuth` hook
 - `ws-auth-failed` DOM CustomEvent — cross-module signal from `wsClient` to `useAuth`
 
 ## Change Risks
-- `LoginScreen` and the `useAuth` hook are **not currently mounted** (AuthGate stub). Code referencing them as the active login gate is aspirational until `AuthGate` is rewired — verify wiring before assuming the form renders.
+- `AuthGate` is the **only** mount point for both `LoginScreen` and `useAuth`. Reverting it to a stub that renders `<Dashboard token={null} />` re-bricks password-protected servers: the WS handshake closes with `4001`, reconnect gives up, and there is no login UI to recover through.
 - Token lives in `localStorage`, not memory — anything reading/writing `auth_token` directly couples to that key; changing the key name breaks `authFetch`, `getAuthToken`, and the hook simultaneously.
 - The refresh loop depends on the server returning `expiresIn` (seconds) from `/api/auth/login` and `/api/auth/refresh`; dropping it leaves login working but disables silent refresh.
 - Dropping the auto-focus / re-focus effect hurts keyboard-only login flow.

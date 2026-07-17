@@ -9,12 +9,13 @@ Packages the dashboard as a native desktop app with window management, tray icon
 ## Source Files
 | File | Role |
 |------|------|
-| `electron/main.ts` | App lifecycle, BrowserWindow, native menu, pop-out terminal windows, IPC registration, server embedding, graceful shutdown |
+| `electron/main.ts` | App lifecycle, BrowserWindow, native menu, pop-out terminal + project windows, native folder picker, IPC registration, server embedding, graceful shutdown |
 | `electron/tray.ts` | System tray / menu bar icon with dynamic menu; hide-to-tray on window close |
 | `electron/ipc/appHandlers.ts` | Dashboard IPC: `app:get-port`, `app:open-browser`, `app:rerun-setup`, `app:quit` |
 | `electron/ipc/setupHandlers.ts` | Setup wizard IPC: `setup:is-complete`, `setup:check-deps`, `setup:save-config`, `setup:install-hooks`, `setup:complete` |
 | `electron/loading.html` | Loading screen shown during server startup (progress bar, live log area, error banner) |
 | `electron-builder.json` | electron-builder packaging config (mac DMG+zip / win NSIS targets, asar, extraResources) |
+| `scripts/Open App (Start Here).command` | Guided first-run helper bundled in the macOS DMG (`dmg.contents`); clears the Gatekeeper quarantine flag via native `osascript` step popups |
 
 > The renderer side of the pop-out terminal window flow (`PopoutTerminalView`, `?popout=terminal` detection in `src/main.tsx`) lives in [Floating Terminal Fork](../frontend/floating-terminal-fork.md). The PTY host and terminal-channel IPC live in [PTY Host](./pty-host.md) and [IPC Transport](./ipc-transport.md).
 
@@ -26,10 +27,11 @@ Packages the dashboard as a native desktop app with window management, tray icon
 Electron Main (main.ts + tray + ptyHost + setup/app/terminal/popout IPC + embedded Express server)
   -> Main BrowserWindow (React app: dist/client/ in prod, Vite dev server in dev)
   -> Pop-out terminal BrowserWindow(s) (?popout=terminal&terminalId=…)
+  -> Pop-out project BrowserWindow(s) (?popout=project&path=…)
   -> window.electronAPI via preload contextBridge
 ```
 
-On `app.whenReady()` the registration order is: `registerSetupHandlers()`, `registerAppHandlers()`, `registerTerminalHandlers()`, `registerPopoutHandler()` — IPC handlers are registered **before** `createWindow()` so the renderer can call them as soon as it loads.
+On `app.whenReady()` the registration order is: `registerSetupHandlers()`, `registerAppHandlers()`, `registerTerminalHandlers()`, `registerPopoutHandler()`, `registerDirectoryPickerHandler()`, `registerProjectWindowHandler()` (main.ts:302-307) — IPC handlers are registered **before** `createWindow()` so the renderer can call them as soon as it loads.
 
 ### Build Configuration
 
@@ -38,6 +40,10 @@ On `app.whenReady()` the registration order is: `registerSetupHandlers()`, `regi
 - macOS targets: DMG + zip (arm64, hardened runtime, `entitlements.mac.plist`); Windows target: NSIS (x64, non-one-click installer)
 - `main` entry is `dist/electron/main.cjs`; `asar: true` with `better-sqlite3` and `node-pty` in `asarUnpack`; `hooks/` copied to `extraResources`
 - Separate tsconfig: `tsconfig.electron.json` (compiled to CJS, then `scripts/cjs-rename.sh` renames `.js` → `.cjs`)
+
+#### macOS Gatekeeper / "damaged" first-run helper
+
+The app is **not Apple-notarized**, so a freshly-downloaded copy is quarantined and macOS reports *"AI Agent Session Center is damaged and can't be opened."* on first launch. Because the app can't run while flagged, the fix cannot live in-app — it ships as `scripts/Open App (Start Here).command`, placed in the DMG window via `dmg.contents`. Double-clicking it runs a guided flow of **native `osascript` popups** (Welcome → locate app in `/Applications` → `xattr -cr` unlock → launch), with Cancel and error handling at each step. The `as_escape` helper escapes `\` and `"` before embedding any text in the AppleScript literal (a path wrapped in quotes inside the error dialog would otherwise terminate the string and break the popup). The permanent fix remains Developer ID signing + notarization (see the project README discussion).
 
 ### Window Management
 
@@ -59,7 +65,7 @@ In production, the Express server runs **in-process** in the main process — th
 - App name label "AI Agent Session Center" (disabled, decorative)
 - "Hide Window" / "Show Window" toggle — label and behavior reflect `win.isVisible()`; `rebuild()` is called after each toggle to refresh the label
 - "Open in Browser" opens `http://localhost:${SERVER_PORT ?? 3333}` via `shell.openExternal`
-- "Re-run Setup Wizard" sends `app:trigger-rerun-setup` to the renderer
+- "Re-run Setup Wizard" sends `app:trigger-rerun-setup` to the renderer. **Note:** that channel has no preload bridge and no renderer listener (`tray.ts:53` is its only occurrence across `src/` and `electron/`), so the menu item is currently inert. The working re-run path is the `app:rerun-setup` IPC.
 - "Quit" calls `app.quit()` to trigger graceful shutdown
 - Double-click on the tray icon shows the window (and rebuilds the menu)
 - Window close (X button) is intercepted via `win.on('close')`: unless a real quit is in progress (`isQuitting`, set by tray's own `before-quit` listener), it `preventDefault()`s and hides the window instead of destroying it. The window is therefore *hidden, never destroyed* until a real quit.
@@ -89,12 +95,27 @@ Registered by `registerAppHandlers()`.
 
 ### Pop-out Terminal Windows
 
-`registerPopoutHandler()` exposes the `window:open-terminal` IPC handler (called from the renderer as `electronAPI.openTerminalWindow({ terminalId, originSessionId?, label? })`). It opens a separate, draggable BrowserWindow (`POPOUT_DEFAULT_SIZE` = 820x560, min 480x320, same `#0a0a1a` background and security webPreferences as the main window) loading `http://localhost:${SERVER_PORT ?? 3333}/?popout=terminal&terminalId=…` (with optional `originSessionId` / `label` query params). Open windows are tracked in a `popoutWindows` Map keyed by `terminalId` — re-opening an existing terminal focuses its window instead of duplicating. When a pop-out window closes, the main process sends `popout:closed` (with the `terminalId`) to the main window so it can re-dock the in-app float. The same `before-input-event` reload guard and `setWindowOpenHandler` link restriction apply to pop-out windows. The renderer side is documented in [Floating Terminal Fork](../frontend/floating-terminal-fork.md).
+`registerPopoutHandler()` exposes the `window:open-terminal` IPC handler (called from the renderer as `electronAPI.openTerminalWindow({ terminalId, originSessionId?, label? })`). It opens a separate, draggable BrowserWindow (`POPOUT_DEFAULT_SIZE` = 820x560, min 480x320, same `#0a0a1a` background and security webPreferences as the main window) loading `http://localhost:${SERVER_PORT ?? 3333}/?popout=terminal&terminalId=…` (with optional `originSessionId` / `label` query params). Open windows are tracked in a `popoutWindows` Map keyed by `terminalId` — re-opening an existing terminal focuses its window instead of duplicating. When a pop-out window closes, the main process sends `popout:closed` (with the `terminalId`) to the main window so it can re-dock the in-app float. The same `before-input-event` reload guard (main.ts:177-179) and `setWindowOpenHandler` link restriction (main.ts:180-183) apply to **terminal** pop-out windows — see the project-window section below for the deliberate asymmetry. The renderer side is documented in [Floating Terminal Fork](../frontend/floating-terminal-fork.md).
 
 **Multi-monitor placement & position memory** (`computePopoutBounds()`, uses Electron's `screen` API):
 - The window's `x`/`y`/`width`/`height` are computed before creation rather than left to OS defaults, so a fresh pop-out **opens on a second monitor when one exists**.
 - Placement order: (1) the **last-saved bounds** if still visible (`boundsOnSomeDisplay()` checks the window center against every connected `screen.getAllDisplays()` display); else (2) **centered on the first non-primary display**'s `workArea`; else (3) centered on the display under the cursor (`getDisplayNearestPoint(getCursorScreenPoint())`, falling back to primary).
 - The window's bounds are persisted on every `moved` / `resized` event to `popout-bounds.json` in userData (`savePopoutBounds(w.getBounds())`, guarded by `!w.isDestroyed()`), so the next pop-out re-opens where the user last left it (e.g. dragged onto monitor 2). `loadPopoutBounds()` validates the JSON shape and falls back to auto-placement when missing/malformed or when that monitor is no longer connected.
+- Both window families share this one bounds slot — see [Persisted State](#persisted-state--env-vars).
+
+### Pop-out PROJECT Windows
+
+`registerProjectWindowHandler()` (main.ts:221) exposes the `window:open-project` IPC handler (called from the renderer as `electronAPI.openProjectWindow({ path, file?, label? })`, returns `{ ok }`). It opens the standalone project browser in its own native BrowserWindow (same `POPOUT_DEFAULT_SIZE`, min 480x320, `#0a0a1a` background and security `webPreferences` as the terminal pop-out) loading `http://localhost:${SERVER_PORT ?? 3333}/?popout=project&path=…` (plus an optional `file` query param). The renderer routes this via the `popout === 'project'` branch in `src/main.tsx:70`.
+
+- **This is the live replacement for the retired in-app floating PROJECT overlay** — a DOM panel can't leave the app window, so the "float" affordance opens a real OS window instead. It is reached from `openProjectWindow()` in `DetailTabs.tsx:433`.
+- Open windows are tracked in a **`projectPopoutWindows` Map keyed by `projectPath`** (main.ts:216) — a second open of the same path focuses the existing window rather than duplicating it.
+- Placement reuses the same `computePopoutBounds()` (main.ts:232) and `savePopoutBounds()` on `moved` / `resized` (main.ts:247-249) as the terminal pop-out.
+- **Security asymmetry (deliberate):** project windows install **only** the `setWindowOpenHandler` link restriction (main.ts:251-254) — there is **no** `before-input-event` guard, so `Cmd+R` / `Ctrl+R` / `F5` *do* reload a project window. Unlike a terminal, a project browser has no PTY state to lose, so reload stays available.
+- Unlike the terminal pop-out, closing a project window sends no `popout:closed` push — it only deletes its Map entry (main.ts:256).
+
+### Native OS Folder Picker
+
+`registerDirectoryPickerHandler()` (main.ts:200) exposes the `dialog:select-directory` IPC (payload `{ defaultPath? }`), backing the "Browse…" button in the session-creation modals. It calls `dialog.showOpenDialog` with `properties: ['openDirectory', 'createDirectory']`, parented to `mainWindowRef` when alive, defaulting to `app.getPath('home')`, and resolves the chosen absolute path or `null` when cancelled. Like the window handlers it lives in `main.ts`, **not** in `appHandlers.ts`. Fuller channel description in [IPC Transport](./ipc-transport.md).
 
 ### Graceful Shutdown
 
@@ -112,7 +133,7 @@ Registered by `registerAppHandlers()`.
 |-----|-----------------|---------|
 | `setup.json` (`SETUP_FLAG`) | `userData/setup.json` | First-run flag; presence = setup complete (`{ completedAt }`) |
 | `server-config.json` (`CONFIG_PATH`) | `userData/server-config.json` | Persisted server config from setup wizard |
-| `popout-bounds.json` (`POPOUT_BOUNDS_FILE`) | `userData/popout-bounds.json` | Last-used pop-out terminal window bounds (`{x,y,width,height}`) for second-monitor placement / position memory |
+| `popout-bounds.json` (`POPOUT_BOUNDS_FILE`) | `userData/popout-bounds.json` | Last-used pop-out window bounds (`{x,y,width,height}`) for second-monitor placement / position memory. **Shared by both terminal and project pop-outs** — a single global slot, not per-window-type, so moving one relocates the next open of the other |
 | `APP_USER_DATA` | env var | Points the embedded server at the writable userData dir |
 | `SERVER_PORT` | env var | Resolved server port, shared across IPC handlers, tray, and pop-out windows (dev default `3332`, IPC/tray fallback `3333`) |
 | `ELECTRON` | env var (`'1'`) | Set at the top of `main.ts` so server code can detect the Electron host |
@@ -163,7 +184,8 @@ Registered by `registerAppHandlers()`.
 - [PTY Host](./pty-host.md) -- `disposePtyHost()` called on quit
 
 ### Shared Resources
-- Main BrowserWindow + pop-out terminal BrowserWindows (`popoutWindows` Map)
+- Main BrowserWindow + pop-out terminal BrowserWindows (`popoutWindows` Map, keyed by `terminalId`) + pop-out project BrowserWindows (`projectPopoutWindows` Map, keyed by `projectPath`)
+- `popout-bounds.json` — one bounds slot written by **both** pop-out Maps
 - Embedded Express server instance + `SERVER_PORT` env var
 - System tray
 

@@ -9,7 +9,8 @@ Enables the dashboard to show approval/input status, trigger alarms, and alert u
 ## Source Files
 | File | Role |
 |------|------|
-| `server/approvalDetector.ts` (~3.9KB) | Timer management, category-based timeouts, child-process check, timer Map |
+| `server/approvalDetector.ts` (~5.8KB, 135 lines) | Timer management, category-based timeouts, child-process check, **thinking-spinner guard** (`isAgentBusyOutput` + `BUSY_SPINNER_RE`), timer Map |
+| `server/sshManager.ts` | `getTerminalOutputTail(terminalId, maxBytes)` — supplies the live terminal tail the spinner guard inspects |
 | `server/config.ts` | Tool category definitions + timeouts/labels for approval detection (the approval slice only; this file also hosts auto-idle/animation/launch-flag config consumed by other features) |
 | `server/sessionStore.ts` | Coordinator — calls `startApprovalTimer`/`clearApprovalTimer` per hook event and handles `PermissionRequest` directly |
 
@@ -36,6 +37,11 @@ A precomputed `_toolToCategory` Map gives O(1) lookups via `getToolCategory()`; 
 - Only for `category === 'slow'` AND when `session.cachedPid` is set: runs `pgrep -P {pid}` (`execFileSync`, 2s timeout, PID validated as positive int).
 - Non-empty output -> children exist -> command still running -> skip the transition.
 - On `pgrep` error the function returns `true` (safer default: assume still running) so a failed probe never produces a false "approval".
+
+### Thinking-Spinner Guard (`isAgentBusyOutput`)
+- Runs for **all** categories, before the child-process check, when the timer fires. Samples the session's live terminal tail (`getTerminalOutputTail(terminalId, 2048)` in `sshManager.ts`, wired via the optional `getTerminalOutput` callback `sessionStore` passes to `startApprovalTimer`).
+- `isAgentBusyOutput` strips ANSI (`stripAnsi`), inspects the last ~600 chars, and matches `BUSY_SPINNER_RE` — an elapsed-time counter `(… 2m 44s …)` paired with `esc to interrupt` / a token counter / `thinking`. That footer is the AI CLIs' live "working" spinner (e.g. `✽ Enchanting… (2m 44s · ↓ 6.8k tokens · almost done thinking with xhigh effort)`); it is shown only while busy, never at an approval prompt (which has no elapsed-time spinner).
+- If a spinner is present -> the agent is actively thinking/running -> **skip** the transition. This fixes a false "approval" during long xhigh-effort thinking phases, which `hasChildProcesses` cannot catch (in-process thinking spawns no child process). Only the tail is inspected so a stale spinner left in scrollback doesn't keep a finished turn "busy". When there is no linked terminal (`session.terminalId` is null) the guard is a no-op and the prior behavior stands.
 
 ### PermissionRequest Event
 - Handled directly in `sessionStore.ts` (not in `approvalDetector`). On `PermissionRequest` it clears the heuristic timer, sets `status = approval`, `animationState = Waiting`, builds `waitingDetail` (`Approve {tool}: {summary}` or `Approve {tool}`), and records `permissionMode` from the hook payload. This is the reliable signal that replaces the timeout heuristic (emitted at medium+ hook density).
@@ -70,6 +76,7 @@ A precomputed `_toolToCategory` Map gives O(1) lookups via `getToolCategory()`; 
 
 ## Change Risks
 - Changing `TOOL_TIMEOUTS` affects the false-positive rate (too short = premature "approval"; too long = sluggish alerts).
+- `BUSY_SPINNER_RE` (`approvalDetector.ts`) must stay in sync with the CLIs' spinner-footer format. If a CLI changes its footer (drops `esc to interrupt` / the `(Ns · … tokens)` counter), the guard stops suppressing false approvals during thinking. It must also never match an approval prompt — keep the elapsed-time-counter requirement so `(esc)` in a prompt option can't trigger it. Only the **tail** is inspected (last ~600 chars) so stale scrollback spinners don't pin a finished turn to "busy".
 - Auto-approved long-running `slow` commands (npm install, builds) briefly show as "approval" for ~8s until `PostToolUse` clears it; the `cachedPid` + `hasChildProcesses` guard mitigates but does not eliminate this.
 - Breaking `PermissionRequest` handling in `sessionStore.ts` removes the reliable signal and forces reliance on the timeout heuristic.
 - `config.ts` is shared: it also defines `AUTO_IDLE_TIMEOUTS`, `PROCESS_CHECK_INTERVAL`, `STATUS_ANIMATIONS`, and the Claude launch-flag/session-name helpers (`applyClaudeLaunchFlags`, `reconstructPermissionFlags`, `appendSessionName`, etc.). Editing those touches Auto-Idle, Process Monitor, and session resume/fork rather than approval detection — change them with their owning features in mind.

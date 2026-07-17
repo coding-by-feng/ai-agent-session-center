@@ -2,7 +2,7 @@
  * FloatingTerminalPanel — picture-in-picture window hosting a single
  * TerminalContainer for "fork-and-explain" / "fork-and-translate" sessions.
  *
- * Mirrors the FloatingProjectPanel UX (drag, minimize-to-pill, maximize/restore,
+ * A draggable PiP window (drag, minimize-to-pill, maximize/restore,
  * click-outside-safe). Position + size are persisted per terminalId so the
  * window remembers where it was last placed.
  */

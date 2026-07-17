@@ -8,16 +8,15 @@
 import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import styles from '@/styles/modules/DetailPanel.module.css';
-import FloatingProjectPanel from './FloatingProjectPanel';
 import Tooltip from '@/components/ui/Tooltip';
 import { tooltips } from '@/lib/tooltips';
+import { useSessionStore } from '@/stores/sessionStore';
 
 const STORAGE_KEY = 'active-tab';
 const SPLIT_KEY = 'split-terminal-project';
 const SPLIT_RATIO_KEY = 'split-ratio';
 const STACKED_KEY = 'split-stacked-terminal-project';
 const STACKED_RATIO_KEY = 'split-stacked-ratio';
-const FLOAT_KEY = 'float-project';
 
 /** Minimum panel width (px) at which the split icon is shown. */
 const SPLIT_MIN_WIDTH = 700;
@@ -346,14 +345,9 @@ export default function DetailTabs({
     }
   });
 
-  const [floatProject, setFloatProject] = useState<boolean>(() => {
-    try {
-      const key = sessionId ? `${FLOAT_KEY}:${sessionId}` : FLOAT_KEY;
-      return localStorage.getItem(key) === '1';
-    } catch {
-      return false;
-    }
-  });
+  // Project path drives the "open Project in a window" action.
+  const projectPath = useSessionStore((s) =>
+    sessionId ? s.sessions.get(sessionId)?.projectPath : undefined);
 
   // Restore per-session split state when switching sessions.
   // If the session has no stored preference, default to off so the previous
@@ -373,15 +367,6 @@ export default function DetailTabs({
     try {
       const key = `${STACKED_KEY}:${sessionId}`;
       setStackedView(localStorage.getItem(key) === '1');
-    } catch { /* ignore */ }
-  }, [sessionId]);
-
-  // Restore per-session float state when switching sessions.
-  useEffect(() => {
-    if (!sessionId) return;
-    try {
-      const key = `${FLOAT_KEY}:${sessionId}`;
-      setFloatProject(localStorage.getItem(key) === '1');
     } catch { /* ignore */ }
   }, [sessionId]);
 
@@ -429,7 +414,6 @@ export default function DetailTabs({
       return next;
     });
     turnOff(setStackedView, STACKED_KEY);
-    turnOff(setFloatProject, FLOAT_KEY);
   }, [persistFlag, turnOff]);
 
   const toggleStacked = useCallback(() => {
@@ -439,49 +423,44 @@ export default function DetailTabs({
       return next;
     });
     turnOff(setSplitView, SPLIT_KEY);
-    turnOff(setFloatProject, FLOAT_KEY);
   }, [persistFlag, turnOff]);
 
-  const toggleFloat = useCallback(() => {
-    setFloatProject((prev) => {
-      const next = !prev;
-      persistFlag(FLOAT_KEY, next);
-      return next;
-    });
-    turnOff(setSplitView, SPLIT_KEY);
-    turnOff(setStackedView, STACKED_KEY);
-  }, [persistFlag, turnOff]);
+  // Open the PROJECT tab in its own native OS window (draggable to another
+  // monitor). A DOM panel can't leave the app window, so this hands off to a
+  // real window: Electron opens a native BrowserWindow on the second monitor;
+  // the browser falls back to window.open on the standalone route. De-duped by
+  // path (a second click focuses the existing window).
+  const openProjectWindow = useCallback(() => {
+    if (!projectPath) return;
+    const api = typeof window !== 'undefined' ? window.electronAPI : undefined;
+    if (api?.openProjectWindow) {
+      void api.openProjectWindow({ path: projectPath, label: 'Project' });
+      return;
+    }
+    const name = `aasc-project-${projectPath.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    window.open(`/project-browser?path=${encodeURIComponent(projectPath)}`, name);
+  }, [projectPath]);
 
-  const isFloat = floatProject && panelWideEnough;
-  const isSplit = splitView && panelWideEnough && !floatProject && !stackedView;
-  const isStacked = stackedView && panelWideEnough && !floatProject && !splitView;
+  const isSplit = splitView && panelWideEnough && !stackedView;
+  const isStacked = stackedView && panelWideEnough && !splitView;
 
   // When split or stacked is active on the project or terminal tab, show the
   // combined view instead of the individual tab content.
-  // When float mode is active, redirect PROJECT tab → TERMINAL so the
-  // terminal owns the screen while Project lives in the floating overlay.
   const isTermOrProj = activeTab === 'terminal' || activeTab === 'project';
   let effectiveTab: string;
   if (isSplit && isTermOrProj) {
     effectiveTab = 'split';
   } else if (isStacked && isTermOrProj) {
     effectiveTab = 'stacked';
-  } else if (isFloat && activeTab === 'project') {
-    effectiveTab = 'terminal';
   } else {
     effectiveTab = activeTab;
   }
 
   const tabs = BASE_TABS;
 
-  // Float mode: portal projectContent between a stable always-mounted host and
-  // the floating panel's body. createPortal preserves component state across
-  // target swaps so the file tree, open files, and edit mode survive toggling.
-  const [floatBodyEl, setFloatBodyEl] = useState<HTMLDivElement | null>(null);
+  // projectContent is portaled into a stable always-mounted host so the file
+  // tree, open files, and edit-mode state survive tab/layout switches.
   const [projectHostEl, setProjectHostEl] = useState<HTMLDivElement | null>(null);
-  const setFloatBodyRef = useCallback((el: HTMLDivElement | null) => {
-    setFloatBodyEl(el);
-  }, []);
   const setProjectHostRef = useCallback((el: HTMLDivElement | null) => {
     setProjectHostEl(el);
   }, []);
@@ -490,9 +469,8 @@ export default function DetailTabs({
   // Without this, all text tabs share the same div.tabScroll DOM node, meaning scroll
   // position bleeds across tabs (e.g. scrolled-down activity bleeds into conversation).
   // NOTE: terminal, commands, and project are NOT in this map — they're always-mounted above.
-  // In split view, projectContent must NOT also be portaled into the float host;
-  // when split is on, isFloat is false so the portal target is projectHostEl,
-  // which is hidden by class — DraggableSplitView renders its own copy of projectContent.
+  // In split/stacked view, projectContent must NOT also be portaled into the host;
+  // shouldPortalProject is false in those modes — the combined view renders its own copy.
   const contentMap: Record<string, ReactNode> = {
     conversation: <div key="scroll-conversation" className={styles.tabScroll}>{promptsContent}</div>,
     aiPopups: <div key="scroll-aiPopups" className={styles.tabScroll}>{aiPopupsContent}</div>,
@@ -514,11 +492,10 @@ export default function DetailTabs({
     ),
   };
 
-  // Resolve the portal target for projectContent. Float-expanded → float body.
-  // Otherwise → the always-mounted host (visible only when project tab is active).
-  // Skipped during split view since DraggableSplitView renders projectContent inline.
-  const portalTarget: HTMLDivElement | null =
-    isFloat && floatBodyEl ? floatBodyEl : projectHostEl;
+  // Portal projectContent into the always-mounted host (visible only when the
+  // project tab is active). Skipped during split/stacked, which render their own
+  // inline copy of projectContent.
+  const portalTarget: HTMLDivElement | null = projectHostEl;
   const shouldPortalProject = !isSplit && !isStacked && portalTarget !== null;
 
   const hasMatches = (searchMatchCount ?? 0) > 0;
@@ -585,19 +562,16 @@ export default function DetailTabs({
                       {stackedView ? <UnstackIcon /> : <StackIcon />}
                     </span>
                   </Tooltip>
-                  <Tooltip {...(floatProject ? tooltips.unfloatProject : tooltips.floatProject)}>
+                  <Tooltip {...tooltips.floatProject}>
                     <span
                       className={styles.splitToggle}
                       onClick={(e) => {
                         e.stopPropagation();
-                        toggleFloat();
-                        if (!floatProject && activeTab !== 'terminal') {
-                          handleTabClick('terminal');
-                        }
+                        openProjectWindow();
                       }}
                       role="button"
                       tabIndex={0}
-                      aria-label={(floatProject ? tooltips.unfloatProject : tooltips.floatProject).label}
+                      aria-label={tooltips.floatProject.label}
                     >
                       <FloatIcon />
                     </span>
@@ -666,19 +640,11 @@ export default function DetailTabs({
         <div
           ref={setProjectHostRef}
           className={
-            effectiveTab === 'project' && !isFloat
+            effectiveTab === 'project'
               ? styles.alwaysTabActive
               : styles.alwaysTabHidden
           }
         />
-        {/* Floating Project panel — only rendered when float mode is active */}
-        {isFloat && (
-          <FloatingProjectPanel
-            sessionId={sessionId}
-            bodyRef={setFloatBodyRef}
-            onClose={toggleFloat}
-          />
-        )}
         {/* Portal projectContent into the resolved host. Single fiber position
             preserves component state when the DOM target switches. */}
         {shouldPortalProject && createPortal(projectContent, portalTarget!)}

@@ -316,6 +316,10 @@ export default memo(function TerminalContainer({
     trigger: translationTrigger,
     containerRef: rootRef,
     extract: popupExtract,
+    // The xterm element is reparented into a body-level fullscreen overlay in
+    // distraction-free mode, leaving `rootRef`'s subtree — scope to '.xterm' so
+    // the select-to-translate popup still fires there. See useSelectionPopup.
+    scopeSelector: '.xterm',
   });
 
   const handleBookmark = useCallback(() => {

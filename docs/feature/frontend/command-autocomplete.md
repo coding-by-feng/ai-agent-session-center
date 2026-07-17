@@ -43,9 +43,9 @@ When queuing or editing a prompt the user often wants to invoke a slash command 
 ### Built-in command catalogs
 
 Three hardcoded `BuiltinSpec[]` arrays enumerate in-binary slash commands not discoverable from disk:
-- **`CLAUDE_BUILTINS`** (37): `add-dir`, `agents`, `bashes`, `bug`, `clear`, `compact`, `config`, `context`, `cost`, `doctor`, `export`, `fix-issue`, `help`, `hooks`, `ide`, `init`, `install-github-app`, `login`, `logout`, `mcp`, `memory`, `model`, `output-style`, `permissions`, `plugin`, `pr-comments`, `release-notes`, `resume`, `review`, `security-review`, `status`, `todos`, `update`, `usage`, `vim`.
+- **`CLAUDE_BUILTINS`** (35): `add-dir`, `agents`, `bashes`, `bug`, `clear`, `compact`, `config`, `context`, `cost`, `doctor`, `export`, `fix-issue`, `help`, `hooks`, `ide`, `init`, `install-github-app`, `login`, `logout`, `mcp`, `memory`, `model`, `output-style`, `permissions`, `plugin`, `pr-comments`, `release-notes`, `resume`, `review`, `security-review`, `status`, `todos`, `update`, `usage`, `vim`.
 - **`CODEX_BUILTINS`** (14): `approvals`, `clear`, `compact`, `diff`, `init`, `logout`, `mcp`, `mention`, `model`, `new`, `quit`, `resume`, `status`, `undo`.
-- **`GEMINI_BUILTINS`** (22): `auth`, `bug`, `chat`, `clear`, `compress`, `copy`, `docs`, `editor`, `help`, `init`, `mcp`, `memory`, `model`, `privacy`, `quit`, `restore`, `settings`, `stats`, `theme`, `tools`, `vim`.
+- **`GEMINI_BUILTINS`** (21): `auth`, `bug`, `chat`, `clear`, `compress`, `copy`, `docs`, `editor`, `help`, `init`, `mcp`, `memory`, `model`, `privacy`, `quit`, `restore`, `settings`, `stats`, `theme`, `tools`, `vim`.
 
 ### Disk sources walked (server, per CLI)
 

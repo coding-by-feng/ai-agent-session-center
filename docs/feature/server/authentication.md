@@ -11,6 +11,7 @@ Prevents unauthorized access when the dashboard is exposed on a network (not jus
 |------|------|
 | `server/authManager.ts` (~9KB) | Password hashing, token management, middleware |
 | `server/serverConfig.ts` (~1KB) | Reads data/server-config.json (or APP_USER_DATA/server-config.json in Electron); provides passwordHash and other server defaults |
+| `server/index.ts` | Auth endpoints (`/api/auth/status\|login\|refresh\|logout`, index.ts:106-173), `Set-Cookie` construction, WS origin + token gate (index.ts:207-236), `startTokenCleanup()` wiring, public-bind security warning |
 
 ## Implementation
 
@@ -18,13 +19,18 @@ Prevents unauthorized access when the dashboard is exposed on a network (not jus
 - `isPasswordEnabled()` returns `Boolean(config.passwordHash)` — auth is fully off until a password hash is set in server-config.json
 - When disabled: `authMiddleware` calls `next()` immediately, `/api/auth/status` reports `authenticated: true`, login/refresh return `{ success: true }`, and the WebSocket skips token validation
 
+### Public-Bind Warning
+- On startup (`index.ts` onReady, ~line 336): if auth is enabled it logs `Password protection ENABLED -- login required (1h token TTL)`.
+- If auth is **disabled** AND the listen address is `0.0.0.0` or `::`, it emits a boxed `log.error` block — "SECURITY: Server is publicly accessible WITHOUT a password!" pointing at `npm run setup`. It **warns only — it does not refuse to bind**. This is the only guard against the exact scenario in §Purpose.
+
 ### Password Hashing
 - `hashPassword()`: crypto.scryptSync, salt=randomBytes(16).hex, hash=scryptSync(password, salt, SCRYPT_KEYLEN=64).hex
 - Stored as "salt:hash" (both hex)
+- **`hashPassword()` is exported but has no server-side caller** — the stored hash is written by the setup wizard, which carries a **duplicate implementation** (`hooks/setup-wizard.js:60`) because it runs before the TS server loads. The two MUST stay algorithm-identical (scrypt, 16-byte hex salt, keylen 64, `salt:hash`) or every existing password stops verifying. `verifyPassword()` is the live read path (`index.ts:135`).
 
 ### Verification
 - `verifyPassword()` uses crypto.timingSafeEqual (prevents timing attacks); returns false if stored value is missing/has no `:` or length mismatch
-- `validatePasswordComplexity()`: min 8 chars, at least 1 uppercase, 1 lowercase, 1 digit, 1 special character (`[^A-Za-z0-9]`); returns `{ valid, errors[] }`
+- `validatePasswordComplexity()`: min 8 chars, at least 1 uppercase, 1 lowercase, 1 digit, 1 special character (`[^A-Za-z0-9]`); returns `{ valid, errors[] }`. **Currently an exported helper with no callers** — the live paths validate independently against the same rules: `hooks/setup-wizard.js` (`validatePassword`, its own inline copy) and `ConfigureStep.tsx:23` (`passwordSchema` zod chain). Rule changes must be made in all three or the wizard and the UI drift apart.
 
 ### Login Rate Limiting
 - `LOGIN_MAX_ATTEMPTS = 5` per `LOGIN_WINDOW_MS = 15 min` per IP, tracked in `loginAttempts` Map<ip, {count, windowStart}>
@@ -68,15 +74,9 @@ Prevents unauthorized access when the dashboard is exposed on a network (not jus
 - `/api/hooks` (hooks must work without login, restricted to localhost via `localhostOnlyMiddleware` + `hookRateLimitMiddleware`)
 - Static files (Vite-built SPA) and the SPA fallback route
 
-### Additional Exports
-- `startTokenCleanup()` / `stopTokenCleanup()` — manage the periodic expired-token cleanup timer (every 15min)
-- `hashPassword()` / `verifyPassword()` — scrypt hash + timing-safe verify
-- `createToken()` / `removeToken()` / `getTokenTTL()` — token lifecycle helpers
-- `isPasswordEnabled()` — true when `config.passwordHash` is set
-- `validatePasswordComplexity()` — validates password meets complexity requirements
-- `parseCookieToken()` — extracts `auth_token` from Cookie header
-- `extractToken()` — extracts token from cookie, Authorization header, or query param (in priority order)
-- `TOKEN_TTL_SECONDS` constant (cookie Max-Age)
+### Export Inventory (`authManager.ts`)
+Each is described in its own section above — this is the complete list, not a re-description:
+`hashPassword`, `verifyPassword`, `validatePasswordComplexity`, `createToken`, `validateToken`, `refreshToken`, `getTokenTTL`, `removeToken`, `isPasswordEnabled`, `parseCookieToken`, `extractToken`, `authMiddleware`, `localhostOnlyMiddleware`, `checkLoginRateLimit`, `recordLoginAttempt`, `clearLoginAttempts`, `startTokenCleanup`, `stopTokenCleanup`, `TOKEN_TTL_SECONDS`, `PasswordValidation` (interface).
 
 ### Localhost Restriction
 - `localhostOnlyMiddleware` blocks non-loopback IPs from hook endpoints (403 `{ error: 'Hook endpoint restricted to localhost' }`)

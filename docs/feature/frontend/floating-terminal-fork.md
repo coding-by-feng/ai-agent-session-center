@@ -16,12 +16,21 @@ feature offers eight `FloatingMode`s:
 3. **`vocab-native`** — bilingual-dictionary entry for the selected word/phrase, written in the native language (POS, IPA, definition, example sentences, synonyms).
 4. **`translate-selection-learning`** — direct translation of the selection → learning language (output-only, no commentary).
 5. **`translate-selection-native`** — direct translation of the selection → native language.
-6. **`translate-answer`** — translate the origin's last assistant message → native language (Claude-only; reads the transcript).
-7. **`translate-file`** — translate a whole markdown file → native language (toolbar button in ProjectTab; sends `fileContent`).
+6. **`translate-answer`** — translate the origin's last assistant message → native language (Claude-only; reads the transcript). *Server-side mode; no UI trigger.*
+7. **`translate-file`** — translate a whole markdown file → native language (sends `fileContent`). *Server-side mode; no UI trigger.*
 8. **`custom`** — type your own instruction in the popup; it's combined with the selected text into a fresh prompt.
 
-The popup surfaces modes 1–5 + custom (six buttons); the terminal toolbar adds
-`translate-answer`; the ProjectTab markdown toolbar adds `translate-file`.
+`SelectionPopup` surfaces modes 1–5 + custom (six buttons) and is the **only
+client trigger**.
+
+> **Modes 6–7 are currently server-only.** `translate-answer` and `translate-file`
+> still exist end-to-end on the server (`FloatingMode` + `buildPrompt` + `floatLabel`
+> in `floatingPrompt.ts`, the `POST /api/sessions/spawn-floating` Zod enum) and
+> still render as mode labels/icons/filter options in REVIEW + AI POPUPS, but **no
+> component can spawn them** — the terminal-toolbar and ProjectTab-toolbar buttons
+> that used to fire them no longer exist. They are retained for API compatibility
+> and for rendering historical REVIEW rows, and are reachable only via a direct
+> POST to `/api/sessions/spawn-floating`.
 
 All modes spawn a brand-new CLI session in a floating window. **No new model
 auth, no new API key** — they reuse whatever CLI the origin session is running.
@@ -38,9 +47,9 @@ transcript reader exists.
 | `src/components/translate/SelectionPopup.tsx` | Floating toolbar at the selection: three icon rows (row 1 Explain ×2, row 2 Translate ×2, row 3 Vocabulary ×1) + a read-only **selection preview** + an inline **"Attach file path?" confirm** (explain modes only) + a **custom-prompt row** (textarea + Run). The preview mirrors the captured selection text because focusing the textarea collapses the browser's native selection highlight — without it the user thinks the selection was lost (the string is still held in `active.selection` and sent on spawn). |
 | `server/floatingPrompt.ts` | **Pure** prompt synthesis + window labels (`buildPrompt`, `floatLabel`, `customFloatLabel`, `MAX_PROMPT_BYTES`, `FloatingMode`/`SpawnFloatingArgs` types). Extracted from the spawner so it's unit-testable without the db/pty graph (no better-sqlite3). |
 | `src/styles/modules/SelectionPopup.module.css` | Popup styling — theme-aware via CSS variables (no hardcoded colours). |
-| `src/hooks/useSelectionPopup.ts` | Surface-agnostic selection-watcher hook (`auto`/`alt`/`off` triggers; mouseup + click-outside + Esc to dismiss; `open()` for programmatic show). |
+| `src/hooks/useSelectionPopup.ts` | Surface-agnostic selection-watcher hook (`auto`/`alt`/`off` triggers; mouseup + click-outside + Esc to dismiss; `open()` for programmatic show). Opens **only on a real selection gesture** — a drag past `CLICK_DRAG_THRESHOLD_PX` (4px) or a double/triple-click — and skips editable fields (`input`/`textarea`). A bare click never opens it: the Claude Code TUI captures mouse events so xterm keeps a **stale** selection after a click, and without this guard clicking into the terminal input re-opened the modes popup on the previous selection. |
 | `src/lib/selectionExtractors.ts` | Strategies: `extractDomSelection` (markdown) and `extractXtermSelection` (terminals). Selection capped at `MAX_SELECTION = 4000`, context line at `MAX_CONTEXT_LINE = 400`. |
-| `src/lib/cliDetect.ts` | `detectCli(session)` → `'claude' | 'gemini' | 'codex' | null`; used client-side to gate the Claude-only `translate-answer` button. |
+| `src/lib/cliDetect.ts` | `detectCli(session)` → `'claude' | 'gemini' | 'codex' | null`. The **canonical client CLI detector**; the server's `resolveOriginCli` (`floatingSessionSpawner.ts`) deliberately mirrors its precedence (cliSource → command → model) to avoid backend/frontend divergence. |
 | `src/lib/translationLog.ts` | Dexie helpers `createLog` (draft on spawn) / `captureResponse` (called periodically while the float is open — every 6s — plus on `beforeunload` and on close, keyed/overwritten by `terminalId` so it's idempotent) feeding the REVIEW tab. |
 | `src/components/session/FloatingTerminalPanel.tsx` | Picture-in-picture window hosting one TerminalContainer. Forwards its **`originSessionId`** prop (the **root** session) to TerminalContainer so the float's translate/explain lookups resolve a real session **and float-visibility scoping keeps nested floats visible under the selected root** (never orphaned). Recursive fork is handled server-side: the inner `TerminalContainer` sends this float's `terminalId` as `spawnTerminalId`, and the server resolves *its* session as the fork parent. Also hosts the **⧉ pop-out** button (Electron) and rebindable hotkeys (`floatMinimize`/`floatMaximize`/`floatClose`). See [Recursive fork](#recursive-fork). |
 | `src/styles/modules/FloatingTerminalPanel.module.css` | Window styling (drag, resize, collapse, popout chrome) — theme-aware via CSS variables (icons/chrome recolour per theme). |
@@ -56,9 +65,8 @@ Wired surfaces:
 
 | File | Wiring |
 |------|--------|
-| `src/components/terminal/TerminalContainer.tsx` | Mounts the popup using `extractXtermSelection` (sends its own `terminalId` as `spawnTerminalId`). Adds the `originSessionId` prop. Gates the **Translate previous answer** toolbar button on `detectCli(originSession) === 'claude'` and fires the `translate-answer` spawn. |
-| `src/components/terminal/TerminalToolbar.tsx` | Renders the **Translate previous answer** icon button (`onTranslateAnswer`, `translateAnswerLanguage`, `translateAnswerBusy`). |
-| `src/components/session/ProjectTab.tsx` | Mounts the popup with `extractDomSelection` on `markdownRef` (and `markdownFsRef` for fullscreen). Adds the **Translate file** toolbar button (sends `fileContent`). Markdown selections have **no** `spawnTerminalId`, so they fork from the root. |
+| `src/components/terminal/TerminalContainer.tsx` | Mounts the popup using `extractXtermSelection` (sends its own `terminalId` as `spawnTerminalId`). Accepts the `originSessionId` prop. |
+| `src/components/session/ProjectTab.tsx` | Mounts the popup with `extractDomSelection` on `markdownRef` (and `markdownFsRef` for fullscreen). Markdown selections have **no** `spawnTerminalId`, so they fork from the root. |
 | `src/components/session/ProjectTabContainer.tsx` | Threads `sessionId` → `originSessionId` to `ProjectTab`. |
 | `src/components/session/DetailPanel.tsx` | Threads `sessionId` → `originSessionId` to `TerminalContainer`. |
 | `src/main.tsx` | Detects `?popout=terminal` and renders `PopoutTerminalView` instead of the full dashboard. |
@@ -109,11 +117,10 @@ floatingSessionsStore.open() → FloatingTerminalRoot renders
 
 For mode `translate-answer`, the spawner first reads the most recent assistant
 message from the Claude transcript via `readClaudeLastAssistant`
-(`server/extractPreviousAnswer.ts`) and throws a 400 if none is found.
-TerminalContainer only shows the translate-previous-answer toolbar button when
-`detectCli(originSession) === 'claude'`; non-Claude origins never see it, and a
-direct API call from a Codex/Gemini origin fails because no previous answer can
-be read.
+(`server/extractPreviousAnswer.ts`) — but only when `resolveOriginCli(origin) === 'claude'`
+— and throws a 400 if none is found, so a Codex/Gemini origin always fails. This
+mode has **no UI trigger** today; it is reachable only via a direct POST to
+`/api/sessions/spawn-floating`.
 
 ## Modes
 
@@ -172,7 +179,7 @@ the spawn endpoint's Zod schema independently caps `fileContent` at 256 KB and
 * **Learning language** (`translationLearningLanguage`) — target for "deeper" same-language explanation and translate-to-learning. Default: `English`.
 * **Inherit conversation context for AI popups** (`translationInheritContext`) — when enabled, popup modes fork the origin Claude/Codex session via the CLI's native fork command (when the parent has a conversation), so the AI grounds its answer in the prior conversation. No effect for Gemini origins (no fork support). Default: on. Sent as the per-request `inheritContext` flag.
 * **Attach file path (explain)** (`explainAttachFilePath`) — `ask` / `always` / `never`. When an Explain mode runs on a selection inside an open file, optionally include that file's path in the prompt. `ask` prompts once via the inline confirm and then remembers the choice. Default: `ask`. Only applies in the file viewer.
-* **Trigger** (`translationTrigger`) — `auto` (every selection) / `alt` (require ⌥ held) / `off` (popup disabled, toolbar buttons still work).
+* **Trigger** (`translationTrigger`) — `auto` (every selection) / `alt` (require ⌥ held) / `off` (labelled **Disabled** in the UI). Since the popup is the only client trigger, `off` disables the feature's whole UI surface.
 
 No API key field exists — the feature is auth-free.
 
@@ -284,8 +291,8 @@ token plumbing. Nested floats spawned from inside a popout window aren't rendere
 | [Terminal/SSH](../server/terminal-ssh.md) | Float pty registration goes through `sshManager.createTerminal`. |
 | [Session detail panel](./session-detail-panel.md) | DetailPanel passes `originSessionId` into TerminalContainer. |
 | [Project browser](./project-browser.md) | ProjectTab markdown viewer is the second translatable surface. |
-| [UI primitives](./ui-primitives.md) | Popup/toolbar buttons use the shared `Tooltip` + `tooltips` registry: `selExplainLearning`, `selExplainNative`, `selVocabNative`, `selTranslateLearning`, `selTranslateNative`, `selCustomPrompt`, `termTranslateAnswer`, `projTranslateFile`, `floatTerminalClose`. |
-| [Terminal UI](./terminal-ui.md) | TerminalContainer mounts the popup, fires `translate-answer`, and re-attaches/replays the PTY buffer on re-dock. |
+| [UI primitives](./ui-primitives.md) | Popup/toolbar buttons use the shared `Tooltip` + `tooltips` registry: `selExplainLearning`, `selExplainNative`, `selVocabNative`, `selTranslateLearning`, `selTranslateNative`, `selCustomPrompt`, `floatTerminalClose`. |
+| [Terminal UI](./terminal-ui.md) | TerminalContainer mounts the popup and re-attaches/replays the PTY buffer on re-dock. |
 | [Conversation view](./conversation-view.md) | Shares `extractPreviousAnswer.ts` — `readClaudeTranscript` backs the CONVERSATION tab; `readClaudeLastAssistant` backs `translate-answer`. |
 | [REVIEW tab](./review-tab.md) | Each spawn writes a draft via `createLog`; the response is captured via `captureResponse` — periodically while the float is open (every 6s), on `beforeunload`, and on close — through the idempotent `captureNow`, so a restart/reload with a popup open no longer loses the answer. |
 | [Session management](../server/session-management.md) | Float visibility is keyed to `sessionStore.selectedSessionId`; removal/re-key cleanup is wired in `useWebSocket` next to the queue/room migrations. |
@@ -294,13 +301,21 @@ token plumbing. Nested floats spawned from inside a popout window aren't rendere
 
 ## Change Risks
 
+* **The whole feature depends on xterm drag-selection staying possible.**
+  Claude Code ≥ 2.1.150's fullscreen renderer captures the mouse (DECSET
+  1000/1002/1003/1006), which silently disables xterm selections — no selection,
+  no SelectionPopup, no AI popup. Dashboard-spawned PTYs therefore set
+  `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1` (see
+  [Terminal/SSH → Environment](../server/terminal-ssh.md)); `macOptionClickForcesSelection`
+  (⌥-drag) is the fallback for TUIs that still capture the mouse. Don't remove
+  either guard.
 * **Origin session must exist server-side.** The endpoint requires a live
   `Session` (`getSession(originSessionId)`); standalone Project Browser route
   has no session, so floats are disabled there.
-* **`translate-answer` only supports Claude origins.** TerminalContainer shows
-  the button only when `detectCli(originSession) === 'claude'`; for Codex/Gemini
-  origins it isn't rendered, and a direct API call returns a 400 because no
-  previous answer can be read (only the Claude transcript reader exists).
+* **`translate-answer` only supports Claude origins.** The spawner reads the
+  previous answer only when `resolveOriginCli(origin) === 'claude'` and returns a
+  400 otherwise (only the Claude transcript reader exists). It currently has **no
+  UI trigger**, so this is reachable only via a direct API call.
 * **Prompts are passed as shell-quoted positional args.** Very large markdown
   files may approach `ARG_MAX`; the spawner enforces `MAX_PROMPT_BYTES = 256 KB`,
   and the endpoint Zod schema caps `fileContent` at 256 KB / `filePath` at 2048 chars.

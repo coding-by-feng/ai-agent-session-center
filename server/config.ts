@@ -193,22 +193,108 @@ export const FLAG_EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'ma
  * raw `--effort ultracode` flag is rejected by the CLI) and upgraded to true
  * ultracode by the post-startup `/effort ultracode` slash injection.
  */
+/**
+ * Safe charset for a Claude `--model` value — mirrors the `model` field in the
+ * session-creation Zod schema (`apiRouter.ts`). The value is interpolated
+ * **unquoted** into the `--model` launch flag, so anything outside this set is a
+ * shell-injection / glob hazard.
+ */
+const SAFE_MODEL_RE = /^[a-zA-Z0-9._-]+$/;
+
+/**
+ * Clean a possibly-contaminated model id before it is interpolated into a
+ * launch command. Forks/popups inherit `origin.model`, and an older session can
+ * carry a model polluted with a stripped ANSI bold escape (e.g.
+ * `claude-opus-4-8[1m]`, captured from a bold-rendered model id with the ESC
+ * byte lost) or a real `\x1b[1m…\x1b[0m` wrapper / trailing newline. Left as-is,
+ * `--model claude-opus-4-8[1m]` reaches the shell unquoted and zsh treats
+ * `[1m]` as a glob → "no matches found" → the launch fails.
+ *
+ * Strips real ANSI escapes and their ESC-stripped SGR leftovers, collapses to
+ * the first whitespace-delimited token, and returns it only if it matches the
+ * safe charset — otherwise `''` (caller drops the flag and Claude uses its
+ * default model).
+ */
+export function sanitizeModelId(model: string | null | undefined): string {
+  if (!model) return '';
+  const cleaned = model
+    // Real ANSI escape sequences (CSI + OSC).
+    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+    .replace(/\x1b\].*?(?:\x07|\x1b\\)/g, '')
+    // ESC-stripped SGR leftovers: "[1m", "[0m]", "[1;32m" — a real model id
+    // never contains a bracket, so these can be removed wholesale.
+    .replace(/\[[0-9;]*[A-Za-z]\]?/g, '')
+    // Drop control chars / trailing junk, then keep the first token.
+    .trim()
+    .split(/\s+/)[0] ?? '';
+  return SAFE_MODEL_RE.test(cleaned) ? cleaned : '';
+}
+
+/**
+ * Clean any `--model <value>` (or `--model=<value>`) token already baked into a
+ * command string — e.g. a stored `startupCommand` reused by clone/resume/fork, or
+ * one launched before {@link sanitizeModelId} existed. The value is recovered to a
+ * safe token (`claude-opus-4-8[1m]` → `claude-opus-4-8`), or the flag is dropped
+ * when nothing safe remains. Without this, a contaminated `--model` survives into
+ * the launch command unquoted and zsh treats `[1m]` as a glob → the spawn fails.
+ */
+export function sanitizeModelInCommand(command: string): string {
+  return command.replace(/\s*--model(?:=|\s+)(\S+)/g, (_full, value: string) => {
+    const clean = sanitizeModelId(value);
+    return clean ? ` --model ${clean}` : '';
+  });
+}
+
+/**
+ * Env defaults for every dashboard-spawned PTY that may run Claude Code.
+ *
+ * Claude Code ≥ 2.1.150 defaults to its "fullscreen" alt-screen renderer,
+ * which enables xterm mouse tracking (DECSET 1000/1002/1003/1006). Inside the
+ * dashboard's xterm.js terminals that captures every drag, so text selection —
+ * and with it the select-to-translate/explain AI popup — stops working, and
+ * scrollback-based features (bookmarks, find, REVIEW snapshots) degrade.
+ * `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1` is the official opt-out: it forces
+ * the classic main-screen renderer (no alt screen, no mouse capture) and takes
+ * precedence over the user's `tui` setting. External terminals are unaffected —
+ * this only applies to PTYs the dashboard spawns.
+ */
+export const CLAUDE_TUI_ENV_DEFAULTS: Record<string, string> = {
+  CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1',
+};
+
+/**
+ * Return a new env with CLAUDE_TUI_ENV_DEFAULTS applied for keys not already
+ * present. A pre-existing value (e.g. a user exporting
+ * CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=0 to opt back into fullscreen) wins.
+ */
+export function withClaudeTuiEnvDefaults(env: Record<string, string>): Record<string, string> {
+  const defaults = Object.fromEntries(
+    Object.entries(CLAUDE_TUI_ENV_DEFAULTS).filter(([key]) => !(key in env)),
+  );
+  return { ...env, ...defaults };
+}
+
 export function applyClaudeLaunchFlags(
   command: string,
   model?: string | null,
   effortLevel?: string | null,
 ): string {
   if (!command.startsWith('claude')) return command;
+  // First scrub any contaminated --model already present in the command (clone /
+  // resume / fork reuse the stored startupCommand), then add flags only if still
+  // missing — so a baked-in `claude-opus-4-8[1m]` can't reach the unquoted flag.
+  const cleaned = sanitizeModelInCommand(command);
   const flags: string[] = [];
-  if (model && !/--model\b/.test(command)) flags.push(`--model ${model}`);
+  const safeModel = sanitizeModelId(model);
+  if (safeModel && !/--model\b/.test(cleaned)) flags.push(`--model ${safeModel}`);
   // ultracode can't be an --effort value; launch at its base (xhigh) so effort is
   // still a real CLI parameter, then /effort ultracode upgrades it once ready.
   const flagEffort = effortLevel === 'ultracode' ? 'xhigh' : effortLevel;
-  if (flagEffort && FLAG_EFFORT_LEVELS.has(flagEffort) && !/--effort\b/.test(command)) {
+  if (flagEffort && FLAG_EFFORT_LEVELS.has(flagEffort) && !/--effort\b/.test(cleaned)) {
     flags.push(`--effort ${flagEffort}`);
   }
-  if (flags.length === 0) return command;
-  return command.replace(/^claude\b/, `claude ${flags.join(' ')}`);
+  if (flags.length === 0) return cleaned;
+  return cleaned.replace(/^claude\b/, `claude ${flags.join(' ')}`);
 }
 
 /**

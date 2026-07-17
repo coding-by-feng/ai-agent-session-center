@@ -49,7 +49,7 @@ Claude Code wraps internal `user` messages in harness tags **and** injects conte
 - **Injected, non-tagged content** (classified first, via `classifyInjection`, anchored at the start of the message to avoid false positives) → a labelled `system` row:
   - `^Base directory for this skill: <path>` (or "full content of … '<name>' skill") → `kind: 'skill'`, `label` = the skill name (last path segment / quoted name).
   - leading `<system-reminder>` → `kind: 'reminder'`.
-  - leading `<EXTREMELY_IMPORTANT>`/`<IMPORTANT>` or "… hook additional context" → `kind: 'hook'`.
+  - leading `<EXTREMELY_IMPORTANT>` / `<IMPORTANT>` / `<SYSTEM…>`, a leading `SessionStart hook`, or "… hook additional context" → `kind: 'hook'`.
 - A `user` entry containing `<command-name>…</command-name>` → a `command` entry: `name` (e.g. `/clear`), `args` (from `<command-args>`, only when non-empty), and `stdout` (from `<local-command-stdout>`, when present).
 - A standalone `<local-command-stdout>` entry → folded into the immediately preceding `command` entry that has no `stdout` yet (spread into a new object); if there is none, it becomes its own `system` entry (`kind: 'plumbing'`).
 - A `<local-command-caveat>` entry (the "DO NOT respond…" boilerplate) → a `system` entry (`kind: 'plumbing'`) holding only the inner text.

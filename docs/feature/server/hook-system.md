@@ -62,23 +62,33 @@ The bridge between AI CLI processes (Claude, Gemini, Codex) and the dashboard. W
 
 ### Installers & Reset CLI
 - `hooks/install-hooks.js` — CLI entry point; parses `--density <high|medium|low>`, `--clis <claude,gemini,codex>`, `--uninstall`, `--quiet`; falls back to `data/server-config.json`; delegates to `installHooks()` in `install-hooks-api.js`/`.cjs`.
-- `hooks/install-hooks-core.js`/`.cjs` — pure helpers: `atomicWriteJSON`, `buildHookEntry`, `deployHookScript`, `configureClaudeHooks`, `removeAllClaudeHooks`, `configureCodexHooksToml`, `removeAllCodexHooksToml`.
+- `hooks/install-hooks-core.js`/`.cjs` — pure helpers: `atomicWriteJSON`, `buildHookEntry`, `deployHookScript`, `configureClaudeHooks`, `removeAllClaudeHooks`, `configureGeminiHooks`, `configureCodexHooksToml`, `removeAllCodexHooksToml`.
 - `hooks/reset.js` — backs up `~/.claude`/`~/.gemini`/`~/.codex` config + hook scripts, removes dashboard-owned hooks (dual match: `_source` marker preferred, command-pattern fallback), strips Codex lifecycle blocks + legacy `notify` lines, and deletes the copied hook scripts.
 
 ### Event Coverage
-Densities are resolved in `hookInstaller.ensureHooksInstalled()` per CLI (the live install path); `constants.ts` mirrors the Claude/Codex sets for runtime validation.
-- **Claude** (14 events total via `ALL_CLAUDE_HOOK_EVENTS`):
+Densities are resolved in **two** places: `server/hookInstaller.js` (`ensureHooksInstalled()`, the startup auto-install) and `hooks/install-hooks-api.js`/`.cjs` (`installHooks()`, used by `npm run install-hooks`, POST /api/hooks/install, and the Electron setup wizard). The Claude sets agree; the Gemini and Codex sets deliberately differ — see below. `constants.ts` mirrors the Claude/Codex sets for runtime validation.
+- **Claude** (14 events total via `ALL_CLAUDE_HOOK_EVENTS`) — identical in both resolvers:
   - high — all 14: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, `Stop`, `Notification`, `SubagentStart`, `SubagentStop`, `TeammateIdle`, `TaskCompleted`, `PreCompact`, `SessionEnd`
   - medium — 12 (drops `TeammateIdle` and `PreCompact`)
   - low — 5 core: `SessionStart`, `UserPromptSubmit`, `PermissionRequest`, `Stop`, `SessionEnd`
-- **Gemini** (8 events at high):
-  - high — `SessionStart`, `BeforeAgent`, `BeforeTool`, `AfterTool`, `AfterAgent`, `PreCompress`, `SessionEnd`, `Notification`
-  - medium — 5: `SessionStart`, `BeforeAgent`, `AfterAgent`, `SessionEnd`, `Notification`
-  - low — 3: `SessionStart`, `AfterAgent`, `SessionEnd`
-- **Codex** (10 lifecycle events at high; Codex has no `SessionEnd` — `Stop` is terminal):
-  - high — `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PermissionRequest`, `PreCompact`, `PostCompact`, `SubagentStart`, `SubagentStop`, `Stop`
-  - medium — 6: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PermissionRequest`, `Stop`
-  - low — 4: `SessionStart`, `UserPromptSubmit`, `PermissionRequest`, `Stop`
+- **Gemini** — the two resolvers differ:
+  - `server/hookInstaller.js` (startup auto-install), 8 events at high:
+    - high — `SessionStart`, `BeforeAgent`, `BeforeTool`, `AfterTool`, `AfterAgent`, `PreCompress`, `SessionEnd`, `Notification`
+    - medium — 5: `SessionStart`, `BeforeAgent`, `AfterAgent`, `SessionEnd`, `Notification`
+    - low — 3: `SessionStart`, `AfterAgent`, `SessionEnd`
+  - `hooks/install-hooks-api.js`/`.cjs` (`npm run install-hooks`, POST /api/hooks/install, Electron setup wizard):
+    - high / medium — 7 (identical sets, no `PreCompress`): `SessionStart`, `BeforeAgent`, `BeforeTool`, `AfterTool`, `AfterAgent`, `SessionEnd`, `Notification`
+    - low — 3: `SessionStart`, `AfterAgent`, `SessionEnd`
+    - **Why medium includes BeforeTool/AfterTool:** they must be in medium so sessions reach the "working" state (orange brightening); without them Gemini sits at idle/prompting only.
+- **Codex** (Codex has no `SessionEnd` — `Stop` is terminal) — the two resolvers differ:
+  - `server/hookInstaller.js` (startup auto-install), 10 lifecycle events at high:
+    - high — `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PermissionRequest`, `PreCompact`, `PostCompact`, `SubagentStart`, `SubagentStop`, `Stop`
+    - medium — 6: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PermissionRequest`, `Stop`
+    - low — 4: `SessionStart`, `UserPromptSubmit`, `PermissionRequest`, `Stop`
+  - `hooks/install-hooks-api.js`/`.cjs` (`npm run install-hooks`, POST /api/hooks/install, Electron setup wizard):
+    - high / medium — 5 (identical sets): `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PermissionRequest`
+    - low — 3: `SessionStart`, `UserPromptSubmit`, `PermissionRequest`
+    - **Why Stop/PreCompact/PostCompact/SubagentStart/SubagentStop are deliberately omitted:** Codex CLI (>=0.130) natively supports only those 5 lifecycle hooks via `[[hooks.X]]` blocks. The `Stop` / `agent-turn-complete` signal is delivered through the legacy `notify = "..."` config entry, not as a hooks block. Listing `Stop` / `PreCompact` here previously caused the installer to write blocks Codex silently ignores.
 
 ### Hook Registration
 - **Claude**: hook copied to `~/.claude/hooks/`, events registered in `~/.claude/settings.json` (atomic write-to-tmp + rename). Each entry is `{ _source: 'ai-agent-session-center', hooks: [{ type: 'command', command, async: true }] }`. Windows uses `dashboard-hook.ps1` invoked via `powershell -NoProfile -ExecutionPolicy Bypass -File`.
@@ -110,4 +120,4 @@ Densities are resolved in `hookInstaller.ensureHooksInstalled()` per CLI (the li
 - Changes to jq enrichment affect [Session Matching](./session-matching.md) (TTY/PID/tab_id/env fields are matcher inputs)
 - Changing the JSONL format breaks `mqReader` parsing
 - Modifying density levels changes which events are captured (and downstream sound/alarm triggers)
-- Per-CLI event sets in `hookInstaller.js` and `constants.ts` must stay in sync — an event registered but not in `KNOWN_EVENTS` is rejected at validation
+- Per-CLI event sets live in three places — `hookInstaller.js` (startup auto-install), `hooks/install-hooks-api.js`/`.cjs` (every user-triggered install), and `constants.ts` (`KNOWN_EVENTS` validation). An event registered but not in `KNOWN_EVENTS` is rejected at validation. The Gemini/Codex divergence between the two installers is deliberate (see Event Coverage) — do not "fix" it by copying one table over the other

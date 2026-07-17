@@ -66,6 +66,8 @@ Per-tone gain in `playTone`: `vol * masterVolume * 0.3` (default `vol` = 1). Def
 | gemini | 0.7 |
 | codex | 0.5 |
 
+When a CLI is detected and its profile is enabled, `playForCli` resolves the sound from `cliConfig.actions[action] ?? 'none'` and plays it via `soundEngine.preview()`, which bypasses both the `unlocked` gate and the `DEFAULT_ACTION_SOUNDS`/override resolution. Only the fallback path (no CLI match or profile disabled) calls `soundEngine.play(action)`.
+
 ### CLI Detection
 
 `detectCli()` (returns `CliName = 'claude' | 'gemini' | 'codex'` or `null`) uses a four-phase strategy:
@@ -86,7 +88,9 @@ Read -> toolRead, Write -> toolWrite, Edit -> toolEdit, Bash -> toolBash, Grep -
 
 ### Ambient Presets
 
-5 procedural presets built from Web Audio nodes, plus `off`. The `ambientEngine` singleton has its own AudioContext (default volume `0.3`); `start(preset, volume?)` stops any current preset before building the new one, and `stop()` clears all intervals/timeouts, stops sources, and disconnects gains:
+5 procedural presets built from Web Audio nodes, plus `off`. The `ambientEngine` singleton has its own AudioContext (default volume `0.3`); `start(preset, volume?)` stops any current preset before building the new one, and `stop()` clears all intervals/timeouts, stops sources, and disconnects gains.
+
+Ambient is off by default (`DEFAULT_AMBIENT_SETTINGS` = `enabled: false`, `preset: 'off'`, `volume: 0.3`, `roomSounds: false`, `roomVolume: 0.2`). `enabled` is a real gate: `SoundSettings.handleAmbientPresetChange` only calls `ambientEngine.start()` when `ambientSettings.enabled` is true, and `handleAmbientToggle` starts/stops on it.
 
 | Preset | Synthesis |
 |--------|-----------|
@@ -102,7 +106,7 @@ Read -> toolRead, Write -> toolWrite, Edit -> toolEdit, Bash -> toolBash, Grep -
 **Approval alarm (repeating):**
 - Session enters approval status -> `playForCli(session, 'approvalNeeded')` immediately
 - `setInterval` repeating: normal interval 10s, alerted interval 5s
-- Clears on status change or mute (unless alerted)
+- Clears on status change or mute -- mute wins even for alerted sessions (`checkAlarms` never consults `alertedSessions` for the mute gate)
 - Multiple concurrent alarms supported via `Map<sessionId, intervalId>`
 
 **Input notification (one-shot):**
@@ -112,12 +116,12 @@ Read -> toolRead, Write -> toolWrite, Edit -> toolEdit, Bash -> toolBash, Grep -
 
 **Per-session mute/alert:**
 - `mutedSessions` Set, `alertedSessions` Set
-- Alert overrides mute
+- Alert overrides mute for event sounds only (`handleEventSounds`); for the approval alarm and input notification (`checkAlarms`), mute wins over alert
 - Alerted sessions play at 2.5x volume (capped at 1.0)
 - Alerted sessions use faster alarm interval (5s)
 
 **Public API:**
-- `checkAlarms(getSessions)` -- scans all sessions and triggers/clears alarms based on current status
+- `checkAlarms(session, getSessions)` -- triggers/clears the approval + input alarms for one session based on its current status; `getSessions` is a live accessor the repeating timer uses to re-read that session each tick
 - `muteSession(sessionId)` -- add session to muted set
 - `unmuteSession(sessionId)` -- remove session from muted set
 - `isMuted(sessionId)` -- check if session is muted
@@ -142,7 +146,7 @@ React hook returning `{play, preview, enabled, volume}`. Additional features:
 ## Dependencies & Connections
 
 ### Depends On
-- [State Management](../frontend/state-management.md) -- settingsStore provides `soundSettings` (enabled, volume, per-CLI `perCli` profiles, `muteApproval`/`muteInput`) and `ambientSettings` (preset, volume)
+- [State Management](../frontend/state-management.md) -- settingsStore provides `soundSettings` (enabled, volume, per-CLI `perCli` profiles, `muteApproval`/`muteInput`) and `ambientSettings` (enabled, preset, volume, roomSounds, roomVolume)
 - [WebSocket Client](../frontend/websocket-client.md) -- `useWebSocket` calls `handleEventSounds(session)` and `checkAlarms(session, getSessions)` on every session update
 - [Server Session Management](../server/session-management.md) -- session status (`approval` / `input`) drives alarm triggers
 

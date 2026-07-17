@@ -10,6 +10,8 @@ Real-time communication channel between server and all connected browser clients
 | File | Role |
 |------|------|
 | `server/wsManager.ts` (~9KB) | WebSocket server, broadcast, terminal relay, heartbeat |
+| `server/index.ts` | WS origin (CSWSH) + token gate before `handleConnection()`; `maxPayload` on the `WebSocketServer` (index.ts:82) |
+| `server/hookProcessor.ts` | `scheduleBroadcast` — 250ms/session `session_update` coalescing (`SESSION_UPDATE_THROTTLE_MS`, hookProcessor.ts:11-33) + the piggybacked `team_update` |
 
 ## Implementation
 
@@ -21,7 +23,7 @@ Origin validation and auth both happen in `server/index.ts` (`wss.on('connection
 
 Per-client guards inside the message handler:
 - Rate limit: max **100** messages/sec; on exceed, close with code **4004** (`Rate limit exceeded`)
-- Max inbound message size: **524288** bytes (512KB) — oversized messages are dropped (not parsed)
+- Max inbound message size: **524288** bytes (512KB), enforced **twice with different failure modes**: the ws server is constructed with `maxPayload: 512 * 1024` (`index.ts:82`), which makes the ws library reject an oversized frame at the frame layer and **close the connection** (1009); wsManager then re-checks `rawStr.length > 524288` (wsManager.ts:112) and silently **drops** (does not parse) anything that gets through
 
 ### Heartbeat
 - ping every 30s (`HEARTBEAT_INTERVAL_MS = 30000`); on each tick, terminate any client that hasn't replied with a pong since the previous ping (effective drop window: up to 30s). Started lazily on the first connection and stopped when the last client disconnects.

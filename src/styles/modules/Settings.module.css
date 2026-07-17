@@ -120,6 +120,16 @@
 .advancedActions { display: flex; gap: 10px; flex-wrap: wrap; }
 .settingsHint { font-size: 11px; color: var(--text-dim); margin-bottom: 10px; line-height: 1.5; }
 
+/* Terminal replay-buffer control */
+.bufferRow { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.bufferInput { width: 96px; font-family: var(--font-mono); font-size: 13px; font-weight: 700; padding: 6px 10px; background: var(--bg-primary, #0a0a1a); color: var(--text-primary, #e0e0e0); border: 1px solid var(--border-subtle-strong); border-radius: 4px; outline: none; }
+.bufferInput:focus { border-color: var(--accent-cyan); }
+.bufferUnit { font-family: var(--font-mono); font-size: 12px; color: var(--text-dim); }
+.bufferPresets { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.bufferPreset { background: var(--bg-card); border: 1px solid var(--border-subtle-strong); color: var(--text-secondary); font-family: var(--font-mono); font-size: 12px; font-weight: 700; padding: 5px 11px; border-radius: 4px; cursor: pointer; transition: all 0.2s; }
+.bufferPreset:hover { border-color: var(--accent-cyan); color: var(--text-primary); }
+.bufferPresetActive { border-color: var(--accent-cyan); color: var(--accent-cyan); background: color-mix(in srgb, var(--accent-cyan) 12%, transparent); }
+
 /* API Key */
 .apiKeyRow { display: flex; gap: 6px; align-items: center; }
 .apiKeyInput { flex: 1; font-family: var(--font-mono); font-size: 12px; padding: 6px 10px; background: var(--bg-primary, #0a0a1a); color: var(--text-primary, #e0e0e0); border: 1px solid var(--border-accent, #1a1a3a); border-radius: 4px; outline: none; }

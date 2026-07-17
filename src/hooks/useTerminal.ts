@@ -290,6 +290,21 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   const outputRafRef = useRef<number | null>(null);
   /** IntersectionObserver fallback for hidden containers (always-mounted tabs like COMMANDS) */
   const pendingSetupObserverRef = useRef<IntersectionObserver | null>(null);
+  /**
+   * Monotonic attach token. Every `attach()` claims the next value; each async
+   * continuation it schedules (the setupWhenReady rAF/timeout retry chain and
+   * the IntersectionObserver fallback) captures that value and aborts if it is
+   * no longer current.
+   *
+   * Without this, a retry chain started for terminal A kept running after the
+   * user switched to B — `detach()` cannot clear it because the timeout handle
+   * is never stored. Its `activeRef.current?.terminalId === terminalId` guard
+   * reads "am I ALREADY set up", which is false for a stale chain, so it fell
+   * through and ran doSetup(A): `term.open()` APPENDS, so A's xterm stacked
+   * under B's inside the same container and stole activeRef, leaving B's
+   * Terminal frozen on screen and never disposed.
+   */
+  const attachGenRef = useRef(0);
 
   const [isAttached, setIsAttached] = useState(false);
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
@@ -322,6 +337,9 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
 
   // Detach
   const detach = useCallback(() => {
+    // Invalidate any in-flight attach continuation (the setupWhenReady retry
+    // chain has no cancellable handle — bumping the token is what stops it).
+    attachGenRef.current++;
     // Cancel pending IntersectionObserver from setupWhenReady fallback
     if (pendingSetupObserverRef.current) {
       pendingSetupObserverRef.current.disconnect();
@@ -383,7 +401,12 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
       autoScrollRef.current = restoredAutoScroll;
       setAutoScrollEnabled(restoredAutoScroll);
 
+      // detach() bumps the attach token, aborting any chain still pending from
+      // a previous attach. Claim OURS afterwards so we aren't invalidated by
+      // our own detach.
       detach();
+      const gen = ++attachGenRef.current;
+      const isStale = () => gen !== attachGenRef.current;
 
       const containerOrNull = containerRef.current;
       if (!containerOrNull) return;
@@ -411,6 +434,11 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
       // PTY host terminals subscribe via IPC; others use WebSocket
       if (isPtyHostTerminal(terminalId)) {
         window.electronAPI!.subscribePty!(terminalId).then((result) => {
+          // Stale attach: we already unsubscribed in detach(); dropping the
+          // replay keeps this terminal's scrollback out of whatever is on
+          // screen now. (handleTerminalOutput also filters by active id, so
+          // this is belt-and-braces.)
+          if (isStale()) return;
           if (result.buffer) {
             // Replay buffered output
             handleTerminalOutput(terminalId, result.buffer);
@@ -427,6 +455,10 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
 
       // Wait for container dimensions
       function setupWhenReady(retries: number) {
+        // Stale attach: the user moved on to a different terminal while this
+        // chain was waiting for the container to size. Abandon it — running
+        // doSetup() now would open a SECOND xterm into the live container.
+        if (isStale()) return;
         // Guard: another attach call may have already set up the terminal
         if (activeRef.current?.terminalId === terminalId) return;
         if (container.offsetWidth > 0 && container.offsetHeight > 0) {
@@ -444,6 +476,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
             ) {
               observer.disconnect();
               pendingSetupObserverRef.current = null;
+              if (isStale()) return;
               if (!activeRef.current || activeRef.current.terminalId !== terminalId) {
                 doSetup();
               }
@@ -455,6 +488,10 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
       }
 
       function doSetup() {
+        // Last line of defence: never open a terminal for a superseded attach.
+        // term.open() APPENDS to the container, so a stale call stacks a second
+        // xterm on the live one and overwrites activeRef.
+        if (isStale()) return;
         const term = new Terminal({
           cursorBlink: false,
           cursorStyle: 'bar',
@@ -474,6 +511,12 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           convertEol: false,
           drawBoldTextInBrightColors: true,
           minimumContrastRatio: 1,
+          // TUIs like Claude Code enable mouse tracking (DECSET 1000/1002/1006),
+          // which makes a plain drag send mouse reports to the app instead of
+          // selecting text. On macOS the only way to force a real text selection
+          // then is Option(⌥)-drag with this flag on — without it, you can't
+          // select (or select-to-translate) inside a running agent's terminal.
+          macOptionClickForcesSelection: true,
         });
 
         const fitAddon = new FitAddon();

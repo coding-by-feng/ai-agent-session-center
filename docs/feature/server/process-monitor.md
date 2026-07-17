@@ -52,12 +52,12 @@ When `kill(pid, 0)` throws, the session is auto-ended:
 | Status | Timeout | Transitions To |
 |--------|---------|----------------|
 | `prompting` | `30_000` (30s) | `waiting` |
-| `waiting` | `120_000` (2min) | `idle` |
+| `waiting` | `300_000` (5min) | `idle` |
 | `approval` | `600_000` (10min) | `idle` (safety net) |
 | `input` | `600_000` (10min) | `idle` (safety net) |
-| any other working state | `180_000` (3min) | `idle` |
+| any other working state | `900_000` (15min) | `idle` (safety net) |
 
-`ended` and `idle` sessions are skipped outright. The final "working" branch explicitly excludes `waiting`, `prompting`, `approval`, `input`, and `connecting` states so only genuine in-flight work hits the 3-min timeout. On a transition to `idle` from `approval`/`input`, `pendingTool`, `pendingToolDetail`, and `waitingDetail` are also cleared.
+`ended` and `idle` sessions are skipped outright. The final "working" branch explicitly excludes `waiting`, `prompting`, `approval`, `input`, and `connecting` states so only genuine in-flight work hits the 15-min timeout. On a transition to `idle` from `approval`/`input`, `pendingTool`, `pendingToolDetail`, and `waitingDetail` are also cleared.
 
 ### Stale `pendingResume` Cleanup
 `startPendingResumeCleanup(pendingResume, sessions, broadcastFn)` installs a separate `setInterval` firing every **15s** (`stopPendingResumeCleanup()` clears it). Entries older than `120000`ms (2min) are removed; if the associated session is still in `connecting` status it is reverted to `idle` (terminal detached, `terminalId = null`) and a `session_update` broadcast is sent. The 2-min grace gives slow `SessionStart` hooks (2-5s on congested systems) time to arrive before cleanup.

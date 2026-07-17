@@ -10,9 +10,10 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionPinned, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
-import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, attachToTmuxPane, consumePendingLink, prefillTerminalOutput } from './sshManager.js';
+import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, attachToTmuxPane, consumePendingLink, prefillTerminalOutput, setReplayBufferBytes } from './sshManager.js';
+import { terminateProcessTree } from './processMonitor.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
 import * as db from './db.js';
@@ -23,7 +24,7 @@ import { join, dirname, extname, basename, resolve, sep } from 'path';
 import { homedir, userInfo, networkInterfaces, hostname } from 'os';
 import { fileURLToPath } from 'url';
 import { ALL_CLAUDE_HOOK_EVENTS, CODEX_DENSITY_EVENTS, CODEX_HOOK_EVENTS, DENSITY_EVENTS, SESSION_STATUS, WS_TYPES } from './constants.js';
-import { reconstructPermissionFlags, appendSessionName, stripClaudeSessionName, extractSessionName, applyClaudeLaunchFlags } from './config.js';
+import { reconstructPermissionFlags, appendSessionName, stripClaudeSessionName, extractSessionName, applyClaudeLaunchFlags, sanitizeModelInCommand } from './config.js';
 import log from './logger.js';
 import { searchFiles, invalidateCache, preloadIndex } from './fileIndexCache.js';
 import { getCommandIndex } from './commandIndex.js';
@@ -250,6 +251,8 @@ const terminalCreateSchema = z.object({
   alerted: z.boolean().optional(),
   accentColor: z.string().max(50).optional(),
   characterModel: z.string().max(100).optional(),
+  /** Same cap as remarkSchema — a workspace restore must not smuggle a longer one. */
+  remark: z.string().max(200).optional(),
   /** Process-isolation flag for sessions spawned from another session (clone/fork/popup) — guards the kill flow's PID lookup. */
   isFork: z.boolean().optional(),
   /** Floating PiP popup flag — hidden from session lists, rendered as a floating panel. Restored from workspace snapshot so PiP sessions stay PiP after restart. */
@@ -278,6 +281,12 @@ const killSessionSchema = z.object({
 
 const titleSchema = z.object({
   title: z.string().max(500),
+});
+
+/** Progress remark. Capped short — it renders on ONE line in the detail rail;
+ *  long-form notes belong in the NOTES tab. Empty string clears it. */
+const remarkSchema = z.object({
+  remark: z.string().max(200),
 });
 
 
@@ -398,6 +407,17 @@ router.get('/hook-stats', (_req: Request, res: Response) => {
 router.post('/hook-stats/reset', (_req: Request, res: Response) => {
   resetHookStats();
   res.json({ ok: true });
+});
+
+// Set the terminal scrollback replay buffer size (bytes) for newly created
+// terminals. Pushed from the browser when the ADVANCED setting loads or changes.
+// The value is clamped on the backend, so a bad value can't allocate gigabytes.
+const terminalBufferSchema = z.object({ bytes: z.number().finite() });
+router.post('/config/terminal-buffer', (req: Request, res: Response) => {
+  const body = validateBody(terminalBufferSchema, req.body, res);
+  if (!body) return;
+  const applied = setReplayBufferBytes(body.bytes);
+  res.json({ success: true, data: { bytes: applied } });
 });
 
 // Full reset — broadcast to all connected browsers to clear their IndexedDB
@@ -941,7 +961,9 @@ router.post('/sessions/:id/reconnect-ops-terminal', async (req: Request, res: Re
   }
 });
 
-// Kill session process — sends SIGTERM, then SIGKILL after 3s if still alive
+// Kill session process — group-terminates the agent tree (SIGTERM -> SIGKILL),
+// verifies death, and only then marks the session ENDED. Reports the killed PID
+// (or a survivor) truthfully instead of always claiming success.
 router.post('/sessions/:id/kill', async (req: Request, res: Response) => {
   const body = validateBody(killSessionSchema, req.body, res);
   if (!body) return;
@@ -951,37 +973,40 @@ router.post('/sessions/:id/kill', async (req: Request, res: Response) => {
     res.status(404).json({ success: false, error: 'Session not found' });
     return;
   }
-  // Fork sessions share the origin's projectPath, so the cwd-based PID lookup
-  // would return the ORIGIN's claude PID and SIGTERM the wrong process. Skip
-  // the process.kill cascade for forks — closeTerminal below uses per-PTY
-  // pty.kill (group SIGHUP) which only kills this fork's process tree.
-  const pid = mem.isFork ? null : findClaudeProcess(sessionId, mem?.projectPath);
+  // Resolve the real agent PID. Prefer the exact cachedPid (set by hooks) — it is
+  // collision-free. Fall back to the cwd scan only for non-forks: forks share the
+  // origin's projectPath, so findClaudeProcess would return the ORIGIN's PID and
+  // kill the wrong process. terminateProcessTree signals the whole process GROUP
+  // (agent + child tool/MCP tree), escalating SIGTERM -> SIGKILL, because `claude`
+  // runs in its own process group and a single-PID/shell signal never reaches it.
+  const cached = typeof mem.cachedPid === 'number' && mem.cachedPid > 0 ? mem.cachedPid : null;
+  const pid = cached ?? (mem.isFork ? null : findClaudeProcess(sessionId, mem?.projectPath));
   const source = detectSessionSource(sessionId);
+
+  let processSurvived = false;
   if (pid) {
-    try {
-      process.kill(pid, 'SIGTERM');
-      // Follow up with SIGKILL after 3s if process is still alive
-      setTimeout(() => {
-        try {
-          process.kill(pid, 0); // Check if still alive
-          process.kill(pid, 'SIGKILL');
-        } catch { /* already dead — good */ }
-      }, 3000);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      log.error('api', `Failed to kill PID ${pid}: ${msg}`);
-      res.status(500).json({ error: 'Failed to terminate process' });
-      return;
+    const dead = await terminateProcessTree(pid);
+    if (!dead) {
+      processSurvived = true;
+      log.error('api', `PID ${pid} survived SIGKILL for session ${sessionId.slice(0, 8)}`);
     }
   }
-  const session = killSession(sessionId);
-  archiveSession(sessionId, true);
-  // Close associated SSH terminal if present
-  if (session && session.terminalId) {
-    closeTerminal(session.terminalId);
-  } else if (mem && mem.terminalId) {
+
+  // Always tear down the PTY/terminal record (closes the login shell + reaps any
+  // remaining descendant groups via reapPtyChildren inside closeTerminal).
+  if (mem.terminalId) {
     closeTerminal(mem.terminalId);
   }
+
+  // Don't lie: if we resolved a PID and it outlived even SIGKILL, report failure
+  // and leave the card as-is rather than flipping it to ENDED.
+  if (processSurvived) {
+    res.status(500).json({ ok: false, error: `Process ${pid} could not be terminated`, stillAlivePid: pid });
+    return;
+  }
+
+  const session = killSession(sessionId);
+  archiveSession(sessionId, true);
   if (!session && !pid) {
     res.status(404).json({ error: 'Session not found and no matching process' });
     return;
@@ -998,7 +1023,10 @@ router.post('/sessions/:id/kill', async (req: Request, res: Response) => {
       log.warn('api', `Failed to broadcast killed session update: ${msg}`);
     }
   }
-  res.json({ ok: true, pid: pid || null, source });
+  // killedPid distinguishes "terminated a real process" from "no live process
+  // found" (pid === null) so the UI can say the truthful thing instead of
+  // claiming "PID N/A terminated".
+  res.json({ ok: true, pid: pid || null, killedPid: pid || null, source });
 });
 
 // Permanently delete a session — removes from memory, broadcasts removal to clients
@@ -1058,6 +1086,16 @@ router.put('/sessions/:id/title', (req: Request, res: Response) => {
   const body = validateBody(titleSchema, req.body, res);
   if (!body) return;
   setSessionTitle(str(req.params.id), body.title);
+  res.json({ ok: true });
+});
+
+// Update the session's progress remark. Same shape as /title: setSessionRemark
+// mutates the in-memory session AND persists to SQLite; the value rides the next
+// SESSION_UPDATE broadcast so every open browser converges.
+router.put('/sessions/:id/remark', (req: Request, res: Response) => {
+  const body = validateBody(remarkSchema, req.body, res);
+  if (!body) return;
+  setSessionRemark(str(req.params.id), body.remark);
   res.json({ ok: true });
 });
 
@@ -1227,7 +1265,10 @@ router.post('/terminals', async (req: Request, res: Response) => {
     if (body.tmuxSession) config.tmuxSession = body.tmuxSession;
     if (body.useTmux) config.useTmux = true;
     if (body.sessionTitle) config.sessionTitle = body.sessionTitle;
-    if (body.startupCommand) config.startupCommand = body.startupCommand;
+    // Scrub a contaminated `--model` baked into a restored startupCommand (older
+    // snapshots launched with e.g. `claude-opus-4-8[1m]`) so the raw startup-launch
+    // write below and any later reconnect don't break the shell.
+    if (body.startupCommand) config.startupCommand = sanitizeModelInCommand(body.startupCommand);
     if (body.permissionMode) config.permissionMode = body.permissionMode;
     if (body.effortLevel) config.effortLevel = body.effortLevel;
     if (body.model) config.model = body.model;
@@ -1237,6 +1278,7 @@ router.post('/terminals', async (req: Request, res: Response) => {
     if (body.alerted) config.alerted = body.alerted;
     if (body.accentColor) config.accentColor = body.accentColor;
     if (body.characterModel) config.characterModel = body.characterModel;
+    if (body.remark) config.remark = body.remark;
     if (body.isFork) config.isFork = true;
     if (body.isFloating) config.isFloating = true;
     if (body.originSessionId) config.originSessionId = body.originSessionId;
@@ -1764,6 +1806,8 @@ const MAX_STREAMABLE_SIZE = 100 * 1024 * 1024; // 100 MB (for PDF/image streamin
 /** Extensions that can be streamed directly to the browser (not read into JSON). */
 const STREAMABLE_EXTENSIONS = new Set([
   '.pdf', '.xlsx', '.xls',
+  // Word documents (rendered to HTML client-side via mammoth)
+  '.docx', '.doc',
   // Images
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico', '.avif',
   // Videos
@@ -1949,6 +1993,8 @@ router.get('/files/stream', (req: Request, res: Response) => {
       '.pdf': 'application/pdf',
       '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       '.xls': 'application/vnd.ms-excel',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.doc': 'application/msword',
       // Images
       '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
       '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',

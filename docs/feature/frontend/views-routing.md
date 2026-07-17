@@ -23,14 +23,14 @@ Give the dashboard a single, predictable mount path: bootstrap persisted state, 
 | `src/routes/QueueView.tsx` | `/queue` route. Global prompt-queue table grouped by session (add / remove / move-between-sessions). |
 | `src/routes/AgendaView.tsx` | `/agenda` route. Personal task list. Detailed behavior in [agenda.md](./agenda.md). |
 | `src/routes/ProjectBrowserView.tsx` | Standalone `/project-browser?path=…` route (no chrome). Detailed behavior in [project-browser.md](./project-browser.md). |
-| `src/lib/sessionSort.ts` | `sortSessions()` / `STATUS_ORDER` — shared session list ordering (pinned → live status → title). |
+| `src/lib/sessionSort.ts` | `sortSessions()` / `sortSessionsByActivity()` / `STATUS_ORDER` — shared session list ordering. |
 | `src/types/analytics.ts` | `DistinctProject` type for the `GET /api/db/projects` filter dropdown. |
 
 ## Implementation
 
 ### Entry & bootstrap (`main.tsx`)
 
-`main.tsx` first inspects the URL query string. If `?popout=terminal`, the window is a popped-out terminal (a fork float, or the main/commands terminal): it renders only `<PopoutTerminalView>` (inside a `BrowserRouter`), passing `terminalId`, `originSessionId`, and `label` query params — not the whole dashboard. If `?popout=project`, it renders only `<PopoutProjectView>` (which wraps the standalone `ProjectBrowserView`, reading `?path=`/`?file=`) — the lightweight content-only window used by the PROJECT tab's `⧉` pop-out. Any other URL bootstraps the full `<App>`.
+`main.tsx` first inspects the URL query string. If `?popout=terminal`, the window is a popped-out terminal (a fork float, or the main/commands terminal): it renders only `<PopoutTerminalView>` (inside a `BrowserRouter`), passing `terminalId`, `originSessionId`, and `label` query params — not the whole dashboard. If `?popout=project`, it renders only `<PopoutProjectView>` (which wraps the standalone `ProjectBrowserView`, reading `?path=`/`?file=`) — the content-only window opened by the PROJECT tab's **float** button. Any other URL bootstraps the full `<App>`.
 
 Otherwise it runs `bootstrap()`, which **awaits** `useQueueStore.loadFromDb()` and `useQueueHistoryStore.loadFromDb()` (IndexedDB hydration) **before** rendering `<App>`. This ordering is load-bearing: `<App>` mounts the WebSocket, and an incoming `session_update` carrying `replacesId` (a `claude --resume` re-key) calls `queueStore.migrateSession()` synchronously. If the queue map were not hydrated first, `migrateSession` would see an empty queue and orphan the loop under the old session id. `loadFromDb()` swallows its own errors, so a hydration failure still falls through to render.
 
@@ -40,7 +40,7 @@ A global `keydown` listener blocks Cmd+R / Ctrl+R / F5 to prevent accidental pag
 
 `App` resolves a setup gate: in web mode (no `window.electronAPI`) it skips setup; in Electron it calls `electronAPI.isSetup()`. While `isSetup === null` it shows a loading screen; `false` renders `<SetupWizard>`; `true` renders the dashboard inside `QueryClientProvider`. `<TitleBar>` is rendered in all three states. The shared `QueryClient` uses `staleTime: 30_000` and `retry: 1`.
 
-`AuthGate` currently just renders `<Dashboard token={null} />` — the password-auth gate is bypassed (see [authentication.md](../server/authentication.md) / [auth-ui.md](./auth-ui.md)).
+`AuthGate` wires the real auth flow via `useAuth()`: it probes `/api/auth/status`, renders a "Connecting…" screen while `loading`, renders `<LoginScreen onLogin={login} />` when `needsLogin`, and otherwise renders `<Dashboard token={token} />`. It also listens for the `ws-auth-failed` event `wsClient` dispatches on close code 4001, flipping `needsLogin` so a fresh login can re-establish the session. When no password is configured (the default), `needsLogin` stays false and the Dashboard mounts with a null token (see [authentication.md](../server/authentication.md) / [auth-ui.md](./auth-ui.md)).
 
 `Dashboard` is where the app's lifecycle hooks mount: `useSettingsInit`, `useWebSocket(token)`, `useWorkspaceAutoSave`, `useWorkspaceAutoLoad`, and `useGlobalQueueScheduler` (the **single** global queue scheduler — see [queue-scheduler.md](./queue-scheduler.md)). It also wires the Electron `onBeforeClose` handler: on quit it shows a `<SavingOverlay>` whose progress bar "creeps" toward 90% (`setInterval` every 120ms) while `flushSave()` persists the workspace snapshot, then snaps to 100%. `<RestorePickerModal>` and `<WorkspaceLoadingOverlay>` (see [workspace-snapshot.md](./workspace-snapshot.md)) are mounted alongside the router.
 
@@ -56,7 +56,7 @@ The route tree:
 | `/review` | `ReviewView` | yes | `AppLayout` |
 | `*` | `<Navigate to="/" replace>` | — | `AppLayout` |
 
-`AppLayout` is the shared chrome rendered for every route except `/project-browser`. It mounts `useKeyboardShortcuts()` and lays out: `<Header>`, `<NavBar>`, a `<main>` with `<Suspense>` + `<Outlet>` (lazy route fallback = "Loading…"), then the always-mounted app-wide UI: `<ToastContainer>`, `<SettingsPanel>`, `<NewSessionModal>`, `<ShortcutsPanel>`, `<ShortcutSettingsModal>`, `<GlobalSearchModal>`, `<DetailPanel>`, `<FloatingTerminalRoot>`, `<FileOpenChooser>`. Because these live in the layout, they persist across route changes.
+`AppLayout` is the shared chrome rendered for every route except `/project-browser`. It mounts `useKeyboardShortcuts()` and lays out: `<Header>`, `<NavBar>`, a `<main>` with `<Suspense>` + `<Outlet>` (lazy route fallback = "Loading…") plus `<DetailPanel>` (rendered inside `<main>`, so it overlays the route content), then the always-mounted app-wide UI siblings: `<ToastContainer>`, `<SettingsPanel>`, `<NewSessionModal>`, `<ShortcutsPanel>`, `<ShortcutSettingsModal>`, `<GlobalSearchModal>`, `<FloatingTerminalRoot>`, `<FileOpenChooser>`. Because these live in the layout, they persist across route changes.
 
 **Top-bars auto-hide when a session detail is open.** `AppLayout` subscribes to `sessionStore.selectedSessionId` and `uiStore.detailPanelMinimized` and computes `hideTopBars = !!selectedSessionId && !detailPanelMinimized`. While a detail panel is in view, **both** `<Header>` and `<NavBar>` are hidden (replaced by a spacer) so the panel + scene reclaim the full vertical height. Both bars return the instant the panel closes (`selectedSessionId → null`, e.g. after a kill) or is minimized to a corner badge (`detailPanelMinimized → true`) — the panel carries its own close/minimize controls, so hiding the NavBar's route tabs doesn't trap the user. The spacer (`AppLayout.module.css` `.titleBarSpacer`) is `display:none` everywhere except macOS Electron, where it takes over the `Header`'s job of clearing the fixed 28px `TitleBar` (28px draggable region) — without it, `<main>` would slide under the titlebar. Reading these stores in `AppLayout` is safe because `AppLayout` is the DOM layer, not inside the R3F `<Canvas>`.
 
@@ -70,7 +70,7 @@ The route tree:
 
 ### GlobalSearchModal
 
-Opened when `uiStore.activeModal === 'global-search'` (bound to Cmd/Ctrl+Shift+F via the keyboard shortcuts). `runSearch(sessions, query)` is a pure, in-memory scan over each session's `promptHistory`, `responseLog`, `toolLog`, and `events`, producing `SearchHit`s tagged with `field` (`prompt` | `response` | `tool` | `event`). Results are sorted by a `STATUS_ORDER` map (working 0 → ended 6, with `approval`/`input` both 2) then by recency, and capped at **100** hits. `highlightSnippet` truncates around the match (max 200 chars, ~60 chars of left context), HTML-escapes, and wraps matches in `<mark>`. Keyboard nav: Up/Down move selection, Enter selects, Esc closes. Selecting a hit calls `selectSession(hit.sessionId)`, closes the modal, then (after 150ms) dispatches a `detail-panel:find` `CustomEvent` so the now-open `DetailPanel` re-runs the same query in its in-panel find bar.
+Opened when `uiStore.activeModal === 'global-search'` (bound to Cmd/Ctrl+Shift+F via the keyboard shortcuts). `runSearch(sessions, query)` is a pure, in-memory scan over each session's `promptHistory`, `responseLog`, `toolLog`, and `events`, producing `SearchHit`s tagged with `field` (`prompt` | `response` | `tool` | `event`). Results are sorted by a `STATUS_ORDER` map (working 0 → ended 6, with `approval`/`input` both 2) then by recency, and capped at **100** hits. `highlightSnippet` truncates around the match (max 200 chars, ~60 chars of left context), HTML-escapes, and wraps matches in `<mark>`. Keyboard nav: Up/Down move selection, Enter selects, Esc closes. Selecting a hit calls `selectSession(hit.sessionId)`, closes the modal, then (after 150ms) dispatches a payload-less `detail-panel:find` `CustomEvent`, which makes the now-open `DetailPanel` open and focus its in-panel find bar (`openSearch()`). The query is not carried across — the find bar opens empty.
 
 ### Views
 
@@ -83,7 +83,9 @@ Opened when `uiStore.activeModal === 'global-search'` (bound to Cmd/Ctrl+Shift+F
 
 ### Shared session ordering (`sessionSort.ts`)
 
-`STATUS_ORDER` maps statuses to a sort weight (`working` 0, `prompting` 1, `approval`/`input` 2, `waiting` 3, `idle` 4, `connecting` 5, `ended` 6). `sortSessions()` floats pinned sessions to the top of their group, then orders by status weight, then by title (`localeCompare`, falling back to "Unnamed"). Used by the sidebar and unit-tested in isolation. The GlobalSearchModal embeds the same status weighting inline.
+`STATUS_ORDER` maps statuses to a sort weight (`working` 0, `prompting` 1, `approval`/`input` 2, `waiting` 3, `idle` 4, `connecting` 5, `ended` 6). `sortSessions()` floats pinned sessions to the top of their group, then orders by status weight, then by title (`localeCompare`, falling back to "Unnamed"). Used by RobotListSidebar and unit-tested in isolation. The GlobalSearchModal embeds the same status weighting inline.
+
+`sortSessionsByActivity()` orders pinned-first then most-recently-active first, deliberately ignoring status; sessions with no `lastActivityAt` sink to the bottom, and ties fall through to title then `sessionId` so the order stays total (untitled sessions would otherwise compare equal and let the stable sort inherit the caller's input order — i.e. the status sort this ordering exists to ignore). Used by SessionSwitcher when `uiStore.sessionSortMode === 'activity'`.
 
 ## Dependencies & Connections
 

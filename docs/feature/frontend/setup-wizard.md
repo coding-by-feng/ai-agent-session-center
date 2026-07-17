@@ -40,11 +40,13 @@ Hooks must be wired into each CLI's settings file before the dashboard can obser
 `WizardHeader` renders five fixed labels `['Welcome', 'Check Deps', 'Configure', 'Install', 'Done']`. Fill width = `(step / (total - 1)) * 100%`; each label gets `active` (current) or `done` (past) class.
 
 ### Check Deps
-`DepsCheckStep` calls `checkDeps()` (`setup:check-deps`). The main process probes by platform:
-- **macOS/Linux**: `jq --version` (optional — improves session detection) and `which curl` (required — hooks reach dashboard over HTTP fallback).
+`DepsCheckStep` calls `checkDeps()` (`setup:check-deps`). The main process probes on **any non-Windows** platform (`setupHandlers.ts` branches on `!isWin`, so Linux is probed too):
+- **non-Windows**: `jq --version` (optional — improves session detection) and `which curl` (required — hooks reach dashboard over HTTP fallback).
 - **Windows**: PowerShell `Get-ExecutionPolicy`, OK only if `RemoteSigned`/`Unrestricted`/`Bypass`.
 
 `REQUIRED_DEPS`/`OPTIONAL_DEPS` in the component drive which results block forward progress. Missing **required** deps disable Continue; missing optional deps show a warning but allow continuing. Web mode (no API) resolves to an empty result set and shows Continue immediately. On `checkDeps` rejection it offers "Continue Anyway".
+
+> **Gap — Linux is never gated.** `REQUIRED_DEPS`/`OPTIONAL_DEPS` (`DepsCheckStep.tsx:6-14`) are keyed `darwin`/`win32` **only**. With `const platform = window.electronAPI?.platform ?? 'darwin'` resolving to `'linux'`, both `REQUIRED_DEPS[platform] ?? []` and `OPTIONAL_DEPS[platform] ?? []` yield `[]`, so `allRequiredOk` is vacuously true: on Linux the wizard renders **no dependency rows at all** and Continue is never blocked, even with curl missing — despite the main process having probed for it. The mismatch is invisible to `tsc` because `preload.ts:5` casts `process.platform as 'darwin' | 'win32'` (and `electron.d.ts:53` types it that way), so `'linux'` never appears in the type. Adding a `linux` key to both maps would close it.
 
 ### Configure
 `ConfigureStep` is a `react-hook-form` + `zodResolver` form. Fields: Claude Code (checkbox, always checked + disabled), Gemini CLI / Codex toggles, hook density radio (High/Medium/Low with descriptions), dashboard port (`int` 1–65535), session-history retention `Select` (12 / 24 / 48 / 168 h), and a "Require password" toggle revealing password + confirm fields. The Zod `passwordSchema` enforces 8+ chars with upper/lower/digit/special; a `superRefine` checks confirm-match only when the toggle is on. On submit it builds `enabledClis` from the toggles (`['claude', ...]`), sets `debug: false` (no UI control), pushes to `setConfig`, and — in Electron — awaits `saveConfig()` (`setup:save-config`) before `onNext()`.

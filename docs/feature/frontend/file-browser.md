@@ -10,7 +10,7 @@ Lets users browse and inspect code/media files in the project directory without 
 | File | Role |
 |------|------|
 | `src/components/session/ProjectTabContainer.tsx` | Sub-tab management — each sub-tab is an independent `ProjectTab` instance; opens new sub-tabs, renames (double-click), closes (last tab recreates a root sub-tab), persists per session |
-| `src/components/session/ProjectTab.tsx` | Main browser: tree + viewer split, file tabs, toolbar, preview renderers, and embedded subcomponents (`ImageViewer`, `ExcelViewer`, `VirtualCodeViewer`, `SearchOverlay`, `InlineInput`, `DeleteConfirmOverlay`). Accepts `originSessionId` to enable in-place translate/explain |
+| `src/components/session/ProjectTab.tsx` | Main browser: tree + viewer split, file tabs, toolbar, preview renderers, and embedded subcomponents (`ImageViewer`, `ExcelViewer`, `WordViewer`, `VirtualCodeViewer`, `SearchOverlay`, `InlineInput`, `DeleteConfirmOverlay`). Accepts `originSessionId` to enable in-place translate/explain |
 | `src/components/session/FileTree.tsx` | react-arborist tree with lazy loading (`forwardRef<FileTreeHandle>`), per-project state persistence, auto-refresh, auto-reveal, per-row delete |
 | `src/components/session/FindInFileBar.tsx` | Inline find-in-file bar (Cmd/Ctrl+F); exports `highlightFindMatches()` |
 | `src/lib/searchNormalize.ts` | Length-preserving text normalization for find-in-file (`normalizeForSearch`/`foldDashes`/`DASH_RE`) — folds dash/hyphen variants to `-` and case-folds so match offsets stay aligned |
@@ -18,8 +18,8 @@ Lets users browse and inspect code/media files in the project directory without 
 | `src/components/session/imageViewport.ts` | Pure helpers: zoom/pan clamping, fit-to-screen, cursor-anchored zoom, persistence (de)serialization |
 | `src/components/session/LinkifiedText.tsx` | Clickable file paths in rendered text |
 | `src/components/session/TexViewer.tsx` | LaTeX (`.tex`) renderer (lazy-loaded `latex.js`) used by ProjectTab's preview pane |
-| `src/lib/fileSystemProvider.ts` | File system abstraction (475 lines) — `ApiFileSystemProvider` (default, fetches `/api/files/*`) and `LocalFileSystemProvider` (File System Access API, Chromium/localhost) |
-| `src/components/session/FloatingProjectPanel.tsx` | Host overlay for floating PROJECT mode — portals ProjectTab into a draggable/resizable PIP panel |
+| `src/lib/fileSystemProvider.ts` | File system abstraction — `ApiFileSystemProvider` (default, fetches `/api/files/*`) and `LocalFileSystemProvider` (File System Access API, Chromium/localhost) |
+| `src/lib/filePathLink.ts` | Shared Unicode-aware file-path regex (`createFilePathRegex`) + xterm buffer column mapping (`mapLineColumns`) — used by both LinkifiedText and the terminal link provider so the two stay in sync |
 | `src/components/translate/SelectionPopup.tsx` | Selection→popup with translate/explain modes (rendered above the markdown / fullscreen viewers) |
 | `src/hooks/useSelectionPopup.ts` | Selection capture + popup placement logic |
 
@@ -45,6 +45,7 @@ Search files, content search, find-in-file (toggle), new file, new folder, open 
 ### File preview renderers
 Dispatched by extension/streamable flags inside `fileViewer`:
 - **Excel** (`.xlsx`/`.xls`) — parsed in-browser with `xlsx` (SheetJS) into `ExcelViewer` (sheet tabs, padded columns).
+- **Word** (`.docx`/`.doc`) — converted to HTML in-browser by `mammoth` (lazy-loaded ~500KB chunk via dynamic `import('mammoth/mammoth.browser')`) in `loadFile`, sanitized with `DOMPurify` (`USE_PROFILES: { html: true }`), and rendered by `WordViewer` on a centred light "paper" sheet (`.wordDoc`, responsive `clamp()` padding). Legacy binary `.doc` cannot be parsed by mammoth → `WordViewer` shows a "convert to .docx" message (`data.docError`). Both `.docx`/`.doc` are in the server **and** client `STREAMABLE_EXTENSIONS` (with stream MIME types) so the bytes are fetched (API stream URL or local blob URL) rather than treated as an opaque binary placeholder.
 - **PDF** — `<iframe>` over a blob URL.
 - **Image** — interactive `ImageViewer` (keyed by `file.path`).
 - **Video / Audio** — native `<video>`/`<audio>` over the stream URL.
@@ -56,7 +57,7 @@ Dispatched by extension/streamable flags inside `fileViewer`:
 
 ### Markdown extras
 - Relative `.md`/`.mdx` links open the target in-app (resolved against the current dir); relative `<img>` srcs are rewritten to `provider.streamUrl(...)`; external links open in a new tab.
-- Headings get slug `id`s (`headingSlug`) matching the **outline** side panel (draggable divider, width 120–400px persisted under `outline-panel-width`).
+- Headings get slug `id`s (`headingSlug`) matching the **outline** side panel (draggable divider, width 120–400px, further capped at 45% of the container width during drag (`Math.min(400, containerWidth * 0.45)`), persisted under `outline-panel-width`).
 - **Saved-selection highlights**: favorited selections for the open file (`listFavoritedByFile`) are injected as `<mark data-saved-uuid>` via `makeSavedSelectionsPlugin`; clicking one navigates to `/review?uuid=…` (see [Review Tab](./review-tab.md)).
 
 ### Find-in-file (`FindInFileBar`)
@@ -95,10 +96,10 @@ Markdown + code viewers save/restore `scrollTop` per file under `localStorage['f
 - **Content search** (`ContentSearchModal`): grep across project files; selecting a result loads the file and queues a pending scroll line.
 
 ### Keyboard / event wiring
-Listens for global custom events on `document` (only acts when this instance is visible via `offsetParent`): `projectTab:contentSearch`, `projectTab:findInFile`, and `fileBrowser:action` (dispatched by the shortcut system with `actionId` ∈ search / contentSearch / newFile / newFolder / refresh / openNewTab / format / toggleOutline / toggleBookmark / toggleWordWrap / fullscreen).
+Listens for global custom events on `document` (only acts when this instance is visible via `offsetParent`): `projectTab:contentSearch`, `projectTab:findInFile`, and `fileBrowser:action` (dispatched by the shortcut system with `actionId` ∈ `fileBrowserSearch` / `fileBrowserContentSearch` / `fileBrowserNewFile` / `fileBrowserNewFolder` / `fileBrowserRefresh` / `fileBrowserOpenNewTab` / `fileBrowserFormat` / `fileBrowserToggleOutline` / `fileBrowserToggleWordWrap` / `fileBrowserFullscreen`). Note: `fileBrowserToggleBookmark` is still *defined* in `shortcutKeys.ts` (unbound, `combo: null`) but ProjectTab has no handler for it since bookmarks were removed — it is inert.
 
 ### LinkifiedText
-Regex `/(?:\.{0,2}\/)?(?:[\w@.+-]+\/)+[\w@.+-]+\.[\w]+/g` detects file paths in plain text; clicking calls `uiStore.openFileChooser(clean, projectPath, { x, y })`, which shows the [File-Open Chooser](./file-open-chooser.md) popover. Its "Open in app" action then routes through `uiStore.openFileInProject(clean, projectPath)` (the pre-existing PROJECT-tab flow).
+A shared Unicode-aware regex from [`filePathLink.ts`](../../../src/lib/filePathLink.ts) (`createFilePathRegex()` → `(?:\.{0,2}/)?(?:[\p{L}\p{N}\p{M}@.+_-]+/)+[\p{L}\p{N}\p{M}@.+_-]+\.[\w]+` with the `gu` flags) detects file paths in plain text — non-ASCII segments (CJK, Cyrillic, accented Latin) match, but the extension stays ASCII (`\w`) so a match can't greedily swallow CJK prose that follows a filename with no space. A fresh instance is returned per call because the `g` flag carries mutable `lastIndex`. Clicking calls `uiStore.openFileChooser(clean, projectPath, { x, y })`, which shows the [File-Open Chooser](./file-open-chooser.md) popover. Its "Open in app" action then routes through `uiStore.openFileInProject(clean, projectPath)` (the pre-existing PROJECT-tab flow).
 
 ### TexViewer
 Lazy-imports `latex.js` (~5MB) and renders a `DocumentFragment` into a host div. On parse failure it retries with `buildFallbackSource` — strips the preamble + `UNSUPPORTED_CMDS` (page/layout, counters, macro defs, fonts, hooks, bibliography, etc.), drops external `\input`/`\include`, converts `\cite` to bracketed text, de-stars sectioning — wraps the body in a minimal `article` scaffold, and shows a warning that custom packages/macros were dropped. Recomputes when `source` or `fileKey` changes.
@@ -114,23 +115,25 @@ Lazy-imports `latex.js` (~5MB) and renders a `DocumentFragment` into a host div.
 - [Server API](../server/api-endpoints.md) — GET `/api/files/list|read|stream|search|grep|resolve`, POST `/api/files/write|mkdir|delete|reveal|open-external|search/invalidate`, POST `/api/sessions/spawn-floating`
 - [State Management](./state-management.md) — `uiStore.pendingFileOpen`/`openFileInProject` for terminal→project-tab navigation
 - [Session Detail Panel](./session-detail-panel.md) — rendered inside the PROJECT tab
-- [Floating Terminal Fork](./floating-terminal-fork.md) — Translate-file + selection-popup forks spawn floating PIP terminals
+- [Floating Terminal Fork](./floating-terminal-fork.md) — selection-popup (translate/explain) forks spawn floating PIP terminals
 - [Review Tab](./review-tab.md) — saved-selection highlights deep-link to `/review?uuid=…`
 
 ### Depended On By
 - [Terminal UI](./terminal-ui.md) — clickable file paths open in the project tab
-- [Session Detail Panel](./session-detail-panel.md) — split view with terminal, also hosts the `FloatingProjectPanel` overlay
+- [Session Detail Panel](./session-detail-panel.md) — split/stacked view with terminal; the PROJECT pop-out window renders `ProjectBrowserView` via `PopoutProjectView`
 - [Project Browser](./project-browser.md) — standalone `/project-browser` route reuses `ProjectTab`
 
 ### Shared Resources
-- localStorage: sub-tab state (`agent-manager:project-tabs:*`), file-tab state (`agent-manager:file-tabs:*`), bookmarks (`agent-manager:bookmarks:*`), collections (`agent-manager:collections:*`), recent files (`agent-manager:recent-files:*`), tree state (`agent-manager:tree-state:*`), image-view (`agent-manager:image-view:*`), scroll positions (`file-browser:scroll:*`), tree panel width/collapsed, whole-pane collapse (`agent-manager:project-collapsed:*`), outline width
+- localStorage: sub-tab state (`agent-manager:project-tabs:*`), file-tab state (`agent-manager:file-tabs:*`), tree state (`agent-manager:tree-state:*`), image-view (`agent-manager:image-view:*`), scroll positions (`file-browser:scroll:*`), tree panel width/collapsed, whole-pane collapse (`agent-manager:project-collapsed:*`), outline width
 - `uiStore.pendingFileOpen`
 - Toast container (`showToast`)
 - `document` custom events: `filetree:refresh`, `projectTab:contentSearch`, `projectTab:findInFile`, `fileBrowser:action`
 
 ## Change Risks
 - Breaking fileSystemProvider API calls blocks all file operations.
-- Changing the LinkifiedText path regex affects clickable-path detection.
+- `STREAMABLE_EXTENSIONS` is duplicated in the server (`apiRouter.ts`, plus a stream MIME-type map) and the client (`fileSystemProvider.ts` `LocalFileSystemProvider`) — adding a previewable binary type (e.g. Word) requires updating **both** or the file falls back to the "Binary file" placeholder. The Word conversion in `loadFile` is provider-agnostic: it fetches `data.blobUrl || provider.streamUrl(...)`, so it works for both the API and local providers.
+- `mammoth` is dynamically imported (`import('mammoth/mammoth.browser')`) and has no bundled types — `src/types/mammoth.d.ts` declares the `convertToHtml`/`extractRawText` surface. Mammoth output is injected via `dangerouslySetInnerHTML`, so it **must** stay wrapped in `DOMPurify.sanitize`; removing the sanitizer reintroduces an XSS path from document hyperlinks.
+- Changing the shared path regex in `filePathLink.ts` affects clickable-path detection in **both** LinkifiedText (conversation/notes) and the xterm terminal link provider (`useTerminal`) — they intentionally share one pattern, so test both surfaces.
 - `loadingDirs` dedup prevents duplicate requests — removing it causes API spam.
 - Auto-reveal must load ancestor dirs sequentially before opening/scrolling.
 - FileTree refresh reload order must apply children depth-first (parents before children) so `updateNodeInTree` can find parent nodes.

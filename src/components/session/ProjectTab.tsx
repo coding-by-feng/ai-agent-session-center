@@ -8,6 +8,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import * as XLSX from 'xlsx';
+import DOMPurify from 'dompurify';
 import 'highlight.js/styles/github-dark-dimmed.css';
 import FileTree, { type FileTreeHandle } from './FileTree';
 import ContentSearchModal from './ContentSearchModal';
@@ -84,6 +85,10 @@ interface FileContent {
   blobUrl?: string;
   /** Parsed Excel sheets */
   sheets?: ExcelSheet[];
+  /** Rendered HTML for Word documents (.docx), converted in-browser via mammoth */
+  docHtml?: string;
+  /** Reason a Word document could not be rendered (e.g. legacy .doc) */
+  docError?: string;
 }
 
 interface FileTab {
@@ -124,9 +129,11 @@ function fileIcon(name: string, type: 'dir' | 'file'): string {
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']);
 const VIDEO_EXTS = new Set(['mp4', 'webm', 'ogg', 'mov']);
 const AUDIO_EXTS = new Set(['mp3', 'wav', 'flac', 'aac', 'm4a']);
+const WORD_EXTS = new Set(['docx', 'doc']);
 function isImageExt(ext?: string): boolean { return IMAGE_EXTS.has((ext ?? '').toLowerCase()); }
 function isVideoExt(ext?: string): boolean { return VIDEO_EXTS.has((ext ?? '').toLowerCase()); }
 function isAudioExt(ext?: string): boolean { return AUDIO_EXTS.has((ext ?? '').toLowerCase()); }
+function isWordExt(ext?: string): boolean { return WORD_EXTS.has((ext ?? '').toLowerCase()); }
 
 /** Detect language from file path for code block highlighting. */
 function langFromPath(path: string): string | undefined {
@@ -368,6 +375,21 @@ function ExcelViewer({ sheets }: { sheets: ExcelSheet[] }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+/** Word document viewer — renders mammoth-converted HTML (sanitized before injection). */
+function WordViewer({ html, error }: { html?: string; error?: string }) {
+  const clean = useMemo(
+    () => (html ? DOMPurify.sanitize(html, { USE_PROFILES: { html: true } }) : ''),
+    [html],
+  );
+  if (error) return <div className={styles.empty}>{error}</div>;
+  if (!clean) return <div className={styles.empty}>Empty document</div>;
+  return (
+    <div className={styles.wordViewer}>
+      <div className={styles.wordDoc} dangerouslySetInnerHTML={{ __html: clean }} />
     </div>
   );
 }
@@ -1173,12 +1195,33 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
           }
         } else if (isVideoExt(ext) || isAudioExt(ext)) {
           data.blobUrl = streamUrl;
+        } else if (isWordExt(ext)) {
+          // Word docs are converted to HTML below — no blob needed
         } else if (streamUrl) {
           const streamRes = await fetch(streamUrl);
           if (streamRes.ok) {
             const blob = await streamRes.blob();
             data.blobUrl = URL.createObjectURL(blob);
           }
+        }
+      }
+      // Word documents (.docx): convert to HTML in-browser via mammoth. Works for
+      // both the API provider (stream URL) and the local provider (blob URL).
+      if (isWordExt(data.ext) && !data.docHtml && !data.docError) {
+        const lowerExt = (data.ext ?? '').toLowerCase();
+        try {
+          const srcUrl = data.blobUrl || provider.streamUrl(projectPath, relPath);
+          const res = await fetch(srcUrl);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const arrayBuffer = await res.arrayBuffer();
+          // Lazy-load mammoth (~620 KB) only when a Word doc is actually opened.
+          const mammoth = (await import('mammoth/mammoth.browser')).default;
+          const result = await mammoth.convertToHtml({ arrayBuffer });
+          data.docHtml = result.value || '';
+        } catch {
+          data.docError = lowerExt === 'doc'
+            ? 'Legacy .doc files can’t be previewed here — convert to .docx to view.'
+            : 'Could not render this Word document.';
         }
       }
       // Cache the file content for instant tab switching
@@ -2461,6 +2504,8 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
               <div className={styles.fileViewer}>
                 {file.sheets && file.sheets.length > 0 ? (
                   <ExcelViewer sheets={file.sheets} />
+                ) : isWordExt(file.ext) ? (
+                  <WordViewer html={file.docHtml} error={file.docError} />
                 ) : file.streamable && file.ext === 'pdf' && file.blobUrl ? (
                   <iframe
                     src={file.blobUrl}
@@ -2631,6 +2676,8 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
             <div className={styles.fullscreenBody}>
               {file.sheets && file.sheets.length > 0 ? (
                 <ExcelViewer sheets={file.sheets} />
+              ) : isWordExt(file.ext) ? (
+                <WordViewer html={file.docHtml} error={file.docError} />
               ) : file.streamable && file.ext === 'pdf' && file.blobUrl ? (
                 <iframe src={file.blobUrl} className={styles.pdfViewer} title={file.name} />
               ) : file.streamable && file.blobUrl && isImageExt(file.ext) ? (
