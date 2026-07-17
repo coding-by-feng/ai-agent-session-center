@@ -8,6 +8,8 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+  buildSavedOutputIndex,
+  claimSavedOutput,
   buildSnapshot,
   deduplicateSessions,
   importSnapshot,
@@ -883,5 +885,85 @@ describe('isFloatingSnapshot', () => {
     expect(isFloatingSnapshot(makeSnap({ isFork: true, originSessionId: 'x' }))).toBe(true);
     expect(isFloatingSnapshot(makeSnap({ isFork: true }))).toBe(false);
     expect(isFloatingSnapshot(makeSnap())).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Saved scrollback claiming — the "terminal shows another session's output" bug
+// ---------------------------------------------------------------------------
+//
+// Repro: two sessions titled "Figma" in /Users/k/Android_App. The server keys
+// each saved ring buffer by `title\0workDir`, which is NOT unique (an unnamed
+// session's default title is `${host}:${workDir}`, so a collision is the norm).
+// The client used to fold the list into a LAST-WINS Map and then hand the
+// survivor to EVERY same-key session via a non-consuming get(). sshManager's
+// prefillTerminalOutput concatenates those bytes AHEAD of the new PTY's own
+// output, so the terminal replayed a FOREIGN scrollback tail followed by its
+// own fresh banner.
+describe('saved scrollback claiming', () => {
+  const KEY = 'Figma\0/Users/k/Android_App';
+
+  it('REGRESSION: two same-key sessions never receive the same buffer', () => {
+    const index = buildSavedOutputIndex([
+      { key: KEY, sessionId: 'aaa', data: 'BUF_A' },
+      { key: KEY, sessionId: 'bbb', data: 'BUF_B' },
+    ]);
+    const first = claimSavedOutput(index, KEY, 'aaa');
+    const second = claimSavedOutput(index, KEY, 'bbb');
+    expect(first).toBe('BUF_A');
+    expect(second).toBe('BUF_B');
+    expect(first).not.toBe(second);
+  });
+
+  it('keeps BOTH buffers instead of dropping one to last-wins', () => {
+    const index = buildSavedOutputIndex([
+      { key: KEY, sessionId: 'aaa', data: 'BUF_A' },
+      { key: KEY, sessionId: 'bbb', data: 'BUF_B' },
+    ]);
+    // A last-wins Map would have retained only BUF_B and lost BUF_A entirely.
+    expect(index.get(KEY)?.map((e) => e.data)).toEqual(['BUF_A', 'BUF_B']);
+  });
+
+  it('hands each buffer to its true owner regardless of list order', () => {
+    const index = buildSavedOutputIndex([
+      { key: KEY, sessionId: 'aaa', data: 'BUF_A' },
+      { key: KEY, sessionId: 'bbb', data: 'BUF_B' },
+    ]);
+    // Restore order is not save order — 'bbb' restores first.
+    expect(claimSavedOutput(index, KEY, 'bbb')).toBe('BUF_B');
+    expect(claimSavedOutput(index, KEY, 'aaa')).toBe('BUF_A');
+  });
+
+  it('a claimed buffer is consumed — a third same-key session gets nothing', () => {
+    const index = buildSavedOutputIndex([
+      { key: KEY, sessionId: 'aaa', data: 'BUF_A' },
+      { key: KEY, sessionId: 'bbb', data: 'BUF_B' },
+    ]);
+    claimSavedOutput(index, KEY, 'aaa');
+    claimSavedOutput(index, KEY, 'bbb');
+    // No bytes left: better to restore nothing than to inject foreign output.
+    expect(claimSavedOutput(index, KEY, 'ccc')).toBeUndefined();
+  });
+
+  it('still matches by key when ids were reminted (export -> import)', () => {
+    // A foreign/older snapshot: originalSessionId matches nothing the server
+    // just cleared. title\0workDir is the only surviving identity — it must
+    // still restore, or scrollback silently vanishes on every real import.
+    const index = buildSavedOutputIndex([{ key: KEY, sessionId: 'live-1', data: 'BUF_A' }]);
+    expect(claimSavedOutput(index, KEY, 'ancient-id-from-old-export')).toBe('BUF_A');
+  });
+
+  it('tolerates a server that omits sessionId (older build)', () => {
+    const index = buildSavedOutputIndex([{ key: KEY, data: 'BUF_A' }]);
+    expect(claimSavedOutput(index, KEY, 'aaa')).toBe('BUF_A');
+  });
+
+  it('returns undefined for an unknown key and drops empty entries', () => {
+    const index = buildSavedOutputIndex([
+      { key: KEY, sessionId: 'aaa', data: '' },
+      { key: '', sessionId: 'bbb', data: 'BUF_B' },
+    ]);
+    expect(claimSavedOutput(index, KEY, 'aaa')).toBeUndefined();
+    expect(claimSavedOutput(index, 'nope\0/tmp', 'x')).toBeUndefined();
   });
 });

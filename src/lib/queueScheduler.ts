@@ -469,6 +469,27 @@ export function advanceBlockedLoops(
  * timeout releases the gate for steps that never visibly go to work (instant
  * no-op prompts) so a chain can never stall forever.
  */
+/**
+ * Last-resort escape for a gate whose prompt the CLI never acknowledged AT ALL
+ * — no busy status and no hook event (e.g. autoEnter off, so the text sits
+ * unsent in the input line). Without it such a gate would stall the queue
+ * forever.
+ *
+ * Deliberately long. It used to be 12s, which was SHORTER THAN A HOOK-LESS BUSY
+ * PHASE: `/compact` emits no hooks, so the session's status stays stale at
+ * 'waiting' (sendable) and `lastActivityAt` stops moving. The gate therefore
+ * looked like an unacknowledged no-op and released — during a ~70s compaction
+ * it released repeatedly and dumped every queued prompt into the CLI's own
+ * input queue ("Press up to edit queued messages") instead of running them one
+ * at a time.
+ *
+ * Normal acknowledgement no longer depends on this timer at all: `activityAtOpen`
+ * vs `session.lastActivityAt` detects it on the very next tick. This only has to
+ * outlast the worst hook-less phase, so err long — the cost of being too long is
+ * a queue that waits, and the cost of being too short is prompts that collide.
+ */
+export const NO_WORK_FALLBACK_MS = 300_000;
+
 export interface ChainGate {
   /** The in-flight item this gate guards. Cleared/reset when the item id changes. */
   itemId: number;
@@ -476,6 +497,12 @@ export interface ChainGate {
   sawWork: boolean;
   /** When the gate was opened (unix ms) — drives the no-work fallback. */
   openedAt: number;
+  /**
+   * `session.lastActivityAt` sampled when the gate opened. See
+   * {@link OnceGate.activityAtOpen} — same event-driven acceptance signal, so a
+   * chain step can't be skipped past by a missed 1Hz `sawWork` sample.
+   */
+  activityAtOpen?: number;
 }
 
 /**
@@ -511,9 +538,13 @@ export function chainGateDecision(
   sessionSendable: boolean,
   now: number,
   noWorkFallbackMs: number,
+  /** `session.lastActivityAt` this tick. Omit to fall back to `sawWork` only. */
+  sessionActivityAt?: number,
 ): 'fire' | 'hold' {
   if (!gate || gate.itemId !== pickId) return 'fire';
-  if (gate.sawWork) return atRest ? 'fire' : 'hold';
+  if (gateAccepted(gate.sawWork, gate.activityAtOpen, sessionActivityAt)) {
+    return atRest ? 'fire' : 'hold';
+  }
   if (!sessionSendable) return 'hold';
   if (now - gate.openedAt >= noWorkFallbackMs) return 'fire';
   return 'hold';
@@ -534,6 +565,14 @@ export interface OnceGate {
   sawWork: boolean;
   /** When the gate was opened (unix ms) — drives the no-work fallback. */
   openedAt: number;
+  /**
+   * `session.lastActivityAt` sampled at the moment the gate opened. The server
+   * stamps `lastActivityAt` on EVERY hook event, so any later value strictly
+   * greater than this proves the CLI acknowledged the prompt we just sent —
+   * a signal a 1Hz `sawWork` poll can miss entirely. Optional so a gate
+   * persisted by an older build still behaves like the pre-existing logic.
+   */
+  activityAtOpen?: number;
 }
 
 /**
@@ -542,12 +581,26 @@ export interface OnceGate {
  * turn to start, then reach the Stop/'waiting' signal), with a no-work fallback
  * for instant no-op prompts so the queue can never stall.
  *
+ * Acceptance is established by EITHER signal:
+ *  - `sawWork` — a tick observed a busy status. Sampled at 1Hz, so a prompt
+ *    whose entire busy phase lands between two ticks is missed.
+ *  - `sessionActivityAt > gate.activityAtOpen` — the server stamped
+ *    `lastActivityAt` on a hook event after we sent. Event-driven, so it
+ *    survives any tick timing. This is the reliable one.
+ *
  * - No gate → fire.
- * - `sawWork === true`: fire ONLY when `atRest` ('waiting'); any other status
- *   (working, decayed idle, input) holds — wait strictly for Stop.
- * - `sawWork === false`: busy → hold; sendable past `noWorkFallbackMs` → fire;
+ * - Accepted: fire ONLY when `atRest` ('waiting'); any other status (working,
+ *   decayed idle, input) holds — wait strictly for Stop.
+ * - Not accepted: busy → hold; sendable past `noWorkFallbackMs` → fire;
  *   sendable but inside the window → hold (the stale-status window right after
  *   the prior send).
+ *
+ * The fallback is a last resort for a CLI that never acknowledges at all (e.g.
+ * autoEnter off, so the text sits unsent in the input line). It must stay long
+ * enough to outlast a hook-less busy phase — notably `/compact`, which emits no
+ * hooks, leaves the status stale at 'waiting' and froze `lastActivityAt`. A
+ * short window there released this gate and stacked every queued prompt into
+ * the CLI's own input queue.
  */
 export function onceGateDecision(
   gate: OnceGate | undefined,
@@ -555,12 +608,31 @@ export function onceGateDecision(
   sessionSendable: boolean,
   now: number,
   noWorkFallbackMs: number,
+  /** `session.lastActivityAt` this tick. Omit to fall back to `sawWork` only. */
+  sessionActivityAt?: number,
 ): 'fire' | 'hold' {
   if (!gate) return 'fire';
-  if (gate.sawWork) return atRest ? 'fire' : 'hold';
+  if (gateAccepted(gate.sawWork, gate.activityAtOpen, sessionActivityAt)) {
+    return atRest ? 'fire' : 'hold';
+  }
   if (!sessionSendable) return 'hold';
   if (now - gate.openedAt >= noWorkFallbackMs) return 'fire';
   return 'hold';
+}
+
+/**
+ * Did the CLI acknowledge the prompt we just sent? True when a tick saw the
+ * session go busy, OR when a hook event stamped `lastActivityAt` strictly after
+ * the gate opened. A stale/equal stamp is NOT acceptance — it predates the send.
+ */
+function gateAccepted(
+  sawWork: boolean,
+  activityAtOpen: number | undefined,
+  sessionActivityAt: number | undefined,
+): boolean {
+  if (sawWork) return true;
+  if (activityAtOpen === undefined || sessionActivityAt === undefined) return false;
+  return sessionActivityAt > activityAtOpen;
 }
 
 /**

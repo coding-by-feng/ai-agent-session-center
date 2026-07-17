@@ -11,6 +11,7 @@ import { useUiStore } from '@/stores/uiStore';
 import { useRoomStore, type Room } from '@/stores/roomStore';
 import { useLabelStore } from '@/stores/labelStore';
 import { useDropdownFlipX } from '@/hooks/useDropdownFlipX';
+import { sortSessionsByActivity } from '@/lib/sessionSort';
 import LabelPicker, { LabelChip } from './LabelPicker';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
@@ -211,6 +212,50 @@ function TagIcon() {
   );
 }
 
+/** Skull glyph — "kill all sessions in this room". Unambiguously destructive;
+ *  rendered dim and turned red on hover by `.roomKillToggle`. */
+function KillRoomIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      {/* cranium + jaw */}
+      <path
+        d="M8 1.6c-3 0-5 2-5 4.7 0 1.6.8 2.7 1.7 3.3v1.5c0 .5.4.9.9.9h4.8c.5 0 .9-.4.9-.9v-1.5c.9-.6 1.7-1.7 1.7-3.3 0-2.7-2-4.7-5-4.7Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+      {/* eye sockets */}
+      <circle cx="6" cy="6.4" r="1.2" fill="currentColor" />
+      <circle cx="10" cy="6.4" r="1.2" fill="currentColor" />
+      {/* nasal cavity */}
+      <path d="M8 8.1l-.7 1.3h1.4L8 8.1Z" fill="currentColor" />
+      {/* teeth */}
+      <path d="M6.2 12v1.4M8 12v1.4M9.8 12v1.4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Note glyph — the entry point for the progress remark. A lined page, distinct
+ *  from the pencil (rename) and tag (label) it sits beside. */
+function NoteIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M2.5 1.5h7v9h-7v-9Z"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M4.2 4h3.6M4.2 6h3.6M4.2 8h2.2"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 /** Two-column grid icon — shown in compact mode; click to switch to detailed */
 function DetailedModeIcon() {
   return (
@@ -241,6 +286,28 @@ function LegendIcon() {
       <circle cx="3" cy="7" r="1.5" fill="currentColor" />
       <circle cx="3" cy="11" r="1.5" fill="currentColor" />
       <path d="M6.5 3H12M6.5 7H12M6.5 11H12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Descending bars + down arrow — toggles the flat "most recently active first"
+ *  ordering (rooms off) */
+function SortByActivityIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M1 3.5H8M1 7H6M1 10.5H4"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
+      <path
+        d="M11 2.5V11M9.2 9.2L11 11L12.8 9.2"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -281,6 +348,26 @@ function RestoreSizeIcon() {
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M5 2v2.5a.5.5 0 0 1-.5.5H2M9 2v2.5a.5.5 0 0 0 .5.5H12M12 9H9.5a.5.5 0 0 0-.5.5V12M2 9h2.5a.5.5 0 0 1 .5.5V12"
         stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Double-chevron-left icon — fold the left session rail to a thin strip */
+function CollapseRailIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <polyline points="8 3 4 7 8 11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points="11.5 3 7.5 7 11.5 11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Double-chevron-right icon — unfold the collapsed left session rail */
+function ExpandRailIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <polyline points="6 3 10 7 6 11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points="2.5 3 6.5 7 2.5 11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -343,9 +430,17 @@ export default function SessionSwitcher({
   const toggleNavPosition = useUiStore((s) => s.toggleNavPosition);
   const maximized = useUiStore((s) => s.maximized);
   const toggleMaximized = useUiStore((s) => s.toggleMaximized);
+  const navRailCollapsed = useUiStore((s) => s.navRailCollapsed);
+  const toggleNavRailCollapsed = useUiStore((s) => s.toggleNavRailCollapsed);
+  const sessionSortMode = useUiStore((s) => s.sessionSortMode);
+  const toggleSessionSortMode = useUiStore((s) => s.toggleSessionSortMode);
+  const openRoomKill = useUiStore((s) => s.openRoomKill);
+  const sortByActivity = sessionSortMode === 'activity';
   // Vertical rail only when docked-left AND not maximized
   // (maximizing always collapses the nav to the slim top bar).
   const isVertical = navPosition === 'left' && !maximized;
+  // Folded-to-a-sliver state only applies to the left rail.
+  const isRailCollapsed = isVertical && navRailCollapsed;
   const rooms = useRoomStore((s) => s.rooms);
   const toggleRoomCollapse = useRoomStore((s) => s.toggleCollapse);
 
@@ -390,14 +485,20 @@ export default function SessionSwitcher({
   // on every session update (pattern `new Map(...)`), but if the visible fields
   // haven't changed the downstream memos don't need to rerun.  This moves the
   // O(N) sort + filter off the hot path for ~95% of session-update events.
+  //
+  // `lastActivityAt` is only part of the signature in activity-sort mode: it
+  // ticks on every hook event, so including it always would defeat the gating
+  // above — but leaving it out in activity mode would freeze the list, since
+  // nothing else changes when a session merely stays busy.
   const sessionsSignature = useMemo(() => {
     const parts: string[] = [];
     sessions.forEach((s) => {
-      parts.push(`${s.sessionId}|${s.status}|${s.pinned ? 1 : 0}|${s.title ?? ''}|${s.projectName ?? ''}|${s.colorIndex ?? ''}|${s.accentColor ?? ''}|${s.terminalId ?? ''}`);
+      const activity = sortByActivity ? `|${s.lastActivityAt ?? 0}` : '';
+      parts.push(`${s.sessionId}|${s.status}|${s.pinned ? 1 : 0}|${s.title ?? ''}|${s.projectName ?? ''}|${s.colorIndex ?? ''}|${s.accentColor ?? ''}|${s.terminalId ?? ''}${activity}`);
     });
     parts.sort();
     return parts.join('\n');
-  }, [sessions]);
+  }, [sessions, sortByActivity]);
 
   // Build globally indexed session list (all active, sorted), then split out "others"
   const { sortedSessions, sessionIndexMap, currentIndex } = useMemo(() => {
@@ -411,6 +512,10 @@ export default function SessionSwitcher({
         if (oa !== ob) return oa - ob;
         return (a.title || a.projectName || '').localeCompare(b.title || b.projectName || '');
       });
+    // The index map is always built from the status ordering above, never from
+    // the activity ordering: these numbers are the session's identity in the
+    // strip (and in keyboard switching), so flat mode must reorder rows without
+    // renumbering them.
     const indexMap = new Map<string, number>();
     let curIdx = -1;
     allActive.forEach((s, i) => {
@@ -418,11 +523,15 @@ export default function SessionSwitcher({
       if (s.sessionId === currentSession.sessionId) curIdx = i + 1;
     });
     const others = allActive.filter((s) => s.sessionId !== currentSession.sessionId);
-    return { sortedSessions: others, sessionIndexMap: indexMap, currentIndex: curIdx };
+    return {
+      sortedSessions: sortByActivity ? sortSessionsByActivity(others) : others,
+      sessionIndexMap: indexMap,
+      currentIndex: curIdx,
+    };
     // `sessionsSignature` covers field changes; `sessions` ref is intentionally
     // excluded so unchanged-content re-renders skip the sort.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionsSignature, currentSession.sessionId]);
+  }, [sessionsSignature, currentSession.sessionId, sortByActivity]);
 
   // Rooms that have at least one session in the current active list
   const activeSessionIds = useMemo(() => {
@@ -450,7 +559,15 @@ export default function SessionSwitcher({
   // Group same-room sessions into a room-colored frame. Room frames appear in
   // a stable order (sorted by roomIndex) so they don't shuffle when session
   // statuses change. Orphan sessions (no room) render after room frames.
+  //
+  // Activity-sort mode skips grouping entirely: room frames would fight the
+  // ordering, since a room can only sit in one place while its sessions belong
+  // all over a recency-ranked list.
   const tabRenderItems = useMemo((): TabRenderItem[] => {
+    if (sortByActivity) {
+      return filteredSessions.map((session) => ({ type: 'session', session }));
+    }
+
     const sessionToRoom = new Map<string, Room>();
     for (const room of rooms) {
       for (const sid of room.sessionIds) {
@@ -478,7 +595,7 @@ export default function SessionSwitcher({
     }
 
     return items;
-  }, [filteredSessions, rooms]);
+  }, [filteredSessions, rooms, sortByActivity]);
 
   const selectedRoomNames = useMemo(() => {
     if (selectedRoomIds.size === 0) return '';
@@ -521,6 +638,53 @@ export default function SessionSwitcher({
     setHeaderEditing(false);
   }, []);
 
+  // ---- Progress remark (inline, under the title) ----
+  const [remarkEditing, setRemarkEditing] = useState(false);
+  const [remarkDraft, setRemarkDraft] = useState('');
+  const remarkInputRef = useRef<HTMLInputElement | null>(null);
+  const currentRemark = currentSession.remark ?? '';
+
+  const beginRemarkEdit = useCallback(() => {
+    setRemarkDraft(currentSession.remark ?? '');
+    setRemarkEditing(true);
+  }, [currentSession.remark]);
+
+  const commitRemarkEdit = useCallback(() => {
+    // No trimmed-truthy guard: clearing the remark is a legitimate edit.
+    useSessionStore.getState().setSessionRemark(currentSession.sessionId, remarkDraft);
+    setRemarkEditing(false);
+  }, [remarkDraft, currentSession.sessionId]);
+
+  const cancelRemarkEdit = useCallback(() => {
+    setRemarkEditing(false);
+  }, []);
+
+  // Note-icon toggle. Closing this way SAVES (same as clicking away) rather than
+  // discarding — Esc is the only discard path, so a user who types and reaches
+  // for the icon to "finish" cannot silently lose the text.
+  //
+  // The button suppresses mousedown (see `onMouseDown` at the call site) so the
+  // open input never blurs. Without that, blur→commit would flip `remarkEditing`
+  // to false BEFORE this click ran, and the toggle would immediately re-open the
+  // editor it was meant to close.
+  const toggleRemarkEdit = useCallback(() => {
+    if (remarkEditing) commitRemarkEdit();
+    else beginRemarkEdit();
+  }, [remarkEditing, commitRemarkEdit, beginRemarkEdit]);
+
+  useEffect(() => {
+    if (remarkEditing && remarkInputRef.current) {
+      remarkInputRef.current.focus();
+      remarkInputRef.current.select();
+    }
+  }, [remarkEditing]);
+
+  // Abandon an open editor when the user switches session — otherwise the draft
+  // for session A would commit onto session B.
+  useEffect(() => {
+    setRemarkEditing(false);
+  }, [currentSession.sessionId]);
+
   useEffect(() => {
     if (headerEditing && headerInputRef.current) {
       headerInputRef.current.focus();
@@ -550,6 +714,33 @@ export default function SessionSwitcher({
   useEffect(() => {
     setLabelAnchor(null);
   }, [currentSession.sessionId]);
+
+  // ── Folded left rail: a thin strip with just the expand affordance + count ──
+  if (isRailCollapsed) {
+    const activeCount = activeSessionIds.size;
+    return (
+      <div className={`${styles.switcherBar} ${styles.switcherBarVertical} ${styles.switcherBarCollapsed}`}>
+        <button
+          type="button"
+          className={styles.displayModeToggle}
+          onClick={toggleNavRailCollapsed}
+          title="Expand session panel"
+          aria-label="Expand session panel"
+        >
+          <ExpandRailIcon />
+        </button>
+        {activeCount > 0 && (
+          <span
+            className={styles.railCollapsedCount}
+            title={`${activeCount} active session${activeCount === 1 ? '' : 's'}`}
+            aria-label={`${activeCount} active session${activeCount === 1 ? '' : 's'}`}
+          >
+            {activeCount}
+          </span>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className={`${styles.switcherBar}${isVertical ? ` ${styles.switcherBarVertical}` : ''}`}>
@@ -599,12 +790,34 @@ export default function SessionSwitcher({
               </button>
               <button
                 type="button"
-                className={`${styles.switcherEditHint}${labelAnchor ? ` ${styles.switcherLabelHintActive}` : ''}`}
+                className={`${styles.switcherEditHint}${labelAnchor ? ` ${styles.switcherHintActive}` : ''}`}
                 onClick={openLabelPicker}
+                // The parent .switcherName renames on double-click. `dblclick`
+                // is a separate bubbling event that stopPropagation on `click`
+                // does NOT stop — without this, double-clicking this icon (whose
+                // click does NOT rename) still opens the rename editor.
+                onDoubleClick={(e) => e.stopPropagation()}
                 title={currentLabel ? `Label: ${currentLabel}` : 'Add label'}
                 aria-label="Set session label"
               >
                 <TagIcon />
+              </button>
+              {/* Remark entry point. Stays lit whenever this session carries a
+                  remark, so the bar shows at a glance that a note exists even
+                  while the row below is scrolled/ellipsized. */}
+              <button
+                type="button"
+                className={`${styles.switcherEditHint}${remarkEditing || currentRemark ? ` ${styles.switcherHintActive}` : ''}`}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={toggleRemarkEdit}
+                // See the tag button: block the parent's double-click-to-rename
+                // so a double-click here can't overwrite the session title.
+                onDoubleClick={(e) => e.stopPropagation()}
+                title={currentRemark ? `Remark: ${currentRemark}` : 'Add a remark'}
+                aria-label={currentRemark ? `Edit session remark: ${currentRemark}` : 'Add a session remark'}
+                aria-expanded={remarkEditing}
+              >
+                <NoteIcon />
               </button>
             </span>
           )}
@@ -615,6 +828,44 @@ export default function SessionSwitcher({
             <span className={styles.switcherProject}>{secondaryName}</span>
           )}
         </div>
+
+        {/* ── Progress remark — under the title, above the controls ──
+            Rendered only when there is something to show: an existing remark, or
+            an open editor. The empty state lives in the note icon above instead
+            of a placeholder row, so the 38px bar never grows a second line for
+            the sessions (most of them) that carry no remark. `flex-basis:100%`
+            gives it its own line in the top bar; the rail stacks it naturally. */}
+        {remarkEditing ? (
+          <input
+            ref={remarkInputRef}
+            className={styles.switcherRemarkInput}
+            value={remarkDraft}
+            onChange={(e) => setRemarkDraft(e.target.value)}
+            onBlur={commitRemarkEdit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commitRemarkEdit();
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                cancelRemarkEdit();
+              }
+            }}
+            placeholder="What's happening in this session?"
+            aria-label="Session remark"
+            maxLength={200}
+          />
+        ) : currentRemark ? (
+          <button
+            type="button"
+            className={styles.switcherRemark}
+            onClick={beginRemarkEdit}
+            title={currentRemark}
+            aria-label={`Remark: ${currentRemark}. Click to edit.`}
+          >
+            {currentRemark}
+          </button>
+        ) : null}
 
         {/* Right side: status + duration + display toggle + minimize */}
         <div className={styles.switcherMeta}>
@@ -669,6 +920,18 @@ export default function SessionSwitcher({
               )}
             </div>
           )}
+
+          {/* Sort by recent activity — flattens the room frames into a single
+              list, most recently active first */}
+          <button
+            className={`${styles.displayModeToggle}${sortByActivity ? ` ${styles.roomFilterActive}` : ''}`}
+            onClick={toggleSessionSortMode}
+            title={sortByActivity ? 'Group by room' : 'Sort by recent activity (flat list)'}
+            aria-label={sortByActivity ? 'Group by room' : 'Sort by recent activity'}
+            type="button"
+          >
+            <SortByActivityIcon />
+          </button>
 
           {/* Status-colour legend — hint for what each session-title/badge colour
               means under the currently selected theme */}
@@ -737,6 +1000,19 @@ export default function SessionSwitcher({
           >
             {maximized ? <RestoreSizeIcon /> : <MaximizeIcon />}
           </button>
+          {/* Fold — collapse the left rail to a thin strip (left dock only).
+              In top-dock mode there's no rail to fold, so it's hidden. */}
+          {isVertical && (
+            <button
+              className={styles.displayModeToggle}
+              onClick={toggleNavRailCollapsed}
+              title="Collapse session panel"
+              aria-label="Collapse session panel"
+              type="button"
+            >
+              <CollapseRailIcon />
+            </button>
+          )}
           {onClose && (
             <button
               className={styles.switcherIconBtn}
@@ -764,6 +1040,13 @@ export default function SessionSwitcher({
           {tabRenderItems.map((item) => {
             if (item.type === 'room') {
               const collapsed = item.room.collapsed;
+              // Live (killable) sessions in this room, independent of the room
+              // filter — ended cards and dropped ids don't count. The kill icon
+              // is hidden when there's nothing to kill.
+              const roomLiveCount = item.room.sessionIds.reduce((n, id) => {
+                const s = sessions.get(id);
+                return s && s.status !== 'ended' ? n + 1 : n;
+              }, 0);
               return (
                 <div
                   key={item.room.id}
@@ -797,6 +1080,20 @@ export default function SessionSwitcher({
                       <polyline points="6 9 12 15 18 9" />
                     </svg>
                   </button>
+                  {roomLiveCount > 0 && (
+                    <button
+                      type="button"
+                      className={styles.roomKillToggle}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openRoomKill(item.room.id);
+                      }}
+                      title={`Kill all ${roomLiveCount} session${roomLiveCount === 1 ? '' : 's'} in ${item.room.name}`}
+                      aria-label={`Kill all ${roomLiveCount} session${roomLiveCount === 1 ? '' : 's'} in room ${item.room.name}`}
+                    >
+                      <KillRoomIcon />
+                    </button>
+                  )}
                   {collapsed ? (
                     <span className={styles.roomCollapsedCount}>{item.sessions.length}</span>
                   ) : (
@@ -889,7 +1186,7 @@ function SessionTabCard({
 
   return (
     <button
-      className={`${styles.sessionTabCard}${isCompact ? ` ${styles.sessionTabCardCompact}` : ''}${needsAttention ? ` ${styles.sessionTabAttention}` : ''}`}
+      className={`${styles.sessionTabCard}${isCompact ? ` ${styles.sessionTabCardCompact}` : ''}`}
       data-status={session.status}
       style={{ '--robot-color': color } as React.CSSProperties}
       onClick={() => onSwitch(session.sessionId)}

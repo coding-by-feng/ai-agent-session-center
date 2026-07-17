@@ -79,14 +79,16 @@ export interface ElectronAPI {
   subscribePty?(terminalId: string):                      Promise<PtySubscribeResult>
   unsubscribePty?(terminalId: string):                    void
   hasPty?(terminalId: string):                            Promise<boolean>
+  /** Set the scrollback replay buffer size (bytes) for newly created PTYs. */
+  setPtyReplayBuffer?(bytes: number):                     void
   onPtyData?(cb: (terminalId: string, base64Data: string) => void): () => void
   onPtyExit?(cb: (terminalId: string, exitCode: number, signal: number) => void): () => void
 
   // Pop a floating terminal out into its own native window (draggable to another
   // monitor). Optional — only present under Electron.
   openTerminalWindow?(opts: { terminalId: string; originSessionId?: string; label?: string }): Promise<{ ok: boolean }>
-  // Pop the floating PROJECT panel out into its own native window (draggable to
-  // another monitor) on the standalone /project-browser route. Electron-only.
+  // Open the PROJECT tab in its own native window (draggable to another monitor)
+  // on the standalone /project-browser route. Electron-only; de-duped by path.
   openProjectWindow?(opts: { path: string; file?: string; label?: string }): Promise<{ ok: boolean }>
   /** Fires (in the main window) when a popped-out terminal window is closed, so
    *  the in-app float can re-dock. Returns an unsubscribe fn. */

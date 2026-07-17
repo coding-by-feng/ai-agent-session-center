@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { db } from '@/lib/db';
-import type { BrowserSettings, SoundSettings, LabelAlarmSettings, AmbientSettings, CliSoundConfig, AmbientPreset } from '@/types';
+import type { BrowserSettings, SoundSettings, LabelAlarmSettings, AmbientSettings, CliSoundConfig } from '@/types';
+import { DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES, clampReplayBufferBytes } from '@/types/terminal';
 
 // ---------------------------------------------------------------------------
 // Theme definitions (matching original 9 themes)
@@ -221,6 +222,7 @@ interface SettingsState extends BrowserSettings {
   setShowArchived: (show: boolean) => void;
   setGroupBy: (groupBy: BrowserSettings['groupBy']) => void;
   setSortBy: (sortBy: BrowserSettings['sortBy']) => void;
+  setTerminalReplayBufferBytes: (bytes: number) => void;
   setScene3dEnabled: (enabled: boolean) => void;
   setToastEnabled: (enabled: boolean) => void;
   setAutoSendQueue: (enabled: boolean) => void;
@@ -272,6 +274,7 @@ const defaultSettings: SettingsData = {
   showArchived: false,
   groupBy: 'none',
   sortBy: 'activity',
+  terminalReplayBufferBytes: DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES,
   themeName: 'command-center',
   fontSize: 13,
   scanlineEnabled: true,
@@ -459,6 +462,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setShowArchived: (showArchived) => set({ showArchived }),
   setGroupBy: (groupBy) => set({ groupBy }),
   setSortBy: (sortBy) => set({ sortBy }),
+
+  setTerminalReplayBufferBytes: (bytes) => {
+    const clamped = clampReplayBufferBytes(bytes);
+    set({ terminalReplayBufferBytes: clamped });
+    get().persistSetting('terminalReplayBufferBytes', clamped);
+  },
 
   setScene3dEnabled: (scene3dEnabled) => {
     set({ scene3dEnabled });

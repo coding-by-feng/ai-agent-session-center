@@ -5,6 +5,7 @@ import {
   advanceBlockedLoops,
   chainGateDecision,
   onceGateDecision,
+  NO_WORK_FALLBACK_MS,
   applyTypeDefaults,
   itemType,
   getActiveStep,
@@ -149,6 +150,68 @@ describe('queueScheduler', () => {
       const gate = { sawWork: false, openedAt: 1000 };
       expect(onceGateDecision(gate, false, true, 1000 + FALLBACK, FALLBACK)).toBe('fire');
       expect(onceGateDecision(gate, false, true, 1000 + FALLBACK - 1, FALLBACK)).toBe('hold');
+    });
+
+    // --- Event-driven acceptance (lastActivityAt) ---------------------------
+    // `sawWork` is sampled by a 1Hz setInterval, so a prompt whose whole
+    // busy phase falls between two ticks is never observed and the gate has to
+    // rely on the time fallback. `session.lastActivityAt` is stamped by the
+    // server on EVERY hook event (server/sessionStore.ts:594), so it advances
+    // on the CLI's own UserPromptSubmit and cannot be missed between ticks.
+
+    it('treats an advanced lastActivityAt as acceptance even if sawWork was never sampled', () => {
+      // once#1 sent at t=1000 with lastActivityAt=900. The CLI accepted it
+      // (UserPromptSubmit stamped activity=1200) and finished inside one tick,
+      // so no tick ever saw a busy status. Session is back at 'waiting'.
+      const gate = { sawWork: false, openedAt: 1000, activityAtOpen: 900 };
+      expect(onceGateDecision(gate, true, true, 2000, FALLBACK, 1200)).toBe('fire');
+    });
+
+    it('holds when lastActivityAt advanced but the session is still working', () => {
+      // Accepted (activity moved) but not yet at rest — must not stack.
+      const gate = { sawWork: false, openedAt: 1000, activityAtOpen: 900 };
+      expect(onceGateDecision(gate, false, false, 2000, FALLBACK, 1200)).toBe('hold');
+    });
+
+    // --- The reported bug ---------------------------------------------------
+    // Screenshot: "Compacting conversation… 1m 9s" while three once items were
+    // queued. Compaction emits NO hooks, so AASC's status stays stale at
+    // 'waiting' (sendable) and lastActivityAt never moves. Under the old 12s
+    // fallback the gate released twice and all three prompts were dumped into
+    // the CLI's own input queue.
+    //
+    // Uses the REAL shipped constant, not a local copy: the defect was the
+    // VALUE of NO_WORK_FALLBACK_MS, so a test with its own fallback would have
+    // passed against the buggy build.
+    it('REGRESSION: holds through a long hook-less compaction instead of stacking', () => {
+      const gate = { sawWork: false, openedAt: 1000, activityAtOpen: 900 };
+      const duringCompaction = 1000 + 70_000; // the observed 1m9s compaction
+      // Status reads sendable ('waiting') and activity is frozen at 900.
+      expect(
+        onceGateDecision(gate, true, true, duringCompaction, NO_WORK_FALLBACK_MS, 900),
+      ).toBe('hold');
+    });
+
+    it('keeps the real fallback longer than a realistic hook-less compaction', () => {
+      // Guards the constant itself — the 12s original was shorter than a
+      // routine /compact, which is precisely what broke sequential dispatch.
+      expect(NO_WORK_FALLBACK_MS).toBeGreaterThan(120_000);
+    });
+
+    it('still escapes if the CLI never acknowledges at all (true no-op safety net)', () => {
+      const gate = { sawWork: false, openedAt: 1000, activityAtOpen: 900 };
+      // Activity NEVER moves and the whole fallback window elapses.
+      expect(
+        onceGateDecision(gate, false, true, 1000 + FALLBACK, FALLBACK, 900),
+      ).toBe('fire');
+    });
+
+    it('does not treat a STALE activity stamp as acceptance', () => {
+      // lastActivityAt older than the gate (e.g. the last Stop before we sent)
+      // must not be mistaken for the CLI accepting this prompt.
+      const gate = { sawWork: false, openedAt: 1000, activityAtOpen: 900 };
+      expect(onceGateDecision(gate, true, true, 2000, FALLBACK, 900)).toBe('hold');
+      expect(onceGateDecision(gate, true, true, 2000, FALLBACK, 800)).toBe('hold');
     });
   });
 

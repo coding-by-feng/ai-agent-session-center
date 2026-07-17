@@ -57,6 +57,10 @@ const api: ElectronAPI = {
 
   hasPty: (terminalId) => ipcRenderer.invoke('pty:has', terminalId),
 
+  setPtyReplayBuffer: (bytes) => {
+    ipcRenderer.send('pty:set-replay-buffer', bytes)
+  },
+
   onPtyData: (cb) => {
     const handler = (_: unknown, terminalId: string, base64Data: string) =>
       cb(terminalId, base64Data)
@@ -74,7 +78,7 @@ const api: ElectronAPI = {
   // ── Pop-out floating terminal window ──
   openTerminalWindow: (opts) => ipcRenderer.invoke('window:open-terminal', opts),
 
-  // ── Pop-out floating project panel into its own window ──
+  // ── Open the PROJECT tab in its own native window (drag to another monitor) ──
   openProjectWindow: (opts) => ipcRenderer.invoke('window:open-project', opts),
 
   onPopoutClosed: (cb) => {

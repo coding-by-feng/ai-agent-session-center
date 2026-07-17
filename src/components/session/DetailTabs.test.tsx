@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 import DetailTabs from './DetailTabs';
+import { useSessionStore } from '@/stores/sessionStore';
 
 describe('DetailTabs', () => {
   const defaultProps = {
@@ -69,5 +70,65 @@ describe('DetailTabs', () => {
     localStorage.setItem('active-tab', 'notes');
     render(<DetailTabs {...defaultProps} />);
     expect(screen.getByText('Notes Content')).toBeInTheDocument();
+  });
+});
+
+describe('DetailTabs — open Project in a native window', () => {
+  const defaultProps = {
+    terminalContent: <div>Terminal Content</div>,
+    promptsContent: <div>Prompts Content</div>,
+    aiPopupsContent: <div>AI Popups Content</div>,
+    projectContent: <div>Project Content</div>,
+    notesContent: <div>Notes Content</div>,
+    queueContent: <div>Queue Content</div>,
+  };
+  const seedSession = (projectPath?: string) => {
+    useSessionStore.setState({
+      sessions: new Map([['s1', { id: 's1', projectPath } as never]]),
+    });
+  };
+  beforeEach(() => { try { localStorage.clear(); } catch { /* ignore */ } });
+  afterEach(() => {
+    useSessionStore.setState({ sessions: new Map() });
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('opens the native project window (Electron) with the session path', () => {
+    seedSession('/Users/me/proj');
+    const openProjectWindow = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('electronAPI', { openProjectWindow });
+
+    render(<DetailTabs {...defaultProps} sessionId="s1" />);
+    fireEvent.click(screen.getByLabelText('Open Project in a window'));
+
+    expect(openProjectWindow).toHaveBeenCalledWith({ path: '/Users/me/proj', label: 'Project' });
+  });
+
+  it('falls back to window.open on the /project-browser route in the browser', () => {
+    seedSession('/Users/me/proj');
+    vi.stubGlobal('electronAPI', undefined);
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+
+    render(<DetailTabs {...defaultProps} sessionId="s1" />);
+    fireEvent.click(screen.getByLabelText('Open Project in a window'));
+
+    expect(openSpy).toHaveBeenCalledWith(
+      expect.stringContaining('/project-browser?path='),
+      'aasc-project-_Users_me_proj',
+    );
+  });
+
+  it('is a no-op when the session has no project path', () => {
+    seedSession(undefined);
+    const openProjectWindow = vi.fn();
+    vi.stubGlobal('electronAPI', { openProjectWindow });
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+
+    render(<DetailTabs {...defaultProps} sessionId="s1" />);
+    fireEvent.click(screen.getByLabelText('Open Project in a window'));
+
+    expect(openProjectWindow).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
   });
 });

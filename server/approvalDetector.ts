@@ -7,8 +7,36 @@
 import { execFileSync } from 'child_process';
 import { getToolTimeout, getToolCategory, getWaitingStatus, getWaitingLabel } from './config.js';
 import { SESSION_STATUS, ANIMATION_STATE } from './constants.js';
+import { stripAnsi } from '../src/lib/ansi.js';
 import log from './logger.js';
 import type { Session } from '../src/types/session.js';
+
+/**
+ * Matches the live "working" spinner footer the AI CLIs render while actively
+ * processing — an elapsed-time counter `(… 2m 44s …)` paired with an activity cue
+ * (`esc to interrupt`, a token counter, or `thinking`). Claude Code shows this
+ * during extended thinking and tool execution, e.g.
+ *   `✽ Enchanting… (2m 44s · ↓ 6.8k tokens · almost done thinking with xhigh effort)`
+ * It is NEVER shown at an approval prompt (which has no elapsed-time spinner) or
+ * when idle, so it cleanly distinguishes "still busy" from "needs approval".
+ */
+const BUSY_SPINNER_RE = /\((?:\s*\d+\s*h)?(?:\s*\d+\s*m)?\s*\d+\s*s\b[^)\n]*?(?:esc to interrupt|tokens?|thinking)/i;
+
+/**
+ * True when the recent terminal output shows an active thinking/working spinner —
+ * i.e. the agent is busy, not waiting for tool approval. Used to suppress a false
+ * approval transition that the PostToolUse-timeout heuristic would otherwise fire
+ * during a long thinking phase (no child process exists, so `hasChildProcesses`
+ * can't detect it). Only the tail is inspected so a stale spinner left up in
+ * scrollback doesn't keep a finished turn marked "busy".
+ */
+export function isAgentBusyOutput(output: string | null | undefined): boolean {
+  if (!output) return false;
+  // The live status line is at the very bottom; older spinner redraws scroll out
+  // of the tail as real output is appended once thinking ends.
+  const tail = stripAnsi(output).slice(-600);
+  return BUSY_SPINNER_RE.test(tail);
+}
 
 /**
  * Validate PID as a positive integer.
@@ -48,6 +76,7 @@ export function startApprovalTimer(
   toolInputSummary: string,
   broadcastFn: (session: Session) => Promise<void>,
   sessionLookupFn: (id: string) => Session | undefined,
+  getTerminalOutput?: (session: Session) => string | null,
 ): void {
   clearTimeout(pendingToolTimers.get(sessionId));
 
@@ -61,6 +90,13 @@ export function startApprovalTimer(
       const currentSession = sessionLookupFn(sessionId);
       if (!currentSession) return;
       if (currentSession.status === SESSION_STATUS.WORKING && currentSession.pendingTool) {
+        // The agent is actively thinking/working (terminal shows a live spinner,
+        // e.g. a long xhigh-effort "Enchanting… (2m 44s · …)" phase), not awaiting
+        // approval. Skip the transition — mirrors the hasChildProcesses guard, but
+        // catches in-process thinking that spawns no child process.
+        if (getTerminalOutput && isAgentBusyOutput(getTerminalOutput(currentSession))) {
+          return;
+        }
         const category = getToolCategory(currentSession.pendingTool);
         if (category === 'slow' && currentSession.cachedPid && hasChildProcesses(currentSession.cachedPid)) {
           return; // Command is running, not waiting for approval

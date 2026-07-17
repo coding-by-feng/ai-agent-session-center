@@ -8,6 +8,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { useUiStore } from '@/stores/uiStore';
 import SearchInput from '@/components/ui/SearchInput';
+import { showToast } from '@/components/ui/ToastContainer';
 import { markUserClosing } from '@/lib/pinnedRespawn';
 import { sortSessions } from '@/lib/sessionSort';
 import type { Session } from '@/types/session';
@@ -430,13 +431,33 @@ export default function RobotListSidebar() {
       markUserClosing(session);
       togglePin(sessionId);
     }
-    // Kill the process and remove from view
-    fetch(`/api/sessions/${sessionId}/kill`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ confirm: true }),
-    }).catch(() => {});
-    removeSession(sessionId);
+    // Kill the process, THEN remove from view — only when the server confirms the
+    // process is gone. Previously this was fire-and-forget with a synchronous
+    // removeSession, so the card vanished whether or not anything actually died
+    // (a 404/500, or a phantom kill, left the agent running with no UI trace).
+    void (async () => {
+      try {
+        const resp = await fetch(`/api/sessions/${sessionId}/kill`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ confirm: true }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (resp.ok && data?.ok) {
+          removeSession(sessionId);
+        } else {
+          // Keep the card; the server broadcast will restore it as still-active.
+          showToast(
+            data?.stillAlivePid
+              ? `Couldn't kill process ${data.stillAlivePid} — it survived SIGKILL`
+              : data?.error || 'Failed to kill session',
+            'error',
+          );
+        }
+      } catch (err) {
+        showToast((err as Error).message || 'Failed to kill session', 'error');
+      }
+    })();
   }, [removeSession, togglePin]);
 
   // Hide sidebar only when there are zero sessions at all

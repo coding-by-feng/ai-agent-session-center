@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
 import Modal from '@/components/ui/Modal';
@@ -153,6 +153,86 @@ export function SettingsButton() {
   );
 }
 
+// ── Terminal scrollback replay buffer control ──
+const BYTES_PER_MB = 1024 * 1024;
+const BUFFER_PRESETS_MB = [1, 2, 5, 10, 20];
+const BUFFER_MIN_MB = 0.25;
+const BUFFER_MAX_MB = 32;
+
+/** Format an MB value without trailing zeros: 2 → "2", 0.25 → "0.25". */
+function formatMb(mb: number): string {
+  return String(Math.round(mb * 100) / 100);
+}
+
+function TerminalBufferControl() {
+  const bytes = useSettingsStore((s) => s.terminalReplayBufferBytes);
+  const setBytes = useSettingsStore((s) => s.setTerminalReplayBufferBytes);
+  const currentMb = bytes / BYTES_PER_MB;
+
+  // Local draft so the user can type freely; commit (with clamp) on blur/Enter.
+  const [draft, setDraft] = useState(() => formatMb(currentMb));
+  // Re-sync the draft whenever the stored (clamped) value changes — covers
+  // preset clicks, Reset to Defaults, and clamp-on-commit.
+  useEffect(() => {
+    setDraft(formatMb(bytes / BYTES_PER_MB));
+  }, [bytes]);
+
+  const commitDraft = (value: string) => {
+    const mb = parseFloat(value);
+    if (!Number.isFinite(mb)) {
+      setDraft(formatMb(bytes / BYTES_PER_MB)); // revert non-numeric
+      return;
+    }
+    setBytes(mb * BYTES_PER_MB); // store clamps; effect re-syncs the draft
+  };
+
+  return (
+    <div className={styles.section}>
+      <h4>Terminal</h4>
+      <p className={styles.settingsHint}>
+        Scrollback replay buffer — how much history is restored when a terminal
+        reconnects, the app reloads, or a session resumes. Larger means deeper
+        scroll-up, but more memory per terminal.
+      </p>
+      <div className={styles.bufferRow}>
+        <input
+          className={styles.bufferInput}
+          type="number"
+          min={BUFFER_MIN_MB}
+          max={BUFFER_MAX_MB}
+          step={0.25}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={(e) => commitDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+          }}
+          aria-label="Terminal scrollback replay buffer size in megabytes"
+        />
+        <span className={styles.bufferUnit}>MB</span>
+      </div>
+      <div className={styles.bufferPresets}>
+        {BUFFER_PRESETS_MB.map((mb) => {
+          const active = Math.abs(currentMb - mb) < 0.001;
+          return (
+            <button
+              key={mb}
+              type="button"
+              className={`${styles.bufferPreset}${active ? ` ${styles.bufferPresetActive}` : ''}`}
+              onClick={() => setBytes(mb * BYTES_PER_MB)}
+            >
+              {mb} MB
+            </button>
+          );
+        })}
+      </div>
+      <p className={styles.settingsHint}>
+        Applies to newly created terminals. Range {BUFFER_MIN_MB}–{BUFFER_MAX_MB} MB.
+      </p>
+    </div>
+  );
+}
+
 // Advanced settings sub-tab
 function AdvancedSettings({
   onExport,
@@ -165,6 +245,8 @@ function AdvancedSettings({
 }) {
   return (
     <div>
+      <TerminalBufferControl />
+
       <div className={styles.section}>
         <h4>Import / Export</h4>
         <p className={styles.settingsHint}>

@@ -44,6 +44,7 @@ import {
   advanceBlockedLoops,
   chainGateDecision,
   onceGateDecision,
+  NO_WORK_FALLBACK_MS,
   itemType,
   getActiveStep,
   isExecuting,
@@ -56,14 +57,10 @@ import {
 import { sendPromptToTerminal } from '@/lib/terminalSend';
 import { showToast } from '@/components/ui/ToastContainer';
 
-/**
- * How long the chain gate will wait for a step to visibly go to "work" before
- * giving up and firing the next step anyway. Covers the rare step that the
- * agent answers instantly without ever flipping status to working/prompting —
- * without this, such a step would stall the whole chain forever. Generous
- * enough not to fire inside the stale-status window right after a send.
- */
-const NO_WORK_FALLBACK_MS = 12_000;
+// NO_WORK_FALLBACK_MS lives in queueScheduler.ts next to the gate logic it
+// parameterizes, so the gate tests can assert against the REAL value. Its
+// length is load-bearing (it must outlast a hook-less /compact), and a value
+// defined only here was invisible to every test.
 
 async function uploadImages(images: QueueImageAttachment[]): Promise<string[]> {
   try {
@@ -234,6 +231,7 @@ export function useGlobalQueueScheduler(): void {
           sessionWaiting,
           now,
           NO_WORK_FALLBACK_MS,
+          session.lastActivityAt,
         );
         if (decision === 'hold') return;
       } else {
@@ -247,6 +245,7 @@ export function useGlobalQueueScheduler(): void {
             sessionWaiting,
             now,
             NO_WORK_FALLBACK_MS,
+            session.lastActivityAt,
           );
           if (onceDecision === 'hold') return;
           onceGateRefs.current.delete(sessionId);
@@ -277,6 +276,9 @@ export function useGlobalQueueScheduler(): void {
             onceGateRefs.current.set(sessionId, {
               sawWork: false,
               openedAt: Date.now(),
+              // Pre-send stamp: any later hook event moves lastActivityAt past
+              // this, proving the CLI took the prompt.
+              activityAtOpen: session.lastActivityAt,
             });
           }
         } else if (advance.action === 'continue') {
@@ -286,6 +288,8 @@ export function useGlobalQueueScheduler(): void {
             itemId: pick.id,
             sawWork: false,
             openedAt: Date.now(),
+            // Pre-send stamp — see the once gate above.
+            activityAtOpen: session.lastActivityAt,
           });
         } else {
           // reschedule — chain completed, no gate needed for the next cycle.

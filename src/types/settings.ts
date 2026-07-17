@@ -111,4 +111,8 @@ export interface BrowserSettings {
   showArchived: boolean;
   groupBy: 'none' | 'project' | 'status' | 'source';
   sortBy: 'activity' | 'name' | 'status' | 'created';
+  /** Terminal scrollback replay buffer size, in bytes. How much history is
+   *  restored when a terminal reconnects / the app reloads / a session resumes.
+   *  Default 2 MB; clamped to [0.25 MB, 32 MB] on the backend. */
+  terminalReplayBufferBytes: number;
 }

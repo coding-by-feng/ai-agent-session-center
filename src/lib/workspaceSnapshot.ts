@@ -44,6 +44,9 @@ export interface SessionSnapshot {
   startupCommand?: string;
   /** Permission mode at export time — used to reconstruct CLI flags when startupCommand is absent */
   permissionMode?: string | null;
+  /** User's progress remark. Without this the note is lost on every workspace
+   *  export/import — which is the app's canonical restart path. */
+  remark?: string | null;
   projectTabs: { tabs: ProjectSubTab[]; active: string } | null;
   /** Open file tabs per project sub-tab: key = subTabId, value = { tabs, active } */
   fileTabs?: Record<string, { tabs: { path: string; name: string }[]; active: string | null }>;
@@ -204,6 +207,7 @@ export function buildSnapshot(
       sshConfig: { ...session.sshConfig },
       startupCommand: session.startupCommand,
       permissionMode: session.permissionMode,
+      remark: session.remark,
       projectTabs,
       fileTabs: getFileTabs(session.sessionId, projectTabs),
       queueItems,
@@ -303,6 +307,72 @@ export function loadFromFile(file: File): Promise<WorkspaceSnapshot> {
 // Deduplication — remove duplicate sessions by title + SSH config
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Saved terminal scrollback — claim buffers without cross-injecting them
+// ---------------------------------------------------------------------------
+
+/** One saved scrollback buffer returned by POST /api/sessions/clear-all. */
+export interface SavedOutputEntry {
+  key: string;
+  /** Owning live session id. Older servers omit it — then `key` alone decides. */
+  sessionId?: string;
+  data: string;
+}
+
+/**
+ * Buffers grouped by their (non-unique) `title\0workDir` key. Entries are
+ * REMOVED as they are claimed, so one buffer can never be handed to two
+ * sessions.
+ */
+export type SavedOutputIndex = Map<string, SavedOutputEntry[]>;
+
+export function buildSavedOutputIndex(entries: SavedOutputEntry[]): SavedOutputIndex {
+  const index: SavedOutputIndex = new Map();
+  for (const e of entries) {
+    if (!e || !e.key || !e.data) continue;
+    const bucket = index.get(e.key);
+    if (bucket) bucket.push(e);
+    else index.set(e.key, [e]);
+  }
+  return index;
+}
+
+/**
+ * Claim the scrollback belonging to one restored session, removing it from the
+ * index so no other session can receive the same bytes.
+ *
+ * Matching order:
+ *  1. Exact `sessionId === originalSessionId` — correct whenever the snapshot
+ *     was saved from these same live sessions (auto-save → restart).
+ *  2. First remaining entry under the key — the export→import case, where ids
+ *     were reminted and `title\0workDir` is the only surviving identity.
+ *
+ * Returns undefined when nothing is left to claim. Previously this was a plain
+ * non-consuming `Map.get()` over a LAST-WINS map: two sessions sharing a title
+ * in one workDir both received the same (foreign) buffer, which
+ * `prefillTerminalOutput` then concatenated AHEAD of the new PTY's own output —
+ * so the terminal replayed another session's scrollback followed by its own
+ * banner.
+ */
+export function claimSavedOutput(
+  index: SavedOutputIndex,
+  key: string,
+  originalSessionId?: string,
+): string | undefined {
+  const bucket = index.get(key);
+  if (!bucket || bucket.length === 0) return undefined;
+
+  let pick = 0;
+  if (originalSessionId) {
+    const exact = bucket.findIndex((e) => e.sessionId === originalSessionId);
+    if (exact !== -1) pick = exact;
+  }
+
+  const [claimed] = bucket.splice(pick, 1);
+  if (bucket.length === 0) index.delete(key);
+  return claimed?.data;
+}
+
 function sessionDedupeKey(snap: SessionSnapshot): string {
   const cfg = snap.sshConfig;
   // 8-field formula matching the server (RC-2 fix). Adding originalSessionId
@@ -367,7 +437,10 @@ export async function importSnapshot(
   // The server returns saved terminal output buffers so we can restore scrollback.
   // Per Contract C2: pass suppressBroadcast: true so the server skips the
   // CLEAR_BROWSER_DB broadcast (which would race with our restored localStorage).
-  let savedOutputMap = new Map<string, string>(); // key (title\0workDir) -> base64 data
+  // key (title\0workDir) -> LIST of buffers. Must not be a last-wins
+  // key->data map: the key is not unique, and collapsing it silently dropped
+  // buffers and handed the survivor to every same-key session.
+  let savedOutputIndex: SavedOutputIndex = new Map();
   try {
     const clearRes = await fetch('/api/sessions/clear-all', {
       method: 'POST',
@@ -377,9 +450,7 @@ export async function importSnapshot(
     if (clearRes.ok) {
       const clearData = await clearRes.json();
       if (Array.isArray(clearData.savedOutputs)) {
-        for (const so of clearData.savedOutputs) {
-          if (so.key && so.data) savedOutputMap.set(so.key, so.data);
-        }
+        savedOutputIndex = buildSavedOutputIndex(clearData.savedOutputs);
       }
     }
     // Clear Zustand session store immediately so stale sessions don't linger.
@@ -517,6 +588,7 @@ export async function importSnapshot(
           enableOpsTerminal: sessionSnap.enableOpsTerminal || undefined,
           startupCommand: payloadStartupCommand,
           permissionMode: sessionSnap.permissionMode || undefined,
+          remark: sessionSnap.remark || undefined,
           originalSessionId: originalId || undefined,
           resumeSessionId: looksLikeRealSessionId ? originalId : undefined,
           // Include metadata in creation so the first WS broadcast has them.
@@ -645,10 +717,17 @@ export async function importSnapshot(
           useQueueStore.getState().setAutomation(data.terminalId, sessionSnap.automation);
         }
 
-        // Restore terminal output from saved buffer (previous session's scrollback)
-        if (savedOutputMap.size > 0) {
+        // Restore terminal output from saved buffer (previous session's
+        // scrollback). CLAIMS the buffer — a claimed buffer is removed from the
+        // index so a same-title sibling in this workDir can never be prefilled
+        // with these bytes.
+        if (savedOutputIndex.size > 0) {
           const outputKey = (sessionSnap.title || '') + '\0' + (cfg.workingDir || '');
-          const savedOutput = savedOutputMap.get(outputKey);
+          const savedOutput = claimSavedOutput(
+            savedOutputIndex,
+            outputKey,
+            sessionSnap.originalSessionId,
+          );
           if (savedOutput) {
             fetch(`/api/terminals/${encodeURIComponent(data.terminalId)}/prefill-output`, {
               method: 'POST',

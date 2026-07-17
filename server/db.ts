@@ -7,6 +7,7 @@ import { mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import log from './logger.js';
+import { sanitizeModelId } from './config.js';
 import type { Session } from '../src/types/session.js';
 import type {
   DbSessionRow, DbPromptRow, DbResponseRow, DbToolCallRow, DbEventRow, DbNoteRow,
@@ -45,6 +46,7 @@ db.exec(`
     source TEXT DEFAULT 'hook',
     label TEXT,
     summary TEXT,
+    remark TEXT,
     team_id TEXT,
     team_role TEXT,
     character_model TEXT,
@@ -135,16 +137,65 @@ db.exec(`
 
 log.info('db', `SQLite database opened: ${DB_PATH}`);
 
+// ---- Schema migration: add columns to a pre-existing sessions table ----
+// `CREATE TABLE IF NOT EXISTS` above is a NO-OP on a database that already
+// exists, so a column added to that statement never reaches an installed user —
+// their table keeps the shape it was first created with and every read of the
+// new column throws "no such column". Add them in place instead. Idempotent:
+// PRAGMA table_info is the source of truth, so this is safe to run every boot.
+try {
+  const existing = new Set(
+    (db.prepare('PRAGMA table_info(sessions)').all() as Array<{ name: string }>).map((c) => c.name),
+  );
+  const ADDED_COLUMNS: Array<{ name: string; ddl: string }> = [
+    // User-authored progress note shown under the session title in the detail
+    // rail. Nullable with no default — an existing row simply has no remark.
+    { name: 'remark', ddl: 'ALTER TABLE sessions ADD COLUMN remark TEXT' },
+  ];
+  for (const col of ADDED_COLUMNS) {
+    if (existing.has(col.name)) continue;
+    db.exec(col.ddl);
+    log.info('db', `Schema migration: added sessions.${col.name}`);
+  }
+} catch (err: unknown) {
+  log.warn('db', `Sessions column migration skipped: ${err instanceof Error ? err.message : String(err)}`);
+}
+
+// ---- One-time data cleanup: sanitize contaminated model ids ----
+// Older sessions (and the forks/popups that inherited from them) stored a model
+// polluted with a stripped ANSI bold escape, e.g. "claude-opus-4-8[1m]". That
+// value broke the unquoted `--model` launch flag — zsh treats `[1m]` as a glob
+// ("no matches found"), so popup/fork spawning failed. Clean them in place so
+// existing sessions launch and display correctly. See sanitizeModelId (config.ts).
+try {
+  const dirty = db
+    .prepare(
+      `SELECT id, model FROM sessions
+       WHERE model LIKE '%[%' OR model LIKE '%' || char(27) || '%' OR model LIKE '%' || char(10) || '%'`,
+    )
+    .all() as Array<{ id: string; model: string }>;
+  if (dirty.length > 0) {
+    const upd = db.prepare('UPDATE sessions SET model = ? WHERE id = ?');
+    const fixAll = db.transaction((rows: Array<{ id: string; model: string }>) => {
+      for (const row of rows) upd.run(sanitizeModelId(row.model), row.id);
+    });
+    fixAll(dirty);
+    log.info('db', `Sanitized ${dirty.length} contaminated session model id(s)`);
+  }
+} catch (err: unknown) {
+  log.warn('db', `Model sanitize migration skipped: ${err instanceof Error ? err.message : String(err)}`);
+}
+
 // ---- Prepared Statements ----
 
 const stmts = {
   upsertSession: db.prepare(`
-    INSERT INTO sessions (id, project_path, project_name, title, model, status, source, summary, team_id, team_role, character_model, accent_color, started_at, ended_at, last_activity_at, total_prompts, total_tool_calls, archived)
-    VALUES (@id, @project_path, @project_name, @title, @model, @status, @source, @summary, @team_id, @team_role, @character_model, @accent_color, @started_at, @ended_at, @last_activity_at, @total_prompts, @total_tool_calls, @archived)
+    INSERT INTO sessions (id, project_path, project_name, title, model, status, source, summary, remark, team_id, team_role, character_model, accent_color, started_at, ended_at, last_activity_at, total_prompts, total_tool_calls, archived)
+    VALUES (@id, @project_path, @project_name, @title, @model, @status, @source, @summary, @remark, @team_id, @team_role, @character_model, @accent_color, @started_at, @ended_at, @last_activity_at, @total_prompts, @total_tool_calls, @archived)
     ON CONFLICT(id) DO UPDATE SET
       project_path = @project_path, project_name = @project_name, title = @title,
       model = @model, status = @status, source = @source,
-      summary = @summary, team_id = @team_id, team_role = @team_role,
+      summary = @summary, remark = @remark, team_id = @team_id, team_role = @team_role,
       character_model = @character_model, accent_color = @accent_color,
       ended_at = @ended_at, last_activity_at = @last_activity_at,
       total_prompts = @total_prompts, total_tool_calls = @total_tool_calls, archived = @archived
@@ -177,6 +228,7 @@ const stmts = {
   deleteSession: db.prepare('DELETE FROM sessions WHERE id = ?'),
   updateSessionArchived: db.prepare('UPDATE sessions SET archived = ? WHERE id = ?'),
   updateSessionSummary: db.prepare('UPDATE sessions SET summary = ? WHERE id = ?'),
+  updateSessionRemark: db.prepare('UPDATE sessions SET remark = ? WHERE id = ?'),
   updateSessionTitle: db.prepare('UPDATE sessions SET title = ? WHERE id = ?'),
 
   getPromptsBySession: db.prepare('SELECT * FROM prompts WHERE session_id = ? ORDER BY timestamp ASC'),
@@ -227,6 +279,13 @@ const persistSessionTx = db.transaction((session: Session) => {
     status: session.status || '',
     source: session.source || 'hook',
     summary: session.summary || null,
+    // Safe to include in the ON CONFLICT set above BECAUSE this writes the
+    // in-memory session's own value — a hook upsert re-writes the same remark
+    // rather than blanking it. That holds only while `remark` is preserved on
+    // the in-memory session across re-keys (see reKeyResumedSession) — if a
+    // code path ever rebuilds a Session without it, this silently erases the
+    // user's note on the next hook event.
+    remark: session.remark || null,
     team_id: session.teamId || null,
     team_role: session.teamRole || null,
     character_model: session.characterModel || null,
@@ -321,6 +380,11 @@ export function updateSessionArchived(id: string, archived: boolean | number): v
 
 export function updateSessionSummary(id: string, summary: string | null): void {
   stmts.updateSessionSummary.run(summary || null, id);
+}
+
+/** Persist the user's progress remark. Empty string clears it (stored NULL). */
+export function updateSessionRemark(id: string, remark: string | null): void {
+  stmts.updateSessionRemark.run(remark || null, id);
 }
 
 export function updateSessionTitle(id: string, title: string): void {

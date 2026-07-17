@@ -105,6 +105,111 @@ export function stopMonitoring(): void {
   }
 }
 
+/** Is a PID currently alive? (signal 0 = probe, doesn't actually signal.) */
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Resolve a PID's process-group id, falling back to the PID itself. */
+function resolvePgid(pid: number): number {
+  try {
+    const out = execFileSync('ps', ['-o', 'pgid=', '-p', String(pid)], {
+      encoding: 'utf8',
+    }).trim();
+    const parsed = parseInt(out, 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  } catch {
+    /* process may already be gone, or ps unavailable — fall through */
+  }
+  return pid;
+}
+
+/**
+ * Terminate a process AND its whole process group, escalating SIGTERM -> SIGKILL,
+ * then verify death.
+ *
+ * Why the group: AI CLI agents run as  PTY -> /bin/zsh -l -> claude , and `claude`
+ * puts itself in its OWN process group (verified across live sessions). A bare
+ * `process.kill(pid, 'SIGTERM')` — or node-pty's SIGHUP-to-the-shell — leaves the
+ * agent and its child tool/MCP tree orphaned to launchd. Signalling the negative
+ * pgid reaps the entire tree. We fall back to the bare PID if the group signal
+ * throws (ESRCH/EPERM), and escalate to the uncatchable SIGKILL if the agent
+ * traps SIGTERM (e.g. `& disown`ed hook jobs, a shell with NO_HUP).
+ *
+ * @returns true if the process is confirmed dead (or was never alive), false if
+ *          it survived even SIGKILL.
+ */
+export async function terminateProcessTree(pid: unknown): Promise<boolean> {
+  const validPid = validatePid(pid);
+  if (!validPid) return true; // nothing to kill -> treat as dead
+  if (!pidAlive(validPid)) return true;
+
+  const pgid = resolvePgid(validPid);
+  const signal = (sig: NodeJS.Signals) => {
+    // Prefer the group so child tools/MCP servers die too; fall back to the pid.
+    try {
+      process.kill(-pgid, sig);
+    } catch {
+      try {
+        process.kill(validPid, sig);
+      } catch {
+        /* already dead */
+      }
+    }
+  };
+
+  signal('SIGTERM');
+
+  // Poll for graceful exit before escalating (up to ~2s).
+  const termDeadline = Date.now() + 2000;
+  while (Date.now() < termDeadline) {
+    if (!pidAlive(validPid)) return true;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+
+  // Survived SIGTERM — escalate to the uncatchable SIGKILL and verify (up to ~1s).
+  signal('SIGKILL');
+  const killDeadline = Date.now() + 1000;
+  while (Date.now() < killDeadline) {
+    if (!pidAlive(validPid)) return true;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return !pidAlive(validPid);
+}
+
+/**
+ * Best-effort reap of a PTY shell's descendant process groups. Called when a
+ * terminal/PTY is closed: the login shell's direct children (the agent, e.g.
+ * `claude`) each live in their own process group, so killing only the shell
+ * (what node-pty's pty.kill() does) orphans them. We enumerate the shell's
+ * children via `pgrep -P` and group-terminate each. Fire-and-forget — the caller
+ * (closeTerminal) stays synchronous and must not block on process teardown.
+ */
+export function reapPtyChildren(shellPid: unknown): void {
+  const validPid = validatePid(shellPid);
+  if (!validPid) return;
+  let children: number[] = [];
+  try {
+    const out = execFileSync('pgrep', ['-P', String(validPid)], {
+      encoding: 'utf8',
+    }).trim();
+    children = out
+      .split(/\s+/)
+      .map((s) => parseInt(s, 10))
+      .filter((n) => Number.isFinite(n) && n > 0);
+  } catch {
+    /* no children, or pgrep unavailable */
+  }
+  for (const child of children) {
+    void terminateProcessTree(child);
+  }
+}
+
 /**
  * Find the Claude process PID for a given session.
  * Uses cached PID first, then falls back to pgrep/lsof.

@@ -2,7 +2,34 @@
  * Terminal / SSH types for AI Agent Session Center.
  */
 
-import type { SshConfig } from './session.js';
+// ---------------------------------------------------------------------------
+// Terminal scrollback replay buffer (configurable)
+//
+// Each terminal pre-allocates a ring buffer that holds the most recent output.
+// This is what gets replayed when a terminal reconnects, the app reloads, or a
+// session resumes — i.e. how far back you can scroll after a rebuild. It is a
+// user setting (Settings ▸ ADVANCED ▸ Terminal); these constants are the
+// default and the safety clamp applied on every backend.
+//
+// NOTE: electron/ptyHost.ts keeps its own copy of these constants (it does not
+// import this module at runtime) — keep the two in sync.
+// ---------------------------------------------------------------------------
+
+/** Default replay buffer size: 2 MB (~16× the old 128 KB). */
+export const DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES = 2 * 1024 * 1024;
+/** Lower clamp: 0.25 MB — below this, even a couple of screens won't fit. */
+export const MIN_TERMINAL_REPLAY_BUFFER_BYTES = 256 * 1024;
+/** Upper clamp: 32 MB per terminal — guards against a poisoned/typo setting. */
+export const MAX_TERMINAL_REPLAY_BUFFER_BYTES = 32 * 1024 * 1024;
+
+/** Clamp an arbitrary number to the valid replay-buffer range; non-finite → default. */
+export function clampReplayBufferBytes(bytes: number): number {
+  if (!Number.isFinite(bytes)) return DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES;
+  return Math.min(
+    MAX_TERMINAL_REPLAY_BUFFER_BYTES,
+    Math.max(MIN_TERMINAL_REPLAY_BUFFER_BYTES, Math.round(bytes)),
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Internal Terminal (server-side, stored in sshManager terminals Map)
@@ -15,7 +42,7 @@ export interface Terminal {
   config: TerminalConfig;
   wsClient: import('ws').WebSocket | null;
   createdAt: number;
-  /** Pre-allocated output ring buffer (128 KB). Use ring* helpers — never mutate directly. */
+  /** Pre-allocated output ring buffer (size = configurable replay buffer, default 2 MB). Use ring* helpers — never mutate directly. */
   outputRing: Buffer;
   /** Next write offset within outputRing. */
   outputOffset: number;
@@ -57,6 +84,8 @@ export interface TerminalConfig {
   alerted?: boolean;
   accentColor?: string;
   characterModel?: string;
+  /** User's progress remark, carried through a workspace restore. */
+  remark?: string;
   /**
    * When true, `command` is intentionally empty because the caller will write the
    * real launch command (e.g. `claude --resume 'X' || claude --continue`) later

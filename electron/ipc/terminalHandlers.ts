@@ -18,6 +18,7 @@ import {
   subscribePty,
   unsubscribePty,
   removeSubscriberFromAll,
+  setReplayBufferBytes,
 } from '../ptyHost.js'
 
 export function registerTerminalHandlers(): void {
@@ -92,5 +93,11 @@ export function registerTerminalHandlers(): void {
   // List all active PTY terminals
   ipcMain.handle('pty:list', () => {
     return listPtys()
+  })
+
+  // Set the scrollback replay buffer size (bytes) for newly created PTYs.
+  // Fire-and-forget: pushed from the renderer when the setting loads or changes.
+  ipcMain.on('pty:set-replay-buffer', (_, bytes: number) => {
+    setReplayBufferBytes(bytes)
   })
 }

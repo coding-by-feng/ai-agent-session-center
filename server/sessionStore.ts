@@ -13,7 +13,7 @@ import { homedir } from 'os';
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import log from './logger.js';
-import { getWaitingLabel } from './config.js';
+import { getWaitingLabel, sanitizeModelInCommand } from './config.js';
 import { isCloneForkTemplateTitle, buildAutoTitle } from './sessionTitle.js';
 import {
   EVENT_TYPES, SESSION_STATUS, ANIMATION_STATE, EMOTE, WS_TYPES,
@@ -22,7 +22,7 @@ import {
 // Sub-module imports
 import { matchSession, detectHookSource } from './sessionMatcher.js';
 import { startApprovalTimer, clearApprovalTimer, hasChildProcesses } from './approvalDetector.js';
-import { closeTerminal, registerTerminalExitCallback, getTerminalOutputBuffer, getTerminals } from './sshManager.js';
+import { closeTerminal, registerTerminalExitCallback, getTerminalOutputBuffer, getTerminalOutputTail, getTerminals } from './sshManager.js';
 import {
   findPendingSubagentMatch, handleTeamMemberEnd, addPendingSubagent,
   linkByParentSessionId,
@@ -34,6 +34,7 @@ import {
   upsertSession as dbUpsertSession,
   updateSessionTitle as dbUpdateTitle,
   updateSessionSummary as dbUpdateSummary,
+  updateSessionRemark as dbUpdateRemark,
   updateSessionArchived as dbUpdateArchived,
   migrateSessionId as dbMigrateSessionId,
   getPromptsForSession as dbGetPrompts,
@@ -597,8 +598,8 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
   // Skips subagent sessions (parent_session_id present) since their command is meaningless.
   if ('startup_command' in hookData && hookData.startup_command
       && !session.startupCommand && !hookData.parent_session_id) {
-    session.startupCommand = hookData.startup_command;
-    log.debug('session', `Stored startupCommand for ${session_id?.slice(0,8)}: ${hookData.startup_command.slice(0,80)}`);
+    session.startupCommand = sanitizeModelInCommand(hookData.startup_command);
+    log.debug('session', `Stored startupCommand for ${session_id?.slice(0,8)}: ${session.startupCommand.slice(0,80)}`);
   }
 
   if (hookData.cli_source) {
@@ -726,8 +727,15 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       if (session.toolLog.length > 200) session.toolLog.shift();
       eventEntry.detail = `${toolName}`;
 
-      // Approval/input detection via timer (delegated to approvalDetector)
-      startApprovalTimer(session_id, session, toolName, toolInputSummary, broadcastSessionUpdate, (sid) => sessions.get(sid));
+      // Approval/input detection via timer (delegated to approvalDetector). The
+      // last arg samples the session's live terminal tail so the timer can tell a
+      // genuine approval wait from an active thinking/working spinner (suppresses
+      // false "approval" during long xhigh-effort thinking).
+      startApprovalTimer(
+        session_id, session, toolName, toolInputSummary, broadcastSessionUpdate,
+        (sid) => sessions.get(sid),
+        (s) => (s.terminalId ? getTerminalOutputTail(s.terminalId) : null),
+      );
       break;
     }
 
@@ -1062,6 +1070,10 @@ export async function createTerminalSession(terminalId: string, config: Terminal
   if (config.alerted) session.alerted = config.alerted;
   if (config.accentColor) session.accentColor = config.accentColor;
   if (config.characterModel) session.characterModel = config.characterModel;
+  // Carry the user's remark through a workspace restore — the session is
+  // recreated under a fresh terminal id, so without this the note is dropped on
+  // every restart (the app's canonical reload path).
+  if (config.remark) session.remark = config.remark;
   // Persist effort + model on the session so floating popups can inherit them
   // (model is otherwise only set later by hooks, which may not have fired yet).
   if (config.effortLevel) session.effortLevel = config.effortLevel;
@@ -1130,6 +1142,14 @@ export function killSession(sessionId: string): Session | null {
   session.archived = 1;
   session.lastActivityAt = Date.now();
   session.endedAt = Date.now();
+  // Release the PID claim. The process has already been terminated by the caller,
+  // and processMonitor skips ENDED sessions — so without this the claim would
+  // linger forever and any sibling card sharing the projectPath could never
+  // resolve a PID (findClaudeProcess skips claimed PIDs), making it unkillable.
+  if (session.cachedPid) {
+    pidToSession.delete(session.cachedPid);
+    session.cachedPid = null;
+  }
   if (session.source === 'ssh') {
     session.isHistorical = true;
     session.lastTerminalId = session.terminalId;
@@ -1161,8 +1181,23 @@ export function deleteSessionFromMemory(sessionId: string): boolean {
 }
 
 export interface SavedTerminalOutput {
-  /** Stable key: sessionTitle + '\0' + workingDir (used to match after reimport) */
+  /**
+   * Stable key: sessionTitle + '\0' + workingDir. Deliberately NOT unique — it
+   * is the only identity that survives an export → import round-trip (session
+   * ids are reminted), so it stays the fallback match. Callers MUST treat
+   * same-key entries as a LIST and consume each at most once; two sessions
+   * sharing a title in one workDir is the DEFAULT case, not an edge case
+   * (an unnamed session's title is `${host}:${workDir}` — see :1019).
+   */
   key: string;
+  /**
+   * The live session this buffer actually came from. When restoring a snapshot
+   * that was saved from these same sessions (the auto-save → restart path),
+   * this matches the snapshot's `originalSessionId` exactly and lets the client
+   * hand each buffer back to its true owner instead of guessing by `key`.
+   * Absent/mismatched for a foreign or older snapshot — then `key` decides.
+   */
+  sessionId: string;
   /** Base64-encoded terminal output ring buffer */
   data: string;
 }
@@ -1195,7 +1230,11 @@ export function clearAllSessions(): { removed: number; savedOutputs: SavedTermin
         // sshConfig (shouldn't happen for SSH sessions, but stays safe).
         const workDir = session.sshConfig?.workingDir || session.projectPath || '';
         const key = (session.title || '') + '\0' + workDir;
-        savedOutputs.push({ key, data: buf });
+        // Carry the owning session id alongside the key. `key` alone is not
+        // unique, and the client used to fold these into a last-wins Map and
+        // then hand the survivor to EVERY same-key session — injecting one
+        // session's scrollback into another's fresh PTY.
+        savedOutputs.push({ key, sessionId: session.sessionId, data: buf });
       }
       closeTerminal(session.terminalId);
     }
@@ -1225,6 +1264,17 @@ export function setSessionTitle(sessionId: string, title: string): Session | nul
 export function setSummary(sessionId: string, summary: string): Session | null {
   const session = sessions.get(sessionId);
   if (session) { session.summary = summary; invalidateSessionsCache(); dbUpdateSummary(sessionId, summary); }
+  return session ? { ...session } : null;
+}
+
+/**
+ * Set the user's progress remark. Mirrors {@link setSummary}: mutate in memory
+ * (so a subsequent hook upsert re-writes the same value instead of blanking the
+ * column) and write the column directly. An empty string clears the remark.
+ */
+export function setSessionRemark(sessionId: string, remark: string): Session | null {
+  const session = sessions.get(sessionId);
+  if (session) { session.remark = remark; invalidateSessionsCache(); dbUpdateRemark(sessionId, remark); }
   return session ? { ...session } : null;
 }
 

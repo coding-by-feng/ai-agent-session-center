@@ -34,6 +34,10 @@ export interface FileContent {
   streamable?: boolean;
   blobUrl?: string;
   sheets?: Array<{ name: string; data: string[][] }>;
+  /** Rendered HTML for Word documents (.docx), converted in-browser via mammoth. */
+  docHtml?: string;
+  /** Human-readable reason a Word document could not be rendered (e.g. legacy .doc). */
+  docError?: string;
 }
 
 export interface GrepMatch {
@@ -251,7 +255,8 @@ export class ApiFileSystemProvider implements FileSystemProvider {
 // ---------------------------------------------------------------------------
 
 const STREAMABLE_EXTENSIONS = new Set([
-  '.pdf', '.xlsx', '.xls', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg',
+  '.pdf', '.xlsx', '.xls', '.docx', '.doc',
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg',
   '.bmp', '.ico', '.avif', '.mp4', '.webm', '.ogg', '.mov', '.mp3', '.wav',
   '.flac', '.aac', '.m4a',
 ]);

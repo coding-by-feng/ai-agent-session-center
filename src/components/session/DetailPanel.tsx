@@ -20,6 +20,8 @@ import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import SessionControlBar from './SessionControlBar';
 import SessionSwitcher from './SessionSwitcher';
 import KillConfirmModal, { KILL_MODAL_ID } from './KillConfirmModal';
+import RoomKillConfirmModal from './RoomKillConfirmModal';
+import { ROOM_KILL_MODAL_ID } from '@/stores/uiStore';
 import TerminalContainer from '@/components/terminal/TerminalContainer';
 import { PALETTE } from '@/lib/robot3DGeometry';
 import { formatDuration, getStatusLabel } from '@/lib/format';
@@ -741,6 +743,7 @@ export default function DetailPanel() {
         {/* Modals — only mount when their modal is active to avoid unnecessary
             zustand subscriptions during DetailPanel mount (reduces cascading re-renders). */}
         <LazyModal modalId={KILL_MODAL_ID}><KillConfirmModal /></LazyModal>
+        <LazyModal modalId={ROOM_KILL_MODAL_ID}><RoomKillConfirmModal /></LazyModal>
         </div>
       </ResizablePanel>
     </div>
