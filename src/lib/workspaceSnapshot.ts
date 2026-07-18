@@ -44,6 +44,14 @@ export interface SessionSnapshot {
   startupCommand?: string;
   /** Permission mode at export time — used to reconstruct CLI flags when startupCommand is absent */
   permissionMode?: string | null;
+  /** AI model + effort level chosen when the session was created (e.g. effort
+   *  'ultracode'). Without these a resumed session comes back at the DEFAULT
+   *  effort/model after an AASC restart — on resume they are re-applied the same
+   *  way creation applies them: standard levels via the `--effort`/`--model`
+   *  launch flags, `ultracode` via the post-startup `/effort ultracode` slash
+   *  command typed into the terminal. */
+  effortLevel?: string;
+  model?: string;
   /** User's progress remark. Without this the note is lost on every workspace
    *  export/import — which is the app's canonical restart path. */
   remark?: string | null;
@@ -207,6 +215,13 @@ export function buildSnapshot(
       sshConfig: { ...session.sshConfig },
       startupCommand: session.startupCommand,
       permissionMode: session.permissionMode,
+      effortLevel: session.effortLevel,
+      // Only persist a clean model id. For non-Claude sessions `session.model`
+      // is the raw launch command (contains spaces/flags) and for contaminated
+      // Claude ids it may carry brackets — either would fail the server's `model`
+      // regex and (before the `.catch(undefined)` safety net) 400 the whole
+      // restore. The model only re-applies to Claude via `--model` anyway.
+      model: session.model && /^[a-zA-Z0-9._-]+$/.test(session.model) ? session.model : undefined,
       remark: session.remark,
       projectTabs,
       fileTabs: getFileTabs(session.sessionId, projectTabs),
@@ -588,6 +603,11 @@ export async function importSnapshot(
           enableOpsTerminal: sessionSnap.enableOpsTerminal || undefined,
           startupCommand: payloadStartupCommand,
           permissionMode: sessionSnap.permissionMode || undefined,
+          // Re-apply the session's creation-time effort/model on resume so a
+          // restored session comes back at the SAME effort it was using (not the
+          // default). The server rebuilds the resume launch command with these.
+          effortLevel: sessionSnap.effortLevel || undefined,
+          model: sessionSnap.model || undefined,
           remark: sessionSnap.remark || undefined,
           originalSessionId: originalId || undefined,
           resumeSessionId: looksLikeRealSessionId ? originalId : undefined,

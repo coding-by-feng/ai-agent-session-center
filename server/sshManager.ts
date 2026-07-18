@@ -847,6 +847,28 @@ export function injectClaudeCommandsWhenReady(terminalId: string, cmds: string[]
   setTimeout(() => { if (!autoSent) autoDisp.dispose(); }, 30000);
 }
 
+/**
+ * Restore `ultracode` effort on a DEFERRED-launch Claude terminal. `ultracode`
+ * is menu-only (rejected by the `--effort` flag), so every launch-command builder
+ * downgrades it to `--effort xhigh`; the true level is only reached by typing
+ * `/effort ultracode` into the running TUI. `createTerminal`'s inline injector
+ * covers the auto-launch path, but resume / reconnect / fork / clone spawn with
+ * `command: ''` and write the launch command later via `writeWhenReady`, bypassing
+ * it — so each of those sites calls this to keep ultracode uniform. No-op unless
+ * the effort is `ultracode` AND the launch command is Claude; the underlying
+ * `injectClaudeCommandsWhenReady` is banner-gated with a 30s timeout, so a call
+ * on a path that never reaches the banner is harmless.
+ */
+export function maybeInjectUltracode(
+  terminalId: string,
+  effortLevel: string | null | undefined,
+  launchCmd: string,
+): void {
+  if (effortLevel === 'ultracode' && launchCmd.startsWith('claude')) {
+    injectClaudeCommandsWhenReady(terminalId, ['/effort ultracode']);
+  }
+}
+
 // #31: Returns error message on failure so wsManager can relay to client
 export function resizeTerminal(terminalId: string, cols: number, rows: number): string | null {
   const term = terminals.get(terminalId);

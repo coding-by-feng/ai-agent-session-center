@@ -5,6 +5,7 @@ import SessionSwitcher from './SessionSwitcher';
 import type { Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
+import { useQueueStore } from '@/stores/queueStore';
 
 /**
  * Progress remark — the note icon in the title row is the entry point for the
@@ -207,5 +208,77 @@ describe('SessionSwitcher — progress remark', () => {
     renderSwitcher(makeSession());
 
     expect(screen.getByLabelText('Add a session remark')).toBeInTheDocument();
+  });
+});
+
+/**
+ * Queue-hint badge — the session tab card shows a cyan list-glyph + count when
+ * that session has queued prompts (source: client queueStore). See the
+ * `.sessionTabQueueBadge` block in SessionSwitcher.tsx.
+ */
+describe('SessionSwitcher — queue hint badge', () => {
+  const makeSession = (over: Partial<Session> = {}): Session => ({
+    sessionId: 's1',
+    title: 'AASC Promotion',
+    projectName: 'agent-manager',
+    projectPath: '/Users/me/agent-manager',
+    status: 'approval',
+    startedAt: Date.now(),
+    lastActivityAt: Date.now(),
+    ...over,
+  } as Session);
+
+  // The tab strip shows the *other* sessions (the current one lives in the detail
+  // view), so the badge is exercised on a non-current session's card.
+  const renderWithCard = (carded: Session) => {
+    const current = makeSession({ sessionId: 'cur', title: 'Current' });
+    return render(
+      <SessionSwitcher
+        currentSession={current}
+        sessions={new Map([[current.sessionId, current], [carded.sessionId, carded]])}
+        onSwitch={vi.fn()}
+      />,
+    );
+  };
+
+  const queue = (sessionId: string, n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      id: i + 1,
+      sessionId,
+      text: `prompt ${i + 1}`,
+      position: i,
+      createdAt: i + 1,
+      type: 'once' as const,
+    }));
+
+  beforeEach(() => {
+    useUiStore.setState({ navPosition: 'top', maximized: false });
+    useQueueStore.setState({ queues: new Map() } as never);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+    try { localStorage.clear(); } catch { /* ignore */ }
+  });
+
+  afterEach(() => {
+    useSessionStore.setState({ sessions: new Map() } as never);
+    useQueueStore.setState({ queues: new Map() } as never);
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('shows the badge with the count when the session has queued prompts', () => {
+    useQueueStore.getState().setQueue('s2', queue('s2', 2) as never);
+    renderWithCard(makeSession({ sessionId: 's2', title: 'Queued Agent' }));
+    expect(screen.getByLabelText('2 queued prompts')).toBeInTheDocument();
+  });
+
+  it('singularizes the label for a single queued prompt', () => {
+    useQueueStore.getState().setQueue('s2', queue('s2', 1) as never);
+    renderWithCard(makeSession({ sessionId: 's2', title: 'Queued Agent' }));
+    expect(screen.getByLabelText('1 queued prompt')).toBeInTheDocument();
+  });
+
+  it('shows no badge when the queue is empty (no "0")', () => {
+    renderWithCard(makeSession({ sessionId: 's2', title: 'Idle Agent' }));
+    expect(screen.queryByLabelText(/queued prompt/)).not.toBeInTheDocument();
   });
 });

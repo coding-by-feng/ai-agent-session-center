@@ -99,6 +99,12 @@ describe('pinnedRespawn', () => {
     it('returns null without sshConfig', () => {
       expect(buildRespawnBody(mkSession({ sshConfig: undefined }))).toBeNull();
     });
+
+    it('preserves effort/model so the respawn keeps the same effort', () => {
+      const body = buildRespawnBody(mkSession({ sessionId: 'abc123', effortLevel: 'ultracode', model: 'opus' }))!;
+      expect(body.effortLevel).toBe('ultracode');
+      expect(body.model).toBe('opus');
+    });
   });
 
   describe('shouldRespawn', () => {

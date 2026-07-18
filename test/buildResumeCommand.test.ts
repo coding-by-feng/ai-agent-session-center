@@ -62,3 +62,37 @@ describe('buildResumeCommand — resume fallback', () => {
     expect(fallback).not.toContain('resume');
   });
 });
+
+describe('buildResumeCommand — effort/model re-application on resume', () => {
+  it('re-applies a standard effort level as an --effort launch flag', () => {
+    const cmd = buildResumeCommand(
+      { startupCommand: 'claude', title: 't', effortLevel: 'max' },
+      VALID_UUID,
+    );
+    expect(cmd).toContain('--effort max');
+    expect(cmd).toContain(`--resume '${VALID_UUID}'`);
+  });
+
+  it('downgrades ultracode to --effort xhigh (the true upgrade is injected separately)', () => {
+    const cmd = buildResumeCommand(
+      { startupCommand: 'claude', title: 't', effortLevel: 'ultracode' },
+      VALID_UUID,
+    );
+    expect(cmd).toContain('--effort xhigh');
+    expect(cmd).not.toContain('--effort ultracode');
+  });
+
+  it('re-applies the model as a --model launch flag', () => {
+    const cmd = buildResumeCommand(
+      { startupCommand: 'claude', title: 't', model: 'opus' },
+      VALID_UUID,
+    );
+    expect(cmd).toContain('--model opus');
+  });
+
+  it('adds no effort/model flags when neither is set', () => {
+    const cmd = buildResumeCommand({ startupCommand: 'claude', title: 't' }, VALID_UUID);
+    expect(cmd).not.toContain('--effort');
+    expect(cmd).not.toContain('--model');
+  });
+});
