@@ -12,7 +12,7 @@ function str(val: unknown): string {
 }
 import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
-import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, attachToTmuxPane, consumePendingLink, prefillTerminalOutput, setReplayBufferBytes } from './sshManager.js';
+import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, maybeInjectUltracode, attachToTmuxPane, consumePendingLink, prefillTerminalOutput, setReplayBufferBytes } from './sshManager.js';
 import { terminateProcessTree } from './processMonitor.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
@@ -238,7 +238,13 @@ const terminalCreateSchema = z.object({
     .string()
     .max(100)
     .regex(/^[a-zA-Z0-9._-]+$/, 'model contains invalid characters')
-    .optional(),
+    .optional()
+    // Mirror effortLevel: an invalid/contaminated model (e.g. an ANSI-leftover
+    // `claude-opus-4-8[1m]`, or a non-Claude session whose `model` is its raw
+    // launch command with spaces) must degrade to "no model" rather than 400 the
+    // ENTIRE create — a 400 here silently drops the whole session (and its room
+    // membership) on workspace restore.
+    .catch(undefined),
   /** Run `/remote-control <name>` automatically after Claude Code starts. */
   remoteControlName: z
     .string()
@@ -621,6 +627,7 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
     if ('error' in result) { res.status(400).json({ error: result.error }); return; }
 
     writeToTerminal(result.terminalId, `${resumeCmd}\r`);
+    maybeInjectUltracode(result.terminalId, session.effortLevel, resumeCmd);
 
     const { broadcast } = await import('./wsManager.js');
     broadcast({ type: WS_TYPES.SESSION_UPDATE, session: result.session });
@@ -670,6 +677,7 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
       if (cfg?.workingDir) prefix += `cd '${cfg.workingDir}' && `;
     }
     writeWhenReady(newTerminalId, `${prefix}${resumeCmd}\r`);
+    maybeInjectUltracode(newTerminalId, session.effortLevel, resumeCmd);
 
     const { broadcast } = await import('./wsManager.js');
     broadcast({ type: WS_TYPES.SESSION_UPDATE, session: result.session });
@@ -719,6 +727,7 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
         if (cfg.workingDir) prefix += `cd '${cfg.workingDir}' && `;
       }
       writeWhenReady(newTerminalId, `${prefix}${launchCmd}\r`);
+      maybeInjectUltracode(newTerminalId, session.effortLevel, launchCmd);
 
       const { broadcast } = await import('./wsManager.js');
       broadcast({ type: WS_TYPES.SESSION_UPDATE, session: result.session });
@@ -740,6 +749,7 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
 
       const cmd = session.startupCommand || 'claude';
       writeWhenReady(newTerminalId, `${cmd}\r`);
+      maybeInjectUltracode(newTerminalId, session.effortLevel, cmd);
 
       const { broadcast } = await import('./wsManager.js');
       broadcast({ type: WS_TYPES.SESSION_UPDATE, session: result.session });
@@ -789,6 +799,7 @@ router.post('/sessions/:id/fork', async (req: Request, res: Response) => {
         if (cfg.workingDir) prefix += `cd '${cfg.workingDir}' && `;
       }
       writeWhenReady(newTerminalId, `${prefix}${forkCmd}\r`);
+      maybeInjectUltracode(newTerminalId, session.effortLevel, forkCmd);
 
       res.json({ ok: true, terminalId: newTerminalId });
     } else {
@@ -810,6 +821,7 @@ router.post('/sessions/:id/fork', async (req: Request, res: Response) => {
       });
 
       writeWhenReady(newTerminalId, `${forkCmd}\r`);
+      maybeInjectUltracode(newTerminalId, session.effortLevel, forkCmd);
 
       res.json({ ok: true, terminalId: newTerminalId });
     }
@@ -858,6 +870,7 @@ router.post('/sessions/:id/clone', async (req: Request, res: Response) => {
         if (cfg.workingDir) prefix += `cd '${cfg.workingDir}' && `;
       }
       writeWhenReady(newTerminalId, `${prefix}${cloneCmd}\r`);
+      maybeInjectUltracode(newTerminalId, session.effortLevel, cloneCmd);
       res.json({ ok: true, terminalId: newTerminalId });
     } else {
       const newConfig: TerminalConfig = {
@@ -875,6 +888,7 @@ router.post('/sessions/:id/clone', async (req: Request, res: Response) => {
         originSessionId: sessionId,
       });
       writeWhenReady(newTerminalId, `${cloneCmd}\r`);
+      maybeInjectUltracode(newTerminalId, session.effortLevel, cloneCmd);
       res.json({ ok: true, terminalId: newTerminalId });
     }
   } catch (err: unknown) {
@@ -1327,6 +1341,13 @@ router.post('/terminals', async (req: Request, res: Response) => {
           sshCommand: config.command || 'claude',
           sshConfig: { command: config.command || 'claude' },
           permissionMode: body.permissionMode,
+          // Re-apply the session's creation-time model + effort on resume.
+          // Without threading these through, applyClaudeLaunchFlags inside
+          // buildResumeCommand receives undefined and the restored session comes
+          // back at the DEFAULT effort/model (workspace-restore resume was the
+          // only relaunch path that dropped them).
+          model: config.model,
+          effortLevel: config.effortLevel,
         },
         resumeId,
       );
@@ -1387,6 +1408,9 @@ router.post('/terminals', async (req: Request, res: Response) => {
       }
       writeWhenReady(terminalId, `${prefix}${resumeLaunchCmd}\r`);
       log.info('api', `Workspace resume: ${resumeId.slice(0, 8)} → terminal ${terminalId.slice(0, 16)} (${resumeLaunchCmd.slice(0, 120)}${resumeLaunchCmd.length > 120 ? '…' : ''})`);
+      // Restore ultracode (launched at xhigh above) so a resumed session comes
+      // back at the SAME effort it was created with.
+      maybeInjectUltracode(terminalId, config.effortLevel, resumeLaunchCmd);
     }
 
     if (startupLaunchCmd) {

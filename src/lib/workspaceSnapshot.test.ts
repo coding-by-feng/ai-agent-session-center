@@ -682,6 +682,25 @@ describe('buildSnapshot — queue automation preservation', () => {
     expect(qi!.type).toBe('loop');
     expect(qi!.intervalMs).toBe(300_000);
   });
+
+  it('captures effortLevel + model so a resume can re-apply the same effort', () => {
+    const s = { ...loopSession('sess-effort'), effortLevel: 'ultracode', model: 'opus' } as unknown as Session;
+    const snap = buildSnapshot(new Map([['sess-effort', s]]), []);
+    expect(snap.sessions[0].effortLevel).toBe('ultracode');
+    expect(snap.sessions[0].model).toBe('opus');
+  });
+
+  it('drops a non-clean model (raw command / bracket-contaminated) so it cannot 400 the restore', () => {
+    // Non-Claude session: session.model is the raw launch command (has spaces).
+    const cmd = { ...loopSession('sess-cmd'), model: 'codex --search foo' } as unknown as Session;
+    expect(buildSnapshot(new Map([['sess-cmd', cmd]]), []).sessions[0].model).toBeUndefined();
+    // Contaminated Claude model id (ANSI leftover brackets).
+    const brk = { ...loopSession('sess-brk'), model: 'claude-opus-4-8[1m]' } as unknown as Session;
+    expect(buildSnapshot(new Map([['sess-brk', brk]]), []).sessions[0].model).toBeUndefined();
+    // A clean id is preserved.
+    const ok = { ...loopSession('sess-ok'), model: 'claude-opus-4-8' } as unknown as Session;
+    expect(buildSnapshot(new Map([['sess-ok', ok]]), []).sessions[0].model).toBe('claude-opus-4-8');
+  });
 });
 
 describe('importSnapshot — loop round-trip', () => {
@@ -734,6 +753,40 @@ describe('importSnapshot — loop round-trip', () => {
     expect(itemType(restored![0])).toBe('loop');
     expect(restored![0].intervalMs).toBe(300_000);
     expect(restored![0].nextFireAt ?? 0).toBeGreaterThan(Date.now());
+  });
+
+  it('sends effortLevel + model in the resume POST body so effort survives restart', async () => {
+    const { calls } = setupFetchMock({
+      '/api/sessions/clear-all': () => mockResponse({ savedOutputs: [] }),
+      '/api/terminals': () => mockResponse({ ok: true, terminalId: 'new-effort-1' }),
+    });
+
+    const snap: WorkspaceSnapshot = {
+      version: 1,
+      exportedAt: Date.now(),
+      sessions: [
+        makeSnap({
+          originalSessionId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+          effortLevel: 'ultracode',
+          model: 'opus',
+        }),
+      ],
+      rooms: [],
+    };
+
+    await importSnapshot(snap, {
+      onSessionCreated: () => {},
+      onComplete: () => {},
+    });
+
+    const create = calls.find(
+      (c) => c.url.includes('/api/terminals') && c.init?.method === 'POST',
+    );
+    expect(create).toBeDefined();
+    const body = JSON.parse(create!.init!.body as string);
+    expect(body.effortLevel).toBe('ultracode');
+    expect(body.model).toBe('opus');
+    expect(body.resumeSessionId).toBe('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
   });
 });
 

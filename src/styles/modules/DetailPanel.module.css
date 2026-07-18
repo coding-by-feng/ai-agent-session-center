@@ -1128,6 +1128,30 @@
   word-break: break-word;
 }
 
+/* Queue-hint badge — a cyan list-glyph + count shown inline at the START of the
+   title when the session has queued prompts (source: client queueStore, mirroring
+   the QueueTab's "QUEUE (N)" header). Inline-flex so it flows with the title text
+   and clamps with it; hidden entirely when the queue is empty (no "0"). */
+.sessionTabQueueBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  vertical-align: middle;
+  margin-right: 3px;
+  padding: 0 3px;
+  border-radius: 5px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.5;
+  color: var(--accent-cyan, #00e5ff);
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 16%, transparent);
+}
+
+.sessionTabQueueBadge svg {
+  flex-shrink: 0;
+}
+
 .sessionTabTitleInput {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -1413,6 +1437,19 @@
 .sessionTabRoomGroupCollapsed {
   gap: 4px;
   padding: 8px 8px 6px;
+}
+
+/* Room-frame header controls — collapse chevron + kill-all skull (+ the
+   collapsed count) on ONE horizontal row. A flex-row wrapper renders its
+   children inline whether the parent group is a row (horizontal top bar) or a
+   column (vertical rail, .switcherBarVertical), so the two icons never stack.
+   The session cards stay siblings BELOW this row and keep their column stacking
+   in the rail. */
+.roomHeaderRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 .roomCollapseToggle {

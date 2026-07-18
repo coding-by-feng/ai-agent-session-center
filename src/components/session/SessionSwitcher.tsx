@@ -10,6 +10,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useRoomStore, type Room } from '@/stores/roomStore';
 import { useLabelStore } from '@/stores/labelStore';
+import { useQueueStore } from '@/stores/queueStore';
 import { useDropdownFlipX } from '@/hooks/useDropdownFlipX';
 import { sortSessionsByActivity } from '@/lib/sessionSort';
 import LabelPicker, { LabelChip } from './LabelPicker';
@@ -231,6 +232,19 @@ function KillRoomIcon() {
       <path d="M8 8.1l-.7 1.3h1.4L8 8.1Z" fill="currentColor" />
       {/* teeth */}
       <path d="M6.2 12v1.4M8 12v1.4M9.8 12v1.4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Stacked-list glyph — "this session has queued prompts". Paired with the queue
+ *  count in `.sessionTabQueueBadge`; inherits the cyan queue colour via
+ *  `currentColor`. */
+function QueueBadgeIcon() {
+  return (
+    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true">
+      <line x1="4" y1="6" x2="20" y2="6" />
+      <line x1="4" y1="12" x2="20" y2="12" />
+      <line x1="4" y1="18" x2="20" y2="18" />
     </svg>
   );
 }
@@ -1055,48 +1069,56 @@ export default function SessionSwitcher({
                   title={item.room.name}
                 >
                   <span className={styles.sessionTabRoomGroupLabel}>{item.room.name}</span>
-                  <button
-                    type="button"
-                    className={styles.roomCollapseToggle}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleRoomCollapse(item.room.id);
-                    }}
-                    title={collapsed ? `Expand ${item.room.name}` : `Collapse ${item.room.name}`}
-                    aria-label={collapsed ? `Expand room ${item.room.name}` : `Collapse room ${item.room.name}`}
-                    aria-expanded={!collapsed}
-                  >
-                    <svg
-                      width="11"
-                      height="11"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      style={{ transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s ease' }}
-                    >
-                      <polyline points="6 9 12 15 18 9" />
-                    </svg>
-                  </button>
-                  {roomLiveCount > 0 && (
+                  {/* Header controls live in one flex row so the collapse chevron
+                      and the kill-all skull stay on the SAME line — in the vertical
+                      rail the group itself is a column, which would otherwise stack
+                      each icon onto its own row. The session cards render as
+                      siblings below and keep their column stacking. */}
+                  <div className={styles.roomHeaderRow}>
                     <button
                       type="button"
-                      className={styles.roomKillToggle}
+                      className={styles.roomCollapseToggle}
                       onClick={(e) => {
                         e.stopPropagation();
-                        openRoomKill(item.room.id);
+                        toggleRoomCollapse(item.room.id);
                       }}
-                      title={`Kill all ${roomLiveCount} session${roomLiveCount === 1 ? '' : 's'} in ${item.room.name}`}
-                      aria-label={`Kill all ${roomLiveCount} session${roomLiveCount === 1 ? '' : 's'} in room ${item.room.name}`}
+                      title={collapsed ? `Expand ${item.room.name}` : `Collapse ${item.room.name}`}
+                      aria-label={collapsed ? `Expand room ${item.room.name}` : `Collapse room ${item.room.name}`}
+                      aria-expanded={!collapsed}
                     >
-                      <KillRoomIcon />
+                      <svg
+                        width="11"
+                        height="11"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        style={{ transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s ease' }}
+                      >
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
                     </button>
-                  )}
-                  {collapsed ? (
-                    <span className={styles.roomCollapsedCount}>{item.sessions.length}</span>
-                  ) : (
+                    {roomLiveCount > 0 && (
+                      <button
+                        type="button"
+                        className={styles.roomKillToggle}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openRoomKill(item.room.id);
+                        }}
+                        title={`Kill all ${roomLiveCount} session${roomLiveCount === 1 ? '' : 's'} in ${item.room.name}`}
+                        aria-label={`Kill all ${roomLiveCount} session${roomLiveCount === 1 ? '' : 's'} in room ${item.room.name}`}
+                      >
+                        <KillRoomIcon />
+                      </button>
+                    )}
+                    {collapsed && (
+                      <span className={styles.roomCollapsedCount}>{item.sessions.length}</span>
+                    )}
+                  </div>
+                  {!collapsed &&
                     item.sessions.map((s) => (
                       <SessionTabCard
                         key={s.sessionId}
@@ -1106,8 +1128,7 @@ export default function SessionSwitcher({
                         index={sessionIndexMap.get(s.sessionId) ?? 0}
                         needsAttention={attentionIds.has(s.sessionId)}
                       />
-                    ))
-                  )}
+                    ))}
                 </div>
               );
             }
@@ -1148,6 +1169,9 @@ function SessionTabCard({
   const badge = getCliBadge(session);
   const label = useLabelStore((s) => s.labels[session.sessionId]);
   const labelColor = useLabelStore((s) => s.labelColor);
+  // Client queueStore is the source of truth for pending prompts — `session.queueCount`
+  // is never synced from the client (the update_queue_count WS message is unused).
+  const queueLen = useQueueStore((s) => s.queues.get(session.sessionId)?.length ?? 0);
 
   const handlePinClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1271,6 +1295,16 @@ function SessionTabCard({
           onDoubleClick={beginEdit}
           title="Double-click to rename"
         >
+          {queueLen > 0 && (
+            <span
+              className={styles.sessionTabQueueBadge}
+              title={`${queueLen} prompt${queueLen === 1 ? '' : 's'} queued`}
+              aria-label={`${queueLen} queued prompt${queueLen === 1 ? '' : 's'}`}
+            >
+              <QueueBadgeIcon />
+              {queueLen}
+            </span>
+          )}
           {title}
         </div>
       )}
