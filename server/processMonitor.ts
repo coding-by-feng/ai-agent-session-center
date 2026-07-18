@@ -4,8 +4,11 @@
  * Auto-ends sessions whose processes have died (e.g., terminal closed abruptly).
  * Also provides findClaudeProcess() with cached PID, pgrep, and lsof fallbacks.
  */
-import { execSync, execFileSync } from 'child_process';
+import { execSync, execFileSync, execFile } from 'child_process';
+import { promisify } from 'util';
 import { getTerminalForSession } from './sshManager.js';
+
+const execFileAsync = promisify(execFile);
 import { SESSION_STATUS, ANIMATION_STATE, WS_TYPES } from './constants.js';
 import { PROCESS_CHECK_INTERVAL } from './config.js';
 import log from './logger.js';
@@ -102,6 +105,166 @@ export function stopMonitoring(): void {
   if (livenessInterval) {
     clearInterval(livenessInterval);
     livenessInterval = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// External session discovery (Mechanism B)
+//
+// The liveness monitor above only tracks sessions it already knows about, and
+// sessionMatcher only creates cards from hook events. A Claude CLI started before
+// hooks were installed fires NO hooks and would never appear. This pass scans the
+// OS for interactive `claude` processes with a real tty that aren't already
+// tracked, and hands each to a register callback (sessionStore.registerDiscoveredSession),
+// which creates a thin external card. If a hook later fires for that PID, the
+// cached-PID re-key (sessionMatcher Priority 1.5) upgrades the card in place.
+// ---------------------------------------------------------------------------
+
+/** How often to scan for untracked external claude sessions. */
+const EXTERNAL_DISCOVERY_INTERVAL_MS = 20_000;
+
+let discoveryInterval: ReturnType<typeof setInterval> | null = null;
+
+/** Metadata scraped from a bare OS process — everything a hook would otherwise carry. */
+export interface DiscoveredProcess {
+  pid: number;
+  tty: string;
+  cwd: string;
+  /** Parsed `-n <label>` session name, if present. */
+  name: string | null;
+  /** Parsed `--model <id>`, if present. */
+  model: string | null;
+}
+
+/** True only for an interactive `claude` CLI — not daemon/pty-host/mcp/print infra. */
+export function isInteractiveClaude(args: string): boolean {
+  const first = args.split(/\s+/)[0] || '';
+  const base = first.split('/').pop() || first;
+  if (base !== 'claude') return false;
+  // Exclude the background daemon, spare PTY hosts, MCP servers, and any
+  // non-interactive/headless invocation (stream-json workers, --print).
+  if (/(^|\s)(daemon|bg-pty-host|bg-spare)(\s|$)/.test(args)) return false;
+  if (/(--print|stream-json|--output-format|mcp-server|mcp\s)/.test(args)) return false;
+  return true;
+}
+
+/** Extract the `-n <name>` label (names may contain spaces; runs until the next flag). */
+export function parseNameFlag(args: string): string | null {
+  const idx = args.indexOf(' -n ');
+  if (idx < 0) return null;
+  const rest = args.slice(idx + 4);
+  const cut = rest.search(/\s--/);
+  const name = (cut >= 0 ? rest.slice(0, cut) : rest).trim();
+  return name || null;
+}
+
+/** Extract `--model <id>`. */
+export function parseModelFlag(args: string): string | null {
+  const m = args.match(/--model\s+(\S+)/);
+  return m ? m[1] : null;
+}
+
+/** Resolve a PID's working directory (darwin: lsof, linux: /proc). Best-effort, async. */
+async function resolveCwd(pid: number): Promise<string> {
+  try {
+    if (process.platform === 'darwin') {
+      const { stdout } = await execFileAsync('lsof', ['-a', '-d', 'cwd', '-Fn', '-p', String(pid)], {
+        timeout: 3000,
+      });
+      const nLine = stdout.split('\n').find((l) => l.startsWith('n'));
+      return nLine ? nLine.slice(1).trim() : '';
+    }
+    const { stdout } = await execFileAsync('readlink', [`/proc/${pid}/cwd`], { timeout: 3000 });
+    return stdout.trim();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * One discovery pass: find untracked interactive claude sessions and register them.
+ * Fully async (execFile, not execFileSync) so the periodic scan never blocks the
+ * event loop — hook processing, WS relays, and HTTP stay responsive during the pass.
+ */
+async function discoverExternalSessions(
+  sessions: Map<string, Session>,
+  pidToSession: Map<number, string>,
+  registerDiscovered: (proc: DiscoveredProcess) => void,
+): Promise<void> {
+  let pidsOut = '';
+  try {
+    const { stdout } = await execFileAsync('pgrep', ['-f', 'claude'], { timeout: 5000 });
+    pidsOut = stdout;
+  } catch {
+    return; // pgrep exits non-zero when no matches
+  }
+  const myPid = process.pid;
+  const pids = pidsOut
+    .trim()
+    .split('\n')
+    .map((p) => validatePid(p.trim()))
+    .filter((p): p is number => p !== null && p !== myPid);
+  if (pids.length === 0) return;
+
+  // Everything already bound to a session (by hook or a prior discovery pass).
+  const tracked = new Set<number>(pidToSession.keys());
+  for (const s of sessions.values()) if (s.cachedPid) tracked.add(s.cachedPid);
+
+  for (const pid of pids) {
+    if (tracked.has(pid)) continue;
+    let args = '';
+    let tty = '';
+    try {
+      const [aRes, tRes] = await Promise.all([
+        execFileAsync('ps', ['-o', 'args=', '-p', String(pid)], { timeout: 3000 }),
+        execFileAsync('ps', ['-o', 'tty=', '-p', String(pid)], { timeout: 3000 }),
+      ]);
+      args = aRes.stdout.trim();
+      tty = tRes.stdout.trim();
+    } catch {
+      continue; // process vanished between pgrep and ps
+    }
+    if (!isInteractiveClaude(args)) continue;
+    if (!tty || tty === '??' || tty === '?') continue; // interactive sessions have a real tty
+    registerDiscovered({
+      pid,
+      tty,
+      cwd: await resolveCwd(pid),
+      name: parseNameFlag(args),
+      model: parseModelFlag(args),
+    });
+  }
+}
+
+let discoveryRunning = false;
+
+/**
+ * Start the external-session discovery scan. No-op on Windows (ps/lsof based).
+ * A re-entrancy guard prevents overlapping passes if one runs long.
+ */
+export function startExternalDiscovery(
+  sessions: Map<string, Session>,
+  pidToSession: Map<number, string>,
+  registerDiscovered: (proc: DiscoveredProcess) => void,
+): void {
+  if (discoveryInterval) return;
+  if (process.platform === 'win32') return;
+  discoveryInterval = setInterval(() => {
+    if (discoveryRunning) return;
+    discoveryRunning = true;
+    void discoverExternalSessions(sessions, pidToSession, registerDiscovered)
+      .catch((e: unknown) => log.debug('session', `external discovery pass failed: ${(e as Error).message}`))
+      .finally(() => {
+        discoveryRunning = false;
+      });
+  }, EXTERNAL_DISCOVERY_INTERVAL_MS);
+}
+
+/** Stop the external-session discovery scan. */
+export function stopExternalDiscovery(): void {
+  if (discoveryInterval) {
+    clearInterval(discoveryInterval);
+    discoveryInterval = null;
   }
 }
 

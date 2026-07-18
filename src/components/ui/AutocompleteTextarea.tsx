@@ -205,16 +205,14 @@ export default function AutocompleteTextarea({
           );
         })();
       } else {
-        if (!trigger.query) {
-          setAcMenu(null);
-          return;
-        }
         if (!projectPath) {
           // Without a project path we have no directory to search. Silently
           // skip rather than spamming a loading state.
           setAcMenu(null);
           return;
         }
+        // An empty query (bare `@`) is intentional — the server returns the
+        // shallowest files/folders so the picker is useful before any keystroke.
         if (debounceRef.current) clearTimeout(debounceRef.current);
         setAcMenu((prev) =>
           prev?.type === 'file'
@@ -227,7 +225,7 @@ export default function AutocompleteTextarea({
                 triggerStart: trigger.triggerStart,
               },
         );
-        debounceRef.current = setTimeout(async () => {
+        const fetchFiles = async (attempt: number): Promise<void> => {
           try {
             const res = await fetch(
               `/api/files/search?root=${encodeURIComponent(projectPath)}&q=${encodeURIComponent(trigger.query)}`,
@@ -235,20 +233,33 @@ export default function AutocompleteTextarea({
             if (!res.ok) return;
             const data = (await res.json()) as {
               results?: Array<{ path: string; name: string; type: string }>;
+              indexing?: boolean;
             };
-            const acItems: AcItem[] = (data.results ?? []).slice(0, 8).map((r) => ({
+            const results = data.results ?? [];
+            // Cold index: the server returns empty results + indexing:true while it
+            // builds. Retry a few times with a short backoff so a bare `@` (or any
+            // query) on a fresh workDir isn't stuck showing an empty dropdown.
+            if (results.length === 0 && data.indexing && attempt < 5) {
+              debounceRef.current = setTimeout(() => void fetchFiles(attempt + 1), 300);
+              return;
+            }
+            const acItems: AcItem[] = results.slice(0, 8).map((r) => ({
               label: r.name,
               insert: '@' + r.path.replace(/^\//, ''),
               sub: r.path.replace(/^\//, ''),
               kind: 'file',
             }));
+            // Guard against a stale response landing after the user moved the trigger.
             setAcMenu((prev) =>
-              prev?.type === 'file' ? { ...prev, items: acItems, selectedIdx: 0 } : prev,
+              prev?.type === 'file' && prev.triggerStart === trigger.triggerStart
+                ? { ...prev, items: acItems, selectedIdx: 0 }
+                : prev,
             );
           } catch {
             /* ignore */
           }
-        }, 150);
+        };
+        debounceRef.current = setTimeout(() => void fetchFiles(0), 150);
       }
     },
     [onChange, sessionId, projectPath],

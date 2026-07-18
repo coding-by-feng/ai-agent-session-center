@@ -210,6 +210,41 @@ export function searchFiles(
   return { results: scored.slice(0, maxResults), indexing: false };
 }
 
+/**
+ * List the shallowest entries (directories first) for an EMPTY query — powers the
+ * initial `@`-mention dropdown before the user types anything. Mirrors the
+ * `{ results, indexing }` shape of searchFiles so the route stays uniform.
+ */
+export function listTopEntries(
+  root: string,
+  maxResults = 20,
+): { results: SearchResult[]; indexing: boolean } {
+  ensureIndex(root);
+  const cached = cache.get(root);
+  if (!cached) return { results: [], indexing: true };
+
+  // Precompute depth once by counting slashes (cheaper than split() per comparison,
+  // which would allocate an array on every one of O(n log n) comparisons).
+  const slashCount = (s: string): number => {
+    let n = 0;
+    for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === 47 /* '/' */) n++;
+    return n;
+  };
+  const withDepth = cached.entries.map((e) => ({ e, depth: slashCount(e.path) }));
+  withDepth.sort(
+    (a, b) =>
+      a.depth - b.depth || // shallower first
+      (a.e.type !== b.e.type ? (a.e.type === 'dir' ? -1 : 1) : a.e.name.localeCompare(b.e.name)),
+  );
+  const results = withDepth.slice(0, maxResults).map(({ e }) => ({
+    path: '/' + e.path,
+    name: e.name,
+    type: e.type,
+    score: 0,
+  }));
+  return { results, indexing: false };
+}
+
 /** Invalidate cache for a project root (watcher stays active). */
 export function invalidateCache(root: string): void {
   cache.delete(root);

@@ -53,7 +53,17 @@ export function reKeyResumedSession(
   // Archive the old session data into previousSessions before resetting.
   // Check dedup: resumeSession() already archives before calling this function,
   // so only archive if the last entry doesn't match the old session ID.
-  const hasData = oldSession.promptHistory.length > 0 || oldSession.toolLog?.length > 0 || oldSession.events?.length > 0;
+  // A process-scan discovered card carries only a synthetic SessionDiscovered
+  // event (no prompts/tools) — upgrading it must NOT archive a phantom previous
+  // session, so treat an empty external card as having no real data.
+  const isEmptyDiscovered =
+    !!oldSession.isExternal &&
+    oldSession.promptHistory.length === 0 &&
+    !(oldSession.toolLog?.length) &&
+    !(oldSession.responseLog?.length);
+  const hasData =
+    !isEmptyDiscovered &&
+    (oldSession.promptHistory.length > 0 || oldSession.toolLog?.length > 0 || oldSession.events?.length > 0);
   if (hasData) {
     const lastPrev = oldSession.previousSessions?.[oldSession.previousSessions.length - 1];
     if (!lastPrev || lastPrev.sessionId !== oldSessionId) {
@@ -94,6 +104,7 @@ export function reKeyResumedSession(
     existing.emote = null;
     existing.endedAt = null;
     existing.isHistorical = false;
+    existing.isExternal = false; // adopted onto a dashboard terminal — no longer external
     existing.currentPrompt = '';
     existing.events = [...(existing.events || []), { type: 'SessionResumed', timestamp: Date.now(), detail: `Resumed from ${oldSessionId?.slice(0, 8)} (existing session merged)` }];
     log.info('session', `Re-key merged into existing session ${newSessionId?.slice(0, 8)} — promptHistory preserved (${existing.promptHistory.length} entries)`);
@@ -108,6 +119,7 @@ export function reKeyResumedSession(
   oldSession.startedAt = Date.now();
   oldSession.endedAt = null;
   oldSession.isHistorical = false;
+  oldSession.isExternal = false; // adopted onto a dashboard terminal — no longer external
   oldSession.currentPrompt = '';
   oldSession.totalToolCalls = 0;
   oldSession.toolUsage = {};
@@ -194,12 +206,15 @@ function findSshConfig(
 
 /**
  * Match an incoming hook event to an existing session, or create a new one.
- * Implements a 5-priority fallback system:
+ * Implements a priority fallback system:
  *   Priority 0: pendingResume + terminal ID / workDir matching
  *   Priority 1: agent_terminal_id matching
  *   Priority 2: tryLinkByWorkDir matching
  *   Priority 3: scan pre-created sessions by path
  *   Priority 4: PID parent check
+ *   Priority 5: external fallback — a real session the dashboard didn't launch.
+ *              Previously dropped ("SSH-only mode"); now surfaced as an external
+ *              card so every live session is traced.
  */
 export function matchSession(
   hookData: HookPayloadBase,
@@ -396,15 +411,21 @@ export function matchSession(
   // link back to the same session instead of creating a duplicate card.
   // Note: terminalId may be null after server restart (PTY died but Claude process
   // survived). The PID match is a strong signal — re-key regardless of terminal state.
-  if (!session && hookData.claude_pid && hook_event_name === EVENT_TYPES.SESSION_START) {
+  if (!session && hookData.claude_pid) {
     const pid = Number(hookData.claude_pid);
     const existingSessionId = pidToSession.get(pid);
     if (existingSessionId && existingSessionId !== session_id) {
       const existingSession = sessions.get(existingSessionId);
-      if (existingSession) {
+      // Normal same-process re-key only fires on SessionStart (a `--resume` that
+      // reuses the PID). But a process-scan discovered card (`external-<pid>`) must
+      // be upgraded on its FIRST real hook whatever the event type — otherwise a
+      // non-SessionStart first hook (e.g. UserPromptSubmit) would skip this and let
+      // Priority 5 below create a duplicate card for the same process.
+      const isDiscovered = existingSessionId.startsWith('external-');
+      if (existingSession && (hook_event_name === EVENT_TYPES.SESSION_START || isDiscovered)) {
         session = reKeyResumedSession(sessions, existingSession, session_id, existingSessionId, pidToSession);
         consumePendingLink(existingSession.projectPath || '');
-        log.info('session', `Re-keyed session ${existingSessionId?.slice(0, 8)} -> ${session_id?.slice(0, 8)} (via cached PID=${pid}, same process new session_id)`);
+        log.info('session', `Re-keyed session ${existingSessionId?.slice(0, 8)} -> ${session_id?.slice(0, 8)} (via cached PID=${pid}${isDiscovered ? ', discovered-card upgrade' : ', same process new session_id'})`);
       }
     }
   }
@@ -510,8 +531,38 @@ export function matchSession(
         }
       }
       if (!found) {
-        // No SSH terminal match — silently drop (SSH-only mode)
-        return null;
+        // Priority 5: external fallback. The hook belongs to a real Claude session
+        // that the dashboard did not launch (external terminal, or started before
+        // hooks were installed). These used to be silently dropped ("SSH-only
+        // mode"), leaving live sessions untraced. Surface them as a distinct
+        // external card instead — full data (real sessionId + transcript) since it
+        // came from a hook. Skip subagents (teamManager owns those under their
+        // parent) and SessionEnd (no value creating an already-dead card).
+        const isSubagentEvent = !!(hookData.parent_session_id || hookData.agent_name);
+        if (isSubagentEvent || hook_event_name === EVENT_TYPES.SESSION_END) {
+          return null;
+        }
+        // Only surface INTERACTIVE external sessions. A headless `claude -p`, a CI
+        // run, or an MCP-spawned claude fires hooks with no controlling tty; those
+        // must not spawn phantom cards. Interactive sessions carry a tty_path (and
+        // are also independently caught by the process-scan, which requires a real
+        // tty), so gating on it here has no downside.
+        if (!hookData.tty_path) {
+          return null;
+        }
+        session = createDefaultSession(session_id, cwd, hookData, detectHookSource(hookData), null);
+        session.isExternal = true;
+        const startPayload = hookData as HookPayloadBase & {
+          transcript_path?: string;
+          permission_mode?: string;
+        };
+        if (startPayload.transcript_path) session.transcriptPath = startPayload.transcript_path;
+        if (startPayload.permission_mode) session.permissionMode = startPayload.permission_mode;
+        sessions.set(session_id, session);
+        log.info(
+          'session',
+          `EXTERNAL SESSION ${session_id?.slice(0, 8)} — source=${session.source} cwd=${cwd || 'none'} (hook-only, no dashboard terminal)`,
+        );
       }
     }
   }

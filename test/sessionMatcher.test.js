@@ -165,6 +165,100 @@ describe('sessionMatcher', () => {
     });
   });
 
+  describe('matchSession — external fallback (Priority 5)', () => {
+    it('creates an external session for an unmatched interactive SessionStart', () => {
+      const sessions = new Map();
+      const pidToSession = new Map();
+      const result = matchSession(
+        { session_id: 'ext-uuid', hook_event_name: EVENT_TYPES.SESSION_START,
+          cwd: '/Users/me/proj', term_program: 'iTerm.app', tty_path: '/dev/ttys001', claude_pid: '4242',
+          transcript_path: '/t/x.jsonl', permission_mode: 'default' },
+        sessions, new Map(), pidToSession, new Map(),
+      );
+      expect(result).toBeTruthy();
+      expect(result.isExternal).toBe(true);
+      expect(result.sessionId).toBe('ext-uuid');
+      expect(result.source).toBe('iterm');
+      expect(result.terminalId).toBeNull();
+      expect(result.transcriptPath).toBe('/t/x.jsonl');
+      expect(result.permissionMode).toBe('default');
+      expect(result.cachedPid).toBe(4242);
+      expect(sessions.get('ext-uuid')).toBe(result);
+      expect(pidToSession.get(4242)).toBe('ext-uuid');
+    });
+
+    it('creates an external session when the first observed event is not SessionStart', () => {
+      const sessions = new Map();
+      const result = matchSession(
+        { session_id: 'late-uuid', hook_event_name: EVENT_TYPES.USER_PROMPT_SUBMIT,
+          cwd: '/proj', tty_path: '/dev/ttys002' },
+        sessions, new Map(), new Map(), new Map(),
+      );
+      expect(result).toBeTruthy();
+      expect(result.isExternal).toBe(true);
+      expect(sessions.get('late-uuid')).toBe(result);
+    });
+
+    it('drops a headless (no tty) unmatched session instead of creating a card', () => {
+      const sessions = new Map();
+      const result = matchSession(
+        { session_id: 'headless-uuid', hook_event_name: EVENT_TYPES.SESSION_START, cwd: '/proj' },
+        sessions, new Map(), new Map(), new Map(),
+      );
+      expect(result).toBeNull();
+      expect(sessions.size).toBe(0);
+    });
+
+    it('upgrades a discovered external-<pid> card on its first non-SessionStart hook (no duplicate)', () => {
+      const sessions = new Map();
+      const pidToSession = new Map();
+      // Simulate a process-scan discovered card keyed external-<pid>.
+      const discovered = {
+        sessionId: 'external-1234', projectPath: '/proj', projectName: 'proj',
+        status: SESSION_STATUS.IDLE, animationState: ANIMATION_STATE.IDLE, emote: null,
+        isExternal: true, cachedPid: 1234, terminalId: null,
+        startedAt: 1, endedAt: null, totalToolCalls: 0, toolUsage: {},
+        promptHistory: [], toolLog: [], responseLog: [],
+        events: [{ type: 'SessionDiscovered', timestamp: 1, detail: 'external' }],
+      };
+      sessions.set('external-1234', discovered);
+      pidToSession.set(1234, 'external-1234');
+
+      const result = matchSession(
+        { session_id: 'real-uuid', hook_event_name: EVENT_TYPES.USER_PROMPT_SUBMIT,
+          cwd: '/proj', tty_path: '/dev/ttys003', claude_pid: '1234' },
+        sessions, new Map(), pidToSession, new Map(),
+      );
+      // Re-keyed in place — one card, not two.
+      expect(sessions.has('external-1234')).toBe(false);
+      expect(sessions.get('real-uuid')).toBe(result);
+      expect(pidToSession.get(1234)).toBe('real-uuid');
+      // No phantom previousSession archived from the empty discovered card.
+      expect(result.previousSessions ?? []).toHaveLength(0);
+    });
+
+    it('drops an unmatched subagent event (has agent_name) instead of creating a card', () => {
+      const sessions = new Map();
+      const result = matchSession(
+        { session_id: 'sub-uuid', hook_event_name: EVENT_TYPES.USER_PROMPT_SUBMIT,
+          cwd: '/proj', agent_name: 'researcher' },
+        sessions, new Map(), new Map(), new Map(),
+      );
+      expect(result).toBeNull();
+      expect(sessions.size).toBe(0);
+    });
+
+    it('does not create a card for an unmatched SessionEnd', () => {
+      const sessions = new Map();
+      const result = matchSession(
+        { session_id: 'gone-uuid', hook_event_name: EVENT_TYPES.SESSION_END, cwd: '/proj' },
+        sessions, new Map(), new Map(), new Map(),
+      );
+      expect(result).toBeNull();
+      expect(sessions.size).toBe(0);
+    });
+  });
+
   describe('reKeyResumedSession', () => {
     it('transfers session from old ID to new ID', () => {
       const sessions = new Map();
