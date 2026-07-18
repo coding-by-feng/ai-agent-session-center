@@ -26,7 +26,7 @@ import { fileURLToPath } from 'url';
 import { ALL_CLAUDE_HOOK_EVENTS, CODEX_DENSITY_EVENTS, CODEX_HOOK_EVENTS, DENSITY_EVENTS, SESSION_STATUS, WS_TYPES } from './constants.js';
 import { reconstructPermissionFlags, appendSessionName, stripClaudeSessionName, extractSessionName, applyClaudeLaunchFlags, sanitizeModelInCommand } from './config.js';
 import log from './logger.js';
-import { searchFiles, invalidateCache, preloadIndex } from './fileIndexCache.js';
+import { searchFiles, invalidateCache, listTopEntries } from './fileIndexCache.js';
 import { getCommandIndex } from './commandIndex.js';
 import { synthesize as ttsSynthesize, checkApiKey as ttsCheckApiKey } from './ttsManager.js';
 import { readClaudeTranscript } from './extractPreviousAnswer.js';
@@ -2181,9 +2181,17 @@ router.get('/files/search', (req: Request, res: Response) => {
   if (!root) { res.status(400).json({ error: 'root query param required' }); return; }
   if (!isAllowedProjectRoot(root)) { res.status(400).json({ error: 'Invalid project root' }); return; }
   if (!query.trim()) {
-    // Trigger background preload even for empty queries (used by frontend on mount)
-    preloadIndex(root);
-    res.json({ results: [] });
+    // Empty query powers the initial `@`-mention dropdown: list the shallowest
+    // entries (directories first) so the picker is useful before any keystroke.
+    // preloadIndex is implicit in listTopEntries (ensureIndex); when the cache is
+    // still cold this returns { results: [], indexing: true } and the client retries.
+    try {
+      const { results, indexing } = listTopEntries(root);
+      res.json({ results, indexing });
+    } catch (err) {
+      log.error('file-search', err instanceof Error ? err.message : String(err));
+      res.json({ results: [] });
+    }
     return;
   }
 

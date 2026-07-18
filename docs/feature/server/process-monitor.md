@@ -1,17 +1,19 @@
 # Process Monitor & Auto-Idle
 
 ## Function
-Periodically checks if AI CLI processes are still alive and transitions dead sessions to ended state.
+Periodically checks if AI CLI processes are still alive and transitions dead sessions to ended state. Also periodically scans the OS for interactive `claude` sessions started outside the dashboard (which fire no hooks) and surfaces them as thin cards (**Mechanism B**).
 
 ## Purpose
-Detects when Claude/Gemini/Codex crashes or exits without sending a SessionEnd hook. Also manages auto-idle transitions for stale sessions.
+Detects when Claude/Gemini/Codex crashes or exits without sending a SessionEnd hook. Surfaces `claude` sessions that were already running before the dashboard hooks were installed — these fire no hooks, so neither the liveness loop nor `sessionMatcher` would ever create a card for them. Also manages auto-idle transitions for stale sessions.
 
 ## Source Files
 | File | Role |
 |------|------|
-| `server/processMonitor.ts` | PID liveness checking, dead-process cleanup, `findClaudeProcess()` resolution chain |
+| `server/processMonitor.ts` | PID liveness checking, dead-process cleanup, `findClaudeProcess()` resolution chain, external-session discovery scan (Mechanism B) |
 | `server/autoIdleManager.ts` | Idle transition timers + stale `pendingResume` cleanup |
 | `server/config.ts` | Provides `PROCESS_CHECK_INTERVAL` and `AUTO_IDLE_TIMEOUTS` constants |
+| `server/sessionStore.ts` | Implements the `registerDiscovered` callback (`registerDiscoveredSession`) and wires `startExternalDiscovery(...)` |
+| `test/externalDiscovery.test.ts` | Unit tests for the exported discovery helpers (`isInteractiveClaude`, `parseNameFlag`, `parseModelFlag`) |
 
 ## Implementation
 
@@ -46,6 +48,32 @@ When `kill(pid, 0)` throws, the session is auto-ended:
 
 > Risk note: because the cwd match keys on `projectPath`, two sessions sharing a directory (e.g. a forked session) can resolve to the same PID — the `claimedPids` exclusion mitigates but does not fully eliminate this.
 
+### External Session Discovery — Mechanism B (`processMonitor.ts`)
+`startExternalDiscovery(sessions, pidToSession, registerDiscovered)` installs a **second** `setInterval` firing every `EXTERNAL_DISCOVERY_INTERVAL_MS` (`20_000`ms / 20s); `stopExternalDiscovery()` clears it. It is a **no-op on win32** (the scan is `ps`/`lsof`-based) and a singleton (`if (discoveryInterval) return`). A module-level `discoveryRunning` boolean is a **re-entrancy guard** — if a pass is still in flight when the timer fires again, the new tick returns immediately so overlapping scans can't pile up; the flag is reset in `.finally()`.
+
+**Why it exists:** the liveness loop only tracks sessions it already knows about, and `sessionMatcher` only creates cards from hook events. A `claude` CLI started *before* the dashboard hooks were installed fires no hooks and would otherwise never appear. This scan surfaces those orphan sessions.
+
+**Fully async / non-blocking:** the pass `discoverExternalSessions(...)` uses promisified `execFile` (`execFileAsync = promisify(execFile)`), never `execFileSync`, so the periodic scan never blocks the Node event loop — hook processing, WS relays, and HTTP stay responsive while `pgrep`/`ps`/`lsof` run.
+
+**Pass steps (`discoverExternalSessions`, in order):**
+1. `pgrep -f claude` (5s timeout) → candidate PIDs; excludes the server's own `process.pid`, and returns early if `pgrep` exits non-zero (no matches).
+2. Build a `tracked` set = every key in `pidToSession` ∪ every `session.cachedPid`. Any candidate already in `tracked` is skipped (bound by a hook or a prior discovery pass).
+3. For each untracked PID, in parallel: `ps -o args=` (command line) and `ps -o tty=` (controlling tty), each with a 3s timeout. A PID that vanished between `pgrep` and `ps` is skipped.
+4. Keep the PID only if `isInteractiveClaude(args)` **and** it has a real tty (not `''`, `'??'`, or `'?'`) — interactive sessions have a controlling terminal; daemons/headless workers don't.
+5. Resolve cwd via `resolveCwd(pid)` (darwin: `lsof -a -d cwd -Fn -p <pid>`, linux: `readlink /proc/<pid>/cwd`, 3s timeout, `''` on failure).
+6. Call `registerDiscovered({ pid, tty, cwd, name, model })`.
+
+**Exported pure helpers** (unit-tested in `test/externalDiscovery.test.ts`):
+| Helper | Behavior |
+|--------|----------|
+| `isInteractiveClaude(args)` | `true` **only** when the first arg's basename is `claude` **and** `args` does NOT match `daemon`/`bg-pty-host`/`bg-spare` (background infra) or `--print`/`stream-json`/`--output-format`/`mcp-server`/`mcp ` (headless/MCP invocations). |
+| `parseNameFlag(args)` | Extracts the `-n <label>` session name; labels may contain spaces, so it runs from after ` -n ` until the next ` --` flag. Returns `null` if absent. |
+| `parseModelFlag(args)` | Extracts `--model <id>` (`--model\s+(\S+)`). Returns `null` if absent. |
+
+**Exported interface** `DiscoveredProcess { pid: number; tty: string; cwd: string; name: string | null; model: string | null }` — everything a hook would otherwise carry, scraped from a bare OS process.
+
+**Integration:** the `registerDiscovered` callback is [`sessionStore.registerDiscoveredSession`](./session-management.md) (wired via `startExternalDiscovery(...)` in `sessionStore.ts`). It creates a thin `external-<pid>` card (`status = idle`, no terminal, no transcript — just live status + name + cwd), guarded against duplicating a PID already tracked, a cwd-less process, or a `CONNECTING` dashboard launch mid-flight for the same cwd (avoids racing a dashboard-launched claude in its pre-hook window). The card carries a `cachedPid`, so the liveness loop above auto-ends it when the process dies. If a real hook later fires for that PID, [`sessionMatcher`](./session-matching.md) **Priority 1.5** (cached-PID match) re-keys the `external-<pid>` card in place onto the real `session_id` — for a discovered card the upgrade fires on the *first* hook of **any** event type (not just `SessionStart`), so a non-`SessionStart` first hook can't slip past into a duplicate card via Priority 5.
+
 ### Auto-Idle Timeouts (`autoIdleManager.ts`)
 `startAutoIdle(sessions)` installs a `setInterval` that fires every **10s** (hard-coded `10000`); `stopAutoIdle()` clears it. Per tick it compares `now - session.lastActivityAt` against `AUTO_IDLE_TIMEOUTS`:
 
@@ -65,12 +93,13 @@ When `kill(pid, 0)` throws, the session is auto-ended:
 ## Dependencies & Connections
 
 ### Depends On
-- [Session Management](./session-management.md) — reads sessions Map, writes status transitions
+- [Session Management](./session-management.md) — reads sessions Map, writes status transitions; discovery invokes the `registerDiscoveredSession` callback (implemented there) to create `external-<pid>` cards
+- [Session Matching](./session-matching.md) — discovered `external-<pid>` cards are upgraded in place by `sessionMatcher` **Priority 1.5** (cached-PID match) when a real hook later fires for the PID
 - [Approval Detection](./approval-detection.md) — clears timers on dead process
 - [Team & Subagent Tracking](./team-subagent.md) — triggers team cleanup on member death
 
 ### Depended On By
-- [Session Management](./session-management.md) — relies on process monitor for cleanup
+- [Session Management](./session-management.md) — relies on process monitor for cleanup; `startExternalDiscovery(...)` is wired here
 - [WebSocket Manager](./websocket-manager.md) — dead process broadcasts to browsers
 
 ### Shared Resources
@@ -83,3 +112,4 @@ When `kill(pid, 0)` throws, the session is auto-ended:
 - False positives: `kill(pid, 0)` can throw `EPERM` (permission), not just `ESRCH` (no such process) — both are currently treated as "dead", which can prematurely end a still-running session owned by another user.
 - The `findClaudeProcess()` chain is fragile — the cwd match keys on `projectPath`, so sessions sharing a directory can collide on the same PID despite the `claimedPids` guard.
 - The auto-idle interval (10s) and pendingResume cleanup interval (15s) are hard-coded; the working-state timeout exclusion list must stay in sync with the `SESSION_STATUS` enum or transient states could be idled too early.
+- **External discovery (Mechanism B):** the `discoveryRunning` re-entrancy guard is the only backpressure — if `EXTERNAL_DISCOVERY_INTERVAL_MS` (20s) is lowered below a pass's worst-case `pgrep`/`ps`/`lsof` latency, passes will simply skip rather than pile up, but discovery lag grows. The `tracked` set (`pidToSession` keys + `session.cachedPid`) is the dedup barrier; if a hook-bound session ever lacks a `cachedPid`, a duplicate `external-<pid>` card could be created until Priority 1.5 re-keys it. Weakening the `isInteractiveClaude` filters (basename check, tty requirement, daemon/headless exclusions) risks surfacing background infra (daemon, bg-pty-host, MCP/`--print` workers) as phantom sessions. Discovery is a no-op on win32, so external sessions are never surfaced there.

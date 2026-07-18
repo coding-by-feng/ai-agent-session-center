@@ -1305,6 +1305,15 @@ function SessionTabCard({
               {queueLen}
             </span>
           )}
+          {session.isExternal && (
+            <span
+              className={styles.sessionTabExternalBadge}
+              title="External session — running outside the dashboard (limited tracking)"
+              aria-label="External session"
+            >
+              ⌁
+            </span>
+          )}
           {title}
         </div>
       )}

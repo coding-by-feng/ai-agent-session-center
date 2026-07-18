@@ -1,7 +1,7 @@
 {
   "version": 1,
   "generated_at": "2026-07-17T04:55:41.343Z",
-  "last_updated": "2026-06-20T23:43:37Z",
+  "last_updated": "2026-07-18T07:18:22.000Z",
   "generator": "align-existing-feature-docs",
   "project_type": "desktop-app",
   "domains": [
@@ -660,7 +660,7 @@
         "src/types/agenda.ts": "5c8c5bbac47ab30049890246da7e0051d07eb1b8",
         "src/components/layout/NavBar.tsx": "4e18e04ddc50eb7184b4eec1d5321eb86ef5e82b",
         "src/App.tsx": "18ab17d7edef82c9b0e36192a61c63ca99ce0615",
-        "server/apiRouter.ts": "818b93f328a59a10088e10d86de54fc0d8f28d76",
+        "server/apiRouter.ts": "ee50e1274c03b11df9c3ed3248a87ba729a3cc0e",
         "server/db.ts": "8450c7df24b5dd19fa5d46fe453004e36027d307"
       },
       "symbols": {
@@ -888,8 +888,8 @@
         "src/lib/commandIndex.ts": "26a167cb9f949343ece7f1b4c1e9d6cd89789124",
         "server/commandIndex.ts": "6d210cbccab1571aa8e20557e0292e1d7972b985",
         "src/lib/commandSuggestions.ts": "e98aa8892d921bdac4f01a382580904af2a5d390",
-        "src/components/ui/AutocompleteTextarea.tsx": "d0caefb5077d9f82c99aebe3ef5a46fe162dc76e",
-        "server/apiRouter.ts": "818b93f328a59a10088e10d86de54fc0d8f28d76",
+        "src/components/ui/AutocompleteTextarea.tsx": "9ab7d60fcfda5d326db2fc3dc6edcfb604ee1800",
+        "server/apiRouter.ts": "ee50e1274c03b11df9c3ed3248a87ba729a3cc0e",
         "src/styles/modules/AutocompleteTextarea.module.css": "b4bd2241a92d19438836e97a84725d6d06e9272a"
       },
       "symbols": {
@@ -937,7 +937,9 @@
           "file results cap": "8",
           "description cap": "240",
           "firstNonEmptyLine cap": "200",
-          "z-index": "10100"
+          "z-index": "10100",
+          "cold-index retry": "5 attempts × 300ms",
+          "bare-@ listing": "empty query -> listTopEntries"
         },
         "endpoints": [
           "GET /api/commands?cli=<claude|codex|gemini>&projectPath=<absolute>",
@@ -974,7 +976,7 @@
         "frontend/queue-scheduler.md",
         "frontend/session-creation-modals.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
+      "last_updated": "2026-07-18T07:18:22.000Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -992,7 +994,7 @@
         "src/styles/modules/DetailPanel.module.css"
       ],
       "source_hashes": {
-        "server/apiRouter.ts": "818b93f328a59a10088e10d86de54fc0d8f28d76",
+        "server/apiRouter.ts": "ee50e1274c03b11df9c3ed3248a87ba729a3cc0e",
         "server/extractPreviousAnswer.ts": "b9ef6f06ea475a888e8a5d2f5ea88856cb58b342",
         "src/components/session/ConversationView.tsx": "d51457915d42f12a44aa9cfdce73eda3ad95932a",
         "src/components/session/DetailPanel.tsx": "ca354d0d9bd77d71fdbbfed227d116036042907f",
@@ -1000,7 +1002,7 @@
         "src/components/session/LinkifiedText.tsx": "291a1e8fbc44f4d163e1b0793b0791e23b549cdd",
         "src/lib/commandMessage.ts": "ad88971ae1f5e508115d60d576c6d3b5c16346df",
         "src/lib/transcript.ts": "ddf2fc7244bd534749169e3640da6d81385d0d2a",
-        "src/styles/modules/DetailPanel.module.css": "1c6fcde67586c8d4b2522d909513e47133b46792"
+        "src/styles/modules/DetailPanel.module.css": "01581afb00f354e38a3e9670ae7be7d4af134082"
       },
       "symbols": {
         "functions": [
@@ -1556,7 +1558,7 @@
       ],
       "source_hashes": {
         "src/stores/queueStore.ts": "a657668776b2e0bf0591b40859b3e3c829ae7e85",
-        "src/components/session/QueueTab.tsx": "73e59be109a8c572435476d2df704a62e75ff9e4",
+        "src/components/session/QueueTab.tsx": "77bf26174f3013a8f958357760ef9b078be9a4cd",
         "src/routes/QueueView.tsx": "1e41198cd313f11f7cb0c049574ddf88302cf2ba"
       },
       "symbols": {
@@ -1624,7 +1626,8 @@
           "DEL button",
           "auto-send-off warning banner + Enable",
           "automation status row (Pause/Resume, Idle-guard, Skip-prompting, ⏰ Quiet hours)",
-          "QueueView session Select dropdown + grouped table"
+          "QueueView session Select dropdown + grouped table",
+          "inline once-item edit (AutocompleteTextarea)"
         ],
         "cli_commands": [],
         "storage_keys": [
@@ -1647,7 +1650,7 @@
         "frontend/session-detail-panel.md",
         "frontend/views-routing.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
+      "last_updated": "2026-07-18T07:18:22.000Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -1832,7 +1835,7 @@
         "src/styles/modules/ReviewView.module.css"
       ],
       "source_hashes": {
-        "server/apiRouter.ts": "818b93f328a59a10088e10d86de54fc0d8f28d76",
+        "server/apiRouter.ts": "ee50e1274c03b11df9c3ed3248a87ba729a3cc0e",
         "src/App.tsx": "18ab17d7edef82c9b0e36192a61c63ca99ce0615",
         "src/components/layout/NavBar.tsx": "4e18e04ddc50eb7184b4eec1d5321eb86ef5e82b",
         "src/components/session/AiPopupHistory.tsx": "3c09699ab1123ed6f423a2407fe25fc1396061f8",
@@ -2039,22 +2042,24 @@
         "src/lib/cliDetect.ts",
         "src/components/session/LabelPicker.tsx",
         "src/components/session/PopoutProjectView.tsx",
-        "src/hooks/useDropdownFlipX.ts"
+        "src/hooks/useDropdownFlipX.ts",
+        "src/styles/modules/DetailPanel.module.css"
       ],
       "source_hashes": {
         "src/components/session/DetailPanel.tsx": "ca354d0d9bd77d71fdbbfed227d116036042907f",
         "src/components/session/DetailTabs.tsx": "c6b074852c960b0feb3a2eff3ce096335607953a",
         "src/components/session/SessionControlBar.tsx": "f2ff734875c0b74ec192009505698b557ade00ce",
-        "src/components/session/SessionSwitcher.tsx": "6bdbcb0cfad8f70eecf60776beca076a2095cfd1",
+        "src/components/session/SessionSwitcher.tsx": "c3a94c66acf7f3d6c9c3da56ccb86dfeba227dce",
         "src/components/session/NotesTab.tsx": "7fbd7e9a1ac92651e7ca93ff478f323660a6cc6b",
-        "src/components/session/QueueTab.tsx": "73e59be109a8c572435476d2df704a62e75ff9e4",
+        "src/components/session/QueueTab.tsx": "77bf26174f3013a8f958357760ef9b078be9a4cd",
         "src/components/session/KillConfirmModal.tsx": "d13efff749a94ab732f9e0eb8ea9cfe81e5712d7",
         "src/components/session/AlertModal.tsx": "11dec9c63292d340b9573a394d4740883f09173f",
         "src/components/session/ContentSearchModal.tsx": "6a878ab4e0a554469df3eb0299816f045dd04efa",
         "src/lib/cliDetect.ts": "13be01a92fcfe26c33724669d1dfa2dfbaca6ccd",
         "src/components/session/LabelPicker.tsx": "8a1e23daf9b0aceb4ce8b4130b8670c5a0be464c",
         "src/components/session/PopoutProjectView.tsx": "d1222bbe92adf9d8d9d923b33820bd222a4d779e",
-        "src/hooks/useDropdownFlipX.ts": "beafa312ce45a511256d3a7ae87ca8091b93f76e"
+        "src/hooks/useDropdownFlipX.ts": "beafa312ce45a511256d3a7ae87ca8091b93f76e",
+        "src/styles/modules/DetailPanel.module.css": "01581afb00f354e38a3e9670ae7be7d4af134082"
       },
       "symbols": {
         "functions": [
@@ -2138,7 +2143,8 @@
           "maximize/restore toggle",
           "pop-out (⧉) button",
           "drag-to-edge pop-out",
-          "Sort by recent activity toggle (SortByActivityIcon)"
+          "Sort by recent activity toggle (SortByActivityIcon)",
+          "external session badge (⌁)"
         ],
         "cli_commands": [],
         "storage_keys": [
@@ -2173,7 +2179,8 @@
         "frontend/state-management.md",
         "frontend/terminal-ui.md",
         "frontend/ui-primitives.md",
-        "server/api-endpoints.md"
+        "server/api-endpoints.md",
+        "server/session-management.md"
       ],
       "depended_on_by": [
         "frontend/conversation-view.md",
@@ -2183,7 +2190,7 @@
         "frontend/review-tab.md",
         "frontend/views-routing.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
+      "last_updated": "2026-07-18T07:18:22.000Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -2675,8 +2682,8 @@
         "src/components/settings/SummaryPromptSettings.tsx": "a9ccd0635800237d9d92bcdb33ab5907d94153fa",
         "src/lib/db.ts": "098c79c1ba9c038895a9d897447e4863a917d0d9",
         "src/types/api.ts": "edc8a6df8e1c8f53ca2bc005a9a98f16d7c4f115",
-        "server/apiRouter.ts": "818b93f328a59a10088e10d86de54fc0d8f28d76",
-        "server/sessionStore.ts": "349135d587cdc5418e03bbef0cffaf93336eed17",
+        "server/apiRouter.ts": "ee50e1274c03b11df9c3ed3248a87ba729a3cc0e",
+        "server/sessionStore.ts": "5111b5cad45c4ee39d105ed084c1e26a9b80b433",
         "server/db.ts": "8450c7df24b5dd19fa5d46fe453004e36027d307"
       },
       "symbols": {
@@ -3263,7 +3270,7 @@
         "src/components/modals/RestorePickerModal.tsx": "4b88ee384dfb17ba4faf7a8f1a1802ce653903ff",
         "src/styles/modules/RestorePickerModal.module.css": "1edb4fd4712f9ee2b6763b6e6eb92680047e45e6",
         "src/components/ui/SavingOverlay.tsx": "57ff2754ec5d8cac8718ecbe41658de8bd1897a5",
-        "server/apiRouter.ts": "818b93f328a59a10088e10d86de54fc0d8f28d76",
+        "server/apiRouter.ts": "ee50e1274c03b11df9c3ed3248a87ba729a3cc0e",
         "server/sshManager.ts": "c9705bb2f1502407896882c384b545bac31286ee",
         "test/apiRouter.workspaceFixes.test.ts": "3cecd17c355115006519dca2d410c2cd36e84081",
         "test/sshManager.pendingLinks.test.ts": "76e98f12443e5510ba6e108f6db4767afb994db4",
@@ -3470,7 +3477,7 @@
       ],
       "source_hashes": {
         "server/ttsManager.ts": "1920135c5e634f5f4b2d1e58226c2eaba1dd0429",
-        "server/apiRouter.ts": "818b93f328a59a10088e10d86de54fc0d8f28d76",
+        "server/apiRouter.ts": "ee50e1274c03b11df9c3ed3248a87ba729a3cc0e",
         "src/lib/ttsEngine.ts": "307202cb5bfe461739aff59653c244e27d2004af",
         "src/hooks/useTerminal.ts": "7ee4cfbfe2609998ccedfeddc9b85d8beded535e",
         "src/components/terminal/TerminalContainer.tsx": "6e807aa4d5498d29f7f1041e085ebd0bfe19eca8",
@@ -3560,7 +3567,7 @@
         "src/types/api.ts"
       ],
       "source_hashes": {
-        "server/apiRouter.ts": "818b93f328a59a10088e10d86de54fc0d8f28d76",
+        "server/apiRouter.ts": "ee50e1274c03b11df9c3ed3248a87ba729a3cc0e",
         "server/constants.ts": "50842011fd48a006726e109bc47c7813f59311e5",
         "server/index.ts": "3f17d0730aafff9337e85c06e7a9763f85cc8939",
         "server/hookRouter.ts": "bb009141f575133156a12d55c991c7192255242e",
@@ -3747,7 +3754,7 @@
         "multimedia/tts-voice-output.md",
         "server/floating-session-spawner.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
+      "last_updated": "2026-07-18T07:18:22.000Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -3761,7 +3768,7 @@
       "source_hashes": {
         "server/approvalDetector.ts": "4323c3528274020bb8eef63c6aa15ed960330c22",
         "server/config.ts": "6dda80ae64ade06d3d812c5b4a4224c7154764c5",
-        "server/sessionStore.ts": "349135d587cdc5418e03bbef0cffaf93336eed17"
+        "server/sessionStore.ts": "5111b5cad45c4ee39d105ed084c1e26a9b80b433"
       },
       "symbols": {
         "functions": [
@@ -3971,8 +3978,8 @@
         "server/apiRouter.ts"
       ],
       "source_hashes": {
-        "server/fileIndexCache.ts": "cb73609a13c087b5d86de7bdc4167f6ed554812c",
-        "server/apiRouter.ts": "818b93f328a59a10088e10d86de54fc0d8f28d76"
+        "server/fileIndexCache.ts": "76b6ab4f0f6fb82b80fa2d52396c4688d50d861d",
+        "server/apiRouter.ts": "ee50e1274c03b11df9c3ed3248a87ba729a3cc0e"
       },
       "symbols": {
         "functions": [
@@ -3982,7 +3989,8 @@
           "buildIndex",
           "ensureIndex",
           "startWatcher",
-          "fuzzyScore"
+          "fuzzyScore",
+          "listTopEntries"
         ],
         "constants": {
           "CACHE_TTL_MS": "30_000",
@@ -3990,7 +3998,8 @@
           "MAX_DEPTH": "10",
           "WATCHER_DEBOUNCE_MS": "300",
           "maxResults": "50",
-          "file-search rate limit": "20"
+          "file-search rate limit": "20",
+          "listTopEntries default max": "20"
         },
         "endpoints": [
           "GET /api/files/search",
@@ -4011,7 +4020,7 @@
         "frontend/command-autocomplete.md",
         "server/api-endpoints.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
+      "last_updated": "2026-07-18T07:18:22.000Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -4028,7 +4037,7 @@
         "server/floatingSessionSpawner.ts": "07cdc6ac344dc2534a28d021d979ae2744fd88ab",
         "server/floatingPrompt.ts": "829b02954159bd55b48d420dbc7c455a2e2fdfdc",
         "server/extractPreviousAnswer.ts": "b9ef6f06ea475a888e8a5d2f5ea88856cb58b342",
-        "server/apiRouter.ts": "818b93f328a59a10088e10d86de54fc0d8f28d76",
+        "server/apiRouter.ts": "ee50e1274c03b11df9c3ed3248a87ba729a3cc0e",
         "src/lib/cliDetect.ts": "13be01a92fcfe26c33724669d1dfa2dfbaca6ccd"
       },
       "symbols": {
@@ -4257,12 +4266,16 @@
       "sources": [
         "server/processMonitor.ts",
         "server/autoIdleManager.ts",
-        "server/config.ts"
+        "server/config.ts",
+        "server/sessionStore.ts",
+        "test/externalDiscovery.test.ts"
       ],
       "source_hashes": {
-        "server/processMonitor.ts": "16ab88cd80aad7f6cb52727597688b860321d0e1",
+        "server/processMonitor.ts": "6d511ea51c881fe569955e8052f31131e786b2f4",
         "server/autoIdleManager.ts": "83faccce7abcf6e5809ad2c38e0b36995417314e",
-        "server/config.ts": "6dda80ae64ade06d3d812c5b4a4224c7154764c5"
+        "server/config.ts": "6dda80ae64ade06d3d812c5b4a4224c7154764c5",
+        "server/sessionStore.ts": "5111b5cad45c4ee39d105ed084c1e26a9b80b433",
+        "test/externalDiscovery.test.ts": "0b77205cffea4ee9eae7fc0713feab4110f638a5"
       },
       "symbols": {
         "functions": [
@@ -4274,7 +4287,14 @@
           "startAutoIdle",
           "stopAutoIdle",
           "startPendingResumeCleanup",
-          "stopPendingResumeCleanup"
+          "stopPendingResumeCleanup",
+          "startExternalDiscovery",
+          "stopExternalDiscovery",
+          "discoverExternalSessions",
+          "isInteractiveClaude",
+          "parseNameFlag",
+          "parseModelFlag",
+          "resolveCwd"
         ],
         "constants": {
           "PROCESS_CHECK_INTERVAL": "15_000",
@@ -4284,7 +4304,9 @@
           "AUTO_IDLE_TIMEOUTS.approval": "600_000",
           "AUTO_IDLE_TIMEOUTS.input": "600_000",
           "ANIMATION_STATE.DEATH": "'Death'",
-          "WS_TYPES.SESSION_UPDATE": "'session_update'"
+          "WS_TYPES.SESSION_UPDATE": "'session_update'",
+          "external discovery interval": "20_000 ms",
+          "DiscoveredProcess": "interface {pid,tty,cwd,name,model}"
         },
         "endpoints": [],
         "ui_elements": [],
@@ -4304,13 +4326,15 @@
       "depends_on": [
         "server/approval-detection.md",
         "server/session-management.md",
+        "server/session-matching.md",
         "server/team-subagent.md"
       ],
       "depended_on_by": [
         "server/approval-detection.md",
-        "server/session-management.md"
+        "server/session-management.md",
+        "server/session-matching.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
+      "last_updated": "2026-07-18T07:18:22.000Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -4332,17 +4356,17 @@
         "src/types/index.ts"
       ],
       "source_hashes": {
-        "server/sessionStore.ts": "349135d587cdc5418e03bbef0cffaf93336eed17",
-        "server/sessionMatcher.ts": "2ac773eadaee4f6243180aa178d99541f21fa07d",
+        "server/sessionStore.ts": "5111b5cad45c4ee39d105ed084c1e26a9b80b433",
+        "server/sessionMatcher.ts": "302fe55a9e48e42a43d98635abeb4858f13c6984",
         "server/approvalDetector.ts": "4323c3528274020bb8eef63c6aa15ed960330c22",
         "server/teamManager.ts": "f9098c850895e2941f719c5a31ecda8bf8fa67ff",
-        "server/processMonitor.ts": "16ab88cd80aad7f6cb52727597688b860321d0e1",
+        "server/processMonitor.ts": "6d511ea51c881fe569955e8052f31131e786b2f4",
         "server/autoIdleManager.ts": "83faccce7abcf6e5809ad2c38e0b36995417314e",
         "server/floatingSessionSpawner.ts": "07cdc6ac344dc2534a28d021d979ae2744fd88ab",
         "server/sessionTitle.ts": "f93bc58e9696d642c17e1d1ea01e85983b349f7d",
         "server/config.ts": "6dda80ae64ade06d3d812c5b4a4224c7154764c5",
         "server/constants.ts": "50842011fd48a006726e109bc47c7813f59311e5",
-        "src/types/session.ts": "4b4bea369082f298ab854c914cb9238661c379e4",
+        "src/types/session.ts": "b10445f6355aaa5f9afca62b0853ef3b1e73ecd6",
         "src/types/hook.ts": "e51cd276ca221b1b76ab16192d3c380b107dba05",
         "src/types/index.ts": "a600811b9bb20cd5e504cf1a6f56baa73b815a5c"
       },
@@ -4390,7 +4414,8 @@
           "getToolCategory",
           "getToolTimeout",
           "getWaitingStatus",
-          "getWaitingLabel"
+          "getWaitingLabel",
+          "registerDiscoveredSession"
         ],
         "constants": {
           "BROADCAST_DEBOUNCE_MS": "20",
@@ -4421,7 +4446,10 @@
           "PostCompact (event)",
           "PreCompact (event)",
           "USER_PROMPT_SUBMIT (event)",
-          "STOP (event)"
+          "STOP (event)",
+          "external-<pid> discovered sessions",
+          "isExternal field",
+          "SessionDiscovered event"
         ]
       },
       "depends_on": [
@@ -4435,6 +4463,7 @@
         "3d/robot-system.md",
         "frontend/floating-terminal-fork.md",
         "frontend/queue-scheduler.md",
+        "frontend/session-detail-panel.md",
         "frontend/summary-tab.md",
         "frontend/workspace-snapshot.md",
         "multimedia/sound-alarm-system.md",
@@ -4448,7 +4477,7 @@
         "server/terminal-ssh.md",
         "server/websocket-manager.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
+      "last_updated": "2026-07-18T07:18:22.000Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -4458,7 +4487,7 @@
         "server/sessionMatcher.ts"
       ],
       "source_hashes": {
-        "server/sessionMatcher.ts": "2ac773eadaee4f6243180aa178d99541f21fa07d"
+        "server/sessionMatcher.ts": "302fe55a9e48e42a43d98635abeb4858f13c6984"
       },
       "symbols": {
         "functions": [
@@ -4472,7 +4501,8 @@
           "previousSessions cap": "5",
           "snapshot-restore window": "30 * 60 * 1000 ms",
           "zombie SSH stale threshold": "60_000 ms",
-          "source labels": "11"
+          "source labels": "11",
+          "Priority 5 gate": "tty_path required, non-subagent, non-SessionEnd"
         },
         "endpoints": [],
         "ui_elements": [],
@@ -4489,11 +4519,14 @@
           "SessionEnd event",
           "SessionResumed event",
           "ServerRestart event",
-          "AGENT_MANAGER_TERMINAL_ID env var"
+          "AGENT_MANAGER_TERMINAL_ID env var",
+          "isExternal field",
+          "external-<pid> discovered card"
         ]
       },
       "depends_on": [
         "server/hook-system.md",
+        "server/process-monitor.md",
         "server/session-management.md",
         "server/terminal-ssh.md"
       ],
@@ -4501,10 +4534,11 @@
         "electron/pty-host.md",
         "frontend/floating-terminal-fork.md",
         "server/floating-session-spawner.md",
+        "server/process-monitor.md",
         "server/session-management.md",
         "server/terminal-ssh.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
+      "last_updated": "2026-07-18T07:18:22.000Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -4800,7 +4834,7 @@
         "src/components/session/LinkifiedText.tsx": "291a1e8fbc44f4d163e1b0793b0791e23b549cdd",
         "src/hooks/useTerminal.ts": "7ee4cfbfe2609998ccedfeddc9b85d8beded535e",
         "src/lib/fileSystemProvider.ts": "3188ce81681a25f5bd183d67e6093d587e83eb63",
-        "server/apiRouter.ts": "818b93f328a59a10088e10d86de54fc0d8f28d76"
+        "server/apiRouter.ts": "ee50e1274c03b11df9c3ed3248a87ba729a3cc0e"
       },
       "symbols": {
         "functions": [
@@ -5712,6 +5746,20 @@
         "frontend/file-open-chooser.md",
         "frontend/conversation-view.md",
         "frontend/terminal-ui.md"
+      ]
+    },
+    {
+      "change": [
+        "server/sessionMatcher.ts",
+        "server/processMonitor.ts",
+        "server/sessionStore.ts",
+        "src/types/session.ts"
+      ],
+      "check": [
+        "server/session-matching.md",
+        "server/process-monitor.md",
+        "server/session-management.md",
+        "frontend/session-detail-panel.md"
       ]
     }
   ]

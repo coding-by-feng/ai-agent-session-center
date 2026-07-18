@@ -1152,6 +1152,23 @@
   flex-shrink: 0;
 }
 
+/* External-session marker: a live claude CLI the dashboard didn't launch. Amber
+   to read as "limited / not fully controlled" without alarming like red. */
+.sessionTabExternalBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  margin-right: 3px;
+  padding: 0 3px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.5;
+  color: var(--accent-orange, #ffa726);
+  background: color-mix(in srgb, var(--accent-orange, #ffa726) 16%, transparent);
+}
+
 .sessionTabTitleInput {
   font-family: var(--font-mono);
   font-size: 10px;

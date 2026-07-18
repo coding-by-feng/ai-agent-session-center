@@ -24,7 +24,7 @@ When queuing or editing a prompt the user often wants to invoke a slash command 
 
 - **Server `CACHE_TTL_MS = 30_000`** and **client `TTL_MS = 30_000`** — both cache the index for 30 seconds per `(cli, projectPath)` key (`${cli}|${projectPath || ''}`).
 - **`DROPDOWN_MIN_DOWN_HEIGHT = 220`** (AutocompleteTextarea) — minimum px below the textarea before the dropdown is allowed to open downward; otherwise it opens upward.
-- **File-search debounce = `150` ms** for `@` triggers.
+- **File-search debounce = `150` ms** for `@` triggers; **cold-index retry = `300` ms** with **max `5` attempts** (`attempt < 5`) when the server responds `indexing: true`.
 - **File results capped at `8`** (`.slice(0, 8)`).
 - **Description length caps** — server slices descriptions to 240 chars; `firstNonEmptyLine` caps body fallback to 200 chars.
 - **`isSafeProjectPath`** rejects empty, `>1024`-char, or NUL-containing paths and requires `statSync(p).isDirectory()`.
@@ -58,7 +58,7 @@ Skill dirs skip names starting with `_` or `.` and require a `SKILL.md`. Command
 ### Endpoints
 
 - **`GET /api/commands?cli=<claude|codex|gemini>&projectPath=<absolute>`** — returns `{ entries: CommandEntry[] }`. Validates `cli` (400 `{ error: 'cli must be one of claude|codex|gemini' }` otherwise). `projectPath` optional. 500 `{ error: 'failed to enumerate commands' }` on failure. Cached server-side 30 s per `(cli, projectPath)`.
-- **`GET /api/files/search?root=<projectPath>&q=<fragment>`** — used for `@` file autocomplete; returns `{ results: Array<{ path, name, type }> }` (see [File Browser](file-browser.md) / [File Index Cache](../server/file-index-cache.md)).
+- **`GET /api/files/search?root=<projectPath>&q=<fragment>`** — used for `@` file autocomplete; returns `{ results: Array<{ path, name, type }>, indexing?: boolean }`. An empty `q` (bare `@`) returns the shallowest workDir files/folders (server `listTopEntries`); `indexing: true` with empty `results` signals the index is still warming and drives the client's cold-index retry (see [File Browser](file-browser.md) / [File Index Cache](../server/file-index-cache.md)).
 
 ### Client cache behavior (`src/lib/commandIndex.ts`)
 
@@ -89,8 +89,12 @@ Skill dirs skip names starting with `_` or `.` and require a `SKILL.md`. Command
 
 ### Flow — `@` file autocomplete
 
-1. Same `parseTrigger` path yields a `file` trigger. If the fragment is empty or `projectPath` is missing, the menu is cleared (silently skipped).
-2. After a 150 ms debounce, `GET /api/files/search?root=&q=` runs; up to 8 results map to `AcItem`s with `insert = '@' + path.replace(/^\//, '')` and `kind: 'file'`.
+1. Same `parseTrigger` path yields a `file` trigger. `@` autocomplete requires a `projectPath`: when it's missing the menu is cleared (silently skipped — no directory to search).
+2. A **bare `@` (empty query) is intentionally NOT suppressed** anymore. As long as `projectPath` is set, the empty query is sent to the server, which returns the shallowest workDir files/folders (server `listTopEntries`), so the picker is useful before the user types a single character.
+3. The fetch is factored into a `fetchFiles(attempt)` helper, first invoked after a 150 ms debounce via `debounceRef`: `GET /api/files/search?root=&q=` runs.
+4. **Cold-index retry** — if the response is `{ results: [], indexing: true }` (the file index is still warming on a fresh workDir) and `attempt < 5`, `fetchFiles` reschedules itself through `debounceRef` after 300 ms with `attempt + 1`, so a bare `@` (or any query) isn't stuck showing an empty dropdown while the index builds (max 5 attempts).
+5. Otherwise, up to 8 results map to `AcItem`s with `insert = '@' + path.replace(/^\//, '')` and `kind: 'file'`.
+6. **Stale-response guard** — results are committed only if the menu is still a `file` menu with the same `triggerStart` (`prev.triggerStart === trigger.triggerStart`); a late response arriving after the user moved the trigger is discarded.
 
 ### Session-creation suggestions flow (`commandSuggestions.ts`)
 

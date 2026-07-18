@@ -167,7 +167,7 @@ Before modifying a feature, check what else it can break:
 |--------|---------|
 | Hook script / MQ format | Session Matching, Session Management, Hook Stats |
 | Session state machine | 3D Robots, Sound/Alarms, Approval Detection, Auto-Idle, all frontend stores |
-| Session Matching | Terminal/SSH, Session Resume, Team linking |
+| Session Matching | Terminal/SSH, Session Resume, Team linking, External-session cards (Priority 5 + process-scan discovery) |
 | WebSocket protocol | Frontend WS Client, Terminal UI, all real-time UI |
 | API contracts | ALL frontend HTTP calls, Electron PTY registration |
 | DB schema | API Endpoints, Client Persistence (IndexedDB mirror) |
@@ -191,6 +191,7 @@ Before modifying a feature, check what else it can break:
 - **Never modify `~/.claude/settings.json` without atomic write** — write-to-tmp + rename
 - **Server imports use `.js` extensions** — required for NodeNext module resolution with tsx
 - **File browser uses `resolveProjectPath()`** — prevents directory traversal
+- **External sessions are traced, not dropped** — an unmatched hook with a controlling tty becomes a Priority 5 "external" card (`isExternal`, real sessionId); a 20s process scan (`startExternalDiscovery`) surfaces hookless `claude` CLIs as thin `external-<pid>` cards. **Never persist `external-<pid>` discovered cards to the snapshot** (dead/reused PID → phantom on restart; they're re-discovered within 20s). Keep the process scan async (never `execFileSync` on the interval — it blocks the event loop)
 - **SSH inputs validated with Zod + shell metacharacter regex** — prevents injection
 - **Floating overlays must stay inside the viewport** — any `position: absolute`/`fixed` dropdown, popover, menu, flyout, or context menu must handle the viewport edge: vertical flip (`Select`'s `flipUp`), horizontal nudge ([`useDropdownFlipX`](src/hooks/useDropdownFlipX.ts)), or coordinate clamp (`clampToViewport` in FileOpenChooser/LabelPicker/SelectionPopup). **Never ship a `right: 0` / `left: 0` / `*: 100%`-anchored menu with no edge guard** — near a window edge it clips its own content. This is a runtime bug no linter catches; it is review-time + render-checked (run `/frontend-ui-polish` on a narrow-window screenshot).
 - **Never write test/debug screenshots to the repo root** — Playwright/MCP captures and scratch images go to `test-screenshots/` (gitignored) or `/tmp`; images that ship live in `static/` only. `.gitignore` blocks committing any stray image outside `static/`, but root dumps still clutter the working tree, so always pass an absolute path under a scratch dir when capturing.

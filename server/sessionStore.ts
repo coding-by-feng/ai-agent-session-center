@@ -28,7 +28,8 @@ import {
   linkByParentSessionId,
   getTeam, getAllTeams, getTeamForSession, getTeamIdForSession,
 } from './teamManager.js';
-import { startMonitoring, stopMonitoring, findClaudeProcess as _findClaudeProcess } from './processMonitor.js';
+import { startMonitoring, stopMonitoring, startExternalDiscovery, findClaudeProcess as _findClaudeProcess } from './processMonitor.js';
+import type { DiscoveredProcess } from './processMonitor.js';
 import { startAutoIdle, stopAutoIdle, startPendingResumeCleanup, stopPendingResumeCleanup } from './autoIdleManager.js';
 import {
   upsertSession as dbUpsertSession,
@@ -127,6 +128,11 @@ export function saveSnapshot(mqOffset?: number): void {
     for (const [id, session] of sessions) {
       // Always key by sessionId to prevent Map key / sessionId divergence
       const key = session.sessionId || id;
+      // Skip process-scan discovered sessions (keyed `external-<pid>`): they're
+      // pid-bound and ephemeral. Persisting them resurrects a phantom on restart
+      // (the PID is dead or OS-reused). The 20s discovery scan re-creates any that
+      // are still alive. Hook-backed external sessions (real sessionId) DO persist.
+      if (key.startsWith('external-')) continue;
       sessionsObj[key] = { ...session };
     }
     const countersObj: Record<string, number> = {};
@@ -134,7 +140,12 @@ export function saveSnapshot(mqOffset?: number): void {
       countersObj[name] = count;
     }
     const pidObj: Record<string, string> = {};
-    for (const [pid, sid] of pidToSession) pidObj[String(pid)] = sid;
+    // Don't persist PID->session links for discovered external sessions (their
+    // session isn't snapshotted either — see the sessions loop above).
+    for (const [pid, sid] of pidToSession) {
+      if (sid.startsWith('external-')) continue;
+      pidObj[String(pid)] = sid;
+    }
     const pendingResumeObj: Record<string, PendingResume> = {};
     for (const [termId, info] of pendingResume) {
       pendingResumeObj[termId] = info;
@@ -1443,6 +1454,88 @@ export function detectSessionSource(sessionId: string): string {
   return session.source || 'ssh';
 }
 
+/**
+ * Create a thin card for an external Claude session discovered by scanning the OS
+ * (processMonitor Mechanism B) — a live `claude` process that fires no hooks
+ * (started before hooks were installed). Keyed by `external-<pid>` so a later hook
+ * for the same PID re-keys it in place via sessionMatcher Priority 1.5 (cached-PID
+ * match). No terminal, no transcript — just live status + name + cwd. The existing
+ * liveness loop auto-ends it when the process dies (it has a cachedPid, no terminal).
+ */
+export function registerDiscoveredSession(proc: DiscoveredProcess): void {
+  // Never duplicate a session already tracked by this PID (hook-bound or a prior pass).
+  if (pidToSession.has(proc.pid)) return;
+  for (const s of sessions.values()) {
+    if (s.cachedPid === proc.pid) return;
+  }
+  const normalizedCwd = (proc.cwd || '').replace(/\/$/, '');
+  // Without a resolvable cwd we can't run the launch-race guard below — a
+  // dashboard-launched claude in its pre-hook window would be mislabeled as
+  // external — and a cwd-less thin card is near-useless anyway. Skip; the next 20s
+  // pass retries once lsof/proc resolves (or a hook binds the PID first).
+  if (!normalizedCwd) return;
+  // Skip if a dashboard launch is mid-flight for this cwd — a CONNECTING placeholder
+  // exists and its own hook will bind the PID shortly; creating a card now would race
+  // into a duplicate.
+  for (const s of sessions.values()) {
+    if (s.status === SESSION_STATUS.CONNECTING && s.projectPath?.replace(/\/$/, '') === normalizedCwd) {
+      return;
+    }
+  }
+  const id = `external-${proc.pid}`;
+  const existing = sessions.get(id);
+  if (existing) {
+    // A live card already covers this pid — nothing to do. An ENDED card means the OS
+    // reused the pid after the old external process died; replace it so the new
+    // session surfaces (ENDED cards linger because sessions are never auto-deleted).
+    if (existing.status !== SESSION_STATUS.ENDED) return;
+    sessions.delete(id);
+  }
+
+  const projectName = normalizedCwd
+    ? normalizedCwd.split('/').filter(Boolean).pop() || 'Unknown'
+    : 'Unknown';
+  const now = Date.now();
+  const session: Session = {
+    sessionId: id,
+    status: SESSION_STATUS.IDLE,
+    animationState: ANIMATION_STATE.IDLE,
+    emote: null,
+    projectName,
+    projectPath: proc.cwd || '',
+    title: proc.name || projectName,
+    source: 'terminal',
+    isExternal: true,
+    model: proc.model || '',
+    startedAt: now,
+    lastActivityAt: now,
+    endedAt: null,
+    currentPrompt: '',
+    promptHistory: [],
+    toolUsage: {},
+    totalToolCalls: 0,
+    toolLog: [],
+    responseLog: [],
+    events: [{
+      type: 'SessionDiscovered',
+      timestamp: now,
+      detail: `External session detected (pid ${proc.pid}${proc.tty ? `, ${proc.tty}` : ''})`,
+    }],
+    pendingTool: null,
+    waitingDetail: null,
+    subagentCount: 0,
+    archived: 0,
+    queueCount: 0,
+    terminalId: null,
+    cachedPid: proc.pid,
+  };
+  sessions.set(id, session);
+  pidToSession.set(proc.pid, id);
+  invalidateSessionsCache();
+  void broadcastSessionUpdate(session);
+  log.info('session', `DISCOVERED external session ${id} — cwd=${normalizedCwd || 'none'} tty=${proc.tty || '?'} name="${proc.name || ''}"`);
+}
+
 // Wrapper for findClaudeProcess that passes internal state
 export function findClaudeProcess(sessionId: string, projectPath: string): number | null {
   return _findClaudeProcess(sessionId, projectPath, sessions, pidToSession);
@@ -1511,6 +1604,10 @@ startMonitoring(
   (sid: string) => handleTeamMemberEnd(sid, sessions),
   broadcastAsync
 );
+
+// External-session discovery — surface live claude CLIs the dashboard didn't
+// launch and that fire no hooks (started before hooks were installed).
+startExternalDiscovery(sessions, pidToSession, registerDiscoveredSession);
 
 // Clean up stale pendingResume entries
 startPendingResumeCleanup(pendingResume, sessions, broadcastAsync);

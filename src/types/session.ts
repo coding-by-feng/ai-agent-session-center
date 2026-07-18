@@ -240,6 +240,17 @@ export interface Session {
   isFloating?: boolean;
   /** Origin session id this fork was spawned from (for traceability). */
   originSessionId?: string;
+  /**
+   * Marks a session the dashboard did NOT launch: a real Claude/Gemini/Codex CLI
+   * running in an external terminal (or started before hooks were installed), so
+   * it never bound to a dashboard PTY. Two sources set this:
+   *   - a hook event that matched no terminal (sessionMatcher "external" fallback,
+   *     full data: real sessionId + transcript), or
+   *   - the process-scan discovery pass (thin card: pid + cwd + name only).
+   * Rendered with a distinct "external" badge; carries no dashboard terminal, so
+   * terminal actions (open/reconnect/kill-via-PTY) don't apply.
+   */
+  isExternal?: boolean;
 }
 
 // ---------------------------------------------------------------------------

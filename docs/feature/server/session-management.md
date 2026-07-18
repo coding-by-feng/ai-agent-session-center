@@ -10,16 +10,16 @@ Central hub that manages all session state. Every other feature reads from or wr
 | File | Role |
 |------|------|
 | `server/sessionStore.ts` (~61KB, ~1478 lines) | Coordinator: delegates to sub-modules, handles events, manages Map<string, Session> |
-| `server/sessionMatcher.ts` | 8-priority hook→session linking (delegated from sessionStore) |
+| `server/sessionMatcher.ts` | 8-priority hook→session linking (delegated from sessionStore); Priority 5 marks hook-only external sessions (`isExternal`), Priority 1.5 re-keys `external-<pid>` discovered cards in place on their first hook |
 | `server/approvalDetector.ts` | Tool-approval timeout detection |
 | `server/teamManager.ts` | Subagent / team relationship tracking |
-| `server/processMonitor.ts` | PID liveness (`findClaudeProcess` lives here; sessionStore re-exports a wrapper) |
+| `server/processMonitor.ts` | PID liveness (`findClaudeProcess` lives here; sessionStore re-exports a wrapper) **and** external-session discovery (`startExternalDiscovery` OS scan, `DiscoveredProcess` type) |
 | `server/autoIdleManager.ts` | Idle transition timers (checks every 10s) + stale `pendingResume` cleanup (checks every 15s) |
 | `server/floatingSessionSpawner.ts` | Builds the prompt + config for fork/floating sessions; calls into `createTerminalSession` with `isFork: true`, `isFloating: true`, and `originSessionId`. Detailed in [Floating Session Spawner](./floating-session-spawner.md) |
 | `server/sessionTitle.ts` | Pure title helpers (`makeShortTitle`, `isCloneForkTemplateTitle`, `buildAutoTitle`) — no DB imports so they are unit-testable (`test/sessionTitle.test.ts`) without tripping the better-sqlite3 Vitest worker crash |
 | `server/config.ts` | Tool categories, timeouts, animation maps, permission-flag + launch-flag command helpers |
 | `server/constants.ts` | All magic strings (events, statuses, WS types) |
-| `src/types/session.ts`, `src/types/hook.ts`, `src/types/index.ts` | Shared hook/session types (`cliSource`, Codex event metadata, `PostCompact`) |
+| `src/types/session.ts`, `src/types/hook.ts`, `src/types/index.ts` | Shared hook/session types (`cliSource`, `isExternal`, Codex event metadata, `PostCompact`) |
 
 ## Implementation
 
@@ -41,6 +41,27 @@ Central hub that manages all session state. Every other feature reads from or wr
 - `cliSource?: string` records the originating CLI when hooks provide `cli_source` (the Codex and Gemini hooks both emit it) or when a terminal is created from a recognizable startup command (`inferCliSource`). Frontend CLI badges prefer this field before guessing from model/event data, and the floating-popup spawner's `resolveOriginCli` reads it first so a popup inherits the parent's CLI.
 - Fork bookkeeping: `isFork: boolean` and `originSessionId?: string` — set in `createTerminalSession` when `config.isFork` is passed (floating spawner, clone/fork endpoints, snapshot restore). `isFork` is the process-isolation marker (kill-guard, hook fork-routing) and does NOT control visibility. `isFloating: boolean` is set separately (floating spawner + snapshot restore only) and marks hidden PiP popups; clone/fork sessions carry `isFork` without `isFloating` and stay visible in the session lists.
 - Ops-terminal bookkeeping: `opsTerminalId: string | null` and `hadOpsTerminal: boolean` (sessionStore.ts:1047-1048) — written via `reconnectOpsTerminal` (sessionStore.ts:1385) so a session can carry a separate "ops shell" alongside the AI CLI's PTY.
+- External-session marker: `isExternal?: boolean` — flags a session the dashboard did NOT launch (a real Claude/Gemini/Codex CLI running in an external terminal, or started before hooks were installed), so it never bound to a dashboard PTY (`terminalId` stays `null`). Terminal actions (open / reconnect / kill-via-PTY) do not apply. See *External Sessions (discovered / hook-only)* below for the two producers. `sessionMatcher` clears the flag (`isExternal = false`) when such a session is later adopted onto a dashboard terminal.
+
+### External Sessions (discovered / hook-only)
+Two independent producers set `isExternal: true`; neither implies a dashboard terminal.
+- **(a) Hook-backed external (`sessionMatcher` Priority 5)** — a hook event that matched no terminal by any higher priority. Previously dropped ("SSH-only mode"); now surfaced as an external card via `createDefaultSession` with the **real `sessionId`**, full transcript/`transcriptPath`/`permissionMode`, keyed by that sessionId. Gated to **interactive** sessions only: skipped for subagent events (`parent_session_id`/`agent_name`), `SessionEnd`, and any hook lacking `tty_path` (headless `claude -p`, CI, MCP-spawned). See [Session Matching](./session-matching.md).
+- **(b) Process-scan discovered (`registerDiscoveredSession`)** — a live `claude` CLI found by the OS scan that fires no hooks (started before hooks installed). Produces a **thin card**: `source: 'terminal'`, `isExternal: true`, `cachedPid: proc.pid`, `terminalId: null`, `model` from `proc.model`, `title` from `proc.name || projectName`, and a single `SessionDiscovered` event (`detail: "External session detected (pid …)"`). No transcript, no `promptHistory`.
+
+**`registerDiscoveredSession(proc: DiscoveredProcess)`** (exported, sessionStore.ts:1465) — creates the thin card keyed `external-<pid>`. `DiscoveredProcess` (from `processMonitor.ts`) carries `{ pid, tty, cwd, name, model }`. Dedup / replace guards, in order:
+1. Return if `pidToSession.has(proc.pid)` (PID already tracked, hook-bound or a prior pass).
+2. Return if any `session.cachedPid === proc.pid` (already covered under another key).
+3. Return if `proc.cwd` is empty/unresolvable — without a cwd the launch-race guard can't run and a cwd-less card is near-useless; the next scan retries.
+4. Return if a `CONNECTING` session already exists for that cwd (a dashboard launch is mid-flight and its own hook will bind the PID — creating a card now would race into a duplicate).
+5. If an `external-<pid>` card already exists: **return** when it is still live, but **`sessions.delete(id)` + recreate** when it is `ENDED` (OS reused the PID after the old external process died; ended cards linger because sessions are never auto-deleted).
+
+On create it does `sessions.set(id, session)`, `pidToSession.set(proc.pid, id)`, `invalidateSessionsCache()`, and broadcasts `SESSION_UPDATE` (`broadcastSessionUpdate`).
+
+**Wiring** — the module-init block calls `startExternalDiscovery(sessions, pidToSession, registerDiscoveredSession)` (sessionStore.ts:1610) right after `startMonitoring`. The scan interval is `EXTERNAL_DISCOVERY_INTERVAL_MS = 20_000` (20s) in [processMonitor](./process-monitor.md).
+
+**Upgrade in place** — if a hook later fires for a discovered PID, `sessionMatcher` Priority 1.5 (cached-PID re-key) upgrades the `external-<pid>` card onto its real `sessionId` on the **first** real hook (any event type, not just `SessionStart`) so Priority 5 doesn't create a duplicate.
+
+**Auto-end lifecycle** — a discovered card has a `cachedPid` and no terminal, so the existing process-liveness loop (`startMonitoring` in processMonitor) auto-ends it when the process dies — no dedicated teardown path.
 
 ### Workspace Metadata at Creation
 - `createTerminalSession` applies `pinned`, `muted`, `alerted`, `accentColor`, `characterModel` from `config` at creation time (sessionStore.ts:1067-1071), plus `effortLevel` and `model` (1074-1075) so floating popups can inherit them before any hook sets `model`. Without this, metadata set via separate PUTs after creation would be missing from the first broadcast and a paired auto-save could overwrite the snapshot with stale values.
@@ -61,6 +82,7 @@ Title helpers live in `server/sessionTitle.ts` (pure, no DB deps). On `USER_PROM
 - Sessions that were **already `ended`** at snapshot time stay ended (sessionStore.ts:199-207) — they `continue` before the PID-liveness branch and are only re-inserted when `isHistorical` is true. There is no revive-from-`ended` path on load.
 - Ephemeral floating popups (`isFloating`, or `isFork` with an `originSessionId`) are skipped on load (sessionStore.ts:196) — they have no standalone UI presence and no PTY recovery path, so server-side revival would create invisible idle zombies hidden from every list. The dashboard re-opens any still-relevant popup during workspace import.
 - The non-SSH ended-session `ServerRestart` tagging branch (sessionStore.ts:288-302) is currently **dead code**: its loop iterates the `sessions` Map, which the load loop only ever populates with SSH sessions, and `loadSnapshot()` is called once at boot (server/index.ts:363) when the Map is empty — so `nonSshCleanupIds` is always empty.
+- **Process-scan discovered sessions are excluded from the snapshot.** `saveSnapshot` skips every session whose key `startsWith('external-')` (sessionStore.ts:135) **and** their `pidToSession` entries (sessionStore.ts:146). These thin cards are pid-bound and ephemeral; persisting them would resurrect a phantom on restart (the PID is dead or OS-reused). The 20s discovery scan re-creates any still alive. **Hook-backed external sessions (Priority 5, real `sessionId`) are NOT excluded and DO persist** — only the `external-<pid>`-keyed cards are dropped.
 
 ### Broadcast Throttle
 - 20ms debounce via `BROADCAST_DEBOUNCE_MS` (sessionStore.ts:464, reduced from the earlier 50ms) — ~50/sec. `debouncedBroadcast` batches all broadcasts in the window then deduplicates: `session_update` collapses to the latest per `sessionId`, every other type collapses to one per message type. Smaller window keeps the 3D scene + status pills feeling live; rely on the per-key coalescing (not the window) to avoid flooding browsers.
@@ -74,6 +96,7 @@ Title helpers live in `server/sessionTitle.ts` (pure, no DB deps). On `USER_PROM
 - handleEvent() — processes hook events, drives state machine
 - getAllSessions() / getSession() — read session state
 - createTerminalSession() — creates session card when terminal connects
+- registerDiscoveredSession(proc) (sessionStore.ts:1465) — creates a thin `external-<pid>` card for an OS-scan-discovered external Claude CLI; called by `startExternalDiscovery`. See *External Sessions (discovered / hook-only)*
 - findActiveSessionByConfig() — deduplicates by config (host, workDir, command, sessionTitle)
 - getSessionByTerminalId() (sessionStore.ts:957) — resolves a session from its `terminalId`; used for fork parent resolution (`floatingSessionSpawner.ts:165`)
 - clearAllSessions() — removes all sessions, captures terminal output buffers for replay; returns `{ removed: number, savedOutputs: SavedTerminalOutput[] }` (sessionStore.ts:1183-1223) where each `savedOutputs` entry is keyed by `title\0workDir` (the raw `sshConfig.workingDir`, falling back to `projectPath`) for replay after workspace import
@@ -97,10 +120,10 @@ Title helpers live in `server/sessionTitle.ts` (pure, no DB deps). On `USER_PROM
 
 ### Depends On
 - [Hook System](./hook-system.md) — receives processed hook events
-- [Session Matching](./session-matching.md) — delegates hook-to-session linking
+- [Session Matching](./session-matching.md) — delegates hook-to-session linking; Priority 5 marks hook-only external sessions (`isExternal`), Priority 1.5 upgrades `external-<pid>` discovered cards in place on first hook
 - [Approval Detection](./approval-detection.md) — manages approval state transitions
 - [Team & Subagent Tracking](./team-subagent.md) — manages team/subagent relationships
-- [Process Monitor](./process-monitor.md) — monitors PID liveness
+- [Process Monitor](./process-monitor.md) — monitors PID liveness (auto-ends discovered external cards) and runs the external-session discovery scan (`startExternalDiscovery`, feeding `registerDiscoveredSession`)
 
 ### Depended On By
 - [WebSocket Manager](./websocket-manager.md) — broadcasts session state changes
@@ -119,4 +142,5 @@ Title helpers live in `server/sessionTitle.ts` (pure, no DB deps). On `USER_PROM
 - Modifying the session object schema affects ALL consumers (frontend stores, DB persistence, WebSocket protocol)
 - Breaking snapshot persistence means sessions lost on restart
 - **Fork-aware kill cascade** — `apiRouter.ts:969` (`const pid = mem.isFork ? null : findClaudeProcess(...)`) skips `findClaudeProcess` for forks because forks share the origin session's `projectPath`; a cwd-based PID lookup would return the ORIGIN's claude PID and SIGTERM the wrong process. Forks instead rely on per-PTY `pty.kill` (group SIGHUP) via `closeTerminal`. Preserve this branch when modifying the kill flow — without it, closing a floating/fork session disconnects the parent terminal.
+- **Never persist `external-<pid>` discovered cards** — `saveSnapshot`'s `startsWith('external-')` skip (both the sessions loop and the `pidToSession` loop) is load-bearing: these cards are pid-bound, so restoring one resurrects a phantom against a dead or OS-reused PID. If you change the discovered-card key prefix or the snapshot filter, keep them in sync, and do NOT extend the skip to hook-backed external sessions (real `sessionId`), which must persist.
 - **Clone/fork auto-rename vs title-based dedup** — once a clone/fork is re-titled from its first prompt (see *Session Title Generation*), `session.title` no longer equals the `sessionTitle` baked into its workspace-snapshot config. `findActiveSessionByConfig` deduplicates partly by `sessionTitle`, so a server-restart workspace reload that relies on the title branch could create a duplicate card. This is mitigated because the `originalSessionId` match path is preferred and title-independent; keep that path intact if you touch dedup.

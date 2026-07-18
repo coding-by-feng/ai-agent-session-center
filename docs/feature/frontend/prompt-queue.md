@@ -16,7 +16,7 @@ Users can queue up multiple prompts for a session and have them sent automatical
 Closely-related features documented elsewhere (this doc cross-links rather than duplicates):
 - The 1s global scheduler, chains, quiet hours, daily-start clamp, force-start, loop durability → [Queue Scheduler](./queue-scheduler.md) (`src/hooks/useGlobalQueueScheduler.ts`, `src/lib/queueScheduler.ts`, `src/lib/timePicker.ts`, `LoopExcludeWindowsModal.tsx`)
 - Global favorites history (📚 sheet, ★ favorite, apply/edit/view, alias, export/import) → [Queue Scheduler](./queue-scheduler.md) (`src/stores/queueHistoryStore.ts`, `QueueHistorySheet.tsx`, `QueueItemEditModal.tsx`, `src/lib/queueHistoryExport.ts`)
-- Slash-command / `@`-file autocomplete in the compose + edit textareas → [Command Autocomplete](./command-autocomplete.md) (`src/components/ui/AutocompleteTextarea.tsx`)
+- Slash-command / `@`-file autocomplete in every queue prompt input — compose row, inline once-item edit, and `QueueItemEditModal`'s chain textareas — → [Command Autocomplete](./command-autocomplete.md) (`src/components/ui/AutocompleteTextarea.tsx`)
 
 ## Implementation
 
@@ -31,7 +31,8 @@ Closely-related features documented elsewhere (this doc cross-links rather than 
 ### Queue operations
 - `add` (append), `remove` (by id), `reorder` (drag-and-drop, re-stamps `position`), `moveToSession` (dropdown picker; re-stamps `sessionId` + appends past target's max position), `setQueue` (bulk replace), `updateItem` (partial patch to one item).
 - **Send now**: `handleSendNow` is for `once` items — sends the text then removes the entry. Loop/schedule items use the `⚡ NOW` button (`handleTriggerNow`), which sets `forceStart` and hands the full chain to the global scheduler ([Queue Scheduler](./queue-scheduler.md)).
-- **Edit**: `once` items use a lightweight inline textarea (`editingId`); loop/schedule items open the rich `QueueItemEditModal` (`chainEditId`), documented in [Queue Scheduler](./queue-scheduler.md).
+- **Edit**: `once` items use a lightweight inline `AutocompleteTextarea` (`editingId`, `ariaLabel="Edit queue item"`, `rows=2`, `autoFocus`, wired with `sessionId` + `currentProjectPath`) — so editing a queued prompt gets the same `/` command + `@` file autocomplete as the compose box. `onChange` receives the string directly; Cmd/Ctrl+Enter saves (`saveEdit`); Escape cancels the edit (it reaches the parent `onKeyDown` only when the autocomplete menu is closed — while the menu is open, the first Escape closes the menu). loop/schedule items open the rich `QueueItemEditModal` (`chainEditId`), documented in [Queue Scheduler](./queue-scheduler.md).
+- **Autocomplete parity across add + edit**: all three queue prompt inputs — the compose row, this inline once-item edit, and `QueueItemEditModal`'s chain textareas — now share the same `AutocompleteTextarea` component, so `/` + `@` autocomplete works everywhere a queue prompt is typed or edited. (The inline once-edit was previously a raw `<textarea>` — the odd one out with no autocomplete.)
 - **Per-item pause** (power-icon button, leftmost): `handleToggleEnabled` sets `QueueItem.disabled`; the row dims and the meta line shows `— paused —`. Re-enabling a loop resets `nextFireAt = Date.now() + intervalMs` so a frozen-in-the-past time doesn't fire immediately.
 
 ### Auto-send (➤ paper-plane)
@@ -71,7 +72,7 @@ Closely-related features documented elsewhere (this doc cross-links rather than 
 - [Client Persistence](./client-persistence.md) — `promptQueue`, `queueAutomation`, `queueHistory` tables in IndexedDB (Dexie v6 schema)
 - [Server API](../server/api-endpoints.md) — `POST /api/terminals/:id/write` for sending, `POST /api/queue-images` for image uploads
 - [Queue Scheduler](./queue-scheduler.md) — drives loop/schedule/chain firing and the favorites history off this store
-- [Command Autocomplete](./command-autocomplete.md) — the compose textarea uses `AutocompleteTextarea`
+- [Command Autocomplete](./command-autocomplete.md) — the compose row, the inline once-item edit, and `QueueItemEditModal`'s chain textareas all use `AutocompleteTextarea` for `/` + `@` autocomplete
 
 ### Depended On By
 - [Session Detail Panel](./session-detail-panel.md) — QueueTab rendered in the QUEUE tab + as the always-on strip below the terminal

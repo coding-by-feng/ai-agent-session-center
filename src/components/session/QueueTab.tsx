@@ -804,10 +804,13 @@ export default function QueueTab({
                 <span className={styles.queuePos}>{idx + 1}</span>
 
                 {editingId === item.id ? (
-                  <textarea
+                  <AutocompleteTextarea
                     className={styles.queueEditTextarea}
                     value={editText}
-                    onChange={(e) => setEditText(e.target.value)}
+                    onChange={setEditText}
+                    sessionId={sessionId}
+                    projectPath={currentProjectPath}
+                    ariaLabel="Edit queue item"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                         e.preventDefault();

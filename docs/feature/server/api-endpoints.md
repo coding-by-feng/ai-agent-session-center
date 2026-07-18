@@ -60,6 +60,7 @@ The HTTP interface for the React frontend and external integrations. Handles all
 
 ### File Browser
 - GET /api/files/list|read|stream|search|grep
+- GET /api/files/search?root=<projectPath>&q=<query> — fuzzy file-name search backed by the cached fuzzy index (see [File Index Cache](./file-index-cache.md)). Rate limited to 20 requests/window/IP; `root` is required and validated via `isAllowedProjectRoot()`. Response shape `{ results: [{ path, name, type, score }], indexing }`. When `q` is empty/blank the endpoint returns `listTopEntries(root)` — the shallowest files/folders (directories first) plus the `indexing` flag — so the `@`-mention picker is useful before the user types (while the cache is still cold it returns `{ results: [], indexing: true }` and the client retries). A non-empty `q` runs `searchFiles(root, q.trim())` and returns the same shape.
 - GET /api/files/resolve — expands `~`, resolves to an absolute path, classifies as file/dir, and returns suggested project root + relative path so the client can open it in the file browser. See [File Browser](../frontend/file-browser.md).
 - POST /api/files/write|mkdir|delete
 - POST /api/files/search/invalidate (clear search cache)
