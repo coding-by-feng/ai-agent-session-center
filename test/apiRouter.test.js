@@ -3,8 +3,16 @@
 import { describe, it, beforeAll, afterAll, expect } from 'vitest';
 import express from 'express';
 import { createServer } from 'http';
-import { handleEvent, getAllSessions, setSessionTitle } from '../server/sessionStore.js';
+import { handleEvent as rawHandleEvent, getAllSessions, setSessionTitle } from '../server/sessionStore.js';
 import { EVENT_TYPES } from '../server/constants.js';
+
+// sessionMatcher's Priority 5 external fallback only creates a card for an
+// unmatched hook that carries a controlling tty, so headless `claude -p` / CI
+// runs cannot spawn phantom cards. These fixtures model interactive sessions —
+// default a tty at the boundary so they create sessions as intended.
+// Non-objects pass through untouched so validation paths stay testable.
+const handleEvent = (payload) =>
+  rawHandleEvent(payload && typeof payload === 'object' ? { tty_path: '/dev/ttys001', ...payload } : payload);
 
 // We create a minimal test server with just the routes we need to test
 let server;
@@ -178,32 +186,10 @@ describe('apiRouter - integration tests', () => {
     });
   });
 
-  describe('PUT /api/sessions/:id/label', () => {
-    it('returns 200 for valid label', async () => {
-      handleEvent({
-        session_id: 'api-test-label-1',
-        hook_event_name: EVENT_TYPES.SESSION_START,
-        cwd: '/tmp/test',
-      });
-      const res = await fetch(`${baseUrl}/api/sessions/api-test-label-1/label`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label: 'reviewer' }),
-      });
-      expect(res.status).toBe(200);
-      const body = await res.json();
-      expect(body.ok).toBe(true);
-    });
-
-    it('returns 400 when label is missing', async () => {
-      const res = await fetch(`${baseUrl}/api/sessions/api-test-label-1/label`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      expect(res.status).toBe(400);
-    });
-  });
+  // PUT /api/sessions/:id/label was removed when session labels became purely
+  // client state (src/stores/labelStore.ts → localStorage 'session-label-map').
+  // The route, the Session.label field and setSessionLabel no longer exist;
+  // coverage lives in src/stores/labelStore.test.ts.
 
   describe('GET /api/hook-stats', () => {
     it('returns hook stats', async () => {

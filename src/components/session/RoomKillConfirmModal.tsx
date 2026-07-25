@@ -11,6 +11,7 @@ import { useRoomStore } from '@/stores/roomStore';
 import { showToast } from '@/components/ui/ToastContainer';
 import type { Session, KillSessionResponse, ApiResponse } from '@/types';
 import styles from '@/styles/modules/Modal.module.css';
+import { closeManagedTerminal } from '@/lib/terminalTransport';
 
 type KillResponse = KillSessionResponse & ApiResponse & {
   killedPid?: number | null;
@@ -33,11 +34,12 @@ async function killOne(session: Session): Promise<boolean> {
     });
     const data: KillResponse = await resp.json();
     if (!data.ok) return false;
-    if (session.terminalId) {
+    const terminalId = data.terminalId === undefined ? session.terminalId : data.terminalId;
+    if (terminalId) {
       // Close the terminal too — this is what reaps the PTY's child agent tree.
       // A terminal-close failure doesn't make the process kill a failure.
       try {
-        await fetch(`/api/terminals/${session.terminalId}`, { method: 'DELETE' });
+        await closeManagedTerminal(terminalId);
       } catch {
         /* best-effort */
       }

@@ -29,6 +29,7 @@ import {
   getTeam, getAllTeams, getTeamForSession, getTeamIdForSession,
 } from './teamManager.js';
 import { startMonitoring, stopMonitoring, startExternalDiscovery, findClaudeProcess as _findClaudeProcess } from './processMonitor.js';
+import { followSessionAlias } from './sessionAliasResolver.js';
 import type { DiscoveredProcess } from './processMonitor.js';
 import { startAutoIdle, stopAutoIdle, startPendingResumeCleanup, stopPendingResumeCleanup } from './autoIdleManager.js';
 import {
@@ -47,7 +48,7 @@ import type { TeamSerialized } from '../src/types/team.js';
 
 const sessions = new Map<string, Session>();
 const projectSessionCounters = new Map<string, number>();
-/** pid -> sessionId — ensures each PID is only assigned to one session */
+/** pid -> representative sessionId for matching; Codex siblings may cache one shared PID. */
 const pidToSession = new Map<number, string>();
 /** terminalId -> pending resume info */
 const pendingResume = new Map<string, PendingResume>();
@@ -949,15 +950,24 @@ export function getAllSessions(): Record<string, Session> {
 }
 
 export function getSession(sessionId: string): Session | null {
-  const s = sessions.get(sessionId);
-  if (s) return { ...s };
-  // Check alias map — workspace import registers originalSessionId -> new sessionId
-  const aliased = sessionAliases.get(sessionId);
-  if (aliased) {
-    const a = sessions.get(aliased);
-    if (a) return { ...a };
-  }
-  return null;
+  const resolved = resolveSessionId(sessionId);
+  const session = resolved ? sessions.get(resolved) : null;
+  return session ? { ...session } : null;
+}
+
+/**
+ * Resolve a possibly stale session ID to the current Map key.
+ *
+ * Workspace restore can create an alias chain (saved term ID -> fresh term ID
+ * -> hook UUID). Follow the whole chain instead of stopping after one hop so
+ * actions issued from an old card still target the canonical session.
+ */
+export function resolveSessionId(sessionId: string): string | null {
+  return followSessionAlias(
+    sessionId,
+    (id) => sessions.has(id),
+    (id) => sessionAliases.get(id),
+  );
 }
 
 /**
@@ -1027,6 +1037,42 @@ export async function createTerminalSession(terminalId: string, config: Terminal
   const workDir = config.workingDir
     ? (config.workingDir.startsWith('~') ? config.workingDir.replace(/^~/, homedir()) : config.workingDir)
     : homedir();
+  // Electron owns its PTY and registers it over HTTP after spawning. A hook can
+  // win that race and create the canonical UUID session first. If so, enrich
+  // that existing terminal owner instead of creating a second term/pty card.
+  for (const [existingKey, existing] of sessions) {
+    if (existing.terminalId !== terminalId) continue;
+    registerSessionAlias(terminalId, existing.sessionId);
+    const updated: Session = {
+      ...existing,
+      source: 'ssh',
+      isExternal: false,
+      sshHost: config.host || 'localhost',
+      sshCommand: effectiveCommand,
+      cliSource: existing.cliSource || inferCliSource(effectiveCommand),
+      startupCommand: existing.startupCommand || config.startupCommand,
+      sshConfig: {
+        host: config.host || 'localhost',
+        port: config.port || 22,
+        username: config.username,
+        authMethod: config.authMethod || 'key',
+        privateKeyPath: config.privateKeyPath,
+        workingDir: config.workingDir || '~',
+        command: effectiveCommand,
+      },
+      title: config.sessionTitle || existing.title,
+    };
+    sessions.set(existingKey, updated);
+    invalidateSessionsCache();
+    dbUpsertSession(updated);
+    const migration = { ...updated, replacesId: terminalId };
+    await broadcastAsync({
+      type: WS_TYPES.SESSION_UPDATE,
+      session: migration,
+    });
+    log.info('session', `Reused terminal owner ${updated.sessionId.slice(0, 8)} for late registration ${terminalId}`);
+    return migration;
+  }
   const projectName = workDir === homedir() ? 'Home' : workDir.split('/').filter(Boolean).pop() || 'SSH Session';
   let defaultTitle = `${config.host || 'localhost'}:${workDir}`;
   const session: Session = {
@@ -1108,7 +1154,7 @@ export async function createTerminalSession(terminalId: string, config: Terminal
   // session_id or path doesn't match (e.g. SSH remote path mismatch), the card
   // would be stuck in connecting forever without this safety net.
   const command = effectiveCommand;
-  const connectingTimeout = command.startsWith('claude') ? 30_000 : 3_000;
+  const connectingTimeout = /^(?:\S*\/)?(?:claude|codex)(?:\s|$)/.test(command) ? 30_000 : 3_000;
   setTimeout(async () => {
     const s = sessions.get(terminalId);
     if (s && s.status === (SESSION_STATUS.CONNECTING as string)) {
@@ -1141,7 +1187,8 @@ export function updateQueueCount(sessionId: string, count: number): Session | nu
 }
 
 export function killSession(sessionId: string): Session | null {
-  const session = sessions.get(sessionId);
+  const resolvedId = resolveSessionId(sessionId);
+  const session = resolvedId ? sessions.get(resolvedId) : null;
   if (!session) return null;
   invalidateSessionsCache();
   // #20: Close PTY before unlinking to prevent orphan processes
@@ -1153,12 +1200,19 @@ export function killSession(sessionId: string): Session | null {
   session.archived = 1;
   session.lastActivityAt = Date.now();
   session.endedAt = Date.now();
-  // Release the PID claim. The process has already been terminated by the caller,
-  // and processMonitor skips ENDED sessions — so without this the claim would
-  // linger forever and any sibling card sharing the projectPath could never
-  // resolve a PID (findClaudeProcess skips claimed PIDs), making it unkillable.
+  // Release or transfer the PID claim. Codex can have several independent
+  // thread cards on one live host PID; when one managed PTY is closed in
+  // isolation, preserve that PID mapping on a live sibling rather than leaving
+  // it pointed at the ended card or deleting it outright.
   if (session.cachedPid) {
-    pidToSession.delete(session.cachedPid);
+    const cachedPid = session.cachedPid;
+    const replacement = [...sessions.values()].find((candidate) => (
+      candidate.sessionId !== session.sessionId
+      && candidate.status !== SESSION_STATUS.ENDED
+      && candidate.cachedPid === cachedPid
+    ));
+    if (replacement) pidToSession.set(cachedPid, replacement.sessionId);
+    else pidToSession.delete(cachedPid);
     session.cachedPid = null;
   }
   if (session.source === 'ssh') {
@@ -1174,19 +1228,20 @@ export function killSession(sessionId: string): Session | null {
 }
 
 export function deleteSessionFromMemory(sessionId: string): boolean {
-  const session = sessions.get(sessionId);
+  const resolvedId = resolveSessionId(sessionId);
+  const session = resolvedId ? sessions.get(resolvedId) : null;
   if (!session) return false;
   // Release PID cache
   if (session.cachedPid) {
     pidToSession.delete(session.cachedPid);
   }
   // Clean up any alias pointing to this session
-  for (const [alias, target] of sessionAliases) {
-    if (target === sessionId) { sessionAliases.delete(alias); break; }
-  }
+  const aliasesToDelete = [...sessionAliases.keys()]
+    .filter((alias) => resolveSessionId(alias) === resolvedId);
+  for (const alias of aliasesToDelete) sessionAliases.delete(alias);
   // Team cleanup
-  handleTeamMemberEnd(sessionId, sessions);
-  sessions.delete(sessionId);
+  handleTeamMemberEnd(resolvedId, sessions);
+  sessions.delete(resolvedId);
   invalidateSessionsCache();
   return true;
 }
@@ -1316,8 +1371,9 @@ export function setSessionCharacterModel(sessionId: string, model: string): Sess
 }
 
 export function archiveSession(sessionId: string, archived: boolean | number): Session | null {
-  const session = sessions.get(sessionId);
-  if (session) { session.archived = archived ? 1 : 0; invalidateSessionsCache(); dbUpdateArchived(sessionId, archived); }
+  const resolvedId = resolveSessionId(sessionId);
+  const session = resolvedId ? sessions.get(resolvedId) : null;
+  if (session) { session.archived = archived ? 1 : 0; invalidateSessionsCache(); dbUpdateArchived(resolvedId!, archived); }
   return session ? { ...session } : null;
 }
 
@@ -1449,7 +1505,8 @@ export function reconnectOpsTerminal(sessionId: string, newOpsTerminalId: string
 }
 
 export function detectSessionSource(sessionId: string): string {
-  const session = sessions.get(sessionId);
+  const resolvedId = resolveSessionId(sessionId);
+  const session = resolvedId ? sessions.get(resolvedId) : null;
   if (!session) return 'unknown';
   return session.source || 'ssh';
 }
@@ -1538,7 +1595,7 @@ export function registerDiscoveredSession(proc: DiscoveredProcess): void {
 
 // Wrapper for findClaudeProcess that passes internal state
 export function findClaudeProcess(sessionId: string, projectPath: string): number | null {
-  return _findClaudeProcess(sessionId, projectPath, sessions, pidToSession);
+  return _findClaudeProcess(resolveSessionId(sessionId) ?? sessionId, projectPath, sessions, pidToSession);
 }
 
 /**

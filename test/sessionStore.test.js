@@ -1,13 +1,23 @@
 // test/sessionStore.test.js — Tests for server/sessionStore.js
 import { describe, it, expect } from 'vitest';
 import {
-  handleEvent, getAllSessions, getSession, setSessionTitle, setSessionLabel,
+  handleEvent as rawHandleEvent, getAllSessions, getSession, setSessionTitle,
   pushEvent, getEventsSince, getEventSeq,
   killSession, archiveSession, deleteSessionFromMemory,
   setSummary, setSessionAccentColor, setSessionCharacterModel,
   updateQueueCount, linkTerminalToSession,
 } from '../server/sessionStore.js';
 import { EVENT_TYPES, SESSION_STATUS, ANIMATION_STATE, EMOTE } from '../server/constants.js';
+
+// sessionMatcher's Priority 5 external fallback only creates a card for an
+// unmatched hook when it carries a controlling tty — a headless `claude -p`, a
+// CI run or an MCP-spawned agent must not spawn phantom cards. Every test here
+// models an INTERACTIVE session, so default a tty at the boundary rather than
+// repeating it across 38 payloads. A test can still override it (or pass
+// `tty_path: undefined`) to assert the headless path.
+// Non-objects pass through untouched so validation paths stay testable.
+const handleEvent = (payload) =>
+  rawHandleEvent(payload && typeof payload === 'object' ? { tty_path: '/dev/ttys001', ...payload } : payload);
 
 // Helper to create a session via SessionStart event
 function createSession(sessionId, cwd = '/tmp/test-project') {
@@ -397,12 +407,10 @@ describe('sessionStore', () => {
       expect(result).toBe(null);
     });
 
-    it('setSessionLabel updates label', () => {
-      createSession('store-test-label-1');
-      const result = setSessionLabel('store-test-label-1', 'reviewer');
-      expect(result).toBeTruthy();
-      expect(result.label).toBe('reviewer');
-    });
+    // Session labels are no longer server state. They live entirely in the
+    // client (src/stores/labelStore.ts, persisted to localStorage under
+    // 'session-label-map'), and setSessionLabel / PUT /api/sessions/:id/label
+    // were removed with that move. Coverage lives in src/stores/labelStore.test.ts.
 
     it('setSummary updates summary', () => {
       createSession('store-test-summary-1');

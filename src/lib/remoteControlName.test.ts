@@ -1,9 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect } from 'vitest';
 import {
   EFFORT_LEVELS,
   DEFAULT_EFFORT_LEVEL,
+  loadSessionPrefs,
   normalizeEffortLevel,
+  saveSessionPrefs,
 } from './remoteControlName';
+
+beforeEach(() => localStorage.clear());
 
 describe('EFFORT_LEVELS', () => {
   it('matches Claude Code\'s canonical effort set (low → ultracode)', () => {
@@ -44,5 +48,26 @@ describe('normalizeEffortLevel', () => {
 
   it('is case-sensitive — does not normalize "HIGH" to "high"', () => {
     expect(normalizeEffortLevel('HIGH')).toBe(DEFAULT_EFFORT_LEVEL);
+  });
+});
+
+describe('session creation model preferences', () => {
+  it('stores Claude and Codex model choices independently', () => {
+    saveSessionPrefs({ model: 'opus', codexModel: 'gpt-newest', effortLevel: 'high' });
+    expect(loadSessionPrefs()).toEqual({
+      model: 'opus',
+      codexModel: 'gpt-newest',
+      effortLevel: 'high',
+    });
+  });
+
+  it('preserves the Codex choice when a Claude-only modal save runs later', () => {
+    saveSessionPrefs({ codexModel: 'gpt-newest' });
+    saveSessionPrefs({ model: 'sonnet', effortLevel: 'max' });
+    expect(loadSessionPrefs()).toEqual({
+      model: 'sonnet',
+      codexModel: 'gpt-newest',
+      effortLevel: 'max',
+    });
   });
 });

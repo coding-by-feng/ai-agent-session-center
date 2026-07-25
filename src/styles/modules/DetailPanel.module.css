@@ -1372,20 +1372,27 @@
 
 /* ---- Session tab pin icon ---- */
 
+/* Pin toggle. Anchored just left of the top-right status badge (which spans
+   right:-4px..11px) rather than the top-left corner: .sessionTabIndex is an
+   OPAQUE 18x18 circle at top:-9/left:-9, so a pin at left:-3 rendered entirely
+   underneath it and was invisible in every state.
+   Visible at rest because this is the only affordance for pinning — at
+   opacity:0 the feature could not be discovered without hovering blindly. */
 .sessionTabPin {
   position: absolute;
-  top: -3px;
-  left: -3px;
-  font-size: 8px;
+  top: -2px;
+  right: 14px;
+  font-size: 11px;
   line-height: 1;
-  opacity: 0;
+  opacity: 0.35;
   cursor: pointer;
   z-index: 2;
-  transition: opacity 0.15s;
-  filter: grayscale(1) brightness(0.6);
+  transition: opacity 0.15s, filter 0.15s;
+  filter: grayscale(1) brightness(0.9);
 }
 
-.sessionTabCard:hover .sessionTabPin { opacity: 0.7; }
+.sessionTabCard:hover .sessionTabPin { opacity: 0.8; }
+.sessionTabPin:hover { opacity: 1; filter: none; }
 .sessionTabPin.pinned { opacity: 1; filter: none; }
 
 /* ---- Session tab CLI badge ---- */
@@ -1407,7 +1414,11 @@
   flex-direction: row;
   align-items: center;
   gap: 4px;
-  padding: 3px 8px;
+  /* Right padding reserves the strip the pin occupies (right:14px..25px).
+     The status badge sits OUTSIDE the card at right:-4px so it needs no
+     reservation, but the pin is inside — without this the single-line title
+     ellipsizes at the content edge and slides underneath it. */
+  padding: 3px 28px 3px 8px;
   min-width: auto;
   max-width: 100px;
 }

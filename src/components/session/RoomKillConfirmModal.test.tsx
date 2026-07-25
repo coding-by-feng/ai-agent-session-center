@@ -36,7 +36,11 @@ const mk = (over: Partial<Session>): Session => ({
 
 /** fetch stub: kill → {ok}, terminal DELETE → {}. `failIds` return ok:false;
  *  `rejectIds` make the kill fetch REJECT (network error → killOne's catch). */
-function stubFetch(failIds: Set<string> = new Set(), rejectIds: Set<string> = new Set()) {
+function stubFetch(
+  failIds: Set<string> = new Set(),
+  rejectIds: Set<string> = new Set(),
+  canonicalTerminals: Map<string, string> = new Map(),
+) {
   return vi.fn((url: string, opts?: RequestInit) => {
     const killMatch = /\/api\/sessions\/([^/]+)\/kill$/.exec(url);
     if (killMatch && opts?.method === 'POST') {
@@ -44,7 +48,9 @@ function stubFetch(failIds: Set<string> = new Set(), rejectIds: Set<string> = ne
       if (rejectIds.has(id)) return Promise.reject(new Error('network down'));
       return Promise.resolve({
         ok: true,
-        json: async () => (failIds.has(id) ? { ok: false, stillAlivePid: 999 } : { ok: true, killedPid: 111 }),
+        json: async () => (failIds.has(id)
+          ? { ok: false, stillAlivePid: 999 }
+          : { ok: true, killedPid: 111, terminalId: canonicalTerminals.get(id) }),
       } as Response);
     }
     // terminal DELETE
@@ -72,6 +78,7 @@ describe('RoomKillConfirmModal', () => {
     useRoomStore.setState({ rooms: [] });
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    delete window.electronAPI;
   });
 
   const seed = (opts: { sessions: Session[]; roomSessionIds: string[]; selected?: string }) => {
@@ -123,6 +130,25 @@ describe('RoomKillConfirmModal', () => {
     expect(toast).toHaveBeenCalled();
     const deletes = fetchMock.mock.calls.filter(([, o]) => (o as RequestInit)?.method === 'DELETE').map(([u]) => u);
     expect(deletes).toEqual(['/api/terminals/t-a']); // only the one with a terminalId
+  });
+
+  it('closes the canonical Electron PTY returned for a stale aliased card', async () => {
+    const killPty = vi.fn().mockResolvedValue({ ok: true });
+    window.electronAPI = { killPty } as unknown as typeof window.electronAPI;
+    const fetchMock = stubFetch(new Set(), new Set(), new Map([['stale', 'pty-current']]));
+    vi.stubGlobal('fetch', fetchMock);
+    seed({
+      sessions: [mk({ sessionId: 'stale', terminalId: 'pty-old' })],
+      roomSessionIds: ['stale'],
+    });
+    render(<RoomKillConfirmModal />);
+    await clickAndSettle('KILL 1');
+
+    expect(killPty).toHaveBeenCalledWith('pty-current');
+    const deletes = fetchMock.mock.calls
+      .filter(([, options]) => (options as RequestInit)?.method === 'DELETE')
+      .map(([url]) => url);
+    expect(deletes).toEqual(['/api/terminals/pty-current']);
   });
 
   it('reports a success summary when all die', async () => {

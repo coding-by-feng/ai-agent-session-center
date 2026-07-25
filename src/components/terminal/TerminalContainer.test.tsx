@@ -74,9 +74,14 @@ describe('TerminalContainer', () => {
     expect(screen.getByText(/No terminal attached/)).toBeInTheDocument();
   });
 
+  // TerminalContainer mounts the toolbar TWICE by design: the inline one, and a
+  // second copy inside the fullscreen overlay portal. That overlay stays mounted
+  // and is toggled with `display` (TerminalContainer.tsx:632) so the xterm
+  // element is never orphaned by unmounting the portal while it lives inside it.
+  // Queries here therefore match all copies and assert on the inline one.
   it('renders toolbar and container when terminalId is set', () => {
     render(<TerminalContainer terminalId="term-1" ws={null} />);
-    expect(screen.getByTestId('terminal-toolbar')).toBeInTheDocument();
+    expect(screen.getAllByTestId('terminal-toolbar')[0]).toBeInTheDocument();
     expect(screen.queryByText(/No terminal attached/)).not.toBeInTheDocument();
   });
 
@@ -106,7 +111,7 @@ describe('TerminalContainer', () => {
         onReconnect={onReconnect}
       />,
     );
-    expect(screen.getByTestId('reconnect-btn')).toBeInTheDocument();
+    expect(screen.getAllByTestId('reconnect-btn')[0]).toBeInTheDocument();
   });
 
   it('listens for WS terminal messages', () => {

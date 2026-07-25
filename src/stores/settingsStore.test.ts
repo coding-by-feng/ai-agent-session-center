@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useSettingsStore, CLI_SOUND_PROFILES, DEFAULT_AMBIENT_SETTINGS } from './settingsStore';
+import { useSettingsStore, CLI_SOUND_PROFILES, DEFAULT_AMBIENT_SETTINGS, fullCliActions } from './settingsStore';
 
 const defaultPerCli = {
   claude: { ...CLI_SOUND_PROFILES.claude },
@@ -223,11 +223,20 @@ describe('settingsStore', () => {
       expect(soundSettings.perCli.codex.volume).toBe(0.5);
     });
 
-    it('has per-CLI action sounds', () => {
+    it('is quiet by default — only high-signal events make a sound', () => {
       const { soundSettings } = useSettingsStore.getState();
-      expect(soundSettings.perCli.claude.actions.sessionStart).toBe('chime');
-      expect(soundSettings.perCli.gemini.actions.sessionStart).toBe('ding');
-      expect(soundSettings.perCli.codex.actions.sessionStart).toBe('blip');
+      // High-signal, low-frequency events keep a sound out of the box…
+      expect(soundSettings.perCli.claude.actions.approvalNeeded).toBe('alarm');
+      expect(soundSettings.perCli.claude.actions.inputNeeded).toBe('chime');
+      expect(soundSettings.perCli.claude.actions.alert).toBe('alarm');
+      // taskComplete fires every turn, so 'quiet' uses a subtle blip (not fanfare).
+      expect(soundSettings.perCli.claude.actions.taskComplete).toBe('blip');
+      expect(soundSettings.perCli.codex.actions.taskComplete).toBe('blip');
+      // …while per-tool chatter and session/subagent noise is silenced.
+      expect(soundSettings.perCli.claude.actions.sessionStart).toBe('none');
+      expect(soundSettings.perCli.claude.actions.toolRead).toBe('none');
+      expect(soundSettings.perCli.gemini.actions.toolBash).toBe('none');
+      expect(soundSettings.perCli.codex.actions.subagentStart).toBe('none');
     });
 
     it('updateCliSoundConfig updates CLI volume immutably', () => {
@@ -247,7 +256,20 @@ describe('settingsStore', () => {
       useSettingsStore.getState().setCliActionSound('claude', 'sessionStart', 'buzz');
       const { soundSettings } = useSettingsStore.getState();
       expect(soundSettings.perCli.claude.actions.sessionStart).toBe('buzz');
-      expect(soundSettings.perCli.claude.actions.sessionEnd).toBe('cascade'); // unchanged
+      expect(soundSettings.perCli.claude.actions.approvalNeeded).toBe('alarm'); // other action unchanged
+    });
+
+    it('applyCliSoundPreset toggles between full and quiet profiles', () => {
+      useSettingsStore.getState().applyCliSoundPreset('claude', 'full');
+      let actions = useSettingsStore.getState().soundSettings.perCli.claude.actions;
+      expect(actions.toolRead).toBe('click'); // per-tool sounds restored
+      expect(actions.sessionStart).toBe('chime');
+
+      useSettingsStore.getState().applyCliSoundPreset('claude', 'quiet');
+      actions = useSettingsStore.getState().soundSettings.perCli.claude.actions;
+      expect(actions.toolRead).toBe('none'); // chatter silenced again
+      expect(actions.subagentStart).toBe('none');
+      expect(actions.approvalNeeded).toBe('alarm'); // high-signal kept
     });
   });
 
@@ -280,6 +302,47 @@ describe('settingsStore', () => {
       const { ambientSettings } = useSettingsStore.getState();
       expect(ambientSettings.roomSounds).toBe(true);
       expect(ambientSettings.roomVolume).toBe(0.5);
+    });
+  });
+
+  describe('quiet-by-default migration', () => {
+    function loudPerCli() {
+      return {
+        claude: { enabled: true, volume: 0.7, actions: fullCliActions('claude') },
+        gemini: { enabled: true, volume: 0.7, actions: fullCliActions('gemini') },
+        codex: { enabled: true, volume: 0.5, actions: fullCliActions('codex') },
+      };
+    }
+
+    it('quiets untouched loud profiles and stamps the schema version', () => {
+      useSettingsStore.getState().loadFromDb({
+        soundSettings: { enabled: true, volume: 0.5, muteApproval: false, muteInput: false, perCli: loudPerCli() },
+      });
+      const perCli = useSettingsStore.getState().soundSettings.perCli;
+      expect(perCli.claude.actions.toolRead).toBe('none'); // per-tool chatter silenced
+      expect(perCli.claude.actions.taskComplete).toBe('blip'); // subtle done cue
+      expect(perCli.claude.actions.approvalNeeded).toBe('alarm'); // high-signal kept
+      expect(useSettingsStore.getState().settingsSchemaVersion).toBe(1);
+    });
+
+    it('preserves a customized profile — only untouched ones are quieted', () => {
+      const perCliIn = loudPerCli();
+      perCliIn.claude.actions = { ...fullCliActions('claude'), toolRead: 'warble' };
+      useSettingsStore.getState().loadFromDb({
+        soundSettings: { enabled: true, volume: 0.5, muteApproval: false, muteInput: false, perCli: perCliIn },
+      });
+      const perCli = useSettingsStore.getState().soundSettings.perCli;
+      expect(perCli.claude.actions.toolRead).toBe('warble'); // user customization respected
+      expect(perCli.gemini.actions.toolRead).toBe('none'); // untouched → quieted
+    });
+
+    it('does not re-quiet a user already on the current schema version', () => {
+      useSettingsStore.getState().loadFromDb({
+        settingsSchemaVersion: 1,
+        soundSettings: { enabled: true, volume: 0.5, muteApproval: false, muteInput: false, perCli: loudPerCli() },
+      });
+      // Already migrated → a deliberate loud choice is respected, not re-quieted.
+      expect(useSettingsStore.getState().soundSettings.perCli.claude.actions.toolRead).toBe('click');
     });
   });
 });

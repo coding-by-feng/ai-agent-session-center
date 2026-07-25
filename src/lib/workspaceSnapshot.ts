@@ -30,6 +30,10 @@ export interface ProjectSubTab {
 export interface SessionSnapshot {
   /** Original session ID — used to remap room assignments on import */
   originalSessionId: string;
+  /** Current PTY identity, used to reconcile a temporary terminal card with its hook UUID. */
+  terminalId?: string;
+  /** Prior hook IDs already folded into this session's resume/re-key lineage. */
+  previousSessionIds?: string[];
   title: string;
   /** Session status at export time (e.g. 'idle', 'working', 'ended') */
   status?: string;
@@ -157,8 +161,11 @@ export function buildSnapshot(
 ): WorkspaceSnapshot {
   const sessionSnapshots: SessionSnapshot[] = [];
   const exportedSessionIds = new Set<string>();
+  const identityAliases = buildSessionIdentityAliases(sessions);
 
-  for (const [_id, session] of sessions) {
+  for (const session of sessions.values()) {
+    const canonicalId = resolveIdentityAlias(session.sessionId, identityAliases);
+    if (canonicalId !== session.sessionId) continue;
     // Only export sessions that have SSH config (can be recreated)
     if (!session.sshConfig) continue;
     // Never recreate sessions that were explicitly killed or archived by the user
@@ -204,6 +211,8 @@ export function buildSnapshot(
       : undefined;
     sessionSnapshots.push({
       originalSessionId: session.sessionId,
+      terminalId: session.terminalId || session.lastTerminalId || undefined,
+      previousSessionIds: session.previousSessions?.map((previous) => previous.sessionId),
       title: session.title,
       status: session.status,
       accentColor: session.accentColor,
@@ -240,7 +249,11 @@ export function buildSnapshot(
   // so the snapshot stays clean and importable without orphaned references.
   const snapshotRooms = rooms.map((r) => ({
     ...r,
-    sessionIds: [...new Set(r.sessionIds.filter((id) => exportedSessionIds.has(id)))],
+    sessionIds: [...new Set(
+      r.sessionIds
+        .map((id) => resolveIdentityAlias(id, identityAliases))
+        .filter((id) => exportedSessionIds.has(id)),
+    )],
   }));
 
   return {
@@ -286,12 +299,34 @@ export async function saveToConfig(snapshot: WorkspaceSnapshot): Promise<void> {
 // Load from AASC config (server-side)
 // ---------------------------------------------------------------------------
 
+async function sessionsForSnapshotReconciliation(): Promise<Map<string, Session>> {
+  const hydrated = useSessionStore.getState().sessions;
+  if (hydrated.size > 0) return hydrated;
+
+  // Workspace auto-load can run before the WebSocket snapshot hydrates Zustand.
+  // Ask the server directly so its terminal ownership and previous-session
+  // lineage can clean the saved snapshot on the very first cold start.
+  try {
+    const response = await fetch('/api/sessions');
+    if (!response.ok) return hydrated;
+    const data = await response.json();
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return hydrated;
+    const entries = Object.entries(data).filter(
+      (entry): entry is [string, Session] =>
+        !!entry[1] && typeof entry[1] === 'object' && typeof (entry[1] as Session).sessionId === 'string',
+    );
+    return new Map(entries);
+  } catch {
+    return hydrated;
+  }
+}
+
 export async function loadFromConfig(): Promise<WorkspaceSnapshot | null> {
   const res = await fetch('/api/workspace/load');
   if (!res.ok) return null;
   const data = await res.json();
   if (!data || !data.version) return null;
-  return data as WorkspaceSnapshot;
+  return reconcileWorkspaceSnapshot(data as WorkspaceSnapshot, await sessionsForSnapshotReconciliation());
 }
 
 // ---------------------------------------------------------------------------
@@ -308,7 +343,7 @@ export function loadFromFile(file: File): Promise<WorkspaceSnapshot> {
           reject(new Error('Invalid workspace snapshot file'));
           return;
         }
-        resolve(parsed as WorkspaceSnapshot);
+        resolve(reconcileWorkspaceSnapshot(parsed as WorkspaceSnapshot, useSessionStore.getState().sessions));
       } catch {
         reject(new Error('Failed to parse snapshot file'));
       }
@@ -417,6 +452,185 @@ export function deduplicateSessions(sessions: SessionSnapshot[]): SessionSnapsho
   return result;
 }
 
+function sessionIdentityRank(session: Session): number {
+  const hookId = /^(?:term|pty)-/.test(session.sessionId) ? 0 : 1;
+  const live = session.status === 'ended' ? 0 : 1;
+  return hookId * 1e15 + live * 1e14 + (session.lastActivityAt || session.startedAt || 0);
+}
+
+/** Follow a terminal/previous-session alias chain with a cycle guard. */
+export function resolveIdentityAlias(id: string, aliases: Map<string, string>): string {
+  let current = id;
+  const visited = new Set<string>();
+  while (!visited.has(current)) {
+    visited.add(current);
+    const next = aliases.get(current);
+    if (!next || next === current) return current;
+    current = next;
+  }
+  return id;
+}
+
+/**
+ * Build high-confidence duplicate mappings from live identity ownership.
+ * Titles, paths, and PIDs are deliberately ignored: legitimate parallel Codex
+ * threads can share all three. A managed terminal and an explicit recorded
+ * previous-session ID are the high-confidence ownership signals.
+ */
+export function buildSessionIdentityAliases(sessions: Map<string, Session>): Map<string, string> {
+  const aliases = new Map<string, string>();
+  const normalized = [...sessions.entries()]
+    .map(([key, session]) => ({ id: session.sessionId || key, session }))
+    .sort((a, b) => sessionIdentityRank(a.session) - sessionIdentityRank(b.session));
+
+  const terminalOwners = new Map<string, { id: string; rank: number }>();
+
+  for (const { id, session } of normalized) {
+    const rank = sessionIdentityRank(session);
+    for (const terminalId of [session.terminalId, session.lastTerminalId]) {
+      if (!terminalId) continue;
+      const owner = terminalOwners.get(terminalId);
+      if (!owner || rank >= owner.rank) terminalOwners.set(terminalId, { id, rank });
+    }
+    for (const previous of session.previousSessions ?? []) {
+      if (previous.sessionId && previous.sessionId !== id) aliases.set(previous.sessionId, id);
+    }
+  }
+
+  for (const { id, session } of normalized) {
+    for (const terminalId of [session.terminalId, session.lastTerminalId]) {
+      if (!terminalId) continue;
+      const owner = terminalOwners.get(terminalId);
+      if (owner) aliases.set(terminalId, owner.id);
+      if (owner && owner.id !== id) aliases.set(id, owner.id);
+    }
+  }
+
+  // Flatten chains so consumers can remap rooms in one pass.
+  for (const id of [...aliases.keys()]) {
+    aliases.set(id, resolveIdentityAlias(id, aliases));
+  }
+  return aliases;
+}
+
+function isSyntheticTerminalId(id: string): boolean {
+  return /^(?:term|pty)-/.test(id);
+}
+
+function legacyTerminalIdentity(session: SessionSnapshot): string {
+  const cfg = session.sshConfig;
+  return [
+    session.title ?? '',
+    cfg?.host ?? '',
+    cfg?.port ?? '',
+    cfg?.username ?? '',
+    cfg?.workingDir ?? '',
+    cfg?.command ?? '',
+  ].join('\0');
+}
+
+/**
+ * Remove already-migrated cards from a saved workspace and remap its rooms.
+ * Live lineage repairs legacy snapshots; new snapshots also carry their own
+ * terminal/previous IDs so they remain self-healing after a restart.
+ */
+export function reconcileWorkspaceSnapshot(
+  snapshot: WorkspaceSnapshot,
+  liveSessions: Map<string, Session>,
+): WorkspaceSnapshot {
+  const snapshotIds = new Set(snapshot.sessions.map((session) => session.originalSessionId));
+  const aliases = buildSessionIdentityAliases(liveSessions);
+  const liveById = new Map([...liveSessions.values()].map((session) => [session.sessionId, session]));
+  const tombstones = new Set<string>();
+
+  for (const session of snapshot.sessions) {
+    for (const oldId of [session.terminalId, ...(session.previousSessionIds ?? [])]) {
+      if (oldId && oldId !== session.originalSessionId && !aliases.has(oldId)) {
+        aliases.set(oldId, session.originalSessionId);
+      }
+    }
+  }
+
+  // Legacy snapshots predate terminal/lineage fields. A stale placeholder is
+  // still identifiable when it is an idle synthetic term-/pty- card with no
+  // startup command and a hook-UUID Codex entry has the exact same title and
+  // launch configuration. Never merge UUID entries with one another: parallel
+  // Codex threads may intentionally share title, cwd, command, and host PID.
+  const canonicalByLegacyIdentity = new Map<string, SessionSnapshot[]>();
+  for (const session of snapshot.sessions) {
+    if (isSyntheticTerminalId(session.originalSessionId) || !session.startupCommand) continue;
+    const command = session.sshConfig?.command?.trim().toLowerCase() || '';
+    if (!command.startsWith('codex')) continue;
+    const key = legacyTerminalIdentity(session);
+    const candidates = canonicalByLegacyIdentity.get(key);
+    if (candidates) candidates.push(session);
+    else canonicalByLegacyIdentity.set(key, [session]);
+  }
+  for (const session of snapshot.sessions) {
+    if (!isSyntheticTerminalId(session.originalSessionId)) continue;
+    // Exact live terminal/lineage ownership wins over the legacy title/config
+    // heuristic. Otherwise an ambiguous legacy group can tombstone a known
+    // alias and drop its room reference instead of migrating it.
+    if (aliases.has(session.originalSessionId)) continue;
+    if (session.status !== 'idle' || session.startupCommand) continue;
+    const command = session.sshConfig?.command?.trim().toLowerCase() || '';
+    if (!command.startsWith('codex')) continue;
+    const candidates = canonicalByLegacyIdentity.get(legacyTerminalIdentity(session)) ?? [];
+    if (candidates.length === 1) {
+      aliases.set(session.originalSessionId, candidates[0].originalSessionId);
+    } else if (candidates.length > 1) {
+      // The placeholder is certainly stale, but the correct one of several
+      // parallel UUID cards is unknowable without lineage. Drop only the ghost.
+      tombstones.add(session.originalSessionId);
+    }
+  }
+
+  for (const id of [...aliases.keys()]) {
+    aliases.set(id, resolveIdentityAlias(id, aliases));
+  }
+
+  const canonicalFor = (id: string): string | null => {
+    const resolved = resolveIdentityAlias(id, aliases);
+    if (tombstones.has(id) && resolved === id) return null;
+    if (snapshotIds.has(resolved)) return resolved;
+    // Preserve an active live owner even when only its old identity exists in
+    // the saved snapshot: import clears server state before restoring, so
+    // dropping it here would destroy the active conversation. Ended owners are
+    // intentionally omitted to avoid resurrecting stale cards.
+    const liveOwner = liveById.get(resolved);
+    if (resolved !== id && liveOwner) {
+      return liveOwner.status === 'ended' ? null : resolved;
+    }
+    return id;
+  };
+
+  const kept: SessionSnapshot[] = [];
+  const seen = new Set<string>();
+  for (const session of snapshot.sessions) {
+    const canonicalId = canonicalFor(session.originalSessionId);
+    if (!canonicalId || seen.has(canonicalId)) continue;
+    // If the canonical snapshot is present, prefer its own metadata rather than
+    // an earlier alias record. Otherwise retain the alias record under the live
+    // canonical ID so clear-and-restore does not lose that session.
+    if (canonicalId !== session.originalSessionId && snapshotIds.has(canonicalId)) continue;
+    seen.add(canonicalId);
+    kept.push(canonicalId === session.originalSessionId
+      ? session
+      : { ...session, originalSessionId: canonicalId });
+  }
+
+  const rooms = (snapshot.rooms ?? []).map((room) => ({
+    ...room,
+    sessionIds: [...new Set(
+      room.sessionIds
+        .map(canonicalFor)
+        .filter((id): id is string => !!id && seen.has(id)),
+    )],
+  }));
+
+  return { ...snapshot, sessions: deduplicateSessions(kept), rooms };
+}
+
 // ---------------------------------------------------------------------------
 // Import — recreate sessions from snapshot
 // ---------------------------------------------------------------------------
@@ -439,6 +653,7 @@ export async function importSnapshot(
    */
   sessionFilter?: Set<string> | null,
 ): Promise<{ created: number; failed: number; failedTitles: string[] }> {
+  snapshot = reconcileWorkspaceSnapshot(snapshot, useSessionStore.getState().sessions);
   // Block auto-save for the duration of the import — during clear-all + recreate
   // the Zustand store transiently holds dying old IDs alongside in-flight new IDs,
   // and any auto-save firing in that window writes a corrupt accumulated snapshot.

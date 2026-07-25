@@ -3,10 +3,15 @@
  * Fields: working dir, command, session title, room, API key,
  * remote control, model, effort level, commands terminal.
  */
-import { useState, useMemo } from 'react';
-import type { CreateTerminalRequest } from '@/types/api';
+import { useEffect, useState, useMemo } from 'react';
+import type {
+  CodexModelOption,
+  CreateTerminalRequest,
+  ListCodexModelsResponse,
+} from '@/types/api';
 import Modal from '@/components/ui/Modal';
 import Combobox from '@/components/ui/Combobox';
+import Select from '@/components/ui/Select';
 import BrowseDirButton from '@/components/ui/BrowseDirButton';
 import { showToast } from '@/components/ui/ToastContainer';
 import { useUiStore } from '@/stores/uiStore';
@@ -87,6 +92,7 @@ function saveWorkdir(dir: string): void {
 
 export default function NewSessionModal() {
   const closeModal = useUiStore((s) => s.closeModal);
+  const activeModal = useUiStore((s) => s.activeModal);
   const [saved] = useState(() => loadLastSession());
   const [workingDir, setWorkingDir] = useState(saved.workingDir || '~');
   const [command, setCommand] = useState(saved.command || '');
@@ -95,7 +101,11 @@ export default function NewSessionModal() {
   const [roomId, setRoomId] = useState('');
   const [sessionPrefs] = useState(() => loadSessionPrefs());
   const [effortLevel, setEffortLevel] = useState(normalizeEffortLevel(sessionPrefs.effortLevel));
-  const [model, setModel] = useState(sessionPrefs.model || '');
+  const [claudeModel, setClaudeModel] = useState(sessionPrefs.model || '');
+  const [codexModel, setCodexModel] = useState(sessionPrefs.codexModel || '');
+  const [codexModels, setCodexModels] = useState<CodexModelOption[]>([]);
+  const [codexModelStatus, setCodexModelStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [codexCatalogStale, setCodexCatalogStale] = useState(false);
   const [enableOpsTerminal, setEnableOpsTerminal] = useState(false);
   const [remoteControlSettings] = useState(() => loadRemoteControlSettings());
   const [autoEnableRemoteControl, setAutoEnableRemoteControl] = useState(
@@ -120,6 +130,58 @@ export default function NewSessionModal() {
   const roomOptions = useMemo(() => rooms.map((r) => r.name), [rooms]);
 
   const isClaudeCommand = command.trim().toLowerCase().startsWith('claude');
+  const isCodexCommand = /^(?:\S*\/)?codex(?:\s|$)/i.test(command.trim());
+  const apiKeyEnvName = isCodexCommand
+    ? 'OPENAI_API_KEY'
+    : command.trim().toLowerCase().startsWith('gemini')
+      ? 'GEMINI_API_KEY'
+      : 'ANTHROPIC_API_KEY';
+
+  useEffect(() => {
+    if (activeModal !== 'new-session' || !isCodexCommand) return;
+
+    const controller = new AbortController();
+    setCodexModelStatus('loading');
+    setCodexCatalogStale(false);
+
+    void fetch('/api/codex/models', { signal: controller.signal, cache: 'no-store' })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Codex model catalog returned ${res.status}`);
+        return res.json() as Promise<ListCodexModelsResponse>;
+      })
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setCodexModels(data.models);
+        setCodexCatalogStale(data.stale);
+        setCodexModel((current) => (
+          current && data.models.some((item) => item.id === current) ? current : ''
+        ));
+        setCodexModelStatus('ready');
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setCodexModels([]);
+        setCodexModel('');
+        setCodexModelStatus('error');
+      });
+
+    return () => controller.abort();
+  }, [activeModal, isCodexCommand]);
+
+  const codexModelOptions = useMemo(() => {
+    const recommended = codexModels.find((item) => item.isDefault);
+    return [
+      {
+        value: '',
+        label: recommended
+          ? `Default (Codex recommended: ${recommended.displayName})`
+          : 'Default (Codex recommended)',
+      },
+      ...codexModels.map((item) => ({ value: item.id, label: item.displayName })),
+    ];
+  }, [codexModels]);
+  const selectedCodexModel = codexModels.find((item) => item.id === codexModel)
+    ?? codexModels.find((item) => item.isDefault);
   const autoRemoteControlName = useMemo(
     () => deriveRemoteControlName(sessionTitle, workingDir, useSessionStore.getState().sessions.values()),
     [sessionTitle, workingDir],
@@ -146,8 +208,12 @@ export default function NewSessionModal() {
       command: command || undefined,
       apiKey: apiKey || undefined,
       sessionTitle: sessionTitle || undefined,
-      effortLevel: effortLevel || undefined,
-      model: model || undefined,
+      effortLevel: isClaudeCommand ? effortLevel || undefined : undefined,
+      model: isClaudeCommand
+        ? claudeModel || undefined
+        : isCodexCommand
+          ? codexModel || undefined
+          : undefined,
       enableOpsTerminal: enableOpsTerminal || undefined,
       remoteControlName:
         isClaudeCommand && enableRemoteControl && effectiveRemoteControlName
@@ -172,7 +238,11 @@ export default function NewSessionModal() {
         };
         saveLastSession(configToSave);
         saveDirSessionConfig(workingDir || '~', configToSave);
-        saveSessionPrefs({ model: model || undefined, effortLevel: effortLevel || undefined });
+        saveSessionPrefs({
+          model: claudeModel || undefined,
+          codexModel: codexModel || undefined,
+          effortLevel: effortLevel || undefined,
+        });
         saveRemoteControlSettings({
           enabled: enableRemoteControl,
           autoEnable: autoEnableRemoteControl,
@@ -191,7 +261,7 @@ export default function NewSessionModal() {
       } else {
         showToast(data.error || 'Failed to create terminal', 'error');
       }
-    } catch (err) {
+    } catch {
       showToast('Network error creating terminal', 'error');
     } finally {
       setSubmitting(false);
@@ -258,7 +328,7 @@ export default function NewSessionModal() {
         {/* API key */}
         <div className={styles.sshField}>
           <label>
-            API Key <span className={styles.sshFieldHint}>(override ANTHROPIC_API_KEY)</span>
+            API Key <span className={styles.sshFieldHint}>(override {apiKeyEnvName})</span>
           </label>
           <input
             type="password"
@@ -313,8 +383,8 @@ export default function NewSessionModal() {
           <div className={`${styles.sshField} ${styles.sshFieldGrow}`}>
             <label>Model</label>
             <Combobox
-              value={model}
-              onChange={setModel}
+              value={claudeModel}
+              onChange={setClaudeModel}
               items={[...MODEL_OPTIONS]}
               placeholder="Default"
             />
@@ -329,6 +399,44 @@ export default function NewSessionModal() {
             />
           </div>
         </div>
+        )}
+
+        {/* Official account-visible model catalog (Codex only) */}
+        {isCodexCommand && (
+          <div className={styles.sshField}>
+            <label>
+              Codex Model <span className={styles.sshFieldHint}>(official catalog)</span>
+            </label>
+            {codexModelStatus === 'loading' && (
+              <input disabled value="Loading official Codex models..." readOnly />
+            )}
+            {codexModelStatus === 'ready' && (
+              <Select
+                value={codexModel}
+                onChange={setCodexModel}
+                options={codexModelOptions}
+                placeholder="Default (Codex recommended)"
+                className={styles.codexModelSelect}
+                title="Codex model"
+              />
+            )}
+            {codexModelStatus === 'error' && (
+              <>
+                <input disabled value="Default (catalog unavailable)" readOnly />
+                <span className={styles.sshFieldError}>
+                  Catalog unavailable — Codex default will be used.
+                </span>
+              </>
+            )}
+            {codexModelStatus === 'ready' && selectedCodexModel && (
+              <span className={styles.codexModelMeta}>
+                {codexModel
+                  ? `${selectedCodexModel.description || selectedCodexModel.displayName} · ${selectedCodexModel.id}`
+                  : `Codex chooses the current recommended model (${selectedCodexModel.displayName}).`}
+                {codexCatalogStale ? ' Last known catalog.' : ''}
+              </span>
+            )}
+          </div>
         )}
 
         {/* Ops terminal checkbox */}

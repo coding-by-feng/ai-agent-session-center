@@ -10,6 +10,7 @@ import type { TerminalBookmarkPosition } from '@/hooks/useTerminal';
 import TerminalToolbar from './TerminalToolbar';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { ttsEngine } from '@/lib/ttsEngine';
+import { kokoroTts } from '@/lib/kokoroTts';
 import SelectionPopup from '@/components/translate/SelectionPopup';
 import { useSelectionPopup } from '@/hooks/useSelectionPopup';
 import { extractXtermSelection } from '@/lib/selectionExtractors';
@@ -46,9 +47,9 @@ interface TerminalContainerProps {
    *  the toolbar pop-out button is hidden (e.g. floating forks / the popout view
    *  itself, which must not re-pop-out). */
   onPopOut?: () => void;
-  /** Originating session id — required for the select-to-translate popup and the
-   *  "Translate previous answer" toolbar button. When omitted, both features are
-   *  hidden (e.g. floating-terminal hosts that have no source session). */
+  /** Originating session id — required for selection-driven translate/explain
+   *  popups. When omitted, those actions are hidden (e.g. floating-terminal
+   *  hosts that have no source session). */
   originSessionId?: string | null;
 }
 
@@ -84,6 +85,7 @@ export default memo(function TerminalContainer({
     containerRef,
     attach,
     detach,
+    terminalClosed,
     isFullscreen,
     toggleFullscreen,
     sendEscape,
@@ -201,6 +203,82 @@ export default memo(function TerminalContainer({
     if (!ttsEnabled) stopTts();
   }, [ttsEnabled, stopTts]);
 
+  // ---- Click-to-speak (local, offline English voice via Kokoro) ----
+  const ttsLocalEnabled = useSettingsStore((s) => s.ttsLocalEnabled);
+  const ttsLocalVoice = useSettingsStore((s) => s.ttsLocalVoice);
+  const [localTtsActive, setLocalTtsActive] = useState(false);
+  const [localTtsLoading, setLocalTtsLoading] = useState(() => kokoroTts.getStatus().loading);
+  const localTtsActiveRef = useRef(false);
+  const localLastAbsRef = useRef<number>(-1);
+  const localPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Stable per-terminal ownership token: the Kokoro engine is a shared singleton,
+  // so this lets only one terminal drive playback at a time and ensures our
+  // stop() never cuts another terminal's audio.
+  const localOwnerRef = useRef<symbol>(Symbol('term-local-tts'));
+  // Read the voice at speak-time so a mid-playback voice change takes effect.
+  const localVoiceRef = useRef(ttsLocalVoice);
+  useEffect(() => { localVoiceRef.current = ttsLocalVoice; }, [ttsLocalVoice]);
+
+  const resetLocalTtsUi = useCallback(() => {
+    localTtsActiveRef.current = false;
+    setLocalTtsActive(false);
+    if (localPollRef.current) {
+      clearInterval(localPollRef.current);
+      localPollRef.current = null;
+    }
+  }, []);
+
+  const stopLocalTts = useCallback(() => {
+    if (!localTtsActiveRef.current) return;
+    resetLocalTtsUi();
+    kokoroTts.stop(localOwnerRef.current);
+  }, [resetLocalTtsUi]);
+
+  const startLocalTts = useCallback(() => {
+    if (!ttsLocalEnabled || localTtsActiveRef.current) return;
+    localTtsActiveRef.current = true;
+    setLocalTtsActive(true);
+    const owner = localOwnerRef.current;
+    // Speak the current tail immediately, then stream new lines while active.
+    const initial = readRecentText({ lines: 20 });
+    localLastAbsRef.current = initial.absBottom;
+    if (initial.text) kokoroTts.speak(initial.text, { voice: localVoiceRef.current, owner });
+    localPollRef.current = setInterval(() => {
+      if (!localTtsActiveRef.current) return;
+      const snap = readRecentText({ sinceAbsLine: localLastAbsRef.current });
+      if (snap.absBottom > localLastAbsRef.current && snap.text) {
+        localLastAbsRef.current = snap.absBottom;
+        kokoroTts.speak(snap.text, { voice: localVoiceRef.current, owner });
+      } else {
+        localLastAbsRef.current = snap.absBottom;
+      }
+    }, 1200);
+  }, [ttsLocalEnabled, readRecentText]);
+
+  const toggleLocalTts = useCallback(() => {
+    if (localTtsActiveRef.current) stopLocalTts();
+    else startLocalTts();
+  }, [startLocalTts, stopLocalTts]);
+
+  // Track model load state for the spinner, and reset our UI if we lose the
+  // engine (another terminal took over) or the model fails to load — so the
+  // speaker button never gets stuck "on".
+  useEffect(() => {
+    return kokoroTts.subscribe((st) => {
+      setLocalTtsLoading(st.loading);
+      if (!localTtsActiveRef.current) return;
+      const lostEngine = st.activeOwner !== null && st.activeOwner !== localOwnerRef.current;
+      if (st.error || lostEngine) resetLocalTtsUi();
+    });
+  }, [resetLocalTtsUi]);
+
+  // Stop local TTS when the feature is turned off…
+  useEffect(() => {
+    if (!ttsLocalEnabled) stopLocalTts();
+  }, [ttsLocalEnabled, stopLocalTts]);
+  // …and when the terminal changes or the panel unmounts.
+  useEffect(() => stopLocalTts, [terminalId, stopLocalTts]);
+
   // Attach/detach when terminalId changes
   useEffect(() => {
     setIsClosed(false);
@@ -210,6 +288,10 @@ export default memo(function TerminalContainer({
       detach();
     }
   }, [terminalId, attach, detach]);
+
+  // IPC subscription failures and PTY exits are reported by useTerminal. The
+  // WebSocket transport reaches the same state through terminal_closed below.
+  const terminalIsClosed = isClosed || terminalClosed?.terminalId === terminalId;
 
   // Load bookmarks when terminalId changes
   useEffect(() => {
@@ -475,11 +557,15 @@ export default memo(function TerminalContainer({
         onClone={onClone}
         onPopOut={onPopOut}
         isFullscreen={isFullscreen}
-        showReconnect={showReconnect || (isClosed && !!onReconnect)}
+        showReconnect={showReconnect || (terminalIsClosed && !!onReconnect)}
         ttsEnabled={ttsEnabled}
         ttsActive={ttsActive}
         onTtsPressStart={startTts}
         onTtsPressEnd={stopTts}
+        localTtsEnabled={ttsLocalEnabled}
+        localTtsActive={localTtsActive}
+        localTtsLoading={localTtsLoading}
+        onLocalSpeakToggle={toggleLocalTts}
       />
       {popup.active && originSessionId && (
         <SelectionPopup
@@ -492,12 +578,18 @@ export default memo(function TerminalContainer({
         />
       )}
       <div className={styles.terminalArea} style={{ position: 'relative' }}>
-        {isClosed && onReconnect && (
+        {terminalIsClosed && (
           <div className={styles.closedOverlay}>
-            <span className={styles.closedOverlayText}>Terminal disconnected</span>
-            <button className={styles.reconnectPlaceholderBtn} onClick={onReconnect}>
-              Reconnect
-            </button>
+            <span className={styles.closedOverlayText}>
+              {terminalClosed?.reason === 'unavailable' || terminalClosed?.reason === 'Terminal not found'
+                ? 'Terminal unavailable'
+                : 'Terminal disconnected'}
+            </span>
+            {onReconnect && (
+              <button className={styles.reconnectPlaceholderBtn} onClick={onReconnect}>
+                Reconnect
+              </button>
+            )}
           </div>
         )}
         <div className={styles.terminalRow}>
@@ -564,6 +656,10 @@ export default memo(function TerminalContainer({
               onFork={onFork}
               isFullscreen={isFullscreen}
               showReconnect={showReconnect}
+              localTtsEnabled={ttsLocalEnabled}
+              localTtsActive={localTtsActive}
+              localTtsLoading={localTtsLoading}
+              onLocalSpeakToggle={toggleLocalTts}
             />
           </div>
           <div className={styles.fullscreenArea}>

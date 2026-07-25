@@ -374,8 +374,9 @@ export function reapPtyChildren(shellPid: unknown): void {
 }
 
 /**
- * Find the Claude process PID for a given session.
- * Uses cached PID first, then falls back to pgrep/lsof.
+ * Find the CLI process PID for a given session.
+ * Uses the exact cached PID first. Only Claude falls back to pgrep/lsof;
+ * Codex/Gemini scans are ambiguous when terminals share a cwd.
  */
 export function findClaudeProcess(
   sessionId: string,
@@ -384,6 +385,15 @@ export function findClaudeProcess(
   pidToSession: Map<number, string>,
 ): number | null {
   const session = sessionId ? sessions.get(sessionId) : null;
+  const cliSource = session?.cliSource?.toLowerCase();
+  const launchCommand = (
+    session?.startupCommand || session?.sshCommand || session?.sshConfig?.command || ''
+  ).trim().toLowerCase();
+  const processName = cliSource === 'codex' || launchCommand.startsWith('codex')
+    ? 'codex'
+    : cliSource === 'gemini' || launchCommand.startsWith('gemini')
+      ? 'gemini'
+      : 'claude';
   if (session?.cachedPid) {
     const validCachedPid = validatePid(session.cachedPid);
     if (validCachedPid) {
@@ -401,6 +411,15 @@ export function findClaudeProcess(
     }
   }
 
+  // Several Codex threads can share one host process, and several Codex/Gemini
+  // terminals can share one cwd. Without a verified cached PID, pgrep + cwd/TTY
+  // is not strong enough to choose which process the user intended to kill.
+  // The exact managed PTY is torn down separately by the terminal transport.
+  if (processName !== 'claude') {
+    log.debug('findProcess', `session=${sessionId?.slice(0, 8)} has no live cached ${processName} pid; refusing ambiguous fallback scan`);
+    return null;
+  }
+
   const myPid = process.pid;
   log.debug('findProcess', `session=${sessionId?.slice(0, 8)} projectPath=${projectPath}`);
 
@@ -416,7 +435,7 @@ export function findClaudeProcess(
     if (process.platform === 'win32') {
       if (!projectPath) return null;
       const psScript = `
-        $procs = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*claude*' -and $_.ProcessId -ne ${myPid} }
+        $procs = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*${processName}*' -and $_.ProcessId -ne ${myPid} }
         foreach ($p in $procs) {
           try {
             $proc = Get-Process -Id $p.ProcessId -ErrorAction Stop
@@ -437,7 +456,7 @@ export function findClaudeProcess(
     } else {
       let pidsOut: string;
       try {
-        pidsOut = execFileSync('pgrep', ['-f', 'claude'], { encoding: 'utf-8', timeout: 5000 });
+        pidsOut = execFileSync('pgrep', ['-f', processName], { encoding: 'utf-8', timeout: 5000 });
       } catch {
         pidsOut = ''; // pgrep exits non-zero when no matches
       }
@@ -445,7 +464,7 @@ export function findClaudeProcess(
         .map(p => validatePid(p.trim()))
         .filter((p): p is number => p !== null && p !== myPid);
 
-      log.debug('findProcess', `pgrep found ${pids.length} claude pids: [${pids.join(', ')}]`);
+      log.debug('findProcess', `pgrep found ${pids.length} ${processName} pids: [${pids.join(', ')}]`);
 
       if (pids.length === 0) return null;
 

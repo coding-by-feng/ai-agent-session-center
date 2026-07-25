@@ -8,6 +8,7 @@ import { useUiStore } from '@/stores/uiStore';
 import { showToast } from '@/components/ui/ToastContainer';
 import type { KillSessionResponse, ApiResponse } from '@/types';
 import styles from '@/styles/modules/Modal.module.css';
+import { closeManagedTerminal } from '@/lib/terminalTransport';
 
 export const KILL_MODAL_ID = 'kill-confirm';
 
@@ -41,9 +42,10 @@ export default function KillConfirmModal() {
       });
       const data: KillSessionResponse & ApiResponse & { killedPid?: number | null; stillAlivePid?: number } = await resp.json();
       if (data.ok) {
-        if (session?.terminalId) {
+        const terminalId = data.terminalId === undefined ? session?.terminalId : data.terminalId;
+        if (terminalId) {
           try {
-            await fetch(`/api/terminals/${session.terminalId}`, { method: 'DELETE' });
+            await closeManagedTerminal(terminalId);
           } catch {
             showToast('Failed to close terminal', 'error');
           }
@@ -52,7 +54,11 @@ export default function KillConfirmModal() {
         // we never claim a phantom kill ("PID N/A terminated").
         const killedPid = data.killedPid ?? data.pid ?? null;
         showToast(
-          killedPid ? `PID ${killedPid} terminated` : 'Session closed — no running process found',
+          data.processShared
+            ? 'Session terminal closed — shared Codex host left running'
+            : killedPid
+              ? `PID ${killedPid} terminated`
+              : 'Session closed — no running process found',
           'success',
         );
         deselectSession();
@@ -78,8 +84,8 @@ export default function KillConfirmModal() {
       <div className={styles.panel} onClick={(e) => e.stopPropagation()}>
         <h3>Kill Session</h3>
         <p>
-          Kill session for &quot;{projectName}&quot;? This will terminate the
-          Claude process (SIGTERM then SIGKILL).
+          Kill session for &quot;{projectName}&quot;? This will close its managed
+          terminal or terminate its isolated agent process.
         </p>
         <div className={styles.actions}>
           <button

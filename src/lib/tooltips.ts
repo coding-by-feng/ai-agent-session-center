@@ -100,6 +100,10 @@ export const tooltips = {
     label: 'Speak latest output',
     description: 'Hold to read the most recent terminal output aloud via TTS. Hold Space when focused.',
   },
+  termSpeakLocal: {
+    label: 'Read output aloud (offline)',
+    description: 'Click to read the terminal output aloud with the on-device English voice (Kokoro). Click again to stop. First use downloads the model.',
+  },
   termReconnect: {
     label: 'Reconnect terminal',
     description: 'Re-establish the PTY/SSH connection if it dropped. Buffer is restored on reconnect.',

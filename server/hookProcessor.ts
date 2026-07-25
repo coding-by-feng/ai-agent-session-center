@@ -7,6 +7,7 @@ import { KNOWN_EVENTS, WS_TYPES } from './constants.js';
 import log from './logger.js';
 import type { HookPayload } from '../src/types/hook.js';
 import type { HandleEventResult } from '../src/types/session.js';
+import { coalesceSessionUpdate } from './sessionUpdateCoalescer.js';
 
 // #80: Throttle session_update broadcasts to max 4/sec per session (250ms)
 const SESSION_UPDATE_THROTTLE_MS = 250;
@@ -15,8 +16,8 @@ const pendingSessionUpdates = new Map<string, { delta: HandleEventResult; timer:
 function scheduleBroadcast(sessionId: string, delta: HandleEventResult): void {
   const existing = pendingSessionUpdates.get(sessionId);
   if (existing) {
-    // Update the pending delta with latest data (coalesce)
-    existing.delta = delta;
+    // Keep the latest state while preserving one-shot identity migrations.
+    existing.delta = coalesceSessionUpdate(existing.delta, delta);
     return;
   }
   // No pending broadcast — schedule one

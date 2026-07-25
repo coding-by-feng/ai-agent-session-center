@@ -10,10 +10,11 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
 import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, maybeInjectUltracode, attachToTmuxPane, consumePendingLink, prefillTerminalOutput, setReplayBufferBytes } from './sshManager.js';
 import { terminateProcessTree } from './processMonitor.js';
+import { findLiveCodexPidPeers } from './sessionKillPolicy.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
 import * as db from './db.js';
@@ -28,6 +29,7 @@ import { reconstructPermissionFlags, appendSessionName, stripClaudeSessionName, 
 import log from './logger.js';
 import { searchFiles, invalidateCache, listTopEntries } from './fileIndexCache.js';
 import { getCommandIndex } from './commandIndex.js';
+import { getCodexModelCatalog } from './codexModelCatalog.js';
 import { synthesize as ttsSynthesize, checkApiKey as ttsCheckApiKey } from './ttsManager.js';
 import { readClaudeTranscript } from './extractPreviousAnswer.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
@@ -131,7 +133,8 @@ export function buildResumeCommand(session: { startupCommand?: string; sshComman
   const canUseSessionId = CLAUDE_SESSION_UUID_RE.test(sessionId);
 
   if (commandStartsWithCli(originalCmd, 'codex')) {
-    const baseCmd = stripCodexSessionSubcommand(originalCmd || 'codex') || 'codex';
+    let baseCmd = stripCodexSessionSubcommand(originalCmd || 'codex') || 'codex';
+    baseCmd = applyClaudeLaunchFlags(baseCmd, session.model, undefined);
     // Same rationale as the Claude branch below: fall back to a FRESH codex, NOT
     // `codex resume --last`, which would resume an UNRELATED most-recent session
     // in this dir and hijack it on restore.
@@ -173,7 +176,8 @@ function buildForkCommand(session: { startupCommand?: string; sshCommand?: strin
   const canUseSessionId = !sessionId.startsWith('term-') && /^[a-zA-Z0-9_-]+$/.test(sessionId);
 
   if (commandStartsWithCli(originalCmd, 'codex')) {
-    const baseCmd = stripCodexSessionSubcommand(originalCmd || 'codex') || 'codex';
+    let baseCmd = stripCodexSessionSubcommand(originalCmd || 'codex') || 'codex';
+    baseCmd = applyClaudeLaunchFlags(baseCmd, session.model, undefined);
     return canUseSessionId
       ? `${baseCmd} fork '${safeId}'`
       : `${baseCmd} fork --last`;
@@ -230,9 +234,8 @@ const terminalCreateSchema = z.object({
   /** Effort level to auto-apply after Claude Code starts (Claude Code: low/medium/high/xhigh/max/ultracode) */
   effortLevel: z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode']).optional().catch(undefined),
   /**
-   * Model to auto-apply after Claude Code starts — an alias (fable/opus/sonnet/haiku)
-   * or a full model ID (e.g. claude-fable-5, claude-opus-4-8). Charset is restricted
-   * because the value is interpolated unquoted into the `--model` launch flag.
+   * Model launch override for Claude or Codex. Charset is restricted because
+   * the value is interpolated unquoted into the `--model` launch flag.
    */
   model: z
     .string()
@@ -898,12 +901,13 @@ router.post('/sessions/:id/clone', async (req: Request, res: Response) => {
   }
 });
 
-// Spawn a "floating" forked session pre-loaded with a synthesized translate /
-// explain prompt. Used by the SelectionPopup (selection-anchored) and the
-// per-surface "Translate" toolbar buttons.
+// Spawn a "floating" forked session pre-loaded with a synthesized translate,
+// explain, vocabulary, or custom prompt. Used by selection-anchored popups and
+// other surfaces that launch a focused child session.
 //   modes: explain-learning | explain-native
-//        | translate-selection-learning | translate-selection-native
-//        | translate-answer | translate-file
+//        | vocab-native | translate-selection-learning
+//        | translate-selection-native | translate-answer | translate-file
+//        | custom
 router.post('/sessions/spawn-floating', async (req: Request, res: Response) => {
   const { spawnFloatingSession } = await import('./floatingSessionSpawner.js');
   const FloatingModeSchema = z.enum([
@@ -981,21 +985,47 @@ router.post('/sessions/:id/reconnect-ops-terminal', async (req: Request, res: Re
 router.post('/sessions/:id/kill', async (req: Request, res: Response) => {
   const body = validateBody(killSessionSchema, req.body, res);
   if (!body) return;
-  const sessionId = str(req.params.id);
-  const mem = getSession(sessionId);
-  if (!mem) {
+  const requestedSessionId = str(req.params.id);
+  const sessionId = resolveSessionId(requestedSessionId);
+  const mem = sessionId ? getSession(sessionId) : null;
+  if (!sessionId || !mem) {
     res.status(404).json({ success: false, error: 'Session not found' });
     return;
   }
-  // Resolve the real agent PID. Prefer the exact cachedPid (set by hooks) — it is
-  // collision-free. Fall back to the cwd scan only for non-forks: forks share the
-  // origin's projectPath, so findClaudeProcess would return the ORIGIN's PID and
-  // kill the wrong process. terminateProcessTree signals the whole process GROUP
+  // Resolve and validate the hook-reported PID. Claude may fall back to a cwd
+  // scan only for non-forks; Codex/Gemini refuse that ambiguous scan. Forks
+  // share the origin's projectPath, so a cwd fallback could return the ORIGIN's
+  // PID and kill the wrong process. terminateProcessTree signals the whole process GROUP
   // (agent + child tool/MCP tree), escalating SIGTERM -> SIGKILL, because `claude`
   // runs in its own process group and a single-PID/shell signal never reaches it.
   const cached = typeof mem.cachedPid === 'number' && mem.cachedPid > 0 ? mem.cachedPid : null;
-  const pid = cached ?? (mem.isFork ? null : findClaudeProcess(sessionId, mem?.projectPath));
+  const resolvedPid = !cached && mem.isFork
+    ? null
+    : findClaudeProcess(sessionId, mem.projectPath);
   const source = detectSessionSource(sessionId);
+  const terminalId = mem.terminalId || null;
+  const sharedPidPeers = resolvedPid
+    ? findLiveCodexPidPeers(mem, Object.values(getAllSessions()), resolvedPid)
+    : [];
+  const processShared = sharedPidPeers.length > 0;
+
+  // A Codex host PID can back several independent thread cards. With no
+  // managed terminal there is no safe per-thread OS target, so reject instead
+  // of killing siblings while only marking the selected card ended.
+  if (processShared && !terminalId) {
+    const peerCount = sharedPidPeers.length;
+    res.status(409).json({
+      ok: false,
+      error: `Cannot safely kill this Codex thread individually: PID ${resolvedPid} is shared with ${peerCount} other live session${peerCount === 1 ? '' : 's'} and this card has no managed terminal`,
+      sharedProcessPid: resolvedPid,
+      sharedSessionIds: sharedPidPeers.map((session) => session.sessionId),
+    });
+    return;
+  }
+
+  // When a managed terminal exists, closing that PTY is the isolated kill
+  // target. Never signal the shared Codex host PID.
+  const pid = processShared ? null : resolvedPid;
 
   let processSurvived = false;
   if (pid) {
@@ -1008,8 +1038,8 @@ router.post('/sessions/:id/kill', async (req: Request, res: Response) => {
 
   // Always tear down the PTY/terminal record (closes the login shell + reaps any
   // remaining descendant groups via reapPtyChildren inside closeTerminal).
-  if (mem.terminalId) {
-    closeTerminal(mem.terminalId);
+  if (terminalId) {
+    closeTerminal(terminalId);
   }
 
   // Don't lie: if we resolved a PID and it outlived even SIGKILL, report failure
@@ -1031,7 +1061,12 @@ router.post('/sessions/:id/kill', async (req: Request, res: Response) => {
   if (session) {
     try {
       const { broadcast } = await import('./wsManager.js');
-      broadcast({ type: WS_TYPES.SESSION_UPDATE, session });
+      broadcast({
+        type: WS_TYPES.SESSION_UPDATE,
+        session: requestedSessionId !== sessionId
+          ? { ...session, replacesId: requestedSessionId }
+          : session,
+      });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       log.warn('api', `Failed to broadcast killed session update: ${msg}`);
@@ -1040,12 +1075,22 @@ router.post('/sessions/:id/kill', async (req: Request, res: Response) => {
   // killedPid distinguishes "terminated a real process" from "no live process
   // found" (pid === null) so the UI can say the truthful thing instead of
   // claiming "PID N/A terminated".
-  res.json({ ok: true, pid: pid || null, killedPid: pid || null, source });
+  res.json({
+    ok: true,
+    pid: pid || null,
+    killedPid: pid || null,
+    source,
+    sessionId,
+    terminalId,
+    processShared,
+    sharedProcessPid: processShared ? resolvedPid : null,
+  });
 });
 
 // Permanently delete a session — removes from memory, broadcasts removal to clients
 router.delete('/sessions/:id', async (req: Request, res: Response) => {
-  const sessionId = str(req.params.id);
+  const requestedSessionId = str(req.params.id);
+  const sessionId = resolveSessionId(requestedSessionId) ?? requestedSessionId;
   const session = getSession(sessionId);
   // Close terminal if still active
   if (session && session.terminalId) {
@@ -1056,6 +1101,9 @@ router.delete('/sessions/:id', async (req: Request, res: Response) => {
   try {
     const { broadcast } = await import('./wsManager.js');
     broadcast({ type: WS_TYPES.SESSION_REMOVED, sessionId });
+    if (requestedSessionId !== sessionId) {
+      broadcast({ type: WS_TYPES.SESSION_REMOVED, sessionId: requestedSessionId });
+    }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     log.warn('api', `Failed to broadcast session_removed: ${msg}`);
@@ -1462,10 +1510,10 @@ router.post('/terminals/register', async (req: Request, res: Response) => {
     };
 
     // Create the session card (no PTY spawn — ptyHost owns the process)
-    await createTerminalSession(body.terminalId, config);
+    const session = await createTerminalSession(body.terminalId, config);
 
     log.info('api', `Registered external terminal ${body.terminalId} → ${body.host}:${body.workingDir}`);
-    res.json({ ok: true, terminalId: body.terminalId });
+    res.json({ ok: true, terminalId: body.terminalId, sessionId: session.sessionId });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('api', `External terminal registration failed: ${msg}`);
@@ -2356,6 +2404,18 @@ router.get('/commands', (req: Request, res: Response) => {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('api', `commands list failed: ${msg}`);
     res.status(500).json({ error: 'failed to enumerate commands' });
+  }
+});
+
+/** GET /api/codex/models — current account-visible models from Codex app-server. */
+router.get('/codex/models', async (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    res.json(await getCodexModelCatalog());
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('api', `Codex model catalog failed: ${msg}`);
+    res.status(503).json({ error: 'Codex model catalog unavailable' });
   }
 });
 

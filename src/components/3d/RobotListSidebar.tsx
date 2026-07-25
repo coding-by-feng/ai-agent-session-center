@@ -11,7 +11,8 @@ import SearchInput from '@/components/ui/SearchInput';
 import { showToast } from '@/components/ui/ToastContainer';
 import { markUserClosing } from '@/lib/pinnedRespawn';
 import { sortSessions } from '@/lib/sessionSort';
-import type { Session } from '@/types/session';
+import { closeManagedTerminal } from '@/lib/terminalTransport';
+import type { KillSessionResponse, Session } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Status Colors (matches SceneOverlay)
@@ -442,8 +443,16 @@ export default function RobotListSidebar() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ confirm: true }),
         });
-        const data = await resp.json().catch(() => ({}));
+        const data = await resp.json().catch(() => ({})) as KillSessionResponse & { error?: string; stillAlivePid?: number };
         if (resp.ok && data?.ok) {
+          const terminalId = data.terminalId === undefined ? session?.terminalId : data.terminalId;
+          if (terminalId) {
+            try {
+              await closeManagedTerminal(terminalId);
+            } catch {
+              showToast('Session ended, but its terminal could not be closed', 'error');
+            }
+          }
           removeSession(sessionId);
         } else {
           // Keep the card; the server broadcast will restore it as still-active.

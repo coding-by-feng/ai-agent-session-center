@@ -90,6 +90,16 @@ export interface KillSessionResponse {
   ok: boolean;
   pid: number | null;
   source: SessionSource | string;
+  /** Canonical ID after resolving any stale/re-keyed card ID. */
+  sessionId?: string;
+  /** Canonical managed terminal that owned the process before it was killed. */
+  terminalId?: string | null;
+  /** True when the terminal was closed without signaling a shared Codex host PID. */
+  processShared?: boolean;
+  /** Shared host PID deliberately left running for sibling Codex threads. */
+  sharedProcessPid?: number | null;
+  /** Sibling thread IDs returned when an unsafe terminal-less kill is rejected. */
+  sharedSessionIds?: string[];
 }
 
 // PUT /api/sessions/:id/title
@@ -159,7 +169,7 @@ export interface CreateTerminalRequest extends SshConnectionConfig {
   forceNew?: boolean;
   /** Effort level to auto-apply after Claude Code starts (low/medium/high/xhigh/max/ultracode) */
   effortLevel?: string;
-  /** Model to auto-apply after Claude Code starts — alias (fable/opus/sonnet/haiku) or full ID (e.g. claude-fable-5) */
+  /** Model launch override for Claude or Codex. */
   model?: string;
   /** If set, run `/remote-control <name>` automatically after Claude Code starts. */
   remoteControlName?: string;
@@ -168,6 +178,21 @@ export interface CreateTerminalRequest extends SshConnectionConfig {
 export interface CreateTerminalResponse {
   ok: boolean;
   terminalId: string;
+}
+
+// GET /api/codex/models
+export interface CodexModelOption {
+  id: string;
+  displayName: string;
+  description: string;
+  isDefault: boolean;
+}
+
+export interface ListCodexModelsResponse {
+  models: CodexModelOption[];
+  refreshedAt: string;
+  source: 'codex-app-server' | 'memory-cache' | 'stale-memory-cache';
+  stale: boolean;
 }
 
 // GET /api/terminals

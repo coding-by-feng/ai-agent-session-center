@@ -180,6 +180,33 @@ function MicIcon({ active }: { active?: boolean }) {
   );
 }
 
+/** Speaker SVG icon (click-to-speak, local/offline TTS). Body fills when active. */
+function SpeakerIcon({ active }: { active?: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24"
+      fill={active ? 'currentColor' : 'none'}
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M11 5 6 9H2v6h4l5 4z" />
+      <path d="M15.5 8.5a5 5 0 0 1 0 7" fill="none" />
+      <path d="M19 5.5a9 9 0 0 1 0 13" fill="none" />
+    </svg>
+  );
+}
+
+/** Spinner shown while the local voice model downloads/initializes. */
+function SpinnerIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <g>
+        <path d="M21 12a9 9 0 1 1-6.2-8.6" />
+        <animateTransform attributeName="transform" type="rotate"
+          from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite" />
+      </g>
+    </svg>
+  );
+}
+
 /** ESC key SVG icon. */
 function EscIcon() {
   return (
@@ -219,6 +246,11 @@ interface TerminalToolbarProps {
   ttsActive?: boolean;
   onTtsPressStart?: () => void;
   onTtsPressEnd?: () => void;
+  /** Show click-to-speak speaker button (local offline voice enabled in settings). */
+  localTtsEnabled?: boolean;
+  localTtsActive?: boolean;
+  localTtsLoading?: boolean;
+  onLocalSpeakToggle?: () => void;
 }
 
 export default function TerminalToolbar({
@@ -246,6 +278,10 @@ export default function TerminalToolbar({
   ttsActive = false,
   onTtsPressStart,
   onTtsPressEnd,
+  localTtsEnabled = false,
+  localTtsActive = false,
+  localTtsLoading = false,
+  onLocalSpeakToggle,
 }: TerminalToolbarProps) {
   const themeOptions = useMemo<SelectOption[]>(() => [
     { value: 'auto', label: 'Auto' },
@@ -422,6 +458,19 @@ export default function TerminalToolbar({
             aria-label={tooltips.termSpeak.label}
           >
             <MicIcon active={ttsActive} />
+          </button>
+        </Tooltip>
+      )}
+
+      {localTtsEnabled && onLocalSpeakToggle && (
+        <Tooltip {...tooltips.termSpeakLocal}>
+          <button
+            className={`${styles.toolbarBtn}${localTtsActive ? ` ${styles.autoScrollActiveBtn}` : ''}`}
+            onClick={onLocalSpeakToggle}
+            aria-label={tooltips.termSpeakLocal.label}
+            aria-pressed={localTtsActive}
+          >
+            {localTtsLoading ? <SpinnerIcon /> : <SpeakerIcon active={localTtsActive} />}
           </button>
         </Tooltip>
       )}

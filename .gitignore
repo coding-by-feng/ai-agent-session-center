@@ -25,3 +25,7 @@ test-screenshots/
 !static/**
 docs/feature/.manifest.json.bak
 docs/feature/.manifest.json.tmp.*
+
+# Cached native better-sqlite3 binaries per ABI (Node vs Electron). Local dev
+# aid for swapping without a full rebuild — never commit the .node blobs.
+.native-cache/

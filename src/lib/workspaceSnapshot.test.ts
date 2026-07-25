@@ -11,7 +11,9 @@ import {
   buildSavedOutputIndex,
   claimSavedOutput,
   buildSnapshot,
+  loadFromConfig,
   deduplicateSessions,
+  reconcileWorkspaceSnapshot,
   importSnapshot,
   isFloatingSnapshot,
   scheduleAutoSave,
@@ -125,6 +127,215 @@ describe('sessionDedupeKey via deduplicateSessions', () => {
     const b = makeSnap({ originalSessionId: 'same-id', title: 'X' });
     const out = deduplicateSessions([a, b]);
     expect(out).toHaveLength(1);
+  });
+});
+
+describe('session identity reconciliation', () => {
+  const room = (ids: string[]): Room => ({
+    id: 'common', name: 'Common Area', sessionIds: ids,
+    collapsed: false, createdAt: 1,
+  });
+
+  it('exports only the canonical session and remaps a temporary terminal card', () => {
+    const ghost = {
+      ...loopSession('term-codex'),
+      terminalId: 'term-codex',
+      title: 'KTS Codex Agent',
+      lastActivityAt: 10,
+    } as unknown as Session;
+    const canonical = {
+      ...loopSession('codex-uuid'),
+      terminalId: 'term-codex',
+      title: 'KTS Codex Agent',
+      lastActivityAt: 20,
+      previousSessions: [{ sessionId: 'codex-old' }],
+    } as unknown as Session;
+
+    const snapshot = buildSnapshot(
+      new Map([['term-codex', ghost], ['codex-uuid', canonical]]),
+      [room(['term-codex', 'codex-uuid'])],
+    );
+
+    expect(snapshot.sessions.map((session) => session.originalSessionId)).toEqual(['codex-uuid']);
+    expect(snapshot.sessions[0].terminalId).toBe('term-codex');
+    expect(snapshot.sessions[0].previousSessionIds).toEqual(['codex-old']);
+    expect(snapshot.rooms[0].sessionIds).toEqual(['codex-uuid']);
+  });
+
+  it('uses live terminal and previous-session lineage to repair a legacy snapshot', () => {
+    const legacy: WorkspaceSnapshot = {
+      version: 1,
+      exportedAt: 1,
+      sessions: [
+        makeSnap({ originalSessionId: 'term-codex', title: 'Codex' }),
+        makeSnap({ originalSessionId: 'codex-old', title: 'Codex' }),
+        makeSnap({ originalSessionId: 'codex-current', title: 'Codex' }),
+      ],
+      rooms: [room(['term-codex', 'codex-old', 'codex-current'])],
+    };
+    const current = {
+      ...loopSession('codex-current'),
+      terminalId: 'term-codex',
+      previousSessions: [{ sessionId: 'codex-old' }],
+      lastActivityAt: 30,
+    } as unknown as Session;
+
+    const repaired = reconcileWorkspaceSnapshot(
+      legacy,
+      new Map([['codex-current', current]]),
+    );
+
+    expect(repaired.sessions.map((session) => session.originalSessionId)).toEqual(['codex-current']);
+    expect(repaired.rooms[0].sessionIds).toEqual(['codex-current']);
+  });
+
+  it('uses lastTerminalId after restart and drops a ghost whose ended owner is not restorable', () => {
+    const legacy: WorkspaceSnapshot = {
+      version: 1,
+      exportedAt: 1,
+      sessions: [makeSnap({ originalSessionId: 'term-old', title: 'KTS Codex Agent', status: 'idle' })],
+      rooms: [room(['term-old'])],
+    };
+    const endedOwner = {
+      ...loopSession('codex-ended'),
+      status: 'ended',
+      terminalId: null,
+      lastTerminalId: 'term-old',
+    } as unknown as Session;
+
+    const repaired = reconcileWorkspaceSnapshot(
+      legacy,
+      new Map([['codex-ended', endedOwner]]),
+    );
+
+    expect(repaired.sessions).toEqual([]);
+    expect(repaired.rooms[0].sessionIds).toEqual([]);
+  });
+
+  it('repairs a legacy synthetic Codex ghost even before live sessions hydrate', () => {
+    const codexConfig = { ...makeSnap().sshConfig, command: 'codex --full-auto' };
+    const legacy: WorkspaceSnapshot = {
+      version: 1,
+      exportedAt: 1,
+      sessions: [
+        makeSnap({ originalSessionId: 'term-old', title: 'KTS Codex Agent', status: 'idle', startupCommand: undefined, sshConfig: codexConfig }),
+        makeSnap({ originalSessionId: 'codex-current', title: 'KTS Codex Agent', status: 'waiting', startupCommand: '/opt/codex/bin/codex', sshConfig: codexConfig }),
+      ],
+      rooms: [room(['term-old', 'codex-current'])],
+    };
+
+    const repaired = reconcileWorkspaceSnapshot(legacy, new Map());
+
+    expect(repaired.sessions.map((session) => session.originalSessionId)).toEqual(['codex-current']);
+    expect(repaired.rooms[0].sessionIds).toEqual(['codex-current']);
+  });
+
+  it('drops only an ambiguous legacy terminal ghost and preserves parallel UUID threads', () => {
+    const codexConfig = { ...makeSnap().sshConfig, command: 'codex --full-auto' };
+    const legacy: WorkspaceSnapshot = {
+      version: 1,
+      exportedAt: 1,
+      sessions: [
+        makeSnap({ originalSessionId: 'term-old', title: 'SMS-AUTO', status: 'idle', startupCommand: undefined, sshConfig: codexConfig }),
+        makeSnap({ originalSessionId: 'codex-a', title: 'SMS-AUTO', status: 'waiting', startupCommand: '/opt/codex/bin/codex', sshConfig: codexConfig }),
+        makeSnap({ originalSessionId: 'codex-b', title: 'SMS-AUTO', status: 'prompting', startupCommand: '/opt/codex/bin/codex', sshConfig: codexConfig }),
+      ],
+      rooms: [room(['term-old', 'codex-a', 'codex-b'])],
+    };
+
+    const repaired = reconcileWorkspaceSnapshot(legacy, new Map());
+
+    expect(repaired.sessions.map((session) => session.originalSessionId)).toEqual(['codex-a', 'codex-b']);
+    expect(repaired.rooms[0].sessionIds).toEqual(['codex-a', 'codex-b']);
+  });
+
+  it('lets exact live terminal ownership override an ambiguous legacy tombstone', () => {
+    const codexConfig = { ...makeSnap().sshConfig, command: 'codex --full-auto' };
+    const legacy: WorkspaceSnapshot = {
+      version: 1,
+      exportedAt: 1,
+      sessions: [
+        makeSnap({ originalSessionId: 'term-old', title: 'SMS-AUTO', status: 'idle', startupCommand: undefined, sshConfig: codexConfig }),
+        makeSnap({ originalSessionId: 'codex-current', title: 'SMS-AUTO', status: 'waiting', startupCommand: '/opt/codex/bin/codex', sshConfig: codexConfig }),
+        makeSnap({ originalSessionId: 'codex-parallel', title: 'SMS-AUTO', status: 'prompting', startupCommand: '/opt/codex/bin/codex', sshConfig: codexConfig }),
+      ],
+      rooms: [room(['term-old'])],
+    };
+    const current = {
+      ...loopSession('codex-current'),
+      terminalId: 'term-old',
+      cliSource: 'codex',
+    } as unknown as Session;
+
+    const repaired = reconcileWorkspaceSnapshot(
+      legacy,
+      new Map([['codex-current', current]]),
+    );
+
+    expect(repaired.sessions.map((session) => session.originalSessionId))
+      .toEqual(['codex-current', 'codex-parallel']);
+    expect(repaired.rooms[0].sessionIds).toEqual(['codex-current']);
+  });
+
+  it('retains an active live canonical owner that is absent from the saved snapshot', () => {
+    const legacy: WorkspaceSnapshot = {
+      version: 1,
+      exportedAt: 1,
+      sessions: [
+        makeSnap({ originalSessionId: 'codex-old', title: 'Current thread' }),
+        makeSnap({ originalSessionId: 'other', title: 'Other thread' }),
+      ],
+      rooms: [room(['codex-old', 'other'])],
+    };
+    const current = {
+      ...loopSession('codex-current'),
+      status: 'waiting',
+      previousSessions: [{ sessionId: 'codex-old' }],
+    } as unknown as Session;
+
+    const repaired = reconcileWorkspaceSnapshot(
+      legacy,
+      new Map([['codex-current', current]]),
+    );
+
+    expect(repaired.sessions.map((session) => session.originalSessionId))
+      .toEqual(['codex-current', 'other']);
+    expect(repaired.rooms[0].sessionIds).toEqual(['codex-current', 'other']);
+  });
+
+  it('keeps parallel same-title sessions when they do not share identity ownership', () => {
+    const a = { ...loopSession('a'), title: 'Codex', terminalId: 'term-a', cachedPid: 101 } as unknown as Session;
+    const b = { ...loopSession('b'), title: 'Codex', terminalId: 'term-b', cachedPid: 101 } as unknown as Session;
+
+    const snapshot = buildSnapshot(new Map([['a', a], ['b', b]]), [room(['a', 'b'])]);
+
+    expect(snapshot.sessions.map((session) => session.originalSessionId)).toEqual(['a', 'b']);
+    expect(snapshot.rooms[0].sessionIds).toEqual(['a', 'b']);
+  });
+
+  it('fetches server lineage when cold-start reconciliation runs before Zustand hydration', async () => {
+    const old = makeSnap({ originalSessionId: 'codex-old', title: 'SMS-AUTO' });
+    const current = makeSnap({ originalSessionId: 'codex-current', title: 'SMS-AUTO' });
+    const saved: WorkspaceSnapshot = {
+      version: 1,
+      exportedAt: 1,
+      sessions: [old, current],
+      rooms: [room(['codex-old', 'codex-current'])],
+    };
+    const liveCurrent = {
+      ...loopSession('codex-current'),
+      previousSessions: [{ sessionId: 'codex-old' }],
+    } as unknown as Session;
+    useSessionStore.getState().setSessions(new Map());
+    setupFetchMock({
+      '/api/workspace/load': () => mockResponse(saved),
+      '/api/sessions': () => mockResponse({ 'codex-current': liveCurrent }),
+    });
+
+    const repaired = await loadFromConfig();
+
+    expect(repaired?.sessions.map((session) => session.originalSessionId)).toEqual(['codex-current']);
+    expect(repaired?.rooms[0].sessionIds).toEqual(['codex-current']);
   });
 });
 

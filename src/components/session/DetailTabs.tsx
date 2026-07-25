@@ -438,7 +438,15 @@ export default function DetailTabs({
       return;
     }
     const name = `aasc-project-${projectPath.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    window.open(`/project-browser?path=${encodeURIComponent(projectPath)}`, name);
+    // A features string (esp. width/height) forces the browser to open a real
+    // separate WINDOW — draggable to another monitor — instead of a new tab.
+    // Centered on the current screen; a second click reuses the named window.
+    const w = Math.min(1280, window.screen.availWidth);
+    const h = Math.min(860, window.screen.availHeight);
+    const left = Math.round((window.screen.availWidth - w) / 2);
+    const top = Math.round((window.screen.availHeight - h) / 2);
+    const features = `popup,noopener=no,width=${w},height=${h},left=${left},top=${top}`;
+    window.open(`/project-browser?path=${encodeURIComponent(projectPath)}`, name, features);
   }, [projectPath]);
 
   const isSplit = splitView && panelWideEnough && !stackedView;

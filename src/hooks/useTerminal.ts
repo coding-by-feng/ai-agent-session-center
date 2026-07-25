@@ -11,6 +11,7 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { resolveTheme } from '@/components/terminal/themes';
 import { useUiStore } from '@/stores/uiStore';
 import { createFilePathRegex, mapLineColumns } from '@/lib/filePathLink';
+import { openTerminalUrl, TERMINAL_LINK_HANDLER } from '@/lib/terminalLinkHandler';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -64,6 +65,7 @@ interface UseTerminalReturn {
   detach: () => void;
   isAttached: boolean;
   activeTerminalId: string | null;
+  terminalClosed: { terminalId: string; reason: string } | null;
   toggleFullscreen: () => void;
   isFullscreen: boolean;
   sendEscape: () => void;
@@ -112,6 +114,24 @@ interface UseTerminalReturn {
  * parser queue, schedules a canvas repaint, and allocates a Uint8Array.
  * With N chunks/frame that multiplies to N parser runs + N GC objects.
  */
+/**
+ * Ceiling on the un-flushed active-terminal chunk buffer, and the fallback
+ * flush interval used when the window is hidden.
+ *
+ * The flush normally drains the buffer every animation frame, so it stays
+ * near-empty. But requestAnimationFrame does NOT fire while the window is
+ * hidden or macOS App-Naps the process, while PTY output keeps arriving over
+ * IPC the whole time. Chunks are base64 strings held as UTF-16 in the JS heap,
+ * so each byte of PTY output costs ~2.7 bytes of RAM. Left unbounded, a
+ * backgrounded app with several streaming agents grows without limit
+ * (observed: 18.6 GB resident on a paused app).
+ *
+ * The hidden-window timer is the primary defence; MAX_ACTIVE_CHUNKS is the
+ * safety net for any path that still outruns it.
+ */
+const MAX_ACTIVE_CHUNKS = 4000;
+const HIDDEN_FLUSH_MS = 250;
+
 function mergeChunks(chunks: string[]): Uint8Array {
   const decoded: string[] = new Array(chunks.length);
   let totalLen = 0;
@@ -236,8 +256,30 @@ async function uploadClipboardImages(blobs: Blob[]): Promise<string[]> {
   }
 }
 
+// A PTY narrower than this is never a real layout — it means fitAddon.fit()
+// measured a collapsed or not-yet-laid-out container (display:none tab, panel
+// mid-mount, pop-out window before first paint). Propagating that tiny `cols`
+// is destructive and permanent: Claude Code wraps its OWN output to
+// process.stdout.columns and emits hard newlines, and xterm can only re-flow
+// lines IT wrapped — not newlines that already arrived from the PTY. So a
+// single bad resize hard-wraps all subsequent scrollback at ~that width and it
+// never heals, even after the container becomes visible. Dropping the resize
+// (the terminal keeps its last good geometry until a real measurement arrives)
+// is always safer than sending a collapsed one.
+export const MIN_SANE_COLS = 20;
+
+/**
+ * True when a fitAddon measurement is a plausible real layout worth sending to
+ * the PTY. Rejects the collapsed/not-yet-laid-out case (cols ~0) that would
+ * otherwise permanently hard-wrap scrollback. Exported for unit testing.
+ */
+export function isSaneGeometry(cols: number, rows: number): boolean {
+  return Number.isFinite(cols) && Number.isFinite(rows)
+    && cols >= MIN_SANE_COLS && rows > 0;
+}
+
 function sendResize(ws: WebSocket | null, terminalId: string, cols: number, rows: number): void {
-  if (cols <= 0 || rows <= 0) return;
+  if (!isSaneGeometry(cols, rows)) return;
   if (isPtyHostTerminal(terminalId)) {
     window.electronAPI!.resizePty!(terminalId, cols, rows);
   } else if (ws && ws.readyState === 1) {
@@ -254,6 +296,12 @@ function forceCanvasRepaint(
 ): void {
   requestAnimationFrame(() => {
     if (!activeRef.current || activeRef.current.terminalId !== terminalId) return;
+    // Skip fit while the container is hidden/collapsed — fitAddon.fit() would
+    // measure ~0 and hard-wrap the PTY (see MIN_SANE_COLS). Retry on the next
+    // visibility/resize event instead. layoutReady stays false so the buffered
+    // output flush waits for a real layout.
+    const el = activeRef.current.term.element?.parentElement;
+    if (el && (!el.offsetWidth || !el.offsetHeight)) return;
     const savedViewportY = term.buffer.active.viewportY;
     fitAddon.fit();
     sendResize(ws, terminalId, term.cols, term.rows);
@@ -288,6 +336,10 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   const subscribedTerminalIdRef = useRef<string | null>(null);
   /** RAF handle for batched output writes (#76) */
   const outputRafRef = useRef<number | null>(null);
+  // Fallback flush handle used when the window is hidden and rAF is throttled
+  // to zero. Tracked separately from outputRafRef so cancellation uses the
+  // right canceller (clearTimeout vs cancelAnimationFrame).
+  const outputTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** IntersectionObserver fallback for hidden containers (always-mounted tabs like COMMANDS) */
   const pendingSetupObserverRef = useRef<IntersectionObserver | null>(null);
   /**
@@ -309,6 +361,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   const [isAttached, setIsAttached] = useState(false);
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [terminalClosed, setTerminalClosed] = useState<{ terminalId: string; reason: string } | null>(null);
 
   // Keep refs in sync
   useEffect(() => {
@@ -350,6 +403,10 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
       cancelAnimationFrame(outputRafRef.current);
       outputRafRef.current = null;
     }
+    if (outputTimerRef.current !== null) {
+      clearTimeout(outputTimerRef.current);
+      outputTimerRef.current = null;
+    }
     if (activeRef.current) {
       const { terminalId, term } = activeRef.current;
       // Save scroll position to localStorage for cross-mount restoration
@@ -386,6 +443,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   // Attach
   const attach = useCallback(
     (terminalId: string) => {
+      setTerminalClosed(null);
       // Skip re-attach if already attached to the same terminal (prevents scroll position reset)
       if (activeRef.current?.terminalId === terminalId) return;
 
@@ -439,6 +497,10 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           // screen now. (handleTerminalOutput also filters by active id, so
           // this is belt-and-braces.)
           if (isStale()) return;
+          if (!result.ok) {
+            setTerminalClosed({ terminalId, reason: result.error || 'unavailable' });
+            return;
+          }
           if (result.buffer) {
             // Replay buffered output
             handleTerminalOutput(terminalId, result.buffer);
@@ -503,6 +565,10 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           letterSpacing: 0,
           theme: resolveTheme(themeNameRef.current),
           allowProposedApi: true,
+          // OSC 8 hyperlinks otherwise use xterm's built-in confirm() warning.
+          // Our handler accepts HTTP(S) only, then Electron routes the new-window
+          // request to the system browser through setWindowOpenHandler.
+          linkHandler: TERMINAL_LINK_HANDLER,
           // Keep (effectively) all output. xterm allocates scrollback lazily, so
           // this only consumes memory for lines actually produced — a runaway
           // process is the only way to grow it large. The fold/unfold control
@@ -611,9 +677,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
                   text: finalUrl,
                   tooltip: finalUrl.length > 100 ? finalUrl.substring(0, 100) + '…' : finalUrl,
                   activate() {
-                    // In Electron, window.open triggers setWindowOpenHandler → shell.openExternal.
-                    // In browser, window.open opens a new tab.
-                    window.open(finalUrl, '_blank');
+                    openTerminalUrl(finalUrl);
                   },
                 });
               }
@@ -729,8 +793,14 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           return true;
         });
 
-        fitAddon.fit();
-        sendResize(wsRef.current, terminalId, term.cols, term.rows);
+        // Only fit when the container has a real size. If the terminal is
+        // attached while its tab/panel is hidden, fitAddon.fit() measures ~0 and
+        // would hard-wrap the PTY (see MIN_SANE_COLS); the visibility/resize
+        // observers below re-fit once it becomes visible.
+        if (container.offsetWidth && container.offsetHeight) {
+          fitAddon.fit();
+          sendResize(wsRef.current, terminalId, term.cols, term.rows);
+        }
 
         // Send keystrokes (chunk large pastes to stay within 8 KB server limit)
         const CHUNK_SIZE = 4096;
@@ -906,52 +976,85 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   );
 
   // Terminal output handler — batches writes via requestAnimationFrame (#76)
+  const flushActiveOutput = useCallback(() => {
+    outputRafRef.current = null;
+    outputTimerRef.current = null;
+    if (!activeRef.current) return;
+    const tid = activeRef.current.terminalId;
+    const activeKey = `__active__${tid}`;
+
+    // Drop buffers orphaned by a terminal switch. Chunks buffered under the
+    // PREVIOUS active id are never drained (this flush only reads the current
+    // id) and never expire (the TTL sweep in the else-branch below only tracks
+    // non-active ids), so without this each switch made while output was
+    // streaming leaks one buffer for the lifetime of the process.
+    for (const key of pendingOutputRef.current.keys()) {
+      if (key.startsWith('__active__') && key !== activeKey) {
+        pendingOutputRef.current.delete(key);
+      }
+    }
+
+    const pending = pendingOutputRef.current.get(activeKey);
+    if (!pending || pending.length === 0) return;
+    pendingOutputRef.current.delete(activeKey);
+
+    const { term } = activeRef.current;
+    // If a pending scroll restore exists, apply it after this write batch
+    // instead of saving/restoring the current (possibly wrong) viewportY.
+    const hasPendingRestore = activeRef.current.pendingScrollRestore !== undefined;
+    // Save viewport position before writes — escape sequences can
+    // yank viewport around; restore it after all chunks are written.
+    const savedViewportY = hasPendingRestore ? 0 : term.buffer.active.viewportY;
+    // Merge all pending chunks into one Uint8Array and write once —
+    // avoids N xterm parser runs + N canvas repaints + N GC allocations.
+    const merged = mergeChunks(pending);
+    term.write(merged, () => {
+      if (activeRef.current?.term !== term) return;
+      if (hasPendingRestore) {
+        // Apply the saved scroll from the previous session view
+        const savedOffset = activeRef.current!.pendingScrollRestore ?? 0;
+        activeRef.current!.pendingScrollRestore = undefined;
+        if (savedOffset > 0) {
+          const buf = term.buffer.active;
+          term.scrollToLine(Math.max(0, buf.baseY - savedOffset));
+        } else {
+          term.scrollToBottom();
+        }
+      } else if (autoScrollRef.current) {
+        term.scrollToBottom();
+      } else if (term.buffer.active.viewportY !== savedViewportY) {
+        term.scrollToLine(savedViewportY);
+      }
+    });
+  }, []);
+
+  /**
+   * Schedule a flush. requestAnimationFrame is throttled to zero while the
+   * window is hidden or macOS App-Naps the process, so a hidden window would
+   * never drain the buffer even as PTY output keeps arriving. Fall back to a
+   * timer in that case — xterm's own scrollback is bounded, so writing into it
+   * converts unbounded array growth into bounded terminal state.
+   */
+  const scheduleOutputFlush = useCallback(() => {
+    if (outputRafRef.current !== null || outputTimerRef.current !== null) return;
+    if (typeof document !== 'undefined' && document.hidden) {
+      outputTimerRef.current = setTimeout(flushActiveOutput, HIDDEN_FLUSH_MS);
+    } else {
+      outputRafRef.current = requestAnimationFrame(flushActiveOutput);
+    }
+  }, [flushActiveOutput]);
+
   const handleTerminalOutput = useCallback((terminalId: string, base64Data: string) => {
     if (activeRef.current && activeRef.current.terminalId === terminalId) {
-      // Buffer this chunk for the active terminal; flush via RAF
+      // Buffer this chunk for the active terminal; flushed via rAF, or via a
+      // timer while hidden (see scheduleOutputFlush).
       const activeBuf = pendingOutputRef.current.get(`__active__${terminalId}`) || [];
       activeBuf.push(base64Data);
-      pendingOutputRef.current.set(`__active__${terminalId}`, activeBuf);
-
-      if (outputRafRef.current === null) {
-        outputRafRef.current = requestAnimationFrame(() => {
-          outputRafRef.current = null;
-          if (!activeRef.current) return;
-          const tid = activeRef.current.terminalId;
-          const pending = pendingOutputRef.current.get(`__active__${tid}`);
-          if (!pending || pending.length === 0) return;
-          pendingOutputRef.current.delete(`__active__${tid}`);
-
-          const { term } = activeRef.current;
-          // If a pending scroll restore exists, apply it after this write batch
-          // instead of saving/restoring the current (possibly wrong) viewportY.
-          const hasPendingRestore = activeRef.current.pendingScrollRestore !== undefined;
-          // Save viewport position before writes — escape sequences can
-          // yank viewport around; restore it after all chunks are written.
-          const savedViewportY = hasPendingRestore ? 0 : term.buffer.active.viewportY;
-          // Merge all pending chunks into one Uint8Array and write once —
-          // avoids N xterm parser runs + N canvas repaints + N GC allocations.
-          const merged = mergeChunks(pending);
-          term.write(merged, () => {
-            if (activeRef.current?.term !== term) return;
-            if (hasPendingRestore) {
-              // Apply the saved scroll from the previous session view
-              const savedOffset = activeRef.current!.pendingScrollRestore ?? 0;
-              activeRef.current!.pendingScrollRestore = undefined;
-              if (savedOffset > 0) {
-                const buf = term.buffer.active;
-                term.scrollToLine(Math.max(0, buf.baseY - savedOffset));
-              } else {
-                term.scrollToBottom();
-              }
-            } else if (autoScrollRef.current) {
-              term.scrollToBottom();
-            } else if (term.buffer.active.viewportY !== savedViewportY) {
-              term.scrollToLine(savedViewportY);
-            }
-          });
-        });
+      if (activeBuf.length > MAX_ACTIVE_CHUNKS) {
+        activeBuf.splice(0, activeBuf.length - MAX_ACTIVE_CHUNKS);
       }
+      pendingOutputRef.current.set(`__active__${terminalId}`, activeBuf);
+      scheduleOutputFlush();
     } else {
       // TTL-based cleanup for stale buffers (#27)
       const now = Date.now();
@@ -969,7 +1072,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
       if (buf.length > 500) buf.shift();
       pendingOutputRef.current.set(terminalId, buf);
     }
-  }, []);
+  }, [scheduleOutputFlush]);
 
   const handleTerminalReady = useCallback((terminalId: string) => {
     if (activeRef.current && activeRef.current.terminalId === terminalId) {
@@ -1000,8 +1103,13 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   }, []);
 
   const handleTerminalClosed = useCallback((terminalId: string, reason?: string) => {
-    if (activeRef.current && activeRef.current.terminalId === terminalId) {
-      activeRef.current.term.write(
+    const active = activeRef.current;
+    const isActive = active?.terminalId === terminalId;
+    // Electron broadcasts PTY exits to every renderer. Do not let an unrelated
+    // terminal overwrite the selected terminal's unavailable/disconnected state.
+    if (active && isActive) {
+      setTerminalClosed({ terminalId, reason: reason || 'closed' });
+      active.term.write(
         `\r\n\x1b[31m--- Terminal ${reason || 'closed'} ---\x1b[0m\r\n`,
       );
     }
@@ -1209,6 +1317,10 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     term.clear();
     if (isPtyHostTerminal(terminalId)) {
       window.electronAPI!.subscribePty!(terminalId).then((result) => {
+        if (!result.ok) {
+          setTerminalClosed({ terminalId, reason: result.error || 'unavailable' });
+          return;
+        }
         if (result.buffer) handleTerminalOutput(terminalId, result.buffer);
       });
     } else {
@@ -1297,6 +1409,10 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         cancelAnimationFrame(outputRafRef.current);
         outputRafRef.current = null;
       }
+      if (outputTimerRef.current !== null) {
+        clearTimeout(outputTimerRef.current);
+        outputTimerRef.current = null;
+      }
       if (activeRef.current) {
         activeRef.current.resizeObserver.disconnect();
         activeRef.current.term.dispose();
@@ -1365,6 +1481,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     detach,
     isAttached,
     activeTerminalId,
+    terminalClosed,
     toggleFullscreen: toggleFullscreenFn,
     isFullscreen,
     sendEscape: sendEscapeKey,

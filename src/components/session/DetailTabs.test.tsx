@@ -116,6 +116,12 @@ describe('DetailTabs — open Project in a native window', () => {
     expect(openSpy).toHaveBeenCalledWith(
       expect.stringContaining('/project-browser?path='),
       'aasc-project-_Users_me_proj',
+      // The third argument is required: a features string is what forces the
+      // browser to open a real separate WINDOW (draggable to another monitor)
+      // rather than a new tab. Its width/height derive from
+      // window.screen.avail*, which jsdom reports as 0, so assert on the shape
+      // rather than the numbers.
+      expect.stringContaining('popup'),
     );
   });
 

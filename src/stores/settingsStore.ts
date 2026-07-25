@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { db } from '@/lib/db';
 import type { BrowserSettings, SoundSettings, LabelAlarmSettings, AmbientSettings, CliSoundConfig } from '@/types';
+import type { SoundAction, SoundName } from '@/lib/soundEngine';
 import { DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES, clampReplayBufferBytes } from '@/types/terminal';
 
 // ---------------------------------------------------------------------------
@@ -40,86 +41,135 @@ export const THEMES: ThemeDefinition[] = [
 // Per-CLI default sound profiles
 // ---------------------------------------------------------------------------
 
-export const CLI_SOUND_PROFILES: Record<string, CliSoundConfig> = {
+// Every action silent. The quiet default and the "Quiet" preset are built by
+// layering a small set of high-signal overrides on top of this.
+const SILENT_ACTIONS: Record<SoundAction, SoundName> = {
+  sessionStart: 'none',
+  sessionEnd: 'none',
+  promptSubmit: 'none',
+  taskComplete: 'none',
+  toolRead: 'none',
+  toolWrite: 'none',
+  toolEdit: 'none',
+  toolBash: 'none',
+  toolGrep: 'none',
+  toolGlob: 'none',
+  toolWebFetch: 'none',
+  toolTask: 'none',
+  toolOther: 'none',
+  approvalNeeded: 'none',
+  inputNeeded: 'none',
+  alert: 'none',
+  kill: 'none',
+  archive: 'none',
+  subagentStart: 'none',
+  subagentStop: 'none',
+};
+
+// Quiet baseline: only the high-signal, low-frequency events make a sound out of
+// the box (the ones that mean "the agent needs you" or "it's done"). Everything
+// else — the per-tool chatter, session/prompt/subagent noise — is silent and can
+// be re-enabled per action, or all at once via the "All sounds" preset.
+//
+// `taskComplete` fires on every Stop (i.e. once per turn), so the quiet profile
+// uses a short, subtle 'blip' — never the ~1s 'fanfare' — to signal "your turn"
+// without nagging during active back-and-forth. `alert` has no trigger today
+// (kept audible here in case it gets wired up later).
+const QUIET_OVERRIDES: Record<string, Partial<Record<SoundAction, SoundName>>> = {
+  claude: { taskComplete: 'blip', approvalNeeded: 'alarm', inputNeeded: 'chime', alert: 'alarm' },
+  gemini: { taskComplete: 'blip', approvalNeeded: 'alarm', inputNeeded: 'ding', alert: 'alarm' },
+  codex: { taskComplete: 'blip', approvalNeeded: 'alarm', inputNeeded: 'beep', alert: 'alarm' },
+};
+
+// The original expressive per-CLI mappings, offered as the "All sounds" preset.
+const FULL_CLI_ACTIONS: Record<string, Record<SoundAction, SoundName>> = {
   claude: {
-    enabled: true,
-    volume: 0.7,
-    actions: {
-      sessionStart: 'chime',
-      sessionEnd: 'cascade',
-      promptSubmit: 'ping',
-      taskComplete: 'fanfare',
-      toolRead: 'click',
-      toolWrite: 'blip',
-      toolEdit: 'blip',
-      toolBash: 'click',
-      toolGrep: 'click',
-      toolGlob: 'click',
-      toolWebFetch: 'ping',
-      toolTask: 'chime',
-      toolOther: 'click',
-      approvalNeeded: 'alarm',
-      inputNeeded: 'chime',
-      alert: 'alarm',
-      kill: 'thud',
-      archive: 'ping',
-      subagentStart: 'chirp',
-      subagentStop: 'ping',
-    },
+    sessionStart: 'chime', sessionEnd: 'cascade', promptSubmit: 'ping', taskComplete: 'fanfare',
+    toolRead: 'click', toolWrite: 'blip', toolEdit: 'blip', toolBash: 'click', toolGrep: 'click',
+    toolGlob: 'click', toolWebFetch: 'ping', toolTask: 'chime', toolOther: 'click',
+    approvalNeeded: 'alarm', inputNeeded: 'chime', alert: 'alarm', kill: 'thud', archive: 'ping',
+    subagentStart: 'chirp', subagentStop: 'ping',
   },
   gemini: {
-    enabled: true,
-    volume: 0.7,
-    actions: {
-      sessionStart: 'ding',
-      sessionEnd: 'cascade',
-      promptSubmit: 'chirp',
-      taskComplete: 'fanfare',
-      toolRead: 'click',
-      toolWrite: 'swoosh',
-      toolEdit: 'swoosh',
-      toolBash: 'ding',
-      toolGrep: 'click',
-      toolGlob: 'click',
-      toolWebFetch: 'swoosh',
-      toolTask: 'ding',
-      toolOther: 'chirp',
-      approvalNeeded: 'alarm',
-      inputNeeded: 'ding',
-      alert: 'alarm',
-      kill: 'thud',
-      archive: 'swoosh',
-      subagentStart: 'chirp',
-      subagentStop: 'ding',
-    },
+    sessionStart: 'ding', sessionEnd: 'cascade', promptSubmit: 'chirp', taskComplete: 'fanfare',
+    toolRead: 'click', toolWrite: 'swoosh', toolEdit: 'swoosh', toolBash: 'ding', toolGrep: 'click',
+    toolGlob: 'click', toolWebFetch: 'swoosh', toolTask: 'ding', toolOther: 'chirp',
+    approvalNeeded: 'alarm', inputNeeded: 'ding', alert: 'alarm', kill: 'thud', archive: 'swoosh',
+    subagentStart: 'chirp', subagentStop: 'ding',
   },
   codex: {
-    enabled: true,
-    volume: 0.5,
-    actions: {
-      sessionStart: 'blip',
-      sessionEnd: 'beep',
-      promptSubmit: 'click',
-      taskComplete: 'blip',
-      toolRead: 'click',
-      toolWrite: 'blip',
-      toolEdit: 'blip',
-      toolBash: 'beep',
-      toolGrep: 'click',
-      toolGlob: 'click',
-      toolWebFetch: 'click',
-      toolTask: 'beep',
-      toolOther: 'click',
-      approvalNeeded: 'alarm',
-      inputNeeded: 'beep',
-      alert: 'alarm',
-      kill: 'thud',
-      archive: 'click',
-      subagentStart: 'blip',
-      subagentStop: 'beep',
-    },
+    sessionStart: 'blip', sessionEnd: 'beep', promptSubmit: 'click', taskComplete: 'blip',
+    toolRead: 'click', toolWrite: 'blip', toolEdit: 'blip', toolBash: 'beep', toolGrep: 'click',
+    toolGlob: 'click', toolWebFetch: 'click', toolTask: 'beep', toolOther: 'click',
+    approvalNeeded: 'alarm', inputNeeded: 'beep', alert: 'alarm', kill: 'thud', archive: 'click',
+    subagentStart: 'blip', subagentStop: 'beep',
   },
 };
+
+/** The quiet (mostly-silent) action map for a CLI — used as the default and the "Quiet" preset. */
+export function quietCliActions(cli: string): Record<SoundAction, SoundName> {
+  return { ...SILENT_ACTIONS, ...(QUIET_OVERRIDES[cli] ?? QUIET_OVERRIDES.claude) };
+}
+
+/** The full (expressive) action map for a CLI — the "All sounds" preset. */
+export function fullCliActions(cli: string): Record<SoundAction, SoundName> {
+  return { ...(FULL_CLI_ACTIONS[cli] ?? FULL_CLI_ACTIONS.claude) };
+}
+
+export type CliSoundPreset = 'quiet' | 'full';
+
+export const CLI_SOUND_PROFILES: Record<string, CliSoundConfig> = {
+  claude: { enabled: true, volume: 0.7, actions: quietCliActions('claude') },
+  gemini: { enabled: true, volume: 0.7, actions: quietCliActions('gemini') },
+  codex: { enabled: true, volume: 0.5, actions: quietCliActions('codex') },
+};
+
+// ---------------------------------------------------------------------------
+// Settings schema migration
+// ---------------------------------------------------------------------------
+
+/** Bump when adding a one-time migration in migrateSoundProfiles/loadFromDb. */
+export const SETTINGS_SCHEMA_VERSION = 1;
+
+function actionsEqual(
+  a: Record<string, string | undefined> | undefined,
+  b: Record<string, string>,
+): boolean {
+  if (!a) return false;
+  const bKeys = Object.keys(b);
+  if (Object.keys(a).length !== bKeys.length) return false;
+  return bKeys.every((k) => a[k] === b[k]);
+}
+
+/**
+ * v1 migration: quiet the per-CLI sound profiles for users who never customized
+ * them (their `actions` still exactly equal the old loud defaults). Users who
+ * tuned their sounds — or who are already on v1 — are left untouched, so this is
+ * safe to run on every load and applies at most once.
+ */
+function migrateSoundProfiles(
+  settings: Partial<SettingsState>,
+): { settings: Partial<SettingsState>; didQuiet: boolean; bumped: boolean } {
+  const version = typeof settings.settingsSchemaVersion === 'number' ? settings.settingsSchemaVersion : 0;
+  if (version >= SETTINGS_SCHEMA_VERSION) return { settings, didQuiet: false, bumped: false };
+
+  let didQuiet = false;
+  let next: Partial<SettingsState> = { ...settings, settingsSchemaVersion: SETTINGS_SCHEMA_VERSION };
+  const ss = settings.soundSettings;
+  if (ss && ss.perCli) {
+    const perCli = ss.perCli;
+    const newPerCli = { ...perCli };
+    (Object.keys(perCli) as Array<keyof typeof perCli>).forEach((cli) => {
+      const cfg = perCli[cli];
+      if (cfg && actionsEqual(cfg.actions, fullCliActions(String(cli)))) {
+        newPerCli[cli] = { ...cfg, actions: quietCliActions(String(cli)) };
+        didQuiet = true;
+      }
+    });
+    if (didQuiet) next = { ...next, soundSettings: { ...ss, perCli: newPerCli } };
+  }
+  return { settings: next, didQuiet, bumped: true };
+}
 
 export const DEFAULT_AMBIENT_SETTINGS: AmbientSettings = {
   enabled: false,
@@ -184,6 +234,11 @@ interface SettingsState extends BrowserSettings {
   ttsVoiceZh: string;
   ttsSpeakingRate: number;
 
+  // Local voice (offline, English) — Kokoro-82M in-browser, no API key.
+  // Adds a click-to-speak icon to the terminal toolbar.
+  ttsLocalEnabled: boolean;
+  ttsLocalVoice: string;
+
   // Translation / Explain (select-to-translate)
   translationEnabled: boolean;
   translationNativeLanguage: string;
@@ -202,12 +257,17 @@ interface SettingsState extends BrowserSettings {
   // Autosave flash
   autosaveVisible: boolean;
 
+  // Schema version — drives one-time migrations (e.g. quiet-by-default sounds)
+  settingsSchemaVersion: number;
+
   // Actions
   loadFromDb: (settings: Partial<SettingsState>) => void;
   saveToDb: () => SettingsState;
   updateSoundSettings: (settings: Partial<SoundSettings>) => void;
   updateCliSoundConfig: (cli: string, config: Partial<CliSoundConfig>) => void;
   setCliActionSound: (cli: string, action: string, sound: string) => void;
+  /** Apply a whole-profile preset ('quiet' = high-signal only, 'full' = all sounds) to one CLI. */
+  applyCliSoundPreset: (cli: string, preset: CliSoundPreset) => void;
   updateAmbientSettings: (settings: Partial<AmbientSettings>) => void;
   updateLabelAlarms: (settings: Partial<LabelAlarmSettings>) => void;
   setThemeName: (theme: ThemeName) => void;
@@ -234,6 +294,8 @@ interface SettingsState extends BrowserSettings {
   setTtsVoiceEn: (voice: string) => void;
   setTtsVoiceZh: (voice: string) => void;
   setTtsSpeakingRate: (rate: number) => void;
+  setTtsLocalEnabled: (enabled: boolean) => void;
+  setTtsLocalVoice: (voice: string) => void;
   setTranslationEnabled: (enabled: boolean) => void;
   setTranslationNativeLanguage: (lang: string) => void;
   setTranslationLearningLanguage: (lang: string) => void;
@@ -296,6 +358,8 @@ const defaultSettings: SettingsData = {
   ttsVoiceEn: 'en-US-Chirp3-HD-Aoede',
   ttsVoiceZh: 'cmn-CN-Chirp3-HD-Aoede',
   ttsSpeakingRate: 1.0,
+  ttsLocalEnabled: false,
+  ttsLocalVoice: 'af_heart',
   translationEnabled: true,
   translationNativeLanguage: '简体中文',
   translationLearningLanguage: 'English',
@@ -303,6 +367,7 @@ const defaultSettings: SettingsData = {
   translationInheritContext: true,
   explainAttachFilePath: 'ask',
   autosaveVisible: false,
+  settingsSchemaVersion: SETTINGS_SCHEMA_VERSION,
 };
 
 // ---------------------------------------------------------------------------
@@ -341,7 +406,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   ...defaultSettings,
 
   loadFromDb: (settings) => {
-    set({ ...settings });
+    // One-time migration: quiet untouched (old loud-default) per-CLI sound profiles.
+    const { settings: migrated, didQuiet, bumped } = migrateSoundProfiles(settings);
+    set({ ...migrated });
     // Apply visual side effects
     const state = get();
     applyTheme(state.themeName);
@@ -349,6 +416,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     applyScanline(state.scanlineEnabled);
     applyAnimationIntensity(state.animationIntensity);
     applyAnimationSpeed(state.animationSpeed);
+    // Persist the migration result so it runs at most once.
+    if (bumped) {
+      if (didQuiet) get().persistSetting('soundSettings', JSON.stringify(get().soundSettings));
+      get().persistSetting('settingsSchemaVersion', SETTINGS_SCHEMA_VERSION);
+    }
   },
 
   saveToDb: () => {
@@ -395,6 +467,25 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
               ...current,
               actions: { ...current.actions, [action]: sound },
             },
+          },
+        },
+      };
+    });
+    get().persistSetting('soundSettings', JSON.stringify(get().soundSettings));
+  },
+
+  applyCliSoundPreset: (cli, preset) => {
+    const actions = preset === 'quiet' ? quietCliActions(cli) : fullCliActions(cli);
+    set((state) => {
+      const perCli = state.soundSettings.perCli;
+      const current = perCli[cli as keyof typeof perCli];
+      if (!current) return {};
+      return {
+        soundSettings: {
+          ...state.soundSettings,
+          perCli: {
+            ...perCli,
+            [cli]: { ...current, actions },
           },
         },
       };
@@ -520,6 +611,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setTtsVoiceEn: (voice) => { set({ ttsVoiceEn: voice }); get().persistSetting('ttsVoiceEn', voice); },
   setTtsVoiceZh: (voice) => { set({ ttsVoiceZh: voice }); get().persistSetting('ttsVoiceZh', voice); },
   setTtsSpeakingRate: (rate) => { set({ ttsSpeakingRate: rate }); get().persistSetting('ttsSpeakingRate', rate); },
+  setTtsLocalEnabled: (enabled) => { set({ ttsLocalEnabled: enabled }); get().persistSetting('ttsLocalEnabled', enabled); },
+  setTtsLocalVoice: (voice) => { set({ ttsLocalVoice: voice }); get().persistSetting('ttsLocalVoice', voice); },
   setTranslationEnabled: (enabled) => { set({ translationEnabled: enabled }); get().persistSetting('translationEnabled', enabled); },
   setTranslationNativeLanguage: (lang) => { set({ translationNativeLanguage: lang }); get().persistSetting('translationNativeLanguage', lang); },
   setTranslationLearningLanguage: (lang) => { set({ translationLearningLanguage: lang }); get().persistSetting('translationLearningLanguage', lang); },

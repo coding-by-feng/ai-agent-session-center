@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 
 import DetailPanel from './DetailPanel';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useUiStore } from '@/stores/uiStore';
 import type { Session } from '@/types';
 
 // Mock sub-components to isolate DetailPanel tests
@@ -170,26 +171,25 @@ describe('DetailPanel', () => {
     expect(screen.getByText('Prompts: 2')).toBeInTheDocument();
   });
 
-  it('renders 3D robot model in header', () => {
-    const session = makeSession({ characterModel: 'Robot' });
-    useSessionStore.setState({
-      sessions: new Map([['sess-1', session]]),
-      selectedSessionId: 'sess-1',
-    });
-    render(<DetailPanel />);
-    // #55: 2D badge preview replaces Canvas to prevent WebGL context exhaustion
-    expect(screen.getByText('Robot')).toBeInTheDocument();
-  });
+  // The header's 2D character-model badge (#55) was removed — the panel header is
+  // now the SessionSwitcher bar, which shows the title, label and remark instead.
+  // `characterModel` is still session state, but it is only rendered by the 3D
+  // scene now, so coverage belongs with SessionRobot rather than here.
 
-  it('deselects on close button click', () => {
+  // The header's close affordance became MINIMIZE. It sets detailPanelMinimized
+  // and deliberately KEEPS the session selected so scroll position and tab state
+  // survive — the same rationale as the Escape-key test below. It no longer
+  // deselects, so asserting selectedSessionId === null tested removed behaviour.
+  it('minimizes on the header minimize button, keeping the session selected', () => {
     const session = makeSession();
     useSessionStore.setState({
       sessions: new Map([['sess-1', session]]),
       selectedSessionId: 'sess-1',
     });
     render(<DetailPanel />);
-    fireEvent.click(screen.getByTitle('Close'));
-    expect(useSessionStore.getState().selectedSessionId).toBeNull();
+    fireEvent.click(screen.getByTitle('Minimize'));
+    expect(useUiStore.getState().detailPanelMinimized).toBe(true);
+    expect(useSessionStore.getState().selectedSessionId).toBe('sess-1');
   });
 
   it('does not deselect on Escape key (preserves scroll position)', () => {

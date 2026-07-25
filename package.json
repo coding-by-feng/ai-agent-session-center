@@ -1,9 +1,9 @@
 {
   "name": "ai-agent-session-center",
-  "version": "2.10.38",
+  "version": "2.10.39",
   "description": "A real-time dashboard for monitoring AI agent sessions (Claude Code, Gemini CLI, Codex) with 3D visualization",
   "type": "module",
-  "main": "server/index.ts",
+  "main": "dist/electron/main.cjs",
   "bin": {
     "ai-agent-session-center": "bin/cli.js"
   },
@@ -74,6 +74,7 @@
     "dompurify": "^3.4.11",
     "express": "^5.0.0",
     "highlight.js": "^11.11.1",
+    "kokoro-js": "^1.2.1",
     "latex.js": "^0.12.6",
     "mammoth": "^1.12.0",
     "node-pty": "^1.1.0",

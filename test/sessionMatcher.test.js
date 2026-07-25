@@ -237,6 +237,138 @@ describe('sessionMatcher', () => {
       expect(result.previousSessions ?? []).toHaveLength(0);
     });
 
+    it('re-keys a Codex session when the same terminal process reports a new thread ID', () => {
+      const sessions = new Map();
+      const pidToSession = new Map();
+      const prior = {
+        sessionId: 'codex-old', projectPath: '/proj', projectName: 'proj',
+        title: 'Codex', status: SESSION_STATUS.WAITING,
+        animationState: ANIMATION_STATE.IDLE, emote: null,
+        cachedPid: 4321, terminalId: 'term-codex', cliSource: 'codex',
+        startedAt: 1, endedAt: null, totalToolCalls: 0, toolUsage: {},
+        promptHistory: [], toolLog: [], responseLog: [], events: [],
+      };
+      sessions.set('codex-old', prior);
+      pidToSession.set(4321, 'codex-old');
+
+      const result = matchSession(
+        { session_id: 'codex-new', hook_event_name: EVENT_TYPES.USER_PROMPT_SUBMIT,
+          cwd: '/proj', tty_path: '/dev/ttys003', agent_terminal_id: 'term-codex',
+          claude_pid: '4321', cli_source: 'codex' },
+        sessions, new Map(), pidToSession, new Map(),
+      );
+
+      expect(result.sessionId).toBe('codex-new');
+      expect(result.replacesId).toBe('codex-old');
+      expect(result.terminalId).toBe('term-codex');
+      expect(sessions.has('codex-old')).toBe(false);
+      expect(sessions.get('codex-new')).toBe(result);
+      expect(pidToSession.get(4321)).toBe('codex-new');
+    });
+
+    it('does not merge parallel Codex threads on PID alone', () => {
+      const sessions = new Map();
+      const pidToSession = new Map();
+      const prior = {
+        sessionId: 'codex-old', projectPath: '/proj', projectName: 'proj',
+        title: 'Codex old', status: SESSION_STATUS.WAITING,
+        animationState: ANIMATION_STATE.IDLE, emote: null,
+        cachedPid: 4321, terminalId: 'term-old', cliSource: 'codex',
+        startedAt: 1, endedAt: null, totalToolCalls: 0, toolUsage: {},
+        promptHistory: [], toolLog: [], responseLog: [], events: [],
+      };
+      sessions.set('codex-old', prior);
+      pidToSession.set(4321, 'codex-old');
+
+      const result = matchSession(
+        { session_id: 'codex-parallel', hook_event_name: EVENT_TYPES.USER_PROMPT_SUBMIT,
+          cwd: '/proj', tty_path: '/dev/ttys003', claude_pid: '4321', cli_source: 'codex' },
+        sessions, new Map(), pidToSession, new Map(),
+      );
+
+      expect(result.sessionId).toBe('codex-parallel');
+      expect(result.isExternal).toBe(true);
+      expect(sessions.get('codex-old')).toBe(prior);
+      expect(sessions.get('codex-parallel')).toBe(result);
+    });
+
+    it('ignores a stale Codex SessionEnd instead of re-keying the active thread backward', () => {
+      const sessions = new Map();
+      const pidToSession = new Map();
+      const active = {
+        sessionId: 'codex-current', projectPath: '/proj', projectName: 'proj',
+        title: 'Codex current', status: SESSION_STATUS.WORKING,
+        animationState: ANIMATION_STATE.IDLE, emote: null,
+        cachedPid: 4321, terminalId: 'term-codex', cliSource: 'codex',
+        startedAt: 1, endedAt: null, totalToolCalls: 0, toolUsage: {},
+        promptHistory: [], toolLog: [], responseLog: [], events: [],
+      };
+      sessions.set('codex-current', active);
+      pidToSession.set(4321, 'codex-current');
+
+      const result = matchSession(
+        { session_id: 'codex-old', hook_event_name: EVENT_TYPES.SESSION_END,
+          cwd: '/proj', tty_path: '/dev/ttys003', agent_terminal_id: 'term-codex',
+          claude_pid: '4321', cli_source: 'codex' },
+        sessions, new Map(), pidToSession, new Map(),
+      );
+
+      expect(result).toBeNull();
+      expect(sessions.get('codex-current')).toBe(active);
+      expect(sessions.has('codex-old')).toBe(false);
+    });
+
+    it('ignores a stale Codex Stop instead of creating a duplicate teardown card', () => {
+      const sessions = new Map();
+      const active = {
+        sessionId: 'codex-current', projectPath: '/proj', projectName: 'proj',
+        title: 'Codex current', status: SESSION_STATUS.WORKING,
+        animationState: ANIMATION_STATE.IDLE, emote: null,
+        cachedPid: 4321, terminalId: 'term-codex', cliSource: 'codex',
+        startedAt: 1, endedAt: null, totalToolCalls: 0, toolUsage: {},
+        promptHistory: [], toolLog: [], responseLog: [], events: [],
+      };
+      sessions.set('codex-current', active);
+
+      const result = matchSession(
+        { session_id: 'codex-old', hook_event_name: EVENT_TYPES.STOP,
+          cwd: '/proj', tty_path: '/dev/ttys003', agent_terminal_id: 'term-codex',
+          claude_pid: '4321', cli_source: 'codex' },
+        sessions, new Map(), new Map([[4321, 'codex-current']]), new Map(),
+      );
+
+      expect(result).toBeNull();
+      expect(sessions.get('codex-current')).toBe(active);
+      expect(sessions.has('codex-old')).toBe(false);
+    });
+
+    it.each([EVENT_TYPES.STOP, EVENT_TYPES.SESSION_END])(
+      'does not let a stale Codex %s claim a fresh terminal placeholder',
+      (eventName) => {
+        const sessions = new Map();
+        const placeholder = {
+          sessionId: 'term-codex', projectPath: '/proj', projectName: 'proj',
+          title: 'New Codex', status: SESSION_STATUS.CONNECTING,
+          animationState: ANIMATION_STATE.IDLE, emote: null,
+          cachedPid: null, terminalId: 'term-codex', cliSource: 'codex',
+          startedAt: 10, endedAt: null, totalToolCalls: 0, toolUsage: {},
+          promptHistory: [], toolLog: [], responseLog: [], events: [],
+        };
+        sessions.set('term-codex', placeholder);
+
+        const result = matchSession(
+          { session_id: 'stale-old', hook_event_name: eventName,
+            cwd: '/proj', tty_path: '/dev/ttys003', agent_terminal_id: 'term-codex',
+            claude_pid: '4321', cli_source: 'codex' },
+          sessions, new Map(), new Map(), new Map(),
+        );
+
+        expect(result).toBeNull();
+        expect(sessions.get('term-codex')).toBe(placeholder);
+        expect(sessions.has('stale-old')).toBe(false);
+      },
+    );
+
     it('drops an unmatched subagent event (has agent_name) instead of creating a card', () => {
       const sessions = new Map();
       const result = matchSession(
