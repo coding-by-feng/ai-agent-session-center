@@ -45,8 +45,29 @@ describe('applyClaudeLaunchFlags', () => {
     expect(applyClaudeLaunchFlags(cmd, 'opus', 'high')).toBe(cmd);
   });
 
-  it('leaves non-claude commands untouched', () => {
-    expect(applyClaudeLaunchFlags('codex resume', 'opus', 'ultracode')).toBe('codex resume');
+  it('attaches a Codex model before subcommands and ignores Claude effort', () => {
+    expect(applyClaudeLaunchFlags('codex resume --last', 'gpt-newest', 'ultracode')).toBe(
+      'codex --model gpt-newest resume --last',
+    );
+  });
+
+  it('supports path-qualified Codex commands', () => {
+    expect(applyClaudeLaunchFlags('/opt/homebrew/bin/codex --search', 'gpt-fast', undefined)).toBe(
+      '/opt/homebrew/bin/codex --model gpt-fast --search',
+    );
+  });
+
+  it('does not override an existing Codex --model or -m flag', () => {
+    expect(applyClaudeLaunchFlags('codex --model pinned', 'gpt-newest', undefined)).toBe(
+      'codex --model pinned',
+    );
+    expect(applyClaudeLaunchFlags('codex -m pinned', 'gpt-newest', undefined)).toBe(
+      'codex -m pinned',
+    );
+  });
+
+  it('leaves unsupported CLI commands untouched', () => {
+    expect(applyClaudeLaunchFlags('gemini', 'gpt-newest', 'ultracode')).toBe('gemini');
   });
 
   it('returns the command unchanged when no model/effort given', () => {

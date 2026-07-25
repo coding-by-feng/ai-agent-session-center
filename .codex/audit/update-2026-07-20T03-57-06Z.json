@@ -1,0 +1,73 @@
+{
+  "timestamp": "2026-07-20T03:57:06Z",
+  "generator": "update-feature-docs",
+  "changed_files": [
+    "server/codexModelCatalog.ts",
+    "server/apiRouter.ts",
+    "server/config.ts",
+    "server/sshManager.ts",
+    "src/components/modals/NewSessionModal.tsx",
+    "src/components/modals/NewSessionModal.test.tsx",
+    "src/lib/remoteControlName.ts",
+    "src/lib/remoteControlName.test.ts",
+    "src/styles/modules/Modal.module.css",
+    "src/types/api.ts",
+    "test/codexModelCatalog.test.ts",
+    "test/launchFlags.test.ts",
+    "test/buildResumeCommand.test.ts"
+  ],
+  "mapped_docs": [
+    {
+      "doc": "frontend/session-creation-modals.md",
+      "updated": true,
+      "sections_touched": [
+        "Function",
+        "Purpose",
+        "Source Files",
+        "NewSessionModal",
+        "Model + Effort application",
+        "remoteControlName.ts",
+        "Dependencies & Connections",
+        "Shared Resources",
+        "Change Risks"
+      ]
+    },
+    {
+      "doc": "frontend/workspace-snapshot.md",
+      "updated": true,
+      "sections_touched": ["Pinned-session resume and respawn"]
+    },
+    {
+      "doc": "server/api-endpoints.md",
+      "updated": true,
+      "sections_touched": [
+        "Source Files",
+        "Session Endpoints",
+        "Terminal Endpoints",
+        "Codex Model Catalog",
+        "Dependencies & Connections",
+        "Change Risks"
+      ]
+    },
+    {
+      "doc": "server/floating-session-spawner.md",
+      "updated": true,
+      "sections_touched": ["Origin CLI detection", "Launch flag inheritance", "Change Risks"]
+    },
+    {
+      "doc": "server/terminal-ssh.md",
+      "updated": true,
+      "sections_touched": [
+        "Source Files",
+        "Auto-Apply Model/Effort",
+        "Environment",
+        "Change Risks"
+      ]
+    }
+  ],
+  "unmapped_files": [],
+  "new_docs_created": [],
+  "manifest_hashes_ok": true,
+  "agents_md_touched": false,
+  "carried_over_findings": ["hook-preference-missing"]
+}

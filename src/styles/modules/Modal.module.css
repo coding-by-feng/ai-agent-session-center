@@ -79,6 +79,13 @@
 .sshFieldHint { font-size: 10px; color: var(--text-secondary, #888); font-weight: 400; }
 .sshFieldRequired { color: var(--accent-cyan, #00e5ff); font-weight: 700; }
 .sshFieldError { font-size: 10px; color: #ff5555; font-weight: 500; }
+.codexModelSelect { width: 100%; }
+.codexModelMeta {
+  font-size: 10px;
+  color: var(--text-secondary, #888);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
 
 /* Ops terminal checkbox row */
 .opsCheckboxRow { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 6px 0; }

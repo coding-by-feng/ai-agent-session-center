@@ -9,7 +9,7 @@ Provides ~10x lower latency than WebSocket terminal relay (~0.1ms IPC vs ~1-5ms 
 ## Source Files
 | File | Role |
 |------|------|
-| `electron/ptyHost.ts` | PTY creation, output buffering (configurable ring, default 2MB), shell-ready detection, server registration, cleanup; exports `setReplayBufferBytes()` |
+| `electron/ptyHost.ts` | PTY creation, output buffering (configurable ring, default 2MB), shell-ready detection, server registration, child-process-group reaping, cleanup; exports `setReplayBufferBytes()` |
 
 ## Implementation
 
@@ -116,7 +116,7 @@ The PTY host injects CLI-specific API keys into the spawned shell environment:
 | `createPty(config)` | Create PTY, returns terminalId |
 | `writePty(id, data)` | Write data to PTY stdin (strips terminal response sequences like focus events and Device Attributes via `TERMINAL_RESPONSE_RE` regex) |
 | `resizePty(id, cols, rows)` | Resize PTY dimensions |
-| `killPty(id)` | Kill PTY process and clean up |
+| `killPty(id)` | Reap direct child process groups, kill the PTY shell, and clean up |
 | `getOutputBuffer(id)` | Linearized ring snapshot, base64 or null |
 | `subscribePty(id, wc)` | Add `WebContents` to the PTY's subscriber set |
 | `unsubscribePty(id, wc)` | Remove `WebContents` from the set (PTY keeps running) |
@@ -156,7 +156,7 @@ The PTY host injects CLI-specific API keys into the spawned shell environment:
 
 ### Cleanup
 
-`app.before-quit` -> `disposeAll()` (imported as `disposePtyHost` in main.ts) kills all PTY processes and cleans up all subscriptions.
+`killPty()` first enumerates the login shell's direct children with `pgrep -P`. On Unix it sends `SIGTERM` to each child's process group (falling back to the PID), schedules `SIGKILL` after 750ms for survivors, then kills the node-pty login shell and cleans subscriptions. This mirrors the server PTY rule: killing only the shell can orphan Codex/Claude because the agent runs in its own process group. `app.before-quit` -> `disposeAll()` (imported as `disposePtyHost` in main.ts) uses the same path for every PTY.
 
 ## Dependencies & Connections
 

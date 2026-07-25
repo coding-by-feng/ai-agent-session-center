@@ -2,8 +2,20 @@
 // NOTE: hookProcessor imports sessionStore, wsManager, hookStats — all have side effects.
 // We test the validation logic indirectly by calling processHookEvent and checking results.
 import { describe, it, beforeEach, expect } from 'vitest';
-import { processHookEvent } from '../server/hookProcessor.js';
+import { processHookEvent as rawProcessHookEvent } from '../server/hookProcessor.js';
 import { resetStats } from '../server/hookStats.js';
+
+// sessionMatcher's Priority 5 external fallback only creates a card for an
+// unmatched hook that carries a controlling tty, so headless `claude -p` / CI
+// runs cannot spawn phantom cards. These fixtures model interactive sessions —
+// default a tty at the boundary so they create sessions as intended.
+// Non-objects (null, strings) must pass through untouched — the validation
+// tests below rely on them still being rejected.
+const processHookEvent = (payload, ...rest) =>
+  rawProcessHookEvent(
+    payload && typeof payload === 'object' ? { tty_path: '/dev/ttys001', ...payload } : payload,
+    ...rest,
+  );
 
 describe('hookProcessor', () => {
   beforeEach(() => {

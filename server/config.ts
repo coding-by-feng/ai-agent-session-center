@@ -181,20 +181,7 @@ export function reconstructPermissionFlags(baseCmd: string, permissionMode?: str
 export const FLAG_EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
 /**
- * Append `--model <model>` and `--effort <level>` launch flags to a Claude
- * command so model/effort are applied deterministically at launch — before the
- * first prompt runs — instead of via racy post-startup slash injection (which
- * was dropping the `/effort` keystrokes behind the `/model` re-render, leaving
- * effort at its `high` default).
- *
- * Only `claude` commands are touched; codex/gemini pass through unchanged. Flags
- * are inserted right after the leading `claude` token and skipped if already
- * present. `ultracode` is launched as `--effort xhigh` (its valid base level — the
- * raw `--effort ultracode` flag is rejected by the CLI) and upgraded to true
- * ultracode by the post-startup `/effort ultracode` slash injection.
- */
-/**
- * Safe charset for a Claude `--model` value — mirrors the `model` field in the
+ * Safe charset for a CLI `--model` value — mirrors the `model` field in the
  * session-creation Zod schema (`apiRouter.ts`). The value is interpolated
  * **unquoted** into the `--model` launch flag, so anything outside this set is a
  * shell-injection / glob hazard.
@@ -212,7 +199,7 @@ const SAFE_MODEL_RE = /^[a-zA-Z0-9._-]+$/;
  *
  * Strips real ANSI escapes and their ESC-stripped SGR leftovers, collapses to
  * the first whitespace-delimited token, and returns it only if it matches the
- * safe charset — otherwise `''` (caller drops the flag and Claude uses its
+ * safe charset — otherwise `''` (caller drops the flag and the CLI uses its
  * default model).
  */
 export function sanitizeModelId(model: string | null | undefined): string {
@@ -274,11 +261,25 @@ export function withClaudeTuiEnvDefaults(env: Record<string, string>): Record<st
   return { ...env, ...defaults };
 }
 
+/**
+ * Append supported launch flags before the first prompt runs: Claude receives
+ * `--model` + `--effort`, while Codex receives `--model`. The historical
+ * function name is retained because it is used across create/resume/fork flows.
+ * Flags are inserted after the leading CLI token and skipped when already set.
+ */
 export function applyClaudeLaunchFlags(
   command: string,
   model?: string | null,
   effortLevel?: string | null,
 ): string {
+  const codexMatch = command.match(/^(?:\S*\/)?codex\b/);
+  if (codexMatch) {
+    const cleaned = sanitizeModelInCommand(command);
+    const safeModel = sanitizeModelId(model);
+    const hasModelFlag = /(?:^|\s)(?:--model(?:=|\s)|-m(?:=|\s))/.test(cleaned);
+    if (!safeModel || hasModelFlag) return cleaned;
+    return cleaned.replace(codexMatch[0], `${codexMatch[0]} --model ${safeModel}`);
+  }
   if (!command.startsWith('claude')) return command;
   // First scrub any contaminated --model already present in the command (clone /
   // resume / fork reuse the stored startupCommand), then add flags only if still

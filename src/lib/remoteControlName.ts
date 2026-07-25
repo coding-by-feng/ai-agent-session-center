@@ -131,7 +131,10 @@ export function normalizeEffortLevel(value: string | undefined): string {
 }
 
 interface SessionPrefs {
+  /** Claude model preference (legacy key retained for stored settings). */
   model?: string;
+  /** Codex model preference, kept separate from Claude aliases such as `opus`. */
+  codexModel?: string;
   effortLevel?: string;
 }
 
@@ -147,6 +150,11 @@ export function loadSessionPrefs(): SessionPrefs {
 
 export function saveSessionPrefs(prefs: SessionPrefs): void {
   try {
-    localStorage.setItem(SESSION_PREFS_KEY, JSON.stringify(prefs));
+    // Both session modals share this key. Merge so a Claude-only save from the
+    // orphaned QuickSessionModal cannot erase NewSessionModal's Codex choice.
+    localStorage.setItem(SESSION_PREFS_KEY, JSON.stringify({
+      ...loadSessionPrefs(),
+      ...prefs,
+    }));
   } catch { /* ignore quota errors */ }
 }

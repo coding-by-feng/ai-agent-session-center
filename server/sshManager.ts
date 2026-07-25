@@ -72,6 +72,13 @@ function shellEscapeSingleQuote(str: string): string {
   return str.replace(/'/g, "'\\''");
 }
 
+function apiKeyEnvForCommand(command: string): 'OPENAI_API_KEY' | 'GEMINI_API_KEY' | 'ANTHROPIC_API_KEY' {
+  const trimmed = command.trim();
+  if (/^(?:\S*\/)?codex\b/i.test(trimmed)) return 'OPENAI_API_KEY';
+  if (/^(?:\S*\/)?gemini\b/i.test(trimmed)) return 'GEMINI_API_KEY';
+  return 'ANTHROPIC_API_KEY';
+}
+
 // ---- Shell Ready Detection ----
 
 // Match ANSI escape sequences (CSI + OSC) for stripping from PTY output
@@ -392,10 +399,7 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
       });
 
       if (config.apiKey) {
-        const envVar = command.startsWith('codex') ? 'OPENAI_API_KEY'
-          : command.startsWith('gemini') ? 'GEMINI_API_KEY'
-          : 'ANTHROPIC_API_KEY';
-        env[envVar] = config.apiKey;
+        env[apiKeyEnvForCommand(command)] = config.apiKey;
       }
 
       if (local) {
@@ -586,9 +590,7 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
             // SSH). ${VAR:-1} keeps a remote pre-set value authoritative.
             innerCmd += `export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN="\${CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN:-1}" && `;
             if (config.apiKey) {
-              const envVar = command.startsWith('codex') ? 'OPENAI_API_KEY'
-                : command.startsWith('gemini') ? 'GEMINI_API_KEY'
-                : 'ANTHROPIC_API_KEY';
+              const envVar = apiKeyEnvForCommand(command);
               innerCmd += `export ${envVar}='${shellEscapeSingleQuote(config.apiKey)}' && `;
             }
           }
@@ -607,9 +609,7 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
             // SSH). ${VAR:-1} keeps a remote pre-set value authoritative.
             launchCmd += ` && export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN="\${CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN:-1}"`;
             if (config.apiKey) {
-              const envVar = command.startsWith('codex') ? 'OPENAI_API_KEY'
-                : command.startsWith('gemini') ? 'GEMINI_API_KEY'
-                : 'ANTHROPIC_API_KEY';
+              const envVar = apiKeyEnvForCommand(command);
               launchCmd += ` && export ${envVar}='${shellEscapeSingleQuote(config.apiKey)}'`;
             }
           }

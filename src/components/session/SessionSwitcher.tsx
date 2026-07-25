@@ -1217,11 +1217,14 @@ function SessionTabCard({
       title={[title, session.projectName, session.status].filter(Boolean).join(' · ')}
       type="button"
     >
-      {/* Pin icon */}
+      {/* Pin toggle — sits beside the status badge (top-right). See
+          .sessionTabPin: the old top-left placement put it under the opaque
+          sequence badge, so it never rendered. */}
       <span
         className={`${styles.sessionTabPin}${session.pinned ? ` ${styles.pinned}` : ''}`}
         onClick={handlePinClick}
-        title={session.pinned ? 'Unpin' : 'Pin'}
+        title={session.pinned ? 'Unpin session' : 'Pin session — keeps it at the top of the list'}
+        aria-label={session.pinned ? 'Unpin session' : 'Pin session'}
       >
         &#x1F4CC;
       </span>

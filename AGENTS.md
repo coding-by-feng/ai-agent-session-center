@@ -56,12 +56,13 @@ feature or modifying an existing one:
 2. Read the corresponding doc(s) in `docs/feature/`.
 3. Check the impact matrix in `CLAUDE.md` for connected features.
 4. Read connected feature docs before changing shared behavior.
-5. After the code change, update every affected feature doc.
+5. After the code change, use `$update-feature-docs` to update every affected
+   feature doc.
 
 `docs/feature/.manifest.json` is machine-readable source of truth for file to
 doc mappings, symbols, and last-aligned timestamps. Do not hand-edit it. If it
-drifts, run the feature-doc alignment workflow rather than patching the manifest
-manually.
+drifts, run `$align-existing-feature-docs`; request a manifest rebuild when the
+manifest itself is corrupted.
 
 Feature-doc domains:
 
@@ -71,7 +72,8 @@ Feature-doc domains:
 - `docs/feature/frontend/`: Zustand state, persistence, WebSocket client,
   session detail, conversation/file/terminal/queue/review views, settings,
   shortcuts, command autocomplete, workspace snapshots, setup, auth UI, project
-  browser, floating terminals, creation modals, and UI primitives
+  browser, floating terminals, creation modals, file-open chooser, and UI
+  primitives
 - `docs/feature/3d/`: cyberdrome scene, robot system, particles/effects
 - `docs/feature/multimedia/`: sound/alarm and TTS voice output
 - `docs/feature/electron/`: app lifecycle, PTY host, and IPC transport
@@ -97,6 +99,8 @@ Important server areas:
 - `server/apiRouter.ts`: REST API surface
 - `server/mqReader.ts`, `server/hookProcessor.ts`, `server/hookRouter.ts`: hook
   ingestion and routing
+- `server/fileIndexCache.ts`, `server/commandIndex.ts`: cached file and
+  slash-command indexes
 - `server/sessionStore.ts` and helpers: session state, matching, titles,
   approvals, teams, liveness, and auto-idle
 - `server/wsManager.ts`: WebSocket broadcast and terminal relay
@@ -158,6 +162,8 @@ Check connected docs and tests when touching these contracts:
 - Hook script or MQ format affects session matching, management, and hook stats.
 - Session state changes affect robots, sound/alarms, approvals, auto-idle, and
   frontend stores.
+- Session matching affects terminal/SSH, session resume, team linking, and
+  external-session discovery.
 - WebSocket messages affect the WS client, terminal UI, and real-time UI.
 - API contracts affect frontend HTTP calls and Electron PTY registration.
 - DB schema affects API endpoints and IndexedDB mirroring.
@@ -167,6 +173,8 @@ Check connected docs and tests when touching these contracts:
 - Electron IPC channel changes affect preload and terminal transport.
 - Queue scheduler or `queueHistoryStore` changes affect prompt queue, loops,
   per-session automation, and client persistence.
+- Command or file indexes affect command autocomplete, queue editors, project
+  browsing, and file picking.
 - Transcript reconstruction affects conversation view and review tab.
 - Floating session spawn/fork changes affect floating terminal fork, review tab,
   pop-out windows, and session matching.
@@ -185,7 +193,14 @@ Check connected docs and tests when touching these contracts:
 - Never modify `~/.claude/settings.json` without an atomic temp-write and rename.
 - Server imports use `.js` extensions for NodeNext module resolution with tsx.
 - File browser path access must go through `resolveProjectPath()`.
+- External sessions must be traced rather than dropped. Never persist
+  process-discovered `external-<pid>` cards in workspace snapshots, and keep
+  the recurring external-process scan asynchronous.
 - SSH inputs must stay validated with Zod and shell-metacharacter checks.
+- Floating overlays must stay inside the viewport. Reuse the existing
+  flip/nudge/clamp helpers and render-check narrow layouts.
+- Put test and debug screenshots in `test-screenshots/` or `/tmp`; only
+  shipping images belong in `static/`.
 
 ## Editing Expectations
 
@@ -202,79 +217,77 @@ Check connected docs and tests when touching these contracts:
 <claude-mem-context>
 # Memory Context
 
-# [agent-manager] recent context, 2026-06-09 8:31pm GMT+12
+# [agent-manager] recent context, 2026-07-20 7:05pm GMT+12
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (23,315t read) | 2,394,995t work | 99% savings
+Stats: 50 obs (21,183t read) | 767,197t work | 97% savings
 
-### May 29, 2026
-S881 prompt-queue.md — Chain Gate Documentation Updated with atRest Completion Signal (May 29 at 6:40 PM)
-S900 Loop test — user asked Claude to say "hi Kason" (May 29 at 6:59 PM)
-### Jun 1, 2026
-S925 agent-manager Electron Build v2.10.28 — DMG and ZIP Produced Successfully (Jun 1 at 9:36 AM)
-### Jun 4, 2026
-S941 agent-manager Electron Build v2.10.28 — DMG + ZIP Produced Successfully (Jun 4 at 8:59 AM)
-S946 agent-manager SelectionPopup: Selected text appears lost when custom prompt textarea is focused — fix by adding selection preview (Jun 4 at 8:12 PM)
-S973 agent-manager: Recursive fork mode for floating sessions — implement, verify, and document (Jun 4 at 10:23 PM)
-### Jun 6, 2026
-S1029 agent-manager SessionSwitcher: Add pencil icon hint to session title to improve rename discoverability (Jun 6 at 3:43 PM)
-### Jun 8, 2026
-S1031 agent-manager SessionSwitcher: Add pencil icon hint to session title for rename discoverability — simplify pass applied (Jun 8 at 9:38 AM)
-S1037 agent-manager Full-Screen File View: Hide Session Header When Zoomed In (Jun 8 at 9:51 AM)
-6696 11:50a 🟣 agent-manager: Hide Session Numbers/Names in Full-Screen File Zoom View
-6697 " 🟣 agent-manager File Viewer: Hide Session Header in Full-Screen Mode
-6698 11:51a 🟣 agent-manager Full-Screen File View: Hide Session Header Bar
-6699 " 🔵 agent-manager Full-Screen File Viewer: Z-Index Layering Architecture Confirmed
-6700 11:53a 🔵 agent-manager SessionSwitcher: CSS lives in DetailPanel.module.css, not SessionSwitcher.module.css
-6701 " 🟣 agent-manager: Hide Session Header in Full-Screen File Viewer
-6702 11:54a 🔵 agent-manager ProjectTab: Fullscreen File Viewer Not Using createPortal — Parent Session Elements Remain Visible
-6703 " 🟣 agent-manager File Viewer: Hide Session Header in Full-Screen Mode
-6705 11:55a 🟣 agent-manager Full-Screen File View: Hide Session Header When Zoomed In
-6727 1:19p 🔵 agent-manager Feature Docs Manifest: 225 MISSING-FILE Entries Detected
-6729 1:20p 🔵 agent-manager Drift Detection False Positives — Files Exist, awk PATH Bug Caused 225 MISSING-FILE
-6733 1:24p 🔵 agent-manager Feature Docs: Accurate Drift — 32 Stale Docs, 1 Missing Source, 55 Uncovered Files
-6734 " 🔵 agent-manager Git History Since Manifest — 13 Feature Commits Adding AI Popups, Queue Scheduler, Effort Flags
-6736 1:26p ⚖️ agent-manager Feature Docs Alignment Plan — 39 Audits + 5 New Docs, All 55 Uncovered Files Assigned
-6738 1:27p ⚖️ agent-manager align-feature-docs Workflow — 44 Parallel Agents, Structured DOC_SCHEMA, 6 Finding Kinds
-6739 1:28p 🟣 agent-manager align-feature-docs Workflow Launched — 44 Parallel Agents Running
-6743 1:36p ✅ agent-manager Feature Docs: session-creation-modals.md Audit & Realignment
-6744 " ✅ agent-manager Feature Docs: review-tab.md Audit & Realignment
-6745 " ✅ agent-manager Feature Docs: settings-system.md Audit & Realignment
-6747 1:37p ✅ agent-manager Feature Docs: terminal-ui.md Major Overhaul
-6748 " 🔵 agent-manager: openclaw CLI Type Exists in cliDetect but NOT in settingsStore Sound Profiles
-6749 " 🔵 agent-manager: ui-primitives.md Does Not Exist — Multiple Docs Reference a Missing File
-6750 " 🔵 agent-manager: App.tsx Bootstrap Architecture — Queue Hydration Before WebSocket Connect
-6753 1:40p ✅ agent-manager: websocket-client.md Comprehensively Rewritten with Full Message Contracts
-6754 " ✅ agent-manager: views-routing.md Expanded from 53 Lines to Full Architecture Doc
-6755 " 🔵 agent-manager: floatingSessionSpawner.ts Full Architecture — Context Inheritance, Recursive Fork, ultracode Injection
-6756 " 🔵 agent-manager: Server Startup — Security Headers, WS Origin Validation, CSWSH Prevention
-6757 " ✅ agent-manager: Multiple Feature Docs Corrected in Sound/Alarm/TTS System
-6758 " 🔵 agent-manager: API Endpoints Comprehensive List — 70+ Routes Confirmed in apiRouter.ts
-6759 " 🔵 agent-manager: TTS Hold-to-Speak — Poll Interval 1.2s, readRecentText Returns {text, absBottom}
-6760 " 🔵 agent-manager: Workspace Snapshot Export Gating — Only Active Non-Archived Sessions with sshConfig
-6768 1:55p ✅ agent-manager: align-existing-feature-docs Skill Re-Invoked — Continuing Feature Doc Alignment Pass
-6770 1:56p ✅ agent-manager Feature Docs Audit Complete — 412 Findings Across 39 Docs, 5 New Docs Created
-6771 1:57p ✅ agent-manager Feature Docs Alignment — 41 Docs Updated, 5 Created, 6015 Lines Added
-6777 3:52p 🔵 agent-manager ConversationView Architecture — JSONL Transcript Fetch with In-Memory Fallback
-6778 3:53p 🔵 agent-manager LinkifiedText → uiStore.pendingFileOpen → DetailPanel Navigation Chain
-6779 " 🔵 agent-manager Electron main.ts — Pop-Out Terminal Windows, Graceful Shutdown, Loading Screen Architecture
-6780 " 🔵 agent-manager Electron Preload API Surface — Full ElectronAPI via contextBridge
-6781 " 🔵 agent-manager server/apiRouter.ts File API Endpoint Map
-6782 " 🔵 agent-manager PTY Subscribe/Unsubscribe Architecture — Ring Buffer Replay and Per-Renderer Fan-Out
-6783 " 🔵 agent-manager File Browser — PDF via iframe Blob URL, No pdf.js Dependency
-6784 " 🔵 agent-manager Reveal-in-Finder — Cross-Platform execFile Implementation
-6785 " 🔵 agent-manager transcript.ts — JSONL Transcript Fetched via /api/sessions/{id}/transcript
-6787 4:06p 🔵 agent-manager useTerminal.ts — Dual Transport: Electron IPC PTY vs WebSocket, with mergeChunks Optimization
-6788 " 🔵 agent-manager TerminalContainer — Hold-to-Speak TTS via Spacebar, Polling readRecentText
-6789 " 🔵 agent-manager SelectionPopup — Spawns Floating Sessions via POST /api/sessions/spawn-floating
-6790 " 🔵 agent-manager fileSystemProvider — LocalFileSystemProvider Uses File System Access API (Chromium Only)
-6791 " 🔵 agent-manager package.json — Version 2.10.30, Key Dependencies Confirmed
-6796 4:11p 🔵 agent-manager: LinkifiedText.tsx — File-Path Clickable Links in Session Text
-6797 " 🔵 agent-manager uiStore: Room Filter, Workspace Load, and File-Open State Architecture
-S1048 agent-manager: LinkifiedText.tsx — File-Path Clickable Links in Session Text (Jun 8 at 4:11 PM)
+### Jul 17, 2026
+S1384 agent-manager: Activity-sort feature complete — sort-by-recent-activity toggle in SessionSwitcher, with TDD, adversarial review, CSS fix, and docs (Jul 17 at 3:29 PM)
+S1386 agent-manager: Session Remark Feature — Architecture Design and DB Safety Analysis (Jul 17 at 4:17 PM)
+S1383 agent-manager: Sort-by-activity feature for SessionSwitcher — implementation, TDD, adversarial review, docs, and pre-commit verification (Jul 17 at 4:17 PM)
+S1404 agent-manager Feature Docs Full Alignment — align-existing-feature-docs workflow run to fix 184 documentation drift issues across 45 docs (Jul 17 at 4:24 PM)
+S1422 agent-manager: Add sort-by-recent-active-status icon to session rail (no rooms) — triggered /ascii-review-first which surfaced two bugs and one design trap before any code was written (Jul 17 at 5:01 PM)
+S1424 electron-build — Build and verify agent-manager v2.10.35 Electron DMG for macOS arm64 (Jul 17 at 5:39 PM)
+S1434 YouTube History Tab — Watch History Tracking Bug Reported (Jul 17 at 6:06 PM)
+S1468 AASC: Fix room skill icons to same line + persist effort level (ultracode) across workspace restart/resume (Jul 17 at 10:47 PM)
+### Jul 18, 2026
+10524 12:44a 🔵 Rail overflow threshold: 3-icon layout spills at title length ≥19 chars (2-icon at ≥22)
+10526 12:45a ✅ session-detail-panel.md updated to document NoteIcon and progress-remark row
+10527 " 🔴 Rail overflow CONFIRMED: flex-wrap:nowrap on .switcherBarVertical .switcherToggle is the fix
+10528 " ✅ api-endpoints.md and state-management.md updated for remark feature
+10532 11:03a ⚖️ agent-manager: Two UI Requests — Skill Icon Alignment + Session Effort Inheritance on Resume
+10533 " ⚖️ agent-manager: Two UI Fixes Requested — Skill Icon Alignment + Post-Resume Effort Inheritance
+10534 11:05a 🔵 Active Claude Sessions Count Check — 19 Sessions Visible in UI
+10535 11:06a ⚖️ agent-manager: Two UI Fixes Requested — Skill Icon Alignment + AASC Effort Inheritance
+10537 11:08a 🔵 Effort level and model deterministically applied via launch flags at spawn time
+10539 " 🟣 Two AASC UI/UX feature requests: room skill icon layout and effort-level persistence on resume
+S1476 agent-manager: Room session icon alignment (collapse chevron + kill skull on same line) + AASC effort inheritance after restart/resume (Jul 18 at 11:13 AM)
+10546 11:16a 🔵 Code inspection reveals effort/model persistence chain — 4 points must capture fields, 1 already applies them
+10547 11:18a 🔵 Database schema and session hydration: effortLevel not persisted to DB, sessions are in-memory only
+10550 11:19a 🔵 Existing test patterns show how to add effortLevel/model to snapshot and respawn pipelines
+10551 11:20a 🟣 Room skill icons layout fix: add .roomHeaderRow CSS for horizontal alignment
+10552 11:21a 🟣 Effort persistence: capture effortLevel and model in SessionSnapshot interface and export pipeline
+10555 11:23a 🟣 agent-manager: Effort Persistence — SessionSnapshot Extended with effortLevel and model Fields
+10558 11:24a 🟣 agent-manager: Effort Persistence — Complete 6-Step Fix (workspaceSnapshot + apiRouter + pinnedRespawn + Tests)
+10559 " 🔵 agent-manager: applyClaudeLaunchFlags Verified Correct — All 7 Flag Scenarios Pass Under Node 26
+10563 11:25a 🔵 agent-manager: workspaceSnapshot.ts Pre-existing ESLint Error — `_id` Unused Variable on HEAD
+10569 11:28a ⚖️ agent-manager: Room Header Icon Fix — roomHeaderRow Wrapper Visually Verified via Playwright
+10570 " 🟣 agent-manager: Effort Persistence — SessionSnapshot Fields + Resume Flow Implemented
+10575 11:29a 🔵 agent-manager: pinnedRespawn.ts Contains NUL Bytes — Pre-existing, Not Caused by Effort-Persistence Edit
+10576 " 🟣 agent-manager: Step ④ Implemented — buildRespawnBody Now Preserves effortLevel and model
+10577 " 🟣 agent-manager: SessionSwitcher.tsx Room Header Icons Wrapped in roomHeaderRow Div
+10580 11:30a ⚖️ agent-manager: Two UI Feature Requests — Room Session Icon Alignment + AASC Effort Inheritance
+10583 " 🟣 agent-manager: AASC Effort Inheritance + Room Header Icon Alignment — Implementation Confirmed
+10586 11:33a 🔵 agent-manager: Adversarial Code Review — Zero Confirmed Bugs Across All Three Dimensions
+11016 9:31p 🔵 agent-manager Test Suite: 10 Files Failing, 65 Passing
+11017 9:32p 🔵 agent-manager: Full List of 6 Failing Tests Identified
+11018 9:33p 🔵 agent-manager: better-sqlite3 Node Version Mismatch — Root Cause of Server Test Failures
+11019 " 🔵 agent-manager: ESLint Reports 146 Problems (121 Errors) in Working Branch
+11021 " 🟣 agent-manager v2.10.38 Released — External Session Tracking, Bare-@ File Picker, Queue Inline-Edit Autocomplete
+11022 9:37p 🟣 agent-manager v2.10.38 Released to GitHub
+S1585 agent-manager v2.10.38 Electron Release — GitHub release published with full changelog (Jul 18 at 9:37 PM)
+11038 9:47p ⚖️ AASC Electron App: Open /tmp File Links in Default Browser Instead of App
+11041 " 🔵 agent-manager: File Path Link Architecture — FileOpenChooser + FileSystemProvider
+11053 9:54p ⚖️ AASC Electron App — File Links Open in Default Browser Instead of App
+11057 9:56p ⚖️ AASC Electron App — File Links Open in Default Browser Instead of App
+11058 9:59p 🔵 AASC Electron App: File Link Architecture — Why /tmp Paths Fail to Open Externally
+11062 10:00p 🔵 AASC: /api/files/stream Empirically Works for /tmp/claude-queue-images with dirname Split
+11063 " ⚖️ AASC: File Link Browser Diversion — Full Architecture Plan
+11068 10:02p ⚖️ AASC Electron App — File Links Open in Default Browser Instead of App
+11069 10:04p ⚖️ AASC Electron App — File Links Open in Default Browser Instead of App
+11071 10:05p ⚖️ AASC Electron App — File Link Browser-Open: Pure Client-Side Architecture Decided
+11072 " ⚖️ AASC Electron App — File Links Open in Default Browser Instead of App
+11073 10:08p ⚖️ AASC Electron App — File Links Open in Default Browser Instead of App
+11074 " ⚖️ AASC Electron App — File Links Open in Default Browser Instead of App
+### Jul 20, 2026
+11097 4:39p 🔵 Codex Session Kill Failure + Empty Terminal Investigation Requested
+11106 4:43p 🔵 Codex Session Kill Issue — Empty Terminal Investigation Requested
+11108 4:44p 🔵 ai-agent-session-center Release State — v2.10.38 is Latest, HEAD Ahead by 3 Commits
+11111 4:45p 🔵 agent-manager Electron Release Pre-flight — All Feature Doc Hashes Current
 
-Access 2395k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 767k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

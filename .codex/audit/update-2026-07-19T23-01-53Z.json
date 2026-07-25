@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-07-19T23:01:53Z",
+  "generator": "update-feature-docs",
+  "changed_files": [
+    "src/components/session/FloatingTerminalPanel.tsx",
+    "src/components/session/FloatingTerminalPanel.test.tsx",
+    "src/styles/modules/FloatingTerminalPanel.module.css"
+  ],
+  "mapped_docs": [
+    {
+      "doc": "frontend/floating-terminal-fork.md",
+      "updated": true,
+      "sections_touched": ["Source Files", "In-app panel sizing"]
+    }
+  ],
+  "unmapped_files": [],
+  "new_docs_created": [],
+  "manifest_hashes_ok": true,
+  "agents_md_touched": false,
+  "carried_over_findings": []
+}

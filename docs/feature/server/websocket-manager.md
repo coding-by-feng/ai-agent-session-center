@@ -12,6 +12,7 @@ Real-time communication channel between server and all connected browser clients
 | `server/wsManager.ts` (~9KB) | WebSocket server, broadcast, terminal relay, heartbeat |
 | `server/index.ts` | WS origin (CSWSH) + token gate before `handleConnection()`; `maxPayload` on the `WebSocketServer` (index.ts:82) |
 | `server/hookProcessor.ts` | `scheduleBroadcast` — 250ms/session `session_update` coalescing (`SESSION_UPDATE_THROTTLE_MS`, hookProcessor.ts:11-33) + the piggybacked `team_update` |
+| `server/sessionUpdateCoalescer.ts`, `test/sessionUpdateCoalescer.test.ts` | Pure latest-state/earliest-`replacesId` merge and regression coverage for rapid re-key events |
 
 ## Implementation
 
@@ -37,7 +38,7 @@ Per-client guards inside the message handler:
 - Unknown message types are silently ignored
 
 ### Broadcast Throttle
-- session_update broadcasts are throttled to 250ms per sessionId (max 4/sec) via hookProcessor.ts scheduleBroadcast, coalescing updates within each window
+- session_update broadcasts are throttled to 250ms per sessionId (max 4/sec) via `hookProcessor.scheduleBroadcast`. `coalesceSessionUpdate` takes the latest state/team while retaining the earliest one-shot `replacesId`, so a rapid follow-up hook cannot hide a terminal→UUID migration from clients.
 
 ### Backpressure
 - hook_stats dropped if client.bufferedAmount > 1MB
@@ -54,7 +55,7 @@ Per-client guards inside the message handler:
 - Terminal resize bounds enforced: cols 1-500, rows 1-200; a `resizeTerminal()` error is relayed back to the client as a `terminal_error`
 
 ### Terminal Relay
-- `terminal_subscribe` registers the client via `setWsClient()` only if the terminal actually exists; the buffered scrollback is replayed immediately on subscribe (handled in `sshManager.ts`). Non-existent terminals are ignored
+- `terminal_subscribe` registers the client via `setWsClient()` only if the terminal actually exists; the buffered scrollback is replayed immediately on subscribe (handled in `sshManager.ts`). A non-existent terminal returns `terminal_closed { terminalId, reason: "unavailable" }` to the requesting client so the UI shows an unavailable state instead of an empty xterm.
 - `terminal_disconnect` unsubscribes the client (`setWsClient(id, null)`) WITHOUT killing the PTY — the PTY is only destroyed by `DELETE /api/terminals/:id` or a session kill
 
 ### Queue Count Sync

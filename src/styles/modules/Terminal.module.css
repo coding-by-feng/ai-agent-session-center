@@ -224,14 +224,23 @@
 .queueList::before { display: none; }
 
 /* Queue items */
-.queueItem { display: flex; align-items: center; gap: 6px; padding: 4px 6px; margin-bottom: 2px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 4px; cursor: grab; font-size: 11px; backdrop-filter: none; position: relative; }
+.queueItem { display: flex; align-items: center; gap: 6px; padding: 4px 6px; margin-bottom: 2px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 4px; cursor: default; font-size: 11px; backdrop-filter: none; position: relative; }
 .queueItem::before, .queueItem::after { display: none; }
 .queueItem:hover { background: rgba(255,255,255,0.05); border-color: rgba(0,229,255,0.15); transform: none; box-shadow: none; }
 .queueItem:first-child { background: linear-gradient(135deg, rgba(0, 255, 136, 0.04), rgba(255,255,255,0.02)); border-color: rgba(0, 255, 136, 0.15); }
 
 .queuePos { color: var(--text-secondary, #666); font-size: 9px; font-weight: 600; min-width: 14px; height: auto; background: none; border-radius: 0; }
+
+/* Drag-to-reorder affordance. The whole row is draggable (cursor: grab), but the
+   grip makes that discoverable. Brightens on row hover; grabbing cursor on press. */
+.queueDragHandle { display: inline-flex; align-items: center; flex-shrink: 0; color: var(--text-secondary, #666); opacity: 0.45; cursor: grab; padding: 0 1px; transition: opacity 0.12s ease, color 0.12s ease; }
+.queueDragHandle:active { cursor: grabbing; }
+.queueItem:hover .queueDragHandle { opacity: 0.9; color: var(--accent-cyan, #00e5ff); }
 .queueText { flex: 1; color: var(--text-primary, #e0e0e0); font-size: 11px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 1; }
-.queueActions { display: none; gap: 4px; opacity: 1; }
+/* flex-wrap + right-justify so a crowded action group (once = 7 buttons, loop
+   adds ⚡NOW) wraps to a second line at very narrow panel widths instead of
+   overflowing the row's right border — the viewport-safety rule. */
+.queueActions { display: none; gap: 4px; opacity: 1; flex-wrap: wrap; justify-content: flex-end; }
 .queueItem:hover .queueActions { display: flex; }
 .queueActionBtn { background: transparent; border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary, #888); font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 9px; font-weight: 600; letter-spacing: 0.5px; padding: 1px 5px; border-radius: 3px; cursor: pointer; }
 
@@ -333,6 +342,12 @@
 }
 .queueMove { color: var(--accent-orange, #ffb86c); }
 .queueMove:hover { background: rgba(255, 184, 108, 0.15); border-color: rgba(255, 184, 108, 0.3); }
+
+/* ▲/▼ click-reorder buttons (compact, so the 7-button action group stays as
+   narrow as possible). Dimmed + non-interactive at the list ends. */
+.queueReorder { color: var(--text-secondary, #888); font-size: 11px; line-height: 1; padding: 1px 4px; }
+.queueReorder:hover:not(:disabled) { color: var(--accent-cyan, #00e5ff); background: rgba(0, 229, 255, 0.1); border-color: rgba(0, 229, 255, 0.3); }
+.queueReorder:disabled { opacity: 0.25; cursor: default; }
 
 /* Queue animations */
 .queueItem.entering { animation: queue-item-enter 0.3s ease-out forwards; }

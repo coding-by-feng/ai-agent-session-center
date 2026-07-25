@@ -1,0 +1,25 @@
+{
+  "timestamp": "2026-07-20T04:36:53Z",
+  "generator": "update-feature-docs",
+  "changed_files": [
+    "src/hooks/useTerminal.ts",
+    "src/lib/terminalLinkHandler.ts",
+    "src/lib/terminalLinkHandler.test.ts"
+  ],
+  "mapped_docs": [
+    {
+      "doc": "frontend/terminal-ui.md",
+      "updated": true,
+      "sections_touched": [
+        "Source Files",
+        "Implementation",
+        "Change Risks"
+      ]
+    }
+  ],
+  "unmapped_files": [],
+  "new_docs_created": [],
+  "manifest_hashes_ok": true,
+  "agents_md_touched": false,
+  "carried_over_findings": ["hook-preference-missing"]
+}

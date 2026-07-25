@@ -368,8 +368,13 @@ export function matchSession(
     }
   }
 
-  // Priority 1: Direct match via AGENT_MANAGER_TERMINAL_ID (injected into pty env)
-  if (!session && hookData.agent_terminal_id) {
+  // Priority 1: Direct match via AGENT_MANAGER_TERMINAL_ID (injected into pty env).
+  // Only startup events may claim a fresh placeholder. Delayed teardown/tool
+  // hooks from an older thread can carry the same terminal ID and must not move
+  // the new card backward before Priority 1b's stale-event guards can run.
+  const isDirectTerminalStartup = hook_event_name === EVENT_TYPES.SESSION_START
+    || (hookData.cli_source === 'codex' && hook_event_name === EVENT_TYPES.USER_PROMPT_SUBMIT);
+  if (!session && hookData.agent_terminal_id && isDirectTerminalStartup) {
     const preSession = sessions.get(hookData.agent_terminal_id);
     if (preSession && preSession.terminalId) {
       sessions.delete(hookData.agent_terminal_id);
@@ -391,13 +396,24 @@ export function matchSession(
   // preserving the terminal connection in all cases (fresh start, --resume, crash-restart).
   // Intentionally matches ENDED sessions — reactivating the same card is correct; it avoids
   // duplicate cards when the user restarts Claude in the same terminal window.
-  // Only triggers on SESSION_START to avoid spurious re-keys on other event types.
-  if (!session && hookData.agent_terminal_id && hook_event_name === EVENT_TYPES.SESSION_START) {
+  // Codex can emit UserPromptSubmit before SessionStart reaches the queue, so that
+  // startup-like event may also re-key when BOTH terminal and PID match. Stop and
+  // SessionEnd are deliberately excluded: stale teardown events must not move an
+  // active card backward to an older thread ID.
+  if (!session && hookData.agent_terminal_id) {
     const termId = hookData.agent_terminal_id;
     for (const [key, s] of sessions) {
       if (key === termId) continue; // would have been caught by Priority 1
       if (s.status === SESSION_STATUS.CONNECTING) continue; // handled by Priority 3
-      if (s.terminalId === termId || s.lastTerminalId === termId) {
+      const sameCodexProcess =
+        hookData.cli_source === 'codex' &&
+        hook_event_name === EVENT_TYPES.USER_PROMPT_SUBMIT &&
+        !!hookData.claude_pid &&
+        s.cachedPid === Number(hookData.claude_pid);
+      if (
+        (hook_event_name === EVENT_TYPES.SESSION_START || sameCodexProcess) &&
+        (s.terminalId === termId || s.lastTerminalId === termId)
+      ) {
         session = reKeyResumedSession(sessions, s, session_id, key, pidToSession);
         consumePendingLink(s.projectPath || '');
         log.info('session', `Re-keyed resumed session ${key?.slice(0, 8)} -> ${session_id?.slice(0, 8)} (via terminalId scan, agent_terminal_id=${termId?.slice(0, 8)})`);
@@ -537,9 +553,13 @@ export function matchSession(
         // mode"), leaving live sessions untraced. Surface them as a distinct
         // external card instead — full data (real sessionId + transcript) since it
         // came from a hook. Skip subagents (teamManager owns those under their
-        // parent) and SessionEnd (no value creating an already-dead card).
+        // parent), SessionEnd, and Stop (no value creating a stale teardown card).
         const isSubagentEvent = !!(hookData.parent_session_id || hookData.agent_name);
-        if (isSubagentEvent || hook_event_name === EVENT_TYPES.SESSION_END) {
+        if (
+          isSubagentEvent ||
+          hook_event_name === EVENT_TYPES.SESSION_END ||
+          hook_event_name === EVENT_TYPES.STOP
+        ) {
           return null;
         }
         // Only surface INTERACTIVE external sessions. A headless `claude -p`, a CI
@@ -550,8 +570,15 @@ export function matchSession(
         if (!hookData.tty_path) {
           return null;
         }
-        session = createDefaultSession(session_id, cwd, hookData, detectHookSource(hookData), null);
-        session.isExternal = true;
+        const managedTerminalId = hookData.agent_terminal_id || null;
+        session = createDefaultSession(
+          session_id,
+          cwd,
+          hookData,
+          managedTerminalId ? 'ssh' : detectHookSource(hookData),
+          managedTerminalId,
+        );
+        session.isExternal = !managedTerminalId;
         const startPayload = hookData as HookPayloadBase & {
           transcript_path?: string;
           permission_mode?: string;

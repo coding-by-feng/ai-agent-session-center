@@ -78,7 +78,7 @@ Imperative update of `scene.fog` color/density and `gl.clearColor` on theme chan
 - Within each group, ordered by `sortSessions` (`sessionSort.ts`): **pinned first**, then status priority via `STATUS_ORDER` (working 0 > prompting 1 > approval/input 2 > waiting 3 > idle 4 > connecting 5 > ended 6), then title (localeCompare).
 - Each row has **two action affordances**: a pin toggle and a close button (titles are read-only — rename UI lives in the detail panel).
   - **Pin** (`onTogglePin` → `sessionStore.togglePin`): pinned sessions float to the top of their group, get a left accent bar, and auto-recreate on restart / if they die.
-  - **Close** (`handleClose`): if the session is pinned, prompts a `window.confirm`, and on confirm calls `markUserClosing(session)` (`pinnedRespawn.ts`, so the death isn't treated as a crash) then unpins it; in all cases POSTs `/api/sessions/:id/kill` with body `{ confirm: true }` then calls `removeSession`.
+  - **Close** (`handleClose`): if the session is pinned, prompts a `window.confirm`, and on confirm calls `markUserClosing(session)` (`pinnedRespawn.ts`, so the death isn't treated as a crash) then unpins it; in all cases POSTs `/api/sessions/:id/kill` with body `{ confirm: true }`, closes the canonical terminal returned by the server through `closeManagedTerminal()`, then calls `removeSession`. A failed terminal cleanup is surfaced without resurrecting a server-confirmed ended card; an unsafe shared-PID rejection keeps the card visible.
 - Rows for `approval`/`input` status pulse (`sidebarApprovalPulse` animation) to flag sessions needing attention.
 
 ### RoomLabels
@@ -129,4 +129,5 @@ Sessions are rendered as robots only when `status !== 'ended'` AND `source === '
 - OrbitControls `maxPolar` prevents camera from going below the floor -- relaxing this breaks the visual.
 - The floating-exclusion filter (`isFloating`) must stay aligned across `CyberdromeScene`, `RobotListSidebar`, and `HeaderAgentStrip`; dropping it in one place makes floating popups appear as duplicate robots/rows. Do NOT filter on `isFork` — clone/fork sessions carry it and must stay visible.
 - Closing a pinned session must `markUserClosing` + unpin before killing, or `pinnedRespawn` will treat the death as a crash and immediately recreate it.
+- Sidebar close must use the kill response's canonical `terminalId`; removing only the card can leave an Electron PTY and its agent child process running.
 - `Scene3DTheme` has exactly 36 properties — every theme palette must define all of them or the scene renders with `undefined` colors.

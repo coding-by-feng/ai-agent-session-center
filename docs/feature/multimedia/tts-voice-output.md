@@ -1,25 +1,43 @@
-# TTS Voice Output (Hold-to-Speak)
+# TTS Voice Output (Hold-to-Speak + Local Click-to-Speak)
 
 ## Function
-Read the latest terminal output aloud while the user holds **Space** (or a mic
-button in the terminal toolbar). Bilingual EN + zh-CN via Google Cloud
-Text-to-Speech. Releasing the key stops playback immediately.
+Read the latest terminal output aloud. Two independent providers:
+
+1. **Google Cloud TTS (hold-to-speak)** — hold **Space** (or the mic button)
+   while focused on a terminal. Bilingual EN + zh-CN via Google Cloud
+   Text-to-Speech; releasing the key stops playback. Requires a per-user API key.
+2. **Local voice (click-to-speak)** — a **🔊 speaker button** in the terminal
+   toolbar (click to start, click to stop) that reads output aloud with an
+   on-device **English** voice (Kokoro-82M) running entirely in the browser via
+   a Web Worker. No API key, no server round-trip; the model downloads once
+   (~90 MB) from the Hugging Face CDN, then runs offline.
 
 ## Purpose
 Reduce screen fatigue. When eyes are tired after a long work session, the user
 can listen to what the assistant is doing in a specific terminal without
-reading.
+reading. The local provider additionally removes the cloud dependency — no
+credentials, offline after first use.
 
 ## Source files
+### Google Cloud provider (hold-to-speak)
 - `server/ttsManager.ts` — GCP TTS REST client, concurrency cap, bilingual splitter, long-text chunker, key probe
 - `server/apiRouter.ts` — `POST /api/tts/synthesize`, `POST /api/tts/status`, `redactTtsError` helper, Zod schemas
 - `src/lib/ttsEngine.ts` — browser-side fetch + queued MP3 playback, `checkTTSStatus` probe
-- `src/hooks/useTerminal.ts` — `readRecentText({ lines?, sinceAbsLine? }) → { text, absBottom }` exposes buffer text
-- `src/components/terminal/TerminalContainer.tsx` — spacebar handler, hold state, 1.2s polling loop
-- `src/components/terminal/TerminalToolbar.tsx` — mic button (pointer hold), gated on `ttsEnabled` prop
-- `src/components/settings/SoundSettings.tsx` — API-key input, toggle, voice pickers, speaking-rate slider, preview
-- `src/stores/settingsStore.ts` — `googleTtsApiKey`, `ttsEnabled`, `ttsVoiceEn`, `ttsVoiceZh`, `ttsSpeakingRate`
 - `test/ttsManager.test.ts` — language-splitter + API-key-guard unit tests
+
+### Local Kokoro provider (click-to-speak)
+- `src/lib/kokoroWorker.ts` — Web Worker hosting Kokoro-82M via `kokoro-js` (q8/WASM); lazy model load, PCM generation, epoch-guarded stop, give-up backoff after `MAX_LOAD_FAILURES`
+- `src/lib/kokoroTts.ts` — main-thread singleton engine: worker lifecycle, per-consumer `owner` tokens, ordered WebAudio playback (`drain()`), load-status `subscribe()`, `speak`/`stop`/`preload`/`terminate`, pure `splitIntoChunks()`
+- `src/lib/kokoroTts.test.ts` — `splitIntoChunks` unit tests
+- `server/index.ts` — CSP `connect-src` includes Hugging Face hosts so the model can download
+
+### Shared UI + settings
+- `src/hooks/useTerminal.ts` — `readRecentText({ lines?, sinceAbsLine? }) → { text, absBottom }` exposes buffer text
+- `src/components/terminal/TerminalContainer.tsx` — Google spacebar/hold + local click-to-speak toggle, both 1.2s polling loops; local owner/voice refs + ownership/error-aware status subscription
+- `src/components/terminal/TerminalToolbar.tsx` — mic button (`ttsEnabled`, pointer hold) + speaker button (`localTtsEnabled`, click toggle, spinner while `localTtsLoading`)
+- `src/components/settings/SoundSettings.tsx` — Google: API key, voice pickers, rate, preview; Local: enable toggle, voice picker, preview, load-status line
+- `src/stores/settingsStore.ts` — `googleTtsApiKey`, `ttsEnabled`, `ttsVoiceEn`, `ttsVoiceZh`, `ttsSpeakingRate`, `ttsLocalEnabled`, `ttsLocalVoice`
+- `src/lib/tooltips.ts` — `termSpeak` (mic) + `termSpeakLocal` (speaker) copy
 
 ## Implementation
 ### Auth — per-user API key (no shared credentials)
@@ -86,6 +104,35 @@ pushes a `QueueItem` and triggers `drain()`, which fetches one MP3 blob at a tim
 audio, and revokes the active blob URL. `checkTTSStatus(apiKey)` POSTs to
 `/api/tts/status` and returns the `data` envelope (`{ ok, error? }`).
 
+### Local voice (offline, English) — Kokoro
+Entirely client-side; the server is never involved. Enabled via **Settings →
+Sound → Local Voice** (`ttsLocalEnabled`), voice via `ttsLocalVoice` (default
+`af_heart`; 8 US/UK voices).
+
+- **Model**: Kokoro-82M (Apache-2.0), `onnx-community/Kokoro-82M-v1.0-ONNX`,
+  loaded with `dtype: 'q8', device: 'wasm'`. The ONNX runtime (`ort-wasm-simd-threaded.jsep`)
+  is bundled into the app; only the model **weights** (~90 MB) fetch once from
+  `huggingface.co` and cache in the browser (offline thereafter).
+- **Worker** (`kokoroWorker.ts`): lazily loads the model on first `preload`/`generate`,
+  synthesizes each chunk to Float32 PCM, and transfers it back. A monotonic
+  `epoch` (set by the engine on stop) drops stale jobs; empty/silent chunks are
+  skipped. After `MAX_LOAD_FAILURES` (2) it gives up until the worker is recreated.
+- **Engine** (`kokoroTts.ts`, singleton `kokoroTts`): `speak(text, { voice, owner })`
+  splits text via `splitIntoChunks()` and posts generate jobs; received PCM is
+  played in order through a single `AudioContext` in `drain()` (wrapped in
+  try/finally so a bad chunk can never wedge the queue). `stop(owner)` only acts
+  if `owner` still holds the engine (per-consumer isolation), `terminate()` kills
+  the worker (aborting an in-flight download), and `subscribe()` streams
+  `{ loading, ready, error, activeOwner }`.
+- **Toolbar flow** (`TerminalContainer`): the speaker button toggles
+  `startLocalTts`/`stopLocalTts`. Start reads the buffer tail and streams new
+  lines on a 1.2s poll (mirroring the Google path). Each terminal holds a stable
+  `owner` symbol; the status subscription resets the button if the engine is lost
+  to another consumer or the model errors — so it never sticks "on". The spinner
+  reflects `loading`. Wired into both the inline and fullscreen toolbars.
+- **Settings preview** uses its own `owner`, so closing the panel stops only the
+  preview (never a terminal's playback); disabling the feature calls `terminate()`.
+
 ### API surface
 - `POST /api/tts/synthesize` — body `{ apiKey, text, voiceEn?, voiceZh?, speakingRate?, lang? }` → `audio/mpeg` (`Cache-Control: no-store`); errors → 500 `{ success: false, error }` (key redacted). Zod bounds: `apiKey` 10–200 chars, `text` 1–12000 chars, `voiceEn`/`voiceZh` ≤100 chars, `speakingRate` 0.25–4.0, `lang` one of `en`/`zh`/`auto`; violations → 400. The 12000-char `text` cap sits above ttsManager's own `MAX_CHARS_PER_REQUEST = 4500` chunker, so a long hold-to-speak buffer is chunked server-side but a single oversize request is still rejected at the boundary.
 - `POST /api/tts/status` — body `{ apiKey }` (Zod: 1–200 chars) → `{ success: true, data: { ok, error? } }` (probes Google's `voices` REST list with the key)
@@ -120,14 +167,29 @@ audio, and revokes the active blob URL. `checkTTSStatus(apiKey)` POSTs to
 - The Settings speaking-rate slider is capped at `0.5–2.0` (step `0.05`) while
   the server accepts `0.25–4.0`; widening one without the other diverges UI from
   capability.
+- **Local voice needs Hugging Face reachable on first run.** The model weights
+  download from `huggingface.co` — the server CSP `connect-src` must list the HF
+  hosts (see `server/index.ts`); tightening CSP or blocking HF breaks the
+  first-run download. The ONNX runtime is local, so only weights hit the network.
+- **Kokoro is English-only in v1.** Non-English (incl. zh) terminal output is
+  read with the English voice; use the Google provider for zh.
+- **`kokoroTts` is a shared singleton**, so only one consumer plays at a time —
+  a new `speak()` from another terminal/preview takes over. Callers must pass a
+  stable `owner` and honor the `activeOwner` broadcast, or their UI desyncs.
+- The local model + ORT WASM (~110 MB resident) stay in memory once loaded until
+  `terminate()`; only the WASM (single-threaded fallback) runs without
+  cross-origin isolation.
 
 ## Cross-feature impact
-- **[Terminal UI](../frontend/terminal-ui.md)** — adds one toolbar mic button
-  (gated on the `ttsEnabled` prop) and a Space keydown/keyup handler scoped to
-  focus inside the terminal root.
-- **[Settings System](../frontend/settings-system.md)** — five persisted keys
-  (`googleTtsApiKey`, `ttsEnabled`, `ttsVoiceEn`, `ttsVoiceZh`,
-  `ttsSpeakingRate`); the EN/zh voice pickers offer 8 EN and 4 zh Chirp 3 HD
-  voices.
+- **[Terminal UI](../frontend/terminal-ui.md)** — adds a toolbar mic button
+  (gated on `ttsEnabled`) + a Space keydown/keyup handler, and a speaker button
+  (gated on `localTtsEnabled`) that click-toggles local playback; both inline and
+  fullscreen toolbars.
+- **[Settings System](../frontend/settings-system.md)** — seven persisted keys
+  (`googleTtsApiKey`, `ttsEnabled`, `ttsVoiceEn`, `ttsVoiceZh`, `ttsSpeakingRate`,
+  `ttsLocalEnabled`, `ttsLocalVoice`); the Google voice pickers offer 8 EN + 4 zh
+  Chirp 3 HD voices, the local picker 8 Kokoro EN voices.
+- **[API Endpoints](../server/api-endpoints.md)** — the local provider adds no
+  endpoint but requires the HF hosts in the server CSP `connect-src` (`server/index.ts`).
 - **[Sound & Alarm System](sound-alarm-system.md)** — independent; TTS plays
   over existing sound effects.

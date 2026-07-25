@@ -17,6 +17,8 @@ The bridge between AI CLI processes (Claude, Gemini, Codex) and the dashboard. W
 | `hooks/reset.js` | Reset/uninstall path that removes dashboard-owned Claude/Gemini config and Codex lifecycle/legacy notify config |
 | `server/mqReader.ts` | File-based MQ reader (fs.watch + 10ms debounce, 500ms fallback poll, 5s health check, reads from byte offset, truncates at 1MB) |
 | `server/hookProcessor.ts` | Validates payload (session_id, event type, PID, timestamp), calls `handleEvent()`, records stats, broadcasts `session_update` with 250ms throttle (max 4/sec per session), plus `team_update` and `hook_stats` |
+| `server/sessionUpdateCoalescer.ts` | Pure merge helper for throttled session updates; keeps the latest session state while preserving one-shot identity migrations (`replacesId`) |
+| `test/sessionUpdateCoalescer.test.ts` | Regression coverage for rapid re-key + follow-up events inside one 250ms throttle window |
 | `server/hookRouter.ts` | `POST /api/hooks` HTTP fallback adapter — delegates to `processHookEvent(body, 'http')`, returns `{ ok: true }` or `400 { success: false, error }`; rate limiting is applied externally via `hookRateLimitMiddleware` (from `apiRouter.ts`) mounted in `server/index.ts` |
 | `server/hookInstaller.js` | Auto-installs hooks on startup for Claude/Gemini/Codex, atomic writes to settings files |
 | `server/hookStats.ts` | Rolling stats per event type (last 200 samples), global rate (last 60s) |
@@ -59,6 +61,10 @@ The bridge between AI CLI processes (Claude, Gemini, Codex) and the dashboard. W
 - `claude_pid`, if present, must be a positive integer
 - `timestamp`, if present, must be a finite number
 - Invalid payloads are logged and rejected (`{ error }`); `handleEvent()` throwing is caught and returns `null` (no broadcast)
+
+### Session-update coalescing
+- `scheduleBroadcast()` allows at most one `session_update` per session every `SESSION_UPDATE_THROTTLE_MS = 250`ms. Follow-up hook events in that window are merged by `coalesceSessionUpdate()` rather than replacing the pending delta wholesale.
+- The incoming update supplies the newest session state and newest team payload, but the earliest pending `session.replacesId` is retained. This is load-bearing for terminal→hook re-keying: Codex commonly emits `SessionStart` followed by `UserPromptSubmit` within the same window, and only the first delta carries the temporary `term-*`/`pty-*` ID that clients must remove.
 
 ### Installers & Reset CLI
 - `hooks/install-hooks.js` — CLI entry point; parses `--density <high|medium|low>`, `--clis <claude,gemini,codex>`, `--uninstall`, `--quiet`; falls back to `data/server-config.json`; delegates to `installHooks()` in `install-hooks-api.js`/`.cjs`.
@@ -121,3 +127,4 @@ Densities are resolved in **two** places: `server/hookInstaller.js` (`ensureHook
 - Changing the JSONL format breaks `mqReader` parsing
 - Modifying density levels changes which events are captured (and downstream sound/alarm triggers)
 - Per-CLI event sets live in three places — `hookInstaller.js` (startup auto-install), `hooks/install-hooks-api.js`/`.cjs` (every user-triggered install), and `constants.ts` (`KNOWN_EVENTS` validation). An event registered but not in `KNOWN_EVENTS` is rejected at validation. The Gemini/Codex divergence between the two installers is deliberate (see Event Coverage) — do not "fix" it by copying one table over the other
+- Coalescing must preserve `replacesId` until broadcast. Dropping it leaves the server on the canonical UUID while browsers retain a dead temporary card, which then persists through workspace auto-save.

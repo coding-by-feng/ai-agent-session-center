@@ -8,7 +8,7 @@ import {
   detectHookSource,
 } from '../server/sessionMatcher.js';
 import {
-  handleEvent,
+  handleEvent as rawHandleEvent,
   getSession,
   getAllSessions,
   saveSnapshot,
@@ -17,8 +17,20 @@ import {
   resumeSession,
   reconnectSessionTerminal,
   deleteSessionFromMemory,
+  registerSessionAlias,
+  resolveSessionId,
 } from '../server/sessionStore.js';
 import { EVENT_TYPES, SESSION_STATUS, ANIMATION_STATE } from '../server/constants.js';
+
+// sessionMatcher's Priority 5 external fallback only creates a card for an
+// unmatched hook that carries a controlling tty, so a headless `claude -p`, a
+// CI run or an MCP-spawned agent cannot spawn phantom cards. The fixtures here
+// model INTERACTIVE sessions, so default a tty at the boundary. Tests that
+// exercise the headless path call matchSession directly, or pass an explicit
+// `tty_path: undefined`, both of which still bypass this default.
+// Non-objects pass through untouched so validation paths stay testable.
+const handleEvent = (payload: Parameters<typeof rawHandleEvent>[0]) =>
+  rawHandleEvent(payload && typeof payload === 'object' ? { tty_path: '/dev/ttys001', ...payload } : payload);
 import type { Session, PendingResume } from '../src/types/session.js';
 import type { HookPayloadBase } from '../src/types/hook.js';
 
@@ -213,6 +225,8 @@ describe('matchSession — 5-priority session matching', () => {
           session_id: 'incoming-id',
           hook_event_name: 'SessionStart',
           cwd: '/same/dir',
+          // Needed for the Priority 5 fallback card asserted below.
+          tty_path: '/dev/ttys001',
         } as HookPayloadBase,
         sessions,
         pendingResumeMap,
@@ -470,6 +484,9 @@ describe('matchSession — 5-priority session matching', () => {
           hook_event_name: 'SessionStart',
           cwd: '/home/user/project',
           term_program: 'iTerm.app',
+          // Priority 5 only surfaces INTERACTIVE externals — a controlling tty
+          // is what separates them from headless `claude -p` / CI runs.
+          tty_path: '/dev/ttys001',
         } as HookPayloadBase,
         sessions,
         pendingResumeMap,
@@ -489,6 +506,7 @@ describe('matchSession — 5-priority session matching', () => {
           hook_event_name: 'SessionStart',
           cwd: '/tmp/proj',
           claude_pid: 9999,
+          tty_path: '/dev/ttys001',
         } as HookPayloadBase,
         sessions,
         pendingResumeMap,
@@ -500,7 +518,13 @@ describe('matchSession — 5-priority session matching', () => {
       expect(pidToSession.get(9999)).toBe('pid-cached-session');
     });
 
-    it('stores team-related fields from hook data', () => {
+    // A hook carrying agent_name (or parent_session_id) is a SUBAGENT event.
+    // teamManager owns those under their parent session, so the Priority 5
+    // external fallback deliberately declines them rather than creating a
+    // second top-level card — a tty makes no difference. This previously
+    // asserted the opposite (a standalone card created with the team fields
+    // copied onto it); that path was removed with external-session tracking.
+    it('declines subagent hooks — teamManager owns those under their parent', () => {
       const result = matchSession(
         {
           session_id: 'team-session',
@@ -510,6 +534,7 @@ describe('matchSession — 5-priority session matching', () => {
           agent_type: 'task',
           team_name: 'alpha-team',
           agent_color: '#ff0000',
+          tty_path: '/dev/ttys001',
         } as HookPayloadBase,
         sessions,
         pendingResumeMap,
@@ -517,10 +542,8 @@ describe('matchSession — 5-priority session matching', () => {
         projectCounters,
       );
 
-      expect(result.agentName).toBe('researcher');
-      expect(result.agentType).toBe('task');
-      expect(result.teamName).toBe('alpha-team');
-      expect(result.agentColor).toBe('#ff0000');
+      expect(result).toBeNull();
+      expect(sessions.has('team-session')).toBe(false);
     });
   });
 
@@ -758,6 +781,34 @@ describe('detectHookSource', () => {
 // ---------------------------------------------------------------------------
 
 describe('Session dedup fixes', () => {
+  it('reuses the hook-created UUID when Electron terminal registration arrives late', async () => {
+    const terminalId = uid('pty-late');
+    const canonicalId = uid('codex-hook');
+    handleEvent({
+      session_id: canonicalId,
+      hook_event_name: EVENT_TYPES.USER_PROMPT_SUBMIT,
+      cwd: '/tmp/late-register',
+      tty_path: '/dev/ttys099',
+      agent_terminal_id: terminalId,
+      claude_pid: 445566,
+      cli_source: 'codex',
+    });
+
+    const registered = await createTerminalSession(terminalId, {
+      host: 'localhost',
+      workingDir: '/tmp/late-register',
+      command: 'codex',
+      sessionTitle: 'Late Codex',
+    });
+
+    expect(registered.sessionId).toBe(canonicalId);
+    expect(registered.replacesId).toBe(terminalId);
+    expect(registered.terminalId).toBe(terminalId);
+    expect(registered.isExternal).toBe(false);
+    expect(getSession(terminalId)?.sessionId).toBe(canonicalId);
+    expect(getAllSessions()[terminalId]).toBeUndefined();
+  });
+
   // ---- Fix 2: projectPath update ONLY for SSH sessions ----
 
   describe('Fix 2 — projectPath update only for ssh source', () => {
@@ -1134,6 +1185,22 @@ describe('Edge cases', () => {
     const removed = deleteSessionFromMemory(id);
     expect(removed).toBe(true);
     expect(getSession(id)).toBeNull();
+  });
+
+  it('resolves multi-hop workspace aliases to the canonical session', async () => {
+    const canonicalId = uid('canonical');
+    const freshTerminalId = uid('term-fresh');
+    const savedTerminalId = uid('term-saved');
+    await createTerminalSession(canonicalId, {
+      host: 'localhost', workingDir: '/tmp/alias-chain', command: 'codex',
+    });
+    registerSessionAlias(savedTerminalId, freshTerminalId);
+    registerSessionAlias(freshTerminalId, canonicalId);
+
+    expect(resolveSessionId(savedTerminalId)).toBe(canonicalId);
+    expect(getSession(savedTerminalId)?.sessionId).toBe(canonicalId);
+
+    deleteSessionFromMemory(canonicalId);
   });
 
   it('reKeyResumedSession resets startedAt to current time', () => {

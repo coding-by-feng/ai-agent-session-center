@@ -153,6 +153,15 @@ export function handleConnection(ws: WebSocket): void {
               client._terminalIds.add(msg.terminalId);
             } else {
               log.debug('ws', `Terminal subscribe ignored — ${msg.terminalId} not found`);
+              if (client.readyState === 1) {
+                try {
+                  client.send(JSON.stringify({
+                    type: WS_TYPES.TERMINAL_CLOSED,
+                    terminalId: msg.terminalId,
+                    reason: 'unavailable',
+                  }));
+                } catch { /* client disconnected */ }
+              }
             }
           }
           break;

@@ -1,0 +1,94 @@
+{
+  "timestamp": "2026-07-19T10:42:29Z",
+  "generator": "update-feature-docs",
+  "changed_files": [
+    "electron/ptyHost.ts",
+    "server/apiRouter.ts",
+    "server/hookProcessor.ts",
+    "server/processMonitor.ts",
+    "server/sessionMatcher.ts",
+    "server/sessionStore.ts",
+    "server/wsManager.ts",
+    "server/sessionAliasResolver.ts",
+    "server/sessionKillPolicy.ts",
+    "server/sessionUpdateCoalescer.ts",
+    "src/components/3d/RobotListSidebar.tsx",
+    "src/components/session/KillConfirmModal.tsx",
+    "src/components/session/RoomKillConfirmModal.tsx",
+    "src/components/session/RoomKillConfirmModal.test.tsx",
+    "src/components/terminal/TerminalContainer.tsx",
+    "src/hooks/useTerminal.ts",
+    "src/lib/terminalTransport.ts",
+    "src/lib/terminalTransport.test.ts",
+    "src/lib/workspaceSnapshot.ts",
+    "src/lib/workspaceSnapshot.test.ts",
+    "src/types/api.ts",
+    "test/sessionAliasResolver.test.ts",
+    "test/sessionKillPolicy.test.ts",
+    "test/sessionLinkage.test.ts",
+    "test/sessionMatcher.test.js",
+    "test/sessionUpdateCoalescer.test.ts"
+  ],
+  "mapped_docs": [
+    {
+      "doc": "3d/cyberdrome-scene.md",
+      "updated": true,
+      "sections_touched": ["Source Files", "RobotListSidebar", "Change Risks"]
+    },
+    {
+      "doc": "electron/pty-host.md",
+      "updated": true,
+      "sections_touched": ["Termination"]
+    },
+    {
+      "doc": "frontend/session-detail-panel.md",
+      "updated": true,
+      "sections_touched": ["SessionControlBar", "Modals"]
+    },
+    {
+      "doc": "frontend/terminal-ui.md",
+      "updated": true,
+      "sections_touched": ["Source Files", "Implementation"]
+    },
+    {
+      "doc": "frontend/workspace-snapshot.md",
+      "updated": true,
+      "sections_touched": ["Implementation"]
+    },
+    {
+      "doc": "server/api-endpoints.md",
+      "updated": true,
+      "sections_touched": ["Source Files", "Session Control", "Terminal Endpoints"]
+    },
+    {
+      "doc": "server/hook-system.md",
+      "updated": true,
+      "sections_touched": ["Source Files", "Broadcast Throttling"]
+    },
+    {
+      "doc": "server/process-monitor.md",
+      "updated": true,
+      "sections_touched": ["Source Files", "findClaudeProcess Resolution Chain"]
+    },
+    {
+      "doc": "server/session-management.md",
+      "updated": true,
+      "sections_touched": ["Workspace Metadata at Creation", "Session Aliases", "Change Risks"]
+    },
+    {
+      "doc": "server/session-matching.md",
+      "updated": true,
+      "sections_touched": ["Priorities 1, 1b, and 1.5", "Change Risks"]
+    },
+    {
+      "doc": "server/websocket-manager.md",
+      "updated": true,
+      "sections_touched": ["Source Files", "Terminal Messages", "Broadcast Throttling"]
+    }
+  ],
+  "unmapped_files": [],
+  "new_docs_created": [],
+  "manifest_hashes_ok": true,
+  "agents_md_touched": false,
+  "carried_over_findings": []
+}

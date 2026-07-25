@@ -66,6 +66,12 @@ Per-tone gain in `playTone`: `vol * masterVolume * 0.3` (default `vol` = 1). Def
 | gemini | 0.7 |
 | codex | 0.5 |
 
+**Quiet by default.** To avoid notification fatigue, the default profiles are built from `quietCliActions(cli)` — a `SILENT_ACTIONS` base (all 20 actions `'none'`) plus `QUIET_OVERRIDES`, which keeps only the high-signal events audible: `approvalNeeded` (alarm), `inputNeeded` (chime/ding/beep), `alert` (alarm), and `taskComplete`. Because `taskComplete` fires on **every** `Stop` (once per turn), the quiet profile deliberately uses a short `'blip'` — not the ~1s `fanfare` — across all three CLIs. Per-tool chatter (`toolRead`…`toolOther`), session/prompt/subagent/archive/kill sounds are silent by default. (`alert` has no event trigger today; it is kept audible for future wiring.)
+
+**Re-enabling.** Every sound is restorable: per action via the `SoundSettings` dropdowns, or wholesale via the **Quiet** / **All sounds** preset buttons (Settings → Sound → Per-CLI Sound Profiles), which call the `applyCliSoundPreset(cli, 'quiet' | 'full')` store action. The full (expressive) maps are preserved as `FULL_CLI_ACTIONS` / `fullCliActions(cli)`.
+
+**One-time migration.** Changing a default only affects new users, so `migrateSoundProfiles()` (run inside `loadFromDb`, gated by `SETTINGS_SCHEMA_VERSION`) quiets **existing** users too — but only for CLI profiles they never customized (whose `actions` still exactly equal the old loud `FULL_CLI_ACTIONS`). Customized profiles and users already on the current schema version are left untouched; the version stamp is persisted so it runs at most once.
+
 When a CLI is detected and its profile is enabled, `playForCli` resolves the sound from `cliConfig.actions[action] ?? 'none'` and plays it via `soundEngine.preview()`, which bypasses both the `unlocked` gate and the `DEFAULT_ACTION_SOUNDS`/override resolution. Only the fallback path (no CLI match or profile disabled) calls `soundEngine.play(action)`.
 
 ### CLI Detection

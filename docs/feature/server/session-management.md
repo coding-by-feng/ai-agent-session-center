@@ -17,6 +17,8 @@ Central hub that manages all session state. Every other feature reads from or wr
 | `server/autoIdleManager.ts` | Idle transition timers (checks every 10s) + stale `pendingResume` cleanup (checks every 15s) |
 | `server/floatingSessionSpawner.ts` | Builds the prompt + config for fork/floating sessions; calls into `createTerminalSession` with `isFork: true`, `isFloating: true`, and `originSessionId`. Detailed in [Floating Session Spawner](./floating-session-spawner.md) |
 | `server/sessionTitle.ts` | Pure title helpers (`makeShortTitle`, `isCloneForkTemplateTitle`, `buildAutoTitle`) — no DB imports so they are unit-testable (`test/sessionTitle.test.ts`) without tripping the better-sqlite3 Vitest worker crash |
+| `server/sessionAliasResolver.ts` | Pure multi-hop alias resolver used for saved-terminal → fresh-terminal → hook-UUID chains |
+| `test/sessionAliasResolver.test.ts`, `test/sessionLinkage.test.ts` | Alias-chain unit coverage and session-store integration coverage |
 | `server/config.ts` | Tool categories, timeouts, animation maps, permission-flag + launch-flag command helpers |
 | `server/constants.ts` | All magic strings (events, statuses, WS types) |
 | `src/types/session.ts`, `src/types/hook.ts`, `src/types/index.ts` | Shared hook/session types (`cliSource`, `isExternal`, Codex event metadata, `PostCompact`) |
@@ -27,7 +29,7 @@ Central hub that manages all session state. Every other feature reads from or wr
 - Session state machine: connecting -> idle -> prompting -> working -> approval/input -> waiting -> ended
 - 8 statuses: idle, prompting, working, approval, input, waiting, ended, connecting
 - `connecting` is initial status for terminal sessions before first hook arrives
-- `connectingTimeout` safety net: sessions stuck in CONNECTING transition to idle after 30s (Claude) or 3s (non-Claude agents)
+- `connectingTimeout` safety net: sessions stuck in CONNECTING transition to idle after 30s for lifecycle-hook CLIs (Claude or Codex), or 3s for other commands
 
 ### Animation State Mapping
 - Idle/Walking/Running/Waiting/Death/Dance with emotes (Wave, ThumbsUp, Jump, Yes)
@@ -65,6 +67,11 @@ On create it does `sessions.set(id, session)`, `pidToSession.set(proc.pid, id)`,
 
 ### Workspace Metadata at Creation
 - `createTerminalSession` applies `pinned`, `muted`, `alerted`, `accentColor`, `characterModel` from `config` at creation time (sessionStore.ts:1067-1071), plus `effortLevel` and `model` (1074-1075) so floating popups can inherit them before any hook sets `model`. Without this, metadata set via separate PUTs after creation would be missing from the first broadcast and a paired auto-save could overwrite the snapshot with stale values.
+- Electron registers a PTY asynchronously after spawning it. If its hook wins that race, `createTerminalSession()` finds the existing session by `terminalId`, registers the terminal ID as an alias of the hook UUID, enriches it with SSH config/title/CLI metadata, clears `isExternal`, and broadcasts the updated canonical card with `replacesId: terminalId` instead of inserting a second `pty-*` card. That migration moves frontend selection and room membership off the temporary PTY ID.
+
+### Session aliases
+- `registerSessionAlias(oldId, newId)` records ID migrations. Workspace restore can form a chain such as saved `term-*` → newly spawned `term-*` → hook UUID.
+- `resolveSessionId()` follows the complete chain through `followSessionAlias()` with a cycle guard. `getSession`, kill/archive/delete/source detection, and process lookup resolve to the canonical Map key before acting, so a stale card cannot target a dead key while leaving the real session alive.
 
 ### Session Title Generation
 Title helpers live in `server/sessionTitle.ts` (pure, no DB deps). On `USER_PROMPT_SUBMIT`, `handleEvent` auto-titles a session when it has **no title yet** OR when it still carries the static `"Clone of …"` / `"Fork of …"` template baked in at spawn:
@@ -108,6 +115,7 @@ Title helpers live in `server/sessionTitle.ts` (pure, no DB deps). On `USER_PROM
 - archiveSession() / setSummary() — persistence helpers
 - linkTerminalToSession() / updateQueueCount() — terminal/queue integration
 - registerSessionAlias() — maps old session IDs to new ones
+- resolveSessionId() — follows multi-hop aliases to the current Map key
 - getSessionsForRespawn() — returns sessions eligible for workspace respawn
 - pushEvent() / getEventsSince() / getEventSeq() — event ring buffer API
 - saveSnapshot() / loadSnapshot() — periodic persistence to `SNAPSHOT_DIR` (see Snapshot Persistence)
@@ -141,6 +149,8 @@ Title helpers live in `server/sessionTitle.ts` (pure, no DB deps). On `USER_PROM
 - Changes to state transitions affect 3D animations, sound system, and approval detection
 - Modifying the session object schema affects ALL consumers (frontend stores, DB persistence, WebSocket protocol)
 - Breaking snapshot persistence means sessions lost on restart
-- **Fork-aware kill cascade** — `apiRouter.ts:969` (`const pid = mem.isFork ? null : findClaudeProcess(...)`) skips `findClaudeProcess` for forks because forks share the origin session's `projectPath`; a cwd-based PID lookup would return the ORIGIN's claude PID and SIGTERM the wrong process. Forks instead rely on per-PTY `pty.kill` (group SIGHUP) via `closeTerminal`. Preserve this branch when modifying the kill flow — without it, closing a floating/fork session disconnects the parent terminal.
+- **Fork-aware kill cascade** — the API skips fallback process lookup for forks because forks share the origin session's `projectPath`; cwd matching could target the origin. Forks instead rely on exact managed-PTY teardown, whose server and Electron implementations reap the PTY shell's child process groups before killing the shell. Preserve this branch when modifying kill behavior.
+- **Shared Codex PID isolation** — several independent Codex thread cards may carry one host PID. A per-card kill must never signal that PID when siblings are live: close the card's exact managed terminal, or reject the operation when no managed terminal exists.
+- Alias-aware mutations must resolve once to the canonical Map key. One-hop reads are insufficient after workspace restore because saved and fresh terminal IDs can form a two-hop chain before the hook UUID.
 - **Never persist `external-<pid>` discovered cards** — `saveSnapshot`'s `startsWith('external-')` skip (both the sessions loop and the `pidToSession` loop) is load-bearing: these cards are pid-bound, so restoring one resurrects a phantom against a dead or OS-reused PID. If you change the discovered-card key prefix or the snapshot filter, keep them in sync, and do NOT extend the skip to hook-backed external sessions (real `sessionId`), which must persist.
 - **Clone/fork auto-rename vs title-based dedup** — once a clone/fork is re-titled from its first prompt (see *Session Title Generation*), `session.title` no longer equals the `sessionTitle` baked into its workspace-snapshot config. `findActiveSessionByConfig` deduplicates partly by `sessionTitle`, so a server-restart workspace reload that relies on the title branch could create a duplicate card. This is mitigated because the `originalSessionId` match path is preferred and title-independent; keep that path intact if you touch dedup.

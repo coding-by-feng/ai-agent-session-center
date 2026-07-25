@@ -13,6 +13,7 @@
 
 import pty from 'node-pty'
 import type { IPty, IDisposable } from 'node-pty'
+import { execFileSync } from 'child_process'
 import { homedir } from 'os'
 import { BrowserWindow } from 'electron'
 import type { WebContents } from 'electron'
@@ -439,10 +440,47 @@ export function resizePty(terminalId: string, cols: number, rows: number): void 
   }
 }
 
+/**
+ * Best-effort teardown for agent process groups launched beneath the login
+ * shell. node-pty kills only that shell; Codex/Claude commonly run in their own
+ * process group and would otherwise survive as orphans.
+ */
+function reapPtyChildren(shellPid: number): void {
+  if (process.platform === 'win32' || !Number.isInteger(shellPid) || shellPid <= 0) return
+  let children: number[] = []
+  try {
+    children = execFileSync('pgrep', ['-P', String(shellPid)], { encoding: 'utf8' })
+      .trim()
+      .split(/\s+/)
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value > 0)
+  } catch {
+    return
+  }
+
+  for (const childPid of children) {
+    const signal = (name: NodeJS.Signals): void => {
+      try { process.kill(-childPid, name) }
+      catch {
+        try { process.kill(childPid, name) } catch { /* already gone */ }
+      }
+    }
+    signal('SIGTERM')
+    const escalation = setTimeout(() => {
+      try {
+        process.kill(childPid, 0)
+        signal('SIGKILL')
+      } catch { /* exited after SIGTERM */ }
+    }, 750)
+    escalation.unref()
+  }
+}
+
 /** Kill a PTY. */
 export function killPty(terminalId: string): void {
   const inst = terminals.get(terminalId)
   if (inst) {
+    reapPtyChildren(inst.process.pid)
     try { inst.process.kill() } catch { /* already dead */ }
     cleanup(terminalId)
   }

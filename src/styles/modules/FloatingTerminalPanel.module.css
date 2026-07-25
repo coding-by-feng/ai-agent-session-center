@@ -2,13 +2,20 @@
 
 .panel {
   position: fixed;
+  box-sizing: border-box;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  min-width: 0;
+  min-height: 0;
   z-index: 8500;
   display: flex;
   flex-direction: column;
   background: var(--bg-panel, rgba(10, 10, 26, 0.97));
   border: 1px solid var(--border-accent-strong, rgba(0, 229, 255, 0.3));
   border-radius: 10px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.65), 0 0 18px var(--bg-accent, rgba(0, 229, 255, 0.1));
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.65),
+    0 0 18px var(--bg-accent, rgba(0, 229, 255, 0.1));
   overflow: hidden;
   animation: floatTermIn 140ms ease-out;
 }
@@ -18,16 +25,27 @@
 }
 
 @keyframes floatTermIn {
-  from { opacity: 0; transform: scale(0.97); }
-  to   { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .header {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  background: linear-gradient(180deg, var(--bg-accent-strong, rgba(0, 229, 255, 0.15)) 0%, var(--bg-accent, rgba(0, 229, 255, 0.08)) 100%);
+  background: linear-gradient(
+    180deg,
+    var(--bg-accent-strong, rgba(0, 229, 255, 0.15)) 0%,
+    var(--bg-accent, rgba(0, 229, 255, 0.08)) 100%
+  );
   border-bottom: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15));
   cursor: grab;
   user-select: none;
@@ -38,12 +56,14 @@
 }
 
 .titleIcon {
+  flex: 0 0 auto;
   color: var(--accent-cyan, #00e5ff);
   font-size: 13px;
 }
 
 .title {
   flex: 1;
+  min-width: 0;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 12px;
   letter-spacing: 0.04em;
@@ -56,6 +76,7 @@
 
 .headerBtns {
   display: inline-flex;
+  flex: 0 0 auto;
   gap: 2px;
 }
 
@@ -72,7 +93,10 @@
   font-size: 12px;
   font-family: inherit;
   cursor: pointer;
-  transition: background 100ms ease, border-color 100ms ease, color 100ms ease;
+  transition:
+    background 100ms ease,
+    border-color 100ms ease,
+    color 100ms ease;
 }
 
 .headerBtn:hover {
@@ -83,6 +107,7 @@
 
 .body {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   position: relative;
   overflow: hidden;
@@ -117,6 +142,8 @@
 /* Collapsed pill */
 .collapsed {
   position: fixed;
+  box-sizing: border-box;
+  max-width: calc(100vw - 24px);
   z-index: 8500;
   display: inline-flex;
   align-items: center;

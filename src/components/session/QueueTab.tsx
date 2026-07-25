@@ -165,7 +165,9 @@ export default function QueueTab({
   const setAutoSend = useQueueStore((s) => s.setAutoSend);
   const setAutoEnter = useQueueStore((s) => s.setAutoEnter);
   const [movingItemId, setMovingItemId] = useState<number | null>(null);
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  /** Id (not index) of the row being dragged — index is derived live so a
+   *  concurrent scheduler add/remove can't shift it out from under the drag. */
+  const [draggingId, setDraggingId] = useState<number | null>(null);
 
   // ---- Snap composeType back to Once when Auto-send turns OFF ----
   // Loop/Schedule items can't fire without Auto-send. If the user toggles
@@ -514,10 +516,25 @@ export default function QueueTab({
     [movingItemId, sessionId, moveToSession],
   );
 
-  // ---- Simple drag reorder ----
+  // ---- Drag reorder ----
+  // The grip is the drag source (so the row body stays selectable); the whole
+  // row is shown as the drag ghost. Live reorder on dragover splices the dragged
+  // row to the hovered index and calls `reorder()`, which reindexes `position`
+  // (preserving each item's other fields incl. execState) and persists via the
+  // store subscription. Dragging an in-flight chain item just moves its list
+  // position; its execState is kept, so the scheduler never double-fires.
   const handleDragStart = useCallback(
-    (idx: number) => {
-      setDragIdx(idx);
+    (e: React.DragEvent, item: QueueItem) => {
+      setDraggingId(item.id);
+      // Setting dataTransfer is REQUIRED for the drag to start in Firefox /
+      // browser mode (Chromium/Electron is lenient); harmless everywhere else.
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move';
+        try { e.dataTransfer.setData('text/plain', String(item.id)); } catch { /* ignore */ }
+        // The grip is the drag handle, but drag the WHOLE row visually.
+        const row = (e.currentTarget as HTMLElement).parentElement;
+        if (row) { try { e.dataTransfer.setDragImage(row, 16, 12); } catch { /* ignore */ } }
+      }
     },
     [],
   );
@@ -525,22 +542,45 @@ export default function QueueTab({
   const handleDragOver = useCallback(
     (e: React.DragEvent, targetIdx: number) => {
       e.preventDefault();
-      if (dragIdx === null || dragIdx === targetIdx) return;
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      if (draggingId === null) return;
+      // Derive the dragged row's CURRENT index by id every time, so a concurrent
+      // scheduler add/remove that shifts the list can't splice the wrong row.
+      const fromIdx = items.findIndex((i) => i.id === draggingId);
+      if (fromIdx < 0 || fromIdx === targetIdx) return;
       // Immutable reorder: build new array without mutating
       const newItems = [...items];
-      const [moved] = newItems.splice(dragIdx, 1);
+      const [moved] = newItems.splice(fromIdx, 1);
       newItems.splice(targetIdx, 0, moved);
       // Validate array integrity
       if (newItems.length !== items.length) return;
       reorder(sessionId, newItems.map((i) => i.id));
-      setDragIdx(targetIdx);
     },
-    [dragIdx, items, reorder, sessionId],
+    [draggingId, items, reorder, sessionId],
   );
 
   const handleDragEnd = useCallback(() => {
-    setDragIdx(null);
+    setDraggingId(null);
   }, []);
+
+  // ---- Click/keyboard reorder (▲/▼) ----
+  // A discoverable, keyboard-reachable alternative to the drag grip (native
+  // HTML5 DnD has no keyboard path). Swaps the item one slot in `dir` and calls
+  // the same `reorder()` the drag path uses — which re-stamps only `position`,
+  // so an in-flight loop/schedule chain keeps its execState and never re-fires.
+  const handleMove = useCallback(
+    (item: QueueItem, dir: -1 | 1) => {
+      const fromIdx = items.findIndex((i) => i.id === item.id);
+      if (fromIdx < 0) return;
+      const targetIdx = fromIdx + dir;
+      if (targetIdx < 0 || targetIdx >= items.length) return;
+      const newItems = [...items];
+      const [moved] = newItems.splice(fromIdx, 1);
+      newItems.splice(targetIdx, 0, moved);
+      reorder(sessionId, newItems.map((i) => i.id));
+    },
+    [items, reorder, sessionId],
+  );
 
   // ---- Other sessions for move picker ----
   const otherSessions = Array.from(sessions.entries()).filter(
@@ -782,12 +822,27 @@ export default function QueueTab({
             items.map((item, idx) => (
               <div
                 key={item.id}
-                className={`${styles.queueItem}${dragIdx === idx ? ` ${styles.dragging}` : ''}${item.disabled ? ` ${styles.queueItemDisabled}` : ''}`}
-                draggable
-                onDragStart={() => handleDragStart(idx)}
+                className={`${styles.queueItem}${draggingId === item.id ? ` ${styles.dragging}` : ''}${item.disabled ? ` ${styles.queueItemDisabled}` : ''}`}
                 onDragOver={(e) => handleDragOver(e, idx)}
+                onDrop={(e) => e.preventDefault()}
                 onDragEnd={handleDragEnd}
               >
+                {editingId !== item.id && (
+                  <span
+                    className={styles.queueDragHandle}
+                    title="Drag to reorder"
+                    aria-label="Drag to reorder"
+                    role="button"
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, item)}
+                  >
+                    <svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor" aria-hidden="true">
+                      <circle cx="2" cy="2" r="1" /><circle cx="6" cy="2" r="1" />
+                      <circle cx="2" cy="7" r="1" /><circle cx="6" cy="7" r="1" />
+                      <circle cx="2" cy="12" r="1" /><circle cx="6" cy="12" r="1" />
+                    </svg>
+                  </span>
+                )}
                 {editingId !== item.id && (
                   <button
                     className={`${styles.queueToggleBtn}${item.disabled ? ` ${styles.queueToggleBtnOff}` : ` ${styles.queueToggleBtnOn}`}`}
@@ -910,6 +965,24 @@ export default function QueueTab({
                     </button>
                   ) : (
                     <>
+                      <button
+                        className={`${styles.queueActionBtn} ${styles.queueReorder}`}
+                        onClick={() => handleMove(item, -1)}
+                        disabled={idx === 0}
+                        title="Move up"
+                        aria-label="Move up"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        className={`${styles.queueActionBtn} ${styles.queueReorder}`}
+                        onClick={() => handleMove(item, 1)}
+                        disabled={idx === items.length - 1}
+                        title="Move down"
+                        aria-label="Move down"
+                      >
+                        ▼
+                      </button>
                       <button
                         className={`${styles.queueFavBtn}${item.historyId != null ? ` ${styles.queueFavBtnOn}` : ''}`}
                         onClick={() => { void handleToggleFavorite(item); }}

@@ -205,11 +205,11 @@ buildLaunchCommand(cli, prompt) →
 **Why precedence matters (the gpt-5.5 bug):** the previous detector only sniffed
 the command string and ignored `cliSource`. Because `sshCommand` defaults to
 `'claude'` (`sessionStore.ts`), a Codex/Gemini parent was misdetected as Claude —
-so the popup launched `claude` *and*, believing it was Claude, ran
-`applyClaudeLaunchFlags` which injected the parent's inherited Codex model as a
-Claude flag (`claude --model gpt-5.5 '…'`). Leading with `cliSource` fixes both:
-the popup now launches `codex`/`gemini`, and the claude-only flag helpers no-op on
-non-Claude commands so a Codex model never leaks onto a Claude launch.
+so the popup launched `claude` *and* injected the parent's inherited Codex model
+as a Claude flag (`claude --model gpt-5.5 '…'`). Leading with `cliSource` fixes
+the ownership error: the popup now launches `codex`/`gemini`, and the historically
+named `applyClaudeLaunchFlags` applies the inherited model to Claude or Codex
+only after the correct CLI has been resolved (Gemini remains unchanged).
 
 Single-quote escaping (`shellEscapeSingle`) uses the standard pattern:
 `'` → `'"'"'`.
@@ -343,14 +343,14 @@ return a 400 with a user-readable error.
   unknown encodings will fall back to the newest transcript in the dir.
 * **cwd resolution.** SSH origins reuse `sshConfig.workingDir`; local origins use
   `origin.projectPath`. Either falls back to `~` when empty.
-* **Effort/model inheritance.** `model` and `effortLevel` apply as `--model` /
-  `--effort` launch flags. `ultracode` launches as `--effort xhigh` (its valid
-  base level) and is upgraded to true ultracode via `/effort ultracode` once
-  Claude Code is ready.
-* **CLI misdetection leaks the parent's model.** `applyClaudeLaunchFlags` only
-  rewrites commands that start with `claude`, so correct CLI detection is what
-  prevents a Codex/Gemini model (e.g. `gpt-5.5`) from being injected as a Claude
-  `--model` flag. `resolveOriginCli` leads with `cliSource`; if that field is ever
+* **Effort/model inheritance.** Claude inherits `model` + `effortLevel` as
+  `--model` / `--effort`; Codex inherits `model` as `--model` before `fork` or
+  the prompt. `ultracode` remains Claude-only: it launches as `--effort xhigh`
+  and is upgraded via `/effort ultracode` once Claude Code is ready.
+* **CLI misdetection leaks the parent's model.** `applyClaudeLaunchFlags` now
+  rewrites leading Claude and Codex commands, so correct CLI detection prevents
+  a model (e.g. `gpt-5.5`) from being injected into the wrong binary.
+  `resolveOriginCli` leads with `cliSource`; if that field is ever
   unset for a non-Claude session (e.g. a Gemini hook that predates the
   `cli_source` addition and whose `startup_command` wasn't captured), detection
   falls through to the command/model sniff. Reinstall hooks (`npm run install-hooks`)

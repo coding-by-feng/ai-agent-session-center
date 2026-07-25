@@ -15,6 +15,9 @@ vi.mock('../server/sshManager.js', async () => {
   const actual = await vi.importActual<typeof import('../server/sshManager.js')>('../server/sshManager.js');
   return { ...actual, createTerminal: vi.fn(), writeWhenReady: vi.fn(), closeTerminal: vi.fn() };
 });
+// apiRouter imports the SQLite module for unrelated routes. Keep this pure
+// command-builder suite independent of the Electron-vs-Node native ABI.
+vi.mock('../server/db.js', () => ({}));
 
 const VALID_UUID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 
@@ -88,6 +91,16 @@ describe('buildResumeCommand — effort/model re-application on resume', () => {
       VALID_UUID,
     );
     expect(cmd).toContain('--model opus');
+  });
+
+  it('re-applies a Codex model before the resume subcommand and fresh fallback', () => {
+    const cmd = buildResumeCommand(
+      { startupCommand: 'codex', title: 't', model: 'gpt-newest' },
+      VALID_UUID,
+    );
+    expect(cmd).toBe(
+      `codex --model gpt-newest resume '${VALID_UUID}' || codex --model gpt-newest`,
+    );
   });
 
   it('adds no effort/model flags when neither is set', () => {

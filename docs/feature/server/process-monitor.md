@@ -13,7 +13,9 @@ Detects when Claude/Gemini/Codex crashes or exits without sending a SessionEnd h
 | `server/autoIdleManager.ts` | Idle transition timers + stale `pendingResume` cleanup |
 | `server/config.ts` | Provides `PROCESS_CHECK_INTERVAL` and `AUTO_IDLE_TIMEOUTS` constants |
 | `server/sessionStore.ts` | Implements the `registerDiscovered` callback (`registerDiscoveredSession`) and wires `startExternalDiscovery(...)` |
+| `server/sessionKillPolicy.ts` | Detects live Codex thread cards sharing a host PID so per-card kill can use PTY isolation or reject safely |
 | `test/externalDiscovery.test.ts` | Unit tests for the exported discovery helpers (`isInteractiveClaude`, `parseNameFlag`, `parseModelFlag`) |
+| `test/terminateProcess.test.ts` | Process-group termination and PTY-child reaping integration coverage |
 
 ## Implementation
 
@@ -38,15 +40,17 @@ When `kill(pid, 0)` throws, the session is auto-ended:
 
 ### `findClaudeProcess()` Resolution Chain
 `findClaudeProcess(sessionId, projectPath, sessions, pidToSession)` returns the live PID for a session, caching the result via the `cachePid()` helper (sets both `pidToSession` and `session.cachedPid`). Order:
-1. **Cached PID** — if `session.cachedPid` is valid and `kill(pid, 0)` succeeds, return it; otherwise evict it and re-scan.
-2. Build a `claimedPids` set of PIDs owned by *other* sessions so they are never re-assigned.
-3. **win32 branch** — runs a PowerShell `Get-CimInstance Win32_Process` query for `*claude*` command lines (excluding this server's own PID) and returns the first match.
-4. **Unix branch** — `pgrep -f claude` (excluding this server's PID); for non-empty results:
+1. **Cached PID** — if `session.cachedPid` is valid and `kill(pid, 0)` succeeds, return it; otherwise evict it.
+2. Resolve the process family from `session.cliSource` or its launch command.
+3. **Codex/Gemini safety stop** — without a live cached PID, return `null`. Multiple terminals can share a cwd and multiple Codex threads can share a PID, so an OS scan cannot prove which process the user selected; the exact managed PTY is closed separately.
+4. **Claude fallback only** — build a `claimedPids` set, then on win32 query `Get-CimInstance Win32_Process`; on Unix run `pgrep -f claude` and:
    - **cwd match** — for each unclaimed PID, resolve cwd (`lsof -a -d cwd -Fn -p <pid>` on darwin, `readlink /proc/<pid>/cwd` on Linux) and return the PID whose cwd equals `projectPath`.
-   - **TTY fallback** — first unclaimed PID with a real tty (`ps -o tty=`), excluding `??`/`?`.
-   - **Last resort** — first unclaimed PID regardless of tty.
+   - **Claude-only TTY fallback** — first unclaimed PID with a real tty (`ps -o tty=`), excluding `??`/`?`.
+   - **Claude-only last resort** — first unclaimed PID regardless of tty.
 
 > Risk note: because the cwd match keys on `projectPath`, two sessions sharing a directory (e.g. a forked session) can resolve to the same PID — the `claimedPids` exclusion mitigates but does not fully eliminate this.
+
+The API adds a second guard after resolution: `findLiveCodexPidPeers()` treats a PID shared by live Codex cards as a host identity, not a thread identity. It signals no shared PID; an exact managed PTY is the isolated target, and a terminal-less per-card request is rejected.
 
 ### External Session Discovery — Mechanism B (`processMonitor.ts`)
 `startExternalDiscovery(sessions, pidToSession, registerDiscovered)` installs a **second** `setInterval` firing every `EXTERNAL_DISCOVERY_INTERVAL_MS` (`20_000`ms / 20s); `stopExternalDiscovery()` clears it. It is a **no-op on win32** (the scan is `ps`/`lsof`-based) and a singleton (`if (discoveryInterval) return`). A module-level `discoveryRunning` boolean is a **re-entrancy guard** — if a pass is still in flight when the timer fires again, the new tick returns immediately so overlapping scans can't pile up; the flag is reset in `.finally()`.
@@ -110,6 +114,6 @@ When `kill(pid, 0)` throws, the session is auto-ended:
 ## Change Risks
 - Increasing `PROCESS_CHECK_INTERVAL` delays dead-session detection; lowering it raises `pgrep`/`lsof` syscall load.
 - False positives: `kill(pid, 0)` can throw `EPERM` (permission), not just `ESRCH` (no such process) — both are currently treated as "dead", which can prematurely end a still-running session owned by another user.
-- The `findClaudeProcess()` chain is fragile — the cwd match keys on `projectPath`, so sessions sharing a directory can collide on the same PID despite the `claimedPids` guard.
+- The Claude fallback chain is fragile because cwd is not unique; forks continue to bypass it. Codex/Gemini intentionally require a live exact cached PID and otherwise rely on exact managed-terminal teardown.
 - The auto-idle interval (10s) and pendingResume cleanup interval (15s) are hard-coded; the working-state timeout exclusion list must stay in sync with the `SESSION_STATUS` enum or transient states could be idled too early.
 - **External discovery (Mechanism B):** the `discoveryRunning` re-entrancy guard is the only backpressure — if `EXTERNAL_DISCOVERY_INTERVAL_MS` (20s) is lowered below a pass's worst-case `pgrep`/`ps`/`lsof` latency, passes will simply skip rather than pile up, but discovery lag grows. The `tracked` set (`pidToSession` keys + `session.cachedPid`) is the dedup barrier; if a hook-bound session ever lacks a `cachedPid`, a duplicate `external-<pid>` card could be created until Priority 1.5 re-keys it. Weakening the `isInteractiveClaude` filters (basename check, tty requirement, daemon/headless exclusions) risks surfacing background infra (daemon, bg-pty-host, MCP/`--print` workers) as phantom sessions. Discovery is a no-op on win32, so external sessions are never surfaced there.

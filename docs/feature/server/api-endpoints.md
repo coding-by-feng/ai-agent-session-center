@@ -14,9 +14,12 @@ The HTTP interface for the React frontend and external integrations. Handles all
 | `server/index.ts` | Auth endpoints (`/api/auth/*`) and middleware wiring (localhost-only for hooks, authMiddleware for everything else under /api) |
 | `server/hookRouter.ts` | POST /api/hooks (HTTP-fallback hook ingestion) — delegates to `processHookEvent` |
 | `server/floatingSessionSpawner.ts` | Implementation of POST /api/sessions/spawn-floating (fork/translate/explain spawn); prompt synthesis + labels live in `server/floatingPrompt.ts` |
+| `server/sessionKillPolicy.ts`, `test/sessionKillPolicy.test.ts` | Pure Codex shared-host PID detection used by per-card kill, with regression coverage |
 | `server/extractPreviousAnswer.ts` | Helpers `readClaudeTranscript` (CONVERSATION tab) and `readClaudeLastAssistant` (translate-answer mode) |
 | `server/commandIndex.ts` | Slash-command/skill enumeration behind GET /api/commands (30s cache per cli+projectPath) |
+| `server/codexModelCatalog.ts`, `test/codexModelCatalog.test.ts` | Official Codex app-server `model/list` client, normalization, cache/fallback, and regression coverage for GET /api/codex/models |
 | `src/types/api.ts` | Shared API response/request types, including per-CLI hook status and `enabledClis` install body |
+| `test/buildResumeCommand.test.ts` | Pure Claude/Codex resume-command and model/effort persistence coverage (database mocked to avoid native-ABI coupling) |
 
 ## Implementation
 
@@ -37,10 +40,10 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - PUT /api/sessions/:id/title|remark|accent-color|character-model|pinned|muted|alerted
 - POST /api/sessions/:id/kill|resume|summarize|fork|clone
   - `clone` creates a new terminal that re-runs the source session's `startupCommand` with session-specific flags stripped (`--resume`/`--continue`/`--fork-session` removed via `stripClaudeSessionFlags`), name stripped, then permission flags + model/effort re-applied. Distinct from `fork` — clone starts a fresh CLI session, fork resumes the existing one. Both run via `createTerminalSession({ isFork: true, originSessionId })` — `isFork` only (kill-guard), NOT `isFloating`, so clone/fork sessions appear in the session lists like any other agent (only floating PiP popups set `isFloating` and are hidden).
-  - `resume` rebuilds the launch command via `buildResumeCommand`: Claude uses `claude --resume '<SESSION_ID>' || claude --continue`; Codex uses `codex resume '<SESSION_ID>' || codex resume --last`. Non-UUID IDs (synthetic `term-*` etc.) use the fallback form only.
-  - `fork` rebuilds the launch command via `buildForkCommand`: Claude uses `claude --resume '<SESSION_ID>' --fork-session` (or `--continue --fork-session`); Codex uses `codex fork '<SESSION_ID>'` (or `codex fork --last`). Permission mode + model/effort are preserved via `reconstructPermissionFlags` + `applyClaudeLaunchFlags`; the new fork gets its own `-n "<newTitle>"`.
+  - `resume` rebuilds the launch command via `buildResumeCommand`: Claude uses `claude --resume '<SESSION_ID>' || <fresh claude>`; Codex uses `codex resume '<SESSION_ID>' || <fresh codex>`. Non-UUID IDs (synthetic `term-*` etc.) use only the fresh form. Both CLIs reapply the stored model; Claude also reapplies effort. The fallback deliberately never resumes an unrelated "last" conversation.
+  - `fork` rebuilds the launch command via `buildForkCommand`: Claude uses `claude --resume '<SESSION_ID>' --fork-session` (or `--continue --fork-session`); Codex uses `codex fork '<SESSION_ID>'` (or `codex fork --last`). Claude permission/model/effort and the Codex model are preserved via `reconstructPermissionFlags` + `applyClaudeLaunchFlags`; the new Claude fork gets its own `-n "<newTitle>"`.
   - `summarize` pipes the transcript to `claude -p --model haiku` (60s timeout, 1MB buffer); rate-limited to `MAX_CONCURRENT_SUMMARIZE = 2`. Prompt precedence: `custom_prompt` > `promptTemplate` > default. See [Summary Tab](../frontend/summary-tab.md).
-  - `kill` cascade: SIGTERM, then SIGKILL after 3s if the PID is still alive. Fork sessions skip the `process.kill` cascade (`mem.isFork` check) — they share the origin's `projectPath`, so cwd-based PID lookup would target the wrong claude PID. Forks rely on per-PTY `pty.kill` (group SIGHUP) via `closeTerminal` instead.
+  - `kill` cascade: resolves the requested ID through the full session-alias chain, validates the cached PID, then SIGTERMs/SIGKILLs only an isolated process. Forks bypass cwd PID lookup, and Codex/Gemini refuse ambiguous process scans when no live cached PID exists. If other live Codex cards share the selected PID, the endpoint never signals that host: it closes the selected managed PTY instead (`processShared: true`), or returns 409 with `sharedProcessPid`/`sharedSessionIds` when the card has no managed terminal and therefore cannot be killed individually. The success response includes canonical `sessionId` and pre-kill `terminalId`; the renderer uses that terminal rather than a stale card's old ID, and Electron `pty-*` ownership is closed through IPC. A stale-ID request also broadcasts the ended canonical session with `replacesId` so every browser removes the ghost card.
 - POST /api/sessions/spawn-floating — spawn a forked/floating session (`isFork: true` + `isFloating: true` — hidden from session lists, rendered as a PiP panel) pre-loaded with a synthesized translate / explain / vocab / custom prompt; see [Floating Session Spawner](./floating-session-spawner.md).
   - Body schema: required `originSessionId` (1–200), `mode` (one of 8: `explain-learning`, `explain-native`, `vocab-native`, `translate-selection-learning`, `translate-selection-native`, `translate-answer`, `translate-file`, `custom`), `nativeLanguage` (1–64), `learningLanguage` (1–64). Optional `spawnTerminalId` (≤200, enables recursive fork from a floating terminal), `selection` (≤64KB), `contextLine` (≤2KB), `fileContent` (≤256KB), `filePath` (≤2KB), `customPrompt` (≤64KB, for `custom` mode), `inheritContext: boolean` (default true — fork inherits parent context only when the parent already has a conversation).
 - POST /api/sessions/:id/reconnect-terminal|reconnect-ops-terminal
@@ -49,8 +52,8 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - DELETE /api/sessions/:id
 
 ### Terminal Endpoints
-- POST /api/terminals (create, max 50). `model` accepts an alias (`fable`/`opus`/`sonnet`/`haiku`) or a full model ID (e.g. `claude-fable-5`, `claude-opus-4-8`) — validated by regex `^[a-zA-Z0-9._-]+$` (max 100, shell-safe because the value is interpolated unquoted into the `--model` launch flag), no longer a fixed enum.
-- POST /api/terminals/register (Electron PTY registration)
+- POST /api/terminals (create, max 50). `model` accepts a Claude alias/full ID or a Codex model ID — validated by regex `^[a-zA-Z0-9._-]+$` (max 100, shell-safe because the value is interpolated unquoted into `--model`). Claude receives model + effort; Codex receives model only.
+- POST /api/terminals/register (Electron PTY registration). If a hook arrived first and already created a session owning that terminal ID, registration enriches/reuses the canonical session, returns its `sessionId`, and broadcasts `replacesId: terminalId` instead of creating a duplicate `pty-*` card.
 - POST /api/terminals/:id/prefill-output (base64-encoded output replay — restores scrollback during workspace import)
 - POST /api/terminals/:id/write (write string to PTY; max 50MB per call)
 - GET /api/terminals (list all active terminals)
@@ -70,6 +73,11 @@ The HTTP interface for the React frontend and external integrations. Handles all
 
 ### Slash Commands
 - GET /api/commands?cli=<claude|codex|gemini>&projectPath=<absolute> — enumerates slash commands + skills (project + global + plugin sources) for the CLI, cached 30s per (cli, projectPath). Backs slash-command autocomplete in prompt inputs; see [Command Autocomplete](../frontend/command-autocomplete.md).
+
+### Codex Model Catalog
+- GET /api/codex/models — starts the locally installed `codex app-server` over JSONL stdio, performs the required `initialize`/`initialized` handshake, then calls stable `model/list` with `{ includeHidden: false, limit: 100 }`. The response is `{ models: [{ id, displayName, description, isDefault }], refreshedAt, source, stale }`; model order comes directly from Codex and IDs are filtered through `^[a-zA-Z0-9._-]+$` before reaching the renderer.
+- The successful catalog is cached in memory for `CODEX_MODEL_CACHE_TTL_MS = 300000` (5 minutes), and concurrent refreshes are coalesced. Refresh timeout is `CODEX_MODEL_QUERY_TIMEOUT_MS = 8000`. If a refresh fails after a previous success, the route returns the last catalog with `source: 'stale-memory-cache'` and `stale: true`; with no cache it returns 503 `{ error: 'Codex model catalog unavailable' }`. `Cache-Control: no-store` prevents browser/proxy caching.
+- On macOS/Linux the subprocess runs through the user's login shell so packaged Electron builds resolve the same Codex binary as an interactive terminal; Windows uses shell resolution for npm `.cmd` shims. No model names are hard-coded in the dashboard.
 
 ### Team Endpoints
 - GET /api/teams/:id/config
@@ -98,7 +106,7 @@ The HTTP interface for the React frontend and external integrations. Handles all
 ### Workspace
 - POST /api/workspace/save (save workspace snapshot — server-side dedup key uses 8 fields joined with `\0`: `[title, sshConfig.host, sshConfig.port, sshConfig.username, sshConfig.workingDir, sshConfig.command, startupCommand, originalSessionId]`. Including `originalSessionId` ensures sessions sharing the same SSH config but with distinct snapshot IDs are not collapsed.)
 - GET /api/workspace/load (load workspace snapshot)
-- POST /api/terminals with `resumeSessionId` shares the same resume builder as `/api/sessions/:id/resume`, so workspace restore resumes Claude with `claude --resume/--continue` and Codex with `codex resume <SESSION_ID>/--last` instead of blindly re-running the saved command.
+- POST /api/terminals with `resumeSessionId` shares the same resume builder as `/api/sessions/:id/resume`, so workspace restore resumes the exact Claude/Codex conversation when its ID is valid and otherwise starts that CLI fresh instead of hijacking an unrelated latest conversation. Stored model flags are reapplied to both CLIs; Claude effort is reapplied separately.
 
 ### Agenda
 - GET /api/agenda (list tasks, optional ?completed filter)
@@ -147,7 +155,7 @@ Prompt delivery itself rides POST /api/terminals/:id/write; the scheduling/autom
 - `commandStartsWithCli()` detects Claude/Codex command ownership from direct binaries or path-qualified binaries.
 - `stripClaudeSessionFlags()` removes stale `--resume`, `--continue`, and `--fork-session` flags before rebuilding Claude resume/fork commands.
 - `stripCodexSessionSubcommand()` removes stale `resume`/`fork` subcommands before rebuilding Codex resume/fork commands.
-- `buildResumeCommand()` and `buildForkCommand()` centralize the Claude/Codex launch logic used by manual resume, workspace restore, fork, and `resume-command` endpoints. Both re-apply the session's permission mode, model, and effort via `reconstructPermissionFlags` + `applyClaudeLaunchFlags` (`ultracode` effort launches as `--effort xhigh` — its valid base — and is upgraded via a separate post-startup `/effort ultracode`).
+- `buildResumeCommand()` and `buildForkCommand()` centralize the Claude/Codex launch logic used by manual resume, workspace restore, fork, and `resume-command` endpoints. `applyClaudeLaunchFlags` is historically named: it now adds `--model` to Claude or Codex, while `--effort` and permission reconstruction remain Claude-only (`ultracode` launches as `--effort xhigh` and is upgraded via `/effort ultracode`). Codex flags are inserted before `resume`/`fork`, matching the CLI's global-option form.
 - `findCodexHookEvents()` scans `~/.codex/config.toml` for dashboard-owned `[[hooks.Event]]` command hook blocks; `inferHookDensity()` classifies Claude/Codex hook status as high/medium/low/custom/off.
 
 ## Dependencies & Connections

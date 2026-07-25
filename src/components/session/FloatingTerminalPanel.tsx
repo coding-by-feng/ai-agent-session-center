@@ -6,7 +6,7 @@
  * click-outside-safe). Position + size are persisted per terminalId so the
  * window remembers where it was last placed.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import TerminalContainer from '@/components/terminal/TerminalContainer';
 import { useWsStore } from '@/stores/wsStore';
@@ -32,8 +32,18 @@ const MIN_W = 360;
 const MIN_H = 220;
 const VIEWPORT_MARGIN = 12;
 
-interface Pos { x: number; y: number }
-interface Size { w: number; h: number }
+interface Pos {
+  x: number;
+  y: number;
+}
+interface Size {
+  w: number;
+  h: number;
+}
+interface PanelRect {
+  pos: Pos;
+  size: Size;
+}
 
 interface FloatingTerminalPanelProps {
   terminalId: string;
@@ -55,19 +65,50 @@ function readJson<T>(key: string, fallback: T): T {
 }
 
 function writeJson(key: string, value: unknown): void {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* ignore */ }
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* ignore */
+  }
 }
 
-function clampToViewport(pos: Pos, size: Size): Pos {
-  if (typeof window === 'undefined') return pos;
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  const maxX = Math.max(VIEWPORT_MARGIN, vw - size.w - VIEWPORT_MARGIN);
-  const maxY = Math.max(VIEWPORT_MARGIN, vh - size.h - VIEWPORT_MARGIN);
-  return {
-    x: Math.max(VIEWPORT_MARGIN, Math.min(maxX, pos.x)),
-    y: Math.max(VIEWPORT_MARGIN, Math.min(maxY, pos.y)),
+function constrainFloatingPanelRect(
+  pos: Pos,
+  size: Size,
+  viewport: Size,
+  minimumSize: Size = { w: MIN_W, h: MIN_H },
+): PanelRect {
+  const maxW = Math.max(1, viewport.w - VIEWPORT_MARGIN * 2);
+  const maxH = Math.max(1, viewport.h - VIEWPORT_MARGIN * 2);
+  const minW = Math.min(minimumSize.w, maxW);
+  const minH = Math.min(minimumSize.h, maxH);
+  const requestedW = Number.isFinite(size.w) ? size.w : minW;
+  const requestedH = Number.isFinite(size.h) ? size.h : minH;
+  const fittedSize = {
+    w: Math.min(maxW, Math.max(minW, requestedW)),
+    h: Math.min(maxH, Math.max(minH, requestedH)),
   };
+  const maxX = Math.max(VIEWPORT_MARGIN, viewport.w - fittedSize.w - VIEWPORT_MARGIN);
+  const maxY = Math.max(VIEWPORT_MARGIN, viewport.h - fittedSize.h - VIEWPORT_MARGIN);
+  const requestedX = Number.isFinite(pos.x) ? pos.x : VIEWPORT_MARGIN;
+  const requestedY = Number.isFinite(pos.y) ? pos.y : VIEWPORT_MARGIN;
+  return {
+    size: fittedSize,
+    pos: {
+      x: Math.max(VIEWPORT_MARGIN, Math.min(maxX, requestedX)),
+      y: Math.max(VIEWPORT_MARGIN, Math.min(maxY, requestedY)),
+    },
+  };
+}
+
+function constrainToViewport(pos: Pos, size: Size, minimumSize?: Size): PanelRect {
+  if (typeof window === 'undefined') return { pos, size };
+  return constrainFloatingPanelRect(
+    pos,
+    size,
+    { w: window.innerWidth, h: window.innerHeight },
+    minimumSize,
+  );
 }
 
 export default function FloatingTerminalPanel({
@@ -81,18 +122,20 @@ export default function FloatingTerminalPanel({
   const sizeKey = `${SIZE_KEY}:${terminalId}`;
   const collapsedKey = `${COLLAPSED_KEY}:${terminalId}`;
 
-  const [collapsed, setCollapsed] = useState<boolean>(() =>
-    readJson<boolean>(collapsedKey, false));
-  const posStoredRef = useRef<boolean>(false);
+  const [collapsed, setCollapsed] = useState<boolean>(() => readJson<boolean>(collapsedKey, false));
+  const [size, setSize] = useState<Size>(
+    () => constrainToViewport(DEFAULT_OFFSET, readJson<Size>(sizeKey, DEFAULT_SIZE)).size,
+  );
   const [pos, setPos] = useState<Pos>(() => {
     const stored = readJson<Pos | null>(posKey, null);
-    posStoredRef.current = stored !== null;
-    return stored ?? {
+    const initialPos = stored ?? {
       x: DEFAULT_OFFSET.x + stackIndex * 28,
       y: DEFAULT_OFFSET.y + stackIndex * 28,
     };
+    const visibleSize = collapsed ? { w: COLLAPSED_W, h: COLLAPSED_H } : size;
+    const minimumSize = collapsed ? { w: 1, h: 1 } : undefined;
+    return constrainToViewport(initialPos, visibleSize, minimumSize).pos;
   });
-  const [size, setSize] = useState<Size>(() => readJson<Size>(sizeKey, DEFAULT_SIZE));
   const [maximized, setMaximized] = useState<boolean>(false);
   const restoreRef = useRef<{ pos: Pos; size: Size } | null>(null);
 
@@ -107,7 +150,7 @@ export default function FloatingTerminalPanel({
     originSessionId ? s.sessions.get(originSessionId) : undefined,
   );
   const pillAccent = originSession
-    ? (originSession.accentColor || PALETTE[(originSession.colorIndex ?? 0) % PALETTE.length])
+    ? originSession.accentColor || PALETTE[(originSession.colorIndex ?? 0) % PALETTE.length]
     : undefined;
 
   // Pop out into a native window (Electron only) — draggable to another monitor.
@@ -119,98 +162,133 @@ export default function FloatingTerminalPanel({
     keyComboToString(shortcutBindings.find((b) => b.actionId === id)?.combo ?? null);
   const canPopOut = typeof window !== 'undefined' && !!window.electronAPI?.openTerminalWindow;
   const handlePopOut = useCallback(() => {
-    window.electronAPI?.openTerminalWindow?.({ terminalId, originSessionId, label })
-      .then((r) => { if (r?.ok) setPoppedOut(terminalId, true); })
-      .catch(() => { /* ignore — panel stays in-app */ });
+    window.electronAPI
+      ?.openTerminalWindow?.({ terminalId, originSessionId, label })
+      .then((r) => {
+        if (r?.ok) setPoppedOut(terminalId, true);
+      })
+      .catch(() => {
+        /* ignore — panel stays in-app */
+      });
   }, [terminalId, originSessionId, label, setPoppedOut]);
 
   const rootRef = useRef<HTMLElement | null>(null);
 
-  // Anchor on first paint
-  useLayoutEffect(() => {
-    if (posStoredRef.current) return;
-    setPos((p) => clampToViewport(p, collapsed ? { w: COLLAPSED_W, h: COLLAPSED_H } : size));
-    posStoredRef.current = true;
-  }, [collapsed, size]);
-
-  // Re-clamp on viewport resize
+  // Keep the whole panel inside the renderer viewport, including when a saved
+  // desktop-sized rectangle is restored into a narrower Electron window.
   useEffect(() => {
+    if (maximized) return undefined;
     const onResize = (): void => {
-      setPos((p) => clampToViewport(p, collapsed ? { w: COLLAPSED_W, h: COLLAPSED_H } : size));
+      const visibleSize = collapsed ? { w: COLLAPSED_W, h: COLLAPSED_H } : size;
+      const minimumSize = collapsed ? { w: 1, h: 1 } : undefined;
+      const next = constrainToViewport(pos, visibleSize, minimumSize);
+      setPos((current) =>
+        current.x === next.pos.x && current.y === next.pos.y ? current : next.pos,
+      );
+      if (!collapsed) {
+        setSize((current) =>
+          current.w === next.size.w && current.h === next.size.h ? current : next.size,
+        );
+      }
     };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [collapsed, size]);
+  }, [collapsed, maximized, pos, size]);
 
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
-    const target = e.target as HTMLElement;
-    const root = e.currentTarget as HTMLElement;
-    const closestBtn = target.closest('button');
-    if (closestBtn && closestBtn !== root) return;
-    if (maximized) return;
-    e.preventDefault();
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const startPos = pos;
-    const currentSize = collapsed ? { w: COLLAPSED_W, h: COLLAPSED_H } : size;
-    if (collapsed) root.dataset.moved = '0';
+  const handleDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const root = e.currentTarget as HTMLElement;
+      const closestBtn = target.closest('button');
+      if (closestBtn && closestBtn !== root) return;
+      if (maximized) return;
+      e.preventDefault();
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startPos = pos;
+      const requestedSize = collapsed ? { w: COLLAPSED_W, h: COLLAPSED_H } : size;
+      const minimumSize = collapsed ? { w: 1, h: 1 } : undefined;
+      const currentSize = constrainToViewport(startPos, requestedSize, minimumSize).size;
+      if (collapsed) root.dataset.moved = '0';
 
-    const onMove = (ev: MouseEvent): void => {
-      const dx = ev.clientX - startX;
-      const dy = ev.clientY - startY;
-      if (collapsed && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
-        root.dataset.moved = '1';
-      }
-      const next = clampToViewport({ x: startPos.x + dx, y: startPos.y + dy }, currentSize);
-      setPos(next);
-    };
-    const onUp = (): void => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      document.body.style.userSelect = '';
-      setPos((p) => { writeJson(posKey, p); return p; });
-    };
-    document.body.style.userSelect = 'none';
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  }, [pos, size, collapsed, posKey, maximized]);
+      const onMove = (ev: MouseEvent): void => {
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        if (collapsed && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+          root.dataset.moved = '1';
+        }
+        const next = constrainToViewport(
+          { x: startPos.x + dx, y: startPos.y + dy },
+          currentSize,
+          minimumSize,
+        );
+        setPos(next.pos);
+      };
+      const onUp = (): void => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        document.body.style.userSelect = '';
+        setPos((p) => {
+          writeJson(posKey, p);
+          return p;
+        });
+      };
+      document.body.style.userSelect = 'none';
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    },
+    [pos, size, collapsed, posKey, maximized],
+  );
 
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    if (maximized) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const startSize = size;
-    const onMove = (ev: MouseEvent): void => {
-      const vw = window.innerWidth - pos.x - VIEWPORT_MARGIN;
-      const vh = window.innerHeight - pos.y - VIEWPORT_MARGIN;
-      const w = Math.max(MIN_W, Math.min(vw, startSize.w + (ev.clientX - startX)));
-      const h = Math.max(MIN_H, Math.min(vh, startSize.h + (ev.clientY - startY)));
-      setSize({ w, h });
-    };
-    const onUp = (): void => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      document.body.style.userSelect = '';
-      document.body.style.cursor = '';
-      setSize((s) => { writeJson(sizeKey, s); return s; });
-    };
-    document.body.style.userSelect = 'none';
-    document.body.style.cursor = 'nwse-resize';
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  }, [pos, size, sizeKey, maximized]);
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      if (maximized) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startSize = size;
+      const onMove = (ev: MouseEvent): void => {
+        const maxW = Math.max(1, window.innerWidth - pos.x - VIEWPORT_MARGIN);
+        const maxH = Math.max(1, window.innerHeight - pos.y - VIEWPORT_MARGIN);
+        const minW = Math.min(MIN_W, maxW);
+        const minH = Math.min(MIN_H, maxH);
+        const w = Math.min(maxW, Math.max(minW, startSize.w + (ev.clientX - startX)));
+        const h = Math.min(maxH, Math.max(minH, startSize.h + (ev.clientY - startY)));
+        setSize({ w, h });
+      };
+      const onUp = (): void => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+        setSize((s) => {
+          writeJson(sizeKey, s);
+          return s;
+        });
+      };
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'nwse-resize';
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    },
+    [pos, size, sizeKey, maximized],
+  );
 
   const handleMinimize = useCallback(() => {
+    const next = constrainToViewport(pos, { w: COLLAPSED_W, h: COLLAPSED_H }, { w: 1, h: 1 });
+    setPos(next.pos);
     setCollapsed(true);
     writeJson(collapsedKey, true);
-  }, [collapsedKey]);
+  }, [collapsedKey, pos]);
 
   const handleExpand = useCallback(() => {
+    const next = constrainToViewport(pos, size);
+    setPos(next.pos);
+    setSize(next.size);
     setCollapsed(false);
     writeJson(collapsedKey, false);
-  }, [collapsedKey]);
+  }, [collapsedKey, pos, size]);
 
   const handleToggleMaximize = useCallback(() => {
     setMaximized((m) => {
@@ -220,8 +298,9 @@ export default function FloatingTerminalPanel({
       }
       const prev = restoreRef.current;
       if (prev) {
-        setPos(prev.pos);
-        setSize(prev.size);
+        const next = constrainToViewport(prev.pos, prev.size);
+        setPos(next.pos);
+        setSize(next.size);
       }
       restoreRef.current = null;
       return false;
@@ -248,13 +327,21 @@ export default function FloatingTerminalPanel({
     return createPortal(
       <Tooltip label={label} description="Open this floating session" placement="left">
         <button
-          ref={(el) => { rootRef.current = el; }}
+          ref={(el) => {
+            rootRef.current = el;
+          }}
           type="button"
           className={styles.collapsed}
-          style={{ left: pos.x, top: pos.y, width: COLLAPSED_W, height: COLLAPSED_H, ...(pillAccent ? { '--pill-accent': pillAccent } as React.CSSProperties : {}) }}
+          style={{
+            left: pos.x,
+            top: pos.y,
+            width: COLLAPSED_W,
+            height: COLLAPSED_H,
+            ...(pillAccent ? ({ '--pill-accent': pillAccent } as React.CSSProperties) : {}),
+          }}
           onMouseDown={handleDragStart}
           onClick={(e) => {
-            const moved = (e.currentTarget.dataset.moved === '1');
+            const moved = e.currentTarget.dataset.moved === '1';
             e.currentTarget.dataset.moved = '0';
             if (!moved) handleExpand();
           }}
@@ -269,34 +356,78 @@ export default function FloatingTerminalPanel({
   }
 
   const panelStyle: React.CSSProperties = maximized
-    ? { left: VIEWPORT_MARGIN, top: VIEWPORT_MARGIN, right: VIEWPORT_MARGIN, bottom: VIEWPORT_MARGIN, width: 'auto', height: 'auto' }
+    ? {
+        left: VIEWPORT_MARGIN,
+        top: VIEWPORT_MARGIN,
+        right: VIEWPORT_MARGIN,
+        bottom: VIEWPORT_MARGIN,
+        width: 'auto',
+        height: 'auto',
+      }
     : { left: pos.x, top: pos.y, width: size.w, height: size.h };
 
   return createPortal(
     <div
-      ref={(el) => { rootRef.current = el; }}
+      ref={(el) => {
+        rootRef.current = el;
+      }}
       className={`${styles.panel}${maximized ? ` ${styles.maximized}` : ''}`}
       style={panelStyle}
     >
       <div className={styles.header} onMouseDown={handleDragStart}>
-        <span className={styles.titleIcon} aria-hidden>⤴</span>
+        <span className={styles.titleIcon} aria-hidden>
+          ⤴
+        </span>
         <span className={styles.title}>{label}</span>
         <div className={styles.headerBtns}>
           {canPopOut && (
             <Tooltip label="Pop out to a window (drag to another monitor)" placement="bottom">
-              <button type="button" className={styles.headerBtn} onClick={handlePopOut} aria-label="Pop out to a window">⧉</button>
+              <button
+                type="button"
+                className={styles.headerBtn}
+                onClick={handlePopOut}
+                aria-label="Pop out to a window"
+              >
+                ⧉
+              </button>
             </Tooltip>
           )}
           <Tooltip label={`Minimize to icon (${comboFor('floatMinimize')})`} placement="bottom">
-            <button type="button" className={styles.headerBtn} onClick={handleMinimize} aria-label="Minimize">▁</button>
+            <button
+              type="button"
+              className={styles.headerBtn}
+              onClick={handleMinimize}
+              aria-label="Minimize"
+            >
+              ▁
+            </button>
           </Tooltip>
-          <Tooltip label={`${maximized ? 'Restore size' : 'Maximize'} (${comboFor('floatMaximize')})`} placement="bottom">
-            <button type="button" className={styles.headerBtn} onClick={handleToggleMaximize} aria-label={maximized ? 'Restore' : 'Maximize'}>
+          <Tooltip
+            label={`${maximized ? 'Restore size' : 'Maximize'} (${comboFor('floatMaximize')})`}
+            placement="bottom"
+          >
+            <button
+              type="button"
+              className={styles.headerBtn}
+              onClick={handleToggleMaximize}
+              aria-label={maximized ? 'Restore' : 'Maximize'}
+            >
               {maximized ? '❐' : '☐'}
             </button>
           </Tooltip>
-          <Tooltip label={`Close (${comboFor('floatClose')})`} description={tooltips.floatTerminalClose.description} placement="bottom">
-            <button type="button" className={styles.headerBtn} onClick={onClose} aria-label="Close floating terminal">✕</button>
+          <Tooltip
+            label={`Close (${comboFor('floatClose')})`}
+            description={tooltips.floatTerminalClose.description}
+            placement="bottom"
+          >
+            <button
+              type="button"
+              className={styles.headerBtn}
+              onClick={onClose}
+              aria-label="Close floating terminal"
+            >
+              ✕
+            </button>
           </Tooltip>
         </div>
       </div>
@@ -315,11 +446,7 @@ export default function FloatingTerminalPanel({
         />
       </div>
       {!maximized && (
-        <div
-          className={styles.resize}
-          onMouseDown={handleResizeStart}
-          aria-hidden
-        >
+        <div className={styles.resize} onMouseDown={handleResizeStart} aria-hidden>
           <span className={styles.resizeGrip} aria-hidden />
         </div>
       )}

@@ -51,8 +51,9 @@ transcript reader exists.
 | `src/lib/selectionExtractors.ts` | Strategies: `extractDomSelection` (markdown) and `extractXtermSelection` (terminals). Selection capped at `MAX_SELECTION = 4000`, context line at `MAX_CONTEXT_LINE = 400`. |
 | `src/lib/cliDetect.ts` | `detectCli(session)` → `'claude' | 'gemini' | 'codex' | null`. The **canonical client CLI detector**; the server's `resolveOriginCli` (`floatingSessionSpawner.ts`) deliberately mirrors its precedence (cliSource → command → model) to avoid backend/frontend divergence. |
 | `src/lib/translationLog.ts` | Dexie helpers `createLog` (draft on spawn) / `captureResponse` (called periodically while the float is open — every 6s — plus on `beforeunload` and on close, keyed/overwritten by `terminalId` so it's idempotent) feeding the REVIEW tab. |
-| `src/components/session/FloatingTerminalPanel.tsx` | Picture-in-picture window hosting one TerminalContainer. Forwards its **`originSessionId`** prop (the **root** session) to TerminalContainer so the float's translate/explain lookups resolve a real session **and float-visibility scoping keeps nested floats visible under the selected root** (never orphaned). Recursive fork is handled server-side: the inner `TerminalContainer` sends this float's `terminalId` as `spawnTerminalId`, and the server resolves *its* session as the fork parent. Also hosts the **⧉ pop-out** button (Electron) and rebindable hotkeys (`floatMinimize`/`floatMaximize`/`floatClose`). See [Recursive fork](#recursive-fork). |
-| `src/styles/modules/FloatingTerminalPanel.module.css` | Window styling (drag, resize, collapse, popout chrome) — theme-aware via CSS variables (icons/chrome recolour per theme). |
+| `src/components/session/FloatingTerminalPanel.tsx` | Picture-in-picture window hosting one TerminalContainer. Forwards its **`originSessionId`** prop (the **root** session) to TerminalContainer so the float's translate/explain lookups resolve a real session **and float-visibility scoping keeps nested floats visible under the selected root** (never orphaned). Recursive fork is handled server-side: the inner `TerminalContainer` sends this float's `terminalId` as `spawnTerminalId`, and the server resolves *its* session as the fork parent. Constrains both size and position to the renderer viewport before render and after viewport/state transitions. Also hosts the **⧉ pop-out** button (Electron) and rebindable hotkeys (`floatMinimize`/`floatMaximize`/`floatClose`). See [Recursive fork](#recursive-fork). |
+| `src/components/session/FloatingTerminalPanel.test.tsx` | Regression coverage for origin-session forwarding plus initial and live-resize viewport fitting of the in-app panel. |
+| `src/styles/modules/FloatingTerminalPanel.module.css` | Window styling (drag, resize, collapse, popout chrome) — theme-aware via CSS variables (icons/chrome recolour per theme), with border-box viewport caps and shrinkable flex children so the right edge and header controls remain visible. |
 | `src/components/session/FloatingTerminalRoot.tsx` | Renders the open floats **belonging to the currently selected session** (`originSessionId === selectedSessionId`), excluding any that are **popped out** into a native window. Mounted once in AppLayout. Listens for `popout:closed` to re-dock. See [Per-session scoping](#per-session-popup-scoping). |
 | `src/components/session/PopoutTerminalView.tsx` | The **entire renderer** when the window is a popped-out float (`/?popout=terminal&terminalId=…`). Sets up its own `useWebSocket(null)` + `useSettingsInit` and hosts one `TerminalContainer` attached to the existing PTY by id, plus its own `<FileOpenChooser>` mount (separate React root from AppLayout, so the popover for terminal file-path clicks needs a local mount). Auth tokens are *not* carried in (localhost Electron only). |
 | `src/styles/modules/PopoutTerminalView.module.css` | Layout for the popout window (titlebar + full-height terminal body). |
@@ -182,6 +183,23 @@ the spawn endpoint's Zod schema independently caps `fileContent` at 256 KB and
 * **Trigger** (`translationTrigger`) — `auto` (every selection) / `alt` (require ⌥ held) / `off` (labelled **Disabled** in the UI). Since the popup is the only client trigger, `off` disables the feature's whole UI surface.
 
 No API key field exists — the feature is auth-free.
+
+## In-app panel sizing
+
+The in-app `FloatingTerminalPanel` defaults to `540×360`, has nominal minimums
+of `360×220`, and keeps a `12px` margin from every renderer-viewport edge. Its
+saved `float-terminal-pos:<terminalId>` and `float-terminal-size:<terminalId>`
+values are treated as preferences, not guaranteed geometry: the component
+constrains both dimensions and coordinates on initial render, browser/Electron
+renderer resize, collapsed-pill expansion, and maximize restore. When the
+viewport itself is narrower or shorter than a nominal minimum, the panel shrinks
+to the available viewport (`viewport - 24px`) so content is not clipped off the
+right or bottom edge.
+
+`FloatingTerminalPanel.module.css` uses `box-sizing: border-box`, matching
+`max-width`/`max-height` guards, and `min-width: 0` on the panel's flex children.
+Once the shell changes size, `useTerminal`'s existing `ResizeObserver` runs the
+xterm fit addon and forwards the resulting rows/columns to the PTY.
 
 ## Per-session popup scoping
 

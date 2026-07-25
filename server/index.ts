@@ -94,10 +94,14 @@ export function startServer(port?: number): Promise<number> {
     if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     }
-    // CSP: restrict connect-src to self (covers ws:/wss: same-origin)
+    // CSP: connect-src is 'self' (covers ws:/wss: same-origin) plus the CDNs the
+    // app fetches from. Hugging Face hosts are required for the local voice
+    // (Kokoro) model download — the ONNX runtime is bundled locally, but the
+    // model weights are fetched once from huggingface.co (and its LFS/Xet CDNs)
+    // then cached in the browser for offline use.
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob:; font-src 'self' data: https://cdn.jsdelivr.net; worker-src 'self' blob:; frame-src 'self' blob:",
+      "default-src 'self'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co https://cas-bridge.xethub.hf.co; img-src 'self' data: blob:; font-src 'self' data: https://cdn.jsdelivr.net; worker-src 'self' blob:; frame-src 'self' blob:",
     );
     next();
   });
