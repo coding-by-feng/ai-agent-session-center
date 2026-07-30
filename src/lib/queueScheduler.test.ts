@@ -9,6 +9,7 @@ import {
   applyTypeDefaults,
   itemType,
   getActiveStep,
+  hasChain,
   isBeforeDailyStart,
   isExecuting,
   isInExcludeWindow,
@@ -880,6 +881,64 @@ describe('queueScheduler', () => {
   // scheduler by setting `forceStart`. The scheduler must start it immediately,
   // ignoring every start-edge timing rule, while still letting an already
   // in-flight chain finish first (chain atomicity).
+  describe('chains on `once` items', () => {
+    const onceWithChain = (): QueueItem =>
+      mkItem({
+        id: 200,
+        type: 'once',
+        nextFireAt: 0,
+        text: 'main prompt',
+        beforeChain: [step(1, '/context')],
+        afterChain: [step(2, '/compact')],
+      });
+
+    it('hasChain is false for a plain item and true for either chain alone', () => {
+      expect(hasChain(mkItem({ type: 'once' }))).toBe(false);
+      expect(hasChain(mkItem({ type: 'once', beforeChain: [] , afterChain: [] }))).toBe(false);
+      expect(hasChain(mkItem({ type: 'once', beforeChain: [step(1, 'a')] }))).toBe(true);
+      expect(hasChain(mkItem({ type: 'once', afterChain: [step(1, 'z')] }))).toBe(true);
+      expect(hasChain(mkItem({ type: 'loop', beforeChain: [step(1, 'a')] }))).toBe(true);
+    });
+
+    // The UI now lets a 'once' item carry before/after chains. That is only safe
+    // because the execution machinery was already type-agnostic — these lock it
+    // in, so a future type-scoped shortcut can't silently drop the chain.
+    it('getActiveStep starts a chained once at its first before step', () => {
+      expect(getActiveStep(onceWithChain()).text).toBe('/context');
+    });
+
+    it('drives a chained once through before → main → after, then removes it', () => {
+      const item = onceWithChain();
+
+      const afterBefore = advanceAfterFire({ ...item, execState: 'before', execStepIdx: 0 }, 1000);
+      expect(afterBefore.action).toBe('continue');
+      if (afterBefore.action !== 'continue') throw new Error('unreachable');
+      expect(afterBefore.patch.execState).toBe('main');
+
+      const afterMain = advanceAfterFire({ ...item, execState: 'main', execStepIdx: 0 }, 2000);
+      expect(afterMain.action).toBe('continue');
+      if (afterMain.action !== 'continue') throw new Error('unreachable');
+      expect(afterMain.patch.execState).toBe('after');
+      expect(afterMain.patch.execStepIdx).toBe(0);
+
+      // Last after-step done → the once item is consumed, not rescheduled.
+      const afterAfter = advanceAfterFire({ ...item, execState: 'after', execStepIdx: 0 }, 3000);
+      expect(afterAfter.action).toBe('remove');
+    });
+
+    it('counts every chain step for the row badge', () => {
+      expect(totalChainSteps(onceWithChain())).toBe(3);
+      expect(currentChainStep({ ...onceWithChain(), execState: 'after', execStepIdx: 0 })).toBe(3);
+    });
+
+    it('keeps a mid-chain once in flight ahead of other items (PRIORITY 0)', () => {
+      const inFlight: QueueItem = { ...onceWithChain(), execState: 'before', execStepIdx: 0 };
+      const other = mkItem({ id: 201, type: 'once', text: 'unrelated' });
+      const picked = pickNext([other, inFlight], 5000, true, false);
+      expect(picked?.id).toBe(200);
+    });
+  });
+
   describe('force-start (manual ⚡ NOW)', () => {
     it('fires a force-started loop immediately — bypasses due-time + idle-guard', () => {
       const it = mkItem({

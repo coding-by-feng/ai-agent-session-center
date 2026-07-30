@@ -1,7 +1,23 @@
 // test/hookProcessor.test.js — Tests for server/hookProcessor.js
 // NOTE: hookProcessor imports sessionStore, wsManager, hookStats — all have side effects.
 // We test the validation logic indirectly by calling processHookEvent and checking results.
-import { describe, it, beforeEach, expect } from 'vitest';
+import { describe, it, beforeEach, expect, vi } from 'vitest';
+
+// sessionStore opens better-sqlite3 at module scope via db.ts. Stub the handful of
+// functions it calls so this suite exercises in-memory behaviour and stays runnable
+// when the native module's ABI doesn't match the local Node — otherwise the whole
+// file fails at import and silently covers nothing.
+vi.mock('../server/db.js', () => ({
+  upsertSession: vi.fn(),
+  updateSessionTitle: vi.fn(),
+  updateSessionSummary: vi.fn(),
+  updateSessionRemark: vi.fn(),
+  updateSessionArchived: vi.fn(),
+  migrateSessionId: vi.fn(),
+  getPromptsForSession: vi.fn(() => []),
+  insertFullPrompt: vi.fn(),
+}));
+
 import { processHookEvent as rawProcessHookEvent } from '../server/hookProcessor.js';
 import { resetStats } from '../server/hookStats.js';
 

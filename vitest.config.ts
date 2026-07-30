@@ -1,6 +1,17 @@
 import { defineConfig } from 'vitest/config';
-import { resolve, join } from 'path';
+import { createRequire } from 'node:module';
+import { dirname, resolve, join } from 'path';
 import { tmpdir } from 'os';
+
+// Mirrors the `ort-wasm-binary` alias in vite.config.ts so kokoroWorker.ts is
+// importable under test. Kept in sync by kokoroWorker.test.ts, which fails if
+// the specifier stops resolving.
+const nodeRequire = createRequire(join(__dirname, 'vitest.config.ts'));
+const ORT_WASM_FILE = join(
+  dirname(nodeRequire.resolve('@huggingface/transformers')),
+  'ort-wasm-simd-threaded.jsep.wasm',
+);
+const ortWasmAlias = { find: /^ort-wasm-binary\?url$/, replacement: `${ORT_WASM_FILE}?url` };
 
 // Server tests transitively import server/db.ts, which opens a real SQLite
 // database at $APP_USER_DATA/data/sessions.db on import. Point that at a
@@ -30,9 +41,7 @@ export default defineConfig({
       },
       {
         resolve: {
-          alias: {
-            '@': resolve(__dirname, 'src'),
-          },
+          alias: [ortWasmAlias, { find: '@', replacement: resolve(__dirname, 'src') }],
         },
         test: {
           name: 'client',

@@ -81,6 +81,7 @@
 .acFooter {
   display: flex;
   justify-content: space-between;
+  gap: 8px;
   padding: 4px 8px;
   font-size: 9px;
   color: var(--text-dim, #666);
@@ -88,4 +89,16 @@
   background: rgba(0, 0, 0, 0.2);
   position: sticky;
   bottom: 0;
+}
+/* The dropdown matches the textarea width, so in a docked-left panel it can be
+   ~260px — narrow enough that the count and the key hint no longer fit on one
+   line. Left to wrap, the hint breaks mid-phrase ("Esc" / "close") and the
+   footer grows to two ragged lines. Pin the count, let the hint ellipsize. */
+.acFooter > :first-child {
+  flex-shrink: 0;
+}
+.acFooter > :last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

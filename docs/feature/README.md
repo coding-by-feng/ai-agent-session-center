@@ -40,6 +40,7 @@ Feature documentation organized by domain. Each doc describes function, purpose,
 | [Project Browser](frontend/project-browser.md) | Standalone full-page browser at `/project-browser?path=…&file=…`, reusing `ProjectTab` | `src/routes/ProjectBrowserView.tsx`, `src/hooks/useKnownProjects.ts`, `src/components/session/ProjectTab.tsx` |
 | [Prompt Queue](frontend/prompt-queue.md) | Per-session prompt queuing with drag-reorder, cross-session moves, attachments, and per-session automation | `src/stores/queueStore.ts`, `src/components/session/QueueTab.tsx`, `src/routes/QueueView.tsx` |
 | [Queue Scheduler & History](frontend/queue-scheduler.md) | App-level 1s tick that fires due queue items, plus queue history/favorites, loop scheduling, and quiet-hours windows | `src/lib/queueScheduler.ts`, `src/hooks/useGlobalQueueScheduler.ts`, `src/stores/queueHistoryStore.ts` |
+| [Saved Prompts](frontend/saved-prompts.md) | Curated library of reusable prompt text — 🔖 keep, portaled picker with a SAVED tab and an all-sessions RECENT tab, insertable into the compose row, MAIN prompt, or a chain step | `src/stores/promptSnippetStore.ts`, `src/components/session/PromptSnippetPicker.tsx`, `src/lib/promptSnippetPool.ts`, `src/lib/promptSnippetInsert.ts` |
 | [Review Tab](frontend/review-tab.md) | Persists every selection / translate / AI-popup action with context and surfaces the history (favorites, aliases, notes, archive) | `src/routes/ReviewView.tsx`, `src/components/session/AiPopupHistory.tsx`, `src/lib/translationLog.ts` |
 | [Session Creation Modals](frontend/session-creation-modals.md) | Entry points for launching sessions — NewSessionModal (local-only) + WorkdirLauncher + QuickSessionModal | `src/components/modals/NewSessionModal.tsx`, `src/components/modals/QuickSessionModal.tsx`, `src/components/layout/WorkdirLauncher.tsx` |
 | [Session Detail Panel](frontend/session-detail-panel.md) | Slide-in panel with 7 tabs, session switcher, control bar, and split/floating PROJECT modes | `src/components/session/DetailPanel.tsx`, `src/components/session/DetailTabs.tsx`, `src/components/session/SessionControlBar.tsx` |
@@ -74,7 +75,7 @@ Feature documentation organized by domain. Each doc describes function, purpose,
 |-----|---------|-----------|
 | [App Lifecycle](electron/app-lifecycle.md) | Main process: app lifecycle, BrowserWindow, system tray, setup-wizard IPC, embedded Express server | `electron/main.ts`, `electron/tray.ts`, `electron/ipc/appHandlers.ts` |
 | [IPC Transport](electron/ipc-transport.md) | Bridges renderer ↔ main (PTY host, setup wizard, lifecycle) via typed IPC + preload contextBridge | `electron/ipc/terminalHandlers.ts`, `electron/preload.ts`, `src/types/electron.d.ts` |
-| [PTY Host](electron/pty-host.md) | VS Code-style node-pty host in the main process with IPC relay, output buffering, shell-ready detection | `electron/ptyHost.ts` |
+| [PTY Host](electron/pty-host.md) | VS Code-style node-pty host in the main process with IPC relay, lazily-grown output ring, shell-ready detection | `electron/ptyHost.ts`, `electron/ptyRing.ts` |
 
 ---
 
@@ -117,7 +118,8 @@ Hook System ──────────────────┐
 
 Newer feature docs that build on the core graph above:
 
-- **Queue Scheduler & History** → Prompt Queue, State Management (queue-history store), Client Persistence, Terminal UI (auto-send), Loops/quiet-hours.
+- **Queue Scheduler & History** → Prompt Queue, State Management (queue-history store), Client Persistence, Terminal UI (auto-send), Loops/quiet-hours, Saved Prompts (editor 🔖 controls).
+- **Saved Prompts** → State Management (`promptSnippetStore`, `sessionStore.promptHistory`), Client Persistence (`promptSnippets`, Dexie v7), Prompt Queue (placement maths + compose row), Queue Scheduler (editor call sites).
 - **Command Autocomplete** → API Endpoints (`/api/commands`, file index), Prompt Queue editor, Queue Tab, Shared UI Primitives.
 - **Conversation View** & **Session Summary** → Session Detail Panel (tabs), API Endpoints, Database/Client Persistence.
 - **Floating Terminal Fork** ↔ **Floating Session Spawner** (server) → Review Tab, Terminal UI, Session Matching, pop-out window.
@@ -145,9 +147,16 @@ When modifying a feature, check which features it can affect:
 | Robot animation states | Robot state map, Settings (character model), 3D scene, Particles |
 | Queue scheduler tick / queue-history store | Prompt Queue, Loops, Per-session automation, Client Persistence (queueHistory) |
 | Command/file index (`commandIndex`) | Command Autocomplete, Prompt Queue editor, Queue Tab |
+| Saved prompts (`promptSnippetStore` / `PromptSnippetPicker`) | Prompt Queue (compose row), Queue Scheduler (`QueueItemEditModal` MAIN + chain sections), Client Persistence (`promptSnippets`, Dexie v7) |
 | Transcript reconstruction (`transcript.ts`) | Conversation View, Review Tab (AI Popups) |
 | Floating session spawn / fork | Floating Terminal Fork, Review Tab, Pop-out window, Session Matching |
 | Shared UI primitives (Modal/Select/Tabs/Tooltip) | ALL components that consume them (settings, modals, panels) |
+| Replay ring buffer (`ptyRing.ts`) | PTY Host **and** Terminal/SSH — the file is duplicated in `electron/` and `server/`; `test/ptyRing.test.ts` runs one suite against both copies and fails if they drift |
+| Per-session text caps (`sessionTrim.ts`) | Session Management, Session Matching (archives on re-key), Conversation View (previous-session panels), Database (`insertFullPrompt` must stay ahead of `pushPrompt`) |
+| `ArchivedSession` shape | Conversation View (`PrevSessionSection`), Workspace Snapshot (reads `sessionId`) — adding a field without a consumer reintroduces the bloat it was slimmed to remove |
+| Eager-import roots (`main.tsx`, `App.tsx`, `AppLayout`) | Bundle size for EVERY renderer including pop-out windows — a static import of a heavy component silently re-inflates the entry chunk; see [Views & Routing → Bundle splitting](frontend/views-routing.md) |
+| Three-free helper modules (`robotPalette`, `robotModelMeta`, `roomGrid`) | 3D Robot System, Cyberdrome Scene, Settings, Detail Panel — adding a `three` import to any of them pulls ~1.2 MB into the boot path |
+| Mounted-project LRU (`mountedProjectsLru`, `projectEditGuard`) | Session Detail Panel, File Browser — raising the cap re-inflates renderer memory; unpersisted `ProjectTab` state must register with the edit guard or eviction discards it |
 
 ## Template
 

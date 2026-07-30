@@ -22,7 +22,7 @@ import {
 // Sub-module imports
 import { matchSession, detectHookSource } from './sessionMatcher.js';
 import { startApprovalTimer, clearApprovalTimer, hasChildProcesses } from './approvalDetector.js';
-import { closeTerminal, registerTerminalExitCallback, getTerminalOutputBuffer, getTerminalOutputTail, getTerminals } from './sshManager.js';
+import { closeTerminal, registerTerminalExitCallback, getTerminalOutputBuffer, getTerminalOutputTail, getTerminals, getTerminalByPtyPid } from './sshManager.js';
 import {
   findPendingSubagentMatch, handleTeamMemberEnd, addPendingSubagent,
   linkByParentSessionId,
@@ -40,7 +40,9 @@ import {
   updateSessionArchived as dbUpdateArchived,
   migrateSessionId as dbMigrateSessionId,
   getPromptsForSession as dbGetPrompts,
+  insertFullPrompt as dbInsertFullPrompt,
 } from './db.js';
+import { toArchivedSession, pushPrompt, trimCurrentPrompt } from './sessionTrim.js';
 import type { Session, HandleEventResult, BufferedEvent, PendingResume, SessionEvent } from '../src/types/session.js';
 import type { HookPayload } from '../src/types/hook.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
@@ -655,7 +657,11 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       if (session.promptHistory.length === 0) {
         const dbPrompts = dbGetPrompts(session_id);
         if (dbPrompts.length > 0) {
-          session.promptHistory = dbPrompts.slice(-50); // match in-memory cap
+          // The DB holds prompts at FULL length, so replay them through the same
+          // caps a live prompt goes through — otherwise a restore reintroduces
+          // exactly the megabyte history the caps exist to prevent.
+          session.promptHistory = [];
+          for (const p of dbPrompts) pushPrompt(session.promptHistory, p);
           log.info('session', `Restored ${dbPrompts.length} prompt(s) from DB for ${session_id?.slice(0,8)}`);
         }
       }
@@ -695,13 +701,19 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       session.status = SESSION_STATUS.PROMPTING;
       session.animationState = ANIMATION_STATE.WALKING;
       session.emote = EMOTE.WAVE;
-      session.currentPrompt = ('prompt' in hookData ? hookData.prompt : undefined) || '';
-      session.promptHistory.push({
-        text: ('prompt' in hookData ? hookData.prompt : undefined) || '',
-        timestamp: Date.now()
-      });
-      // Keep last 50 prompts
-      if (session.promptHistory.length > 50) session.promptHistory.shift();
+    {
+      const promptText = ('prompt' in hookData ? hookData.prompt : undefined) || '';
+      const promptAt = Date.now();
+      session.currentPrompt = trimCurrentPrompt(promptText);
+      // Persist the FULL text first. `pushPrompt` may truncate the in-memory
+      // copy, and the dbUpsertSession below re-inserts from that capped copy —
+      // writing the original here means the OR IGNORE dedup keeps the full row.
+      // Same timestamp on both, or the UNIQUE(session_id, timestamp) key misses.
+      dbInsertFullPrompt(session.sessionId, promptText, promptAt);
+      // Enforces the 50-entry cap AND a total character budget — a single pasted
+      // file could otherwise make one session's history a megabyte on its own.
+      pushPrompt(session.promptHistory, { text: promptText, timestamp: promptAt });
+    }
       eventEntry.detail = (('prompt' in hookData ? hookData.prompt : undefined) || '').substring(0, 80);
 
       // Auto-generate a title from project name + counter + short prompt summary.
@@ -1195,6 +1207,14 @@ export function killSession(sessionId: string): Session | null {
   if (session.terminalId) {
     closeTerminal(session.terminalId);
   }
+  // The ops shell ("Commands Terminal") is part of the session, so an explicit
+  // kill must take it down too. Leaving it running orphaned a live PTY per
+  // killed session, which silently consumed the terminal budget until new
+  // sessions were refused.
+  if (session.opsTerminalId) {
+    closeTerminal(session.opsTerminalId);
+    session.opsTerminalId = null;
+  }
   session.status = SESSION_STATUS.ENDED;
   session.animationState = ANIMATION_STATE.DEATH;
   session.archived = 1;
@@ -1387,18 +1407,8 @@ export function resumeSession(sessionId: string): { error: string } | { ok: true
 
   // Archive current session data into previousSessions array
   if (!session.previousSessions) session.previousSessions = [];
-  session.previousSessions.push({
-    sessionId: session.sessionId,
-    startedAt: session.startedAt,
-    endedAt: session.endedAt,
-    promptHistory: [...session.promptHistory],
-    toolLog: [...(session.toolLog || [])],
-    responseLog: [...(session.responseLog || [])],
-    events: [...session.events],
-    toolUsage: { ...session.toolUsage },
-    totalToolCalls: session.totalToolCalls,
-  });
-  // Cap to prevent unbounded growth (each entry can hold hundreds of log items)
+  session.previousSessions.push(toArchivedSession(session));
+  // Cap to prevent unbounded growth
   if (session.previousSessions.length > 5) session.previousSessions.shift();
 
   // #38: Clear stale PID cache before resume to prevent mismatched PID references
@@ -1444,17 +1454,7 @@ export function reconnectSessionTerminal(sessionId: string, newTerminalId: strin
 
   // Archive current session data (same as resumeSession)
   if (!session.previousSessions) session.previousSessions = [];
-  session.previousSessions.push({
-    sessionId: session.sessionId,
-    startedAt: session.startedAt,
-    endedAt: session.endedAt,
-    promptHistory: [...session.promptHistory],
-    toolLog: [...(session.toolLog || [])],
-    responseLog: [...(session.responseLog || [])],
-    events: [...session.events],
-    toolUsage: { ...session.toolUsage },
-    totalToolCalls: session.totalToolCalls,
-  });
+  session.previousSessions.push(toArchivedSession(session));
   if (session.previousSessions.length > 5) session.previousSessions.shift();
 
   // Register pending resume so session matching can link new Claude hooks
@@ -1519,7 +1519,105 @@ export function detectSessionSource(sessionId: string): string {
  * match). No terminal, no transcript — just live status + name + cwd. The existing
  * liveness loop auto-ends it when the process dies (it has a cachedPid, no terminal).
  */
+/**
+ * Drop a session card and tell every browser to remove it.
+ * Only ever called on cards proven to carry no unique information (see callers).
+ */
+function dropDuplicateCard(id: string, reason: string): void {
+  const session = sessions.get(id);
+  if (!session) return;
+  if (session.cachedPid && pidToSession.get(session.cachedPid) === id) {
+    pidToSession.delete(session.cachedPid);
+  }
+  sessions.delete(id);
+  invalidateSessionsCache();
+  void broadcastAsync({ type: WS_TYPES.SESSION_REMOVED, sessionId: id });
+  log.info('session', `RECONCILE: dropped duplicate card ${id} — ${reason}`);
+}
+
+/**
+ * A live agent pid was proven (via ppid → PTY) to belong to `terminalId`.
+ * Bind it to that terminal's session and clear any discovered card that had
+ * already claimed the same process.
+ *
+ * Binding is safe here precisely because terminal → session is 1:1. The same
+ * cannot be done from a cwd match: five sessions share `agent-manager/` on this
+ * machine alone, so cwd may only ever SUPPRESS card creation, never bind a pid.
+ */
+function reconcileOwnedPid(pid: number, terminalId: string): void {
+  // Any discovered card that already grabbed this process is a duplicate of the
+  // terminal's own card. It holds no transcript, no prompts and no PTY, and is
+  // re-created within one scan interval if it turns out to be genuinely external.
+  const staleId = `external-${pid}`;
+  if (sessions.has(staleId)) {
+    dropDuplicateCard(staleId, `pid ${pid} is owned by dashboard terminal ${terminalId}`);
+  }
+
+  const owner = sessions.get(terminalId)
+    ?? [...sessions.values()].find((s) => s.terminalId === terminalId);
+  if (!owner || owner.status === SESSION_STATUS.ENDED) return;
+  if (owner.cachedPid === pid) return;
+  if (owner.cachedPid) pidToSession.delete(owner.cachedPid);
+  owner.cachedPid = pid;
+  pidToSession.set(pid, owner.sessionId);
+  invalidateSessionsCache();
+  void broadcastSessionUpdate(owner);
+  log.info('session', `Bound live pid ${pid} to session ${owner.sessionId?.slice(0, 8)} via its own terminal ${terminalId} (agent started but has not fired a hook yet)`);
+}
+
+/**
+ * Clear duplicate cards that a previous build already created.
+ *
+ * The ownership check in `registerDiscoveredSession` stops NEW duplicates and, since
+ * the scan no longer treats `external-<pid>` pids as tracked, it also clears existing
+ * discovered cards the moment their PTY is identified. What it cannot reach is a
+ * discovered card that Priority 1.5 already promoted to a real session id while the
+ * terminal's own card was re-keyed separately (see session-matching.md, Priority 4.5)
+ * — that leftover no longer carries the `external-` prefix.
+ *
+ * Rule: drop a card with no terminal, no prompts and no tool calls whose `cachedPid`
+ * is registered to a DIFFERENT live session. Requiring `pidToSession` to name another
+ * owner is what separates a duplicate from a legitimately terminal-less card.
+ */
+export function reconcileDiscoveredSessions(): number {
+  let dropped = 0;
+  for (const [id, s] of [...sessions]) {
+    if (s.status === SESSION_STATUS.ENDED) continue;
+    const isEmpty = !s.terminalId
+      && (s.promptHistory?.length ?? 0) === 0
+      && (s.totalToolCalls ?? 0) === 0
+      && (s.toolLog?.length ?? 0) === 0;
+    if (!isEmpty || !s.cachedPid) continue;
+    const pidOwner = pidToSession.get(s.cachedPid);
+    if (pidOwner && pidOwner !== id && sessions.has(pidOwner)) {
+      dropDuplicateCard(id, `empty card shadowing live session ${pidOwner.slice(0, 8)} on pid ${s.cachedPid}`);
+      dropped++;
+    }
+  }
+  return dropped;
+}
+
 export function registerDiscoveredSession(proc: DiscoveredProcess): void {
+  // ---- Ownership check: is this actually one of OUR agents? -----------------
+  // A dashboard-launched agent fires no hook while it sits at a prompt (login,
+  // trust dialog, or simply waiting for input), so from the scan's point of view
+  // it is indistinguishable from an external session: live pid, real tty, no
+  // cachedPid owner. The cwd-based CONNECTING guard below only covers the first
+  // ~2 minutes (autoIdleManager flips the placeholder to idle at 120s), after
+  // which every such agent got a SECOND card — 12 duplicate pairs observed live
+  // on 2026-07-29, e.g. `external-89298 "Verification"` shadowing the
+  // `term-…667 "Verification"` card that owned its PTY.
+  //
+  // ppid → PTY → session is the one EXACT ownership signal (cwd is shared by many
+  // sessions and must never be used to bind). If the parent shell is one of our
+  // PTYs, this agent is ours: hand the pid to that terminal's session so the card
+  // gains liveness info, and create nothing.
+  const ownerTerminalId = getTerminalByPtyPid(proc.ppid);
+  if (ownerTerminalId) {
+    reconcileOwnedPid(proc.pid, ownerTerminalId);
+    return;
+  }
+
   // Never duplicate a session already tracked by this PID (hook-bound or a prior pass).
   if (pidToSession.has(proc.pid)) return;
   for (const s of sessions.values()) {
@@ -1664,7 +1762,7 @@ startMonitoring(
 
 // External-session discovery — surface live claude CLIs the dashboard didn't
 // launch and that fire no hooks (started before hooks were installed).
-startExternalDiscovery(sessions, pidToSession, registerDiscoveredSession);
+startExternalDiscovery(sessions, pidToSession, registerDiscoveredSession, reconcileDiscoveredSessions);
 
 // Clean up stale pendingResume entries
 startPendingResumeCleanup(pendingResume, sessions, broadcastAsync);

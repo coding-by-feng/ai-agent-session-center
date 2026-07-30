@@ -16,6 +16,7 @@ Lets users browse and inspect code/media files in the project directory without 
 | `src/lib/searchNormalize.ts` | Length-preserving text normalization for find-in-file (`normalizeForSearch`/`foldDashes`/`DASH_RE`) — folds dash/hyphen variants to `-` and case-folds so match offsets stay aligned |
 | `src/components/session/ContentSearchModal.tsx` | Grep-across-project content-search modal (Cmd/Ctrl+Shift+F) |
 | `src/components/session/imageViewport.ts` | Pure helpers: zoom/pan clamping, fit-to-screen, cursor-anchored zoom, persistence (de)serialization |
+| `src/lib/projectEditGuard.ts` | Where `ProjectTab` reports unsaved `mdDraft` / `newFileContent` state, so `DetailPanel`'s LRU cannot unmount it mid-edit |
 | `src/components/session/LinkifiedText.tsx` | Clickable file paths in rendered text |
 | `src/components/session/TexViewer.tsx` | LaTeX (`.tex`) renderer (lazy-loaded `latex.js`) used by ProjectTab's preview pane |
 | `src/lib/fileSystemProvider.ts` | File system abstraction — `ApiFileSystemProvider` (default, fetches `/api/files/*`) and `LocalFileSystemProvider` (File System Access API, Chromium/localhost) |
@@ -29,6 +30,8 @@ Lets users browse and inspect code/media files in the project directory without 
 - VS Code split (`vscodeSplit`): collapsible tree panel on the left (drag divider, width 140–600px persisted), viewer panel with file-tab bar on the right.
 - `ProjectTabContainer` manages sub-tabs; the sub-tab bar only appears when >1 sub-tab exists. Labels auto-derive from the deepest path segment and disambiguate against conflicts by prepending the parent dir.
 - `ProjectTab` manages file tabs (one per opened file): clicking a tab restores cached content instantly; closing the active tab falls back to the last tab (or the welcome screen). File content is cached in a ref `Map` for instant tab switching; cached blob URLs are revoked on close/unmount.
+- The cache (`fileCacheRef`) is an **LRU capped at `MAX_CACHED_FILES = 12`** per project tab. `cacheFile()` inserts and evicts; `touchCachedFile()` marks a cache hit most-recently-used (called on tab click and on the tab-close fallback) so Map iteration order stays least- → most-recently-used. Evicting revokes the entry's blob URL. Entries hold the file's full decoded content plus parsed Excel sheets, mammoth-rendered Word HTML, and PDF/image blob URLs, so an uncapped cache retained tens of MB per mounted tab. **Two entries are never evicted:** the file just loaded, and the one currently rendered (tracked by `activeFilePathRef`) — revoking either one's blob URL would blank the viewer.
+- `ProjectTab` reports unsaved editor state (`mdDraft`, `newFileContent`) to [`src/lib/projectEditGuard.ts`](../../../src/lib/projectEditGuard.ts), keyed `originSessionId` → `persistId`, so `DetailPanel`'s LRU never unmounts a container mid-edit. Neither draft is persisted, so eviction would discard them. See [Session Detail Panel](./session-detail-panel.md) "Visited projects".
 - `originSessionId` prop (optional): when set, enables in-pane translate/explain controls — `SelectionPopup` instances on the markdown and fullscreen viewers. Hidden entirely when `originSessionId` is undefined (e.g. standalone Project Browser route with no matching session). (The former **Translate file** toolbar button was removed.)
 
 ### Collapse/expand pane

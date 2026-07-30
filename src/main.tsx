@@ -1,11 +1,10 @@
-import { StrictMode } from 'react';
+import { StrictMode, lazy, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 import App from '@/App';
-import PopoutTerminalView from '@/components/session/PopoutTerminalView';
-import PopoutProjectView from '@/components/session/PopoutProjectView';
 import { useQueueStore } from '@/stores/queueStore';
 import { useQueueHistoryStore } from '@/stores/queueHistoryStore';
+import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
 import '@/styles/global.css';
 import '@/styles/themes/cyberpunk.css';
 import '@/styles/themes/dracula.css';
@@ -43,6 +42,10 @@ async function bootstrap(): Promise<void> {
   await Promise.all([
     useQueueStore.getState().loadFromDb(),
     useQueueHistoryStore.getState().loadFromDb(),
+    // Snippets have no re-key ordering requirement (they're global, not keyed
+    // by sessionId), but hydrating here keeps every Dexie read on one await so
+    // the picker never opens against an empty library on a cold start.
+    usePromptSnippetStore.getState().loadFromDb(),
   ]);
   createRoot(root!).render(
     <StrictMode>
@@ -51,28 +54,40 @@ async function bootstrap(): Promise<void> {
   );
 }
 
+// The three render targets below are mutually exclusive — a window is either the
+// dashboard, a popped-out terminal, or a popped-out project browser. The popout
+// views are imported lazily, inside their own branch, so the DASHBOARD never
+// loads them: PopoutProjectView reaches ProjectTab, which drags in xlsx,
+// react-arborist, highlight.js, DOMPurify and the react-markdown stack. That
+// static import was the single biggest reason the entry chunk sat at 2.5 MB.
 const popoutParams = new URLSearchParams(window.location.search);
 const popoutKind = popoutParams.get('popout');
 if (popoutKind === 'terminal') {
   // This window is a popped-out terminal (main / commands / fork) — render just
   // that terminal, not the whole dashboard.
+  const PopoutTerminalView = lazy(() => import('@/components/session/PopoutTerminalView'));
   createRoot(root).render(
     <StrictMode>
       <BrowserRouter>
-        <PopoutTerminalView
-          terminalId={popoutParams.get('terminalId') || ''}
-          originSessionId={popoutParams.get('originSessionId') || undefined}
-          label={popoutParams.get('label') || undefined}
-        />
+        <Suspense fallback={null}>
+          <PopoutTerminalView
+            terminalId={popoutParams.get('terminalId') || ''}
+            originSessionId={popoutParams.get('originSessionId') || undefined}
+            label={popoutParams.get('label') || undefined}
+          />
+        </Suspense>
       </BrowserRouter>
     </StrictMode>,
   );
 } else if (popoutKind === 'project') {
   // Popped-out PROJECT tab — render just the file browser, not the whole app.
+  const PopoutProjectView = lazy(() => import('@/components/session/PopoutProjectView'));
   createRoot(root).render(
     <StrictMode>
       <BrowserRouter>
-        <PopoutProjectView />
+        <Suspense fallback={null}>
+          <PopoutProjectView />
+        </Suspense>
       </BrowserRouter>
     </StrictMode>,
   );

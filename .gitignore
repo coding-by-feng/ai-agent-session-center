@@ -26,6 +26,15 @@ test-screenshots/
 docs/feature/.manifest.json.bak
 docs/feature/.manifest.json.tmp.*
 
+# Vite build output belongs in dist/ — a hashed bundle at the repo root means a
+# build was run with the wrong outDir (two ~2.5MB index-*.js chunks were found
+# untracked here). Ignore hashed chunks/maps at root only; eslint.config.js and
+# any other real root-level JS are unaffected because they carry no hash suffix.
+/index-*.js
+/index-*.js.map
+/index-*.css
+/assets/
+
 # Cached native better-sqlite3 binaries per ABI (Node vs Electron). Local dev
 # aid for swapping without a full rebuild — never commit the .node blobs.
 .native-cache/

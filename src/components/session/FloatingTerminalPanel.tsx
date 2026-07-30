@@ -15,7 +15,7 @@ import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useShortcutStore } from '@/stores/shortcutStore';
 import { keyComboToString } from '@/lib/shortcutKeys';
 import type { ShortcutActionId } from '@/types/shortcut';
-import { PALETTE } from '@/lib/robot3DGeometry';
+import { PALETTE } from '@/lib/robotPalette';
 import Tooltip from '@/components/ui/Tooltip';
 import { tooltips } from '@/lib/tooltips';
 import styles from '@/styles/modules/FloatingTerminalPanel.module.css';

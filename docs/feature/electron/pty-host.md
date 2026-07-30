@@ -10,6 +10,7 @@ Provides ~10x lower latency than WebSocket terminal relay (~0.1ms IPC vs ~1-5ms 
 | File | Role |
 |------|------|
 | `electron/ptyHost.ts` | PTY creation, output buffering (configurable ring, default 2MB), shell-ready detection, server registration, child-process-group reaping, cleanup; exports `setReplayBufferBytes()` |
+| `electron/ptyRing.ts` | Replay ring buffer: `RingState`, `createRing`/`ringWrite`/`ringSnapshot`/`ringLength`/`ringReset`, `nextRingCapacity`. Lazily grown, starts at `INITIAL_RING_BYTES = 64 KB`. **Duplicated verbatim from `server/ptyRing.ts`** — the two tsconfig roots can't import across each other; `test/ptyRing.test.ts` runs one suite against both copies |
 
 ## Implementation
 
@@ -20,9 +21,9 @@ PtyInstance {
   id: "pty-{Date.now()}-{random6}"
   process: IPty
   config: PtyCreateConfig
-  ring: Buffer (pre-allocated, replayBufferBytes; default 2MB)
-  ringOffset: number         // next write position
-  ringWrapped: boolean       // true once ring is full
+  ring: RingState            // from ./ptyRing.ts — { buf, offset, wrapped, cap }
+                             //   buf   = CURRENT allocation (starts 64 KB, doubles)
+                             //   cap   = max size, = replayBufferBytes at create time
   disposables: IDisposable[]
   shellReady: Promise<boolean>
   subscribers: Set<WebContents>  // renderer windows currently viewing this PTY
@@ -35,7 +36,7 @@ PtyInstance {
 2. Resolve shell (`$SHELL` or `/bin/bash` fallback)
 3. Build environment: `process.env` + `AGENT_MANAGER_TERMINAL_ID` + CLI-specific API key, strip `CLAUDECODE` env var (prevents nested-session detection), then apply `withClaudeTuiEnvDefaults` — sets `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1` (unless already defined) so Claude Code ≥ 2.1.150 uses its classic renderer instead of the mouse-capturing fullscreen alt-screen TUI, keeping xterm drag-selection and the AI popup working (mirrors `server/config.ts` `CLAUDE_TUI_ENV_DEFAULTS`; see [Terminal/SSH → Environment](../server/terminal-ssh.md))
 4. Spawn PTY via `pty.spawn(shell, ['-l'], ...)` with xterm-256color, 120x40, cwd, env
-5. Subscribe output: append to ring buffer via `ringWrite()` (O(1) pre-allocated slab, no `Buffer.concat`) + send `pty:data` (base64) **only to subscribed `WebContents`** (see Subscriber Gating below)
+5. Subscribe output: append to ring buffer via `ringWrite()` (O(1) lazily-grown slab, no `Buffer.concat`) + send `pty:data` (base64) **only to subscribed `WebContents`** (see Subscriber Gating below)
 6. Subscribe exit: send `pty:exit` (exitCode, signal) to all windows + cleanup
 7. `detectShellReady()` -- wait for shell prompt (concurrent with steps 8-9)
 8. Register with Express server: `POST /api/terminals/register` (async, best effort)
@@ -62,9 +63,13 @@ PtyInstance {
 
 ### Output Ring Buffer
 
-**Configurable, pre-allocated** ring buffer. Each PTY owns one `Buffer.alloc(replayBufferBytes)` + a write offset; new chunks are copied in at the offset, wrapping around when the slab is full. This replaces the old `Buffer.concat([old, chunk])` pattern which was O(n) per write and allocated garbage for every PTY data event.
+**Configurable, lazily grown** ring buffer, implemented in [`electron/ptyRing.ts`](../../../electron/ptyRing.ts). Each PTY owns one `RingState` + a write offset; new chunks are copied in at the offset, wrapping around when the slab is full. This replaces the old `Buffer.concat([old, chunk])` pattern which was O(n) per write and allocated garbage for every PTY data event.
 
-`replayBufferBytes` is a module-level variable, default `DEFAULT_REPLAY_BUFFER_BYTES = 2 * 1024 * 1024` (2 MB, raised from the former hard-coded 128 KB). `setReplayBufferBytes(bytes)` (exported) updates it, clamped to `[MIN_REPLAY_BUFFER_BYTES = 256 * 1024, MAX_REPLAY_BUFFER_BYTES = 32 * 1024 * 1024]`. It is driven by the `pty:set-replay-buffer` IPC channel (see [IPC Transport](./ipc-transport.md)), which the renderer pushes from the `terminalReplayBufferBytes` setting (Settings ▸ ADVANCED ▸ Terminal). **These constants are a deliberate local copy of `src/types/terminal.ts`** — ptyHost runs in the Electron main process and does not import that module at runtime, so keep the two in sync. The ring is allocated **once at create time**, so a changed setting applies only to PTYs created afterward.
+**The ring starts at `INITIAL_RING_BYTES` (64 KB) and doubles toward its cap only as output arrives.** It used to be `Buffer.alloc(replayBufferBytes)` at create time, so every PTY cost the full 2 MB the instant it spawned whether or not it ever emitted a byte — measured at ~46 MB of zero-filled slab across ~23 live terminals, and up to 32 MB × N if a user raised the setting. `ring.buf.length` is therefore the **current allocation**, never the capacity: read `ring.cap` when you need the replay size.
+
+**INVARIANT: a ring only ever wraps once `buf.length === cap`.** `ringWrite` grows before every write and growth stops only at the cap, so a write that would wrap a smaller buffer enlarges it first. That is what makes growth safe — the live bytes are always the linear prefix `[0, offset)` and copy straight across, with no wrap boundary to re-order. `nextRingCapacity()` also grows when a write lands *exactly* on the end of a not-yet-full buffer; without that the ring would flip to wrapped at 64 KB and silently cap replay at 1/32nd of the configured size.
+
+`replayBufferBytes` is a module-level variable, default `DEFAULT_REPLAY_BUFFER_BYTES = 2 * 1024 * 1024` (2 MB, raised from the former hard-coded 128 KB). `setReplayBufferBytes(bytes)` (exported) updates it, clamped to `[MIN_REPLAY_BUFFER_BYTES = 256 * 1024, MAX_REPLAY_BUFFER_BYTES = 32 * 1024 * 1024]`. It is driven by the `pty:set-replay-buffer` IPC channel (see [IPC Transport](./ipc-transport.md)), which the renderer pushes from the `terminalReplayBufferBytes` setting (Settings ▸ ADVANCED ▸ Terminal). **These constants are a deliberate local copy of `src/types/terminal.ts`** — ptyHost runs in the Electron main process and does not import that module at runtime, so keep the two in sync. Each PTY captures the value as its ring's `cap` **once at create time**, so a changed setting applies only to PTYs created afterward.
 
 Helpers (file-local, not exported):
 - `ringWrite(inst, chunk)` — O(1) append; handles wrap around and oversized-chunk (> cap) cases.
@@ -179,7 +184,7 @@ The PTY host injects CLI-specific API keys into the spawned shell environment:
 - Output buffer overflow causes data loss on replay -- old data is silently overwritten in the ring buffer.
 - Missing server registration means the session will not appear in the dashboard, breaking the session matching pipeline.
 - The 50ms silence threshold for shell-ready detection is a heuristic -- slow shells or shells with complex prompts may need more time.
-- Changing the ring buffer size affects memory usage proportionally to the number of active terminals. The size is now user-configurable (default 2 MB, clamped 0.25–32 MB) via `setReplayBufferBytes()`; the clamp bounds worst-case resident memory (`size × live PTYs`). The MIN/MAX/DEFAULT constants are duplicated from `src/types/terminal.ts` — changing one without the other diverges Electron-mode from browser-mode terminals.
+- Changing the ring buffer size affects **worst-case** memory proportionally to the number of active terminals; because rings grow lazily, quiet terminals cost 64 KB rather than the full cap. The size is user-configurable (default 2 MB, clamped 0.25–32 MB) via `setReplayBufferBytes()`; the clamp bounds worst-case resident memory (`cap × live PTYs`). The MIN/MAX/DEFAULT constants are duplicated from `src/types/terminal.ts` — changing one without the other diverges Electron-mode from browser-mode terminals.
 - **Subscriber gating** assumes renderers always call `pty:unsubscribe` when switching away from a terminal. If they forget, the PTY keeps streaming IPC to that renderer (wasted CPU but not incorrect). Conversely, if `pty:subscribe` is skipped or races, the renderer goes blank until the next output — the ring buffer replay on subscribe is the only way stale content reaches a new subscriber.
 - `removeSubscriberFromAll` on `destroyed` is essential — without it, a reloaded/crashed renderer would leak subscriber entries forever.
 - `ringWrite` copies with `Buffer.copy`; if ever swapped to `TypedArray.set`, watch for signed-byte coercion (node-pty emits binary).

@@ -60,7 +60,7 @@ Claude Code wraps internal `user` messages in harness tags **and** injects conte
 
 ### Component props — `ConversationViewProps`
 
-`sessionId`, `transcriptPath?`, `prompts: PromptEntry[]`, `responses: ResponseEntry[]`, `toolCalls: ToolLogEntry[]`, `events: SessionEvent[]`, `previousSessions?: ArchivedSession[]`, `searchQuery?`, `projectPath?`. (`transcriptPath` is accepted in the prop interface but not currently consumed by the component — the fetch is keyed on `sessionId` only; the server resolves the path itself.)
+`sessionId`, `transcriptPath?`, `prompts: PromptEntry[]`, `responses: ResponseEntry[]`, `toolCalls: ToolLogEntry[]`, `events: SessionEvent[]`, `previousSessions?: ArchivedSession[]` (carries only `sessionId`/`startedAt`/`endedAt`/`promptHistory` — `PrevSessionSection` is its only renderer and reads nothing else), `searchQuery?`, `projectPath?`. (`transcriptPath` is accepted in the prop interface but not currently consumed by the component — the fetch is keyed on `sessionId` only; the server resolves the path itself.)
 
 ### Local state
 

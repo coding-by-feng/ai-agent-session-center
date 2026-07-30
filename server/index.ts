@@ -96,12 +96,20 @@ export function startServer(port?: number): Promise<number> {
     }
     // CSP: connect-src is 'self' (covers ws:/wss: same-origin) plus the CDNs the
     // app fetches from. Hugging Face hosts are required for the local voice
-    // (Kokoro) model download — the ONNX runtime is bundled locally, but the
-    // model weights are fetched once from huggingface.co (and its LFS/Xet CDNs)
-    // then cached in the browser for offline use.
+    // (Kokoro) model download — the ONNX runtime is served from our own origin,
+    // but the model weights are fetched once from huggingface.co (and its
+    // LFS/Xet CDNs) then cached in the browser for offline use. jsDelivr is
+    // required by troika-three-text's unicode-font-resolver in the 3D scene.
+    //
+    // 'wasm-unsafe-eval' is what lets the local voice compile its ONNX runtime:
+    // without it Chromium refuses the module with "Compiling or instantiating
+    // WebAssembly module violates ... 'unsafe-eval' is not an allowed source",
+    // and local TTS cannot start at all. It permits WebAssembly compilation
+    // only — it does NOT enable eval() of JavaScript strings, so keep it in
+    // place of the far broader 'unsafe-eval'.
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co https://cas-bridge.xethub.hf.co; img-src 'self' data: blob:; font-src 'self' data: https://cdn.jsdelivr.net; worker-src 'self' blob:; frame-src 'self' blob:",
+      "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co https://cas-bridge.xethub.hf.co; img-src 'self' data: blob:; font-src 'self' data: https://cdn.jsdelivr.net; worker-src 'self' blob:; frame-src 'self' blob:",
     );
     next();
   });

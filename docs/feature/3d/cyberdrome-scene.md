@@ -15,10 +15,12 @@ Visual representation of all active AI sessions. Users can see at a glance which
 | `src/components/3d/RoomLabels.tsx` | 3D text floating above room centers + coffee-lounge label |
 | `src/components/3d/SceneOverlay.tsx` | Bottom-right HUD panel (units online, mute toggle, 3D on/off toggle, room-management panel) |
 | `src/components/3d/RobotListSidebar.tsx` | DOM agent list panel (top-left), grouped by room, sorted pinned-then-status, searchable, per-row pin + close |
-| `src/lib/cyberdromeScene.ts` (517 lines) | Layout constants, room grid math, workstation placement, collision helpers (currently fed an empty rect list), pathfinding |
+| `src/lib/cyberdromeScene.ts` | Workstation placement, wall/door geometry, collision helpers (currently fed an empty rect list), pathfinding. Imports Three.js; re-exports everything from `roomGrid.ts` |
+| `src/lib/roomGrid.ts` | Pure room-grid math — layout constants, `computeRoomCenter()`, `computeRoomCameraTarget()`. **Zero imports** so 2D consumers avoid Three.js |
 | `src/lib/sceneThemes.ts` | 9 theme palettes for 3D scene (36 `Scene3DTheme` properties each) |
 | `src/lib/robotPositionPersist.ts` | sessionStorage persistence of robot positions (`saveRobotPositions` / `loadRobotPositions`) |
 | `src/lib/sessionSort.ts` | `sortSessions` + `STATUS_ORDER` — shared sidebar ordering (pinned first, then status, then title) |
+| `src/lib/sessionDisplayTitle.ts` | `sessionDisplayTitle(session)` — the single source of a card's display name (`title \|\| projectName \|\| 'Unnamed'`). Zero imports, so it is safe for both 2D and 3D callers |
 | `src/lib/pinnedRespawn.ts` | `markUserClosing` — flags a pinned session's death as intentional so it is not auto-respawned |
 | `src/stores/cameraStore.ts` | Camera fly-to state (`pendingTarget`, `isAnimating`, `DEFAULT_CAMERA_POSITION/TARGET`) |
 | `src/stores/roomStore.ts` | Room management (localStorage persistence under `session-rooms`) |
@@ -61,7 +63,8 @@ Imperative update of `scene.fog` color/density and `gl.clearColor` on theme chan
 - Constants: `ROOM_SIZE=8`, `ROOM_GAP=2`, `ROOM_CELL=10`, `WALL_H=2.0`, `WALL_T=0.08`, `DOOR_GAP=1.5`
 - Coffee lounge placed NORTH of all rooms; corridor/common area desks placed SOUTH of all rooms
 - Each room has 10 desks (5 rows x 2 facing each other), walls with doorways on north/south sides
-- Room zoom: `computeRoomCameraTarget()` places camera at 45-degree angle, 14 units out, 10 units high
+- Room zoom: `computeRoomCameraTarget()` places camera at 45-degree angle, 14 units out, 10 units high (`ROOM_VIEW_ANGLE = PI/4`, `ROOM_VIEW_DISTANCE = 14`, `ROOM_VIEW_HEIGHT = 10`)
+- The layout constants and the two functions above live in `roomGrid.ts`, which has **no imports**, and are re-exported from `cyberdromeScene.ts`. `SceneOverlay` (a plain DOM overlay reached eagerly from `LiveView`) calls `computeRoomCameraTarget()`; importing it from `cyberdromeScene.ts` pulled ~1.2 MB of Three.js into the app's boot path.
 - Pathfinding: `computePathWaypoints()` routes robots through door waypoints when moving between rooms
 - Walls are **visual only** — `CyberdromeScene` passes an empty `wallRects` array ("Walls removed for performance"), so `collidesAnyWall()` never blocks movement and robots walk through walls. `buildDynamicWallRects()` still exists in `cyberdromeScene.ts` but is currently called from nowhere.
 
@@ -75,7 +78,8 @@ Imperative update of `scene.fog` color/density and `gl.clearColor` on theme chan
 - Top-left panel (`top:16, left:20`), 280px wide expanded / `auto` when collapsed, backdrop blur, collapsible header ("Agents (N)"). Hidden entirely when there are zero sessions.
 - Searchable via the shared `SearchInput` primitive with 150ms debounce (matches title, project name, status). Floating PiP popups (`session.isFloating`) are filtered out, same as the 3D scene; clone/fork sessions (`isFork` only) are listed.
 - Sessions grouped by room (rooms sorted by `roomIndex`, only rooms with `roomIndex != null`); unassigned sessions fall into a "Common Area" group. Per-group collapse state lives in a local `collapsedGroups` Set.
-- Within each group, ordered by `sortSessions` (`sessionSort.ts`): **pinned first**, then status priority via `STATUS_ORDER` (working 0 > prompting 1 > approval/input 2 > waiting 3 > idle 4 > connecting 5 > ended 6), then title (localeCompare).
+- Within each group, ordered by `sortSessions` (`sessionSort.ts`): **pinned first**, then status priority via `STATUS_ORDER` (working 0 > prompting 1 > approval/input 2 > waiting 3 > idle 4 > connecting 5 > ended 6), then display title (localeCompare).
+- Row labels, the search filter, and both sort tie-breaks all route through `sessionDisplayTitle(session)`. `session.title` stays empty until the first `UserPromptSubmit` (that emptiness is what makes `buildAutoTitle` fire exactly once), so a card can legitimately reach the list untitled — a hook-only external card, an adopted terminal, or one whose first observed event was a `PreToolUse`. Those used to render as a bare **"Unnamed"** row in Common Area; they now fall back to the project name. The row's title div is `overflow:hidden` + `textOverflow:ellipsis` inside a `flex:1; minWidth:0` cell, so a long project name truncates rather than widening the panel.
 - Each row has **two action affordances**: a pin toggle and a close button (titles are read-only — rename UI lives in the detail panel).
   - **Pin** (`onTogglePin` → `sessionStore.togglePin`): pinned sessions float to the top of their group, get a left accent bar, and auto-recreate on restart / if they die.
   - **Close** (`handleClose`): if the session is pinned, prompts a `window.confirm`, and on confirm calls `markUserClosing(session)` (`pinnedRespawn.ts`, so the death isn't treated as a crash) then unpins it; in all cases POSTs `/api/sessions/:id/kill` with body `{ confirm: true }`, closes the canonical terminal returned by the server through `closeManagedTerminal()`, then calls `removeSession`. A failed terminal cleanup is surfaced without resurrecting a server-confirmed ended card; an unsafe shared-PID rejection keeps the card visible.
@@ -124,7 +128,8 @@ Sessions are rendered as robots only when `status !== 'ended'` AND `source === '
 - Adding Zustand subscriptions inside Canvas causes React Error #185 (cross-reconciler cascade). All store reads must remain in the DOM layer.
 - Changing CustomEvent timing (removing `setTimeout(0)`) causes store update during R3F render pass.
 - CameraController `queueMicrotask` is critical -- direct store update in `useFrame` causes cascading renders.
-- Changing room layout constants in `cyberdromeScene.ts` affects all robot navigation paths and workstation placement.
+- Changing room layout constants (now in `roomGrid.ts`) affects all robot navigation paths and workstation placement.
+- **Importing `cyberdromeScene.ts` from a non-3D component re-inflates the eager bundle by ~1.2 MB.** Import `roomGrid.ts` for layout math, and keep that file dependency-free.
 - Scene theme changes must update both 3D fog/lighting and CSS theme variables in sync.
 - OrbitControls `maxPolar` prevents camera from going below the floor -- relaxing this breaks the visual.
 - The floating-exclusion filter (`isFloating`) must stay aligned across `CyberdromeScene`, `RobotListSidebar`, and `HeaderAgentStrip`; dropping it in one place makes floating popups appear as duplicate robots/rows. Do NOT filter on `isFork` — clone/fork sessions carry it and must stay visible.

@@ -8,6 +8,25 @@
 //   RC-14: POST /api/terminals preserves command='' and writes startupCommand
 //          after shell readiness for raw commands with shell metacharacters.
 import { describe, it, beforeAll, afterAll, beforeEach, afterEach, expect, vi } from 'vitest';
+
+// sessionStore/apiRouter open better-sqlite3 at module scope via db.ts. Stub it so
+// this suite stays runnable when the native module's ABI doesn't match the local
+// Node — otherwise the whole file fails at import and silently covers nothing.
+vi.mock('../server/db.js', () => ({
+  upsertSession: vi.fn(),
+  updateSessionTitle: vi.fn(),
+  updateSessionSummary: vi.fn(),
+  updateSessionRemark: vi.fn(),
+  updateSessionArchived: vi.fn(),
+  migrateSessionId: vi.fn(),
+  getPromptsForSession: vi.fn(() => []),
+  insertFullPrompt: vi.fn(),
+  getRecentSessions: vi.fn(() => []),
+  getSessionById: vi.fn(() => null),
+  deleteSession: vi.fn(),
+  default: {},
+}));
+
 import express from 'express';
 import { createServer, type Server } from 'http';
 import { tmpdir } from 'os';

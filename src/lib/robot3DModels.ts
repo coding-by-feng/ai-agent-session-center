@@ -9,7 +9,12 @@ import * as THREE from 'three';
 // Types
 // ---------------------------------------------------------------------------
 
-export type RobotModelType = 'robot' | 'mech' | 'drone' | 'spider' | 'orb' | 'tank';
+// Model identity + display strings live in a Three-free module so 2D consumers
+// (Settings ▸ Theme) can read them without pulling in Three.js. Re-exported so
+// 3D code keeps a single import site.
+export type { RobotModelType } from './robotModelMeta';
+export { ROBOT_MODEL_TYPES, getModelLabel, getModelDescription } from './robotModelMeta';
+import type { RobotModelType } from './robotModelMeta';
 
 export interface PartOverride {
   geometry?: THREE.BufferGeometry;
@@ -20,8 +25,6 @@ export interface PartOverride {
 
 export interface ModelDef {
   type: RobotModelType;
-  label: string;
-  description: string;
   head: PartOverride;
   torso: PartOverride;
   armL: PartOverride;
@@ -41,8 +44,6 @@ export interface ModelDef {
 const modelDefs: Record<RobotModelType, ModelDef> = {
   robot: {
     type: 'robot',
-    label: 'Robot',
-    description: 'Standard humanoid robot',
     head: {},
     torso: {},
     armL: {},
@@ -55,8 +56,6 @@ const modelDefs: Record<RobotModelType, ModelDef> = {
 
   mech: {
     type: 'mech',
-    label: 'Mech',
-    description: 'Bulkier torso, wider stance, angular head',
     head: {
       geometry: new THREE.BoxGeometry(0.34, 0.2, 0.3),
       position: [0, 1.36, 0],
@@ -81,8 +80,6 @@ const modelDefs: Record<RobotModelType, ModelDef> = {
 
   drone: {
     type: 'drone',
-    label: 'Drone',
-    description: 'Smaller hovering unit with antenna array',
     head: {
       geometry: new THREE.SphereGeometry(0.14, 8, 8),
       position: [0, 1.2, 0],
@@ -107,8 +104,6 @@ const modelDefs: Record<RobotModelType, ModelDef> = {
 
   spider: {
     type: 'spider',
-    label: 'Spider',
-    description: 'Low body with 4 stubby legs',
     head: {
       geometry: new THREE.SphereGeometry(0.12, 8, 8),
       position: [0, 0.85, 0.1],
@@ -135,8 +130,6 @@ const modelDefs: Record<RobotModelType, ModelDef> = {
 
   orb: {
     type: 'orb',
-    label: 'Orb',
-    description: 'Spherical body with stubby arms and short legs',
     head: {
       geometry: new THREE.SphereGeometry(0.1, 8, 8),
       position: [0, 1.28, 0],
@@ -161,8 +154,6 @@ const modelDefs: Record<RobotModelType, ModelDef> = {
 
   tank: {
     type: 'tank',
-    label: 'Tank',
-    description: 'Wide body with one thick arm, treads for legs',
     head: {
       geometry: new THREE.BoxGeometry(0.24, 0.18, 0.22),
       position: [0, 1.24, 0],
@@ -187,18 +178,6 @@ const modelDefs: Record<RobotModelType, ModelDef> = {
 // Public API
 // ---------------------------------------------------------------------------
 
-export const ROBOT_MODEL_TYPES: RobotModelType[] = [
-  'robot', 'mech', 'drone', 'spider', 'orb', 'tank',
-];
-
 export function getModelDef(type: RobotModelType): ModelDef {
   return modelDefs[type] ?? modelDefs.robot;
-}
-
-export function getModelLabel(type: RobotModelType): string {
-  return modelDefs[type]?.label ?? 'Robot';
-}
-
-export function getModelDescription(type: RobotModelType): string {
-  return modelDefs[type]?.description ?? '';
 }

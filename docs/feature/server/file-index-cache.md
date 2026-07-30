@@ -17,6 +17,7 @@ Fuzzy search over large repos via `readdir` on every keystroke is too slow. A ca
   - `CACHE_TTL_MS = 30_000` — 30s TTL; watcher refreshes in practice so the TTL is a safety net
   - `MAX_ENTRIES = 50_000` — hard cap on entries per project
   - `MAX_DEPTH = 10` — directory recursion limit
+  - `MAX_CACHED_ROOTS = 5` — how many project roots keep a resident index (LRU)
   - `WATCHER_DEBOUNCE_MS = 300` — coalesces fs.watch events before rebuilding
 - **Skip dirs** (`SKIP_DIRS`): `node_modules`, `.git`, `.next`, `.nuxt`, `__pycache__`, `.venv`, `venv`, `dist`, `build`, `.cache`, `.turbo`, `coverage`, `.svelte-kit`. Also skips any directory starting with `.`.
 - **API**:
@@ -49,6 +50,9 @@ Fuzzy search over large repos via `readdir` on every keystroke is too slow. A ca
 - `searchFiles` returns `{ results, indexing }`. Callers MUST check `indexing: true` (cold-cache signal) and surface a "still indexing" UI state — `GET /api/files/search` in `apiRouter.ts` already forwards this flag. Treating an empty `results` as "no matches" while `indexing` is true would hide files during the initial walk.
 
 ## Change Risks
+- **LRU eviction is what bounds memory — the TTL never reclaims anything.** `CACHE_TTL_MS` only decides when to *rebuild*; because the watcher re-validates a root, an indexed root stays resident for the life of the process. Each root costs up to `MAX_ENTRIES` (50 000) `FileEntry` objects plus a recursive `fs.watch` handle, so before the cap they accumulated for every project ever opened. `evictStaleRoots(keep)` runs after each build: `cache` doubles as the LRU order (Map insertion order; `touchRoot` re-inserts on a hit), and `dropRoot` clears the entry, its debounce timer **and** its watcher.
+- **Watchers outlive their cache entries by design** — the watch callback deletes the entry to invalidate it but keeps watching, so the next lookup rebuilds cheaply. That makes those roots invisible to a cache-only eviction loop, which is why `evictStaleRoots` has a second pass over `watchers` (skipping roots that are cached, building, or the one just indexed). Removing that pass silently leaks an `fs.watch` handle per project.
+- Raising `MAX_CACHED_ROOTS` re-inflates both resident entries and open watch handles, multiplied by `MAX_ENTRIES`.
 - Adding a new skip dir without regenerating existing caches keeps stale entries until TTL
 - `MAX_ENTRIES` truncation is silent — repos exceeding the cap lose tail files from search
 - `fs.watch` is platform-inconsistent; relying solely on it (and removing the TTL fallback) would drop changes on filesystems where watch fires inconsistently

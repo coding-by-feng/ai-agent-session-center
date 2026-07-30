@@ -14,8 +14,10 @@ Each session needs a visual avatar that communicates status through animation (w
 | `src/components/3d/RobotDialogue.tsx` | Floating speech bubbles (ref-based, no React state) |
 | `src/components/3d/RobotLabel.tsx` | WebGL floating name plates (drei Billboard + Text, no HTML) |
 | `src/components/3d/robotPositionStore.ts` | Two non-reactive registries: `robotPositionStore` (world position, plain Map) + `navInfoMap` (full nav state for persistence) |
-| `src/lib/robot3DGeometry.ts` | 16-color neon palette, 10 body + 4 edge geometries, 2 base materials + 16 neon + 16 edge per-color material pools |
-| `src/lib/robot3DModels.ts` | 6 model variants (robot, mech, drone, spider, orb, tank) with per-part overrides |
+| `src/lib/robot3DGeometry.ts` | 10 body + 4 edge geometries, 2 base materials + 16 neon + 16 edge per-color material pools. Re-exports `PALETTE` |
+| `src/lib/robotPalette.ts` | The 16-color neon palette. **Zero imports** — 2D consumers use it without loading Three.js |
+| `src/lib/robot3DModels.ts` | 6 model variants (robot, mech, drone, spider, orb, tank) with per-part geometry overrides. Re-exports the metadata below |
+| `src/lib/robotModelMeta.ts` | `RobotModelType`, `ROBOT_MODEL_TYPES`, `getModelLabel()`, `getModelDescription()`. **Zero imports** — Settings ▸ Theme uses it without loading Three.js |
 | `src/lib/robotStateMap.ts` | Session status -> robot state mapping (8 states) + per-state behavior hints (`getRobotStateBehavior`) |
 | `src/lib/cliDetect.ts` | `detectCli()` -> `'claude' \| 'gemini' \| 'codex' \| null`; used by SessionRobot for CLI badge + accent color |
 | `src/lib/robotPositionPersist.ts` | sessionStorage save/load/clear helpers (the 2s save interval itself lives in CyberdromeScene) |
@@ -81,7 +83,9 @@ All variants hover (`hovers: true`) and share the same skeletal structure with p
 | `orb` | Spherical body with stubby arms and short legs | 0.2 |
 | `tank` | Wide body with one thick arm, treads for legs | 0.15 |
 
-Public API: `ROBOT_MODEL_TYPES` (ordered list), `getModelDef()`, `getModelLabel()`, `getModelDescription()`.
+Public API: `getModelDef()` (geometry, in `robot3DModels.ts`) plus `ROBOT_MODEL_TYPES`, `getModelLabel()`, `getModelDescription()` (metadata, in `robotModelMeta.ts` and re-exported from `robot3DModels.ts` so 3D code keeps one import site).
+
+**Why the split:** `robot3DGeometry.ts` and `robot3DModels.ts` both `import * as THREE from 'three'` and build geometry/materials at module scope. Eagerly-loaded 2D components imported them for trivial data — `DetailPanel`/`FloatingTerminalPanel` for the 16 hex colors, `ThemeSettings` for six labels — which pulled ~1.2 MB of Three.js into the app's boot path. The palette and the model metadata now live in dependency-free modules; the Three-importing files re-export them. Import `@/lib/robotPalette` / `@/lib/robotModelMeta` from any non-3D component, never `robot3DGeometry` / `robot3DModels`.
 
 ### Shared Resources for Rendering
 - 16-color neon palette (`PALETTE`) shared across all robots
@@ -122,7 +126,7 @@ Throttled to minimum 500ms between tool-related updates to prevent bubble spam. 
 - drei `Billboard` + `Text` for pure WebGL rendering (no HTML portals)
 - 8-field equality memoization (sessionId, status, title, projectName, robotState, isSelected, isHovered, fontSize)
 - `isSelected` / `isHovered` are currently **inert** — `RobotLabelInner` never reads them, `SessionRobot` hardcodes `isSelected = false` (`SessionRobot.tsx:115`), and `isHovered` is read from a ref that can't trigger a re-render. The label has no selection/hover state today; the two props survive only in the memo comparator.
-- Displays a status dot + a single title line (`session.title || session.projectName || 'Unnamed'`, truncated at 28 chars). There is no separate label badge.
+- Displays a status dot + a single title line (`sessionDisplayTitle(session)` from `src/lib/sessionDisplayTitle.ts` — `title || projectName || 'Unnamed'` — truncated at 28 chars). There is no separate label badge. The label was the only surface that already degraded to the project name; the shared helper now applies that same fallback in `RobotListSidebar`, `DetailPanel`, and `sessionSort`, which previously showed a bare "Unnamed".
 - Alert banner with pulsing opacity above the panel: "APPROVAL NEEDED" (alert) / "INPUT NEEDED" (input)
 - All dimensions scale with the Font Size setting (`scale = fontSize / BASE_FONT`, `BASE_FONT = 13`)
 
@@ -166,6 +170,7 @@ Two registries in `robotPositionStore.ts`, both plain `Map`s (NOT Zustand) so th
 ## Change Risks
 - Using `useState` in `Robot3DModel` causes performance cascade -- ALL animation must be ref-based.
 - Changing shared geometries/materials in `robot3DGeometry.ts` affects ALL robots simultaneously.
+- **Importing `robot3DGeometry.ts` or `robot3DModels.ts` from a 2D component re-inflates the eager bundle by ~1.2 MB** (both import Three.js at module scope). Use `robotPalette.ts` / `robotModelMeta.ts` instead. Adding a `three` import to either of those defeats the split — keep them dependency-free.
 - Breaking frame throttling (removing every-3rd-frame logic) causes 3x performance cost.
 - `robotPositionStore` MUST NOT be converted to a Zustand store -- doing so causes Canvas re-renders via cross-reconciler subscription.
 - Changing navigation mode logic affects desk seeking behavior and can cause robots to get stuck.

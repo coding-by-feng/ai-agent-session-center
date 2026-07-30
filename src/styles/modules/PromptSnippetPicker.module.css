@@ -1,0 +1,241 @@
+/* PromptSnippetPicker — the saved-prompts / recent-prompts menu.
+ *
+ * Every colour comes from a token that ACTUALLY EXISTS in the theme files, with
+ * a literal fallback. The `QueueMovePicker` regression is the cautionary tale:
+ * it keyed off `--surface-card`, which no theme defines, so it always fell back
+ * to a hard-coded dark navy and painted near-black `--text-primary` onto it —
+ * unreadable in every light theme.
+ */
+
+.picker {
+  /* `fixed` + portaled to <body>: every trigger sits inside a scroll box
+     (`.queueBody` at 250px, `.chainModalBody`), which clips absolutely
+     positioned children on both axes. `top`/`left` are written inline by
+     computeMovePickerPosition(). */
+  position: fixed;
+  /* Must clear every overlay a trigger can live inside: .chainModalOverlay and
+     QueueHistory's .overlay are 10000/10001, .viewOverlay 10001, and the
+     AutocompleteTextarea dropdown is 10100. Stays under TitleBar (99999) so the
+     window chrome and toasts are never covered. */
+  z-index: 10150;
+  display: flex;
+  flex-direction: column;
+  width: min(380px, 92vw);
+  max-height: 320px;
+  background: var(--bg-card, #12122a);
+  border: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15));
+  border-radius: 4px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.35),
+    0 0 12px var(--glow-accent, rgba(0, 229, 255, 0.15));
+  outline: none;
+  /* Fade only — no transform. The component re-measures this node with
+     getBoundingClientRect() on scroll/resize to stay glued to its trigger, and
+     that rect includes any active transform, so an animated translate/scale
+     would feed corrupted geometry straight back into the placement. */
+  animation: snippet-picker-in 0.15s ease-out;
+}
+
+@keyframes snippet-picker-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ---- Tabs ------------------------------------------------------------- */
+
+.tabs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+  padding: 4px 4px 0;
+  border-bottom: 1px solid var(--border-faint, rgba(255, 255, 255, 0.03));
+}
+
+.tab {
+  padding: 5px 10px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim, #555577);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.1s, border-color 0.1s;
+}
+.tab:hover { color: var(--text-secondary, #8888aa); }
+.tabActive {
+  color: var(--accent-cyan, #00e5ff);
+  border-bottom-color: var(--accent-cyan, #00e5ff);
+}
+.tab:focus-visible {
+  outline: 1px solid var(--accent-cyan, #00e5ff);
+  outline-offset: -1px;
+}
+
+/* ---- Filter ----------------------------------------------------------- */
+
+.filter {
+  flex-shrink: 0;
+  margin: 6px 8px;
+  padding: 4px 7px;
+  background: var(--bg-subtle, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-faint, rgba(255, 255, 255, 0.06));
+  border-radius: 3px;
+  color: var(--text-primary, #e0e0ff);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+}
+.filter:focus {
+  outline: none;
+  border-color: var(--border-accent, rgba(0, 229, 255, 0.35));
+}
+.filter::placeholder { color: var(--text-dim, #555577); }
+
+/* ---- List ------------------------------------------------------------- */
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 4px;
+}
+.body::-webkit-scrollbar { width: 4px; }
+.body::-webkit-scrollbar-track { background: transparent; }
+.body::-webkit-scrollbar-thumb {
+  background: var(--border-accent-strong, rgba(0, 229, 255, 0.3));
+  border-radius: 2px;
+}
+
+.empty {
+  padding: 12px 12px 14px;
+  color: var(--text-dim, #555577);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px 0 0;
+  border-left: 2px solid transparent;
+}
+.row:hover {
+  background: var(--bg-accent, rgba(0, 229, 255, 0.1));
+  border-left-color: var(--accent-cyan, #00e5ff);
+}
+
+.rowMain {
+  flex: 1;
+  min-width: 0; /* lets the text truncate instead of pushing the actions out */
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 8px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+}
+.rowMain:focus-visible {
+  outline: 1px solid var(--accent-cyan, #00e5ff);
+  outline-offset: -1px;
+}
+
+/* Both lines truncate on their own. `min-width: 0` on the flex parent plus
+   `overflow: hidden` here is what keeps a long prompt from shoving the
+   breadcrumb and action buttons off the right edge of the menu. */
+.rowTitle,
+.rowPreview {
+  display: block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+}
+.rowTitle {
+  color: var(--text-primary, #e0e0ff);
+  font-size: 11px;
+  font-weight: 600;
+}
+.row:hover .rowTitle { color: var(--accent-cyan, #00e5ff); }
+.rowPreview {
+  color: var(--text-secondary, #8888aa);
+  font-size: 10px;
+}
+
+.renameInput {
+  flex: 1;
+  min-width: 0;
+  margin: 4px 0 4px 8px;
+  padding: 3px 6px;
+  background: var(--bg-subtle, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-accent, rgba(0, 229, 255, 0.35));
+  border-radius: 3px;
+  color: var(--text-primary, #e0e0ff);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+}
+.renameInput:focus { outline: none; }
+
+/* ---- Row actions ------------------------------------------------------ */
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0; /* the breadcrumb + buttons never compress; text truncates */
+}
+
+.rowCount,
+.rowSource,
+.rowKept {
+  color: var(--text-dim, #555577);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 9px;
+}
+.rowSource {
+  max-width: 84px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rowKept { color: var(--accent-green, #00ff88); }
+
+.rowBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--text-dim, #555577);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.1s, border-color 0.1s;
+}
+.rowBtn:hover {
+  color: var(--accent-cyan, #00e5ff);
+  border-color: var(--border-accent, rgba(0, 229, 255, 0.35));
+}
+.rowBtn:focus-visible {
+  outline: none;
+  color: var(--accent-cyan, #00e5ff);
+  border-color: var(--accent-cyan, #00e5ff);
+}
+.rowBtnDanger:hover {
+  color: var(--accent-red, #ff4466);
+  border-color: var(--accent-red, #ff4466);
+}

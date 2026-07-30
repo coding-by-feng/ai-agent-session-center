@@ -17,7 +17,7 @@ Real-time communication channel between server and all connected browser clients
 ## Implementation
 
 ### Connection Lifecycle
-Origin validation and auth both happen in `server/index.ts` (`wss.on('connection')`, lines ~206-236) BEFORE `handleConnection()` runs — wsManager itself does NO origin/auth checks:
+Origin validation and auth both happen in `server/index.ts` (`wss.on('connection')`, lines ~219-248) BEFORE `handleConnection()` runs — wsManager itself does NO origin/auth checks:
 - Origin validation (anti-CSWSH): if `origin`'s host differs from the request `host`, close with code **4003** (`Forbidden: origin mismatch`); an unparseable origin closes 4003 (`Forbidden: invalid origin`)
 - Auth: only when password protection is enabled (`isPasswordEnabled()`), the token is read from the `auth_token` cookie (preferred) or `extractToken(req)`; an invalid token closes with code **4001** (`Unauthorized`)
 - `handleConnection()` then: enforces max **50** connections (close code **4003**, `Too many connections`) -> registers client -> starts the heartbeat (on first client only) -> sends a `snapshot` (all sessions + teams + event seq) -> wires message/close/error handlers

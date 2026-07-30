@@ -86,6 +86,23 @@ export function entryDisplayName(entry: CommandEntry): string {
   return entry.name;
 }
 
+/**
+ * The sigil the session's CLI expects for this entry.
+ *
+ * Codex addresses skills as `$skill-name` (its TUI has a dedicated `$` popup,
+ * and the model is told "if the user names a skill with `$SkillName` … use
+ * it"). A queued `/retouch-current-prompt` does nothing there. Every other
+ * entry — Codex prompts, and all Claude/Gemini commands and skills — is `/`.
+ */
+export function entryPrefix(entry: CommandEntry): '/' | '$' {
+  return entry.cli === 'codex' && entry.kind === 'skill' ? '$' : '/';
+}
+
+/** Exactly what the user should end up with in the prompt, sigil included. */
+export function entryToken(entry: CommandEntry): string {
+  return entryPrefix(entry) + entryDisplayName(entry);
+}
+
 /** Source label for the chip. */
 export function entrySourceLabel(entry: CommandEntry): string {
   switch (entry.source) {

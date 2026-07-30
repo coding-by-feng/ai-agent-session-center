@@ -13,6 +13,7 @@ Packages the dashboard as a native desktop app with window management, tray icon
 | `electron/tray.ts` | System tray / menu bar icon with dynamic menu; hide-to-tray on window close |
 | `electron/ipc/appHandlers.ts` | Dashboard IPC: `app:get-port`, `app:open-browser`, `app:rerun-setup`, `app:quit` |
 | `electron/ipc/setupHandlers.ts` | Setup wizard IPC: `setup:is-complete`, `setup:check-deps`, `setup:save-config`, `setup:install-hooks`, `setup:complete` |
+| `server/portManager.ts` | Resolves the listen port and frees it if occupied. `resolvePort(cliArgs, config)` — priority `--port` flag > `PORT` env > config file > `3333`; `killPortProcess(port)` — finds the occupying PID via `lsof` (POSIX) / `netstat -ano \| findstr` (Windows) and terminates it. Called from `server/index.ts` — `resolvePort` at startup, and `killPortProcess` from the `server.on('error')` handler on `EADDRINUSE`, which retries `listen` **once** after 1000ms (guarded by a `retried` flag, so a second collision rejects instead of looping). The main process embeds this server, so the port the renderer is navigated to is decided here |
 | `electron/loading.html` | Loading screen shown during server startup (progress bar, live log area, error banner) |
 | `electron-builder.json` | electron-builder packaging config (mac DMG+zip / win NSIS targets, asar, extraResources) |
 | `scripts/Open App (Start Here).command` | Guided first-run helper bundled in the macOS DMG (`dmg.contents`); clears the Gatekeeper quarantine flag via native `osascript` step popups |

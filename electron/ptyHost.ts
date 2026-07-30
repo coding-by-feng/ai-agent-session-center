@@ -13,6 +13,8 @@
 
 import pty from 'node-pty'
 import type { IPty, IDisposable } from 'node-pty'
+import { createRing, ringWrite, ringSnapshot, ringLength } from './ptyRing.js'
+import type { RingState } from './ptyRing.js'
 import { execFileSync } from 'child_process'
 import { homedir } from 'os'
 import { BrowserWindow } from 'electron'
@@ -41,12 +43,11 @@ interface PtyInstance {
   id: string
   process: IPty
   config: PtyCreateConfig
-  /** Pre-allocated ring buffer — see ringWrite() / ringSnapshot(). */
-  ring: Buffer
-  /** Next write offset within `ring`. */
-  ringOffset: number
-  /** True once the ring has been wrapped at least once (buffer is full). */
-  ringWrapped: boolean
+  /**
+   * Replay ring buffer. Lazily grown toward the cap captured at create time, so
+   * an idle PTY does not hold the full slab — see ./ptyRing.ts.
+   */
+  ring: RingState
   disposables: IDisposable[]
   shellReady: Promise<boolean>
   /** Renderer WebContents currently viewing this PTY. Output is sent only to these. */
@@ -60,8 +61,10 @@ interface PtyInstance {
 // Replay ring buffer size — how much scrollback is restored when a terminal
 // reconnects / the app reloads / a session resumes. Configurable via
 // Settings ▸ ADVANCED ▸ Terminal, pushed over IPC (pty:set-replay-buffer →
-// setReplayBufferBytes). Applies to terminals created AFTER the change (the
-// ring is pre-allocated once at create time).
+// setReplayBufferBytes). Applies to terminals created AFTER the change: each
+// PTY captures this value as its ring's `cap` at create time. The ring itself
+// starts at INITIAL_RING_BYTES and doubles toward that cap as output arrives,
+// so idle terminals do not hold the full slab (see ./ptyRing.ts).
 //
 // These constants mirror src/types/terminal.ts — ptyHost runs in the Electron
 // main process and does not import that module at runtime, so keep them in sync.
@@ -93,50 +96,6 @@ const SHELL_PROMPT_RE = /[#$%>]\s*$/
 // ---------------------------------------------------------------------------
 
 const terminals = new Map<string, PtyInstance>()
-
-// ---------------------------------------------------------------------------
-// Ring-buffer helpers — pre-allocated slab + write offset, no per-chunk concat
-// ---------------------------------------------------------------------------
-
-function ringWrite(inst: PtyInstance, chunk: Buffer): void {
-  const cap = inst.ring.length
-  if (chunk.length >= cap) {
-    // Single chunk is larger than the ring — keep only the tail.
-    chunk.copy(inst.ring, 0, chunk.length - cap)
-    inst.ringOffset = 0
-    inst.ringWrapped = true
-    return
-  }
-  const tail = cap - inst.ringOffset
-  if (chunk.length <= tail) {
-    chunk.copy(inst.ring, inst.ringOffset)
-    inst.ringOffset += chunk.length
-    if (inst.ringOffset === cap) {
-      inst.ringOffset = 0
-      inst.ringWrapped = true
-    }
-  } else {
-    chunk.copy(inst.ring, inst.ringOffset, 0, tail)
-    chunk.copy(inst.ring, 0, tail)
-    inst.ringOffset = chunk.length - tail
-    inst.ringWrapped = true
-  }
-}
-
-/** Linearize the ring into a contiguous Buffer (oldest → newest). */
-function ringSnapshot(inst: PtyInstance): Buffer {
-  if (!inst.ringWrapped) {
-    return inst.ring.slice(0, inst.ringOffset)
-  }
-  return Buffer.concat([
-    inst.ring.slice(inst.ringOffset),
-    inst.ring.slice(0, inst.ringOffset),
-  ])
-}
-
-function ringLength(inst: PtyInstance): number {
-  return inst.ringWrapped ? inst.ring.length : inst.ringOffset
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -332,9 +291,7 @@ export function createPty(config: PtyCreateConfig): string {
     id: terminalId,
     process: ptyProcess,
     config,
-    ring: Buffer.alloc(replayBufferBytes),
-    ringOffset: 0,
-    ringWrapped: false,
+    ring: createRing(replayBufferBytes),
     disposables: [],
     shellReady,
     subscribers: new Set<WebContents>(),
@@ -346,7 +303,7 @@ export function createPty(config: PtyCreateConfig): string {
   // decoding/routing output from background sessions.
   const dataDisp = ptyProcess.onData((data: string) => {
     const chunk = Buffer.from(data, 'utf8')
-    ringWrite(instance, chunk)
+    ringWrite(instance.ring, chunk)
     if (instance.subscribers.size > 0) {
       const base64 = chunk.toString('base64')
       sendToSubscribers(instance, 'pty:data', terminalId, base64)
@@ -511,8 +468,8 @@ export function removeSubscriberFromAll(wc: WebContents): void {
 /** Get the output buffer for replay on subscribe. */
 export function getOutputBuffer(terminalId: string): string | null {
   const inst = terminals.get(terminalId)
-  if (!inst || ringLength(inst) === 0) return null
-  return ringSnapshot(inst).toString('base64')
+  if (!inst || ringLength(inst.ring) === 0) return null
+  return ringSnapshot(inst.ring).toString('base64')
 }
 
 /** Check if a terminal ID is managed by ptyHost. */

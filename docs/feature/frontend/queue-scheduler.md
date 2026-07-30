@@ -9,12 +9,12 @@ The scheduler used to live inside `QueueTab.tsx`, bound to the selected session 
 ## Source Files
 | File | Role |
 |------|------|
-| `src/lib/queueScheduler.ts` | Pure scheduling helpers — `pickNext`, `advanceAfterFire`, `advanceBlockedLoops`, `chainGateDecision`, `onceGateDecision`, exclude-window / daily-start / quiet-hours predicates, chain-step math, `describeNextFire`, `formatInterval`. No DOM / fetch / Dexie. |
+| `src/lib/queueScheduler.ts` | Pure scheduling helpers — `pickNext`, `advanceAfterFire`, `advanceBlockedLoops`, `chainGateDecision`, `onceGateDecision`, exclude-window / daily-start / quiet-hours predicates, chain-step math (`totalChainSteps`, `currentChainStep`, `hasChain`), `describeNextFire`, `formatInterval`. No DOM / fetch / Dexie. |
 | `src/lib/terminalSend.ts` | Owns the actual prompt→PTY write — `sendPromptToTerminal(terminalId, text, autoEnter, delayMs=SUBMIT_ENTER_DELAY_MS)` and `SUBMIT_ENTER_DELAY_MS = 1000`. Writes the prompt text via `POST /api/terminals/{id}/write`, then (only when `autoEnter`) writes a **separate** submitting `'\r'` after `delayMs`; never concatenates the `'\r'` onto the text. Used by the scheduler tick and the manual "send now". |
 | `src/hooks/useGlobalQueueScheduler.ts` | App-level `setInterval(…, 1000)` tick mounted once in `App.tsx`; iterates every session each tick, applies the helpers, and POSTs the prompt to the session's terminal. Owns per-session re-entrance, cooldown, and chain-gate refs. |
 | `src/stores/queueHistoryStore.ts` | Zustand store of saved favorites (`QueueHistoryEntry[]`), backed by the Dexie `queueHistory` table (v5 schema). save/update/setAlias/remove/incrementUsed/applyToSession/bulkImport/loadFromDb. |
 | `src/components/session/QueueHistorySheet.tsx` | 📚 overlay sheet — filter/sort, per-row View/Edit/Apply/Remove, inline alias rename, export & import-with-preview. |
-| `src/components/session/QueueItemEditModal.tsx` | Three-pane editor (before chain / main / after chain) for a Loop or Schedule item; type pills, interval + daily-start, datetime-local, per-item exclude windows, and **main-prompt image attachments** (paste / pick / remove, seeded from `item.images`, saved back into the patch). Reused by both QueueTab and the history sheet's Edit. |
+| `src/components/session/QueueItemEditModal.tsx` | Three-pane editor (before chain / main / after chain) for a queue item of **any** type; type pills, interval + daily-start, datetime-local, per-item exclude windows, and **main-prompt attachments** (paste / pick / remove, seeded from `item.images`, saved back into the patch; `accept="image/*,.pdf,.txt,.md,.json,.csv,.xml,.yaml,.yml,.log"`, capped at **5** files via `filesToImages`'s `slice(0, 5)` and the `setImages` merge). Both `renderChainList` calls are unconditional — the old `type !== 'once'` gates were removed, so a `once` item can be given before/after chains too (see `hasChain` below). Also hosts the saved-prompt controls (🔖 keep on the MAIN prompt and on every chain step, "From saved…" per chain section) — see [Saved Prompts](./saved-prompts.md). Reused by both QueueTab and the history sheet's Edit, and it is now the **only** queue editor: `QueueTab`'s `EDIT` opens it for every item type, which is what retired the separate ⚙ button. |
 | `src/components/session/LoopExcludeWindowsModal.tsx` | Session-level "quiet hours" editor — windows that apply to every loop in the session, OR'd with each loop's own windows. |
 | `src/lib/queueHistoryExport.ts` | Pure serialize / parse / validate for the `aasc-queue-history` JSON file envelope, plus `downloadAsFile`. |
 | `src/lib/pinnedRespawn.ts` | Keeps PINNED sessions alive — relaunches a pinned session whose process died, with a crash-loop cap + backoff. |
@@ -23,7 +23,7 @@ The scheduler used to live inside `QueueTab.tsx`, bound to the selected session 
 
 Closely-related, documented elsewhere (cross-linked, not duplicated):
 - Queue store, per-session QueueTab UI, global queue view → [Prompt Queue](./prompt-queue.md) (`src/stores/queueStore.ts`, `QueueTab.tsx`, `QueueView.tsx`)
-- `/` command + `@` file autocomplete inside the edit textareas → [Command Autocomplete](./command-autocomplete.md) (`AutocompleteTextarea.tsx`)
+- `/` command + `$` Codex-skill + `@` file autocomplete inside the edit textareas → [Command Autocomplete](./command-autocomplete.md) (`AutocompleteTextarea.tsx`)
 
 ## Implementation
 
@@ -64,6 +64,7 @@ Closely-related, documented elsewhere (cross-linked, not duplicated):
 - **`gateAccepted(sawWork, activityAtOpen, sessionActivityAt)`** (module-private) — shared acceptance predicate for both gates. `sessionActivityAt` is optional on both decisions; omitting it degrades to `sawWork`-only (the pre-existing behaviour), which keeps a gate persisted by an older build safe.
 - Exclude/clamp predicates: `isInExcludeWindow` (same-day `[start,end)` or wrap-midnight `[start,1440)∪[0,end)`; `start===end` ignored), `isItemInQuietHours` (loops only, item ∨ session windows), `isBeforeDailyStart` (loops only, local time-of-day before `firstFireOfDay`).
 - Display: `describeNextFire` (once→"next when idle", loop→live countdown "in 5m 12s"/"due now", schedule→absolute time + "(overdue)"), `formatInterval`, `totalChainSteps`, `currentChainStep`.
+- **`hasChain(item)`** → `true` when either chain has ≥1 step. **Chains are not type-scoped** — `getActiveStep` and `advanceAfterFire` sequence before→main→after for *any* type, and `advanceAfterFire` returns `{action:'remove'}` for a completed `once` where a loop would reschedule. (Source comments and the editor call this pair "getActiveStep / advanceChain"; there is no `advanceChain` symbol — `advanceAfterFire` is the real function.) The UI exposes chain editing on every type — `QueueItemEditModal` renders both chain lists unconditionally — and must gate chain-aware behavior on this predicate, never on `itemType(item) !== 'once'` — see [Prompt Queue](./prompt-queue.md). A chained `once` is force-started through `forceStart` (⚡ NOW) so its steps are paced by the saw-work gate, rather than flattened into a single send.
 
 ### Scheduler tick flow (`useGlobalQueueScheduler.ts`, per session, every 1s)
 1. Skip if `firingRefs[sid]` is set (re-entrance), session/queue missing, `automationConfig.paused`, no `terminalId`, or inside the cooldown window.
@@ -81,6 +82,14 @@ Closely-related, documented elsewhere (cross-linked, not duplicated):
 - `POST /api/queue-images` — body `{ images }`, returns `{ paths }` (image attachments are uploaded before the prompt is sent).
 - `POST /api/terminals/{terminalId}/write` — body `{ data }` (prompt text + optional `\r`).
 - `POST /api/terminals` — recreate a dead pinned session (`buildRespawnBody`).
+
+### Saved-prompt controls inside the editor
+`QueueItemEditModal` carries one `snippetPicker: { anchor, target: 'main' | 'before' | 'after' } | null` state and mounts a single `PromptSnippetPicker` for the whole modal (it's portaled to `<body>`, so it escapes `.chainModalBody`'s scroll box regardless of which trigger opened it). Three surfaces:
+- **MAIN prompt** — a 🔖 keep button (filled via `isKept(mainText)`, `disabled` while blank) and a library button (`align: 'right'`) in the existing `queueEditImageRow` next to the paperclip. A pick calls `setMainText((prev) => appendSnippet(prev, text))`.
+- **Each chain step row** — a 🔖 keep button (`chainStepIconBtn`), making the row `↑ ↓ 🔖 ✕`. Chain steps are the highest-value snippets since they're usually a whole reusable command.
+- **Each chain section footer** — `+ Add {which}-step` and `⊞ From saved…` in a wrapping `chainSectionActions` row. A pick appends a **new** `ChainStep` rather than editing an existing box, so there's no ambiguity about which of several steps it lands in. It passes `align: 'left'` because the trigger sits at the left of a wide modal.
+
+**The modal's Escape handler bails while a picker is open** (`if (snippetPicker) return`), so the topmost layer closes first — the same layering discipline `QueueHistorySheet` uses. `stopPropagation` cannot substitute: both listeners are on `document`, and stopping propagation does not suppress a sibling listener on the same node. Full detail in [Saved Prompts](./saved-prompts.md).
 
 ### Queue History store (`queueHistoryStore.ts`) + 📚 sheet
 - **`snapshotItem`** strips per-session fields (`id=0`, `sessionId=''`, `position=0`, resets `nextFireAt`/`lastFiredAt`/`totalFires`/`execState`/`execStepIdx`, drops `disabled`), keeps the pattern (`text`, chains, `intervalMs` healed to 60s only when missing/≤0/NaN on a loop — a valid shorter interval is preserved, `excludeWindows`, `firstFireOfDay`).
@@ -113,13 +122,14 @@ Closely-related, documented elsewhere (cross-linked, not duplicated):
 - [State Management](./state-management.md) — reads `useSessionStore` each tick (status, `terminalId`, `title`, `projectPath`).
 - [Client Persistence](./client-persistence.md) — Dexie `queueHistory` / `queueAutomation` / `promptQueue` tables (`db.ts`).
 - [Command Autocomplete](./command-autocomplete.md) — `AutocompleteTextarea` inside `QueueItemEditModal`.
+- [Saved Prompts](./saved-prompts.md) — `PromptSnippetPicker` + `appendSnippet` power the editor's 🔖 keep / "From saved…" controls.
 - [UI Primitives](./ui-primitives.md) — `showToast` / `ToastContainer` for all scheduler/history/respawn toasts.
 - [WebSocket Client](./websocket-client.md) — `useWebSocket` invokes `onSessionEnded` for pinned respawn.
 - [Terminal/SSH](../server/terminal-ssh.md) — `POST /api/terminals/{id}/write` and `POST /api/terminals` (respawn) target the PTY layer.
 - [API Endpoints](../server/api-endpoints.md) — `POST /api/queue-images`, `/api/terminals*`.
 
 ### Depended On By
-- [Prompt Queue](./prompt-queue.md) — QueueTab mounts `QueueItemEditModal`, `QueueHistorySheet`, `LoopExcludeWindowsModal`, and renders `describeNextFire` / `formatInterval`; the ★ toggle calls the history store.
+- [Prompt Queue](./prompt-queue.md) — QueueTab mounts `QueueItemEditModal`, `QueueHistorySheet`, `LoopExcludeWindowsModal`, and renders `describeNextFire` / `formatInterval`; the ★ toggle calls the history store. `EDIT` on any row opens `QueueItemEditModal`, so this doc's editor is the queue's only edit surface.
 - [Session Detail Panel](./session-detail-panel.md) — surfaces the queue tab that hosts these editors.
 - [Robot System](../3d/robot-system.md) — `RobotListSidebar` calls `markUserClosing` when a pinned session is closed.
 - [Workspace Snapshot](./workspace-snapshot.md) — snapshot import recreates sessions with the same body shape `buildRespawnBody` mirrors.
@@ -137,4 +147,6 @@ Closely-related, documented elsewhere (cross-linked, not duplicated):
 - **History/queue id-collision**: `applyToSession` picks `max(maxExistingId, Date.now()) + 1` to avoid colliding with QueueTab's `Date.now()` id source — changing either id scheme can produce duplicate ids and lost updates.
 - **Export schema**: bumping `EXPORT_VERSION` without keeping `version > EXPORT_VERSION → 'newer-version'` back-compat breaks cross-version import; the Dexie `queueHistory` index list (`++id, createdAt, lastUsedAt`) must stay in sync with the store's `orderBy('createdAt')` load.
 - **Per-session automation**: `autoSend`/`autoEnter`/`idleGuard`/`skipWhenPrompting`/`loopExcludeWindows` are read fresh each tick from each session's config; reverting to a global flag would make one session's toggle pause/fire others.
+- **`QueueItemEditModal` is now the single edit surface** — QueueTab's `EDIT` has no type branch and the ⚙ button is gone. A regression that makes this modal fail to open for `once` items leaves those items with no editor at all (previously the inline textarea was a fallback).
+- **The modal's Escape gate** (`if (snippetPicker) return`) is what stops one Escape from closing both the snippet picker and the modal, discarding unsaved chain edits. See [Saved Prompts](./saved-prompts.md).
 - **Pinned respawn**: the `respawnKey` (projectPath + title) must stay stable across respawns or the crash-loop cap never accumulates; `markUserClosing` must run on every deliberate close path or a user-closed pinned session respawns itself.

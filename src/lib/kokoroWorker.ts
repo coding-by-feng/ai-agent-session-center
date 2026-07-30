@@ -17,6 +17,24 @@
  *   { type: 'genError', id, epoch, error }          // one chunk failed to synthesize
  */
 import { KokoroTTS } from 'kokoro-js';
+import { env } from '@huggingface/transformers';
+// Aliased in vite.config.ts to the copy inside @huggingface/transformers/dist,
+// so the URL is always version-matched to the runtime that loads it.
+import ortWasmUrl from 'ort-wasm-binary?url';
+
+// On import, transformers.js defaults `wasmPaths` to a jsDelivr URL. That makes
+// onnxruntime-web dynamically import its WASM glue from the CDN on every load —
+// which is what fails with "no available backend found ... Failed to fetch
+// dynamically imported module" when offline, behind a firewall, or where
+// jsDelivr is blocked. It also contradicts this feature's offline promise.
+//
+// Passing an object (rather than a URL prefix string) leaves both the `mjs`
+// override and the prefix unset, which is precisely the condition under which
+// onnxruntime-web uses the glue already bundled into `ort.bundle.min.mjs` — no
+// dynamic import at all. Only the binary itself is fetched, from our own origin.
+if (env.backends?.onnx?.wasm) {
+  env.backends.onnx.wasm.wasmPaths = { wasm: ortWasmUrl };
+}
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 

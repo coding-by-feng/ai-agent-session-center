@@ -1,7 +1,7 @@
 # Session Matcher (8-Priority System)
 
 ## Function
-Links incoming hook events (with unknown session IDs) to existing terminal sessions using a priority cascade (0→4) of matching strategies, and — when nothing matches — surfaces genuinely unmatched interactive sessions as external cards (Priority 5) instead of dropping them.
+Links incoming hook events (with unknown session IDs) to existing terminal sessions using a priority cascade (0→4.5) of matching strategies, and — when nothing matches — surfaces genuinely unmatched interactive sessions as external cards (Priority 5) instead of dropping them.
 
 ## Purpose
 Hooks fire from CLI processes that don't know about dashboard terminals. The matcher bridges this gap so events appear on the correct session card.
@@ -9,8 +9,9 @@ Hooks fire from CLI processes that don't know about dashboard terminals. The mat
 ## Source Files
 | File | Role |
 |------|------|
-| `server/sessionMatcher.ts` (~28KB, 598 lines) | Priority matching engine (0→5) + external fallback + fork routing + source detection |
+| `server/sessionMatcher.ts` (~30KB, 640 lines) | Priority matching engine (0→5) + terminal adoption + external fallback + fork routing + source detection |
 | `test/sessionMatcher.test.js` | Priority and regression coverage, including Codex terminal re-keying, shared-PID parallel threads, and stale teardown events |
+| `test/sessionMatcher.adoption.test.ts` | Priority 4.5 terminal-adoption coverage: adopt-on-any-event, sole-owner requirement, and the CONNECTING / teardown / subagent guards |
 
 ## Implementation
 
@@ -33,6 +34,7 @@ After fork routing, the matcher caches `claude_pid` on the resolved session (not
 | 2 | tryLinkByWorkDir via pendingLinks Map (SSH terminal) — **`SessionStart` only** | Medium |
 | 3 | Path scan of CONNECTING sessions (picks newest if >1) — **`SessionStart` only** | Medium |
 | 4 | PID parent check via pgrep -P (unreliable across shells) | High |
+| 4.5 | Terminal adoption — re-key the **sole** owner of `agent_terminal_id` on ANY event type (covers a lost `SessionStart`) | Medium |
 | 5 | External fallback — create an `isExternal` card for a real hook-only session the dashboard didn't launch (gated on `tty_path`, non-subagent, non-teardown) | Medium |
 
 ### Priority 0.5 (snapshot restore auto-link)
@@ -48,6 +50,22 @@ Resolution: **exactly one candidate** → `reKeyResumedSession` adopts it. With 
 - Priority 1b normally scans a terminal owner only on `SessionStart`. Codex can deliver `UserPromptSubmit` before its queued `SessionStart`, so that one startup-like event may also re-key when `cli_source === 'codex'`, the same `agent_terminal_id` is present, and the cached PID matches. Unknown `Stop`/`SessionEnd` IDs never use this path, preventing a delayed teardown from moving the active card backward.
 - Priority 1.5 matches by cached PID only for `SessionStart` or a process-scan `external-<pid>` card's first real hook. A normal Codex event never re-keys on PID alone because distinct Codex threads can share a host process.
 - The `external-<pid>` branch still upgrades a process-scan discovered card in place on its first real hook of any type so Priority 5 cannot create a second card for the same PID.
+
+### Priority 4.5 (terminal adoption) — the last resort before minting a card
+Every re-key path above (0.5, 1, 1b, 2, 3) is gated on `hook_event_name === SESSION_START`. That gate is correct in isolation but leaves a single point of failure: **if that one hook is lost, one session becomes two cards.** Priority 4.5 closes it by adopting the terminal on *any* forward event.
+
+**The failure it fixes (observed live, Jul 2026 — `sms-ops`):** Claude Code fires `SessionEnd(reason: "resume")` whenever it re-keys its own session id mid-flight (a `/model` change, `--resume`, a compaction). The card correctly goes to `ENDED` and its `cachedPid` is released, while `terminalId` is deliberately kept (the PTY is still alive). The follow-up `SessionStart` normally rescues it via Priority 1b. When that `SessionStart` never arrives — MQ truncation, a dropped hook, or an agent that resumes without re-firing it — the next `PreToolUse` fell through to Priority 5, which minted a **second** card bound to the *same live PTY*. Result: the origin card stranded in `ENDED` (Terminal tab shows "Terminal disconnected / Reconnect" for a session that is actively running) and an untitled twin — `title: ''`, `promptHistory: []`, because titles are only assigned on `UserPromptSubmit` — surfacing as **"Unnamed"** in the Common Area.
+
+**Resolution:** collect every session whose `terminalId` *or* `lastTerminalId` equals `hookData.agent_terminal_id`. **Exactly one owner** → `reKeyResumedSession` adopts it onto the new `session_id`, which preserves `title` and `previousSessions`, resets `status` to `IDLE`, clears `endedAt`/`isHistorical`, and lets the event's own handler apply the real status. Zero or 2+ owners → fall through to Priority 5 (ambiguity is never resolved by guessing, consistent with P0/P0.5/P3).
+
+Deliberately narrow — each guard mirrors an existing one:
+- **Sole owner only.** 2+ owners logs `SKIP terminal adoption: N sessions own <term>` and creates a new card.
+- **`CONNECTING` sessions skipped** — those are Priority 3's placeholders.
+- **Map key `=== termId` skipped** — that is Priority 1's case.
+- **`SessionEnd` / `Stop` excluded** — a late teardown hook from a dead thread must not drag an active card backward. Same reasoning that makes Priority 1b startup-gated.
+- **Subagent events excluded** (`parent_session_id` / `agent_name`) — [Team/Subagent](./team-subagent.md) owns those under their parent.
+
+A successful adoption logs `ADOPTED terminal <termId> — re-keyed <old> -> <new> (no SessionStart observed; first event=<event>)`. That log line is the signal that a `SessionStart` was lost; a burst of them points at hook delivery, not at the matcher.
 
 ### Priority 5 (external fallback)
 Runs only when no earlier priority matched and `found === false` (sessionMatcher.ts:533-566). Previously this branch hit `return null` — an unmatched hook event was silently dropped ("SSH-only mode"), so a real Claude the dashboard didn't launch (external terminal, or started before hooks were installed) stayed untraced. It now surfaces those as a distinct **external card** instead:
@@ -67,7 +85,7 @@ Runs only when no earlier priority matched and `found === false` (sessionMatcher
 ### Session Re-keying
 - `reKeyResumedSession()` transfers a session from its old key to the new `session_id`, resets live state (status→`idle`, animation→`idle`, clears emote/endedAt/currentPrompt, zeroes `totalToolCalls`/`toolUsage`, empties `promptHistory`/`toolLog`/`responseLog`/`events`) and appends a `SessionResumed` event.
 - **Clears `isExternal` (`isExternal = false`) on BOTH re-key paths** — the existing-merge branch (sessionMatcher.ts:107) and the `oldSession` branch (sessionMatcher.ts:122). A session adopted onto a dashboard terminal (via any priority) is no longer "external"; if a discovered/external card is re-keyed, its external badge is dropped.
-- Before resetting, the old session's data is archived into `previousSessions` (deduped against the last entry to avoid double-archiving when `resumeSession()` already archived), capped at 5 entries. `previousSessions` itself is intentionally preserved across re-keys to maintain the history chain.
+- Before resetting, the old session's data is archived into `previousSessions` via `toArchivedSession()` (`server/sessionTrim.ts`), deduped against the last entry to avoid double-archiving when `resumeSession()` already archived, capped at 5 entries. The archive carries only `sessionId`/`startedAt`/`endedAt`/`promptHistory`; this site overrides `sessionId` with the **old** id because the session's own `sessionId` has not been rewritten yet. `previousSessions` itself is intentionally preserved across re-keys to maintain the history chain.
 - **Phantom-archive guard for discovered cards**: the `hasData` archive check treats an EMPTY discovered external card as having no data (`isEmptyDiscovered` — `isExternal && promptHistory.length === 0 && no toolLog && no responseLog`, sessionMatcher.ts:59-66). A process-scan discovered card carries only a lone synthetic `SessionDiscovered` event and no prompts/tools, so without this guard the plain `events?.length > 0` test would archive a phantom `previousSessions` entry when the card is upgraded on its first real hook. `isEmptyDiscovered` forces `hasData = false` for that case, so nothing is archived.
 - Clears the stale `cachedPid → session` mapping in `pidToSession` so the next hook re-caches under the new ID.
 - Merge branch: if the target `newSessionId` already exists in the map (e.g. restored from a server snapshot on a second restart), the existing session's accumulated data is preserved and only the terminal-linkage fields (`terminalId`, `opsTerminalId`, `sshConfig`/`sshHost`/`sshCommand`) are transferred from the new terminal — avoiding overwrite with the fresh `term-*` session's empty state.
@@ -108,7 +126,9 @@ Runs only when no earlier priority matched and `found === false` (sessionMatcher
 - **Orphan-merge guard (`sessionStore.handleEvent`, post-`matchSession`)**: after a re-key (`session.replacesId` set), the handler absorbs a same-path `CONNECTING` "orphan" terminal into the re-keyed session — intended for the Priority-0.5 restart case (a re-keyed ENDED session kept a now-DEAD terminalId and needs the fresh auto-load terminal). **Bug fixed (Jun 2026):** it ran unconditionally, so with TWO sessions in the same workDir, session #1 (matched via Priority 1 to its OWN live terminal) absorbed session #2's still-`CONNECTING` placeholder, overwriting #1's live `terminalId` with #2's → #2's Claude then matched the stolen id (Priority-1b scan) and the two collapsed into one card (data loss; also broke scrollback prefill). Now gated on `!ownTerminalLive` (`getTerminals().some(t => t.terminalId === session.terminalId)`): only merge when the re-keyed session's own terminal is NOT live (the dead-terminalId Priority-0.5 case). Do NOT remove the guard.
 - Fork routing must stay BEFORE PID caching — moving it after would map a fork's PID onto the origin session and let `processMonitor` end the origin when the fork dies
 - **Priority 5 gating must stay intact**: the `tty_path` check keeps headless (`claude -p`/CI/MCP) sessions from spawning phantom cards, and the subagent + teardown checks keep `matchSession` from stealing team-owned sessions or creating stale cards. Removing these guards re-opens phantom/duplicate-card bugs.
+- **Priority 4.5 is the only unguarded-by-`SessionStart` re-key path — its own guards carry the whole load.** Widening it (dropping the sole-owner requirement, admitting `CONNECTING` sessions, or letting `SessionEnd`/`Stop` through) turns it into exactly the terminal-hijack bug the P2/P3 gate above was added to fix, and this time on *every* event type. Narrowing it back to `SESSION_START` re-opens the split-card bug: one dropped startup hook → an `ENDED` card stuck on "Reconnect" plus an "Unnamed" twin on the same PTY. Covered by `test/sessionMatcher.adoption.test.ts`.
+- **Adoption does not retroactively merge an already-split pair.** Once both cards exist, the new hook matches the twin by direct id lookup and returns before the cascade runs. Pre-existing duplicates must be closed by hand; the fix is preventative only.
 - **Priority 1.5 ↔ Priority 5 coupling**: Priority 1.5's `existingSessionId.startsWith('external-')` branch MUST upgrade a discovered card on its first real hook of ANY event type. If that branch is re-narrowed to `SESSION_START` only, a discovered card whose first hook is non-`SessionStart` falls through to Priority 5 and a **duplicate** card is created for the same PID. The `external-<pid>` key format is set by [Process Monitor](./process-monitor.md) / `registerDiscoveredSession`; changing that prefix silently breaks this upgrade.
 - Priority 1's fresh-placeholder gate and Priority 1b's stricter terminal-plus-PID gate are complementary. PID, title, or cwd alone would collapse legitimate parallel Codex threads; stale `Stop`/`SessionEnd` must remain excluded from both re-key paths.
 - **Phantom-archive guard**: `isEmptyDiscovered` in `reKeyResumedSession()` must keep excluding empty discovered external cards from archival, or upgrading a discovered card archives a bogus `previousSessions` entry built from its lone synthetic `SessionDiscovered` event.
-- The source-code module docstring still says "5-priority" (the `@module` header at line 3); the real cascade has more steps (0, 0-fallback, 0.5, 1, 1b, 1.5, 2, 3, 4, 5) — trust the table above, not the comment
+- The source-code module docstring still says "5-priority" (the `@module` header at line 3); the real cascade has more steps (0, 0-fallback, 0.5, 1, 1b, 1.5, 2, 3, 4, 4.5, 5) — trust the table above, not the comment

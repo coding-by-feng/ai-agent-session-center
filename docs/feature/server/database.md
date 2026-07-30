@@ -64,7 +64,8 @@ Server-side persistence that survives restarts. IndexedDB on frontend is the mir
 
 ### Detail & Restore Queries
 - getSessionDetail(id) — single session row + all child records (prompts, responses, tool_calls, events, notes); backs the History/detail view
-- getPromptsForSession(id) — persisted prompts (text + timestamp) for one session; used by `sessionStore` to restore in-memory `promptHistory` after a server clear-all
+- getPromptsForSession(id) — persisted prompts (text + timestamp) for one session; used by `sessionStore` to restore in-memory `promptHistory` after a server clear-all. Rows are **full length**, so the restore replays them through `pushPrompt` to re-apply the in-memory caps
+- insertFullPrompt(sessionId, text, timestamp) — writes one prompt at FULL length, called *before* the capped copy is pushed to `promptHistory`. `upsertSession` later re-inserts from that capped copy, but `insertPrompt` is `INSERT OR IGNORE` against `UNIQUE(session_id, timestamp)`, so this row wins. **Must share the in-memory entry's timestamp** or the dedup key misses and both rows persist. See [Session Management → In-memory text caps](./session-management.md)
 
 ### Notes CRUD
 - getNotes(sessionId) — notes for a session (newest first)

@@ -9,7 +9,7 @@ Detects when Claude/Gemini/Codex crashes or exits without sending a SessionEnd h
 ## Source Files
 | File | Role |
 |------|------|
-| `server/processMonitor.ts` | PID liveness checking, dead-process cleanup, `findClaudeProcess()` resolution chain, external-session discovery scan (Mechanism B) |
+| `server/processMonitor.ts` | PID liveness checking, dead-process cleanup, `findClaudeProcess()` resolution chain, external-session discovery scan (Mechanism B), and the kill primitives `terminateProcessTree(pid)` (SIGTERM → ~2s poll → SIGKILL → ~1s verify, signalled to `-pgid` with a bare-PID fallback) + `reapPtyChildren(shellPid)` (group-terminates each `pgrep -P` child when a PTY closes) |
 | `server/autoIdleManager.ts` | Idle transition timers + stale `pendingResume` cleanup |
 | `server/config.ts` | Provides `PROCESS_CHECK_INTERVAL` and `AUTO_IDLE_TIMEOUTS` constants |
 | `server/sessionStore.ts` | Implements the `registerDiscovered` callback (`registerDiscoveredSession`) and wires `startExternalDiscovery(...)` |
@@ -61,11 +61,13 @@ The API adds a second guard after resolution: `findLiveCodexPidPeers()` treats a
 
 **Pass steps (`discoverExternalSessions`, in order):**
 1. `pgrep -f claude` (5s timeout) → candidate PIDs; excludes the server's own `process.pid`, and returns early if `pgrep` exits non-zero (no matches).
-2. Build a `tracked` set = every key in `pidToSession` ∪ every `session.cachedPid`. Any candidate already in `tracked` is skipped (bound by a hook or a prior discovery pass).
-3. For each untracked PID, in parallel: `ps -o args=` (command line) and `ps -o tty=` (controlling tty), each with a 3s timeout. A PID that vanished between `pgrep` and `ps` is skipped.
+2. Build a `tracked` set = every key in `pidToSession` ∪ every `session.cachedPid`, **excluding pids held by an `external-<pid>` card**. Those are deliberately re-examined every pass: a discovered card minted *before* its owning PTY could be identified must get a chance to be reconciled away (step 6). Without the exclusion such a card would permanently shield its own pid from re-evaluation.
+3. For each untracked PID, in parallel: `ps -o args=` (command line), `ps -o tty=` (controlling tty), and `ps -o ppid=` (parent pid), each with a 3s timeout. A PID that vanished between `pgrep` and `ps` is skipped. The ppid rides along in the existing `Promise.all`, so it costs no extra wall-clock.
 4. Keep the PID only if `isInteractiveClaude(args)` **and** it has a real tty (not `''`, `'??'`, or `'?'`) — interactive sessions have a controlling terminal; daemons/headless workers don't.
-5. Resolve cwd via `resolveCwd(pid)` (darwin: `lsof -a -d cwd -Fn -p <pid>`, linux: `readlink /proc/<pid>/cwd`, 3s timeout, `''` on failure).
-6. Call `registerDiscovered({ pid, tty, cwd, name, model })`.
+5. Skip re-examined pids that are provably external: `pidToSession.has(pid) && !getTerminalByPtyPid(ppid)` — the parent is visibly not one of ours and never will be, so there is no point paying for the cwd lookup below on every pass.
+6. Resolve cwd via `resolveCwd(pid)` (darwin: `lsof -a -d cwd -Fn -p <pid>`, linux: `readlink /proc/<pid>/cwd`, 3s timeout, `''` on failure).
+7. Call `registerDiscovered({ pid, tty, ppid, cwd, name, model })`.
+8. After the pass resolves, call the optional `reconcile` callback ([`sessionStore.reconcileDiscoveredSessions`](./session-management.md)) and log how many duplicate cards it dropped. It runs *after* the pass so it observes the pid bindings the pass just made.
 
 **Exported pure helpers** (unit-tested in `test/externalDiscovery.test.ts`):
 | Helper | Behavior |
@@ -74,9 +76,21 @@ The API adds a second guard after resolution: `findLiveCodexPidPeers()` treats a
 | `parseNameFlag(args)` | Extracts the `-n <label>` session name; labels may contain spaces, so it runs from after ` -n ` until the next ` --` flag. Returns `null` if absent. |
 | `parseModelFlag(args)` | Extracts `--model <id>` (`--model\s+(\S+)`). Returns `null` if absent. |
 
-**Exported interface** `DiscoveredProcess { pid: number; tty: string; cwd: string; name: string | null; model: string | null }` — everything a hook would otherwise carry, scraped from a bare OS process.
+**Exported interface** `DiscoveredProcess { pid: number; tty: string; ppid: number | null; cwd: string; name: string | null; model: string | null }` — everything a hook would otherwise carry, scraped from a bare OS process.
 
-**Integration:** the `registerDiscovered` callback is [`sessionStore.registerDiscoveredSession`](./session-management.md) (wired via `startExternalDiscovery(...)` in `sessionStore.ts`). It creates a thin `external-<pid>` card (`status = idle`, no terminal, no transcript — just live status + name + cwd), guarded against duplicating a PID already tracked, a cwd-less process, or a `CONNECTING` dashboard launch mid-flight for the same cwd (avoids racing a dashboard-launched claude in its pre-hook window). The card carries a `cachedPid`, so the liveness loop above auto-ends it when the process dies. If a real hook later fires for that PID, [`sessionMatcher`](./session-matching.md) **Priority 1.5** (cached-PID match) re-keys the `external-<pid>` card in place onto the real `session_id` — for a discovered card the upgrade fires on the *first* hook of **any** event type (not just `SessionStart`), so a non-`SessionStart` first hook can't slip past into a duplicate card via Priority 5.
+### Ownership: telling our own agents apart from external ones
+A dashboard-launched agent fires **no hook while it waits at a prompt** — a login flow, a trust dialog, or simply idling. From the scan's point of view it is indistinguishable from an external session: live pid, real tty, no `cachedPid` owner. The original launch-race guard (skip if a `CONNECTING` session shares this cwd) only covers the first ~2 minutes, because `autoIdleManager` flips an unclaimed placeholder to `idle` at 120s. Past that point every such agent got a **second** card. Observed live on 2026-07-29: 12 duplicate pairs, 9 with byte-identical titles (`external-89298 "Verification"` shadowing the `term-…667 "Verification"` card that owned its PTY).
+
+`ppid` is the fix. An agent started inside a managed terminal runs as `PTY → /bin/zsh -l → claude`, so its parent **is** `term.pty.pid`, giving an exact 1:1 `ppid → terminal → session` chain. `registerDiscoveredSession` resolves it with [`sshManager.getTerminalByPtyPid(ppid)`](./terminal-ssh.md) — a **pure Map scan with no syscall**, deliberately separate from the older `getTerminalByPtyChild`, which does the same lookup but shells out with `execSync` and therefore must never be called from this interval.
+
+**cwd is not a substitute.** Many sessions share one directory (five shared `agent-manager/` on the machine where this was found), so cwd may only ever *suppress* card creation — it must never be used to *bind* a pid to a card, or the pid lands on an arbitrary sibling.
+
+**Integration:** the `registerDiscovered` callback is [`sessionStore.registerDiscoveredSession`](./session-management.md) (wired via `startExternalDiscovery(...)` in `sessionStore.ts`). Order of operations:
+1. **Ownership check first.** If `getTerminalByPtyPid(proc.ppid)` resolves, the agent is ours: bind `proc.pid` onto that terminal's session (so the card stops looking dead), drop any `external-<pid>` card an earlier pass already minted for it, and create nothing.
+2. Otherwise the original guards apply — skip a PID already tracked, a cwd-less process, or a `CONNECTING` dashboard launch mid-flight for the same cwd.
+3. Create the thin `external-<pid>` card (`status = idle`, no terminal, no transcript — just live status + name + cwd). It carries a `cachedPid`, so the liveness loop above auto-ends it when the process dies.
+
+If a real hook later fires for that PID, [`sessionMatcher`](./session-matching.md) **Priority 1.5** (cached-PID match) re-keys the `external-<pid>` card in place onto the real `session_id` — for a discovered card the upgrade fires on the *first* hook of **any** event type (not just `SessionStart`), so a non-`SessionStart` first hook can't slip past into a duplicate card via Priority 5.
 
 ### Auto-Idle Timeouts (`autoIdleManager.ts`)
 `startAutoIdle(sessions)` installs a `setInterval` that fires every **10s** (hard-coded `10000`); `stopAutoIdle()` clears it. Per tick it compares `now - session.lastActivityAt` against `AUTO_IDLE_TIMEOUTS`:
@@ -116,4 +130,7 @@ The API adds a second guard after resolution: `findLiveCodexPidPeers()` treats a
 - False positives: `kill(pid, 0)` can throw `EPERM` (permission), not just `ESRCH` (no such process) — both are currently treated as "dead", which can prematurely end a still-running session owned by another user.
 - The Claude fallback chain is fragile because cwd is not unique; forks continue to bypass it. Codex/Gemini intentionally require a live exact cached PID and otherwise rely on exact managed-terminal teardown.
 - The auto-idle interval (10s) and pendingResume cleanup interval (15s) are hard-coded; the working-state timeout exclusion list must stay in sync with the `SESSION_STATUS` enum or transient states could be idled too early.
+- **The ppid ownership check must stay syscall-free.** It runs inside the discovery interval, where a sync process spawn blocks the event loop and stalls hook processing / WS relays. Use `getTerminalByPtyPid` (Map scan) fed by the ppid the async `ps` batch already collected — **never** `getTerminalByPtyChild`, which calls `execSync`. The two functions look interchangeable and are not.
+- **Never bind a pid from a cwd match.** cwd is shared by many sessions; only `ppid → PTY → session` is 1:1. cwd may suppress card creation, never assign ownership. Getting this wrong attaches a live pid to an arbitrary sibling card, which then reports the wrong liveness and can be killed by mistake.
+- **Excluding `external-<pid>` pids from `tracked` is load-bearing.** It is what lets an already-minted discovered card be reconciled away once its PTY becomes identifiable. Re-adding them to `tracked` freezes every existing duplicate in place forever (sessions are never auto-expired). The step-5 "provably external" skip is what keeps that re-examination cheap — remove it and every genuine external session pays an `lsof` every 20s.
 - **External discovery (Mechanism B):** the `discoveryRunning` re-entrancy guard is the only backpressure — if `EXTERNAL_DISCOVERY_INTERVAL_MS` (20s) is lowered below a pass's worst-case `pgrep`/`ps`/`lsof` latency, passes will simply skip rather than pile up, but discovery lag grows. The `tracked` set (`pidToSession` keys + `session.cachedPid`) is the dedup barrier; if a hook-bound session ever lacks a `cachedPid`, a duplicate `external-<pid>` card could be created until Priority 1.5 re-keys it. Weakening the `isInteractiveClaude` filters (basename check, tty requirement, daemon/headless exclusions) risks surfacing background infra (daemon, bg-pty-host, MCP/`--print` workers) as phantom sessions. Discovery is a no-op on win32, so external sessions are never surfaced there.

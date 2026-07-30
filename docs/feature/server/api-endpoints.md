@@ -9,14 +9,14 @@ The HTTP interface for the React frontend and external integrations. Handles all
 ## Source Files
 | File | Role |
 |------|------|
-| `server/apiRouter.ts` (~2687 lines, largest server file) | All REST endpoints |
+| `server/apiRouter.ts` (~2807 lines, largest server file) | All REST endpoints |
 | `server/constants.ts` | Hook event/density constants (`ALL_CLAUDE_HOOK_EVENTS`, `CODEX_HOOK_EVENTS`, `DENSITY_EVENTS`, `CODEX_DENSITY_EVENTS`, `SESSION_STATUS`, `WS_TYPES`) used by hook status/install and broadcast endpoints |
 | `server/index.ts` | Auth endpoints (`/api/auth/*`) and middleware wiring (localhost-only for hooks, authMiddleware for everything else under /api) |
 | `server/hookRouter.ts` | POST /api/hooks (HTTP-fallback hook ingestion) — delegates to `processHookEvent` |
 | `server/floatingSessionSpawner.ts` | Implementation of POST /api/sessions/spawn-floating (fork/translate/explain spawn); prompt synthesis + labels live in `server/floatingPrompt.ts` |
 | `server/sessionKillPolicy.ts`, `test/sessionKillPolicy.test.ts` | Pure Codex shared-host PID detection used by per-card kill, with regression coverage |
 | `server/extractPreviousAnswer.ts` | Helpers `readClaudeTranscript` (CONVERSATION tab) and `readClaudeLastAssistant` (translate-answer mode) |
-| `server/commandIndex.ts` | Slash-command/skill enumeration behind GET /api/commands (30s cache per cli+projectPath) |
+| `server/commandIndex.ts` | Slash-command/skill enumeration behind GET /api/commands (30s cache per cli+projectPath); Codex skills resolved via `$CODEX_HOME` |
 | `server/codexModelCatalog.ts`, `test/codexModelCatalog.test.ts` | Official Codex app-server `model/list` client, normalization, cache/fallback, and regression coverage for GET /api/codex/models |
 | `src/types/api.ts` | Shared API response/request types, including per-CLI hook status and `enabledClis` install body |
 | `test/buildResumeCommand.test.ts` | Pure Claude/Codex resume-command and model/effort persistence coverage (database mocked to avoid native-ABI coupling) |
@@ -49,10 +49,10 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - POST /api/sessions/:id/reconnect-terminal|reconnect-ops-terminal
 - POST /api/sessions/clear-all (removes all sessions, captures terminal output for replay; accepts JSON body `{ suppressBroadcast?: boolean }` — when `true`, skips the `clearBrowserDb` ws-broadcast so the workspace-import flow can rebuild without racing against the wipe). Registered before parameterized `/sessions/:id` routes so "clear-all" isn't matched as a session ID.
 - GET /api/sessions/resume-command?path=<projectPath> — returns `{ sessionId, resumeCommand }` for the most recent non-ended session at a path (prefers live in-memory session, falls back to DB). Server-side fallback for the `claude-last` shell function. 404s on `term-*` IDs / no resumable session.
-- DELETE /api/sessions/:id
+- DELETE /api/sessions/:id — closes BOTH `session.terminalId` and `session.opsTerminalId` before removing the card; the ops shell is a login shell that never exits on its own, so skipping it leaks a live PTY that keeps consuming terminal budget.
 
 ### Terminal Endpoints
-- POST /api/terminals (create, max 50). `model` accepts a Claude alias/full ID or a Codex model ID — validated by regex `^[a-zA-Z0-9._-]+$` (max 100, shell-safe because the value is interpolated unquoted into `--model`). Claude receives model + effort; Codex receives model only.
+- POST /api/terminals (create; capacity-checked via `checkTerminalCapacity` — see Rate Limiting below. Body is validated FIRST so the check can reserve the ops shell too when `enableOpsTerminal` is set). `model` accepts a Claude alias/full ID or a Codex model ID — validated by regex `^[a-zA-Z0-9._-]+$` (max 100, shell-safe because the value is interpolated unquoted into `--model`). Claude receives model + effort; Codex receives model only.
 - POST /api/terminals/register (Electron PTY registration). If a hook arrived first and already created a session owning that terminal ID, registration enriches/reuses the canonical session, returns its `sessionId`, and broadcasts `replacesId: terminalId` instead of creating a duplicate `pty-*` card.
 - POST /api/terminals/:id/prefill-output (base64-encoded output replay — restores scrollback during workspace import)
 - POST /api/terminals/:id/write (write string to PTY; max 50MB per call)
@@ -72,7 +72,7 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - **Limits**: `MAX_FILE_SIZE = 10MB` (read/write JSON), `MAX_STREAMABLE_SIZE = 100MB` (PDF/Word/spreadsheet/image/video/audio streaming, with HTTP Range support for media; `STREAMABLE_EXTENSIONS` includes `.docx`/`.doc`, streamed as bytes for client-side mammoth rendering, plus `.xlsx`/`.xls`). Grep capped at `MAX_RESULTS = 500` (ripgrep, falling back to grep). All file paths validated via `isAllowedProjectRoot()` + `resolveProjectPath()` to block traversal.
 
 ### Slash Commands
-- GET /api/commands?cli=<claude|codex|gemini>&projectPath=<absolute> — enumerates slash commands + skills (project + global + plugin sources) for the CLI, cached 30s per (cli, projectPath). Backs slash-command autocomplete in prompt inputs; see [Command Autocomplete](../frontend/command-autocomplete.md).
+- GET /api/commands?cli=<claude|codex|gemini>&projectPath=<absolute> — enumerates slash commands + skills (project + global + plugin sources) for the CLI, cached 30s per (cli, projectPath). Codex additionally reports skills from `$CODEX_HOME/skills`, `<project>/.codex/skills` and the preinstalled `.system/` tier; those are `$name`-invocable, not `/name`. Backs slash-command autocomplete in prompt inputs; see [Command Autocomplete](../frontend/command-autocomplete.md).
 
 ### Codex Model Catalog
 - GET /api/codex/models — starts the locally installed `codex app-server` over JSONL stdio, performs the required `initialize`/`initialized` handshake, then calls stable `model/list` with `{ includeHidden: false, limit: 100 }`. The response is `{ models: [{ id, displayName, description, isDefault }], refreshedAt, source, stale }`; model order comes directly from Codex and IDs are filtered through `^[a-zA-Z0-9._-]+$` before reaching the renderer.
@@ -141,12 +141,23 @@ Prompt delivery itself rides POST /api/terminals/:id/write; the scheduling/autom
 - All other routes mounted under `/api` via `apiRouter` are gated by `authMiddleware`.
 - `/api/auth/*` endpoints are defined directly in `index.ts` (before the protected mount) and require no auth.
 
+Registration order in `startServer()` (order is load-bearing — the first match wins):
+1. `express.json({ limit: '50mb' })` — the global request-body cap behind `POST /api/terminals/:id/write`.
+2. Security-header middleware: `X-Content-Type-Options`, `X-Frame-Options: DENY`, `X-XSS-Protection`, `Referrer-Policy`, `Permissions-Policy`, HSTS when `req.secure`/`x-forwarded-proto: https`, and the CSP. The CSP allow-lists `script-src 'self' blob: 'wasm-unsafe-eval'` and Hugging Face + jsDelivr hosts in `connect-src`/`font-src` — required by [TTS Voice Output](../multimedia/tts-voice-output.md) (local Kokoro voice) and the 3D scene's font resolver.
+3. `/api/auth/*` (unauthenticated).
+4. `express.static(dist/client)` — the built SPA.
+5. `/api/hooks` (localhost-only + rate limited).
+6. `/api` → `authMiddleware` + `apiRouter`. A second `app.get('/api/sessions', authMiddleware, …)` is registered after this mount, so it is shadowed by `apiRouter`'s own `GET /sessions`.
+7. Debug request logger (only when `log.isDebug`; strips `token=` from logged URLs).
+8. SPA fallback `app.get('/{*splat}')` → `index.html`.
+
 ### Known Projects
 - GET /api/known-projects decodes ~/.claude/projects/ directory names with greedy filesystem probing
 
 ### Rate Limiting
 - In-memory fixed 1s window (`isRateLimited` per-key per-second — the bucket resets wholesale once the window elapses): 100/sec hooks, 5/sec DB full-text search, 20/sec file fuzzy-search, 5/sec TTS synthesize.
-- Concurrency/count caps: `MAX_CONCURRENT_SUMMARIZE = 2`, `MAX_TERMINALS = 50` (also enforced on team-member terminal attach).
+- Concurrency/count caps: `MAX_CONCURRENT_SUMMARIZE = 2`, plus the two terminal budgets in `server/terminalCapacity.ts` — `MAX_SESSIONS = 50` (agent terminals only) and `MAX_TERMINALS = 130` (absolute PTY ceiling incl. ops shells). `checkTerminalCapacity(getTerminals(), { sessions, ops })` reserves every PTY the request will spawn and returns the message quoted in the 429 (`Session limit reached (N/50 active) …` vs `Terminal limit reached (N/130 shells) …`). Enforced on POST /api/terminals, POST /api/sessions/:id/reconnect-ops-terminal (`{ sessions: 0, ops: 1 }`), and team-member terminal attach. **Not** enforced on floating-session spawn.
+  - Ops shells are excluded from the session budget on purpose: a session created with "Commands Terminal" ticked spawns two PTYs, and the previous single `MAX_TERMINALS = 50` PTY cap therefore refused new sessions at ~25 while reporting "max 50". The old check also read `current >= MAX` and then spawned up to two PTYs, so the map could settle one over the cap.
 
 ### str() Helper
 - Normalizes Express 5 query/param ambiguity (string | string[] | undefined)
@@ -186,7 +197,7 @@ Prompt delivery itself rides POST /api/terminals/:id/write; the scheduling/autom
 - DB
 
 ## Change Risks
-- Largest server file (~2687 lines) -- consider splitting if it grows further
+- Largest server file (~2807 lines) -- consider splitting if it grows further
 - Changes to endpoint contracts break frontend
 - Zod schema changes affect request validation
 - Rate limit changes affect hook ingestion

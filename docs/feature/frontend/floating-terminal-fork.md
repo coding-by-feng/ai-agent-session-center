@@ -66,11 +66,12 @@ Wired surfaces:
 
 | File | Wiring |
 |------|--------|
-| `src/components/terminal/TerminalContainer.tsx` | Mounts the popup using `extractXtermSelection` (sends its own `terminalId` as `spawnTerminalId`). Accepts the `originSessionId` prop. |
+| `src/components/terminal/TerminalContainer.tsx` | Mounts the popup using `extractXtermSelection` (sends its own `terminalId` as `spawnTerminalId`). Accepts the `originSessionId` prop; the popup is gated on `enabled: translationEnabled && !!originSessionId` and rendered only when `popup.active && originSessionId`. `useSelectionPopup` is given `scopeSelector: '.xterm'` because distraction-free fullscreen reparents the xterm element into a body-level overlay, outside `rootRef`'s subtree — without the scope the popup would stop firing in fullscreen. |
+| `src/components/terminal/TerminalToolbar.tsx` | Renders the `⧉` pop-out button (`PopOutIcon`, `tooltips.termPopOut`) **only when the `onPopOut` prop is passed**, which is how floats and the popout view itself suppress re-popping-out. TerminalContainer omits `onPopOut`/`onClone` on its fullscreen-overlay toolbar instance, so ⧉ is absent in fullscreen. Carries **no** translate/explain buttons — the removed `translate-answer` trigger lived here. |
 | `src/components/session/ProjectTab.tsx` | Mounts the popup with `extractDomSelection` on `markdownRef` (and `markdownFsRef` for fullscreen). Markdown selections have **no** `spawnTerminalId`, so they fork from the root. |
 | `src/components/session/ProjectTabContainer.tsx` | Threads `sessionId` → `originSessionId` to `ProjectTab`. |
 | `src/components/session/DetailPanel.tsx` | Threads `sessionId` → `originSessionId` to `TerminalContainer`. |
-| `src/main.tsx` | Detects `?popout=terminal` and renders `PopoutTerminalView` instead of the full dashboard. |
+| `src/main.tsx` | Detects `?popout=terminal` and renders `PopoutTerminalView` instead of the full dashboard. The import is `lazy()` **inside that branch** and wrapped in `<Suspense fallback={null}>`, so the dashboard window never loads the popout renderers — see [Views & Routing → Bundle splitting](./views-routing.md). |
 | `electron/main.ts` | `registerPopoutHandler` (`window:open-terminal` IPC) opens the popout `BrowserWindow` (820×560, min 480×320) and sends `popout:closed` on close. |
 | `electron/preload.ts` | Bridges `openTerminalWindow` (→ `window:open-terminal`) and `onPopoutClosed`. |
 | `src/stores/settingsStore.ts` | `translationEnabled / translationNativeLanguage / translationLearningLanguage / translationTrigger / translationInheritContext / explainAttachFilePath` (+ setters; persisted via `persistSetting`). |

@@ -207,6 +207,30 @@ export interface DbQueueHistory {
   createdAt: number;
 }
 
+/** A kept, reusable prompt *text* snippet.
+ *
+ *  Deliberately NOT the same thing as `queueHistory`: an entry there is a whole
+ *  QueueItem (type, interval, before/after chains, images) applied as a new
+ *  queue row, whereas a snippet is bare text inserted into whatever prompt box
+ *  is being typed — the compose row, a MAIN prompt, or a single chain step.
+ *
+ *  The table is curated, never auto-populated: rows only appear when the user
+ *  clicks 🔖 on text they've decided is worth reusing. Browsing raw prompt
+ *  history is a read-only view over `sessionStore` and writes nothing here. */
+export interface DbPromptSnippet {
+  id?: number;
+  /** The reusable prompt text, stored trimmed. Deduped case-sensitively. */
+  text: string;
+  /** Optional short display name. Empty string (not undefined) when unnamed, so
+   *  every row has the same shape and `?? ''` is never needed at the read site. */
+  label: string;
+  /** Increments on each insert — drives the "most used" ordering. */
+  useCount: number;
+  /** Unix ms of last insert. Undefined until first use. */
+  lastUsedAt?: number;
+  createdAt: number;
+}
+
 /** A saved explanation or translation, captured when the user clicks one of
  *  the four select-to-translate buttons. The `response` is filled in later
  *  when the corresponding floating session is closed. */
@@ -280,6 +304,7 @@ class DashboardDb extends Dexie {
   teams!: EntityTable<DbTeam, 'id'>;
   queueAutomation!: EntityTable<DbQueueAutomation, 'sessionId'>;
   queueHistory!: EntityTable<DbQueueHistory, 'id'>;
+  promptSnippets!: EntityTable<DbPromptSnippet, 'id'>;
   translationLogs!: EntityTable<DbTranslationLog, 'id'>;
 
   constructor() {
@@ -452,6 +477,47 @@ class DashboardDb extends Dexie {
         r.alias ??= '';
         r.sourceFilePath ??= '';
       });
+    });
+
+    // v7 — adds promptSnippets: curated reusable prompt TEXT, insertable into
+    // the queue compose row, a MAIN prompt, or a chain step. Purely additive —
+    // a new table needs no `.upgrade()`, and every existing table declaration
+    // is carried over verbatim (Dexie treats an omitted table as dropped).
+    // Indexed on useCount + lastUsedAt + createdAt to serve the picker's
+    // most-used / recent orderings without a full-table sort.
+    this.version(7).stores({
+      sessions:
+        'id, status, projectPath, startedAt, lastActivityAt, archived',
+      prompts:
+        '++id, sessionId, timestamp, [sessionId+timestamp]',
+      responses:
+        '++id, sessionId, timestamp, [sessionId+timestamp]',
+      toolCalls:
+        '++id, sessionId, timestamp, toolName, [sessionId+timestamp]',
+      events:
+        '++id, sessionId, timestamp, [sessionId+timestamp]',
+      notes:
+        '++id, sessionId',
+      promptQueue:
+        '++id, sessionId, [sessionId+position]',
+      alerts:
+        '++id, sessionId',
+      sshProfiles:
+        '++id, name',
+      settings:
+        'key',
+      summaryPrompts:
+        '++id, isDefault',
+      teams:
+        'id',
+      queueAutomation:
+        'sessionId',
+      queueHistory:
+        '++id, createdAt, lastUsedAt',
+      promptSnippets:
+        '++id, createdAt, lastUsedAt, useCount',
+      translationLogs:
+        '++id, uuid, mode, createdAt, originSessionId, archived, favorite, sourceFilePath, floatTerminalId',
     });
   }
 }

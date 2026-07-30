@@ -10,6 +10,8 @@ Central hub that manages all session state. Every other feature reads from or wr
 | File | Role |
 |------|------|
 | `server/sessionStore.ts` (~61KB, ~1478 lines) | Coordinator: delegates to sub-modules, handles events, manages Map<string, Session> |
+| `server/sessionTrim.ts` | In-memory text caps: `truncateText`, `trimCurrentPrompt`, `pushPrompt` (entry-count + character budget), `toArchivedSession`. Constants `MAX_PROMPT_CHARS` / `MAX_PROMPT_HISTORY_CHARS` / `MAX_PROMPT_HISTORY_ENTRIES` / `MAX_CURRENT_PROMPT_CHARS` |
+| `test/sessionTrim.test.ts` | 22 tests — truncation markers, budget eviction, newest-prompt survival, archive field set, DB-restore replay |
 | `server/sessionMatcher.ts` | 8-priority hook→session linking (delegated from sessionStore); Priority 5 marks hook-only external sessions (`isExternal`), Priority 1.5 re-keys `external-<pid>` discovered cards in place on their first hook |
 | `server/approvalDetector.ts` | Tool-approval timeout detection |
 | `server/teamManager.ts` | Subagent / team relationship tracking |
@@ -39,7 +41,7 @@ Central hub that manages all session state. Every other feature reads from or wr
 - `startPendingResumeCleanup` (autoIdleManager.ts) runs every 15s and reverts a session still stuck in `connecting` for >2min back to idle, clearing its `pendingResume` entry (gives slow SessionStart hooks time to arrive).
 
 ### Session Object
-- 62 fields on the `Session` interface (`src/types/session.ts:136-236`) including sessionId, projectPath, status, animationState, currentPrompt, promptHistory (last 50), toolLog (last 200), responseLog (last 50), events, model, teamId, terminalId, etc.
+- 62 fields on the `Session` interface (`src/types/session.ts:136-236`) including sessionId, projectPath, status, animationState, currentPrompt (capped 2 000 chars), promptHistory (last 50 **and** ≤200 000 chars total), toolLog (last 200), responseLog (last 50), events, model, teamId, terminalId, etc.
 - `cliSource?: string` records the originating CLI when hooks provide `cli_source` (the Codex and Gemini hooks both emit it) or when a terminal is created from a recognizable startup command (`inferCliSource`). Frontend CLI badges prefer this field before guessing from model/event data, and the floating-popup spawner's `resolveOriginCli` reads it first so a popup inherits the parent's CLI.
 - Fork bookkeeping: `isFork: boolean` and `originSessionId?: string` — set in `createTerminalSession` when `config.isFork` is passed (floating spawner, clone/fork endpoints, snapshot restore). `isFork` is the process-isolation marker (kill-guard, hook fork-routing) and does NOT control visibility. `isFloating: boolean` is set separately (floating spawner + snapshot restore only) and marks hidden PiP popups; clone/fork sessions carry `isFork` without `isFloating` and stay visible in the session lists.
 - Ops-terminal bookkeeping: `opsTerminalId: string | null` and `hadOpsTerminal: boolean` (sessionStore.ts:1047-1048) — written via `reconnectOpsTerminal` (sessionStore.ts:1385) so a session can carry a separate "ops shell" alongside the AI CLI's PTY.
@@ -50,7 +52,8 @@ Two independent producers set `isExternal: true`; neither implies a dashboard te
 - **(a) Hook-backed external (`sessionMatcher` Priority 5)** — a hook event that matched no terminal by any higher priority. Previously dropped ("SSH-only mode"); now surfaced as an external card via `createDefaultSession` with the **real `sessionId`**, full transcript/`transcriptPath`/`permissionMode`, keyed by that sessionId. Gated to **interactive** sessions only: skipped for subagent events (`parent_session_id`/`agent_name`), `SessionEnd`, and any hook lacking `tty_path` (headless `claude -p`, CI, MCP-spawned). See [Session Matching](./session-matching.md).
 - **(b) Process-scan discovered (`registerDiscoveredSession`)** — a live `claude` CLI found by the OS scan that fires no hooks (started before hooks installed). Produces a **thin card**: `source: 'terminal'`, `isExternal: true`, `cachedPid: proc.pid`, `terminalId: null`, `model` from `proc.model`, `title` from `proc.name || projectName`, and a single `SessionDiscovered` event (`detail: "External session detected (pid …)"`). No transcript, no `promptHistory`.
 
-**`registerDiscoveredSession(proc: DiscoveredProcess)`** (exported, sessionStore.ts:1465) — creates the thin card keyed `external-<pid>`. `DiscoveredProcess` (from `processMonitor.ts`) carries `{ pid, tty, cwd, name, model }`. Dedup / replace guards, in order:
+**`registerDiscoveredSession(proc: DiscoveredProcess)`** (exported) — creates the thin card keyed `external-<pid>`. `DiscoveredProcess` (from `processMonitor.ts`) carries `{ pid, tty, ppid, cwd, name, model }`. Dedup / replace guards, in order:
+0. **Ownership check (runs before everything else).** If `getTerminalByPtyPid(proc.ppid)` resolves to one of our own PTYs, this agent was launched *by the dashboard* — it simply hasn't fired a hook yet because it is sitting at a login/trust prompt or idling. `reconcileOwnedPid(pid, terminalId)` then binds the pid onto that terminal's session, drops any `external-<pid>` card an earlier pass minted for it, and returns **without creating a card**. See [Process Monitor → Ownership](./process-monitor.md) for why `ppid` is the only exact signal and why cwd cannot be used to bind.
 1. Return if `pidToSession.has(proc.pid)` (PID already tracked, hook-bound or a prior pass).
 2. Return if any `session.cachedPid === proc.pid` (already covered under another key).
 3. Return if `proc.cwd` is empty/unresolvable — without a cwd the launch-race guard can't run and a cwd-less card is near-useless; the next scan retries.
@@ -59,7 +62,15 @@ Two independent producers set `isExternal: true`; neither implies a dashboard te
 
 On create it does `sessions.set(id, session)`, `pidToSession.set(proc.pid, id)`, `invalidateSessionsCache()`, and broadcasts `SESSION_UPDATE` (`broadcastSessionUpdate`).
 
-**Wiring** — the module-init block calls `startExternalDiscovery(sessions, pidToSession, registerDiscoveredSession)` (sessionStore.ts:1610) right after `startMonitoring`. The scan interval is `EXTERNAL_DISCOVERY_INTERVAL_MS = 20_000` (20s) in [processMonitor](./process-monitor.md).
+**Wiring** — the module-init block calls `startExternalDiscovery(sessions, pidToSession, registerDiscoveredSession, reconcileDiscoveredSessions)` right after `startMonitoring`. The scan interval is `EXTERNAL_DISCOVERY_INTERVAL_MS = 20_000` (20s) in [processMonitor](./process-monitor.md).
+
+**`reconcileDiscoveredSessions(): number`** (exported) — post-pass cleanup for duplicates that the ownership check can no longer reach, run on the same 20s tick *after* the scan so it sees the bindings the scan just made. Returns the number of cards dropped.
+
+An `external-<pid>` card heals itself: its pid is excluded from the scan's `tracked` set, so every pass re-evaluates it and the ownership check drops it once the PTY is identifiable. What cannot heal is a card that Priority 1.5 already **promoted** to a real session id — it no longer carries the `external-` prefix, while the terminal's own card was re-keyed separately (see [session-matching](./session-matching.md) Priority 4.5). Both then live on as one agent with two cards.
+
+The reap rule requires the card to carry provably zero unique information: **no `terminalId`, no `promptHistory`, no `totalToolCalls`, no `toolLog`, and a `cachedPid` that `pidToSession` registers to a *different* live session.** That last clause is what separates a duplicate from a legitimately terminal-less card — a lone discovered card owns its own pid registration and is left alone. `ENDED` cards are skipped entirely. Dropping goes through `dropDuplicateCard`, which releases the pid only if this card actually held the registration, then broadcasts `SESSION_REMOVED` so browsers drop the row too.
+
+This is a deliberate, narrow exception to *"sessions are never auto-deleted"*: discovered cards are already excluded from the snapshot and are re-created within one scan interval if genuinely external, and a card meeting the rule above has no transcript, prompts, tools, or terminal to lose.
 
 **Upgrade in place** — if a hook later fires for a discovered PID, `sessionMatcher` Priority 1.5 (cached-PID re-key) upgrades the `external-<pid>` card onto its real `sessionId` on the **first** real hook (any event type, not just `SessionStart`) so Priority 5 doesn't create a duplicate.
 
@@ -109,7 +120,7 @@ Title helpers live in `server/sessionTitle.ts` (pure, no DB deps). On `USER_PROM
 - clearAllSessions() — removes all sessions, captures terminal output buffers for replay; returns `{ removed: number, savedOutputs: SavedTerminalOutput[] }` (sessionStore.ts:1183-1223) where each `savedOutputs` entry is keyed by `title\0workDir` (the raw `sshConfig.workingDir`, falling back to `projectPath`) for replay after workspace import
 - detectSessionSource(sessionId) (sessionStore.ts:1397) — classifies a session's spawn source (returns `session.source`, defaulting to `'ssh'`; `'unknown'` when the session is not found); used by kill flow
 - findClaudeProcess(sessionId, projectPath) (sessionStore.ts:1404) — wrapper around processMonitor's resolver; passes internal `sessions` + `pidToSession` state
-- killSession() / deleteSessionFromMemory() — end or remove sessions
+- killSession() / deleteSessionFromMemory() — end or remove sessions. `killSession()` closes **both** `session.terminalId` and `session.opsTerminalId` (nulling the latter) before flipping the card to `ENDED`, then releases/transfers the cached PID. The ops shell close is not optional bookkeeping: it is a bare login shell that outlives the agent, so skipping it orphans a live PTY that keeps holding terminal budget (see [Terminal/SSH](terminal-ssh.md) → Limits).
 - resumeSession() / reconnectSessionTerminal() / reconnectOpsTerminal() — resume/reconnect workflows
 - setSessionTitle / setSessionPinned / setSessionMuted / setSessionAlerted / setSessionAccentColor / setSessionCharacterModel — session metadata setters. `setSessionTitle` mutates the in-memory session **and** persists to SQLite via `dbUpdateTitle` (it does not broadcast on its own; the title rides the next `SESSION_UPDATE`, and the originating browser updates optimistically).
 - archiveSession() / setSummary() — persistence helpers
@@ -144,12 +155,34 @@ Title helpers live in `server/sessionTitle.ts` (pure, no DB deps). On `USER_PROM
 - eventBuffer ring
 - snapshot file
 
+### In-memory text caps (`server/sessionTrim.ts`)
+
+Entry-count caps alone never bounded memory — the *contents* were unbounded. Measured on a live instance: 49 sessions serialized to 1.74 MB, but a single session was **1,120,984 bytes**, of which `promptHistory` was 1,062,567 across 50 entries (~21 KB per prompt, from pasting files into prompts). Applying the caps to that same live data: **1,935,655 → 683,546 bytes (−65%)**; the worst session **1,120,984 → 271,085 (−76%)**.
+
+- `MAX_PROMPT_CHARS = 16_000` — per-entry cap; longer text is truncated with `TRUNCATION_MARKER`.
+- `MAX_PROMPT_HISTORY_CHARS = 200_000` — total budget for `promptHistory`; oldest entries drop first. The newest prompt is never dropped.
+- `MAX_CURRENT_PROMPT_CHARS = 2_000` — `currentPrompt` is display-only (the 3D robot bubble truncates to 60 chars) but rides on **every** session broadcast, so an unbounded copy cost WebSocket bandwidth too.
+- `toArchivedSession(session)` builds `previousSessions` entries carrying only `sessionId`, `startedAt`, `endedAt`, `promptHistory` — see [Archived sessions](#archived-sessions) below.
+
+**Truncation is recoverable, and the ordering is what makes it so.** `db.insertFullPrompt()` writes the FULL prompt to SQLite *before* the trimmed entry is pushed. `upsertSession` later re-inserts prompts from the capped in-memory copy, and `insertPrompt` is `INSERT OR IGNORE` against `UNIQUE(session_id, timestamp)` — so the full row written first wins and the truncated re-insert is discarded. Both writes must use the **same timestamp** or the dedup key misses and you store two rows. ConversationView independently prefers the Claude Code JSONL transcript for untruncated fidelity.
+
+The DB-restore path (`dbGetPrompts` on SessionStart) replays through `pushPrompt` rather than assigning `slice(-50)` directly — DB rows are full length and would otherwise reintroduce exactly the history the caps exist to bound.
+
+### Archived sessions
+
+`ArchivedSession` (`src/types/session.ts`) carries **only** `sessionId`, `startedAt`, `endedAt`, `promptHistory`. It previously also deep-copied `toolLog`, `responseLog`, `events`, `toolUsage` and `totalToolCalls` — written at three call sites (`resumeSession`, `reconnectSessionTerminal`, `reKeyResumedSession`) and read at **none**: ~46 KB of the ~65 KB measured per archived entry, kept five deep per session. The only consumers are ConversationView's `PrevSessionSection` (renders `startedAt`/`endedAt`/`promptHistory`) and `workspaceSnapshot` (reads `sessionId`).
+
+All three sites go through `toArchivedSession()`. Note the re-key site overrides `sessionId` with the OLD id, since the session's own `sessionId` has not been rewritten yet.
+
 ## Change Risks
+- **Adding a field to `ArchivedSession` without adding a consumer reintroduces the bloat** it was slimmed to remove. Same for anything stored per-prompt: cap it in `sessionTrim.ts`.
+- **`db.insertFullPrompt()` must stay ahead of `pushPrompt()`** and share its timestamp. Reorder them and SQLite silently keeps the *truncated* text, making the truncation unrecoverable.
 - This is the most critical module
 - Changes to state transitions affect 3D animations, sound system, and approval detection
 - Modifying the session object schema affects ALL consumers (frontend stores, DB persistence, WebSocket protocol)
 - Breaking snapshot persistence means sessions lost on restart
 - **Fork-aware kill cascade** — the API skips fallback process lookup for forks because forks share the origin session's `projectPath`; cwd matching could target the origin. Forks instead rely on exact managed-PTY teardown, whose server and Electron implementations reap the PTY shell's child process groups before killing the shell. Preserve this branch when modifying kill behavior.
+- **Ops-shell teardown parity** — `killSession()`, `DELETE /api/sessions/:id` and `clearAllSessions()` must all close `opsTerminalId`. A new teardown path that closes only `terminalId` leaks one live shell per session, which surfaces much later as a premature "Session limit reached" on session creation rather than as an obvious failure.
 - **Shared Codex PID isolation** — several independent Codex thread cards may carry one host PID. A per-card kill must never signal that PID when siblings are live: close the card's exact managed terminal, or reject the operation when no managed terminal exists.
 - Alias-aware mutations must resolve once to the canonical Map key. One-hop reads are insufficient after workspace restore because saved and fresh terminal IDs can form a two-hop chain before the hook UUID.
 - **Never persist `external-<pid>` discovered cards** — `saveSnapshot`'s `startsWith('external-')` skip (both the sessions loop and the `pidToSession` loop) is load-bearing: these cards are pid-bound, so restoring one resurrects a phantom against a dead or OS-reused PID. If you change the discovered-card key prefix or the snapshot filter, keep them in sync, and do NOT extend the skip to hook-backed external sessions (real `sessionId`), which must persist.

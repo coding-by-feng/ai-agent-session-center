@@ -11,6 +11,7 @@ import SearchInput from '@/components/ui/SearchInput';
 import { showToast } from '@/components/ui/ToastContainer';
 import { markUserClosing } from '@/lib/pinnedRespawn';
 import { sortSessions } from '@/lib/sessionSort';
+import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { closeManagedTerminal } from '@/lib/terminalTransport';
 import type { KillSessionResponse, Session } from '@/types';
 
@@ -50,7 +51,7 @@ function RobotEntry({
   const statusColor = STATUS_COLORS[session.status] ?? '#888';
   const needsAttention = session.status === 'approval' || session.status === 'input';
   const pinned = !!session.pinned;
-  const title = session.title || 'Unnamed';
+  const title = sessionDisplayTitle(session);
 
   return (
     <button
@@ -354,7 +355,7 @@ export default function RobotListSidebar() {
       // Clone/fork sessions set isFork only and DO show here.
       if (s.isFloating) return false;
       if (!query) return true;
-      const title = (s.title || 'Unnamed').toLowerCase();
+      const title = sessionDisplayTitle(s).toLowerCase();
       const project = (s.projectName || '').toLowerCase();
       const status = s.status.toLowerCase();
       return title.includes(query) || project.includes(query) || status.includes(query);

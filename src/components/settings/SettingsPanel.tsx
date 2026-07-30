@@ -1,6 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
+import {
+  MIN_TERMINAL_SCROLLBACK_LINES,
+  MAX_TERMINAL_SCROLLBACK_LINES,
+} from '@/types/terminal';
 import Modal from '@/components/ui/Modal';
 import ThemeSettings from './ThemeSettings';
 import SoundSettings from './SoundSettings';
@@ -159,6 +163,9 @@ const BUFFER_PRESETS_MB = [1, 2, 5, 10, 20];
 const BUFFER_MIN_MB = 0.25;
 const BUFFER_MAX_MB = 32;
 
+/** Live-scrollback presets, in lines. Mirrors BUFFER_PRESETS_MB in spirit. */
+const SCROLLBACK_PRESETS = [5_000, 20_000, 50_000, 100_000];
+
 /** Format an MB value without trailing zeros: 2 → "2", 0.25 → "0.25". */
 function formatMb(mb: number): string {
   return String(Math.round(mb * 100) / 100);
@@ -167,7 +174,22 @@ function formatMb(mb: number): string {
 function TerminalBufferControl() {
   const bytes = useSettingsStore((s) => s.terminalReplayBufferBytes);
   const setBytes = useSettingsStore((s) => s.setTerminalReplayBufferBytes);
+  const scrollback = useSettingsStore((s) => s.terminalScrollbackLines);
+  const setScrollback = useSettingsStore((s) => s.setTerminalScrollbackLines);
   const currentMb = bytes / BYTES_PER_MB;
+
+  // Same draft-then-commit pattern as the buffer input below.
+  const [scrollbackDraft, setScrollbackDraft] = useState(() => String(scrollback));
+  useEffect(() => { setScrollbackDraft(String(scrollback)); }, [scrollback]);
+
+  const commitScrollback = (value: string) => {
+    const lines = parseInt(value, 10);
+    if (!Number.isFinite(lines)) {
+      setScrollbackDraft(String(scrollback)); // revert non-numeric
+      return;
+    }
+    setScrollback(lines); // store clamps; effect re-syncs the draft
+  };
 
   // Local draft so the user can type freely; commit (with clamp) on blur/Enter.
   const [draft, setDraft] = useState(() => formatMb(currentMb));
@@ -228,6 +250,47 @@ function TerminalBufferControl() {
       </div>
       <p className={styles.settingsHint}>
         Applies to newly created terminals. Range {BUFFER_MIN_MB}–{BUFFER_MAX_MB} MB.
+      </p>
+
+      <p className={styles.settingsHint}>
+        Live scrollback — how many lines each open terminal keeps in memory.
+        Deeper scroll-up costs renderer memory (roughly 1&nbsp;KB per line at a
+        typical width), and unlike the replay buffer it is not restored on
+        reload.
+      </p>
+      <div className={styles.bufferRow}>
+        <input
+          className={styles.bufferInput}
+          type="number"
+          min={MIN_TERMINAL_SCROLLBACK_LINES}
+          max={MAX_TERMINAL_SCROLLBACK_LINES}
+          step={1000}
+          value={scrollbackDraft}
+          onChange={(e) => setScrollbackDraft(e.target.value)}
+          onBlur={(e) => commitScrollback(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+          }}
+          aria-label="Terminal live scrollback in lines"
+        />
+        <span className={styles.bufferUnit}>lines</span>
+      </div>
+      <div className={styles.bufferPresets}>
+        {SCROLLBACK_PRESETS.map((lines) => (
+          <button
+            key={lines}
+            type="button"
+            className={`${styles.bufferPreset}${scrollback === lines ? ` ${styles.bufferPresetActive}` : ''}`}
+            onClick={() => setScrollback(lines)}
+          >
+            {lines.toLocaleString()}
+          </button>
+        ))}
+      </div>
+      <p className={styles.settingsHint}>
+        Applies to newly opened terminals. Range{' '}
+        {MIN_TERMINAL_SCROLLBACK_LINES.toLocaleString()}–
+        {MAX_TERMINAL_SCROLLBACK_LINES.toLocaleString()} lines.
       </p>
     </div>
   );

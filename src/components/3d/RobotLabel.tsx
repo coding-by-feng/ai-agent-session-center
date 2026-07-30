@@ -9,6 +9,7 @@
 import { memo, useRef, useMemo } from 'react';
 import { Text, Billboard } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
+import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import type { Session } from '@/types';
 import type { Robot3DState } from '@/lib/robotStateMap';
 
@@ -67,7 +68,7 @@ function RobotLabelInner({ session, robotState, fontSize }: RobotLabelProps) {
   const isInput = robotState === 'input';
 
   const title = useMemo(() => {
-    const raw = session.title || session.projectName || 'Unnamed';
+    const raw = sessionDisplayTitle(session);
     return raw.length > 28 ? raw.slice(0, 28) + '...' : raw;
   }, [session.title, session.projectName]);
 

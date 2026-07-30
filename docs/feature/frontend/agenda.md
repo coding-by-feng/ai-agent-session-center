@@ -16,8 +16,8 @@ Lets the user track tasks alongside AI coding sessions without leaving the dashb
 | `src/components/agenda/AddTaskForm.tsx` | Inline new-task form (title required, priority defaults medium, optional due date + tags) |
 | `src/types/agenda.ts` | `AgendaTask`, `AgendaPriority`, `AgendaFilter` types (shared server + client) |
 | `src/components/layout/NavBar.tsx` | `/agenda` nav link + incomplete-count badge |
-| `server/apiRouter.ts` | `agendaCreateSchema` / `agendaUpdateSchema` Zod schemas (lines 314 / 322) + 5 REST endpoints (lines 2523-2633) |
-| `server/db.ts` | `agenda_tasks` table + `getAllAgendaTasks`, `getAgendaTaskById`, `upsertAgendaTask`, `deleteAgendaTask` |
+| `server/apiRouter.ts` | `agendaCreateSchema` / `agendaUpdateSchema` Zod schemas (lines 332 / 340) + 5 REST endpoints (lines 2645-2753) |
+| `server/db.ts` | `agenda_tasks` table (+ `idx_agenda_tasks_priority` / `idx_agenda_tasks_completed` indexes) + `getAllAgendaTasks(completed?)`, `getAgendaTaskById`, `upsertAgendaTask`, `deleteAgendaTask` |
 
 ## Implementation
 
@@ -30,8 +30,12 @@ All agenda routes return a non-standard success envelope `{ ok: true, data }` (e
 - `PATCH /api/agenda/:id/toggle` — flip `completed`, set `completedAt=now` when becoming complete / clear when becoming incomplete; 404 if missing.
 
 ### Validation
-- `agendaCreateSchema` (apiRouter.ts:314): `title` 1-500 chars (required), `description` ≤5000 optional, `priority` enum default `medium`, `tags` array (≤20 items, each ≤100 chars) default `[]`, `dueDate` optional string.
-- `agendaUpdateSchema` (apiRouter.ts:322): same fields all optional, plus `completed` boolean; `dueDate` is `string().nullable().optional()`.
+- `agendaCreateSchema` (apiRouter.ts:332): `title` 1-500 chars (required), `description` ≤5000 optional, `priority` enum default `medium`, `tags` array (≤20 items, each ≤100 chars) default `[]`, `dueDate` optional string.
+- `agendaUpdateSchema` (apiRouter.ts:340): same fields all optional, plus `completed` boolean; `dueDate` is `string().nullable().optional()`.
+
+### Storage (`db.ts`)
+- Table `agenda_tasks(id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT, priority TEXT NOT NULL DEFAULT 'medium', tags TEXT NOT NULL DEFAULT '[]', due_date TEXT, completed INTEGER NOT NULL DEFAULT 0, completed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`, created in the boot `db.exec` DDL block alongside indexes on `priority` and `completed`.
+- `rowToAgendaTask` maps snake_case → camelCase: `tags` is `JSON.parse`d, `completed` is `row.completed === 1`, and every nullable column becomes `undefined`. `upsertAgendaTask` is an `INSERT … ON CONFLICT(id) DO UPDATE` (so create and update share one statement; the `DO UPDATE SET` list omits `created_at`, so the original creation time survives every update); `getAllAgendaTasks(completed?)` picks `getAllAgendaTasks` when the arg is `undefined`, else `getAgendaTasksByCompleted` bound to `1|0` — both `ORDER BY created_at DESC`.
 
 ### Store (`agendaStore.ts`)
 - `fetchTasks` — GET, replaces the whole `tasks` Map (keyed by id).

@@ -72,7 +72,7 @@ When Claude spawns subagents via the Task tool, users need to see the relationsh
 
 ### API Endpoints
 - `GET /api/teams/:teamId/config` — 404 `Team not found` if `getTeam()` misses; 404 `Team has no name — cannot locate config` when `team.teamName` is null (only possible when the parent session was missing at team-creation time, since `linkSessionToTeam` sets the name only inside its `if (parentSession)` branch — an auto-created team otherwise always gets `"{projectName} Team"`); otherwise returns `{ teamName, config }` from `readTeamConfig()` (config `null` if no file).
-- `POST /api/teams/:teamId/members/:sessionId/terminal` — validates the session is a team member, then attaches a terminal to its tmux pane (subject to `MAX_TERMINALS`).
+- `POST /api/teams/:teamId/members/:sessionId/terminal` — validates the session is a team member, then attaches a terminal to its tmux pane (capacity-checked with `checkTerminalCapacity(getTerminals(), { sessions: 1 })` — the attach shell counts against `MAX_SESSIONS`, not the ops budget).
 
 ### Shared Resources (module-level state in `teamManager.ts`)
 - `teams` Map (`teamId` → `Team`)

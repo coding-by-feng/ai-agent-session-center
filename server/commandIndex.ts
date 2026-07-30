@@ -12,8 +12,13 @@
  *     - <plugin>/skills/<slug>/SKILL.md            (plugin skills)
  *       plugins are discovered via ~/.claude/plugins/installed_plugins.json
  *   codex:
- *     - <project>/.codex/prompts/*.md              (project prompts)
- *     - ~/.codex/prompts/*.md                      (global prompts)
+ *     - <project>/.codex/prompts/*.md              (project prompts, /name)
+ *     - <project>/.codex/skills/<slug>/SKILL.md    (project skills, $name)
+ *     - $CODEX_HOME/prompts/*.md                   (global prompts, /name)
+ *     - $CODEX_HOME/skills/<slug>/SKILL.md         (global skills, $name)
+ *     - $CODEX_HOME/skills/.system/<slug>/SKILL.md (preinstalled skills, $name)
+ *       CODEX_HOME defaults to ~/.codex. Codex addresses skills as `$name`,
+ *       NOT `/name` — see `src/lib/autocompleteTrigger.ts`.
  *   gemini:
  *     - <project>/.gemini/commands/*.toml          (project commands)
  *     - ~/.gemini/commands/*.toml                  (global commands)
@@ -108,12 +113,30 @@ function listTomlFiles(dir: string): string[] {
   }
 }
 
+/** True for a real directory OR a symlink pointing at one. */
+function isDirLike(p: string): boolean {
+  try {
+    // statSync follows symlinks; Dirent.isDirectory() does NOT — it reports
+    // false for a symlinked skill dir, which silently hides skills that were
+    // linked in from another repo (a common way to share them across CLIs).
+    return statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Skill dirs directly under `dir`. Names starting with `_` or `.` are skipped —
+ * they hold shared resources (`_shared/`) or a nested tier (`.system/`) rather
+ * than a skill. To reach such a tier, pass its path in as `dir`; the filter
+ * only ever inspects the child names.
+ */
 function listSkillDirs(dir: string): string[] {
   try {
     return readdirSync(dir, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && !d.name.startsWith('_') && !d.name.startsWith('.'))
+      .filter((d) => !d.name.startsWith('_') && !d.name.startsWith('.'))
       .map((d) => join(dir, d.name))
-      .filter((p) => existsSync(join(p, 'SKILL.md')));
+      .filter((p) => isDirLike(p) && existsSync(join(p, 'SKILL.md')));
   } catch {
     return [];
   }
@@ -337,17 +360,46 @@ function buildClaudeEntries(projectPath: string | null): CommandEntry[] {
   return entries;
 }
 
+/**
+ * Codex's config root. `CODEX_HOME` overrides it — Codex's own docs spell every
+ * skill path as `$CODEX_HOME/skills` with `~/.codex` only as the fallback, so
+ * hardcoding homedir() would miss skills entirely on an overridden setup.
+ * Read per call, not at module load, so an env change doesn't need a restart.
+ */
+function codexHome(): string {
+  return process.env.CODEX_HOME || join(homedir(), '.codex');
+}
+
 function buildCodexEntries(projectPath: string | null): CommandEntry[] {
   const entries: CommandEntry[] = [];
   appendBuiltins(entries, CODEX_BUILTINS, 'codex');
+
   if (projectPath && isSafeProjectPath(projectPath)) {
     for (const f of listMdFiles(join(projectPath, '.codex', 'prompts'))) {
       entries.push(makeCommandEntry(f, 'codex', 'project'));
     }
+    for (const d of listSkillDirs(join(projectPath, '.codex', 'skills'))) {
+      entries.push(makeSkillEntry(d, 'codex', 'project'));
+    }
   }
-  for (const f of listMdFiles(join(homedir(), '.codex', 'prompts'))) {
+
+  const home = codexHome();
+  for (const f of listMdFiles(join(home, 'prompts'))) {
     entries.push(makeCommandEntry(f, 'codex', 'global'));
   }
+
+  const skillsRoot = join(home, 'skills');
+  for (const d of listSkillDirs(skillsRoot)) {
+    entries.push(makeSkillEntry(d, 'codex', 'global'));
+  }
+  // `.system/` holds the skills Codex preinstalls ($imagegen, $skill-creator,
+  // $skill-installer, …). They are as invocable as any other, but the dot
+  // prefix hides the whole tier from the ordinary walk — group them under
+  // "built-in" so they read as shipped-with-Codex rather than user-authored.
+  for (const d of listSkillDirs(join(skillsRoot, '.system'))) {
+    entries.push(makeSkillEntry(d, 'codex', 'builtin'));
+  }
+
   return entries;
 }
 

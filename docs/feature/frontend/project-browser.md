@@ -20,11 +20,11 @@ Users often want to explore a project's file tree without keeping the whole sess
 ### Standalone route (`ProjectBrowserView.tsx`)
 - **Query params**:
   - `path` (required) — absolute project path. Missing path renders a "No project path specified" hint (uses `.standaloneEmpty`, with a `?path=/your/project` example)
-  - `file` (optional) — initial file to open; passed to `ProjectTab` as `initialPath` with `initialIsFile` set true
+  - `file` (optional) — initial file to open; passed to `ProjectTab` as `initialPath` with `initialIsFile` set true. Its only in-app producer is the file-tree **context menu → "Open in new tab"** (`handleContextOpenNewTab`), which builds `/project-browser?path=<projectPath>&file=<entryPath>` for a file entry (a directory entry opens the bare `?path=` form). Note `initialPath`/`initialIsFile` only win when localStorage has no prior tab state for this `persistId` — a restored active file tab takes precedence
 - **Derived title** (`projectName`): last non-empty path segment (`path.split('/').filter(Boolean).pop()`), falling back to the full path
 - **Rendering**: header bar (`standaloneTitle` + `standalonePath`) + `standaloneContent` wrapper around `ProjectTab` body
-- **Origin-session resolution**: reads `useSessionStore` and picks a session whose normalized `projectPath` (trailing slash stripped) matches the requested path. A non-`ended` session is preferred (`live`); otherwise the first match of any status (`any`) is used. The resolved id is passed to `ProjectTab` as `originSessionId`, enabling the SelectionPopup (translate/explain) and "Translate file" controls in the standalone view
-- **Props passed to `ProjectTab`**: `projectPath`, `initialPath`/`initialIsFile` (from `?file=`), `persistId={`browser-${projectPath}`}` (namespaces tab/tree localStorage keys, e.g. `agent-manager:file-tabs:browser-<path>`), `originSessionId` (or `undefined` if no matching session)
+- **Origin-session resolution**: reads `useSessionStore` and picks a session whose normalized `projectPath` (trailing slash stripped) matches the requested path. A non-`ended` session is preferred (`live`); otherwise the first match of any status (`any`) is used. The resolved id is passed to `ProjectTab` as `originSessionId`, enabling the SelectionPopup (translate/explain) in the standalone view
+- **Props passed to `ProjectTab`**: `projectPath`, `initialPath`/`initialIsFile` (from `?file=`), `persistId={`browser-${projectPath}`}` (namespaces tab/tree localStorage keys: `agent-manager:file-tabs:browser-<path>` for the open-tab set + active tab, `agent-manager:project-collapsed:browser-<path>` for the collapsed pane state), `originSessionId` (or `undefined` if no matching session)
 - **Route registration**: declared in `App.tsx` **outside** `AppLayout` (no nav/header chrome) and lazy-loaded behind a `Suspense` fallback
 - **Navigation sources**:
   - The "open in new tab" button inside a session's project tab. When `ProjectTab` runs inside the Detail Panel it prefers the `onOpenBrowserTab` callback (opens an in-app sub-tab); only when that callback is absent does it `window.open('/project-browser?path=...', '_blank')` — which is the path that lands on this standalone route
@@ -71,9 +71,20 @@ Users often want to explore a project's file tree without keeping the whole sess
 - `decodeProjectDir` must mirror Claude Code's project-dir encoding; if it drifts, known-project paths come back malformed and dropdowns show wrong directories
 
 ## Floating Terminal Fork
-ProjectTab's markdown viewer hosts the SelectionPopup (DOM extractor) and the
-"Translate file" toolbar button. Both are gated on `translationEnabled` AND a
-truthy `originSessionId` AND the active file being markdown (`md`/`mdx`). When the
-standalone route resolves a matching session via `useSessionStore`, the features
-ARE shown (the popup forks from the resolved `originSessionId`); when no matching
-session exists, the controls are hidden. See [Floating Terminal Fork](./floating-terminal-fork.md).
+ProjectTab's markdown viewer hosts the SelectionPopup (DOM extractor via
+`extractDomSelection`). There is **no** "Translate file" toolbar button any more —
+the popup is the only trigger here (the `translate-file` mode survives server-side
+only; see [Floating Terminal Fork](./floating-terminal-fork.md)).
+
+Two `useSelectionPopup` instances are mounted, one per viewer surface, and they are
+mutually exclusive on `showFullscreen`:
+- `popup` — `enabled: translationEnabled && !!originSessionId && !mdEdit && !showFullscreen && isMarkdownFile`, `containerRef: markdownRef`
+- `popupFs` — `enabled: translationEnabled && !!originSessionId && showFullscreen && isMarkdownFile`, `containerRef: markdownFsRef`
+
+`isMarkdownFile` is `file?.ext === 'md' || file?.ext === 'mdx'`; `!mdEdit` means the
+popup is suppressed while the markdown editor is open. Both render `<SelectionPopup>`
+only when `popup.active && originSessionId`, passing `currentFilePath={activeTabPath || undefined}`
+(no `spawnTerminalId`, so the fork parent is the origin session itself). When the
+standalone route resolves a matching session via `useSessionStore` the popup IS
+available; when no matching session exists, `originSessionId` is undefined and the
+whole surface is disabled.

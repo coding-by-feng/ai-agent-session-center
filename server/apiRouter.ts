@@ -14,6 +14,7 @@ import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSes
 import { config as serverConfig } from './serverConfig.js';
 import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, maybeInjectUltracode, attachToTmuxPane, consumePendingLink, prefillTerminalOutput, setReplayBufferBytes } from './sshManager.js';
 import { terminateProcessTree } from './processMonitor.js';
+import { checkTerminalCapacity } from './terminalCapacity.js';
 import { findLiveCodexPidPeers } from './sessionKillPolicy.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
@@ -392,8 +393,8 @@ setInterval(() => {
 let activeSummarizeRequests = 0;
 const MAX_CONCURRENT_SUMMARIZE = 2;
 
-// Terminal creation cap
-const MAX_TERMINALS = 50;
+// Terminal creation caps live in ./terminalCapacity.ts (session budget vs
+// absolute PTY ceiling — ops shells must not consume session slots).
 
 /**
  * Hook ingestion rate limit middleware (applied to hookRouter externally).
@@ -962,7 +963,11 @@ router.post('/sessions/:id/reconnect-ops-terminal', async (req: Request, res: Re
       authMethod: cfg?.authMethod,
       workingDir: cfg?.workingDir || session.projectPath || '~',
       command: '',   // blank shell
+      isOps: true,   // excluded from the session budget (terminalCapacity.ts)
     };
+
+    const capacity = checkTerminalCapacity(getTerminals(), { sessions: 0, ops: 1 });
+    if (!capacity.ok) { res.status(429).json({ error: capacity.error }); return; }
 
     const newOpsId = await createTerminal(opsConfig, null);
     const result = reconnectOpsTerminal(sessionId, newOpsId);
@@ -1092,9 +1097,13 @@ router.delete('/sessions/:id', async (req: Request, res: Response) => {
   const requestedSessionId = str(req.params.id);
   const sessionId = resolveSessionId(requestedSessionId) ?? requestedSessionId;
   const session = getSession(sessionId);
-  // Close terminal if still active
+  // Close terminals if still active — including the ops shell, which otherwise
+  // outlives the deleted card and keeps holding a slot in the terminal budget.
   if (session && session.terminalId) {
     closeTerminal(session.terminalId);
+  }
+  if (session && session.opsTerminalId) {
+    closeTerminal(session.opsTerminalId);
   }
   const removed = deleteSessionFromMemory(sessionId);
   // Broadcast session_removed so all connected browsers remove the card
@@ -1291,15 +1300,20 @@ router.post('/tmux-sessions', async (req: Request, res: Response) => {
 // ── Terminals ──
 
 router.post('/terminals', async (req: Request, res: Response) => {
-  // Rate limit: cap at MAX_TERMINALS total
-  const currentTerminals = getTerminals();
-  if (currentTerminals.length >= MAX_TERMINALS) {
-    res.status(429).json({ success: false, error: `Terminal limit reached (max ${MAX_TERMINALS})` });
-    return;
-  }
-
   const body = validateBody(terminalCreateSchema, req.body, res);
   if (!body) return;
+
+  // Capacity: reserve every PTY this request will spawn. An ops shell does not
+  // consume session budget, so a session created with the "Commands Terminal"
+  // box ticked no longer costs two of the fifty session slots.
+  const capacity = checkTerminalCapacity(getTerminals(), {
+    sessions: 1,
+    ops: body.enableOpsTerminal ? 1 : 0,
+  });
+  if (!capacity.ok) {
+    res.status(429).json({ success: false, error: capacity.error });
+    return;
+  }
 
   try {
     // Normalize any local address (IP, hostname, .local) to 'localhost' so that
@@ -1427,6 +1441,7 @@ router.post('/terminals', async (req: Request, res: Response) => {
         command: '',          // empty = no auto-launch, just a shell prompt
         sessionTitle: undefined,
         label: undefined,
+        isOps: true,          // excluded from the session budget (terminalCapacity.ts)
       };
       opsTerminalId = await createTerminal(opsConfig, null);
     }
@@ -1660,10 +1675,10 @@ router.get('/teams/:teamId/config', (req: Request, res: Response) => {
 
 // Attach to a team member's tmux pane terminal
 router.post('/teams/:teamId/members/:sessionId/terminal', async (req: Request, res: Response) => {
-  // Rate limit: max terminals
-  const currentTerminals = getTerminals();
-  if (currentTerminals.length >= MAX_TERMINALS) {
-    res.status(429).json({ success: false, error: `Terminal limit reached (max ${MAX_TERMINALS})` });
+  // Capacity: a tmux attach spawns one shell and shows a member's pane.
+  const capacity = checkTerminalCapacity(getTerminals(), { sessions: 1 });
+  if (!capacity.ok) {
+    res.status(429).json({ success: false, error: capacity.error });
     return;
   }
 

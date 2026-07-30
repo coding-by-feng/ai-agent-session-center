@@ -2,6 +2,22 @@
 // Tests the 5-priority session matching, dedup fixes, reKeyResumedSession, and detectHookSource
 // from server/sessionMatcher.ts and server/sessionStore.ts.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// sessionStore opens better-sqlite3 at module scope via db.ts. Stub the handful of
+// functions it calls so this suite exercises in-memory session linkage and stays
+// runnable when the native module's ABI doesn't match the local Node — otherwise
+// the whole file fails at import and silently covers nothing.
+vi.mock('../server/db.js', () => ({
+  upsertSession: vi.fn(),
+  updateSessionTitle: vi.fn(),
+  updateSessionSummary: vi.fn(),
+  updateSessionRemark: vi.fn(),
+  updateSessionArchived: vi.fn(),
+  migrateSessionId: vi.fn(),
+  getPromptsForSession: vi.fn(() => []),
+  insertFullPrompt: vi.fn(),
+}));
+
 import {
   matchSession,
   reKeyResumedSession,

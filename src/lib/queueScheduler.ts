@@ -689,6 +689,18 @@ export function totalChainSteps(item: QueueItem): number {
 }
 
 /**
+ * True when the item has at least one before- or after-chain step.
+ *
+ * Chains are NOT type-scoped — `getActiveStep`/`advanceChain` drive
+ * before→main→after for any type, and a completed `once` chain simply removes
+ * the item. So the UI keys chain-aware behavior (⚡ NOW instead of SEND, the
+ * chain badge) off this predicate rather than off `itemType(item) !== 'once'`.
+ */
+export function hasChain(item: QueueItem): boolean {
+  return (item.beforeChain?.length ?? 0) + (item.afterChain?.length ?? 0) > 0;
+}
+
+/**
  * Position of the currently-executing step in the flat 1..N sequence
  * (1-indexed). Returns 0 when the item is not executing.
  */

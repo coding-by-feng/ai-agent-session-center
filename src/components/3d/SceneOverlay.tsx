@@ -7,7 +7,7 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useRoomStore, type Room } from '@/stores/roomStore';
 import { useCameraStore, DEFAULT_CAMERA_POSITION, DEFAULT_CAMERA_TARGET } from '@/stores/cameraStore';
-import { computeRoomCameraTarget } from '@/lib/cyberdromeScene';
+import { computeRoomCameraTarget } from '@/lib/roomGrid';
 import { soundEngine } from '@/lib/soundEngine';
 
 // Shared button styling helper

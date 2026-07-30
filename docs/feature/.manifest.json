@@ -1,7 +1,7 @@
 {
   "version": 1,
   "generated_at": "2026-07-17T04:55:41.343Z",
-  "last_updated": "2026-07-22T22:43:22.140Z",
+  "last_updated": "2026-07-29T09:50:00Z",
   "generator": "align-existing-feature-docs",
   "project_type": "desktop-app",
   "domains": [
@@ -29,23 +29,27 @@
         "src/lib/pinnedRespawn.ts",
         "src/lib/terminalTransport.ts",
         "src/stores/cameraStore.ts",
-        "src/stores/roomStore.ts"
+        "src/stores/roomStore.ts",
+        "src/lib/roomGrid.ts",
+        "src/lib/sessionDisplayTitle.ts"
       ],
       "source_hashes": {
         "src/components/3d/CyberdromeScene.tsx": "69640c58c82938472b9bfd0296b4854beb5d8bf7",
         "src/components/3d/CyberdromeEnvironment.tsx": "56388b1fd6b8f4be3f50ec2335227aa799511fea",
         "src/components/3d/CameraController.tsx": "5abd4edccf3cf5d67740c7b5f0d045d9cfccb02c",
         "src/components/3d/RoomLabels.tsx": "712dc24a69c29568973086794f82d839c51a02a2",
-        "src/components/3d/SceneOverlay.tsx": "c63059e26e1084bcfd181210115dc6680a2941a0",
-        "src/components/3d/RobotListSidebar.tsx": "7a72a2244f7f670981b4a459e3450ea55a4d5204",
-        "src/lib/cyberdromeScene.ts": "0bfc29c424340701e0adc5a2909b9212813b18bd",
+        "src/components/3d/SceneOverlay.tsx": "f482308379b9aa53cd02f9aded6c51832a3cbcfb",
+        "src/components/3d/RobotListSidebar.tsx": "f1a756179888aa4142925be9e7cac7d610fb92b0",
+        "src/lib/cyberdromeScene.ts": "7e9f1f2b0c5abae986fbadab1ed066239be72b26",
         "src/lib/sceneThemes.ts": "b96e62f62aff0ee860b95e2a9c2384b5ac566c7a",
         "src/lib/robotPositionPersist.ts": "5879d1c2728f1d3aeff31f6b36117600eaac9820",
-        "src/lib/sessionSort.ts": "895a367f321ffc7e45295d86a6699dbf7facc88e",
+        "src/lib/sessionSort.ts": "d6cd5b4a803b20d7055b76d8da5025bc29d2fe30",
         "src/lib/pinnedRespawn.ts": "60e6034fab09d57303cfeae7d7fbe369b3da10a5",
         "src/lib/terminalTransport.ts": "dd5adab9ae578a5d04fb92f8b06add244f025269",
         "src/stores/cameraStore.ts": "1cbd74145921367deb5af53cf7d99245119d6f79",
-        "src/stores/roomStore.ts": "a254e5a68fd9d35583f2864c9bd6e241b5846711"
+        "src/stores/roomStore.ts": "a254e5a68fd9d35583f2864c9bd6e241b5846711",
+        "src/lib/roomGrid.ts": "820f8e3b684555304b9d88906d065c835fb44991",
+        "src/lib/sessionDisplayTitle.ts": "f3ad743b6242112dc64a1e1fd10becdfa2cd0a68"
       },
       "symbols": {
         "functions": [
@@ -77,7 +81,8 @@
           "getScene3DTheme",
           "flyTo",
           "completeAnimation",
-          "sortSessionsByActivity"
+          "sortSessionsByActivity",
+          "sessionDisplayTitle"
         ],
         "constants": {
           "ROOM_SIZE": "8",
@@ -117,7 +122,8 @@
           "Scene3DTheme properties": "36",
           "STRIP_COLORS": "['#00f0ff', '#ff00aa']",
           "STRIP_COLORS_DIM": "['#007f88', '#881155']",
-          "coffee lounge color": "#ff9944"
+          "coffee lounge color": "#ff9944",
+          "UNTITLED_SESSION_LABEL": "'Unnamed'"
         },
         "endpoints": [
           "POST /api/sessions/:id/kill"
@@ -150,7 +156,7 @@
         "3d/robot-system.md",
         "frontend/views-routing.md"
       ],
-      "last_updated": "2026-07-19T10:38:23Z",
+      "last_updated": "2026-07-29T11:48:29Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -217,20 +223,26 @@
         "src/lib/robotStateMap.ts",
         "src/lib/cliDetect.ts",
         "src/lib/robotPositionPersist.ts",
-        "src/components/layout/HeaderAgentStrip.tsx"
+        "src/components/layout/HeaderAgentStrip.tsx",
+        "src/lib/robotPalette.ts",
+        "src/lib/robotModelMeta.ts",
+        "src/lib/sessionDisplayTitle.ts"
       ],
       "source_hashes": {
         "src/components/3d/SessionRobot.tsx": "802e94552be00bb8a305120e40c0cbb3d8f44c1b",
         "src/components/3d/Robot3DModel.tsx": "72456e6af3ea2a9bd788169ee34b9d4e4e0d3d2a",
         "src/components/3d/RobotDialogue.tsx": "f0eed2acc2139ed3af34e12d5a21f2c91f2489fe",
-        "src/components/3d/RobotLabel.tsx": "ae96eca0f3bede0fe25bbd8c2b6fc68084925bbd",
+        "src/components/3d/RobotLabel.tsx": "52ce078e2f771e09a8b26fe51210aa8a3b1c8fa4",
         "src/components/3d/robotPositionStore.ts": "c45622966cc8d8b0d84470c591b5a2b0e0476f36",
-        "src/lib/robot3DGeometry.ts": "2322bc962d83e85981ecab0604961ba00ee93648",
-        "src/lib/robot3DModels.ts": "5ba85a553c4445e3bae7fc90bcf8ae0052e75363",
+        "src/lib/robot3DGeometry.ts": "5a12140b9cc7b49f64e024751668b65e0cf06612",
+        "src/lib/robot3DModels.ts": "bb70e6cf8c09b02393b1be79ce154e54d716cc0e",
         "src/lib/robotStateMap.ts": "7cada7282bbcad62d92973db5ba95eac366361f4",
         "src/lib/cliDetect.ts": "13be01a92fcfe26c33724669d1dfa2dfbaca6ccd",
         "src/lib/robotPositionPersist.ts": "5879d1c2728f1d3aeff31f6b36117600eaac9820",
-        "src/components/layout/HeaderAgentStrip.tsx": "5afdfff25aef415926a6274876e3df689b424907"
+        "src/components/layout/HeaderAgentStrip.tsx": "5afdfff25aef415926a6274876e3df689b424907",
+        "src/lib/robotPalette.ts": "a00539a0dbef31c0b3d0f300086e502cc7dc69c0",
+        "src/lib/robotModelMeta.ts": "98281634cb627dd1f2fe767434a4f838cfc69f84",
+        "src/lib/sessionDisplayTitle.ts": "f3ad743b6242112dc64a1e1fd10becdfa2cd0a68"
       },
       "symbols": {
         "functions": [
@@ -254,7 +266,8 @@
           "getNavInfo",
           "getAllNavInfo",
           "removeNavInfo",
-          "pickWanderTarget"
+          "pickWanderTarget",
+          "sessionDisplayTitle"
         ],
         "constants": {
           "NAV_WALK": "0",
@@ -281,7 +294,9 @@
           "nav throttle": "every 3rd frame",
           "title truncate": "28 chars",
           "prompt truncate": "60 chars",
-          "bash cmd truncate": "40 chars"
+          "bash cmd truncate": "40 chars",
+          "ROBOT_MODEL_TYPES": "['robot','mech','drone','spider','orb','tank']",
+          "UNTITLED_SESSION_LABEL": "'Unnamed'"
         },
         "endpoints": [],
         "ui_elements": [
@@ -311,7 +326,7 @@
         "3d/particles-effects.md",
         "frontend/views-routing.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
+      "last_updated": "2026-07-29T11:48:29Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -323,7 +338,8 @@
         "electron/ipc/appHandlers.ts",
         "electron/ipc/setupHandlers.ts",
         "electron/loading.html",
-        "electron-builder.json"
+        "electron-builder.json",
+        "server/portManager.ts"
       ],
       "source_hashes": {
         "electron/main.ts": "f719596587a66a4444a06be9e8356af425f0ab71",
@@ -331,7 +347,8 @@
         "electron/ipc/appHandlers.ts": "a019e9a8c600b4f5f2db1907c565ed1d14caf387",
         "electron/ipc/setupHandlers.ts": "47d7b6907b05ed1eb58e18a3bca373320ee6f0ce",
         "electron/loading.html": "4d524da3451768ed4f29c52bf3b7ccc263f32447",
-        "electron-builder.json": "aef52ff430c148124f17b588376acf8da3c75366"
+        "electron-builder.json": "aef52ff430c148124f17b588376acf8da3c75366",
+        "server/portManager.ts": "cf8319d9ba8ca2e54a842d1bd542abee57776c0d"
       },
       "symbols": {
         "functions": [
@@ -351,7 +368,9 @@
           "sendLog",
           "setupTray",
           "shutdownServer (serverShutdown)",
-          "startServer"
+          "startServer",
+          "resolvePort",
+          "killPortProcess"
         ],
         "constants": {
           "Electron": "^34.0.0",
@@ -379,7 +398,10 @@
           "progress steps": "10/30/95",
           "main entry": "dist/electron/main.cjs",
           "appId": "com.kasonzhan.ai-agent-session-center",
-          "POPOUT_DEFAULT_SIZE": "820x560"
+          "POPOUT_DEFAULT_SIZE": "820x560",
+          "default port": "3333",
+          "port resolution order": "--port flag > PORT env > config file > 3333",
+          "EADDRINUSE retry": "1 retry after 1000ms"
         },
         "endpoints": [],
         "ui_elements": [
@@ -429,7 +451,8 @@
           "setup:install-log",
           "setup:is-complete",
           "setup:save-config",
-          "window:open-terminal"
+          "window:open-terminal",
+          "PORT"
         ]
       },
       "depends_on": [
@@ -445,8 +468,8 @@
         "frontend/setup-wizard.md",
         "frontend/views-routing.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
-      "last_aligned": "2026-07-17T04:55:41.343Z"
+      "last_updated": "2026-07-29T09:25:44Z",
+      "last_aligned": "2026-07-29T09:25:44Z"
     },
     {
       "doc": "electron/ipc-transport.md",
@@ -546,10 +569,12 @@
       "doc": "electron/pty-host.md",
       "domain": "electron",
       "sources": [
-        "electron/ptyHost.ts"
+        "electron/ptyHost.ts",
+        "electron/ptyRing.ts"
       ],
       "source_hashes": {
-        "electron/ptyHost.ts": "ad3553b851152da5832dce452fcbc4fb6d3945c9"
+        "electron/ptyHost.ts": "1c074a79c8328909323a9a5b6de3b2bca53e9927",
+        "electron/ptyRing.ts": "a808851e536613b71c8d3bfe0dc3adf3253e872e"
       },
       "symbols": {
         "functions": [
@@ -579,7 +604,12 @@
           "cleanup",
           "reapPtyChildren",
           "setReplayBufferBytes",
-          "withClaudeTuiEnvDefaults"
+          "withClaudeTuiEnvDefaults",
+          "createRing",
+          "ringReset",
+          "nextRingCapacity",
+          "initialRingBytes",
+          "ringGrow"
         ],
         "constants": {
           "FLAG_EFFORT_LEVELS": "Set(['low', 'medium', 'high', 'xhigh', 'max'])",
@@ -599,7 +629,8 @@
           "DEFAULT_REPLAY_BUFFER_BYTES": "2 * 1024 * 1024",
           "MIN_REPLAY_BUFFER_BYTES": "256 * 1024",
           "MAX_REPLAY_BUFFER_BYTES": "32 * 1024 * 1024",
-          "CLAUDE_TUI_ENV_DEFAULTS": "mirror of server/config.ts — { CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1' }"
+          "CLAUDE_TUI_ENV_DEFAULTS": "mirror of server/config.ts \u2014 { CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1' }",
+          "INITIAL_RING_BYTES": "64 * 1024"
         },
         "endpoints": [
           "POST /api/terminals/register"
@@ -637,7 +668,7 @@
         "frontend/terminal-ui.md",
         "frontend/settings-system.md"
       ],
-      "last_updated": "2026-07-19T10:38:23Z",
+      "last_updated": "2026-07-29T08:58:15Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -665,7 +696,7 @@
         "src/components/layout/NavBar.tsx": "4e18e04ddc50eb7184b4eec1d5321eb86ef5e82b",
         "src/App.tsx": "18ab17d7edef82c9b0e36192a61c63ca99ce0615",
         "server/apiRouter.ts": "2d81502d75ce4ec6e4d21394b32e724b59d05c38",
-        "server/db.ts": "8450c7df24b5dd19fa5d46fe453004e36027d307"
+        "server/db.ts": "4e714498cf7a9b3a3579d60c81e35c05168adaf7"
       },
       "symbols": {
         "functions": [
@@ -740,8 +771,8 @@
       "depended_on_by": [
         "frontend/views-routing.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
-      "last_aligned": "2026-07-17T04:55:41.343Z"
+      "last_updated": "2026-07-29T09:20:27Z",
+      "last_aligned": "2026-07-29T09:20:27Z"
     },
     {
       "doc": "frontend/auth-ui.md",
@@ -819,7 +850,7 @@
         "src/lib/db.ts"
       ],
       "source_hashes": {
-        "src/lib/db.ts": "098c79c1ba9c038895a9d897447e4863a917d0d9"
+        "src/lib/db.ts": "1f8081b0999693b37b1bd1095b4cdc7f2cb92423"
       },
       "symbols": {
         "functions": [
@@ -872,9 +903,10 @@
         "frontend/state-management.md",
         "frontend/summary-tab.md",
         "frontend/views-routing.md",
-        "frontend/websocket-client.md"
+        "frontend/websocket-client.md",
+        "frontend/saved-prompts.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
+      "last_updated": "2026-07-29T23:26:23Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -886,15 +918,23 @@
         "src/lib/commandSuggestions.ts",
         "src/components/ui/AutocompleteTextarea.tsx",
         "server/apiRouter.ts",
-        "src/styles/modules/AutocompleteTextarea.module.css"
+        "src/styles/modules/AutocompleteTextarea.module.css",
+        "src/lib/autocompleteTrigger.ts",
+        "test/commandIndex.codex.test.ts",
+        "src/lib/autocompleteTrigger.test.ts",
+        "src/components/ui/AutocompleteTextarea.test.tsx"
       ],
       "source_hashes": {
-        "src/lib/commandIndex.ts": "26a167cb9f949343ece7f1b4c1e9d6cd89789124",
-        "server/commandIndex.ts": "6d210cbccab1571aa8e20557e0292e1d7972b985",
+        "src/lib/commandIndex.ts": "8d06e54b5ed6c889152618485f969968dfc371ed",
+        "server/commandIndex.ts": "5fad60f2dd3d177f95ec605dd3403afa6c264111",
         "src/lib/commandSuggestions.ts": "e98aa8892d921bdac4f01a382580904af2a5d390",
-        "src/components/ui/AutocompleteTextarea.tsx": "9ab7d60fcfda5d326db2fc3dc6edcfb604ee1800",
-        "server/apiRouter.ts": "2d81502d75ce4ec6e4d21394b32e724b59d05c38",
-        "src/styles/modules/AutocompleteTextarea.module.css": "b4bd2241a92d19438836e97a84725d6d06e9272a"
+        "src/components/ui/AutocompleteTextarea.tsx": "f0936636b02d50ebc747ecad61136931cec6386f",
+        "server/apiRouter.ts": "76727606d5b450b98cc6600b96fa455f958f8428",
+        "src/styles/modules/AutocompleteTextarea.module.css": "ef08f8a5911960035bb86ae323fbcf3516dc3579",
+        "src/lib/autocompleteTrigger.ts": "ea2b685cc35e498895001aab2f30a0c401f1ef8f",
+        "test/commandIndex.codex.test.ts": "326d710bbdeab4646092881a6791a0964a962a51",
+        "src/lib/autocompleteTrigger.test.ts": "c50042326f428a28c8daaa418efcdff74550aa70",
+        "src/components/ui/AutocompleteTextarea.test.tsx": "443d7376ef706190ae41a3069007a0143082f833"
       },
       "symbols": {
         "functions": [
@@ -926,7 +966,12 @@
           "commandEntriesToMenu",
           "sessionCli",
           "AutocompleteTextarea",
-          "detectCli"
+          "detectCli",
+          "codexHome",
+          "isDirLike",
+          "entryPrefix",
+          "entryToken",
+          "mergeGroups"
         ],
         "constants": {
           "TTL_MS": "30_000",
@@ -942,8 +987,11 @@
           "description cap": "240",
           "firstNonEmptyLine cap": "200",
           "z-index": "10100",
-          "cold-index retry": "5 attempts × 300ms",
-          "bare-@ listing": "empty query -> listTopEntries"
+          "cold-index retry": "5 attempts \u00d7 300ms",
+          "bare-@ listing": "empty query -> listTopEntries",
+          "CODEX_HOME": "env override; default ~/.codex",
+          "codex skill roots": "$CODEX_HOME/skills, <project>/.codex/skills, $CODEX_HOME/skills/.system (builtin)",
+          "SIGILS": "@ file, / command, $ skill (last valid sigil before caret wins)"
         },
         "endpoints": [
           "GET /api/commands?cli=<claude|codex|gemini>&projectPath=<absolute>",
@@ -962,7 +1010,9 @@
           "kind icon @ (file)",
           "kind icon triangle (command)",
           "footer hint: up/down navigate Enter select Esc close",
-          "textarea (controlled value/onChange)"
+          "textarea (controlled value/onChange)",
+          "$ skill dropdown (Codex-only)",
+          "acFooter single-line (count pinned, hint ellipsized)"
         ],
         "cli_commands": [],
         "storage_keys": [
@@ -980,7 +1030,7 @@
         "frontend/queue-scheduler.md",
         "frontend/session-creation-modals.md"
       ],
-      "last_updated": "2026-07-18T07:18:22.000Z",
+      "last_updated": "2026-07-29T23:26:23Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -998,15 +1048,15 @@
         "src/styles/modules/DetailPanel.module.css"
       ],
       "source_hashes": {
-        "server/apiRouter.ts": "2d81502d75ce4ec6e4d21394b32e724b59d05c38",
+        "server/apiRouter.ts": "76727606d5b450b98cc6600b96fa455f958f8428",
         "server/extractPreviousAnswer.ts": "b9ef6f06ea475a888e8a5d2f5ea88856cb58b342",
         "src/components/session/ConversationView.tsx": "d51457915d42f12a44aa9cfdce73eda3ad95932a",
-        "src/components/session/DetailPanel.tsx": "a161c5ea59fd4bd500bd33af8fb1513052518f47",
-        "src/components/session/DetailTabs.tsx": "c6b074852c960b0feb3a2eff3ce096335607953a",
+        "src/components/session/DetailPanel.tsx": "31949f40057670306ce69ba1ba7322642c4bf12e",
+        "src/components/session/DetailTabs.tsx": "c70d5c1fc455f083f26b7217bb7e0974779b5c28",
         "src/components/session/LinkifiedText.tsx": "291a1e8fbc44f4d163e1b0793b0791e23b549cdd",
         "src/lib/commandMessage.ts": "ad88971ae1f5e508115d60d576c6d3b5c16346df",
         "src/lib/transcript.ts": "ddf2fc7244bd534749169e3640da6d81385d0d2a",
-        "src/styles/modules/DetailPanel.module.css": "01581afb00f354e38a3e9670ae7be7d4af134082"
+        "src/styles/modules/DetailPanel.module.css": "03a139021f36973d9aace1d60e4bcb5a125fdc32"
       },
       "symbols": {
         "functions": [
@@ -1047,9 +1097,9 @@
           "CONVERSATION tab",
           "COPIED button state",
           "COPY button",
-          "Command chip (⌘ /name)",
+          "Command chip (\u2318 /name)",
           "Jump-to-latest button",
-          "Loading transcript… state",
+          "Loading transcript\u2026 state",
           "No conversation yet empty state",
           "No matching messages empty state",
           "No prompts in this session empty state",
@@ -1075,7 +1125,7 @@
         "frontend/session-detail-panel.md",
         "server/floating-session-spawner.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
+      "last_updated": "2026-07-29T11:48:29Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -1093,11 +1143,12 @@
         "src/lib/fileSystemProvider.ts",
         "src/components/translate/SelectionPopup.tsx",
         "src/hooks/useSelectionPopup.ts",
-        "src/lib/searchNormalize.ts"
+        "src/lib/searchNormalize.ts",
+        "src/lib/projectEditGuard.ts"
       ],
       "source_hashes": {
         "src/components/session/ProjectTabContainer.tsx": "0a267f63145e5bf6d848610e1a101d3b71498175",
-        "src/components/session/ProjectTab.tsx": "77c52c9b92e1bc5fd88a54e828dffd4ae8e29d26",
+        "src/components/session/ProjectTab.tsx": "0067a699c9ad3130c9730e1d6b622f80bdcdb4b1",
         "src/components/session/FileTree.tsx": "5274c3e0379a26a083efdfdb60bfef66fefdd198",
         "src/components/session/FindInFileBar.tsx": "230647bd2d1df0cb4dee3c6812d985d0c4f3089a",
         "src/components/session/ContentSearchModal.tsx": "6a878ab4e0a554469df3eb0299816f045dd04efa",
@@ -1107,7 +1158,8 @@
         "src/lib/fileSystemProvider.ts": "3188ce81681a25f5bd183d67e6093d587e83eb63",
         "src/components/translate/SelectionPopup.tsx": "d14ec9c8809e426c51529630344145e5d2a27c17",
         "src/hooks/useSelectionPopup.ts": "f955092d2333896b351ecb6b1f94561318d5a372",
-        "src/lib/searchNormalize.ts": "de69e632cdd6dc61d1916c8f01bc390a7c84e872"
+        "src/lib/searchNormalize.ts": "de69e632cdd6dc61d1916c8f01bc390a7c84e872",
+        "src/lib/projectEditGuard.ts": "b88f1686306c918b19731563cd0134cfd1d01df6"
       },
       "symbols": {
         "functions": [
@@ -1139,7 +1191,10 @@
           "formatXml",
           "updateNodeInTree",
           "normalizeForSearch",
-          "foldDashes"
+          "foldDashes",
+          "cacheFile",
+          "touchCachedFile",
+          "setProjectEditing"
         ],
         "constants": {
           "ZOOM_MIN": "0.1",
@@ -1152,7 +1207,8 @@
           "VIRTUALIZE_THRESHOLD": "10000",
           "LINE_HEIGHT_PX": "20",
           "OVERSCAN": "30",
-          "TREE_STATE_VERSION": "1"
+          "TREE_STATE_VERSION": "1",
+          "MAX_CACHED_FILES": "12"
         },
         "endpoints": [
           "GET /api/files/list",
@@ -1227,7 +1283,7 @@
         "frontend/project-browser.md",
         "frontend/session-detail-panel.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
+      "last_updated": "2026-07-29T08:58:15Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -1268,7 +1324,7 @@
         "src/lib/selectionExtractors.ts": "a926a0e74966feeec44c671fd2834614752fe8cb",
         "src/lib/cliDetect.ts": "13be01a92fcfe26c33724669d1dfa2dfbaca6ccd",
         "src/lib/translationLog.ts": "3d336c9290445b8305025d9aa8a98fd3fbb9f267",
-        "src/components/session/FloatingTerminalPanel.tsx": "a960763495d5102f77cfd422941b4e585a72b851",
+        "src/components/session/FloatingTerminalPanel.tsx": "53dc8f32ad01a165590e6890f399550ce9a1a080",
         "src/components/session/FloatingTerminalPanel.test.tsx": "90598b5ffa008af0c6adbccc8af88bcad70e7d0d",
         "src/styles/modules/FloatingTerminalPanel.module.css": "d38b80f6e05aaa85651eb7c23000af98dc69df87",
         "src/components/session/FloatingTerminalRoot.tsx": "3ebcf1db83d492dae3495769b31c8414280cdd11",
@@ -1279,13 +1335,13 @@
         "server/floatingSessionSpawner.ts": "07cdc6ac344dc2534a28d021d979ae2744fd88ab",
         "server/floatingPrompt.ts": "829b02954159bd55b48d420dbc7c455a2e2fdfdc",
         "server/extractPreviousAnswer.ts": "b9ef6f06ea475a888e8a5d2f5ea88856cb58b342",
-        "src/components/terminal/TerminalContainer.tsx": "df8a421c71a321bc0285b8a7f31ab60f638fe0bd",
-        "src/components/terminal/TerminalToolbar.tsx": "d0c1bbe42e5d29db55ff4df9ce7f26c88c8a31e5",
-        "src/components/session/ProjectTab.tsx": "77c52c9b92e1bc5fd88a54e828dffd4ae8e29d26",
+        "src/components/terminal/TerminalContainer.tsx": "d6d3d15336a84b298744cebf780b4eb2c0a2580a",
+        "src/components/terminal/TerminalToolbar.tsx": "1e77ecc36b2369e4a71de6591228fd3b493e3b06",
+        "src/components/session/ProjectTab.tsx": "0067a699c9ad3130c9730e1d6b622f80bdcdb4b1",
         "src/components/session/ProjectTabContainer.tsx": "0a267f63145e5bf6d848610e1a101d3b71498175",
-        "src/components/session/DetailPanel.tsx": "a161c5ea59fd4bd500bd33af8fb1513052518f47",
-        "src/stores/settingsStore.ts": "84f9909951c03d35175d8dc82853eb2d41377400",
-        "src/main.tsx": "5c435833cb80a6bf28393e1889cf664ff66256ae",
+        "src/components/session/DetailPanel.tsx": "31949f40057670306ce69ba1ba7322642c4bf12e",
+        "src/stores/settingsStore.ts": "7914ae9efabbb7fe1115577883e75ba35721aacc",
+        "src/main.tsx": "e1ba8055127e8a640c7b42453a38b1876029c849",
         "electron/main.ts": "f719596587a66a4444a06be9e8356af425f0ab71",
         "electron/preload.ts": "49b8972501538ddeca34c30df088448620dcfbdd"
       },
@@ -1323,7 +1379,7 @@
           "MIN_H": "220",
           "VIEWPORT_MARGIN": "12",
           "popout window": "820x560 (minWidth 480, minHeight 320)",
-          "translationNativeLanguage default": "简体中文",
+          "translationNativeLanguage default": "\u7b80\u4f53\u4e2d\u6587",
           "translationLearningLanguage default": "English",
           "translationInheritContext default": "true",
           "explainAttachFilePath default": "ask",
@@ -1346,7 +1402,7 @@
           "Attach file path? confirm (Yes/No)",
           "Translate previous answer toolbar button (onTranslateAnswer)",
           "Translate file toolbar button",
-          "float pop-out button (⧉)",
+          "float pop-out button (\u29c9)",
           "float minimize/maximize/close header buttons"
         ],
         "cli_commands": [
@@ -1402,8 +1458,8 @@
         "frontend/workspace-snapshot.md",
         "server/floating-session-spawner.md"
       ],
-      "last_updated": "2026-07-19T23:01:32Z",
-      "last_aligned": "2026-07-17T04:55:41.343Z"
+      "last_updated": "2026-07-29T11:48:29Z",
+      "last_aligned": "2026-07-29T09:20:27Z"
     },
     {
       "doc": "frontend/keyboard-shortcuts.md",
@@ -1504,7 +1560,7 @@
       "source_hashes": {
         "src/routes/ProjectBrowserView.tsx": "3da1ddccecbbecc75e5a452996b144476820346b",
         "src/hooks/useKnownProjects.ts": "c4cb13299135a932ac7146ddde096156f4cbc933",
-        "src/components/session/ProjectTab.tsx": "77c52c9b92e1bc5fd88a54e828dffd4ae8e29d26",
+        "src/components/session/ProjectTab.tsx": "0067a699c9ad3130c9730e1d6b622f80bdcdb4b1",
         "src/styles/modules/ProjectTab.module.css": "18d54ab6c35393d36ca29d92df1aa5408dbb0260"
       },
       "symbols": {
@@ -1553,8 +1609,8 @@
         "frontend/session-creation-modals.md",
         "frontend/views-routing.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
-      "last_aligned": "2026-07-17T04:55:41.343Z"
+      "last_updated": "2026-07-29T09:20:27Z",
+      "last_aligned": "2026-07-29T09:20:27Z"
     },
     {
       "doc": "frontend/prompt-queue.md",
@@ -1562,44 +1618,52 @@
       "sources": [
         "src/stores/queueStore.ts",
         "src/components/session/QueueTab.tsx",
-        "src/routes/QueueView.tsx"
+        "src/components/session/QueueMovePicker.tsx",
+        "src/lib/queueMovePlacement.ts",
+        "src/routes/QueueView.tsx",
+        "src/styles/modules/Terminal.module.css"
       ],
       "source_hashes": {
         "src/stores/queueStore.ts": "a657668776b2e0bf0591b40859b3e3c829ae7e85",
-        "src/components/session/QueueTab.tsx": "4d50e373fce964724a3dc30946e69e3660252163",
-        "src/routes/QueueView.tsx": "1e41198cd313f11f7cb0c049574ddf88302cf2ba"
+        "src/components/session/QueueTab.tsx": "a50b1cf6a29939faf20694352dad0254ef7ed76f",
+        "src/components/session/QueueMovePicker.tsx": "0689c0ed9efbb3fbd58dec3f4b870c8e204698bd",
+        "src/lib/queueMovePlacement.ts": "1bcf694cde40c91f2811fcbbfb3ea3e1ad507a09",
+        "src/routes/QueueView.tsx": "1e41198cd313f11f7cb0c049574ddf88302cf2ba",
+        "src/styles/modules/Terminal.module.css": "9c4ebfd9c68302f868355555fa96827979631832"
       },
       "symbols": {
         "functions": [
-          "useQueueStore (create<QueueState>)",
-          "add",
-          "remove",
-          "reorder",
-          "moveToSession",
-          "setQueue",
-          "updateItem",
-          "getAutomation",
-          "setPaused",
-          "setAutoSend",
-          "setAutoEnter",
-          "setIdleGuard",
-          "setSkipWhenPrompting",
-          "setLoopExcludeWindows",
-          "migrateSession",
-          "loadFromDb",
-          "persistSessionQueue",
           "QueueTab (default export)",
+          "QueueView (default export)",
+          "add",
+          "closeMovePicker()",
+          "computeMovePickerPosition(anchor, menu, viewport) -> {top,left}",
+          "getAutomation",
+          "handleAdd",
+          "handleDrop",
+          "handleMoveConfirm",
+          "handlePaste",
+          "handleSendNow",
           "handleToggleEnabled",
           "handleToggleFavorite",
-          "handleAdd",
-          "handleSendNow",
           "handleTriggerNow",
-          "handleMoveConfirm",
+          "loadFromDb",
+          "migrateSession",
+          "moveToSession",
+          "persistSessionQueue",
+          "remove",
+          "reorder",
           "sendItemToTerminal",
+          "setAutoEnter",
+          "setAutoSend",
+          "setIdleGuard",
+          "setLoopExcludeWindows",
+          "setPaused",
+          "setQueue",
+          "setSkipWhenPrompting",
+          "updateItem",
           "uploadImages",
-          "handlePaste",
-          "handleDrop",
-          "QueueView (default export)"
+          "useQueueStore (create<QueueState>)"
         ],
         "constants": {
           "DEFAULT_AUTOMATION": "{paused:false, autoSend:true, autoEnter:true, idleGuard:true, skipWhenPrompting:true}",
@@ -1611,7 +1675,9 @@
           "queue-images max images": "10",
           "write data max": "50MB",
           "terminator": "'\\r' when autoEnter ON else ''",
-          "Dexie schema": "v6 (queueAutomation@v4, queueHistory@v5)"
+          "Dexie schema": "v6 (queueAutomation@v4, queueHistory@v5)",
+          "ANCHOR_GAP": "2 (px between MOVE trigger and menu)",
+          "VIEWPORT_PAD": "8 (px min gap to any viewport edge)"
         },
         "endpoints": [
           "POST /api/terminals/:id/write",
@@ -1619,21 +1685,21 @@
         ],
         "ui_elements": [
           "QUEUE collapsible header toggle",
-          "📚 queue history button (queueHistoryBtn)",
-          "↵ auto-enter toggle (autoEnterToggle)",
-          "➤ auto-send toggle (autoSendToggle)",
-          "★ favorite button (queueFavBtn)",
+          "\ud83d\udcda queue history button (queueHistoryBtn)",
+          "\u21b5 auto-enter toggle (autoEnterToggle)",
+          "\u27a4 auto-send toggle (autoSendToggle)",
+          "\u2605 favorite button (queueFavBtn)",
           "power-icon per-item pause (queueToggleBtn)",
           "Once/Loop/Schedule type pills",
           "ADD button",
           "paperclip attach button (queueAttachBtn)",
           "SEND button (once)",
-          "⚡ NOW button (loop/schedule)",
+          "\u26a1 NOW button (loop/schedule)",
           "EDIT button",
           "MOVE button",
           "DEL button",
           "auto-send-off warning banner + Enable",
-          "automation status row (Pause/Resume, Idle-guard, Skip-prompting, ⏰ Quiet hours)",
+          "automation status row (Pause/Resume, Idle-guard, Skip-prompting, \u23f0 Quiet hours)",
           "QueueView session Select dropdown + grouped table",
           "inline once-item edit (AutocompleteTextarea)",
           "drag-to-reorder grip handle (queueDragHandle)"
@@ -1652,15 +1718,17 @@
         "frontend/command-autocomplete.md",
         "frontend/queue-scheduler.md",
         "frontend/state-management.md",
-        "server/api-endpoints.md"
+        "server/api-endpoints.md",
+        "frontend/saved-prompts.md"
       ],
       "depended_on_by": [
         "frontend/queue-scheduler.md",
         "frontend/session-detail-panel.md",
-        "frontend/views-routing.md"
+        "frontend/views-routing.md",
+        "frontend/saved-prompts.md"
       ],
-      "last_updated": "2026-07-22T22:43:22.140Z",
-      "last_aligned": "2026-07-17T04:55:41.343Z"
+      "last_updated": "2026-07-29T23:26:23Z",
+      "last_aligned": "2026-07-29T09:20:27Z"
     },
     {
       "doc": "frontend/queue-scheduler.md",
@@ -1679,11 +1747,11 @@
         "src/lib/terminalSend.ts"
       ],
       "source_hashes": {
-        "src/lib/queueScheduler.ts": "c7bfaff1cde4a0bb60ee3bc2121aadf49a15060d",
+        "src/lib/queueScheduler.ts": "7b86890084577926729957c9b10fc405b092ce13",
         "src/hooks/useGlobalQueueScheduler.ts": "c4ee1a2b2619ce7b2006b4f8fa4e46100aada729",
         "src/stores/queueHistoryStore.ts": "2943298ebac653fe8b824db5de4a8364f5353956",
         "src/components/session/QueueHistorySheet.tsx": "78ba8176735c7110dfc469ef28d53e65d2cf711e",
-        "src/components/session/QueueItemEditModal.tsx": "4eece29c9a6d68a1d73b6934d9dcf8b5854a6530",
+        "src/components/session/QueueItemEditModal.tsx": "a1fec9e08ff0c46d6f6d37ad918ef1aa7269f8ec",
         "src/components/session/LoopExcludeWindowsModal.tsx": "7b3406f93fd806749c813e4d15615be9ccabbbea",
         "src/lib/queueHistoryExport.ts": "3cc79b030ce830f0772130ef69ed5e22c359cd38",
         "src/lib/pinnedRespawn.ts": "60e6034fab09d57303cfeae7d7fbe369b3da10a5",
@@ -1768,7 +1836,7 @@
           "POST /api/terminals"
         ],
         "ui_elements": [
-          "📚 Queue history sheet",
+          "\ud83d\udcda Queue history sheet",
           "Export queue history button",
           "Import queue history button",
           "Adding to: target strip",
@@ -1778,10 +1846,10 @@
           "HistoryRow View button",
           "HistoryRow Edit button",
           "+ Apply button",
-          "Remove (🗑) button",
-          "Inline alias edit (+ Add name / ✎)",
+          "Remove (\ud83d\uddd1) button",
+          "Inline alias edit (+ Add name / \u270e)",
           "Import preview/confirm modal",
-          "QueueItemEditModal type pills (★ Once / ⟳ Loop / 🕐 Schedule)",
+          "QueueItemEditModal type pills (\u2605 Once / \u27f3 Loop / \ud83d\udd50 Schedule)",
           "interval value + unit (sec/min/hour)",
           "first fire each day (TimePicker12)",
           "datetime-local schedule input",
@@ -1792,7 +1860,7 @@
           "Session quiet hours modal",
           "+ Add exclusion window",
           "TimePicker12 (Hour/Minute/AM-PM dropdowns)",
-          "★/☆ favorite toggle button"
+          "\u2605/\u2606 favorite toggle button"
         ],
         "cli_commands": [],
         "storage_keys": [
@@ -1810,15 +1878,16 @@
         "frontend/websocket-client.md",
         "server/api-endpoints.md",
         "server/session-management.md",
-        "server/terminal-ssh.md"
+        "server/terminal-ssh.md",
+        "frontend/saved-prompts.md"
       ],
       "depended_on_by": [
         "frontend/prompt-queue.md",
         "frontend/views-routing.md",
         "frontend/workspace-snapshot.md"
       ],
-      "last_updated": "2026-07-17T05:50:12.875Z",
-      "last_aligned": "2026-07-17T04:55:41.343Z"
+      "last_updated": "2026-07-29T23:26:23Z",
+      "last_aligned": "2026-07-29T09:20:27Z"
     },
     {
       "doc": "frontend/review-tab.md",
@@ -1849,8 +1918,8 @@
         "src/components/layout/NavBar.tsx": "4e18e04ddc50eb7184b4eec1d5321eb86ef5e82b",
         "src/components/session/AiPopupHistory.tsx": "3c09699ab1123ed6f423a2407fe25fc1396061f8",
         "src/components/session/PopupResponse.tsx": "fa1595c2611c8fcdd8f944b5e2221e35eb270fa9",
-        "src/components/session/ProjectTab.tsx": "77c52c9b92e1bc5fd88a54e828dffd4ae8e29d26",
-        "src/components/terminal/TerminalContainer.tsx": "df8a421c71a321bc0285b8a7f31ab60f638fe0bd",
+        "src/components/session/ProjectTab.tsx": "0067a699c9ad3130c9730e1d6b622f80bdcdb4b1",
+        "src/components/terminal/TerminalContainer.tsx": "d6d3d15336a84b298744cebf780b4eb2c0a2580a",
         "src/components/translate/SelectionPopup.tsx": "d14ec9c8809e426c51529630344145e5d2a27c17",
         "src/lib/ansi.ts": "a34a94f6ec1299d73bb884e06a64289939412d1a",
         "src/lib/db.ts": "098c79c1ba9c038895a9d897447e4863a917d0d9",
@@ -1906,10 +1975,10 @@
           "Response markdown render (PopupResponse)",
           "alias input",
           "archived select",
-          "favorite toggle ★/☆",
+          "favorite toggle \u2605/\u2606",
           "mode select",
           "notes textarea",
-          "raw ⇆ formatted toggle",
+          "raw \u21c6 formatted toggle",
           "saved-selection <mark> highlight (deep-link /review?uuid=)",
           "search input"
         ],
@@ -1935,8 +2004,8 @@
         "frontend/floating-terminal-fork.md",
         "frontend/views-routing.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
-      "last_aligned": "2026-07-17T04:55:41.343Z"
+      "last_updated": "2026-07-29T09:20:27Z",
+      "last_aligned": "2026-07-29T09:20:27Z"
     },
     {
       "doc": "frontend/session-creation-modals.md",
@@ -2066,15 +2135,20 @@
         "src/components/session/LabelPicker.tsx",
         "src/components/session/PopoutProjectView.tsx",
         "src/hooks/useDropdownFlipX.ts",
-        "src/styles/modules/DetailPanel.module.css"
+        "src/styles/modules/DetailPanel.module.css",
+        "src/lib/mountedProjectsLru.ts",
+        "src/lib/mountedProjectsLru.test.ts",
+        "src/lib/projectEditGuard.ts",
+        "src/lib/projectEditGuard.test.ts",
+        "src/lib/sessionDisplayTitle.ts"
       ],
       "source_hashes": {
-        "src/components/session/DetailPanel.tsx": "a161c5ea59fd4bd500bd33af8fb1513052518f47",
-        "src/components/session/DetailTabs.tsx": "c6b074852c960b0feb3a2eff3ce096335607953a",
+        "src/components/session/DetailPanel.tsx": "31949f40057670306ce69ba1ba7322642c4bf12e",
+        "src/components/session/DetailTabs.tsx": "c70d5c1fc455f083f26b7217bb7e0974779b5c28",
         "src/components/session/SessionControlBar.tsx": "f2ff734875c0b74ec192009505698b557ade00ce",
-        "src/components/session/SessionSwitcher.tsx": "c3a94c66acf7f3d6c9c3da56ccb86dfeba227dce",
+        "src/components/session/SessionSwitcher.tsx": "ecb191f4a2829667cce1790e6401c72fbd3add65",
         "src/components/session/NotesTab.tsx": "7fbd7e9a1ac92651e7ca93ff478f323660a6cc6b",
-        "src/components/session/QueueTab.tsx": "77bf26174f3013a8f958357760ef9b078be9a4cd",
+        "src/components/session/QueueTab.tsx": "a50b1cf6a29939faf20694352dad0254ef7ed76f",
         "src/components/session/KillConfirmModal.tsx": "9e1b1801e4f22fa574f5493b6dfd9173cf24afb0",
         "src/components/session/RoomKillConfirmModal.tsx": "b12ecdf6f21cb46b3b1c3fc1aa178999b6f55c24",
         "src/components/session/RoomKillConfirmModal.test.tsx": "6111153e3e4d951178ec74f98b4c5e109c0e189c",
@@ -2085,7 +2159,12 @@
         "src/components/session/LabelPicker.tsx": "8a1e23daf9b0aceb4ce8b4130b8670c5a0be464c",
         "src/components/session/PopoutProjectView.tsx": "d1222bbe92adf9d8d9d923b33820bd222a4d779e",
         "src/hooks/useDropdownFlipX.ts": "beafa312ce45a511256d3a7ae87ca8091b93f76e",
-        "src/styles/modules/DetailPanel.module.css": "01581afb00f354e38a3e9670ae7be7d4af134082"
+        "src/styles/modules/DetailPanel.module.css": "03a139021f36973d9aace1d60e4bcb5a125fdc32",
+        "src/lib/mountedProjectsLru.ts": "fb371b14648c9b0dbfdd3d307d8d03cc6e7d04e1",
+        "src/lib/mountedProjectsLru.test.ts": "cc06218dfe7dbee1e23d00cdb910daa9245fd134",
+        "src/lib/projectEditGuard.ts": "b88f1686306c918b19731563cd0134cfd1d01df6",
+        "src/lib/projectEditGuard.test.ts": "576a9f0cc8ca1e63492c6f36ee97a8794861ad74",
+        "src/lib/sessionDisplayTitle.ts": "f3ad743b6242112dc64a1e1fd10becdfa2cd0a68"
       },
       "symbols": {
         "functions": [
@@ -2120,7 +2199,13 @@
           "PoppedOutTerminalPlaceholder",
           "canPopOutWindow",
           "PopoutProjectView",
-          "SortByActivityIcon"
+          "SortByActivityIcon",
+          "retainRecentProjects",
+          "isMostRecentProject",
+          "setProjectEditing",
+          "isProjectEditing",
+          "resetProjectEditing",
+          "sessionDisplayTitle"
         ],
         "constants": {
           "SPLIT_MIN_WIDTH": "700",
@@ -2135,7 +2220,9 @@
           "STACKED_KEY": "'split-stacked-terminal-project'",
           "STACKED_RATIO_KEY": "'split-stacked-ratio'",
           "AlertModal minutes range": "1..999",
-          "AlertModal default minutes": "5"
+          "AlertModal default minutes": "5",
+          "MAX_MOUNTED_PROJECTS": "3",
+          "UNTITLED_SESSION_LABEL": "'Unnamed'"
         },
         "endpoints": [
           "POST /api/sessions/:id/resume",
@@ -2168,10 +2255,10 @@
           "inline title rename (double-click)",
           "dock-left/dock-top toggle",
           "maximize/restore toggle",
-          "pop-out (⧉) button",
+          "pop-out (\u29c9) button",
           "drag-to-edge pop-out",
           "Sort by recent activity toggle (SortByActivityIcon)",
-          "external session badge (⌁)"
+          "external session badge (\u2301)"
         ],
         "cli_commands": [],
         "storage_keys": [
@@ -2217,7 +2304,7 @@
         "frontend/review-tab.md",
         "frontend/views-routing.md"
       ],
-      "last_updated": "2026-07-19T10:38:23Z",
+      "last_updated": "2026-07-29T23:26:23Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -2233,19 +2320,21 @@
         "src/components/settings/ShortcutSettings.tsx",
         "src/stores/settingsStore.ts",
         "src/hooks/useSettingsInit.ts",
-        "src/types/settings.ts"
+        "src/types/settings.ts",
+        "src/types/terminal.ts"
       ],
       "source_hashes": {
-        "src/components/settings/SettingsPanel.tsx": "1c4fbfd6cd1483db83e1732b21c0f2aea988ea50",
-        "src/components/settings/ThemeSettings.tsx": "4dfc3c8c9633ab5966acc2edc3fee7fbb7b846f0",
-        "src/components/settings/SoundSettings.tsx": "fdbca720fc5a269a08d3aa749d5e80d5d174bb30",
+        "src/components/settings/SettingsPanel.tsx": "e35e3174986d0c522cf598ea07e9bd62b5b9b5cd",
+        "src/components/settings/ThemeSettings.tsx": "52943fff8018913f2d95068c4497bbe708bda790",
+        "src/components/settings/SoundSettings.tsx": "5067c4a583b77ef808bb0e509a432e480708ae66",
         "src/components/settings/HookSettings.tsx": "f3eef9b46b76439bef3b2e4d04d38c6955e3249d",
         "src/components/settings/ApiKeySettings.tsx": "ffa5a07237b3adaf25f158a97ff8cb792499b9dd",
         "src/components/settings/TranslationSettings.tsx": "411d069406ad0387b08393d7bc308847e8dbc813",
         "src/components/settings/ShortcutSettings.tsx": "b2773b31d4e63d242d9bcc84d95379602c4b95f7",
-        "src/stores/settingsStore.ts": "e98b8425c2906d65303402013cb4c3abd5caea95",
+        "src/stores/settingsStore.ts": "7914ae9efabbb7fe1115577883e75ba35721aacc",
         "src/hooks/useSettingsInit.ts": "119f29bd127306b03586edd579a6591f7492a6cc",
-        "src/types/settings.ts": "d097927b1afb8a5a74d4218047dd571255eb5382"
+        "src/types/settings.ts": "14ba5fcf3a4dc11f1b1fb79e5f798f890c97da67",
+        "src/types/terminal.ts": "07372e854697cbec360847691aa9d201f6841d71"
       },
       "symbols": {
         "functions": [
@@ -2270,7 +2359,9 @@
           "AdvancedSettings",
           "checkTTSStatus",
           "setTerminalReplayBufferBytes",
-          "TerminalBufferControl"
+          "TerminalBufferControl",
+          "setTerminalScrollbackLines",
+          "clampScrollbackLines"
         ],
         "constants": {
           "fontSize": "13",
@@ -2288,7 +2379,7 @@
           "ttsSpeakingRate min": "0.5",
           "ttsSpeakingRate max": "2.0",
           "translationEnabled": "true",
-          "translationNativeLanguage": "'简体中文'",
+          "translationNativeLanguage": "'\u7b80\u4f53\u4e2d\u6587'",
           "translationLearningLanguage": "'English'",
           "translationTrigger": "'auto'",
           "translationInheritContext": "true",
@@ -2305,7 +2396,8 @@
           "animationIntensity max": "200",
           "animationSpeed min": "30",
           "animationSpeed max": "200",
-          "terminalReplayBufferBytes": "2 * 1024 * 1024"
+          "terminalReplayBufferBytes": "2 * 1024 * 1024",
+          "DEFAULT_TERMINAL_SCROLLBACK_LINES": "20000"
         },
         "endpoints": [
           "GET /api/hooks/status",
@@ -2323,7 +2415,7 @@
           "Scanline toggle",
           "Animation intensity/speed sliders",
           "Master Sound toggle/volume",
-          "Voice (TTS) block: Google TTS API key field, Show/Hide, Enable voice output, Speaking rate, English/中文 voice pickers, Preview voice, Test API key",
+          "Voice (TTS) block: Google TTS API key field, Show/Hide, Enable voice output, Speaking rate, English/\u4e2d\u6587 voice pickers, Preview voice, Test API key",
           "Per-CLI Sound Profiles (Claude/Gemini/Codex tabs)",
           "Ambient & White Noise presets + room sounds",
           "Notifications: Show toast notifications",
@@ -2375,7 +2467,8 @@
           "soundActions",
           "movementActions",
           "shortcutBindings",
-          "terminalReplayBufferBytes"
+          "terminalReplayBufferBytes",
+          "terminalScrollbackLines"
         ]
       },
       "depends_on": [
@@ -2396,7 +2489,7 @@
         "server/terminal-ssh.md",
         "electron/pty-host.md"
       ],
-      "last_updated": "2026-07-22T10:43:01.583Z",
+      "last_updated": "2026-07-29T08:58:15Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -2569,10 +2662,10 @@
         "src/stores/labelStore.ts"
       ],
       "source_hashes": {
-        "src/stores/sessionStore.ts": "b914dc04fb7c031054cf59a8f4cb5f5d41d318ea",
+        "src/stores/sessionStore.ts": "ac1733054fede8273f2dd9169fa50ea6c337a9b3",
         "src/stores/wsStore.ts": "0bcf2d51cea211c534f4cd2a89a4da59fedc202b",
-        "src/stores/uiStore.ts": "88034d07b85588e255c6233b8559624f99c2ca62",
-        "src/stores/settingsStore.ts": "84f9909951c03d35175d8dc82853eb2d41377400",
+        "src/stores/uiStore.ts": "e693dca1620c254d8b0b98e6e565f311cef73b0e",
+        "src/stores/settingsStore.ts": "7914ae9efabbb7fe1115577883e75ba35721aacc",
         "src/stores/queueStore.ts": "a657668776b2e0bf0591b40859b3e3c829ae7e85",
         "src/stores/queueHistoryStore.ts": "2943298ebac653fe8b824db5de4a8364f5353956",
         "src/stores/cameraStore.ts": "1cbd74145921367deb5af53cf7d99245119d6f79",
@@ -2602,7 +2695,8 @@
           "addCustom",
           "removeCustom",
           "labelColor",
-          "toggleSessionSortMode"
+          "toggleSessionSortMode",
+          "setTerminalScrollbackLines"
         ],
         "constants": {
           "MAX_FLOATS": "4",
@@ -2613,7 +2707,7 @@
           "ttsVoiceEn": "'en-US-Chirp3-HD-Aoede'",
           "ttsVoiceZh": "'cmn-CN-Chirp3-HD-Aoede'",
           "ttsSpeakingRate": "1.0",
-          "translationNativeLanguage": "'简体中文'",
+          "translationNativeLanguage": "'\u7b80\u4f53\u4e2d\u6587'",
           "translationLearningLanguage": "'English'",
           "translationTrigger": "'auto'",
           "explainAttachFilePath": "'ask'",
@@ -2639,7 +2733,7 @@
           "cardDisplayMode (detailed/compact)",
           "workspaceLoad overlay",
           "autosaveVisible flash",
-          "★ favorite (queue history)",
+          "\u2605 favorite (queue history)",
           "PIP floating terminal windows"
         ],
         "cli_commands": [],
@@ -2656,7 +2750,8 @@
           "--anim-intensity (CSS var)",
           "--anim-speed (CSS var)",
           "no-scanlines (body class)",
-          "session-sort-mode"
+          "session-sort-mode",
+          "terminalScrollbackLines"
         ]
       },
       "depends_on": [
@@ -2685,9 +2780,10 @@
         "frontend/views-routing.md",
         "frontend/websocket-client.md",
         "frontend/workspace-snapshot.md",
-        "multimedia/sound-alarm-system.md"
+        "multimedia/sound-alarm-system.md",
+        "frontend/saved-prompts.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
+      "last_updated": "2026-07-29T08:58:15Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -2709,9 +2805,9 @@
         "src/components/settings/SummaryPromptSettings.tsx": "a9ccd0635800237d9d92bcdb33ab5907d94153fa",
         "src/lib/db.ts": "098c79c1ba9c038895a9d897447e4863a917d0d9",
         "src/types/api.ts": "9f24d2f77791b0f2c99c5197796ff18f733d50e0",
-        "server/apiRouter.ts": "2d81502d75ce4ec6e4d21394b32e724b59d05c38",
-        "server/sessionStore.ts": "854ef2bb9777cf690a10b4e232a4aa1363960e21",
-        "server/db.ts": "8450c7df24b5dd19fa5d46fe453004e36027d307"
+        "server/apiRouter.ts": "76727606d5b450b98cc6600b96fa455f958f8428",
+        "server/sessionStore.ts": "57f3d02c489ad3aa8fd4054896a220dec730ffbd",
+        "server/db.ts": "4e714498cf7a9b3a3579d60c81e35c05168adaf7"
       },
       "symbols": {
         "functions": [
@@ -2753,15 +2849,15 @@
           "SAVE / UPDATE template button",
           "Add Template / Update Template button",
           "Cancel button",
-          "star/set-default toggle (★)",
-          "edit (✎) button",
-          "delete (×) button",
+          "star/set-default toggle (\u2605)",
+          "edit (\u270e) button",
+          "delete (\u00d7) button",
           "DEFAULT badge",
           "Template name input",
           "Prompt template text textarea",
           "Summary Prompt Templates heading",
           "Summarize Session modal title",
-          "No summary yet — click SUMMARIZE to generate one with AI (empty state)",
+          "No summary yet \u2014 click SUMMARIZE to generate one with AI (empty state)",
           "No prompt templates / No prompt templates yet. Create one below. (empty states)"
         ],
         "cli_commands": [
@@ -2782,8 +2878,8 @@
         "server/session-management.md"
       ],
       "depended_on_by": [],
-      "last_updated": "2026-07-17T04:55:41.343Z",
-      "last_aligned": "2026-07-17T04:55:41.343Z"
+      "last_updated": "2026-07-29T22:12:06Z",
+      "last_aligned": "2026-07-29T09:20:27Z"
     },
     {
       "doc": "frontend/terminal-ui.md",
@@ -2802,12 +2898,14 @@
         "src/lib/terminalLinkHandler.ts",
         "src/lib/terminalLinkHandler.test.ts",
         "src/lib/terminalTransport.ts",
-        "src/lib/terminalTransport.test.ts"
+        "src/lib/terminalTransport.test.ts",
+        "src/types/terminal.ts",
+        "src/types/terminal.test.ts"
       ],
       "source_hashes": {
-        "src/hooks/useTerminal.ts": "acf2a6fbec6b12d822a40b1612e31b4584a57e08",
-        "src/components/terminal/TerminalContainer.tsx": "df8a421c71a321bc0285b8a7f31ab60f638fe0bd",
-        "src/components/terminal/TerminalToolbar.tsx": "d0c1bbe42e5d29db55ff4df9ce7f26c88c8a31e5",
+        "src/hooks/useTerminal.ts": "66e1ac97c94ff3110eb081979807c760dbba6da4",
+        "src/components/terminal/TerminalContainer.tsx": "d6d3d15336a84b298744cebf780b4eb2c0a2580a",
+        "src/components/terminal/TerminalToolbar.tsx": "1e77ecc36b2369e4a71de6591228fd3b493e3b06",
         "src/components/terminal/themes.ts": "505b41604c920f629fa21885c7d17e8fa3dc1e99",
         "src/components/translate/SelectionPopup.tsx": "d14ec9c8809e426c51529630344145e5d2a27c17",
         "src/hooks/useSelectionPopup.ts": "f955092d2333896b351ecb6b1f94561318d5a372",
@@ -2818,7 +2916,9 @@
         "src/lib/terminalLinkHandler.ts": "83945fa1404fc20b44f7926b3bb9cf7505f5eac4",
         "src/lib/terminalLinkHandler.test.ts": "2d668291fc974257a0f551404dfe5c312c424787",
         "src/lib/terminalTransport.ts": "dd5adab9ae578a5d04fb92f8b06add244f025269",
-        "src/lib/terminalTransport.test.ts": "7869d395e08bdead6f79bc58dc733af6f85ed6c3"
+        "src/lib/terminalTransport.test.ts": "7869d395e08bdead6f79bc58dc733af6f85ed6c3",
+        "src/types/terminal.ts": "07372e854697cbec360847691aa9d201f6841d71",
+        "src/types/terminal.test.ts": "2515e2ac9ca5bb948cbbbdabcd6cb93ce0b0a439"
       },
       "symbols": {
         "functions": [
@@ -2844,7 +2944,8 @@
           "createLog",
           "captureResponse",
           "openTerminalUrl",
-          "closeManagedTerminal"
+          "closeManagedTerminal",
+          "clampScrollbackLines"
         ],
         "constants": {
           "scrollback": "100_000",
@@ -2868,7 +2969,10 @@
           "TERMINAL_LINK_HANDLER.allowNonHttpProtocols": "false",
           "POPUP_W": "260",
           "POPUP_H": "184",
-          "themes": "7 named + auto"
+          "themes": "7 named + auto",
+          "DEFAULT_TERMINAL_SCROLLBACK_LINES": "20000",
+          "MIN_TERMINAL_SCROLLBACK_LINES": "1000",
+          "MAX_TERMINAL_SCROLLBACK_LINES": "200000"
         },
         "endpoints": [
           "POST /api/sessions/:id/fork",
@@ -2948,7 +3052,7 @@
         "frontend/session-detail-panel.md",
         "multimedia/tts-voice-output.md"
       ],
-      "last_updated": "2026-07-20T04:36:53Z",
+      "last_updated": "2026-07-29T08:58:15Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -2978,7 +3082,7 @@
         "src/components/ui/SearchInput.tsx": "a38b69a5cc6e3c1a2a752a07eb4abc2d09457918",
         "src/hooks/useClickOutside.ts": "45cdbf0ea0975c8f721edf8c6198619aff654fbf",
         "src/lib/format.ts": "0debb821c1f38d113ecd144d3a666114b4727914",
-        "src/lib/tooltips.ts": "90148fce6bbceba59ae07b71feb7ca483ce5dd27"
+        "src/lib/tooltips.ts": "825b08d49cc1a089829f1761924d0fe757b648d8"
       },
       "symbols": {
         "functions": [
@@ -3020,8 +3124,8 @@
         "endpoints": [],
         "ui_elements": [
           "Modal dialog (role=dialog, aria-modal) + close button 'x'",
-          "Select trigger (role=combobox, caret ▾) + listbox dropdown",
-          "Combobox input + arrow toggle button ▾ + listbox / 'No matches'",
+          "Select trigger (role=combobox, caret \u25be) + listbox dropdown",
+          "Combobox input + arrow toggle button \u25be + listbox / 'No matches'",
           "Tabs role=tablist buttons + role=tabpanel",
           "Tooltip portal (role=tooltip) label/description/shortcut kbd",
           "ResizablePanel drag handle",
@@ -3031,7 +3135,8 @@
         "cli_commands": [],
         "storage_keys": [
           "detail-panel-width",
-          "detail-panel-width:{activeTab}"
+          "detail-panel-width:{activeTab}",
+          "termSpeakLocal"
         ]
       },
       "depends_on": [
@@ -3049,8 +3154,8 @@
         "frontend/views-routing.md",
         "multimedia/tts-voice-output.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
-      "last_aligned": "2026-07-17T04:55:41.343Z"
+      "last_updated": "2026-07-29T09:20:27Z",
+      "last_aligned": "2026-07-29T09:20:27Z"
     },
     {
       "doc": "frontend/views-routing.md",
@@ -3068,10 +3173,11 @@
         "src/routes/AgendaView.tsx",
         "src/routes/ProjectBrowserView.tsx",
         "src/lib/sessionSort.ts",
-        "src/types/analytics.ts"
+        "src/types/analytics.ts",
+        "vite.config.ts"
       ],
       "source_hashes": {
-        "src/main.tsx": "5c435833cb80a6bf28393e1889cf664ff66256ae",
+        "src/main.tsx": "42c1ff6f482606b54304f051a1ec2c45d9ac671a",
         "src/App.tsx": "18ab17d7edef82c9b0e36192a61c63ca99ce0615",
         "src/components/layout/TitleBar.tsx": "b0941f955b0d504dd509d4b0a24dd86c0cb4b3c5",
         "src/components/layout/Header.tsx": "a0fbaf779ecedea6aee77181ecfc56ccb2bd0f2d",
@@ -3082,8 +3188,9 @@
         "src/routes/QueueView.tsx": "1e41198cd313f11f7cb0c049574ddf88302cf2ba",
         "src/routes/AgendaView.tsx": "582da461d8c13afc485dc96fef9e31c4eddf94d7",
         "src/routes/ProjectBrowserView.tsx": "3da1ddccecbbecc75e5a452996b144476820346b",
-        "src/lib/sessionSort.ts": "895a367f321ffc7e45295d86a6699dbf7facc88e",
-        "src/types/analytics.ts": "e8d860975528a07ae35be8f54208f222fe4eadbb"
+        "src/lib/sessionSort.ts": "d6cd5b4a803b20d7055b76d8da5025bc29d2fe30",
+        "src/types/analytics.ts": "e8d860975528a07ae35be8f54208f222fe4eadbb",
+        "vite.config.ts": "c656c61f5d232753dd6e29098ad587f0fda18d11"
       },
       "symbols": {
         "functions": [
@@ -3120,7 +3227,9 @@
           "hits.slice(0, 100)": "",
           "TitleBar": "28px / z-index 99999",
           "save creep interval": "120ms",
-          "detail-panel:find dispatch delay": "150ms"
+          "detail-panel:find dispatch delay": "150ms",
+          "eager JS bytes": "1228804 (was 2523500)",
+          "manualChunks": "none (deliberate)"
         },
         "endpoints": [
           "GET /api/db/projects",
@@ -3185,13 +3294,14 @@
         "frontend/workspace-snapshot.md",
         "server/api-endpoints.md",
         "server/authentication.md",
-        "server/database.md"
+        "server/database.md",
+        "frontend/saved-prompts.md"
       ],
       "depended_on_by": [
         "frontend/agenda.md",
         "frontend/project-browser.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
+      "last_updated": "2026-07-29T23:26:23Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -3294,7 +3404,8 @@
         "test/apiRouter.workspaceFixes.test.ts",
         "test/sshManager.pendingLinks.test.ts",
         "test/sshManager.workdir.test.ts",
-        "test/fixtures/user-workspace-snapshot.json"
+        "test/fixtures/user-workspace-snapshot.json",
+        "server/ptyRing.ts"
       ],
       "source_hashes": {
         "src/lib/workspaceSnapshot.ts": "008d0a97f123de75e906c7e9730cfe93ee61233c",
@@ -3303,18 +3414,19 @@
         "src/hooks/useWorkspaceAutoLoad.ts": "558996cdb358534764ee77f623cbdad991358962",
         "src/lib/pinnedRespawn.ts": "60e6034fab09d57303cfeae7d7fbe369b3da10a5",
         "src/lib/pinnedRespawn.test.ts": "24090561b1087364341ca8f81e73e91c75004f94",
-        "src/lib/sessionSort.ts": "895a367f321ffc7e45295d86a6699dbf7facc88e",
+        "src/lib/sessionSort.ts": "d6cd5b4a803b20d7055b76d8da5025bc29d2fe30",
         "src/lib/sessionSort.test.ts": "a4a80729a4d4ae6bae3b2258b1b6c178a6836709",
         "src/components/ui/WorkspaceLoadingOverlay.tsx": "80f516f2506dbc7f3b8b18de713b3b9a897a766a",
         "src/components/modals/RestorePickerModal.tsx": "4b88ee384dfb17ba4faf7a8f1a1802ce653903ff",
         "src/styles/modules/RestorePickerModal.module.css": "1edb4fd4712f9ee2b6763b6e6eb92680047e45e6",
         "src/components/ui/SavingOverlay.tsx": "57ff2754ec5d8cac8718ecbe41658de8bd1897a5",
-        "server/apiRouter.ts": "2d81502d75ce4ec6e4d21394b32e724b59d05c38",
-        "server/sshManager.ts": "93e6951680250fd03483bfae9799182b8bbb83ce",
-        "test/apiRouter.workspaceFixes.test.ts": "3cecd17c355115006519dca2d410c2cd36e84081",
+        "server/apiRouter.ts": "76727606d5b450b98cc6600b96fa455f958f8428",
+        "server/sshManager.ts": "007e8ffd3b0de06d6a2810ec2a14e0d8a36572af",
+        "test/apiRouter.workspaceFixes.test.ts": "5c0fd2cbbf12d5be3349299aa40f2666fda3a381",
         "test/sshManager.pendingLinks.test.ts": "76e98f12443e5510ba6e108f6db4767afb994db4",
         "test/sshManager.workdir.test.ts": "5cc353bc43c7f9d6c0d8bcd1fed7a89e82408d6f",
-        "test/fixtures/user-workspace-snapshot.json": "00a14281d5337fdd9e96ad07c7a5339a36291a16"
+        "test/fixtures/user-workspace-snapshot.json": "00a14281d5337fdd9e96ad07c7a5339a36291a16",
+        "server/ptyRing.ts": "7852b373729b3f6c42f83be33387f0a3dd2d0b9b"
       },
       "symbols": {
         "functions": [
@@ -3350,7 +3462,13 @@
           "sortSessionsByActivity",
           "buildSessionIdentityAliases",
           "resolveIdentityAlias",
-          "reconcileWorkspaceSnapshot"
+          "reconcileWorkspaceSnapshot",
+          "createRing",
+          "ringWrite",
+          "ringSnapshot",
+          "ringLength",
+          "ringReset",
+          "prefillTerminalOutput"
         ],
         "constants": {
           "AUTO_SAVE_DEBOUNCE_MS": "5_000",
@@ -3358,7 +3476,8 @@
           "MAX_ATTEMPTS": "3",
           "WINDOW_MS": "60_000",
           "version": "1",
-          "backoff": "2s/4s/8s (min 8_000)"
+          "backoff": "2s/4s/8s (min 8_000)",
+          "INITIAL_RING_BYTES": "64 * 1024"
         },
         "endpoints": [
           "POST /api/workspace/save",
@@ -3370,8 +3489,8 @@
         ],
         "ui_elements": [
           "WorkspaceLoadingOverlay (LOADING WORKSPACE / WORKSPACE LOADED WITH ERRORS, DISMISS button)",
-          "SavingOverlay (Quitting / Saving workspace & config…)",
-          "RestorePickerModal (All/None/★Pinned, search, ⚠ new, ⚠ fork, Don't ask again, Resume selected, Escape=resume nothing)",
+          "SavingOverlay (Quitting / Saving workspace & config\u2026)",
+          "RestorePickerModal (All/None/\u2605Pinned, search, \u26a0 new, \u26a0 fork, Don't ask again, Resume selected, Escape=resume nothing)",
           "sidebar pin toggle (pinned float to top, yellow accent)"
         ],
         "cli_commands": [],
@@ -3402,8 +3521,8 @@
         "frontend/views-routing.md",
         "frontend/websocket-client.md"
       ],
-      "last_updated": "2026-07-20T03:57:06Z",
-      "last_aligned": "2026-07-17T04:55:41.343Z"
+      "last_updated": "2026-07-29T22:12:06Z",
+      "last_aligned": "2026-07-29T09:20:27Z"
     },
     {
       "doc": "multimedia/sound-alarm-system.md",
@@ -3423,8 +3542,8 @@
         "src/lib/alarmEngine.ts": "24270147ffbb82932c1300dd85062c0fc9841163",
         "src/lib/cliDetect.ts": "13be01a92fcfe26c33724669d1dfa2dfbaca6ccd",
         "src/hooks/useSound.ts": "2c86c46244f7cbe85405edd4093b2977428edeb2",
-        "src/stores/settingsStore.ts": "e98b8425c2906d65303402013cb4c3abd5caea95",
-        "src/components/settings/SoundSettings.tsx": "fdbca720fc5a269a08d3aa749d5e80d5d174bb30"
+        "src/stores/settingsStore.ts": "7914ae9efabbb7fe1115577883e75ba35721aacc",
+        "src/components/settings/SoundSettings.tsx": "5067c4a583b77ef808bb0e509a432e480708ae66"
       },
       "symbols": {
         "functions": [
@@ -3516,8 +3635,8 @@
         "frontend/websocket-client.md",
         "multimedia/tts-voice-output.md"
       ],
-      "last_updated": "2026-07-22T10:43:01.583Z",
-      "last_aligned": "2026-07-17T04:55:41.343Z"
+      "last_updated": "2026-07-29T09:20:27Z",
+      "last_aligned": "2026-07-29T09:20:27Z"
     },
     {
       "doc": "multimedia/tts-voice-output.md",
@@ -3542,17 +3661,17 @@
         "server/ttsManager.ts": "1920135c5e634f5f4b2d1e58226c2eaba1dd0429",
         "server/apiRouter.ts": "2d81502d75ce4ec6e4d21394b32e724b59d05c38",
         "src/lib/ttsEngine.ts": "307202cb5bfe461739aff59653c244e27d2004af",
-        "src/hooks/useTerminal.ts": "acf2a6fbec6b12d822a40b1612e31b4584a57e08",
+        "src/hooks/useTerminal.ts": "66e1ac97c94ff3110eb081979807c760dbba6da4",
         "src/components/terminal/TerminalContainer.tsx": "d6d3d15336a84b298744cebf780b4eb2c0a2580a",
         "src/components/terminal/TerminalToolbar.tsx": "1e77ecc36b2369e4a71de6591228fd3b493e3b06",
-        "src/components/settings/SoundSettings.tsx": "443f20f354a7d61f5e8cbb572bd5ba5d7906a98b",
-        "src/stores/settingsStore.ts": "da4aea31fa7bdf5fac39c9a157dedccf6b8c0fe8",
+        "src/components/settings/SoundSettings.tsx": "5067c4a583b77ef808bb0e509a432e480708ae66",
+        "src/stores/settingsStore.ts": "7914ae9efabbb7fe1115577883e75ba35721aacc",
         "test/ttsManager.test.ts": "d9b17b71cfb744fe12c820448ad91a67dad28182",
-        "src/lib/kokoroWorker.ts": "d246ca8c0842fbb1f6547e5d42c401ac9e9b8540",
+        "src/lib/kokoroWorker.ts": "75bb13caa42e7d4ee3c37ca694ce814b9ddd7775",
         "src/lib/kokoroTts.ts": "2652354192fc638d6c699f59b1ac337c5052adbb",
         "src/lib/kokoroTts.test.ts": "b130fdb048e2e4a9b098353797426b2ce37c9181",
         "src/lib/tooltips.ts": "825b08d49cc1a089829f1761924d0fe757b648d8",
-        "server/index.ts": "3a5d76110daf5f3e15b09c4afb0ad987ad5e1953"
+        "server/index.ts": "d4d72c4171e236304e82ce0beea2fdd69bb96f04"
       },
       "symbols": {
         "functions": [
@@ -3643,8 +3762,8 @@
         "frontend/terminal-ui.md",
         "server/api-endpoints.md"
       ],
-      "last_updated": "2026-07-22T07:38:10.870Z",
-      "last_aligned": "2026-07-17T04:55:41.343Z"
+      "last_updated": "2026-07-29T09:20:27Z",
+      "last_aligned": "2026-07-29T09:20:27Z"
     },
     {
       "doc": "server/api-endpoints.md",
@@ -3665,14 +3784,14 @@
         "src/types/api.ts"
       ],
       "source_hashes": {
-        "server/apiRouter.ts": "2d81502d75ce4ec6e4d21394b32e724b59d05c38",
+        "server/apiRouter.ts": "76727606d5b450b98cc6600b96fa455f958f8428",
         "server/codexModelCatalog.ts": "941733995551fc27ea0c2b8d5fcc88db94c44e0d",
         "server/constants.ts": "50842011fd48a006726e109bc47c7813f59311e5",
-        "server/index.ts": "3f17d0730aafff9337e85c06e7a9763f85cc8939",
+        "server/index.ts": "d4d72c4171e236304e82ce0beea2fdd69bb96f04",
         "server/hookRouter.ts": "bb009141f575133156a12d55c991c7192255242e",
         "server/floatingSessionSpawner.ts": "07cdc6ac344dc2534a28d021d979ae2744fd88ab",
         "server/extractPreviousAnswer.ts": "b9ef6f06ea475a888e8a5d2f5ea88856cb58b342",
-        "server/commandIndex.ts": "6d210cbccab1571aa8e20557e0292e1d7972b985",
+        "server/commandIndex.ts": "5fad60f2dd3d177f95ec605dd3403afa6c264111",
         "server/sessionKillPolicy.ts": "9dfca246697e5a9535a189656f9f29e149aa807d",
         "test/sessionKillPolicy.test.ts": "539c276ca29b048e902f56255c31730f53cb7fdc",
         "test/codexModelCatalog.test.ts": "0e773e217225af1d16181f172a20f8daba440b16",
@@ -3708,7 +3827,7 @@
         ],
         "constants": {
           "MAX_CONCURRENT_SUMMARIZE": "2",
-          "MAX_TERMINALS": "50",
+          "MAX_TERMINALS": "130",
           "MAX_FILE_SIZE": "10MB",
           "MAX_STREAMABLE_SIZE": "100MB",
           "MAX_RESULTS": "500",
@@ -3722,7 +3841,9 @@
           "write max": "50MB",
           "TOKEN_TTL_SECONDS": "",
           "CODEX_MODEL_CACHE_TTL_MS": "5 * 60 * 1000",
-          "CODEX_MODEL_QUERY_TIMEOUT_MS": "8_000"
+          "CODEX_MODEL_QUERY_TIMEOUT_MS": "8_000",
+          "express.json limit": "'50mb'",
+          "MAX_SESSIONS": "50"
         },
         "endpoints": [
           "GET /api/sessions",
@@ -3806,9 +3927,9 @@
           "POST /api/config/terminal-buffer"
         ],
         "ui_elements": [
-          "RECONNECT button (detail panel) → reconnect-terminal",
-          "REVIEW tab → /terminals/:id/output",
-          "Settings hooks page → /api/hooks/install"
+          "RECONNECT button (detail panel) \u2192 reconnect-terminal",
+          "REVIEW tab \u2192 /terminals/:id/output",
+          "Settings hooks page \u2192 /api/hooks/install"
         ],
         "cli_commands": [
           "claude --resume '<id>' || claude --continue",
@@ -3865,8 +3986,8 @@
         "multimedia/tts-voice-output.md",
         "server/floating-session-spawner.md"
       ],
-      "last_updated": "2026-07-20T03:57:06Z",
-      "last_aligned": "2026-07-17T04:55:41.343Z"
+      "last_updated": "2026-07-29T10:09:33.000Z",
+      "last_aligned": "2026-07-29T09:20:27Z"
     },
     {
       "doc": "server/approval-detection.md",
@@ -3879,7 +4000,7 @@
       "source_hashes": {
         "server/approvalDetector.ts": "4323c3528274020bb8eef63c6aa15ed960330c22",
         "server/config.ts": "b6270238ea2d3e548338ffec57cef5abef931fe7",
-        "server/sessionStore.ts": "854ef2bb9777cf690a10b4e232a4aa1363960e21"
+        "server/sessionStore.ts": "57f3d02c489ad3aa8fd4054896a220dec730ffbd"
       },
       "symbols": {
         "functions": [
@@ -3933,8 +4054,8 @@
         "server/process-monitor.md",
         "server/session-management.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
-      "last_aligned": "2026-07-17T04:55:41.343Z"
+      "last_updated": "2026-07-29T22:12:06Z",
+      "last_aligned": "2026-07-29T09:20:27Z"
     },
     {
       "doc": "server/authentication.md",
@@ -4016,7 +4137,7 @@
         "server/db.ts"
       ],
       "source_hashes": {
-        "server/db.ts": "8450c7df24b5dd19fa5d46fe453004e36027d307"
+        "server/db.ts": "4e714498cf7a9b3a3579d60c81e35c05168adaf7"
       },
       "symbols": {
         "functions": [
@@ -4041,7 +4162,8 @@
           "deleteAgendaTask",
           "migrateSessionId",
           "markStaleSessionsEnded",
-          "closeDb"
+          "closeDb",
+          "insertFullPrompt"
         ],
         "constants": {
           "DB_PATH": "data/sessions.db",
@@ -4078,7 +4200,7 @@
         "server/api-endpoints.md",
         "server/authentication.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
+      "last_updated": "2026-07-29T08:58:15Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -4089,7 +4211,7 @@
         "server/apiRouter.ts"
       ],
       "source_hashes": {
-        "server/fileIndexCache.ts": "76b6ab4f0f6fb82b80fa2d52396c4688d50d861d",
+        "server/fileIndexCache.ts": "71583b71c4f3d3605acf0c19793bb7b81e61327f",
         "server/apiRouter.ts": "2d81502d75ce4ec6e4d21394b32e724b59d05c38"
       },
       "symbols": {
@@ -4101,7 +4223,10 @@
           "ensureIndex",
           "startWatcher",
           "fuzzyScore",
-          "listTopEntries"
+          "listTopEntries",
+          "touchRoot",
+          "dropRoot",
+          "evictStaleRoots"
         ],
         "constants": {
           "CACHE_TTL_MS": "30_000",
@@ -4110,7 +4235,8 @@
           "WATCHER_DEBOUNCE_MS": "300",
           "maxResults": "50",
           "file-search rate limit": "20",
-          "listTopEntries default max": "20"
+          "listTopEntries default max": "20",
+          "MAX_CACHED_ROOTS": "5"
         },
         "endpoints": [
           "GET /api/files/search",
@@ -4131,7 +4257,7 @@
         "frontend/command-autocomplete.md",
         "server/api-endpoints.md"
       ],
-      "last_updated": "2026-07-18T07:18:22.000Z",
+      "last_updated": "2026-07-29T08:58:15Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -4201,10 +4327,10 @@
           "floatLabel: Explain (learning)",
           "Explain (native)",
           "Vocab (native)",
-          "Translate → learning",
-          "Translate → native",
-          "Translate answer → native",
-          "Translate file → native",
+          "Translate \u2192 learning",
+          "Translate \u2192 native",
+          "Translate answer \u2192 native",
+          "Translate file \u2192 native",
           "Custom",
           "customFloatLabel: Custom: <snippet>"
         ],
@@ -4387,17 +4513,19 @@
         "server/sessionKillPolicy.ts",
         "test/externalDiscovery.test.ts",
         "test/sessionKillPolicy.test.ts",
-        "test/terminateProcess.test.ts"
+        "test/terminateProcess.test.ts",
+        "test/discoveryReconcile.test.ts"
       ],
       "source_hashes": {
-        "server/processMonitor.ts": "dbc175f35eadfceb2651e4f226040f964b047e0c",
+        "server/processMonitor.ts": "e47b1b94f89ba8aa6e50ff405d6be8212ac99617",
         "server/autoIdleManager.ts": "83faccce7abcf6e5809ad2c38e0b36995417314e",
         "server/config.ts": "b6270238ea2d3e548338ffec57cef5abef931fe7",
-        "server/sessionStore.ts": "854ef2bb9777cf690a10b4e232a4aa1363960e21",
+        "server/sessionStore.ts": "57f3d02c489ad3aa8fd4054896a220dec730ffbd",
         "server/sessionKillPolicy.ts": "9dfca246697e5a9535a189656f9f29e149aa807d",
         "test/externalDiscovery.test.ts": "0b77205cffea4ee9eae7fc0713feab4110f638a5",
         "test/sessionKillPolicy.test.ts": "539c276ca29b048e902f56255c31730f53cb7fdc",
-        "test/terminateProcess.test.ts": "a756b232e22589a7fb6a8fb1391422ecd6176781"
+        "test/terminateProcess.test.ts": "a756b232e22589a7fb6a8fb1391422ecd6176781",
+        "test/discoveryReconcile.test.ts": "019528f59a4ad5c044e1f4387e43e909daeb90f9"
       },
       "symbols": {
         "functions": [
@@ -4420,7 +4548,11 @@
           "parseModelFlag",
           "resolveCwd",
           "findLiveCodexPidPeers",
-          "isCodexSession"
+          "isCodexSession",
+          "getTerminalByPtyPid",
+          "reconcileDiscoveredSessions",
+          "reconcileOwnedPid",
+          "dropDuplicateCard"
         ],
         "constants": {
           "PROCESS_CHECK_INTERVAL": "15_000",
@@ -4460,8 +4592,8 @@
         "server/session-management.md",
         "server/session-matching.md"
       ],
-      "last_updated": "2026-07-19T10:38:23Z",
-      "last_aligned": "2026-07-17T04:55:41.343Z"
+      "last_updated": "2026-07-29T22:12:06Z",
+      "last_aligned": "2026-07-29T09:20:27Z"
     },
     {
       "doc": "server/session-management.md",
@@ -4482,25 +4614,31 @@
         "src/types/index.ts",
         "server/sessionAliasResolver.ts",
         "test/sessionAliasResolver.test.ts",
-        "test/sessionLinkage.test.ts"
+        "test/sessionLinkage.test.ts",
+        "server/sessionTrim.ts",
+        "test/sessionTrim.test.ts",
+        "test/discoveryReconcile.test.ts"
       ],
       "source_hashes": {
-        "server/sessionStore.ts": "854ef2bb9777cf690a10b4e232a4aa1363960e21",
-        "server/sessionMatcher.ts": "6e5cd754f8cbcdc76011a8f4bc520b96df65bb9e",
+        "server/sessionStore.ts": "57f3d02c489ad3aa8fd4054896a220dec730ffbd",
+        "server/sessionMatcher.ts": "0a8a819f9aa99317ec36ef656256f6e31fd9216b",
         "server/approvalDetector.ts": "4323c3528274020bb8eef63c6aa15ed960330c22",
         "server/teamManager.ts": "f9098c850895e2941f719c5a31ecda8bf8fa67ff",
-        "server/processMonitor.ts": "dbc175f35eadfceb2651e4f226040f964b047e0c",
+        "server/processMonitor.ts": "e47b1b94f89ba8aa6e50ff405d6be8212ac99617",
         "server/autoIdleManager.ts": "83faccce7abcf6e5809ad2c38e0b36995417314e",
         "server/floatingSessionSpawner.ts": "07cdc6ac344dc2534a28d021d979ae2744fd88ab",
         "server/sessionTitle.ts": "f93bc58e9696d642c17e1d1ea01e85983b349f7d",
         "server/config.ts": "b6270238ea2d3e548338ffec57cef5abef931fe7",
         "server/constants.ts": "50842011fd48a006726e109bc47c7813f59311e5",
-        "src/types/session.ts": "b10445f6355aaa5f9afca62b0853ef3b1e73ecd6",
+        "src/types/session.ts": "ceaba9b4404d8f179e8ed76eddc3e5f9d809ea70",
         "src/types/hook.ts": "e51cd276ca221b1b76ab16192d3c380b107dba05",
         "src/types/index.ts": "a600811b9bb20cd5e504cf1a6f56baa73b815a5c",
         "server/sessionAliasResolver.ts": "2ad0c688467b73e6bb46a0eecf49a0ae8544d534",
         "test/sessionAliasResolver.test.ts": "238f11dac732c55b54d1e85420efb187816f4c2a",
-        "test/sessionLinkage.test.ts": "d9cbbb42c72355152180a3b6ca988191b4a6ad9e"
+        "test/sessionLinkage.test.ts": "0e5227594caf06a9a1769930f8b66b27758a4f9b",
+        "server/sessionTrim.ts": "e8bcfca8e0b7acdbef168cb8923b30414243125c",
+        "test/sessionTrim.test.ts": "6f94fe2ea0dac656d3c701f279db90d8980b100c",
+        "test/discoveryReconcile.test.ts": "019528f59a4ad5c044e1f4387e43e909daeb90f9"
       },
       "symbols": {
         "functions": [
@@ -4549,7 +4687,15 @@
           "getToolTimeout",
           "getWaitingStatus",
           "getWaitingLabel",
-          "registerDiscoveredSession"
+          "registerDiscoveredSession",
+          "toArchivedSession",
+          "pushPrompt",
+          "trimCurrentPrompt",
+          "truncateText",
+          "getTerminalByPtyPid",
+          "reconcileDiscoveredSessions",
+          "reconcileOwnedPid",
+          "dropDuplicateCard"
         ],
         "constants": {
           "BROADCAST_DEBOUNCE_MS": "20",
@@ -4566,7 +4712,11 @@
           "toolLog last 200": "",
           "responseLog last 50": "",
           "responseLog excerpt": "2000 chars",
-          "Session interface": "61 fields"
+          "Session interface": "61 fields",
+          "MAX_PROMPT_CHARS": "16000",
+          "MAX_PROMPT_HISTORY_CHARS": "200000",
+          "MAX_PROMPT_HISTORY_ENTRIES": "50",
+          "MAX_CURRENT_PROMPT_CHARS": "2000"
         },
         "endpoints": [],
         "ui_elements": [],
@@ -4609,9 +4759,10 @@
         "server/session-matching.md",
         "server/team-subagent.md",
         "server/terminal-ssh.md",
-        "server/websocket-manager.md"
+        "server/websocket-manager.md",
+        "frontend/saved-prompts.md"
       ],
-      "last_updated": "2026-07-19T10:38:23Z",
+      "last_updated": "2026-07-29T22:12:06Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -4619,11 +4770,13 @@
       "domain": "server",
       "sources": [
         "server/sessionMatcher.ts",
-        "test/sessionMatcher.test.js"
+        "test/sessionMatcher.test.js",
+        "test/sessionMatcher.adoption.test.ts"
       ],
       "source_hashes": {
-        "server/sessionMatcher.ts": "6e5cd754f8cbcdc76011a8f4bc520b96df65bb9e",
-        "test/sessionMatcher.test.js": "81284c6089a621723859718cdeaddb683e12ef6c"
+        "server/sessionMatcher.ts": "0a8a819f9aa99317ec36ef656256f6e31fd9216b",
+        "test/sessionMatcher.test.js": "81284c6089a621723859718cdeaddb683e12ef6c",
+        "test/sessionMatcher.adoption.test.ts": "18058223acd829d3e67f75df8e2dd76a7deaaa2b"
       },
       "symbols": {
         "functions": [
@@ -4631,7 +4784,8 @@
           "detectHookSource",
           "reKeyResumedSession",
           "createDefaultSession",
-          "findSshConfig"
+          "findSshConfig",
+          "toArchivedSession"
         ],
         "constants": {
           "previousSessions cap": "5",
@@ -4674,7 +4828,7 @@
         "server/session-management.md",
         "server/terminal-ssh.md"
       ],
-      "last_updated": "2026-07-19T10:38:23Z",
+      "last_updated": "2026-07-29T11:48:29Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -4745,7 +4899,7 @@
         "server/process-monitor.md",
         "server/session-management.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
+      "last_updated": "2026-07-29T09:50:00Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -4756,14 +4910,24 @@
         "server/config.ts",
         "src/types/terminal.ts",
         "test/claudeTuiEnv.test.ts",
-        "test/launchFlags.test.ts"
+        "test/launchFlags.test.ts",
+        "server/ptyRing.ts",
+        "test/ptyRing.test.ts",
+        "server/terminalCapacity.ts",
+        "test/terminalCapacity.test.ts",
+        "test/sessionKillOpsTerminal.test.ts"
       ],
       "source_hashes": {
-        "server/sshManager.ts": "93e6951680250fd03483bfae9799182b8bbb83ce",
+        "server/sshManager.ts": "007e8ffd3b0de06d6a2810ec2a14e0d8a36572af",
         "server/config.ts": "b6270238ea2d3e548338ffec57cef5abef931fe7",
-        "src/types/terminal.ts": "70a49e2bc641f249a1b1d9c3c84951883f6ffc58",
+        "src/types/terminal.ts": "74c72c595645a4bfe58923ccbc3444372a550906",
         "test/claudeTuiEnv.test.ts": "1e3a852f0214c76172394c220d2becdd925ddb1e",
-        "test/launchFlags.test.ts": "76aca272775dd080ec0f62d01138d8ec1a977342"
+        "test/launchFlags.test.ts": "76aca272775dd080ec0f62d01138d8ec1a977342",
+        "server/ptyRing.ts": "7852b373729b3f6c42f83be33387f0a3dd2d0b9b",
+        "test/ptyRing.test.ts": "7b8b4a9faef0c05ad712dc2860bc83333ded9b06",
+        "server/terminalCapacity.ts": "b6711c28dae83fe744c99164b6adf354daf56672",
+        "test/terminalCapacity.test.ts": "14a1fe6aaddd13a6e038e5b427978c8a92f1ce4c",
+        "test/sessionKillOpsTerminal.test.ts": "25eb4ae63def6413f8cffc251eca56c733fa70ed"
       },
       "symbols": {
         "functions": [
@@ -4792,14 +4956,24 @@
           "appendSessionName",
           "setReplayBufferBytes",
           "clampReplayBufferBytes",
-          "withClaudeTuiEnvDefaults"
+          "withClaudeTuiEnvDefaults",
+          "createRing",
+          "ringWrite",
+          "ringSnapshot",
+          "ringLength",
+          "ringReset",
+          "nextRingCapacity",
+          "initialRingBytes",
+          "ringGrow",
+          "checkTerminalCapacity",
+          "countSessionTerminals"
         ],
         "constants": {
           "SHELL_META_RE": "/[;|&$`\\\\!><()\\n\\r{}[\\]]/",
           "TMUX_SESSION_RE": "/^[a-zA-Z0-9_.\\-]+$/",
           "SHELL_PROMPT_RE": "/[#$%>]\\s*$/",
           "FLAG_EFFORT_LEVELS": "low/medium/high/xhigh/max",
-          "MAX_TERMINALS": "50",
+          "MAX_TERMINALS": "130",
           "local timeout": "2000ms",
           "remote SSH timeout": "10000ms",
           "settle timer": "50ms",
@@ -4821,7 +4995,9 @@
           "DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES": "2 * 1024 * 1024",
           "MIN_TERMINAL_REPLAY_BUFFER_BYTES": "256 * 1024",
           "MAX_TERMINAL_REPLAY_BUFFER_BYTES": "32 * 1024 * 1024",
-          "CLAUDE_TUI_ENV_DEFAULTS": "{ CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1' } — classic-renderer PTY env default (pre-set value wins)"
+          "CLAUDE_TUI_ENV_DEFAULTS": "{ CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1' } \u2014 classic-renderer PTY env default (pre-set value wins)",
+          "INITIAL_RING_BYTES": "64 * 1024",
+          "MAX_SESSIONS": "50"
         },
         "endpoints": [
           "POST /api/terminals",
@@ -4879,7 +5055,7 @@
         "server/websocket-manager.md",
         "frontend/settings-system.md"
       ],
-      "last_updated": "2026-07-20T03:57:06Z",
+      "last_updated": "2026-07-29T22:12:06Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -4894,7 +5070,7 @@
       ],
       "source_hashes": {
         "server/wsManager.ts": "2575286126f505f03526b6853e27520afb4eab58",
-        "server/index.ts": "3f17d0730aafff9337e85c06e7a9763f85cc8939",
+        "server/index.ts": "d4d72c4171e236304e82ce0beea2fdd69bb96f04",
         "server/hookProcessor.ts": "7ed7c248aa7120e02133a5638d4c9ab54ed59a60",
         "server/sessionUpdateCoalescer.ts": "36bf6f3eb48246cfdc3b8d77bee4a26068adffd4",
         "test/sessionUpdateCoalescer.test.ts": "50b8a1389baab02348ccd7f61121d8447c1081fe"
@@ -4959,8 +5135,8 @@
         "frontend/websocket-client.md",
         "server/terminal-ssh.md"
       ],
-      "last_updated": "2026-07-19T10:38:23Z",
-      "last_aligned": "2026-07-17T04:55:41.343Z"
+      "last_updated": "2026-07-29T09:20:27Z",
+      "last_aligned": "2026-07-29T09:20:27Z"
     },
     {
       "doc": "frontend/file-open-chooser.md",
@@ -4978,10 +5154,10 @@
       "source_hashes": {
         "src/components/session/FileOpenChooser.tsx": "529a6cd167fac2a02e79e93badf037afecf853d5",
         "src/styles/modules/FileOpenChooser.module.css": "710d5dec5faa0340bd90df58ff99465b2cf4c5d5",
-        "src/stores/uiStore.ts": "88034d07b85588e255c6233b8559624f99c2ca62",
+        "src/stores/uiStore.ts": "e693dca1620c254d8b0b98e6e565f311cef73b0e",
         "src/lib/filePathLink.ts": "d5e7e12aa61d7fbfd8d4b023c42534b823292be2",
         "src/components/session/LinkifiedText.tsx": "291a1e8fbc44f4d163e1b0793b0791e23b549cdd",
-        "src/hooks/useTerminal.ts": "acf2a6fbec6b12d822a40b1612e31b4584a57e08",
+        "src/hooks/useTerminal.ts": "66e1ac97c94ff3110eb081979807c760dbba6da4",
         "src/lib/fileSystemProvider.ts": "3188ce81681a25f5bd183d67e6093d587e83eb63",
         "server/apiRouter.ts": "2d81502d75ce4ec6e4d21394b32e724b59d05c38"
       },
@@ -5023,8 +5199,86 @@
         "frontend/conversation-view.md",
         "frontend/terminal-ui.md"
       ],
-      "last_updated": "2026-07-17T04:55:41.343Z",
-      "last_aligned": "2026-07-17T04:55:41.343Z"
+      "last_updated": "2026-07-29T09:20:27Z",
+      "last_aligned": "2026-07-29T09:20:27Z"
+    },
+    {
+      "doc": "frontend/saved-prompts.md",
+      "domain": "frontend",
+      "sources": [
+        "src/stores/promptSnippetStore.ts",
+        "src/components/session/PromptSnippetPicker.tsx",
+        "src/lib/promptSnippetPool.ts",
+        "src/lib/promptSnippetInsert.ts",
+        "src/styles/modules/PromptSnippetPicker.module.css"
+      ],
+      "source_hashes": {
+        "src/stores/promptSnippetStore.ts": "49c399cd33d70257a4f8f113fdc3582e0c7bff93",
+        "src/components/session/PromptSnippetPicker.tsx": "139516f67a026e9d3859b48b73fcb88f296f553a",
+        "src/lib/promptSnippetPool.ts": "4af89931ef0bbb82796b6531cd5d915e51f99864",
+        "src/lib/promptSnippetInsert.ts": "ff6b95bc595cf21c11093ad9401a45d500a3c3ed",
+        "src/styles/modules/PromptSnippetPicker.module.css": "481decaa56cc7ecb2afeb251174926f88c715af8"
+      },
+      "symbols": {
+        "functions": [
+          "poolRecentPrompts",
+          "appendSnippet",
+          "usePromptSnippetStore",
+          "loadFromDb",
+          "save",
+          "remove",
+          "setLabel",
+          "touch",
+          "hasText",
+          "PromptSnippetPicker",
+          "SavedRowButton",
+          "BookmarkIcon",
+          "BookmarkStackIcon",
+          "rowToSnippet",
+          "firstLine",
+          "truncate"
+        ],
+        "constants": {
+          "RECENT_LIMIT": 40,
+          "SNIPPET_TRIGGER_ATTR": "data-snippet-trigger",
+          "picker_z_index": 10150,
+          "picker_max_height_px": 320,
+          "saved_preview_truncate_chars": 90,
+          "recent_truncate_chars": 110,
+          "rename_max_length": 80
+        },
+        "endpoints": [],
+        "ui_elements": [
+          "SAVED tab",
+          "RECENT tab",
+          "filter input",
+          "snippet row (insert)",
+          "rename (\u270e)",
+          "forget (\u2715)",
+          "keep (bookmark)",
+          "library (bookmark-stack)",
+          "From saved\u2026 (chain section)",
+          "keep step (chain row bookmark)",
+          "kept marker (\u2713)"
+        ],
+        "cli_commands": [],
+        "storage_keys": [
+          "promptSnippets"
+        ]
+      },
+      "depends_on": [
+        "frontend/state-management.md",
+        "frontend/client-persistence.md",
+        "frontend/prompt-queue.md",
+        "server/session-management.md"
+      ],
+      "depended_on_by": [
+        "frontend/prompt-queue.md",
+        "frontend/queue-scheduler.md",
+        "frontend/views-routing.md"
+      ],
+      "last_updated": "2026-07-29T23:26:23Z",
+      "last_aligned": null
     }
   ],
   "impact_matrix": [
@@ -5909,6 +6163,15 @@
         "server/process-monitor.md",
         "server/session-management.md",
         "frontend/session-detail-panel.md"
+      ]
+    },
+    {
+      "change": "src/stores/promptSnippetStore.ts|src/components/session/PromptSnippetPicker.tsx|src/lib/promptSnippet*.ts",
+      "check": [
+        "frontend/saved-prompts.md",
+        "frontend/prompt-queue.md",
+        "frontend/queue-scheduler.md",
+        "frontend/client-persistence.md"
       ]
     }
   ]

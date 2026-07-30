@@ -12,7 +12,7 @@ Give the dashboard a single, predictable mount path: bootstrap persisted state, 
 
 | File | Role |
 |------|------|
-| `src/main.tsx` | App entry. Hydrates persisted queue stores from IndexedDB, then renders `<App>` (or `PopoutTerminalView` when `?popout=terminal`, or `PopoutProjectView` when `?popout=project`). Blocks Cmd/Ctrl+R / F5 reloads. Imports all theme CSS. |
+| `src/main.tsx` | App entry. Hydrates persisted queue stores from IndexedDB, then renders `<App>` (or a **lazily imported** `PopoutTerminalView` when `?popout=terminal`, or `PopoutProjectView` when `?popout=project`). Blocks Cmd/Ctrl+R / F5 reloads. Imports all theme CSS. |
 | `src/App.tsx` | Setup gate, `QueryClientProvider`, `BrowserRouter`, the `<Routes>` tree, `AppLayout` (shared chrome via `<Outlet>`), `Dashboard` (mounts WebSocket + workspace hooks + scheduler), Electron before-close save flow. |
 | `src/components/layout/TitleBar.tsx` | Fixed 28px draggable macOS-style title bar (z-index 99999) with Save & Quit button (Electron only). |
 | `src/components/layout/Header.tsx` | App title, workspace export/import menus, settings button, exit button. |
@@ -32,7 +32,9 @@ Give the dashboard a single, predictable mount path: bootstrap persisted state, 
 
 `main.tsx` first inspects the URL query string. If `?popout=terminal`, the window is a popped-out terminal (a fork float, or the main/commands terminal): it renders only `<PopoutTerminalView>` (inside a `BrowserRouter`), passing `terminalId`, `originSessionId`, and `label` query params — not the whole dashboard. If `?popout=project`, it renders only `<PopoutProjectView>` (which wraps the standalone `ProjectBrowserView`, reading `?path=`/`?file=`) — the content-only window opened by the PROJECT tab's **float** button. Any other URL bootstraps the full `<App>`.
 
-Otherwise it runs `bootstrap()`, which **awaits** `useQueueStore.loadFromDb()` and `useQueueHistoryStore.loadFromDb()` (IndexedDB hydration) **before** rendering `<App>`. This ordering is load-bearing: `<App>` mounts the WebSocket, and an incoming `session_update` carrying `replacesId` (a `claude --resume` re-key) calls `queueStore.migrateSession()` synchronously. If the queue map were not hydrated first, `migrateSession` would see an empty queue and orphan the loop under the old session id. `loadFromDb()` swallows its own errors, so a hydration failure still falls through to render.
+Both popout views are `lazy()`-imported **inside their own branch** and wrapped in `<Suspense fallback={null}>`. The three targets are mutually exclusive per window, so a static import made the dashboard load them too — and `PopoutProjectView` reaches `ProjectTab`, which pulls in `xlsx`, `react-arborist`, `highlight.js`, `DOMPurify` and the react-markdown stack. That single static import was the largest contributor to a 2.5 MB eager entry chunk.
+
+Otherwise it runs `bootstrap()`, which **awaits** `useQueueStore.loadFromDb()`, `useQueueHistoryStore.loadFromDb()` and `usePromptSnippetStore.loadFromDb()` (IndexedDB hydration, one `Promise.all`) **before** rendering `<App>`. This ordering is load-bearing: `<App>` mounts the WebSocket, and an incoming `session_update` carrying `replacesId` (a `claude --resume` re-key) calls `queueStore.migrateSession()` synchronously. If the queue map were not hydrated first, `migrateSession` would see an empty queue and orphan the loop under the old session id. `loadFromDb()` swallows its own errors, so a hydration failure still falls through to render. Only the queue store has the re-key ordering requirement; the history and [snippet](./saved-prompts.md) stores are global (not keyed by `sessionId`) and ride along in the same `await` so every Dexie read happens once, before first paint.
 
 A global `keydown` listener blocks Cmd+R / Ctrl+R / F5 to prevent accidental page reloads (which would lose all terminal sessions and in-memory state). All eight theme CSS files plus `light-overrides.css` are imported here so themes can be switched at runtime.
 
@@ -87,6 +89,23 @@ Opened when `uiStore.activeModal === 'global-search'` (bound to Cmd/Ctrl+Shift+F
 
 `sortSessionsByActivity()` orders pinned-first then most-recently-active first, deliberately ignoring status; sessions with no `lastActivityAt` sink to the bottom, and ties fall through to title then `sessionId` so the order stays total (untitled sessions would otherwise compare equal and let the stable sort inherit the caller's input order — i.e. the status sort this ordering exists to ignore). Used by SessionSwitcher when `uiStore.sessionSortMode === 'activity'`.
 
+### Bundle splitting
+
+Eagerly-parsed JS at boot is **1,228,804 bytes**, down from 2,523,500 — measured by walking the entry chunk's static import graph in `dist/client/`. The entry chunk has **zero** static chunk imports; everything else is reached through a `lazy()` boundary.
+
+`vite.config.ts` deliberately sets **no `manualChunks`**. Grouping vendors by name (`{ three: ['three', '@react-three/fiber'] }`) only renames bytes, and it backfires: Rollup assigns a package's shared dependencies to the same manual chunk, so `@react-three/fiber`'s copy of `zustand` landed in the `three` chunk and every eagerly-loaded store then statically imported it — dragging ~1.2 MB of Three.js into the boot path.
+
+What actually splits the bundle:
+1. `lazy()` boundaries — routes in `App.tsx`, popout views in `main.tsx`, PROJECT tab and AI POPUPS in `DetailPanel`.
+2. Keeping Three-free data out of Three-importing modules — [`robotPalette.ts`](../../../src/lib/robotPalette.ts), [`robotModelMeta.ts`](../../../src/lib/robotModelMeta.ts), [`roomGrid.ts`](../../../src/lib/roomGrid.ts).
+
+To verify after a change, list the entry chunk's static imports:
+```bash
+npm run build
+node -e "const s=require('fs').readFileSync(require('fs').readdirSync('dist/client/assets').filter(f=>/^index-.*\.js$/.test(f)).map(f=>'dist/client/assets/'+f)[0],'utf8');console.log([...new Set([...s.matchAll(/from\"(\.\/[^\"]+)\"/g)].map(m=>m[1]))])"
+```
+An empty array is the expected result.
+
 ## Dependencies & Connections
 
 **Depends on:**
@@ -115,6 +134,7 @@ Opened when `uiStore.activeModal === 'global-search'` (bound to Cmd/Ctrl+Shift+F
 
 - **Route element / lazy-import names** drift from `App.tsx` — keep the route table in sync with the actual `lazy()` imports and the standalone `/project-browser` exception.
 - **NAV_ITEMS** must match the `<Route path>` set; adding a nav link without a route (or vice-versa) produces dead links or unreachable views.
+- **A static import of a heavy component from `main.tsx`, `App.tsx` or `AppLayout` silently re-inflates the eager bundle** — those are the eager roots. Re-run the entry-chunk check above after adding an import there; no linter catches this.
 - **Bootstrap ordering** in `main.tsx` (await queue hydration → render → WS connect) is required for `migrateSession` correctness on `claude --resume` re-keys. Do not move rendering before `loadFromDb()`.
 - **App-wide modals/panels live in `AppLayout`**, so they unmount on the standalone `/project-browser` route — anything that must be globally available there needs separate mounting.
 - **GlobalSearchModal** reads only in-memory session arrays (`promptHistory`/`responseLog`/`toolLog`/`events`); it does not hit the DB, so ended/evicted sessions won't appear. The 100-hit / 200-char caps are intentional performance limits.

@@ -1,6 +1,6 @@
 /**
- * AutocompleteTextarea — controlled textarea with `/` slash-command + `@`
- * file-reference autocomplete.
+ * AutocompleteTextarea — controlled textarea with `/` slash-command,
+ * `$` Codex-skill and `@` file-reference autocomplete.
  *
  * Originally inlined in `QueueTab.tsx`. Lifted out so the same UX is
  * available in `QueueItemEditModal` (main prompt + every before/after
@@ -9,6 +9,10 @@
  * Behavior:
  *   - Typing `/foo` at start-of-text or after whitespace fetches the session's
  *     CLI command/skill index, filtered by the fragment, and shows a dropdown.
+ *   - Typing `$foo` lists Codex SKILLS. Codex is the only CLI that addresses
+ *     skills this way, so the `$` menu is Codex-only — on a Claude/Gemini
+ *     session `$` stays inert (prompts are full of `$HOME`-style text and a
+ *     dropdown on every one of them would be noise).
  *   - Typing `@foo` does the same for project files (debounced 150 ms).
  *   - ArrowUp / ArrowDown navigate; Enter inserts; Escape closes.
  *   - Cmd/Ctrl+Enter and other modifier-keys fall through to the parent's
@@ -28,9 +32,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   fetchCommandIndex,
   filterAndGroup,
-  entryDisplayName,
+  entryToken,
   type CommandGroup,
 } from '@/lib/commandIndex';
+import { parseTrigger, type TriggerType } from '@/lib/autocompleteTrigger';
 import { detectCli } from '@/lib/cliDetect';
 import { useSessionStore } from '@/stores/sessionStore';
 import styles from '@/styles/modules/AutocompleteTextarea.module.css';
@@ -44,7 +49,7 @@ interface AcItem {
 }
 
 interface AcMenu {
-  type: 'command' | 'file';
+  type: TriggerType;
   query: string;
   items: AcItem[];
   groups?: Array<{ title: string; startIdx: number; count: number }>;
@@ -76,24 +81,6 @@ interface AutocompleteTextareaProps {
 
 const DROPDOWN_MIN_DOWN_HEIGHT = 220;
 
-function parseTrigger(
-  text: string,
-  pos: number,
-): { type: 'command' | 'file'; query: string; triggerStart: number } | null {
-  const before = text.slice(0, pos);
-  const atIdx = before.lastIndexOf('@');
-  if (atIdx >= 0 && (atIdx === 0 || /\s/.test(before[atIdx - 1]))) {
-    const frag = before.slice(atIdx + 1);
-    if (!frag.includes(' ')) return { type: 'file', query: frag, triggerStart: atIdx };
-  }
-  const slashIdx = before.lastIndexOf('/');
-  if (slashIdx >= 0 && (slashIdx === 0 || /\s/.test(before[slashIdx - 1]))) {
-    const frag = before.slice(slashIdx + 1);
-    if (!frag.includes(' ')) return { type: 'command', query: frag, triggerStart: slashIdx };
-  }
-  return null;
-}
-
 function commandEntriesToMenu(groups: CommandGroup[]): {
   items: AcItem[];
   groupSpans: Array<{ title: string; startIdx: number; count: number }>;
@@ -103,10 +90,13 @@ function commandEntriesToMenu(groups: CommandGroup[]): {
   for (const g of groups) {
     const startIdx = items.length;
     for (const e of g.entries) {
-      const display = entryDisplayName(e);
+      // `entryToken` owns the sigil so a Codex skill inserts `$name` while
+      // everything else inserts `/name` — deriving it per entry keeps the two
+      // menus from ever disagreeing with what the CLI accepts.
+      const token = entryToken(e);
       items.push({
-        label: '/' + display,
-        insert: '/' + display,
+        label: token,
+        insert: token,
         sub: e.description || (e.kind === 'skill' ? 'skill' : 'command'),
         kind: e.kind,
       });
@@ -116,6 +106,23 @@ function commandEntriesToMenu(groups: CommandGroup[]): {
     }
   }
   return { items, groupSpans };
+}
+
+/**
+ * Merge the group lists of several `filterAndGroup` passes, preserving the
+ * first list's group order and concatenating entries that share a title.
+ */
+function mergeGroups(lists: CommandGroup[][]): CommandGroup[] {
+  const merged = new Map<string, CommandGroup>();
+  const order: string[] = [];
+  for (const g of lists.flat()) {
+    if (!merged.has(g.title)) {
+      merged.set(g.title, { title: g.title, source: g.source, entries: [] });
+      order.push(g.title);
+    }
+    merged.get(g.title)!.entries.push(...g.entries);
+  }
+  return order.map((k) => merged.get(k)!);
 }
 
 function sessionCli(sessionId: string): 'claude' | 'codex' | 'gemini' {
@@ -167,13 +174,20 @@ export default function AutocompleteTextarea({
         return;
       }
 
-      if (trigger.type === 'command') {
+      if (trigger.type === 'command' || trigger.type === 'skill') {
         const cli = sessionCli(sessionId);
+        // Codex is the only CLI with a `$skill` syntax. Elsewhere a `$` is
+        // ordinary prompt text (`$HOME`, `$1`, a price) — leave it alone.
+        if (trigger.type === 'skill' && cli !== 'codex') {
+          setAcMenu(null);
+          return;
+        }
+        const menuType = trigger.type;
         setAcMenu((prev) =>
-          prev?.type === 'command'
+          prev?.type === menuType
             ? { ...prev, query: trigger.query, triggerStart: trigger.triggerStart, selectedIdx: 0 }
             : {
-                type: 'command',
+                type: menuType,
                 query: trigger.query,
                 items: [],
                 groups: [],
@@ -183,23 +197,16 @@ export default function AutocompleteTextarea({
         );
         void (async () => {
           const entries = await fetchCommandIndex(cli, projectPath ?? null);
-          const cmdGroups = filterAndGroup(entries, trigger.query, 'command');
-          const skillGroups = filterAndGroup(entries, trigger.query, 'skill');
-          const merged = new Map<string, CommandGroup>();
-          const order: string[] = [];
-          for (const g of [...cmdGroups, ...skillGroups]) {
-            const key = g.title;
-            if (!merged.has(key)) {
-              merged.set(key, { title: g.title, source: g.source, entries: [] });
-              order.push(key);
-            }
-            merged.get(key)!.entries.push(...g.entries);
-          }
+          // `/` on Codex lists prompts only — its skills are `$`-invocable, so
+          // offering them here would queue a prompt the CLI silently ignores.
+          // Claude/Gemini reach both tiers through `/`, commands first.
+          const kinds: Array<'command' | 'skill'> =
+            menuType === 'skill' ? ['skill'] : cli === 'codex' ? ['command'] : ['command', 'skill'];
           const { items, groupSpans } = commandEntriesToMenu(
-            order.map((k) => merged.get(k)!),
+            mergeGroups(kinds.map((k) => filterAndGroup(entries, trigger.query, k))),
           );
           setAcMenu((prev) =>
-            prev && prev.type === 'command' && prev.triggerStart === trigger.triggerStart
+            prev && prev.type === menuType && prev.triggerStart === trigger.triggerStart
               ? { ...prev, items, groups: groupSpans, selectedIdx: 0 }
               : prev,
           );
