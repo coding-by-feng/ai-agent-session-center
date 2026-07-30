@@ -6,7 +6,6 @@ PLAN.md
 TEAM_PROMPT.md
 CLAUDE.md
 .claude
-.github
 .playwright-mcp/
 .playwright-cli/
 test-results/
