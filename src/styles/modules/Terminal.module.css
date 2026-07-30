@@ -212,9 +212,16 @@
 .queuePanel.collapsed .queueBody { display: none !important; }
 
 /* Compose row */
-.queueCompose { display: flex; gap: 6px; margin-bottom: 6px; border: 1px solid transparent; border-radius: 4px; transition: border-color 0.15s; }
+/* Wraps so the 4-button cluster drops to its own line rather than starving the
+   textarea. With four buttons (keep / library / attach / ADD) a docked-left
+   panel squeezed the input to a ~70px sliver before it ever visibly clipped —
+   technically inside its box, useless to type in. The `200px` flex-basis is the
+   wrap threshold: below it the buttons take line two and the textarea keeps the
+   full width of line one. */
+.queueCompose { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; border: 1px solid transparent; border-radius: 4px; transition: border-color 0.15s; }
 .queueComposeDragOver { border-color: var(--accent-cyan, #00e5ff); background: rgba(0, 229, 255, 0.05); }
-.queueTextarea { flex: 1; width: auto; background: rgba(255,255,255,0.04); border: 1px solid var(--border-subtle, rgba(255,255,255,0.08)); border-radius: 4px; color: var(--text-primary, #e0e0e0); font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 11px; padding: 6px 8px; resize: vertical; line-height: 1.5; box-shadow: none; }
+.queueComposeActions { display: flex; align-items: flex-end; gap: 6px; flex-shrink: 0; margin-left: auto; }
+.queueTextarea { flex: 1 1 200px; min-width: 0; width: auto; background: rgba(255,255,255,0.04); border: 1px solid var(--border-subtle, rgba(255,255,255,0.08)); border-radius: 4px; color: var(--text-primary, #e0e0e0); font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 11px; padding: 6px 8px; resize: vertical; line-height: 1.5; box-shadow: none; }
 .queueTextarea::placeholder { color: var(--text-dim); font-style: italic; }
 .queueTextarea:focus { outline: none; border-color: var(--accent-cyan, #00e5ff); box-shadow: none; }
 .queueAddBtn { align-self: flex-end; padding: 4px 10px; font-size: 10px; margin-top: 0; }
@@ -237,9 +244,10 @@
 .queueDragHandle:active { cursor: grabbing; }
 .queueItem:hover .queueDragHandle { opacity: 0.9; color: var(--accent-cyan, #00e5ff); }
 .queueText { flex: 1; color: var(--text-primary, #e0e0e0); font-size: 11px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 1; }
-/* flex-wrap + right-justify so a crowded action group (once = 7 buttons, loop
-   adds ⚡NOW) wraps to a second line at very narrow panel widths instead of
-   overflowing the row's right border — the viewport-safety rule. */
+/* flex-wrap + right-justify so the action group (7 buttons: ▲ ▼ ★ SEND|⚡NOW
+   EDIT MOVE DEL — the 4th slot is one or the other, never both) wraps to a
+   second line at very narrow panel widths instead of overflowing the row's
+   right border — the viewport-safety rule. */
 .queueActions { display: none; gap: 4px; opacity: 1; flex-wrap: wrap; justify-content: flex-end; }
 .queueItem:hover .queueActions { display: flex; }
 .queueActionBtn { background: transparent; border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary, #888); font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 9px; font-weight: 600; letter-spacing: 0.5px; padding: 1px 5px; border-radius: 3px; cursor: pointer; }
@@ -349,6 +357,119 @@
 .queueReorder:hover:not(:disabled) { color: var(--accent-cyan, #00e5ff); background: rgba(0, 229, 255, 0.1); border-color: rgba(0, 229, 255, 0.3); }
 .queueReorder:disabled { opacity: 0.25; cursor: default; }
 
+/* ---- Move-to-session picker -------------------------------------------------
+   Mirrors the shared Select dropdown (Select.module.css .dropdown/.item) so the
+   list reads as themed chrome instead of a raw slab. Every colour comes from a
+   theme token that actually exists — an earlier version keyed off an undefined
+   `--surface-card`, so it always fell back to hard-coded dark navy and rendered
+   near-black theme text on it. Placement is owned by the component: it portals
+   this node to <body> and writes fixed `top`/`left` from the MOVE button's rect
+   (prefer-below, flip-up, clamp). Do not re-add `top`/`right` anchors here. */
+.queueMovePicker {
+  /* `fixed` + portaled to <body>: the rows sit inside `.queueBody`, a 250px
+     `overflow-y: auto` box that clips absolutely-positioned children on both
+     axes. `top`/`left` are written inline by computeMovePickerPosition(). */
+  position: fixed;
+  z-index: 50;
+  min-width: 180px;
+  max-width: min(320px, 90vw);
+  width: max-content;
+  max-height: 200px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--bg-card, #12122a);
+  border: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15));
+  border-radius: 4px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.35),
+    0 0 12px var(--glow-accent, rgba(0, 229, 255, 0.15));
+  padding: 4px 0;
+  outline: none;
+  animation: queue-move-picker-in 0.15s ease-out;
+}
+.queueMovePickerLabel {
+  padding: 3px 10px 5px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border-faint, rgba(255, 255, 255, 0.03));
+  color: var(--text-dim, #555577);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.queueMovePickerItem {
+  display: block;
+  width: 100%;
+  padding: 5px 10px;
+  background: transparent;
+  border: none;
+  border-left: 2px solid transparent;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+/* Truncation lives on this inner span, not the button — Chromium does not
+   apply text-overflow to a <button>'s anonymous inner box, so a long session
+   title would hard-cut mid-word with no ellipsis. */
+.queueMovePickerRow {
+  display: block;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.queueMovePickerItem:hover,
+.queueMovePickerItemActive {
+  background: var(--bg-accent, rgba(0, 229, 255, 0.1));
+  border-left-color: var(--accent-cyan, #00e5ff);
+}
+.queueMovePickerItem:hover .queueMovePickerProject,
+.queueMovePickerItemActive .queueMovePickerProject {
+  color: var(--accent-cyan, #00e5ff);
+}
+.queueMovePickerItem:focus-visible {
+  outline: none;
+  background: var(--bg-accent-strong, rgba(0, 229, 255, 0.15));
+  border-left-color: var(--accent-cyan, #00e5ff);
+}
+
+.queueMovePickerProject {
+  color: var(--text-primary, #e0e0ff);
+  font-weight: 600;
+  transition: color 0.1s;
+}
+.queueMovePickerTitle { color: var(--text-secondary, #8888aa); }
+
+.queueMovePickerEmpty {
+  padding: 8px 10px;
+  color: var(--text-dim, #555577);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  text-align: center;
+}
+
+.queueMovePicker::-webkit-scrollbar { width: 4px; }
+.queueMovePicker::-webkit-scrollbar-track { background: transparent; }
+.queueMovePicker::-webkit-scrollbar-thumb {
+  background: var(--border-accent-strong, rgba(0, 229, 255, 0.3));
+  border-radius: 2px;
+}
+
+/* Fade only — no transform. The component re-measures this node with
+   getBoundingClientRect() on every scroll/resize to keep it glued to its
+   trigger, and that rect includes any active transform — so an animated
+   translate/scale would feed corrupted geometry back into the placement. */
+@keyframes queue-move-picker-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* Queue animations */
 .queueItem.entering { animation: queue-item-enter 0.3s ease-out forwards; }
 .queueItem.popping { animation: queue-item-pop 0.25s ease-in forwards; }
@@ -358,13 +479,27 @@
 @keyframes queue-item-pop { 0% { opacity: 1; transform: translateX(0); } 100% { opacity: 0; transform: translateX(30px); } }
 
 /* Queue edit textarea */
-.queueEditTextarea { width: 100%; flex: 1; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(0, 229, 255, 0.4); color: var(--text-primary); font-family: var(--font-mono); font-size: 11px; padding: 6px 8px; border-radius: 4px; resize: vertical; outline: none; transition: border-color 0.2s; }
-.queueEditTextarea:focus { border-color: rgba(0, 229, 255, 0.6); }
-.queueEdit.saving { color: var(--accent-green); border-color: rgba(0, 255, 136, 0.3); background: rgba(0, 255, 136, 0.1); }
-
 /* Queue image attachment */
 .queueAttachBtn { align-self: flex-end; padding: 4px 7px; font-size: 10px; margin-top: 0; color: var(--text-secondary); }
 .queueAttachBtn:hover { color: var(--accent-cyan); }
+
+/* Saved-prompt controls next to a prompt box: bookmark = keep THIS text,
+   bookmark-stack = open the library. Purple so neither reads as the row-level
+   ★ (yellow, saves a whole queue item) or as the cyan attach/ADD actions. */
+.queueSnippetBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-end;
+  padding: 4px 7px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text-secondary);
+}
+.queueSnippetBtn:hover:not(:disabled) { color: var(--accent-purple, #aa66ff); }
+.queueSnippetBtn:disabled { opacity: 0.3; cursor: default; }
+.queueSnippetBtnOn { color: var(--accent-purple, #aa66ff); }
+.queueEditImageRow .queueSnippetBtn { align-self: center; }
 
 .queueComposeImages { display: flex; flex-wrap: wrap; gap: 4px; padding: 3px 0 2px; }
 
@@ -446,6 +581,17 @@
 
 .chainAddBtn { align-self: flex-start; background: transparent; border: 1px dashed rgba(0,229,255,0.3); color: var(--accent-cyan); font-family: var(--font-mono); font-size: 10px; padding: 3px 10px; border-radius: 3px; cursor: pointer; margin-top: 4px; }
 .chainAddBtn:hover { background: rgba(0,229,255,0.08); border-style: solid; }
+
+/* "+ Add step" and "From saved…" share a wrapping row so the pair never
+   overflows the modal body at a narrow window width. */
+.chainSectionActions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.chainFromSavedBtn { border-color: rgba(170,102,255,0.35); color: var(--accent-purple, #aa66ff); display: inline-flex; align-items: center; gap: 5px; }
+.chainFromSavedBtn:hover { background: rgba(170,102,255,0.08); border-style: solid; }
+
+/* Per-step "keep this text" — icon-only so a chain row stays ↑ ↓ 🔖 ✕. */
+.chainStepIconBtn { display: inline-flex; align-items: center; justify-content: center; padding: 3px 5px; }
+.chainStepIconBtn:hover:not(:disabled) { background: rgba(170,102,255,0.1); color: var(--accent-purple, #aa66ff); border-color: rgba(170,102,255,0.3); }
+.chainStepIconBtnOn { color: var(--accent-purple, #aa66ff); border-color: rgba(170,102,255,0.35); }
 
 .chainMainTextarea { background: rgba(0,229,255,0.04); border: 1px solid rgba(0,229,255,0.3); border-radius: 4px; color: var(--text-primary); font-family: var(--font-mono); font-size: 12px; padding: 8px 10px; resize: vertical; min-height: 60px; }
 .chainMainTextarea:focus { outline: none; border-color: var(--accent-cyan); background: rgba(0,229,255,0.06); }

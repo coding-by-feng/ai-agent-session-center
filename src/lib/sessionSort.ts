@@ -12,6 +12,7 @@
  * Both keep pinned sessions on top: pinning is an explicit user intent that
  * outranks whatever the list is ordered by.
  */
+import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import type { Session } from '@/types/session';
 
 export const STATUS_ORDER: Record<string, number> = {
@@ -26,7 +27,7 @@ export function sortSessions(sessions: Session[]): Session[] {
     const oa = STATUS_ORDER[a.status] ?? 5;
     const ob = STATUS_ORDER[b.status] ?? 5;
     if (oa !== ob) return oa - ob;
-    return (a.title || 'Unnamed').localeCompare(b.title || 'Unnamed');
+    return sessionDisplayTitle(a).localeCompare(sessionDisplayTitle(b));
   });
 }
 
@@ -47,7 +48,7 @@ export function sortSessionsByActivity(sessions: Session[]): Session[] {
     const ta = a.lastActivityAt ?? 0;
     const tb = b.lastActivityAt ?? 0;
     if (ta !== tb) return tb - ta;
-    const byTitle = (a.title || 'Unnamed').localeCompare(b.title || 'Unnamed');
+    const byTitle = sessionDisplayTitle(a).localeCompare(sessionDisplayTitle(b));
     if (byTitle !== 0) return byTitle;
     return (a.sessionId || '').localeCompare(b.sessionId || '');
   });

@@ -348,6 +348,25 @@ export function getSessionDetail(id: string): SessionDetailResponse | null {
   };
 }
 
+/**
+ * Persist one prompt at full length.
+ *
+ * The in-memory `promptHistory` is capped and may truncate long prompts
+ * (`server/sessionTrim.ts`), and `upsertSession` re-inserts from that capped
+ * copy — so this must be called with the ORIGINAL text *before* the trimmed
+ * entry is pushed. `insertPrompt` is `INSERT OR IGNORE` against
+ * `UNIQUE(session_id, timestamp)`, so the full row written here wins and the
+ * later truncated re-insert is ignored. Pass the same timestamp used for the
+ * in-memory entry or the dedup key won't match and you'll store both.
+ */
+export function insertFullPrompt(sessionId: string, text: string, timestamp: number): void {
+  try {
+    stmts.insertPrompt.run(sessionId, text, timestamp);
+  } catch {
+    // Non-fatal: the capped copy still reaches the DB via upsertSession.
+  }
+}
+
 /** Return persisted prompts for a session — used to restore promptHistory after a server clear-all. */
 export function getPromptsForSession(id: string): Array<{ text: string; timestamp: number }> {
   return (stmts.getPromptsBySession.all(id) as DbPromptRow[]).map((r) => ({

@@ -16,6 +16,7 @@ import FindInFileBar, { highlightFindMatches } from './FindInFileBar';
 import TexViewer from './TexViewer';
 import { useNavigate } from 'react-router';
 import { listFavoritedByFile } from '@/lib/translationLog';
+import { setProjectEditing } from '@/lib/projectEditGuard';
 import { makeSavedSelectionsPlugin, type SavedSelectionTerm } from '@/lib/rehypeSavedSelections';
 import {
   DEFAULT_VIEW,
@@ -101,6 +102,12 @@ interface SearchResult {
   name: string;
   type: 'dir' | 'file';
 }
+
+/**
+ * How many files keep their decoded content cached per project tab. Sized to
+ * cover a realistic set of open tabs while bounding what one tab can retain.
+ */
+const MAX_CACHED_FILES = 12;
 
 function formatSize(bytes?: number): string {
   if (bytes == null) return '';
@@ -949,8 +956,47 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // File content cache — preserves content when switching between tabs
+  // File content cache — preserves content when switching between tabs, ordered
+  // least- → most-recently-used (see cacheFile/touchCachedFile).
   const fileCacheRef = useRef(new Map<string, FileContent>());
+
+  // Mirrors the on-screen file path so eviction never revokes a blob URL that a
+  // live <iframe>/<img> is still pointing at.
+  const activeFilePathRef = useRef<string | null>(null);
+  useEffect(() => { activeFilePathRef.current = file?.path ?? null; }, [file?.path]);
+
+  /** Mark a cached file most-recently-used without changing its contents. */
+  const touchCachedFile = useCallback((path: string) => {
+    const cache = fileCacheRef.current;
+    const cached = cache.get(path);
+    if (!cached) return;
+    cache.delete(path);
+    cache.set(path, cached);
+  }, []);
+
+  /**
+   * Cache a loaded file, then evict least-recently-used entries past the cap.
+   *
+   * Entries hold the file's full decoded content — plus parsed Excel sheets,
+   * mammoth-rendered Word HTML, and blob URLs for PDFs and images — so browsing
+   * a repo for a while retained tens of MB per mounted tab with nothing to
+   * reclaim it. Closing a tab already prunes its entry (handleTabClose); this
+   * bounds the ones left open.
+   */
+  const cacheFile = useCallback((path: string, data: FileContent) => {
+    const cache = fileCacheRef.current;
+    cache.delete(path);
+    cache.set(path, data);
+    for (const candidate of Array.from(cache.keys())) {
+      if (cache.size <= MAX_CACHED_FILES) break;
+      // Never evict what was just loaded, nor what is currently rendered —
+      // revoking either one's blob URL would blank the viewer.
+      if (candidate === path || candidate === activeFilePathRef.current) continue;
+      const evicted = cache.get(candidate);
+      if (evicted?.blobUrl?.startsWith('blob:')) URL.revokeObjectURL(evicted.blobUrl);
+      cache.delete(candidate);
+    }
+  }, []);
 
   // Clean up cached blob URLs on unmount
   useEffect(() => {
@@ -1225,7 +1271,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         }
       }
       // Cache the file content for instant tab switching
-      fileCacheRef.current.set(relPath, data);
+      cacheFile(relPath, data);
       setFile(data);
       setCurrentPath(relPath);
       onPathChange?.(relPath, true);
@@ -1243,7 +1289,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     } finally {
       setLoading(false);
     }
-  }, [projectPath, onPathChange, provider]);
+  }, [projectPath, onPathChange, provider, cacheFile]);
 
   // Load initial path on mount — restore persisted active file tab, or fall back to initialPath.
   // In VS Code layout, the tree handles directory browsing, so we never need to call loadDir on mount.
@@ -1422,6 +1468,9 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     // Use cached content for instant tab switching
     const cached = fileCacheRef.current.get(tab.path);
     if (cached) {
+      // Revisiting from cache still counts as use — without this the file on
+      // screen could age out and have its blob URL revoked underneath it.
+      touchCachedFile(tab.path);
       setFile(cached);
       setCurrentPath(tab.path);
       setActiveTabPath(tab.path);
@@ -1431,7 +1480,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     } else {
       loadFile(tab.path);
     }
-  }, [loadFile, onPathChange, saveCurrentScroll]);
+  }, [loadFile, onPathChange, saveCurrentScroll, touchCachedFile]);
 
   const handleTabClose = useCallback((tabPath: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1447,6 +1496,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
           // Use cache for the fallback tab too
           const fallback = fileCacheRef.current.get(last.path);
           if (fallback) {
+            touchCachedFile(last.path);
             setFile(fallback);
             setCurrentPath(last.path);
             setActiveTabPath(last.path);
@@ -1462,7 +1512,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
       }
       return next;
     });
-  }, [activeTabPath, loadFile, loadDir, onPathChange]);
+  }, [activeTabPath, loadFile, loadDir, onPathChange, touchCachedFile]);
 
   // Search select
   const handleSearchSelect = useCallback((result: SearchResult) => {
@@ -1533,6 +1583,18 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
     setMdEdit(false);
     setMdDraft('');
   }, []);
+
+  // Report unsaved editor state so DetailPanel's LRU never unmounts this
+  // container mid-edit. Neither draft below is persisted anywhere, so eviction
+  // would silently discard whatever the user has typed.
+  const editorId = persistId ?? projectPath;
+  const hasUnsavedEdit =
+    (mdEdit && mdDraft !== (file?.content ?? '')) ||
+    (editingNewFile !== null && newFileContent !== '');
+  useEffect(() => {
+    setProjectEditing(originSessionId, editorId, hasUnsavedEdit);
+    return () => setProjectEditing(originSessionId, editorId, false);
+  }, [originSessionId, editorId, hasUnsavedEdit]);
 
   // New folder
   const handleNewFolder = useCallback(async (name: string) => {

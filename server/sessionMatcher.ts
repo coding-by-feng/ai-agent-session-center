@@ -1,12 +1,14 @@
 /**
  * @module sessionMatcher
  * 5-priority session matching system that maps incoming hook events to existing sessions.
- * Priorities: pendingResume > agent_terminal_id > workDir link > path scan > PID fallback.
+ * Priorities: pendingResume > agent_terminal_id > workDir link > path scan > PID
+ * fallback > terminal adoption.
  * Also detects hook source (terminal type) from environment variables.
  */
 import { tryLinkByWorkDir, getTerminalByPtyChild, consumePendingLink } from './sshManager.js';
 import { EVENT_TYPES, SESSION_STATUS, ANIMATION_STATE } from './constants.js';
 import log from './logger.js';
+import { toArchivedSession } from './sessionTrim.js';
 import type { Session, SessionSource, SshConfig, PendingResume } from '../src/types/session.js';
 import type { HookPayloadBase } from '../src/types/hook.js';
 
@@ -68,16 +70,11 @@ export function reKeyResumedSession(
     const lastPrev = oldSession.previousSessions?.[oldSession.previousSessions.length - 1];
     if (!lastPrev || lastPrev.sessionId !== oldSessionId) {
       if (!oldSession.previousSessions) oldSession.previousSessions = [];
+      // Archived under the OLD id — this is a re-key, so the session's own
+      // `sessionId` has not been rewritten to `oldSessionId`.
       oldSession.previousSessions.push({
+        ...toArchivedSession(oldSession),
         sessionId: oldSessionId,
-        startedAt: oldSession.startedAt,
-        endedAt: oldSession.endedAt,
-        promptHistory: [...oldSession.promptHistory],
-        toolLog: [...(oldSession.toolLog || [])],
-        responseLog: [...(oldSession.responseLog || [])],
-        events: [...oldSession.events],
-        toolUsage: { ...oldSession.toolUsage },
-        totalToolCalls: oldSession.totalToolCalls,
       });
       if (oldSession.previousSessions.length > 5) oldSession.previousSessions.shift();
     }
@@ -212,6 +209,9 @@ function findSshConfig(
  *   Priority 2: tryLinkByWorkDir matching
  *   Priority 3: scan pre-created sessions by path
  *   Priority 4: PID parent check
+ *   Priority 4.5: terminal adoption — re-key the sole owner of agent_terminal_id
+ *              on ANY event, covering a lost SessionStart. Without it a single
+ *              dropped startup hook splits one session into two cards.
  *   Priority 5: external fallback — a real session the dashboard didn't launch.
  *              Previously dropped ("SSH-only mode"); now surfaced as an external
  *              card so every live session is traced.
@@ -546,6 +546,48 @@ export function matchSession(
           }
         }
       }
+      // Priority 4.5: terminal adoption — the last resort before minting a card.
+      // Every re-key path above (0.5, 1, 1b, 2, 3) is gated on SESSION_START. If
+      // that single hook is lost — MQ truncation, a dropped hook, or an agent that
+      // re-keys its own session id mid-flight without re-firing SessionStart — the
+      // next PreToolUse falls through to Priority 5, which mints a SECOND card bound
+      // to the same live PTY. The origin card is then stranded in ENDED (the Terminal
+      // tab offers "Reconnect" for a session that is very much alive) while its
+      // untitled twin surfaces as "Unnamed" in the Common Area.
+      //
+      // So: if exactly one session already owns this terminal, adopt it whatever the
+      // event type. Deliberately narrower than it looks —
+      //   • sole owner only; 2+ is ambiguous and falls through, as everywhere else
+      //   • CONNECTING placeholders are Priority 3's job, not ours
+      //   • SessionEnd/Stop excluded — a late teardown hook from a dead thread must
+      //     not drag an active card backward (the same reason 1b is startup-gated)
+      //   • subagent hooks excluded — teamManager owns those under their parent
+      if (!found && hookData.agent_terminal_id) {
+        const termId = hookData.agent_terminal_id;
+        const isTeardown = hook_event_name === EVENT_TYPES.SESSION_END
+          || hook_event_name === EVENT_TYPES.STOP;
+        const isSubagent = !!(hookData.parent_session_id || hookData.agent_name);
+        if (!isTeardown && !isSubagent) {
+          const owners: Array<{ key: string; s: Session }> = [];
+          for (const [key, s] of sessions) {
+            if (key === termId) continue; // Priority 1's case
+            if (s.status === SESSION_STATUS.CONNECTING) continue; // Priority 3's case
+            if (s.terminalId === termId || s.lastTerminalId === termId) {
+              owners.push({ key, s });
+            }
+          }
+          if (owners.length === 1) {
+            const { key, s } = owners[0];
+            session = reKeyResumedSession(sessions, s, session_id, key, pidToSession);
+            consumePendingLink(s.projectPath || '');
+            found = true;
+            log.info('session', `ADOPTED terminal ${termId} — re-keyed ${key?.slice(0, 8)} -> ${session_id?.slice(0, 8)} (no SessionStart observed; first event=${hook_event_name})`);
+          } else if (owners.length > 1) {
+            log.info('session', `SKIP terminal adoption: ${owners.length} sessions own ${termId} — ambiguous, creating new card`);
+          }
+        }
+      }
+
       if (!found) {
         // Priority 5: external fallback. The hook belongs to a real Claude session
         // that the dashboard did not launch (external terminal, or started before

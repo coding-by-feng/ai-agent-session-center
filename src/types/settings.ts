@@ -115,4 +115,8 @@ export interface BrowserSettings {
    *  restored when a terminal reconnects / the app reloads / a session resumes.
    *  Default 2 MB; clamped to [0.25 MB, 32 MB] on the backend. */
   terminalReplayBufferBytes: number;
+  /** How many lines a live xterm instance keeps in its own scrollback. Distinct
+   *  from the replay buffer: this is renderer memory, roughly cols × 12 bytes
+   *  per retained line. Default 20 000; clamped to [1 000, 200 000]. */
+  terminalScrollbackLines: number;
 }

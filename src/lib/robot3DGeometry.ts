@@ -9,12 +9,11 @@ import * as THREE from 'three';
 // Color Palette (16 cyberpunk neon colors)
 // ---------------------------------------------------------------------------
 
-export const PALETTE = [
-  '#00f0ff', '#ff00aa', '#a855f7', '#00ff88',
-  '#ff4444', '#ffaa00', '#00aaff', '#ff66ff',
-  '#44ff44', '#ff8800', '#8855ff', '#00ffcc',
-  '#ff0066', '#ccff00', '#ff5577', '#33ddff',
-] as const;
+// Lives in its own Three-free module so 2D consumers (DetailPanel,
+// FloatingTerminalPanel) can import the colors without pulling in Three.js.
+// Re-exported here so 3D code keeps its single import site.
+export { PALETTE } from './robotPalette';
+import { PALETTE } from './robotPalette';
 
 // ---------------------------------------------------------------------------
 // Shared Body Geometries (10 parts)

@@ -1,7 +1,26 @@
 // test/mqReader.test.js — Tests for JSONL parsing logic
 // Since mqReader.js has heavy side effects (fs.watch, file I/O, process-level state),
 // we test the JSONL parsing and line-splitting logic in isolation.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// sessionStore/apiRouter open better-sqlite3 at module scope via db.ts. Stub it so
+// this suite stays runnable when the native module's ABI doesn't match the local
+// Node — otherwise the whole file fails at import and silently covers nothing.
+vi.mock('../server/db.js', () => ({
+  upsertSession: vi.fn(),
+  updateSessionTitle: vi.fn(),
+  updateSessionSummary: vi.fn(),
+  updateSessionRemark: vi.fn(),
+  updateSessionArchived: vi.fn(),
+  migrateSessionId: vi.fn(),
+  getPromptsForSession: vi.fn(() => []),
+  insertFullPrompt: vi.fn(),
+  getRecentSessions: vi.fn(() => []),
+  getSessionById: vi.fn(() => null),
+  deleteSession: vi.fn(),
+  default: {},
+}));
+
 
 // Simulate the core JSONL line-splitting logic from mqReader.readNewLines
 function parseJsonlChunk(partialLine, chunk) {

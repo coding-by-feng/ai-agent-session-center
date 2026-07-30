@@ -2,7 +2,12 @@ import { create } from 'zustand';
 import { db } from '@/lib/db';
 import type { BrowserSettings, SoundSettings, LabelAlarmSettings, AmbientSettings, CliSoundConfig } from '@/types';
 import type { SoundAction, SoundName } from '@/lib/soundEngine';
-import { DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES, clampReplayBufferBytes } from '@/types/terminal';
+import {
+  DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES,
+  clampReplayBufferBytes,
+  DEFAULT_TERMINAL_SCROLLBACK_LINES,
+  clampScrollbackLines,
+} from '@/types/terminal';
 
 // ---------------------------------------------------------------------------
 // Theme definitions (matching original 9 themes)
@@ -283,6 +288,7 @@ interface SettingsState extends BrowserSettings {
   setGroupBy: (groupBy: BrowserSettings['groupBy']) => void;
   setSortBy: (sortBy: BrowserSettings['sortBy']) => void;
   setTerminalReplayBufferBytes: (bytes: number) => void;
+  setTerminalScrollbackLines: (lines: number) => void;
   setScene3dEnabled: (enabled: boolean) => void;
   setToastEnabled: (enabled: boolean) => void;
   setAutoSendQueue: (enabled: boolean) => void;
@@ -337,6 +343,7 @@ const defaultSettings: SettingsData = {
   groupBy: 'none',
   sortBy: 'activity',
   terminalReplayBufferBytes: DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES,
+  terminalScrollbackLines: DEFAULT_TERMINAL_SCROLLBACK_LINES,
   themeName: 'command-center',
   fontSize: 13,
   scanlineEnabled: true,
@@ -558,6 +565,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const clamped = clampReplayBufferBytes(bytes);
     set({ terminalReplayBufferBytes: clamped });
     get().persistSetting('terminalReplayBufferBytes', clamped);
+  },
+
+  setTerminalScrollbackLines: (lines) => {
+    const clamped = clampScrollbackLines(lines);
+    set({ terminalScrollbackLines: clamped });
+    get().persistSetting('terminalScrollbackLines', clamped);
   },
 
   setScene3dEnabled: (scene3dEnabled) => {

@@ -13,6 +13,13 @@ import { reapPtyChildren } from './processMonitor.js';
 import { appendSessionName, applyClaudeLaunchFlags, withClaudeTuiEnvDefaults } from './config.js';
 import type { Terminal, TerminalConfig, TerminalInfo, TmuxSessionInfo, SshKeyInfo } from '../src/types/terminal.js';
 import { DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES, clampReplayBufferBytes } from '../src/types/terminal.js';
+import {
+  createRing,
+  ringWrite as writeRing,
+  ringSnapshot as snapshotRing,
+  ringLength as lengthOfRing,
+  ringReset as resetRing,
+} from './ptyRing.js';
 import type { PendingLink } from '../src/types/session.js';
 import type WebSocket from 'ws';
 
@@ -179,7 +186,10 @@ const terminals = new Map<string, Terminal>();
 // a terminal reconnects / the app reloads / a session resumes. Configurable via
 // Settings ▸ ADVANCED ▸ Terminal; pushed from the browser through
 // POST /api/config/terminal-buffer → setReplayBufferBytes(). Applies to terminals
-// created AFTER the change (the ring is pre-allocated once at create time).
+// created AFTER the change: each terminal captures this value as its ring's
+// `cap` at create time. The ring itself starts at INITIAL_RING_BYTES and doubles
+// toward that cap as output arrives, so idle terminals do not hold the full slab
+// (see ./ptyRing.ts).
 let replayBufferBytes = DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES;
 
 /**
@@ -193,53 +203,29 @@ export function setReplayBufferBytes(bytes: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// Ring-buffer helpers — pre-allocated slab + write offset, O(1) append.
+// Ring-buffer helpers — lazily grown slab + write offset, O(1) append.
 // Replaces the old Buffer.concat-every-chunk approach which was O(n) per write
 // and allocated garbage for every PTY data event.
 // ---------------------------------------------------------------------------
 
+// Terminal-shaped adapters over ./ptyRing.ts, which owns the buffer mechanics
+// (and is unit-tested in test/ptyRing.test.ts). Kept so the call sites below read
+// as `ringWrite(term, chunk)` rather than reaching into `term.outputRing`.
+
 function ringWrite(term: Terminal, chunk: Buffer): void {
-  const cap = term.outputRing.length;
-  if (chunk.length >= cap) {
-    // Incoming chunk larger than the ring — keep only the tail.
-    chunk.copy(term.outputRing, 0, chunk.length - cap);
-    term.outputOffset = 0;
-    term.outputWrapped = true;
-    return;
-  }
-  const tail = cap - term.outputOffset;
-  if (chunk.length <= tail) {
-    chunk.copy(term.outputRing, term.outputOffset);
-    term.outputOffset += chunk.length;
-    if (term.outputOffset === cap) {
-      term.outputOffset = 0;
-      term.outputWrapped = true;
-    }
-  } else {
-    chunk.copy(term.outputRing, term.outputOffset, 0, tail);
-    chunk.copy(term.outputRing, 0, tail);
-    term.outputOffset = chunk.length - tail;
-    term.outputWrapped = true;
-  }
+  writeRing(term.outputRing, chunk);
 }
 
 function ringSnapshot(term: Terminal): Buffer {
-  if (!term.outputWrapped) return term.outputRing.slice(0, term.outputOffset);
-  return Buffer.concat([
-    term.outputRing.slice(term.outputOffset),
-    term.outputRing.slice(0, term.outputOffset),
-  ]);
+  return snapshotRing(term.outputRing);
 }
 
 function ringLength(term: Terminal): number {
-  return term.outputWrapped ? term.outputRing.length : term.outputOffset;
+  return lengthOfRing(term.outputRing);
 }
 
 function ringReset(term: Terminal, preload?: Buffer): void {
-  term.outputRing.fill(0);
-  term.outputOffset = 0;
-  term.outputWrapped = false;
-  if (preload && preload.length > 0) ringWrite(term, preload);
+  resetRing(term.outputRing, preload);
 }
 
 // Pending links: workingDir -> array of { terminalId, host, createdAt }.
@@ -482,9 +468,7 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
         config: { ...config, workingDir: workDir },
         wsClient,
         createdAt: Date.now(),
-        outputRing: Buffer.alloc(replayBufferBytes),
-        outputOffset: 0,
-        outputWrapped: false,
+        outputRing: createRing(replayBufferBytes),
         shellReady,
       });
 
@@ -726,9 +710,7 @@ export function attachToTmuxPane(tmuxPaneId: string, wsClient: WebSocket | null)
         config: { host: 'localhost', workingDir: homedir(), command: `tmux (pane ${tmuxPaneId})` },
         wsClient,
         createdAt: Date.now(),
-        outputRing: Buffer.alloc(replayBufferBytes),
-        outputOffset: 0,
-        outputWrapped: false,
+        outputRing: createRing(replayBufferBytes),
       });
 
       // Stream output to WebSocket client + buffer for replay
@@ -978,6 +960,27 @@ export function getTerminalForSession(sessionId: string): string | null {
 }
 
 // Find terminal whose pty is the parent of the given child PID
+/**
+ * Resolve a PTY's own shell pid to its terminal id — a pure Map scan, no syscall.
+ *
+ * The syscall-free half of `getTerminalByPtyChild` below. That function shells out
+ * to `ps -o ppid=` with **execSync**, which makes it unusable from the external
+ * discovery interval (a sync process spawn there blocks the event loop and stalls
+ * hook processing / WS relays). The discovery scan already collects each candidate's
+ * ppid asynchronously in its existing `ps` batch, so it calls this instead.
+ *
+ * `term.pty.pid` is the login shell node-pty spawned; an agent started inside the
+ * terminal (`PTY → /bin/zsh -l → claude`) has that shell as its direct parent, so
+ * ppid → terminal is an exact 1:1 mapping — unlike cwd, which many sessions share.
+ */
+export function getTerminalByPtyPid(ptyPid: number | null | undefined): string | null {
+  if (!ptyPid || ptyPid <= 0) return null;
+  for (const [terminalId, term] of terminals) {
+    if (term.pty && term.pty.pid === ptyPid) return terminalId;
+  }
+  return null;
+}
+
 export function getTerminalByPtyChild(childPid: number): string | null {
   const validPid = validatePid(childPid);
   if (!validPid) return null;
@@ -1052,8 +1055,10 @@ export function prefillTerminalOutput(terminalId: string, base64Data: string): b
   const existing = ringSnapshot(term);
   const combined = Buffer.concat([saved, existing]);
   // Trim to this terminal's own ring capacity (set when it was created — which
-  // may differ from the current global setting).
-  const cap = term.outputRing.length;
+  // may differ from the current global setting). Must read `.cap`, NOT
+  // `.buf.length`: the ring grows lazily, so its current allocation is usually
+  // far below the cap and would truncate the restored scrollback.
+  const cap = term.outputRing.cap;
   const trimmed = combined.length > cap
     ? combined.slice(combined.length - cap)
     : combined;
@@ -1071,6 +1076,7 @@ export function getTerminals(): TerminalInfo[] {
       workingDir: term.config.workingDir,
       command: term.config.command,
       createdAt: term.createdAt,
+      isOps: term.config.isOps === true,
     });
   }
   return result;

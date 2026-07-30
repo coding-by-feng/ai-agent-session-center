@@ -6,7 +6,7 @@
  */
 import { execSync, execFileSync, execFile } from 'child_process';
 import { promisify } from 'util';
-import { getTerminalForSession } from './sshManager.js';
+import { getTerminalForSession, getTerminalByPtyPid } from './sshManager.js';
 
 const execFileAsync = promisify(execFile);
 import { SESSION_STATUS, ANIMATION_STATE, WS_TYPES } from './constants.js';
@@ -130,10 +130,23 @@ export interface DiscoveredProcess {
   pid: number;
   tty: string;
   cwd: string;
+  /**
+   * Parent pid — the login shell the agent runs under. When that shell is one of
+   * our own PTYs, this process is dashboard-launched, not external. This is the
+   * only *exact* ownership signal available: cwd is shared by many sessions, but
+   * ppid → PTY → session is 1:1. Resolved via `getTerminalByPtyPid` (no syscall).
+   */
+  ppid: number | null;
   /** Parsed `-n <label>` session name, if present. */
   name: string | null;
   /** Parsed `--model <id>`, if present. */
   model: string | null;
+}
+
+/** Parse a `ps -o ppid=` line into a pid, or null. */
+function parsePpid(out: string): number | null {
+  const n = parseInt(out.trim(), 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 /** True only for an interactive `claude` CLI — not daemon/pty-host/mcp/print infra. */
@@ -207,28 +220,45 @@ async function discoverExternalSessions(
   if (pids.length === 0) return;
 
   // Everything already bound to a session (by hook or a prior discovery pass).
-  const tracked = new Set<number>(pidToSession.keys());
-  for (const s of sessions.values()) if (s.cachedPid) tracked.add(s.cachedPid);
+  // `external-<pid>` cards are deliberately NOT treated as tracked: their pid must
+  // be re-examined every pass so a card minted before its owning PTY could be
+  // identified gets reconciled away (registerDiscovered replaces it with a binding
+  // onto the real session). Without this they would be permanently self-shielding.
+  const discoveredIds = new Set<string>();
+  for (const [id, s] of sessions) if (id.startsWith('external-') && s.cachedPid) discoveredIds.add(id);
+  const tracked = new Set<number>();
+  for (const [pid, sid] of pidToSession) if (!discoveredIds.has(sid)) tracked.add(pid);
+  for (const [id, s] of sessions) if (s.cachedPid && !discoveredIds.has(id)) tracked.add(s.cachedPid);
 
   for (const pid of pids) {
     if (tracked.has(pid)) continue;
     let args = '';
     let tty = '';
+    let ppid: number | null = null;
     try {
-      const [aRes, tRes] = await Promise.all([
+      const [aRes, tRes, pRes] = await Promise.all([
         execFileAsync('ps', ['-o', 'args=', '-p', String(pid)], { timeout: 3000 }),
         execFileAsync('ps', ['-o', 'tty=', '-p', String(pid)], { timeout: 3000 }),
+        execFileAsync('ps', ['-o', 'ppid=', '-p', String(pid)], { timeout: 3000 }),
       ]);
       args = aRes.stdout.trim();
       tty = tRes.stdout.trim();
+      ppid = parsePpid(pRes.stdout);
     } catch {
       continue; // process vanished between pgrep and ps
     }
     if (!isInteractiveClaude(args)) continue;
     if (!tty || tty === '??' || tty === '?') continue; // interactive sessions have a real tty
+    // A pid already held by a discovered card is re-examined every pass (see the
+    // `tracked` note above) so a card minted before its PTY became identifiable can
+    // be reconciled away. Once the parent is visibly NOT one of ours the session is
+    // genuinely external and nothing will change — skip it before paying for the
+    // comparatively expensive cwd lookup below.
+    if (pidToSession.has(pid) && !getTerminalByPtyPid(ppid)) continue;
     registerDiscovered({
       pid,
       tty,
+      ppid,
       cwd: await resolveCwd(pid),
       name: parseNameFlag(args),
       model: parseModelFlag(args),
@@ -246,6 +276,8 @@ export function startExternalDiscovery(
   sessions: Map<string, Session>,
   pidToSession: Map<number, string>,
   registerDiscovered: (proc: DiscoveredProcess) => void,
+  /** Post-pass cleanup of duplicate cards left by earlier passes/builds. */
+  reconcile?: () => number,
 ): void {
   if (discoveryInterval) return;
   if (process.platform === 'win32') return;
@@ -253,6 +285,11 @@ export function startExternalDiscovery(
     if (discoveryRunning) return;
     discoveryRunning = true;
     void discoverExternalSessions(sessions, pidToSession, registerDiscovered)
+      // Runs after the pass so it sees the pid bindings the scan just made.
+      .then(() => {
+        const dropped = reconcile?.() ?? 0;
+        if (dropped > 0) log.info('session', `external discovery: reconciled away ${dropped} duplicate card(s)`);
+      })
       .catch((e: unknown) => log.debug('session', `external discovery pass failed: ${(e as Error).message}`))
       .finally(() => {
         discoveryRunning = false;

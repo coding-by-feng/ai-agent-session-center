@@ -1,6 +1,25 @@
 // test/apiRouter.test.js — Integration tests for API endpoints
 // Tests validation logic via actual HTTP requests to a test server
-import { describe, it, beforeAll, afterAll, expect } from 'vitest';
+import { describe, it, beforeAll, afterAll, expect, vi } from 'vitest';
+
+// sessionStore/apiRouter open better-sqlite3 at module scope via db.ts. Stub it so
+// this suite stays runnable when the native module's ABI doesn't match the local
+// Node — otherwise the whole file fails at import and silently covers nothing.
+vi.mock('../server/db.js', () => ({
+  upsertSession: vi.fn(),
+  updateSessionTitle: vi.fn(),
+  updateSessionSummary: vi.fn(),
+  updateSessionRemark: vi.fn(),
+  updateSessionArchived: vi.fn(),
+  migrateSessionId: vi.fn(),
+  getPromptsForSession: vi.fn(() => []),
+  insertFullPrompt: vi.fn(),
+  getRecentSessions: vi.fn(() => []),
+  getSessionById: vi.fn(() => null),
+  deleteSession: vi.fn(),
+  default: {},
+}));
+
 import express from 'express';
 import { createServer } from 'http';
 import { handleEvent as rawHandleEvent, getAllSessions, setSessionTitle } from '../server/sessionStore.js';

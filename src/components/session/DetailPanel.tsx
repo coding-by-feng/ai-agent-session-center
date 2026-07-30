@@ -3,7 +3,7 @@
  * Uses ResizablePanel for width adjustment.
  * Ported from public/js/detailPanel.js.
  */
-import { useState, useCallback, useEffect, useMemo, useRef, memo, type ReactNode } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef, memo, lazy, Suspense, type ReactNode } from 'react';
 import type { Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
@@ -12,10 +12,11 @@ import { useRoomStore } from '@/stores/roomStore';
 import ResizablePanel from '@/components/ui/ResizablePanel';
 import DetailTabs from './DetailTabs';
 import ConversationView from './ConversationView';
-import AiPopupHistory from './AiPopupHistory';
+// AI POPUPS is an on-demand tab, but a static import still put its
+// react-markdown/remark dependency (via PopupResponse) in the eager entry chunk.
+const AiPopupHistory = lazy(() => import('./AiPopupHistory'));
 import NotesTab from './NotesTab';
 import QueueTab from './QueueTab';
-import ProjectTabContainer from './ProjectTabContainer';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import SessionControlBar from './SessionControlBar';
 import SessionSwitcher from './SessionSwitcher';
@@ -23,10 +24,29 @@ import KillConfirmModal, { KILL_MODAL_ID } from './KillConfirmModal';
 import RoomKillConfirmModal from './RoomKillConfirmModal';
 import { ROOM_KILL_MODAL_ID } from '@/stores/uiStore';
 import TerminalContainer from '@/components/terminal/TerminalContainer';
-import { PALETTE } from '@/lib/robot3DGeometry';
+import { PALETTE } from '@/lib/robotPalette';
 import { formatDuration, getStatusLabel } from '@/lib/format';
 import { detectCli } from '@/lib/cliDetect';
+import { isProjectEditing } from '@/lib/projectEditGuard';
+import { retainRecentProjects, isMostRecentProject } from '@/lib/mountedProjectsLru';
+import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import styles from '@/styles/modules/DetailPanel.module.css';
+
+/**
+ * The PROJECT subtree is the heaviest import in the app — ProjectTab alone pulls
+ * in xlsx, highlight.js, DOMPurify, react-arborist and the
+ * react-markdown/remark/rehype stack, most of what used to be a 2.5 MB eager
+ * entry chunk. Loading it on demand keeps that out of every renderer's boot
+ * path, including pop-out windows that never show a project tab.
+ */
+const ProjectTabContainer = lazy(() => import('./ProjectTabContainer'));
+
+/**
+ * How many sessions keep a mounted ProjectTabContainer at once — the active one
+ * plus the two previous, so the common alt-tab-between-two-sessions flow stays
+ * instant. See the LRU comment on `visitedProjects` for why this is capped.
+ */
+const MAX_MOUNTED_PROJECTS = 3;
 
 // ---------------------------------------------------------------------------
 // LazyModal — only mounts children when the modal is active.
@@ -358,7 +378,19 @@ function DraggableMiniBadge({
       }}
     >
       <span style={{ fontSize: 10 }}>&#x25B2;</span>
-      {title}
+      {/* Bounded: this badge is position:fixed and sizes to its content, so an
+          untruncated title would push it past the viewport edge. Full text stays
+          available via the `title` tooltip above. */}
+      <span
+        style={{
+          maxWidth: 220,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {title}
+      </span>
     </div>
   );
 }
@@ -389,18 +421,34 @@ export default function DetailPanel() {
   if (session) lastSessionRef.current = session;
   const displaySession = session ?? lastSessionRef.current;
 
-  // Track all sessions that have been visited so their ProjectTabContainers stay mounted.
-  // Each entry maps sessionId → { projectPath, sessionId } for rendering.
+  // Recently-visited sessions whose ProjectTabContainers stay mounted, ordered
+  // least- → most-recently-used (Map preserves insertion order; the active
+  // session is re-inserted on every visit so it is always last).
+  //
+  // This is an LRU rather than "every session ever visited": each mounted
+  // container holds a react-arborist file tree, its own file-content cache,
+  // rendered markdown, and — for PDFs — an <iframe> that costs a whole
+  // Chromium pdf-renderer process. Keeping them all alive grew the renderer
+  // past 400 MB over a day of use, with orphaned pdf-renderer helpers left
+  // behind. Open file tabs, sub-tabs and scroll positions are persisted to
+  // localStorage by ProjectTabContainer/ProjectTab, so an evicted session
+  // re-hydrates its layout on the next visit instead of losing it.
   const [visitedProjects, setVisitedProjects] = useState<Map<string, { projectPath: string; sessionId: string }>>(new Map());
   useEffect(() => {
     if (!displaySession?.projectPath || !displaySession?.sessionId) return;
     setVisitedProjects((prev) => {
-      if (prev.has(displaySession.sessionId)) return prev;
+      const sessionId = displaySession.sessionId;
+      const oldId = displaySession.replacesId;
+      const needsRekey = Boolean(oldId && prev.has(oldId));
+
+      // Already the most-recently-used entry and nothing to migrate — leaving
+      // the Map identity alone avoids a pointless re-render of every container.
+      if (!needsRekey && isMostRecentProject(prev, sessionId)) return prev;
+
       const next = new Map(prev);
 
       // When session is re-keyed (e.g. after /clear), migrate localStorage keys
       // from old sessionId to new so file tabs and project sub-tabs are preserved.
-      const oldId = displaySession.replacesId;
       if (oldId && prev.has(oldId)) {
         next.delete(oldId);
         // Migrate project-tabs localStorage
@@ -428,11 +476,13 @@ export default function DetailPanel() {
         } catch { /* ignore migration errors */ }
       }
 
-      next.set(displaySession.sessionId, {
-        projectPath: displaySession.projectPath!,
-        sessionId: displaySession.sessionId,
-      });
-      return next;
+      return retainRecentProjects(
+        next,
+        sessionId,
+        { projectPath: displaySession.projectPath!, sessionId },
+        MAX_MOUNTED_PROJECTS,
+        isProjectEditing,
+      );
     });
   }, [displaySession?.sessionId, displaySession?.projectPath, displaySession?.replacesId]);
 
@@ -625,7 +675,7 @@ export default function DetailPanel() {
   if (detailPanelMinimized) {
     return (
       <DraggableMiniBadge
-        title={displaySession.title || 'Unnamed'}
+        title={sessionDisplayTitle(displaySession)}
         color={neonColor}
         onRestore={restoreDetailPanel}
       />
@@ -683,10 +733,12 @@ export default function DetailPanel() {
             />
           }
           aiPopupsContent={
-            <AiPopupHistory
-              sessionId={displaySession.sessionId}
-              projectPath={displaySession.projectPath}
-            />
+            <Suspense fallback={<div className={styles.tabEmpty}>Loading…</div>}>
+              <AiPopupHistory
+                sessionId={displaySession.sessionId}
+                projectPath={displaySession.projectPath}
+              />
+            </Suspense>
           }
           notesContent={<NotesTab sessionId={displaySession.sessionId} projectPath={displaySession.projectPath} />}
           queueContent={
@@ -699,20 +751,24 @@ export default function DetailPanel() {
           projectContent={
             displaySession.projectPath
               ? <div style={{ position: 'relative', flex: 1, minHeight: 0, overflow: 'hidden', height: '100%' }}>
-                  {Array.from(visitedProjects.entries()).map(([sid, info]) => {
-                    const isActive = sid === displaySession.sessionId;
-                    return (
-                      <div key={sid} style={{
-                        position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
-                        visibility: isActive ? 'visible' : 'hidden',
-                        pointerEvents: isActive ? 'auto' : 'none',
-                        zIndex: isActive ? 1 : 0,
-                        display: 'flex', flexDirection: 'column',
-                      }}>
-                        <ProjectTabContainer projectPath={info.projectPath} sessionId={info.sessionId} />
-                      </div>
-                    );
-                  })}
+                  {/* One boundary around the whole set: the chunk is shared, so
+                      once it resolves every mounted container renders at once. */}
+                  <Suspense fallback={<div className={styles.tabEmpty}>Loading project browser…</div>}>
+                    {Array.from(visitedProjects.entries()).map(([sid, info]) => {
+                      const isActive = sid === displaySession.sessionId;
+                      return (
+                        <div key={sid} style={{
+                          position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+                          visibility: isActive ? 'visible' : 'hidden',
+                          pointerEvents: isActive ? 'auto' : 'none',
+                          zIndex: isActive ? 1 : 0,
+                          display: 'flex', flexDirection: 'column',
+                        }}>
+                          <ProjectTabContainer projectPath={info.projectPath} sessionId={info.sessionId} />
+                        </div>
+                      );
+                    })}
+                  </Suspense>
                 </div>
               : <div className={styles.tabEmpty}>No project path detected for this session</div>
           }

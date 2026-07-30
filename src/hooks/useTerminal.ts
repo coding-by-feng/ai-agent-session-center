@@ -10,6 +10,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { resolveTheme } from '@/components/terminal/themes';
 import { useUiStore } from '@/stores/uiStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { createFilePathRegex, mapLineColumns } from '@/lib/filePathLink';
 import { openTerminalUrl, TERMINAL_LINK_HANDLER } from '@/lib/terminalLinkHandler';
 
@@ -327,6 +328,15 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   const savedScrollRef = useRef<Map<string, number>>(new Map());
   const themeNameRef = useRef(themeName);
   const wsRef = useRef(ws);
+  /**
+   * xterm scrollback depth, read through a ref so changing the setting does not
+   * tear down and re-open the live terminal. xterm applies `scrollback` at
+   * construction, so a new value takes effect on the next terminal opened —
+   * same "applies to newly created terminals" rule as the replay buffer.
+   */
+  const scrollbackLines = useSettingsStore((s) => s.terminalScrollbackLines);
+  const scrollbackLinesRef = useRef(scrollbackLines);
+  useEffect(() => { scrollbackLinesRef.current = scrollbackLines; }, [scrollbackLines]);
   /** Per-terminal auto-scroll state — each session keeps its own on/off. */
   const autoScrollMapRef = useRef<Map<string, boolean>>(new Map());
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(false);
@@ -569,11 +579,13 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           // Our handler accepts HTTP(S) only, then Electron routes the new-window
           // request to the system browser through setWindowOpenHandler.
           linkHandler: TERMINAL_LINK_HANDLER,
-          // Keep (effectively) all output. xterm allocates scrollback lazily, so
-          // this only consumes memory for lines actually produced — a runaway
-          // process is the only way to grow it large. The fold/unfold control
-          // (planned) is the lever to reclaim that memory on demand.
-          scrollback: 100_000,
+          // How many lines this terminal retains. xterm allocates scrollback
+          // lazily, but each retained line costs roughly cols × 12 bytes once
+          // written and is never reclaimed while the terminal lives, so a busy
+          // agent at the old hard-coded 100 000 could hold >100 MB in the
+          // renderer. Now a user setting (Settings ▸ ADVANCED ▸ Terminal),
+          // default 20 000 — still far deeper than the replay buffer restores.
+          scrollback: scrollbackLinesRef.current,
           convertEol: false,
           drawBoldTextInBrightColors: true,
           minimumContrastRatio: 1,

@@ -3,6 +3,12 @@
  * Features: compose + add, reorder (drag), edit, delete, send now,
  * move to another session, auto-send on "waiting" status.
  * Uses Terminal.module.css queue styles.
+ *
+ * EDIT opens `QueueItemEditModal` for EVERY item type — the same editor the
+ * history sheet's Edit button opens. There is deliberately no lightweight
+ * in-row textarea any more: squeezed between the position number and the action
+ * group it rendered as a sliver, and its autocomplete dropdown was clipped by
+ * `.queueBody`'s 250px scroll box. One editor, one behaviour, everywhere.
  */
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQueueStore, DEFAULT_AUTOMATION, type QueueItem, type QueueImageAttachment, type QueueItemType } from '@/stores/queueStore';
@@ -11,6 +17,7 @@ import {
   itemType,
   describeNextFire,
   formatInterval,
+  hasChain,
   isBeforeDailyStart,
   isExecuting,
   isItemInQuietHours,
@@ -22,9 +29,20 @@ import { parseHHMM } from '@/lib/timePicker';
 import { sendPromptToTerminal } from '@/lib/terminalSend';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useQueueHistoryStore } from '@/stores/queueHistoryStore';
+import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
 import { showToast } from '@/components/ui/ToastContainer';
 import AutocompleteTextarea from '@/components/ui/AutocompleteTextarea';
+import PromptSnippetPicker, {
+  BookmarkIcon,
+  BookmarkStackIcon,
+  SNIPPET_TRIGGER_ATTR,
+} from './PromptSnippetPicker';
+import { appendSnippet } from '@/lib/promptSnippetInsert';
 import QueueItemEditModal from './QueueItemEditModal';
+import QueueMovePicker, {
+  MOVE_TRIGGER_ATTR,
+  type QueueMoveTarget,
+} from './QueueMovePicker';
 import QueueHistorySheet from './QueueHistorySheet';
 import LoopExcludeWindowsModal from './LoopExcludeWindowsModal';
 import styles from '@/styles/modules/Terminal.module.css';
@@ -144,11 +162,11 @@ export default function QueueTab({
   /** Schedule one-shot run-at as a datetime-local string. */
   const [composeRunAt, setComposeRunAt] = useState<string>('');
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editText, setEditText] = useState('');
-  /** Item id currently open in the rich chain-edit modal. Mutually exclusive
-   *  with `editingId` (inline text-only edit). */
+  /** Item id open in the edit modal. EDIT on any row (once / loop / schedule)
+   *  sets this — there is no separate inline-edit mode. */
   const [chainEditId, setChainEditId] = useState<number | null>(null);
+  /** The compose row's "saved prompts" trigger, while its picker is open. */
+  const [snippetAnchor, setSnippetAnchor] = useState<HTMLElement | null>(null);
   const [collapsed, setCollapsed] = useState(() => {
     try {
       const stored = localStorage.getItem('queue-panel-collapsed');
@@ -165,6 +183,10 @@ export default function QueueTab({
   const setAutoSend = useQueueStore((s) => s.setAutoSend);
   const setAutoEnter = useQueueStore((s) => s.setAutoEnter);
   const [movingItemId, setMovingItemId] = useState<number | null>(null);
+  /** The MOVE button the picker hangs off. The picker portals out to <body>, so
+   *  it can no longer derive placement from its parent row — it needs the
+   *  trigger element itself to measure against. */
+  const [moveAnchor, setMoveAnchor] = useState<HTMLElement | null>(null);
   /** Id (not index) of the row being dragged — index is derived live so a
    *  concurrent scheduler add/remove can't shift it out from under the drag. */
   const [draggingId, setDraggingId] = useState<number | null>(null);
@@ -193,11 +215,12 @@ export default function QueueTab({
     return () => clearInterval(id);
   }, [hasLoopItem]);
 
-  // #13: Reset edit state when session changes
+  // #13: Reset transient row state when the session changes — an open modal or
+  // picker belongs to the session it was opened from.
   useEffect(() => {
-    setEditingId(null);
-    setEditText('');
+    setChainEditId(null);
     setMovingItemId(null);
+    setSnippetAnchor(null);
   }, [sessionId]);
 
   // Notify parent of queue count changes
@@ -392,43 +415,24 @@ export default function QueueTab({
     add,
   ]);
 
-  // ---- Edit item ----
-  const startEdit = useCallback((item: QueueItem) => {
-    // Time-based items get the rich 3-pane modal (type + chain + main); plain
-    // 'once' items use the lightweight inline text edit.
-    if (itemType(item) === 'once') {
-      setEditingId(item.id);
-      setEditText(item.text);
-    } else {
-      setChainEditId(item.id);
-    }
-  }, []);
+  // ---- Saved-prompt snippets (compose row) ----
+  const saveSnippet = usePromptSnippetStore((s) => s.save);
+  const composeSnippetSaved = usePromptSnippetStore((s) => s.hasText(composeText));
 
-  const saveEdit = useCallback(() => {
-    if (editingId === null) return;
-    const trimmed = editText.trim();
-    if (!trimmed) {
-      remove(sessionId, editingId);
+  const handleKeepComposeText = useCallback(async () => {
+    const result = await saveSnippet(composeText);
+    if (result.id == null) {
+      showToast(
+        composeText.trim() ? 'Could not save that prompt' : 'Nothing to save yet',
+        composeText.trim() ? 'error' : 'info',
+        2000,
+      );
+    } else if (result.duplicate) {
+      showToast('Already in saved prompts', 'info', 1500);
     } else {
-      // Update text in store: remove + re-add at same position
-      const idx = items.findIndex((i) => i.id === editingId);
-      if (idx >= 0) {
-        const updated: QueueItem = { ...items[idx], text: trimmed };
-        const newItems = [...items];
-        newItems[idx] = updated;
-        useQueueStore
-          .getState()
-          .reorder(
-            sessionId,
-            newItems.map((i) => i.id),
-          );
-        // Direct set to keep text change
-        useQueueStore.getState().setQueue(sessionId, newItems);
-      }
+      showToast('Saved for reuse', 'info', 1500);
     }
-    setEditingId(null);
-    setEditText('');
-  }, [editingId, editText, items, sessionId, remove]);
+  }, [saveSnippet, composeText]);
 
   // ---- Send now (first item or specific item) — only remove after successful send ----
   // Used for 'once' items: send the text and consume the queue entry. For loop
@@ -460,8 +464,12 @@ export default function QueueTab({
   const handleTriggerNow = useCallback(
     async (item: QueueItem) => {
       const t = itemType(item);
-      if (t === 'once') {
-        // 'once' items have no chain — keep the existing send-and-remove path.
+      if (t === 'once' && !hasChain(item)) {
+        // A plain 'once' item is a single prompt — keep the direct
+        // send-and-remove path. A CHAINED 'once' falls through to the
+        // forceStart path below so its before→main→after steps are driven by
+        // the scheduler (and paced by the saw-work gate) instead of being
+        // flattened to a single send that would silently drop the chain.
         await handleSendNow(item);
         return;
       }
@@ -506,14 +514,20 @@ export default function QueueTab({
   );
 
   // ---- Move to another session ----
+  /** Single close path, so the anchor never outlives the open picker. */
+  const closeMovePicker = useCallback(() => {
+    setMovingItemId(null);
+    setMoveAnchor(null);
+  }, []);
+
   const handleMoveConfirm = useCallback(
     (targetSessionId: string) => {
       if (movingItemId === null) return;
       moveToSession([movingItemId], sessionId, targetSessionId);
-      setMovingItemId(null);
+      closeMovePicker();
       showToast('Prompt moved', 'info', 2000);
     },
-    [movingItemId, sessionId, moveToSession],
+    [movingItemId, sessionId, moveToSession, closeMovePicker],
   );
 
   // ---- Drag reorder ----
@@ -583,9 +597,9 @@ export default function QueueTab({
   );
 
   // ---- Other sessions for move picker ----
-  const otherSessions = Array.from(sessions.entries()).filter(
-    ([id]) => id !== sessionId,
-  );
+  const moveTargets: QueueMoveTarget[] = Array.from(sessions.entries())
+    .filter(([id]) => id !== sessionId)
+    .map(([id, s]) => ({ id, projectName: s.projectName, title: s.title }));
 
   return (
     <div className={`${styles.queuePanel}${collapsed ? ` ${styles.collapsed}` : ''}`}>
@@ -717,6 +731,39 @@ export default function QueueTab({
             style={{ display: 'none' }}
             onChange={handleImageFiles}
           />
+          {/* Grouped so all four buttons wrap to a second line together instead
+              of squeezing the textarea to an unusable sliver in a narrow panel. */}
+          <div className={styles.queueComposeActions}>
+          {/* Keep / insert a saved prompt. Two distinct marks on purpose: the
+              single bookmark captures THIS text, the bookmark stack opens the
+              library. Both are separate from the row-level ★, which saves a
+              whole queue item (type + interval + chains) rather than text. */}
+          <button
+            className={`${styles.toolbarBtn} ${styles.queueSnippetBtn}${composeSnippetSaved ? ` ${styles.queueSnippetBtnOn}` : ''}`}
+            onClick={() => { void handleKeepComposeText(); }}
+            disabled={!composeText.trim()}
+            title={
+              composeSnippetSaved
+                ? 'Already in saved prompts'
+                : 'Keep this prompt for reuse in any prompt box'
+            }
+            aria-label="Keep prompt for reuse"
+          >
+            <BookmarkIcon filled={composeSnippetSaved} />
+          </button>
+          <button
+            className={`${styles.toolbarBtn} ${styles.queueSnippetBtn}`}
+            {...{ [SNIPPET_TRIGGER_ATTR]: 'compose' }}
+            onClick={(e) =>
+              setSnippetAnchor((prev) => (prev ? null : e.currentTarget))
+            }
+            aria-haspopup="dialog"
+            aria-expanded={snippetAnchor !== null}
+            title="Insert a saved prompt"
+            aria-label="Insert a saved prompt"
+          >
+            <BookmarkStackIcon />
+          </button>
           <button
             className={`${styles.toolbarBtn} ${styles.queueAttachBtn}`}
             onClick={handleImagePick}
@@ -733,6 +780,14 @@ export default function QueueTab({
           >
             ADD
           </button>
+          </div>
+          {snippetAnchor && (
+            <PromptSnippetPicker
+              anchor={snippetAnchor}
+              onInsert={(text) => setComposeText((prev) => appendSnippet(prev, text))}
+              onClose={() => setSnippetAnchor(null)}
+            />
+          )}
         </div>
 
         {/* Automation type selector — Once / Loop (interval) / Schedule (datetime).
@@ -827,86 +882,62 @@ export default function QueueTab({
                 onDrop={(e) => e.preventDefault()}
                 onDragEnd={handleDragEnd}
               >
-                {editingId !== item.id && (
-                  <span
-                    className={styles.queueDragHandle}
-                    title="Drag to reorder"
-                    aria-label="Drag to reorder"
-                    role="button"
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, item)}
-                  >
-                    <svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor" aria-hidden="true">
-                      <circle cx="2" cy="2" r="1" /><circle cx="6" cy="2" r="1" />
-                      <circle cx="2" cy="7" r="1" /><circle cx="6" cy="7" r="1" />
-                      <circle cx="2" cy="12" r="1" /><circle cx="6" cy="12" r="1" />
-                    </svg>
-                  </span>
-                )}
-                {editingId !== item.id && (
-                  <button
-                    className={`${styles.queueToggleBtn}${item.disabled ? ` ${styles.queueToggleBtnOff}` : ` ${styles.queueToggleBtnOn}`}`}
-                    onClick={(e) => { e.stopPropagation(); handleToggleEnabled(item); }}
-                    title={item.disabled ? 'Paused — click to enable' : 'Enabled — click to pause'}
-                    aria-label={item.disabled ? 'Enable item' : 'Pause item'}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
-                      <line x1="12" y1="2" x2="12" y2="12" />
-                    </svg>
-                  </button>
-                )}
+                <span
+                  className={styles.queueDragHandle}
+                  title="Drag to reorder"
+                  aria-label="Drag to reorder"
+                  role="button"
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, item)}
+                >
+                  <svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor" aria-hidden="true">
+                    <circle cx="2" cy="2" r="1" /><circle cx="6" cy="2" r="1" />
+                    <circle cx="2" cy="7" r="1" /><circle cx="6" cy="7" r="1" />
+                    <circle cx="2" cy="12" r="1" /><circle cx="6" cy="12" r="1" />
+                  </svg>
+                </span>
+                <button
+                  className={`${styles.queueToggleBtn}${item.disabled ? ` ${styles.queueToggleBtnOff}` : ` ${styles.queueToggleBtnOn}`}`}
+                  onClick={(e) => { e.stopPropagation(); handleToggleEnabled(item); }}
+                  title={item.disabled ? 'Paused — click to enable' : 'Enabled — click to pause'}
+                  aria-label={item.disabled ? 'Enable item' : 'Pause item'}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+                    <line x1="12" y1="2" x2="12" y2="12" />
+                  </svg>
+                </button>
                 <span className={styles.queuePos}>{idx + 1}</span>
 
-                {editingId === item.id ? (
-                  <AutocompleteTextarea
-                    className={styles.queueEditTextarea}
-                    value={editText}
-                    onChange={setEditText}
-                    sessionId={sessionId}
-                    projectPath={currentProjectPath}
-                    ariaLabel="Edit queue item"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                        e.preventDefault();
-                        saveEdit();
-                      }
-                      if (e.key === 'Escape') {
-                        setEditingId(null);
-                        setEditText('');
-                      }
-                    }}
-                    autoFocus
-                    rows={2}
-                  />
-                ) : (
-                  <div className={styles.queueTextCol}>
-                    {item.text && <span className={styles.queueText}>{item.text}</span>}
-                    {item.images && item.images.length > 0 && (
-                      <div className={styles.queueItemImages}>
-                        {item.images.map((img, i) => (
-                          <div key={i} className={styles.queueItemThumb} title={img.name}>
-                            <img src={img.dataUrl} alt={img.name} />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                <div className={styles.queueTextCol}>
+                  {item.text && <span className={styles.queueText}>{item.text}</span>}
+                  {item.images && item.images.length > 0 && (
+                    <div className={styles.queueItemImages}>
+                      {item.images.map((img, i) => (
+                        <div key={i} className={styles.queueItemThumb} title={img.name}>
+                          <img src={img.dataUrl} alt={img.name} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
-                {/* Type chip + next-fire + chain badge — hidden while editing */}
-                {editingId !== item.id && (() => {
+                {/* Type chip + next-fire + chain badge */}
+                {(() => {
                   const t = itemType(item);
-                  if (t === 'once') return null;
+                  const beforeCount = item.beforeChain?.length ?? 0;
+                  const afterCount = item.afterChain?.length ?? 0;
+                  const chained = beforeCount + afterCount > 0;
+                  // A plain 'once' row has nothing to report. A CHAINED 'once'
+                  // does — it shows its chain badge / step progress, but no type
+                  // chip and no next-fire (it has no cadence, it drains on demand).
+                  if (t === 'once' && !chained) return null;
                   const chipClass =
                     t === 'loop' ? styles.queueTypeChipLoop : styles.queueTypeChipSchedule;
                   const chipLabel =
                     t === 'loop'
                       ? `⟳ ${item.intervalMs ? formatInterval(item.intervalMs) : 'loop'}`
                       : '🕐 sched';
-                  const beforeCount = item.beforeChain?.length ?? 0;
-                  const afterCount = item.afterChain?.length ?? 0;
-                  const hasChain = beforeCount + afterCount > 0;
                   const total = totalChainSteps(item);
                   const cur = currentChainStep(item);
                   // Loops silenced by per-item or session-level quiet hours
@@ -921,7 +952,9 @@ export default function QueueTab({
                   const beforeDailyStart = isBeforeDailyStart(item, Date.now());
                   return (
                     <span className={styles.queueItemMeta}>
-                      <span className={`${styles.queueTypeChip} ${chipClass}`}>{chipLabel}</span>
+                      {t !== 'once' && (
+                        <span className={`${styles.queueTypeChip} ${chipClass}`}>{chipLabel}</span>
+                      )}
                       {item.disabled ? (
                         <span className={`${styles.queueNextFire} ${styles.queueNextFirePaused}`}>
                           — paused —
@@ -930,7 +963,7 @@ export default function QueueTab({
                         <span className={styles.queueNextFire}>
                           step {cur}/{total}
                         </span>
-                      ) : inQuietHours ? (
+                      ) : t === 'once' ? null : inQuietHours ? (
                         <span className={`${styles.queueNextFire} ${styles.queueNextFirePaused}`}>
                           — in quiet hours —
                         </span>
@@ -941,9 +974,12 @@ export default function QueueTab({
                       ) : (
                         <span className={styles.queueNextFire}>{describeNextFire(item)}</span>
                       )}
-                      {hasChain && !isExecuting(item) && !item.disabled && (
+                      {chained && !isExecuting(item) && !item.disabled && (
                         <span className={styles.queueNextFire}>
-                          · {beforeCount > 0 ? `${beforeCount} before` : ''}
+                          {/* On a 'once' row this badge leads the meta group,
+                              so it must not open with a dangling separator. */}
+                          {t !== 'once' ? '· ' : ''}
+                          {beforeCount > 0 ? `${beforeCount} before` : ''}
                           {beforeCount > 0 && afterCount > 0 ? ' · ' : ''}
                           {afterCount > 0 ? `${afterCount} after` : ''}
                         </span>
@@ -955,165 +991,119 @@ export default function QueueTab({
                   );
                 })()}
 
+                {/* 7 buttons in fixed order — ▲ ▼ ★ SEND|⚡ NOW EDIT MOVE DEL
+                    (the 4th slot is SEND for an unchained 'once' and ⚡ NOW for
+                    everything else, never both). `.queueActions` wraps rather
+                    than overflowing the row at narrow panel widths. */}
                 <div className={styles.queueActions}>
-                  {editingId === item.id ? (
+                  <button
+                    className={`${styles.queueActionBtn} ${styles.queueReorder}`}
+                    onClick={() => handleMove(item, -1)}
+                    disabled={idx === 0}
+                    title="Move up"
+                    aria-label="Move up"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    className={`${styles.queueActionBtn} ${styles.queueReorder}`}
+                    onClick={() => handleMove(item, 1)}
+                    disabled={idx === items.length - 1}
+                    title="Move down"
+                    aria-label="Move down"
+                  >
+                    ▼
+                  </button>
+                  <button
+                    className={`${styles.queueFavBtn}${item.historyId != null ? ` ${styles.queueFavBtnOn}` : ''}`}
+                    onClick={() => { void handleToggleFavorite(item); }}
+                    title={
+                      item.historyId != null
+                        ? 'Saved to history — click to remove'
+                        : 'Save to history — reuse this in other sessions later'
+                    }
+                    aria-label="Toggle favorite"
+                  >
+                    {item.historyId != null ? '★' : '☆'}
+                  </button>
+                  {/* A chained 'once' gets ⚡ NOW, not SEND: SEND flattens
+                      the item to a single `item.text` write and removes it,
+                      which would silently drop the configured chain. */}
+                  {itemType(item) === 'once' && !hasChain(item) ? (
                     <button
-                      className={`${styles.queueActionBtn} ${styles.queueEdit} ${styles.saving}`}
-                      onClick={saveEdit}
+                      className={`${styles.queueActionBtn} ${styles.queueSend}`}
+                      onClick={() => handleSendNow(item)}
+                      title="Send now (and remove)"
                     >
-                      SAVE
+                      SEND
                     </button>
                   ) : (
-                    <>
-                      <button
-                        className={`${styles.queueActionBtn} ${styles.queueReorder}`}
-                        onClick={() => handleMove(item, -1)}
-                        disabled={idx === 0}
-                        title="Move up"
-                        aria-label="Move up"
-                      >
-                        ▲
-                      </button>
-                      <button
-                        className={`${styles.queueActionBtn} ${styles.queueReorder}`}
-                        onClick={() => handleMove(item, 1)}
-                        disabled={idx === items.length - 1}
-                        title="Move down"
-                        aria-label="Move down"
-                      >
-                        ▼
-                      </button>
-                      <button
-                        className={`${styles.queueFavBtn}${item.historyId != null ? ` ${styles.queueFavBtnOn}` : ''}`}
-                        onClick={() => { void handleToggleFavorite(item); }}
-                        title={
-                          item.historyId != null
-                            ? 'Saved to history — click to remove'
-                            : 'Save to history — reuse this in other sessions later'
-                        }
-                        aria-label="Toggle favorite"
-                      >
-                        {item.historyId != null ? '★' : '☆'}
-                      </button>
-                      {itemType(item) === 'once' ? (
-                        <button
-                          className={`${styles.queueActionBtn} ${styles.queueSend}`}
-                          onClick={() => handleSendNow(item)}
-                          title="Send now (and remove)"
-                        >
-                          SEND
-                        </button>
-                      ) : (
-                        <button
-                          className={`${styles.queueActionBtn} ${styles.queueTriggerNow}`}
-                          onClick={() => { void handleTriggerNow(item); }}
-                          disabled={item.disabled || isExecuting(item) || automationConfig.paused}
-                          title={
-                            item.disabled
-                              ? 'Paused — re-enable this item to fire it'
-                              : isExecuting(item)
-                                ? 'Chain already running…'
-                                : automationConfig.paused
-                                  ? 'Session automation paused — Resume to fire'
-                                  : itemType(item) === 'loop'
-                                    ? 'Fire now — runs the full before→main→after chain in sequence, then restarts the cadence'
-                                    : 'Fire now — runs the full before→main→after chain in sequence, then removes'
-                          }
-                        >
-                          ⚡ NOW
-                        </button>
-                      )}
-                      <button
-                        className={`${styles.queueActionBtn} ${styles.queueEdit}`}
-                        onClick={() => startEdit(item)}
-                        title="Edit"
-                      >
-                        EDIT
-                      </button>
-                      <button
-                        className={`${styles.queueActionBtn} ${styles.queueMove}`}
-                        onClick={() =>
-                          setMovingItemId(
-                            movingItemId === item.id ? null : item.id,
-                          )
-                        }
-                        title="Move to another session"
-                      >
-                        MOVE
-                      </button>
-                      <button
-                        className={`${styles.queueActionBtn} ${styles.queueDelete}`}
-                        onClick={() => remove(sessionId, item.id)}
-                        title="Remove"
-                      >
-                        DEL
-                      </button>
-                    </>
+                    <button
+                      className={`${styles.queueActionBtn} ${styles.queueTriggerNow}`}
+                      onClick={() => { void handleTriggerNow(item); }}
+                      disabled={item.disabled || isExecuting(item) || automationConfig.paused}
+                      title={
+                        item.disabled
+                          ? 'Paused — re-enable this item to fire it'
+                          : isExecuting(item)
+                            ? 'Chain already running…'
+                            : automationConfig.paused
+                              ? 'Session automation paused — Resume to fire'
+                              : itemType(item) === 'loop'
+                                ? 'Fire now — runs the full before→main→after chain in sequence, then restarts the cadence'
+                                : 'Fire now — runs the full before→main→after chain in sequence, then removes'
+                      }
+                    >
+                      ⚡ NOW
+                    </button>
                   )}
+                  {/* One editor for every type. This replaced BOTH the old
+                      type-branching EDIT (inline textarea for 'once') and the
+                      separate ⚙ button that existed only because EDIT couldn't
+                      reach the modal for a 'once' item. */}
+                  <button
+                    className={`${styles.queueActionBtn} ${styles.queueEdit}`}
+                    onClick={() => setChainEditId(item.id)}
+                    title="Edit — prompt, type, before/after chain, images"
+                  >
+                    EDIT
+                  </button>
+                  <button
+                    className={`${styles.queueActionBtn} ${styles.queueMove}`}
+                    {...{ [MOVE_TRIGGER_ATTR]: item.id }}
+                    onClick={(e) => {
+                      // Capture the trigger before state flips — the picker
+                      // measures its placement from this element's rect.
+                      if (movingItemId === item.id) {
+                        closeMovePicker();
+                      } else {
+                        setMoveAnchor(e.currentTarget);
+                        setMovingItemId(item.id);
+                      }
+                    }}
+                    aria-haspopup="listbox"
+                    aria-expanded={movingItemId === item.id}
+                    title="Move to another session"
+                  >
+                    MOVE
+                  </button>
+                  <button
+                    className={`${styles.queueActionBtn} ${styles.queueDelete}`}
+                    onClick={() => remove(sessionId, item.id)}
+                    title="Remove"
+                  >
+                    DEL
+                  </button>
                 </div>
 
                 {/* Move-to picker */}
                 {movingItemId === item.id && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '100%',
-                      left: 0,
-                      right: 0,
-                      zIndex: 10,
-                      background: 'var(--surface-card, #12122a)',
-                      border: '1px solid var(--border-subtle, rgba(255,255,255,0.08))',
-                      borderRadius: '4px',
-                      padding: '4px',
-                      maxHeight: '160px',
-                      overflowY: 'auto',
-                    }}
-                  >
-                    {otherSessions.length === 0 ? (
-                      <div
-                        style={{
-                          padding: '8px',
-                          color: 'var(--text-dim)',
-                          fontSize: '10px',
-                          textAlign: 'center',
-                        }}
-                      >
-                        No other sessions
-                      </div>
-                    ) : (
-                      otherSessions.map(([sid, s]) => (
-                        <button
-                          key={sid}
-                          onClick={() => handleMoveConfirm(sid)}
-                          style={{
-                            display: 'block',
-                            width: '100%',
-                            padding: '4px 8px',
-                            background: 'transparent',
-                            border: 'none',
-                            color: 'var(--text-primary, #e0e0e0)',
-                            fontFamily:
-                              'var(--font-mono)',
-                            fontSize: '10px',
-                            textAlign: 'left',
-                            cursor: 'pointer',
-                            borderRadius: '3px',
-                          }}
-                          onMouseEnter={(e) => {
-                            (e.target as HTMLElement).style.background =
-                              'var(--bg-accent)';
-                          }}
-                          onMouseLeave={(e) => {
-                            (e.target as HTMLElement).style.background =
-                              'transparent';
-                          }}
-                        >
-                          {s.projectName || sid.slice(0, 8)}
-                          {s.title ? ` — ${s.title}` : ''}
-                        </button>
-                      ))
-                    )}
-                  </div>
+                  <QueueMovePicker
+                    anchor={moveAnchor}
+                    targets={moveTargets}
+                    onSelect={handleMoveConfirm}
+                    onClose={closeMovePicker}
+                  />
                 )}
               </div>
             ))

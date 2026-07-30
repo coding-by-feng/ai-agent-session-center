@@ -1,5 +1,5 @@
 import { useSettingsStore, THEMES, type ThemeName } from '@/stores/settingsStore';
-import { ROBOT_MODEL_TYPES, getModelLabel, getModelDescription, type RobotModelType } from '@/lib/robot3DModels';
+import { ROBOT_MODEL_TYPES, getModelLabel, getModelDescription, type RobotModelType } from '@/lib/robotModelMeta';
 import styles from '@/styles/modules/Settings.module.css';
 
 export default function ThemeSettings() {

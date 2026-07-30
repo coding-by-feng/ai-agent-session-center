@@ -116,16 +116,24 @@ export interface SshConfig {
 }
 
 /** Archived previous session data (used for SSH resume chains) */
+/**
+ * A prior run of a session, archived on resume / reconnect / re-key.
+ *
+ * Carries ONLY the fields something actually reads: ConversationView's
+ * `PrevSessionSection` renders `startedAt`, `endedAt` and `promptHistory`;
+ * `workspaceSnapshot` reads `sessionId` to build its alias map. It previously
+ * also deep-copied `toolLog`, `responseLog`, `events`, `toolUsage` and
+ * `totalToolCalls` — written at three call sites, read at none, and kept five
+ * deep per session.
+ *
+ * Built exclusively by `archiveSession()` in `server/sessionTrim.ts`. Adding a
+ * field without adding a consumer just reintroduces the bloat.
+ */
 export interface ArchivedSession {
   sessionId: string;
   startedAt: number;
   endedAt: number | null;
   promptHistory: PromptEntry[];
-  toolLog: ToolLogEntry[];
-  responseLog: ResponseEntry[];
-  events: SessionEvent[];
-  toolUsage: Record<string, number>;
-  totalToolCalls: number;
 }
 
 // ---------------------------------------------------------------------------

@@ -37,6 +37,17 @@ const MAX_ENTRIES = 50_000;
 const MAX_DEPTH = 10;
 const WATCHER_DEBOUNCE_MS = 300;
 
+/**
+ * How many project roots keep a resident index.
+ *
+ * Each root holds up to MAX_ENTRIES FileEntry objects (~50 000 × 4 strings) plus
+ * a recursive fs.watch handle. The TTL alone never reclaims them: the watcher
+ * re-validates the entry, so an indexed root stays resident for the life of the
+ * process. Over a long session with many projects opened, that accumulated
+ * without bound. Evicting the least-recently-used root also closes its watcher.
+ */
+const MAX_CACHED_ROOTS = 5;
+
 /** Build the file index for a project root (async, non-blocking). */
 async function buildIndex(root: string): Promise<FileEntry[]> {
   const entries: FileEntry[] = [];
@@ -79,6 +90,7 @@ async function buildIndex(root: string): Promise<FileEntry[]> {
 function ensureIndex(root: string): void {
   const cached = cache.get(root);
   if (cached && Date.now() - cached.builtAt < CACHE_TTL_MS) {
+    touchRoot(root);
     startWatcher(root);
     return;
   }
@@ -90,6 +102,7 @@ function ensureIndex(root: string): void {
       cache.set(root, { entries, builtAt: Date.now() });
       log.debug('file-index', `Built index for ${root}: ${entries.length} entries`);
       startWatcher(root);
+      evictStaleRoots(root);
     })
     .catch(err => {
       log.error('file-index', `Failed to build index for ${root}: ${err instanceof Error ? err.message : String(err)}`);
@@ -97,6 +110,58 @@ function ensureIndex(root: string): void {
     .finally(() => {
       building.delete(root);
     });
+}
+
+/**
+ * Mark a root most-recently-used. `cache` doubles as the LRU order (Map keeps
+ * insertion order), so a cache hit re-inserts to move the root to the end.
+ */
+function touchRoot(root: string): void {
+  const cached = cache.get(root);
+  if (!cached) return;
+  cache.delete(root);
+  cache.set(root, cached);
+}
+
+/** Drop a root's index, watcher and any pending debounce timer. */
+function dropRoot(root: string): void {
+  cache.delete(root);
+  const timer = debounceTimers.get(root);
+  if (timer) {
+    clearTimeout(timer);
+    debounceTimers.delete(root);
+  }
+  const watcher = watchers.get(root);
+  if (watcher) {
+    try { watcher.close(); } catch { /* already closed */ }
+    watchers.delete(root);
+  }
+}
+
+/**
+ * Evict least-recently-used roots past MAX_CACHED_ROOTS, never `keep` (the root
+ * that was just indexed). An evicted root is simply rebuilt on next use.
+ */
+function evictStaleRoots(keep: string): void {
+  for (const root of Array.from(cache.keys())) {
+    if (cache.size <= MAX_CACHED_ROOTS) break;
+    if (root === keep) continue;
+    dropRoot(root);
+    log.debug('file-index', `Evicted index for ${root} (LRU, >${MAX_CACHED_ROOTS} roots)`);
+  }
+
+  // A watcher outlives its cache entry: the watch callback deletes the entry to
+  // invalidate it but deliberately keeps watching, so the next lookup rebuilds
+  // cheaply. Those roots are invisible to the loop above, so without this they
+  // would accumulate recursive fs.watch handles for every project ever opened.
+  // Closing one is harmless — startWatcher re-arms it on the next build.
+  if (watchers.size <= MAX_CACHED_ROOTS) return;
+  for (const root of Array.from(watchers.keys())) {
+    if (watchers.size <= MAX_CACHED_ROOTS) break;
+    if (root === keep || cache.has(root) || building.has(root)) continue;
+    dropRoot(root);
+    log.debug('file-index', `Closed orphan watcher for ${root} (LRU)`);
+  }
 }
 
 /** Start a recursive fs.watch on root to invalidate cache on any file change. */

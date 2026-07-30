@@ -33,6 +33,14 @@ import type {
 } from '@/stores/queueStore';
 import TimePicker12 from '@/components/ui/TimePicker12';
 import AutocompleteTextarea from '@/components/ui/AutocompleteTextarea';
+import PromptSnippetPicker, {
+  BookmarkIcon,
+  BookmarkStackIcon,
+  SNIPPET_TRIGGER_ATTR,
+} from './PromptSnippetPicker';
+import { appendSnippet } from '@/lib/promptSnippetInsert';
+import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
+import { showToast } from '@/components/ui/ToastContainer';
 import styles from '@/styles/modules/Terminal.module.css';
 
 interface QueueItemEditModalProps {
@@ -133,6 +141,53 @@ export default function QueueItemEditModal({
   const overlayRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
+  /** Which snippet picker is open, and where it inserts. `null` = none.
+   *  `target` is 'main' for the MAIN prompt, or a chain side, in which case the
+   *  pick appends a NEW step rather than editing an existing one. */
+  const [snippetPicker, setSnippetPicker] = useState<{
+    anchor: HTMLElement;
+    target: 'main' | 'before' | 'after';
+  } | null>(null);
+  const saveSnippet = usePromptSnippetStore((s) => s.save);
+  const snippetTexts = usePromptSnippetStore((s) => s.snippets);
+
+  /** Keep a prompt box's current text in the reusable library. */
+  const handleKeepText = useCallback(
+    async (text: string) => {
+      const result = await saveSnippet(text);
+      if (result.id == null) {
+        showToast(
+          text.trim() ? 'Could not save that prompt' : 'Nothing to save yet',
+          text.trim() ? 'error' : 'info',
+          2000,
+        );
+      } else if (result.duplicate) {
+        showToast('Already in saved prompts', 'info', 1500);
+      } else {
+        showToast('Saved for reuse', 'info', 1500);
+      }
+    },
+    [saveSnippet],
+  );
+
+  /** Filled-bookmark test, so a kept box reads the same as a filled ★. */
+  const isKept = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      return trimmed.length > 0 && snippetTexts.some((s) => s.text === trimmed);
+    },
+    [snippetTexts],
+  );
+
+  const toggleSnippetPicker = useCallback(
+    (anchor: HTMLElement, target: 'main' | 'before' | 'after') => {
+      setSnippetPicker((prev) =>
+        prev && prev.target === target ? null : { anchor, target },
+      );
+    },
+    [],
+  );
+
   const addImages = useCallback((files: File[]) => {
     if (files.length === 0) return;
     void filesToImages(files).then((imgs) =>
@@ -174,17 +229,23 @@ export default function QueueItemEditModal({
     setImages((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
-  // ESC to close
+  // ESC to close — but never while a snippet picker is open, so the topmost
+  // layer closes first. `stopPropagation` cannot achieve this: the picker also
+  // listens on `document`, and stopping propagation does NOT suppress a sibling
+  // listener on the SAME node (that would need stopImmediatePropagation, whose
+  // effect depends on registration order). Gating on the state is the only
+  // order-independent fix. Same layering pattern as QueueHistorySheet.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
+        if (snippetPicker) return;
         e.stopPropagation();
         onClose();
       }
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, snippetPicker]);
 
   const handleOverlayClick = useCallback(
     (e: React.MouseEvent) => {
@@ -344,6 +405,22 @@ export default function QueueItemEditModal({
             >
               ↓
             </button>
+            {/* Keep this step's text for reuse. Chain steps are the highest-value
+                snippets — they're usually a whole reusable command (`/compact`,
+                `/context`) rather than a one-off prompt. */}
+            <button
+              className={`${styles.chainStepBtn} ${styles.chainStepIconBtn}${isKept(step.text) ? ` ${styles.chainStepIconBtnOn}` : ''}`}
+              onClick={() => { void handleKeepText(step.text); }}
+              disabled={!step.text.trim()}
+              title={
+                isKept(step.text)
+                  ? 'Already in saved prompts'
+                  : 'Keep this step for reuse'
+              }
+              aria-label="Keep step for reuse"
+            >
+              <BookmarkIcon filled={isKept(step.text)} />
+            </button>
             <button
               className={`${styles.chainStepBtn} ${styles.chainStepDel}`}
               onClick={() => removeStep(which, step.id)}
@@ -354,9 +431,27 @@ export default function QueueItemEditModal({
           </div>
         ))
       )}
-      <button className={styles.chainAddBtn} onClick={() => addStep(which)}>
-        + Add {which}-step
-      </button>
+      <div className={styles.chainSectionActions}>
+        <button className={styles.chainAddBtn} onClick={() => addStep(which)}>
+          + Add {which}-step
+        </button>
+        {/* Insert lands as a NEW step, so there's no "which box does this go
+            into?" ambiguity when a section already has several steps. Left-
+            aligned placement: this button sits at the left of a wide modal, and
+            the default right-alignment would push the menu off-screen and leave
+            it clamped to the viewport pad, visually detached from its trigger. */}
+        <button
+          className={`${styles.chainAddBtn} ${styles.chainFromSavedBtn}`}
+          {...{ [SNIPPET_TRIGGER_ATTR]: which }}
+          onClick={(e) => toggleSnippetPicker(e.currentTarget, which)}
+          aria-haspopup="dialog"
+          aria-expanded={snippetPicker?.target === which}
+          title="Add a step from your saved prompts"
+        >
+          <BookmarkStackIcon />
+          From saved…
+        </button>
+      </div>
     </div>
   );
 
@@ -436,9 +531,10 @@ export default function QueueItemEditModal({
             )}
           </div>
 
-          {/* Before chain (only for loop / schedule — once has no chain) */}
-          {type !== 'once' &&
-            renderChainList('before', beforeChain, 'BEFORE chain', 'Runs first, in order')}
+          {/* Before chain — available to every type. The scheduler's chain
+              machinery (getActiveStep / advanceChain) is type-agnostic, so a
+              'once' item runs before→main→after and is then removed. */}
+          {renderChainList('before', beforeChain, 'BEFORE chain', 'Runs first, in order')}
 
           {/* Main prompt */}
           <div className={styles.chainSection}>
@@ -477,6 +573,32 @@ export default function QueueItemEditModal({
                   <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
                 </svg>
               </button>
+              <button
+                type="button"
+                className={`${styles.toolbarBtn} ${styles.queueSnippetBtn}${isKept(mainText) ? ` ${styles.queueSnippetBtnOn}` : ''}`}
+                onClick={() => { void handleKeepText(mainText); }}
+                disabled={!mainText.trim()}
+                title={
+                  isKept(mainText)
+                    ? 'Already in saved prompts'
+                    : 'Keep this prompt for reuse in any prompt box'
+                }
+                aria-label="Keep prompt for reuse"
+              >
+                <BookmarkIcon filled={isKept(mainText)} />
+              </button>
+              <button
+                type="button"
+                className={`${styles.toolbarBtn} ${styles.queueSnippetBtn}`}
+                {...{ [SNIPPET_TRIGGER_ATTR]: 'main' }}
+                onClick={(e) => toggleSnippetPicker(e.currentTarget, 'main')}
+                aria-haspopup="dialog"
+                aria-expanded={snippetPicker?.target === 'main'}
+                title="Insert a saved prompt"
+                aria-label="Insert a saved prompt"
+              >
+                <BookmarkStackIcon />
+              </button>
               {images.length > 0 && (
                 <div className={styles.queueComposeImages}>
                   {images.map((img, i) => (
@@ -497,9 +619,8 @@ export default function QueueItemEditModal({
             </div>
           </div>
 
-          {/* After chain */}
-          {type !== 'once' &&
-            renderChainList('after', afterChain, 'AFTER chain', 'Runs last, in order')}
+          {/* After chain — see the BEFORE-chain note above; not type-scoped. */}
+          {renderChainList('after', afterChain, 'AFTER chain', 'Runs last, in order')}
 
           {/* Exclude windows — loop only. Each row defines a time-of-day
               range where the loop is paused (in local time). Multiple rows
@@ -595,6 +716,27 @@ export default function QueueItemEditModal({
           </div>
         </div>
       </div>
+
+      {/* One picker for the whole modal — it's portaled to <body>, so it renders
+          outside `.chainModalBody`'s scroll box regardless of which trigger
+          opened it. MAIN replaces nothing (append), a chain side appends a new
+          step. */}
+      {snippetPicker && (
+        <PromptSnippetPicker
+          anchor={snippetPicker.anchor}
+          align={snippetPicker.target === 'main' ? 'right' : 'left'}
+          onInsert={(text) => {
+            if (snippetPicker.target === 'main') {
+              setMainText((prev) => appendSnippet(prev, text));
+            } else {
+              const setter =
+                snippetPicker.target === 'before' ? setBeforeChain : setAfterChain;
+              setter((prev) => [...prev, { id: newStepId(), text }]);
+            }
+          }}
+          onClose={() => setSnippetPicker(null)}
+        />
+      )}
     </div>
   );
 }
