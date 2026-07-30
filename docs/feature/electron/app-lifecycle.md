@@ -40,7 +40,7 @@ On `app.whenReady()` the registration order is: `registerSetupHandlers()`, `regi
 - App id `com.kasonzhan.ai-agent-session-center`, product name "AI Agent Session Center"
 - macOS targets: DMG + zip (arm64, hardened runtime, `entitlements.mac.plist`); Windows target: NSIS (x64, non-one-click installer)
 - `main` entry is `dist/electron/main.cjs`; `asar: true` with `better-sqlite3` and `node-pty` in `asarUnpack`; `hooks/` copied to `extraResources`
-- Separate tsconfig: `tsconfig.electron.json` (compiled to CJS, then `scripts/cjs-rename.sh` renames `.js` → `.cjs`)
+- Separate tsconfig: `tsconfig.electron.json` (compiled to CJS, then `scripts/cjsRename.mjs` renames `.js` → `.cjs`)
 
 #### macOS Gatekeeper / "damaged" first-run helper
 
@@ -159,8 +159,8 @@ Registered by `registerAppHandlers()`.
 
 | Script | Purpose |
 |--------|---------|
-| `electron:dev` | `tsc -p tsconfig.electron.json` + `cjs-rename.sh`, then `concurrently` runs Vite + `tsx watch server/index.ts` + (`wait-on tcp:3333` →) `electron dist/electron/main.cjs` |
-| `electron:build` | `vite build` + `build:server` + `electron:rebuild` + electron tsc + copy `loading.html` + `cjs-rename.sh` + `electron-builder` |
+| `electron:dev` | `tsc -p tsconfig.electron.json` + `cjsRename.mjs`, then `concurrently` runs Vite + `tsx watch server/index.ts` + (`wait-on tcp:3333` →) `electron dist/electron/main.cjs` |
+| `electron:build` | `vite build` + `build:server` + `electron:rebuild` + electron tsc + copy `loading.html` + `cjsRename.mjs` + `electron-builder` |
 | `electron:build:mac` / `electron:build:win` | Same as `electron:build` with `--mac` / `--win` |
 | `electron:rebuild` | `node scripts/rebuild-native.cjs` — rebuilds native modules for Electron's Node ABI |
 | `electron:pack` | Unpacked build (`electron-builder --dir`), no installer |
@@ -197,5 +197,5 @@ Registered by `registerAppHandlers()`.
 - Tray and pop-out code must guard with `win.isDestroyed()` (the main window is hidden, not destroyed, on close) to avoid sending IPC to a dead webContents.
 - Missing `loading.html` (it must be copied into `dist/electron/` during `electron:build`) causes a blank screen during server startup.
 - The `before-quit` 5s timeout is best-effort: if `flushSave()` exceeds it, the app quits anyway and workspace state may be lost. Don't lengthen it without UX consideration.
-- The TS→CJS rename step (`scripts/cjs-rename.sh`) is required because `main` is `main.cjs`; skipping it leaves Electron unable to find its entry point.
+- The TS→CJS rename step (`scripts/cjsRename.mjs`) is required because `main` is `main.cjs`; skipping it leaves Electron unable to find its entry point.
 - Pop-out window placement depends on `boundsOnSomeDisplay()` to reject saved bounds on a disconnected monitor; weakening that check can strand the window off-screen. The `screen` API is only valid after `app.whenReady()` — `computePopoutBounds()` runs inside the IPC handler (post-ready), so it must not be hoisted to module load.
