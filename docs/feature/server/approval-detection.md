@@ -34,7 +34,8 @@ A precomputed `_toolToCategory` Map gives O(1) lookups via `getToolCategory()`; 
 - When the timer fires it re-looks-up the live session (avoids stale closure). It only transitions if the session is still `WORKING` and still has a `pendingTool`. On fire it sets `status` (from `getWaitingStatus`, default `approval`), `animationState = Waiting`, and `waitingDetail` (from `getWaitingLabel`), then broadcasts.
 
 ### Child-Process Check (`hasChildProcesses`)
-- Only for `category === 'slow'` AND when `session.cachedPid` is set: runs `pgrep -P {pid}` (`execFileSync`, 2s timeout, PID validated as positive int).
+- Only for `category === 'slow'` AND when `session.cachedPid` is set: runs `pgrep -P {pid}` (**async `execFile` via `promisify`**, 2s timeout, PID validated as positive int). **It must stay async.** As `execFileSync` this was a blocking fork+exec on the single Node event loop, run once per approval-timer expiry per session; a `pgrep` scan costs time proportional to the process table, so on a busy box (700+ processes, high load average) every session's WS broadcast, terminal relay and hook processing stalled while one session probed its child.
+- Because the `await` yields the loop, the timer re-reads the session through `sessionLookupFn` afterwards and bails unless it is *still* `working` with a `pendingTool` — otherwise a `PostToolUse` that landed during the probe would be overwritten and a finished session flipped to `approval` on stale state. The subsequent mutation + broadcast use that re-read reference, not the pre-await one.
 - Non-empty output -> children exist -> command still running -> skip the transition.
 - On `pgrep` error the function returns `true` (safer default: assume still running) so a failed probe never produces a false "approval".
 

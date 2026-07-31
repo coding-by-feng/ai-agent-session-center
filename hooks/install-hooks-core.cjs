@@ -193,27 +193,12 @@ function removeAllClaudeHooks(settings, allEvents, hookPattern) {
   return removed;
 }
 
-function configureGeminiHooks(settings, events, hookSource) {
-  if (!settings.hooks) settings.hooks = {};
-  let added = 0;
-  for (const event of events) {
-    if (!settings.hooks[event]) settings.hooks[event] = [];
-    const has = settings.hooks[event].some(g => g.hooks?.some(h => h.command?.includes('dashboard-hook')));
-    if (!has) {
-      settings.hooks[event].push({ _source: hookSource, hooks: [{ type: 'command', command: `~/.gemini/hooks/dashboard-hook.sh ${event}` }] });
-      added++;
-    }
-  }
-  return added;
-}
-
 module.exports = {
   atomicWriteJSON,
   buildHookEntry,
   deployHookScript,
   configureClaudeHooks,
   removeAllClaudeHooks,
-  configureGeminiHooks,
   configureCodexHooksToml,
   removeAllCodexHooksToml,
 };

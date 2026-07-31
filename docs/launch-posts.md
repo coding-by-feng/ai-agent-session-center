@@ -96,7 +96,7 @@ MIT licensed. Happy to hear feedback!
 
 ## r/SideProject
 
-**Title:** I built a 3D monitoring dashboard for AI coding agents (Claude Code, Gemini CLI, Codex)
+**Title:** I built a 3D monitoring dashboard for AI coding agents (Claude Code, Codex)
 
 **Content:**
 
@@ -165,7 +165,7 @@ npx ai-agent-session-center
 
 **Content:**
 
-I built a monitoring dashboard for AI coding agents (Claude Code, Gemini CLI, Codex) where each session gets a procedurally generated 3D robot character. The robot's animation reflects the agent's live state:
+I built a monitoring dashboard for AI coding agents (Claude Code, Codex) where each session gets a procedurally generated 3D robot character. The robot's animation reflects the agent's live state:
 
 - **Idle** — breathing animation
 - **Prompting** — wave + walking

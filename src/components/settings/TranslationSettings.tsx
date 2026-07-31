@@ -138,7 +138,7 @@ export default function TranslationSettings() {
           vocab, custom) fork the origin session
           (<code>claude --resume &lt;id&gt; --fork-session</code> / <code>codex fork</code>)
           so the AI can ground its answer in the prior conversation. When disabled,
-          popups start fresh. Has no effect for Gemini origins (no fork support).
+          popups start fresh.
         </p>
         <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <input

@@ -46,7 +46,7 @@ export interface HooksStatusResponse {
 
 export interface HooksInstallRequest {
   density: HookDensity;
-  enabledClis?: Array<'claude' | 'gemini' | 'codex'>;
+  enabledClis?: Array<'claude' | 'codex'>;
 }
 
 export interface HooksInstallResponse {

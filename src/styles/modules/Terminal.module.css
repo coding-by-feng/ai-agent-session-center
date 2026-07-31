@@ -251,6 +251,16 @@
 .queueActions { display: none; gap: 4px; opacity: 1; flex-wrap: wrap; justify-content: flex-end; }
 .queueItem:hover .queueActions { display: flex; }
 .queueActionBtn { background: transparent; border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary, #888); font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 9px; font-weight: 600; letter-spacing: 0.5px; padding: 1px 5px; border-radius: 3px; cursor: pointer; }
+/* A disabled queue action must not read as clickable. There was no :disabled
+   rule at all, so a disabled ⚡ NOW kept its full amber accent AND still lit up
+   on hover — a click that did nothing looked like a broken queue rather than an
+   off control. The accent hover rules below use !important, so the dimmed hover
+   needs it too; :disabled:hover outranks them on specificity. */
+.queueActionBtn:disabled { opacity: 0.35; cursor: default; }
+.queueActionBtn:disabled:hover {
+  background: transparent !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
 
 .queueSend { color: var(--accent-green, #50fa7b) !important; border-color: rgba(80, 250, 123, 0.3) !important; }
 .queueSend:hover { background: rgba(80, 250, 123, 0.15) !important; }

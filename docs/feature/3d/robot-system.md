@@ -19,9 +19,9 @@ Each session needs a visual avatar that communicates status through animation (w
 | `src/lib/robot3DModels.ts` | 6 model variants (robot, mech, drone, spider, orb, tank) with per-part geometry overrides. Re-exports the metadata below |
 | `src/lib/robotModelMeta.ts` | `RobotModelType`, `ROBOT_MODEL_TYPES`, `getModelLabel()`, `getModelDescription()`. **Zero imports** — Settings ▸ Theme uses it without loading Three.js |
 | `src/lib/robotStateMap.ts` | Session status -> robot state mapping (8 states) + per-state behavior hints (`getRobotStateBehavior`) |
-| `src/lib/cliDetect.ts` | `detectCli()` -> `'claude' \| 'gemini' \| 'codex' \| null`; used by SessionRobot for CLI badge + accent color |
+| `src/lib/cliDetect.ts` | `detectCli()` -> `'claude' \| 'codex' \| null`; used by SessionRobot for CLI badge + accent color |
 | `src/lib/robotPositionPersist.ts` | sessionStorage save/load/clear helpers (the 2s save interval itself lives in CyberdromeScene) |
-| `src/components/layout/HeaderAgentStrip.tsx` | Compact top-strip session badges that reuse `detectCli()` for consistent Claude/Gemini/Codex (and Aider) labels. Room frames carry a collapse chevron (`roomStore.toggleCollapse`, persisted `room.collapsed`) that folds a room to a session-count pill — the same toggle and shared state as the [Session Detail Panel](../frontend/session-detail-panel.md) strip |
+| `src/components/layout/HeaderAgentStrip.tsx` | Compact top-strip session badges that reuse `detectCli()` for consistent Claude/Codex (and Aider) labels. Room frames carry a collapse chevron (`roomStore.toggleCollapse`, persisted `room.collapsed`) that folds a room to a session-count pill — the same toggle and shared state as the [Session Detail Panel](../frontend/session-detail-panel.md) strip |
 
 ## Implementation
 
@@ -144,7 +144,7 @@ Two registries in `robotPositionStore.ts`, both plain `Map`s (NOT Zustand) so th
 `Robot3DModel` reads `useSettingsStore.getState()` imperatively inside `useFrame` to access `animationSpeed` and `animationIntensity` settings. This avoids subscribing to the store reactively (which would cause cross-reconciler issues inside Canvas).
 
 ### Special Behaviors
-- CLI badge: detects CLI type via `detectCli()`, preferring explicit `session.cliSource`, then startup/SSH command text, then model string, then event-type fallback. `detectCli()` returns only `'claude' | 'gemini' | 'codex' | null`. The chest badge (`CLI_BADGES` in SessionRobot) renders: C (Claude, #00f0ff), G (Gemini, #4285f4), X (Codex, #10a37f), or ? (unknown/null, #aa66ff). HeaderAgentStrip reuses the same helper for its mini-strip labels (and additionally surfaces AIDER via command/`backendType` heuristics) so labels and 3D badges stay aligned.
+- CLI badge: detects CLI type via `detectCli()`, preferring explicit `session.cliSource`, then startup/SSH command text, then model string, then event-type fallback. `detectCli()` returns only `'claude' | 'codex' | null`. The chest badge (`CLI_BADGES` in SessionRobot) renders: C (Claude, #00f0ff), X (Codex, #10a37f), or ? (unknown/null, #aa66ff). HeaderAgentStrip reuses the same helper for its mini-strip labels (and additionally surfaces AIDER via command/`backendType` heuristics) so labels and 3D badges stay aligned.
 - CLI accent color: when no explicit `accentColor` is set, the robot's neon color is overridden by the CLI badge color (`cliNeonColor`)
 - Tool-specific working animations (WS7.C, via `classifyTool`): read — head scanning (Read/Grep/Glob/NotebookEdit), write — rapid arm typing (Write/Edit), bash — one arm extended (Bash), task — both arms raised (Task), web — brighter antenna (WebFetch/WebSearch), default — standard typing (everything else)
 - Alert urgency escalation (WS7.B), keyed off `statusStartTime`: pulse speed rises after 15s (8→12); after 30s the visor base intensity rises (1.5→2.5), the pulse range widens (1.0→1.5), and the standing body shake intensifies (`t*12` x0.02 → `t*16` x0.03). Only standing robots shake — the seated branch has no shake.

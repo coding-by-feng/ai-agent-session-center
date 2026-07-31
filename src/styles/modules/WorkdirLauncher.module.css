@@ -90,7 +90,7 @@
   background: rgba(255, 255, 255, 0.03);
 }
 
-/* ---- Per-CLI launch buttons (Claude / Codex / Gemini) ---- */
+/* ---- Per-CLI launch buttons (Claude / Codex) ---- */
 
 .dirLaunchers {
   display: flex;

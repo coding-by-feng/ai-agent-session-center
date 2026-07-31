@@ -6,7 +6,7 @@ One of the most distinctive parts of the AI Agent Session Center is its 3D visua
 
 ## Why 3D?
 
-The dashboard monitors multiple concurrent AI sessions (Claude Code, Gemini CLI, Codex). A flat list of status cards works fine for 5 sessions, but when you have 20+ agents running in parallel — some spawning subagents of their own — it becomes hard to understand what's happening at a glance. A spatial, animated view makes it immediately obvious: which robots are sitting and working, which are frozen waiting for approval, which are wandering idle.
+The dashboard monitors multiple concurrent AI sessions (Claude Code, Codex). A flat list of status cards works fine for 5 sessions, but when you have 20+ agents running in parallel — some spawning subagents of their own — it becomes hard to understand what's happening at a glance. A spatial, animated view makes it immediately obvious: which robots are sitting and working, which are frozen waiting for approval, which are wandering idle.
 
 The other reason: it's just fun to watch. Monitoring dashboards don't have to be boring.
 

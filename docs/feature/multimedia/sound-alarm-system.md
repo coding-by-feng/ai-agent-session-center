@@ -12,7 +12,7 @@ Audio feedback so users can monitor sessions without watching the screen. Approv
 | `src/lib/soundEngine.ts` | SoundEngine singleton, 15 Web Audio API synthesized sounds + `none`, 20 actions, playTone()/playSequence(), action overrides |
 | `src/lib/ambientEngine.ts` | AmbientEngine singleton, 5 procedural presets (rain, lofi, serverRoom, deepSpace, coffeeShop) + `off` |
 | `src/lib/alarmEngine.ts` | Alarm management: approval alarm (repeating), input notification (one-shot), per-CLI profile routing, mute/alert per session, event-to-sound routing |
-| `src/lib/cliDetect.ts` | detectCli(): explicit `session.cliSource`, startup/SSH command, model keywords, and event fallback to CLI type (claude/gemini/codex) |
+| `src/lib/cliDetect.ts` | detectCli(): explicit `session.cliSource`, startup/SSH command, model keywords, and event fallback to CLI type (claude/codex) |
 | `src/hooks/useSound.ts` | React hook returning {play(action), preview(soundName), enabled, volume}; auto-unlocks AudioContext, syncs volume |
 
 ## Implementation
@@ -63,7 +63,6 @@ Per-tone gain in `playTone`: `vol * masterVolume * 0.3` (default `vol` = 1). Def
 | CLI | Default Volume |
 |-----|--------|
 | claude | 0.7 |
-| gemini | 0.7 |
 | codex | 0.5 |
 
 **Quiet by default.** To avoid notification fatigue, the default profiles are built from `quietCliActions(cli)` — a `SILENT_ACTIONS` base (all 20 actions `'none'`) plus `QUIET_OVERRIDES`, which keeps only the high-signal events audible: `approvalNeeded` (alarm), `inputNeeded` (chime/ding/beep), `alert` (alarm), and `taskComplete`. Because `taskComplete` fires on **every** `Stop` (once per turn), the quiet profile deliberately uses a short `'blip'` — not the ~1s `fanfare` — across all three CLIs. Per-tool chatter (`toolRead`…`toolOther`), session/prompt/subagent/archive/kill sounds are silent by default. (`alert` has no event trigger today; it is kept audible for future wiring.)
@@ -76,12 +75,12 @@ When a CLI is detected and its profile is enabled, `playForCli` resolves the sou
 
 ### CLI Detection
 
-`detectCli()` (returns `CliName = 'claude' | 'gemini' | 'codex'` or `null`) uses a four-phase strategy:
+`detectCli()` (returns `CliName = 'claude' | 'codex'` or `null`) uses a four-phase strategy:
 
 1. **Explicit `session.cliSource`** from hook payloads or terminal creation (Codex hooks set `cli_source: "codex"`).
 2. **Startup/SSH command text** (`startupCommand`, `sshCommand`, `sshConfig.command`), so `codex ...` is recognized even when the model name is ambiguous.
-3. **Model string keywords**: claude/opus/sonnet/haiku -> Claude, gemini/gemma -> Gemini, gpt/codex/o1/o3/o4 -> Codex.
-4. **Event type fallback**: BeforeAgent/AfterAgent/BeforeTool/AfterTool -> Gemini, agent-turn-complete or `Codex*` -> Codex, SessionStart/PreToolUse/PostToolUse/UserPromptSubmit -> Claude.
+3. **Model string keywords**: claude/opus/sonnet/haiku -> Claude, gpt/codex/o1/o3/o4 -> Codex.
+4. **Event type fallback**: agent-turn-complete or `Codex*` -> Codex, SessionStart/PreToolUse/PostToolUse/UserPromptSubmit -> Claude.
 
 Order matters -- explicit CLI source and launch command must come before model
 and event fallbacks to avoid mislabeling Codex sessions.
@@ -171,5 +170,5 @@ React hook returning `{play, preview, enabled, volume}`. Additional features:
 - Changing alarm intervals affects user experience significantly.
 - Alert volume boost (2.5x) can exceed 1.0 without the cap -- the cap is essential.
 - Multiple concurrent approval alarms can be overwhelming -- each session has an independent timer.
-- CLI detection order matters -- explicit cliSource and launch command must come before model and event fallbacks. `detectCli()` returns only `claude`/`gemini`/`codex`; `CliName` and `settingsStore.perCli` keys must stay in sync.
+- CLI detection order matters -- explicit cliSource and launch command must come before model and event fallbacks. `detectCli()` returns only `claude`/`codex`; `CliName` and `settingsStore.perCli` keys must stay in sync.
 - Removing or reordering sounds in the TOOL_SOUND_MAP silently changes audio behavior with no visual indicator.

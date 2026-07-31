@@ -34,6 +34,7 @@ vi.mock('../server/sshManager.js', () => ({
   tryLinkByWorkDir: vi.fn(() => null),
   consumePendingLink: vi.fn(),
   registerTerminalExitCallback: vi.fn(),
+  registerTerminalFaultCallback: vi.fn(),
   closeTerminal: vi.fn(),
   getTerminals: vi.fn(() => []),
   getTerminalOutputBuffer: vi.fn(() => null),

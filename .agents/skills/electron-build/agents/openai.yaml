@@ -1,0 +1,7 @@
+interface:
+  display_name: "Build Electron Distributables"
+  short_description: "Build and verify Electron distributables"
+  default_prompt: "Use $electron-build to build and verify this repository's Electron distributables."
+
+policy:
+  allow_implicit_invocation: true

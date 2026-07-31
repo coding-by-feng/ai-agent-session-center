@@ -1,0 +1,7 @@
+interface:
+  display_name: "Release Electron Build"
+  short_description: "Version, build, and publish Electron releases"
+  default_prompt: "Use $electron-release to prepare and publish the next Electron release."
+
+policy:
+  allow_implicit_invocation: false

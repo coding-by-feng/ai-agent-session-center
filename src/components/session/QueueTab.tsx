@@ -182,6 +182,7 @@ export default function QueueTab({
   const autoEnter = automationConfig.autoEnter;
   const setAutoSend = useQueueStore((s) => s.setAutoSend);
   const setAutoEnter = useQueueStore((s) => s.setAutoEnter);
+  const setAutoResume = useQueueStore((s) => s.setAutoResume);
   const [movingItemId, setMovingItemId] = useState<number | null>(null);
   /** The MOVE button the picker hangs off. The picker portals out to <body>, so
    *  it can no longer derive placement from its parent row — it needs the
@@ -257,7 +258,7 @@ export default function QueueTab({
         if (paths.length > 0) textToSend += '\n' + paths.join('\n');
       }
       // Auto-Enter submits with a SEPARATE Enter keystroke. Concatenating "\r"
-      // onto the text makes Claude Code / Codex / Gemini TUIs insert a newline in
+      // onto the text makes Claude Code / Codex TUIs insert a newline in
       // the input box instead of submitting; a standalone "\r" sent after the text
       // registers as a real Enter keypress. See sendPromptToTerminal.
       const ok = await sendPromptToTerminal(terminalId, textToSend, autoEnter);
@@ -473,14 +474,6 @@ export default function QueueTab({
         await handleSendNow(item);
         return;
       }
-      // ⚡ NOW only ever STARTS a fresh chain. If this item's chain is already
-      // mid-flight, do nothing: resetting its execState would delete the
-      // saw-work gate and type step 1 on top of the still-working agent,
-      // breaking chain atomicity. (The button is also disabled while running.)
-      if (isExecuting(item)) {
-        showToast('Chain already running', 'info', 1500);
-        return;
-      }
       // Defensive: a paused row's ⚡ button is disabled, but never force-fire a
       // disabled item even if the click slips through (pickNext filters it).
       if (item.disabled) return;
@@ -490,6 +483,30 @@ export default function QueueTab({
       // unexpectedly. The button is disabled too; this is the belt-and-braces.
       if (automationConfig.paused) {
         showToast('Session automation paused — Resume to fire', 'info', 2200);
+        return;
+      }
+      // ⚡ NOW on a row whose chain is ALREADY mid-flight means "send the step
+      // it is parked on", not "start over". `execState`/`execStepIdx` are left
+      // ALONE — resetting them is what would re-type step 1 on top of a running
+      // agent, so the cursor is preserved and only the chain gate is overridden
+      // (see `chainGateDecision`'s `manualOverride`).
+      //
+      // This is the escape hatch for a chain that can no longer un-park itself:
+      // the gate waits for the CLI to acknowledge the previous step and then
+      // reach Stop, so if that step's text was deleted out of the input line by
+      // hand — or the turn decayed working → idle instead of stopping — the row
+      // sits at "step N/M" until the 5-minute no-work fallback, or forever.
+      // Before, this button was inert in exactly that state.
+      if (isExecuting(item)) {
+        updateItem(sessionId, item.id, { forceStart: true });
+        const stepLabel = `step ${currentChainStep(item)}/${totalChainSteps(item)}`;
+        showToast(
+          isSendableStatus(sessionStatus)
+            ? `Resuming chain — sending ${stepLabel} now…`
+            : `Agent is busy — ${stepLabel} fires as soon as it's free`,
+          'info',
+          2200,
+        );
         return;
       }
       updateItem(sessionId, item.id, {
@@ -510,7 +527,7 @@ export default function QueueTab({
         1800,
       );
     },
-    [updateItem, sessionId, handleSendNow, automationConfig.paused],
+    [updateItem, sessionId, handleSendNow, automationConfig.paused, sessionStatus],
   );
 
   // ---- Move to another session ----
@@ -1041,14 +1058,16 @@ export default function QueueTab({
                     <button
                       className={`${styles.queueActionBtn} ${styles.queueTriggerNow}`}
                       onClick={() => { void handleTriggerNow(item); }}
-                      disabled={item.disabled || isExecuting(item) || automationConfig.paused}
+                      /* Deliberately NOT disabled while the chain is in flight:
+                         a chain parked between steps had no other way out. */
+                      disabled={item.disabled || automationConfig.paused}
                       title={
                         item.disabled
                           ? 'Paused — re-enable this item to fire it'
-                          : isExecuting(item)
-                            ? 'Chain already running…'
-                            : automationConfig.paused
-                              ? 'Session automation paused — Resume to fire'
+                          : automationConfig.paused
+                            ? 'Session automation paused — Resume to fire'
+                            : isExecuting(item)
+                              ? `Send step ${currentChainStep(item)}/${totalChainSteps(item)} now — use this if the chain is stuck waiting between steps`
                               : itemType(item) === 'loop'
                                 ? 'Fire now — runs the full before→main→after chain in sequence, then restarts the cadence'
                                 : 'Fire now — runs the full before→main→after chain in sequence, then removes'
@@ -1194,6 +1213,17 @@ export default function QueueTab({
               }
             >
               Skip-prompting {automationConfig.skipWhenPrompting ? 'on' : 'off'}
+            </button>
+            <button
+              className={`${styles.queueStatusToggle}${automationConfig.autoResume ? ` ${styles.queueStatusToggleOn}` : ''}`}
+              onClick={() => setAutoResume(sessionId, !automationConfig.autoResume)}
+              title={
+                automationConfig.autoResume
+                  ? `Auto-resume ON — if a turn dies on an API/network error, send a continuation prompt (up to ${automationConfig.resumeMaxRetries}× per 30 min, with backoff)`
+                  : 'Auto-resume OFF — a turn killed by an API or network error stays parked until you continue it yourself'
+              }
+            >
+              🩺 Auto-resume {automationConfig.autoResume ? 'on' : 'off'}
             </button>
             <button
               className={`${styles.queueStatusToggle}${(automationConfig.loopExcludeWindows?.length ?? 0) > 0 ? ` ${styles.queueStatusToggleOn}` : ''}`}

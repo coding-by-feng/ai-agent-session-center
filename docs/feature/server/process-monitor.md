@@ -4,7 +4,7 @@
 Periodically checks if AI CLI processes are still alive and transitions dead sessions to ended state. Also periodically scans the OS for interactive `claude` sessions started outside the dashboard (which fire no hooks) and surfaces them as thin cards (**Mechanism B**).
 
 ## Purpose
-Detects when Claude/Gemini/Codex crashes or exits without sending a SessionEnd hook. Surfaces `claude` sessions that were already running before the dashboard hooks were installed — these fire no hooks, so neither the liveness loop nor `sessionMatcher` would ever create a card for them. Also manages auto-idle transitions for stale sessions.
+Detects when Claude/Codex crashes or exits without sending a SessionEnd hook. Surfaces `claude` sessions that were already running before the dashboard hooks were installed — these fire no hooks, so neither the liveness loop nor `sessionMatcher` would ever create a card for them. Also manages auto-idle transitions for stale sessions.
 
 ## Source Files
 | File | Role |
@@ -42,7 +42,7 @@ When `kill(pid, 0)` throws, the session is auto-ended:
 `findClaudeProcess(sessionId, projectPath, sessions, pidToSession)` returns the live PID for a session, caching the result via the `cachePid()` helper (sets both `pidToSession` and `session.cachedPid`). Order:
 1. **Cached PID** — if `session.cachedPid` is valid and `kill(pid, 0)` succeeds, return it; otherwise evict it.
 2. Resolve the process family from `session.cliSource` or its launch command.
-3. **Codex/Gemini safety stop** — without a live cached PID, return `null`. Multiple terminals can share a cwd and multiple Codex threads can share a PID, so an OS scan cannot prove which process the user selected; the exact managed PTY is closed separately.
+3. **Codex safety stop** — without a live cached PID, return `null`. Multiple terminals can share a cwd and multiple Codex threads can share a PID, so an OS scan cannot prove which process the user selected; the exact managed PTY is closed separately.
 4. **Claude fallback only** — build a `claimedPids` set, then on win32 query `Get-CimInstance Win32_Process`; on Unix run `pgrep -f claude` and:
    - **cwd match** — for each unclaimed PID, resolve cwd (`lsof -a -d cwd -Fn -p <pid>` on darwin, `readlink /proc/<pid>/cwd` on Linux) and return the PID whose cwd equals `projectPath`.
    - **Claude-only TTY fallback** — first unclaimed PID with a real tty (`ps -o tty=`), excluding `??`/`?`.
@@ -128,7 +128,7 @@ If a real hook later fires for that PID, [`sessionMatcher`](./session-matching.m
 ## Change Risks
 - Increasing `PROCESS_CHECK_INTERVAL` delays dead-session detection; lowering it raises `pgrep`/`lsof` syscall load.
 - False positives: `kill(pid, 0)` can throw `EPERM` (permission), not just `ESRCH` (no such process) — both are currently treated as "dead", which can prematurely end a still-running session owned by another user.
-- The Claude fallback chain is fragile because cwd is not unique; forks continue to bypass it. Codex/Gemini intentionally require a live exact cached PID and otherwise rely on exact managed-terminal teardown.
+- The Claude fallback chain is fragile because cwd is not unique; forks continue to bypass it. Codex intentionally require a live exact cached PID and otherwise rely on exact managed-terminal teardown.
 - The auto-idle interval (10s) and pendingResume cleanup interval (15s) are hard-coded; the working-state timeout exclusion list must stay in sync with the `SESSION_STATUS` enum or transient states could be idled too early.
 - **The ppid ownership check must stay syscall-free.** It runs inside the discovery interval, where a sync process spawn blocks the event loop and stalls hook processing / WS relays. Use `getTerminalByPtyPid` (Map scan) fed by the ppid the async `ps` batch already collected — **never** `getTerminalByPtyChild`, which calls `execSync`. The two functions look interchangeable and are not.
 - **Never bind a pid from a cwd match.** cwd is shared by many sessions; only `ppid → PTY → session` is 1:1. cwd may suppress card creation, never assign ownership. Getting this wrong attaches a live pid to an arbitrary sibling card, which then reports the wrong liveness and can be killed by mistake.

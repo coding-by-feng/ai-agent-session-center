@@ -19,6 +19,8 @@ import { useCameraStore } from '@/stores/cameraStore';
 import { saveRobotPositions, type PersistedRobotState } from '@/lib/robotPositionPersist';
 import { getAllNavInfo, robotPositionStore } from './robotPositionStore';
 import { getScene3DTheme, type Scene3DTheme } from '@/lib/sceneThemes';
+import { resolveFrameloop, UNFOCUSED_FRAME_MS } from '@/lib/sceneFrameloop';
+import { useWindowActivity } from '@/hooks/useWindowActivity';
 import type { Session } from '@/types';
 import CyberdromeEnvironment from './CyberdromeEnvironment';
 import SessionRobot from './SessionRobot';
@@ -180,6 +182,27 @@ const mapCtrlBtn: React.CSSProperties = {
   backdropFilter: 'blur(8px)',
 };
 
+/**
+ * Drives one render per `intervalMs` while the Canvas is in `demand` mode.
+ *
+ * Without it, `frameloop="demand"` would freeze the scene mid-stride: the robots'
+ * walk cycles and the particle drift are continuous `useFrame` animations, not
+ * state-change-driven redraws, so nothing would ever call `invalidate()`. Each
+ * pumped frame receives the real elapsed delta, so animation keeps advancing —
+ * just at UNFOCUSED_FPS instead of 60.
+ *
+ * Props only, no store reads — it lives inside <Canvas> (see the file header).
+ */
+function FramePump({ active, intervalMs }: { active: boolean; intervalMs: number }) {
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => invalidate(), intervalMs);
+    return () => clearInterval(id);
+  }, [active, intervalMs, invalidate]);
+  return null;
+}
+
 function MapControls({ controlsRef }: { controlsRef: React.RefObject<OrbitControlsImpl | null> }) {
   const flyTo = useCameraStore((s) => s.flyTo);
 
@@ -261,6 +284,11 @@ export default function CyberdromeScene() {
   const fontSize = useSettingsStore((s) => s.fontSize);
   const sceneTheme = useMemo(() => getScene3DTheme(themeName), [themeName]);
   const controlsRef = useRef<OrbitControlsImpl>(null);
+  // Render-loop gating: full rate only when this window is visible AND focused.
+  // See src/lib/sceneFrameloop.ts for why a background window would otherwise
+  // keep rendering the whole scene at 60 fps forever.
+  const { visible, focused } = useWindowActivity();
+  const frameloop = resolveFrameloop(visible, focused);
 
   // Listen for 'robot-select' CustomEvent dispatched from inside Canvas.
   // This decouples the R3F reconciler from the Zustand store update.
@@ -359,6 +387,7 @@ export default function CyberdromeScene() {
     <div style={{ position: 'absolute', inset: 0 }}>
       <Canvas
         shadows
+        frameloop={frameloop}
         camera={{
           position: [18, 16, 18],
           fov: 50,
@@ -387,6 +416,7 @@ export default function CyberdromeScene() {
           target={[0, 1, 0]}
         />
         <CameraController controlsRef={controlsRef} />
+        <FramePump active={frameloop === 'demand'} intervalMs={UNFOCUSED_FRAME_MS} />
         <Suspense fallback={null}>
           <SceneContent
             rooms={roomConfigs}

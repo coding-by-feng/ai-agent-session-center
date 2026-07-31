@@ -50,7 +50,7 @@ own GCP project) via **Settings → Sound → Cloud Voice (Google · English +
 中文)**. The key is:
 
 - stored locally in the browser (IndexedDB, alongside `anthropicApiKey` /
-  `openaiApiKey` / `geminiApiKey`)
+  `openaiApiKey`)
 - sent in the request body of every `POST /api/tts/synthesize` call
 - forwarded by the backend as `?key=...` to the Google TTS REST endpoint
 - never logged — `apiRouter.ts` redacts the key in any error payload via the

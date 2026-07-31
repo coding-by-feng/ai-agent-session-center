@@ -116,7 +116,7 @@ describe('setupHandlers', () => {
     const result = handlers['setup:save-config']({}, {
       port: 3333,
       hookDensity: 'medium',
-      enabledClis: ['claude', 'gemini'],
+      enabledClis: ['claude', 'codex'],
       debug: false,
       sessionHistoryHours: 24,
     })

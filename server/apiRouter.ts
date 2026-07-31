@@ -32,7 +32,7 @@ import { searchFiles, invalidateCache, listTopEntries } from './fileIndexCache.j
 import { getCommandIndex } from './commandIndex.js';
 import { getCodexModelCatalog } from './codexModelCatalog.js';
 import { synthesize as ttsSynthesize, checkApiKey as ttsCheckApiKey } from './ttsManager.js';
-import { readClaudeTranscript } from './extractPreviousAnswer.js';
+import { readClaudeTranscript, resolveResumableClaudeSessionId } from './extractPreviousAnswer.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
 
 const __apiDirname = dirname(fileURLToPath(import.meta.url));
@@ -125,7 +125,34 @@ function stripCodexSessionSubcommand(command: string): string {
     .trim();
 }
 
-export function buildResumeCommand(session: { startupCommand?: string; sshCommand?: string; sshConfig?: { command?: string }; permissionMode?: string | null; title?: string | null; model?: string; effortLevel?: string }, sessionId: string): string {
+/**
+ * True when the `|| <baseCmd>` fallback is provably unreachable, i.e. the
+ * transcript `--resume` needs is sitting on THIS machine's disk right now.
+ *
+ * The fallback exists only because the server usually cannot tell in advance
+ * whether `--resume` will succeed — and it is expensive to carry, because it
+ * duplicates the entire launch command. A realistic command is 216 characters
+ * with 38% of it a verbatim copy, which wraps onto a second line in the
+ * 120-column PTY and reads as garbled, duplicated text.
+ *
+ * Deliberately conservative — it only ever REMOVES a branch we know cannot run:
+ *   - remote sessions are excluded outright (their transcript is on another host,
+ *     so a local `existsSync` says nothing about it);
+ *   - a *negative* answer keeps the fallback, because the encoded-project-dir
+ *     lookup could be wrong and losing a resumable session is the worse error.
+ * Only a positive, file-on-disk answer shortens the command.
+ */
+function resumeIsCertain(
+  session: { projectPath?: string; transcriptPath?: string | null; sshConfig?: { host?: string } },
+  sessionId: string,
+): boolean {
+  const host = session.sshConfig?.host;
+  if (host && host !== 'localhost' && host !== '127.0.0.1') return false;
+  if (!session.projectPath) return false;
+  return resolveResumableClaudeSessionId(sessionId, session.projectPath, session.transcriptPath) !== null;
+}
+
+export function buildResumeCommand(session: { startupCommand?: string; sshCommand?: string; sshConfig?: { command?: string; host?: string }; permissionMode?: string | null; title?: string | null; model?: string; effortLevel?: string; projectPath?: string; transcriptPath?: string | null }, sessionId: string): string {
   const originalCmd = session.startupCommand || session.sshCommand || session.sshConfig?.command || '';
   const safeId = shellEscapeSingle(sessionId);
   // Only try --resume when the ID looks like a real CLI session UUID.
@@ -163,9 +190,11 @@ export function buildResumeCommand(session: { startupCommand?: string; sshComman
     // fresh start keeps the card's title/room/config intact (the scrollback is
     // still prefilled from the saved buffer); only the live conversation is new,
     // which is unavoidable when the original transcript is gone.
-    return canUseSessionId
-      ? `${baseCmd} --resume '${safeId}' || ${baseCmd}`
-      : baseCmd;  // no resumable session ID → start fresh
+    if (!canUseSessionId) return baseCmd;  // no resumable session ID → start fresh
+    // Transcript verified on disk → the fallback can never run, so omit it and
+    // keep the command on one line (see resumeIsCertain).
+    if (resumeIsCertain(session, sessionId)) return `${baseCmd} --resume '${safeId}'`;
+    return `${baseCmd} --resume '${safeId}' || ${baseCmd}`;
   }
 
   return originalCmd;
@@ -282,7 +311,7 @@ const tmuxSessionsSchema = z.object({
 
 const hookInstallSchema = z.object({
   density: z.enum(['high', 'medium', 'low']),
-  enabledClis: z.array(z.enum(['claude', 'gemini', 'codex'])).optional(),
+  enabledClis: z.array(z.enum(['claude', 'codex'])).optional(),
 });
 
 const killSessionSchema = z.object({
@@ -998,7 +1027,7 @@ router.post('/sessions/:id/kill', async (req: Request, res: Response) => {
     return;
   }
   // Resolve and validate the hook-reported PID. Claude may fall back to a cwd
-  // scan only for non-forks; Codex/Gemini refuse that ambiguous scan. Forks
+  // scan only for non-forks; Codex refuses that ambiguous scan. Forks
   // share the origin's projectPath, so a cwd fallback could return the ORIGIN's
   // PID and kill the wrong process. terminateProcessTree signals the whole process GROUP
   // (agent + child tool/MCP tree), escalating SIGTERM -> SIGKILL, because `claude`
@@ -2400,15 +2429,15 @@ router.post('/files/search/invalidate', (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/commands?cli=<claude|codex|gemini>&projectPath=<absolute>
+ * GET /api/commands?cli=<claude|codex>&projectPath=<absolute>
  * Enumerate slash commands and skills for the given CLI, scoped to a project
  * root when provided. Results include project + global + plugin sources.
  * Cached server-side for 30 seconds per (cli, projectPath).
  */
 router.get('/commands', (req: Request, res: Response) => {
   const cliRaw = str(req.query.cli).toLowerCase();
-  if (cliRaw !== 'claude' && cliRaw !== 'codex' && cliRaw !== 'gemini') {
-    res.status(400).json({ error: 'cli must be one of claude|codex|gemini' });
+  if (cliRaw !== 'claude' && cliRaw !== 'codex') {
+    res.status(400).json({ error: 'cli must be one of claude|codex' });
     return;
   }
   const projectPath = str(req.query.projectPath) || null;

@@ -1,6 +1,6 @@
 /**
  * WorkdirLauncher - Dropdown popover in the NavBar that lists recent working
- * directories. Each directory row carries a Claude / Codex / Gemini launch
+ * directories. Each directory row carries a Claude / Codex launch
  * button; clicking one starts a local terminal session in that directory
  * running the chosen CLI.
  */
@@ -9,7 +9,7 @@ import { useClickOutside } from '@/hooks/useClickOutside';
 import { showToast } from '@/components/ui/ToastContainer';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useKnownProjects } from '@/hooks/useKnownProjects';
-import { ClaudeIcon, CodexIcon, GeminiIcon } from './CliBrandIcons';
+import { ClaudeIcon, CodexIcon } from './CliBrandIcons';
 import styles from '@/styles/modules/WorkdirLauncher.module.css';
 
 const WORKDIR_HISTORY_KEY = 'workdir-history';
@@ -19,7 +19,6 @@ const DIR_SESSION_CONFIGS_KEY = 'dir-session-configs';
 const CLI_OPTIONS = [
   { command: 'claude', label: 'Claude', Icon: ClaudeIcon },
   { command: 'codex', label: 'Codex', Icon: CodexIcon },
-  { command: 'gemini', label: 'Gemini', Icon: GeminiIcon },
 ] as const;
 
 interface DirSessionConfig {
@@ -101,7 +100,7 @@ export default function WorkdirLauncher() {
   async function handleLaunch(workingDir: string, command: string) {
     close();
 
-    // The command is the CLI the user explicitly picked (claude/codex/gemini).
+    // The command is the CLI the user explicitly picked (claude/codex).
     // No host/username — the server spawns a local PTY for host-less requests.
     const body = { workingDir, command };
 

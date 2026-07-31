@@ -115,6 +115,34 @@ describe('queueScheduler', () => {
       // Even way past the fallback, a real running turn (working) must hold.
       expect(chainGateDecision(gate, 7, false, false, 1000 + FALLBACK * 100, FALLBACK)).toBe('hold');
     });
+
+    // The manual override is the ⚡ NOW button pressed on a row that is ALREADY
+    // mid-chain. Both hold branches below are unreachable by the user otherwise:
+    // the gate only opens on a signal the CLI has to produce, and if that signal
+    // never comes the row just sits at "step N/M" with no way out.
+    it('a manual override releases a gate stuck in the unacknowledged window', () => {
+      // The reported bug: step 1 was typed into the CLI input and the user
+      // deleted it by hand, so no hook ever acknowledged it. sawWork stays false
+      // and the session sits sendable → held for the whole fallback window.
+      const gate = { itemId: 7, sawWork: false, openedAt: 1000 };
+      expect(chainGateDecision(gate, 7, true, true, 1500, FALLBACK)).toBe('hold');
+      expect(chainGateDecision(gate, 7, true, true, 1500, FALLBACK, undefined, true)).toBe('fire');
+    });
+
+    it('a manual override releases a gate that saw work but never reached Stop', () => {
+      // working → auto-idle decay: `atRest` never becomes true and this branch
+      // has NO time fallback, so the row is parked indefinitely.
+      const gate = { itemId: 7, sawWork: true, openedAt: 1000 };
+      expect(chainGateDecision(gate, 7, false, true, 1_000_000, FALLBACK)).toBe('hold');
+      expect(
+        chainGateDecision(gate, 7, false, true, 1_000_000, FALLBACK, undefined, true),
+      ).toBe('fire');
+    });
+
+    it('override defaults to false — normal gating is unchanged', () => {
+      const gate = { itemId: 7, sawWork: false, openedAt: 1000 };
+      expect(chainGateDecision(gate, 7, true, true, 1500, FALLBACK, 900, false)).toBe('hold');
+    });
   });
 
   describe('onceGateDecision (sequential once dispatch)', () => {
@@ -1020,6 +1048,35 @@ describe('queueScheduler', () => {
         expect('forceStart' in r.patch).toBe(true);
         expect(r.patch.forceStart).toBeUndefined();
       }
+    });
+
+    // ⚡ NOW pressed on a row that is already mid-chain means "unstick the step
+    // it is parked on", NOT "start over". The UI sets `forceStart` and leaves
+    // execState/execStepIdx alone; these pin what that must produce.
+    it('force-resuming a parked chain sends the PARKED step, not step 1', () => {
+      const parked = mkItem({
+        id: 450, type: 'once', text: 'main prompt',
+        beforeChain: [step(1, 'pre')],
+        execState: 'main', execStepIdx: 0,
+        forceStart: true,
+      });
+      expect(getActiveStep(parked).text).toBe('main prompt');
+      expect(currentChainStep(parked)).toBe(2);
+      expect(totalChainSteps(parked)).toBe(2);
+    });
+
+    it('a force-resumed in-flight row is still picked by PRIORITY 0', () => {
+      // forceStart on an EXECUTING row must not route through PRIORITY 0.5
+      // (which is fresh-items-only) — the in-flight branch already returns it,
+      // and the gate override is what actually lets it fire.
+      const parked = mkItem({
+        id: 451, type: 'once', text: 'main prompt',
+        beforeChain: [step(1, 'pre')],
+        execState: 'main', execStepIdx: 0,
+        forceStart: true,
+      });
+      const other = mkItem({ id: 452, type: 'once', text: 'unrelated' });
+      expect(pickNext([other, parked], 1000, true, true)?.id).toBe(451);
     });
   });
 });

@@ -19,10 +19,11 @@ context); otherwise it falls back to a fresh launch with a self-contained prompt
 |------|------|
 | `server/floatingSessionSpawner.ts` | Resolve origin/parent, pick fresh-vs-fork launch, spawn the pty. Exports `spawnFloatingSession` (re-exports `FloatingMode`/`SpawnFloatingArgs` from `floatingPrompt.ts`). |
 | `server/floatingPrompt.ts` | Pure, dependency-free prompt synthesis + labels. Exports `buildPrompt`, `floatLabel`, `customFloatLabel`, `MAX_PROMPT_BYTES`, and the `FloatingMode`/`SpawnFloatingArgs` types. Extracted so prompt logic is unit-testable without the db/pty module graph. |
-| `server/extractPreviousAnswer.ts` | Read the last assistant message (`readClaudeLastAssistant`, for translate-answer) and the full ordered transcript (`readClaudeTranscript`, backs the [Conversation tab](../frontend/conversation-view.md)) from a Claude `~/.claude/projects/<encoded>/<sessionId>.jsonl` file. |
+| `server/extractPreviousAnswer.ts` | Read the last assistant message (`readClaudeLastAssistant`, for translate-answer) and the full ordered transcript (`readClaudeTranscript`, backs the [Conversation tab](../frontend/conversation-view.md)) from a Claude `~/.claude/projects/<encoded>/<sessionId>.jsonl` file. Also exports `resolveResumableClaudeSessionId` — the strict "can this session be `--resume`d at all" check used to gate the fork. |
+| `test/resumableTranscript.test.ts` | Unit coverage for `resolveResumableClaudeSessionId` (exact-id hit, transcriptPath fallback, no newest-jsonl fallback, `term-*` rejection). |
 | `server/apiRouter.ts` | Mounts `POST /api/sessions/spawn-floating` (Zod-validated). |
 | `src/lib/cliDetect.ts` | Frontend-side CLI detection that hides translate-answer for non-Claude origins before the request reaches this endpoint. The server's `resolveOriginCli` mirrors its `cliSource → command → model` precedence. |
-| `hooks/dashboard-hook-gemini.sh` / `hooks/dashboard-hook-codex.sh` | Emit `cli_source` (`"gemini"` / `"codex"`) so the origin session carries an authoritative CLI family for `resolveOriginCli` to read. |
+| `hooks/dashboard-hook-codex.sh` | Emits `cli_source` (`"codex"`) so the origin session carries an authoritative CLI family for `resolveOriginCli` to read. |
 
 ## API
 
@@ -73,18 +74,24 @@ spawnFloatingSession(args)
   │     [throws if non-Claude origin, no projectPath, or no transcript]
   ├─ buildPrompt(args, prevAnswer)        [throws if required input missing]
   ├─ enforce ≤ MAX_PROMPT_BYTES (256 KB)
-  ├─ resolveOriginCli(origin)                         [claude | codex | gemini]
+  ├─ resolveOriginCli(origin)                         [claude | codex]
   │     cliSource (authoritative) → command → model → 'claude'
   ├─ resolve fork parent:
   │     spawnParent = spawnTerminalId ? getSessionByTerminalId(...) : null
   │     forkParentSession = spawnParent ?? origin
   │     forkParentId      = spawnParent ? spawnParent.sessionId : originSessionId
+  ├─ resumeId = (cli = claude && parent is local && forkParentId is not term-*)
+  │                ? resolveResumableClaudeSessionId(forkParentId,
+  │                      forkParentSession.projectPath,
+  │                      forkParentSession.transcriptPath)   [null ⇒ not resumable]
+  │                : forkParentId
   ├─ shouldInheritContext =
   │       inheritContext !== false
   │       && cli ∈ {claude, codex}
   │       && forkParentSession.promptHistory.length > 0
+  │       && resumeId != null
   ├─ baseLaunchCmd = shouldInheritContext
-  │                    ? buildForkCommand(cli, forkParentId, prompt)
+  │                    ? buildForkCommand(cli, resumeId, prompt)
   │                    : buildLaunchCommand(cli, prompt)            [shell-escaped]
   ├─ permsCmd  = claude ? reconstructPermissionFlags(base, origin.permissionMode)
   │                     : base
@@ -190,26 +197,25 @@ canonical frontend detector `src/lib/cliDetect.ts`, so backend and frontend agre
 ```ts
 resolveOriginCli(origin) →
   1. origin.cliSource              // AUTHORITATIVE — set from the hook's cli_source
-                                   //   (codex & gemini hooks emit it) or inferCliSource()
+                                   //   (the codex hook emits it) or inferCliSource()
   2. detectCliFromCommand(startupCommand || sshCommand || sshConfig.command)
                                    // regex tolerates a leading path, e.g. /usr/bin/codex
-  3. detectCliFromModel(origin.model)   // gpt/codex/o1/o3/o4 → codex; gemini/gemma → gemini;
+  3. detectCliFromModel(origin.model)   // gpt/codex/o1/o3/o4 → codex;
                                         //   claude/opus/sonnet/haiku → claude
   4. 'claude'                      // historical default when nothing matches
 
 buildLaunchCommand(cli, prompt) →
-  'gemini'           → `gemini -p '<escapedPrompt>'`
   'claude' / 'codex' → `<cli> '<escapedPrompt>'`
 ```
 
 **Why precedence matters (the gpt-5.5 bug):** the previous detector only sniffed
 the command string and ignored `cliSource`. Because `sshCommand` defaults to
-`'claude'` (`sessionStore.ts`), a Codex/Gemini parent was misdetected as Claude —
+`'claude'` (`sessionStore.ts`), a Codex parent was misdetected as Claude —
 so the popup launched `claude` *and* injected the parent's inherited Codex model
 as a Claude flag (`claude --model gpt-5.5 '…'`). Leading with `cliSource` fixes
-the ownership error: the popup now launches `codex`/`gemini`, and the historically
+the ownership error: the popup now launches `codex`, and the historically
 named `applyClaudeLaunchFlags` applies the inherited model to Claude or Codex
-only after the correct CLI has been resolved (Gemini remains unchanged).
+only after the correct CLI has been resolved.
 
 Single-quote escaping (`shellEscapeSingle`) uses the standard pattern:
 `'` → `'"'"'`.
@@ -265,11 +271,34 @@ robot icon matches the parent.
 **Per-mode policy**: **all** popup modes fork the origin Claude/Codex session to
 inherit its conversation context, gated by the `inheritContext` Settings toggle
 (`translationInheritContext`, default on) **and by the parent having a resumable
-conversation**. A brand-new session with no prompts yet has no transcript, so
-`claude --resume <id> --fork-session` would fail with "No conversation found" —
-the spawner detects this (`forkParentSession.promptHistory.length > 0`) and falls
-back to a fresh launch (the popup prompt is self-contained). Gemini origins always
-use the fresh-launch path (no fork support); Codex uses `codex fork`.
+conversation**. When it doesn't, `claude --resume <id> --fork-session` exits
+immediately with `No conversation found with session ID: <id>` and the popup lands
+on a dead shell, so the spawner falls back to a fresh launch (the popup prompt is
+self-contained). Two independent checks establish resumability:
+
+1. `forkParentSession.promptHistory.length > 0` — the parent has been used at all
+   (a brand-new session has nothing to fork).
+2. `resolveResumableClaudeSessionId(...)` (`extractPreviousAnswer.ts`) — a
+   transcript for that id actually exists on disk. Prompt history **does not**
+   prove this: it survives workspace restore, `/clear` and session re-keys, and a
+   session whose transcript was never persisted (an inherited
+   `CLAUDE_CODE_CHILD_SESSION` — see [Terminal/SSH → Environment](./terminal-ssh.md))
+   or was removed by Claude's retention cleanup still reports plenty of prompts.
+   The resolver returns the id `--resume` will find: the session id when
+   `<id>.jsonl` exists in any [encoded project dir](#transcript-reading-translate-answer),
+   else the recorded `transcriptPath`'s basename when that file exists (a re-keyed
+   or aliased card can carry a stale id while the hook-reported transcript names
+   the id Claude knows), else `null`. Unlike `findTranscriptFile` it has **no
+   "newest .jsonl in the dir" fallback** — an unrelated conversation in the same
+   project directory must never count as this session's transcript. A miss logs
+   `No resumable transcript for <id> — launching a fresh session instead of forking`.
+
+Check 2 is skipped — leaving the old behaviour intact — for **remote (SSH)**
+parents, whose transcript lives on the far host, and for dashboard-internal
+`term-*` ids, which keep the `--continue --fork-session` fallback below.
+origins always use the fresh-launch path (no fork support); Codex uses
+`codex fork` and is gated on check 1 only (its transcripts live under
+`$CODEX_HOME`, not `~/.claude/projects`).
 
 | Mode | Fork? | Notes |
 |------|-------|-------|
@@ -278,7 +307,7 @@ use the fresh-launch path (no fork support); Codex uses `codex fork`.
 | `translate-selection-learning` / `translate-selection-native` | yes | Surrounding conversation improves terminology. |
 | `translate-answer` | yes | Prompt still carries the prior answer; the fork adds conversation context. |
 | `translate-file` | yes | Whole-file translation; the fork supplies project/terminology context. |
-| `custom` | yes (Claude/Codex) | Forks when the parent supports it; Gemini custom stays fresh. |
+| `custom` | yes (Claude/Codex) | Forks when the parent supports it. |
 
 > The runtime decision (`shouldInheritContext`) is uniform across modes — it does
 > not special-case `vocab-native`/`custom`, even though their type comments in
@@ -312,7 +341,7 @@ capping tool input at `TOOL_INPUT_CAP = 2 KB`, tool result at
 recent, file order preserved). This backs the
 [Conversation tab](../frontend/conversation-view.md), not the spawner itself.
 
-Codex and Gemini transcripts are not yet supported. The frontend hides the
+Codex transcripts are not yet supported. The frontend hides the
 translate-answer button for non-Claude origins; direct endpoint calls still
 return a 400 with a user-readable error.
 
@@ -351,10 +380,21 @@ return a 400 with a user-readable error.
   rewrites leading Claude and Codex commands, so correct CLI detection prevents
   a model (e.g. `gpt-5.5`) from being injected into the wrong binary.
   `resolveOriginCli` leads with `cliSource`; if that field is ever
-  unset for a non-Claude session (e.g. a Gemini hook that predates the
+  unset for a non-Claude session (e.g. a hook that predates the
   `cli_source` addition and whose `startup_command` wasn't captured), detection
   falls through to the command/model sniff. Reinstall hooks (`npm run install-hooks`)
-  so Gemini sessions carry `cli_source`.
+  so those sessions carry `cli_source`.
 * **Recursive forks** depend on `spawnTerminalId` resolving to a live session. If
   the host terminal's session is gone, the spawner falls back to forking the
   root `originSessionId`.
+* **Forking depends on Claude persisting transcripts at all.** If a spawned PTY
+  inherits `CLAUDE_CODE_CHILD_SESSION` from the process that launched the app,
+  Claude Code writes no transcript for ANY dashboard session, so every popup
+  silently degrades to a fresh (context-free) launch — correct answers, no
+  inherited context, and no error. The env is scrubbed at the PTY boundary
+  ([Terminal/SSH → Environment](./terminal-ssh.md)); the `No resumable transcript
+  for <id>` warning firing for every session is the signal that scrub regressed.
+  Note `translate-answer` degrades differently and more quietly: it reads through
+  `readClaudeLastAssistant`, whose `findTranscriptFile` **does** fall back to the
+  newest `.jsonl` in the project dir, so with this session's transcript missing it
+  can translate an unrelated conversation's last answer.

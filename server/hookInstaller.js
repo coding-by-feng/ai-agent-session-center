@@ -1,6 +1,6 @@
 /**
  * @module hookInstaller
- * Auto-installs hook scripts for Claude Code, Gemini CLI, and Codex on server startup.
+ * Auto-installs hook scripts for Claude Code and Codex on server startup.
  * Copies dashboard-hook.sh to ~/.claude/hooks/, registers events in ~/.claude/settings.json
  * using atomic writes (temp file + rename), and supports density-aware event registration.
  */
@@ -127,57 +127,6 @@ export function ensureHooksInstalled(config) {
       }
     } catch (e) {
       log.debug('server', `Claude hook registration skipped: ${e.message}`);
-    }
-  }
-
-  // ── Gemini CLI hooks ──
-  if (enabledClis.includes('gemini')) {
-    const src = join(__dirname, '..', 'hooks', 'dashboard-hook-gemini.sh');
-    const hooksDir = join(homedir(), '.gemini', 'hooks');
-    const dest = join(hooksDir, 'dashboard-hook.sh');
-    const settingsPath = join(homedir(), '.gemini', 'settings.json');
-
-    syncHookFile(src, dest, hooksDir, false, 'gemini');
-
-    // Gemini official lifecycle events (google-gemini/gemini-cli docs/hooks/reference.md):
-    //   Tool: BeforeTool, AfterTool
-    //   Agent: BeforeAgent, AfterAgent
-    //   Model: BeforeModel, BeforeToolSelection, AfterModel  (not registered — high-frequency,
-    //          not useful as session sound triggers)
-    //   Lifecycle: SessionStart, SessionEnd, Notification, PreCompress
-    const geminiDensityEvents = {
-      high: ['SessionStart', 'BeforeAgent', 'BeforeTool', 'AfterTool', 'AfterAgent', 'PreCompress', 'SessionEnd', 'Notification'],
-      medium: ['SessionStart', 'BeforeAgent', 'AfterAgent', 'SessionEnd', 'Notification'],
-      low: ['SessionStart', 'AfterAgent', 'SessionEnd'],
-    };
-    const geminiEvents = geminiDensityEvents[density] || geminiDensityEvents.medium;
-
-    try {
-      let settings;
-      try { settings = JSON.parse(readFileSync(settingsPath, 'utf8')); } catch { settings = {}; }
-      if (!settings.hooks) settings.hooks = {};
-
-      let changed = false;
-      for (const event of geminiEvents) {
-        if (!settings.hooks[event]) settings.hooks[event] = [];
-        const hasHook = settings.hooks[event].some(g =>
-          g.hooks?.some(h => h.command?.includes(hookPattern))
-        );
-        if (!hasHook) {
-          settings.hooks[event].push({
-            _source: hookSource,
-            hooks: [{ type: 'command', command: `~/.gemini/hooks/dashboard-hook.sh ${event}` }]
-          });
-          changed = true;
-        }
-      }
-      if (changed) {
-        mkdirSync(join(homedir(), '.gemini'), { recursive: true });
-        atomicWriteJSON(settingsPath, settings);
-        log.info('server', `Registered ${geminiEvents.length} Gemini hook events (density: ${density})`);
-      }
-    } catch (e) {
-      log.debug('server', `Gemini hook registration skipped: ${e.message}`);
     }
   }
 

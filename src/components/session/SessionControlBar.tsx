@@ -13,6 +13,7 @@ import { showToast } from '@/components/ui/ToastContainer';
 import Select from '@/components/ui/Select';
 import type { SelectOption } from '@/components/ui/Select';
 import Tooltip from '@/components/ui/Tooltip';
+import { faultLabel } from '@/lib/resumeWatchdog';
 import { tooltips } from '@/lib/tooltips';
 import { KILL_MODAL_ID } from './KillConfirmModal';
 import styles from '@/styles/modules/DetailPanel.module.css';
@@ -128,6 +129,14 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
 
   return (
     <div className={styles.ctrlBar}>
+      {session.interruption && (
+        <span
+          className={styles.ctrlInterrupted}
+          title={`Turn ended on a transient failure, not a finished task:\n${session.interruption.line}`}
+        >
+          ⚠ {faultLabel(session.interruption.kind)}
+        </span>
+      )}
       {isDisconnected && (
         <Tooltip {...tooltips.ctrlResume}>
           <button

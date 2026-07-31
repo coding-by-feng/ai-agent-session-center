@@ -115,6 +115,7 @@ describe('matchSession — 5-priority session matching', () => {
     getTerminalByPtyChild: vi.fn().mockReturnValue(null),
     consumePendingLink: vi.fn(),
     registerTerminalExitCallback: vi.fn(),
+    registerTerminalFaultCallback: vi.fn(),
     closeTerminal: vi.fn(),
     getTerminals: vi.fn(() => []),
     getTerminalOutputBuffer: vi.fn(() => null),

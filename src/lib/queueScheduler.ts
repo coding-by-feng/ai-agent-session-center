@@ -528,6 +528,8 @@ export interface ChainGate {
  * `sawWork` itself is observed/updated by the caller each tick (it must run
  * even on ticks where the idle-guard makes `pickNext` return null), so this
  * helper only reads it.
+ *
+ * `manualOverride` is the one escape the user controls — see the param doc.
  */
 export function chainGateDecision(
   gate: ChainGate | undefined,
@@ -540,7 +542,25 @@ export function chainGateDecision(
   noWorkFallbackMs: number,
   /** `session.lastActivityAt` this tick. Omit to fall back to `sawWork` only. */
   sessionActivityAt?: number,
+  /**
+   * The user pressed "⚡ NOW" on a row that is ALREADY mid-chain (`forceStart`
+   * set on an executing item). Releases the gate for exactly the step the row
+   * is parked on — `execState`/`execStepIdx` are untouched, so this resumes the
+   * chain rather than restarting it.
+   *
+   * Needed because BOTH hold branches wait on a signal only the CLI can emit,
+   * and neither is reachable by the user when it never comes:
+   *  - accepted + never `atRest` (e.g. the turn decayed `working → idle`) holds
+   *    forever — that branch has no time fallback at all, by design.
+   *  - never acknowledged (the step's text was typed and then deleted out of the
+   *    input line by hand, so no hook ever fired) holds for `noWorkFallbackMs`,
+   *    which is deliberately 5 minutes.
+   * Without an override the row just sits at "step N/M" and the only way out is
+   * to run some unrelated prompt by hand so a hook event lands.
+   */
+  manualOverride = false,
 ): 'fire' | 'hold' {
+  if (manualOverride) return 'fire';
   if (!gate || gate.itemId !== pickId) return 'fire';
   if (gateAccepted(gate.sawWork, gate.activityAtOpen, sessionActivityAt)) {
     return atRest ? 'fire' : 'hold';

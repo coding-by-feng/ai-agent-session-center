@@ -7,7 +7,7 @@ the two files aligned when project guidance changes.
 ## Project Snapshot
 
 AI Agent Session Center is a localhost dashboard on port 3333 for monitoring AI
-coding agent sessions from Claude Code, Gemini CLI, Codex, and related tools. It
+coding agent sessions from Claude Code, Codex, and related tools. It
 uses hooks to ingest session events, visualizes sessions as 3D robots, supports
 SSH terminals, team/subagent tracking, prompt queuing, workspace snapshots, and
 session resume.
@@ -217,81 +217,77 @@ Check connected docs and tests when touching these contracts:
 <claude-mem-context>
 # Memory Context
 
-# [agent-manager] recent context, 2026-07-29 3:56pm GMT+12
+# [agent-manager] recent context, 2026-07-31 12:16pm GMT+12
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (29,634t read) | 1,402,108t work | 98% savings
+Stats: 50 obs (21,805t read) | 634,122t work | 97% savings
 
-### Jul 17, 2026
-S1422 agent-manager: Add sort-by-recent-active-status icon to session rail (no rooms) — triggered /ascii-review-first which surfaced two bugs and one design trap before any code was written (Jul 17 at 5:01 PM)
-S1424 electron-build — Build and verify agent-manager v2.10.35 Electron DMG for macOS arm64 (Jul 17 at 5:39 PM)
-S1434 YouTube History Tab — Watch History Tracking Bug Reported (Jul 17 at 6:06 PM)
-S1468 AASC: Fix room skill icons to same line + persist effort level (ultracode) across workspace restart/resume (Jul 17 at 10:47 PM)
-### Jul 18, 2026
-S1476 agent-manager: Room session icon alignment (collapse chevron + kill skull on same line) + AASC effort inheritance after restart/resume (Jul 18 at 11:13 AM)
-S1585 agent-manager v2.10.38 Electron Release — GitHub release published with full changelog (Jul 18 at 11:31 AM)
-S1743 Kokoro TTS On-Disk Integration State Confirmed via History Check (Jul 18 at 9:37 PM)
-### Jul 23, 2026
-11784 9:49p 🟣 Kokoro-82M Local Browser TTS Added to AASC Terminal
-11785 9:50p 🔵 Kokoro TTS On-Disk Integration State Confirmed via History Check
-S1755 agent-manager Terminal Left-Alignment Bug — Confirmed Root Cause: fitAddon Hidden-Container Race at 3 Unguarded Call Sites (Jul 23 at 9:50 PM)
-### Jul 24, 2026
-11838 10:08a 🔵 Terminal Output Garbling — Root Cause Investigation in agent-manager
-11848 10:12a 🔵 Terminal Hard-Wrapped at ~30 Cols — Root-Cause Analysis Initiated
-11853 10:14a 🔵 agent-manager package.json Has No npm Scripts Defined
-11855 10:16a 🔵 Terminal 30-Col Bug — Full Code Trace of Fit/Resize Lifecycle Completed
-11857 10:18a 🔵 agent-manager package.json Accidentally Stripped — Scripts/DevDeps/Build Sections Lost
-11858 10:19a 🔴 agent-manager package.json Restored — Scripts and DevDependencies Sections Recovered
-11860 10:21a 🔵 agent-manager Host Disk Space Survey — Docker Consuming 65GB, Build Context ~2.4GB
-11861 " 🔵 Terminal Output Rendering — Messy/Left-Aligned Display Issue Investigated
-11863 10:22a 🔵 Terminal Narrow-Width Bug — Root Cause Deep Investigation (agent-manager)
-11864 " 🔵 switcherBarVertical flex-wrap:nowrap Already Applied to Fix Title Row Overflow
-11866 10:23a 🔵 Terminal "Messy Left-Aligned Output" — Root Cause Traced to FloatingTerminalPanel Viewport Clamp
-11868 10:25a 🔵 Ring-Replay Hypothesis Refuted — Terminal Width Bug Is Live-Stream Only, Not Replay Artifact
-11874 10:27a 🔵 Terminal Narrow-Col Bug — Root Causes Fully Traced in agent-manager
-11876 10:28a 🔵 Agent-Manager Terminal — Messy/Left-Aligned Output Root Cause Investigation
-11877 10:29a 🔵 Agent-Manager Terminal — PTY Spawns at Hardcoded 120×40, Resize Race Likely Causes Messy Output
-11878 10:31a 🔵 Terminal "Messy Output" Root Cause Investigation — agent-manager Electron App
-11881 10:32a 🔵 Terminal Resize Guards — Partial, Not Sufficient to Prevent Narrow-Column Commits
-11882 10:33a 🔵 Terminal Output Rendering — Left-Alignment Corruption Investigated
-11883 10:34a 🔵 Terminal Left-Alignment Bug — Root Cause Traced to Ring Buffer Replay of Narrow-Column Output
-11884 10:35a 🔵 Terminal Layout Bug — FitAddon Source Confirmed: proposeDimensions Uses CSS Width at Measurement Time
-11886 10:36a 🔵 Terminal Narrow-Column Bug — Session Switch Triggers Float Remount and Problematic Re-Attach
-11891 10:37a 🔵 xterm.js Cell Width Measurement — Two Strategies; OffscreenCanvas Path Bypasses DOM Layout
-11892 10:38a 🔵 Root Cause Confirmed — xterm.js Always Uses OffscreenCanvas in Electron; Zero-Width Guard Never Fires
-11894 10:39a 🔵 refreshOutput Transport Asymmetry — WS Branch Gets Full Repair via terminal_ready; IPC Branch Does Not
-11905 10:42a 🔵 FloatingTerminalPanel.module.css Has CSS Transition at Line 96 — Confirms Animation Race Window
-11906 " 🔵 settingsStore fontSize Is UI Root Font-Size (document.documentElement) — NOT xterm Terminal Font
-11907 " 🔵 Zoom-as-Root-Cause Refuted — Two Real Secondary Bugs Found: Frozen fontSize and One-Way Panel Width Ratchet
-11908 " 🔵 xterm.js css.cell.width Derivation — Device Dimensions / DPR / Cols (Font-Driven, Not Container-Driven)
-11922 10:50a 🔵 Local Disk Usage Profile — Claude Projects and Caches
-11924 10:52a 🔵 Docker Storage Audit — 50GB+ Reclaimable Space Identified
-11931 11:08a 🔵 Terminal Output Messy Left-Alignment — Root Cause Investigation
-11932 11:10a 🔵 Terminal Messy Left-Alignment — Root Cause Traced to fitAddon Resize Race in agent-manager
-11933 " 🔵 agent-manager Terminal Left-Alignment Bug — Confirmed Root Cause: fitAddon Hidden-Container Race at 3 Unguarded Call Sites
-S1753 Terminal output messy and left-aligned — root cause investigation in agent-manager xterm.js terminal (Jul 24 at 11:10 AM)
-12027 6:51p 🔵 Agent Manager Queue Panel — Full CSS Class Inventory Traced
-12029 6:52p 🟣 Queue Item Click/Keyboard Reorder — ▲/▼ Buttons Added to QueueTab
-12030 6:53p 🔵 Queue Reorder UI — HTML Harness Created for Visual Width Testing
-12031 6:54p 🔴 Queue Action Row — flex-wrap Added to Prevent Overflow at Narrow Widths
-S1765 Queue Panel Docs Updated — ▲/▼ Click Reorder + flex-wrap Documented in prompt-queue.md (Jul 24 at 6:55 PM)
-### Jul 25, 2026
-12384 7:54p 🔵 agent-manager Pre-Release State — 70 Files Uncommitted Since v2.10.38
-12385 7:55p ✅ gitignore Updated — .native-cache/ Added for better-sqlite3 ABI Binaries
-12386 7:56p 🔵 kokoro-js Missing from package.json Dependencies Despite Being Used
-12387 " ✅ package.json main Field Switched to Electron Build Output
-12388 7:57p 🔵 yargs ESM/CJS Conflict on Node.js v26 — require() Fails in ES Module Scope
-12389 " 🔵 package-lock.json Was Significantly Stale — 876 Insertions After Sync
-12390 7:59p 🟣 agent-manager v2.10.39 Released — Kokoro TTS, Terminal Fixes, Session Identity Hardening
-### Jul 27, 2026
-12467 6:23a ⚖️ AASC Electron App — Memory Optimization Investigation Initiated
 ### Jul 29, 2026
-12676 3:35p ✅ Kason MCP Removed from Codex
-12678 3:38p 🔵 agent-manager (AASC) — No Promotion Docs Found in Project or Memory
-12679 " 🔵 agent-manager Docs — No AASC Promotion Content Found
+S1836 Fix terminal tab "need to reconnect" bug + incorrect session name in common room — code path investigation completed (Jul 29 at 9:48 PM)
+S1837 docs/feature/.manifest.json — Atomically Updated to 46 Features with saved-prompts.md (Jul 29 at 11:28 PM)
+### Jul 30, 2026
+S1839 agent-manager Electron Distributable Build — Completed Successfully (Jul 30 at 11:28 AM)
+S1846 agent-manager Electron Distributable Built — v2.10.40 (Jul 30 at 1:17 PM)
+S1882 agent-manager Electron Build Status Check — Is the build done? (Jul 30 at 2:31 PM)
+S1891 macOS WindowServer High CPU Usage — Root Cause Investigation on Apple M4 Mac (Jul 30 at 8:21 PM)
+S1904 User sent "of" — ambiguous/incomplete message, no actionable request (Jul 30 at 8:48 PM)
+### Jul 31, 2026
+S1906 Interruption Detection Daemon Feature Requested for Queue System (Jul 31 at 4:31 AM)
+S1910 Interrupt Detection Daemon Proposed for Agent Queue System (Jul 31 at 9:55 AM)
+13365 11:37a 🔵 appendSessionName in server/config.ts Only Escapes Double Quotes — Shell Injection Confirmed
+13366 " 🟣 sessionNameQuoting.test.ts — Comprehensive Shell Safety Test Suite Created
+13367 11:38a 🔵 agent-manager Session Name Shell Injection — Root Cause and Fix Scope Identified
+13368 " 🔴 server/config.ts — CONTROL_CHARS_RE Regex Fixed: Raw Bytes Replaced with Escaped Sequences
+13369 11:39a 🔴 electron/ptyHost.ts Shell Injection Fixed — Session Title Properly Escaped
+13370 " 🔵 Test Failure — Mirror Drift Detector Regex Pattern Needs Adjustment
+13371 " 🔴 agent-manager Session Name Shell Injection — Full Fix Applied to server/config.ts and electron/ptyHost.ts
+13372 11:40a 🔴 agent-manager Resume Command Verbosity — Root Cause Was Long-Form Fallback Pattern, Not a Bug
+13373 " ⚖️ Shell Safety Approach — Escape All Double-Quote-Context Metacharacters, Not Just Quotes
+13374 11:41a ✅ agent-manager Session Name Quoting — Work Complete, Tests at 32/33
+13375 " 🟣 sessionNameQuoting.test.ts — extractSessionName and stripClaudeSessionName APIs Confirmed
+13376 11:42a ✅ CLAUDE.md — Session Title Shell Injection Invariant Added to Key Invariants Section
+13377 " 🔵 buildResumeCommand — `--continue` Fallback Deliberately Avoided; Fresh Claude Used Instead
+13378 " ⚖️ Daemon Feature Proposed — Interrupt Detection with Auto-Prompt Resume
+13379 11:43a ⚖️ Daemon Feature Proposed — Session Interrupt Detection with Auto-Resume Prompt
+13380 11:44a ⚖️ Interrupt Detection Daemon Proposed for Agent Queue System
+13381 " ⚖️ Interrupt Detection Daemon Proposed for Agent Queue System
+13382 " ⚖️ Interrupt Detection Daemon Proposed for Agent Queue System
+13383 11:45a 🔴 Session Name Shell Injection Fixed — `appendSessionName` Now Shell-Quotes Titles
+13384 " 🔴 CLAUDE_CODE_CHILD_SESSION Env Stripping Expanded — Transcript Persistence Now Reliable
+13385 " 🔴 `hasChildProcesses` Made Async — Event Loop No Longer Blocked on `pgrep`
+13386 " 🟣 Interruption Detector — PTY Scans for Transient Failure Banners (529, 5xx, Rate Limit)
+13387 " 🟣 Resume Command Shortened When Transcript Verified on Disk
+13388 " 🔴 Hookless CLI Model Field Fixed — No Longer Stores Full Launch Command as Model
+13389 " 🟣 Server Logger Now Persists to Disk with Rotation — Packaged Electron Logs Survive
+13390 " ✅ Build Toolchain Upgraded — Node 22, `@electron/rebuild` 4.2.0, `node-gyp` 12.4.0
+13392 11:48a ✅ agent-manager — Large Multi-Fix Branch Staged for Code Review (56 Files, ~1,929 Insertions)
+13395 11:50a ✅ Gemini Hook Support Deprecated — Uninstall Cleanup Added to Hook Installer
+13396 " 🔴 Approval Timer — `isAgentBusyOutput` Guard Added for In-Process Thinking
+13397 " 🔵 Queue Scheduler `pickNext` Priority Order — 5 Tiers Confirmed
+13398 11:51a 🔵 Queue Store — `DEFAULT_AUTOMATION` Stable Reference Prevents Infinite Re-Renders
+13399 " ✅ Gemini CLI Removed from `commandIndex.ts` — Zero Remaining References
+13400 " 🔵 Queue DnD Probe Script — 5-Config Matrix Tests `setDragImage` / `.dragging` / Re-render
+13401 11:52a ✅ Gemini Removed from `floatingSessionSpawner.ts` — TypeScript Typecheck Passes Clean
+13402 " 🟣 Auto-Resume Watchdog — UI Toggle + Scheduler Integration in Queue System
+13403 " ⚖️ Gemini Event Constants Retained in `EVENT_TYPES` — Backward-Compat for Legacy Hook Data
+13404 11:53a ✅ Gemini CLI Deprecation — Server-Side Removal Completed Across 3 Files
+13405 11:54a 🔵 Frontend Gemini Surface Map — 13 Component Files Still Reference Gemini
+13406 " ✅ Gemini Deprecation — Frontend Component Cleanup Still Pending After Lib/Store Pass
+13408 11:55a ⚖️ Gemini Deprecation Strategy — Phased Removal with Backward-Compat Stubs
+13410 11:59a 🔴 settingsStore test: codex default volume corrected from 0.7 to 0.5
+13411 " 🔴 extractModelFromCommand regression — returns "" for ANSI-contaminated strings with spaces
+13412 " 🔄 Gemini test cases removed from floatingSpawnerCli and constants test files
+13414 12:02p 🔵 Kokoro TTS Click-to-Speak Debug Investigation — Build Audit
+13415 12:03p ✅ Feature Docs Updated — Gemini Deprecation Phase 1
+13416 12:04p ✅ Feature Docs Purged of Gemini References — 9 Files + Manifest Updated
+13417 12:05p 🔵 Kokoro TTS Worker Runtime Diagnostic — Worker Functional, No COOP/COEP Headers
+13421 12:06p ✅ update-feature-docs Session Complete — Gemini Purge Across Docs and Manifest
+13422 12:07p ✅ Gemini Deprecation Docs — Final Sweep, AGENTS.md Cleaned, Audit Report Written
+13423 " 🔵 Kokoro TTS Worker Fully Functional — UI Click Path Is the Bug, Not the Worker
+S1914 Kokoro TTS Worker Fully Functional — UI Click Path Is the Bug, Not the Worker (Jul 31 at 12:07 PM)
 
-Access 1402k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 634k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

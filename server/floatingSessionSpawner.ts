@@ -17,11 +17,11 @@
  *
  * For `translate-answer`, the previous assistant message is read from the
  * Claude transcript file (server/extractPreviousAnswer.ts). Cross-CLI support
- * for codex/gemini transcripts is a phase-2 follow-up.
+ * for codex transcripts is a phase-2 follow-up.
  */
 import { getSession, getSessionByTerminalId, createTerminalSession } from './sessionStore.js';
 import { createTerminal, consumePendingLink, writeWhenReady, injectClaudeCommandsWhenReady } from './sshManager.js';
-import { readClaudeLastAssistant } from './extractPreviousAnswer.js';
+import { readClaudeLastAssistant, resolveResumableClaudeSessionId } from './extractPreviousAnswer.js';
 import { reconstructPermissionFlags, applyClaudeLaunchFlags, sanitizeModelId } from './config.js';
 import {
   buildPrompt,
@@ -46,25 +46,23 @@ function shellEscapeSingle(value: string): string {
   return value.replace(/'/g, `'"'"'`);
 }
 
-type CliKind = 'claude' | 'codex' | 'gemini';
+type CliKind = 'claude' | 'codex';
 
 /** Sniff a CLI family from a launch command string (tolerates a leading path). */
 function detectCliFromCommand(command: string | undefined | null): CliKind | null {
   const cmd = (command || '').toLowerCase().trim();
   if (/^(?:\S*\/)?codex(?:\s|$)/.test(cmd)) return 'codex';
-  if (/^(?:\S*\/)?gemini(?:\s|$)/.test(cmd)) return 'gemini';
   if (/^(?:\S*\/)?claude(?:\s|$)/.test(cmd)) return 'claude';
   return null;
 }
 
-/** Sniff a CLI family from a model id (e.g. gpt-5 → codex, gemini-2 → gemini).
+/** Sniff a CLI family from a model id (e.g. gpt-5 → codex, opus → claude).
  *  Keyword set + order mirror the canonical client detector (src/lib/cliDetect.ts)
  *  to avoid backend/frontend divergence. */
 function detectCliFromModel(model: string | undefined | null): CliKind | null {
   const m = (model || '').toLowerCase();
   if (!m) return null;
   if (m.includes('claude') || m.includes('opus') || m.includes('sonnet') || m.includes('haiku')) return 'claude';
-  if (m.includes('gemini') || m.includes('gemma')) return 'gemini';
   if (m.includes('gpt') || m.includes('codex') || m.includes('o1') || m.includes('o3') || m.includes('o4')) return 'codex';
   return null;
 }
@@ -73,14 +71,14 @@ function detectCliFromModel(model: string | undefined | null): CliKind | null {
  * Resolve which AI CLI an origin session is running so the popup spawns the same
  * one as its parent. Precedence mirrors the canonical client detector
  * (src/lib/cliDetect.ts):
- *   1. cliSource — authoritative (codex/gemini hooks set it; inferCliSource fills it otherwise)
+ *   1. cliSource — authoritative (the codex hook sets it; inferCliSource fills it otherwise)
  *   2. launch command string
  *   3. model id
  * Falls back to 'claude' when nothing matches (the historical default).
  */
 export function resolveOriginCli(origin: Pick<Session, 'cliSource' | 'startupCommand' | 'sshCommand' | 'sshConfig' | 'model'>): CliKind {
   const explicit = (origin.cliSource || '').toLowerCase();
-  if (explicit === 'claude' || explicit === 'codex' || explicit === 'gemini') return explicit;
+  if (explicit === 'claude' || explicit === 'codex') return explicit;
   return (
     detectCliFromCommand(origin.startupCommand || origin.sshCommand || origin.sshConfig?.command) ||
     detectCliFromModel(origin.model) ||
@@ -90,8 +88,7 @@ export function resolveOriginCli(origin: Pick<Session, 'cliSource' | 'startupCom
 
 function buildLaunchCommand(cli: CliKind, prompt: string): string {
   const escaped = shellEscapeSingle(prompt);
-  // Claude/Codex accept a positional prompt; Gemini uses -p.
-  if (cli === 'gemini') return `gemini -p '${escaped}'`;
+  // Both Claude and Codex accept a positional prompt.
   return `${cli} '${escaped}'`;
 }
 
@@ -156,7 +153,7 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
   }
 
   // Spawn the same CLI as the origin session (prefers the authoritative
-  // cliSource so codex/gemini parents aren't misdetected as claude).
+  // cliSource so codex parents aren't misdetected as claude).
   const cliKind = resolveOriginCli(origin);
   // Recursive fork: a popup spawned from inside a floating terminal forks from
   // that terminal's session — resolved here from spawnTerminalId — so context
@@ -171,16 +168,38 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
   // resumable conversation: a brand-new session with no prompts yet has no
   // transcript, so `claude --resume <id> --fork-session` fails with "No
   // conversation found" — fall back to a fresh launch (the popup prompt is
-  // self-contained anyway). Gemini has no fork (stays fresh); an explicit
+  // self-contained anyway); an explicit
   // inheritContext:false (the Settings toggle) opts out.
   const parentHasConversation = (forkParentSession?.promptHistory?.length ?? 0) > 0;
+  // promptHistory only proves the parent has been *used* — not that Claude
+  // persisted a transcript for it. History survives workspace restore, /clear and
+  // re-keys, and a session that never wrote a transcript (or whose transcript was
+  // cleaned up) still reports prompts; forking it exits instantly with "No
+  // conversation found with session ID" and leaves the popup on a dead shell. So
+  // for local Claude parents, resolve the id --resume will actually find; a miss
+  // downgrades to a fresh launch (the popup prompt is self-contained anyway).
+  // Skipped for remote parents (their transcript lives on the far host) and for
+  // dashboard-internal term-* ids, which keep the existing --continue fallback.
+  const parentCfg = forkParentSession?.sshConfig;
+  const parentIsRemote = !!(
+    parentCfg?.username && parentCfg.host && parentCfg.host !== 'localhost' && parentCfg.host !== '127.0.0.1'
+  );
+  const parentIdIsInternal = forkParentId.startsWith('term-') || !/^[a-zA-Z0-9_\-]+$/.test(forkParentId);
+  const resumeId = (cliKind === 'claude' && !parentIsRemote && !parentIdIsInternal)
+    ? resolveResumableClaudeSessionId(
+        forkParentId,
+        forkParentSession?.projectPath || '',
+        forkParentSession?.transcriptPath || null,
+      )
+    : forkParentId;
   const shouldInheritContext = (
     args.inheritContext !== false &&
     (cliKind === 'claude' || cliKind === 'codex') &&
-    parentHasConversation
+    parentHasConversation &&
+    !!resumeId
   );
   const baseLaunchCmd = shouldInheritContext
-    ? buildForkCommand(cliKind === 'codex' ? 'codex' : 'claude', forkParentId, prompt)
+    ? buildForkCommand(cliKind === 'codex' ? 'codex' : 'claude', resumeId || forkParentId, prompt)
     : buildLaunchCommand(cliKind, prompt);
   const permsCmd = cliKind === 'claude'
     ? reconstructPermissionFlags(baseLaunchCmd, origin.permissionMode)
@@ -236,7 +255,10 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
     injectClaudeCommandsWhenReady(terminalId, ['/effort ultracode']);
   }
 
-  log.info('floating-spawn', `Spawned ${args.mode} float (terminalId=${terminalId}, cli=${cliKind}, originSession=${origin.sessionId}, originModel=${origin.model || '-'}, originEffort=${origin.effortLevel || '-'}, forkParent=${forkParentId}, inheritContext=${shouldInheritContext})`);
+  if (parentHasConversation && !shouldInheritContext && cliKind === 'claude' && !parentIsRemote && !parentIdIsInternal) {
+    log.warn('floating-spawn', `No resumable transcript for ${forkParentId} — launching a fresh session instead of forking (Claude never persisted this conversation; check for an inherited CLAUDE_CODE_CHILD_SESSION)`);
+  }
+  log.info('floating-spawn', `Spawned ${args.mode} float (terminalId=${terminalId}, cli=${cliKind}, originSession=${origin.sessionId}, originModel=${origin.model || '-'}, originEffort=${origin.effortLevel || '-'}, forkParent=${forkParentId}, resumeId=${resumeId || '-'}, inheritContext=${shouldInheritContext})`);
 
   return { terminalId, label };
 }

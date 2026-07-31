@@ -2,7 +2,7 @@
 
 ## Function
 
-Provides inline `/`-slash-command, `$`-Codex-skill and `@`-file autocomplete inside prompt textareas (queue editor, queue tab) by enumerating every available slash command and skill for the session's CLI (Claude / Codex / Gemini) and surfacing them in a grouped dropdown. A separate, lighter helper (`commandSuggestions.ts`) powers the launch-command comboboxes in the session-creation modals using a localStorage usage-frequency ranking.
+Provides inline `/`-slash-command, `$`-Codex-skill and `@`-file autocomplete inside prompt textareas (queue editor, queue tab) by enumerating every available slash command and skill for the session's CLI (Claude / Codex) and surfacing them in a grouped dropdown. A separate, lighter helper (`commandSuggestions.ts`) powers the launch-command comboboxes in the session-creation modals using a localStorage usage-frequency ranking.
 
 ## Purpose
 
@@ -35,11 +35,11 @@ When queuing or editing a prompt the user often wants to invoke a slash command 
 - **Description length caps** — server slices descriptions to 240 chars; `firstNonEmptyLine` caps body fallback to 200 chars.
 - **`isSafeProjectPath`** rejects empty, `>1024`-char, or NUL-containing paths and requires `statSync(p).isDirectory()`.
 - **`COMMAND_USAGE_KEY = 'command-usage-counts'`** — localStorage key for the session-creation suggestion frequency map.
-- **`DEFAULT_SESSION_COMMANDS`** — `claude`, `claude --resume`, `claude --continue`, `claude --model sonnet`, `claude --model opus`, `claude --dangerously-skip-permissions`, `claude --verbose`, `gemini`, `gemini --yolo`, `codex`, `codex --dangerously-bypass-approvals-and-sandbox`, `aider`.
+- **`DEFAULT_SESSION_COMMANDS`** — `claude`, `claude --resume`, `claude --continue`, `claude --model sonnet`, `claude --model opus`, `claude --dangerously-skip-permissions`, `claude --verbose`, `codex`, `codex --dangerously-bypass-approvals-and-sandbox`, `aider`.
 
 ### Data structures & types
 
-- **`CommandEntry`** — `{ name, description, cli: 'claude'|'codex'|'gemini', kind: 'command'|'skill', source: 'project'|'global'|'plugin'|'builtin', sourcePath?, pluginName? }`. Defined in both `server/commandIndex.ts` and `src/lib/commandIndex.ts` (kept in sync manually).
+- **`CommandEntry`** — `{ name, description, cli: 'claude'|'codex', kind: 'command'|'skill', source: 'project'|'global'|'plugin'|'builtin', sourcePath?, pluginName? }`. Defined in both `server/commandIndex.ts` and `src/lib/commandIndex.ts` (kept in sync manually).
 - **`CommandKind`** = `'command' | 'skill'`; **`CommandSource`** = `'project' | 'global' | 'plugin' | 'builtin'`.
 - **`CommandGroup`** (client) — `{ title, source, entries[] }`.
 - **`TriggerType`** (`autocompleteTrigger.ts`) = `'command' | 'file' | 'skill'`; **`Trigger`** = `{ type, query, triggerStart }`.
@@ -52,13 +52,11 @@ When queuing or editing a prompt the user often wants to invoke a slash command 
 Three hardcoded `BuiltinSpec[]` arrays enumerate in-binary slash commands not discoverable from disk:
 - **`CLAUDE_BUILTINS`** (35): `add-dir`, `agents`, `bashes`, `bug`, `clear`, `compact`, `config`, `context`, `cost`, `doctor`, `export`, `fix-issue`, `help`, `hooks`, `ide`, `init`, `install-github-app`, `login`, `logout`, `mcp`, `memory`, `model`, `output-style`, `permissions`, `plugin`, `pr-comments`, `release-notes`, `resume`, `review`, `security-review`, `status`, `todos`, `update`, `usage`, `vim`.
 - **`CODEX_BUILTINS`** (14): `approvals`, `clear`, `compact`, `diff`, `init`, `logout`, `mcp`, `mention`, `model`, `new`, `quit`, `resume`, `status`, `undo`.
-- **`GEMINI_BUILTINS`** (21): `auth`, `bug`, `chat`, `clear`, `compress`, `copy`, `docs`, `editor`, `help`, `init`, `mcp`, `memory`, `model`, `privacy`, `quit`, `restore`, `settings`, `stats`, `theme`, `tools`, `vim`.
 
 ### Disk sources walked (server, per CLI)
 
 - **claude**: `<project>/.claude/commands/*.md`, `<project>/.claude/skills/<slug>/SKILL.md`, `~/.claude/commands/*.md`, `~/.claude/skills/<slug>/SKILL.md`, plugin `<installPath>/commands/*.md` and `<installPath>/skills/<slug>/SKILL.md`. Plugins discovered via `~/.claude/plugins/installed_plugins.json` (`readInstalledPlugins` — `pluginName` is the key split on `@`, only entries whose `installPath` exists are kept).
 - **codex**: `<project>/.codex/prompts/*.md` (project, `/name`), `<project>/.codex/skills/<slug>/SKILL.md` (project, `$name`), `$CODEX_HOME/prompts/*.md` (global, `/name`), `$CODEX_HOME/skills/<slug>/SKILL.md` (global, `$name`), `$CODEX_HOME/skills/.system/<slug>/SKILL.md` (**source `builtin`**, `$name`).
-- **gemini**: `<project>/.gemini/commands/*.toml`, `~/.gemini/commands/*.toml`.
 
 **`codexHome()`** resolves `process.env.CODEX_HOME || ~/.codex`, read per call rather than at module load so an env change needs no restart. Codex's own docs spell every skill path as `$CODEX_HOME/skills`, so hardcoding `homedir()` would miss skills entirely on an overridden setup.
 
@@ -68,7 +66,7 @@ Skill dirs skip names starting with `_` or `.` and require a `SKILL.md`. Directo
 
 ### Endpoints
 
-- **`GET /api/commands?cli=<claude|codex|gemini>&projectPath=<absolute>`** — returns `{ entries: CommandEntry[] }`. Validates `cli` (400 `{ error: 'cli must be one of claude|codex|gemini' }` otherwise). `projectPath` optional. 500 `{ error: 'failed to enumerate commands' }` on failure. Cached server-side 30 s per `(cli, projectPath)`.
+- **`GET /api/commands?cli=<claude|codex>&projectPath=<absolute>`** — returns `{ entries: CommandEntry[] }`. Validates `cli` (400 `{ error: 'cli must be one of claude|codex' }` otherwise). `projectPath` optional. 500 `{ error: 'failed to enumerate commands' }` on failure. Cached server-side 30 s per `(cli, projectPath)`.
 - **`GET /api/files/search?root=<projectPath>&q=<fragment>`** — used for `@` file autocomplete; returns `{ results: Array<{ path, name, type }>, indexing?: boolean }`. An empty `q` (bare `@`) returns the shallowest workDir files/folders (server `listTopEntries`); `indexing: true` with empty `results` signals the index is still warming and drives the client's cold-index retry (see [File Browser](file-browser.md) / [File Index Cache](../server/file-index-cache.md)).
 
 ### Client cache behavior (`src/lib/commandIndex.ts`)
@@ -106,7 +104,7 @@ Last-sigil-wins is load-bearing. The original inline version checked `@` then `/
 6. Which kinds are listed depends on the sigil and CLI:
    - `$` (Codex) → `['skill']`
    - `/` on **Codex** → `['command']` only — its skills are `$`-invocable, so offering them here would queue a prompt the CLI silently ignores.
-   - `/` on **Claude / Gemini** → `['command', 'skill']`, commands first (both tiers are `/`-invocable there).
+   - `/` on **Claude** → `['command', 'skill']`, commands first (both tiers are `/`-invocable there).
 7. `filterAndGroup` runs once per kind; `mergeGroups` merges the lists by title preserving the first list's order, then `commandEntriesToMenu` flattens groups into `AcItem[]` with `groupSpans` for sticky headers. Each item's `label`/`insert` = `entryToken(e)`.
 8. The result is committed only if the menu is still the same type with the same `triggerStart` (guards against stale async writes).
 9. ArrowUp/Down move `selectedIdx`; Enter (or row mousedown) calls `insertItem`, which splices `'<token> '` into the text and closes the menu. The trailing space matters on Codex: it closes the CLI's own `$`/`/` popup, so a queued prompt whose token is followed by text won't leave that popup swallowing the submitting Enter.
@@ -151,12 +149,12 @@ Last-sigil-wins is load-bearing. The original inline version checked `@` then `/
 
 ## Change Risks
 
-- **Endpoint contract** — changing `GET /api/commands` query params or the `{ entries }` shape breaks `fetchCommandIndex`, hence the dropdown in QueueTab / QueueItemEditModal. The `cli` validation (claude|codex|gemini) is mirrored on the client; adding a new CLI requires edits in both files plus a new `*_BUILTINS` catalog and `build*Entries`.
+- **Endpoint contract** — changing `GET /api/commands` query params or the `{ entries }` shape breaks `fetchCommandIndex`, hence the dropdown in QueueTab / QueueItemEditModal. The `cli` validation (claude|codex) is mirrored on the client; adding a new CLI requires edits in both files plus a new `*_BUILTINS` catalog and `build*Entries`.
 - **`CommandEntry` drift** — the type is defined twice (server + client). Adding/renaming a field in one place without the other silently breaks grouping/display.
-- **Built-in catalogs go stale** — `CLAUDE_BUILTINS` / `CODEX_BUILTINS` / `GEMINI_BUILTINS` are hand-maintained snapshots of each CLI's in-binary commands; upstream additions won't appear until these arrays are updated.
+- **Built-in catalogs go stale** — `CLAUDE_BUILTINS` / `CODEX_BUILTINS` are hand-maintained snapshots of each CLI's in-binary commands; upstream additions won't appear until these arrays are updated.
 - **Sigil-per-CLI must stay in `entryPrefix`** — it is the single place that decides `$` vs `/`. Hardcoding `'/' + name` anywhere in the dropdown (as the component used to) silently reintroduces the bug where a Codex session queues `/skill-name`, which that CLI ignores with no error. Symmetrically, the kind filter in `handleChange` must keep skills out of Codex's `/` menu.
 - **`$` must stay Codex-only** — dropping the `cli !== 'codex'` guard makes every `$HOME` / `$1` / `$5.00` in a Claude prompt pop a dropdown.
-- **Disk-path assumptions** — relies on exact directory layouts (`.claude/commands`, `.claude/skills/<slug>/SKILL.md`, `.codex/prompts`, `.codex/skills/<slug>/SKILL.md`, `$CODEX_HOME/skills/.system/<slug>/SKILL.md`, `.gemini/commands/*.toml`, `installed_plugins.json` schema). Layout changes by any CLI break enumeration for that source. Codex 0.145 documents `$CODEX_HOME/skills` as *the* discovery root; the `<project>/.codex/skills` walk mirrors the existing `<project>/.codex/prompts` precedent and is a superset — if Codex does not read it, the entry is listed but unresolvable.
+- **Disk-path assumptions** — relies on exact directory layouts (`.claude/commands`, `.claude/skills/<slug>/SKILL.md`, `.codex/prompts`, `.codex/skills/<slug>/SKILL.md`, `$CODEX_HOME/skills/.system/<slug>/SKILL.md`, `installed_plugins.json` schema). Layout changes by any CLI break enumeration for that source. Codex 0.145 documents `$CODEX_HOME/skills` as *the* discovery root; the `<project>/.codex/skills` walk mirrors the existing `<project>/.codex/prompts` precedent and is a superset — if Codex does not read it, the entry is listed but unresolvable.
 - **`Dirent.isDirectory()` vs `statSync`** — `listSkillDirs` must keep using `isDirLike` (statSync, follows symlinks). Reverting to the dirent check silently drops every symlinked skill dir with no error, for Claude as well as Codex.
 - **Frontmatter parser** — `parseFrontmatter` is a minimal hand-rolled YAML reader; malformed frontmatter or unsupported YAML constructs yield empty/garbled descriptions but won't crash (wrapped in try/catch returning `''`).
 - **Trigger parsing** — `parseTrigger` only fires after start-of-text or whitespace and stops at whitespace; loosening this would cause spurious dropdowns mid-word, tightening it would miss valid triggers. Adding a fourth sigil means adding it to `SIGILS` — the last-sigil-wins scan handles precedence, but a hand-rolled ordered check would not.

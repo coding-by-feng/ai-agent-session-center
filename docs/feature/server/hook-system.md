@@ -4,23 +4,22 @@
 Captures AI CLI lifecycle events via bash hook scripts and delivers them to the server through a file-based message queue (JSONL) with HTTP POST fallback.
 
 ## Purpose
-The bridge between AI CLI processes (Claude, Gemini, Codex) and the dashboard. Without hooks, no session monitoring is possible.
+The bridge between AI CLI processes (Claude, Codex) and the dashboard. Without hooks, no session monitoring is possible.
 
 ## Source Files
 | File | Role |
 |------|------|
 | `hooks/dashboard-hook.sh` | Claude Code bash hook relay (reads stdin JSON, enriches with PID/TTY/env vars via jq, appends to JSONL queue) |
-| `hooks/dashboard-hook-gemini.sh` | Gemini CLI hook relay (event name from `$1`, session/cwd from `GEMINI_SESSION_ID`/`GEMINI_CWD`; prints `{"decision":"allow"}` synchronously since Gemini hooks block, maps Gemini events → dashboard events, tags `source: "gemini"` + `cli_source: "gemini"` + `gemini_event`, appends to JSONL queue) |
 | `hooks/dashboard-hook-codex.sh` | Codex lifecycle hook relay (reads JSON from stdin with `$1` legacy fallback, normalizes `hook_event_name`/`type` → event, maps `last_assistant_message`/`last-assistant-message` → `response`, tags `cli_source: "codex"` + `codex_event`, appends to JSONL queue) |
-| `hooks/install-hooks.js`, `hooks/install-hooks-api.js`, `hooks/install-hooks-api.cjs` | CLI/API installers for Claude, Gemini, and Codex hook registration |
+| `hooks/install-hooks.js`, `hooks/install-hooks-api.js`, `hooks/install-hooks-api.cjs` | CLI/API installers for Claude and Codex hook registration |
 | `hooks/install-hooks-core.js`, `hooks/install-hooks-core.cjs` | Pure install helpers, including Codex TOML lifecycle hook block generation/removal |
-| `hooks/reset.js` | Reset/uninstall path that removes dashboard-owned Claude/Gemini config and Codex lifecycle/legacy notify config |
+| `hooks/reset.js` | Reset/uninstall path that removes dashboard-owned Claude config and Codex lifecycle/legacy notify config |
 | `server/mqReader.ts` | File-based MQ reader (fs.watch + 10ms debounce, 500ms fallback poll, 5s health check, reads from byte offset, truncates at 1MB) |
 | `server/hookProcessor.ts` | Validates payload (session_id, event type, PID, timestamp), calls `handleEvent()`, records stats, broadcasts `session_update` with 250ms throttle (max 4/sec per session), plus `team_update` and `hook_stats` |
 | `server/sessionUpdateCoalescer.ts` | Pure merge helper for throttled session updates; keeps the latest session state while preserving one-shot identity migrations (`replacesId`) |
 | `test/sessionUpdateCoalescer.test.ts` | Regression coverage for rapid re-key + follow-up events inside one 250ms throttle window |
 | `server/hookRouter.ts` | `POST /api/hooks` HTTP fallback adapter — delegates to `processHookEvent(body, 'http')`, returns `{ ok: true }` or `400 { success: false, error }`; rate limiting is applied externally via `hookRateLimitMiddleware` (from `apiRouter.ts`) mounted in `server/index.ts` |
-| `server/hookInstaller.js` | Auto-installs hooks on startup for Claude/Gemini/Codex, atomic writes to settings files |
+| `server/hookInstaller.js` | Auto-installs hooks on startup for Claude/Codex, atomic writes to settings files |
 | `server/hookStats.ts` | Rolling stats per event type (last 200 samples), global rate (last 60s) |
 | `server/constants.ts` | Shared hook event sets (`EVENT_TYPES`, `ALL_CLAUDE_HOOK_EVENTS`, `CODEX_HOOK_EVENTS`, `KNOWN_EVENTS`) and density presets (`DENSITY_EVENTS`, `CODEX_DENSITY_EVENTS`) |
 | `src/types/hook.ts` | Shared hook payload types, including `cli_source`, `codex_event`, `last_assistant_message`, and `PostCompact` |
@@ -34,12 +33,6 @@ The bridge between AI CLI processes (Claude, Gemini, Codex) and the dashboard. W
 - `hook_sent_at` is `date +%s` × 1000 (ms), used server-side for delivery latency
 - TTY caching in `/tmp/claude-tty-cache/$PPID`; on `SessionStart` the resolved session UUID is also written to `$CWD/.claude/last-session-id` for shell-level `claude --resume`
 - Delivery: append to `/tmp/claude-session-center/queue.jsonl` if the MQ dir exists, else `curl` POST to `http://localhost:3333/api/hooks` (1s connect / 3s max timeout) as fallback
-
-### Gemini Hook Script (`dashboard-hook-gemini.sh`)
-- Gemini hooks are **synchronous/blocking**, so the script prints `{"decision":"allow"}` to stdout immediately, then enriches in the background subshell
-- Event name arrives as `$1`; session/cwd come from `GEMINI_SESSION_ID` / `GEMINI_CWD` env vars
-- Event mapping → dashboard names: `SessionStart`→`SessionStart`, `BeforeAgent`→`UserPromptSubmit`, `BeforeTool`→`PreToolUse`, `AfterTool`→`PostToolUse`, `AfterAgent`→`Stop`, `SessionEnd`→`SessionEnd`, `Notification`→`Notification` (others pass through)
-- Tags `source: "gemini"` + `cli_source: "gemini"` (authoritative CLI family read by `sessionStore` and the floating-popup spawner's `resolveOriginCli`) + `gemini_event`; maps `prompt`/`llm_request` and `response`/`llm_response`/`prompt_response`; TTY cache in `/tmp/gemini-tty-cache/$PPID`
 
 ### Codex Hook Script (`dashboard-hook-codex.sh`)
 - Codex command hooks read JSON from stdin; keeps a legacy `$1` fallback only for old `notify` installs
@@ -67,25 +60,16 @@ The bridge between AI CLI processes (Claude, Gemini, Codex) and the dashboard. W
 - The incoming update supplies the newest session state and newest team payload, but the earliest pending `session.replacesId` is retained. This is load-bearing for terminal→hook re-keying: Codex commonly emits `SessionStart` followed by `UserPromptSubmit` within the same window, and only the first delta carries the temporary `term-*`/`pty-*` ID that clients must remove.
 
 ### Installers & Reset CLI
-- `hooks/install-hooks.js` — CLI entry point; parses `--density <high|medium|low>`, `--clis <claude,gemini,codex>`, `--uninstall`, `--quiet`; falls back to `data/server-config.json`; delegates to `installHooks()` in `install-hooks-api.js`/`.cjs`.
-- `hooks/install-hooks-core.js`/`.cjs` — pure helpers: `atomicWriteJSON`, `buildHookEntry`, `deployHookScript`, `configureClaudeHooks`, `removeAllClaudeHooks`, `configureGeminiHooks`, `configureCodexHooksToml`, `removeAllCodexHooksToml`.
-- `hooks/reset.js` — backs up `~/.claude`/`~/.gemini`/`~/.codex` config + hook scripts, removes dashboard-owned hooks (dual match: `_source` marker preferred, command-pattern fallback), strips Codex lifecycle blocks + legacy `notify` lines, and deletes the copied hook scripts.
+- `hooks/install-hooks.js` — CLI entry point; parses `--density <high|medium|low>`, `--clis <claude,codex>`, `--uninstall`, `--quiet`; falls back to `data/server-config.json`; delegates to `installHooks()` in `install-hooks-api.js`/`.cjs`.
+- `hooks/install-hooks-core.js`/`.cjs` — pure helpers: `atomicWriteJSON`, `buildHookEntry`, `deployHookScript`, `configureClaudeHooks`, `removeAllClaudeHooks`, `configureCodexHooksToml`, `removeAllCodexHooksToml`.
+- `hooks/reset.js` — backs up `~/.claude`/`~/.codex` config + hook scripts, removes dashboard-owned hooks (dual match: `_source` marker preferred, command-pattern fallback), strips Codex lifecycle blocks + legacy `notify` lines, and deletes the copied hook scripts.
 
 ### Event Coverage
-Densities are resolved in **two** places: `server/hookInstaller.js` (`ensureHooksInstalled()`, the startup auto-install) and `hooks/install-hooks-api.js`/`.cjs` (`installHooks()`, used by `npm run install-hooks`, POST /api/hooks/install, and the Electron setup wizard). The Claude sets agree; the Gemini and Codex sets deliberately differ — see below. `constants.ts` mirrors the Claude/Codex sets for runtime validation.
+Densities are resolved in **two** places: `server/hookInstaller.js` (`ensureHooksInstalled()`, the startup auto-install) and `hooks/install-hooks-api.js`/`.cjs` (`installHooks()`, used by `npm run install-hooks`, POST /api/hooks/install, and the Electron setup wizard). The Claude sets agree; the Codex sets deliberately differ — see below. `constants.ts` mirrors the Claude/Codex sets for runtime validation.
 - **Claude** (14 events total via `ALL_CLAUDE_HOOK_EVENTS`) — identical in both resolvers:
   - high — all 14: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, `Stop`, `Notification`, `SubagentStart`, `SubagentStop`, `TeammateIdle`, `TaskCompleted`, `PreCompact`, `SessionEnd`
   - medium — 12 (drops `TeammateIdle` and `PreCompact`)
   - low — 5 core: `SessionStart`, `UserPromptSubmit`, `PermissionRequest`, `Stop`, `SessionEnd`
-- **Gemini** — the two resolvers differ:
-  - `server/hookInstaller.js` (startup auto-install), 8 events at high:
-    - high — `SessionStart`, `BeforeAgent`, `BeforeTool`, `AfterTool`, `AfterAgent`, `PreCompress`, `SessionEnd`, `Notification`
-    - medium — 5: `SessionStart`, `BeforeAgent`, `AfterAgent`, `SessionEnd`, `Notification`
-    - low — 3: `SessionStart`, `AfterAgent`, `SessionEnd`
-  - `hooks/install-hooks-api.js`/`.cjs` (`npm run install-hooks`, POST /api/hooks/install, Electron setup wizard):
-    - high / medium — 7 (identical sets, no `PreCompress`): `SessionStart`, `BeforeAgent`, `BeforeTool`, `AfterTool`, `AfterAgent`, `SessionEnd`, `Notification`
-    - low — 3: `SessionStart`, `AfterAgent`, `SessionEnd`
-    - **Why medium includes BeforeTool/AfterTool:** they must be in medium so sessions reach the "working" state (orange brightening); without them Gemini sits at idle/prompting only.
 - **Codex** (Codex has no `SessionEnd` — `Stop` is terminal) — the two resolvers differ:
   - `server/hookInstaller.js` (startup auto-install), 10 lifecycle events at high:
     - high — `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PermissionRequest`, `PreCompact`, `PostCompact`, `SubagentStart`, `SubagentStop`, `Stop`
@@ -98,7 +82,6 @@ Densities are resolved in **two** places: `server/hookInstaller.js` (`ensureHook
 
 ### Hook Registration
 - **Claude**: hook copied to `~/.claude/hooks/`, events registered in `~/.claude/settings.json` (atomic write-to-tmp + rename). Each entry is `{ _source: 'ai-agent-session-center', hooks: [{ type: 'command', command, async: true }] }`. Windows uses `dashboard-hook.ps1` invoked via `powershell -NoProfile -ExecutionPolicy Bypass -File`.
-- **Gemini**: hook copied to `~/.gemini/hooks/dashboard-hook.sh`, events registered in `~/.gemini/settings.json` with the event name appended to the command (`~/.gemini/hooks/dashboard-hook.sh <Event>`), no `async` flag (Gemini hooks are blocking).
 - **Codex**: hook copied to `~/.codex/hooks/dashboard-hook.sh`, configured via `configureCodexHooksToml()` in `~/.codex/config.toml`. Two forms are written together: (1) a top-level `notify = ["~/.codex/hooks/dashboard-hook.sh"]` (placed above any `[section]` so TOML doesn't bind it to the last section) that carries `Stop`/`agent-turn-complete`, and (2) per-event `[[hooks.Event]]` + `[[hooks.Event.hooks]]` + `type = "command"` + `command = "..."` blocks for the rest of the lifecycle. **No `async` key** is written on the TOML hook blocks.
 - Codex re-installs first run `removeAllCodexHooksToml()` to strip dashboard-owned legacy `notify = [...]` lines and existing `[[hooks.X]]` blocks before re-writing the selected density; unrelated Codex config and third-party hooks (and third-party hook entries inside shared event blocks) are preserved.
 - Content-based sync (`syncHookFile`): hook script only re-copied if content differs from source (byte-compare).
@@ -118,7 +101,6 @@ Densities are resolved in **two** places: `server/hookInstaller.js` (`ensureHook
 ### Shared Resources
 - `/tmp/claude-session-center/queue.jsonl` (MQ file)
 - `~/.claude/settings.json`
-- `~/.gemini/settings.json`
 - `~/.codex/config.toml`
 
 ## Change Risks
@@ -126,5 +108,5 @@ Densities are resolved in **two** places: `server/hookInstaller.js` (`ensureHook
 - Changes to jq enrichment affect [Session Matching](./session-matching.md) (TTY/PID/tab_id/env fields are matcher inputs)
 - Changing the JSONL format breaks `mqReader` parsing
 - Modifying density levels changes which events are captured (and downstream sound/alarm triggers)
-- Per-CLI event sets live in three places — `hookInstaller.js` (startup auto-install), `hooks/install-hooks-api.js`/`.cjs` (every user-triggered install), and `constants.ts` (`KNOWN_EVENTS` validation). An event registered but not in `KNOWN_EVENTS` is rejected at validation. The Gemini/Codex divergence between the two installers is deliberate (see Event Coverage) — do not "fix" it by copying one table over the other
+- Per-CLI event sets live in three places — `hookInstaller.js` (startup auto-install), `hooks/install-hooks-api.js`/`.cjs` (every user-triggered install), and `constants.ts` (`KNOWN_EVENTS` validation). An event registered but not in `KNOWN_EVENTS` is rejected at validation. The Codex divergence between the two installers is deliberate (see Event Coverage) — do not "fix" it by copying one table over the other
 - Coalescing must preserve `replacesId` until broadcast. Dropping it leaves the server on the canonical UUID while browsers retain a dead temporary card, which then persists through workspace auto-save.

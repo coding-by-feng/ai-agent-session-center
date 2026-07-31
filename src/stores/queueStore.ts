@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { db } from '@/lib/db';
+import { DEFAULT_MAX_RETRIES } from '@/lib/resumeWatchdog';
 
 export interface QueueImageAttachment {
   name: string;
@@ -102,7 +103,15 @@ export interface QueueItem {
    *  immediately, bypassing idle-guard, quiet-hours, the daily-start clamp,
    *  skip-prompting, AND the auto-send toggle. Cleared automatically once the
    *  first step fires (the remaining steps proceed via `execState` + the
-   *  saw-work gate, exactly like an automated cycle). */
+   *  saw-work gate, exactly like an automated cycle).
+   *
+   *  On an item that is ALREADY executing the same flag means "resume": it
+   *  releases the chain gate for the step the row is parked on
+   *  (`chainGateDecision`'s `manualOverride`) WITHOUT touching
+   *  `execState`/`execStepIdx`, so the chain continues from its cursor instead
+   *  of re-typing step 1 over a running agent. That is the only user-reachable
+   *  escape from a chain whose gate is waiting on a CLI signal that never
+   *  came. Same one-shot lifetime — `advanceAfterFire` clears it. */
   forceStart?: boolean;
 }
 
@@ -138,6 +147,20 @@ export interface QueueAutomationConfig {
    * prompt they just submitted. Independent of `idleGuard`.
    */
   skipWhenPrompting: boolean;
+  /**
+   * Auto-resume watchdog: when the terminal prints a transient-failure banner
+   * (API 5xx / rate limit / connection error) and the turn dies, send a
+   * continuation prompt instead of leaving the session parked. Defaults to
+   * true — the whole point is unattended recovery, and a watchdog that is off
+   * by default is off at 3am when the 529 actually lands. Bounded by
+   * `resumeMaxRetries` over a 30-minute rolling window; see
+   * `src/lib/resumeWatchdog.ts`.
+   */
+  autoResume: boolean;
+  /** Resume prompts allowed per rolling 30-minute window. Defaults to 3. */
+  resumeMaxRetries: number;
+  /** Prompt sent on resume. Empty string falls back to DEFAULT_RESUME_PROMPT. */
+  resumePrompt: string;
   /** Session-level time-of-day pause windows applied to all loops in the session. */
   loopExcludeWindows?: ExcludeWindow[];
 }
@@ -165,6 +188,12 @@ interface QueueState {
   setAutoEnter: (sessionId: string, autoEnter: boolean) => void;
   setIdleGuard: (sessionId: string, idleGuard: boolean) => void;
   setSkipWhenPrompting: (sessionId: string, value: boolean) => void;
+  /** Per-session auto-resume watchdog toggle. */
+  setAutoResume: (sessionId: string, autoResume: boolean) => void;
+  /** Resume attempts allowed per rolling window (clamped to 1..10). */
+  setResumeMaxRetries: (sessionId: string, retries: number) => void;
+  /** Custom resume prompt; empty string restores the default wording. */
+  setResumePrompt: (sessionId: string, prompt: string) => void;
   /** Replace the session-level loop exclude windows (quiet hours). */
   setLoopExcludeWindows: (sessionId: string, windows: ExcludeWindow[]) => void;
   /** Replace the entire automation config for a session. Used by workspace
@@ -190,6 +219,9 @@ export const DEFAULT_AUTOMATION: QueueAutomationConfig = Object.freeze({
   autoEnter: true,
   idleGuard: true,
   skipWhenPrompting: true,
+  autoResume: true,
+  resumeMaxRetries: DEFAULT_MAX_RETRIES,
+  resumePrompt: '',
 }) as QueueAutomationConfig;
 
 /**
@@ -339,6 +371,33 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       return { automation: next };
     }),
 
+  setAutoResume: (sessionId, autoResume) =>
+    set((state) => {
+      const next = new Map(state.automation);
+      const current = next.get(sessionId) ?? DEFAULT_AUTOMATION;
+      next.set(sessionId, { ...current, autoResume });
+      return { automation: next };
+    }),
+
+  setResumeMaxRetries: (sessionId, retries) =>
+    set((state) => {
+      const next = new Map(state.automation);
+      const current = next.get(sessionId) ?? DEFAULT_AUTOMATION;
+      // Clamped, not trusted: 0 would mean "retry forever" to a naive reader,
+      // and the watchdog treats it as 1 anyway — make the stored value honest.
+      const clamped = Math.min(10, Math.max(1, Math.round(retries) || 1));
+      next.set(sessionId, { ...current, resumeMaxRetries: clamped });
+      return { automation: next };
+    }),
+
+  setResumePrompt: (sessionId, prompt) =>
+    set((state) => {
+      const next = new Map(state.automation);
+      const current = next.get(sessionId) ?? DEFAULT_AUTOMATION;
+      next.set(sessionId, { ...current, resumePrompt: prompt.slice(0, 4000) });
+      return { automation: next };
+    }),
+
   setLoopExcludeWindows: (sessionId, windows) =>
     set((state) => {
       const next = new Map(state.automation);
@@ -429,6 +488,13 @@ export const useQueueStore = create<QueueState>((set, get) => ({
             skipWhenPrompting: row.skipWhenPrompting === undefined
               ? true
               : row.skipWhenPrompting !== 0,
+            // Absent on rows written before the watchdog existed → the default
+            // (ON), matching what a fresh session gets.
+            autoResume: row.autoResume === undefined ? true : row.autoResume !== 0,
+            resumeMaxRetries: row.resumeMaxRetries === undefined
+              ? DEFAULT_MAX_RETRIES
+              : Math.min(10, Math.max(1, row.resumeMaxRetries)),
+            resumePrompt: row.resumePrompt ?? '',
             loopExcludeWindows: windows && windows.length > 0 ? windows : undefined,
           });
         }
@@ -572,6 +638,11 @@ useQueueStore.subscribe((state) => {
           autoEnter: cfg.autoEnter ? 1 : 0,
           idleGuard: cfg.idleGuard ? 1 : 0,
           skipWhenPrompting: cfg.skipWhenPrompting ? 1 : 0,
+          autoResume: cfg.autoResume ? 1 : 0,
+          resumeMaxRetries: cfg.resumeMaxRetries,
+          // Omit the empty string so a session on the default wording doesn't
+          // carry a redundant column.
+          resumePrompt: cfg.resumePrompt ? cfg.resumePrompt : undefined,
           loopExcludeWindows:
             cfg.loopExcludeWindows && cfg.loopExcludeWindows.length > 0
               ? JSON.stringify(cfg.loopExcludeWindows)

@@ -121,7 +121,23 @@
 
 .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
 .detailStatusBadge { font-size: 9px; font-weight: 700; letter-spacing: 1.5px; padding: 2px 8px; border-radius: 3px; text-transform: uppercase; }
-.detailModel { font-size: 10px; color: var(--text-dim); letter-spacing: 0.5px; }
+/* A model id is a single short token, but the value is data we don't fully
+   control (hook payloads, restored snapshots, legacy rows that stored a whole
+   launch command). Unclamped it wrapped to three full-width lines and, because
+   .switcherMeta is a wrapping flex line sized to its widest item's max-content,
+   pushed the whole row past the 230px left rail — the same overflow documented on
+   .switcherBarVertical .switcherToggle. Clamp to one ellipsised line; the full
+   value stays available via the element's title attribute.
+   The cap must be an ABSOLUTE length, never a percentage. .switcherMeta is
+   deliberately `flex-shrink: 0` (status/duration/controls must never squash), so
+   in the top bar it sizes to max-content — and a `%` max-width resolving against
+   that content-sized box is circular: the browser treats it as indefinite while
+   computing intrinsic size, so the row still grew to the untruncated 972px (a
+   1101px meta spilling 581px past a 520px window) while only the span inside it
+   looked clamped. A definite 220px enters intrinsic sizing directly, and in the
+   230px rail the item's own flex-shrink + `min-width: 0` pull it back to the
+   214px the wrapping meta row offers. */
+.detailModel { font-size: 10px; color: var(--text-dim); letter-spacing: 0.5px; min-width: 0; max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .detailDuration { font-size: 11px; color: var(--accent-cyan); font-weight: 600; letter-spacing: 0.5px; background: var(--bg-accent); padding: 2px 8px; border-radius: 4px; }
 
 /* ---- Tabs ---- */
@@ -394,6 +410,14 @@
 /* Control buttons — inline within header */
 .ctrlBar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; flex-shrink: 0; }
 .ctrlBtn { background: var(--bg-subtle); border: 1px solid var(--border-subtle-strong); color: var(--text-secondary); font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.8px; padding: 4px 10px; border-radius: 4px; cursor: pointer; transition: all 0.2s; }
+/* Non-interactive status chip: the last turn died on a transient failure
+   (API 5xx / rate limit / network), not on finishing its task.
+   Deliberately styled AGAINST .ctrlBtn — it shares this row with KILL/MUTE/
+   ALERT (one of which is also orange), so matching the button treatment made
+   it read as a fourth button with nothing to click. The differentiators are
+   structural, not colour: pill radius instead of 4px, no border, normal weight,
+   sentence case instead of bold uppercase, and a help cursor. */
+.ctrlInterrupted { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; background: rgba(255, 184, 108, 0.1); border: none; color: var(--accent-orange, #ffb86c); font-family: var(--font-mono); font-size: 9px; font-weight: 400; letter-spacing: 0.3px; padding: 4px 9px; border-radius: 999px; cursor: help; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ctrlBtn:hover { background: var(--bg-subtle-strong); color: var(--text-primary); }
 .ctrlBtn.resume { color: var(--accent-green); border-color: rgba(80, 250, 123, 0.3); }
 .ctrlBtn.resume:hover { background: rgba(80, 250, 123, 0.15); }

@@ -39,7 +39,6 @@ import { loadRobotPositions } from '@/lib/robotPositionPersist';
 /** CLI name -> badge mapping */
 const CLI_BADGES: Record<string, CliBadge> = {
   claude: { letter: 'C', color: '#00f0ff' },
-  gemini: { letter: 'G', color: '#4285f4' },
   codex: { letter: 'X', color: '#10a37f' },
 };
 

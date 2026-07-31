@@ -26,7 +26,7 @@ floating windows are ephemeral. The REVIEW tab is the persistent journal:
 
 | File | Role |
 |------|------|
-| `src/lib/db.ts` | `DbTranslationLog` interface + `translationLogs` table. Schema reached **v6** (favorite + alias + sourceFilePath added in v6, with an `.upgrade()` back-fill). |
+| `src/lib/db.ts` | `DbTranslationLog` interface + `translationLogs` table. This table last changed in **v6** (favorite + alias + sourceFilePath, with an `.upgrade()` back-fill); the shared `AascDb` schema itself is now at **v7** (`promptSnippets`, purely additive — see [Saved Prompts](./saved-prompts.md)). |
 | `src/lib/translationLog.ts` | CRUD helpers: `createLog`, `findByUuid`, `findByFloatTerminalId`, `updateLog`, `captureResponse`, `listLogs`, `listByOriginSession`, `listFavoritedByFile`, `setArchived`, `setNotes`, `setFavorite`, `setAlias`, `deleteLog`, `migrateOriginSessionId(oldId, newId)` (lines 87-98) — re-points rows from an old origin session id to a new one on re-key (clone/fork/`claude --resume` via `replacesId`), called from `useWebSocket.ts:100` so `AiPopupHistory` (lists by `originSessionId`) isn't empty for a resumed session. |
 | `src/lib/ansi.ts` | `stripAnsi` + `cleanCapturedOutput` (the latter also drops box-drawing / block / Braille-spinner TUI chrome). `captureResponse` uses `cleanCapturedOutput` at **capture** time. |
 | `src/lib/popupResponse.ts` | `formatPopupResponse(raw)` — **display-time**, non-destructive cleanup layered on top of the stored capture: drops heredoc `quote>`-style continuation echoes, the `--fork-session`/`--resume` spawn command echo, shell-prompt header lines, and the `ClaudeCode` / `Welcome back` CLI banner. Returns the readable answer (possibly empty if the snapshot caught only chrome). Does **not** attempt to repair character-doubling from terminal reflow. |
@@ -205,7 +205,7 @@ All data lives in the local browser IndexedDB (`claude-dashboard` /
 | [Client persistence](./client-persistence.md) | The `translationLogs` table lives in the shared Dexie database (added v3, extended v6). |
 | [Project browser](./project-browser.md) | ProjectTab renders the saved-selection highlight marks in markdown files. |
 | [API endpoints](../server/api-endpoints.md) | `GET /api/terminals/:id/output` snapshot route. |
-| [Terminal/SSH](../server/terminal-ssh.md) | `getTerminalOutputBuffer` reads the PTY replay ring buffer (2 MB default, configurable 256 KB–32 MB) the snapshot returns. |
+| [Terminal/SSH](../server/terminal-ssh.md) | `getTerminalOutputBuffer` reads the PTY replay ring buffer (1 MB default, configurable 256 KB–32 MB) the snapshot returns. |
 | [State management](./state-management.md) | `floatingSessionsStore.close()` does response capture before pty kill. |
 
 ## Change Risks
@@ -214,7 +214,7 @@ All data lives in the local browser IndexedDB (`claude-dashboard` /
   back-filled by the v6 `.upgrade()`. Rolling back below the relevant version
   leaves rows intact but those fields unindexed/unused.
 * **Response capture is best-effort**: the PTY output ring buffer defaults to
-  `DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES = 2 MB` (`src/types/terminal.ts`),
+  `DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES = 1 MB` (`src/types/terminal.ts`),
   configurable via Settings ▸ ADVANCED ▸ Terminal and clamped to 256 KB–32 MB by
   `clampReplayBufferBytes` (a change applies only to terminals created after it),
   and the CLI may still be

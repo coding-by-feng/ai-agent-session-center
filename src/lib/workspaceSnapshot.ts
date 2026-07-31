@@ -44,7 +44,7 @@ export interface SessionSnapshot {
   alerted?: boolean;
   enableOpsTerminal: boolean;
   sshConfig: SshConfig;
-  /** Original startup command with full params (e.g. 'gemini --model pro', 'codex --full-auto') */
+  /** Original startup command with full params (e.g. 'claude --model opus', 'codex --full-auto') */
   startupCommand?: string;
   /** Permission mode at export time — used to reconstruct CLI flags when startupCommand is absent */
   permissionMode?: string | null;

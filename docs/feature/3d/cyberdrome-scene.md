@@ -48,6 +48,22 @@ The `setTimeout(0)` is critical -- without it, the store update occurs during th
 - Fog: `FogExp2` with density varying by theme (default 0.008)
 - OrbitControls: damping 0.06, maxPolar `PI/2.1` (prevents going below floor), min distance 6, max 80, target `[0, 1, 0]`
 
+### Render-Loop Gating (`frameloop`)
+
+The Canvas's `frameloop` is **not** left at react-three-fiber's default. `resolveFrameloop(visible, focused)` ([`src/lib/sceneFrameloop.ts`](../../../src/lib/sceneFrameloop.ts)) picks the mode from `useWindowActivity()` (`visibilitychange` + window `focus`/`blur`):
+
+| Window state | Mode | Effect |
+|---|---|---|
+| hidden (minimised / other Space) | `never` | loop stops entirely |
+| visible, unfocused | `demand` | pumped at `UNFOCUSED_FPS = 10` |
+| visible, focused | `always` | full rAF rate |
+
+**Why it matters:** the default `always` runs a 60 fps loop with shadows, `PCFSoftShadowMap`, antialiasing and ACES tone mapping, driven by **eight `useFrame` sites** (`SessionRobot`, `Robot3DModel`, `RobotLabel`, `RobotDialogue`, `StatusParticles`, `SubagentConnections`, `CyberdromeEnvironment`, `CameraController`) multiplied by session count — whether or not anything changed. Electron ships with `MacWebContentsOcclusion` disabled, so unlike a browser tab, a window buried behind another app is **not** reported hidden and keeps rendering forever. That is why "unfocused" gets its own throttled tier instead of being treated as hidden.
+
+**`demand` needs the pump.** `FramePump` (inside the Canvas, props only — no store reads, per the zero-Zustand rule) calls `useThree(s => s.invalidate)` on a `UNFOCUSED_FRAME_MS` interval. Without it the scene would freeze mid-stride: the robot walk cycles and particle drift are continuous `useFrame` animations, not state-change redraws, so nothing would ever invalidate. Each pumped frame gets the real elapsed delta, so animation still advances — just coarser. Dragging still works in `demand` because drei's OrbitControls invalidates on change.
+
+`src/lib/sceneFrameloop.ts` is deliberately import-free (no Three.js) so DOM-layer code can read the policy without pulling ~1.2 MB into the boot path.
+
 ### Camera Controller
 - LERP factor: 0.04 for smooth interpolation
 - Arrival threshold: 0.1 units

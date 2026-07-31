@@ -49,7 +49,7 @@ transcript reader exists.
 | `src/styles/modules/SelectionPopup.module.css` | Popup styling — theme-aware via CSS variables (no hardcoded colours). |
 | `src/hooks/useSelectionPopup.ts` | Surface-agnostic selection-watcher hook (`auto`/`alt`/`off` triggers; mouseup + click-outside + Esc to dismiss; `open()` for programmatic show). Opens **only on a real selection gesture** — a drag past `CLICK_DRAG_THRESHOLD_PX` (4px) or a double/triple-click — and skips editable fields (`input`/`textarea`). A bare click never opens it: the Claude Code TUI captures mouse events so xterm keeps a **stale** selection after a click, and without this guard clicking into the terminal input re-opened the modes popup on the previous selection. |
 | `src/lib/selectionExtractors.ts` | Strategies: `extractDomSelection` (markdown) and `extractXtermSelection` (terminals). Selection capped at `MAX_SELECTION = 4000`, context line at `MAX_CONTEXT_LINE = 400`. |
-| `src/lib/cliDetect.ts` | `detectCli(session)` → `'claude' | 'gemini' | 'codex' | null`. The **canonical client CLI detector**; the server's `resolveOriginCli` (`floatingSessionSpawner.ts`) deliberately mirrors its precedence (cliSource → command → model) to avoid backend/frontend divergence. |
+| `src/lib/cliDetect.ts` | `detectCli(session)` → `'claude' | 'codex' | null`. The **canonical client CLI detector**; the server's `resolveOriginCli` (`floatingSessionSpawner.ts`) deliberately mirrors its precedence (cliSource → command → model) to avoid backend/frontend divergence. |
 | `src/lib/translationLog.ts` | Dexie helpers `createLog` (draft on spawn) / `captureResponse` (called periodically while the float is open — every 6s — plus on `beforeunload` and on close, keyed/overwritten by `terminalId` so it's idempotent) feeding the REVIEW tab. |
 | `src/components/session/FloatingTerminalPanel.tsx` | Picture-in-picture window hosting one TerminalContainer. Forwards its **`originSessionId`** prop (the **root** session) to TerminalContainer so the float's translate/explain lookups resolve a real session **and float-visibility scoping keeps nested floats visible under the selected root** (never orphaned). Recursive fork is handled server-side: the inner `TerminalContainer` sends this float's `terminalId` as `spawnTerminalId`, and the server resolves *its* session as the fork parent. Constrains both size and position to the renderer viewport before render and after viewport/state transitions. Also hosts the **⧉ pop-out** button (Electron) and rebindable hotkeys (`floatMinimize`/`floatMaximize`/`floatClose`). See [Recursive fork](#recursive-fork). |
 | `src/components/session/FloatingTerminalPanel.test.tsx` | Regression coverage for origin-session forwarding plus initial and live-resize viewport fitting of the in-app panel. |
@@ -95,8 +95,8 @@ POST /api/sessions/spawn-floating
         │
         ▼
 server/floatingSessionSpawner.ts
-   resolves CLI kind (claude | codex | gemini) via resolveOriginCli(origin):
-     cliSource (authoritative) → command → model → 'claude' — so a codex/gemini
+   resolves CLI kind (claude | codex) via resolveOriginCli(origin):
+     cliSource (authoritative) → command → model → 'claude' — so a codex
      parent spawns the SAME CLI instead of defaulting to claude
    resolves fork parent (spawnTerminalId → its session, else origin)
    buildPrompt(args, prevAnswer?)  [floatingPrompt.ts]
@@ -120,7 +120,7 @@ floatingSessionsStore.open() → FloatingTerminalRoot renders
 For mode `translate-answer`, the spawner first reads the most recent assistant
 message from the Claude transcript via `readClaudeLastAssistant`
 (`server/extractPreviousAnswer.ts`) — but only when `resolveOriginCli(origin) === 'claude'`
-— and throws a 400 if none is found, so a Codex/Gemini origin always fails. This
+— and throws a 400 if none is found, so a Codex origin always fails. This
 mode has **no UI trigger** today; it is reachable only via a direct POST to
 `/api/sessions/spawn-floating`.
 
@@ -142,30 +142,33 @@ turns into a 400):
 | `custom` | `{customPrompt}` leads, then the surrounding line (if any) + the selection in a `"""` fence. Requires both a selection and a custom prompt. Window label is `Custom: {first ~24 chars}` (`customFloatLabel`). Logged to the REVIEW tab with `mode='custom'` and `prompt=customPrompt`. |
 
 The CLI binary is selected by the spawner's `resolveOriginCli(origin)`, which
-prefers the authoritative `origin.cliSource` (set by the codex/gemini hooks'
+prefers the authoritative `origin.cliSource` (set by the codex hooks'
 `cli_source`, or `inferCliSource`), then the launch command, then the model id,
 defaulting to `claude` only when nothing matches. This ensures the popup runs the
-**same CLI as its parent** — a Codex/Gemini parent no longer mis-spawns `claude`
+**same CLI as its parent** — a Codex parent no longer mis-spawns `claude`
 (which previously also leaked the parent's model onto the launch, e.g.
 `claude --model gpt-5.5`, because the Claude-only flag helper saw a `claude`
 command):
 
 * `claude '...'` (positional prompt)
 * `codex '...'` (positional prompt)
-* `gemini -p '...'` (`-p` flag)
 
 When `inheritContext !== false` (the per-request flag, defaulting to the
 `translationInheritContext` setting which is **on** by default) **and** the fork
-parent is a Claude/Codex session **and** that parent has at least one prompt in
-its history, the spawner switches from a fresh launch to a CLI-native fork:
+parent is a Claude/Codex session **and** that parent has a resumable conversation,
+the spawner switches from a fresh launch to a CLI-native fork:
 
 * `claude --resume '<SESSION_ID>' --fork-session '<prompt>'`, or `claude --continue --fork-session '<prompt>'` when the parent id is an internal `term-…` placeholder.
 * `codex fork '<SESSION_ID>' '<prompt>'`, or `codex fork --last '<prompt>'`.
 
-A brand-new parent with no prompts has no transcript, so `--resume … --fork-session`
-would fail with "No conversation found"; the spawner detects this
-(`parentHasConversation`) and falls back to a fresh launch (the popup prompt is
-self-contained anyway). Gemini has no fork support and always launches fresh.
+"Resumable" means both *used* (`parentHasConversation` — at least one prompt in
+history) and *persisted* (a local Claude parent's transcript is actually on disk,
+via `resolveResumableClaudeSessionId`). Either miss falls back to a fresh launch,
+because `--resume … --fork-session` against a conversation Claude cannot find
+exits instantly with "No conversation found with session ID" and leaves the float
+sitting on a bare shell — while the popup prompt is self-contained anyway. See
+[Floating Session Spawner → Per-mode policy](../server/floating-session-spawner.md#fork-mode-claudecodex)
+for why prompt history alone is not proof. launches fresh.
 
 Prompts are shell-escaped (single-quote wrapping) and capped at
 `MAX_PROMPT_BYTES = 256 KB` (256 × 1024) to stay well under typical `ARG_MAX`;
@@ -179,7 +182,7 @@ the spawn endpoint's Zod schema independently caps `fileContent` at 256 KB and
 * **Enable translation popup** (`translationEnabled`) — master toggle. Default: on.
 * **Native language** (`translationNativeLanguage`) — target for translations / native-language explanations. Default: `简体中文`.
 * **Learning language** (`translationLearningLanguage`) — target for "deeper" same-language explanation and translate-to-learning. Default: `English`.
-* **Inherit conversation context for AI popups** (`translationInheritContext`) — when enabled, popup modes fork the origin Claude/Codex session via the CLI's native fork command (when the parent has a conversation), so the AI grounds its answer in the prior conversation. No effect for Gemini origins (no fork support). Default: on. Sent as the per-request `inheritContext` flag.
+* **Inherit conversation context for AI popups** (`translationInheritContext`) — when enabled, popup modes fork the origin Claude/Codex session via the CLI's native fork command (when the parent has a conversation), so the AI grounds its answer in the prior conversation. Default: on. Sent as the per-request `inheritContext` flag.
 * **Attach file path (explain)** (`explainAttachFilePath`) — `ask` / `always` / `never`. When an Explain mode runs on a selection inside an open file, optionally include that file's path in the prompt. `ask` prompts once via the inline confirm and then remembers the choice. Default: `ask`. Only applies in the file viewer.
 * **Trigger** (`translationTrigger`) — `auto` (every selection) / `alt` (require ⌥ held) / `off` (labelled **Disabled** in the UI). Since the popup is the only client trigger, `off` disables the feature's whole UI surface.
 
@@ -255,7 +258,6 @@ that floating session — not the original root — so context chains down
 
 All modes inherit context when the setting is on and the parent has a
 conversation, so recursive forking applies to every mode on Claude/Codex origins
-(Gemini stays fresh).
 
 ## Pop-out to a native window (Electron)
 
@@ -364,7 +366,7 @@ token plumbing. Nested floats spawned from inside a popout window aren't rendere
 
 * SummaryTab + NotesTab as additional translatable surfaces (mark with
   `data-translatable`, mount popup with `domExtractor`).
-* Codex / Gemini transcript readers for `translate-answer`.
+* Codex transcript readers for `translate-answer`.
 * SSH-origin floats (today the spawner reuses the SSH config but has not been
   exercised end-to-end in remote scenarios).
 * Bracketed-paste path for prompts > 256 KB.

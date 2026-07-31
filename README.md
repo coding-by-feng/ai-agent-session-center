@@ -1,6 +1,6 @@
 # AI Agent Session Center
 
-**Monitor, drive, queue, and resume every Claude Code, Gemini, and Codex session from one localhost dashboard — each rendered as a live 3D robot you can click into.**
+**Monitor, drive, queue, and resume every Claude Code and Codex session from one localhost dashboard — each rendered as a live 3D robot you can click into.**
 
 *Built for developers juggling multiple AI coding agents across terminals and machines.*
 
@@ -14,7 +14,7 @@
 
 **Jump to:** [Install](#install) · [Why power users keep it open](#why-power-users-keep-it-open) · [What's inside](#whats-inside) · [Under the hood](#under-the-hood) · [Commands](#commands) · [Troubleshooting](#troubleshooting) · [FAQ](#faq)
 
-> You're running Claude Code in one terminal, Gemini in another, Codex in a third. Which one is **stuck waiting for approval**? Which one **finished** and needs your next prompt? Which one is **burning tokens on a runaway loop**? Agent Session Center watches all of them at once and surfaces the one that needs you — so you stop tab-juggling and only step in when it matters.
+> You're running Claude Code in one terminal and Codex in another. Which one is **stuck waiting for approval**? Which one **finished** and needs your next prompt? Which one is **burning tokens on a runaway loop**? Agent Session Center watches all of them at once and surfaces the one that needs you — so you stop tab-juggling and only step in when it matters.
 
 ```bash
 npx ai-agent-session-center
@@ -37,7 +37,7 @@ A control plane for serious multi-agent work — built to be left open all day.
 | Babysit long runs so you don't miss the approval prompt | Walk away — scheduled loops and quiet-hours windows run hands-off |
 | Lose your whole layout when a session or machine restarts | Workspace snapshots rebuild sessions, tabs, rooms, and scrollback |
 
-- **One dashboard replaces a wall of terminals.** Monitor and drive every Claude Code, Gemini, and Codex session across local and remote machines — live terminals, full conversation transcripts, tool logs, and a file browser, in one view.
+- **One dashboard replaces a wall of terminals.** Monitor and drive every Claude Code and Codex session across local and remote machines — live terminals, full conversation transcripts, tool logs, and a file browser, in one view.
 - **Drive agents from live terminals — even on a second monitor.** Real xterm.js terminals with SSH/tmux support, and you can pop any terminal or project panel out into its own native desktop window and fling it to another display.
 - **Select-to-explain, anywhere.** Highlight text in any terminal or transcript and fork a floating picture-in-picture AI session to explain, translate, or define it.
 - **Engineered for always-on use.** 3–17ms hook-to-screen latency, 700+ Vitest tests, a native Electron desktop app, and a fully mobile-responsive browser UI.
@@ -119,7 +119,6 @@ npm uninstall -g ai-agent-session-center
 - **jq** (recommended) for hook enrichment — hooks still work without it, with less metadata
 - One or more supported AI CLIs:
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
-  - [Gemini CLI](https://github.com/google-gemini/gemini-cli)
   - [Codex CLI](https://github.com/openai/codex)
 
 ### First run
@@ -152,7 +151,7 @@ A quick tour. The complete reference — 45 feature docs with architecture and A
 - **Session detail panel** — a resizable 7-tab panel (Project, Terminal, Commands, Conversation, AI Popups, Notes, Queue), session switcher, inline-edit title/label/accent color, and split view.
 - **Terminal & SSH** — xterm.js with local/SSH/tmux sessions, dual transport (IPC in Electron / WebSocket in browser), `claude --resume`, pop-out to native desktop windows, bookmarks, select-to-explain, and hold-to-speak text-to-speech.
 - **Project browser** — lazy file tree, fuzzy find over a cached index, syntax highlighting, image/TeX viewers, inline editing, and `/`-command + `@`-file autocomplete.
-- **Multi-CLI monitoring** — automatically links every hook event to the right terminal session with no per-session setup, via an **8-priority matching cascade** (display-only fallback when nothing matches). Works with Claude Code, Gemini, and Codex, with `--model` / `--effort` launch flags.
+- **Multi-CLI monitoring** — automatically links every hook event to the right terminal session with no per-session setup, via an **8-priority matching cascade** (display-only fallback when nothing matches). Works with Claude Code and Codex, with `--model` / `--effort` launch flags.
 - **Queue, scheduler & loops** — a global and per-session queue with drag-reorder, auto-send-on-idle, scheduled loops with quiet-hours windows, and exportable queue history.
 - **Workspace snapshots** — full layout serialization, 10s server auto-snapshots, SSH auto-respawn on restart, and seamless session-ID re-keying on resume.
 - **History & search** — full-text history search across titles, projects, and labels, with date, status, and sort filters.
@@ -181,7 +180,7 @@ A quick tour. The complete reference — 45 feature docs with architecture and A
 Lightweight bash hooks append JSON events to a file-based message queue (`/tmp/claude-session-center/queue.jsonl`). The server watches the file and broadcasts updates to connected browsers over WebSocket. No CLI is modified — the hooks are purely observational and add ~2–5ms per event. **End-to-end latency is 3–17ms** from hook fired to browser updated (measured locally; the upper bound includes the React render and 3D scene update).
 
 ```
-AI CLI (Claude / Gemini / Codex)
+AI CLI (Claude / Codex)
          |
     Hook script (bash)                    ~2-5ms
     - enriches with PID, TTY, terminal env
@@ -301,7 +300,7 @@ Run `npx ai-agent-session-center --uninstall` to strip the hooks from all CLI co
 <details>
 <summary><b>Which CLIs are supported?</b></summary>
 
-Claude Code, Gemini CLI, and Codex CLI today. More integrations (OpenCode, Cursor, Windsurf, and other agentic frameworks) are on the roadmap.
+Claude Code and Codex CLI today. More integrations (OpenCode, Cursor, Windsurf, and other agentic frameworks) are on the roadmap.
 </details>
 
 ---

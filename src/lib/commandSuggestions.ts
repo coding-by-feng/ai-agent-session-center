@@ -9,8 +9,6 @@ export const DEFAULT_SESSION_COMMANDS: string[] = [
   'claude --model opus',
   'claude --dangerously-skip-permissions',
   'claude --verbose',
-  'gemini',
-  'gemini --yolo',
   'codex',
   'codex --dangerously-bypass-approvals-and-sandbox',
   'aider',

@@ -82,7 +82,6 @@ const SILENT_ACTIONS: Record<SoundAction, SoundName> = {
 // (kept audible here in case it gets wired up later).
 const QUIET_OVERRIDES: Record<string, Partial<Record<SoundAction, SoundName>>> = {
   claude: { taskComplete: 'blip', approvalNeeded: 'alarm', inputNeeded: 'chime', alert: 'alarm' },
-  gemini: { taskComplete: 'blip', approvalNeeded: 'alarm', inputNeeded: 'ding', alert: 'alarm' },
   codex: { taskComplete: 'blip', approvalNeeded: 'alarm', inputNeeded: 'beep', alert: 'alarm' },
 };
 
@@ -94,13 +93,6 @@ const FULL_CLI_ACTIONS: Record<string, Record<SoundAction, SoundName>> = {
     toolGlob: 'click', toolWebFetch: 'ping', toolTask: 'chime', toolOther: 'click',
     approvalNeeded: 'alarm', inputNeeded: 'chime', alert: 'alarm', kill: 'thud', archive: 'ping',
     subagentStart: 'chirp', subagentStop: 'ping',
-  },
-  gemini: {
-    sessionStart: 'ding', sessionEnd: 'cascade', promptSubmit: 'chirp', taskComplete: 'fanfare',
-    toolRead: 'click', toolWrite: 'swoosh', toolEdit: 'swoosh', toolBash: 'ding', toolGrep: 'click',
-    toolGlob: 'click', toolWebFetch: 'swoosh', toolTask: 'ding', toolOther: 'chirp',
-    approvalNeeded: 'alarm', inputNeeded: 'ding', alert: 'alarm', kill: 'thud', archive: 'swoosh',
-    subagentStart: 'chirp', subagentStop: 'ding',
   },
   codex: {
     sessionStart: 'blip', sessionEnd: 'beep', promptSubmit: 'click', taskComplete: 'blip',
@@ -125,7 +117,6 @@ export type CliSoundPreset = 'quiet' | 'full';
 
 export const CLI_SOUND_PROFILES: Record<string, CliSoundConfig> = {
   claude: { enabled: true, volume: 0.7, actions: quietCliActions('claude') },
-  gemini: { enabled: true, volume: 0.7, actions: quietCliActions('gemini') },
   codex: { enabled: true, volume: 0.5, actions: quietCliActions('codex') },
 };
 
@@ -229,7 +220,6 @@ interface SettingsState extends BrowserSettings {
   // API Keys (stored in localStorage for privacy)
   anthropicApiKey: string;
   openaiApiKey: string;
-  geminiApiKey: string;
   /** Per-user Google Cloud API key with Text-to-Speech API enabled. Required for hold-to-speak. */
   googleTtsApiKey: string;
 
@@ -295,7 +285,7 @@ interface SettingsState extends BrowserSettings {
   setDefaultTerminalTheme: (theme: string) => void;
   setSoundAction: (action: string, sound: string) => void;
   setMovementAction: (action: string, effect: string) => void;
-  setApiKey: (provider: 'anthropic' | 'openai' | 'gemini' | 'googleTts', key: string) => void;
+  setApiKey: (provider: 'anthropic' | 'openai' | 'googleTts', key: string) => void;
   setTtsEnabled: (enabled: boolean) => void;
   setTtsVoiceEn: (voice: string) => void;
   setTtsVoiceZh: (voice: string) => void;
@@ -328,7 +318,6 @@ const defaultSettings: SettingsData = {
     muteInput: false,
     perCli: {
       claude: { ...CLI_SOUND_PROFILES.claude },
-      gemini: { ...CLI_SOUND_PROFILES.gemini },
       codex: { ...CLI_SOUND_PROFILES.codex },
     },
   },
@@ -359,7 +348,6 @@ const defaultSettings: SettingsData = {
   defaultTerminalTheme: 'auto',
   anthropicApiKey: '',
   openaiApiKey: '',
-  geminiApiKey: '',
   googleTtsApiKey: '',
   ttsEnabled: false,
   ttsVoiceEn: 'en-US-Chirp3-HD-Aoede',
@@ -613,7 +601,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const fieldMap = {
       anthropic: 'anthropicApiKey',
       openai: 'openaiApiKey',
-      gemini: 'geminiApiKey',
       googleTts: 'googleTtsApiKey',
     } as const;
     set({ [fieldMap[provider]]: key });

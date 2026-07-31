@@ -11,12 +11,15 @@ Packages the dashboard as a native desktop app with window management, tray icon
 |------|------|
 | `electron/main.ts` | App lifecycle, BrowserWindow, native menu, pop-out terminal + project windows, native folder picker, IPC registration, server embedding, graceful shutdown |
 | `electron/tray.ts` | System tray / menu bar icon with dynamic menu; hide-to-tray on window close |
+| `electron/crashLogger.ts` | Main-process crash capture: `uncaughtException`/`unhandledRejection`, `render-process-gone`, `child-process-gone`, native `crashReporter` minidumps; writes `<userData>/logs/main.log` |
+| `server/logger.ts` | Debug-aware `log.info`/`warn`/`error`/`debug`/`debugJson` utility; also persists to `<userData>/logs/server.log` (or `data/logs/server.log` outside Electron) |
 | `electron/ipc/appHandlers.ts` | Dashboard IPC: `app:get-port`, `app:open-browser`, `app:rerun-setup`, `app:quit` |
 | `electron/ipc/setupHandlers.ts` | Setup wizard IPC: `setup:is-complete`, `setup:check-deps`, `setup:save-config`, `setup:install-hooks`, `setup:complete` |
 | `server/portManager.ts` | Resolves the listen port and frees it if occupied. `resolvePort(cliArgs, config)` — priority `--port` flag > `PORT` env > config file > `3333`; `killPortProcess(port)` — finds the occupying PID via `lsof` (POSIX) / `netstat -ano \| findstr` (Windows) and terminates it. Called from `server/index.ts` — `resolvePort` at startup, and `killPortProcess` from the `server.on('error')` handler on `EADDRINUSE`, which retries `listen` **once** after 1000ms (guarded by a `retried` flag, so a second collision rejects instead of looping). The main process embeds this server, so the port the renderer is navigated to is decided here |
 | `electron/loading.html` | Loading screen shown during server startup (progress bar, live log area, error banner) |
-| `electron-builder.json` | electron-builder packaging config (mac DMG+zip / win NSIS targets, asar, extraResources) |
+| `electron-builder.json` | electron-builder packaging config (mac DMG+zip / win NSIS targets, asar, extraResources, `npmRebuild: false`) |
 | `scripts/Open App (Start Here).command` | Guided first-run helper bundled in the macOS DMG (`dmg.contents`); clears the Gatekeeper quarantine flag via native `osascript` step popups |
+| `.github/workflows/build-windows.yml` | GitHub Actions job that produces the Windows installer on `windows-latest` (the Mac dev box can't build it) |
 
 > The renderer side of the pop-out terminal window flow (`PopoutTerminalView`, `?popout=terminal` detection in `src/main.tsx`) lives in [Floating Terminal Fork](../frontend/floating-terminal-fork.md). The PTY host and terminal-channel IPC live in [PTY Host](./pty-host.md) and [IPC Transport](./ipc-transport.md).
 
@@ -40,6 +43,7 @@ On `app.whenReady()` the registration order is: `registerSetupHandlers()`, `regi
 - App id `com.kasonzhan.ai-agent-session-center`, product name "AI Agent Session Center"
 - macOS targets: DMG + zip (arm64, hardened runtime, `entitlements.mac.plist`); Windows target: NSIS (x64, non-one-click installer)
 - `main` entry is `dist/electron/main.cjs`; `asar: true` with `better-sqlite3` and `node-pty` in `asarUnpack`; `hooks/` copied to `extraResources`
+- `npmRebuild: false` — electron-builder does **not** re-run a native rebuild during packaging. `electron:build` already rebuilds `better-sqlite3`/`node-pty` for Electron's ABI via `electron:rebuild` (see [Native Module Rebuilding](#native-module-rebuilding)), so letting the packager rebuild again is redundant and, on a runner without the full toolchain, a build failure
 - Separate tsconfig: `tsconfig.electron.json` (compiled to CJS, then `scripts/cjsRename.mjs` renames `.js` → `.cjs`)
 
 #### macOS Gatekeeper / "damaged" first-run helper
@@ -66,6 +70,7 @@ In production, the Express server runs **in-process** in the main process — th
 - App name label "AI Agent Session Center" (disabled, decorative)
 - "Hide Window" / "Show Window" toggle — label and behavior reflect `win.isVisible()`; `rebuild()` is called after each toggle to refresh the label
 - "Open in Browser" opens `http://localhost:${SERVER_PORT ?? 3333}` via `shell.openExternal`
+- "Open Logs Folder" calls `shell.showItemInFolder(getCrashLogPath())` (from `crashLogger.ts`) — reveals `main.log` in Finder/Explorer; `server.log` and `crashDumps/` sit in the same `<userData>/logs/` folder. See [Crash & Debug Logging](#crash--debug-logging) below.
 - "Re-run Setup Wizard" sends `app:trigger-rerun-setup` to the renderer. **Note:** that channel has no preload bridge and no renderer listener (`tray.ts:53` is its only occurrence across `src/` and `electron/`), so the menu item is currently inert. The working re-run path is the `app:rerun-setup` IPC.
 - "Quit" calls `app.quit()` to trigger graceful shutdown
 - Double-click on the tray icon shows the window (and rebuilds the menu)
@@ -73,7 +78,7 @@ In production, the Express server runs **in-process** in the main process — th
 
 ### Setup Wizard IPC
 
-Registered by `registerSetupHandlers()`. All inputs from the renderer are validated against allow-lists (`VALID_DENSITIES = ['high','medium','low']`, `VALID_CLIS = ['claude','gemini','codex']`, port range `1`–`65535`).
+Registered by `registerSetupHandlers()`. All inputs from the renderer are validated against allow-lists (`VALID_DENSITIES = ['high','medium','low']`, `VALID_CLIS = ['claude','codex']`, port range `1`–`65535`).
 
 | Channel | Action |
 |---------|--------|
@@ -128,6 +133,32 @@ Registered by `registerAppHandlers()`.
 
 `window-all-closed` is a deliberate no-op — the tray keeps the app alive. Only the tray "Quit" menu item, the native menu Quit / `Cmd+Q`, or the `app:quit` IPC triggers an actual quit.
 
+### Crash & Debug Logging
+
+Before `electron/crashLogger.ts` existed, a crash after startup left **no trace at all**: `server/logger.ts` only wrote to `console.*`, and `captureLogsToLoadingScreen()` (above) tears its stdout/stderr mirror down the moment the loading screen is dismissed — so nothing observed a renderer crash, a GPU-process crash, or even the main process's own uncaught exceptions.
+
+`initCrashLogger()` (`electron/crashLogger.ts`) is called at module scope in `main.ts`, immediately after the `autoplay-policy` commandLine switch and before `app.whenReady()`, so startup crashes are covered too:
+
+- `process.on('uncaughtException')` — logs the error + stack to `main.log`, shows a native `dialog.showErrorBox` in packaged builds only (never in dev) so the crash is visible instead of silent, then `app.exit(1)`. This doesn't change crash *behavior* — an unhandled `uncaughtException` already terminated the process before this handler existed — it only makes it observable.
+- `process.on('unhandledRejection')` — logs and continues (mirrors the existing policy in `server/index.ts`'s own handler, further below).
+- `app.on('render-process-gone', ...)` — logs `reason` (`crashed`/`oom`/`killed`/`launch-failed`/`abnormal-exit`/`integrity-failure` at `ERROR`; `clean-exit` at `INFO`) + `exitCode` + the dead `webContents`' URL. This is the prime suspect for "the app crashes and the window just goes blank" — Electron never throws a catchable JS exception for a dead renderer, it only fires this event, which nothing previously listened for.
+- `app.on('child-process-gone', ...)` — logs GPU/utility process death (`type`/`reason`/`exitCode`). The most likely single crash source for a WebGL-heavy renderer (the Three.js cyberdrome scene) on a flaky GPU driver.
+- `crashReporter.start({ uploadToServer: false, compress: true })` — native (segfault-level) crashes inside the `better-sqlite3` / `node-pty` native addons never reach a JS `try/catch`; minidumps are the only way to see those at all. `uploadToServer` is always `false` — nothing leaves the machine.
+
+**Log locations** — all under one root, `<userData>/logs/`, matching every other piece of persisted state (see Persisted State below) rather than Electron's OS-specific `app.getPath('logs')`:
+
+| File | Written by | Content |
+|------|-----------|---------|
+| `main.log` (rotates to `main.old.log` past 5MB) | `electron/crashLogger.ts` | Main-process fatal errors, renderer/GPU process death |
+| `server.log` (rotates to `server.old.log` past 5MB) | `server/logger.ts` | Every `log.info`/`warn`/`error` call (always) + `log.debug`/`debugJson` (only when debug mode is on) from the embedded Express server |
+| `crashDumps/` | Electron `crashReporter` | Native minidumps from `better-sqlite3`/`node-pty` segfaults |
+
+`server/logger.ts` resolves its log directory the same way as `serverConfig.ts`/`db.ts` — `APP_USER_DATA` env var when embedded in Electron, else `data/logs/` (already gitignored) for dev/CLI use, so persistent logging works outside Electron too, not just in packaged builds.
+
+Debug-level logging (`log.debug`/`debugJson`) is gated on `isDebug` exactly as before — turned on via `--debug` CLI flag or `debug: true` in `server-config.json`. There is currently no Settings UI toggle for this: `debug` exists on the `ServerConfig` type but no settings component surfaces it, so enabling it today means hand-editing the config file or launching with the flag.
+
+Both modules export a getter for their resolved path — `getCrashLogPath()` (crashLogger.ts) and `getServerLogPath()` (server/logger.ts) — for UI surfacing; only the tray's "Open Logs Folder" item (via `getCrashLogPath()`) consumes one today. See System Tray above.
+
 ### Persisted State & Env Vars
 
 | Key | Location / type | Purpose |
@@ -135,6 +166,7 @@ Registered by `registerAppHandlers()`.
 | `setup.json` (`SETUP_FLAG`) | `userData/setup.json` | First-run flag; presence = setup complete (`{ completedAt }`) |
 | `server-config.json` (`CONFIG_PATH`) | `userData/server-config.json` | Persisted server config from setup wizard |
 | `popout-bounds.json` (`POPOUT_BOUNDS_FILE`) | `userData/popout-bounds.json` | Last-used pop-out window bounds (`{x,y,width,height}`) for second-monitor placement / position memory. **Shared by both terminal and project pop-outs** — a single global slot, not per-window-type, so moving one relocates the next open of the other |
+| `logs/` | `userData/logs/` | `main.log`/`main.old.log` (crashLogger.ts), `server.log`/`server.old.log` (server/logger.ts), `crashDumps/` (native crashReporter). One shared root — see [Crash & Debug Logging](#crash--debug-logging) |
 | `APP_USER_DATA` | env var | Points the embedded server at the writable userData dir |
 | `SERVER_PORT` | env var | Resolved server port, shared across IPC handlers, tray, and pop-out windows (dev default `3332`, IPC/tray fallback `3333`) |
 | `ELECTRON` | env var (`'1'`) | Set at the top of `main.ts` so server code can detect the Electron host |
@@ -168,7 +200,19 @@ Registered by `registerAppHandlers()`.
 
 ### Native Module Rebuilding
 
-`scripts/rebuild-native.cjs` calls the `@electron/rebuild` (`^3.7.0`) API directly (not the legacy `electron-rebuild` CLI, which has yargs/ESM issues on Node 25+) to rebuild `better-sqlite3` and `node-pty` against Electron's Node version, because Electron uses a different Node ABI than the system Node.js installation.
+`scripts/rebuild-native.cjs` calls the `@electron/rebuild` (`^4.2.0`) API directly (not the legacy `electron-rebuild` CLI, which has yargs/ESM issues on Node 25+) to rebuild `better-sqlite3` and `node-pty` against Electron's Node version, because Electron uses a different Node ABI than the system Node.js installation.
+
+**`@electron/rebuild` v4 requires Node ≥ 22.12.0.** That engine floor is why the Windows workflow pins `node-version: '22'` — on Node 20 the install/rebuild step fails outright. Bumping the dependency and the CI Node version must happen together.
+
+### Windows CI Build
+
+Windows installers are built by GitHub Actions, not locally — `electron:build:win` on a Mac cannot produce the NSIS target. `.github/workflows/build-windows.yml`:
+
+- **Triggers:** `release: [published]`, plus `workflow_dispatch` with an optional `tag` input (blank = upload as a plain artifact, don't attach to a release).
+- **Runner/setup:** `windows-latest`, `actions/setup-node@v4` with `node-version: '22'` and npm cache, then `npm ci`.
+- **Build:** `npm run electron:build:win` (i.e. the same unified `electron:build` pipeline with `--win`), with `GH_TOKEN` from `secrets.GITHUB_TOKEN`.
+- **Artifacts:** `actions/upload-artifact@v4` uploads `dist/*.exe` + `dist/*.zip`, 30-day retention.
+- **Release attach:** a `pwsh` step runs `gh release upload <tag> <file> --clobber` for every `dist/*.exe`, where `<tag>` is `github.ref_name` for a release event or the dispatch input otherwise. Skipped when dispatched with no tag.
 
 ## Dependencies & Connections
 
@@ -199,3 +243,5 @@ Registered by `registerAppHandlers()`.
 - The `before-quit` 5s timeout is best-effort: if `flushSave()` exceeds it, the app quits anyway and workspace state may be lost. Don't lengthen it without UX consideration.
 - The TS→CJS rename step (`scripts/cjsRename.mjs`) is required because `main` is `main.cjs`; skipping it leaves Electron unable to find its entry point.
 - Pop-out window placement depends on `boundsOnSomeDisplay()` to reject saved bounds on a disconnected monitor; weakening that check can strand the window off-screen. The `screen` API is only valid after `app.whenReady()` — `computePopoutBounds()` runs inside the IPC handler (post-ready), so it must not be hoisted to module load.
+- `crashLogger.ts` and `server/logger.ts` must keep resolving the **same** `<userData>/logs/` root independently (crashLogger.ts calls `app.getPath('userData')` directly; server/logger.ts reads the `APP_USER_DATA` env var). If either drifts back to Electron's OS-specific `app.getPath('logs')` or a different directory, `main.log` and `server.log` split across two folders and "Open Logs Folder" only reveals half the story.
+- `initCrashLogger()` must stay called before `app.whenReady()` (not inside it) — a crash during the pre-ready window (IPC handler registration, `createWindow()`) would otherwise go uncaught again.

@@ -1,7 +1,7 @@
 /**
  * Sending a composed prompt to a terminal's PTY (queue Auto-Enter / "send now").
  *
- * Auto-Enter quirk: CLI TUIs such as Claude Code / Codex / Gemini treat
+ * Auto-Enter quirk: CLI TUIs such as Claude Code / Codex treat
  * `text + "\r"` arriving in a SINGLE pty read as a bracketed-paste-like burst
  * and insert the trailing carriage return as a literal newline — so the prompt
  * is typed but never submitted. Writing the prompt text, pausing briefly so the

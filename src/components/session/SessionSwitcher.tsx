@@ -155,13 +155,11 @@ function getCliBadge(session: Session): string | null {
   const cmd = (session.sshCommand || session.sshConfig?.command || '').toLowerCase();
   if (cmd.startsWith('claude') || cmd.includes('/claude')) return 'CLAUDE';
   if (cmd.startsWith('codex') || cmd.includes('/codex')) return 'CODEX';
-  if (cmd.startsWith('gemini') || cmd.includes('/gemini')) return 'GEMINI';
   if (cmd.startsWith('aider') || cmd.includes('/aider')) return 'AIDER';
   if (session.backendType) {
     const bt = session.backendType.toLowerCase();
     if (bt.includes('claude')) return 'CLAUDE';
     if (bt.includes('codex')) return 'CODEX';
-    if (bt.includes('gemini')) return 'GEMINI';
     if (bt.includes('aider')) return 'AIDER';
   }
   return null;
@@ -891,7 +889,9 @@ export default function SessionSwitcher({
             </span>
           )}
           {model && (
-            <span className={styles.detailModel}>{model}</span>
+            /* title: the badge is clamped to one ellipsised line (see
+               .detailModel), so hover is the only way to read a long id. */
+            <span className={styles.detailModel} title={model}>{model}</span>
           )}
           {duration && (
             <span className={styles.detailDuration}>{duration}</span>

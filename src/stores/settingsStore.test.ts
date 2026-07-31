@@ -3,7 +3,6 @@ import { useSettingsStore, CLI_SOUND_PROFILES, DEFAULT_AMBIENT_SETTINGS, fullCli
 
 const defaultPerCli = {
   claude: { ...CLI_SOUND_PROFILES.claude },
-  gemini: { ...CLI_SOUND_PROFILES.gemini },
   codex: { ...CLI_SOUND_PROFILES.codex },
 };
 
@@ -213,7 +212,6 @@ describe('settingsStore', () => {
     it('has default per-CLI profiles', () => {
       const { soundSettings } = useSettingsStore.getState();
       expect(soundSettings.perCli.claude.enabled).toBe(true);
-      expect(soundSettings.perCli.gemini.enabled).toBe(true);
       expect(soundSettings.perCli.codex.enabled).toBe(true);
     });
 
@@ -235,7 +233,6 @@ describe('settingsStore', () => {
       // …while per-tool chatter and session/subagent noise is silenced.
       expect(soundSettings.perCli.claude.actions.sessionStart).toBe('none');
       expect(soundSettings.perCli.claude.actions.toolRead).toBe('none');
-      expect(soundSettings.perCli.gemini.actions.toolBash).toBe('none');
       expect(soundSettings.perCli.codex.actions.subagentStart).toBe('none');
     });
 
@@ -244,12 +241,12 @@ describe('settingsStore', () => {
       const { soundSettings } = useSettingsStore.getState();
       expect(soundSettings.perCli.claude.volume).toBe(0.3);
       expect(soundSettings.perCli.claude.enabled).toBe(true); // unchanged
-      expect(soundSettings.perCli.gemini.volume).toBe(0.7); // other CLI unchanged
+      expect(soundSettings.perCli.codex.volume).toBe(0.5); // other CLI unchanged
     });
 
     it('updateCliSoundConfig can disable a CLI', () => {
-      useSettingsStore.getState().updateCliSoundConfig('gemini', { enabled: false });
-      expect(useSettingsStore.getState().soundSettings.perCli.gemini.enabled).toBe(false);
+      useSettingsStore.getState().updateCliSoundConfig('codex', { enabled: false });
+      expect(useSettingsStore.getState().soundSettings.perCli.codex.enabled).toBe(false);
     });
 
     it('setCliActionSound changes a single action sound', () => {
@@ -309,7 +306,6 @@ describe('settingsStore', () => {
     function loudPerCli() {
       return {
         claude: { enabled: true, volume: 0.7, actions: fullCliActions('claude') },
-        gemini: { enabled: true, volume: 0.7, actions: fullCliActions('gemini') },
         codex: { enabled: true, volume: 0.5, actions: fullCliActions('codex') },
       };
     }
@@ -333,7 +329,6 @@ describe('settingsStore', () => {
       });
       const perCli = useSettingsStore.getState().soundSettings.perCli;
       expect(perCli.claude.actions.toolRead).toBe('warble'); // user customization respected
-      expect(perCli.gemini.actions.toolRead).toBe('none'); // untouched → quieted
     });
 
     it('does not re-quiet a user already on the current schema version', () => {
