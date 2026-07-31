@@ -4,7 +4,7 @@ import styles from '@/styles/modules/Settings.module.css';
 
 interface ApiKeyFieldProps {
   label: string;
-  provider: 'anthropic' | 'openai' | 'gemini';
+  provider: 'anthropic' | 'openai';
   placeholder: string;
 }
 
@@ -12,7 +12,6 @@ function ApiKeyField({ label, provider, placeholder }: ApiKeyFieldProps) {
   const fieldMap = {
     anthropic: 'anthropicApiKey',
     openai: 'openaiApiKey',
-    gemini: 'geminiApiKey',
   } as const;
 
   const value = useSettingsStore((s) => s[fieldMap[provider]]);
@@ -91,11 +90,6 @@ export default function ApiKeySettings() {
         label="OpenAI API Key"
         provider="openai"
         placeholder="sk-..."
-      />
-      <ApiKeyField
-        label="Google (Gemini) API Key"
-        provider="gemini"
-        placeholder="AI..."
       />
     </div>
   );

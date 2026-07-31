@@ -78,7 +78,6 @@ export interface SoundSettings {
   muteInput: boolean;
   perCli: {
     claude: CliSoundConfig;
-    gemini: CliSoundConfig;
     codex: CliSoundConfig;
   };
 }

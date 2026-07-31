@@ -3,7 +3,7 @@
 // Throws Error instead of calling process.exit().
 // Returns { success: boolean, summary: object }.
 
-import { readFileSync, mkdirSync, existsSync, statSync, writeFileSync } from 'fs';
+import { readFileSync, mkdirSync, existsSync, statSync, writeFileSync, rmSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
@@ -13,7 +13,7 @@ import {
   deployHookScript,
   configureClaudeHooks,
   removeAllClaudeHooks,
-  configureGeminiHooks,
+  removeAllGeminiHooks,
   configureCodexHooksToml,
   removeAllCodexHooksToml,
 } from './install-hooks-core.js';
@@ -38,15 +38,6 @@ const DENSITY_EVENTS = {
   low: [
     'SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Stop', 'SessionEnd',
   ],
-};
-
-// Gemini events by density.
-// BeforeTool/AfterTool must be in medium so sessions reach the "working"
-// state (orange brightening); without them Gemini sits at idle/prompting only.
-const GEMINI_DENSITY_EVENTS = {
-  high: ['SessionStart', 'BeforeAgent', 'BeforeTool', 'AfterTool', 'AfterAgent', 'SessionEnd', 'Notification'],
-  medium: ['SessionStart', 'BeforeAgent', 'BeforeTool', 'AfterTool', 'AfterAgent', 'SessionEnd', 'Notification'],
-  low: ['SessionStart', 'AfterAgent', 'SessionEnd'],
 };
 
 // Codex CLI (>=0.130) natively supports only these 5 lifecycle hooks via
@@ -84,6 +75,11 @@ export async function installHooks({
   enabledClis = ['claude'],
   projectRoot,
   uninstall = false,
+  // Scopes an uninstall to specific CLIs. Defaults to null = "all CLIs", which
+  // preserves the historical `--uninstall` behaviour. Needed because a blanket
+  // uninstall also strips the Claude hooks the dashboard depends on — removing
+  // one retired CLI must not take the live integration down with it.
+  uninstallOnly = null,
   onLog,
 } = {}) {
   const log = onLog ?? console.log;
@@ -95,7 +91,6 @@ export async function installHooks({
 
   const hooksDir = projectRoot ? join(projectRoot, 'hooks') : __dirname;
   const EVENTS = DENSITY_EVENTS[density];
-  const GEMINI_EVENTS = GEMINI_DENSITY_EVENTS[density] || GEMINI_DENSITY_EVENTS.medium;
   const CODEX_EVENTS = CODEX_DENSITY_EVENTS[density] || CODEX_DENSITY_EVENTS.medium;
 
   const HOOK_SCRIPT = isWindows ? 'dashboard-hook.ps1' : 'dashboard-hook.sh';
@@ -173,19 +168,63 @@ export async function installHooks({
 
   // ── UNINSTALL MODE ──
   if (uninstall) {
-    log(`[4/${TOTAL_STEPS}] Removing dashboard hooks...`);
-    const removed = removeAllClaudeHooks(settings, ALL_EVENTS, HOOK_PATTERN);
+    const wants = (cli) => !uninstallOnly || uninstallOnly.includes(cli);
+    log(`[4/${TOTAL_STEPS}] Removing dashboard hooks${uninstallOnly ? ` (${uninstallOnly.join(', ')} only)` : ''}...`);
+
+    let removed = 0;
+    if (wants('claude')) {
+      removed = removeAllClaudeHooks(settings, ALL_EVENTS, HOOK_PATTERN);
+    }
+
     let codexRemoved = 0;
-    const codexConfigPath = join(homedir(), '.codex', 'config.toml');
-    try {
-      const toml = readFileSync(codexConfigPath, 'utf8');
-      const cleaned = removeAllCodexHooksToml(toml, HOOK_PATTERN, HOOK_SOURCE);
-      codexRemoved = cleaned.removed;
-      if (codexRemoved > 0) writeFileSync(codexConfigPath, cleaned.toml);
-    } catch { /* Codex config may not exist */ }
-    atomicWriteJSON(SETTINGS_PATH, settings);
-    log(`Uninstall complete -- ${removed} Claude hook(s), ${codexRemoved} Codex hook block(s) removed`);
-    return { success: true, summary: { removed, codexRemoved } };
+    if (wants('codex')) {
+      const codexConfigPath = join(homedir(), '.codex', 'config.toml');
+      try {
+        const toml = readFileSync(codexConfigPath, 'utf8');
+        const cleaned = removeAllCodexHooksToml(toml, HOOK_PATTERN, HOOK_SOURCE);
+        codexRemoved = cleaned.removed;
+        if (codexRemoved > 0) writeFileSync(codexConfigPath, cleaned.toml);
+      } catch { /* Codex config may not exist */ }
+    }
+
+    // Gemini cleanup. TEMPORARY — Gemini support is being removed; this only
+    // exists so an EXISTING install can be cleaned up. Without it, uninstall
+    // left ~/.gemini/hooks/dashboard-hook.sh on disk and its events registered
+    // in ~/.gemini/settings.json forever, pointing at a script that no longer
+    // ships. Delete this block once the deprecation window closes.
+    let geminiRemoved = 0;
+    let geminiScriptRemoved = false;
+    if (wants('gemini')) {
+      const geminiSettingsPath = join(homedir(), '.gemini', 'settings.json');
+      try {
+        if (existsSync(geminiSettingsPath)) {
+          const gs = JSON.parse(readFileSync(geminiSettingsPath, 'utf8'));
+          geminiRemoved = removeAllGeminiHooks(gs, HOOK_PATTERN);
+          if (geminiRemoved > 0) atomicWriteJSON(geminiSettingsPath, gs);
+        }
+      } catch (e) {
+        log(`Gemini hook removal skipped: ${e.message}`);
+      }
+      try {
+        const geminiHookScript = join(homedir(), '.gemini', 'hooks', 'dashboard-hook.sh');
+        if (existsSync(geminiHookScript)) {
+          rmSync(geminiHookScript, { force: true });
+          geminiScriptRemoved = true;
+        }
+      } catch (e) {
+        log(`Gemini hook script removal skipped: ${e.message}`);
+      }
+    }
+
+    // Only rewrite the Claude settings file when Claude was actually in scope —
+    // a `--only gemini` run must not touch ~/.claude/settings.json at all.
+    if (wants('claude')) atomicWriteJSON(SETTINGS_PATH, settings);
+    log(
+      `Uninstall complete -- ${removed} Claude hook(s), ${codexRemoved} Codex hook block(s), `
+      + `${geminiRemoved} Gemini hook event(s)`
+      + `${geminiScriptRemoved ? ' + Gemini hook script' : ''} removed`,
+    );
+    return { success: true, summary: { removed, codexRemoved, geminiRemoved, geminiScriptRemoved } };
   }
 
   // ── STEP 4: Configure Hook Events ──
@@ -213,37 +252,6 @@ export async function installHooks({
     const altDest = join(HOOKS_DEST_DIR, altScript);
     deployHookScript(altSrc, altDest, isWindows);
     log(`Also copied ${altScript} -> ${altDest}`);
-  }
-
-  // Deploy Gemini hook
-  if (enabledClis.includes('gemini')) {
-    const geminiSrc = join(hooksDir, 'dashboard-hook-gemini.sh');
-    const geminiHooksDir = join(homedir(), '.gemini', 'hooks');
-    const geminiDest = join(geminiHooksDir, 'dashboard-hook.sh');
-    if (existsSync(geminiSrc)) {
-      mkdirSync(geminiHooksDir, { recursive: true });
-      deployHookScript(geminiSrc, geminiDest, false);
-      log(`Deployed dashboard-hook-gemini.sh -> ${geminiDest}`);
-    } else {
-      log(`Gemini hook script not found: ${geminiSrc}`);
-    }
-
-    // Register in ~/.gemini/settings.json
-    const geminiSettingsPath = join(homedir(), '.gemini', 'settings.json');
-    try {
-      let gs;
-      try { gs = JSON.parse(readFileSync(geminiSettingsPath, 'utf8')); } catch { gs = {}; }
-      const gChanged = configureGeminiHooks(gs, GEMINI_EVENTS, HOOK_SOURCE);
-      if (gChanged) {
-        mkdirSync(join(homedir(), '.gemini'), { recursive: true });
-        atomicWriteJSON(geminiSettingsPath, gs);
-        log(`Registered ${gChanged} Gemini hook events`);
-      } else {
-        log('Gemini hooks already registered');
-      }
-    } catch (e) {
-      log(`Gemini hook registration: ${e.message}`);
-    }
   }
 
   // Deploy Codex hook

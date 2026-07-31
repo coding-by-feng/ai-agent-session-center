@@ -68,7 +68,7 @@ interface PtyInstance {
 //
 // These constants mirror src/types/terminal.ts — ptyHost runs in the Electron
 // main process and does not import that module at runtime, so keep them in sync.
-const DEFAULT_REPLAY_BUFFER_BYTES = 2 * 1024 * 1024  // 2 MB
+const DEFAULT_REPLAY_BUFFER_BYTES = 1 * 1024 * 1024  // 1 MB
 const MIN_REPLAY_BUFFER_BYTES = 256 * 1024           // 0.25 MB
 const MAX_REPLAY_BUFFER_BYTES = 32 * 1024 * 1024     // 32 MB
 
@@ -200,13 +200,32 @@ function autoSessionName(workDir: string): string {
   return `${projectName} #${counter}`
 }
 
-/** Append -n "title" to claude commands for session naming */
+// MIRROR of `appendSessionName` in server/config.ts. This file cannot import
+// from server/ (separate tsconfig roots — same constraint as ptyRing.ts and the
+// CLAUDE_CODE_CHILD_SESSION scrub), so the logic is duplicated and
+// test/sessionNameQuoting.test.ts asserts this source text to catch drift.
+//
+// A session title is UNTRUSTED: `buildAutoTitle` derives it from the first 60
+// chars of the user's first prompt. Escaping only `"` left `$(…)`, backticks
+// and `$VAR` live inside the double quotes — a title of ``a`id`b`` ran `id` on
+// every spawn. Inside double quotes exactly four characters are special, and
+// backslash MUST be escaped first or a `\"` could forge a quote break.
+const CONTROL_CHARS_RE = /[\x00-\x1F\x7F]+/g
+const STRIP_SESSION_NAME_RE =
+  /\s+(?:-n|--name)(?:\s+|=)(?:"(?:[^"\\]|\\.)*"|'[^']*'|\S+(?:\s+(?!-)\S+)*)/g
+
+/**
+ * Append `-n "title"` to a claude command, shell-quoting the title. An existing
+ * `-n` is REPLACED, not preserved: the old code bailed on any existing flag, so
+ * a malformed unquoted `-n KTS Deployment` propagated through every later spawn
+ * and `claude` kept reading `Deployment` as a stray positional argument.
+ */
 function appendSessionName(cmd: string, title?: string | null): string {
-  if (!title) return cmd
   if (!cmd.startsWith('claude')) return cmd
-  if (/ -n[ =]/.test(cmd) || / --name[ =]/.test(cmd)) return cmd
-  const escaped = title.replace(/"/g, '\\"')
-  return `${cmd} -n "${escaped}"`
+  const clean = title?.replace(CONTROL_CHARS_RE, ' ').trim()
+  if (!clean) return cmd
+  const escaped = clean.replace(/[\\$`"]/g, (c) => `\\${c}`)
+  return `${cmd.replace(STRIP_SESSION_NAME_RE, '').trim()} -n "${escaped}"`
 }
 
 const FLAG_EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
@@ -249,6 +268,37 @@ function withClaudeTuiEnvDefaults(env: Record<string, string>): Record<string, s
   return { ...env, ...defaults }
 }
 
+/**
+ * Markers a Claude Code session exports into its children; every dashboard PTY
+ * is a NEW top-level session and must not inherit them (mirrors server/config.ts
+ * INHERITED_CLAUDE_SESSION_ENV_KEYS — the two module roots cannot cross-import,
+ * and test/claudeSessionEnv.test.ts fails on drift).
+ *
+ * CLAUDE_CODE_CHILD_SESSION is the load-bearing one: inherited, Claude Code
+ * disables transcript persistence, so no <sessionId>.jsonl is written and every
+ * later `claude --resume <id>` / `--fork-session` fails with "No conversation
+ * found with session ID". The app picks the marker up whenever it is launched
+ * from inside a Claude Code session (the normal dev loop).
+ */
+const INHERITED_CLAUDE_SESSION_ENV_KEYS = [
+  'CLAUDECODE',
+  'CLAUDE_CODE_CHILD_SESSION',
+  'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_CODE_ENTRYPOINT',
+  'CLAUDE_CODE_EXECPATH',
+] as const
+
+function stripInheritedClaudeSessionEnv(
+  env: Record<string, string | undefined>,
+): Record<string, string> {
+  const stripped = new Set<string>(INHERITED_CLAUDE_SESSION_ENV_KEYS)
+  return Object.fromEntries(
+    Object.entries(env).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined && !stripped.has(entry[0]),
+    ),
+  )
+}
+
 export function createPty(config: PtyCreateConfig): string {
   const terminalId = `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const workDir = resolveWorkDir(config.workingDir)
@@ -260,10 +310,11 @@ export function createPty(config: PtyCreateConfig): string {
   )
   const shell = getDefaultShell()
 
-  // Build env — strip CLAUDECODE to prevent nested-session detection.
+  // Build env — strip the launching Claude Code session's markers so this PTY is
+  // a NEW top-level session (see INHERITED_CLAUDE_SESSION_ENV_KEYS above).
   // Classic Claude renderer (no alt screen / mouse capture) so xterm selection
   // and the AI popup keep working — see CLAUDE_TUI_ENV_DEFAULTS.
-  const { CLAUDECODE: _drop, ...parentEnv } = process.env as Record<string, string>
+  const parentEnv = stripInheritedClaudeSessionEnv(process.env)
   const env: Record<string, string> = withClaudeTuiEnvDefaults({
     ...parentEnv,
     AGENT_MANAGER_TERMINAL_ID: terminalId,
@@ -272,7 +323,6 @@ export function createPty(config: PtyCreateConfig): string {
   // Inject API key
   if (config.apiKey) {
     const envVar = command.startsWith('codex') ? 'OPENAI_API_KEY'
-      : command.startsWith('gemini') ? 'GEMINI_API_KEY'
       : 'ANTHROPIC_API_KEY'
     env[envVar] = config.apiKey
   }

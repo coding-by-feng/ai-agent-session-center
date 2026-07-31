@@ -14,7 +14,7 @@ const getHooksRoot = () => app.isPackaged ? process.resourcesPath : PROJECT_ROOT
 
 // Validation constants — never accept these from renderer input
 const VALID_DENSITIES = ['high', 'medium', 'low'] as const
-const VALID_CLIS = ['claude', 'gemini', 'codex'] as const
+const VALID_CLIS = ['claude', 'codex'] as const
 const MIN_PORT = 1
 const MAX_PORT = 65535
 

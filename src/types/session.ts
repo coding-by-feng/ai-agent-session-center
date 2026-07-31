@@ -30,7 +30,7 @@ export type AnimationState =
 /** Emote names (one-shot animations) */
 export type Emote = 'Wave' | 'ThumbsUp' | 'Jump' | 'Yes' | null;
 
-/** Hook event type names (Claude Code, Gemini, Codex lifecycle events) */
+/** Hook event type names (Claude Code, Codex lifecycle events) */
 export type EventType =
   // Claude
   | 'SessionStart'
@@ -48,11 +48,6 @@ export type EventType =
   | 'PreCompact'
   | 'PostCompact'
   | 'Notification'
-  // Gemini
-  | 'BeforeAgent'
-  | 'BeforeTool'
-  | 'AfterTool'
-  | 'AfterAgent'
   // Codex
   | 'agent-turn-complete';
 
@@ -137,6 +132,24 @@ export interface ArchivedSession {
 }
 
 // ---------------------------------------------------------------------------
+// Interruption (transient-failure detection)
+// ---------------------------------------------------------------------------
+
+/** Class of transient failure recognised in a terminal's output. */
+export type FaultKind = 'api_error' | 'rate_limit' | 'network';
+
+/**
+ * A transient failure banner observed in the session's PTY output. Produced by
+ * `server/interruptionDetector.ts`, consumed by `src/lib/resumeWatchdog.ts`.
+ */
+export interface SessionInterruption {
+  kind: FaultKind;
+  /** The banner line as printed, for the UI badge. */
+  line: string;
+  detectedAt: number;
+}
+
+// ---------------------------------------------------------------------------
 // Core Session
 // ---------------------------------------------------------------------------
 
@@ -164,7 +177,7 @@ export interface Session {
 
   // Source / origin
   source: SessionSource | string;
-  /** AI CLI family (Claude, Codex, Gemini). Distinct from terminal/source. */
+  /** AI CLI family (Claude, Codex). Distinct from terminal/source. */
   cliSource?: string;
   model: string;
   /** Effort level (low/medium/high/xhigh/max/ultracode) — set at creation from config so popups can inherit it. */
@@ -190,6 +203,14 @@ export interface Session {
   pendingTool: string | null;
   pendingToolDetail?: string | null;
   waitingDetail: string | null;
+
+  /**
+   * Set when the terminal printed a transient-failure banner (API 5xx, rate
+   * limit, connection error) — see `server/interruptionDetector.ts`. Cleared
+   * the moment the session goes back to work, which is what the renderer's
+   * auto-resume watchdog reads as "recovered". Absent on a healthy session.
+   */
+  interruption?: SessionInterruption | null;
 
   // Subagents
   subagentCount: number;
@@ -249,7 +270,7 @@ export interface Session {
   /** Origin session id this fork was spawned from (for traceability). */
   originSessionId?: string;
   /**
-   * Marks a session the dashboard did NOT launch: a real Claude/Gemini/Codex CLI
+   * Marks a session the dashboard did NOT launch: a real Claude/Codex CLI
    * running in an external terminal (or started before hooks were installed), so
    * it never bound to a dashboard PTY. Two sources set this:
    *   - a hook event that matched no terminal (sessionMatcher "external" fallback,

@@ -4,7 +4,8 @@
  * If PostToolUse does not arrive within the timeout, the session transitions to approval/input status.
  * PermissionRequest events provide a direct signal that bypasses the timeout heuristic.
  */
-import { execFileSync } from 'child_process';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { getToolTimeout, getToolCategory, getWaitingStatus, getWaitingLabel } from './config.js';
 import { SESSION_STATUS, ANIMATION_STATE } from './constants.js';
 import { stripAnsi } from '../src/lib/ansi.js';
@@ -49,15 +50,24 @@ function validatePid(pid: unknown): number | null {
 /** session_id -> timeout for tool approval detection */
 const pendingToolTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+const execFileAsync = promisify(execFile);
+
 /**
  * Check if a PID has any child processes (i.e. a command is running).
+ *
+ * **Async on purpose.** This used to be `execFileSync('pgrep', …)`, a blocking
+ * fork+exec on the Node event loop, run once per approval-timer expiry per
+ * session. A `pgrep` scan is proportional to the process table, so on a busy box
+ * (700+ processes, high load) each call stalled the ONE loop that also serves WS
+ * broadcasts, terminal relay and hook processing — every session froze while a
+ * single session's timer checked its child. Awaiting keeps the loop free.
  */
-export function hasChildProcesses(pid: number): boolean {
+export async function hasChildProcesses(pid: number): Promise<boolean> {
   const validPid = validatePid(pid);
   if (!validPid) return false;
   try {
-    const out = execFileSync('pgrep', ['-P', String(validPid)], { encoding: 'utf-8', timeout: 2000 });
-    return out.trim().length > 0;
+    const { stdout } = await execFileAsync('pgrep', ['-P', String(validPid)], { encoding: 'utf-8', timeout: 2000 });
+    return stdout.trim().length > 0;
   } catch (e: unknown) {
     // #37: Return true on error as safer default — assume command is still running
     log.debug('session', `hasChildProcesses check failed for pid=${validPid}: ${(e as Error).message}`);
@@ -98,16 +108,24 @@ export function startApprovalTimer(
           return;
         }
         const category = getToolCategory(currentSession.pendingTool);
-        if (category === 'slow' && currentSession.cachedPid && hasChildProcesses(currentSession.cachedPid)) {
-          return; // Command is running, not waiting for approval
+        if (category === 'slow' && currentSession.cachedPid) {
+          if (await hasChildProcesses(currentSession.cachedPid)) {
+            return; // Command is running, not waiting for approval
+          }
         }
+        // hasChildProcesses awaits, which yields the event loop — PostToolUse may
+        // have landed (or the session ended) while pgrep ran. Re-read the session
+        // and bail unless it is STILL parked on a pending tool, so a session that
+        // finished during the check is never flipped to `approval` on stale state.
+        const target = sessionLookupFn(sessionId);
+        if (!target || target.status !== SESSION_STATUS.WORKING || !target.pendingTool) return;
 
-        const waitingStatus = getWaitingStatus(currentSession.pendingTool) || SESSION_STATUS.APPROVAL;
-        currentSession.status = waitingStatus as Session['status'];
-        currentSession.animationState = ANIMATION_STATE.WAITING;
-        currentSession.waitingDetail = getWaitingLabel(currentSession.pendingTool, currentSession.pendingToolDetail || '');
+        const waitingStatus = getWaitingStatus(target.pendingTool) || SESSION_STATUS.APPROVAL;
+        target.status = waitingStatus as Session['status'];
+        target.animationState = ANIMATION_STATE.WAITING;
+        target.waitingDetail = getWaitingLabel(target.pendingTool, target.pendingToolDetail || '');
         try {
-          await broadcastFn(currentSession);
+          await broadcastFn(target);
         } catch (e: unknown) {
           log.warn('session', `Approval broadcast failed: ${(e as Error).message}`);
         }

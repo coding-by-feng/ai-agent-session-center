@@ -266,6 +266,32 @@ export function removeAllClaudeHooks(settings, allEvents, hookPattern) {
   return removed;
 }
 
+// Remove all dashboard hooks from a GEMINI settings object (uninstall mode).
+//
+// Unlike removeAllClaudeHooks this takes no event list — it sweeps every key
+// actually present under `settings.hooks`. The registered set depends on the
+// density chosen at install time (see GEMINI_DENSITY_EVENTS), so a fixed list
+// would silently strand events from a density the caller isn't using now.
+//
+// TEMPORARY: Gemini support is being removed. This exists purely so an existing
+// install can be cleaned up; delete it once the deprecation window closes.
+export function removeAllGeminiHooks(settings, hookPattern) {
+  if (!settings.hooks) return 0;
+
+  let removed = 0;
+  for (const event of Object.keys(settings.hooks)) {
+    const group = settings.hooks[event];
+    if (!Array.isArray(group)) continue;
+    const before = group.length;
+    settings.hooks[event] = group.filter(
+      (g) => !g.hooks?.some((h) => h.command?.includes(hookPattern)),
+    );
+    if (settings.hooks[event].length === 0) delete settings.hooks[event];
+    if (before !== (settings.hooks[event]?.length ?? 0)) removed++;
+  }
+  return removed;
+}
+
 // Configure Gemini hooks in a settings object.
 // Returns the number of events added.
 export function configureGeminiHooks(settings, events, hookSource) {

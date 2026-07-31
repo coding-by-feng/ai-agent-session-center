@@ -12,7 +12,7 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import log from './logger.js';
 
 interface JsonlLine {
@@ -120,6 +120,51 @@ function findTranscriptFile(sessionId: string | null, projectPath: string): stri
       if (files.length > 0) return join(dir, files[0].f);
     } catch (err) {
       log.warn('floating-spawn', `Failed to enumerate ${dir}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return null;
+}
+
+/** A session id safe to interpolate into a single-quoted shell argument. */
+const RESUMABLE_SESSION_ID_RE = /^[a-zA-Z0-9_-]+$/;
+
+/**
+ * Resolve the session id that `claude --resume` will actually find on disk, or
+ * null when no transcript backs this session.
+ *
+ * Callers use this to decide whether a `--resume <id>` / `--fork-session` launch
+ * is viable at all. `promptHistory.length > 0` does NOT answer that question:
+ * prompt history survives workspace restore, `/clear` and session re-keys, and a
+ * session whose transcript was never persisted (an inherited
+ * CLAUDE_CODE_CHILD_SESSION — see config.ts INHERITED_CLAUDE_SESSION_ENV_KEYS)
+ * or was removed by Claude's retention cleanup still shows plenty of prompts.
+ * Resuming it exits immediately with "No conversation found with session ID",
+ * leaving the user a dead shell.
+ *
+ * Unlike `findTranscriptFile`, this deliberately has NO "newest .jsonl in the
+ * dir" fallback: an unrelated conversation in the same project directory does
+ * not make THIS session resumable. The recorded `transcriptPath` is accepted as
+ * a second source because a re-keyed/aliased card can carry a stale id while the
+ * hook-reported transcript names the id Claude will find.
+ */
+export function resolveResumableClaudeSessionId(
+  sessionId: string | null,
+  projectPath: string,
+  transcriptPath?: string | null,
+): string | null {
+  if (!projectPath) return null;
+  const id = sessionId || '';
+  // term-* is a dashboard-internal placeholder — passing it to --resume opens
+  // Claude's interactive session picker and blocks the shell.
+  if (id && !id.startsWith('term-') && RESUMABLE_SESSION_ID_RE.test(id)) {
+    for (const dir of projectDirCandidates(projectPath)) {
+      if (existsSync(join(dir, `${id}.jsonl`))) return id;
+    }
+  }
+  if (transcriptPath && existsSync(transcriptPath)) {
+    const recordedId = basename(transcriptPath, '.jsonl');
+    if (recordedId && !recordedId.startsWith('term-') && RESUMABLE_SESSION_ID_RE.test(recordedId)) {
+      return recordedId;
     }
   }
   return null;

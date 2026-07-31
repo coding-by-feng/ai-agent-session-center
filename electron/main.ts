@@ -8,11 +8,17 @@ import { registerSetupHandlers } from './ipc/setupHandlers.js'
 import { registerAppHandlers } from './ipc/appHandlers.js'
 import { registerTerminalHandlers } from './ipc/terminalHandlers.js'
 import { disposeAll as disposePtyHost } from './ptyHost.js'
+import { initCrashLogger } from './crashLogger.js'
 
 // Allow Web Audio to play without requiring a user gesture for each sound.
 // Session events arrive via WebSocket (not user clicks), so without this flag
 // Chromium's autoplay policy silently blocks AudioContext.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
+
+// Register as early as possible so startup crashes are covered too -- see
+// crashLogger.ts for why this exists (nothing previously observed a renderer/GPU
+// crash or wrote any log to disk once the loading screen was dismissed).
+initCrashLogger()
 
 const isDev = !app.isPackaged
 

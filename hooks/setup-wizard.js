@@ -140,14 +140,12 @@ let port;
 // 2. AI CLI selection
 const cliOptions = [
   { label: `Claude Code only`, value: ['claude'] },
-  { label: `Claude Code + Gemini CLI`, value: ['claude', 'gemini'] },
   { label: `Claude Code + Codex CLI`, value: ['claude', 'codex'] },
-  { label: `All (Claude + Gemini + Codex)`, value: ['claude', 'gemini', 'codex'] },
+  { label: `All (Claude + Codex)`, value: ['claude', 'codex'] },
 ];
 const currentCliIdx = (() => {
   const ec = existing.enabledClis || ['claude'];
   if (ec.length === 1 && ec[0] === 'claude') return 0;
-  if (ec.length === 2 && ec.includes('gemini')) return 1;
   if (ec.length === 2 && ec.includes('codex')) return 2;
   if (ec.length === 3) return 3;
   return 0;

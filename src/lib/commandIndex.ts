@@ -12,7 +12,7 @@ export type CommandSource = 'project' | 'global' | 'plugin' | 'builtin';
 export interface CommandEntry {
   name: string;
   description: string;
-  cli: 'claude' | 'codex' | 'gemini';
+  cli: 'claude' | 'codex';
   kind: CommandKind;
   source: CommandSource;
   sourcePath?: string;
@@ -29,7 +29,7 @@ function cacheKey(cli: string, projectPath: string | null | undefined): string {
 
 /** Fetch the full command index for a CLI scoped to an optional project root. */
 export async function fetchCommandIndex(
-  cli: 'claude' | 'codex' | 'gemini',
+  cli: 'claude' | 'codex',
   projectPath: string | null | undefined,
 ): Promise<CommandEntry[]> {
   const key = cacheKey(cli, projectPath);
@@ -69,7 +69,7 @@ export async function fetchCommandIndex(
 
 /** Drop the cached entry for a CLI+project, forcing the next fetch to refresh. */
 export function invalidateCommandIndex(
-  cli: 'claude' | 'codex' | 'gemini',
+  cli: 'claude' | 'codex',
   projectPath: string | null | undefined,
 ): void {
   cache.delete(cacheKey(cli, projectPath));
@@ -92,7 +92,7 @@ export function entryDisplayName(entry: CommandEntry): string {
  * Codex addresses skills as `$skill-name` (its TUI has a dedicated `$` popup,
  * and the model is told "if the user names a skill with `$SkillName` … use
  * it"). A queued `/retouch-current-prompt` does nothing there. Every other
- * entry — Codex prompts, and all Claude/Gemini commands and skills — is `/`.
+ * entry — Codex prompts, and all Claude commands and skills — is `/`.
  */
 export function entryPrefix(entry: CommandEntry): '/' | '$' {
   return entry.cli === 'codex' && entry.kind === 'skill' ? '$' : '/';

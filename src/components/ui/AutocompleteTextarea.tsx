@@ -10,7 +10,7 @@
  *   - Typing `/foo` at start-of-text or after whitespace fetches the session's
  *     CLI command/skill index, filtered by the fragment, and shows a dropdown.
  *   - Typing `$foo` lists Codex SKILLS. Codex is the only CLI that addresses
- *     skills this way, so the `$` menu is Codex-only — on a Claude/Gemini
+ *     skills this way, so the `$` menu is Codex-only — on a Claude
  *     session `$` stays inert (prompts are full of `$HOME`-style text and a
  *     dropdown on every one of them would be noise).
  *   - Typing `@foo` does the same for project files (debounced 150 ms).
@@ -125,7 +125,7 @@ function mergeGroups(lists: CommandGroup[][]): CommandGroup[] {
   return order.map((k) => merged.get(k)!);
 }
 
-function sessionCli(sessionId: string): 'claude' | 'codex' | 'gemini' {
+function sessionCli(sessionId: string): 'claude' | 'codex' {
   const session = useSessionStore.getState().sessions.get(sessionId);
   if (!session) return 'claude';
   const cli = detectCli(session);
@@ -199,7 +199,7 @@ export default function AutocompleteTextarea({
           const entries = await fetchCommandIndex(cli, projectPath ?? null);
           // `/` on Codex lists prompts only — its skills are `$`-invocable, so
           // offering them here would queue a prompt the CLI silently ignores.
-          // Claude/Gemini reach both tiers through `/`, commands first.
+          // Claude reaches both tiers through `/`, commands first.
           const kinds: Array<'command' | 'skill'> =
             menuType === 'skill' ? ['skill'] : cli === 'codex' ? ['command'] : ['command', 'skill'];
           const { items, groupSpans } = commandEntriesToMenu(

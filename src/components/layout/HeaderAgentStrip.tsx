@@ -53,14 +53,12 @@ function getCliBadge(session: Session): string | null {
   const cli = detectCli(session);
   if (cli === 'claude') return 'CLAUDE';
   if (cli === 'codex') return 'CODEX';
-  if (cli === 'gemini') return 'GEMINI';
   const cmd = (session.startupCommand || session.sshCommand || session.sshConfig?.command || '').toLowerCase();
   if (cmd.startsWith('aider') || cmd.includes('/aider')) return 'AIDER';
   if (session.backendType) {
     const bt = session.backendType.toLowerCase();
     if (bt.includes('claude')) return 'CLAUDE';
     if (bt.includes('codex')) return 'CODEX';
-    if (bt.includes('gemini')) return 'GEMINI';
     if (bt.includes('aider')) return 'AIDER';
   }
   return null;

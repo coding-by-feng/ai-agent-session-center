@@ -7,7 +7,7 @@ import { mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import log from './logger.js';
-import { sanitizeModelId } from './config.js';
+import { sanitizeModelId, extractModelFromCommand } from './config.js';
 import type { Session } from '../src/types/session.js';
 import type {
   DbSessionRow, DbPromptRow, DbResponseRow, DbToolCallRow, DbEventRow, DbNoteRow,
@@ -167,17 +167,26 @@ try {
 // value broke the unquoted `--model` launch flag — zsh treats `[1m]` as a glob
 // ("no matches found"), so popup/fork spawning failed. Clean them in place so
 // existing sessions launch and display correctly. See sanitizeModelId (config.ts).
+// A second contamination shape stored the WHOLE launch command in `model` (the
+// old connecting→idle shortcut for hookless CLIs), e.g.
+// "/opt/homebrew/…/bin/codex --dangerously-bypass-approvals-and-sandbox". Those
+// rows are matched by the space/slash clauses and reduced to the command's real
+// `--model` id, or cleared when it pins none — never to the binary name, which
+// would come back as an invalid `--model codex` on the next fork/resume.
 try {
   const dirty = db
     .prepare(
       `SELECT id, model FROM sessions
-       WHERE model LIKE '%[%' OR model LIKE '%' || char(27) || '%' OR model LIKE '%' || char(10) || '%'`,
+       WHERE model LIKE '%[%' OR model LIKE '%' || char(27) || '%' OR model LIKE '%' || char(10) || '%'
+          OR model LIKE '% %' OR model LIKE '%/%'`,
     )
     .all() as Array<{ id: string; model: string }>;
   if (dirty.length > 0) {
     const upd = db.prepare('UPDATE sessions SET model = ? WHERE id = ?');
+    const clean = (model: string): string =>
+      /[\s/]/.test(model) ? extractModelFromCommand(model) : sanitizeModelId(model);
     const fixAll = db.transaction((rows: Array<{ id: string; model: string }>) => {
-      for (const row of rows) upd.run(sanitizeModelId(row.model), row.id);
+      for (const row of rows) upd.run(clean(row.model), row.id);
     });
     fixAll(dirty);
     log.info('db', `Sanitized ${dirty.length} contaminated session model id(s)`);

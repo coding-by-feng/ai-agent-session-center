@@ -1,6 +1,6 @@
 /**
  * @module commandIndex
- * Enumerates available slash commands and skills across Claude / Codex / Gemini CLIs.
+ * Enumerates available slash commands and skills across Claude / Codex CLIs.
  *
  * Sources walked (per CLI):
  *   claude:
@@ -19,9 +19,6 @@
  *     - $CODEX_HOME/skills/.system/<slug>/SKILL.md (preinstalled skills, $name)
  *       CODEX_HOME defaults to ~/.codex. Codex addresses skills as `$name`,
  *       NOT `/name` — see `src/lib/autocompleteTrigger.ts`.
- *   gemini:
- *     - <project>/.gemini/commands/*.toml          (project commands)
- *     - ~/.gemini/commands/*.toml                  (global commands)
  *
  * Results are cached in-memory for 30 seconds keyed by `cli + projectPath`.
  */
@@ -38,7 +35,7 @@ export interface CommandEntry {
    *  the user-facing slug is `<pluginName>:<name>` — built by clients. */
   name: string;
   description: string;
-  cli: 'claude' | 'codex' | 'gemini';
+  cli: 'claude' | 'codex';
   kind: CommandKind;
   source: CommandSource;
   sourcePath?: string;
@@ -249,30 +246,6 @@ const CODEX_BUILTINS: BuiltinSpec[] = [
   { name: 'undo', description: 'Undo the last assistant action' },
 ];
 
-const GEMINI_BUILTINS: BuiltinSpec[] = [
-  { name: 'auth', description: 'Manage authentication' },
-  { name: 'bug', description: 'File a bug report' },
-  { name: 'chat', description: 'Save, resume, list, or delete chat sessions' },
-  { name: 'clear', description: 'Clear the conversation' },
-  { name: 'compress', description: 'Compress context to free up tokens' },
-  { name: 'copy', description: 'Copy the last response to clipboard' },
-  { name: 'docs', description: 'Open the Gemini CLI documentation' },
-  { name: 'editor', description: 'Pick an external editor for prompts' },
-  { name: 'help', description: 'Show Gemini CLI help' },
-  { name: 'init', description: 'Initialize a project guide' },
-  { name: 'mcp', description: 'Manage MCP server connections' },
-  { name: 'memory', description: 'Edit memory files' },
-  { name: 'model', description: 'Select or change the AI model' },
-  { name: 'privacy', description: 'View or change privacy settings' },
-  { name: 'quit', description: 'Exit Gemini CLI' },
-  { name: 'restore', description: 'Restore a previous session' },
-  { name: 'settings', description: 'View or modify settings' },
-  { name: 'stats', description: 'Show session token usage stats' },
-  { name: 'theme', description: 'Change the CLI theme' },
-  { name: 'tools', description: 'List available tools' },
-  { name: 'vim', description: 'Enter vim editing mode' },
-];
-
 function appendBuiltins(
   entries: CommandEntry[],
   builtins: BuiltinSpec[],
@@ -403,26 +376,12 @@ function buildCodexEntries(projectPath: string | null): CommandEntry[] {
   return entries;
 }
 
-function buildGeminiEntries(projectPath: string | null): CommandEntry[] {
-  const entries: CommandEntry[] = [];
-  appendBuiltins(entries, GEMINI_BUILTINS, 'gemini');
-  if (projectPath && isSafeProjectPath(projectPath)) {
-    for (const f of listTomlFiles(join(projectPath, '.gemini', 'commands'))) {
-      entries.push(makeCommandEntry(f, 'gemini', 'project'));
-    }
-  }
-  for (const f of listTomlFiles(join(homedir(), '.gemini', 'commands'))) {
-    entries.push(makeCommandEntry(f, 'gemini', 'global'));
-  }
-  return entries;
-}
-
 /**
  * Get the full command/skill index for a CLI + optional project root.
  * Cached for 30s per (cli, projectPath). Safe to call frequently.
  */
 export function getCommandIndex(
-  cli: 'claude' | 'codex' | 'gemini',
+  cli: 'claude' | 'codex',
   projectPath: string | null,
 ): CommandEntry[] {
   const key = `${cli}|${projectPath || ''}`;
@@ -433,8 +392,7 @@ export function getCommandIndex(
   let entries: CommandEntry[];
   try {
     if (cli === 'claude') entries = buildClaudeEntries(projectPath);
-    else if (cli === 'codex') entries = buildCodexEntries(projectPath);
-    else entries = buildGeminiEntries(projectPath);
+    else entries = buildCodexEntries(projectPath);
   } catch (err) {
     log.error('commandIndex', `Failed for ${cli}: ${err instanceof Error ? err.message : String(err)}`);
     entries = [];

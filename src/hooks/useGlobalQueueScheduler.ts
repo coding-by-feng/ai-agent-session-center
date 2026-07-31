@@ -37,7 +37,9 @@ import {
   DEFAULT_AUTOMATION,
   type QueueItem,
   type QueueImageAttachment,
+  type QueueAutomationConfig,
 } from '@/stores/queueStore';
+import type { Session } from '@/types';
 import {
   pickNext,
   advanceAfterFire,
@@ -55,6 +57,12 @@ import {
   type OnceGate,
 } from '@/lib/queueScheduler';
 import { sendPromptToTerminal } from '@/lib/terminalSend';
+import {
+  decideResume,
+  faultLabel,
+  DEFAULT_RESUME_PROMPT,
+  type WatchdogState,
+} from '@/lib/resumeWatchdog';
 import { showToast } from '@/components/ui/ToastContainer';
 
 // NO_WORK_FALLBACK_MS lives in queueScheduler.ts next to the gate logic it
@@ -98,6 +106,9 @@ async function sendToTerminal(
 export function useGlobalQueueScheduler(): void {
   const firingRefs = useRef<Map<string, boolean>>(new Map());
   const coolDownRefs = useRef<Map<string, number>>(new Map());
+  // Per-session auto-resume watchdog state. Holds the attempt ledger that caps
+  // how often a transient fault may be auto-continued — see resumeWatchdog.ts.
+  const resumeRefs = useRef<Map<string, WatchdogState>>(new Map());
   // Per-session chain gate: holds the next chain step until the step we just
   // sent has actually finished running (observed go busy → back to sendable).
   const chainGateRefs = useRef<Map<string, ChainGate>>(new Map());
@@ -109,6 +120,79 @@ export function useGlobalQueueScheduler(): void {
   useEffect(() => {
     let cancelled = false;
 
+    /**
+     * Evaluate (and possibly act on) the auto-resume watchdog for one session.
+     * Returns true when a resume prompt was sent, so the caller skips the queue
+     * this tick rather than typing a second thing into the same prompt box.
+     */
+    const maybeAutoResume = async (
+      sessionId: string,
+      session: Session,
+      terminalId: string,
+      config: QueueAutomationConfig,
+      now: number,
+    ): Promise<boolean> => {
+      const prev = resumeRefs.current.get(sessionId);
+      const decision = decideResume(prev, {
+        interruption: session.interruption ?? null,
+        status: session.status,
+        now,
+        enabled: config.autoResume,
+        maxRetries: config.resumeMaxRetries,
+        // Fresh spread per evaluation so sessions that faulted together in a
+        // provider-wide outage don't retry in lockstep.
+        jitter: Math.random(),
+      });
+
+      if (decision.state) resumeRefs.current.set(sessionId, decision.state);
+      else resumeRefs.current.delete(sessionId);
+
+      const sessionName = session.title?.trim() || sessionId.slice(0, 6);
+
+      if (decision.justExhausted) {
+        showToast(
+          `[${sessionName}] Auto-resume gave up after ${config.resumeMaxRetries} attempts — needs you`,
+          'error',
+          8000,
+        );
+        return false;
+      }
+
+      if (!decision.send) return false;
+
+      const prompt = config.resumePrompt.trim() || DEFAULT_RESUME_PROMPT;
+      const attempt = decision.state?.attempts.length ?? 1;
+
+      firingRefs.current.set(sessionId, true);
+      try {
+        // Always auto-Enter: a resume prompt typed but not submitted leaves the
+        // session exactly as stuck as it was, with the extra confusion of text
+        // sitting in the box.
+        const sent = await sendPromptToTerminal(terminalId, prompt, true);
+        if (!sent) {
+          // Undo the ledger entry — nothing was actually delivered, so this
+          // must not consume the budget. Re-arm for the next tick.
+          resumeRefs.current.set(sessionId, {
+            ...decision.state!,
+            phase: 'armed',
+            attempts: decision.state!.attempts.slice(0, -1),
+            nextAttemptAt: now + 5_000,
+          });
+          return false;
+        }
+        coolDownRefs.current.set(sessionId, Date.now() + 800);
+        const reason = faultLabel(session.interruption?.kind ?? 'api_error');
+        showToast(
+          `[${sessionName}] Auto-resumed after ${reason} (${attempt}/${config.resumeMaxRetries})`,
+          'info',
+          4000,
+        );
+        return true;
+      } finally {
+        firingRefs.current.set(sessionId, false);
+      }
+    };
+
     const evaluateSession = async (sessionId: string): Promise<void> => {
       const firing = firingRefs.current.get(sessionId);
       if (firing) return;
@@ -118,8 +202,6 @@ export function useGlobalQueueScheduler(): void {
       if (!session) return;
 
       const queueState = useQueueStore.getState();
-      const items = queueState.queues.get(sessionId);
-      if (!items || items.length === 0) return;
 
       const automationConfig =
         queueState.automation.get(sessionId) ?? DEFAULT_AUTOMATION;
@@ -131,6 +213,24 @@ export function useGlobalQueueScheduler(): void {
       const now = Date.now();
       const cooldownUntil = coolDownRefs.current.get(sessionId) ?? 0;
       if (now < cooldownUntil) return;
+
+      // ── Auto-resume watchdog ──────────────────────────────────────────────
+      // Runs BEFORE the queue and independently of it: a session interrupted by
+      // a 529 needs rescuing whether or not it has queued items, so this must
+      // sit above the `items.length === 0` bail-out below. It shares
+      // `firingRefs` / `coolDownRefs` with the queue so a resume and a queue
+      // fire can never interleave into the same PTY.
+      const resumed = await maybeAutoResume(
+        sessionId,
+        session,
+        terminalId,
+        automationConfig,
+        now,
+      );
+      if (resumed || cancelled) return;
+
+      const items = queueState.queues.get(sessionId);
+      if (!items || items.length === 0) return;
 
       // Auto-send OFF halts all AUTOMATIC firing, but a manual force-start and
       // an already in-flight chain must still run (see header). Bail early when
@@ -232,6 +332,13 @@ export function useGlobalQueueScheduler(): void {
           now,
           NO_WORK_FALLBACK_MS,
           session.lastActivityAt,
+          // ⚡ NOW pressed on an already-executing row: release the gate for
+          // this one step. The item keeps its execState/execStepIdx, so it
+          // resumes where it is parked instead of re-typing step 1 over a
+          // running agent. One-shot — `advanceAfterFire` clears `forceStart`
+          // in every branch. The idle-guard still applies (PRIORITY 0), so a
+          // genuinely busy session is not typed over.
+          pick.forceStart === true,
         );
         if (decision === 'hold') return;
       } else {

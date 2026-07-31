@@ -4,37 +4,45 @@ import { startApprovalTimer, clearApprovalTimer, hasChildProcesses, isAgentBusyO
 import { SESSION_STATUS, ANIMATION_STATE } from '../server/constants.js';
 
 describe('approvalDetector', () => {
+  // Async on purpose: the underlying `pgrep` used to run via execFileSync, a
+  // blocking fork+exec on the event loop that stalled WS broadcast, terminal
+  // relay and hook processing for EVERY session while one session's approval
+  // timer checked its child. Keep these awaited — a sync call would silently
+  // return a Promise (always truthy) at the call site.
   describe('hasChildProcesses', () => {
-    it('returns false for non-numeric PID', () => {
-      expect(hasChildProcesses('abc')).toBe(false);
+    it('returns false for non-numeric PID', async () => {
+      await expect(hasChildProcesses('abc')).resolves.toBe(false);
     });
 
-    it('returns false for negative PID', () => {
-      expect(hasChildProcesses(-1)).toBe(false);
+    it('returns false for negative PID', async () => {
+      await expect(hasChildProcesses(-1)).resolves.toBe(false);
     });
 
-    it('returns false for zero PID', () => {
-      expect(hasChildProcesses(0)).toBe(false);
+    it('returns false for zero PID', async () => {
+      await expect(hasChildProcesses(0)).resolves.toBe(false);
     });
 
-    it('returns false for null PID', () => {
-      expect(hasChildProcesses(null)).toBe(false);
+    it('returns false for null PID', async () => {
+      await expect(hasChildProcesses(null)).resolves.toBe(false);
     });
 
-    it('returns false for undefined PID', () => {
-      expect(hasChildProcesses(undefined)).toBe(false);
+    it('returns false for undefined PID', async () => {
+      await expect(hasChildProcesses(undefined)).resolves.toBe(false);
     });
 
-    it('returns boolean for valid PID', () => {
+    it('returns a promise, not a boolean', () => {
+      expect(hasChildProcesses(1)).toBeInstanceOf(Promise);
+    });
+
+    it('returns boolean for valid PID', async () => {
       // PID 1 (init/launchd) exists on all Unix systems
-      const result = hasChildProcesses(1);
+      const result = await hasChildProcesses(1);
       expect(typeof result).toBe('boolean');
     });
 
-    it('returns true for non-existent PID (safe default per #37)', () => {
+    it('returns true for non-existent PID (safe default per #37)', async () => {
       // #37: Returns true on error as safer default (assume still running)
-      const result = hasChildProcesses(9999999);
-      expect(result).toBe(true);
+      await expect(hasChildProcesses(9999999)).resolves.toBe(true);
     });
   });
 

@@ -16,6 +16,7 @@
     "data/.gitkeep"
   ],
   "asar": true,
+  "npmRebuild": false,
   "asarUnpack": [
     "node_modules/better-sqlite3/**",
     "node_modules/node-pty/**"

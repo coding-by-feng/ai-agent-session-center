@@ -189,6 +189,32 @@ export const FLAG_EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'ma
 const SAFE_MODEL_RE = /^[a-zA-Z0-9._-]+$/;
 
 /**
+ * Recover the model id a launch command pins via `--model <id>` / `--model=<id>`
+ * / `-m <id>`, or `''` when the command carries none.
+ *
+ * Exists so callers can derive a model for a CLI that never sends hooks WITHOUT
+ * falling back to stamping the whole command into `Session.model`. That fallback
+ * produced live sessions whose model was
+ * `/opt/homebrew/…/bin/codex --dangerously-bypass-approvals-and-sandbox`, which
+ * renders as a multi-line wall of path in the session card's model slot, would be
+ * re-emitted as an unquoted `--model <whole command>` by
+ * {@link applyClaudeLaunchFlags} on fork/resume/clone, and is silently dropped by
+ * `buildSnapshot`'s safe-charset filter (losing the user's pinned model on
+ * restore). The extracted value still goes through {@link sanitizeModelId}, so a
+ * path, a following flag, or a bracket-contaminated token yields `''` rather than
+ * a hazard.
+ */
+export function extractModelFromCommand(command: string | null | undefined): string {
+  const match = (command || '').match(/(?:^|\s)(?:--model|-m)(?:=|\s+)("[^"]*"|'[^']*'|\S+)/);
+  if (!match) return '';
+  const value = match[1].replace(/^["']|["']$/g, '');
+  // `--model --yolo` means no model was supplied; a real id never starts with a
+  // dash, and the safe charset alone would happily accept the next flag.
+  if (value.startsWith('-')) return '';
+  return sanitizeModelId(value);
+}
+
+/**
  * Clean a possibly-contaminated model id before it is interpolated into a
  * launch command. Forks/popups inherit `origin.model`, and an older session can
  * carry a model polluted with a stripped ANSI bold escape (e.g.
@@ -262,6 +288,55 @@ export function withClaudeTuiEnvDefaults(env: Record<string, string>): Record<st
 }
 
 /**
+ * Env markers a Claude Code session exports into its child processes. They must
+ * be removed from every PTY the dashboard spawns, because a dashboard terminal
+ * is a NEW top-level session — not a child of whatever launched the app.
+ *
+ * `CLAUDE_CODE_CHILD_SESSION` is the load-bearing one: Claude Code ≥ 2.1.x reads
+ * an inherited marker as "I am a nested child/subagent session" and DISABLES
+ * transcript persistence ("⚠ Transcript saving is off — inherited
+ * CLAUDE_CODE_CHILD_SESSION marker"). No `~/.claude/projects/<enc>/<id>.jsonl`
+ * is written, so every later `claude --resume <id>` / `--fork-session` dies with
+ * "No conversation found with session ID: <id>" — the AI popup's fork lands on a
+ * dead shell, workspace restore silently starts fresh instead of resuming, and
+ * the Conversation tab / translate-answer have nothing to read. The app inherits
+ * the marker whenever it is started from inside a Claude Code session, i.e. the
+ * normal dev loop (an agent running `npm run electron:build`, `npm run dev`, or
+ * `open`ing the built app), which is why this fails invisibly in development but
+ * not for a Finder launch.
+ *
+ * `CLAUDE_CODE_SESSION_ID` is dropped for the same ownership reason: a spawned
+ * agent must never advertise its launcher's session id. Entrypoint/execpath
+ * describe the parent process, and the child recomputes both on startup.
+ *
+ * Deliberately NOT stripped: credentials (`ANTHROPIC_API_KEY`, …), config-dir
+ * overrides (`CLAUDE_CONFIG_DIR`), user feature flags, and
+ * `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN` (see CLAUDE_TUI_ENV_DEFAULTS).
+ */
+export const INHERITED_CLAUDE_SESSION_ENV_KEYS = [
+  'CLAUDECODE',
+  'CLAUDE_CODE_CHILD_SESSION',
+  'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_CODE_ENTRYPOINT',
+  'CLAUDE_CODE_EXECPATH',
+] as const;
+
+/**
+ * Return a new env without the launching Claude Code session's markers (and
+ * without unset keys, so the result is a plain string env for node-pty).
+ */
+export function stripInheritedClaudeSessionEnv(
+  env: Record<string, string | undefined>,
+): Record<string, string> {
+  const stripped = new Set<string>(INHERITED_CLAUDE_SESSION_ENV_KEYS);
+  return Object.fromEntries(
+    Object.entries(env).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined && !stripped.has(entry[0]),
+    ),
+  );
+}
+
+/**
  * Append supported launch flags before the first prompt runs: Claude receives
  * `--model` + `--effort`, while Codex receives `--model`. The historical
  * function name is retained because it is used across create/resume/fork flows.
@@ -299,19 +374,58 @@ export function applyClaudeLaunchFlags(
 }
 
 /**
- * Append `-n "title"` to a Claude command for session naming.
- * Only applies to Claude CLI commands (starts with "claude").
- * Skips if the command already contains a `-n` flag.
+ * Newlines and control characters collapse to a single space. A raw newline in a
+ * title would terminate the command line and turn the remainder into a SECOND
+ * shell command; the rest are invisible junk in a terminal title.
+ */
+const CONTROL_CHARS_RE = /[\x00-\x1F\x7F]+/g;
+
+/**
+ * Quote a session title for a `-n "…"` argument.
+ *
+ * **The title is untrusted.** `buildAutoTitle` derives it from the first 60
+ * characters of the user's first prompt (`makeShortTitle` does no shell
+ * sanitizing), and workspace-snapshot import carries titles in from a shared
+ * JSON file — so prompt text reaches a live shell here. Escaping only `"` (the
+ * previous behaviour) left `$(…)`, backticks and `$VAR` fully live inside the
+ * double quotes: a session titled ``a`id`b`` executed `id` on every resume,
+ * clone, fork and pinned respawn.
+ *
+ * Inside double quotes the shell treats exactly four characters as special —
+ * `\`, `$`, `` ` `` and `"`. **Backslash must be escaped first**, or escaping
+ * `"` into `\"` would itself be re-escaped and could forge a quote break.
+ *
+ * Double quotes (rather than single) are deliberate: `stripClaudeSessionName`
+ * and `extractSessionName` parse the `"…"` form, and single-quote escaping
+ * (`'\''`) would break both round-trips for any title containing an apostrophe.
+ */
+function quoteSessionTitle(sessionTitle: string): string {
+  const escaped = sessionTitle
+    .replace(CONTROL_CHARS_RE, ' ')
+    .replace(/[\\$`"]/g, (c) => `\\${c}`);
+  return `"${escaped}"`;
+}
+
+/**
+ * Append `-n "title"` to a Claude command for session naming, shell-quoting the
+ * title (see `quoteSessionTitle`). Only applies to Claude CLI commands.
+ *
+ * When the command already carries a `-n`/`--name`, it is **replaced** rather
+ * than left alone. The old code bailed out on any existing flag, which is what
+ * made a malformed name permanent: one command containing an unquoted
+ * `-n KTS Deployment` propagated through every later resume / clone / fork /
+ * respawn unrepaired, and `claude` kept reading `Deployment` as a stray
+ * positional argument (i.e. an initial prompt). Normalizing here means those
+ * stored commands self-heal the next time they pass through.
  */
 export function appendSessionName(command: string, sessionTitle?: string | null): string {
-  if (!sessionTitle) return command;
-  // Only Claude CLI supports -n flag
+  // Only Claude CLI supports the -n flag.
   if (!command.startsWith('claude')) return command;
-  // Don't double-add if already present
-  if (/ -n[ =]/.test(command) || / --name[ =]/.test(command)) return command;
-  // Escape double quotes in the title
-  const escaped = sessionTitle.replace(/"/g, '\\"');
-  return `${command} -n "${escaped}"`;
+  const title = sessionTitle?.replace(CONTROL_CHARS_RE, ' ').trim();
+  // No replacement title: leave whatever the command already has untouched.
+  if (!title) return command;
+  const stripped = stripClaudeSessionName(command);
+  return `${stripped} -n ${quoteSessionTitle(title)}`;
 }
 
 /**
@@ -320,10 +434,24 @@ export function appendSessionName(command: string, sessionTitle?: string | null)
  * session so the new session can be given its own name (e.g. "Clone of X")
  * instead of inheriting the original session's `-n` flag.
  */
+/**
+ * The `-n`/`--name` flag plus its value. The double-quoted alternative accepts
+ * backslash escapes (`(?:[^"\\]|\\.)*`) — a bare `[^"]*` stops at the first
+ * `\"` produced by `quoteSessionTitle`, which would leave the tail of an
+ * escaped title stranded in the command as loose shell words. The unquoted
+ * alternative is kept only to parse LEGACY malformed commands.
+ */
+const SESSION_NAME_VALUE = String.raw`(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+(?:\s+(?!-)\S+)*))`;
+const STRIP_SESSION_NAME_RE = new RegExp(
+  String.raw`\s+(?:-n|--name)(?:\s+|=)` + SESSION_NAME_VALUE,
+  'g',
+);
+const EXTRACT_SESSION_NAME_RE = new RegExp(
+  String.raw`(?:-n|--name)(?:\s+|=)` + SESSION_NAME_VALUE,
+);
+
 export function stripClaudeSessionName(command: string): string {
-  return command
-    .replace(/\s+(?:-n|--name)(?:\s+|=)(?:"[^"]*"|'[^']*'|\S+(?:\s+(?!-)\S+)*)/g, '')
-    .trim();
+  return command.replace(STRIP_SESSION_NAME_RE, '').trim();
 }
 
 /**
@@ -332,9 +460,11 @@ export function stripClaudeSessionName(command: string): string {
  * Returns null when no name flag is present.
  */
 export function extractSessionName(command: string): string | null {
-  const m = command.match(
-    /(?:-n|--name)(?:\s+|=)(?:"([^"]*)"|'([^']*)'|(\S+(?:\s+(?!-)\S+)*))/
-  );
+  const m = command.match(EXTRACT_SESSION_NAME_RE);
   if (!m) return null;
-  return (m[1] ?? m[2] ?? m[3] ?? '').trim() || null;
+  // Only the double-quoted branch carries backslash escapes — undo them so the
+  // extracted title round-trips back through `appendSessionName` unchanged
+  // (`buildResumeCommand` does exactly this strip → re-append on every resume).
+  if (m[1] !== undefined) return m[1].replace(/\\(.)/g, '$1').trim() || null;
+  return (m[2] ?? m[3] ?? '').trim() || null;
 }

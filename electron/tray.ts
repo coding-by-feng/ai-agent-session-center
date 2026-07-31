@@ -1,5 +1,6 @@
 import { Tray, Menu, app, BrowserWindow, nativeImage, shell } from 'electron'
 import path from 'path'
+import { getCrashLogPath } from './crashLogger.js'
 
 export function setupTray(win: BrowserWindow) {
   const iconName = process.platform === 'win32' ? 'tray.ico' : 'tray.png'
@@ -46,6 +47,10 @@ export function setupTray(win: BrowserWindow) {
           const port = process.env.SERVER_PORT ?? '3333'
           shell.openExternal(`http://localhost:${port}`)
         },
+      },
+      {
+        label: 'Open Logs Folder',
+        click: () => shell.showItemInFolder(getCrashLogPath()),
       },
       { type: 'separator' },
       {

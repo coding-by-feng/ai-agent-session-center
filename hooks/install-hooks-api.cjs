@@ -8,7 +8,7 @@ const { homedir } = require('os');
 const { execSync } = require('child_process');
 const {
   atomicWriteJSON, deployHookScript, configureClaudeHooks,
-  removeAllClaudeHooks, configureGeminiHooks, configureCodexHooksToml,
+  removeAllClaudeHooks, configureCodexHooksToml,
   removeAllCodexHooksToml,
 } = require('./install-hooks-core.cjs');
 
@@ -26,15 +26,6 @@ const DENSITY_EVENTS = {
     'TaskCompleted', 'SessionEnd',
   ],
   low: ['SessionStart', 'UserPromptSubmit', 'PermissionRequest', 'Stop', 'SessionEnd'],
-};
-
-// BeforeTool/AfterTool must be in medium so Gemini sessions reach the
-// "working" state (orange brightening); without them they sit at
-// idle/prompting and the visual signal never lights up.
-const GEMINI_DENSITY_EVENTS = {
-  high: ['SessionStart', 'BeforeAgent', 'BeforeTool', 'AfterTool', 'AfterAgent', 'SessionEnd', 'Notification'],
-  medium: ['SessionStart', 'BeforeAgent', 'BeforeTool', 'AfterTool', 'AfterAgent', 'SessionEnd', 'Notification'],
-  low: ['SessionStart', 'AfterAgent', 'SessionEnd'],
 };
 
 // Codex CLI (>=0.130) natively supports only these 5 lifecycle hooks via
@@ -62,7 +53,6 @@ async function installHooks({ density = 'medium', enabledClis = ['claude'], proj
 
   const hooksDir = projectRoot ? join(projectRoot, 'hooks') : __dirname;
   const EVENTS = DENSITY_EVENTS[density];
-  const GEMINI_EVENTS = GEMINI_DENSITY_EVENTS[density] || GEMINI_DENSITY_EVENTS.medium;
   const CODEX_EVENTS = CODEX_DENSITY_EVENTS[density] || CODEX_DENSITY_EVENTS.medium;
   const HOOK_SCRIPT = isWindows ? 'dashboard-hook.ps1' : 'dashboard-hook.sh';
   const HOOKS_DEST_DIR = join(homedir(), '.claude', 'hooks');
@@ -132,22 +122,6 @@ async function installHooks({ density = 'medium', enabledClis = ['claude'], proj
   const altSrc = join(hooksDir, altScript);
   if (existsSync(altSrc)) { deployHookScript(altSrc, join(HOOKS_DEST_DIR, altScript), isWindows); log(`Also copied ${altScript}`); }
 
-  if (enabledClis.includes('gemini')) {
-    const geminiSrc = join(hooksDir, 'dashboard-hook-gemini.sh');
-    const geminiDest = join(homedir(), '.gemini', 'hooks', 'dashboard-hook.sh');
-    if (existsSync(geminiSrc)) {
-      mkdirSync(join(homedir(), '.gemini', 'hooks'), { recursive: true });
-      deployHookScript(geminiSrc, geminiDest, false);
-      log(`Deployed Gemini hook -> ${geminiDest}`);
-    }
-    const geminiSettingsPath = join(homedir(), '.gemini', 'settings.json');
-    try {
-      let gs; try { gs = JSON.parse(readFileSync(geminiSettingsPath, 'utf8')); } catch { gs = {}; }
-      const gChanged = configureGeminiHooks(gs, GEMINI_EVENTS, HOOK_SOURCE);
-      if (gChanged) { mkdirSync(join(homedir(), '.gemini'), { recursive: true }); atomicWriteJSON(geminiSettingsPath, gs); log(`Registered ${gChanged} Gemini events`); }
-      else log('Gemini hooks already registered');
-    } catch (e) { log(`Gemini: ${e.message}`); }
-  }
 
   if (enabledClis.includes('codex')) {
     const codexSrc = join(hooksDir, 'dashboard-hook-codex.sh');

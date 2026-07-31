@@ -109,3 +109,65 @@ describe('buildResumeCommand — effort/model re-application on resume', () => {
     expect(cmd).not.toContain('--model');
   });
 });
+
+/**
+ * The `|| <baseCmd>` fallback duplicates the ENTIRE launch command. With a
+ * realistic command that is 216 characters — 38% of it a verbatim copy — which
+ * wraps onto a second line in the 120-column PTY and renders as garbled,
+ * seemingly-duplicated text in the terminal.
+ *
+ * The duplicate is only load-bearing when we cannot tell in advance whether
+ * `--resume` will succeed. When the transcript is verifiably on disk, the
+ * fallback is unreachable and can be dropped.
+ */
+describe('buildResumeCommand — dropping the unreachable fallback', () => {
+  const LONG = 'claude --model opus --effort max --dangerously-skip-permissions';
+
+  it('keeps the fallback when resumability cannot be checked (no projectPath)', () => {
+    const cmd = buildResumeCommand({ startupCommand: LONG, title: 'SMS OPS STATS' }, VALID_UUID);
+    expect(cmd).toContain('||');
+  });
+
+  it('keeps the fallback for a REMOTE session — the transcript is on another host', () => {
+    const cmd = buildResumeCommand(
+      {
+        startupCommand: LONG,
+        title: 'SMS OPS STATS',
+        projectPath: '/tmp/definitely-not-a-real-project',
+        sshConfig: { command: 'claude', host: 'build-box' },
+      },
+      VALID_UUID,
+    );
+    expect(cmd).toContain('||');
+  });
+
+  it('keeps the fallback when the local transcript is NOT found (we may be wrong)', () => {
+    const cmd = buildResumeCommand(
+      { startupCommand: LONG, title: 'x', projectPath: '/tmp/aasc-no-such-project-xyz' },
+      VALID_UUID,
+    );
+    expect(cmd).toContain('||');
+    expect(cmd).toContain(`--resume '${VALID_UUID}'`);
+  });
+
+  it('drops the fallback when the transcript is verifiably on disk', () => {
+    const { mkdtempSync, writeFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const { tmpdir } = require('os') as typeof import('os');
+    // resolveResumableClaudeSessionId accepts a recorded transcriptPath that
+    // exists, so a temp file is enough to prove the "found" branch.
+    const dir = mkdtempSync(join(tmpdir(), 'aasc-resume-'));
+    const transcript = join(dir, `${VALID_UUID}.jsonl`);
+    writeFileSync(transcript, '{}\n');
+
+    const cmd = buildResumeCommand(
+      { startupCommand: LONG, title: 'SMS OPS STATS', projectPath: dir, transcriptPath: transcript },
+      VALID_UUID,
+    );
+    expect(cmd).not.toContain('||');
+    expect(cmd).toContain(`--resume '${VALID_UUID}'`);
+    // The whole point: no verbatim duplicate of the launch command.
+    expect(cmd.split('--dangerously-skip-permissions').length - 1).toBe(1);
+    expect(cmd.length).toBeLessThan(160);
+  });
+});

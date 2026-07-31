@@ -133,8 +133,6 @@ export default function NewSessionModal() {
   const isCodexCommand = /^(?:\S*\/)?codex(?:\s|$)/i.test(command.trim());
   const apiKeyEnvName = isCodexCommand
     ? 'OPENAI_API_KEY'
-    : command.trim().toLowerCase().startsWith('gemini')
-      ? 'GEMINI_API_KEY'
       : 'ANTHROPIC_API_KEY';
 
   useEffect(() => {

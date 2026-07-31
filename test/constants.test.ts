@@ -22,13 +22,6 @@ describe('EVENT_TYPES', () => {
     expect(EVENT_TYPES.STOP).toBe('Stop');
   });
 
-  it('contains Gemini event types', () => {
-    expect(EVENT_TYPES.BEFORE_AGENT).toBe('BeforeAgent');
-    expect(EVENT_TYPES.BEFORE_TOOL).toBe('BeforeTool');
-    expect(EVENT_TYPES.AFTER_TOOL).toBe('AfterTool');
-    expect(EVENT_TYPES.AFTER_AGENT).toBe('AfterAgent');
-  });
-
   it('contains Codex event types', () => {
     expect(EVENT_TYPES.AGENT_TURN_COMPLETE).toBe('agent-turn-complete');
   });
@@ -134,13 +127,6 @@ describe('KNOWN_EVENTS', () => {
     for (const [key, value] of Object.entries(EVENT_TYPES)) {
       expect(KNOWN_EVENTS.has(value)).toBe(true);
     }
-  });
-
-  it('contains Gemini events', () => {
-    expect(KNOWN_EVENTS.has('BeforeAgent')).toBe(true);
-    expect(KNOWN_EVENTS.has('BeforeTool')).toBe(true);
-    expect(KNOWN_EVENTS.has('AfterTool')).toBe(true);
-    expect(KNOWN_EVENTS.has('AfterAgent')).toBe(true);
   });
 
   it('contains Codex events', () => {

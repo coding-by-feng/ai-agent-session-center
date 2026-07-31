@@ -413,7 +413,7 @@ export function reapPtyChildren(shellPid: unknown): void {
 /**
  * Find the CLI process PID for a given session.
  * Uses the exact cached PID first. Only Claude falls back to pgrep/lsof;
- * Codex/Gemini scans are ambiguous when terminals share a cwd.
+ * Codex scans are ambiguous when terminals share a cwd.
  */
 export function findClaudeProcess(
   sessionId: string,
@@ -428,9 +428,7 @@ export function findClaudeProcess(
   ).trim().toLowerCase();
   const processName = cliSource === 'codex' || launchCommand.startsWith('codex')
     ? 'codex'
-    : cliSource === 'gemini' || launchCommand.startsWith('gemini')
-      ? 'gemini'
-      : 'claude';
+    : 'claude';
   if (session?.cachedPid) {
     const validCachedPid = validatePid(session.cachedPid);
     if (validCachedPid) {
@@ -448,7 +446,7 @@ export function findClaudeProcess(
     }
   }
 
-  // Several Codex threads can share one host process, and several Codex/Gemini
+  // Several Codex threads can share one host process, and several Codex
   // terminals can share one cwd. Without a verified cached PID, pgrep + cwd/TTY
   // is not strong enough to choose which process the user intended to kill.
   // The exact managed PTY is torn down separately by the terminal transport.

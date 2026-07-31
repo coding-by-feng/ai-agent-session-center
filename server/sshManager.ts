@@ -10,7 +10,7 @@ import { join } from 'path';
 import { homedir, networkInterfaces, hostname as osHostname } from 'os';
 import log from './logger.js';
 import { reapPtyChildren } from './processMonitor.js';
-import { appendSessionName, applyClaudeLaunchFlags, withClaudeTuiEnvDefaults } from './config.js';
+import { appendSessionName, applyClaudeLaunchFlags, withClaudeTuiEnvDefaults, stripInheritedClaudeSessionEnv } from './config.js';
 import type { Terminal, TerminalConfig, TerminalInfo, TmuxSessionInfo, SshKeyInfo } from '../src/types/terminal.js';
 import { DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES, clampReplayBufferBytes } from '../src/types/terminal.js';
 import {
@@ -20,6 +20,8 @@ import {
   ringLength as lengthOfRing,
   ringReset as resetRing,
 } from './ptyRing.js';
+import { scanChunk, clearFaultState } from './interruptionDetector.js';
+import type { FaultMatch } from './interruptionDetector.js';
 import type { PendingLink } from '../src/types/session.js';
 import type WebSocket from 'ws';
 
@@ -33,6 +35,36 @@ let onTerminalExitCallback: OnTerminalExitCallback | null = null;
  */
 export function registerTerminalExitCallback(cb: OnTerminalExitCallback): void {
   onTerminalExitCallback = cb;
+}
+
+// Callback type for notifying the session store that a terminal printed a
+// transient-failure banner (API 5xx / rate limit / connection error).
+type OnTerminalFaultCallback = (terminalId: string, fault: FaultMatch) => void;
+let onTerminalFaultCallback: OnTerminalFaultCallback | null = null;
+
+/**
+ * Register a callback invoked when a PTY prints a transient-failure banner.
+ * The detection itself is edge-triggered inside `interruptionDetector`; this
+ * only forwards the edge to the session store.
+ */
+export function registerTerminalFaultCallback(cb: OnTerminalFaultCallback): void {
+  onTerminalFaultCallback = cb;
+}
+
+/**
+ * Run one PTY chunk past the interruption detector and forward any fault.
+ * Called from every `onData` handler that owns an agent terminal. Kept tiny and
+ * synchronous-but-cheap (regex only, no I/O) so it is safe on the hot path.
+ */
+function notePtyOutput(terminalId: string, data: string): void {
+  if (!onTerminalFaultCallback) return;
+  try {
+    const fault = scanChunk(terminalId, data);
+    if (fault) onTerminalFaultCallback(terminalId, fault);
+  } catch (e: unknown) {
+    // Detection is best-effort — it must never break terminal streaming.
+    log.debug('pty', `Fault scan failed for ${terminalId}: ${(e as Error).message}`);
+  }
 }
 
 // ---- Input Validation Helpers ----
@@ -79,10 +111,9 @@ function shellEscapeSingleQuote(str: string): string {
   return str.replace(/'/g, "'\\''");
 }
 
-function apiKeyEnvForCommand(command: string): 'OPENAI_API_KEY' | 'GEMINI_API_KEY' | 'ANTHROPIC_API_KEY' {
+function apiKeyEnvForCommand(command: string): 'OPENAI_API_KEY' | 'ANTHROPIC_API_KEY' {
   const trimmed = command.trim();
   if (/^(?:\S*\/)?codex\b/i.test(trimmed)) return 'OPENAI_API_KEY';
-  if (/^(?:\S*\/)?gemini\b/i.test(trimmed)) return 'GEMINI_API_KEY';
   return 'ANTHROPIC_API_KEY';
 }
 
@@ -375,8 +406,12 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
       let args: string[];
       let cwd: string;
       // Build environment — API keys go here instead of shell command strings.
-      // Remove CLAUDECODE so spawned Claude Code sessions don't think they're nested.
-      const { CLAUDECODE: _drop, ...parentEnv } = process.env as Record<string, string>;
+      // Strip the launching Claude Code session's markers so this PTY is a NEW
+      // top-level session: an inherited CLAUDE_CODE_CHILD_SESSION would make
+      // Claude Code disable transcript persistence, and every later --resume /
+      // --fork-session would fail with "No conversation found with session ID".
+      // See INHERITED_CLAUDE_SESSION_ENV_KEYS.
+      const parentEnv = stripInheritedClaudeSessionEnv(process.env);
       // Force Claude Code's classic renderer (no alt screen / mouse capture) so
       // xterm selection and the AI popup keep working — see CLAUDE_TUI_ENV_DEFAULTS.
       const env: Record<string, string> = withClaudeTuiEnvDefaults({
@@ -496,6 +531,11 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
         // Append to ring buffer for replay on (re)subscribe
         const chunk = Buffer.from(data);
         ringWrite(term, chunk);
+
+        // Watch for transient-failure banners (API 5xx / rate limit / network).
+        // This is the ONLY place they are observable — the hook stream carries
+        // no error payload, so a 529 and a clean finish both end in `waiting`.
+        notePtyOutput(terminalId, data);
 
         if (term.wsClient && term.wsClient.readyState === 1) {
           term.wsClient.send(JSON.stringify({
@@ -688,7 +728,7 @@ export function attachToTmuxPane(tmuxPaneId: string, wsClient: WebSocket | null)
       // First, resolve which tmux session this pane belongs to
       // Then attach to that session targeting the specific pane
       const shell = getDefaultShell();
-      const { CLAUDECODE: _dropTmux, ...tmuxParentEnv } = process.env as Record<string, string>;
+      const tmuxParentEnv = stripInheritedClaudeSessionEnv(process.env);
       const env: Record<string, string> = withClaudeTuiEnvDefaults({
         ...tmuxParentEnv,
         AGENT_MANAGER_TERMINAL_ID: terminalId,
@@ -720,6 +760,9 @@ export function attachToTmuxPane(tmuxPaneId: string, wsClient: WebSocket | null)
 
         const chunk = Buffer.from(data);
         ringWrite(term, chunk);
+
+        // A tmux pane is a team member's live agent — same fault watch as above.
+        notePtyOutput(terminalId, data);
 
         if (term.wsClient && term.wsClient.readyState === 1) {
           term.wsClient.send(JSON.stringify({
@@ -1090,6 +1133,9 @@ function broadcastToClient(terminalId: string, message: Record<string, unknown>)
 }
 
 function cleanup(terminalId: string): void {
+  // Terminal ids can be reused across a resume; a stale carry/dedupe entry
+  // would make the new terminal's first banner look like a redraw of the old.
+  clearFaultState(terminalId);
   const term = terminals.get(terminalId);
   if (term) {
     // #19: Dispose event listeners to prevent memory leaks

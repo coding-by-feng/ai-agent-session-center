@@ -13,7 +13,7 @@ import { homedir } from 'os';
 import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import log from './logger.js';
-import { getWaitingLabel, sanitizeModelInCommand } from './config.js';
+import { getWaitingLabel, sanitizeModelInCommand, extractModelFromCommand } from './config.js';
 import { isCloneForkTemplateTitle, buildAutoTitle } from './sessionTitle.js';
 import {
   EVENT_TYPES, SESSION_STATUS, ANIMATION_STATE, EMOTE, WS_TYPES,
@@ -22,7 +22,7 @@ import {
 // Sub-module imports
 import { matchSession, detectHookSource } from './sessionMatcher.js';
 import { startApprovalTimer, clearApprovalTimer, hasChildProcesses } from './approvalDetector.js';
-import { closeTerminal, registerTerminalExitCallback, getTerminalOutputBuffer, getTerminalOutputTail, getTerminals, getTerminalByPtyPid } from './sshManager.js';
+import { closeTerminal, registerTerminalExitCallback, registerTerminalFaultCallback, getTerminalOutputBuffer, getTerminalOutputTail, getTerminals, getTerminalByPtyPid } from './sshManager.js';
 import {
   findPendingSubagentMatch, handleTeamMemberEnd, addPendingSubagent,
   linkByParentSessionId,
@@ -449,7 +449,6 @@ function inferCliSource(command: string | undefined | null): string | undefined 
   if (!cmd) return undefined;
   if (/^(?:\S*\/)?claude(?:\s|$)/.test(cmd)) return 'claude';
   if (/^(?:\S*\/)?codex(?:\s|$)/.test(cmd)) return 'codex';
-  if (/^(?:\S*\/)?gemini(?:\s|$)/.test(cmd)) return 'gemini';
   return undefined;
 }
 
@@ -627,6 +626,22 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
     timestamp: Date.now(),
     detail: ''
   };
+
+  // Recovery signal for the auto-resume watchdog. These four events mean the
+  // CLI took a prompt and is doing work, which is the only proof that whatever
+  // the terminal printed earlier didn't actually kill the turn. `Stop` is NOT
+  // in this list: a 529 ends in `Stop` exactly like a clean finish, so clearing
+  // there would erase the fault before anything could act on it.
+  if (
+    session.interruption
+    && (hook_event_name === EVENT_TYPES.USER_PROMPT_SUBMIT
+      || hook_event_name === EVENT_TYPES.PRE_TOOL_USE
+      || hook_event_name === EVENT_TYPES.POST_TOOL_USE
+      || hook_event_name === EVENT_TYPES.SESSION_START)
+  ) {
+    log.debug('session', `Interruption cleared for ${session_id?.slice(0, 8)} by ${hook_event_name}`);
+    session.interruption = null;
+  }
 
   switch (hook_event_name) {
     case EVENT_TYPES.SESSION_START: {
@@ -1173,7 +1188,17 @@ export async function createTerminalSession(terminalId: string, config: Terminal
       s.status = SESSION_STATUS.IDLE;
       s.animationState = ANIMATION_STATE.IDLE;
       s.emote = null;
-      if (!command.startsWith('claude')) s.model = command;
+      // A hookless CLI never reports its model, so recover one from the launch
+      // command's `--model` flag — but NEVER stamp the command itself into
+      // `model`. That older shortcut left live Codex sessions with
+      // `model = "/opt/homebrew/…/bin/codex --dangerously-bypass-approvals-and-sandbox"`,
+      // which renders as a multi-line path in the card's model slot (overflowing
+      // the 230px rail), would come back as an unquoted `--model <whole command>`
+      // on fork/resume/clone, and is dropped by buildSnapshot's safe-charset
+      // filter — silently losing the user's pinned model on restore. It also
+      // clobbered a model the caller had just set, and its `startsWith('claude')`
+      // guard missed path-qualified launches like `/usr/local/bin/claude`.
+      if (!s.model) s.model = extractModelFromCommand(command);
       await broadcastAsync({ type: WS_TYPES.SESSION_UPDATE, session: { ...s } });
       log.info('session', `Auto-transitioned session ${terminalId} to idle after connecting timeout (${command})`);
     }
@@ -1744,6 +1769,31 @@ registerTerminalExitCallback((terminalId: string) => {
     log.info('session', `Terminal ${terminalId} exited — unlinked from session ${target.id.slice(0, 8)}`);
   }
   invalidateSessionsCache();
+});
+
+// A terminal printed a transient-failure banner. Attach it to whichever session
+// owns that terminal and broadcast, so the renderer's auto-resume watchdog can
+// decide what to do. Detection is edge-triggered upstream, so this runs once per
+// banner, not once per chunk.
+//
+// Deliberately does NOT touch `session.status`: the turn really has ended, and
+// re-labelling it would confuse the queue's own gates. The interruption is a
+// separate, additive fact about WHY it ended.
+registerTerminalFaultCallback((terminalId: string, fault) => {
+  for (const [id, session] of sessions) {
+    // Ops shells are bare login shells — they never run an agent turn.
+    if (session.terminalId !== terminalId) continue;
+    if (session.status === SESSION_STATUS.ENDED) continue;
+    session.interruption = {
+      kind: fault.kind,
+      line: fault.line,
+      detectedAt: Date.now(),
+    };
+    log.info('session', `INTERRUPTION ${fault.kind} on ${id.slice(0, 8)}: ${fault.line.slice(0, 80)}`);
+    invalidateSessionsCache();
+    void broadcastSessionUpdate(session);
+    return;
+  }
 });
 
 // ---- Start background monitors ----

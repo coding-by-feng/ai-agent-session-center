@@ -67,7 +67,7 @@ describe('applyClaudeLaunchFlags', () => {
   });
 
   it('leaves unsupported CLI commands untouched', () => {
-    expect(applyClaudeLaunchFlags('gemini', 'gpt-newest', 'ultracode')).toBe('gemini');
+    expect(applyClaudeLaunchFlags('aider', 'gpt-newest', 'ultracode')).toBe('aider');
   });
 
   it('returns the command unchanged when no model/effort given', () => {

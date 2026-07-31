@@ -173,6 +173,13 @@ export interface DbQueueAutomation {
    *  for back-compat: rows from before this field existed are read as `undefined`,
    *  which the loader maps to true (safe default). */
   skipWhenPrompting?: number;
+  /** 0 / 1 — auto-resume watchdog toggle. `undefined` on rows written before
+   *  the watchdog existed, which the loader maps to true (the default). */
+  autoResume?: number;
+  /** Resume attempts allowed per rolling window. `undefined` → default (3). */
+  resumeMaxRetries?: number;
+  /** Custom resume prompt; absent means the built-in wording. */
+  resumePrompt?: string;
   loopExcludeWindows?: string; // JSON ExcludeWindow[]
   updatedAt: number;
 }

@@ -21,7 +21,6 @@ import styles from '@/styles/modules/Settings.module.css';
 
 const CLI_TABS = [
   { id: 'claude', label: 'Claude' },
-  { id: 'gemini', label: 'Gemini' },
   { id: 'codex', label: 'Codex' },
 ] as const;
 

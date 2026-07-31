@@ -15,8 +15,8 @@
 // import this module at runtime) — keep the two in sync.
 // ---------------------------------------------------------------------------
 
-/** Default replay buffer size: 2 MB (~16× the old 128 KB). */
-export const DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES = 2 * 1024 * 1024;
+/** Default replay buffer size: 1 MB (~8× the old 128 KB). */
+export const DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES = 1 * 1024 * 1024;
 /** Lower clamp: 0.25 MB — below this, even a couple of screens won't fit. */
 export const MIN_TERMINAL_REPLAY_BUFFER_BYTES = 256 * 1024;
 /** Upper clamp: 32 MB per terminal — guards against a poisoned/typo setting. */
@@ -42,11 +42,12 @@ export function clampReplayBufferBytes(bytes: number): number {
 // cols × 12 bytes once written (Uint32Array, 3 uint32 per cell). At the former
 // hard-coded 100 000 lines a single busy terminal could hold well over 100 MB
 // in the renderer, with no way to reclaim it short of closing the terminal.
-// 20 000 lines is still far deeper than the replay buffer can restore.
+// 5 000 lines is still deeper than the replay buffer can restore, and users who
+// want more can raise it up to the 200 000 clamp.
 // ---------------------------------------------------------------------------
 
-/** Default xterm scrollback: 20 000 lines. */
-export const DEFAULT_TERMINAL_SCROLLBACK_LINES = 20_000;
+/** Default xterm scrollback: 5 000 lines. */
+export const DEFAULT_TERMINAL_SCROLLBACK_LINES = 5_000;
 /** Lower clamp: 1 000 lines — below this, scroll-up stops being useful. */
 export const MIN_TERMINAL_SCROLLBACK_LINES = 1_000;
 /** Upper clamp: 200 000 lines — the previous default was 100 000. */

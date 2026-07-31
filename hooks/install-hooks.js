@@ -45,13 +45,23 @@ if (densityArgIdx >= 0 && process.argv[densityArgIdx + 1]) {
   }
 }
 
-// Parse --clis flag (e.g., --clis claude,gemini,codex)
+// Parse --clis flag (e.g., --clis claude,codex)
 const clisArgIdx = process.argv.indexOf('--clis');
 if (clisArgIdx >= 0 && process.argv[clisArgIdx + 1]) {
   enabledClis = process.argv[clisArgIdx + 1].split(',').map(s => s.trim().toLowerCase());
 }
 
 const uninstallMode = process.argv.includes('--uninstall');
+
+// `--only <cli,cli>` scopes an uninstall to specific CLIs. Without it an
+// uninstall removes EVERY dashboard hook, including the Claude ones the
+// dashboard itself depends on — so retiring one CLI would take the live
+// integration down with it.
+let uninstallOnly = null;
+const onlyArgIdx = process.argv.indexOf('--only');
+if (onlyArgIdx >= 0 && process.argv[onlyArgIdx + 1]) {
+  uninstallOnly = process.argv[onlyArgIdx + 1].split(',').map((s) => s.trim().toLowerCase());
+}
 const quietMode = process.argv.includes('--quiet');
 
 // ── Banner ──
@@ -67,6 +77,7 @@ installHooks({
   enabledClis,
   projectRoot: PROJECT_ROOT,
   uninstall: uninstallMode,
+  uninstallOnly,
   onLog: (line) => console.log(`  ${DIM}\u2192${RESET} ${line}`),
 }).then((result) => {
   if (result.success) {

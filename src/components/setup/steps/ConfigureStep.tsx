@@ -29,7 +29,6 @@ const passwordSchema = z.string()
 
 const formSchema = z.object({
   port: z.number({ error: 'Must be a number' }).int().min(1, 'Min 1').max(65535, 'Max 65535'),
-  enableGemini: z.boolean(),
   enableCodex: z.boolean(),
   hookDensity: z.enum(['high', 'medium', 'low']),
   sessionHistoryHours: z.number(),
@@ -66,7 +65,6 @@ export default function ConfigureStep({ config, setConfig, onNext }: StepProps) 
     resolver: zodResolver(formSchema),
     defaultValues: {
       port: config.port,
-      enableGemini: config.enabledClis.includes('gemini'),
       enableCodex: config.enabledClis.includes('codex'),
       hookDensity: config.hookDensity,
       sessionHistoryHours: config.sessionHistoryHours,
@@ -81,7 +79,6 @@ export default function ConfigureStep({ config, setConfig, onNext }: StepProps) 
 
   const onSubmit = async (data: FormValues) => {
     const clis: SetupConfig['enabledClis'] = ['claude']
-    if (data.enableGemini) clis.push('gemini')
     if (data.enableCodex) clis.push('codex')
 
     const cfg: SetupConfig = {
@@ -118,10 +115,6 @@ export default function ConfigureStep({ config, setConfig, onNext }: StepProps) 
             <label className={`${styles.checkbox} ${styles.disabled}`}>
               <input type="checkbox" checked disabled />
               Claude Code
-            </label>
-            <label className={styles.checkbox}>
-              <input type="checkbox" {...register('enableGemini')} />
-              Gemini CLI
             </label>
             <label className={styles.checkbox}>
               <input type="checkbox" {...register('enableCodex')} />
