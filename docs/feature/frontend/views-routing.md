@@ -91,7 +91,7 @@ Opened when `uiStore.activeModal === 'global-search'` (bound to Cmd/Ctrl+Shift+F
 
 ### Bundle splitting
 
-Eagerly-parsed JS at boot is **1,228,804 bytes**, down from 2,523,500 — measured by walking the entry chunk's static import graph in `dist/client/`. The entry chunk has **zero** static chunk imports; everything else is reached through a `lazy()` boundary.
+Eagerly-parsed JS at boot is **1,244,984 bytes**, down from 2,523,500 — measured by walking the entry chunk's static import graph in `dist/client/`. The entry chunk has **zero** static chunk imports; everything else is reached through a `lazy()` boundary.
 
 `vite.config.ts` deliberately sets **no `manualChunks`**. Grouping vendors by name (`{ three: ['three', '@react-three/fiber'] }`) only renames bytes, and it backfires: Rollup assigns a package's shared dependencies to the same manual chunk, so `@react-three/fiber`'s copy of `zustand` landed in the `three` chunk and every eagerly-loaded store then statically imported it — dragging ~1.2 MB of Three.js into the boot path.
 

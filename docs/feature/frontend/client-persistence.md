@@ -14,6 +14,7 @@ Enables offline access to session history, survives page reloads, and stores use
 ## Implementation
 - Database name: `claude-dashboard`, current schema **version 7** (`db.ts` declares `this.version(2..7).stores({...})`; older installs upgrade transparently through each version).
 - **16 tables**: `sessions` (key: id), `prompts` (++id), `responses` (++id), `toolCalls` (++id), `events` (++id), `notes` (++id), `promptQueue` (++id), `alerts` (++id), `sshProfiles` (++id), `settings` (key: key), `summaryPrompts` (++id), `teams` (key: id), `queueAutomation` (key: sessionId — added v4), `queueHistory` (++id — added v5), `promptSnippets` (++id — added v7), `translationLogs` (++id — added v3).
+- **`notes` is declared but dead** — nothing reads or writes it. Session notes live in server SQLite (`/api/db/sessions/:id/notes`, cached in [`notesStore`](../../../src/stores/notesStore.ts)) so they are shared across every client viewing a session; writing to the Dexie table would create a second, per-browser set of notes nobody displays.
 - Compound indexes for dedup: `[sessionId+timestamp]` on prompts, responses, toolCalls, events.
 - Additional indexes: `sessions` has 5 (status, projectPath, startedAt, lastActivityAt, archived); `toolCalls` has `toolName` for analytics; `promptQueue` has `[sessionId+position]`; `summaryPrompts` has `isDefault`; `queueHistory` has `createdAt, lastUsedAt`; `promptSnippets` has `createdAt, lastUsedAt, useCount`.
 - **DbSession** schema: 20 fields (id, projectPath, projectName, title, status, model, source, startedAt, lastActivityAt, endedAt, totalToolCalls, totalPrompts, archived, summary, characterModel, accentColor, teamId, teamRole, terminalId, queueCount). Note: `totalPrompts` is derived from `promptHistory.length` at persist time.
@@ -42,7 +43,7 @@ The `queueAutomation` and `queueHistory` tables are written/read directly by the
 ### Depended On By
 - [State Management](./state-management.md) — settingsStore reads from Dexie on init
 - [Views & Routing](./views-routing.md) — HistoryView reads from IndexedDB
-- [Session Detail Panel](./session-detail-panel.md) — notes, prompts, summaryPrompts from IndexedDB
+- [Session Detail Panel](./session-detail-panel.md) — prompts, summaryPrompts from IndexedDB. **Not notes**: the NOTES tab reads server SQLite via `/api/db/sessions/:id/notes` (cached in `notesStore`); the Dexie `notes` table has no reader or writer.
 - [Conversation View](./conversation-view.md) — reconstructs transcripts from persisted prompts/responses/events
 - [Queue Scheduler](./queue-scheduler.md) — reads/writes `promptQueue`, `queueAutomation`, `queueHistory`
 - [Saved Prompts](./saved-prompts.md) — reads/writes `promptSnippets`

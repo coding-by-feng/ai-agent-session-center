@@ -17,7 +17,7 @@ Server-side persistence that survives restarts. IndexedDB on frontend is the mir
 - Location: `data/sessions.db` (or `APP_USER_DATA/data/sessions.db` in packaged Electron, where `APP_USER_DATA = app.getPath('userData')`), WAL mode for concurrent reads/writes
 
 ### Schema
-- 7 tables: sessions (20 cols, 4 indexes), prompts (unique session_id+timestamp), responses (unique session_id+timestamp), tool_calls (unique session_id+timestamp+tool_name, additional tool_name index), events, notes, agenda_tasks (priority + completed indexes)
+- 8 tables: sessions (20 cols, 4 indexes), prompts (unique session_id+timestamp), responses (unique session_id+timestamp), tool_calls (unique session_id+timestamp+tool_name, additional tool_name index), events, notes, note_media (session_id + created_at indexes; metadata only — see Note media below), agenda_tasks (priority + completed indexes)
 - The `remark` column on `sessions` holds the user's hand-written progress note for a session
   (added by migration, nullable, no default — an existing row simply has no remark). Written by
   `updateSessionRemark(id, remark)` (empty string stored as `NULL`) and by `upsertSession`, which
@@ -74,7 +74,14 @@ Server-side persistence that survives restarts. IndexedDB on frontend is the mir
 ### Notes CRUD
 - getNotes(sessionId) — notes for a session (newest first)
 - addNote(sessionId, text) — insert a note, returns the new row
+- updateNote(id, text) — update text + `updated_at`, returns the row or null if the id is unknown
 - deleteNote(id) — remove a single note by row id
+
+### Note media
+`note_media` holds **metadata only** — id (128-bit hex, server-generated), session_id, name, mime, ext, bytes, created_at. The bytes live at `<data dir>/note-media/<id>.<ext>`, managed by [`server/noteMedia.ts`](../../../server/noteMedia.ts). Keeping a 40 MB screen recording out of a TEXT row is the whole point: a note's text stores only `/api/note-media/<id>`.
+- addNoteMedia(row) / getNoteMedia(id) / getNoteMediaBySession(sessionId) / deleteNoteMediaRow(id)
+- getNoteMediaOlderThan(cutoff) + isNoteMediaReferenced(id) — the pair backing the hourly orphan sweep. `isNoteMediaReferenced` does a `LIKE` over **all** notes, not just the owning session's: note text is copy-pasteable between sessions, and deleting media that is still displayed somewhere is worse than retaining a few stale bytes.
+- `deleteSessionCascade` does **not** touch `note_media` — the API route calls `deleteNoteMediaForSession` first, since the cascade removes the very notes the reference check depends on.
 
 ### Additional Exports
 - closeDb() — graceful shutdown

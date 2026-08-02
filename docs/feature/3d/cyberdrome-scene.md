@@ -17,7 +17,7 @@ Visual representation of all active AI sessions. Users can see at a glance which
 | `src/components/3d/RobotListSidebar.tsx` | DOM agent list panel (top-left), grouped by room, sorted pinned-then-status, searchable, per-row pin + close |
 | `src/lib/cyberdromeScene.ts` | Workstation placement, wall/door geometry, collision helpers (currently fed an empty rect list), pathfinding. Imports Three.js; re-exports everything from `roomGrid.ts` |
 | `src/lib/roomGrid.ts` | Pure room-grid math — layout constants, `computeRoomCenter()`, `computeRoomCameraTarget()`. **Zero imports** so 2D consumers avoid Three.js |
-| `src/lib/sceneThemes.ts` | 9 theme palettes for 3D scene (36 `Scene3DTheme` properties each) |
+| `src/lib/sceneThemes.ts` | 10 theme palettes for 3D scene (36 `Scene3DTheme` properties each) |
 | `src/lib/robotPositionPersist.ts` | sessionStorage persistence of robot positions (`saveRobotPositions` / `loadRobotPositions`) |
 | `src/lib/sessionSort.ts` | `sortSessions` + `STATUS_ORDER` — shared sidebar ordering (pinned first, then status, then title) |
 | `src/lib/sessionDisplayTitle.ts` | `sessionDisplayTitle(session)` — the single source of a card's display name (`title \|\| projectName \|\| 'Unnamed'`). Zero imports, so it is safe for both 2D and 3D callers |
@@ -108,7 +108,11 @@ Imperative update of `scene.fog` color/density and `gl.clearColor` on theme chan
 - Coffee lounge label: "COFFEE LOUNGE" in orange (`#ff9944`), fontSize 0.8
 
 ### Scene Themes
-9 theme palettes with 36 color/density/lighting properties each (command-center, cyberpunk, warm, dracula, solarized, nord, monokai, light, blonde).
+10 theme palettes with 36 color/density/lighting properties each (command-center, cyberpunk, warm, dracula, solarized, nord, monokai, light, blonde, windows-xp).
+
+`SCENE_THEMES` is typed `Record<ThemeName, Scene3DTheme>`, so adding a name to `ThemeName` without a palette here is a compile error — the one registration point a new theme cannot silently skip.
+
+`windows-xp` renders the XP "Bliss" wallpaper (blue sky `#4a90d9`, green hills, ButtonFace-tan furniture). Its base colours are set deliberately *darker* than the intended result: the light-theme lighting stack (ambient + directional + fill + hemisphere) multiplies them up, and reusing the `light` theme's intensities (ambient 9 / dir 5 / fill 3 / hemi 5) on already-bright greens blew the floor out to pale lime and flattened all furniture detail. It runs a dimmer rig (ambient 4 / dir 3 / fill 1.5 / hemi 2.5) instead. Re-tuning a light theme's colours without re-checking its intensities reproduces the wash-out.
 
 ### Session Filtering
 Sessions are rendered as robots only when `status !== 'ended'` AND `source === 'ssh'` AND they are NOT floating popups (`!session.isFloating`). This keeps the scene to terminal-launched sessions; Explain/Translate floating popups have their own PiP UI and are excluded here (and likewise from `RobotListSidebar`). Clone/fork sessions set `isFork` without `isFloating` and DO get robots/rows.

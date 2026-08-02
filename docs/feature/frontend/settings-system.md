@@ -1,7 +1,7 @@
 # Settings System
 
 ## Function
-Comprehensive user preferences management with a 7-tab settings panel, theme system (9 themes), per-CLI sound profiles (3 CLIs), API-key storage, voice (TTS) configuration, select-to-translate options, rebindable shortcuts, and persistent client-side storage.
+Comprehensive user preferences management with a 7-tab settings panel, theme system (10 themes), per-CLI sound profiles (3 CLIs), API-key storage, voice (TTS) configuration, select-to-translate options, rebindable shortcuts, and persistent client-side storage.
 
 ## Purpose
 Lets users customize every aspect of the dashboard: appearance, sounds/voice, hooks, API keys, translation/explain, keyboard shortcuts, and advanced import/export/reset.
@@ -10,7 +10,8 @@ Lets users customize every aspect of the dashboard: appearance, sounds/voice, ho
 | File | Role |
 |------|------|
 | `src/components/settings/SettingsPanel.tsx` | Modal with 7 tabs (`appearance`, `sound`, `hooks`, `apikeys`, `translation`, `shortcuts`, `advanced`); export/import JSON; embeds `AdvancedSettings` sub-tab (Terminal scrollback buffer + Import/Export + Reset) and the `TerminalBufferControl` sub-component. Also exports `SettingsButton` (header gear). |
-| `src/components/settings/ThemeSettings.tsx` | Theme swatch grid (9 themes), 3D character-model picker (6 models with inline SVG icons), font size (10–20px), scanline toggle, animation intensity (0–200%) and speed (30–200%) |
+| `src/components/settings/ThemeSettings.tsx` | Theme swatch grid (10 themes), 3D character-model picker (6 models with inline SVG icons), font size (10–20px), scanline toggle, animation intensity (0–200%) and speed (30–200%) |
+| `src/styles/themes/windows-xp.css` | Windows XP (Luna) palette **plus** theme-scoped chrome no other theme carries: XP form fields, 12px bevelled scrollbars, `#316ac5` selection, and the app-wide Tahoma swap (see "Windows XP theme" below) |
 | `src/components/settings/SoundSettings.tsx` | Master sound toggle/volume; **Voice (TTS)** block (per-user Google TTS API key field + show/hide, enable toggle, speaking-rate 0.5–2.0, EN/中文 voice pickers, Preview voice, Test API key); per-CLI sound profiles (Claude/Codex tabs, enable/volume + per-action sound dropdowns with preview); ambient/white-noise presets + room sounds; Notifications (toasts) |
 | `src/components/settings/HookSettings.tsx` | Hook density (high/medium/low) + Install/Re-install/Uninstall, aggregate + per-CLI status (with legacy-notify warning), auto-send queue toggle, default terminal theme |
 | `src/components/settings/ApiKeySettings.tsx` | API-key fields for Anthropic / OpenAI, each with show/hide + Save. Provider type for these fields is `'anthropic' \| 'openai'` (Google TTS key is configured on the Sound tab, not here) |
@@ -23,8 +24,19 @@ Lets users customize every aspect of the dashboard: appearance, sounds/voice, ho
 ## Implementation
 
 ### Theme & appearance (`ThemeSettings`, store side effects)
-- 9 themes (`THEMES` array): `command-center` (default), `cyberpunk`, `warm`, `dracula`, `solarized`, `nord`, `monokai`, `light`, `blonde`. Each theme carries a 3-color swatch for the picker.
+- 10 themes (`THEMES` array): `command-center`, `cyberpunk`, `warm`, `dracula`, `solarized`, `nord`, `monokai`, `light`, `blonde`, `windows-xp` (**default**). Each theme carries a 3-color swatch for the picker.
+- The default is **light**, which makes first-paint colour load-bearing: `base.css` `:root` is the dark `command-center` palette and `applyTheme` only runs after Dexie resolves, so three places outside the theme system must agree with `defaultSettings.themeName` or every launch flashes dark — `index.html`'s `<body data-theme>` + `theme-color` meta, and the three `BrowserWindow` `backgroundColor`s in `electron/main.ts` (painted before any web content, and unable to read a CSS variable). `App.tsx`'s pre-mount "Connecting…"/"Loading…" screens read `var(--bg-primary)`/`var(--text-secondary)` instead of hardcoded navy, so they follow whichever theme is active.
 - Theme application: `applyTheme` sets `data-theme` on `document.body` (removed entirely for `command-center`); CSS custom properties live in `src/styles/themes/*.css`.
+- Adding a theme means touching **five** places, not one: the `ThemeName` union + `THEMES` array (`settingsStore.ts`), a CSS file imported from **both** `src/styles/global.css` and `src/main.tsx`, a `Scene3DTheme` entry in `sceneThemes.ts` (`SCENE_THEMES` is `Record<ThemeName, …>`, so TypeScript catches a miss here), and — for light themes — the scanline-softening group in `light-overrides.css`. An xterm palette in `components/terminal/themes.ts` is optional (the terminal's `auto` mode derives one from the CSS variables).
+- A theme that omits a variable silently inherits the dark-navy `:root` default from `base.css` rather than failing, so a new theme must define the full palette set. All 10 currently do.
+
+#### Windows XP theme (`windows-xp`)
+The only theme that changes more than colors, so it is also the only one with rules beyond a variable block:
+- **Palette** — Luna: `#ece9d8` ButtonFace surfaces, `#0a5fd6` accent, `#316ac5` selection, near-black text. Accent greens/reds are darkened from the real Luna values to stay legible on tan.
+- **Font** — sets `--font-mono` to a Tahoma stack, then applies it via `body[data-theme="windows-xp"] *:not(.xterm, .xterm *) { font-family: var(--font-mono) !important }`. The `!important` is load-bearing: ~27 CSS-module rules hardcode `'JetBrains Mono'`, and `SceneOverlay`/`RobotListSidebar`/`LiveView` set `'Share Tech Mono'` as **inline** JSX styles, which nothing else can outrank. Module classes are hashed, so they can't be targeted individually from a stylesheet.
+- **Escape hatch** — because the rule forces the *variable* rather than a literal font, any subtree that needs a different family redefines `--font-mono` on itself and the rule resolves to that. `pre`/`code`/`kbd`/`samp` do this (monospace), as does `TexViewer`'s `.paper`/`.katex` (serif). The `:not()` excludes the xterm subtree outright so xterm.js keeps the exact stack it measures glyphs with — a mismatch between measured and rendered font misaligns terminal columns.
+- **Chrome** — XP form fields (`#7f9db9` sunken border, square corners), 12px bevelled scrollbars (`body[data-theme] ::-webkit-scrollbar` at (0,1,2) outranks the modules' own 3–8px rules), and an XP-blue `select` chevron replacing the dark-theme one baked into `base.css`.
+- All of it is scoped under `body[data-theme="windows-xp"]`, so no other theme can be affected.
 - 6 robot models (`ROBOT_MODEL_TYPES`): `robot` (default), `mech`, `drone`, `spider`, `orb`, `tank` — each rendered with an inline SVG `ModelIcon`.
 - Font size 10–20px → `applyFontSize` sets `document.documentElement.style.fontSize`.
 - Scanline → `applyScanline` toggles the `no-scanlines` class on `document.body`.

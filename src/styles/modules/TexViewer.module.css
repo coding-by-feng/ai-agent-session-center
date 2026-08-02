@@ -21,7 +21,11 @@
   padding: 48px 64px;
   border-radius: 4px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-  font-family: 'Latin Modern Roman', 'Computer Modern', Georgia, serif;
+  /* The Windows XP theme routes every element through var(--font-mono) with
+     !important (themes/windows-xp.css), so declaring the serif here isn't
+     enough — redefine the variable on the subtree and it resolves to this. */
+  --font-mono: 'Latin Modern Roman', 'Computer Modern', Georgia, serif;
+  font-family: var(--font-mono);
   line-height: 1.55;
   min-height: calc(100% - 32px);
 }
@@ -154,7 +158,9 @@
 }
 
 .paper :global(.katex) {
-  font-family: 'Latin Modern Math', 'Cambria Math', serif;
+  /* Same reason as .paper above — see themes/windows-xp.css */
+  --font-mono: 'Latin Modern Math', 'Cambria Math', serif;
+  font-family: var(--font-mono);
 }
 
 .status {

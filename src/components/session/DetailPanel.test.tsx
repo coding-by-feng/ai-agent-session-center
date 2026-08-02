@@ -203,13 +203,15 @@ describe('DetailPanel', () => {
     expect(useSessionStore.getState().selectedSessionId).toBe('sess-1');
   });
 
-  it('passes notes tab with session ID', () => {
+  // NotesTab is lazy() — it resolves a tick after mount, so this must await
+  // rather than assert synchronously.
+  it('passes notes tab with session ID', async () => {
     const session = makeSession();
     useSessionStore.setState({
       sessions: new Map([['sess-1', session]]),
       selectedSessionId: 'sess-1',
     });
     render(<DetailPanel />);
-    expect(screen.getByText('Notes for sess-1')).toBeInTheDocument();
+    expect(await screen.findByText('Notes for sess-1')).toBeInTheDocument();
   });
 });

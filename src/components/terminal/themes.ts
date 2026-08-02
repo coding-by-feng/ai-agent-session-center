@@ -58,6 +58,16 @@ export const THEMES: Record<string, ITheme> = {
     brightYellow: '#ebcb8b', brightBlue: '#81a1c1', brightMagenta: '#b48ead',
     brightCyan: '#8fbcbb', brightWhite: '#eceff4',
   },
+  // The XP-era cmd.exe palette: silver-on-black with the classic 16 console colors.
+  'windows-xp': {
+    background: '#000000', foreground: '#c0c0c0', cursor: '#c0c0c0', cursorAccent: '#000000',
+    selectionBackground: 'rgba(49,106,197,0.45)', selectionForeground: '#ffffff',
+    black: '#000000', red: '#800000', green: '#008000', yellow: '#808000',
+    blue: '#000080', magenta: '#800080', cyan: '#008080', white: '#c0c0c0',
+    brightBlack: '#808080', brightRed: '#ff0000', brightGreen: '#00ff00',
+    brightYellow: '#ffff00', brightBlue: '#0000ff', brightMagenta: '#ff00ff',
+    brightCyan: '#00ffff', brightWhite: '#ffffff',
+  },
   'github-dark': {
     background: '#0d1117', foreground: '#c9d1d9', cursor: '#c9d1d9', cursorAccent: '#0d1117',
     selectionBackground: 'rgba(56,139,253,0.25)', selectionForeground: '#ffffff',

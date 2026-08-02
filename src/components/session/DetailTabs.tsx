@@ -11,6 +11,8 @@ import styles from '@/styles/modules/DetailPanel.module.css';
 import Tooltip from '@/components/ui/Tooltip';
 import { tooltips } from '@/lib/tooltips';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useNotesStore } from '@/stores/notesStore';
+import { useQueueStore } from '@/stores/queueStore';
 
 const STORAGE_KEY = 'active-tab';
 const SPLIT_KEY = 'split-terminal-project';
@@ -55,6 +57,12 @@ const BASE_TABS = [
   { id: 'notes', label: 'NOTES' },
   { id: 'queue', label: 'QUEUE' },
 ] as const;
+
+/** Hover/screen-reader text for a tab's count badge (the digit alone is mute). */
+function countTitle(tabId: string, count: number): string {
+  const noun = tabId === 'notes' ? 'note' : 'queued prompt';
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
 
 // ---------------------------------------------------------------------------
 // Split / merge SVG icons (inline to avoid extra asset files)
@@ -349,6 +357,20 @@ export default function DetailTabs({
   const projectPath = useSessionStore((s) =>
     sessionId ? s.sessions.get(sessionId)?.projectPath : undefined);
 
+  // Counts badged onto the NOTES / QUEUE tabs. Both read client stores so the
+  // number is live while the tab itself is unmounted — `session.queueCount` is
+  // never synced to the client (the update_queue_count WS message is unused).
+  const notesCount = useNotesStore((s) =>
+    sessionId ? s.notes.get(sessionId)?.length ?? 0 : 0);
+  const queueCount = useQueueStore((s) =>
+    sessionId ? s.queues.get(sessionId)?.length ?? 0 : 0);
+
+  // NOTES mounts on demand, so the tab bar warms the notes cache itself —
+  // otherwise the badge would read 0 until the tab was opened at least once.
+  useEffect(() => {
+    if (sessionId) void useNotesStore.getState().loadNotes(sessionId);
+  }, [sessionId]);
+
   // Restore per-session split state when switching sessions.
   // If the session has no stored preference, default to off so the previous
   // session's state doesn't leak.
@@ -522,6 +544,7 @@ export default function DetailTabs({
           const isActive = combinedTermProj
             ? activeTab === 'terminal' || activeTab === 'project'
             : activeTab === tab.id;
+          const count = tab.id === 'notes' ? notesCount : tab.id === 'queue' ? queueCount : 0;
 
           return (
             <button
@@ -533,6 +556,16 @@ export default function DetailTabs({
               data-tab={tab.id}
             >
               {tab.label}
+              {/* Count badge — hidden entirely at 0 so an empty tab shows no chip */}
+              {count > 0 && (
+                <span
+                  className={styles.tabCount}
+                  title={countTitle(tab.id, count)}
+                  aria-label={countTitle(tab.id, count)}
+                >
+                  {count > 99 ? '99+' : count}
+                </span>
+              )}
               {/* Show merge/split + float toggle icons on PROJECT tab (wide screens only) */}
               {tab.id === 'project' && panelWideEnough && (
                 <>

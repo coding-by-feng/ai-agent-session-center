@@ -1,0 +1,169 @@
+/* Theme: Windows XP (Luna Blue)
+ *
+ * Palette is the authentic Luna system set: the #ece9d8 "ButtonFace" tan for
+ * surfaces, #0a5fd6 Luna blue for accents, #316ac5 for selection. Unlike the
+ * other nine themes this one also swaps --font-mono for Tahoma (XP's UI font),
+ * which is the single biggest part of the look — see the mono restore below.
+ */
+
+/* XP highlight blue with white text — the classic Explorer selection. */
+body[data-theme="windows-xp"] ::selection,
+body[data-theme="windows-xp"] *::selection {
+  background: #316ac5;
+  color: #ffffff;
+}
+
+body[data-theme="windows-xp"] {
+  color-scheme: light;
+
+  /* Surfaces: tan 3D face + white client areas */
+  --bg-primary: #ece9d8;
+  --bg-card: #ffffff;
+  --bg-card-hover: #eff5fd;
+  --bg-panel: #f6f5ee;
+  --bg-header: #f4f2e6;
+
+  /* Borders: XP window edges (#aca899 shadow, Luna blue accent) */
+  --border-glow: #0a5fd6;
+  --border-subtle: rgba(0, 0, 0, 0.1);
+  --border-faint: rgba(0, 0, 0, 0.05);
+  --border-subtle-strong: rgba(0, 0, 0, 0.18);
+  --border-accent: rgba(10, 95, 214, 0.35);
+  --border-accent-strong: rgba(10, 95, 214, 0.6);
+
+  /* Fills */
+  --bg-accent: rgba(49, 106, 197, 0.12);
+  --bg-accent-strong: rgba(49, 106, 197, 0.22);
+  --bg-subtle: rgba(0, 0, 0, 0.04);
+  --bg-subtle-strong: rgba(0, 0, 0, 0.08);
+
+  /* XP has no neon: keep "glow" as a soft drop shadow, not a halo */
+  --glow-accent: rgba(10, 95, 214, 0.12);
+  --glow-accent-strong: rgba(10, 95, 214, 0.22);
+
+  /* Bevel highlight — the raised-edge white on every XP control */
+  --inset-highlight: rgba(255, 255, 255, 0.95);
+  --inset-highlight-faint: rgba(255, 255, 255, 0.6);
+
+  /* Accents: Luna system colours, darkened where needed to stay legible on tan */
+  --accent-cyan: #0a5fd6;
+  --accent-orange: #d95d0e;
+  --accent-green: #2e7d27;
+  --accent-red: #c62b1e;
+  --accent-purple: #6d3fa0;
+  --accent-yellow: #a8760a;
+
+  /* Text */
+  --text-primary: #14161a;
+  --text-secondary: #4a4a44;
+  --text-dim: #7c7969;
+
+  /* 3D robots wear the tan chassis */
+  --robot-body: #d8d4c2;
+  --robot-body-dark: #bfbaa6;
+  --robot-border: rgba(0, 0, 0, 0.12);
+
+  --mute-bg: rgba(236, 233, 216, 0.85);
+  --overlay-bg: rgba(0, 0, 0, 0.35);
+  --selection-text: #ffffff;
+
+  /* XP's UI font. Every `var(--font-mono)` consumer inherits this. */
+  --font-mono: Tahoma, 'Segoe UI', 'Trebuchet MS', Verdana, sans-serif;
+}
+
+/* Route every text surface through --font-mono.
+ *
+ * This has to be universal + !important: ~27 module rules hardcode
+ * `'JetBrains Mono', monospace`, and SceneOverlay/RobotListSidebar/LiveView set
+ * `'Share Tech Mono'` as *inline* JSX styles, which nothing but !important can
+ * outrank. Targeting those module classes directly isn't an option either —
+ * CSS Modules hashes them, so they're unreachable from a plain stylesheet.
+ *
+ * It's safe because it forces the *variable*, not a literal font: subtrees that
+ * genuinely need a different family redefine --font-mono on themselves (custom
+ * properties inherit), and this rule then resolves to that value inside them.
+ * The `:not()` keeps the xterm subtree out entirely so xterm.js keeps the exact
+ * stack it measures glyphs with — see fontFamily in src/hooks/useTerminal.ts.
+ * Scoped to this one theme, so no other theme can be affected. */
+body[data-theme="windows-xp"] *:not(.xterm, .xterm *) {
+  font-family: var(--font-mono) !important;
+}
+
+/* Code stays monospace. Redefining the variable (rather than font-family) is
+ * what makes the rule above resolve to mono inside these subtrees. */
+body[data-theme="windows-xp"] pre,
+body[data-theme="windows-xp"] code,
+body[data-theme="windows-xp"] kbd,
+body[data-theme="windows-xp"] samp {
+  --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, 'Lucida Console', monospace;
+}
+
+/* ---- XP form fields: white, square, sunken #7f9db9 border ---- */
+
+body[data-theme="windows-xp"] input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+body[data-theme="windows-xp"] textarea,
+body[data-theme="windows-xp"] select {
+  background: #ffffff;
+  border: 1px solid #7f9db9;
+  border-radius: 0;
+  color: var(--text-primary);
+  box-shadow: none;
+}
+
+body[data-theme="windows-xp"] input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):focus,
+body[data-theme="windows-xp"] textarea:focus,
+body[data-theme="windows-xp"] select:focus {
+  border-color: #0a5fd6;
+  box-shadow: inset 0 0 0 1px rgba(10, 95, 214, 0.35);
+}
+
+/* base.css paints the select chevron in the dark theme's #8888aa */
+body[data-theme="windows-xp"] select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23314a67'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 10px 6px;
+}
+
+body[data-theme="windows-xp"] select:hover {
+  border-color: #0a5fd6;
+}
+
+/* ---- XP scrollbars: chunky, bevelled, ButtonFace grey ----
+ * Modules style their own scrollbars at 3-8px; 12px keeps the XP heft without
+ * swallowing narrow dropdowns. `body[data-theme] ::-webkit-scrollbar` (0,1,2)
+ * outranks a module's `.foo::-webkit-scrollbar` (0,1,1). */
+
+body[data-theme="windows-xp"] ::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+body[data-theme="windows-xp"] ::-webkit-scrollbar-track {
+  background: #f1efe2;
+  border-radius: 0;
+}
+
+body[data-theme="windows-xp"] ::-webkit-scrollbar-thumb {
+  background: #d6d2c4;
+  border: 1px solid #aca899;
+  border-radius: 0;
+  box-shadow:
+    inset 1px 1px 0 #ffffff,
+    inset -1px -1px 0 #9d9989;
+}
+
+body[data-theme="windows-xp"] ::-webkit-scrollbar-thumb:hover {
+  background: #e2ded0;
+}
+
+body[data-theme="windows-xp"] ::-webkit-scrollbar-thumb:active {
+  background: #c4c0b2;
+  box-shadow:
+    inset 1px 1px 0 #9d9989,
+    inset -1px -1px 0 #ffffff;
+}
+
+body[data-theme="windows-xp"] ::-webkit-scrollbar-corner {
+  background: #f1efe2;
+}

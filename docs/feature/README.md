@@ -46,7 +46,7 @@ Feature documentation organized by domain. Each doc describes function, purpose,
 | [Session Creation Modals](frontend/session-creation-modals.md) | Entry points for launching sessions — NewSessionModal (local-only) + WorkdirLauncher + QuickSessionModal | `src/components/modals/NewSessionModal.tsx`, `src/components/modals/QuickSessionModal.tsx`, `src/components/layout/WorkdirLauncher.tsx` |
 | [Session Detail Panel](frontend/session-detail-panel.md) | Slide-in panel with 7 tabs, session switcher, control bar, and split/floating PROJECT modes | `src/components/session/DetailPanel.tsx`, `src/components/session/DetailTabs.tsx`, `src/components/session/SessionControlBar.tsx` |
 | [Session Summary](frontend/summary-tab.md) | AI-generated single-paragraph session summaries: read-only Summary tab + Summarize modal + prompt settings | `src/components/session/SummaryTab.tsx`, `src/components/session/SummarizeModal.tsx`, `src/components/settings/SummaryPromptSettings.tsx` |
-| [Settings System](frontend/settings-system.md) | 7-tab settings panel, theme system (9 themes), per-CLI sound profiles, API-key storage, voice/summary prefs | `src/components/settings/SettingsPanel.tsx`, `src/components/settings/ThemeSettings.tsx`, `src/components/settings/SoundSettings.tsx` |
+| [Settings System](frontend/settings-system.md) | 7-tab settings panel, theme system (10 themes), per-CLI sound profiles, API-key storage, voice/summary prefs | `src/components/settings/SettingsPanel.tsx`, `src/components/settings/ThemeSettings.tsx`, `src/components/settings/SoundSettings.tsx` |
 | [Setup Wizard](frontend/setup-wizard.md) | First-run onboarding (deps, config, hook install) over `data/server-config.json` | `src/components/setup/SetupWizard.tsx`, `src/components/setup/steps/WelcomeStep.tsx`, `src/components/setup/steps/DepsCheckStep.tsx` |
 | [Shared UI Primitives](frontend/ui-primitives.md) | Reusable React building blocks: Modal, Select, Combobox, Tabs, Tooltip, ResizablePanel, ToastContainer, SearchInput | `src/components/ui/Modal.tsx`, `src/components/ui/Select.tsx`, `src/components/ui/Tabs.tsx` |
 | [State Management](frontend/state-management.md) | 11 Zustand stores (session, WS, UI, settings, queue, queue-history, camera, room, shortcut, agenda, floatingSessions) | `src/stores/sessionStore.ts`, `src/stores/wsStore.ts`, `src/stores/uiStore.ts` |
@@ -144,6 +144,8 @@ When modifying a feature, check which features it can affect:
 | Terminal/SSH creation | Session Matching (pending links), PTY Host registration |
 | Zustand store shapes | ALL components that subscribe to stores |
 | Theme CSS variables | ALL visual components (2D + 3D), Terminal themes |
+| Adding/removing a theme (`ThemeName`) | `THEMES` array + theme CSS (imported from **both** `global.css` and `main.tsx`), `sceneThemes.ts` (`Record<ThemeName, …>` — a compile error if missed), `light-overrides.css` scanline group, optional xterm palette |
+| `--font-mono` | The `windows-xp` theme forces `font-family: var(--font-mono) !important` on every element outside the xterm subtree, so a component needing its own font must **redefine the variable** on its root rather than declaring `font-family` (see `TexViewer.module.css`) |
 | Sound action mappings | Settings panel, Alarm engine, Per-CLI profiles |
 | Electron IPC channels | Preload bridge, Terminal UI dual transport |
 | Robot animation states | Robot state map, Settings (character model), 3D scene, Particles |

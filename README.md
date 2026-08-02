@@ -8,9 +8,28 @@
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
+### Product videos
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="https://github.com/coding-by-feng/ai-agent-session-center/releases/download/v2.10.40/aasc-product-introduction.mp4"><img src="static/videos/aasc-product-introduction-thumbnail.jpg" alt="AASC 58-second product introduction showing the new 3D session dashboard" width="100%"></a>
+      <br><strong>58-second product introduction</strong>
+      <br>See the core monitoring, terminal, project, notes, queue, and contextual AI workflows with US English narration.
+      <br><a href="https://github.com/coding-by-feng/ai-agent-session-center/releases/download/v2.10.40/aasc-product-introduction.mp4">Watch the short introduction</a>
+    </td>
+    <td width="50%" valign="top">
+      <a href="https://github.com/coding-by-feng/ai-agent-session-center/releases/download/v2.10.40/aasc-full-product-walkthrough.mp4"><img src="static/videos/aasc-full-product-walkthrough-thumbnail.jpg" alt="AASC full product walkthrough showing live session control in the new theme" width="100%"></a>
+      <br><strong>12-minute full product walkthrough</strong>
+      <br>Follow the complete demonstration of session organization, terminals, projects, queues, notes, conversation review, and AI popups.
+      <br><a href="https://github.com/coding-by-feng/ai-agent-session-center/releases/download/v2.10.40/aasc-full-product-walkthrough.mp4">Watch the full walkthrough</a>
+    </td>
+  </tr>
+</table>
+
 ### **[▶ Try it live — zero install, runs in your browser → aasc.work/demo](https://aasc.work/demo)**
 
-<img src="static/screenshot-dashboard.png" alt="3D cyberdrome with active agent sessions across project rooms" width="100%">
+<img src="static/screenshots/aasc-dashboard-new-theme.jpg" alt="AASC new-theme 3D dashboard with live agent sessions organized across project rooms" width="100%">
 
 **Jump to:** [Videos](#product-videos) · [Install](#install) · [Why power users keep it open](#why-power-users-keep-it-open) · [What's inside](#whats-inside) · [Under the hood](#under-the-hood) · [Commands](#commands) · [Troubleshooting](#troubleshooting) · [FAQ](#faq)
 
@@ -46,31 +65,12 @@ A control plane for serious multi-agent work — built to be left open all day.
 
 ## See it
 
-### Product videos
-
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <a href="https://github.com/coding-by-feng/ai-agent-session-center/releases/download/v2.10.40/aasc-product-introduction.mp4"><img src="static/videos/aasc-product-introduction-thumbnail.jpg" alt="AASC product introduction video showing the 3D session dashboard" width="100%"></a>
-      <br><strong>58-second product introduction</strong>
-      <br>A quick tour of session monitoring, terminal control, project files, notes, queues, and contextual AI actions.
-      <br><a href="https://github.com/coding-by-feng/ai-agent-session-center/releases/download/v2.10.40/aasc-product-introduction.mp4">Watch or download the MP4</a>
-    </td>
-    <td width="50%" valign="top">
-      <a href="https://github.com/coding-by-feng/ai-agent-session-center/releases/download/v2.10.40/aasc-full-product-walkthrough.mp4"><img src="static/videos/aasc-full-product-walkthrough-thumbnail.jpg" alt="AASC full product walkthrough showing an agent terminal session" width="100%"></a>
-      <br><strong>Full product walkthrough</strong>
-      <br>A detailed demonstration of the new theme, session organization, terminals, project navigation, prompt queues, notes, conversation review, and AI popups.
-      <br><a href="https://github.com/coding-by-feng/ai-agent-session-center/releases/download/v2.10.40/aasc-full-product-walkthrough.mp4">Watch or download the MP4</a>
-    </td>
-  </tr>
-</table>
-
 ### Desktop
 
 <table>
   <tr>
-    <td><img src="static/screenshot-terminal.png" alt="Live terminal session — drive agents straight from the dashboard" width="400"></td>
-    <td><img src="static/screenshot-project-tab-detailed.png" alt="Split view, detailed session switcher — terminal and project file browser side by side" width="400"></td>
+    <td><img src="static/screenshots/aasc-session-control-new-theme.jpg" alt="New-theme live session control with terminal output and prompt queue" width="400"></td>
+    <td><img src="static/screenshots/aasc-project-browser-new-theme.jpg" alt="New-theme project browser rendering AASC feature documentation" width="400"></td>
   </tr>
 </table>
 

@@ -22,7 +22,8 @@ export type ThemeName =
   | 'nord'
   | 'monokai'
   | 'light'
-  | 'blonde';
+  | 'blonde'
+  | 'windows-xp';
 
 export interface ThemeDefinition {
   name: ThemeName;
@@ -40,6 +41,7 @@ export const THEMES: ThemeDefinition[] = [
   { name: 'monokai', label: 'Monokai', colors: ['#272822', '#66d9ef', '#f92672'] },
   { name: 'light', label: 'Light', colors: ['#f0f2f5', '#0ea5e9', '#3b82f6'] },
   { name: 'blonde', label: 'Blonde', colors: ['#fdf8ef', '#ca8a04', '#a16207'] },
+  { name: 'windows-xp', label: 'Windows XP', colors: ['#ece9d8', '#0a5fd6', '#2e7d27'] },
 ];
 
 // ---------------------------------------------------------------------------
@@ -333,7 +335,7 @@ const defaultSettings: SettingsData = {
   sortBy: 'activity',
   terminalReplayBufferBytes: DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES,
   terminalScrollbackLines: DEFAULT_TERMINAL_SCROLLBACK_LINES,
-  themeName: 'command-center',
+  themeName: 'windows-xp',
   fontSize: 13,
   scanlineEnabled: true,
   animationIntensity: 100,

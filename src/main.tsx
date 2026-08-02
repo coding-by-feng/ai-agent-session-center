@@ -14,6 +14,7 @@ import '@/styles/themes/monokai.css';
 import '@/styles/themes/light.css';
 import '@/styles/themes/warm.css';
 import '@/styles/themes/blonde.css';
+import '@/styles/themes/windows-xp.css';
 import '@/styles/themes/light-overrides.css';
 
 // Block Cmd+R / Ctrl+R / F5 to prevent accidental page reload

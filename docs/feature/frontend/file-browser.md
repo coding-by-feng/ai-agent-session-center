@@ -19,6 +19,7 @@ Lets users browse and inspect code/media files in the project directory without 
 | `src/lib/projectEditGuard.ts` | Where `ProjectTab` reports unsaved `mdDraft` / `newFileContent` state, so `DetailPanel`'s LRU cannot unmount it mid-edit |
 | `src/components/session/LinkifiedText.tsx` | Clickable file paths in rendered text |
 | `src/components/session/TexViewer.tsx` | LaTeX (`.tex`) renderer (lazy-loaded `latex.js`) used by ProjectTab's preview pane |
+| `src/styles/modules/TexViewer.module.css` | Faux-paper card styling for the rendered `.tex` document |
 | `src/lib/fileSystemProvider.ts` | File system abstraction — `ApiFileSystemProvider` (default, fetches `/api/files/*`) and `LocalFileSystemProvider` (File System Access API, Chromium/localhost) |
 | `src/lib/filePathLink.ts` | Shared Unicode-aware file-path regex (`createFilePathRegex`) + xterm buffer column mapping (`mapLineColumns`) — used by both LinkifiedText and the terminal link provider so the two stay in sync |
 | `src/components/translate/SelectionPopup.tsx` | Selection→popup with translate/explain modes (rendered above the markdown / fullscreen viewers) |
@@ -106,6 +107,8 @@ A shared Unicode-aware regex from [`filePathLink.ts`](../../../src/lib/filePathL
 
 ### TexViewer
 Lazy-imports `latex.js` (~5MB) and renders a `DocumentFragment` into a host div. On parse failure it retries with `buildFallbackSource` — strips the preamble + `UNSUPPORTED_CMDS` (page/layout, counters, macro defs, fonts, hooks, bibliography, etc.), drops external `\input`/`\include`, converts `\cite` to bracketed text, de-stars sectioning — wraps the body in a minimal `article` scaffold, and shows a warning that custom packages/macros were dropped. Recomputes when `source` or `fileKey` changes.
+
+`.paper` and `.paper :global(.katex)` set their serif families by **redefining `--font-mono`** on themselves rather than declaring `font-family` outright. The `windows-xp` theme forces `font-family: var(--font-mono) !important` on every element (see [Settings System](./settings-system.md)); a plain declaration would lose to it and render the LaTeX paper in Tahoma.
 
 ### Tree state persistence (per project)
 - `localStorage['agent-manager:tree-state:${projectPath}']` holds `{ openIds: string[], scrollTop: number, v: 1 }` (`TREE_STATE_VERSION = 1`). On mount, persisted open dirs (minus `/`) load in parallel shallow-first, then open via `requestAnimationFrame`; `scrollTop` restores on the next rAF via `TreeApi.list.current.scrollTo`. Stale openIds that no longer resolve are skipped. Writes debounce 200ms from both `onToggle` and `onScroll`, with a flush-on-unmount cleanup.

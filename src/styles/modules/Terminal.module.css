@@ -380,7 +380,16 @@
      `overflow-y: auto` box that clips absolutely-positioned children on both
      axes. `top`/`left` are written inline by computeMovePickerPosition(). */
   position: fixed;
-  z-index: 50;
+  /* Must clear the session detail panel this menu is opened from
+     (`.detailOverlay`, z-index 100 — DetailPanel.module.css) and the
+     full-screen overlays at 10000. Portaling to <body> is what makes this
+     load-bearing: the menu stopped being a descendant of the panel and became
+     its SIBLING in the root stacking context, so the old z-index 50 — correct
+     back when it was an in-panel child — put it *behind* the panel. It still
+     opened and placed itself correctly; it was just painted underneath, which
+     read as "MOVE does nothing". Same band as SelectionPopup (10050).
+     Guarded by QueueMovePicker.test.tsx. */
+  z-index: 10050;
   min-width: 180px;
   max-width: min(320px, 90vw);
   width: max-content;

@@ -1,19 +1,20 @@
 /**
- * NotesTab provides CRUD for session notes via API.
- * Ported from the notes tab logic in public/js/detailPanel.js.
+ * NotesTab — per-session notes: compose, list, edit in place, delete.
+ *
+ * The list lives in `notesStore` rather than component state: this tab mounts
+ * on demand, but the count badge on the NOTES tab has to be right before it is
+ * ever opened. Note bodies are Markdown, rendered by the lazily-loaded
+ * `NoteMarkdown`; both editors are the same `NoteEditor`.
  */
-import { useState, useCallback, useEffect } from 'react';
+import { Suspense, lazy, useState, useCallback, useEffect } from 'react';
 import { showToast } from '@/components/ui/ToastContainer';
-import LinkifiedText from './LinkifiedText';
+import { useNotesStore, EMPTY_NOTES } from '@/stores/notesStore';
+import NoteEditor from './NoteEditor';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
-interface Note {
-  id: number;
-  sessionId: string;
-  text: string;
-  createdAt: number;
-  updatedAt: number;
-}
+// See NoteMarkdown's header: this boundary is what keeps the react-markdown
+// stack out of the eager entry chunk that DetailPanel (and so NotesTab) is in.
+const NoteMarkdown = lazy(() => import('./NoteMarkdown'));
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString('en-US', { hour12: false });
@@ -25,119 +26,127 @@ interface NotesTabProps {
 }
 
 export default function NotesTab({ sessionId, projectPath }: NotesTabProps) {
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [text, setText] = useState('');
-  const [saving, setSaving] = useState(false);
-
+  // Already sorted newest-first by the store — never re-sort here, that would
+  // mutate the stored array in place.
+  const notes = useNotesStore((s) => s.notes.get(sessionId) ?? EMPTY_NOTES);
   const [loadError, setLoadError] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
 
-  // #5: Load notes with error feedback
+  // #5: Load notes with error feedback. Used by the retry link; the mount load
+  // has its own copy so it can ignore a response that arrives after the user
+  // has already switched sessions.
   const loadNotes = useCallback(async () => {
-    try {
-      setLoadError(false);
-      const resp = await fetch(`/api/db/sessions/${sessionId}/notes`);
-      if (resp.ok) {
-        const data = await resp.json();
-        setNotes(data.notes || []);
-      } else {
-        setLoadError(true);
-        showToast('Failed to load notes', 'error');
-      }
-    } catch {
-      setLoadError(true);
-      showToast('Network error loading notes', 'error');
-    }
+    const ok = await useNotesStore.getState().loadNotes(sessionId);
+    setLoadError(!ok);
+    if (!ok) showToast('Failed to load notes', 'error');
   }, [sessionId]);
 
   useEffect(() => {
-    loadNotes();
-  }, [loadNotes]);
+    let cancelled = false;
+    void useNotesStore.getState().loadNotes(sessionId).then((ok) => {
+      if (cancelled) return;
+      setLoadError(!ok);
+      if (!ok) showToast('Failed to load notes', 'error');
+    });
+    return () => { cancelled = true; };
+  }, [sessionId]);
 
-  const handleSave = useCallback(async () => {
-    const trimmed = text.trim();
-    if (!trimmed || saving) return;
-    setSaving(true);
-    try {
-      const resp = await fetch(`/api/db/sessions/${sessionId}/notes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: trimmed }),
-      });
-      if (resp.ok) {
-        setText('');
-        await loadNotes();
+  // An edit open on one session must not survive into another — derived rather
+  // than reset in an effect, which also closes the editor if the note it points
+  // at disappears (deleted here, or by another client viewing the same session).
+  const activeEditId = notes.some((n) => n.id === editingId) ? editingId : null;
+
+  const handleCreate = useCallback(
+    async (text: string) => {
+      const ok = await useNotesStore.getState().addNote(sessionId, text);
+      if (!ok) showToast('Failed to save note', 'error');
+      return ok;
+    },
+    [sessionId],
+  );
+
+  const handleUpdate = useCallback(
+    async (noteId: number, text: string) => {
+      const ok = await useNotesStore.getState().updateNote(sessionId, noteId, text);
+      if (ok) {
+        setEditingId(null);
       } else {
-        showToast('Failed to save note', 'error');
+        showToast('Failed to update note', 'error');
       }
-    } catch {
-      showToast('Failed to save note', 'error');
-    } finally {
-      setSaving(false);
-    }
-  }, [sessionId, text, saving, loadNotes]);
+      return ok;
+    },
+    [sessionId],
+  );
 
   const handleDelete = useCallback(
     async (noteId: number) => {
-      try {
-        await fetch(`/api/db/sessions/${sessionId}/notes/${noteId}`, {
-          method: 'DELETE',
-        });
-        await loadNotes();
-      } catch {
-        showToast('Failed to delete note', 'error');
-      }
+      const ok = await useNotesStore.getState().deleteNote(sessionId, noteId);
+      if (!ok) showToast('Failed to delete note', 'error');
     },
-    [sessionId, loadNotes],
+    [sessionId],
   );
 
   return (
     <div>
       {/* Compose area */}
       <div className={styles.notesCompose}>
-        <textarea
-          className={styles.noteTextarea}
-          placeholder="Add a note..."
-          rows={3}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-              handleSave();
-            }
-          }}
+        <NoteEditor
+          sessionId={sessionId}
+          projectPath={projectPath}
+          onSubmit={handleCreate}
+          clearOnSubmit
         />
-        <button
-          className={`${styles.ctrlBtn} ${styles.saveNote}`}
-          onClick={handleSave}
-          disabled={saving || !text.trim()}
-        >
-          {saving ? 'SAVING...' : 'SAVE NOTE'}
-        </button>
       </div>
 
       {/* Notes list */}
       {notes.length > 0 ? (
-        notes
-          .sort((a, b) => b.createdAt - a.createdAt)
-          .map((note) => (
-            <div key={note.id} className={styles.noteEntry}>
-              <div className={styles.noteMeta}>
-                <span className={styles.noteTime}>
-                  {formatTime(note.createdAt)}
+        notes.map((note) => (
+          <div key={note.id} className={styles.noteEntry}>
+            <div className={styles.noteMeta}>
+              <span className={styles.noteTime}>
+                {formatTime(note.createdAt)}
+                {note.updatedAt > note.createdAt && (
+                  <span className={styles.noteEdited}> · edited {formatTime(note.updatedAt)}</span>
+                )}
+              </span>
+              {activeEditId !== note.id && (
+                <span className={styles.noteActions}>
+                  <button
+                    className={styles.noteAction}
+                    onClick={() => setEditingId(note.id)}
+                    title="Edit note"
+                  >
+                    EDIT
+                  </button>
+                  <button
+                    className={styles.noteDelete}
+                    onClick={() => handleDelete(note.id)}
+                    title="Delete note"
+                  >
+                    DELETE
+                  </button>
                 </span>
-                <button
-                  className={styles.noteDelete}
-                  onClick={() => handleDelete(note.id)}
-                  title="Delete note"
-                >
-                  DELETE
-                </button>
-              </div>
-              <div className={styles.noteText}>
-                <LinkifiedText text={note.text} projectPath={projectPath} />
-              </div>
+              )}
             </div>
-          ))
+            {activeEditId === note.id ? (
+              <NoteEditor
+                // Remount per note so the editor starts from that note's text.
+                key={`edit-${note.id}`}
+                sessionId={sessionId}
+                projectPath={projectPath}
+                initialText={note.text}
+                submitLabel="SAVE"
+                onSubmit={(text) => handleUpdate(note.id, text)}
+                onCancel={() => setEditingId(null)}
+                autoFocus
+              />
+            ) : (
+              <Suspense fallback={<div className={styles.noteText}>{note.text}</div>}>
+                <NoteMarkdown text={note.text} projectPath={projectPath} />
+              </Suspense>
+            )}
+          </div>
+        ))
       ) : loadError ? (
         <div className={styles.tabEmpty}>Failed to load notes — <button onClick={loadNotes} style={{ background: 'none', border: 'none', color: 'var(--accent-cyan)', cursor: 'pointer', fontFamily: 'inherit' }}>retry</button></div>
       ) : (

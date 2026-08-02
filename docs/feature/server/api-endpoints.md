@@ -98,8 +98,15 @@ The HTTP interface for the React frontend and external integrations. Handles all
 - DELETE /api/db/sessions/:id
 
 ### Notes
-- GET/POST /api/db/sessions/:id/notes
-- DELETE /api/db/notes/:id
+- GET /api/db/sessions/:id/notes — returns a **bare array** of snake_case rows (`res.json(db.getNotes(id))`), *not* `{ notes: [...] }`. A client reading `data.notes` gets `undefined` and silently shows an empty list.
+- POST /api/db/sessions/:id/notes — `{ text }`, capped at 50 000 chars (raised from 10 000 when notes became Markdown documents carrying media URLs). Echoes the inserted row.
+- PUT /api/db/notes/:id — `{ text }`; bumps `updated_at`, returns the updated row, 404 when the id is unknown.
+- DELETE /api/db/notes/:id — **by row id, not nested under the session.** A session-nested URL 404s.
+
+### Note media
+- POST /api/db/sessions/:id/note-media — `{ name, dataUrl }` → `{ id, url, mime, bytes }`. Base64 data URL only; MIME allowlist (PNG/JPEG/GIF/WebP/AVIF, MP4/WebM/MOV/OGV — **SVG deliberately excluded**, it can carry script and is served same-origin); decoded size capped at `MAX_MEDIA_BYTES` (25 MB). Bytes are written to `<data dir>/note-media/`, never into SQLite. See [Session Detail Panel → Note media](../frontend/session-detail-panel.md).
+- GET /api/note-media/:id — serves the file via `res.sendFile` (Range support is what makes `<video>` seekable), with `X-Content-Type-Options: nosniff`. The `:id` is re-validated against `/^[a-f0-9]{32}$/` before any path is built.
+- DELETE /api/db/sessions/:id now calls `deleteNoteMediaForSession` **before** `deleteSessionCascade` — once the notes are gone, the orphan sweep can't distinguish that media from a live upload.
 
 ### SSH/Tmux Helpers
 - GET /api/ssh-keys (list available SSH keys)

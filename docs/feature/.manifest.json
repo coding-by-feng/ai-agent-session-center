@@ -44,7 +44,7 @@
         "src/components/3d/SceneOverlay.tsx": "f482308379b9aa53cd02f9aded6c51832a3cbcfb",
         "src/components/3d/RobotListSidebar.tsx": "f1a756179888aa4142925be9e7cac7d610fb92b0",
         "src/lib/cyberdromeScene.ts": "7e9f1f2b0c5abae986fbadab1ed066239be72b26",
-        "src/lib/sceneThemes.ts": "b96e62f62aff0ee860b95e2a9c2384b5ac566c7a",
+        "src/lib/sceneThemes.ts": "5a906410b091518dfc7541d765112f2518af4393",
         "src/lib/robotPositionPersist.ts": "5879d1c2728f1d3aeff31f6b36117600eaac9820",
         "src/lib/sessionSort.ts": "d6cd5b4a803b20d7055b76d8da5025bc29d2fe30",
         "src/lib/pinnedRespawn.ts": "60e6034fab09d57303cfeae7d7fbe369b3da10a5",
@@ -134,7 +134,19 @@
           "coffee lounge color": "#ff9944",
           "UNTITLED_SESSION_LABEL": "'Unnamed'",
           "UNFOCUSED_FPS": 10,
-          "UNFOCUSED_FRAME_MS": 100
+          "UNFOCUSED_FRAME_MS": 100,
+          "SCENE_THEMES": [
+            "command-center",
+            "cyberpunk",
+            "warm",
+            "dracula",
+            "solarized",
+            "nord",
+            "monokai",
+            "light",
+            "blonde",
+            "windows-xp"
+          ]
         },
         "endpoints": [
           "POST /api/sessions/:id/kill"
@@ -167,7 +179,7 @@
         "3d/robot-system.md",
         "frontend/views-routing.md"
       ],
-      "last_updated": "2026-07-30T08:10:06Z",
+      "last_updated": "2026-08-01T00:25:13Z",
       "last_aligned": "2026-07-30T08:10:06Z"
     },
     {
@@ -355,7 +367,7 @@
         ".github/workflows/build-windows.yml"
       ],
       "source_hashes": {
-        "electron/main.ts": "9e1c55b87890682793eec64c94468b002aba34c0",
+        "electron/main.ts": "c0b6541edd42a65aececd8ba27645e737d515f78",
         "electron/tray.ts": "621a9de5f483cc835583a58a31d820f34c6dc487",
         "electron/ipc/appHandlers.ts": "a019e9a8c600b4f5f2db1907c565ed1d14caf387",
         "electron/ipc/setupHandlers.ts": "207fc03c05a4096f26e645aecd596e3444238099",
@@ -495,7 +507,7 @@
         "frontend/setup-wizard.md",
         "frontend/views-routing.md"
       ],
-      "last_updated": "2026-07-31T00:03:47Z",
+      "last_updated": "2026-08-01T00:25:13Z",
       "last_aligned": "2026-07-30T04:48:54Z"
     },
     {
@@ -708,9 +720,9 @@
         "src/components/agenda/AddTaskForm.tsx": "aa2e81834480da4d9dcea0093277ad5f935b6828",
         "src/types/agenda.ts": "5c8c5bbac47ab30049890246da7e0051d07eb1b8",
         "src/components/layout/NavBar.tsx": "4e18e04ddc50eb7184b4eec1d5321eb86ef5e82b",
-        "src/App.tsx": "18ab17d7edef82c9b0e36192a61c63ca99ce0615",
-        "server/apiRouter.ts": "b8fdbf8c202cc627ead0c159bd640c46f82a1722",
-        "server/db.ts": "d74605a4ddc21563cd89efec8cd020cbc41028ef"
+        "src/App.tsx": "51100c7a854693e83968d9e6bf77c41b7c87b169",
+        "server/apiRouter.ts": "5ab6b0b4bcd3bfa8460689339a9d1e84da442a7e",
+        "server/db.ts": "9f5054fd417818493d26cb87fe28b52bf1af45af"
       },
       "symbols": {
         "functions": [
@@ -785,7 +797,7 @@
       "depended_on_by": [
         "frontend/views-routing.md"
       ],
-      "last_updated": "2026-07-31T00:03:47Z",
+      "last_updated": "2026-08-01T01:00:28Z",
       "last_aligned": "2026-07-30T04:48:54Z"
     },
     {
@@ -921,7 +933,7 @@
         "frontend/saved-prompts.md",
         "frontend/auto-resume-watchdog.md"
       ],
-      "last_updated": "2026-07-30T21:54:06Z",
+      "last_updated": "2026-07-31T04:17:56Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -944,7 +956,7 @@
         "server/commandIndex.ts": "5df6d2380b654b18f215f62533c2e05a76ea62dd",
         "src/lib/commandSuggestions.ts": "876f4d841d044869c02e6e4f15dd3152d61aa59a",
         "src/components/ui/AutocompleteTextarea.tsx": "8931d99c2ba9418fee69062cd691d74b585bf005",
-        "server/apiRouter.ts": "b8fdbf8c202cc627ead0c159bd640c46f82a1722",
+        "server/apiRouter.ts": "5ab6b0b4bcd3bfa8460689339a9d1e84da442a7e",
         "src/styles/modules/AutocompleteTextarea.module.css": "ef08f8a5911960035bb86ae323fbcf3516dc3579",
         "src/lib/autocompleteTrigger.ts": "ea2b685cc35e498895001aab2f30a0c401f1ef8f",
         "test/commandIndex.codex.test.ts": "326d710bbdeab4646092881a6791a0964a962a51",
@@ -1060,15 +1072,15 @@
         "src/styles/modules/DetailPanel.module.css"
       ],
       "source_hashes": {
-        "server/apiRouter.ts": "b8fdbf8c202cc627ead0c159bd640c46f82a1722",
+        "server/apiRouter.ts": "5ab6b0b4bcd3bfa8460689339a9d1e84da442a7e",
         "server/extractPreviousAnswer.ts": "35bdf70918282a741275198ecbcdbbddbf7240c7",
         "src/components/session/ConversationView.tsx": "d51457915d42f12a44aa9cfdce73eda3ad95932a",
-        "src/components/session/DetailPanel.tsx": "31949f40057670306ce69ba1ba7322642c4bf12e",
-        "src/components/session/DetailTabs.tsx": "c70d5c1fc455f083f26b7217bb7e0974779b5c28",
+        "src/components/session/DetailPanel.tsx": "9f98c2b4023ad854ced835f373e02fdedc1bf967",
+        "src/components/session/DetailTabs.tsx": "f170a3e7a0a615e59e88094b977b7b734ed73192",
         "src/components/session/LinkifiedText.tsx": "291a1e8fbc44f4d163e1b0793b0791e23b549cdd",
         "src/lib/commandMessage.ts": "ad88971ae1f5e508115d60d576c6d3b5c16346df",
         "src/lib/transcript.ts": "ddf2fc7244bd534749169e3640da6d81385d0d2a",
-        "src/styles/modules/DetailPanel.module.css": "da77726e2c2969ace22258860df30c06084342a4"
+        "src/styles/modules/DetailPanel.module.css": "ad6681e66aa59bb8a22fb3ec59bad2067a2e5f9b"
       },
       "symbols": {
         "functions": [
@@ -1137,7 +1149,7 @@
         "frontend/session-detail-panel.md",
         "server/floating-session-spawner.md"
       ],
-      "last_updated": "2026-07-31T00:03:47Z",
+      "last_updated": "2026-07-31T03:34:59Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -1156,7 +1168,8 @@
         "src/components/translate/SelectionPopup.tsx",
         "src/hooks/useSelectionPopup.ts",
         "src/lib/searchNormalize.ts",
-        "src/lib/projectEditGuard.ts"
+        "src/lib/projectEditGuard.ts",
+        "src/styles/modules/TexViewer.module.css"
       ],
       "source_hashes": {
         "src/components/session/ProjectTabContainer.tsx": "0a267f63145e5bf6d848610e1a101d3b71498175",
@@ -1171,7 +1184,8 @@
         "src/components/translate/SelectionPopup.tsx": "d14ec9c8809e426c51529630344145e5d2a27c17",
         "src/hooks/useSelectionPopup.ts": "f955092d2333896b351ecb6b1f94561318d5a372",
         "src/lib/searchNormalize.ts": "de69e632cdd6dc61d1916c8f01bc390a7c84e872",
-        "src/lib/projectEditGuard.ts": "b88f1686306c918b19731563cd0134cfd1d01df6"
+        "src/lib/projectEditGuard.ts": "b88f1686306c918b19731563cd0134cfd1d01df6",
+        "src/styles/modules/TexViewer.module.css": "e5a96c17c6fa588b5cb08c72502a73041e73d5f8"
       },
       "symbols": {
         "functions": [
@@ -1295,7 +1309,7 @@
         "frontend/project-browser.md",
         "frontend/session-detail-panel.md"
       ],
-      "last_updated": "2026-07-29T08:58:15Z",
+      "last_updated": "2026-08-01T00:25:13Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -1351,10 +1365,10 @@
         "src/components/terminal/TerminalToolbar.tsx": "1e77ecc36b2369e4a71de6591228fd3b493e3b06",
         "src/components/session/ProjectTab.tsx": "0067a699c9ad3130c9730e1d6b622f80bdcdb4b1",
         "src/components/session/ProjectTabContainer.tsx": "0a267f63145e5bf6d848610e1a101d3b71498175",
-        "src/components/session/DetailPanel.tsx": "31949f40057670306ce69ba1ba7322642c4bf12e",
-        "src/stores/settingsStore.ts": "505b6cba84a3f64df8ca4fbcc938d26bf6b8acd2",
-        "src/main.tsx": "42c1ff6f482606b54304f051a1ec2c45d9ac671a",
-        "electron/main.ts": "9e1c55b87890682793eec64c94468b002aba34c0",
+        "src/components/session/DetailPanel.tsx": "9f98c2b4023ad854ced835f373e02fdedc1bf967",
+        "src/stores/settingsStore.ts": "281e4dfffe9bc55429c6c73f6fb9274e930cc5f0",
+        "src/main.tsx": "1ac874e1f64f2071574a328a69376e57782241cb",
+        "electron/main.ts": "c0b6541edd42a65aececd8ba27645e737d515f78",
         "electron/preload.ts": "49b8972501538ddeca34c30df088448620dcfbdd"
       },
       "symbols": {
@@ -1469,7 +1483,7 @@
         "frontend/workspace-snapshot.md",
         "server/floating-session-spawner.md"
       ],
-      "last_updated": "2026-07-31T00:03:47Z",
+      "last_updated": "2026-08-01T01:00:28Z",
       "last_aligned": "2026-07-30T04:48:54Z"
     },
     {
@@ -1632,7 +1646,9 @@
         "src/components/session/QueueMovePicker.tsx",
         "src/lib/queueMovePlacement.ts",
         "src/routes/QueueView.tsx",
-        "src/styles/modules/Terminal.module.css"
+        "src/styles/modules/Terminal.module.css",
+        "src/components/session/QueueMovePicker.test.tsx",
+        "src/styles/modules/DetailPanel.module.css"
       ],
       "source_hashes": {
         "src/stores/queueStore.ts": "423c88bea67aeca3e3bec9f3629ec39e26bc80ba",
@@ -1640,7 +1656,9 @@
         "src/components/session/QueueMovePicker.tsx": "0689c0ed9efbb3fbd58dec3f4b870c8e204698bd",
         "src/lib/queueMovePlacement.ts": "1bcf694cde40c91f2811fcbbfb3ea3e1ad507a09",
         "src/routes/QueueView.tsx": "1e41198cd313f11f7cb0c049574ddf88302cf2ba",
-        "src/styles/modules/Terminal.module.css": "86d708eec2eaeb764997bb8d0c17248c500ea93e"
+        "src/styles/modules/Terminal.module.css": "30acdec7854305d7dfdf59514a62fd2319c7cd51",
+        "src/components/session/QueueMovePicker.test.tsx": "fb38829a3509917ad62e63a9854a0d3ee3dd7b35",
+        "src/styles/modules/DetailPanel.module.css": "ad6681e66aa59bb8a22fb3ec59bad2067a2e5f9b"
       },
       "symbols": {
         "functions": [
@@ -1688,7 +1706,9 @@
           "terminator": "'\\r' when autoEnter ON else ''",
           "Dexie schema": "v6 (queueAutomation@v4, queueHistory@v5)",
           "ANCHOR_GAP": "2 (px between MOVE trigger and menu)",
-          "VIEWPORT_PAD": "8 (px min gap to any viewport edge)"
+          "VIEWPORT_PAD": "8 (px min gap to any viewport edge)",
+          "queueMovePicker.z-index": 10050,
+          "detailOverlay.z-index": 100
         },
         "endpoints": [
           "POST /api/terminals/:id/write",
@@ -1738,7 +1758,7 @@
         "frontend/saved-prompts.md",
         "frontend/auto-resume-watchdog.md"
       ],
-      "last_updated": "2026-07-31T00:04:57Z",
+      "last_updated": "2026-08-01T00:53:17Z",
       "last_aligned": "2026-07-29T09:20:27Z"
     },
     {
@@ -1928,8 +1948,8 @@
         "src/styles/modules/ReviewView.module.css"
       ],
       "source_hashes": {
-        "server/apiRouter.ts": "b8fdbf8c202cc627ead0c159bd640c46f82a1722",
-        "src/App.tsx": "18ab17d7edef82c9b0e36192a61c63ca99ce0615",
+        "server/apiRouter.ts": "5ab6b0b4bcd3bfa8460689339a9d1e84da442a7e",
+        "src/App.tsx": "51100c7a854693e83968d9e6bf77c41b7c87b169",
         "src/components/layout/NavBar.tsx": "4e18e04ddc50eb7184b4eec1d5321eb86ef5e82b",
         "src/components/session/AiPopupHistory.tsx": "3c09699ab1123ed6f423a2407fe25fc1396061f8",
         "src/components/session/PopupResponse.tsx": "fa1595c2611c8fcdd8f944b5e2221e35eb270fa9",
@@ -2019,7 +2039,7 @@
         "frontend/floating-terminal-fork.md",
         "frontend/views-routing.md"
       ],
-      "last_updated": "2026-07-31T00:03:47Z",
+      "last_updated": "2026-08-01T01:00:28Z",
       "last_aligned": "2026-07-30T04:48:54Z"
     },
     {
@@ -2155,14 +2175,24 @@
         "src/lib/mountedProjectsLru.test.ts",
         "src/lib/projectEditGuard.ts",
         "src/lib/projectEditGuard.test.ts",
-        "src/lib/sessionDisplayTitle.ts"
+        "src/lib/sessionDisplayTitle.ts",
+        "src/stores/notesStore.ts",
+        "src/stores/notesStore.test.ts",
+        "src/components/session/DetailTabs.test.tsx",
+        "server/noteMedia.ts",
+        "test/noteMedia.test.ts",
+        "src/components/session/NoteEditor.tsx",
+        "src/components/session/NoteMarkdown.tsx",
+        "src/lib/noteMedia.ts",
+        "src/lib/noteMedia.test.ts",
+        "src/components/session/DetailPanel.test.tsx"
       ],
       "source_hashes": {
-        "src/components/session/DetailPanel.tsx": "31949f40057670306ce69ba1ba7322642c4bf12e",
-        "src/components/session/DetailTabs.tsx": "c70d5c1fc455f083f26b7217bb7e0974779b5c28",
+        "src/components/session/DetailPanel.tsx": "9f98c2b4023ad854ced835f373e02fdedc1bf967",
+        "src/components/session/DetailTabs.tsx": "f170a3e7a0a615e59e88094b977b7b734ed73192",
         "src/components/session/SessionControlBar.tsx": "c0746c548520b167b40386d9d808030537fd9d65",
         "src/components/session/SessionSwitcher.tsx": "cab0b2912014b7c967d10783f1ac4c6d5f3152aa",
-        "src/components/session/NotesTab.tsx": "7fbd7e9a1ac92651e7ca93ff478f323660a6cc6b",
+        "src/components/session/NotesTab.tsx": "6c1873efe4ac6c6229160ad239f23897c7675c1f",
         "src/components/session/QueueTab.tsx": "6176e3b2c6045d3140bb814152dff354b569af70",
         "src/components/session/KillConfirmModal.tsx": "9e1b1801e4f22fa574f5493b6dfd9173cf24afb0",
         "src/components/session/RoomKillConfirmModal.tsx": "b12ecdf6f21cb46b3b1c3fc1aa178999b6f55c24",
@@ -2174,53 +2204,79 @@
         "src/components/session/LabelPicker.tsx": "8a1e23daf9b0aceb4ce8b4130b8670c5a0be464c",
         "src/components/session/PopoutProjectView.tsx": "d1222bbe92adf9d8d9d923b33820bd222a4d779e",
         "src/hooks/useDropdownFlipX.ts": "beafa312ce45a511256d3a7ae87ca8091b93f76e",
-        "src/styles/modules/DetailPanel.module.css": "da77726e2c2969ace22258860df30c06084342a4",
+        "src/styles/modules/DetailPanel.module.css": "ad6681e66aa59bb8a22fb3ec59bad2067a2e5f9b",
         "src/lib/mountedProjectsLru.ts": "fb371b14648c9b0dbfdd3d307d8d03cc6e7d04e1",
         "src/lib/mountedProjectsLru.test.ts": "cc06218dfe7dbee1e23d00cdb910daa9245fd134",
         "src/lib/projectEditGuard.ts": "b88f1686306c918b19731563cd0134cfd1d01df6",
         "src/lib/projectEditGuard.test.ts": "576a9f0cc8ca1e63492c6f36ee97a8794861ad74",
-        "src/lib/sessionDisplayTitle.ts": "f3ad743b6242112dc64a1e1fd10becdfa2cd0a68"
+        "src/lib/sessionDisplayTitle.ts": "f3ad743b6242112dc64a1e1fd10becdfa2cd0a68",
+        "src/stores/notesStore.ts": "9c36d01d9fa862a767086cfba75089bdf6ba1396",
+        "src/stores/notesStore.test.ts": "e752ae93abf93f014ae124f4b6cc6b7e1b349cd9",
+        "src/components/session/DetailTabs.test.tsx": "6119c991dd5fd16eb5010ec3afeb6376b53dac3f",
+        "server/noteMedia.ts": "90e62d91c181e561b8b6e2d6cbc1cb7d2b636510",
+        "test/noteMedia.test.ts": "dde4ea85ff1ac3da8a0efaff04b5afde99db1c56",
+        "src/components/session/NoteEditor.tsx": "853153f8c8ef927e307ab7efecd418c655c567dc",
+        "src/components/session/NoteMarkdown.tsx": "fce81862023f460051a5bdad0cfcd8f973bbfe73",
+        "src/lib/noteMedia.ts": "5a707077d4308d89cc7f819eb2dc72e259af2f1a",
+        "src/lib/noteMedia.test.ts": "ee2f262feab81275c156865c629d095a81737980",
+        "src/components/session/DetailPanel.test.tsx": "cb7a93a0e0cef5c07b2e84c0570e6334a5d5bf3d"
       },
       "symbols": {
         "functions": [
+          "AlertModal",
           "DetailPanel",
           "DetailTabs",
+          "DraggableMiniBadge",
+          "DraggableSplitView",
+          "KillConfirmModal",
+          "LazyModal",
+          "NoteEditor",
+          "NoteMarkdown",
+          "OpsTerminalContent",
+          "PopoutProjectView",
+          "PoppedOutTerminalPlaceholder",
+          "RoomKillConfirmModal",
           "SessionControlBar",
           "SessionSwitcher",
           "SessionTabCard",
-          "KillConfirmModal",
-          "RoomKillConfirmModal",
-          "AlertModal",
-          "TerminalContent",
-          "OpsTerminalContent",
-          "DraggableMiniBadge",
-          "DraggableSplitView",
+          "SortByActivityIcon",
           "StackedSplitView",
-          "LazyModal",
+          "TerminalContent",
+          "addNote",
+          "canPopOutWindow",
+          "countTitle",
+          "deleteNote",
+          "deleteNoteMediaForSession",
           "detectCli",
           "getCliBadge",
+          "handleClone",
+          "handleFork",
+          "handleKill",
+          "handleReconnect",
+          "handleResume",
+          "handleRoomChange",
+          "handleToggleAlert",
+          "handleToggleMute",
+          "insertAtCaret",
+          "isMostRecentProject",
+          "isProjectEditing",
+          "isVideoSrc",
+          "loadNotes",
+          "mediaMarkdown",
           "navigateMatch",
+          "referencedMediaIds",
+          "resetProjectEditing",
+          "resolveNoteMedia",
+          "retainRecentProjects",
+          "saveNoteMedia",
+          "sessionDisplayTitle",
+          "setProjectEditing",
+          "sweepOrphanNoteMedia",
           "toggleSplit",
           "toggleStacked",
           "turnOff",
-          "handleResume",
-          "handleKill",
-          "handleToggleMute",
-          "handleToggleAlert",
-          "handleRoomChange",
-          "handleFork",
-          "handleClone",
-          "handleReconnect",
-          "PoppedOutTerminalPlaceholder",
-          "canPopOutWindow",
-          "PopoutProjectView",
-          "SortByActivityIcon",
-          "retainRecentProjects",
-          "isMostRecentProject",
-          "setProjectEditing",
-          "isProjectEditing",
-          "resetProjectEditing",
-          "sessionDisplayTitle"
+          "updateNote",
+          "uploadMedia"
         ],
         "constants": {
           "SPLIT_MIN_WIDTH": "700",
@@ -2237,43 +2293,57 @@
           "AlertModal minutes range": "1..999",
           "AlertModal default minutes": "5",
           "MAX_MOUNTED_PROJECTS": "3",
-          "UNTITLED_SESSION_LABEL": "'Unnamed'"
+          "UNTITLED_SESSION_LABEL": "'Unnamed'",
+          "MAX_MEDIA_BYTES": 26214400,
+          "ORPHAN_TTL_MS": 3600000
         },
         "endpoints": [
-          "POST /api/sessions/:id/resume",
-          "POST /api/sessions/:id/kill",
-          "POST /api/sessions/:id/fork",
-          "POST /api/sessions/:id/clone",
-          "POST /api/sessions/:id/reconnect-terminal",
-          "POST /api/sessions/:id/reconnect-ops-terminal",
+          "DELETE /api/db/notes/:id",
           "DELETE /api/terminals/:terminalId",
-          "GET /api/sessions/:id/transcript"
+          "GET /api/db/sessions/:id/notes",
+          "GET /api/note-media/:id",
+          "GET /api/sessions/:id/transcript",
+          "POST /api/db/sessions/:id/note-media",
+          "POST /api/db/sessions/:id/notes",
+          "POST /api/sessions/:id/clone",
+          "POST /api/sessions/:id/fork",
+          "POST /api/sessions/:id/kill",
+          "POST /api/sessions/:id/reconnect-ops-terminal",
+          "POST /api/sessions/:id/reconnect-terminal",
+          "POST /api/sessions/:id/resume",
+          "PUT /api/db/notes/:id"
         ],
         "ui_elements": [
-          "RESUME button",
+          "ALERT/ALERT ON toggle",
+          "CONNECT TERMINAL placeholder",
+          "DraggableMiniBadge",
           "KILL button",
           "MUTE/UNMUTE button",
-          "ALERT/ALERT ON toggle",
-          "Room Select dropdown",
+          "NOTE editor WRITE/PREVIEW toggle",
+          "NOTES tab count badge (.tabCount)",
           "PROJECT/TERMINAL/COMMANDS/CONVERSATION/AI POPUPS/NOTES/QUEUE tabs",
-          "split/merge toggle icon",
-          "stack/unstack toggle icon",
+          "QUEUE tab count badge (.tabCount)",
+          "RESUME button",
+          "Room Select dropdown",
+          "Sort by recent activity toggle (SortByActivityIcon)",
+          "attention badge (!)",
+          "compact/detailed display toggle",
+          "dock-left/dock-top toggle",
+          "drag-to-edge pop-out",
+          "external session badge (⌁)",
           "float (PIP) toggle icon",
+          "inline title rename (double-click)",
+          "maximize/restore toggle",
+          "minimize button",
+          "note DELETE button",
+          "note EDIT button",
+          "note media drop target",
+          "pop-out (⧉) button",
+          "room filter funnel dropdown",
           "search bar (prev/next/close)",
           "session tab strip cards",
-          "attention badge (!)",
-          "room filter funnel dropdown",
-          "compact/detailed display toggle",
-          "minimize button",
-          "DraggableMiniBadge",
-          "CONNECT TERMINAL placeholder",
-          "inline title rename (double-click)",
-          "dock-left/dock-top toggle",
-          "maximize/restore toggle",
-          "pop-out (⧉) button",
-          "drag-to-edge pop-out",
-          "Sort by recent activity toggle (SortByActivityIcon)",
-          "external session badge (⌁)"
+          "split/merge toggle icon",
+          "stack/unstack toggle icon"
         ],
         "cli_commands": [],
         "storage_keys": [
@@ -2320,7 +2390,7 @@
         "frontend/views-routing.md",
         "frontend/auto-resume-watchdog.md"
       ],
-      "last_updated": "2026-07-31T00:04:57Z",
+      "last_updated": "2026-08-01T01:00:28Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -2337,7 +2407,11 @@
         "src/stores/settingsStore.ts",
         "src/hooks/useSettingsInit.ts",
         "src/types/settings.ts",
-        "src/types/terminal.ts"
+        "src/types/terminal.ts",
+        "src/styles/themes/windows-xp.css",
+        "src/styles/global.css",
+        "src/styles/themes/light-overrides.css",
+        "index.html"
       ],
       "source_hashes": {
         "src/components/settings/SettingsPanel.tsx": "e35e3174986d0c522cf598ea07e9bd62b5b9b5cd",
@@ -2347,10 +2421,14 @@
         "src/components/settings/ApiKeySettings.tsx": "351d0751e31d0d1804ff42812c737b6d94408058",
         "src/components/settings/TranslationSettings.tsx": "e1ac3538b0df1672891a2fe766e1601db016ee50",
         "src/components/settings/ShortcutSettings.tsx": "b2773b31d4e63d242d9bcc84d95379602c4b95f7",
-        "src/stores/settingsStore.ts": "505b6cba84a3f64df8ca4fbcc938d26bf6b8acd2",
+        "src/stores/settingsStore.ts": "281e4dfffe9bc55429c6c73f6fb9274e930cc5f0",
         "src/hooks/useSettingsInit.ts": "119f29bd127306b03586edd579a6591f7492a6cc",
         "src/types/settings.ts": "7b1b2ff6a37b9d622a1aee60e0855489735567c3",
-        "src/types/terminal.ts": "a339608a700de2559dc42aecb01040297e8f7e61"
+        "src/types/terminal.ts": "a339608a700de2559dc42aecb01040297e8f7e61",
+        "src/styles/themes/windows-xp.css": "8fbc70beb609126f48a0d8586117048d7acf2888",
+        "src/styles/global.css": "a4b4e31232922e6f10514109219d2139d1b833b3",
+        "src/styles/themes/light-overrides.css": "a66eec27edb2bdc39f6bd63d11cd6f00e3c950f9",
+        "index.html": "0b3c14aa0ded12821d1b72dc301e7c689faf06ee"
       },
       "symbols": {
         "functions": [
@@ -2413,7 +2491,20 @@
           "animationSpeed min": "30",
           "animationSpeed max": "200",
           "terminalReplayBufferBytes": "2 * 1024 * 1024",
-          "DEFAULT_TERMINAL_SCROLLBACK_LINES": "20000"
+          "DEFAULT_TERMINAL_SCROLLBACK_LINES": "20000",
+          "THEMES": [
+            "command-center",
+            "cyberpunk",
+            "warm",
+            "dracula",
+            "solarized",
+            "nord",
+            "monokai",
+            "light",
+            "blonde",
+            "windows-xp"
+          ],
+          "defaultSettings.themeName": "windows-xp"
         },
         "endpoints": [
           "GET /api/hooks/status",
@@ -2450,38 +2541,38 @@
         ],
         "storage_keys": [
           "Dexie table: settings",
-          "themeName",
-          "fontSize",
-          "scanlineEnabled",
+          "ambientSettings",
           "animationIntensity",
           "animationSpeed",
-          "characterModel",
-          "hookDensity",
-          "scene3dEnabled",
-          "toastEnabled",
-          "autoSendQueue",
-          "defaultTerminalTheme",
           "anthropicApiKey",
-          "openaiApiKey",
-          "googleTtsApiKey",
-          "ttsEnabled",
-          "ttsVoiceEn",
-          "ttsVoiceZh",
-          "ttsSpeakingRate",
-          "translationEnabled",
-          "translationNativeLanguage",
-          "translationLearningLanguage",
-          "translationTrigger",
-          "translationInheritContext",
+          "autoSendQueue",
+          "characterModel",
+          "defaultTerminalTheme",
           "explainAttachFilePath",
-          "soundSettings",
-          "ambientSettings",
+          "fontSize",
+          "googleTtsApiKey",
+          "hookDensity",
           "labelAlarms",
-          "soundActions",
           "movementActions",
+          "openaiApiKey",
+          "scanlineEnabled",
+          "scene3dEnabled",
           "shortcutBindings",
+          "soundActions",
+          "soundSettings",
           "terminalReplayBufferBytes",
-          "terminalScrollbackLines"
+          "terminalScrollbackLines",
+          "themeName",
+          "toastEnabled",
+          "translationEnabled",
+          "translationInheritContext",
+          "translationLearningLanguage",
+          "translationNativeLanguage",
+          "translationTrigger",
+          "ttsEnabled",
+          "ttsSpeakingRate",
+          "ttsVoiceEn",
+          "ttsVoiceZh"
         ]
       },
       "depends_on": [
@@ -2502,7 +2593,7 @@
         "server/terminal-ssh.md",
         "electron/pty-host.md"
       ],
-      "last_updated": "2026-07-31T00:03:47Z",
+      "last_updated": "2026-08-01T00:25:13Z",
       "last_aligned": "2026-07-30T04:48:54Z"
     },
     {
@@ -2668,13 +2759,14 @@
         "src/stores/shortcutStore.ts",
         "src/stores/agendaStore.ts",
         "src/stores/floatingSessionsStore.ts",
-        "src/stores/labelStore.ts"
+        "src/stores/labelStore.ts",
+        "src/stores/notesStore.ts"
       ],
       "source_hashes": {
         "src/stores/sessionStore.ts": "ac1733054fede8273f2dd9169fa50ea6c337a9b3",
         "src/stores/wsStore.ts": "0bcf2d51cea211c534f4cd2a89a4da59fedc202b",
         "src/stores/uiStore.ts": "e693dca1620c254d8b0b98e6e565f311cef73b0e",
-        "src/stores/settingsStore.ts": "505b6cba84a3f64df8ca4fbcc938d26bf6b8acd2",
+        "src/stores/settingsStore.ts": "281e4dfffe9bc55429c6c73f6fb9274e930cc5f0",
         "src/stores/queueStore.ts": "423c88bea67aeca3e3bec9f3629ec39e26bc80ba",
         "src/stores/queueHistoryStore.ts": "2943298ebac653fe8b824db5de4a8364f5353956",
         "src/stores/cameraStore.ts": "1cbd74145921367deb5af53cf7d99245119d6f79",
@@ -2682,7 +2774,8 @@
         "src/stores/shortcutStore.ts": "212a44d1213bd0e8c720a8671d59e4964f32a32a",
         "src/stores/agendaStore.ts": "0357cedd3fc44c75b1104846ea240f281e19b28a",
         "src/stores/floatingSessionsStore.ts": "b7519c8685038ae228b12daeb95d39685a9c4aa6",
-        "src/stores/labelStore.ts": "d40d389a36a519ae91d629c3a33e5eea6a2f264c"
+        "src/stores/labelStore.ts": "d40d389a36a519ae91d629c3a33e5eea6a2f264c",
+        "src/stores/notesStore.ts": "9c36d01d9fa862a767086cfba75089bdf6ba1396"
       },
       "symbols": {
         "functions": [
@@ -2705,7 +2798,11 @@
           "removeCustom",
           "labelColor",
           "toggleSessionSortMode",
-          "setTerminalScrollbackLines"
+          "setTerminalScrollbackLines",
+          "useNotesStore",
+          "loadNotes",
+          "addNote",
+          "deleteNote"
         ],
         "constants": {
           "MAX_FLOATS": "4",
@@ -2792,7 +2889,7 @@
         "multimedia/sound-alarm-system.md",
         "frontend/saved-prompts.md"
       ],
-      "last_updated": "2026-07-31T00:03:47Z",
+      "last_updated": "2026-08-01T00:25:13Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -2814,9 +2911,9 @@
         "src/components/settings/SummaryPromptSettings.tsx": "a9ccd0635800237d9d92bcdb33ab5907d94153fa",
         "src/lib/db.ts": "30a8abaa13c6aec41dae084f3f571eb7fb86daae",
         "src/types/api.ts": "d8e3bd657112289e604f90f35e97473e146adf8d",
-        "server/apiRouter.ts": "b8fdbf8c202cc627ead0c159bd640c46f82a1722",
+        "server/apiRouter.ts": "5ab6b0b4bcd3bfa8460689339a9d1e84da442a7e",
         "server/sessionStore.ts": "888420e8b0e03851d23aa74ae74e37d47881d365",
-        "server/db.ts": "d74605a4ddc21563cd89efec8cd020cbc41028ef"
+        "server/db.ts": "9f5054fd417818493d26cb87fe28b52bf1af45af"
       },
       "symbols": {
         "functions": [
@@ -2915,7 +3012,7 @@
         "src/hooks/useTerminal.ts": "66e1ac97c94ff3110eb081979807c760dbba6da4",
         "src/components/terminal/TerminalContainer.tsx": "d6d3d15336a84b298744cebf780b4eb2c0a2580a",
         "src/components/terminal/TerminalToolbar.tsx": "1e77ecc36b2369e4a71de6591228fd3b493e3b06",
-        "src/components/terminal/themes.ts": "505b41604c920f629fa21885c7d17e8fa3dc1e99",
+        "src/components/terminal/themes.ts": "6ccfed8d23b89e9c2c9e709bed8f9e9b3a75965f",
         "src/components/translate/SelectionPopup.tsx": "d14ec9c8809e426c51529630344145e5d2a27c17",
         "src/hooks/useSelectionPopup.ts": "f955092d2333896b351ecb6b1f94561318d5a372",
         "src/lib/selectionExtractors.ts": "a926a0e74966feeec44c671fd2834614752fe8cb",
@@ -2981,7 +3078,17 @@
           "themes": "7 named + auto",
           "DEFAULT_TERMINAL_SCROLLBACK_LINES": "20000",
           "MIN_TERMINAL_SCROLLBACK_LINES": "1000",
-          "MAX_TERMINAL_SCROLLBACK_LINES": "200000"
+          "MAX_TERMINAL_SCROLLBACK_LINES": "200000",
+          "THEMES": [
+            "default",
+            "dark",
+            "monokai",
+            "dracula",
+            "solarized-dark",
+            "nord",
+            "windows-xp",
+            "github-dark"
+          ]
         },
         "endpoints": [
           "POST /api/sessions/:id/fork",
@@ -3061,7 +3168,7 @@
         "frontend/session-detail-panel.md",
         "multimedia/tts-voice-output.md"
       ],
-      "last_updated": "2026-07-31T00:03:47Z",
+      "last_updated": "2026-08-01T00:25:13Z",
       "last_aligned": "2026-07-30T04:48:54Z"
     },
     {
@@ -3186,8 +3293,8 @@
         "vite.config.ts"
       ],
       "source_hashes": {
-        "src/main.tsx": "42c1ff6f482606b54304f051a1ec2c45d9ac671a",
-        "src/App.tsx": "18ab17d7edef82c9b0e36192a61c63ca99ce0615",
+        "src/main.tsx": "1ac874e1f64f2071574a328a69376e57782241cb",
+        "src/App.tsx": "51100c7a854693e83968d9e6bf77c41b7c87b169",
         "src/components/layout/TitleBar.tsx": "b0941f955b0d504dd509d4b0a24dd86c0cb4b3c5",
         "src/components/layout/Header.tsx": "a0fbaf779ecedea6aee77181ecfc56ccb2bd0f2d",
         "src/components/layout/NavBar.tsx": "4e18e04ddc50eb7184b4eec1d5321eb86ef5e82b",
@@ -3238,7 +3345,8 @@
           "save creep interval": "120ms",
           "detail-panel:find dispatch delay": "150ms",
           "eager JS bytes": "1228804 (was 2523500)",
-          "manualChunks": "none (deliberate)"
+          "manualChunks": "none (deliberate)",
+          "eagerEntryBytes": 1244984
         },
         "endpoints": [
           "GET /api/db/projects",
@@ -3310,7 +3418,7 @@
         "frontend/agenda.md",
         "frontend/project-browser.md"
       ],
-      "last_updated": "2026-07-29T23:26:23Z",
+      "last_updated": "2026-08-01T01:00:28Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -3429,7 +3537,7 @@
         "src/components/modals/RestorePickerModal.tsx": "4b88ee384dfb17ba4faf7a8f1a1802ce653903ff",
         "src/styles/modules/RestorePickerModal.module.css": "1edb4fd4712f9ee2b6763b6e6eb92680047e45e6",
         "src/components/ui/SavingOverlay.tsx": "57ff2754ec5d8cac8718ecbe41658de8bd1897a5",
-        "server/apiRouter.ts": "b8fdbf8c202cc627ead0c159bd640c46f82a1722",
+        "server/apiRouter.ts": "5ab6b0b4bcd3bfa8460689339a9d1e84da442a7e",
         "server/sshManager.ts": "3d1cba7fbcb4fc7979ce077608a202122cbc246b",
         "test/apiRouter.workspaceFixes.test.ts": "5c0fd2cbbf12d5be3349299aa40f2666fda3a381",
         "test/sshManager.pendingLinks.test.ts": "76e98f12443e5510ba6e108f6db4767afb994db4",
@@ -3551,7 +3659,7 @@
         "src/lib/alarmEngine.ts": "24270147ffbb82932c1300dd85062c0fc9841163",
         "src/lib/cliDetect.ts": "49c99c8b72888458625ff40e86f07d9272662858",
         "src/hooks/useSound.ts": "2c86c46244f7cbe85405edd4093b2977428edeb2",
-        "src/stores/settingsStore.ts": "505b6cba84a3f64df8ca4fbcc938d26bf6b8acd2",
+        "src/stores/settingsStore.ts": "281e4dfffe9bc55429c6c73f6fb9274e930cc5f0",
         "src/components/settings/SoundSettings.tsx": "e0eedfca3e5839854e7d3a51e4cfc382faf28ba2"
       },
       "symbols": {
@@ -3643,7 +3751,7 @@
         "frontend/websocket-client.md",
         "multimedia/tts-voice-output.md"
       ],
-      "last_updated": "2026-07-31T00:03:47Z",
+      "last_updated": "2026-08-01T01:00:28Z",
       "last_aligned": "2026-07-29T09:20:27Z"
     },
     {
@@ -3667,19 +3775,19 @@
       ],
       "source_hashes": {
         "server/ttsManager.ts": "1920135c5e634f5f4b2d1e58226c2eaba1dd0429",
-        "server/apiRouter.ts": "b8fdbf8c202cc627ead0c159bd640c46f82a1722",
+        "server/apiRouter.ts": "5ab6b0b4bcd3bfa8460689339a9d1e84da442a7e",
         "src/lib/ttsEngine.ts": "307202cb5bfe461739aff59653c244e27d2004af",
         "src/hooks/useTerminal.ts": "66e1ac97c94ff3110eb081979807c760dbba6da4",
         "src/components/terminal/TerminalContainer.tsx": "d6d3d15336a84b298744cebf780b4eb2c0a2580a",
         "src/components/terminal/TerminalToolbar.tsx": "1e77ecc36b2369e4a71de6591228fd3b493e3b06",
         "src/components/settings/SoundSettings.tsx": "e0eedfca3e5839854e7d3a51e4cfc382faf28ba2",
-        "src/stores/settingsStore.ts": "505b6cba84a3f64df8ca4fbcc938d26bf6b8acd2",
+        "src/stores/settingsStore.ts": "281e4dfffe9bc55429c6c73f6fb9274e930cc5f0",
         "test/ttsManager.test.ts": "d9b17b71cfb744fe12c820448ad91a67dad28182",
         "src/lib/kokoroWorker.ts": "75bb13caa42e7d4ee3c37ca694ce814b9ddd7775",
         "src/lib/kokoroTts.ts": "2652354192fc638d6c699f59b1ac337c5052adbb",
         "src/lib/kokoroTts.test.ts": "b130fdb048e2e4a9b098353797426b2ce37c9181",
         "src/lib/tooltips.ts": "825b08d49cc1a089829f1761924d0fe757b648d8",
-        "server/index.ts": "d4d72c4171e236304e82ce0beea2fdd69bb96f04"
+        "server/index.ts": "8f5088111118a6e357fd1fcb572e82bb1972de6b"
       },
       "symbols": {
         "functions": [
@@ -3770,7 +3878,7 @@
         "frontend/terminal-ui.md",
         "server/api-endpoints.md"
       ],
-      "last_updated": "2026-07-31T00:03:47Z",
+      "last_updated": "2026-08-01T01:00:28Z",
       "last_aligned": "2026-07-30T04:48:54Z"
     },
     {
@@ -3792,10 +3900,10 @@
         "src/types/api.ts"
       ],
       "source_hashes": {
-        "server/apiRouter.ts": "b8fdbf8c202cc627ead0c159bd640c46f82a1722",
+        "server/apiRouter.ts": "5ab6b0b4bcd3bfa8460689339a9d1e84da442a7e",
         "server/codexModelCatalog.ts": "941733995551fc27ea0c2b8d5fcc88db94c44e0d",
         "server/constants.ts": "7d6f9224c6a1a1971296399a113fbe263ac39467",
-        "server/index.ts": "d4d72c4171e236304e82ce0beea2fdd69bb96f04",
+        "server/index.ts": "8f5088111118a6e357fd1fcb572e82bb1972de6b",
         "server/hookRouter.ts": "bb009141f575133156a12d55c991c7192255242e",
         "server/floatingSessionSpawner.ts": "63559e82c557b83cb792218fb615d6410062d5b1",
         "server/extractPreviousAnswer.ts": "35bdf70918282a741275198ecbcdbbddbf7240c7",
@@ -3855,85 +3963,88 @@
           "MAX_SESSIONS": "50"
         },
         "endpoints": [
+          "DELETE /api/agenda/:id",
+          "DELETE /api/db/notes/:id",
+          "DELETE /api/db/sessions/:id",
+          "DELETE /api/sessions/:id",
+          "DELETE /api/terminals/:id",
+          "GET /api/agenda",
+          "GET /api/auth/status",
+          "GET /api/codex/models",
+          "GET /api/commands",
+          "GET /api/config",
+          "GET /api/db/projects",
+          "GET /api/db/search",
+          "GET /api/db/sessions",
+          "GET /api/db/sessions/:id",
+          "GET /api/db/sessions/:id/notes",
+          "GET /api/files/grep",
+          "GET /api/files/list",
+          "GET /api/files/read",
+          "GET /api/files/resolve",
+          "GET /api/files/search",
+          "GET /api/files/stream",
+          "GET /api/health-check",
+          "GET /api/hook-stats",
+          "GET /api/hooks/status",
+          "GET /api/known-projects",
+          "GET /api/mq-stats",
+          "GET /api/note-media/:id",
           "GET /api/sessions",
           "GET /api/sessions/:id/source",
           "GET /api/sessions/:id/transcript",
           "GET /api/sessions/history",
           "GET /api/sessions/resume-command",
-          "PUT /api/sessions/:id/title",
-          "PUT /api/sessions/:id/pinned",
-          "PUT /api/sessions/:id/muted",
-          "PUT /api/sessions/:id/alerted",
-          "PUT /api/sessions/:id/accent-color",
-          "PUT /api/sessions/:id/character-model",
-          "POST /api/sessions/:id/kill",
-          "POST /api/sessions/:id/resume",
-          "POST /api/sessions/:id/summarize",
-          "POST /api/sessions/:id/fork",
-          "POST /api/sessions/:id/clone",
-          "POST /api/sessions/:id/reconnect-terminal",
-          "POST /api/sessions/:id/reconnect-ops-terminal",
-          "POST /api/sessions/spawn-floating",
-          "POST /api/sessions/clear-all",
-          "DELETE /api/sessions/:id",
-          "POST /api/terminals",
-          "POST /api/terminals/register",
-          "POST /api/terminals/:id/prefill-output",
-          "POST /api/terminals/:id/write",
+          "GET /api/ssh-keys",
+          "GET /api/teams/:teamId/config",
           "GET /api/terminals",
           "GET /api/terminals/:id/output",
-          "DELETE /api/terminals/:id",
-          "GET /api/files/list",
-          "GET /api/files/read",
-          "GET /api/files/stream",
-          "GET /api/files/search",
-          "GET /api/files/grep",
-          "GET /api/files/resolve",
-          "POST /api/files/write",
-          "POST /api/files/mkdir",
+          "GET /api/workspace/load",
+          "PATCH /api/agenda/:id/toggle",
+          "POST /api/agenda",
+          "POST /api/auth/login",
+          "POST /api/auth/logout",
+          "POST /api/auth/refresh",
+          "POST /api/config/terminal-buffer",
+          "POST /api/db/sessions/:id/note-media",
+          "POST /api/db/sessions/:id/notes",
           "POST /api/files/delete",
-          "POST /api/files/search/invalidate",
+          "POST /api/files/mkdir",
           "POST /api/files/reveal",
-          "GET /api/commands",
-          "GET /api/teams/:teamId/config",
-          "POST /api/teams/:teamId/members/:sessionId/terminal",
-          "GET /api/hooks/status",
+          "POST /api/files/search/invalidate",
+          "POST /api/files/write",
+          "POST /api/hook-stats/reset",
+          "POST /api/hooks",
           "POST /api/hooks/install",
           "POST /api/hooks/uninstall",
-          "GET /api/db/sessions",
-          "GET /api/db/sessions/:id",
-          "GET /api/db/projects",
-          "GET /api/db/search",
-          "DELETE /api/db/sessions/:id",
-          "GET /api/db/sessions/:id/notes",
-          "POST /api/db/sessions/:id/notes",
-          "DELETE /api/db/notes/:id",
-          "GET /api/ssh-keys",
-          "POST /api/tmux-sessions",
-          "POST /api/workspace/save",
-          "GET /api/workspace/load",
-          "GET /api/agenda",
-          "POST /api/agenda",
-          "PUT /api/agenda/:id",
-          "DELETE /api/agenda/:id",
-          "PATCH /api/agenda/:id/toggle",
           "POST /api/queue-images",
-          "GET /api/hook-stats",
-          "POST /api/hook-stats/reset",
-          "GET /api/mq-stats",
           "POST /api/reset",
-          "GET /api/health-check",
-          "GET /api/config",
-          "GET /api/known-projects",
-          "GET /api/codex/models",
-          "POST /api/tts/synthesize",
+          "POST /api/sessions/:id/clone",
+          "POST /api/sessions/:id/fork",
+          "POST /api/sessions/:id/kill",
+          "POST /api/sessions/:id/reconnect-ops-terminal",
+          "POST /api/sessions/:id/reconnect-terminal",
+          "POST /api/sessions/:id/resume",
+          "POST /api/sessions/:id/summarize",
+          "POST /api/sessions/clear-all",
+          "POST /api/sessions/spawn-floating",
+          "POST /api/teams/:teamId/members/:sessionId/terminal",
+          "POST /api/terminals",
+          "POST /api/terminals/:id/prefill-output",
+          "POST /api/terminals/:id/write",
+          "POST /api/terminals/register",
+          "POST /api/tmux-sessions",
           "POST /api/tts/status",
-          "POST /api/hooks",
-          "GET /api/auth/status",
-          "POST /api/auth/login",
-          "POST /api/auth/refresh",
-          "POST /api/auth/logout",
-          "POST /api/config/terminal-buffer"
+          "POST /api/tts/synthesize",
+          "POST /api/workspace/save",
+          "PUT /api/agenda/:id",
+          "PUT /api/db/notes/:id",
+          "PUT /api/sessions/:id/accent-color",
+          "PUT /api/sessions/:id/alerted",
+          "PUT /api/sessions/:id/character-model",
+          "PUT /api/sessions/:id/muted",
+          "PUT /api/sessions/:id/pinned",
+          "PUT /api/sessions/:id/title"
         ],
         "ui_elements": [
           "RECONNECT button (detail panel) → reconnect-terminal",
@@ -3995,7 +4106,7 @@
         "multimedia/tts-voice-output.md",
         "server/floating-session-spawner.md"
       ],
-      "last_updated": "2026-07-31T00:03:47Z",
+      "last_updated": "2026-07-31T04:17:56Z",
       "last_aligned": "2026-07-29T09:20:27Z"
     },
     {
@@ -4151,15 +4262,17 @@
         "test/sessionModelIntegrity.test.ts"
       ],
       "source_hashes": {
-        "server/db.ts": "d74605a4ddc21563cd89efec8cd020cbc41028ef",
+        "server/db.ts": "9f5054fd417818493d26cb87fe28b52bf1af45af",
         "test/sessionModelIntegrity.test.ts": "e8c635167e98c8b950d3f1aa09a8fc561719bf45"
       },
       "symbols": {
         "functions": [
           "addNote",
+          "addNoteMedia",
           "closeDb",
           "deleteAgendaTask",
           "deleteNote",
+          "deleteNoteMediaRow",
           "deleteSessionCascade",
           "extractModelFromCommand",
           "fullTextSearch",
@@ -4167,14 +4280,18 @@
           "getAllAgendaTasks",
           "getAllPersistedSessions",
           "getDistinctProjects",
+          "getNoteMedia",
+          "getNoteMediaOlderThan",
           "getNotes",
           "getPromptsForSession",
           "getSessionDetail",
           "getSessionsByProjectPath",
           "insertFullPrompt",
+          "isNoteMediaReferenced",
           "markStaleSessionsEnded",
           "migrateSessionId",
           "searchSessions",
+          "updateNote",
           "updateSessionArchived",
           "updateSessionSummary",
           "updateSessionTitle",
@@ -4216,7 +4333,7 @@
         "server/api-endpoints.md",
         "server/authentication.md"
       ],
-      "last_updated": "2026-07-30T04:38:57Z",
+      "last_updated": "2026-07-31T04:17:56Z",
       "last_aligned": "2026-07-17T04:55:41.343Z"
     },
     {
@@ -4228,7 +4345,7 @@
       ],
       "source_hashes": {
         "server/fileIndexCache.ts": "71583b71c4f3d3605acf0c19793bb7b81e61327f",
-        "server/apiRouter.ts": "b8fdbf8c202cc627ead0c159bd640c46f82a1722"
+        "server/apiRouter.ts": "5ab6b0b4bcd3bfa8460689339a9d1e84da442a7e"
       },
       "symbols": {
         "functions": [
@@ -4291,7 +4408,7 @@
         "server/floatingSessionSpawner.ts": "63559e82c557b83cb792218fb615d6410062d5b1",
         "server/floatingPrompt.ts": "829b02954159bd55b48d420dbc7c455a2e2fdfdc",
         "server/extractPreviousAnswer.ts": "35bdf70918282a741275198ecbcdbbddbf7240c7",
-        "server/apiRouter.ts": "b8fdbf8c202cc627ead0c159bd640c46f82a1722",
+        "server/apiRouter.ts": "5ab6b0b4bcd3bfa8460689339a9d1e84da442a7e",
         "src/lib/cliDetect.ts": "49c99c8b72888458625ff40e86f07d9272662858",
         "test/resumableTranscript.test.ts": "30393d29e5b1e9b1fc3f5dda456fe6ba2444bbff"
       },
@@ -5071,7 +5188,7 @@
       ],
       "source_hashes": {
         "server/wsManager.ts": "2575286126f505f03526b6853e27520afb4eab58",
-        "server/index.ts": "d4d72c4171e236304e82ce0beea2fdd69bb96f04",
+        "server/index.ts": "8f5088111118a6e357fd1fcb572e82bb1972de6b",
         "server/hookProcessor.ts": "7ed7c248aa7120e02133a5638d4c9ab54ed59a60",
         "server/sessionUpdateCoalescer.ts": "36bf6f3eb48246cfdc3b8d77bee4a26068adffd4",
         "test/sessionUpdateCoalescer.test.ts": "50b8a1389baab02348ccd7f61121d8447c1081fe"
@@ -5160,7 +5277,7 @@
         "src/components/session/LinkifiedText.tsx": "291a1e8fbc44f4d163e1b0793b0791e23b549cdd",
         "src/hooks/useTerminal.ts": "66e1ac97c94ff3110eb081979807c760dbba6da4",
         "src/lib/fileSystemProvider.ts": "3188ce81681a25f5bd183d67e6093d587e83eb63",
-        "server/apiRouter.ts": "b8fdbf8c202cc627ead0c159bd640c46f82a1722"
+        "server/apiRouter.ts": "5ab6b0b4bcd3bfa8460689339a9d1e84da442a7e"
       },
       "symbols": {
         "functions": [
@@ -5310,7 +5427,7 @@
         "src/lib/db.ts": "30a8abaa13c6aec41dae084f3f571eb7fb86daae",
         "src/components/session/QueueTab.tsx": "6176e3b2c6045d3140bb814152dff354b569af70",
         "src/components/session/SessionControlBar.tsx": "c0746c548520b167b40386d9d808030537fd9d65",
-        "src/styles/modules/DetailPanel.module.css": "da77726e2c2969ace22258860df30c06084342a4",
+        "src/styles/modules/DetailPanel.module.css": "ad6681e66aa59bb8a22fb3ec59bad2067a2e5f9b",
         "test/interruptionDetector.test.ts": "4ad45bb9a472b2266dfb3fe7d440ca20213edc96",
         "src/lib/resumeWatchdog.test.ts": "1400243b27179c314a97764ddbfbc21622321724"
       },
@@ -5369,7 +5486,7 @@
       "depended_on_by": [
         "frontend/queue-scheduler.md"
       ],
-      "last_updated": "2026-07-31T00:04:57Z",
+      "last_updated": "2026-07-31T03:34:59Z",
       "last_aligned": "2026-07-30T21:54:06Z"
     }
   ],

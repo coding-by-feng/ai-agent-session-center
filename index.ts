@@ -27,7 +27,6 @@ import {
   recordLoginAttempt, clearLoginAttempts, refreshToken, getTokenTTL,
   localhostOnlyMiddleware, TOKEN_TTL_SECONDS,
 } from './authManager.js';
-import { startNoteMediaSweeper } from './noteMedia.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -383,10 +382,6 @@ export function startServer(port?: number): Promise<number> {
 
     // Start auth token cleanup (every hour)
     startTokenCleanup();
-
-    // Sweep note uploads no note references (every hour). Editing a note can
-    // orphan its media instantly, so this is what bounds note-media/ growth.
-    startNoteMediaSweeper();
 
     // Auto-respawn SSH terminals for sessions that survived restart.
     //

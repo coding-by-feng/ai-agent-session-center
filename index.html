@@ -6,9 +6,14 @@
     <title>AI Agent Session Center</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="apple-touch-icon" href="/apple-touch-icon.svg">
-    <meta name="theme-color" content="#0a0a1a">
+    <meta name="theme-color" content="#ece9d8">
   </head>
-  <body>
+  <!-- Must match `defaultSettings.themeName` in src/stores/settingsStore.ts.
+       base.css `:root` is the dark command-center palette, and applyTheme only
+       runs once Dexie has loaded, so without this the first paint is dark and
+       every launch flashes before settling on the light default. A user with a
+       different persisted theme still gets swapped after load, as before. -->
+  <body data-theme="windows-xp">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -19,6 +19,7 @@ import { findLiveCodexPidPeers } from './sessionKillPolicy.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
 import * as db from './db.js';
+import { saveNoteMedia, resolveNoteMedia, deleteNoteMediaForSession, MAX_MEDIA_BYTES } from './noteMedia.js';
 import { getMqStats } from './mqReader.js';
 import { execFile } from 'child_process';
 import { createReadStream, readFileSync, writeFileSync, readdirSync, existsSync, statSync, mkdirSync, rmSync } from 'fs';
@@ -355,8 +356,25 @@ const summarizeSchema = z.object({
   custom_prompt: z.string().max(10000).optional(),
 });
 
+// 50k rather than 10k: notes are Markdown documents now, and each embedded
+// image/video costs ~40 characters of URL on top of the prose.
 const noteSchema = z.object({
-  text: z.string().min(1).max(10000),
+  text: z.string().min(1).max(50000),
+});
+
+/** Client-facing text for each `saveNoteMedia` failure. */
+const NOTE_MEDIA_ERRORS: Record<string, string> = {
+  'invalid-data-url': 'Not a valid base64 data URL',
+  'unsupported-type': 'Unsupported file type — images (PNG/JPEG/GIF/WebP/AVIF) and video (MP4/WebM/MOV/OGV) only',
+  'too-large': `File exceeds the ${Math.round(MAX_MEDIA_BYTES / (1024 * 1024))} MB limit`,
+  'write-failed': 'Could not save the file',
+};
+
+const noteMediaSchema = z.object({
+  name: z.string().max(255).default(''),
+  // Bytes arrive base64 in a data URL; `express.json` is configured at 50mb and
+  // `saveNoteMedia` enforces MAX_MEDIA_BYTES on the decoded buffer.
+  dataUrl: z.string().min(1).max(40 * 1024 * 1024),
 });
 
 const agendaCreateSchema = z.object({
@@ -1780,7 +1798,11 @@ router.get('/db/sessions/:id', (req: Request, res: Response) => {
 
 // Delete session from DB (cascade)
 router.delete('/db/sessions/:id', (req: Request, res: Response) => {
-  db.deleteSessionCascade(str(req.params.id));
+  const id = str(req.params.id);
+  // Files first: the cascade drops the notes that reference this media, after
+  // which the orphan sweep can no longer tell it apart from a live upload.
+  deleteNoteMediaForSession(id);
+  db.deleteSessionCascade(id);
   res.json({ ok: true });
 });
 
@@ -1818,9 +1840,62 @@ router.post('/db/sessions/:id/notes', (req: Request, res: Response) => {
   res.json(note);
 });
 
+router.put('/db/notes/:id', (req: Request, res: Response) => {
+  const body = validateBody(noteSchema, req.body, res);
+  if (!body) return;
+  const id = Number(str(req.params.id));
+  if (!Number.isInteger(id)) {
+    res.status(400).json({ error: 'Invalid note id' });
+    return;
+  }
+  const note = db.updateNote(id, body.text.trim());
+  if (!note) {
+    res.status(404).json({ error: 'Note not found' });
+    return;
+  }
+  res.json(note);
+});
+
 router.delete('/db/notes/:id', (req: Request, res: Response) => {
   db.deleteNote(Number(str(req.params.id)));
   res.json({ ok: true });
+});
+
+// ---- Note media (images / video embedded in a note) ----
+
+/** POST /api/db/sessions/:id/note-media — persist one upload, return its URL. */
+router.post('/db/sessions/:id/note-media', (req: Request, res: Response) => {
+  const body = validateBody(noteMediaSchema, req.body, res);
+  if (!body) return;
+  const result = saveNoteMedia(str(req.params.id), body.name, body.dataUrl);
+  if (!result.ok) {
+    const status = result.error === 'write-failed' ? 500 : 400;
+    res.status(status).json({ error: NOTE_MEDIA_ERRORS[result.error] });
+    return;
+  }
+  res.json(result.media);
+});
+
+/**
+ * GET /api/note-media/:id — serve the bytes.
+ *
+ * `res.sendFile` handles conditional + Range requests, which is what makes
+ * `<video>` seekable; streaming the whole file instead would force a full
+ * download before the user could scrub.
+ */
+router.get('/note-media/:id', (req: Request, res: Response) => {
+  const media = resolveNoteMedia(str(req.params.id));
+  if (!media) {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+  res.type(media.mime);
+  // The MIME allowlist excludes SVG, but pin the type anyway so a mislabelled
+  // upload can never be sniffed into something executable.
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.sendFile(media.path, (err) => {
+    if (err && !res.headersSent) res.status(500).end();
+  });
 });
 
 // Legacy endpoint (kept for backward compatibility)

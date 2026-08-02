@@ -217,19 +217,15 @@ Check connected docs and tests when touching these contracts:
 <claude-mem-context>
 # Memory Context
 
-# [agent-manager] recent context, 2026-07-31 12:16pm GMT+12
+# [agent-manager] recent context, 2026-08-02 11:08pm GMT+12
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (21,805t read) | 634,122t work | 97% savings
+Stats: 50 obs (18,922t read) | 1,798,599t work | 99% savings
 
-### Jul 29, 2026
-S1836 Fix terminal tab "need to reconnect" bug + incorrect session name in common room — code path investigation completed (Jul 29 at 9:48 PM)
-S1837 docs/feature/.manifest.json — Atomically Updated to 46 Features with saved-prompts.md (Jul 29 at 11:28 PM)
 ### Jul 30, 2026
-S1839 agent-manager Electron Distributable Build — Completed Successfully (Jul 30 at 11:28 AM)
 S1846 agent-manager Electron Distributable Built — v2.10.40 (Jul 30 at 1:17 PM)
 S1882 agent-manager Electron Build Status Check — Is the build done? (Jul 30 at 2:31 PM)
 S1891 macOS WindowServer High CPU Usage — Root Cause Investigation on Apple M4 Mac (Jul 30 at 8:21 PM)
@@ -237,57 +233,61 @@ S1904 User sent "of" — ambiguous/incomplete message, no actionable request (Ju
 ### Jul 31, 2026
 S1906 Interruption Detection Daemon Feature Requested for Queue System (Jul 31 at 4:31 AM)
 S1910 Interrupt Detection Daemon Proposed for Agent Queue System (Jul 31 at 9:55 AM)
-13365 11:37a 🔵 appendSessionName in server/config.ts Only Escapes Double Quotes — Shell Injection Confirmed
-13366 " 🟣 sessionNameQuoting.test.ts — Comprehensive Shell Safety Test Suite Created
-13367 11:38a 🔵 agent-manager Session Name Shell Injection — Root Cause and Fix Scope Identified
-13368 " 🔴 server/config.ts — CONTROL_CHARS_RE Regex Fixed: Raw Bytes Replaced with Escaped Sequences
-13369 11:39a 🔴 electron/ptyHost.ts Shell Injection Fixed — Session Title Properly Escaped
-13370 " 🔵 Test Failure — Mirror Drift Detector Regex Pattern Needs Adjustment
-13371 " 🔴 agent-manager Session Name Shell Injection — Full Fix Applied to server/config.ts and electron/ptyHost.ts
-13372 11:40a 🔴 agent-manager Resume Command Verbosity — Root Cause Was Long-Form Fallback Pattern, Not a Bug
-13373 " ⚖️ Shell Safety Approach — Escape All Double-Quote-Context Metacharacters, Not Just Quotes
-13374 11:41a ✅ agent-manager Session Name Quoting — Work Complete, Tests at 32/33
-13375 " 🟣 sessionNameQuoting.test.ts — extractSessionName and stripClaudeSessionName APIs Confirmed
-13376 11:42a ✅ CLAUDE.md — Session Title Shell Injection Invariant Added to Key Invariants Section
-13377 " 🔵 buildResumeCommand — `--continue` Fallback Deliberately Avoided; Fresh Claude Used Instead
-13378 " ⚖️ Daemon Feature Proposed — Interrupt Detection with Auto-Prompt Resume
-13379 11:43a ⚖️ Daemon Feature Proposed — Session Interrupt Detection with Auto-Resume Prompt
-13380 11:44a ⚖️ Interrupt Detection Daemon Proposed for Agent Queue System
-13381 " ⚖️ Interrupt Detection Daemon Proposed for Agent Queue System
-13382 " ⚖️ Interrupt Detection Daemon Proposed for Agent Queue System
-13383 11:45a 🔴 Session Name Shell Injection Fixed — `appendSessionName` Now Shell-Quotes Titles
-13384 " 🔴 CLAUDE_CODE_CHILD_SESSION Env Stripping Expanded — Transcript Persistence Now Reliable
-13385 " 🔴 `hasChildProcesses` Made Async — Event Loop No Longer Blocked on `pgrep`
-13386 " 🟣 Interruption Detector — PTY Scans for Transient Failure Banners (529, 5xx, Rate Limit)
-13387 " 🟣 Resume Command Shortened When Transcript Verified on Disk
-13388 " 🔴 Hookless CLI Model Field Fixed — No Longer Stores Full Launch Command as Model
-13389 " 🟣 Server Logger Now Persists to Disk with Rotation — Packaged Electron Logs Survive
-13390 " ✅ Build Toolchain Upgraded — Node 22, `@electron/rebuild` 4.2.0, `node-gyp` 12.4.0
-13392 11:48a ✅ agent-manager — Large Multi-Fix Branch Staged for Code Review (56 Files, ~1,929 Insertions)
-13395 11:50a ✅ Gemini Hook Support Deprecated — Uninstall Cleanup Added to Hook Installer
-13396 " 🔴 Approval Timer — `isAgentBusyOutput` Guard Added for In-Process Thinking
-13397 " 🔵 Queue Scheduler `pickNext` Priority Order — 5 Tiers Confirmed
-13398 11:51a 🔵 Queue Store — `DEFAULT_AUTOMATION` Stable Reference Prevents Infinite Re-Renders
-13399 " ✅ Gemini CLI Removed from `commandIndex.ts` — Zero Remaining References
-13400 " 🔵 Queue DnD Probe Script — 5-Config Matrix Tests `setDragImage` / `.dragging` / Re-render
-13401 11:52a ✅ Gemini Removed from `floatingSessionSpawner.ts` — TypeScript Typecheck Passes Clean
-13402 " 🟣 Auto-Resume Watchdog — UI Toggle + Scheduler Integration in Queue System
-13403 " ⚖️ Gemini Event Constants Retained in `EVENT_TYPES` — Backward-Compat for Legacy Hook Data
-13404 11:53a ✅ Gemini CLI Deprecation — Server-Side Removal Completed Across 3 Files
-13405 11:54a 🔵 Frontend Gemini Surface Map — 13 Component Files Still Reference Gemini
-13406 " ✅ Gemini Deprecation — Frontend Component Cleanup Still Pending After Lib/Store Pass
-13408 11:55a ⚖️ Gemini Deprecation Strategy — Phased Removal with Backward-Compat Stubs
-13410 11:59a 🔴 settingsStore test: codex default volume corrected from 0.7 to 0.5
-13411 " 🔴 extractModelFromCommand regression — returns "" for ANSI-contaminated strings with spaces
-13412 " 🔄 Gemini test cases removed from floatingSpawnerCli and constants test files
-13414 12:02p 🔵 Kokoro TTS Click-to-Speak Debug Investigation — Build Audit
-13415 12:03p ✅ Feature Docs Updated — Gemini Deprecation Phase 1
-13416 12:04p ✅ Feature Docs Purged of Gemini References — 9 Files + Manifest Updated
-13417 12:05p 🔵 Kokoro TTS Worker Runtime Diagnostic — Worker Functional, No COOP/COEP Headers
-13421 12:06p ✅ update-feature-docs Session Complete — Gemini Purge Across Docs and Manifest
-13422 12:07p ✅ Gemini Deprecation Docs — Final Sweep, AGENTS.md Cleaned, Audit Report Written
-13423 " 🔵 Kokoro TTS Worker Fully Functional — UI Click Path Is the Bug, Not the Worker
-S1914 Kokoro TTS Worker Fully Functional — UI Click Path Is the Bug, Not the Worker (Jul 31 at 12:07 PM)
+S1914 Kokoro TTS Worker Fully Functional — UI Click Path Is the Bug, Not the Worker (Jul 31 at 11:44 AM)
+S1918 agent-manager v2.10.40 — Built and Packaged with interruptionDetector, crashLogger, and Session Name Quoting Fix (Jul 31 at 12:07 PM)
+S1919 Local TTS Feature — WebGPU vs WASM performance investigation and review-first plan for on-device text-to-speech (Jul 31 at 2:58 PM)
+### Aug 1, 2026
+13645 11:59a 🔵 agent-manager Font Architecture — JetBrains Mono Primary, Share Tech Mono in 3D Components
+13646 12:00p 🟣 Windows XP Theme — New UI Theme Requested via Screenshot Reference
+13647 12:01p 🔴 TexViewer Font Override Fix for Windows XP Theme
+13648 " 🟣 Windows XP Theme Added to agent-manager UI via URL Query Param
+13649 12:02p 🔵 Windows XP Theme Renders Without Console Errors; Settings Button Functional
+13650 12:04p 🔵 Windows XP Theme — Full Theme Swatch List + Settings Panel Visual Verified
+13651 " 🔴 Windows XP 3D Theme — Lighting Overexposure Fix for Bliss Grass Colors
+13652 12:05p 🔵 Windows XP Theme Verified via Playwright Screenshot After Color Fix
+13653 12:06p 🟣 Windows XP Theme — CSS Font Stack Verified via Playwright
+13654 " 🟣 Windows XP Theme — New UI Theme Requested via Screenshot Reference
+13655 12:07p 🟣 Windows XP Theme Added to agent-manager
+13656 " 🔵 Windows XP Theme Files — Feature Doc Mapping Audit
+13657 12:08p 🟣 Windows XP Theme — New UI Theme Requested via Screenshot Reference
+13658 " 🟣 Windows XP Theme Added to agent-manager — Luna Palette + Font + Chrome Override
+13659 12:09p 🟣 Windows XP Style Theme — Addition Requested via Image Reference
+13660 12:10p 🟣 Windows XP (Luna) Theme Added to agent-manager
+13661 " 🟣 Windows XP Theme Added — Font Override Architecture for TexViewer Compatibility
+13662 12:13p 🟣 Windows XP Theme Request Initiated — Agent Manager UI
+13663 12:14p 🔵 agent-manager — Hardcoded #0a0a1a Dark Backgrounds Pre-Date Theme Application
+13664 " ✅ agent-manager Default Theme Changed from command-center to windows-xp
+13665 12:15p 🔴 Flash-of-Dark-Content Fixed — Pre-Theme Paint Sites Updated for Windows XP Default
+13666 12:16p 🟣 Windows XP Theme — Build Verification + First-Run Harness Mode
+13667 12:17p 🔵 Windows XP Theme — Runtime CSS Variables and Font Verified via Playwright
+13668 12:18p 🟣 Windows XP Theme Addition — New UI theme styled after Windows XP added to agent-manager
+13669 12:20p 🟣 Windows XP Theme Addition — New UI theme styled after Windows XP added to agent-manager
+13670 12:22p 🟣 Windows XP Theme Addition — New UI theme styled after Windows XP added to agent-manager
+13671 12:24p 🔵 agent-manager Feature Doc Manifest — index.html Has No Mapped Feature Doc
+13672 12:26p 🟣 Windows XP Theme Addition — User Request to Add XP-Style UI Theme
+13673 12:29p 🟣 Windows XP Theme Addition — Final Verification Results
+13674 12:30p 🔵 firstRunFlow.test.tsx — Two Flaky Tests Timing Out After XP Theme Addition
+13675 12:31p 🟣 Windows XP Theme Addition — New UI theme styled after Windows XP added to agent-manager
+13676 12:32p 🔵 XP Theme WIP Stashed — Regression Tests Verified Before Re-Apply
+13677 12:36p 🟣 Windows XP Theme Addition — New UI theme styled after Windows XP added to agent-manager
+13678 12:41p 🔵 agent-manager Z-Index Layer Map — Queue Move Picker Investigation
+13679 " 🔵 Queue Items Not Rendering in Harness — IndexedDB Seed Version Mismatch
+13680 12:42p 🔵 Queue Panel Toggle Behavior in Harness — Zero-Width Textareas After Expand
+13681 12:43p 🔵 Queue ADD Button Fails in Static Harness — API Write Blocked by Stub
+13682 12:46p 🔵 Queue Move Action Root Cause — z-index 50 Buried Behind Detail Panel at 100
+13683 " 🔴 Queue Move Picker z-index Fixed from 50 → 10050 — MOVE Action Now Works
+13684 12:47p ✅ Queue Move Picker Fix Verified in Production Build
+13685 12:51p ✅ Post-Fix Full Verification — Typecheck Clean, Tests 1541/1548 Pass
+13686 12:52p 🔴 Queue MOVE Picker Fix Committed — dd20c77
+13687 12:57p ✅ update-feature-docs Skill Invoked After Windows XP Theme Addition
+13688 " 🔵 update-feature-docs Audit — File-to-Doc Mapping with 3 Unmapped Files
+13690 12:58p 🔵 Root index.ts is a Stale Orphaned Copy of server/index.ts
+13691 " 🔵 update-feature-docs Session Interrupted — Partial Audit Complete
+13692 12:59p 🔵 update-feature-docs — Session Awaiting Tool Execution Data
+13693 1:00p 🔵 update-feature-docs Skill — Repeated Interruptions, No Doc Writes Completed
+13694 1:01p 🔵 update-feature-docs — No New Tool Outputs in Latest Continuation
+S1931 User said "hi" — session status check after prior work on agent-manager app (Aug 1 at 2:54 PM)
+13723 8:11p 🔵 agent-manager Product Identity — Name, Version, and Purpose Confirmed
 
-Access 634k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 1799k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

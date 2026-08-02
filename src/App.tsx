@@ -156,7 +156,7 @@ function Dashboard({ token }: { token: string | null }) {
         <Routes>
           {/* Standalone route — no AppLayout chrome */}
           <Route path="/project-browser" element={
-            <Suspense fallback={<div style={{ padding: '2rem', color: '#8888aa', background: '#0a0a1a', height: '100vh' }}>Loading...</div>}>
+            <Suspense fallback={<div style={{ padding: '2rem', color: 'var(--text-secondary)', background: 'var(--bg-primary)', height: '100vh' }}>Loading...</div>}>
               <ProjectBrowserView />
             </Suspense>
           } />
@@ -187,7 +187,7 @@ function AuthGate() {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0a0a1a', color: '#8888aa', fontFamily: "'JetBrains Mono', monospace" }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg-primary)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
         Connecting…
       </div>
     );
@@ -216,7 +216,7 @@ export default function App() {
     return (
       <>
         <TitleBar />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0a0a1a', color: '#8888aa', fontFamily: "'JetBrains Mono', monospace" }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg-primary)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
           Loading...
         </div>
       </>
