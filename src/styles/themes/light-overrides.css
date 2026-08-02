@@ -4,7 +4,8 @@
 /* Light themes: soften scanline overlay */
 body[data-theme="light"]::after,
 body[data-theme="warm"]::after,
-body[data-theme="blonde"]::after {
+body[data-theme="blonde"]::after,
+body[data-theme="windows-xp"]::after {
   background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.01) 2px, rgba(0,0,0,0.01) 4px);
 }
 

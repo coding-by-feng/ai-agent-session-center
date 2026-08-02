@@ -149,6 +149,30 @@
 .tab:hover { color: var(--text-secondary); }
 .tab.active { color: var(--accent-cyan); border-bottom-color: var(--accent-cyan); }
 
+/* Count badge on the NOTES / QUEUE tabs — same accent pill as the session
+   strip's queue-hint badge, so a count reads the same wherever it appears.
+   Accent-coloured rather than `inherit` on purpose: the point is to be legible
+   from a *different* tab. `letter-spacing: normal` cancels the tab's 1px
+   tracking, which otherwise pads a lone digit off-centre. Hidden at 0 by the
+   component (no "0" chip). */
+.tabCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: normal;
+  line-height: 1.6;
+  vertical-align: middle;
+  color: var(--accent-cyan, #00e5ff);
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 16%, transparent);
+}
+
 /* ---- Split toggle icon on PROJECT tab ---- */
 
 .splitToggle {
@@ -460,6 +484,156 @@
 .noteDelete { background: none; border: none; color: var(--accent-red); cursor: pointer; font-size: 11px; opacity: 0.6; font-family: var(--font-mono); }
 .noteDelete:hover { opacity: 1; }
 .noteText { font-size: 12px; color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap; }
+
+/* ---- Note editor (shared by the compose box and in-place edit) ---- */
+
+.noteEditor { display: flex; flex-direction: column; gap: 6px; }
+
+.noteEditorTabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.noteEditorTab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.noteEditorTab:hover:not(:disabled) { color: var(--text-secondary); }
+.noteEditorTab:disabled { opacity: 0.4; cursor: default; }
+.noteEditorTabActive { color: var(--accent-cyan); border-bottom-color: var(--accent-cyan); }
+/* Right-aligned, and never a click target — it is a hint, not a button. */
+.noteEditorHint {
+  margin-left: auto;
+  padding-right: 4px;
+  font-size: 9px;
+  color: var(--text-dim);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* Drop target feedback while a file is dragged over the textarea. */
+.noteTextareaDrop {
+  border-color: var(--accent-cyan);
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 8%, var(--bg-card));
+}
+
+.notePreview {
+  min-height: 80px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 10px;
+  background: var(--bg-card);
+  border: 1px dashed var(--border-accent);
+  border-radius: 6px;
+}
+
+.noteEditorActions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.noteEditorActions .saveNote { margin-top: 0; }
+.noteUploading { margin-right: auto; font-size: 9px; color: var(--accent-cyan); }
+
+.noteActions { display: inline-flex; align-items: center; gap: 10px; }
+.noteAction {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  opacity: 0.7;
+}
+.noteAction:hover { color: var(--accent-cyan); opacity: 1; }
+.noteEdited { opacity: 0.75; font-style: italic; }
+
+/* ---- Rendered note body (Markdown) ---- */
+
+.noteBody { font-size: 12px; color: var(--text-secondary); line-height: 1.65; }
+.noteBody > :first-child { margin-top: 0; }
+.noteBody > :last-child { margin-bottom: 0; }
+.noteBody p { margin: 0 0 8px; }
+.noteBody h1, .noteBody h2, .noteBody h3, .noteBody h4 {
+  margin: 14px 0 6px;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+.noteBody h1 { font-size: 16px; }
+.noteBody h2 { font-size: 14px; }
+.noteBody h3 { font-size: 13px; }
+.noteBody h4 { font-size: 12px; }
+.noteBody ul, .noteBody ol { margin: 0 0 8px; padding-left: 20px; }
+.noteBody li { margin: 2px 0; }
+/* GFM task lists: the checkbox is state, not a control — the note text is. */
+.noteBody li input[type='checkbox'] { margin-right: 6px; pointer-events: none; }
+.noteBody blockquote {
+  margin: 8px 0;
+  padding: 2px 0 2px 10px;
+  border-left: 3px solid var(--border-accent-strong);
+  color: var(--text-dim);
+}
+.noteBody a { color: var(--accent-cyan); }
+.noteBody hr { border: none; border-top: 1px solid var(--border-subtle); margin: 12px 0; }
+
+/* Inline code only. `:not(pre) >` is load-bearing: a plain `.noteBody code`
+   rule (0-1-1) outranks highlight.js's `.hljs` (0-1-0), so it silently
+   repaints every fenced block with the inline background and leaves hljs's
+   light foreground unreadable on any light theme. */
+.noteBody :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--bg-subtle-strong);
+}
+.noteBody pre {
+  margin: 0 0 8px;
+  border-radius: 6px;
+  /* Its own scrollbar: a long line must not widen the note card, which sits
+     inside .tabScroll and would drag the whole tab sideways. */
+  overflow-x: auto;
+  max-width: 100%;
+}
+/* Padding and colours come from the highlight.js theme, which paints them on
+   the `code.hljs` element. Resetting `background` here (the obvious-looking
+   companion to the inline-code rule above) leaves hljs's light foreground on
+   the card's own background — unreadable in every light theme. */
+.noteBody pre code { font-size: 11px; border-radius: 6px; }
+
+/* Same reasoning as pre: wide tables scroll inside the card, not the panel. */
+.noteTableWrap { overflow-x: auto; max-width: 100%; margin: 0 0 8px; }
+.noteBody table { border-collapse: collapse; font-size: 11px; }
+.noteBody th, .noteBody td {
+  border: 1px solid var(--border-subtle);
+  padding: 4px 8px;
+  text-align: left;
+}
+.noteBody th { background: var(--bg-subtle); color: var(--text-primary); }
+
+.noteImageLink { display: inline-block; max-width: 100%; }
+.noteImage {
+  display: block;
+  max-width: 100%;
+  max-height: 340px;
+  height: auto;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+}
+.noteVideo {
+  display: block;
+  max-width: 100%;
+  max-height: 340px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: #000;
+}
 
 /* Summary */
 .summaryText { padding: 16px; font-size: 12px; line-height: 1.7; color: var(--text-primary); white-space: pre-wrap; word-wrap: break-word; }

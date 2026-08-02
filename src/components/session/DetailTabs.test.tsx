@@ -3,6 +3,8 @@ import { render, screen, fireEvent } from '@testing-library/react';
 
 import DetailTabs from './DetailTabs';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useNotesStore } from '@/stores/notesStore';
+import { useQueueStore } from '@/stores/queueStore';
 
 describe('DetailTabs', () => {
   const defaultProps = {
@@ -136,5 +138,111 @@ describe('DetailTabs — open Project in a native window', () => {
 
     expect(openProjectWindow).not.toHaveBeenCalled();
     expect(openSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('DetailTabs — NOTES / QUEUE count badges', () => {
+  const defaultProps = {
+    terminalContent: <div>Terminal Content</div>,
+    promptsContent: <div>Prompts Content</div>,
+    aiPopupsContent: <div>AI Popups Content</div>,
+    projectContent: <div>Project Content</div>,
+    notesContent: <div>Notes Content</div>,
+    queueContent: <div>Queue Content</div>,
+  };
+
+  const tabText = (tabId: string) =>
+    document.querySelector(`[data-tab="${tabId}"]`)?.textContent ?? '';
+
+  const seedNotes = (sessionId: string, count: number) => {
+    useNotesStore.setState({
+      notes: new Map([[sessionId, Array.from({ length: count }, (_, i) => ({
+        id: i + 1, sessionId, text: `n${i}`, createdAt: i, updatedAt: i,
+      }))]]),
+    });
+  };
+
+  const seedQueue = (sessionId: string, count: number) => {
+    useQueueStore.setState({
+      queues: new Map([[sessionId, Array.from({ length: count }, (_, i) => ({
+        id: i + 1, sessionId, text: `p${i}`, position: i, createdAt: i,
+      }))]]),
+    });
+  };
+
+  beforeEach(() => {
+    try { localStorage.clear(); } catch { /* ignore */ }
+    useNotesStore.setState({ notes: new Map() });
+    useQueueStore.setState({ queues: new Map() });
+    // The tab bar warms the notes cache on mount; keep it off the network and
+    // make it a no-op so it can't clobber seeded state mid-assertion.
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, json: async () => ({}) })));
+  });
+
+  afterEach(() => {
+    useNotesStore.setState({ notes: new Map() });
+    useQueueStore.setState({ queues: new Map() });
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('badges the NOTES and QUEUE tabs with their counts', () => {
+    seedNotes('s1', 3);
+    seedQueue('s1', 2);
+
+    render(<DetailTabs {...defaultProps} sessionId="s1" />);
+
+    expect(tabText('notes')).toBe('NOTES3');
+    expect(tabText('queue')).toBe('QUEUE2');
+  });
+
+  it('shows no chip when a tab is empty', () => {
+    seedNotes('s1', 0);
+    seedQueue('s1', 1);
+
+    render(<DetailTabs {...defaultProps} sessionId="s1" />);
+
+    expect(tabText('notes')).toBe('NOTES');
+    expect(tabText('queue')).toBe('QUEUE1');
+  });
+
+  it('counts only the displayed session', () => {
+    seedNotes('other', 5);
+    seedQueue('other', 5);
+
+    render(<DetailTabs {...defaultProps} sessionId="s1" />);
+
+    expect(tabText('notes')).toBe('NOTES');
+    expect(tabText('queue')).toBe('QUEUE');
+  });
+
+  it('caps the badge at 99+ so a long count cannot stretch the tab bar', () => {
+    seedQueue('s1', 120);
+
+    render(<DetailTabs {...defaultProps} sessionId="s1" />);
+
+    expect(tabText('queue')).toBe('QUEUE99+');
+  });
+
+  it('labels the count for screen readers instead of a bare digit', () => {
+    seedNotes('s1', 1);
+    seedQueue('s1', 4);
+
+    render(<DetailTabs {...defaultProps} sessionId="s1" />);
+
+    expect(screen.getByLabelText('1 note')).toBeInTheDocument();
+    expect(screen.getByLabelText('4 queued prompts')).toBeInTheDocument();
+  });
+
+  it('warms the notes cache on mount so the badge is right before NOTES is opened', () => {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(url);
+      return { ok: true, json: async () => [] };
+    }));
+
+    render(<DetailTabs {...defaultProps} sessionId="s1" />);
+
+    expect(urls).toContain('/api/db/sessions/s1/notes');
   });
 });

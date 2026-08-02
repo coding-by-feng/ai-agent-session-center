@@ -19,6 +19,7 @@
 @import './themes/light.css';
 @import './themes/warm.css';
 @import './themes/blonde.css';
+@import './themes/windows-xp.css';
 @import './themes/light-overrides.css';
 
 /* Find-in-file match highlights (global class names used by FindInFileBar) */

@@ -409,6 +409,50 @@ const BLONDE: Scene3DTheme = {
   coffeeFurniture: '#8a6a38',
 };
 
+// "Bliss": the XP default wallpaper — green hills under a bright blue sky,
+// with ButtonFace-tan furniture and Luna-blue accent strips.
+// Base colours are deliberately darker than the intended on-screen result: the
+// light-theme lighting rig multiplies them up. Tuned so the floor lands on
+// Bliss grass rather than the pale lime a light-theme intensity stack produces.
+const WINDOWS_XP: Scene3DTheme = {
+  background: '#4a90d9',
+  fogDensity: 0.0035,
+  floor: '#4a7a1e',
+  roomFloor: '#588f26',
+  borderGlow: '#0a5fd6',
+  grid1: '#ffffff',
+  grid2: '#0a5fd6',
+  wall: '#8cbde8',
+  wallOpacity: 0.6,
+  stripPrimary: '#0a5fd6',
+  stripSecondary: '#ff9a00',
+  desk: '#c4bfa8',
+  monitorFrame: '#9c988a',
+  chair: '#a8a393',
+  particle1: '#ffffff',
+  particle2: '#0a5fd6',
+  trace3: '#2e7d27',
+  stars: '#ffffff',
+  ambientColor: '#cfe4ff',
+  ambientIntensity: 4,
+  dirColor: '#fffdf5',
+  dirIntensity: 3,
+  fillColor: '#d8ecff',
+  fillIntensity: 1.5,
+  pointLight1: '#0a5fd6',
+  pointLight2: '#7cbf3c',
+  pointLight3: '#ff9a00',
+  hemisphereUp: '#a8d4ff',
+  hemisphereDown: '#6da832',
+  hemisphereIntensity: 2.5,
+  sconceColor: '#fff8e0',
+  roomLight1: '#ffffff',
+  roomLight2: '#e8f2ff',
+  coffeeFloor: '#bdb8a4',
+  coffeeAccent: '#0a5fd6',
+  coffeeFurniture: '#8a7a5c',
+};
+
 const SCENE_THEMES: Record<ThemeName, Scene3DTheme> = {
   'command-center': COMMAND_CENTER,
   cyberpunk: CYBERPUNK,
@@ -419,6 +463,7 @@ const SCENE_THEMES: Record<ThemeName, Scene3DTheme> = {
   monokai: MONOKAI,
   light: LIGHT,
   blonde: BLONDE,
+  'windows-xp': WINDOWS_XP,
 };
 
 export function getScene3DTheme(themeName: ThemeName): Scene3DTheme {

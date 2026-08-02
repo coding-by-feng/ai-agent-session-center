@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import QueueMovePicker, { MOVE_TRIGGER_ATTR, type QueueMoveTarget } from './QueueMovePicker';
 import { computeMovePickerPosition } from '@/lib/queueMovePlacement';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const TARGETS: QueueMoveTarget[] = [
   { id: 'sess-aaaa1111', projectName: 'thesis', title: 'Verification' },
@@ -246,5 +248,40 @@ describe('computeMovePickerPosition', () => {
     const b = computeMovePickerPosition({ top: 400, bottom: 420, right: 600 }, MENU, VIEWPORT);
     expect(a).toEqual(b);
     expect(a.top).toBe(422);
+  });
+
+  // Portaling to <body> fixed the clipping but created a second, subtler bug:
+  // the menu stopped being a descendant of the detail panel and became its
+  // SIBLING in the root stacking context. `.queueMovePicker` kept the z-index it
+  // had as an in-panel child (50), which is below `.detailOverlay`'s 100 — so the
+  // menu rendered every time, fully placed, and was painted behind the panel.
+  // Clicking MOVE looked like a no-op.
+  //
+  // Vitest doesn't apply CSS modules, and the two rules live in different files
+  // that cannot reference each other, so no linter or render test can catch a
+  // regression here. Assert the source text instead — same approach as
+  // test/sessionNameQuoting.test.ts and test/ptyRing.test.ts.
+  describe('stacking against the session detail panel', () => {
+    const readZIndex = (file: string, cls: string): number => {
+      const css = readFileSync(resolve(__dirname, '../../styles/modules', file), 'utf8');
+      const block = new RegExp(`\\.${cls}\\s*\\{([^}]*)\\}`).exec(css);
+      if (!block) throw new Error(`.${cls} not found in ${file}`);
+      const z = /z-index:\s*(\d+)/.exec(block[1]);
+      if (!z) throw new Error(`.${cls} in ${file} declares no z-index`);
+      return Number(z[1]);
+    };
+
+    it('renders above the detail panel it is opened from', () => {
+      const picker = readZIndex('Terminal.module.css', 'queueMovePicker');
+      const panel = readZIndex('DetailPanel.module.css', 'detailOverlay');
+      expect(picker).toBeGreaterThan(panel);
+    });
+
+    it('sits in the same band as the other <body>-portaled overlays', () => {
+      // Tooltip 10000 / SelectionPopup 10050 / PromptSnippetPicker 10150. Being
+      // below this band means something full-screen (e.g. the terminal
+      // fullscreen overlay, also 10000) can bury the menu.
+      expect(readZIndex('Terminal.module.css', 'queueMovePicker')).toBeGreaterThanOrEqual(10000);
+    });
   });
 });

@@ -41,7 +41,10 @@ async function createWindow(): Promise<BrowserWindow> {
     minWidth:  firstRun ? 640  : 900,
     minHeight: firstRun ? 520  : 600,
     resizable: true,
-    backgroundColor: '#0a0a1a',
+    // Painted before any web content loads, so it must match the default
+    // theme (`defaultSettings.themeName` / the data-theme on index.html's
+    // <body>) or every window open flashes dark before the UI settles.
+    backgroundColor: '#ece9d8',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -165,7 +168,8 @@ function registerPopoutHandler() {
     const w = new BrowserWindow({
       x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
       minWidth: 480, minHeight: 320,
-      backgroundColor: '#0a0a1a',
+      // Must match the default theme — see the main window above.
+      backgroundColor: '#ece9d8',
       title: opts.label || 'Floating terminal',
       webPreferences: {
         preload: path.join(__dirname, 'preload.js'),
@@ -239,7 +243,8 @@ function registerProjectWindowHandler() {
     const w = new BrowserWindow({
       x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
       minWidth: 480, minHeight: 320,
-      backgroundColor: '#0a0a1a',
+      // Must match the default theme — see the main window above.
+      backgroundColor: '#ece9d8',
       title: opts.label || 'Project',
       webPreferences: {
         preload: path.join(__dirname, 'preload.js'),

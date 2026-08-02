@@ -119,6 +119,21 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_notes_session_id ON notes(session_id);
 
+  -- Media embedded in notes. Only metadata lives here; the bytes are files
+  -- under <data dir>/note-media/<session_id>/<id>.<ext> so a 40 MB screen
+  -- recording never becomes a 40 MB TEXT row that every notes fetch reloads.
+  CREATE TABLE IF NOT EXISTS note_media (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    name TEXT,
+    mime TEXT NOT NULL,
+    ext TEXT NOT NULL,
+    bytes INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_note_media_session_id ON note_media(session_id);
+  CREATE INDEX IF NOT EXISTS idx_note_media_created_at ON note_media(created_at);
+
   CREATE TABLE IF NOT EXISTS agenda_tasks (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
@@ -245,7 +260,24 @@ const stmts = {
   getToolCallsBySession: db.prepare('SELECT * FROM tool_calls WHERE session_id = ? ORDER BY timestamp ASC'),
   getEventsBySession: db.prepare('SELECT * FROM events WHERE session_id = ? ORDER BY timestamp ASC'),
   getNotesBySession: db.prepare('SELECT * FROM notes WHERE session_id = ? ORDER BY created_at DESC'),
+  getNoteById: db.prepare('SELECT * FROM notes WHERE id = ?'),
+  updateNoteText: db.prepare('UPDATE notes SET text = ?, updated_at = ? WHERE id = ?'),
   deleteNote: db.prepare('DELETE FROM notes WHERE id = ?'),
+
+  insertNoteMedia: db.prepare(`
+    INSERT INTO note_media (id, session_id, name, mime, ext, bytes, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `),
+  getNoteMediaById: db.prepare('SELECT * FROM note_media WHERE id = ?'),
+  getNoteMediaOlderThan: db.prepare('SELECT * FROM note_media WHERE created_at < ?'),
+  getNoteMediaBySession: db.prepare('SELECT * FROM note_media WHERE session_id = ?'),
+  deleteNoteMediaById: db.prepare('DELETE FROM note_media WHERE id = ?'),
+  // Reference check for the orphan sweep. Deliberately NOT session-scoped: note
+  // text can be copy-pasted between sessions, and deleting media still shown
+  // somewhere is worse than keeping a few extra bytes.
+  countNotesReferencing: db.prepare(
+    "SELECT COUNT(*) AS n FROM notes WHERE text LIKE '%' || ? || '%'",
+  ),
 
   // Cascade delete helpers
   deletePromptsBySession: db.prepare('DELETE FROM prompts WHERE session_id = ?'),
@@ -431,8 +463,57 @@ export function addNote(sessionId: string, text: string): DbNoteRow {
   return { id: Number(info.lastInsertRowid), session_id: sessionId, text, created_at: now, updated_at: now };
 }
 
+/** Update a note's text, bumping `updated_at`. Returns null if the id is unknown. */
+export function updateNote(id: number, text: string): DbNoteRow | null {
+  const now = Date.now();
+  const info = stmts.updateNoteText.run(text, now, id);
+  if (info.changes === 0) return null;
+  return (stmts.getNoteById.get(id) as DbNoteRow | undefined) ?? null;
+}
+
 export function deleteNote(id: number): void {
   stmts.deleteNote.run(id);
+}
+
+// ---- Note media (metadata only — bytes live on disk, see noteMedia.ts) ----
+
+export interface DbNoteMediaRow {
+  id: string;
+  session_id: string;
+  name: string | null;
+  mime: string;
+  ext: string;
+  bytes: number;
+  created_at: number;
+}
+
+export function addNoteMedia(row: DbNoteMediaRow): DbNoteMediaRow {
+  stmts.insertNoteMedia.run(
+    row.id, row.session_id, row.name, row.mime, row.ext, row.bytes, row.created_at,
+  );
+  return row;
+}
+
+export function getNoteMedia(id: string): DbNoteMediaRow | null {
+  return (stmts.getNoteMediaById.get(id) as DbNoteMediaRow | undefined) ?? null;
+}
+
+export function getNoteMediaOlderThan(cutoff: number): DbNoteMediaRow[] {
+  return stmts.getNoteMediaOlderThan.all(cutoff) as DbNoteMediaRow[];
+}
+
+export function getNoteMediaBySession(sessionId: string): DbNoteMediaRow[] {
+  return stmts.getNoteMediaBySession.all(sessionId) as DbNoteMediaRow[];
+}
+
+export function deleteNoteMediaRow(id: string): void {
+  stmts.deleteNoteMediaById.run(id);
+}
+
+/** True when any note's text still embeds this media id. */
+export function isNoteMediaReferenced(id: string): boolean {
+  const row = stmts.countNotesReferencing.get(id) as { n: number } | undefined;
+  return (row?.n ?? 0) > 0;
 }
 
 // ---- Search ----
