@@ -12,7 +12,7 @@
 
 <img src="static/screenshot-dashboard.png" alt="3D cyberdrome with active agent sessions across project rooms" width="100%">
 
-**Jump to:** [Install](#install) · [Why power users keep it open](#why-power-users-keep-it-open) · [What's inside](#whats-inside) · [Under the hood](#under-the-hood) · [Commands](#commands) · [Troubleshooting](#troubleshooting) · [FAQ](#faq)
+**Jump to:** [Videos](#product-videos) · [Install](#install) · [Why power users keep it open](#why-power-users-keep-it-open) · [What's inside](#whats-inside) · [Under the hood](#under-the-hood) · [Commands](#commands) · [Troubleshooting](#troubleshooting) · [FAQ](#faq)
 
 > You're running Claude Code in one terminal and Codex in another. Which one is **stuck waiting for approval**? Which one **finished** and needs your next prompt? Which one is **burning tokens on a runaway loop**? Agent Session Center watches all of them at once and surfaces the one that needs you — so you stop tab-juggling and only step in when it matters.
 
@@ -46,9 +46,24 @@ A control plane for serious multi-agent work — built to be left open all day.
 
 ## See it
 
-### Walkthrough video
+### Product videos
 
-https://github.com/user-attachments/assets/004ee6f9-942c-44c2-a4c5-d971fa0e824b
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="https://github.com/coding-by-feng/ai-agent-session-center/releases/download/v2.10.40/aasc-product-introduction.mp4"><img src="static/videos/aasc-product-introduction-thumbnail.jpg" alt="AASC product introduction video showing the 3D session dashboard" width="100%"></a>
+      <br><strong>58-second product introduction</strong>
+      <br>A quick tour of session monitoring, terminal control, project files, notes, queues, and contextual AI actions.
+      <br><a href="https://github.com/coding-by-feng/ai-agent-session-center/releases/download/v2.10.40/aasc-product-introduction.mp4">Watch or download the MP4</a>
+    </td>
+    <td width="50%" valign="top">
+      <a href="https://github.com/coding-by-feng/ai-agent-session-center/releases/download/v2.10.40/aasc-full-product-walkthrough.mp4"><img src="static/videos/aasc-full-product-walkthrough-thumbnail.jpg" alt="AASC full product walkthrough showing an agent terminal session" width="100%"></a>
+      <br><strong>Full product walkthrough</strong>
+      <br>A detailed demonstration of the new theme, session organization, terminals, project navigation, prompt queues, notes, conversation review, and AI popups.
+      <br><a href="https://github.com/coding-by-feng/ai-agent-session-center/releases/download/v2.10.40/aasc-full-product-walkthrough.mp4">Watch or download the MP4</a>
+    </td>
+  </tr>
+</table>
 
 ### Desktop
 
