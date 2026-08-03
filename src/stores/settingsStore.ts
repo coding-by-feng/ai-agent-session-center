@@ -344,7 +344,7 @@ const defaultSettings: SettingsData = {
   soundActions: {},
   movementActions: {},
   hookDensity: 'medium',
-  scene3dEnabled: true,
+  scene3dEnabled: false,
   toastEnabled: true,
   autoSendQueue: false,
   defaultTerminalTheme: 'auto',

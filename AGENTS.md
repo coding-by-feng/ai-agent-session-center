@@ -217,13 +217,13 @@ Check connected docs and tests when touching these contracts:
 <claude-mem-context>
 # Memory Context
 
-# [agent-manager] recent context, 2026-08-02 11:08pm GMT+12
+# [agent-manager] recent context, 2026-08-03 8:40pm GMT+12
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision
 Format: ID TIME TYPE TITLE
 Fetch details: get_observations([IDs]) | Search: mem-search skill
 
-Stats: 50 obs (18,922t read) | 1,798,599t work | 99% savings
+Stats: 50 obs (19,002t read) | 1,803,530t work | 99% savings
 
 ### Jul 30, 2026
 S1846 agent-manager Electron Distributable Built — v2.10.40 (Jul 30 at 1:17 PM)
@@ -237,8 +237,6 @@ S1914 Kokoro TTS Worker Fully Functional — UI Click Path Is the Bug, Not the W
 S1918 agent-manager v2.10.40 — Built and Packaged with interruptionDetector, crashLogger, and Session Name Quoting Fix (Jul 31 at 12:07 PM)
 S1919 Local TTS Feature — WebGPU vs WASM performance investigation and review-first plan for on-device text-to-speech (Jul 31 at 2:58 PM)
 ### Aug 1, 2026
-13645 11:59a 🔵 agent-manager Font Architecture — JetBrains Mono Primary, Share Tech Mono in 3D Components
-13646 12:00p 🟣 Windows XP Theme — New UI Theme Requested via Screenshot Reference
 13647 12:01p 🔴 TexViewer Font Override Fix for Windows XP Theme
 13648 " 🟣 Windows XP Theme Added to agent-manager UI via URL Query Param
 13649 12:02p 🔵 Windows XP Theme Renders Without Console Errors; Settings Button Functional
@@ -288,6 +286,9 @@ S1919 Local TTS Feature — WebGPU vs WASM performance investigation and review-
 13694 1:01p 🔵 update-feature-docs — No New Tool Outputs in Latest Continuation
 S1931 User said "hi" — session status check after prior work on agent-manager app (Aug 1 at 2:54 PM)
 13723 8:11p 🔵 agent-manager Product Identity — Name, Version, and Purpose Confirmed
+### Aug 3, 2026
+13781 8:33p 🔵 agent-manager 3D Scene Default — `scene3dEnabled: true` in settingsStore
+13782 " ✅ 3D Scene (Cyberdrome) Now Defaults to Disabled in agent-manager
 
-Access 1799k tokens of past work via get_observations([IDs]) or mem-search skill.
+Access 1804k tokens of past work via get_observations([IDs]) or mem-search skill.
 </claude-mem-context>

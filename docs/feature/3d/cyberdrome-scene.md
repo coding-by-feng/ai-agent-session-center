@@ -137,7 +137,7 @@ Sessions are rendered as robots only when `status !== 'ended'` AND `source === '
 ### Depended On By
 - [Views/Routing](../frontend/views-routing.md) -- LiveView renders CyberdromeScene
 - [Session Detail Panel](../frontend/session-detail-panel.md) -- robot/sidebar click triggers panel open (and restores it if minimized)
-- [Settings System](../frontend/settings-system.md) -- theme changes update scene visuals; `scene3dEnabled` toggle mounts/unmounts the scene
+- [Settings System](../frontend/settings-system.md) -- theme changes update scene visuals; `scene3dEnabled` toggle mounts/unmounts the scene. It defaults to **`false`** (`defaultSettings` in `settingsStore.ts`), so the whole scene — and its lazy Three.js chunk — is opt-in per install; a user who has never pressed the `3D Off` button in `SceneOverlay` sees `FlatView` instead.
 
 ### Shared Resources
 - Three.js Canvas (single instance, shared by all 3D components)
