@@ -74,17 +74,6 @@ A control plane for serious multi-agent work — built to be left open all day.
   </tr>
 </table>
 
-### Mobile
-
-<table>
-  <tr>
-    <td><img src="static/screenshot-mobile-home.png" alt="Mobile — 3D cyberdrome with session list" width="160"></td>
-    <td><img src="static/screenshot-mobile-terminal.png" alt="Mobile — terminal tab with live conversation" width="160"></td>
-    <td><img src="static/screenshot-mobile-project.png" alt="Mobile — project file browser" width="160"></td>
-    <td><img src="static/screenshot-mobile-history.png" alt="Mobile — session history with filters" width="160"></td>
-  </tr>
-</table>
-
 ---
 
 ## Install
