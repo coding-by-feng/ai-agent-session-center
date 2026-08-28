@@ -1,7 +1,10 @@
 import { useState, useCallback, useRef } from 'react';
 import { SettingsButton } from '@/components/settings/SettingsPanel';
+import DevicePresenceChip from './DevicePresenceChip';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
+import { useUiStore } from '@/stores/uiStore';
+import { useIsMobile } from '@/lib/platform';
 import { showToast } from '@/components/ui/ToastContainer';
 import {
   buildSnapshot,
@@ -200,6 +203,28 @@ function WorkspaceButtons() {
 // Header
 // ---------------------------------------------------------------------------
 
+/**
+ * Keyboard-shortcuts help. Moved here from NavBar, restyled from NavBar's
+ * `.shortcutsBtn` to the shared `.headerIconBtn` so it matches the rest of this
+ * cluster. The `?` glyph is text rather than an SVG (unlike its neighbours), so
+ * it needs `.headerIconGlyph` to set a font — `.headerIconBtn` only sizes `svg`.
+ * The title keeps the `(?)` hint: the key binding still works and shouldn't
+ * lose its affordance just because the button moved.
+ */
+function ShortcutsButton() {
+  const openModal = useUiStore((s) => s.openModal);
+  return (
+    <button
+      className={`${styles.headerIconBtn} ${styles.headerIconGlyph}`}
+      onClick={() => openModal('shortcuts')}
+      title="Keyboard shortcuts (?)"
+      aria-label="Keyboard shortcuts"
+    >
+      ?
+    </button>
+  );
+}
+
 function ExitButton() {
   if (!window.electronAPI) return null;
   return (
@@ -218,12 +243,34 @@ function ExitButton() {
 }
 
 export default function Header() {
+  // SIZE decision, not a capability one — a desktop browser keeps the full
+  // header. See src/lib/platform.ts.
+  const isMobile = useIsMobile();
   return (
     <header className={styles.header}>
       <div className={styles.title}>AI AGENT SESSION CENTER</div>
 
+      {/* All icon-only controls live in this one cluster. The `?` shortcuts
+          button and the device-presence chip moved here out of NavBar, which
+          keeps the route tabs from being pushed off-screen at narrow widths.
+          Order is deliberate: the newcomers go FIRST so settings and quit keep
+          their far-right corner positions (muscle memory), and the
+          destructive-ish Quit stays furthest from the buttons that just moved. */}
       <div className={styles.stats}>
-        <WorkspaceButtons />
+        <ShortcutsButton />
+        {/* Renders nothing unless a second device is connected — so this slot
+            collapses when you're on one device, nudging the icons to its right.
+            That shift was previously absorbed by NavBar's flex spacer. */}
+        <DevicePresenceChip />
+        {/* Workspace export/import is a desktop file-system workflow: it opens
+            OS file dialogs and writes snapshot files. UNMOUNTED rather than
+            CSS-hidden (see src/lib/platform.ts rule 3) because these buttons
+            carry their own menu state and handlers that would otherwise mount
+            and run on a phone for UI that can never be reached. */}
+        {!isMobile && <WorkspaceButtons />}
+        {/* Settings stays on mobile — deliberately: it is the only route to
+            theme, TTS and translation preferences, all of which do apply on a
+            phone. */}
         <SettingsButton />
         <ExitButton />
       </div>

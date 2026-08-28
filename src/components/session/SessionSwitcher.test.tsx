@@ -282,3 +282,75 @@ describe('SessionSwitcher — queue hint badge', () => {
     expect(screen.queryByLabelText(/queued prompt/)).not.toBeInTheDocument();
   });
 });
+
+/**
+ * Pin toggle — the header icon row's own pin button (distinct from the
+ * other-session tab cards' 📌 emoji .sessionTabPin further down), but the
+ * same togglePin store action. See SessionSwitcher.tsx's PinIcon block.
+ */
+describe('SessionSwitcher — pin toggle', () => {
+  const makeSession = (over: Partial<Session> = {}): Session => ({
+    sessionId: 's1',
+    title: 'AASC Promotion',
+    projectName: 'agent-manager',
+    projectPath: '/Users/me/agent-manager',
+    status: 'approval',
+    startedAt: Date.now(),
+    lastActivityAt: Date.now(),
+    ...over,
+  } as Session);
+
+  const renderSwitcher = (session: Session) =>
+    render(
+      <SessionSwitcher
+        currentSession={session}
+        sessions={new Map([[session.sessionId, session]])}
+        onSwitch={vi.fn()}
+      />,
+    );
+
+  // Same rationale as the remark block above: swap a fresh mock in per test
+  // rather than vi.spyOn(getState(), ...), which a Zustand set() would outlive.
+  const realTogglePin = useSessionStore.getState().togglePin;
+  let togglePin: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    togglePin = vi.fn();
+    useSessionStore.setState({ togglePin } as never);
+  });
+
+  afterEach(() => {
+    useSessionStore.setState({ sessions: new Map(), togglePin: realTogglePin } as never);
+    vi.restoreAllMocks();
+  });
+
+  it('offers a "Pin session" label when the session is not pinned', () => {
+    renderSwitcher(makeSession({ pinned: false }));
+    expect(screen.getByLabelText('Pin session')).toBeInTheDocument();
+  });
+
+  it('offers an "Unpin session" label when the session is pinned', () => {
+    renderSwitcher(makeSession({ pinned: true }));
+    expect(screen.getByLabelText('Unpin session')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Pin session')).not.toBeInTheDocument();
+  });
+
+  it('reflects pinned state via aria-pressed', () => {
+    renderSwitcher(makeSession({ pinned: true }));
+    expect(screen.getByLabelText('Unpin session')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('calls togglePin with the session id on click', () => {
+    renderSwitcher(makeSession({ pinned: false }));
+    fireEvent.click(screen.getByLabelText('Pin session'));
+    expect(togglePin).toHaveBeenCalledWith('s1');
+  });
+
+  it('does not open the rename editor on double-click (stopPropagation guard)', () => {
+    renderSwitcher(makeSession({ pinned: false }));
+    const btn = screen.getByLabelText('Pin session');
+    fireEvent.click(btn);
+    fireEvent.doubleClick(btn);
+    expect(screen.queryByLabelText('Session title')).not.toBeInTheDocument();
+  });
+});

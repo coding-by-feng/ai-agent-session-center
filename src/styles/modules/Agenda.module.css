@@ -539,3 +539,37 @@
 .cancelBtn:hover {
   border-color: var(--text-dim);
 }
+
+/* ---- Responsive ----------------------------------------------------------
+ * Added Mar 16 2026, after the mobile pass closed, so this view had no
+ * breakpoints: the 24px side padding plus wrapped filter selects left task
+ * titles roughly a third of a 390px screen wide.
+ */
+@media (max-width: 640px) {
+  .filterBar {
+    padding: 10px 14px;
+    gap: 8px;
+  }
+
+  .filterBar select {
+    min-width: 0;
+    flex: 1 1 auto;
+    font-size: 11px;
+  }
+
+  /* .taskList owns the list's horizontal inset; .groupHeader and .taskCard sit
+     inside it with no horizontal padding of their own, so this one rule moves
+     the whole list without breaking their alignment with each other. */
+  .taskList { padding-left: 14px; padding-right: 14px; }
+}
+
+@media (pointer: coarse) {
+  .filterBar select { min-height: 44px; }
+
+  /* A 16px checkbox is well under the 44px touch minimum, and mis-tapping it
+     silently completes a task. */
+  .checkbox {
+    width: 22px;
+    height: 22px;
+  }
+}

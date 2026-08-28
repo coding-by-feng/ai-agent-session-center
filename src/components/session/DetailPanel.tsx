@@ -33,6 +33,7 @@ import { detectCli } from '@/lib/cliDetect';
 import { isProjectEditing } from '@/lib/projectEditGuard';
 import { retainRecentProjects, isMostRecentProject } from '@/lib/mountedProjectsLru';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
+import { openTerminalPopupFallback } from '@/lib/popoutTerminalWindow';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 /**
@@ -94,11 +95,6 @@ function PoppedOutTerminalPlaceholder({ label, onFocus }: { label: string; onFoc
   );
 }
 
-/** True under Electron where native pop-out windows are available. */
-function canPopOutWindow(): boolean {
-  return typeof window !== 'undefined' && !!window.electronAPI?.openTerminalWindow;
-}
-
 const TerminalContent = memo(function TerminalContent({
   sessionId,
   terminalId,
@@ -126,21 +122,32 @@ const TerminalContent = memo(function TerminalContent({
   const isPoppedOut = !!terminalId && poppedOut.includes(terminalId);
   const handlePopOut = useCallback(() => {
     if (!terminalId) return;
-    const api = window.electronAPI;
-    if (!api?.openTerminalWindow) return;
     const sess = useSessionStore.getState().sessions.get(sessionId);
     const label = sess?.title ? `${sess.title} — terminal` : 'Terminal';
-    api.openTerminalWindow({ terminalId, originSessionId: sessionId, label })
-      .then((r) => {
-        if (r?.ok !== false) {
-          useFloatingSessionsStore.getState().setPoppedOut(terminalId, true);
-          // The in-app TerminalContainer unmounts to a placeholder; explicitly
-          // release its PTY-host subscription (unmount alone doesn't) so the
-          // popout window is the sole subscriber. No-op for WS terminals.
-          try { window.electronAPI?.unsubscribePty?.(terminalId); } catch { /* ignore */ }
-        }
-      })
-      .catch(() => {});
+    const api = typeof window !== 'undefined' ? window.electronAPI : undefined;
+    if (api?.openTerminalWindow) {
+      api.openTerminalWindow({ terminalId, originSessionId: sessionId, label })
+        .then((r) => {
+          if (r?.ok !== false) {
+            useFloatingSessionsStore.getState().setPoppedOut(terminalId, true);
+            // The in-app TerminalContainer unmounts to a placeholder; explicitly
+            // release its PTY-host subscription (unmount alone doesn't) so the
+            // popout window is the sole subscriber. No-op for WS terminals.
+            try { window.electronAPI?.unsubscribePty?.(terminalId); } catch { /* ignore */ }
+          }
+        })
+        .catch(() => {});
+      return;
+    }
+    // Under Electron with a stale preload, do nothing rather than let the
+    // window-open policy pop the system browser open on localhost — same
+    // reasoning as DetailTabs.openProjectWindow / FloatingTerminalPanel.
+    if (api) return;
+    // No reliable "window closed" signal outside Electron, so — unlike the
+    // branch above — this never calls setPoppedOut: the in-app terminal stays
+    // live and subscribed alongside the popup rather than showing a
+    // placeholder it could never un-show itself.
+    openTerminalPopupFallback({ terminalId, originSessionId: sessionId, label });
   }, [terminalId, sessionId]);
 
   const handleReconnect = useCallback(() => {
@@ -191,7 +198,7 @@ const TerminalContent = memo(function TerminalContent({
             onReconnect={canReconnect ? handleReconnect : undefined}
             onFork={isForkableCli ? handleFork : undefined}
             onClone={handleClone}
-            onPopOut={canPopOutWindow() && terminalId ? handlePopOut : undefined}
+            onPopOut={terminalId ? handlePopOut : undefined}
             bookmarkPortalTarget={bookmarkTarget}
             projectPath={projectPath}
             originSessionId={sessionId}
@@ -236,16 +243,22 @@ const OpsTerminalContent = memo(function OpsTerminalContent({
   const isPoppedOut = !!opsTerminalId && poppedOut.includes(opsTerminalId);
   const handlePopOut = useCallback(() => {
     if (!opsTerminalId) return;
-    const api = window.electronAPI;
-    if (!api?.openTerminalWindow) return;
-    api.openTerminalWindow({ terminalId: opsTerminalId, originSessionId: sessionId, label: 'Commands' })
-      .then((r) => {
-        if (r?.ok !== false) {
-          useFloatingSessionsStore.getState().setPoppedOut(opsTerminalId, true);
-          try { window.electronAPI?.unsubscribePty?.(opsTerminalId); } catch { /* ignore */ }
-        }
-      })
-      .catch(() => {});
+    const label = 'Commands';
+    const api = typeof window !== 'undefined' ? window.electronAPI : undefined;
+    if (api?.openTerminalWindow) {
+      api.openTerminalWindow({ terminalId: opsTerminalId, originSessionId: sessionId, label })
+        .then((r) => {
+          if (r?.ok !== false) {
+            useFloatingSessionsStore.getState().setPoppedOut(opsTerminalId, true);
+            try { window.electronAPI?.unsubscribePty?.(opsTerminalId); } catch { /* ignore */ }
+          }
+        })
+        .catch(() => {});
+      return;
+    }
+    // Same reasoning as the main-terminal handlePopOut above.
+    if (api) return;
+    openTerminalPopupFallback({ terminalId: opsTerminalId, originSessionId: sessionId, label });
   }, [opsTerminalId, sessionId]);
 
   const handleReconnect = useCallback(() => {
@@ -293,7 +306,7 @@ const OpsTerminalContent = memo(function OpsTerminalContent({
         ws={ws}
         showReconnect={false}
         onReconnect={handleReconnect}
-        onPopOut={canPopOutWindow() ? handlePopOut : undefined}
+        onPopOut={handlePopOut}
         projectPath={projectPath}
       />
     </div>
@@ -526,16 +539,26 @@ export default function DetailPanel() {
   // Close search when session changes
   useEffect(() => { closeSearch(); }, [selectedSessionId, closeSearch]);
 
-  // Compute match count (conversation tab only)
+  // What the CONVERSATION tab reports as matching, or null when that tab is not
+  // mounted. Reset below on tab change — DetailTabs renders only the active
+  // tab's content (`contentMap[effectiveTab]`), so a stale count would survive.
+  const [convMatchCount, setConvMatchCount] = useState<number | null>(null);
+
+  // Compute match count. The conversation view is authoritative when mounted:
+  // it highlights assistant/tool/event/system rows too, so counting
+  // promptHistory here reported e.g. "1/2" while 7 rows were lit. That count
+  // drives navigateMatch's modulo over the `.search-highlight` nodes, so a
+  // wrong number doesn't just misread — it makes ▲▼ skip real matches.
   const searchMatchCount = useMemo(() => {
     if (!displaySession || !searchQuery) return 0;
+    if (convMatchCount !== null) return convMatchCount;
     const q = searchQuery.toLowerCase();
     let count = 0;
     for (const p of displaySession.promptHistory ?? []) {
       if (p.text.toLowerCase().includes(q)) count++;
     }
     return count;
-  }, [displaySession, searchQuery]);
+  }, [displaySession, searchQuery, convMatchCount]);
 
   // navigateMatch is defined below, after activeTab/setExternalTab are declared
 
@@ -623,6 +646,12 @@ export default function DetailPanel() {
   // Track active tab accurately (ref avoids stale closure in navigateMatch)
   const activeTabRef = useRef(activeTab);
   activeTabRef.current = activeTab;
+
+  // ConversationView unmounts when another tab is active, so it can no longer
+  // report — drop its count and fall back to the prompt-based estimate.
+  useEffect(() => {
+    if (activeTab !== 'conversation') setConvMatchCount(null);
+  }, [activeTab]);
 
   // Navigate to prev/next highlighted match — auto-switches to conversation tab when needed
   const navigateMatch = useCallback((direction: 'prev' | 'next') => {
@@ -732,6 +761,8 @@ export default function DetailPanel() {
               events={displaySession.events || []}
               previousSessions={displaySession.previousSessions}
               searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              onMatchCountChange={setConvMatchCount}
               projectPath={displaySession.projectPath}
             />
           }
@@ -753,6 +784,7 @@ export default function DetailPanel() {
               sessionId={displaySession.sessionId}
               sessionStatus={displaySession.status}
               terminalId={displaySession.terminalId}
+              fullHeight
             />
           }
           projectContent={

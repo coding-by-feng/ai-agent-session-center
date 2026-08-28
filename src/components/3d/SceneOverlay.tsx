@@ -337,7 +337,12 @@ export default function SceneOverlay({ sessionCount }: SceneOverlayProps) {
         pointerEvents: 'all',
         minWidth: 200,
         maxWidth: 260,
-        maxHeight: 'calc(100vh - 80px)',
+        // dvh, not vh — on iOS Safari `100vh` is the URL-bar-expanded height, so
+        // a vh-capped panel extends under the browser chrome and its last rows
+        // cannot be scrolled to. Inline styles cannot carry the vh→dvh fallback
+        // pair (a duplicate key just overwrites), and every engine this ships on
+        // supports dvh, so it is used unconditionally here.
+        maxHeight: 'calc(100dvh - 80px)',
         overflowY: 'auto',
         boxShadow: '0 0 12px var(--glow-accent), inset 0 0 24px var(--glow-accent)',
       }}>

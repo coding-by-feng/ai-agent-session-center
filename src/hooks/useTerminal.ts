@@ -98,6 +98,10 @@ interface UseTerminalReturn {
   toggleAutoScroll: () => void;
   /** Read plain text from the terminal buffer. Returns current bottom baseY and the text of the last `lines` absolute lines (or all lines since `sinceAbsLine` if provided). */
   readRecentText: (options?: { lines?: number; sinceAbsLine?: number }) => { text: string; absBottom: number };
+  /** Absolute buffer row + viewport-fixed pixel position under a given clientY,
+   *  or null when there's no terminal, the point is outside the rendered rows,
+   *  or that row has nothing worth speaking. */
+  /** Full text of a buffer row, with soft-wrapped continuation rows merged into one logical line. */
   /** Get the current xterm text selection (if any). Returns null when no selection. */
   getXtermSelection: () => string | null;
   /** True when xterm currently has a non-empty selection. */
@@ -288,6 +292,65 @@ function sendResize(ws: WebSocket | null, terminalId: string, cols: number, rows
   }
 }
 
+/**
+ * Re-measures one frame later and calls onSettled only if the reading is
+ * unchanged from (cols, rows) — i.e. the layout has actually stopped moving.
+ *
+ * MIN_SANE_COLS only rejects near-zero (a fully hidden container) — it does
+ * nothing for a small-but-plausible reading like "180px measured in a panel
+ * that's mid-reflow toward its real 558px", which clears >= 20 cols easily
+ * and is indistinguishable from a genuinely narrow terminal by column count
+ * alone. That exact case is what corrupts scrollback, and it's not
+ * hypothetical: this is the third confirmed occurrence of it in this file's
+ * history (see MIN_SANE_COLS's own comment for the mechanism). Each prior
+ * fix hardened a *value* check; none of them can catch a value that's
+ * merely non-zero but not yet final. Stability, checked one frame apart, is
+ * the only signal that actually distinguishes the two cases.
+ *
+ * Used for the FIRST fit after any attach/remount — e.g. DetailTabs' PROJECT
+ * split/stacked toggle moves the terminal to a new JSX parent, forcing a
+ * fresh doSetup() → attach() whose first fit() can land mid-reflow, before
+ * the new container's flex/grid box has settled to its final width; the
+ * same risk applies to forceCanvasRepaint's post-reparent (fullscreen
+ * toggle) call. If the two readings disagree, skip — this is still moving,
+ * and the (200ms-debounced) ResizeObserver will catch the eventually-settled
+ * size on its own. Skipping is always safe; sending a bad value is not
+ * (xterm can re-flow its own soft wraps, but not hard newlines the CLI
+ * already emitted at that width).
+ *
+ * Exported for unit testing (same rationale as isSaneGeometry above).
+ */
+export function verifySettled(
+  term: Terminal,
+  fitAddon: FitAddon,
+  container: HTMLElement,
+  cols: number,
+  rows: number,
+  onSettled: (cols: number, rows: number) => void,
+): void {
+  requestAnimationFrame(() => {
+    if (!container.offsetWidth || !container.offsetHeight) return;
+    fitAddon.fit();
+    if (term.cols === cols && term.rows === rows) onSettled(term.cols, term.rows);
+  });
+}
+
+/** Fits + sends the first measurement after an attach/remount, gated by
+ *  verifySettled (see its docblock). */
+function fitAndSendWhenSettled(
+  term: Terminal,
+  fitAddon: FitAddon,
+  container: HTMLDivElement,
+  ws: WebSocket | null,
+  terminalId: string,
+): void {
+  if (!container.offsetWidth || !container.offsetHeight) return;
+  fitAddon.fit();
+  verifySettled(term, fitAddon, container, term.cols, term.rows, (cols, rows) => {
+    sendResize(ws, terminalId, cols, rows);
+  });
+}
+
 function forceCanvasRepaint(
   ws: WebSocket | null,
   terminalId: string,
@@ -305,7 +368,13 @@ function forceCanvasRepaint(
     if (el && (!el.offsetWidth || !el.offsetHeight)) return;
     const savedViewportY = term.buffer.active.viewportY;
     fitAddon.fit();
-    sendResize(ws, terminalId, term.cols, term.rows);
+    // Repaint/scroll/layoutReady are idempotent — safe to do now even with a
+    // still-transitional measurement, the canvas just needs SOME current
+    // dimensions to redraw. The PTY resize is the one-way, unrecoverable
+    // part (see verifySettled) — only send it once a second reading agrees.
+    if (el) verifySettled(term, fitAddon, el, term.cols, term.rows, (cols, rows) => {
+      sendResize(ws, terminalId, cols, rows);
+    });
     term.refresh(0, term.rows - 1);
     // Always restore scroll position — never auto-scroll
     term.scrollToLine(savedViewportY);
@@ -808,11 +877,12 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         // Only fit when the container has a real size. If the terminal is
         // attached while its tab/panel is hidden, fitAddon.fit() measures ~0 and
         // would hard-wrap the PTY (see MIN_SANE_COLS); the visibility/resize
-        // observers below re-fit once it becomes visible.
-        if (container.offsetWidth && container.offsetHeight) {
-          fitAddon.fit();
-          sendResize(wsRef.current, terminalId, term.cols, term.rows);
-        }
+        // observers below re-fit once it becomes visible. Settled, not just
+        // non-zero: see fitAndSendWhenSettled — a remount (e.g. DetailTabs'
+        // split/stacked toggle moving this terminal to a new JSX parent) can
+        // attach mid-reflow, and a merely-non-zero first reading isn't proof
+        // the layout is done moving.
+        fitAndSendWhenSettled(term, fitAddon, container, wsRef.current, terminalId);
 
         // Send keystrokes (chunk large pastes to stay within 8 KB server limit)
         const CHUNK_SIZE = 4096;

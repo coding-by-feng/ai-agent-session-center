@@ -250,6 +250,22 @@ interface SettingsState extends BrowserSettings {
    *  remembered as 'always'/'never'. Only applies when a file is open (file
    *  viewer) — terminal selections have no current file. */
   explainAttachFilePath: 'ask' | 'always' | 'never';
+  /** SelectionPopup's Model/Effort "quick settings" row — remembered across
+   *  popups like explainAttachFilePath above. Empty string means "inherit
+   *  from the origin session" (the pre-existing default). Kept as separate
+   *  Claude/Codex fields (mirrors SessionPrefs in remoteControlName.ts) so a
+   *  Claude alias like "sonnet" never lands in a Codex id field or vice
+   *  versa. selectionSpawnEffort only applies to Claude — Codex has no
+   *  effort concept. */
+  selectionSpawnModel: string;
+  selectionSpawnCodexModel: string;
+  selectionSpawnEffort: string;
+  /** Where an Explain/Translate/custom spawn lands. 'window' (the default)
+   *  goes straight to a real OS window that can be dragged to another monitor;
+   *  'docked' keeps the older in-app CSS `FloatingTerminalPanel`, which cannot
+   *  leave the app window. 'window' still falls back to the docked panel when
+   *  no window can be opened — see `openFloatWindow`. */
+  selectionSpawnTarget: 'window' | 'docked';
 
   // Autosave flash
   autosaveVisible: boolean;
@@ -300,6 +316,10 @@ interface SettingsState extends BrowserSettings {
   setTranslationTrigger: (trigger: 'auto' | 'alt' | 'off') => void;
   setTranslationInheritContext: (enabled: boolean) => void;
   setExplainAttachFilePath: (mode: 'ask' | 'always' | 'never') => void;
+  setSelectionSpawnModel: (model: string) => void;
+  setSelectionSpawnCodexModel: (model: string) => void;
+  setSelectionSpawnEffort: (effort: string) => void;
+  setSelectionSpawnTarget: (target: 'window' | 'docked') => void;
   persistSetting: (key: string, value: unknown) => Promise<void>;
   flashAutosave: () => void;
   resetDefaults: () => void;
@@ -363,6 +383,10 @@ const defaultSettings: SettingsData = {
   translationTrigger: 'auto',
   translationInheritContext: true,
   explainAttachFilePath: 'ask',
+  selectionSpawnModel: '',
+  selectionSpawnCodexModel: '',
+  selectionSpawnEffort: '',
+  selectionSpawnTarget: 'window',
   autosaveVisible: false,
   settingsSchemaVersion: SETTINGS_SCHEMA_VERSION,
 };
@@ -621,6 +645,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setTranslationTrigger: (trigger) => { set({ translationTrigger: trigger }); get().persistSetting('translationTrigger', trigger); },
   setTranslationInheritContext: (enabled) => { set({ translationInheritContext: enabled }); get().persistSetting('translationInheritContext', enabled); },
   setExplainAttachFilePath: (mode) => { set({ explainAttachFilePath: mode }); get().persistSetting('explainAttachFilePath', mode); },
+  setSelectionSpawnModel: (model) => { set({ selectionSpawnModel: model }); get().persistSetting('selectionSpawnModel', model); },
+  setSelectionSpawnCodexModel: (model) => { set({ selectionSpawnCodexModel: model }); get().persistSetting('selectionSpawnCodexModel', model); },
+  setSelectionSpawnEffort: (effort) => { set({ selectionSpawnEffort: effort }); get().persistSetting('selectionSpawnEffort', effort); },
+  setSelectionSpawnTarget: (target) => { set({ selectionSpawnTarget: target }); get().persistSetting('selectionSpawnTarget', target); },
 
   // #46: Safe serializer to prevent circular reference crashes
   persistSetting: async (key, value) => {

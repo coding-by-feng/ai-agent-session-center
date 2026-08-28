@@ -45,6 +45,14 @@ export interface SpawnFloatingArgs {
    * self-contained). Defaults to true client-side.
    */
   inheritContext?: boolean;
+  /**
+   * Quick-settings override from the popup's Model/Effort row. Absent (or
+   * empty) means "inherit from the origin session" — the pre-existing
+   * behavior. Validated against real allow-lists downstream by
+   * `sanitizeModelId` / `FLAG_EFFORT_LEVELS` (config.ts) — not trusted raw.
+   */
+  model?: string;
+  effortLevel?: string;
 }
 
 /** 256KB safety cap; well under typical ARG_MAX. */

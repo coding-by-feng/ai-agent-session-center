@@ -404,3 +404,27 @@
   transition: border-color 120ms ease;
 }
 .aliasInput:focus { border-color: var(--accent-cyan); }
+
+/* ---- Responsive ----------------------------------------------------------
+ * Added May 6 2026, after the mobile pass closed — no breakpoints existed, so
+ * the 24px side padding ate ~12% of a 390px viewport before any content.
+ */
+@media (max-width: 640px) {
+  .view { padding: 12px 14px; }
+
+  .search {
+    /* The 220px floor forced the search box and the selects onto separate
+       wrapped rows at phone width; let it shrink and share a row instead. */
+    min-width: 0;
+    flex: 1 1 140px;
+  }
+
+  .select { flex: 1 1 auto; }
+
+  .rowHeader { flex-wrap: wrap; gap: 6px; }
+}
+
+@media (pointer: coarse) {
+  .search, .select { min-height: 44px; }
+  .row { min-height: 44px; }
+}

@@ -20,6 +20,7 @@ import {
   ringLength as lengthOfRing,
   ringReset as resetRing,
 } from './ptyRing.js';
+import { fanOutToSockets, type SubscriberSocket } from './ptySubscribers.js';
 import { scanChunk, clearFaultState } from './interruptionDetector.js';
 import type { FaultMatch } from './interruptionDetector.js';
 import type { PendingLink } from '../src/types/session.js';
@@ -501,7 +502,7 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
         pty: ptyProcess,
         sessionId: null,
         config: { ...config, workingDir: workDir },
-        wsClient,
+        wsClients: wsClient ? new Set([wsClient]) : new Set(),
         createdAt: Date.now(),
         outputRing: createRing(replayBufferBytes),
         shellReady,
@@ -537,13 +538,11 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
         // no error payload, so a 529 and a clean finish both end in `waiting`.
         notePtyOutput(terminalId, data);
 
-        if (term.wsClient && term.wsClient.readyState === 1) {
-          term.wsClient.send(JSON.stringify({
-            type: 'terminal_output',
-            terminalId,
-            data: chunk.toString('base64'),
-          }));
-        }
+        sendToSubscribers(term, {
+          type: 'terminal_output',
+          terminalId,
+          data: chunk.toString('base64'),
+        });
       }));
 
       disposables.push(ptyProcess.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {
@@ -748,7 +747,7 @@ export function attachToTmuxPane(tmuxPaneId: string, wsClient: WebSocket | null)
         pty: ptyProcess,
         sessionId: null,
         config: { host: 'localhost', workingDir: homedir(), command: `tmux (pane ${tmuxPaneId})` },
-        wsClient,
+        wsClients: wsClient ? new Set([wsClient]) : new Set(),
         createdAt: Date.now(),
         outputRing: createRing(replayBufferBytes),
       });
@@ -764,13 +763,11 @@ export function attachToTmuxPane(tmuxPaneId: string, wsClient: WebSocket | null)
         // A tmux pane is a team member's live agent — same fault watch as above.
         notePtyOutput(terminalId, data);
 
-        if (term.wsClient && term.wsClient.readyState === 1) {
-          term.wsClient.send(JSON.stringify({
-            type: 'terminal_output',
-            terminalId,
-            data: chunk.toString('base64'),
-          }));
-        }
+        sendToSubscribers(term, {
+          type: 'terminal_output',
+          terminalId,
+          data: chunk.toString('base64'),
+        });
       });
 
       ptyProcess.onExit(({ exitCode, signal }: { exitCode: number; signal?: number }) => {
@@ -1040,20 +1037,44 @@ export function getTerminalByPtyChild(childPid: number): string | null {
   return null;
 }
 
-// #30: Returns boolean indicating whether terminal exists (for subscribe race check)
+/**
+ * Fan a message out to every socket watching this terminal, pruning any that
+ * have closed. The fan-out/prune rules live in `ptySubscribers.ts` so they can
+ * be unit-tested without loading node-pty.
+ */
+function sendToSubscribers(term: Terminal, message: Record<string, unknown>): void {
+  if (term.wsClients.size === 0) return;
+  fanOutToSockets(
+    term.wsClients as unknown as Set<SubscriberSocket>,
+    JSON.stringify(message),
+  );
+}
+
+/**
+ * Subscribe a client to a terminal's output. Returns false when the terminal
+ * does not exist (the subscribe-race check callers rely on).
+ *
+ * ADDITIVE, not last-wins: this used to assign a single `term.wsClient`, so a
+ * second device subscribing silently disconnected the first one's live stream —
+ * its terminal froze with no error raised anywhere. Multiple devices watching
+ * one PTY is the point of the feature; only writes are arbitrated.
+ */
 export function setWsClient(terminalId: string, wsClient: WebSocket | null): boolean {
   const term = terminals.get(terminalId);
   if (!term) return false;
+  if (!wsClient) return true;
 
-  term.wsClient = wsClient;
+  term.wsClients.add(wsClient);
 
-  if (wsClient && wsClient.readyState === 1) {
+  if (wsClient.readyState === 1) {
     // Send terminal_ready so the frontend runs onTerminalReady (refit + resize sync).
     // This is important for REST-API-created terminals where the original terminal_ready
-    // was sent to a null wsClient and never reached the browser.
+    // was sent before any client had subscribed and never reached the browser.
     wsClient.send(JSON.stringify({ type: 'terminal_ready', terminalId }));
 
-    // Replay buffered output so the client sees previous terminal content
+    // Replay buffered output so the client sees previous terminal content.
+    // Sent to the JOINING socket only — the others are already up to date, and
+    // re-sending scrollback to them would duplicate their whole screen.
     const snapshot = ringSnapshot(term);
     if (snapshot.length > 0) {
       wsClient.send(JSON.stringify({
@@ -1065,6 +1086,44 @@ export function setWsClient(terminalId: string, wsClient: WebSocket | null): boo
     }
   }
   return true;
+}
+
+/** Unsubscribe one client from one terminal. The PTY keeps running. */
+export function removeWsClient(terminalId: string, wsClient: WebSocket): boolean {
+  const term = terminals.get(terminalId);
+  if (!term) return false;
+  return term.wsClients.delete(wsClient);
+}
+
+/**
+ * Unsubscribe a client from every terminal — called when its WebSocket closes.
+ *
+ * Required now that subscribers are a Set: a single `wsClient` reference was
+ * self-cleaning (the next subscriber overwrote it), but a Set retains every
+ * socket that ever subscribed, so without this a long-lived server accumulates
+ * dead sockets on every terminal and pays a JSON.stringify + failed send for
+ * each one on every chunk of PTY output.
+ */
+export function removeClientFromAllTerminals(wsClient: WebSocket): number {
+  let removed = 0;
+  for (const term of terminals.values()) {
+    if (term.wsClients.delete(wsClient)) removed++;
+  }
+  return removed;
+}
+
+/** How many clients are currently watching a terminal (diagnostics/tests). */
+export function getSubscriberCount(terminalId: string): number {
+  return terminals.get(terminalId)?.wsClients.size ?? 0;
+}
+
+/**
+ * The session a terminal belongs to, or null when it is not linked yet (an ops
+ * shell, or a PTY still waiting for its first hook). O(1) — used on the
+ * terminal_input hot path to find which session's control baton applies.
+ */
+export function getTerminalSessionId(terminalId: string): string | null {
+  return terminals.get(terminalId)?.sessionId ?? null;
 }
 
 /** Get the raw output ring buffer for a terminal (base64-encoded). */
@@ -1127,9 +1186,7 @@ export function getTerminals(): TerminalInfo[] {
 
 function broadcastToClient(terminalId: string, message: Record<string, unknown>): void {
   const term = terminals.get(terminalId);
-  if (term && term.wsClient && term.wsClient.readyState === 1) {
-    term.wsClient.send(JSON.stringify(message));
-  }
+  if (term) sendToSubscribers(term, message);
 }
 
 function cleanup(terminalId: string): void {

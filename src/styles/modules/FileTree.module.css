@@ -76,9 +76,10 @@
 /* ---- Icon ---- */
 
 .icon {
-  font-size: 13px;
+  width: 13px;
+  height: 13px;
+  color: var(--text-dim);
   flex-shrink: 0;
-  line-height: 1;
 }
 
 /* ---- Name ---- */
@@ -118,13 +119,14 @@
 /* ---- Delete button (trash icon) ---- */
 
 .deleteBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   margin-left: auto;
   padding: 0 4px;
   background: transparent;
   border: none;
   color: var(--text-dim, #888);
-  font-size: 12px;
-  line-height: 1;
   cursor: pointer;
   opacity: 0;
   border-radius: 3px;

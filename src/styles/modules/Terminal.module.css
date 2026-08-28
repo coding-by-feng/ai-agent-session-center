@@ -7,14 +7,22 @@
 /* ---- Terminal Wrapper ---- */
 
 .wrapper {
-  display: flex; flex-direction: column; height: 100%;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 .placeholder {
-  display: flex; align-items: center; justify-content: center;
-  height: 100%; min-height: 200px;
-  color: var(--text-dim, #555); font-size: 12px; font-style: italic;
-  text-align: center; padding: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 200px;
+  color: var(--text-dim, #555);
+  font-size: 12px;
+  font-style: italic;
+  text-align: center;
+  padding: 20px;
 }
 
 .reconnectPlaceholderBtn {
@@ -43,38 +51,74 @@
 /* ---- Terminal Tab ---- */
 
 .toolbar {
-  display: flex; align-items: center; gap: 6px;
-  padding: 2px 4px; margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  margin-bottom: 4px;
 }
 
 .themeSelect {
-  background: var(--bg-card, #12122a); border: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15));
-  color: var(--text-primary, #e0e0e0); font-family: var(--font-mono, 'JetBrains Mono', monospace);
-  font-size: 10px; padding: 2px 24px 2px 6px; border-radius: 3px; cursor: pointer;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  background: var(--bg-card, #12122a);
+  border: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15));
+  color: var(--text-primary, #e0e0e0);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  padding: 2px 24px 2px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
-.themeSelect:focus { outline: none; border-color: var(--accent-cyan, #00e5ff); box-shadow: 0 0 8px rgba(0, 229, 255, 0.3); }
+.themeSelect:focus {
+  outline: none;
+  border-color: var(--accent-cyan, #00e5ff);
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
+}
 
 .toolbarBtn {
-  background: rgba(128,128,128,0.08); border: 1px solid rgba(128,128,128,0.3);
-  color: var(--text-secondary, #888); font-family: var(--font-mono, 'JetBrains Mono', monospace);
-  font-size: 10px; font-weight: 600; letter-spacing: 0.5px;
-  padding: 4px 8px; border-radius: 4px; cursor: pointer; transition: all 0.2s;
-  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
-  min-width: 28px; min-height: 24px;
+  background: rgba(128, 128, 128, 0.08);
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  color: var(--text-secondary, #888);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 28px;
+  min-height: 24px;
 }
-.toolbarBtn:hover { background: rgba(128,128,128,0.15); color: var(--text-primary, #e0e0e0); border-color: rgba(128,128,128,0.5); }
+.toolbarBtn:hover {
+  background: rgba(128, 128, 128, 0.15);
+  color: var(--text-primary, #e0e0e0);
+  border-color: rgba(128, 128, 128, 0.5);
+}
 
 /* Touch/mobile-only buttons — hidden on desktop (mouse) and Electron */
 @media (pointer: fine) {
-  .touchOnlyBtn { display: none; }
+  .touchOnlyBtn {
+    display: none;
+  }
 }
 
 .kbdHint {
-  font-size: 8px; font-weight: 400; letter-spacing: 0;
-  color: var(--text-dim, #555); opacity: 0.7;
-  padding: 0 3px; border-radius: 2px;
-  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+  font-size: 8px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--text-dim, #555);
+  opacity: 0.7;
+  padding: 0 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .reconnectBtn {
@@ -87,8 +131,12 @@
 }
 
 .closedOverlay {
-  position: absolute; inset: 0;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 14px;
   background: rgba(10, 10, 26, 0.85);
   z-index: 5;
@@ -96,57 +144,109 @@
 .closedOverlayText {
   color: var(--text-dim, #555);
   font-family: var(--font-mono, 'JetBrains Mono', monospace);
-  font-size: 12px; letter-spacing: 0.5px;
+  font-size: 12px;
+  letter-spacing: 0.5px;
   text-transform: uppercase;
 }
 
 .terminalTab.active {
-  display: flex; flex-direction: column; height: 100%;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 .container {
-  width: 100%; flex: 1 1 auto; min-height: 200px;
-  background: #0a0a1a; border-radius: 6px;
-  overflow: hidden; transition: border-color 0.2s;
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 200px;
+  background: #0a0a1a;
+  border-radius: 6px;
+  overflow: hidden;
+  transition: border-color 0.2s;
 }
-.container.dropTarget { border: 2px solid var(--accent-cyan); box-shadow: 0 0 15px rgba(0, 229, 255, 0.3); }
-.container :global(.xterm) { padding: 6px; height: 100%; }
-.container :global(.xterm-viewport) { overflow-y: auto !important; }
+.container.dropTarget {
+  border: 2px solid var(--accent-cyan);
+  box-shadow: 0 0 15px rgba(0, 229, 255, 0.3);
+}
+.container :global(.xterm) {
+  padding: 6px;
+  height: 100%;
+}
+.container :global(.xterm-viewport) {
+  overflow-y: auto !important;
+}
 
-.status { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; padding: 4px 8px; color: var(--text-secondary); }
-.status.connected { color: var(--accent-green, #4caf50); }
-.status.disconnected { color: var(--accent-red, #ff5555); }
+.status {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 4px 8px;
+  color: var(--text-secondary);
+}
+.status.connected {
+  color: var(--accent-green, #4caf50);
+}
+.status.disconnected {
+  color: var(--accent-red, #ff5555);
+}
 
 /* ---- Collapsible Queue Panel ---- */
 
 .queuePanel {
   flex: 0 0 auto;
-  border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+  border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
   margin-top: 4px;
 }
 
 .queueHeader {
-  display: flex; align-items: center;
+  display: flex;
+  align-items: center;
 }
 
 .queueToggle {
-  display: flex; align-items: center; gap: 6px; flex: 1;
-  padding: 6px 8px; background: transparent; border: none;
-  color: var(--text-secondary, #888); font-family: var(--font-mono, 'JetBrains Mono', monospace);
-  font-size: 10px; letter-spacing: 1px; cursor: pointer; text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  padding: 6px 8px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary, #888);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 10px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  text-align: left;
 }
-.queueToggle:hover { color: var(--text-primary, #e0e0e0); }
+.queueToggle:hover {
+  color: var(--text-primary, #e0e0e0);
+}
 
-.queueToggleArrow { display: inline-block; font-size: 8px; transition: transform 0.2s; }
-.queuePanel:not(.collapsed) .queueToggleArrow { transform: rotate(90deg); }
-.queueCount { color: var(--accent-cyan, #00e5ff); }
+.queueToggleArrow {
+  display: inline-block;
+  font-size: 8px;
+  transition: transform 0.2s;
+}
+.queuePanel:not(.collapsed) .queueToggleArrow {
+  transform: rotate(90deg);
+}
+.queueCount {
+  color: var(--accent-cyan, #00e5ff);
+}
 
 .queueHistoryBtn {
   position: relative;
-  display: flex; align-items: center; justify-content: center;
-  width: 24px; height: 24px; flex-shrink: 0;
-  background: none; border: none; border-radius: 4px;
-  color: var(--text-dim, #555); cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-dim, #555);
+  cursor: pointer;
   margin-right: 2px;
   transition: all 0.15s ease;
   opacity: 0.55;
@@ -158,7 +258,8 @@
 }
 .queueHistoryBadge {
   position: absolute;
-  top: -2px; right: -3px;
+  top: -2px;
+  right: -3px;
   background: var(--accent-cyan, #00e5ff);
   color: var(--bg-panel, #0d1117);
   font-family: var(--font-mono);
@@ -173,15 +274,25 @@
 }
 
 .autoSendToggle {
-  display: flex; align-items: center; justify-content: center;
-  width: 24px; height: 24px; flex-shrink: 0;
-  background: none; border: none; border-radius: 4px;
-  color: var(--text-dim, #555); cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-dim, #555);
+  cursor: pointer;
   margin-right: 4px;
   transition: all 0.15s ease;
   opacity: 0.5;
 }
-.autoSendToggle:hover { opacity: 1; background: var(--bg-subtle); }
+.autoSendToggle:hover {
+  opacity: 1;
+  background: var(--bg-subtle);
+}
 .autoSendOn {
   color: var(--accent-green, #50fa7b);
   opacity: 1;
@@ -191,15 +302,25 @@
 }
 
 .autoEnterToggle {
-  display: flex; align-items: center; justify-content: center;
-  width: 24px; height: 24px; flex-shrink: 0;
-  background: none; border: none; border-radius: 4px;
-  color: var(--text-dim, #555); cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-dim, #555);
+  cursor: pointer;
   margin-right: 2px;
   transition: all 0.15s ease;
   opacity: 0.5;
 }
-.autoEnterToggle:hover { opacity: 1; background: var(--bg-subtle); }
+.autoEnterToggle:hover {
+  opacity: 1;
+  background: var(--bg-subtle);
+}
 .autoEnterOn {
   color: var(--accent-cyan, #00e5ff);
   opacity: 1;
@@ -208,8 +329,40 @@
   background: rgba(0, 229, 255, 0.1);
 }
 
-.queueBody { max-height: 250px; overflow-y: auto; padding: 0 4px 4px; }
-.queuePanel.collapsed .queueBody { display: none !important; }
+.queueBody {
+  max-height: 250px;
+  overflow-y: auto;
+  padding: 0 4px 4px;
+}
+.queuePanel.collapsed .queueBody {
+  display: none !important;
+}
+
+/* Opt-in variant for the dedicated QUEUE tab (DetailPanel's `queueContent`,
+   passed via QueueTab's `fullHeight` prop) — the tab sits inside DetailTabs'
+   `.tabScroll` (DetailPanel.module.css: `flex: 1; overflow-y: auto`), which
+   has a full tab's height to give, but the base rules above are sized for the
+   OTHER place this component renders: the always-on strip below the
+   terminal, deliberately kept short (`flex: 0 0 auto` + `.queueBody`'s fixed
+   250px cap) so the terminal above it isn't squeezed. Without this variant
+   the tab mount inherited that same short cap and only ever showed a
+   handful of items, with the rest of the tab's height going unused. Pinning
+   `.queuePanelFull` to `height: 100%` (rather than leaving it unbounded)
+   means `.queueBody`'s own overflow-y: auto is the one that actually
+   activates when items don't fit — `.tabScroll`'s outer scroll stays inert,
+   since this panel never grows taller than the space it was given. */
+.queuePanelFull {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
+}
+.queuePanelFull .queueBody {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
 
 /* Compose row */
 /* Wraps so the 4-button cluster drops to its own line rather than starving the
@@ -218,52 +371,223 @@
    technically inside its box, useless to type in. The `200px` flex-basis is the
    wrap threshold: below it the buttons take line two and the textarea keeps the
    full width of line one. */
-.queueCompose { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; border: 1px solid transparent; border-radius: 4px; transition: border-color 0.15s; }
-.queueComposeDragOver { border-color: var(--accent-cyan, #00e5ff); background: rgba(0, 229, 255, 0.05); }
-.queueComposeActions { display: flex; align-items: flex-end; gap: 6px; flex-shrink: 0; margin-left: auto; }
-.queueTextarea { flex: 1 1 200px; min-width: 0; width: auto; background: rgba(255,255,255,0.04); border: 1px solid var(--border-subtle, rgba(255,255,255,0.08)); border-radius: 4px; color: var(--text-primary, #e0e0e0); font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 11px; padding: 6px 8px; resize: vertical; line-height: 1.5; box-shadow: none; }
-.queueTextarea::placeholder { color: var(--text-dim); font-style: italic; }
-.queueTextarea:focus { outline: none; border-color: var(--accent-cyan, #00e5ff); box-shadow: none; }
-.queueAddBtn { align-self: flex-end; padding: 4px 10px; font-size: 10px; margin-top: 0; }
+.queueCompose {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  transition: border-color 0.15s;
+}
+.queueComposeDragOver {
+  border-color: var(--accent-cyan, #00e5ff);
+  background: rgba(0, 229, 255, 0.05);
+}
+.queueComposeActions {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.queueTextarea {
+  flex: 1 1 200px;
+  min-width: 0;
+  width: auto;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 4px;
+  color: var(--text-primary, #e0e0e0);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  padding: 6px 8px;
+  resize: vertical;
+  line-height: 1.5;
+  box-shadow: none;
+}
+.queueTextarea::placeholder {
+  color: var(--text-dim);
+  font-style: italic;
+}
+.queueTextarea:focus {
+  outline: none;
+  border-color: var(--accent-cyan, #00e5ff);
+  box-shadow: none;
+}
+.queueAddBtn {
+  align-self: flex-end;
+  padding: 4px 10px;
+  font-size: 10px;
+  margin-top: 0;
+}
 
 /* Queue list */
-.queueList { position: relative; padding-left: 0; }
-.queueList::before { display: none; }
+.queueList {
+  position: relative;
+  padding-left: 0;
+}
+.queueList::before {
+  display: none;
+}
 
 /* Queue items */
-.queueItem { display: flex; align-items: center; gap: 6px; padding: 4px 6px; margin-bottom: 2px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); border-radius: 4px; cursor: default; font-size: 11px; backdrop-filter: none; position: relative; }
-.queueItem::before, .queueItem::after { display: none; }
-.queueItem:hover { background: rgba(255,255,255,0.05); border-color: rgba(0,229,255,0.15); transform: none; box-shadow: none; }
-.queueItem:first-child { background: linear-gradient(135deg, rgba(0, 255, 136, 0.04), rgba(255,255,255,0.02)); border-color: rgba(0, 255, 136, 0.15); }
+.queueItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  margin-bottom: 2px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+  cursor: default;
+  font-size: 11px;
+  backdrop-filter: none;
+  position: relative;
+}
+.queueItem::before,
+.queueItem::after {
+  display: none;
+}
+.queueItem:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(0, 229, 255, 0.15);
+  transform: none;
+  box-shadow: none;
+}
+.queueItem:first-child {
+  background: linear-gradient(135deg, rgba(0, 255, 136, 0.04), rgba(255, 255, 255, 0.02));
+  border-color: rgba(0, 255, 136, 0.15);
+}
 
-.queuePos { color: var(--text-secondary, #666); font-size: 9px; font-weight: 600; min-width: 14px; height: auto; background: none; border-radius: 0; }
+.queuePos {
+  color: var(--text-secondary, #666);
+  font-size: 9px;
+  font-weight: 600;
+  min-width: 14px;
+  height: auto;
+  background: none;
+  border-radius: 0;
+}
 
 /* Drag-to-reorder affordance. The whole row is draggable (cursor: grab), but the
    grip makes that discoverable. Brightens on row hover; grabbing cursor on press. */
-.queueDragHandle { display: inline-flex; align-items: center; flex-shrink: 0; color: var(--text-secondary, #666); opacity: 0.45; cursor: grab; padding: 0 1px; transition: opacity 0.12s ease, color 0.12s ease; }
-.queueDragHandle:active { cursor: grabbing; }
-.queueItem:hover .queueDragHandle { opacity: 0.9; color: var(--accent-cyan, #00e5ff); }
-.queueText { flex: 1; color: var(--text-primary, #e0e0e0); font-size: 11px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 1; }
+.queueDragHandle {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--text-secondary, #666);
+  opacity: 0.45;
+  cursor: grab;
+  padding: 0 1px;
+  transition:
+    opacity 0.12s ease,
+    color 0.12s ease;
+}
+.queueDragHandle:active {
+  cursor: grabbing;
+}
+.queueItem:hover .queueDragHandle {
+  opacity: 0.9;
+  color: var(--accent-cyan, #00e5ff);
+}
+.queueText {
+  flex: 1;
+  color: var(--text-primary, #e0e0e0);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 1;
+}
 /* flex-wrap + right-justify so the action group (7 buttons: ▲ ▼ ★ SEND|⚡NOW
    EDIT MOVE DEL — the 4th slot is one or the other, never both) wraps to a
    second line at very narrow panel widths instead of overflowing the row's
    right border — the viewport-safety rule. */
-.queueActions { display: none; gap: 4px; opacity: 1; flex-wrap: wrap; justify-content: flex-end; }
-.queueItem:hover .queueActions { display: flex; }
-.queueActionBtn { background: transparent; border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary, #888); font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 9px; font-weight: 600; letter-spacing: 0.5px; padding: 1px 5px; border-radius: 3px; cursor: pointer; }
+.queueActions {
+  display: none;
+  gap: 4px;
+  opacity: 1;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.queueItem:hover .queueActions {
+  display: flex;
+}
+.queueActionBtn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary, #888);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  cursor: pointer;
+}
 /* A disabled queue action must not read as clickable. There was no :disabled
    rule at all, so a disabled ⚡ NOW kept its full amber accent AND still lit up
    on hover — a click that did nothing looked like a broken queue rather than an
    off control. The accent hover rules below use !important, so the dimmed hover
    needs it too; :disabled:hover outranks them on specificity. */
-.queueActionBtn:disabled { opacity: 0.35; cursor: default; }
+.queueActionBtn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
 .queueActionBtn:disabled:hover {
   background: transparent !important;
   border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
-.queueSend { color: var(--accent-green, #50fa7b) !important; border-color: rgba(80, 250, 123, 0.3) !important; }
-.queueSend:hover { background: rgba(80, 250, 123, 0.15) !important; }
+/* ---- Card view (queueViewMode: 'card' in uiStore.ts) --------------------
+   A wrapping grid alternative to .queueList above. Every card renders through
+   the SAME renderItemMeta/renderItemActions as the list row — only the
+   surrounding layout differs, so list and card can never disagree about what
+   a given item's state means. */
+.queueCardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+  padding: 2px;
+}
+.queueCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  font-size: 11px;
+}
+.queueCard:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(0, 229, 255, 0.15);
+}
+.queueCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* List rows hide .queueActions until hover to stay dense (see .queueItem
+   above) — a card is already spaced out, so hiding its only controls behind
+   hover would just make them harder to find. Higher specificity than the
+   plain .queueActions rule below, so this wins regardless of source order. */
+.queueCard .queueActions {
+  display: flex;
+}
+
+.queueSend {
+  color: var(--accent-green, #50fa7b) !important;
+  border-color: rgba(80, 250, 123, 0.3) !important;
+}
+.queueSend:hover {
+  background: rgba(80, 250, 123, 0.15) !important;
+}
 .queueTriggerNow {
   color: var(--accent-yellow, #ffd866) !important;
   border-color: rgba(255, 216, 102, 0.4) !important;
@@ -272,10 +596,21 @@
   background: rgba(255, 216, 102, 0.15) !important;
   border-color: rgba(255, 216, 102, 0.6) !important;
 }
-.queueEdit { color: var(--accent-cyan); }
-.queueEdit:hover { background: rgba(0, 229, 255, 0.1); border-color: rgba(0, 229, 255, 0.3); }
-.queueDelete { color: var(--accent-red); }
-.queueDelete:hover { background: rgba(255, 51, 85, 0.1) !important; color: var(--accent-red, #ff5555) !important; border-color: rgba(255, 51, 85, 0.3) !important; }
+.queueEdit {
+  color: var(--accent-cyan);
+}
+.queueEdit:hover {
+  background: rgba(0, 229, 255, 0.1);
+  border-color: rgba(0, 229, 255, 0.3);
+}
+.queueDelete {
+  color: var(--accent-red);
+}
+.queueDelete:hover {
+  background: rgba(255, 51, 85, 0.1) !important;
+  color: var(--accent-red, #ff5555) !important;
+  border-color: rgba(255, 51, 85, 0.3) !important;
+}
 
 .dailyStartLabel {
   font-size: 10px;
@@ -290,7 +625,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px; height: 18px;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
   background: transparent;
   border: 1px solid transparent;
@@ -298,7 +634,10 @@
   cursor: pointer;
   margin-right: 4px;
   padding: 0;
-  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease,
+    border-color 0.15s ease;
 }
 .queueToggleBtnOn {
   color: var(--accent-green, #50fa7b);
@@ -323,7 +662,9 @@
 .queueItemDisabled::before {
   content: '';
   position: absolute;
-  left: 0; top: 4px; bottom: 4px;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
   width: 2px;
   background: var(--text-dim, #555);
   border-radius: 1px;
@@ -346,7 +687,10 @@
   padding: 1px 5px;
   border-radius: 3px;
   cursor: pointer;
-  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease,
+    border-color 0.15s ease;
 }
 .queueFavBtn:hover {
   color: var(--accent-yellow, #ffd866);
@@ -358,14 +702,31 @@
   border-color: rgba(255, 216, 102, 0.5) !important;
   background: rgba(255, 216, 102, 0.1) !important;
 }
-.queueMove { color: var(--accent-orange, #ffb86c); }
-.queueMove:hover { background: rgba(255, 184, 108, 0.15); border-color: rgba(255, 184, 108, 0.3); }
+.queueMove {
+  color: var(--accent-orange, #ffb86c);
+}
+.queueMove:hover {
+  background: rgba(255, 184, 108, 0.15);
+  border-color: rgba(255, 184, 108, 0.3);
+}
 
 /* ▲/▼ click-reorder buttons (compact, so the 7-button action group stays as
    narrow as possible). Dimmed + non-interactive at the list ends. */
-.queueReorder { color: var(--text-secondary, #888); font-size: 11px; line-height: 1; padding: 1px 4px; }
-.queueReorder:hover:not(:disabled) { color: var(--accent-cyan, #00e5ff); background: rgba(0, 229, 255, 0.1); border-color: rgba(0, 229, 255, 0.3); }
-.queueReorder:disabled { opacity: 0.25; cursor: default; }
+.queueReorder {
+  color: var(--text-secondary, #888);
+  font-size: 11px;
+  line-height: 1;
+  padding: 1px 4px;
+}
+.queueReorder:hover:not(:disabled) {
+  color: var(--accent-cyan, #00e5ff);
+  background: rgba(0, 229, 255, 0.1);
+  border-color: rgba(0, 229, 255, 0.3);
+}
+.queueReorder:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
 
 /* ---- Move-to-session picker -------------------------------------------------
    Mirrors the shared Select dropdown (Select.module.css .dropdown/.item) so the
@@ -431,7 +792,10 @@
   text-align: left;
   cursor: pointer;
   overflow: hidden;
-  transition: background 0.1s, border-color 0.1s, color 0.1s;
+  transition:
+    background 0.1s,
+    border-color 0.1s,
+    color 0.1s;
 }
 /* Truncation lives on this inner span, not the button — Chromium does not
    apply text-overflow to a <button>'s anonymous inner box, so a long session
@@ -463,7 +827,9 @@
   font-weight: 600;
   transition: color 0.1s;
 }
-.queueMovePickerTitle { color: var(--text-secondary, #8888aa); }
+.queueMovePickerTitle {
+  color: var(--text-secondary, #8888aa);
+}
 
 .queueMovePickerEmpty {
   padding: 8px 10px;
@@ -473,8 +839,12 @@
   text-align: center;
 }
 
-.queueMovePicker::-webkit-scrollbar { width: 4px; }
-.queueMovePicker::-webkit-scrollbar-track { background: transparent; }
+.queueMovePicker::-webkit-scrollbar {
+  width: 4px;
+}
+.queueMovePicker::-webkit-scrollbar-track {
+  background: transparent;
+}
 .queueMovePicker::-webkit-scrollbar-thumb {
   background: var(--border-accent-strong, rgba(0, 229, 255, 0.3));
   border-radius: 2px;
@@ -485,22 +855,59 @@
    trigger, and that rect includes any active transform — so an animated
    translate/scale would feed corrupted geometry back into the placement. */
 @keyframes queue-move-picker-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* Queue animations */
-.queueItem.entering { animation: queue-item-enter 0.3s ease-out forwards; }
-.queueItem.popping { animation: queue-item-pop 0.25s ease-in forwards; }
-.queueItem.dragging { opacity: 0.35; transform: scale(0.97); }
+.queueItem.entering {
+  animation: queue-item-enter 0.3s ease-out forwards;
+}
+.queueItem.popping {
+  animation: queue-item-pop 0.25s ease-in forwards;
+}
+.queueItem.dragging {
+  opacity: 0.35;
+  transform: scale(0.97);
+}
 
-@keyframes queue-item-enter { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes queue-item-pop { 0% { opacity: 1; transform: translateX(0); } 100% { opacity: 0; transform: translateX(30px); } }
+@keyframes queue-item-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes queue-item-pop {
+  0% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+}
 
 /* Queue edit textarea */
 /* Queue image attachment */
-.queueAttachBtn { align-self: flex-end; padding: 4px 7px; font-size: 10px; margin-top: 0; color: var(--text-secondary); }
-.queueAttachBtn:hover { color: var(--accent-cyan); }
+.queueAttachBtn {
+  align-self: flex-end;
+  padding: 4px 7px;
+  font-size: 10px;
+  margin-top: 0;
+  color: var(--text-secondary);
+}
+.queueAttachBtn:hover {
+  color: var(--accent-cyan);
+}
 
 /* Saved-prompt controls next to a prompt box: bookmark = keep THIS text,
    bookmark-stack = open the library. Purple so neither reads as the row-level
@@ -515,147 +922,705 @@
   line-height: 1;
   color: var(--text-secondary);
 }
-.queueSnippetBtn:hover:not(:disabled) { color: var(--accent-purple, #aa66ff); }
-.queueSnippetBtn:disabled { opacity: 0.3; cursor: default; }
-.queueSnippetBtnOn { color: var(--accent-purple, #aa66ff); }
-.queueEditImageRow .queueSnippetBtn { align-self: center; }
+.queueSnippetBtn:hover:not(:disabled) {
+  color: var(--accent-purple, #aa66ff);
+}
+.queueSnippetBtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.queueSnippetBtnOn {
+  color: var(--accent-purple, #aa66ff);
+}
+.queueEditImageRow .queueSnippetBtn {
+  align-self: center;
+}
 
-.queueComposeImages { display: flex; flex-wrap: wrap; gap: 4px; padding: 3px 0 2px; }
+.queueComposeImages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 3px 0 2px;
+}
 
 /* Image attach button + thumbnail strip under the edit-modal main prompt. */
-.queueEditImageRow { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
-.queueEditImageRow .queueAttachBtn { align-self: center; }
+.queueEditImageRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.queueEditImageRow .queueAttachBtn {
+  align-self: center;
+}
 
-.queueImageThumb { position: relative; width: 44px; height: 44px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.1); overflow: hidden; flex-shrink: 0; }
-.queueImageThumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.queueImageThumb {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.queueImageThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 
-.queueImageRemove { position: absolute; top: 1px; right: 1px; width: 14px; height: 14px; background: rgba(0,0,0,0.75); border: none; border-radius: 50%; color: #fff; font-size: 7px; cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1; padding: 0; }
-.queueImageRemove:hover { background: rgba(220,50,50,0.85); }
+.queueImageRemove {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 14px;
+  height: 14px;
+  background: rgba(0, 0, 0, 0.75);
+  border: none;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 7px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+}
+.queueImageRemove:hover {
+  background: rgba(220, 50, 50, 0.85);
+}
 
 /* ---- Automation: type selector below the textarea ---- */
-.queueAutomationRow { display: flex; align-items: center; gap: 8px; padding: 3px 2px 6px; font-size: 10px; color: var(--text-secondary, #888); flex-wrap: wrap; }
-.queueTypePills { display: inline-flex; gap: 0; border: 1px solid rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; }
-.queueTypePill { background: transparent; color: var(--text-secondary, #888); border: none; padding: 3px 8px; font-family: var(--font-mono); font-size: 10px; cursor: pointer; border-right: 1px solid rgba(255,255,255,0.08); }
-.queueTypePill:last-child { border-right: none; }
-.queueTypePill:hover:not(:disabled) { background: rgba(0,229,255,0.06); color: var(--accent-cyan); }
-.queueTypePillActive { background: rgba(0,229,255,0.15); color: var(--accent-cyan); }
-.queueTypePillDisabled { opacity: 0.35; cursor: not-allowed; text-decoration: line-through; }
-.queueTypePillDisabled:hover { background: transparent; color: var(--text-secondary, #888); }
+.queueAutomationRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 2px 6px;
+  font-size: 10px;
+  color: var(--text-secondary, #888);
+  flex-wrap: wrap;
+}
+.queueTypePills {
+  display: inline-flex;
+  gap: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.queueTypePill {
+  background: transparent;
+  color: var(--text-secondary, #888);
+  border: none;
+  padding: 3px 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: pointer;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+.queueTypePill:last-child {
+  border-right: none;
+}
+.queueTypePill:hover:not(:disabled) {
+  background: rgba(0, 229, 255, 0.06);
+  color: var(--accent-cyan);
+}
+.queueTypePillActive {
+  background: rgba(0, 229, 255, 0.15);
+  color: var(--accent-cyan);
+}
+.queueTypePillDisabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+.queueTypePillDisabled:hover {
+  background: transparent;
+  color: var(--text-secondary, #888);
+}
 
 /* Banner shown when Auto-send is OFF but the queue still has Loop/Schedule items. */
-.queueAutoSendBanner { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; margin-bottom: 6px; background: rgba(255,184,108,0.08); border: 1px solid rgba(255,184,108,0.35); border-radius: 4px; color: var(--accent-orange, #ffb86c); font-size: 11px; }
-.queueAutoSendBannerBtn { background: rgba(255,184,108,0.15); border: 1px solid rgba(255,184,108,0.4); color: var(--accent-orange, #ffb86c); font-family: var(--font-mono); font-size: 10px; padding: 3px 10px; border-radius: 3px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px; }
-.queueAutoSendBannerBtn:hover { background: rgba(255,184,108,0.25); }
-.queueIntervalGroup, .queueScheduleGroup { display: inline-flex; align-items: center; gap: 4px; }
-.queueIntervalInput { width: 50px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 3px; color: var(--text-primary); font-family: var(--font-mono); font-size: 10px; padding: 2px 5px; text-align: right; }
-.queueIntervalInput:focus { border-color: var(--accent-cyan); outline: none; }
-.queueIntervalUnit { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 3px; color: var(--text-primary); font-family: var(--font-mono); font-size: 10px; padding: 2px 4px; cursor: pointer; }
-.queueScheduleInput { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 3px; color: var(--text-primary); font-family: var(--font-mono); font-size: 10px; padding: 2px 5px; color-scheme: dark; }
-.queueScheduleInput:focus { border-color: var(--accent-cyan); outline: none; }
+.queueAutoSendBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  background: rgba(255, 184, 108, 0.08);
+  border: 1px solid rgba(255, 184, 108, 0.35);
+  border-radius: 4px;
+  color: var(--accent-orange, #ffb86c);
+  font-size: 11px;
+}
+.queueAutoSendBannerBtn {
+  background: rgba(255, 184, 108, 0.15);
+  border: 1px solid rgba(255, 184, 108, 0.4);
+  color: var(--accent-orange, #ffb86c);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 3px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.queueAutoSendBannerBtn:hover {
+  background: rgba(255, 184, 108, 0.25);
+}
+.queueIntervalGroup,
+.queueScheduleGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.queueIntervalInput {
+  width: 50px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 5px;
+  text-align: right;
+}
+.queueIntervalInput:focus {
+  border-color: var(--accent-cyan);
+  outline: none;
+}
+.queueIntervalUnit {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+.queueScheduleInput {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 5px;
+  color-scheme: dark;
+}
+.queueScheduleInput:focus {
+  border-color: var(--accent-cyan);
+  outline: none;
+}
 
 /* ---- Type chips on each queue item ---- */
-.queueItemMeta { display: flex; align-items: center; gap: 4px; font-size: 9px; color: var(--text-dim, #666); flex-shrink: 0; }
-.queueTypeChip { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 8px; font-family: var(--font-mono); font-size: 9px; font-weight: 600; letter-spacing: 0.3px; text-transform: uppercase; border: 1px solid; line-height: 1.4; }
-.queueTypeChipOnce { color: var(--accent-cyan, #00e5ff); border-color: rgba(0,229,255,0.4); background: rgba(0,229,255,0.06); }
-.queueTypeChipLoop { color: var(--accent-orange, #ffb86c); border-color: rgba(255,184,108,0.45); background: rgba(255,184,108,0.08); }
-.queueTypeChipSchedule { color: var(--accent-purple, #bd93f9); border-color: rgba(189,147,249,0.45); background: rgba(189,147,249,0.08); }
-.queueNextFire { color: var(--text-dim, #666); font-size: 9px; font-family: var(--font-mono); }
+.queueItemMeta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  color: var(--text-dim, #666);
+  flex-shrink: 0;
+}
+.queueTypeChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  border: 1px solid;
+  line-height: 1.4;
+}
+.queueTypeChipOnce {
+  color: var(--accent-cyan, #00e5ff);
+  border-color: rgba(0, 229, 255, 0.4);
+  background: rgba(0, 229, 255, 0.06);
+}
+.queueTypeChipLoop {
+  color: var(--accent-orange, #ffb86c);
+  border-color: rgba(255, 184, 108, 0.45);
+  background: rgba(255, 184, 108, 0.08);
+}
+.queueTypeChipSchedule {
+  color: var(--accent-purple, #bd93f9);
+  border-color: rgba(189, 147, 249, 0.45);
+  background: rgba(189, 147, 249, 0.08);
+}
+.queueNextFire {
+  color: var(--text-dim, #666);
+  font-size: 9px;
+  font-family: var(--font-mono);
+}
 
 /* ---- Automation status row (bottom of queue body) ---- */
-.queueStatusRow { display: flex; align-items: center; gap: 10px; padding: 4px 4px 0; margin-top: 6px; border-top: 1px dashed rgba(255,255,255,0.06); font-size: 10px; color: var(--text-secondary, #888); flex-wrap: wrap; }
-.queueStatusRow > span { white-space: nowrap; }
-.queueStatusToggle { background: transparent; border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary); font-family: var(--font-mono); font-size: 9px; padding: 2px 7px; border-radius: 3px; cursor: pointer; letter-spacing: 0.3px; text-transform: uppercase; }
-.queueStatusToggle:hover { background: rgba(0,229,255,0.06); color: var(--accent-cyan); border-color: rgba(0,229,255,0.3); }
-.queueStatusToggleOn { color: var(--accent-orange, #ffb86c); border-color: rgba(255,184,108,0.4); background: rgba(255,184,108,0.08); }
+.queueStatusRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 4px 0;
+  margin-top: 6px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.06);
+  font-size: 10px;
+  color: var(--text-secondary, #888);
+  flex-wrap: wrap;
+}
+.queueStatusRow > span {
+  white-space: nowrap;
+}
+.queueStatusToggle {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.queueStatusToggle:hover {
+  background: rgba(0, 229, 255, 0.06);
+  color: var(--accent-cyan);
+  border-color: rgba(0, 229, 255, 0.3);
+}
+.queueStatusToggleOn {
+  color: var(--accent-orange, #ffb86c);
+  border-color: rgba(255, 184, 108, 0.4);
+  background: rgba(255, 184, 108, 0.08);
+}
 
 /* ---- Item edit inline type controls ---- */
-.queueEditTypeRow { display: flex; align-items: center; gap: 6px; margin-top: 4px; flex-wrap: wrap; font-size: 10px; color: var(--text-secondary); }
+.queueEditTypeRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
 
 /* ---- QueueItemEditModal — three-pane editor for loop/schedule items ---- */
-.chainModalOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); backdrop-filter: blur(2px); z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 20px; }
-.chainModalPanel { background: var(--bg-panel, #0d1117); border: 1px solid var(--accent-cyan, #00e5ff); border-radius: 6px; box-shadow: 0 8px 32px rgba(0,0,0,0.6); width: 100%; max-width: 640px; max-height: 90vh; display: flex; flex-direction: column; font-family: var(--font-mono, 'JetBrains Mono', monospace); color: var(--text-primary, #e0e0e0); }
-.chainModalHeader { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); }
-.chainModalHeader h3 { margin: 0; font-size: 13px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--accent-cyan, #00e5ff); }
-.chainCloseBtn { background: transparent; border: none; color: var(--text-secondary); font-size: 16px; cursor: pointer; padding: 2px 6px; border-radius: 3px; }
-.chainCloseBtn:hover { background: rgba(255,255,255,0.06); color: var(--text-primary); }
-.chainModalBody { padding: 14px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.chainModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.chainModalPanel {
+  background: var(--bg-panel, #0d1117);
+  border: 1px solid var(--accent-cyan, #00e5ff);
+  border-radius: 6px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  width: 100%;
+  max-width: 640px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  color: var(--text-primary, #e0e0e0);
+}
+.chainModalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.chainModalHeader h3 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--accent-cyan, #00e5ff);
+}
+.chainCloseBtn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.chainCloseBtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+.chainModalBody {
+  padding: 14px 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
 
-.chainTypeRow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.chainTypeLabel { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); }
+.chainTypeRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.chainTypeLabel {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
 
-.chainSection { display: flex; flex-direction: column; gap: 4px; }
-.chainSectionHeader { display: flex; align-items: baseline; gap: 8px; padding-bottom: 2px; border-bottom: 1px dashed rgba(255,255,255,0.06); }
-.chainSectionLabel { font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; color: var(--accent-cyan, #00e5ff); }
-.chainSectionHint { font-size: 9px; color: var(--text-dim, #666); }
-.chainEmpty { padding: 4px 0; font-size: 10px; font-style: italic; color: var(--text-dim, #666); }
+.chainSection {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chainSectionHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 2px;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.06);
+}
+.chainSectionLabel {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--accent-cyan, #00e5ff);
+}
+.chainSectionHint {
+  font-size: 9px;
+  color: var(--text-dim, #666);
+}
+.chainEmpty {
+  padding: 4px 0;
+  font-size: 10px;
+  font-style: italic;
+  color: var(--text-dim, #666);
+}
 
-.chainStepRow { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
-.chainStepIdx { width: 18px; text-align: right; color: var(--text-dim, #666); font-size: 10px; flex-shrink: 0; }
-.chainStepTextarea { flex: 1; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 3px; color: var(--text-primary); font-family: var(--font-mono); font-size: 11px; padding: 4px 6px; resize: vertical; min-height: 24px; }
-.chainStepTextarea:focus { outline: none; border-color: var(--accent-cyan); }
-.chainStepBtn { background: transparent; border: 1px solid rgba(255,255,255,0.08); color: var(--text-secondary); font-family: var(--font-mono); font-size: 10px; padding: 2px 6px; border-radius: 3px; cursor: pointer; flex-shrink: 0; }
-.chainStepBtn:hover:not(:disabled) { background: rgba(0,229,255,0.08); color: var(--accent-cyan); border-color: rgba(0,229,255,0.3); }
-.chainStepBtn:disabled { opacity: 0.3; cursor: not-allowed; }
-.chainStepDel:hover:not(:disabled) { background: rgba(255,51,85,0.1); color: var(--accent-red); border-color: rgba(255,51,85,0.3); }
+.chainStepRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+}
+.chainStepIdx {
+  width: 18px;
+  text-align: right;
+  color: var(--text-dim, #666);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.chainStepTextarea {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 4px 6px;
+  resize: vertical;
+  min-height: 24px;
+}
+.chainStepTextarea:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+}
+.chainStepBtn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.chainStepBtn:hover:not(:disabled) {
+  background: rgba(0, 229, 255, 0.08);
+  color: var(--accent-cyan);
+  border-color: rgba(0, 229, 255, 0.3);
+}
+.chainStepBtn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.chainStepDel:hover:not(:disabled) {
+  background: rgba(255, 51, 85, 0.1);
+  color: var(--accent-red);
+  border-color: rgba(255, 51, 85, 0.3);
+}
 
-.chainAddBtn { align-self: flex-start; background: transparent; border: 1px dashed rgba(0,229,255,0.3); color: var(--accent-cyan); font-family: var(--font-mono); font-size: 10px; padding: 3px 10px; border-radius: 3px; cursor: pointer; margin-top: 4px; }
-.chainAddBtn:hover { background: rgba(0,229,255,0.08); border-style: solid; }
+.chainAddBtn {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px dashed rgba(0, 229, 255, 0.3);
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 3px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  margin-top: 4px;
+}
+.chainAddBtn:hover {
+  background: rgba(0, 229, 255, 0.08);
+  border-style: solid;
+}
 
 /* "+ Add step" and "From saved…" share a wrapping row so the pair never
    overflows the modal body at a narrow window width. */
-.chainSectionActions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.chainFromSavedBtn { border-color: rgba(170,102,255,0.35); color: var(--accent-purple, #aa66ff); display: inline-flex; align-items: center; gap: 5px; }
-.chainFromSavedBtn:hover { background: rgba(170,102,255,0.08); border-style: solid; }
+.chainSectionActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.chainFromSavedBtn {
+  border-color: rgba(170, 102, 255, 0.35);
+  color: var(--accent-purple, #aa66ff);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.chainFromSavedBtn:hover {
+  background: rgba(170, 102, 255, 0.08);
+  border-style: solid;
+}
 
 /* Per-step "keep this text" — icon-only so a chain row stays ↑ ↓ 🔖 ✕. */
-.chainStepIconBtn { display: inline-flex; align-items: center; justify-content: center; padding: 3px 5px; }
-.chainStepIconBtn:hover:not(:disabled) { background: rgba(170,102,255,0.1); color: var(--accent-purple, #aa66ff); border-color: rgba(170,102,255,0.3); }
-.chainStepIconBtnOn { color: var(--accent-purple, #aa66ff); border-color: rgba(170,102,255,0.35); }
+.chainStepIconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 5px;
+}
+.chainStepIconBtn:hover:not(:disabled) {
+  background: rgba(170, 102, 255, 0.1);
+  color: var(--accent-purple, #aa66ff);
+  border-color: rgba(170, 102, 255, 0.3);
+}
+.chainStepIconBtnOn {
+  color: var(--accent-purple, #aa66ff);
+  border-color: rgba(170, 102, 255, 0.35);
+}
 
-.chainMainTextarea { background: rgba(0,229,255,0.04); border: 1px solid rgba(0,229,255,0.3); border-radius: 4px; color: var(--text-primary); font-family: var(--font-mono); font-size: 12px; padding: 8px 10px; resize: vertical; min-height: 60px; }
-.chainMainTextarea:focus { outline: none; border-color: var(--accent-cyan); background: rgba(0,229,255,0.06); }
+.chainMainTextarea {
+  background: rgba(0, 229, 255, 0.04);
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 8px 10px;
+  resize: vertical;
+  min-height: 60px;
+}
+.chainMainTextarea:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.06);
+}
 
-.chainStats { font-size: 10px; color: var(--text-dim, #666); padding-top: 6px; border-top: 1px dashed rgba(255,255,255,0.06); }
+.chainStats {
+  font-size: 10px;
+  color: var(--text-dim, #666);
+  padding-top: 6px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.06);
+}
 
-.chainModalFooter { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-top: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.2); }
-.chainModalFooterRight { display: flex; gap: 6px; }
-.chainBtn { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.12); color: var(--text-primary); font-family: var(--font-mono); font-size: 11px; padding: 5px 14px; border-radius: 3px; cursor: pointer; letter-spacing: 0.5px; }
-.chainBtn:hover:not(:disabled) { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2); }
-.chainBtn:disabled { opacity: 0.4; cursor: not-allowed; }
-.chainBtnPrimary { background: rgba(0,229,255,0.15); color: var(--accent-cyan); border-color: rgba(0,229,255,0.4); }
-.chainBtnPrimary:hover:not(:disabled) { background: rgba(0,229,255,0.25); }
-.chainBtnDanger { color: var(--accent-red, #ff5555); border-color: rgba(255,51,85,0.3); }
-.chainBtnDanger:hover { background: rgba(255,51,85,0.1); border-color: rgba(255,51,85,0.5); }
+.chainModalFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.2);
+}
+.chainModalFooterRight {
+  display: flex;
+  gap: 6px;
+}
+.chainBtn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 5px 14px;
+  border-radius: 3px;
+  cursor: pointer;
+  letter-spacing: 0.5px;
+}
+.chainBtn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.chainBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.chainBtnPrimary {
+  background: rgba(0, 229, 255, 0.15);
+  color: var(--accent-cyan);
+  border-color: rgba(0, 229, 255, 0.4);
+}
+.chainBtnPrimary:hover:not(:disabled) {
+  background: rgba(0, 229, 255, 0.25);
+}
+.chainBtnDanger {
+  color: var(--accent-red, #ff5555);
+  border-color: rgba(255, 51, 85, 0.3);
+}
+.chainBtnDanger:hover {
+  background: rgba(255, 51, 85, 0.1);
+  border-color: rgba(255, 51, 85, 0.5);
+}
 
 /* ---- Loop exclude-window rows ---- */
-.excludeWindowRow { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
-.excludeWindowInput { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 3px; color: var(--text-primary); font-family: var(--font-mono); font-size: 11px; padding: 3px 6px; color-scheme: dark; min-width: 90px; }
-.excludeWindowInput:focus { outline: none; border-color: var(--accent-cyan); }
-.excludeWindowArrow { color: var(--text-dim, #666); font-size: 11px; flex-shrink: 0; }
-.excludeWindowHint { color: var(--text-dim, #666); font-size: 9px; font-style: italic; padding-left: 4px; }
-.excludeWindowInvalid { color: var(--accent-orange, #ffb86c); font-size: 9px; padding-left: 4px; }
+.excludeWindowRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+}
+.excludeWindowInput {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 6px;
+  color-scheme: dark;
+  min-width: 90px;
+}
+.excludeWindowInput:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+}
+.excludeWindowArrow {
+  color: var(--text-dim, #666);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.excludeWindowHint {
+  color: var(--text-dim, #666);
+  font-size: 9px;
+  font-style: italic;
+  padding-left: 4px;
+}
+.excludeWindowInvalid {
+  color: var(--accent-orange, #ffb86c);
+  font-size: 9px;
+  padding-left: 4px;
+}
 
 /* ---- Queue autocomplete dropdown (/ commands and @ files) ---- */
 /* ac* (autocomplete) styles moved to AutocompleteTextarea.module.css when
  * QueueTab's inlined autocomplete was extracted into a reusable component.
  * Nothing else in this stylesheet references them. */
 
-.queueTextCol { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; overflow: hidden; }
+.queueTextCol {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+}
 
-.queueItemImages { display: flex; gap: 3px; flex-wrap: wrap; }
+.queueItemImages {
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+}
 
-.queueItemThumb { width: 30px; height: 30px; border-radius: 2px; border: 1px solid rgba(255,255,255,0.08); overflow: hidden; flex-shrink: 0; }
-.queueItemThumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.queueItemThumb {
+  width: 30px;
+  height: 30px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.queueItemThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 
 /* ---- Move Mode ---- */
 
-.moveModeHeader { display: flex; align-items: center; gap: 6px; }
-.moveAllBtn { font-size: 10px; padding: 2px 8px; color: var(--accent-orange, #ffb86c); border: 1px solid rgba(255, 184, 108, 0.3); background: rgba(255, 184, 108, 0.08); cursor: pointer; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px; font-family: var(--font-mono); }
-.moveAllBtn:hover { background: rgba(255, 184, 108, 0.2); border-color: rgba(255, 184, 108, 0.5); }
+.moveModeHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.moveAllBtn {
+  font-size: 10px;
+  padding: 2px 8px;
+  color: var(--accent-orange, #ffb86c);
+  border: 1px solid rgba(255, 184, 108, 0.3);
+  background: rgba(255, 184, 108, 0.08);
+  cursor: pointer;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-family: var(--font-mono);
+}
+.moveAllBtn:hover {
+  background: rgba(255, 184, 108, 0.2);
+  border-color: rgba(255, 184, 108, 0.5);
+}
 
-.moveModeBanner { position: fixed; top: 0; left: 0; right: 0; z-index: 200; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 10px 20px; background: linear-gradient(135deg, rgba(255, 184, 108, 0.15), rgba(255, 184, 108, 0.08)); border-bottom: 1px solid rgba(255, 184, 108, 0.4); backdrop-filter: blur(12px); color: var(--accent-orange, #ffb86c); font-family: var(--font-mono); font-size: 13px; letter-spacing: 1px; text-transform: uppercase; animation: fade-in 0.2s ease; }
+.moveModeBanner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: linear-gradient(135deg, rgba(255, 184, 108, 0.15), rgba(255, 184, 108, 0.08));
+  border-bottom: 1px solid rgba(255, 184, 108, 0.4);
+  backdrop-filter: blur(12px);
+  color: var(--accent-orange, #ffb86c);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  animation: fade-in 0.2s ease;
+}
 
-@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
 
 /* ---- Terminal Area (relative wrapper for scroll overlay) ---- */
 
@@ -712,7 +1677,9 @@
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
     touch-action: manipulation;
-    transition: background 0.15s, border-color 0.15s;
+    transition:
+      background 0.15s,
+      border-color 0.15s;
   }
 
   .mobileScrollBtn:active {
@@ -855,7 +1822,9 @@
   line-height: 1;
   border-radius: 3px;
 }
-.termBookmarkClose:hover { color: var(--text-primary, #e0e0e0); }
+.termBookmarkClose:hover {
+  color: var(--text-primary, #e0e0e0);
+}
 
 .termBookmarkEmpty {
   padding: 16px 8px;
@@ -866,7 +1835,6 @@
   font-family: var(--font-mono, 'JetBrains Mono', monospace);
   line-height: 1.5;
 }
-
 
 .termBookmarkPreview {
   font-size: 10px;
@@ -892,8 +1860,13 @@
   margin-bottom: 4px;
   display: block;
 }
-.termBookmarkNote:focus { border-color: var(--accent-cyan, #00e5ff); }
-.termBookmarkNote::placeholder { color: var(--text-dim, #555); font-style: italic; }
+.termBookmarkNote:focus {
+  border-color: var(--accent-cyan, #00e5ff);
+}
+.termBookmarkNote::placeholder {
+  color: var(--text-dim, #555);
+  font-style: italic;
+}
 
 .termBookmarkActions {
   display: flex;
@@ -914,7 +1887,9 @@
   cursor: pointer;
   text-transform: uppercase;
 }
-.termBookmarkJumpBtn:hover { background: rgba(0, 229, 255, 0.1); }
+.termBookmarkJumpBtn:hover {
+  background: rgba(0, 229, 255, 0.1);
+}
 
 .termBookmarkDelBtn {
   background: transparent;
@@ -934,19 +1909,83 @@
 
 /* ---- Fullscreen ---- */
 
-.fullscreenBtn { background: transparent; border: 1px solid rgba(76, 175, 80, 0.3); color: #4caf50; font-family: inherit; font-size: 10px; letter-spacing: 1px; padding: 2px 10px; cursor: pointer; border-radius: 3px; transition: all 0.2s; }
-.fullscreenBtn:hover { background: rgba(76, 175, 80, 0.15); border-color: #4caf50; }
-
-.fullscreenOverlay { position: fixed; inset: 0; z-index: 10000; background: #0a0a1a; display: flex; flex-direction: column; }
-.fullscreenTopbar {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 6px 16px; background: var(--bg-header, #0e0e28);
-  border-bottom: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15)); flex-shrink: 0;
+.fullscreenBtn {
+  background: transparent;
+  border: 1px solid rgba(76, 175, 80, 0.3);
+  color: #4caf50;
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 2px 10px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.2s;
 }
-.fullscreenTopbar .toolbar { margin-bottom: 0; padding: 0; }
-.fullscreenTitle { font-size: 12px; font-weight: 500; color: var(--text-secondary, #888); letter-spacing: 1px; text-transform: uppercase; flex-shrink: 0; }
-.fullscreenExit { background: transparent; border: 1px solid rgba(255, 82, 82, 0.4); color: #ff5252; font-family: inherit; font-size: 10px; letter-spacing: 1px; padding: 4px 14px; cursor: pointer; border-radius: 3px; transition: all 0.2s; }
-.fullscreenExit:hover { background: rgba(255, 82, 82, 0.15); border-color: #ff5252; }
-.fullscreenContainer { flex: 1; overflow: hidden; }
-.fullscreenContainer :global(.xterm) { padding: 6px; height: 100%; }
-.fullscreenContainer :global(.xterm-viewport) { overflow-y: auto !important; }
+.fullscreenBtn:hover {
+  background: rgba(76, 175, 80, 0.15);
+  border-color: #4caf50;
+}
+
+.fullscreenOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: #0a0a1a;
+  display: flex;
+  flex-direction: column;
+}
+.fullscreenTopbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 16px;
+  background: var(--bg-header, #0e0e28);
+  border-bottom: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15));
+  flex-shrink: 0;
+}
+.fullscreenTopbar .toolbar {
+  margin-bottom: 0;
+  padding: 0;
+}
+.fullscreenTitle {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, #888);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.fullscreenExit {
+  background: transparent;
+  border: 1px solid rgba(255, 82, 82, 0.4);
+  color: #ff5252;
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 4px 14px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.2s;
+}
+.fullscreenExit:hover {
+  background: rgba(255, 82, 82, 0.15);
+  border-color: #ff5252;
+}
+.fullscreenContainer {
+  flex: 1;
+  overflow: hidden;
+}
+.fullscreenContainer :global(.xterm) {
+  padding: 6px;
+  height: 100%;
+}
+
+/* ---- Point-and-click line speaker ---- */
+/* position:fixed + document.body portal — see TerminalContainer.tsx for why.
+   z-index sits in the same 10000+ band as every other body-portaled overlay
+   in this app (fullscreenOverlay/chainModalOverlay 10000, .queueMovePicker
+   10050) so it can never render correctly-placed-but-hidden behind one. */
+.fullscreenContainer :global(.xterm-viewport) {
+  overflow-y: auto !important;
+}

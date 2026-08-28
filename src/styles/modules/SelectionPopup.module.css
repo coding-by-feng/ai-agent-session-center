@@ -104,6 +104,41 @@
   font-style: italic;
 }
 
+/* Quick-settings row: Model (+ Effort, Claude only) override for whatever
+   spawns next — any icon button or the custom Run▶ below. Blank stays on
+   the pre-existing inherit-from-origin behavior. Sits between the selection
+   preview and the custom-prompt row. */
+.quickSettingsRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+/* Sized as flex items so Combobox/Select's own wrapper (which the className
+   prop lands on) splits the row evenly and shrinks instead of overflowing
+   the popup's 260px max-width. */
+.quickSettingsModel,
+.quickSettingsEffort {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 11px;
+}
+
+/* The loading/error placeholder (plain <input>) needs the same reset the
+   Combobox/Select wrapper gets for free, since it's a bare form element here. */
+input.quickSettingsModel {
+  width: 100%;
+  padding: 4px 8px;
+  background: var(--bg-accent, rgba(0, 229, 255, 0.06));
+  border: 1px solid var(--border-accent-strong, rgba(0, 229, 255, 0.25));
+  border-radius: 6px;
+  color: var(--text-dim, rgba(230, 246, 255, 0.55));
+  font-family: inherit;
+  font-style: italic;
+  cursor: progress;
+}
+
 /* Custom-prompt row: user types an instruction; it's combined with the
    selection to start a fresh floating session. */
 .customRow {

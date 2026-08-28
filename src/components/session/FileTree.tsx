@@ -11,6 +11,7 @@ import { Tree, NodeRendererProps } from 'react-arborist';
 import type { TreeApi } from 'react-arborist';
 import { getFileSystemProvider } from '@/lib/fileSystemProvider';
 import type { DirEntry } from '@/lib/fileSystemProvider';
+import FileTypeIcon from '@/components/ui/FileTypeIcon';
 import styles from '@/styles/modules/FileTree.module.css';
 
 /**
@@ -63,23 +64,6 @@ interface FileTreeProps {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function fileIcon(name: string, isDir: boolean): string {
-  if (isDir) return '\u{1F4C1}';
-  const ext = name.split('.').pop()?.toLowerCase() ?? '';
-  const map: Record<string, string> = {
-    md: '\u{1F4DD}', mdx: '\u{1F4DD}', txt: '\u{1F4C4}',
-    ts: '\u{1F535}', tsx: '\u{1F535}', js: '\u{1F7E1}', jsx: '\u{1F7E1}',
-    json: '\u{1F4CB}', yaml: '\u{1F4CB}', yml: '\u{1F4CB}', toml: '\u{1F4CB}',
-    css: '\u{1F3A8}', scss: '\u{1F3A8}', html: '\u{1F310}',
-    py: '\u{1F40D}', go: '\u{1F439}', rs: '\u2699', java: '\u2615',
-    sh: '\u{1F4DF}', bash: '\u{1F4DF}', zsh: '\u{1F4DF}',
-    sql: '\u{1F5C3}', graphql: '\u{1F5C3}',
-    svg: '\u{1F5BC}', png: '\u{1F5BC}', jpg: '\u{1F5BC}', gif: '\u{1F5BC}',
-    env: '\u{1F512}', lock: '\u{1F512}',
-  };
-  return map[ext] || '\u{1F4C4}';
-}
 
 function entriesToNodes(entries: DirEntry[], parentPath: string): TreeNode[] {
   return entries.map((e) => {
@@ -158,6 +142,21 @@ function findNodeById(nodes: TreeNode[], targetId: string): TreeNode | null {
 
 const isMacPlatform = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
 
+/** Per-row delete action — matches FileTypeIcon's currentColor SVG style.
+ *  Local (not part of FileTypeIcon) since it's an action icon, not a file-type
+ *  one — replaces the raw 🗑 emoji the button used to render. */
+function TrashIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3 4.5h10" />
+      <path d="M6 4.5V3c0-.55.45-1 1-1h2c.55 0 1 .45 1 1v1.5" />
+      <path d="M4.5 4.5l.5 8.5c.03.5.45.9.95.9h4c.5 0 .92-.4.95-.9l.5-8.5" />
+      <line x1="6.5" y1="7" x2="6.5" y2="11" />
+      <line x1="9.5" y1="7" x2="9.5" y2="11" />
+    </svg>
+  );
+}
+
 type DeleteRequester = (relPath: string, name: string, isDir: boolean) => void;
 
 function makeNodeRenderer(onRequestDelete?: DeleteRequester) {
@@ -178,7 +177,7 @@ function makeNodeRenderer(onRequestDelete?: DeleteRequester) {
           </span>
         )}
         {node.isLeaf && <span className={styles.arrowSpacer} />}
-        <span className={styles.icon}>{fileIcon(data.name, data.isDir)}</span>
+        <FileTypeIcon name={data.name} isDir={data.isDir} className={styles.icon} />
         <span className={styles.name} title={data.name}>{data.name}</span>
         {data.isLoading && <span className={styles.spinner}>...</span>}
         {onRequestDelete && (
@@ -194,7 +193,7 @@ function makeNodeRenderer(onRequestDelete?: DeleteRequester) {
             aria-label={`Delete ${data.name}`}
             tabIndex={-1}
           >
-            {'\u{1F5D1}'}
+            <TrashIcon />
           </button>
         )}
       </div>

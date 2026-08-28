@@ -14,6 +14,9 @@ import { useQueueStore } from '@/stores/queueStore';
 import { useDropdownFlipX } from '@/hooks/useDropdownFlipX';
 import { sortSessionsByActivity } from '@/lib/sessionSort';
 import LabelPicker, { LabelChip } from './LabelPicker';
+import DetachIcon from '@/components/ui/DetachIcon';
+import Tooltip from '@/components/ui/Tooltip';
+import { tooltips } from '@/lib/tooltips';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -264,6 +267,24 @@ function NoteIcon() {
         strokeWidth="1.1"
         strokeLinecap="round"
       />
+    </svg>
+  );
+}
+
+/** Pin glyph — toggles session.pinned. Matches this row's minimal line-art
+ *  style rather than the 📌 emoji the other-session tab cards use below
+ *  (.sessionTabPin) — same togglePin state, different visual context. */
+function PinIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M6 1.5c-1.5 0-2.6 1.1-2.6 2.5 0 1.1.7 2 1.7 2.4L6 10.5l0.9-4.1c1-.4 1.7-1.3 1.7-2.4 0-1.4-1.1-2.5-2.6-2.5Z"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      <circle cx="6" cy="4" r="0.9" fill="currentColor" />
     </svg>
   );
 }
@@ -722,6 +743,25 @@ export default function SessionSwitcher({
 
   const closeLabelPicker = useCallback(() => setLabelAnchor(null), []);
 
+  // Same togglePin action the other-session tab cards below (their own
+  // handlePinClick) and RobotListSidebar already use — one shared session.pinned.
+  const handleTogglePin = useCallback(() => {
+    useSessionStore.getState().togglePin(currentSession.sessionId);
+  }, [currentSession.sessionId]);
+
+  // Pop the whole session out into its own native window. Electron only — the
+  // same guard FloatingTerminalPanel uses for its own pop-out button.
+  const canPopOutSession = typeof window !== 'undefined' && !!window.electronAPI?.openSessionWindow;
+  const handleDetachSession = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    const { sessionId, title } = currentSession;
+    window.electronAPI
+      ?.openSessionWindow?.({ sessionId, label: title || undefined })
+      .catch(() => {
+        /* ignore — session stays in-app */
+      });
+  }, [currentSession]);
+
   // Close the picker if the user switches sessions while it is open.
   useEffect(() => {
     setLabelAnchor(null);
@@ -791,6 +831,25 @@ export default function SessionSwitcher({
               onDoubleClick={beginHeaderEdit}
             >
               <span className={styles.switcherNameText}>{primaryName}</span>
+              {/* Pin toggle — leads the cluster rather than trailing after
+                  Detach: Edit/Tag/Note all annotate the session, Pin changes
+                  its lifecycle/list-position instead, so it reads as a
+                  distinct action, not a fourth label-editing icon. */}
+              <Tooltip {...(currentSession.pinned ? tooltips.sessionUnpin : tooltips.sessionPin)}>
+                <button
+                  type="button"
+                  className={`${styles.switcherEditHint}${currentSession.pinned ? ` ${styles.switcherHintActive}` : ''}`}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={handleTogglePin}
+                  // See the tag/note buttons: block the parent's double-click-
+                  // to-rename so a double-click here can't overwrite the title.
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  aria-label={(currentSession.pinned ? tooltips.sessionUnpin : tooltips.sessionPin).label}
+                  aria-pressed={currentSession.pinned}
+                >
+                  <PinIcon />
+                </button>
+              </Tooltip>
               <button
                 type="button"
                 className={styles.switcherEditHint}
@@ -831,6 +890,25 @@ export default function SessionSwitcher({
               >
                 <NoteIcon />
               </button>
+              {/* Pop the whole session (every tab) into its own native window.
+                  Electron only — the browser sandbox can't open a real OS window,
+                  and window.electronAPI is undefined there. */}
+              {canPopOutSession && (
+                <Tooltip {...tooltips.floatSessionPopOut}>
+                  <button
+                    type="button"
+                    className={styles.switcherEditHint}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={handleDetachSession}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                    aria-label={tooltips.floatSessionPopOut.label}
+                  >
+                    {/* 13px to match EditIcon/TagIcon/NoteIcon in this row —
+                        DetailTabs.tsx's own usage stays at the 14px default. */}
+                    <DetachIcon size={13} />
+                  </button>
+                </Tooltip>
+              )}
             </span>
           )}
           {currentLabel && (
@@ -1029,9 +1107,17 @@ export default function SessionSwitcher({
           )}
           {onClose && (
             <button
-              className={styles.switcherIconBtn}
+              // switcherMinimizeBtn carries no desktop styling — it exists so
+              // the mobile breakpoint can pull this button to the FRONT of
+              // .switcherMeta's wrap order (`order: -1`). Without it, DOM
+              // order puts minimize after the full-width .switcherControls
+              // line, i.e. on a third wrapped row, when it is the one control
+              // that must always be within reach (it is how you get back to
+              // the session list).
+              className={`${styles.switcherIconBtn} ${styles.switcherMinimizeBtn}`}
               onClick={onClose}
               title="Minimize"
+              aria-label="Minimize session panel"
               type="button"
             >
               &#x2012;

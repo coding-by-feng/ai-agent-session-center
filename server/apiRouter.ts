@@ -12,6 +12,8 @@ function str(val: unknown): string {
 }
 import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
+import { getLocalIP } from './networkInfo.js';
+import { isPasswordEnabled } from './authManager.js';
 import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, maybeInjectUltracode, attachToTmuxPane, consumePendingLink, prefillTerminalOutput, setReplayBufferBytes } from './sshManager.js';
 import { terminateProcessTree } from './processMonitor.js';
 import { checkTerminalCapacity } from './terminalCapacity.js';
@@ -21,6 +23,7 @@ import { getStats as getHookStats, resetStats as resetHookStats } from './hookSt
 import * as db from './db.js';
 import { saveNoteMedia, resolveNoteMedia, deleteNoteMediaForSession, MAX_MEDIA_BYTES } from './noteMedia.js';
 import { getMqStats } from './mqReader.js';
+import * as presence from './presenceManager.js';
 import { execFile } from 'child_process';
 import { createReadStream, readFileSync, writeFileSync, readdirSync, existsSync, statSync, mkdirSync, rmSync } from 'fs';
 import { join, dirname, extname, basename, resolve, sep } from 'path';
@@ -35,10 +38,33 @@ import { getCodexModelCatalog } from './codexModelCatalog.js';
 import { synthesize as ttsSynthesize, checkApiKey as ttsCheckApiKey } from './ttsManager.js';
 import { readClaudeTranscript, resolveResumableClaudeSessionId } from './extractPreviousAnswer.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
+import type { PromptKind } from '../src/types/api.js';
 
 const __apiDirname = dirname(fileURLToPath(import.meta.url));
 
 const router = Router();
+
+// ---- Multi-device identity ----
+
+/**
+ * Which device sent this request. Clients stamp every mutating call with
+ * `x-aasc-client-id`; an unstamped request (curl, an old client, a hook) reads
+ * as '' and is treated as an anonymous caller — it can still act on *free*
+ * sessions but can never take one from a named device, and can never claim the
+ * workspace restore.
+ */
+function clientIdFromRequest(req: Request): string {
+  return str(req.headers['x-aasc-client-id']).slice(0, 128);
+}
+
+function clientLabelFromRequest(req: Request): string {
+  return presence.sanitizeDeviceLabel(str(req.headers['x-aasc-client-label']));
+}
+
+/** Sessions that are alive right now — the thing a destructive call would destroy. */
+function liveSessionCount(): number {
+  return Object.keys(getAllSessions()).length;
+}
 
 // ---- Last-used Username Persistence ----
 
@@ -151,6 +177,32 @@ function resumeIsCertain(
   if (host && host !== 'localhost' && host !== '127.0.0.1') return false;
   if (!session.projectPath) return false;
   return resolveResumableClaudeSessionId(sessionId, session.projectPath, session.transcriptPath) !== null;
+}
+
+/**
+ * Resolve the raw startup command that workspace import writes verbatim into a
+ * freshly-spawned PTY (the `command: '' + startupCommand: '<cmd>'` shape used
+ * for commands carrying shell metacharacters).
+ *
+ * **Normalizing `-n` here is the point.** Every other relaunch path already
+ * routes through `appendSessionName` — `buildResumeCommand` does it, so does
+ * `createTerminal` for `config.command` — which repairs a malformed session
+ * name (see `quoteSessionTitle`). This path did not: it passed the stored
+ * string straight through. A snapshot carrying a legacy unquoted
+ * `-n KTS Video` therefore re-spawned it unrepaired on EVERY workspace restore,
+ * and `claude` read `Video` as a stray positional argument — an initial prompt
+ * nobody typed. Twenty-six live sessions were found in exactly that state.
+ *
+ * `appendSessionName` is a no-op for non-Claude commands (it bails unless the
+ * command starts with `claude`), so the raw-shell-command case this branch
+ * exists to serve passes through untouched.
+ */
+export function buildStartupLaunchCommand(
+  startupCommand: string | undefined | null,
+  sessionTitle: string | undefined | null,
+): string | null {
+  if (!startupCommand) return null;
+  return appendSessionName(startupCommand, sessionTitle);
 }
 
 export function buildResumeCommand(session: { startupCommand?: string; sshCommand?: string; sshConfig?: { command?: string; host?: string }; permissionMode?: string | null; title?: string | null; model?: string; effortLevel?: string; projectPath?: string; transcriptPath?: string | null }, sessionId: string): string {
@@ -632,6 +684,34 @@ router.post('/hooks/uninstall', (_req: Request, res: Response) => {
 // Express matching "clear-all" as a session ID.
 router.post('/sessions/clear-all', async (req: Request, res: Response) => {
   try {
+    // GUARD — this endpoint kills every PTY and deletes every session. Its only
+    // production caller is `importSnapshot`, i.e. the opening move of a workspace
+    // restore. Any OTHER caller reaching it while sessions are live is the bug
+    // this guard exists for: a second device (phone, tablet, another browser)
+    // running `useWorkspaceAutoLoad` and wiping the workspace the first device is
+    // actively using. Refuse unless the caller owns the restore claim — or the
+    // server has nothing to lose (cold start, 0 live sessions).
+    //
+    // The claim check is deliberately NOT "is this a known device": an attacker
+    // or a stale client would pass that. Only the single device the server
+    // granted the restore to may destroy state.
+    const live = liveSessionCount();
+    if (live > 0 && !presence.holdsRestoreClaim(clientIdFromRequest(req))) {
+      const owner = presence.getRestoreClaim();
+      log.warn(
+        'api',
+        `Blocked clear-all from "${clientLabelFromRequest(req)}" — ${live} live session(s); ` +
+          `restore is owned by ${owner ? `"${owner.label}"` : 'nobody'}`,
+      );
+      res.status(409).json({
+        ok: false,
+        error: 'workspace-in-use',
+        liveSessions: live,
+        by: owner?.label ?? null,
+      });
+      return;
+    }
+
     const { removed, savedOutputs } = clearAllSessions();
     // Broadcast clearBrowserDb so browsers clear their IndexedDB mirror —
     // unless the caller is the workspace-import flow, which racing against
@@ -981,6 +1061,12 @@ router.post('/sessions/spawn-floating', async (req: Request, res: Response) => {
     nativeLanguage: z.string().min(1).max(64),
     learningLanguage: z.string().min(1).max(64),
     inheritContext: z.boolean().optional(),
+    // Quick-settings override from the popup's Model/Effort row. Empty/absent
+    // means "inherit from the origin session" (spawnFloatingSession's default).
+    // Real validation (allow-list) happens downstream in sanitizeModelId /
+    // FLAG_EFFORT_LEVELS — these bounds just cap payload size.
+    model: z.string().max(200).optional(),
+    effortLevel: z.string().max(32).optional(),
   });
   const body = validateBody(SpawnFloatingSchema, req.body, res);
   if (!body) return;
@@ -1465,8 +1551,8 @@ router.post('/terminals', async (req: Request, res: Response) => {
     // Workspace import may intentionally send command='' plus startupCommand for
     // raw shell commands containing metacharacters. Keep the shell spawn blank,
     // then write the startup command after the prompt is ready.
-    const startupLaunchCmd = !resumeLaunchCmd && config.command === '' && config.startupCommand
-      ? config.startupCommand
+    const startupLaunchCmd = !resumeLaunchCmd && config.command === ''
+      ? buildStartupLaunchCommand(config.startupCommand, config.sessionTitle)
       : null;
 
     // When resuming, spawn terminal with empty command so createTerminal skips
@@ -1498,6 +1584,14 @@ router.post('/terminals', async (req: Request, res: Response) => {
     // blank shell. Raw startup-command imports intentionally store command=''
     // and keep the full launch string in startupCommand.
     await createTerminalSession(terminalId, config, opsTerminalId);
+
+    // The device that launched a session controls it. This is what makes the
+    // "joining device is a spectator by default" rule fall out with no extra
+    // step: the desktop app creates (or restores) the sessions, so it holds
+    // every baton, and a phone that connects later finds them all taken.
+    // `migrateControl` carries the claim across the term-* → UUID re-key.
+    const creator = clientIdFromRequest(req);
+    if (creator) presence.noteControlActivity(terminalId, creator);
 
     // Register alias so subsequent workspace import calls can dedup by originalSessionId.
     // Without this, sessions sharing the same workDir/command but different titles
@@ -1824,6 +1918,35 @@ router.get('/db/search', (req: Request, res: Response) => {
     type: (type as string) || 'all',
     page: Math.max(1, Math.min(1000, page ? parseInt(String(page), 10) || 1 : 1)),
     pageSize: Math.max(1, Math.min(200, pageSize ? parseInt(String(pageSize), 10) || 50 : 50)),
+  }));
+});
+
+/**
+ * GET /api/db/prompts — the global prompt trace.
+ *
+ * A read view over the `prompts` table that `insertFullPrompt` has been filling
+ * on every `UserPromptSubmit` all along; nothing new is recorded here.
+ * Rate-limited like /db/search: the text filter is a `LIKE '%…%'` scan that no
+ * index can serve.
+ */
+router.get('/db/prompts', (req: Request, res: Response) => {
+  const ip = req.ip || 'unknown';
+  if (isRateLimited(`db-prompts:${ip}`, 10)) {
+    res.status(429).json({ error: 'Rate limit exceeded' });
+    return;
+  }
+  const { query, project, session, kind, dateFrom, dateTo, sortDir, page, pageSize } = req.query;
+  const rawKind = str(kind) || 'mine';
+  res.json(db.searchPrompts({
+    query: str(query) || undefined,
+    project: str(project) || undefined,
+    session: str(session) || undefined,
+    kind: (['mine', 'cmd', 'agent', 'all'].includes(rawKind) ? rawKind : 'mine') as PromptKind,
+    dateFrom: dateFrom ? Number(str(dateFrom)) || undefined : undefined,
+    dateTo: dateTo ? Number(str(dateTo)) || undefined : undefined,
+    sortDir: str(sortDir) === 'asc' ? 'asc' : 'desc',
+    page: Math.max(1, Math.min(1000, page ? parseInt(str(page), 10) || 1 : 1)),
+    pageSize: Math.max(1, Math.min(200, pageSize ? parseInt(str(pageSize), 10) || 50 : 50)),
   }));
 });
 
@@ -2664,6 +2787,17 @@ router.get('/config', (_req: Request, res: Response) => {
     hookDensity: serverConfig.hookDensity,
     debug: serverConfig.debug,
     enabledClis: serverConfig.enabledClis,
+    // The LAN-reachable IPv4 for THIS machine (null if none found) — lets the
+    // client show "connect a phone at http://<localIP>:<port>" without the
+    // user shelling out to `ipconfig getifaddr en0` themselves. Computed
+    // fresh per request (interfaces can change, e.g. a Wi-Fi reconnect)
+    // rather than cached at startup.
+    localIP: getLocalIP(),
+    // Whether a password is configured — NOT the password or its hash. Lets
+    // the client explain *why* a phone can't connect (remote access is
+    // refused outright without one) instead of showing a stale warning after
+    // the user has set one.
+    passwordEnabled: isPasswordEnabled(),
   });
 });
 
@@ -2704,6 +2838,17 @@ const WORKSPACE_SNAPSHOT_PATH = process.env.APP_USER_DATA
 
 router.post('/workspace/save', (req: Request, res: Response) => {
   try {
+    // Only ONE device may persist the shared snapshot. Auto-save is mounted on
+    // every client, and the snapshot carries the ROOM LAYOUT — which lives in
+    // each client's own localStorage. A phone that has never seen the desktop's
+    // rooms would otherwise overwrite them with its own empty set, and the
+    // existing "never save an empty snapshot" guard would not catch it (the
+    // session list is fully populated; only the rooms are wrong).
+    if (!presence.canWriteWorkspace(clientIdFromRequest(req))) {
+      res.status(409).json({ ok: false, error: 'not-workspace-writer' });
+      return;
+    }
+
     const snapshot = req.body;
     if (!snapshot || !snapshot.version || !Array.isArray(snapshot.sessions)) {
       res.status(400).json({ error: 'Invalid workspace snapshot' });
@@ -2758,6 +2903,155 @@ router.get('/workspace/load', (_req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to load workspace snapshot' });
   }
 });
+
+// ---- Workspace restore ownership + device presence ----
+
+/**
+ * Claim the right to run the workspace restore. Exactly one device per server
+ * lifetime may do so; everyone else is told who owns it and must NOT restore.
+ *
+ * This is the gate that stops a second device from clearing and rebuilding a
+ * workspace the first device is using — see `presenceManager` for the rules.
+ */
+router.post('/workspace/restore-claim', (req: Request, res: Response) => {
+  const clientId = clientIdFromRequest(req);
+  if (!clientId) {
+    // An unidentified caller must never be granted a destructive, global,
+    // once-per-boot operation — there would be no way to tell it apart from
+    // the next unidentified caller.
+    res.status(400).json({ granted: false, error: 'missing-client-id' });
+    return;
+  }
+  const result = presence.claimWorkspaceRestore({
+    clientId,
+    label: clientLabelFromRequest(req),
+    liveSessionCount: liveSessionCount(),
+  });
+  res.json({ ...result, liveSessions: liveSessionCount() });
+});
+
+/** Give the claim back after a failed import so a retry is possible. */
+router.post('/workspace/restore-claim/release', (req: Request, res: Response) => {
+  const released = presence.releaseWorkspaceRestore(clientIdFromRequest(req));
+  res.json({ ok: true, released });
+});
+
+router.get('/presence', (_req: Request, res: Response) => {
+  res.json({ ok: true, data: presence.presenceSnapshot() });
+});
+
+const ControlActionSchema = z.object({
+  sessionId: z.string().min(1).max(200),
+  force: z.boolean().optional(),
+});
+
+/** Take the write baton for a session (`force` honours the idle-takeover window). */
+router.post('/presence/control/claim', (req: Request, res: Response) => {
+  const parsed = ControlActionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ ok: false, error: 'Invalid request' });
+    return;
+  }
+  const clientId = clientIdFromRequest(req);
+  if (!clientId) {
+    res.status(400).json({ ok: false, error: 'missing-client-id' });
+    return;
+  }
+  const result = presence.claimControl(parsed.data.sessionId, clientId, {
+    label: clientLabelFromRequest(req),
+    force: parsed.data.force,
+  });
+  broadcastPresence();
+  res.status(result.ok ? 200 : 409).json({ ...result });
+});
+
+/** Hand the baton back so another device can take it without waiting out the idle window. */
+router.post('/presence/control/release', (req: Request, res: Response) => {
+  const parsed = ControlActionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ ok: false, error: 'Invalid request' });
+    return;
+  }
+  const released = presence.releaseControl(parsed.data.sessionId, clientIdFromRequest(req));
+  broadcastPresence();
+  res.json({ ok: true, released });
+});
+
+/** Release every session this device holds ("Release all"). */
+router.post('/presence/control/release-all', (req: Request, res: Response) => {
+  const released = presence.releaseAllControls(clientIdFromRequest(req));
+  broadcastPresence();
+  res.json({ ok: true, released });
+});
+
+/**
+ * Ask the current holder to hand over. Relayed to every client; the holder's UI
+ * surfaces a Grant action. Purely cooperative — the requester still cannot write
+ * until the holder grants or the idle window opens a force-takeover.
+ */
+router.post('/presence/control/request', (req: Request, res: Response) => {
+  const parsed = ControlActionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ ok: false, error: 'Invalid request' });
+    return;
+  }
+  const holder = presence.getController(parsed.data.sessionId);
+  if (!holder) {
+    res.json({ ok: false, error: 'session-is-free' });
+    return;
+  }
+  void (async () => {
+    try {
+      const { broadcast } = await import('./wsManager.js');
+      broadcast({
+        type: WS_TYPES.CONTROL_REQUESTED,
+        sessionId: parsed.data.sessionId,
+        fromClientId: clientIdFromRequest(req),
+        fromLabel: clientLabelFromRequest(req),
+        toClientId: holder.clientId,
+      });
+    } catch { /* ignore */ }
+  })();
+  res.json({ ok: true, holder });
+});
+
+/** The holder grants a pending request, transferring the baton to `toClientId`. */
+router.post('/presence/control/grant', (req: Request, res: Response) => {
+  const parsed = ControlActionSchema.extend({ toClientId: z.string().min(1).max(128) }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ ok: false, error: 'Invalid request' });
+    return;
+  }
+  const { sessionId, toClientId } = parsed.data;
+  // Only the current holder may give it away; anyone else granting would be a
+  // way to hand a session to a third device you don't control.
+  const holder = presence.getController(sessionId);
+  if (holder && holder.clientId !== clientIdFromRequest(req)) {
+    res.status(403).json({ ok: false, error: 'not-holder' });
+    return;
+  }
+  presence.releaseControl(sessionId, clientIdFromRequest(req));
+  const result = presence.claimControl(sessionId, toClientId);
+  broadcastPresence();
+  res.json({ ...result });
+});
+
+/**
+ * Push the current presence state to every connected client.
+ *
+ * Delegates to wsManager's exported `broadcastPresence` rather than rebuilding
+ * the message here — that snapshot shape is also sent on connect and on
+ * disconnect, and a second construction site would drift. wsManager is imported
+ * dynamically because apiRouter is loaded before it during server boot.
+ */
+function broadcastPresence(): void {
+  void (async () => {
+    try {
+      const ws = await import('./wsManager.js');
+      ws.broadcastPresence();
+    } catch { /* ignore */ }
+  })();
+}
 
 // ---- Agenda Tasks ----
 
@@ -2815,6 +3109,12 @@ router.put('/agenda/:id', (req: Request, res: Response) => {
       ...body,
       id,
       updatedAt: now,
+      // AgendaTask.dueDate is `string | undefined` — never `null` — but the
+      // update schema allows `dueDate: null` to explicitly clear it. Normalize
+      // here rather than widening the type: `rowToAgendaTask` already turns a
+      // NULL column back into `undefined` on the next read, so this just keeps
+      // the in-memory object consistent with what a re-fetch would produce.
+      dueDate: body.dueDate === null ? undefined : (body.dueDate ?? existing.dueDate),
       completedAt: body.completed === true && !existing.completed
         ? now
         : body.completed === false

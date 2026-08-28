@@ -9,6 +9,7 @@ import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react'
 import { createPortal } from 'react-dom';
 import styles from '@/styles/modules/DetailPanel.module.css';
 import Tooltip from '@/components/ui/Tooltip';
+import DetachIcon from '@/components/ui/DetachIcon';
 import { tooltips } from '@/lib/tooltips';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useNotesStore } from '@/stores/notesStore';
@@ -104,16 +105,6 @@ function UnstackIcon() {
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
       <rect x="1" y="1" width="12" height="12" rx="1" stroke="currentColor" strokeWidth="1.3" />
       <line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" strokeWidth="1.3" strokeDasharray="2 1.5" />
-    </svg>
-  );
-}
-
-/** Picture-in-picture icon – click to float Project panel over Terminal */
-function FloatIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="1" y="1" width="12" height="12" rx="1" stroke="currentColor" strokeWidth="1.3" />
-      <rect x="6.5" y="6.5" width="6" height="5" rx="0.5" fill="currentColor" opacity="0.85" />
     </svg>
   );
 }
@@ -459,6 +450,12 @@ export default function DetailTabs({
       void api.openProjectWindow({ path: projectPath, label: 'Project' });
       return;
     }
+    // Under Electron the window.open fallback below is NOT a fallback: the
+    // shell's window-open policy sends anything it can't place to the system
+    // browser, so a preload missing openProjectWindow would silently pop Chrome
+    // open on localhost. Do nothing instead — a stale preload is a build
+    // problem, not something to paper over by leaving the app.
+    if (api) return;
     const name = `aasc-project-${projectPath.replace(/[^a-zA-Z0-9]/g, '_')}`;
     // A features string (esp. width/height) forces the browser to open a real
     // separate WINDOW — draggable to another monitor — instead of a new tab.
@@ -603,6 +600,9 @@ export default function DetailTabs({
                       {stackedView ? <UnstackIcon /> : <StackIcon />}
                     </span>
                   </Tooltip>
+                  {/* Detach is an ACTION, not a third layout mode — the rule
+                      keeps it from reading as one. */}
+                  <span className={styles.toggleDivider} aria-hidden="true" />
                   <Tooltip {...tooltips.floatProject}>
                     <span
                       className={styles.splitToggle}
@@ -614,7 +614,7 @@ export default function DetailTabs({
                       tabIndex={0}
                       aria-label={tooltips.floatProject.label}
                     >
-                      <FloatIcon />
+                      <DetachIcon />
                     </span>
                   </Tooltip>
                 </>

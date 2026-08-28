@@ -188,14 +188,23 @@ describe('authManager', () => {
   });
 
   describe('authMiddleware', () => {
-    it('calls next() when password is not enabled', async () => {
-      // Mock config to have no passwordHash
+    it('calls next() for a LOCAL request when password is not enabled', async () => {
+      // The request fixture must carry a loopback address. "No password →
+      // allow" is now true only for loopback: remote clients are refused with
+      // 403 when no password is configured, and a request whose origin cannot
+      // be determined fails CLOSED (both covered in authRemoteGate.test.ts).
+      // This fixture previously passed `{ headers: {} }` — no address at all —
+      // which now correctly lands in the fail-closed branch.
       const { config } = await import('../server/serverConfig.js');
       const original = config.passwordHash;
       (config as Record<string, unknown>).passwordHash = null;
       try {
         const next = vi.fn();
-        const req = { headers: {} } as unknown as import('express').Request;
+        const req = {
+          headers: {},
+          ip: '127.0.0.1',
+          socket: { remoteAddress: '127.0.0.1' },
+        } as unknown as import('express').Request;
         const res = {
           status: vi.fn().mockReturnThis(),
           json: vi.fn(),

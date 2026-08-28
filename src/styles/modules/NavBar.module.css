@@ -37,7 +37,6 @@
   vertical-align: super;
 }
 
-.spacer { flex: 1; }
 
 /* ---- Nav Actions ---- */
 
@@ -68,15 +67,6 @@
 
 /* ---- Keyboard Shortcuts Button ---- */
 
-.shortcutsBtn {
-  background: none; border: 1px solid var(--border-subtle);
-  color: var(--text-secondary); font-family: var(--font-mono);
-  font-size: 13px; font-weight: 700; width: 30px; height: 30px;
-  border-radius: 6px; cursor: pointer; transition: all 0.2s;
-  display: inline-flex; align-items: center; justify-content: center;
-  flex-shrink: 0; margin-left: 4px; vertical-align: middle;
-}
-.shortcutsBtn:hover { color: var(--accent-cyan); border-color: var(--accent-cyan); background: var(--bg-accent); box-shadow: 0 0 8px var(--glow-accent); }
 
 /* ---- View Panels ---- */
 
@@ -125,13 +115,6 @@
     font-size: 9px;
     white-space: nowrap;
   }
-
-  .shortcutsBtn {
-    width: 28px;
-    height: 28px;
-    font-size: 12px;
-    margin-left: 2px;
-  }
 }
 
 /* #59 — Touch targets for nav/action buttons on coarse pointer devices */
@@ -148,10 +131,5 @@
     padding: 0 12px;
     display: inline-flex;
     align-items: center;
-  }
-
-  .shortcutsBtn {
-    min-width: 44px;
-    min-height: 44px;
   }
 }

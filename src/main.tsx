@@ -5,6 +5,7 @@ import App from '@/App';
 import { useQueueStore } from '@/stores/queueStore';
 import { useQueueHistoryStore } from '@/stores/queueHistoryStore';
 import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
+import { installClientIdentityHeaders } from '@/lib/presenceClient';
 import '@/styles/global.css';
 import '@/styles/themes/cyberpunk.css';
 import '@/styles/themes/dracula.css';
@@ -16,6 +17,12 @@ import '@/styles/themes/warm.css';
 import '@/styles/themes/blonde.css';
 import '@/styles/themes/windows-xp.css';
 import '@/styles/themes/light-overrides.css';
+
+// Identify this device on every same-origin request. Must run BEFORE any
+// module issues a fetch: the server decides who may run the (destructive)
+// workspace restore and who holds each session's write baton from these
+// headers, and an unstamped request reads as an anonymous device.
+installClientIdentityHeaders();
 
 // Block Cmd+R / Ctrl+R / F5 to prevent accidental page reload
 // (losing all terminal sessions and in-memory state)
@@ -55,10 +62,11 @@ async function bootstrap(): Promise<void> {
   );
 }
 
-// The three render targets below are mutually exclusive — a window is either the
-// dashboard, a popped-out terminal, or a popped-out project browser. The popout
-// views are imported lazily, inside their own branch, so the DASHBOARD never
-// loads them: PopoutProjectView reaches ProjectTab, which drags in xlsx,
+// The four render targets below are mutually exclusive — a window is either the
+// dashboard, a popped-out terminal, a popped-out project browser, or a popped-
+// out whole session. The popout views are imported lazily, inside their own
+// branch, so the DASHBOARD never loads them: PopoutProjectView (and, through
+// DetailPanel, PopoutSessionView) reaches ProjectTab, which drags in xlsx,
 // react-arborist, highlight.js, DOMPurify and the react-markdown stack. That
 // static import was the single biggest reason the entry chunk sat at 2.5 MB.
 const popoutParams = new URLSearchParams(window.location.search);
@@ -92,6 +100,28 @@ if (popoutKind === 'terminal') {
       </BrowserRouter>
     </StrictMode>,
   );
+} else if (popoutKind === 'session') {
+  // Popped-out whole SESSION — render DetailPanel standalone (every tab), not
+  // the whole dashboard. Queue automation for THIS session still needs the
+  // hydrated queue stores (the same reason `bootstrap()` awaits them below), so
+  // this branch awaits the same load before rendering rather than skipping it.
+  void (async () => {
+    await Promise.all([
+      useQueueStore.getState().loadFromDb(),
+      useQueueHistoryStore.getState().loadFromDb(),
+      usePromptSnippetStore.getState().loadFromDb(),
+    ]);
+    const PopoutSessionView = lazy(() => import('@/components/session/PopoutSessionView'));
+    createRoot(root!).render(
+      <StrictMode>
+        <BrowserRouter>
+          <Suspense fallback={null}>
+            <PopoutSessionView />
+          </Suspense>
+        </BrowserRouter>
+      </StrictMode>,
+    );
+  })();
 } else {
   void bootstrap();
 }

@@ -2,8 +2,9 @@
  * ProjectTab — interactive file browser for a session's project directory.
  * Features: tree navigation, file tabs, fuzzy search, content search, new file/folder.
  */
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -18,6 +19,8 @@ import { useNavigate } from 'react-router';
 import { listFavoritedByFile } from '@/lib/translationLog';
 import { setProjectEditing } from '@/lib/projectEditGuard';
 import { makeSavedSelectionsPlugin, type SavedSelectionTerm } from '@/lib/rehypeSavedSelections';
+import { scrollIntoContainer } from '@/lib/scrollWithinContainer';
+import { extractHeadings, headingSlug, childrenToText } from '@/lib/markdownHeadings';
 import {
   DEFAULT_VIEW,
   PAN_STEP,
@@ -37,6 +40,7 @@ import {
 import { getFileSystemProvider } from '@/lib/fileSystemProvider';
 import { normalizeForSearch } from '@/lib/searchNormalize';
 import { showToast } from '@/components/ui/ToastContainer';
+import FileTypeIcon from '@/components/ui/FileTypeIcon';
 import Tooltip from '@/components/ui/Tooltip';
 import { tooltips } from '@/lib/tooltips';
 import SelectionPopup from '@/components/translate/SelectionPopup';
@@ -114,23 +118,6 @@ function formatSize(bytes?: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function fileIcon(name: string, type: 'dir' | 'file'): string {
-  if (type === 'dir') return '\u{1F4C1}';
-  const ext = name.split('.').pop()?.toLowerCase() ?? '';
-  const map: Record<string, string> = {
-    md: '\u{1F4DD}', mdx: '\u{1F4DD}', txt: '\u{1F4C4}',
-    ts: '\u{1F535}', tsx: '\u{1F535}', js: '\u{1F7E1}', jsx: '\u{1F7E1}',
-    json: '\u{1F4CB}', yaml: '\u{1F4CB}', yml: '\u{1F4CB}', toml: '\u{1F4CB}',
-    css: '\u{1F3A8}', scss: '\u{1F3A8}', html: '\u{1F310}',
-    py: '\u{1F40D}', go: '\u{1F439}', rs: '\u{2699}', java: '\u2615',
-    sh: '\u{1F4DF}', bash: '\u{1F4DF}', zsh: '\u{1F4DF}',
-    sql: '\u{1F5C3}', graphql: '\u{1F5C3}',
-    svg: '\u{1F5BC}', png: '\u{1F5BC}', jpg: '\u{1F5BC}', gif: '\u{1F5BC}',
-    env: '\u{1F512}', lock: '\u{1F512}',
-  };
-  return map[ext] || '\u{1F4C4}';
 }
 
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']);
@@ -291,34 +278,6 @@ function IconWordWrap() {
       <line x1="2" y1="13" x2="7" y2="13" />
     </svg>
   );
-}
-
-interface HeadingItem {
-  level: number;
-  text: string;
-  slug: string;
-}
-
-/** Extract headings from markdown content for outline navigation. */
-function extractHeadings(content: string): HeadingItem[] {
-  const headings: HeadingItem[] = [];
-  let inCodeBlock = false;
-  for (const line of content.split('\n')) {
-    if (line.trimStart().startsWith('```')) { inCodeBlock = !inCodeBlock; continue; }
-    if (inCodeBlock) continue;
-    const match = line.match(/^(#{1,6})\s+(.+)/);
-    if (match) {
-      const text = match[2].replace(/\s*#+\s*$/, '').trim();
-      const slug = text.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
-      headings.push({ level: match[1].length, text, slug });
-    }
-  }
-  return headings;
-}
-
-/** Generate a slug from heading text — must match what ReactMarkdown produces. */
-function headingSlug(text: string): string {
-  return text.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
 }
 
 /** Threshold: files with more lines than this use virtualised rendering. */
@@ -619,7 +578,7 @@ function SearchOverlay({
               onClick={() => onSelect(r)}
               onMouseEnter={() => setSelectedIdx(i)}
             >
-              <span className={styles.fileIcon}>{fileIcon(r.name, r.type)}</span>
+              <FileTypeIcon name={r.name} isDir={r.type === 'dir'} className={styles.fileIcon} />
               <span className={styles.searchName}>{r.name}</span>
               <span className={styles.searchPath}>{r.path}</span>
             </button>
@@ -1089,6 +1048,22 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
       localStorage.setItem('file-browser:tree-panel-collapsed', String(treePanelCollapsed));
     } catch { /* ignore */ }
   }, [treePanelCollapsed]);
+
+  // ---- Mobile file-tree slide-over -----------------------------------------
+  // At <=480px the tree used to be `display: none` outright (an explicit
+  // "collapse tree panel on small screens" rule), which left NO way to browse
+  // or pick a file — the viewer's own empty state said "Select a file from the
+  // tree to view" while pointing at UI that had been removed. The tree is now
+  // an overlay instead: full-width when open (a 390px screen cannot host a
+  // usable tree AND a usable viewer side by side), closed by default so the
+  // content still gets the whole screen — which was the legitimate goal behind
+  // hiding it in the first place.
+  //
+  // Deliberately its OWN state, not `treePanelCollapsed`: that one persists to
+  // `file-browser:tree-panel-collapsed`, so reusing it would mean opening the
+  // tree on a phone silently expands (or collapses) the desktop's sidebar on
+  // its next load. This is ephemeral and per-mount by design.
+  const [mobileTreeOpen, setMobileTreeOpen] = useState(false);
 
   // Collapse the whole file-viewer pane (tree + tabs + content) down to a thin
   // breadcrumb strip. Persisted per session via persistId so each session keeps
@@ -2197,12 +2172,12 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
       const resolvedPath = '/' + resolved.join('/');
       return <img {...props} src={provider.streamUrl(projectPath, resolvedPath)} alt={alt} />;
     },
-    h1: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h1 id={headingSlug(String(children))} {...props}>{children}</h1>,
-    h2: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h2 id={headingSlug(String(children))} {...props}>{children}</h2>,
-    h3: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h3 id={headingSlug(String(children))} {...props}>{children}</h3>,
-    h4: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h4 id={headingSlug(String(children))} {...props}>{children}</h4>,
-    h5: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h5 id={headingSlug(String(children))} {...props}>{children}</h5>,
-    h6: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h6 id={headingSlug(String(children))} {...props}>{children}</h6>,
+    h1: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h1 id={headingSlug(childrenToText(children))} {...props}>{children}</h1>,
+    h2: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h2 id={headingSlug(childrenToText(children))} {...props}>{children}</h2>,
+    h3: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h3 id={headingSlug(childrenToText(children))} {...props}>{children}</h3>,
+    h4: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h4 id={headingSlug(childrenToText(children))} {...props}>{children}</h4>,
+    h5: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h5 id={headingSlug(childrenToText(children))} {...props}>{children}</h5>,
+    h6: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => <h6 id={headingSlug(childrenToText(children))} {...props}>{children}</h6>,
     // Saved-selection highlight marks injected by makeSavedSelectionsPlugin carry
     // a data-saved-uuid; clicking opens the record in REVIEW. Other <mark>s pass through.
     mark: ({ children, ...props }: React.HTMLAttributes<HTMLElement>) => {
@@ -2221,6 +2196,207 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
       );
     },
   }), [currentPath, loadFile, provider, projectPath, navigate]);
+
+  // ---- Mobile toolbar overflow ---------------------------------------------
+  // The icon bar carries 16 actions at 28px each (~500px) and had NO overflow
+  // handling, so on a 390px phone the tail was simply unreachable. Below the
+  // breakpoint the tail collapses into a "⋯" portaled grid instead.
+  const iconOverflow = useMediaQuery('(max-width: 480px)');
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const overflowBtnRef = useRef<HTMLButtonElement>(null);
+  const overflowMenuRef = useRef<HTMLDivElement>(null);
+  const [overflowPos, setOverflowPos] = useState<{ top: number; left: number } | null>(null);
+
+  // Never leave the menu mounted after the breakpoint goes away (rotate to
+  // landscape / resize): its buttons would also be rendering inline.
+  useEffect(() => {
+    if (!iconOverflow) setOverflowOpen(false);
+  }, [iconOverflow]);
+
+  // Place from the trigger's viewport rect and clamp inside the window.
+  // `capture: true` on scroll is required — scroll does not bubble, so an
+  // inner container's scroll is only observable during the capture phase
+  // (same gotcha documented for QueueMovePicker's placement).
+  useLayoutEffect(() => {
+    if (!overflowOpen) return;
+    const place = () => {
+      const btn = overflowBtnRef.current;
+      const menu = overflowMenuRef.current;
+      if (!btn) return;
+      const a = btn.getBoundingClientRect();
+      const mw = menu?.offsetWidth ?? 220;
+      const mh = menu?.offsetHeight ?? 200;
+      const PAD = 8;
+      const left = Math.max(PAD, Math.min(a.right - mw, window.innerWidth - mw - PAD));
+      // Flip above the trigger when there isn't room below.
+      const below = a.bottom + 6;
+      const top = below + mh + PAD > window.innerHeight
+        ? Math.max(PAD, a.top - mh - 6)
+        : below;
+      setOverflowPos((prev) => (prev && prev.top === top && prev.left === left ? prev : { top, left }));
+    };
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [overflowOpen]);
+
+  // Close on outside click / Escape. The trigger is excluded so its own
+  // onClick owns the toggle rather than being re-opened by this handler.
+  useEffect(() => {
+    if (!overflowOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (overflowMenuRef.current?.contains(t) || overflowBtnRef.current?.contains(t)) return;
+      setOverflowOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOverflowOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [overflowOpen]);
+
+  // Toolbar actions that move into the mobile overflow menu. Extracted as a
+  // variable (not duplicated JSX) so the SAME elements render either inline
+  // in .iconBar on desktop or inside the portaled grid on mobile — rendering
+  // both would double every handler.
+  const overflowIcons = (
+    <>
+          <Tooltip {...tooltips.projFindInFile}>
+            <button
+              className={`${styles.iconBtn} ${showFindInFile ? styles.iconBtnActive : ''}`}
+              onClick={() => setShowFindInFile((p) => !p)}
+              disabled={!file || !!file.binary}
+              aria-label={tooltips.projFindInFile.label}
+            >
+              <IconFindInFile />
+            </button>
+          </Tooltip>
+          <Tooltip {...tooltips.projNewFile}>
+            <button
+              className={styles.iconBtn}
+              onClick={() => { setTreePanelCollapsed(false); setCreatingFile(true); }}
+              aria-label={tooltips.projNewFile.label}
+            >
+              <IconNewFile />
+            </button>
+          </Tooltip>
+          <Tooltip {...tooltips.projNewFolder}>
+            <button
+              className={styles.iconBtn}
+              onClick={() => { setTreePanelCollapsed(false); setCreatingFolder(true); }}
+              aria-label={tooltips.projNewFolder.label}
+            >
+              <IconNewFolder />
+            </button>
+          </Tooltip>
+          <Tooltip {...tooltips.projOpenInTab}>
+            <button className={styles.iconBtn} onClick={handleOpenProjectView} aria-label={tooltips.projOpenInTab.label}>
+              <IconOpenProjectView />
+            </button>
+          </Tooltip>
+          <Tooltip {...tooltips.projOpenExternal}>
+            <button
+              className={styles.iconBtn}
+              onClick={() => { void handleOpenExternalPath(); }}
+              aria-label={tooltips.projOpenExternal.label}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M2 4h5l1.5 1.5H14V13H2V4z" />
+                <path d="M9 9h4M11 7l2 2-2 2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          </Tooltip>
+          <Tooltip {...tooltips.projRevealInFinder}>
+            <button className={styles.iconBtn} onClick={handleRevealInFinder} aria-label={tooltips.projRevealInFinder.label}>
+              <IconRevealInFinder />
+            </button>
+          </Tooltip>
+          <Tooltip {...tooltips.projFormat}>
+            <button
+              className={styles.iconBtn}
+              onClick={handleFormatFile}
+              disabled={!file || !!file.binary}
+              aria-label={tooltips.projFormat.label}
+            >
+              <IconFormat />
+            </button>
+          </Tooltip>
+          <Tooltip {...tooltips.projOutline}>
+            <button
+              className={`${styles.iconBtn} ${showOutline ? styles.iconBtnActive : ''}`}
+              onClick={() => setShowOutline((p) => !p)}
+              disabled={!file || (file.ext !== 'md' && file.ext !== 'mdx')}
+              aria-label={tooltips.projOutline.label}
+            >
+              <IconOutline />
+            </button>
+          </Tooltip>
+          <Tooltip {...(mdEdit ? tooltips.projMdEditExit : tooltips.projMdEditEnter)}>
+            <button
+              className={`${styles.iconBtn} ${mdEdit ? styles.iconBtnActive : ''}`}
+              onClick={() => (mdEdit ? handleCancelMdEdit() : handleEnterMdEdit())}
+              disabled={!file || (file.ext !== 'md' && file.ext !== 'mdx')}
+              aria-label={(mdEdit ? tooltips.projMdEditExit : tooltips.projMdEditEnter).label}
+            >
+              <IconEdit />
+            </button>
+          </Tooltip>
+          <Tooltip {...tooltips.projWordWrap}>
+            <button
+              className={`${styles.iconBtn} ${wordWrap ? styles.iconBtnActive : ''}`}
+              onClick={() => setWordWrap((p) => !p)}
+              disabled={!file || !!file.binary}
+              aria-label={tooltips.projWordWrap.label}
+            >
+              <IconWordWrap />
+            </button>
+          </Tooltip>
+          <Tooltip {...tooltips.projFullscreen}>
+            <button
+              className={styles.iconBtn}
+              onClick={() => setShowFullscreen(true)}
+              disabled={!file}
+              aria-label={tooltips.projFullscreen.label}
+            >
+              <IconFullscreen />
+            </button>
+          </Tooltip>
+          <span className={styles.iconBarSep} />
+          <Tooltip {...tooltips.projCollapseAll}>
+            <button
+              className={styles.iconBtn}
+              onClick={() => fileTreeRef.current?.collapseAll()}
+              disabled={treePanelCollapsed}
+              aria-label={tooltips.projCollapseAll.label}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M2 4l1.5-1.5h3L8 4h6v8H2V4z" />
+                <path d="M5 9l3-3 3 3" />
+                <path d="M5 12l3-3 3 3" />
+              </svg>
+            </button>
+          </Tooltip>
+          <Tooltip {...tooltips.projRefresh}>
+            <button
+              className={styles.iconBtn}
+              onClick={handleRefresh}
+              aria-label={tooltips.projRefresh.label}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M13 3v4h-4" />
+                <path d="M13 7a5 5 0 1 0-1.5 3.5" />
+              </svg>
+            </button>
+          </Tooltip>
+    </>
+  );
 
   return (
     <div ref={rootRef} className={styles.projectTab}>
@@ -2261,6 +2437,22 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
       {/* Icon toolbar */}
       {!collapsed && (
       <div className={styles.iconBar}>
+        {/* Mobile-only file-tree toggle. Hidden above 480px (CSS), where the
+            tree is a permanently-visible side panel and this would be a
+            duplicate of the sidebar's own collapse chevron. First in the bar
+            because on a phone it is the entry point to everything else here —
+            without a file open, most of the other buttons are disabled. */}
+        <button
+          className={`${styles.iconBtn} ${styles.mobileTreeToggle} ${mobileTreeOpen ? styles.iconBtnActive : ''}`}
+          onClick={() => setMobileTreeOpen((o) => !o)}
+          aria-label={mobileTreeOpen ? 'Close file browser' : 'Browse files'}
+          aria-expanded={mobileTreeOpen}
+          title={mobileTreeOpen ? 'Close file browser' : 'Browse files'}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M2 4l1.5-1.5h3L8 4h6v8H2V4z" />
+          </svg>
+        </button>
         <Tooltip {...tooltips.projSearchFiles}>
           <button className={styles.iconBtn} onClick={() => setShowSearch(true)} aria-label={tooltips.projSearchFiles.label}>
             <IconSearch />
@@ -2271,135 +2463,47 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
             <IconContentSearch />
           </button>
         </Tooltip>
-        <Tooltip {...tooltips.projFindInFile}>
+        {!iconOverflow && overflowIcons}
+        {iconOverflow && (
           <button
-            className={`${styles.iconBtn} ${showFindInFile ? styles.iconBtnActive : ''}`}
-            onClick={() => setShowFindInFile((p) => !p)}
-            disabled={!file || !!file.binary}
-            aria-label={tooltips.projFindInFile.label}
+            ref={overflowBtnRef}
+            className={`${styles.iconBtn} ${overflowOpen ? styles.iconBtnActive : ''}`}
+            onClick={() => setOverflowOpen((o) => !o)}
+            aria-label="More actions"
+            aria-expanded={overflowOpen}
+            aria-haspopup="menu"
+            title="More actions"
           >
-            <IconFindInFile />
-          </button>
-        </Tooltip>
-        <Tooltip {...tooltips.projNewFile}>
-          <button
-            className={styles.iconBtn}
-            onClick={() => { setTreePanelCollapsed(false); setCreatingFile(true); }}
-            aria-label={tooltips.projNewFile.label}
-          >
-            <IconNewFile />
-          </button>
-        </Tooltip>
-        <Tooltip {...tooltips.projNewFolder}>
-          <button
-            className={styles.iconBtn}
-            onClick={() => { setTreePanelCollapsed(false); setCreatingFolder(true); }}
-            aria-label={tooltips.projNewFolder.label}
-          >
-            <IconNewFolder />
-          </button>
-        </Tooltip>
-        <Tooltip {...tooltips.projOpenInTab}>
-          <button className={styles.iconBtn} onClick={handleOpenProjectView} aria-label={tooltips.projOpenInTab.label}>
-            <IconOpenProjectView />
-          </button>
-        </Tooltip>
-        <Tooltip {...tooltips.projOpenExternal}>
-          <button
-            className={styles.iconBtn}
-            onClick={() => { void handleOpenExternalPath(); }}
-            aria-label={tooltips.projOpenExternal.label}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M2 4h5l1.5 1.5H14V13H2V4z" />
-              <path d="M9 9h4M11 7l2 2-2 2" strokeLinecap="round" strokeLinejoin="round" />
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <circle cx="3" cy="8" r="1.4" />
+              <circle cx="8" cy="8" r="1.4" />
+              <circle cx="13" cy="8" r="1.4" />
             </svg>
           </button>
-        </Tooltip>
-        <Tooltip {...tooltips.projRevealInFinder}>
-          <button className={styles.iconBtn} onClick={handleRevealInFinder} aria-label={tooltips.projRevealInFinder.label}>
-            <IconRevealInFinder />
-          </button>
-        </Tooltip>
-        <Tooltip {...tooltips.projFormat}>
-          <button
-            className={styles.iconBtn}
-            onClick={handleFormatFile}
-            disabled={!file || !!file.binary}
-            aria-label={tooltips.projFormat.label}
-          >
-            <IconFormat />
-          </button>
-        </Tooltip>
-        <Tooltip {...tooltips.projOutline}>
-          <button
-            className={`${styles.iconBtn} ${showOutline ? styles.iconBtnActive : ''}`}
-            onClick={() => setShowOutline((p) => !p)}
-            disabled={!file || (file.ext !== 'md' && file.ext !== 'mdx')}
-            aria-label={tooltips.projOutline.label}
-          >
-            <IconOutline />
-          </button>
-        </Tooltip>
-        <Tooltip {...(mdEdit ? tooltips.projMdEditExit : tooltips.projMdEditEnter)}>
-          <button
-            className={`${styles.iconBtn} ${mdEdit ? styles.iconBtnActive : ''}`}
-            onClick={() => (mdEdit ? handleCancelMdEdit() : handleEnterMdEdit())}
-            disabled={!file || (file.ext !== 'md' && file.ext !== 'mdx')}
-            aria-label={(mdEdit ? tooltips.projMdEditExit : tooltips.projMdEditEnter).label}
-          >
-            <IconEdit />
-          </button>
-        </Tooltip>
-        <Tooltip {...tooltips.projWordWrap}>
-          <button
-            className={`${styles.iconBtn} ${wordWrap ? styles.iconBtnActive : ''}`}
-            onClick={() => setWordWrap((p) => !p)}
-            disabled={!file || !!file.binary}
-            aria-label={tooltips.projWordWrap.label}
-          >
-            <IconWordWrap />
-          </button>
-        </Tooltip>
-        <Tooltip {...tooltips.projFullscreen}>
-          <button
-            className={styles.iconBtn}
-            onClick={() => setShowFullscreen(true)}
-            disabled={!file}
-            aria-label={tooltips.projFullscreen.label}
-          >
-            <IconFullscreen />
-          </button>
-        </Tooltip>
-        <span className={styles.iconBarSep} />
-        <Tooltip {...tooltips.projCollapseAll}>
-          <button
-            className={styles.iconBtn}
-            onClick={() => fileTreeRef.current?.collapseAll()}
-            disabled={treePanelCollapsed}
-            aria-label={tooltips.projCollapseAll.label}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M2 4l1.5-1.5h3L8 4h6v8H2V4z" />
-              <path d="M5 9l3-3 3 3" />
-              <path d="M5 12l3-3 3 3" />
-            </svg>
-          </button>
-        </Tooltip>
-        <Tooltip {...tooltips.projRefresh}>
-          <button
-            className={styles.iconBtn}
-            onClick={handleRefresh}
-            aria-label={tooltips.projRefresh.label}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M13 3v4h-4" />
-              <path d="M13 7a5 5 0 1 0-1.5 3.5" />
-            </svg>
-          </button>
-        </Tooltip>
+        )}
       </div>
+      )}
 
+      {/* Portaled to <body>: .iconBar sits inside scrolling/overflow-hidden
+          ancestors that would clip an in-tree absolute menu, and portaling
+          re-parents it into the root stacking context — hence the 10000+
+          z-index band shared with the app's other body-portaled overlays
+          rather than a small value it would "deserve" as a toolbar child. */}
+      {iconOverflow && overflowOpen && createPortal(
+        <div
+          ref={overflowMenuRef}
+          className={styles.iconOverflowMenu}
+          style={overflowPos ? { top: overflowPos.top, left: overflowPos.left } : { visibility: 'hidden' }}
+          role="menu"
+          aria-label="More actions"
+          // Any action closes the menu — every button here is a terminal
+          // action, so leaving it covering the content afterwards would
+          // repeat the file-tree overlay's original mistake.
+          onClick={() => setOverflowOpen(false)}
+        >
+          {overflowIcons}
+        </div>,
+        document.body,
       )}
 
       {/* (tabs + breadcrumb are inside the viewer panel below) */}
@@ -2410,7 +2514,11 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
         {/* Left: File tree panel (supports paste & drag-drop file upload) */}
         <div
           ref={treePanelRef}
-          className={`${styles.treePanel} ${treePanelCollapsed ? styles.treePanelCollapsed : ''} ${dragOver ? styles.treePanelDragOver : ''}`}
+          className={`${styles.treePanel} ${treePanelCollapsed ? styles.treePanelCollapsed : ''} ${dragOver ? styles.treePanelDragOver : ''} ${mobileTreeOpen ? styles.treePanelMobileOpen : ''}`}
+          // The inline width is the DESKTOP resizable width. At <=480px the
+          // stylesheet overrides it with `width: 100% !important` — an inline
+          // style would otherwise win over the media query and leave the
+          // overlay stuck at 220px. See ProjectTab.module.css's mobile block.
           style={treePanelCollapsed ? undefined : { width: treePanelWidth, minWidth: treePanelWidth }}
           tabIndex={0}
           onPaste={handlePaste}
@@ -2455,10 +2563,18 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
               ref={fileTreeRef}
               projectPath={projectPath}
 
-              onFileSelect={(relPath) => loadFile(relPath)}
+              onFileSelect={(relPath) => {
+                loadFile(relPath);
+                // Auto-close the mobile overlay — without this you pick a file
+                // and the tree stays covering the very content you opened.
+                // No-op on desktop, where mobileTreeOpen is never set.
+                setMobileTreeOpen(false);
+              }}
               onDirSelect={(relPath) => {
                 setCurrentPath(relPath);
                 onPathChange?.(relPath, false);
+                // Expanding a directory is NOT a terminal action — the user is
+                // still navigating, so the overlay deliberately stays open.
               }}
               activeFilePath={activeTabPath}
               onRequestDelete={handleRequestDelete}
@@ -2482,7 +2598,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                   onClick={() => handleTabClick(tab)}
                   title={tab.path}
                 >
-                  <span className={styles.fileTabIcon}>{fileIcon(tab.name, 'file')}</span>
+                  <FileTypeIcon name={tab.name} isDir={false} className={styles.fileTabIcon} />
                   <span className={styles.fileTabName}>{tab.name}</span>
                   <Tooltip {...tooltips.projCloseTab}>
                     <button
@@ -2557,7 +2673,14 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
             {!loading && !error && !file && !showingEditor && (
               <div className={styles.viewerWelcome}>
                 <span>{'\u{1F4C2}'}</span>
-                <span>Select a file from the tree to view</span>
+                {/* Two phrasings, because the affordance genuinely differs by
+                    width: above 480px the tree is a visible side panel; at or
+                    below it, the tree is an overlay reached from the toolbar
+                    button. The old single string named the sidebar
+                    unconditionally, so on a phone it pointed at UI that was
+                    `display: none` — instructions to use something absent. */}
+                <span className={styles.welcomeHintDesktop}>Select a file from the tree to view</span>
+                <span className={styles.welcomeHintMobile}>Tap the folder icon above to browse files</span>
               </div>
             )}
 
@@ -2651,7 +2774,13 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
                                 style={{ paddingLeft: `${(h.level - 1) * 12 + 8}px` }}
                                 onClick={() => {
                                   const el = markdownRef.current?.querySelector(`[id="${h.slug}"]`);
-                                  el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                  // Scroll WITHIN .markdown only (it owns overflow-y: auto —
+                                  // .mdContainer, its parent, is overflow:hidden and never
+                                  // scrolls itself). Element.scrollIntoView() walks every
+                                  // scrollable ancestor, including that hidden one and the
+                                  // detail panel above it, and used to drag the whole panel
+                                  // upward until the tab bar was pushed off-screen.
+                                  scrollIntoContainer(markdownRef.current, el, { block: 'start' });
                                 }}
                               >
                                 {h.text}

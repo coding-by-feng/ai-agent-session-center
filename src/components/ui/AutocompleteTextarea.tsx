@@ -19,6 +19,16 @@
  *     `onKeyDown` so existing keyboard shortcuts keep working.
  *   - Dropdown direction auto-detects: opens DOWN if there's enough room
  *     below the textarea, otherwise UP. Width matches the textarea.
+ *   - The dropdown is portaled to document.body. It's `position: fixed` and
+ *     positions itself from `getBoundingClientRect()` (true viewport
+ *     coordinates) — rendering it in-place would let any ancestor with a
+ *     `filter`/`backdrop-filter`/`transform`/`will-change` establish a new
+ *     containing block and silently re-scope those "viewport" coordinates to
+ *     that ancestor's box instead (confirmed empirically against
+ *     SelectionPopup's `backdrop-filter: blur(8px)` popup — the dropdown
+ *     landed ~300px from where it should have). Portaling sidesteps the
+ *     whole class of bug regardless of what this component ends up nested
+ *     inside.
  *
  * Parent contract:
  *   - Parent owns the text via `value` + `onChange`.
@@ -28,6 +38,7 @@
  *     disabled (we don't have a directory to search).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 // `useRef` is still used for the debounce timer ref.
 import {
   fetchCommandIndex,
@@ -77,6 +88,7 @@ interface AutocompleteTextareaProps {
   onDragOver?: (e: React.DragEvent<HTMLTextAreaElement>) => void;
   onDrop?: (e: React.DragEvent<HTMLTextAreaElement>) => void;
   ariaLabel?: string;
+  disabled?: boolean;
 }
 
 const DROPDOWN_MIN_DOWN_HEIGHT = 220;
@@ -147,6 +159,7 @@ export default function AutocompleteTextarea({
   onDragOver,
   onDrop,
   ariaLabel,
+  disabled,
 }: AutocompleteTextareaProps) {
   // Hold the textarea element as state so dropdown-position math can run in
   // a useMemo without tripping React 19's "no ref reads during render" rule.
@@ -392,8 +405,9 @@ export default function AutocompleteTextarea({
         onDragOver={onDragOver}
         onDrop={onDrop}
         aria-label={ariaLabel}
+        disabled={disabled}
       />
-      {acMenu && acMenu.items.length > 0 && dropdownStyle && (
+      {acMenu && acMenu.items.length > 0 && dropdownStyle && createPortal(
         <div className={styles.acDropdown} style={dropdownStyle}>
           {acMenu.items.map((item, i) => (
             <div key={`row-${i}-${item.insert}`}>
@@ -425,7 +439,8 @@ export default function AutocompleteTextarea({
             </span>
             <span>↑↓ navigate · Enter select · Esc close</span>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

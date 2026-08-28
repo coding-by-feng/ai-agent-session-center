@@ -13,6 +13,7 @@ import type {
   DbSessionRow, DbPromptRow, DbResponseRow, DbToolCallRow, DbEventRow, DbNoteRow,
   SessionDetailResponse, SessionSearchResponse, SessionSearchParams,
   FullTextSearchResult, FullTextSearchResponse,
+  PromptKind, PromptTraceRow, PromptSearchParams, PromptSearchResponse,
 } from '../src/types/api.js';
 import type {
   DistinctProject,
@@ -582,6 +583,100 @@ export function fullTextSearch(params: { query?: string; type?: string; page?: n
   if (type === 'all' || type === 'responses') total += (stmts.countSearchResponses.get(pattern) as { cnt: number }).cnt;
 
   return { results: results.slice(0, pageSize), total, page, pageSize };
+}
+
+// ---- Prompt trace (global record of every prompt sent) ----
+
+/**
+ * Harness/agent-injected turns. They arrive through the same `UserPromptSubmit`
+ * hook as real prompts (`<task-notification>`, `<observed_from_primary_session>`,
+ * `<system-reminder>`, `<agent-message …>`, `<<autonomous-loop-dynamic>>`), and
+ * every known form opens with `<` — so one generic predicate covers today's
+ * tags and whatever the harness adds next, instead of a list that silently
+ * rots. `ltrim` because a leading newline is common.
+ */
+/**
+ * SQLite's bare `ltrim(X)`/`trim(X)` strip SPACES ONLY — a leading newline is
+ * left in place, which silently classified `"\n  <observed_from_primary_session>"`
+ * as something the user typed. Every trim below passes this charset explicitly.
+ */
+const WS_CHARS = `' ' || char(9) || char(10) || char(13)`;
+const LTRIMMED_TEXT = `ltrim(p.text, ${WS_CHARS})`;
+
+const AGENT_PROMPT_SQL = `${LTRIMMED_TEXT} LIKE '<%'`;
+/** Slash commands, plus Codex's `$SkillName` form (see `entryPrefix`). */
+const COMMAND_PROMPT_SQL = `(${LTRIMMED_TEXT} LIKE '/%' OR ${LTRIMMED_TEXT} LIKE '$%')`;
+/** A blank row is not a prompt; only the unfiltered `all` facet shows them. */
+const NON_BLANK_SQL = `trim(coalesce(p.text, ''), ${WS_CHARS}) <> ''`;
+
+/**
+ * Escape LIKE wildcards in user input. Without this, searching for `50%` or
+ * `foo_bar` silently matches far more than the user asked for.
+ */
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
+function kindCondition(kind: PromptKind): string | null {
+  switch (kind) {
+    case 'agent': return AGENT_PROMPT_SQL;
+    case 'cmd': return `NOT (${AGENT_PROMPT_SQL}) AND ${COMMAND_PROMPT_SQL} AND ${NON_BLANK_SQL}`;
+    case 'all': return null;
+    case 'mine':
+    default: return `NOT (${AGENT_PROMPT_SQL}) AND ${NON_BLANK_SQL}`;
+  }
+}
+
+/**
+ * Paginated search over every prompt ever recorded, joined to its session.
+ *
+ * LEFT JOIN, deliberately. better-sqlite3 turns `PRAGMA foreign_keys` ON by
+ * default, so today `prompts.session_id` always resolves and an inner join
+ * would behave identically — but this is the one view whose job is to never
+ * lose a prompt, and an inner join makes "the session row went missing" mean
+ * "the prompt never existed". (The older `fullTextSearch` joins inner and would
+ * drop them.) Callers must therefore treat the session columns as nullable.
+ */
+export function searchPrompts(params: PromptSearchParams = {}): PromptSearchResponse {
+  const {
+    query, project, session, kind = 'mine', dateFrom, dateTo,
+    sortDir = 'desc', page = 1, pageSize = 50,
+  } = params;
+
+  const conditions: string[] = [];
+  const sqlParams: unknown[] = [];
+
+  const kindSql = kindCondition(kind);
+  if (kindSql) conditions.push(`(${kindSql})`);
+
+  if (query) {
+    conditions.push(`p.text LIKE ? ESCAPE '\\'`);
+    sqlParams.push(`%${escapeLike(query)}%`);
+  }
+  if (project) { conditions.push('s.project_path = ?'); sqlParams.push(project); }
+  if (session) { conditions.push('p.session_id = ?'); sqlParams.push(session); }
+  if (dateFrom) { conditions.push('p.timestamp >= ?'); sqlParams.push(dateFrom); }
+  if (dateTo) { conditions.push('p.timestamp <= ?'); sqlParams.push(dateTo); }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const from = 'FROM prompts p LEFT JOIN sessions s ON p.session_id = s.id';
+  const dir = sortDir === 'asc' ? 'ASC' : 'DESC';
+  const offset = (page - 1) * pageSize;
+
+  try {
+    const total = (db.prepare(`SELECT COUNT(*) AS cnt ${from} ${where}`).get(...sqlParams) as { cnt: number }).cnt;
+    const prompts = db.prepare(`
+      SELECT p.id, p.session_id, p.text, p.timestamp,
+             s.project_name, s.project_path, s.title AS session_title
+      ${from} ${where}
+      ORDER BY p.timestamp ${dir}, p.id ${dir}
+      LIMIT ? OFFSET ?
+    `).all(...sqlParams, pageSize, offset) as PromptTraceRow[];
+    return { prompts, total, page, pageSize };
+  } catch (err: unknown) {
+    log.warn('db', `searchPrompts failed: ${(err as Error).message}`);
+    return { prompts: [], total: 0, page, pageSize };
+  }
 }
 
 // ---- Analytics ----

@@ -65,6 +65,11 @@ const TRIGGER_OPTIONS = [
   { id: 'off', label: 'Disabled' },
 ] as const;
 
+const SPAWN_TARGET_OPTIONS = [
+  { id: 'window', label: 'Its own window — draggable to another monitor' },
+  { id: 'docked', label: 'Docked panel inside the app' },
+] as const;
+
 export default function TranslationSettings() {
   const enabled = useSettingsStore((s) => s.translationEnabled);
   const native = useSettingsStore((s) => s.translationNativeLanguage);
@@ -78,6 +83,8 @@ export default function TranslationSettings() {
   const setInheritContext = useSettingsStore((s) => s.setTranslationInheritContext);
   const attachFilePath = useSettingsStore((s) => s.explainAttachFilePath);
   const setAttachFilePath = useSettingsStore((s) => s.setExplainAttachFilePath);
+  const spawnTarget = useSettingsStore((s) => s.selectionSpawnTarget);
+  const setSpawnTarget = useSettingsStore((s) => s.setSelectionSpawnTarget);
 
   return (
     <div>
@@ -163,6 +170,23 @@ export default function TranslationSettings() {
           value={attachFilePath}
           options={ATTACH_FILE_OPTIONS}
           onChange={setAttachFilePath}
+        />
+      </div>
+
+      <div className={styles.section}>
+        <h4>Where the result opens</h4>
+        <p className={styles.settingsHint}>
+          After you click Explain, Translate, or a custom prompt, where the new AI session
+          appears. &ldquo;Its own window&rdquo; opens a real OS window straight away, so you can
+          move it to a second monitor without docking it first. If a separate window can&rsquo;t
+          be opened (popup blocked, or the desktop app needs a restart), it falls back to the
+          docked panel so the session is never left running with nowhere to see it.
+        </p>
+        <RadioGroup
+          name="selection-spawn-target"
+          value={spawnTarget}
+          options={SPAWN_TARGET_OPTIONS}
+          onChange={setSpawnTarget}
         />
       </div>
 

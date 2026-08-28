@@ -32,6 +32,7 @@ import { startMonitoring, stopMonitoring, startExternalDiscovery, findClaudeProc
 import { followSessionAlias } from './sessionAliasResolver.js';
 import type { DiscoveredProcess } from './processMonitor.js';
 import { startAutoIdle, stopAutoIdle, startPendingResumeCleanup, stopPendingResumeCleanup } from './autoIdleManager.js';
+import { migrateControl, dropControl } from './presenceManager.js';
 import {
   upsertSession as dbUpsertSession,
   updateSessionTitle as dbUpdateTitle,
@@ -941,6 +942,12 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
     // after the session re-keys to its real Claude session ID.
     sessionAliases.set(session.replacesId, session_id);
     dbMigrateSessionId(session.replacesId, session_id);
+    // Carry the multi-device control baton across the re-key. A session is
+    // re-keyed from its `term-*` placeholder to the CLI's real UUID moments
+    // after launch, so a baton claimed at creation would be stranded under an id
+    // that no longer exists — silently demoting the device that just launched
+    // the session to a spectator on it.
+    migrateControl(session.replacesId, session_id);
   }
   // Clean up one-time re-key flag
   delete session.replacesId;
@@ -1006,6 +1013,21 @@ export function resolveSessionId(sessionId: string): string | null {
 export function getSessionByTerminalId(terminalId: string): Session | null {
   for (const s of sessions.values()) {
     if (s.terminalId === terminalId) return { ...s };
+  }
+  return null;
+}
+
+/**
+ * Same lookup, id only and without copying the session.
+ *
+ * Exists for the `terminal_input` hot path (the multi-device write gate runs per
+ * keystroke), where the `{ ...s }` clone above would allocate a whole session
+ * object per character typed. Callers that only need "which session owns this
+ * PTY" must use this one.
+ */
+export function getSessionIdByTerminalId(terminalId: string): string | null {
+  for (const s of sessions.values()) {
+    if (s.terminalId === terminalId) return s.sessionId;
   }
   return null;
 }
@@ -1274,7 +1296,8 @@ export function killSession(sessionId: string): Session | null {
 
 export function deleteSessionFromMemory(sessionId: string): boolean {
   const resolvedId = resolveSessionId(sessionId);
-  const session = resolvedId ? sessions.get(resolvedId) : null;
+  if (!resolvedId) return false;
+  const session = sessions.get(resolvedId);
   if (!session) return false;
   // Release PID cache
   if (session.cachedPid) {
@@ -1286,6 +1309,9 @@ export function deleteSessionFromMemory(sessionId: string): boolean {
   for (const alias of aliasesToDelete) sessionAliases.delete(alias);
   // Team cleanup
   handleTeamMemberEnd(resolvedId, sessions);
+  // Forget the control baton — otherwise a killed session's id keeps an entry
+  // that would silently pre-assign control if the id were ever reused.
+  dropControl(resolvedId);
   sessions.delete(resolvedId);
   invalidateSessionsCache();
   return true;
@@ -1356,6 +1382,7 @@ export function clearAllSessions(): { removed: number; savedOutputs: SavedTermin
     if (session.cachedPid) {
       pidToSession.delete(session.cachedPid);
     }
+    dropControl(id);
     sessions.delete(id);
     removed++;
   }

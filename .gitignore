@@ -37,3 +37,10 @@ docs/feature/.manifest.json.tmp.*
 # Cached native better-sqlite3 binaries per ABI (Node vs Electron). Local dev
 # aid for swapping without a full rebuild — never commit the .node blobs.
 .native-cache/
+
+# One-off debugging/automation scripts (Playwright CDP probes, profiler dumps,
+# etc.) belong here, never loose at the repo root — 56 untracked *.mjs files
+# had accumulated there (2026-08-25 root tidy). Nothing in src/server/electron
+# or package.json references anything under this directory; treat it as
+# disposable, per-machine scratch space, not a place to build real features.
+scratch/

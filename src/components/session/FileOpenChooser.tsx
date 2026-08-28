@@ -2,7 +2,8 @@
  * FileOpenChooser — anchored popover shown when a file-path link is clicked
  * (conversation LinkifiedText or terminal link provider). Offers three ways
  * to open the file: in-app viewer, OS default application, or reveal in the
- * OS file manager. Mounted once per React root (AppLayout, PopoutTerminalView).
+ * OS file manager. Mounted once per React root (AppLayout, PopoutTerminalView,
+ * PopoutProjectView, PopoutSessionView).
  */
 import { useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';

@@ -1,0 +1,138 @@
+/* RobotListSidebar — the agent list panel.
+ *
+ * These rules used to live as an inline `style={{ ... }}` object on the
+ * container. That was fine while the panel was only ever a *side rail* floating
+ * over the 3D scene, but `scene3dEnabled` now defaults to false, so `FlatView`
+ * makes this panel the primary — and on a phone, the only — content of the LIVE
+ * view. An inline style cannot be reached by a media query, so the panel stayed
+ * a 280px column on a 390px screen with no way to override it. Hence a module.
+ *
+ * Keep the dynamic half (collapsed) as a class toggle, not inline width, or the
+ * breakpoint below silently loses to the style attribute again.
+ */
+
+.sidebar {
+  position: absolute;
+  top: 16px;
+  left: 20px;
+  width: 280px;
+  /* dvh, not vh: on iOS Safari 100vh includes the URL bar, so the panel runs
+     under the browser chrome and its last row is unreachable. */
+  max-height: calc(100dvh - 100px);
+  overflow-y: auto;
+  background: color-mix(in srgb, var(--bg-panel) 85%, transparent);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border-accent);
+  border-radius: 4px;
+  padding: 14px 12px;
+  pointer-events: all;
+  z-index: 11;
+  box-shadow: 0 0 12px var(--glow-accent), inset 0 0 24px var(--glow-accent);
+  transition: width 0.2s ease, padding 0.2s ease;
+}
+
+.collapsed {
+  width: auto;
+  overflow-y: hidden;
+  padding: 10px 12px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  margin-bottom: 4px;
+  padding-left: 2px;
+  user-select: none;
+}
+
+.collapsed .header {
+  margin-bottom: 0;
+}
+
+.headerTitle {
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  font-family: 'Share Tech Mono', 'JetBrains Mono', monospace;
+  flex: 1;
+}
+
+/* ---- Responsive ----------------------------------------------------------
+ * On a phone the panel IS the page, so it goes full-bleed across the top
+ * instead of floating in the corner. The bottom gap is deliberate: SceneOverlay
+ * (the units/mute/3D-toggle HUD) sits at `bottom: 16px` with z-index 10, one
+ * below this panel — without the gap this would paint straight over the only
+ * control that turns the 3D scene back on.
+ */
+@media (max-width: 640px) {
+  .sidebar {
+    top: 0;
+    left: 0;
+    right: 0;
+    width: auto;
+    max-height: calc(100dvh - 88px);
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-top: none;
+    padding: 12px 14px;
+  }
+
+  /* Collapsed stays full-bleed too — a floating chip in the corner of a phone
+     reads as a stray artefact rather than a collapsed panel. */
+  .collapsed {
+    width: auto;
+    padding: 10px 14px;
+  }
+
+  .headerTitle {
+    font-size: 13px;
+  }
+}
+
+@media (pointer: coarse) {
+  .header {
+    min-height: 44px;
+  }
+}
+
+/* ---- Entry row: pin/close touch targets ------------------------------------
+ * RobotEntry's pin and close icons are 18×18px inline (built for a mouse-hover
+ * desktop sidebar), with only an 8px gap between them. This panel is now the
+ * primary mobile surface, so those icons need real tap targets — but a full
+ * 44px expansion centered on each icon would overlap its neighbour by 18px,
+ * and "close" kills the session's process with no confirm unless it's pinned.
+ * A mis-tap there is worse than the small-target problem it would fix.
+ *
+ * `.entryRow`'s `gap` is deliberately NOT set inline (unlike every other style
+ * on that button, which is state-dependent and stays inline) specifically so
+ * this rule can widen it on coarse pointers — inline styles always win over a
+ * stylesheet rule for the same property, so this only works because gap was
+ * pulled out. The 16px gap and the 8px inset are matched on purpose: two 34px
+ * hit-boxes (18px icon + 8px on each side) exactly meet at the midpoint with
+ * zero overlap. Not the full 44px guideline — 8px real estate does not allow
+ * that here without restructuring the row — but a real, provable improvement
+ * with no mis-tap risk between two very differently-consequenced actions.
+ */
+.entryRow {
+  gap: 8px;
+}
+
+@media (pointer: coarse) {
+  .entryRow {
+    gap: 16px;
+  }
+
+  .iconBtn {
+    position: relative;
+  }
+
+  .iconBtn::before {
+    content: '';
+    position: absolute;
+    inset: -8px;
+  }
+}

@@ -11,7 +11,13 @@
  * `.queueBody`'s 250px scroll box. One editor, one behaviour, everywhere.
  */
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useQueueStore, DEFAULT_AUTOMATION, type QueueItem, type QueueImageAttachment, type QueueItemType } from '@/stores/queueStore';
+import {
+  useQueueStore,
+  DEFAULT_AUTOMATION,
+  type QueueItem,
+  type QueueImageAttachment,
+  type QueueItemType,
+} from '@/stores/queueStore';
 import {
   applyTypeDefaults,
   itemType,
@@ -28,6 +34,7 @@ import {
 import { parseHHMM } from '@/lib/timePicker';
 import { sendPromptToTerminal } from '@/lib/terminalSend';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useUiStore } from '@/stores/uiStore';
 import { useQueueHistoryStore } from '@/stores/queueHistoryStore';
 import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
 import { showToast } from '@/components/ui/ToastContainer';
@@ -39,10 +46,7 @@ import PromptSnippetPicker, {
 } from './PromptSnippetPicker';
 import { appendSnippet } from '@/lib/promptSnippetInsert';
 import QueueItemEditModal from './QueueItemEditModal';
-import QueueMovePicker, {
-  MOVE_TRIGGER_ATTR,
-  type QueueMoveTarget,
-} from './QueueMovePicker';
+import QueueMovePicker, { MOVE_TRIGGER_ATTR, type QueueMoveTarget } from './QueueMovePicker';
 import QueueHistorySheet from './QueueHistorySheet';
 import LoopExcludeWindowsModal from './LoopExcludeWindowsModal';
 import styles from '@/styles/modules/Terminal.module.css';
@@ -76,6 +80,13 @@ interface QueueTabProps {
   terminalId?: string | null;
   /** Send a WS message to update queue count on the server */
   onQueueCountChange?: (sessionId: string, count: number) => void;
+  /** Opt-in for the dedicated QUEUE tab mount, which sits inside DetailTabs'
+   *  `.tabScroll` and has a full tab's height to spare. Unset (default) keeps
+   *  the always-on strip below the terminal at its existing compact size —
+   *  that mount deliberately stays short so the terminal above it isn't
+   *  squeezed, and must NOT pass this. See `.queuePanelFull` in
+   *  Terminal.module.css. */
+  fullHeight?: boolean;
 }
 
 export default function QueueTab({
@@ -83,6 +94,7 @@ export default function QueueTab({
   sessionStatus,
   terminalId,
   onQueueCountChange,
+  fullHeight,
 }: QueueTabProps) {
   const items = useQueueStore((s) => s.queues.get(sessionId) ?? EMPTY_QUEUE);
   const add = useQueueStore((s) => s.add);
@@ -94,13 +106,15 @@ export default function QueueTab({
    *  the selector returns a stable reference and doesn't trigger a
    *  re-render loop when no entry exists yet (default state for most
    *  sessions). */
-  const automationConfig = useQueueStore(
-    (s) => s.automation.get(sessionId) ?? DEFAULT_AUTOMATION,
-  );
+  const automationConfig = useQueueStore((s) => s.automation.get(sessionId) ?? DEFAULT_AUTOMATION);
   const setPaused = useQueueStore((s) => s.setPaused);
   const setIdleGuard = useQueueStore((s) => s.setIdleGuard);
   const setSkipWhenPrompting = useQueueStore((s) => s.setSkipWhenPrompting);
   const setLoopExcludeWindows = useQueueStore((s) => s.setLoopExcludeWindows);
+  /** List (rows, drag-to-reorder) vs Card (wrapping grid) layout. Persisted —
+   *  see queueViewMode's doc comment in uiStore.ts. */
+  const queueViewMode = useUiStore((s) => s.queueViewMode);
+  const toggleQueueViewMode = useUiStore((s) => s.toggleQueueViewMode);
   /** Open state for the session-level quiet-hours sheet. */
   const [quietHoursOpen, setQuietHoursOpen] = useState(false);
   /** Open state for the global queue-history sheet. */
@@ -171,7 +185,9 @@ export default function QueueTab({
     try {
       const stored = localStorage.getItem('queue-panel-collapsed');
       return stored === null ? true : stored === '1';
-    } catch { return true; }
+    } catch {
+      return true;
+    }
   });
   // Per-session auto-send / auto-enter. These live in THIS session's
   // QueueAutomationConfig (read above as `automationConfig`), so toggling them
@@ -241,7 +257,9 @@ export default function QueueTab({
         const data = await res.json();
         return data.paths ?? [];
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     return [];
   }, []);
 
@@ -271,7 +289,6 @@ export default function QueueTab({
     [terminalId, uploadImages, autoEnter],
   );
 
-
   // The actual 1s scheduler tick lives in `useGlobalQueueScheduler`
   // (mounted in App.tsx Dashboard) so it keeps evaluating background
   // sessions even when their QueueTab is unmounted. This tab only handles
@@ -293,8 +310,7 @@ export default function QueueTab({
       (f) =>
         new Promise<QueueImageAttachment>((resolve, reject) => {
           const reader = new FileReader();
-          reader.onload = () =>
-            resolve({ name: f.name, dataUrl: reader.result as string });
+          reader.onload = () => resolve({ name: f.name, dataUrl: reader.result as string });
           reader.onerror = reject;
           reader.readAsDataURL(f);
         }),
@@ -332,8 +348,7 @@ export default function QueueTab({
       (f) =>
         new Promise<QueueImageAttachment>((resolve, reject) => {
           const reader = new FileReader();
-          reader.onload = () =>
-            resolve({ name: f.name, dataUrl: reader.result as string });
+          reader.onload = () => resolve({ name: f.name, dataUrl: reader.result as string });
           reader.onerror = reject;
           reader.readAsDataURL(f);
         }),
@@ -358,8 +373,7 @@ export default function QueueTab({
       (f) =>
         new Promise<QueueImageAttachment>((resolve, reject) => {
           const reader = new FileReader();
-          reader.onload = () =>
-            resolve({ name: f.name, dataUrl: reader.result as string });
+          reader.onload = () => resolve({ name: f.name, dataUrl: reader.result as string });
           reader.onerror = reject;
           reader.readAsDataURL(f);
         }),
@@ -388,9 +402,7 @@ export default function QueueTab({
     // scheduler. `loop` always gets an interval in ms; `schedule` carries an
     // absolute unix-ms timestamp (computed from the datetime-local input).
     const unitMs =
-      composeIntervalUnit === 'sec' ? 1000
-        : composeIntervalUnit === 'min' ? 60_000
-          : 3_600_000;
+      composeIntervalUnit === 'sec' ? 1000 : composeIntervalUnit === 'min' ? 60_000 : 3_600_000;
     const intervalMs = Math.max(1, composeIntervalValue) * unitMs;
     let runAt: number | undefined;
     if (composeType === 'schedule' && composeRunAt) {
@@ -554,21 +566,28 @@ export default function QueueTab({
   // (preserving each item's other fields incl. execState) and persists via the
   // store subscription. Dragging an in-flight chain item just moves its list
   // position; its execState is kept, so the scheduler never double-fires.
-  const handleDragStart = useCallback(
-    (e: React.DragEvent, item: QueueItem) => {
-      setDraggingId(item.id);
-      // Setting dataTransfer is REQUIRED for the drag to start in Firefox /
-      // browser mode (Chromium/Electron is lenient); harmless everywhere else.
-      if (e.dataTransfer) {
-        e.dataTransfer.effectAllowed = 'move';
-        try { e.dataTransfer.setData('text/plain', String(item.id)); } catch { /* ignore */ }
-        // The grip is the drag handle, but drag the WHOLE row visually.
-        const row = (e.currentTarget as HTMLElement).parentElement;
-        if (row) { try { e.dataTransfer.setDragImage(row, 16, 12); } catch { /* ignore */ } }
+  const handleDragStart = useCallback((e: React.DragEvent, item: QueueItem) => {
+    setDraggingId(item.id);
+    // Setting dataTransfer is REQUIRED for the drag to start in Firefox /
+    // browser mode (Chromium/Electron is lenient); harmless everywhere else.
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      try {
+        e.dataTransfer.setData('text/plain', String(item.id));
+      } catch {
+        /* ignore */
       }
-    },
-    [],
-  );
+      // The grip is the drag handle, but drag the WHOLE row visually.
+      const row = (e.currentTarget as HTMLElement).parentElement;
+      if (row) {
+        try {
+          e.dataTransfer.setDragImage(row, 16, 12);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }, []);
 
   const handleDragOver = useCallback(
     (e: React.DragEvent, targetIdx: number) => {
@@ -585,7 +604,10 @@ export default function QueueTab({
       newItems.splice(targetIdx, 0, moved);
       // Validate array integrity
       if (newItems.length !== items.length) return;
-      reorder(sessionId, newItems.map((i) => i.id));
+      reorder(
+        sessionId,
+        newItems.map((i) => i.id),
+      );
     },
     [draggingId, items, reorder, sessionId],
   );
@@ -608,7 +630,10 @@ export default function QueueTab({
       const newItems = [...items];
       const [moved] = newItems.splice(fromIdx, 1);
       newItems.splice(targetIdx, 0, moved);
-      reorder(sessionId, newItems.map((i) => i.id));
+      reorder(
+        sessionId,
+        newItems.map((i) => i.id),
+      );
     },
     [items, reorder, sessionId],
   );
@@ -618,8 +643,203 @@ export default function QueueTab({
     .filter(([id]) => id !== sessionId)
     .map(([id, s]) => ({ id, projectName: s.projectName, title: s.title }));
 
+  // Type chip + next-fire + chain badge. Extracted (rather than left as the
+  // inline IIFE it used to be) so both List and Card layouts render the exact
+  // same quiet-hours/daily-start-clamp/chain-progress logic — duplicating this
+  // conditional block across two layouts is exactly the kind of thing that
+  // drifts out of sync the first time only one copy gets a bugfix.
+  const renderItemMeta = (item: QueueItem) => {
+    const t = itemType(item);
+    const beforeCount = item.beforeChain?.length ?? 0;
+    const afterCount = item.afterChain?.length ?? 0;
+    const chained = beforeCount + afterCount > 0;
+    // A plain 'once' row has nothing to report. A CHAINED 'once' does — it
+    // shows its chain badge / step progress, but no type chip and no
+    // next-fire (it has no cadence, it drains on demand).
+    if (t === 'once' && !chained) return null;
+    const chipClass = t === 'loop' ? styles.queueTypeChipLoop : styles.queueTypeChipSchedule;
+    const chipLabel =
+      t === 'loop' ? `⟳ ${item.intervalMs ? formatInterval(item.intervalMs) : 'loop'}` : '🕐 sched';
+    const total = totalChainSteps(item);
+    const cur = currentChainStep(item);
+    // Loops silenced by per-item or session-level quiet hours get
+    // "— in quiet hours —" instead of a misleading "due now".
+    const inQuietHours = isItemInQuietHours(item, automationConfig.loopExcludeWindows, Date.now());
+    // Daily-start clamp — only relevant for loops with a clamp set AND the
+    // current time is still before that clamp today.
+    const beforeDailyStart = isBeforeDailyStart(item, Date.now());
+    return (
+      <span className={styles.queueItemMeta}>
+        {t !== 'once' && (
+          <span className={`${styles.queueTypeChip} ${chipClass}`}>{chipLabel}</span>
+        )}
+        {item.disabled ? (
+          <span className={`${styles.queueNextFire} ${styles.queueNextFirePaused}`}>
+            — paused —
+          </span>
+        ) : isExecuting(item) ? (
+          <span className={styles.queueNextFire}>
+            step {cur}/{total}
+          </span>
+        ) : t === 'once' ? null : inQuietHours ? (
+          <span className={`${styles.queueNextFire} ${styles.queueNextFirePaused}`}>
+            — in quiet hours —
+          </span>
+        ) : beforeDailyStart ? (
+          <span className={`${styles.queueNextFire} ${styles.queueNextFirePaused}`}>
+            — waits until {formatClampDisplay(item.firstFireOfDay)} today —
+          </span>
+        ) : (
+          <span className={styles.queueNextFire}>{describeNextFire(item)}</span>
+        )}
+        {chained && !isExecuting(item) && !item.disabled && (
+          <span className={styles.queueNextFire}>
+            {/* On a 'once' row this badge leads the meta group, so it must
+                not open with a dangling separator. */}
+            {t !== 'once' ? '· ' : ''}
+            {beforeCount > 0 ? `${beforeCount} before` : ''}
+            {beforeCount > 0 && afterCount > 0 ? ' · ' : ''}
+            {afterCount > 0 ? `${afterCount} after` : ''}
+          </span>
+        )}
+        {(item.totalFires ?? 0) > 0 && (
+          <span className={styles.queueNextFire}>· {item.totalFires}×</span>
+        )}
+      </span>
+    );
+  };
+
+  // The 7-button action group (▲ ▼ ★ SEND|⚡NOW EDIT MOVE DEL) plus its
+  // per-item Move-to picker. Extracted for the same reason as renderItemMeta
+  // — List and Card share every handler; only the surrounding layout differs.
+  // `.queueActions` already wraps rather than overflowing at narrow widths
+  // (see the comment at its List-mode use site), so Card mode reuses it
+  // unchanged rather than growing a second, condensed action set.
+  const renderItemActions = (item: QueueItem, idx: number) => (
+    <>
+      <div className={styles.queueActions}>
+        <button
+          className={`${styles.queueActionBtn} ${styles.queueReorder}`}
+          onClick={() => handleMove(item, -1)}
+          disabled={idx === 0}
+          title="Move up"
+          aria-label="Move up"
+        >
+          ▲
+        </button>
+        <button
+          className={`${styles.queueActionBtn} ${styles.queueReorder}`}
+          onClick={() => handleMove(item, 1)}
+          disabled={idx === items.length - 1}
+          title="Move down"
+          aria-label="Move down"
+        >
+          ▼
+        </button>
+        <button
+          className={`${styles.queueFavBtn}${item.historyId != null ? ` ${styles.queueFavBtnOn}` : ''}`}
+          onClick={() => {
+            void handleToggleFavorite(item);
+          }}
+          title={
+            item.historyId != null
+              ? 'Saved to history — click to remove'
+              : 'Save to history — reuse this in other sessions later'
+          }
+          aria-label="Toggle favorite"
+        >
+          {item.historyId != null ? '★' : '☆'}
+        </button>
+        {/* A chained 'once' gets ⚡ NOW, not SEND: SEND flattens the item to a
+            single item.text write and removes it, which would silently drop
+            the configured chain. */}
+        {itemType(item) === 'once' && !hasChain(item) ? (
+          <button
+            className={`${styles.queueActionBtn} ${styles.queueSend}`}
+            onClick={() => handleSendNow(item)}
+            title="Send now (and remove)"
+          >
+            SEND
+          </button>
+        ) : (
+          <button
+            className={`${styles.queueActionBtn} ${styles.queueTriggerNow}`}
+            onClick={() => {
+              void handleTriggerNow(item);
+            }}
+            /* Deliberately NOT disabled while the chain is in flight: a chain
+               parked between steps had no other way out. */
+            disabled={item.disabled || automationConfig.paused}
+            title={
+              item.disabled
+                ? 'Paused — re-enable this item to fire it'
+                : automationConfig.paused
+                  ? 'Session automation paused — Resume to fire'
+                  : isExecuting(item)
+                    ? `Send step ${currentChainStep(item)}/${totalChainSteps(item)} now — use this if the chain is stuck waiting between steps`
+                    : itemType(item) === 'loop'
+                      ? 'Fire now — runs the full before→main→after chain in sequence, then restarts the cadence'
+                      : 'Fire now — runs the full before→main→after chain in sequence, then removes'
+            }
+          >
+            ⚡ NOW
+          </button>
+        )}
+        {/* One editor for every type. This replaced BOTH the old
+            type-branching EDIT (inline textarea for 'once') and the separate
+            ⚙ button that existed only because EDIT couldn't reach the modal
+            for a 'once' item. */}
+        <button
+          className={`${styles.queueActionBtn} ${styles.queueEdit}`}
+          onClick={() => setChainEditId(item.id)}
+          title="Edit — prompt, type, before/after chain, images"
+        >
+          EDIT
+        </button>
+        <button
+          className={`${styles.queueActionBtn} ${styles.queueMove}`}
+          {...{ [MOVE_TRIGGER_ATTR]: item.id }}
+          onClick={(e) => {
+            // Capture the trigger before state flips — the picker measures
+            // its placement from this element's rect.
+            if (movingItemId === item.id) {
+              closeMovePicker();
+            } else {
+              setMoveAnchor(e.currentTarget);
+              setMovingItemId(item.id);
+            }
+          }}
+          aria-haspopup="listbox"
+          aria-expanded={movingItemId === item.id}
+          title="Move to another session"
+        >
+          MOVE
+        </button>
+        <button
+          className={`${styles.queueActionBtn} ${styles.queueDelete}`}
+          onClick={() => remove(sessionId, item.id)}
+          title="Remove"
+        >
+          DEL
+        </button>
+      </div>
+
+      {/* Move-to picker */}
+      {movingItemId === item.id && (
+        <QueueMovePicker
+          anchor={moveAnchor}
+          targets={moveTargets}
+          onSelect={handleMoveConfirm}
+          onClose={closeMovePicker}
+        />
+      )}
+    </>
+  );
+
   return (
-    <div className={`${styles.queuePanel}${collapsed ? ` ${styles.collapsed}` : ''}`}>
+    <div
+      className={`${styles.queuePanel}${collapsed ? ` ${styles.collapsed}` : ''}${fullHeight ? ` ${styles.queuePanelFull}` : ''}`}
+    >
       {/* Toggle header */}
       <div className={styles.queueHeader}>
         <button
@@ -627,24 +847,86 @@ export default function QueueTab({
           onClick={() => {
             const next = !collapsed;
             setCollapsed(next);
-            try { localStorage.setItem('queue-panel-collapsed', next ? '1' : '0'); } catch { /* ignore */ }
+            try {
+              localStorage.setItem('queue-panel-collapsed', next ? '1' : '0');
+            } catch {
+              /* ignore */
+            }
           }}
         >
           <span className={styles.queueToggleArrow}>&#x25B6;</span>
-          QUEUE{' '}
-          <span className={styles.queueCount}>({items.length})</span>
+          QUEUE <span className={styles.queueCount}>({items.length})</span>
         </button>
         <button
           className={styles.queueHistoryBtn}
-          onClick={(e) => { e.stopPropagation(); setHistoryOpen(true); }}
-          title={historyCount > 0 ? `Queue history (${historyCount} saved)` : 'Queue history — save items to reuse them across sessions'}
+          onClick={(e) => {
+            e.stopPropagation();
+            setHistoryOpen(true);
+          }}
+          title={
+            historyCount > 0
+              ? `Queue history (${historyCount} saved)`
+              : 'Queue history — save items to reuse them across sessions'
+          }
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
             <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
           </svg>
-          {historyCount > 0 && (
-            <span className={styles.queueHistoryBadge}>{historyCount}</span>
+          {historyCount > 0 && <span className={styles.queueHistoryBadge}>{historyCount}</span>}
+        </button>
+        {/* Icon shows the DESTINATION view (grid glyph while in List mode,
+            list glyph while in Card mode) — same "click to switch to X"
+            convention as the rest of the header's icon buttons. */}
+        <button
+          className={styles.queueHistoryBtn}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleQueueViewMode();
+          }}
+          title={queueViewMode === 'list' ? 'Switch to card view' : 'Switch to list view'}
+          aria-label={queueViewMode === 'list' ? 'Switch to card view' : 'Switch to list view'}
+        >
+          {queueViewMode === 'list' ? (
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="3" width="8" height="8" rx="1" />
+              <rect x="13" y="3" width="8" height="8" rx="1" />
+              <rect x="3" y="13" width="8" height="8" rx="1" />
+              <rect x="13" y="13" width="8" height="8" rx="1" />
+            </svg>
+          ) : (
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="4" y1="6" x2="20" y2="6" />
+              <line x1="4" y1="12" x2="20" y2="12" />
+              <line x1="4" y1="18" x2="20" y2="18" />
+            </svg>
           )}
         </button>
         <button
@@ -667,11 +949,22 @@ export default function QueueTab({
               2200,
             );
           }}
-          title={autoEnter
-            ? 'Auto-Enter ON — prompt is typed AND submitted (real Enter keystroke)'
-            : 'Auto-Enter OFF — prompt is typed only; press Enter yourself to submit'}
+          title={
+            autoEnter
+              ? 'Auto-Enter ON — prompt is typed AND submitted (real Enter keystroke)'
+              : 'Auto-Enter OFF — prompt is typed only; press Enter yourself to submit'
+          }
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <polyline points="9 10 4 15 9 20" />
             <path d="M20 4v7a4 4 0 0 1-4 4H4" />
           </svg>
@@ -684,9 +977,22 @@ export default function QueueTab({
             setAutoSend(sessionId, next);
             showToast(next ? 'Auto-send enabled' : 'Auto-send disabled', 'info', 1500);
           }}
-          title={autoSend ? 'Auto-send ON — prompts sent automatically when session is waiting' : 'Auto-send OFF — prompts stay in queue'}
+          title={
+            autoSend
+              ? 'Auto-send ON — prompts sent automatically when session is waiting'
+              : 'Auto-send OFF — prompts stay in queue'
+          }
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <line x1="22" y1="2" x2="11" y2="13" />
             <polygon points="22 2 15 22 11 13 2 9 22 2" />
           </svg>
@@ -720,7 +1026,10 @@ export default function QueueTab({
         {/* Compose */}
         <div
           className={`${styles.queueCompose}${dragOver ? ` ${styles.queueComposeDragOver}` : ''}`}
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
         >
@@ -751,52 +1060,61 @@ export default function QueueTab({
           {/* Grouped so all four buttons wrap to a second line together instead
               of squeezing the textarea to an unusable sliver in a narrow panel. */}
           <div className={styles.queueComposeActions}>
-          {/* Keep / insert a saved prompt. Two distinct marks on purpose: the
+            {/* Keep / insert a saved prompt. Two distinct marks on purpose: the
               single bookmark captures THIS text, the bookmark stack opens the
               library. Both are separate from the row-level ★, which saves a
               whole queue item (type + interval + chains) rather than text. */}
-          <button
-            className={`${styles.toolbarBtn} ${styles.queueSnippetBtn}${composeSnippetSaved ? ` ${styles.queueSnippetBtnOn}` : ''}`}
-            onClick={() => { void handleKeepComposeText(); }}
-            disabled={!composeText.trim()}
-            title={
-              composeSnippetSaved
-                ? 'Already in saved prompts'
-                : 'Keep this prompt for reuse in any prompt box'
-            }
-            aria-label="Keep prompt for reuse"
-          >
-            <BookmarkIcon filled={composeSnippetSaved} />
-          </button>
-          <button
-            className={`${styles.toolbarBtn} ${styles.queueSnippetBtn}`}
-            {...{ [SNIPPET_TRIGGER_ATTR]: 'compose' }}
-            onClick={(e) =>
-              setSnippetAnchor((prev) => (prev ? null : e.currentTarget))
-            }
-            aria-haspopup="dialog"
-            aria-expanded={snippetAnchor !== null}
-            title="Insert a saved prompt"
-            aria-label="Insert a saved prompt"
-          >
-            <BookmarkStackIcon />
-          </button>
-          <button
-            className={`${styles.toolbarBtn} ${styles.queueAttachBtn}`}
-            onClick={handleImagePick}
-            title="Attach images"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-            </svg>
-          </button>
-          <button
-            className={`${styles.toolbarBtn} ${styles.queueAddBtn}`}
-            onClick={handleAdd}
-            disabled={!composeText.trim() && composeImages.length === 0}
-          >
-            ADD
-          </button>
+            <button
+              className={`${styles.toolbarBtn} ${styles.queueSnippetBtn}${composeSnippetSaved ? ` ${styles.queueSnippetBtnOn}` : ''}`}
+              onClick={() => {
+                void handleKeepComposeText();
+              }}
+              disabled={!composeText.trim()}
+              title={
+                composeSnippetSaved
+                  ? 'Already in saved prompts'
+                  : 'Keep this prompt for reuse in any prompt box'
+              }
+              aria-label="Keep prompt for reuse"
+            >
+              <BookmarkIcon filled={composeSnippetSaved} />
+            </button>
+            <button
+              className={`${styles.toolbarBtn} ${styles.queueSnippetBtn}`}
+              {...{ [SNIPPET_TRIGGER_ATTR]: 'compose' }}
+              onClick={(e) => setSnippetAnchor((prev) => (prev ? null : e.currentTarget))}
+              aria-haspopup="dialog"
+              aria-expanded={snippetAnchor !== null}
+              title="Insert a saved prompt"
+              aria-label="Insert a saved prompt"
+            >
+              <BookmarkStackIcon />
+            </button>
+            <button
+              className={`${styles.toolbarBtn} ${styles.queueAttachBtn}`}
+              onClick={handleImagePick}
+              title="Attach images"
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+              </svg>
+            </button>
+            <button
+              className={`${styles.toolbarBtn} ${styles.queueAddBtn}`}
+              onClick={handleAdd}
+              disabled={!composeText.trim() && composeImages.length === 0}
+            >
+              ADD
+            </button>
           </div>
           {snippetAnchor && (
             <PromptSnippetPicker
@@ -820,7 +1138,9 @@ export default function QueueTab({
                 <button
                   key={t}
                   className={`${styles.queueTypePill}${composeType === t ? ` ${styles.queueTypePillActive}` : ''}${disabled ? ` ${styles.queueTypePillDisabled}` : ''}`}
-                  onClick={() => { if (!disabled) setComposeType(t); }}
+                  onClick={() => {
+                    if (!disabled) setComposeType(t);
+                  }}
                   disabled={disabled}
                   title={
                     disabled
@@ -888,356 +1208,269 @@ export default function QueueTab({
           </div>
         )}
 
-        {/* Queue list */}
-        <div className={styles.queueList}>
-          {items.length === 0 ? null : (
-            items.map((item, idx) => (
-              <div
-                key={item.id}
-                className={`${styles.queueItem}${draggingId === item.id ? ` ${styles.dragging}` : ''}${item.disabled ? ` ${styles.queueItemDisabled}` : ''}`}
-                onDragOver={(e) => handleDragOver(e, idx)}
-                onDrop={(e) => e.preventDefault()}
-                onDragEnd={handleDragEnd}
-              >
-                <span
-                  className={styles.queueDragHandle}
-                  title="Drag to reorder"
-                  aria-label="Drag to reorder"
-                  role="button"
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, item)}
-                >
-                  <svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor" aria-hidden="true">
-                    <circle cx="2" cy="2" r="1" /><circle cx="6" cy="2" r="1" />
-                    <circle cx="2" cy="7" r="1" /><circle cx="6" cy="7" r="1" />
-                    <circle cx="2" cy="12" r="1" /><circle cx="6" cy="12" r="1" />
-                  </svg>
-                </span>
-                <button
-                  className={`${styles.queueToggleBtn}${item.disabled ? ` ${styles.queueToggleBtnOff}` : ` ${styles.queueToggleBtnOn}`}`}
-                  onClick={(e) => { e.stopPropagation(); handleToggleEnabled(item); }}
-                  title={item.disabled ? 'Paused — click to enable' : 'Enabled — click to pause'}
-                  aria-label={item.disabled ? 'Enable item' : 'Pause item'}
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
-                    <line x1="12" y1="2" x2="12" y2="12" />
-                  </svg>
-                </button>
-                <span className={styles.queuePos}>{idx + 1}</span>
-
-                <div className={styles.queueTextCol}>
-                  {item.text && <span className={styles.queueText}>{item.text}</span>}
-                  {item.images && item.images.length > 0 && (
-                    <div className={styles.queueItemImages}>
-                      {item.images.map((img, i) => (
-                        <div key={i} className={styles.queueItemThumb} title={img.name}>
-                          <img src={img.dataUrl} alt={img.name} />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Type chip + next-fire + chain badge */}
-                {(() => {
-                  const t = itemType(item);
-                  const beforeCount = item.beforeChain?.length ?? 0;
-                  const afterCount = item.afterChain?.length ?? 0;
-                  const chained = beforeCount + afterCount > 0;
-                  // A plain 'once' row has nothing to report. A CHAINED 'once'
-                  // does — it shows its chain badge / step progress, but no type
-                  // chip and no next-fire (it has no cadence, it drains on demand).
-                  if (t === 'once' && !chained) return null;
-                  const chipClass =
-                    t === 'loop' ? styles.queueTypeChipLoop : styles.queueTypeChipSchedule;
-                  const chipLabel =
-                    t === 'loop'
-                      ? `⟳ ${item.intervalMs ? formatInterval(item.intervalMs) : 'loop'}`
-                      : '🕐 sched';
-                  const total = totalChainSteps(item);
-                  const cur = currentChainStep(item);
-                  // Loops silenced by per-item or session-level quiet hours
-                  // get "— in quiet hours —" instead of a misleading "due now".
-                  const inQuietHours = isItemInQuietHours(
-                    item,
-                    automationConfig.loopExcludeWindows,
-                    Date.now(),
-                  );
-                  // Daily-start clamp — only relevant for loops with a clamp
-                  // set AND the current time is still before that clamp today.
-                  const beforeDailyStart = isBeforeDailyStart(item, Date.now());
-                  return (
-                    <span className={styles.queueItemMeta}>
-                      {t !== 'once' && (
-                        <span className={`${styles.queueTypeChip} ${chipClass}`}>{chipLabel}</span>
-                      )}
-                      {item.disabled ? (
-                        <span className={`${styles.queueNextFire} ${styles.queueNextFirePaused}`}>
-                          — paused —
-                        </span>
-                      ) : isExecuting(item) ? (
-                        <span className={styles.queueNextFire}>
-                          step {cur}/{total}
-                        </span>
-                      ) : t === 'once' ? null : inQuietHours ? (
-                        <span className={`${styles.queueNextFire} ${styles.queueNextFirePaused}`}>
-                          — in quiet hours —
-                        </span>
-                      ) : beforeDailyStart ? (
-                        <span className={`${styles.queueNextFire} ${styles.queueNextFirePaused}`}>
-                          — waits until {formatClampDisplay(item.firstFireOfDay)} today —
-                        </span>
-                      ) : (
-                        <span className={styles.queueNextFire}>{describeNextFire(item)}</span>
-                      )}
-                      {chained && !isExecuting(item) && !item.disabled && (
-                        <span className={styles.queueNextFire}>
-                          {/* On a 'once' row this badge leads the meta group,
-                              so it must not open with a dangling separator. */}
-                          {t !== 'once' ? '· ' : ''}
-                          {beforeCount > 0 ? `${beforeCount} before` : ''}
-                          {beforeCount > 0 && afterCount > 0 ? ' · ' : ''}
-                          {afterCount > 0 ? `${afterCount} after` : ''}
-                        </span>
-                      )}
-                      {(item.totalFires ?? 0) > 0 && (
-                        <span className={styles.queueNextFire}>· {item.totalFires}×</span>
-                      )}
+        {/* Queue list — List (rows, drag-to-reorder) or Card (wrapping grid,
+            ▲/▼-to-reorder — see queueViewMode's doc comment in uiStore.ts for
+            why cards don't get a drag handle). Both share every per-item
+            handler and the extracted renderItemMeta/renderItemActions, so
+            they can never disagree about what a given item's state means. */}
+        {queueViewMode === 'list' ? (
+          <div className={styles.queueList}>
+            {items.length === 0
+              ? null
+              : items.map((item, idx) => (
+                  <div
+                    key={item.id}
+                    className={`${styles.queueItem}${draggingId === item.id ? ` ${styles.dragging}` : ''}${item.disabled ? ` ${styles.queueItemDisabled}` : ''}`}
+                    onDragOver={(e) => handleDragOver(e, idx)}
+                    onDrop={(e) => e.preventDefault()}
+                    onDragEnd={handleDragEnd}
+                  >
+                    <span
+                      className={styles.queueDragHandle}
+                      title="Drag to reorder"
+                      aria-label="Drag to reorder"
+                      role="button"
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, item)}
+                    >
+                      <svg
+                        width="8"
+                        height="14"
+                        viewBox="0 0 8 14"
+                        fill="currentColor"
+                        aria-hidden="true"
+                      >
+                        <circle cx="2" cy="2" r="1" />
+                        <circle cx="6" cy="2" r="1" />
+                        <circle cx="2" cy="7" r="1" />
+                        <circle cx="6" cy="7" r="1" />
+                        <circle cx="2" cy="12" r="1" />
+                        <circle cx="6" cy="12" r="1" />
+                      </svg>
                     </span>
-                  );
-                })()}
-
-                {/* 7 buttons in fixed order — ▲ ▼ ★ SEND|⚡ NOW EDIT MOVE DEL
-                    (the 4th slot is SEND for an unchained 'once' and ⚡ NOW for
-                    everything else, never both). `.queueActions` wraps rather
-                    than overflowing the row at narrow panel widths. */}
-                <div className={styles.queueActions}>
-                  <button
-                    className={`${styles.queueActionBtn} ${styles.queueReorder}`}
-                    onClick={() => handleMove(item, -1)}
-                    disabled={idx === 0}
-                    title="Move up"
-                    aria-label="Move up"
-                  >
-                    ▲
-                  </button>
-                  <button
-                    className={`${styles.queueActionBtn} ${styles.queueReorder}`}
-                    onClick={() => handleMove(item, 1)}
-                    disabled={idx === items.length - 1}
-                    title="Move down"
-                    aria-label="Move down"
-                  >
-                    ▼
-                  </button>
-                  <button
-                    className={`${styles.queueFavBtn}${item.historyId != null ? ` ${styles.queueFavBtnOn}` : ''}`}
-                    onClick={() => { void handleToggleFavorite(item); }}
-                    title={
-                      item.historyId != null
-                        ? 'Saved to history — click to remove'
-                        : 'Save to history — reuse this in other sessions later'
-                    }
-                    aria-label="Toggle favorite"
-                  >
-                    {item.historyId != null ? '★' : '☆'}
-                  </button>
-                  {/* A chained 'once' gets ⚡ NOW, not SEND: SEND flattens
-                      the item to a single `item.text` write and removes it,
-                      which would silently drop the configured chain. */}
-                  {itemType(item) === 'once' && !hasChain(item) ? (
                     <button
-                      className={`${styles.queueActionBtn} ${styles.queueSend}`}
-                      onClick={() => handleSendNow(item)}
-                      title="Send now (and remove)"
-                    >
-                      SEND
-                    </button>
-                  ) : (
-                    <button
-                      className={`${styles.queueActionBtn} ${styles.queueTriggerNow}`}
-                      onClick={() => { void handleTriggerNow(item); }}
-                      /* Deliberately NOT disabled while the chain is in flight:
-                         a chain parked between steps had no other way out. */
-                      disabled={item.disabled || automationConfig.paused}
+                      className={`${styles.queueToggleBtn}${item.disabled ? ` ${styles.queueToggleBtnOff}` : ` ${styles.queueToggleBtnOn}`}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleEnabled(item);
+                      }}
                       title={
-                        item.disabled
-                          ? 'Paused — re-enable this item to fire it'
-                          : automationConfig.paused
-                            ? 'Session automation paused — Resume to fire'
-                            : isExecuting(item)
-                              ? `Send step ${currentChainStep(item)}/${totalChainSteps(item)} now — use this if the chain is stuck waiting between steps`
-                              : itemType(item) === 'loop'
-                                ? 'Fire now — runs the full before→main→after chain in sequence, then restarts the cadence'
-                                : 'Fire now — runs the full before→main→after chain in sequence, then removes'
+                        item.disabled ? 'Paused — click to enable' : 'Enabled — click to pause'
                       }
+                      aria-label={item.disabled ? 'Enable item' : 'Pause item'}
                     >
-                      ⚡ NOW
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+                        <line x1="12" y1="2" x2="12" y2="12" />
+                      </svg>
                     </button>
-                  )}
-                  {/* One editor for every type. This replaced BOTH the old
-                      type-branching EDIT (inline textarea for 'once') and the
-                      separate ⚙ button that existed only because EDIT couldn't
-                      reach the modal for a 'once' item. */}
-                  <button
-                    className={`${styles.queueActionBtn} ${styles.queueEdit}`}
-                    onClick={() => setChainEditId(item.id)}
-                    title="Edit — prompt, type, before/after chain, images"
-                  >
-                    EDIT
-                  </button>
-                  <button
-                    className={`${styles.queueActionBtn} ${styles.queueMove}`}
-                    {...{ [MOVE_TRIGGER_ATTR]: item.id }}
-                    onClick={(e) => {
-                      // Capture the trigger before state flips — the picker
-                      // measures its placement from this element's rect.
-                      if (movingItemId === item.id) {
-                        closeMovePicker();
-                      } else {
-                        setMoveAnchor(e.currentTarget);
-                        setMovingItemId(item.id);
-                      }
-                    }}
-                    aria-haspopup="listbox"
-                    aria-expanded={movingItemId === item.id}
-                    title="Move to another session"
-                  >
-                    MOVE
-                  </button>
-                  <button
-                    className={`${styles.queueActionBtn} ${styles.queueDelete}`}
-                    onClick={() => remove(sessionId, item.id)}
-                    title="Remove"
-                  >
-                    DEL
-                  </button>
-                </div>
+                    <span className={styles.queuePos}>{idx + 1}</span>
 
-                {/* Move-to picker */}
-                {movingItemId === item.id && (
-                  <QueueMovePicker
-                    anchor={moveAnchor}
-                    targets={moveTargets}
-                    onSelect={handleMoveConfirm}
-                    onClose={closeMovePicker}
-                  />
-                )}
-              </div>
-            ))
-          )}
-        </div>
+                    <div className={styles.queueTextCol}>
+                      {item.text && <span className={styles.queueText}>{item.text}</span>}
+                      {item.images && item.images.length > 0 && (
+                        <div className={styles.queueItemImages}>
+                          {item.images.map((img, i) => (
+                            <div key={i} className={styles.queueItemThumb} title={img.name}>
+                              <img src={img.dataUrl} alt={img.name} />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {renderItemMeta(item)}
+
+                    {renderItemActions(item, idx)}
+                  </div>
+                ))}
+          </div>
+        ) : (
+          <div className={styles.queueCardGrid}>
+            {items.length === 0
+              ? null
+              : items.map((item, idx) => (
+                  <div
+                    key={item.id}
+                    className={`${styles.queueCard}${item.disabled ? ` ${styles.queueItemDisabled}` : ''}`}
+                  >
+                    {/* No drag handle in Card mode — a wrapping grid has no
+                      unambiguous drop target, so reordering goes through the
+                      ▲/▼ buttons in renderItemActions instead (see the
+                      QueueViewMode doc comment in uiStore.ts). */}
+                    <div className={styles.queueCardHeader}>
+                      <button
+                        className={`${styles.queueToggleBtn}${item.disabled ? ` ${styles.queueToggleBtnOff}` : ` ${styles.queueToggleBtnOn}`}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleEnabled(item);
+                        }}
+                        title={
+                          item.disabled ? 'Paused — click to enable' : 'Enabled — click to pause'
+                        }
+                        aria-label={item.disabled ? 'Enable item' : 'Pause item'}
+                      >
+                        <svg
+                          width="12"
+                          height="12"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+                          <line x1="12" y1="2" x2="12" y2="12" />
+                        </svg>
+                      </button>
+                      <span className={styles.queuePos}>{idx + 1}</span>
+                    </div>
+
+                    <div className={styles.queueTextCol}>
+                      {item.text && <span className={styles.queueText}>{item.text}</span>}
+                      {item.images && item.images.length > 0 && (
+                        <div className={styles.queueItemImages}>
+                          {item.images.map((img, i) => (
+                            <div key={i} className={styles.queueItemThumb} title={img.name}>
+                              <img src={img.dataUrl} alt={img.name} />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {renderItemMeta(item)}
+
+                    {renderItemActions(item, idx)}
+                  </div>
+                ))}
+          </div>
+        )}
 
         {/* Automation status row — shown only when there's at least one
             time-based item so the queue stays uncluttered for plain Once use. */}
-        {items.some((it) => itemType(it) !== 'once') && (() => {
-          const sendable = isSendableStatus(sessionStatus);
-          // True when the scheduler is silently held back by idle-guard and
-          // the session isn't sendable — surface this whether the item is
-          // in-flight OR just sitting at its due time. Without this widening,
-          // a loop with nextFireAt in the past during a 'working' state shows
-          // "due now · ..." next to "Loop active" with no explanation.
-          const hasDueOrInflightItem = items.some((it) =>
-            isExecuting(it) ||
-            (itemType(it) !== 'once' && (it.nextFireAt ?? 0) <= Date.now()),
-          );
-          const blockedByIdleGuard =
-            !automationConfig.paused &&
-            automationConfig.idleGuard &&
-            !sendable &&
-            hasDueOrInflightItem;
-          const blockedByPrompting =
-            !automationConfig.paused &&
-            automationConfig.skipWhenPrompting &&
-            sessionStatus === 'prompting' &&
-            hasDueOrInflightItem;
-          // Status-row suffix gathers per-item pause + quiet-hours + daily-start
-          // signals so a "Loop active" status doesn't lie when every loop is
-          // currently silenced. Collapse into one parenthetical so suffixes
-          // don't visually stack.
-          const pausedCount = items.filter((it) => it.disabled && itemType(it) !== 'once').length;
-          const nowMs = Date.now();
-          const anyLoopInQuietHours = items.some(
-            (it) =>
-              itemType(it) === 'loop' &&
-              !it.disabled &&
-              isItemInQuietHours(it, automationConfig.loopExcludeWindows, nowMs),
-          );
-          const anyLoopBeforeDailyStart = items.some(
-            (it) => !it.disabled && isBeforeDailyStart(it, nowMs),
-          );
-          const suffixParts: string[] = [];
-          if (anyLoopInQuietHours) suffixParts.push('in quiet hours');
-          if (anyLoopBeforeDailyStart) suffixParts.push('waiting for daily start');
-          if (pausedCount > 0) suffixParts.push(`${pausedCount} paused`);
-          const statusSuffix = suffixParts.length > 0 ? ` (${suffixParts.join(', ')})` : '';
-          return (
-          <div className={styles.queueStatusRow}>
-            <span>
-              {automationConfig.paused
-                ? '⏸ Paused'
-                : blockedByPrompting
-                  ? '⏳ Holding fire — session is mid-prompt (skip-prompting on)'
-                  : blockedByIdleGuard
-                    ? `⏳ Waiting for session to be idle (status: ${sessionStatus})`
-                    : items.some((it) => itemType(it) === 'loop')
-                      ? `⟳ Loop active${statusSuffix}`
-                      : `🕐 Scheduler armed${statusSuffix}`}
-            </span>
-            <button
-              className={`${styles.queueStatusToggle}${automationConfig.paused ? ` ${styles.queueStatusToggleOn}` : ''}`}
-              onClick={() => setPaused(sessionId, !automationConfig.paused)}
-              title={automationConfig.paused ? 'Resume automation' : 'Pause all loop/schedule firing'}
-            >
-              {automationConfig.paused ? 'Resume' : 'Pause'}
-            </button>
-            <button
-              className={`${styles.queueStatusToggle}${automationConfig.idleGuard ? ` ${styles.queueStatusToggleOn}` : ''}`}
-              onClick={() => setIdleGuard(sessionId, !automationConfig.idleGuard)}
-              title={
-                automationConfig.idleGuard
-                  ? 'Idle-guard ON — loop/schedule items wait for the session to be idle before firing'
-                  : 'Idle-guard OFF — loop/schedule items fire at their scheduled time regardless of session state'
-              }
-            >
-              Idle-guard {automationConfig.idleGuard ? 'on' : 'off'}
-            </button>
-            <button
-              className={`${styles.queueStatusToggle}${automationConfig.skipWhenPrompting ? ` ${styles.queueStatusToggleOn}` : ''}`}
-              onClick={() => setSkipWhenPrompting(sessionId, !automationConfig.skipWhenPrompting)}
-              title={
-                automationConfig.skipWhenPrompting
-                  ? 'Skip-when-prompting ON — pause fires the moment the CLI is mid-prompt-submit, even if idle-guard is off'
-                  : 'Skip-when-prompting OFF — fire even while the session is processing a fresh prompt (NOT recommended)'
-              }
-            >
-              Skip-prompting {automationConfig.skipWhenPrompting ? 'on' : 'off'}
-            </button>
-            <button
-              className={`${styles.queueStatusToggle}${automationConfig.autoResume ? ` ${styles.queueStatusToggleOn}` : ''}`}
-              onClick={() => setAutoResume(sessionId, !automationConfig.autoResume)}
-              title={
-                automationConfig.autoResume
-                  ? `Auto-resume ON — if a turn dies on an API/network error, send a continuation prompt (up to ${automationConfig.resumeMaxRetries}× per 30 min, with backoff)`
-                  : 'Auto-resume OFF — a turn killed by an API or network error stays parked until you continue it yourself'
-              }
-            >
-              🩺 Auto-resume {automationConfig.autoResume ? 'on' : 'off'}
-            </button>
-            <button
-              className={`${styles.queueStatusToggle}${(automationConfig.loopExcludeWindows?.length ?? 0) > 0 ? ` ${styles.queueStatusToggleOn}` : ''}`}
-              onClick={() => setQuietHoursOpen(true)}
-              title="Edit session-wide quiet hours — pause time ranges that apply to all loops in this session"
-            >
-              ⏰ Quiet hours
-              {(automationConfig.loopExcludeWindows?.length ?? 0) > 0
-                ? ` (${automationConfig.loopExcludeWindows!.length})`
-                : ''}
-            </button>
-          </div>
-          );
-        })()}
+        {items.some((it) => itemType(it) !== 'once') &&
+          (() => {
+            const sendable = isSendableStatus(sessionStatus);
+            // True when the scheduler is silently held back by idle-guard and
+            // the session isn't sendable — surface this whether the item is
+            // in-flight OR just sitting at its due time. Without this widening,
+            // a loop with nextFireAt in the past during a 'working' state shows
+            // "due now · ..." next to "Loop active" with no explanation.
+            const hasDueOrInflightItem = items.some(
+              (it) =>
+                isExecuting(it) || (itemType(it) !== 'once' && (it.nextFireAt ?? 0) <= Date.now()),
+            );
+            const blockedByIdleGuard =
+              !automationConfig.paused &&
+              automationConfig.idleGuard &&
+              !sendable &&
+              hasDueOrInflightItem;
+            const blockedByPrompting =
+              !automationConfig.paused &&
+              automationConfig.skipWhenPrompting &&
+              sessionStatus === 'prompting' &&
+              hasDueOrInflightItem;
+            // Status-row suffix gathers per-item pause + quiet-hours + daily-start
+            // signals so a "Loop active" status doesn't lie when every loop is
+            // currently silenced. Collapse into one parenthetical so suffixes
+            // don't visually stack.
+            const pausedCount = items.filter((it) => it.disabled && itemType(it) !== 'once').length;
+            const nowMs = Date.now();
+            const anyLoopInQuietHours = items.some(
+              (it) =>
+                itemType(it) === 'loop' &&
+                !it.disabled &&
+                isItemInQuietHours(it, automationConfig.loopExcludeWindows, nowMs),
+            );
+            const anyLoopBeforeDailyStart = items.some(
+              (it) => !it.disabled && isBeforeDailyStart(it, nowMs),
+            );
+            const suffixParts: string[] = [];
+            if (anyLoopInQuietHours) suffixParts.push('in quiet hours');
+            if (anyLoopBeforeDailyStart) suffixParts.push('waiting for daily start');
+            if (pausedCount > 0) suffixParts.push(`${pausedCount} paused`);
+            const statusSuffix = suffixParts.length > 0 ? ` (${suffixParts.join(', ')})` : '';
+            return (
+              <div className={styles.queueStatusRow}>
+                <span>
+                  {automationConfig.paused
+                    ? '⏸ Paused'
+                    : blockedByPrompting
+                      ? '⏳ Holding fire — session is mid-prompt (skip-prompting on)'
+                      : blockedByIdleGuard
+                        ? `⏳ Waiting for session to be idle (status: ${sessionStatus})`
+                        : items.some((it) => itemType(it) === 'loop')
+                          ? `⟳ Loop active${statusSuffix}`
+                          : `🕐 Scheduler armed${statusSuffix}`}
+                </span>
+                <button
+                  className={`${styles.queueStatusToggle}${automationConfig.paused ? ` ${styles.queueStatusToggleOn}` : ''}`}
+                  onClick={() => setPaused(sessionId, !automationConfig.paused)}
+                  title={
+                    automationConfig.paused ? 'Resume automation' : 'Pause all loop/schedule firing'
+                  }
+                >
+                  {automationConfig.paused ? 'Resume' : 'Pause'}
+                </button>
+                <button
+                  className={`${styles.queueStatusToggle}${automationConfig.idleGuard ? ` ${styles.queueStatusToggleOn}` : ''}`}
+                  onClick={() => setIdleGuard(sessionId, !automationConfig.idleGuard)}
+                  title={
+                    automationConfig.idleGuard
+                      ? 'Idle-guard ON — loop/schedule items wait for the session to be idle before firing'
+                      : 'Idle-guard OFF — loop/schedule items fire at their scheduled time regardless of session state'
+                  }
+                >
+                  Idle-guard {automationConfig.idleGuard ? 'on' : 'off'}
+                </button>
+                <button
+                  className={`${styles.queueStatusToggle}${automationConfig.skipWhenPrompting ? ` ${styles.queueStatusToggleOn}` : ''}`}
+                  onClick={() =>
+                    setSkipWhenPrompting(sessionId, !automationConfig.skipWhenPrompting)
+                  }
+                  title={
+                    automationConfig.skipWhenPrompting
+                      ? 'Skip-when-prompting ON — pause fires the moment the CLI is mid-prompt-submit, even if idle-guard is off'
+                      : 'Skip-when-prompting OFF — fire even while the session is processing a fresh prompt (NOT recommended)'
+                  }
+                >
+                  Skip-prompting {automationConfig.skipWhenPrompting ? 'on' : 'off'}
+                </button>
+                <button
+                  className={`${styles.queueStatusToggle}${automationConfig.autoResume ? ` ${styles.queueStatusToggleOn}` : ''}`}
+                  onClick={() => setAutoResume(sessionId, !automationConfig.autoResume)}
+                  title={
+                    automationConfig.autoResume
+                      ? `Auto-resume ON — if a turn dies on an API/network error, send a continuation prompt (up to ${automationConfig.resumeMaxRetries}× per 30 min, with backoff)`
+                      : 'Auto-resume OFF — a turn killed by an API or network error stays parked until you continue it yourself'
+                  }
+                >
+                  🩺 Auto-resume {automationConfig.autoResume ? 'on' : 'off'}
+                </button>
+                <button
+                  className={`${styles.queueStatusToggle}${(automationConfig.loopExcludeWindows?.length ?? 0) > 0 ? ` ${styles.queueStatusToggleOn}` : ''}`}
+                  onClick={() => setQuietHoursOpen(true)}
+                  title="Edit session-wide quiet hours — pause time ranges that apply to all loops in this session"
+                >
+                  ⏰ Quiet hours
+                  {(automationConfig.loopExcludeWindows?.length ?? 0) > 0
+                    ? ` (${automationConfig.loopExcludeWindows!.length})`
+                    : ''}
+                </button>
+              </div>
+            );
+          })()}
       </div>
       {quietHoursOpen && (
         <LoopExcludeWindowsModal
@@ -1246,28 +1479,29 @@ export default function QueueTab({
           onSave={(windows) => setLoopExcludeWindows(sessionId, windows)}
         />
       )}
-      {chainEditId !== null && (() => {
-        const target = items.find((i) => i.id === chainEditId);
-        if (!target) {
-          // Item was removed externally while modal was open — close it.
-          if (chainEditId !== null) setChainEditId(null);
-          return null;
-        }
-        return (
-          <QueueItemEditModal
-            item={target}
-            autoSendEnabled={autoSend}
-            sessionId={sessionId}
-            projectPath={currentProjectPath}
-            onClose={() => setChainEditId(null)}
-            onSave={(patch) => updateItem(sessionId, target.id, patch)}
-            onDelete={() => {
-              remove(sessionId, target.id);
-              setChainEditId(null);
-            }}
-          />
-        );
-      })()}
+      {chainEditId !== null &&
+        (() => {
+          const target = items.find((i) => i.id === chainEditId);
+          if (!target) {
+            // Item was removed externally while modal was open — close it.
+            if (chainEditId !== null) setChainEditId(null);
+            return null;
+          }
+          return (
+            <QueueItemEditModal
+              item={target}
+              autoSendEnabled={autoSend}
+              sessionId={sessionId}
+              projectPath={currentProjectPath}
+              onClose={() => setChainEditId(null)}
+              onSave={(patch) => updateItem(sessionId, target.id, patch)}
+              onDelete={() => {
+                remove(sessionId, target.id);
+                setChainEditId(null);
+              }}
+            />
+          );
+        })()}
       <QueueHistorySheet
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}

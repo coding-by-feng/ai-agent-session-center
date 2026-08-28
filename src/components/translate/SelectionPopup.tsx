@@ -15,15 +15,23 @@
  * (via DOM extractor). The parent supplies the originSessionId + extracted
  * selection; this component only handles UI + the spawn API call.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Tooltip from '@/components/ui/Tooltip';
+import AutocompleteTextarea from '@/components/ui/AutocompleteTextarea';
+import Combobox from '@/components/ui/Combobox';
+import Select from '@/components/ui/Select';
 import { tooltips } from '@/lib/tooltips';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { createLog } from '@/lib/translationLog';
+import { openFloatWindow, preopenTerminalPopup } from '@/lib/popoutTerminalWindow';
+import { showToast } from '@/components/ui/ToastContainer';
+import { detectCli } from '@/lib/cliDetect';
+import { EFFORT_LEVELS, MODEL_OPTIONS } from '@/lib/remoteControlName';
 import type { ExtractedSelection } from '@/lib/selectionExtractors';
+import type { CodexModelOption, ListCodexModelsResponse } from '@/types/api';
 import styles from '@/styles/modules/SelectionPopup.module.css';
 
 interface SelectionPopupProps {
@@ -46,9 +54,10 @@ interface SelectionPopupProps {
 }
 
 const POPUP_W = 260;
-// Two icon rows + the selection preview + the custom-prompt row; used only
-// for viewport clamping.
-const POPUP_H = 184;
+// Two icon rows + the selection preview + the quick-settings row + the
+// custom-prompt row; used only for viewport clamping. Bumped from 184 when
+// the Model/Effort row was added.
+const POPUP_H = 224;
 const VIEWPORT_MARGIN = 12;
 
 function clampToViewport(x: number, y: number): { x: number; y: number } {
@@ -127,7 +136,15 @@ export default function SelectionPopup({
   const nativeLanguage = useSettingsStore((s) => s.translationNativeLanguage);
   const learningLanguage = useSettingsStore((s) => s.translationLearningLanguage);
   const inheritContext = useSettingsStore((s) => s.translationInheritContext);
+  // Quick-settings override (Model + Effort row). Blank means "inherit from
+  // the origin session" — kept as separate Claude/Codex fields so a Claude
+  // alias never lands in a Codex id field or vice versa (see settingsStore.ts).
+  const spawnModel = useSettingsStore((s) => s.selectionSpawnModel);
+  const spawnCodexModel = useSettingsStore((s) => s.selectionSpawnCodexModel);
+  const spawnEffort = useSettingsStore((s) => s.selectionSpawnEffort);
+  const spawnTarget = useSettingsStore((s) => s.selectionSpawnTarget);
   const openFloat = useFloatingSessionsStore((s) => s.open);
+  const setPoppedOut = useFloatingSessionsStore((s) => s.setPoppedOut);
   const sessions = useSessionStore((s) => s.sessions);
 
   const [busy, setBusy] = useState<SpawnMode | null>(null);
@@ -138,6 +155,50 @@ export default function SelectionPopup({
   // "ask", we pause to confirm attaching the file path. Holds the pending mode.
   const [pendingExplain, setPendingExplain] = useState<SpawnMode | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+
+  // Which CLI the origin runs — drives the quick-settings row (Claude gets
+  // Model + Effort, Codex gets Model only) and AutocompleteTextarea's `/`
+  // vs `$` behavior. Same precedence as the server's resolveOriginCli.
+  const origin = sessions.get(originSessionId);
+  const cli = origin ? (detectCli(origin) ?? 'claude') : 'claude';
+
+  const [codexModels, setCodexModels] = useState<CodexModelOption[]>([]);
+  const [codexModelStatus, setCodexModelStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+
+  // Fetch the live Codex model catalog once per popup, only for Codex origins
+  // (mirrors NewSessionModal's fetch — same endpoint, same shape).
+  useEffect(() => {
+    if (cli !== 'codex') return;
+    const controller = new AbortController();
+    setCodexModelStatus('loading');
+    void fetch('/api/codex/models', { signal: controller.signal, cache: 'no-store' })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Codex model catalog returned ${res.status}`);
+        return res.json() as Promise<ListCodexModelsResponse>;
+      })
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setCodexModels(data.models);
+        setCodexModelStatus('ready');
+      })
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        setCodexModels([]);
+        setCodexModelStatus('error');
+      });
+    return () => controller.abort();
+  }, [cli]);
+
+  const codexModelOptions = useMemo(() => {
+    const recommended = codexModels.find((item) => item.isDefault);
+    return [
+      {
+        value: '',
+        label: recommended ? `Default (${recommended.displayName})` : 'Default (Codex recommended)',
+      },
+      ...codexModels.map((item) => ({ value: item.id, label: item.displayName })),
+    ];
+  }, [codexModels]);
 
   // Position the popup just below the selection's anchor point.
   const pos = clampToViewport(
@@ -153,6 +214,19 @@ export default function SelectionPopup({
     // Only the Explain modes opt into attaching the file path, and only when a
     // file is actually known (the project viewer).
     const attachedPath = opts?.attachFile && currentFilePath ? currentFilePath : undefined;
+
+    // Open the eventual popup window's tab RIGHT NOW, synchronously, while
+    // this click's transient activation is still fresh — see
+    // preopenTerminalPopup's docblock. `spawn` is only ever called directly
+    // from a real click (or the Attach-file confirm's Yes/No, itself a real
+    // click), so this line still runs inside that same synchronous dispatch
+    // even though `spawn` is async — everything below this point is async
+    // (the fetch below), and window.open() called AFTER an await reliably
+    // gets popup-blocked by Chrome, since forking a session is a real network
+    // round trip, not instant. Skipped when the user has chosen to always
+    // dock — nothing to preopen a window for.
+    const preopened = spawnTarget === 'docked' ? null : preopenTerminalPopup();
+
     setBusy(mode);
     setError(null);
     try {
@@ -170,11 +244,15 @@ export default function SelectionPopup({
           nativeLanguage,
           learningLanguage,
           inheritContext,
+          // Quick-settings override — blank/absent inherits the origin
+          // session's own model/effort (spawnFloatingSession's default).
+          // Codex has no effort concept, so effortLevel never applies to it.
+          model: (cli === 'codex' ? spawnCodexModel : spawnModel) || undefined,
+          effortLevel: cli === 'claude' ? (spawnEffort || undefined) : undefined,
         }),
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || 'Failed to spawn session');
-      const origin = sessions.get(originSessionId);
       await createLog({
         mode,
         nativeLanguage,
@@ -193,19 +271,51 @@ export default function SelectionPopup({
         originSessionTitle: origin?.title ?? '',
         floatTerminalId: data.terminalId,
       }).catch(() => { /* persistence failure is non-fatal */ });
-      openFloat({
-        terminalId: data.terminalId,
-        label: data.label,
-        originSessionId,
-      });
+      // Land the new session directly in a real OS window (the default), so it
+      // can be dragged to another monitor without first docking it in-app and
+      // then clicking detach. `openFloatWindow` owns the Electron / stale-preload
+      // / browser branching.
+      //
+      // A `docked` outcome MUST still open the in-app panel: the session already
+      // exists server-side and holds a WS subscription, so dropping it here would
+      // leave a live forked CLI session with no UI attached — invisible and
+      // unclosable. `setPoppedOut` is what makes the popout the sole subscriber,
+      // and has to be set even though no panel ever mounted in the window case.
+      const openDocked = (): void => {
+        openFloat({ terminalId: data.terminalId, label: data.label, originSessionId });
+      };
+      if (spawnTarget === 'docked') {
+        openDocked();
+      } else {
+        const outcome = await openFloatWindow({
+          terminalId: data.terminalId,
+          originSessionId,
+          label: data.label,
+          preopened,
+        });
+        if (outcome.placed === 'window') {
+          setPoppedOut(data.terminalId, true);
+        } else {
+          openDocked();
+          if (outcome.reason === 'stale-preload') {
+            showToast('Opened in-app — restart the app to enable separate windows', 'info', 4000);
+          } else if (outcome.reason === 'popup-blocked') {
+            showToast('Popup blocked — opened in-app instead. Allow popups for a separate window.', 'info', 5000);
+          }
+        }
+      }
       onClose();
     } catch (err: unknown) {
+      // The spawn API call failed (or threw before openFloatWindow ever got to
+      // consume/close it) — the placeholder window must still be closed here,
+      // or a failed spawn leaves a stray "Starting session…" tab open forever.
+      preopened?.close();
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
     } finally {
       setBusy(null);
     }
-  }, [busy, customPrompt, originSessionId, spawnTerminalId, selection, currentFilePath, nativeLanguage, learningLanguage, inheritContext, sessions, openFloat, onClose]);
+  }, [busy, customPrompt, originSessionId, spawnTerminalId, selection, currentFilePath, nativeLanguage, learningLanguage, inheritContext, origin, cli, spawnModel, spawnCodexModel, spawnEffort, spawnTarget, openFloat, setPoppedOut, onClose]);
 
   // Explain buttons: with a file open and the preference "ask", pause to confirm
   // attaching the file path; otherwise honor the remembered choice. In the
@@ -350,6 +460,49 @@ export default function SelectionPopup({
         <span className={styles.selectionQuote} aria-hidden>“</span>
         <span className={styles.selectionText}>{selection.selection}</span>
       </div>
+      {/* Quick-settings override for whatever spawns next (any icon button or
+          the custom Run▶ below) — blank stays on today's inherit-from-origin
+          behavior. Hidden during the attach-file confirm, like the custom row. */}
+      {!pendingExplain && (
+        <div className={styles.quickSettingsRow}>
+          {cli === 'codex' ? (
+            codexModelStatus === 'ready' ? (
+              <Select
+                value={spawnCodexModel}
+                onChange={(v) => useSettingsStore.getState().setSelectionSpawnCodexModel(v)}
+                options={codexModelOptions}
+                placeholder="Default (Codex recommended)"
+                className={styles.quickSettingsModel}
+                title="Model"
+              />
+            ) : (
+              <input
+                disabled
+                readOnly
+                className={styles.quickSettingsModel}
+                value={codexModelStatus === 'error' ? 'Default (catalog unavailable)' : 'Loading Codex models…'}
+              />
+            )
+          ) : (
+            <>
+              <Combobox
+                value={spawnModel}
+                onChange={(v) => useSettingsStore.getState().setSelectionSpawnModel(v)}
+                items={[...MODEL_OPTIONS]}
+                placeholder="Model"
+                className={styles.quickSettingsModel}
+              />
+              <Combobox
+                value={spawnEffort}
+                onChange={(v) => useSettingsStore.getState().setSelectionSpawnEffort(v)}
+                items={[...EFFORT_LEVELS]}
+                placeholder="Effort"
+                className={styles.quickSettingsEffort}
+              />
+            </>
+          )}
+        </div>
+      )}
       {pendingExplain && (
         <div className={styles.attachConfirm} data-testid="attach-file-confirm">
           <div className={styles.attachConfirmText}>
@@ -378,12 +531,14 @@ export default function SelectionPopup({
       )}
       {!pendingExplain && (
       <div className={styles.customRow}>
-        <textarea
+        <AutocompleteTextarea
           className={styles.customInput}
           value={customPrompt}
-          onChange={(e) => setCustomPrompt(e.target.value)}
+          onChange={setCustomPrompt}
           onKeyDown={(e) => {
             // Enter runs; Shift+Enter inserts a newline; ⌘/Ctrl+Enter also runs.
+            // (AutocompleteTextarea intercepts ArrowUp/Down/Enter/Escape itself
+            // while its own dropdown is open, so this only fires otherwise.)
             if (e.key === 'Enter' && (!e.shiftKey || e.metaKey || e.ctrlKey)) {
               e.preventDefault();
               void spawn('custom');
@@ -391,7 +546,9 @@ export default function SelectionPopup({
           }}
           placeholder="Custom prompt + selection → new session…"
           rows={1}
-          aria-label={tooltips.selCustomPrompt.label}
+          sessionId={originSessionId}
+          projectPath={origin?.projectPath}
+          ariaLabel={tooltips.selCustomPrompt.label}
           disabled={busy !== null}
         />
         <Tooltip

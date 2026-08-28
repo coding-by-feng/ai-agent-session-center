@@ -9,6 +9,11 @@ import { registerAppHandlers } from './ipc/appHandlers.js'
 import { registerTerminalHandlers } from './ipc/terminalHandlers.js'
 import { disposeAll as disposePtyHost } from './ptyHost.js'
 import { initCrashLogger } from './crashLogger.js'
+import { isInternalAppUrl } from './internalUrl.js'
+import {
+  POPOUT_DEFAULT_SIZES, parsePopoutBoundsFile, mergePopoutBounds,
+} from './popoutBounds.js'
+import type { PopoutKind, WindowBounds } from './popoutBounds.js'
 
 // Allow Web Audio to play without requiring a user gesture for each sound.
 // Session events arrive via WebSocket (not user clicks), so without this flag
@@ -63,18 +68,9 @@ async function createWindow(): Promise<BrowserWindow> {
     }
   })
 
-  // Only allow http/https links to open externally (blocks ms-msdt:, file:, etc.)
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    try {
-      const parsed = new URL(url)
-      if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
-        shell.openExternal(url)
-      }
-    } catch {
-      // malformed URL — ignore
-    }
-    return { action: 'deny' }
-  })
+  // Our own routes open as native windows; external http/https links go to the
+  // system browser; everything else (ms-msdt:, file:, …) is dropped.
+  attachWindowOpenPolicy(win)
 
   if (isDev) {
     // Dev: server already running, connect directly
@@ -93,29 +89,24 @@ async function createWindow(): Promise<BrowserWindow> {
 let mainWindowRef: BrowserWindow | null = null
 const popoutWindows = new Map<string, BrowserWindow>()
 
-const POPOUT_DEFAULT_SIZE = { width: 820, height: 560 }
-// Last-used popout window bounds, persisted so the window re-opens where the
-// user last placed it — e.g. dragged onto a second monitor.
+// Last-used popout window bounds, persisted per KIND (see popoutBounds.ts) so
+// the window re-opens where the user last placed it — e.g. dragged onto a
+// second monitor — without one kind's placement leaking into another's.
 const POPOUT_BOUNDS_FILE = path.join(app.getPath('userData'), 'popout-bounds.json')
 
-interface WindowBounds { x: number; y: number; width: number; height: number }
-
-function loadPopoutBounds(): WindowBounds | null {
-  try {
-    const raw = readFileSync(POPOUT_BOUNDS_FILE, 'utf8')
-    const b = JSON.parse(raw) as Partial<WindowBounds>
-    if (
-      typeof b.x === 'number' && typeof b.y === 'number' &&
-      typeof b.width === 'number' && typeof b.height === 'number'
-    ) {
-      return { x: b.x, y: b.y, width: b.width, height: b.height }
-    }
-  } catch { /* missing or malformed — fall back to auto-placement */ }
-  return null
+function readPopoutBoundsFileRaw(): string | null {
+  try { return readFileSync(POPOUT_BOUNDS_FILE, 'utf8') } catch { return null }
 }
 
-function savePopoutBounds(bounds: WindowBounds): void {
-  try { writeFileSync(POPOUT_BOUNDS_FILE, JSON.stringify(bounds)) } catch { /* ignore */ }
+function loadPopoutBounds(kind: PopoutKind): WindowBounds | null {
+  return parsePopoutBoundsFile(readPopoutBoundsFileRaw())[kind] ?? null
+}
+
+function savePopoutBounds(kind: PopoutKind, bounds: WindowBounds): void {
+  try {
+    const existing = parsePopoutBoundsFile(readPopoutBoundsFileRaw())
+    writeFileSync(POPOUT_BOUNDS_FILE, JSON.stringify(mergePopoutBounds(existing, kind, bounds)))
+  } catch { /* ignore */ }
 }
 
 /** True when the window's center sits inside some currently-connected display.
@@ -129,11 +120,12 @@ function boundsOnSomeDisplay(b: WindowBounds): boolean {
   })
 }
 
-/** Where a fresh popout should open: the last-saved bounds when still visible,
- *  otherwise centered on a secondary monitor if one exists, else the display
- *  under the cursor (falls back to primary). */
-function computePopoutBounds(): WindowBounds {
-  const saved = loadPopoutBounds()
+/** Where a fresh popout of the given KIND should open: that kind's own
+ *  last-saved bounds when still visible, otherwise centered on a secondary
+ *  monitor if one exists, else the display under the cursor (falls back to
+ *  primary), sized to that kind's own default. */
+function computePopoutBounds(kind: PopoutKind): WindowBounds {
+  const saved = loadPopoutBounds(kind)
   if (saved && boundsOnSomeDisplay(saved)) return saved
 
   const displays = screen.getAllDisplays()
@@ -142,13 +134,90 @@ function computePopoutBounds(): WindowBounds {
     displays.find((d) => d.id !== primary.id) ??
     screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
   const { x, y, width, height } = target.workArea
-  const { width: w, height: h } = POPOUT_DEFAULT_SIZE
+  const { width: w, height: h } = POPOUT_DEFAULT_SIZES[kind]
   return {
     x: Math.round(x + (width - w) / 2),
     y: Math.round(y + (height - h) / 2),
     width: w,
     height: h,
   }
+}
+
+// ── window.open policy ──────────────────────────────────────────────────────
+// Native windows opened for our OWN routes via window.open, keyed by URL so a
+// second open focuses the existing one instead of stacking duplicates.
+const internalUrlWindows = new Map<string, BrowserWindow>()
+
+/** The port `win`'s content is served from — our definition of "our own
+ *  origin". Read off the live URL so dev and production agree without a second
+ *  source of truth; falls back to the env/default while the window is still on
+ *  the file:// loading screen. */
+function originPort(win: BrowserWindow): string {
+  try {
+    const p = new URL(win.webContents.getURL()).port
+    if (p) return p
+  } catch {
+    // not a parseable http(s) URL yet — fall through
+  }
+  return process.env.SERVER_PORT ?? (isDev ? '3332' : '3333')
+}
+
+/** Open one of our own routes in a native window — the same chrome-less shell
+ *  as the terminal/project popouts, de-duped by URL. */
+function openInternalWindow(url: string): void {
+  const existing = internalUrlWindows.get(url)
+  if (existing && !existing.isDestroyed()) { existing.focus(); return }
+
+  const bounds = computePopoutBounds('internal')
+  const w = new BrowserWindow({
+    x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
+    minWidth: 480, minHeight: 320,
+    // Must match the default theme — see the main window above.
+    backgroundColor: '#ece9d8',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  })
+
+  // Remember where the user leaves it (incl. which monitor) for next time.
+  const persistBounds = () => { if (!w.isDestroyed()) savePopoutBounds('internal', w.getBounds()) }
+  w.on('moved', persistBounds)
+  w.on('resized', persistBounds)
+  attachWindowOpenPolicy(w)
+  internalUrlWindows.set(url, w)
+  w.on('closed', () => { internalUrlWindows.delete(url) })
+  void w.loadURL(url)
+}
+
+/** Decide what `window.open(url)` does when called from `win`.
+ *
+ *  Our own origin → a native BrowserWindow. Anything else → the system browser
+ *  (http/https only; ms-msdt:, file:, javascript: are dropped). The calling
+ *  window is never navigated away.
+ *
+ *  The first branch is the point of this helper: `shell.openExternal` cannot
+ *  tell one of our in-app routes from a real website, so every renderer call
+ *  site that reached for `window.open('/project-browser?…')` used to escape the
+ *  app and pop the user's default browser open on `http://localhost:<port>/…`. */
+function attachWindowOpenPolicy(win: BrowserWindow): void {
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (isInternalAppUrl(url, originPort(win))) {
+      openInternalWindow(url)
+      return { action: 'deny' }
+    }
+    try {
+      const parsed = new URL(url)
+      if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+        shell.openExternal(url)
+      }
+    } catch {
+      // malformed URL — ignore
+    }
+    return { action: 'deny' }
+  })
 }
 
 function registerPopoutHandler() {
@@ -164,7 +233,7 @@ function registerPopoutHandler() {
     if (opts.originSessionId) qs.set('originSessionId', opts.originSessionId)
     if (opts.label) qs.set('label', opts.label)
 
-    const bounds = computePopoutBounds()
+    const bounds = computePopoutBounds('terminal')
     const w = new BrowserWindow({
       x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
       minWidth: 480, minHeight: 320,
@@ -180,17 +249,14 @@ function registerPopoutHandler() {
     })
 
     // Remember where the user leaves it (incl. which monitor) for next time.
-    const persistBounds = () => { if (!w.isDestroyed()) savePopoutBounds(w.getBounds()) }
+    const persistBounds = () => { if (!w.isDestroyed()) savePopoutBounds('terminal', w.getBounds()) }
     w.on('moved', persistBounds)
     w.on('resized', persistBounds)
     // Same guards as the main window: no reload (loses terminal), no in-app nav.
     w.webContents.on('before-input-event', (ev, input) => {
       if ((input.key === 'r' && (input.meta || input.control)) || input.key === 'F5') ev.preventDefault()
     })
-    w.webContents.setWindowOpenHandler(({ url }) => {
-      try { const p = new URL(url); if (p.protocol === 'https:' || p.protocol === 'http:') shell.openExternal(url) } catch { /* ignore */ }
-      return { action: 'deny' }
-    })
+    attachWindowOpenPolicy(w)
     popoutWindows.set(terminalId, w)
     w.on('closed', () => {
       popoutWindows.delete(terminalId)
@@ -239,7 +305,7 @@ function registerProjectWindowHandler() {
     const qs = new URLSearchParams({ popout: 'project', path: projectPath })
     if (opts.file) qs.set('file', opts.file)
 
-    const bounds = computePopoutBounds()
+    const bounds = computePopoutBounds('project')
     const w = new BrowserWindow({
       x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
       minWidth: 480, minHeight: 320,
@@ -255,17 +321,83 @@ function registerProjectWindowHandler() {
     })
 
     // Remember where the user leaves it (incl. which monitor) for next time.
-    const persistBounds = () => { if (!w.isDestroyed()) savePopoutBounds(w.getBounds()) }
+    const persistBounds = () => { if (!w.isDestroyed()) savePopoutBounds('project', w.getBounds()) }
     w.on('moved', persistBounds)
     w.on('resized', persistBounds)
-    // Open external links in the system browser; never navigate the window away.
-    w.webContents.setWindowOpenHandler(({ url }) => {
-      try { const p = new URL(url); if (p.protocol === 'https:' || p.protocol === 'http:') shell.openExternal(url) } catch { /* ignore */ }
-      return { action: 'deny' }
-    })
+    // Our routes → a native window; external links → the system browser. Never
+    // navigate this window away.
+    attachWindowOpenPolicy(w)
     projectPopoutWindows.set(projectPath, w)
     w.on('closed', () => { projectPopoutWindows.delete(projectPath) })
     void w.loadURL(`http://localhost:${port}/?${qs.toString()}`)
+    return { ok: true }
+  })
+}
+
+// Native SESSION windows, keyed by sessionId. Pops the WHOLE session (every
+// DetailTabs tab — Project/Terminal/Commands/Conversation/AI Popups/Notes/Queue,
+// not just the terminal) into its own OS window, mirroring the PROJECT popout
+// above rather than the floating-TERMINAL popout: a session has no "in-app
+// float" counterpart to re-dock, so unlike `registerPopoutHandler` this never
+// sends `popout:closed` — the popout and the main window's own DetailPanel for
+// the same session simply coexist, both live views of the same WS-driven state.
+const sessionPopoutWindows = new Map<string, BrowserWindow>()
+
+/** Register the `window:open-session` IPC: open the standalone whole-session
+ *  view (`?popout=session&sessionId=…`) in its own native window. */
+function registerSessionWindowHandler() {
+  ipcMain.handle('window:open-session', (_e, opts: { sessionId?: string; label?: string }) => {
+    const sessionId = opts?.sessionId
+    if (!sessionId) return { ok: false }
+    const existing = sessionPopoutWindows.get(sessionId)
+    if (existing && !existing.isDestroyed()) { existing.focus(); return { ok: true } }
+
+    const port = process.env.SERVER_PORT ?? '3333'
+    const qs = new URLSearchParams({ popout: 'session', sessionId })
+
+    const bounds = computePopoutBounds('session')
+    const w = new BrowserWindow({
+      x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
+      minWidth: 480, minHeight: 320,
+      // Must match the default theme — see the main window above.
+      backgroundColor: '#ece9d8',
+      title: opts.label || 'Session',
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    })
+
+    // Remember where the user leaves it (incl. which monitor) for next time.
+    const persistBounds = () => { if (!w.isDestroyed()) savePopoutBounds('session', w.getBounds()) }
+    w.on('moved', persistBounds)
+    w.on('resized', persistBounds)
+    // Same guard as the main window: no reload (loses terminal state), no in-app nav.
+    w.webContents.on('before-input-event', (ev, input) => {
+      if ((input.key === 'r' && (input.meta || input.control)) || input.key === 'F5') ev.preventDefault()
+    })
+    attachWindowOpenPolicy(w)
+    sessionPopoutWindows.set(sessionId, w)
+    w.on('closed', () => { sessionPopoutWindows.delete(sessionId) })
+    void w.loadURL(`http://localhost:${port}/?${qs.toString()}`)
+    return { ok: true }
+  })
+
+  // Called FROM a popped-out session window's own "back to main" icon. Focuses
+  // the main window, tells its renderer to deselect back to the session list,
+  // then closes the CALLING popout (found via its webContents — not looked up
+  // by sessionId, since this handler doesn't know which session it belongs to
+  // and doesn't need to: it only ever closes the window that asked).
+  ipcMain.handle('window:return-to-main', (e) => {
+    if (mainWindowRef && !mainWindowRef.isDestroyed()) {
+      mainWindowRef.webContents.send('popout:return-to-list')
+      mainWindowRef.show()
+      mainWindowRef.focus()
+    }
+    const caller = BrowserWindow.fromWebContents(e.sender)
+    if (caller && !caller.isDestroyed()) caller.close()
     return { ok: true }
   })
 }
@@ -316,6 +448,7 @@ app.whenReady().then(async () => {
   registerPopoutHandler()
   registerDirectoryPickerHandler()
   registerProjectWindowHandler()
+  registerSessionWindowHandler()
 
   // Create window immediately — shows loading screen in production
   const win = await createWindow()

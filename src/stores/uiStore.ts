@@ -19,6 +19,11 @@ export interface PendingFileChooser {
 
 export type CardDisplayMode = 'detailed' | 'compact';
 
+/** Prompt Queue (QueueTab) layout: 'list' (default — the original row layout,
+ *  drag-to-reorder) or 'card' (a wrapping grid; reorder via the row's existing
+ *  ▲/▼ buttons instead of drag — a 2D grid has no unambiguous drop target). */
+export type QueueViewMode = 'list' | 'card';
+
 /** Where the DetailPanel session-navigation bar sits: a horizontal strip on top
  *  (default) or a vertical rail down the left side (reclaims vertical space). */
 export type NavPosition = 'top' | 'left';
@@ -47,6 +52,8 @@ interface UiState {
   pendingFileOpen: PendingFileOpen | null;
   pendingFileChooser: PendingFileChooser | null;
   cardDisplayMode: CardDisplayMode;
+  /** Prompt Queue layout. Persisted to localStorage['queue-view-mode']. */
+  queueViewMode: QueueViewMode;
   /** DetailPanel nav-bar position: 'top' (default) or 'left' rail. Persisted. */
   navPosition: NavPosition;
   /** Maximize mode: hide the detail panel's own session-chip strip for more
@@ -75,9 +82,14 @@ interface UiState {
   restoreDetailPanel: () => void;
   openFileInProject: (filePath: string, projectPath: string) => void;
   clearPendingFileOpen: () => void;
-  openFileChooser: (filePath: string, projectPath: string, anchor: { x: number; y: number }) => void;
+  openFileChooser: (
+    filePath: string,
+    projectPath: string,
+    anchor: { x: number; y: number },
+  ) => void;
   clearFileChooser: () => void;
   toggleCardDisplayMode: () => void;
+  toggleQueueViewMode: () => void;
   setNavPosition: (pos: NavPosition) => void;
   toggleNavPosition: () => void;
   setMaximized: (on: boolean) => void;
@@ -96,25 +108,41 @@ function loadCardDisplayMode(): CardDisplayMode {
   try {
     const v = localStorage.getItem('card-display-mode');
     return v === 'compact' ? 'compact' : 'detailed';
-  } catch { return 'detailed'; }
+  } catch {
+    return 'detailed';
+  }
+}
+
+function loadQueueViewMode(): QueueViewMode {
+  try {
+    return localStorage.getItem('queue-view-mode') === 'card' ? 'card' : 'list';
+  } catch {
+    return 'list';
+  }
 }
 
 function loadNavPosition(): NavPosition {
   try {
     return localStorage.getItem('nav-position') === 'left' ? 'left' : 'top';
-  } catch { return 'top'; }
+  } catch {
+    return 'top';
+  }
 }
 
 function loadNavRailCollapsed(): boolean {
   try {
     return localStorage.getItem('nav-rail-collapsed') === '1';
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 }
 
 function loadSessionSortMode(): SessionSortMode {
   try {
     return localStorage.getItem('session-sort-mode') === 'activity' ? 'activity' : 'room';
-  } catch { return 'room'; }
+  } catch {
+    return 'room';
+  }
 }
 
 function loadRoomFilter(): Set<string> {
@@ -124,7 +152,9 @@ function loadRoomFilter(): Set<string> {
       const arr = JSON.parse(raw);
       if (Array.isArray(arr)) return new Set(arr);
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return new Set();
 }
 
@@ -135,7 +165,9 @@ function saveRoomFilter(ids: Set<string>): void {
     } else {
       localStorage.setItem('room-filter', JSON.stringify([...ids]));
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -146,6 +178,7 @@ export const useUiStore = create<UiState>((set) => ({
   pendingFileOpen: null,
   pendingFileChooser: null,
   cardDisplayMode: loadCardDisplayMode(),
+  queueViewMode: loadQueueViewMode(),
   navPosition: loadNavPosition(),
   maximized: false,
   navRailCollapsed: loadNavRailCollapsed(),
@@ -162,48 +195,93 @@ export const useUiStore = create<UiState>((set) => ({
   restoreDetailPanel: () => set({ detailPanelMinimized: false }),
   openFileInProject: (filePath, projectPath) => set({ pendingFileOpen: { filePath, projectPath } }),
   clearPendingFileOpen: () => set({ pendingFileOpen: null }),
-  openFileChooser: (filePath, projectPath, anchor) => set({ pendingFileChooser: { filePath, projectPath, anchor } }),
+  openFileChooser: (filePath, projectPath, anchor) =>
+    set({ pendingFileChooser: { filePath, projectPath, anchor } }),
   clearFileChooser: () => set({ pendingFileChooser: null }),
-  toggleCardDisplayMode: () => set((s) => {
-    const next: CardDisplayMode = s.cardDisplayMode === 'detailed' ? 'compact' : 'detailed';
-    try { localStorage.setItem('card-display-mode', next); } catch { /* ignore */ }
-    return { cardDisplayMode: next };
-  }),
-  setNavPosition: (pos) => set(() => {
-    try { localStorage.setItem('nav-position', pos); } catch { /* ignore */ }
-    return { navPosition: pos };
-  }),
-  toggleNavPosition: () => set((s) => {
-    const next: NavPosition = s.navPosition === 'left' ? 'top' : 'left';
-    try { localStorage.setItem('nav-position', next); } catch { /* ignore */ }
-    return { navPosition: next };
-  }),
+  toggleCardDisplayMode: () =>
+    set((s) => {
+      const next: CardDisplayMode = s.cardDisplayMode === 'detailed' ? 'compact' : 'detailed';
+      try {
+        localStorage.setItem('card-display-mode', next);
+      } catch {
+        /* ignore */
+      }
+      return { cardDisplayMode: next };
+    }),
+  toggleQueueViewMode: () =>
+    set((s) => {
+      const next: QueueViewMode = s.queueViewMode === 'list' ? 'card' : 'list';
+      try {
+        localStorage.setItem('queue-view-mode', next);
+      } catch {
+        /* ignore */
+      }
+      return { queueViewMode: next };
+    }),
+  setNavPosition: (pos) =>
+    set(() => {
+      try {
+        localStorage.setItem('nav-position', pos);
+      } catch {
+        /* ignore */
+      }
+      return { navPosition: pos };
+    }),
+  toggleNavPosition: () =>
+    set((s) => {
+      const next: NavPosition = s.navPosition === 'left' ? 'top' : 'left';
+      try {
+        localStorage.setItem('nav-position', next);
+      } catch {
+        /* ignore */
+      }
+      return { navPosition: next };
+    }),
   setMaximized: (on) => set({ maximized: on }),
   toggleMaximized: () => set((s) => ({ maximized: !s.maximized })),
-  setNavRailCollapsed: (on) => set(() => {
-    try { localStorage.setItem('nav-rail-collapsed', on ? '1' : '0'); } catch { /* ignore */ }
-    return { navRailCollapsed: on };
-  }),
-  toggleNavRailCollapsed: () => set((s) => {
-    const next = !s.navRailCollapsed;
-    try { localStorage.setItem('nav-rail-collapsed', next ? '1' : '0'); } catch { /* ignore */ }
-    return { navRailCollapsed: next };
-  }),
-  toggleSessionSortMode: () => set((s) => {
-    const next: SessionSortMode = s.sessionSortMode === 'activity' ? 'room' : 'activity';
-    try { localStorage.setItem('session-sort-mode', next); } catch { /* ignore */ }
-    return { sessionSortMode: next };
-  }),
-  startWorkspaceLoad: (total) => set({ workspaceLoad: { active: true, total, done: 0, currentTitle: '' } }),
-  advanceWorkspaceLoad: (done, currentTitle) => set((s) => ({ workspaceLoad: { ...s.workspaceLoad, done, currentTitle } })),
-  finishWorkspaceLoad: () => set({ workspaceLoad: { active: false, total: 0, done: 0, currentTitle: '' } }),
-  toggleRoomFilter: (roomId) => set((s) => {
-    const next = new Set(s.selectedRoomIds);
-    if (next.has(roomId)) next.delete(roomId);
-    else next.add(roomId);
-    saveRoomFilter(next);
-    return { selectedRoomIds: next };
-  }),
+  setNavRailCollapsed: (on) =>
+    set(() => {
+      try {
+        localStorage.setItem('nav-rail-collapsed', on ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return { navRailCollapsed: on };
+    }),
+  toggleNavRailCollapsed: () =>
+    set((s) => {
+      const next = !s.navRailCollapsed;
+      try {
+        localStorage.setItem('nav-rail-collapsed', next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return { navRailCollapsed: next };
+    }),
+  toggleSessionSortMode: () =>
+    set((s) => {
+      const next: SessionSortMode = s.sessionSortMode === 'activity' ? 'room' : 'activity';
+      try {
+        localStorage.setItem('session-sort-mode', next);
+      } catch {
+        /* ignore */
+      }
+      return { sessionSortMode: next };
+    }),
+  startWorkspaceLoad: (total) =>
+    set({ workspaceLoad: { active: true, total, done: 0, currentTitle: '' } }),
+  advanceWorkspaceLoad: (done, currentTitle) =>
+    set((s) => ({ workspaceLoad: { ...s.workspaceLoad, done, currentTitle } })),
+  finishWorkspaceLoad: () =>
+    set({ workspaceLoad: { active: false, total: 0, done: 0, currentTitle: '' } }),
+  toggleRoomFilter: (roomId) =>
+    set((s) => {
+      const next = new Set(s.selectedRoomIds);
+      if (next.has(roomId)) next.delete(roomId);
+      else next.add(roomId);
+      saveRoomFilter(next);
+      return { selectedRoomIds: next };
+    }),
   clearRoomFilter: () => {
     saveRoomFilter(new Set());
     set({ selectedRoomIds: new Set() });

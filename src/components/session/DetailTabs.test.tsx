@@ -102,7 +102,7 @@ describe('DetailTabs — open Project in a native window', () => {
     vi.stubGlobal('electronAPI', { openProjectWindow });
 
     render(<DetailTabs {...defaultProps} sessionId="s1" />);
-    fireEvent.click(screen.getByLabelText('Open Project in a window'));
+    fireEvent.click(screen.getByLabelText('Detach Project into its own window'));
 
     expect(openProjectWindow).toHaveBeenCalledWith({ path: '/Users/me/proj', label: 'Project' });
   });
@@ -113,7 +113,7 @@ describe('DetailTabs — open Project in a native window', () => {
     const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
 
     render(<DetailTabs {...defaultProps} sessionId="s1" />);
-    fireEvent.click(screen.getByLabelText('Open Project in a window'));
+    fireEvent.click(screen.getByLabelText('Detach Project into its own window'));
 
     expect(openSpy).toHaveBeenCalledWith(
       expect.stringContaining('/project-browser?path='),
@@ -127,6 +127,21 @@ describe('DetailTabs — open Project in a native window', () => {
     );
   });
 
+  it('never falls back to window.open under Electron with a stale preload', () => {
+    // The Electron shell routes anything it cannot place to the system browser,
+    // so a window.open here would pop Chrome open on localhost — the exact bug
+    // this guard exists to prevent. A preload missing openProjectWindow is a
+    // build problem; do nothing rather than leave the app.
+    seedSession('/Users/me/proj');
+    vi.stubGlobal('electronAPI', { createPty: vi.fn() });
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+
+    render(<DetailTabs {...defaultProps} sessionId="s1" />);
+    fireEvent.click(screen.getByLabelText('Detach Project into its own window'));
+
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+
   it('is a no-op when the session has no project path', () => {
     seedSession(undefined);
     const openProjectWindow = vi.fn();
@@ -134,7 +149,7 @@ describe('DetailTabs — open Project in a native window', () => {
     const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
 
     render(<DetailTabs {...defaultProps} sessionId="s1" />);
-    fireEvent.click(screen.getByLabelText('Open Project in a window'));
+    fireEvent.click(screen.getByLabelText('Detach Project into its own window'));
 
     expect(openProjectWindow).not.toHaveBeenCalled();
     expect(openSpy).not.toHaveBeenCalled();
