@@ -26,7 +26,7 @@ The error text exists only in the terminal bytes, so detection has to read the P
 | `src/components/session/SessionControlBar.tsx` | `⚠ <reason>` interrupted status chip. |
 | `src/styles/modules/DetailPanel.module.css` | `.ctrlInterrupted` — deliberately styled *against* `.ctrlBtn`. |
 | `test/interruptionDetector.test.ts` | 15 tests — classification, the real 529 banner, ANSI, edge-triggering, dedupe, split chunks. |
-| `src/lib/resumeWatchdog.test.ts` | 23 tests — arming gates, backoff, recovery, and the runaway-loop guard. |
+| `src/lib/resumeWatchdog.test.ts` | 21 tests — arming gates, backoff, recovery, and the runaway-loop guard. |
 
 ## Implementation
 
@@ -110,6 +110,7 @@ So `attempts` holds the **timestamps of resume prompts actually sent** within `A
 ### Scheduler integration (`maybeAutoResume`)
 Runs inside `evaluateSession`, **after** the `paused` / `terminalId` / cooldown checks and **before** the `items.length === 0` bail-out — an interrupted session needs rescuing whether or not it has queued items. Returns `true` when a prompt was sent, and the caller then skips the queue for that tick.
 
+- **Gated by `canControlSession(sessionId)`** ([`presenceStore`](./state-management.md)). `evaluateSession` returns early unless this device holds the session's baton, and that check sits **above the `maybeAutoResume(...)` call, not merely above the queue evaluation** — this watchdog sends prompts of its own, so a gate placed only in front of the queue would leave it double-firing. The scheduler ticks once a second on **every connected client**, so with two devices connected one fault would burn **two attempts from a rolling budget sized for one** — and since the budget is a 30-minute ledger of prompts actually sent, that halves the real retry count rather than merely double-toasting. A session that is **unclaimed**, or whose holder **went offline**, stays drivable, so a solo user is never blocked. See [Multi-Device Presence](../server/multi-device-presence.md).
 - `jitter: Math.random()` is drawn fresh per evaluation so sessions that faulted together in a provider-wide outage don't retry in lockstep.
 - Sends via `sendPromptToTerminal(terminalId, prompt, /* autoEnter */ true)` — **always** auto-Enter, because a resume prompt typed but not submitted leaves the session exactly as stuck, plus text sitting in the box.
 - **On send failure the ledger entry is rolled back** (`attempts.slice(0, -1)`) and the state re-armed for `now + 5_000`; nothing was delivered, so it must not consume budget.
@@ -130,6 +131,7 @@ Dexie `queueAutomation` table (keyed by `sessionId`) gains three **non-indexed**
 - [Terminal/SSH](../server/terminal-ssh.md) — the `onData` seams and `cleanup` in `sshManager.ts`; `POST /api/terminals/{id}/write` delivers the resume prompt.
 - [Session Management](../server/session-management.md) — `session.interruption` lives on the Session object; the hook-event switch clears it; `broadcastSessionUpdate` ships it.
 - [Queue Scheduler](./queue-scheduler.md) — hosts the tick, `isSendableStatus`, `sendPromptToTerminal`, and the shared `firingRefs`/`coolDownRefs` mutex.
+- [Multi-Device Presence](../server/multi-device-presence.md) — `canControlSession` decides whether **this** device may run the watchdog for a session; [State Management](./state-management.md) hosts the selector.
 - [Prompt Queue](./prompt-queue.md) — `QueueAutomationConfig` + the `paused` gate; the toggle lives in `QueueTab`'s status row.
 - [Client Persistence](./client-persistence.md) — the `queueAutomation` Dexie row.
 - [Session Detail Panel](./session-detail-panel.md) — `SessionControlBar` hosts the chip.
@@ -154,3 +156,4 @@ Dexie `queueAutomation` table (keyed by `sessionId`) gains three **non-indexed**
 - **Send-failure rollback**: if `sendPromptToTerminal` fails and the ledger entry is *not* rolled back, a session whose terminal is momentarily unwritable burns its whole budget without ever delivering a prompt.
 - **`.ctrlInterrupted` must not drift back toward `.ctrlBtn`.** Giving it a border, bold uppercase, or a 4px radius restores the fake-clickable-button bug that the render check caught. No linter sees this.
 - **Detection runs on the PTY hot path.** Anything added to `notePtyOutput` beyond regex — a process probe, a DB write, an `await` — puts per-chunk latency on every terminal in the app.
+- **The multi-device gate must stay above `maybeAutoResume`.** Every connected client runs the 1s tick, so without `canControlSession` two devices each evaluate the same fault and each send a resume — two entries in a 30-minute ledger sized for one, halving the effective retry budget and typing the resume prompt into the PTY twice. Moving the gate below this call (so it only guards the queue) reproduces exactly that, because this watchdog is itself a prompt sender. Narrowing the gate the other way — refusing to run on an unclaimed or offline-held session — silently disables auto-resume for a single-device install.

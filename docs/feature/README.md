@@ -17,9 +17,10 @@ Feature documentation organized by domain. Each doc describes function, purpose,
 | [File Index Cache](server/file-index-cache.md) | Per-project cached + fs.watch'd file index for fast fuzzy file search | `server/fileIndexCache.ts`, `server/apiRouter.ts` |
 | [Floating Session Spawner](server/floating-session-spawner.md) | Builds a synthesized prompt for a selection-popup / translate action and spawns a fork-style CLI session in the origin's workdir | `server/floatingSessionSpawner.ts`, `server/floatingPrompt.ts`, `server/extractPreviousAnswer.ts` |
 | [Hook System](server/hook-system.md) | Captures AI CLI lifecycle events via bash hook scripts and delivers them through a file-based JSONL queue (HTTP fallback) | `hooks/dashboard-hook.sh`, `server/mqReader.ts` |
+| [Multi-Device Presence](server/multi-device-presence.md) | Lets several devices watch the same server live while exactly one at a time may write to a given session, run the workspace restore, or persist the snapshot | `server/presenceManager.ts`, `server/ptySubscribers.ts`, `src/stores/presenceStore.ts` |
 | [Process Monitor](server/process-monitor.md) | Periodically checks whether AI CLI processes are still alive and transitions dead sessions to ended | `server/processMonitor.ts`, `server/autoIdleManager.ts`, `server/config.ts` |
 | [Session Management](server/session-management.md) | Coordinates session lifecycle, state transitions, and in-memory storage via the coordinator pattern | `server/sessionStore.ts`, `server/sessionMatcher.ts`, `server/sessionTitle.ts` |
-| [Session Matching](server/session-matching.md) | Links incoming hook events (unknown session IDs) to terminal sessions via an 8-priority cascade | `server/sessionMatcher.ts` |
+| [Session Matching](server/session-matching.md) | Links incoming hook events (unknown session IDs) to terminal sessions via an 11-step priority cascade (0→5) | `server/sessionMatcher.ts` |
 | [Team / Subagent](server/team-subagent.md) | Tracks parent-child relationships between agent sessions (teams) and links subagents to their parent | `server/teamManager.ts`, `src/types/team.ts` |
 | [Terminal / SSH](server/terminal-ssh.md) | Creates and manages PTY terminal processes for SSH connections, local shells, and tmux sessions | `server/sshManager.ts`, `server/config.ts`, `src/types/terminal.ts` |
 | [WebSocket Manager](server/websocket-manager.md) | Broadcasts session state changes, relays terminal I/O, and handles reconnect replay | `server/wsManager.ts` |
@@ -39,6 +40,7 @@ Feature documentation organized by domain. Each doc describes function, purpose,
 | [Keyboard Shortcuts](frontend/keyboard-shortcuts.md) | Global rebindable keyboard shortcuts with context-aware suppression and conflict detection | `src/hooks/useKeyboardShortcuts.ts`, `src/stores/shortcutStore.ts`, `src/lib/shortcutKeys.ts` |
 | [Project Browser](frontend/project-browser.md) | Standalone full-page browser at `/project-browser?path=…&file=…`, reusing `ProjectTab` | `src/routes/ProjectBrowserView.tsx`, `src/hooks/useKnownProjects.ts`, `src/components/session/ProjectTab.tsx` |
 | [Prompt Queue](frontend/prompt-queue.md) | Per-session prompt queuing with drag-reorder, cross-session moves, attachments, and per-session automation | `src/stores/queueStore.ts`, `src/components/session/QueueTab.tsx`, `src/routes/QueueView.tsx` |
+| [Prompt Trace](frontend/prompt-trace.md) | Global `/prompts` record of every prompt ever sent — day-grouped, searchable, source-faceted (harness-injected turns excluded by default), paginated, exportable | `src/routes/PromptsView.tsx`, `src/lib/textHighlight.ts`, `server/db.ts` |
 | [Queue Scheduler & History](frontend/queue-scheduler.md) | App-level 1s tick that fires due queue items, plus queue history/favorites, loop scheduling, and quiet-hours windows | `src/lib/queueScheduler.ts`, `src/hooks/useGlobalQueueScheduler.ts`, `src/stores/queueHistoryStore.ts` |
 | [Saved Prompts](frontend/saved-prompts.md) | Curated library of reusable prompt text — 🔖 keep, portaled picker with a SAVED tab and an all-sessions RECENT tab, insertable into the compose row, MAIN prompt, or a chain step | `src/stores/promptSnippetStore.ts`, `src/components/session/PromptSnippetPicker.tsx`, `src/lib/promptSnippetPool.ts`, `src/lib/promptSnippetInsert.ts` |
 | [Auto-Resume Watchdog](frontend/auto-resume-watchdog.md) | Detects a turn killed by a transient API/rate-limit/network banner in the PTY and auto-sends a continuation prompt, with backoff, jitter and a rolling-window attempt cap | `server/interruptionDetector.ts`, `src/lib/resumeWatchdog.ts`, `src/hooks/useGlobalQueueScheduler.ts` |
@@ -49,7 +51,7 @@ Feature documentation organized by domain. Each doc describes function, purpose,
 | [Settings System](frontend/settings-system.md) | 7-tab settings panel, theme system (10 themes), per-CLI sound profiles, API-key storage, voice/summary prefs | `src/components/settings/SettingsPanel.tsx`, `src/components/settings/ThemeSettings.tsx`, `src/components/settings/SoundSettings.tsx` |
 | [Setup Wizard](frontend/setup-wizard.md) | First-run onboarding (deps, config, hook install) over `data/server-config.json` | `src/components/setup/SetupWizard.tsx`, `src/components/setup/steps/WelcomeStep.tsx`, `src/components/setup/steps/DepsCheckStep.tsx` |
 | [Shared UI Primitives](frontend/ui-primitives.md) | Reusable React building blocks: Modal, Select, Combobox, Tabs, Tooltip, ResizablePanel, ToastContainer, SearchInput | `src/components/ui/Modal.tsx`, `src/components/ui/Select.tsx`, `src/components/ui/Tabs.tsx` |
-| [State Management](frontend/state-management.md) | 11 Zustand stores (session, WS, UI, settings, queue, queue-history, camera, room, shortcut, agenda, floatingSessions) | `src/stores/sessionStore.ts`, `src/stores/wsStore.ts`, `src/stores/uiStore.ts` |
+| [State Management](frontend/state-management.md) | 15 Zustand stores (session, WS, UI, settings, queue, queue-history, prompt-snippet, notes, camera, room, label, shortcut, agenda, floatingSessions, presence) | `src/stores/sessionStore.ts`, `src/stores/wsStore.ts`, `src/stores/presenceStore.ts` |
 | [Terminal UI](frontend/terminal-ui.md) | xterm.js 5 with dual transport (IPC/WS), bookmarks, fork/clone, select-to-translate, hold-to-speak | `src/hooks/useTerminal.ts`, `src/components/terminal/TerminalContainer.tsx`, `src/components/terminal/TerminalToolbar.tsx` |
 | [Views / Routing](frontend/views-routing.md) | App entry, React Router route tree, persistent layout chrome (title bar, header, nav, global search) | `src/main.tsx`, `src/App.tsx`, `src/components/layout/TitleBar.tsx` |
 | [WebSocket Client](frontend/websocket-client.md) | Browser WebSocket with auto-reconnect, event replay, backpressure protection, and message routing | `src/lib/wsClient.ts`, `src/hooks/useWebSocket.ts`, `src/types/websocket.ts` |
@@ -78,6 +80,8 @@ Feature documentation organized by domain. Each doc describes function, purpose,
 | [IPC Transport](electron/ipc-transport.md) | Bridges renderer ↔ main (PTY host, setup wizard, lifecycle) via typed IPC + preload contextBridge | `electron/ipc/terminalHandlers.ts`, `electron/preload.ts`, `src/types/electron.d.ts` |
 | [PTY Host](electron/pty-host.md) | VS Code-style node-pty host in the main process with IPC relay, lazily-grown output ring, shell-ready detection | `electron/ptyHost.ts`, `electron/ptyRing.ts` |
 
+> **Retired: `docs/BE/`.** A second backend-doc tree was folded into these `server/` docs and deleted in Aug 2026. It covered no source file that `docs/feature/` didn't already own, so the two diverged unchecked for ~5 months — accumulating ~29 stale claims, including auto-idle timeouts off by 2.5-5× and an assertion that unmatched hooks were silently dropped (the opposite of Priority 5's actual behavior). Its verified-accurate content now lives in [Hook System](server/hook-system.md), [Session Management](server/session-management.md), [Session Matching](server/session-matching.md), and [Terminal / SSH](server/terminal-ssh.md). Originals remain in git at `38d161f`.
+
 ---
 
 ## Cross-Feature Dependency Graph
@@ -92,7 +96,7 @@ Hook System ──────────────────┐
           ┌─────────────┘  │  └──────────────┐
           ▼                ▼                  ▼
    Session Matching   Approval Detection   Team/Subagent
-   (8-priority)       (timeout heuristic)  (parent-child)
+   (11-step cascade)  (timeout heuristic)  (parent-child)
                               │
                               ▼
                      WebSocket Manager ────► Frontend WS Client
@@ -122,6 +126,7 @@ Newer feature docs that build on the core graph above:
 - **Queue Scheduler & History** → Prompt Queue, State Management (queue-history store), Client Persistence, Terminal UI (auto-send), Loops/quiet-hours, Saved Prompts (editor 🔖 controls).
 - **Saved Prompts** → State Management (`promptSnippetStore`, `sessionStore.promptHistory`), Client Persistence (`promptSnippets`, Dexie v7), Prompt Queue (placement maths + compose row), Queue Scheduler (editor call sites).
 - **Auto-Resume Watchdog** → Terminal/SSH (`onData` fault scan + `cleanup`), Session Management (`session.interruption`, cleared on forward-progress hooks, never on `Stop`), Queue Scheduler (runs first in the 1s tick, shares the send mutex), Prompt Queue (`autoResume`/`resumeMaxRetries`/`resumePrompt` + 🩺 toggle), Client Persistence (non-indexed `queueAutomation` columns), Session Detail Panel (`⚠` chip).
+- **Multi-Device Presence** (server) → WebSocket Manager (device registration, the `terminal_input`/`terminal_resize` write gate, `presence_update`), Terminal/SSH (`Terminal.wsClients` subscriber Set), API Endpoints (restore claim + the `clear-all` / `workspace/save` guards + `/presence/control/*`), Workspace Snapshot (who may restore, who may save), Queue Scheduler & Auto-Resume Watchdog (`canControlSession` gate), Session Detail Panel (`SessionControlLock`), State Management (`presenceStore`).
 - **Command Autocomplete** → API Endpoints (`/api/commands`, file index), Prompt Queue editor, Queue Tab, Shared UI Primitives.
 - **Conversation View** & **Session Summary** → Session Detail Panel (tabs), API Endpoints, Database/Client Persistence.
 - **Floating Terminal Fork** ↔ **Floating Session Spawner** (server) → Review Tab, Terminal UI, Session Matching, pop-out window.
@@ -139,8 +144,12 @@ When modifying a feature, check which features it can affect:
 | Session state machine | 3D Robots, Sound/Alarms, Approval Detection, Auto-Idle, Frontend stores |
 | Session Matching priorities | Terminal/SSH, Session Resume, Team linking, Floating fork resolution |
 | WebSocket protocol | Frontend WS Client, Terminal UI, All real-time UI |
+| Control baton / device registry (`presenceManager.ts`) | WebSocket Manager (write gate + `presence_update`), Terminal/SSH (subscriber Sets), API Endpoints (`clear-all` / `workspace/save` 409s, `/presence/*`), Workspace Snapshot (restore claim + writer election), Queue Scheduler & Auto-Resume Watchdog (`canControlSession`), Session Detail Panel (`SessionControlLock`), State Management (`presenceStore`) |
+| Device identity headers (`x-aasc-client-id` / `-label`) | Multi-Device Presence — installed **once** on `window.fetch` in `main.tsx`; a call that loses them degrades to "anonymous device" silently (it can still act on free sessions, never claim the restore) |
 | API endpoint contracts | ALL frontend HTTP calls, Electron PTY registration, Command Autocomplete |
-| Database schema | API Endpoints, Client Persistence (IndexedDB mirror), Conversation View, Summary |
+| Database schema | API Endpoints, Client Persistence (IndexedDB mirror), Conversation View, Summary, Prompt Trace |
+| `prompts` table shape / `insertFullPrompt` ordering | Session Management, Database, Prompt Trace (`/api/db/prompts` reads it directly), Conversation View fallback |
+| Match/highlight helpers (`src/lib/textHighlight.ts`) | Conversation View search, Prompt Trace search — one shared predicate keeps counts and highlights in agreement |
 | Terminal/SSH creation | Session Matching (pending links), PTY Host registration |
 | Zustand store shapes | ALL components that subscribe to stores |
 | Theme CSS variables | ALL visual components (2D + 3D), Terminal themes |

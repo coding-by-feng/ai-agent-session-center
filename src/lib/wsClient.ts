@@ -1,4 +1,5 @@
 import type { ClientMessage, ServerMessage } from '@/types';
+import { getClientId, getClientLabel } from './deviceIdentity';
 
 type MessageHandler = (msg: ServerMessage) => void;
 type StatusHandler = (status: 'connected' | 'disconnected' | 'reconnecting') => void;
@@ -33,6 +34,12 @@ export class WsClient {
     if (this.options.token) {
       url.searchParams.set('token', this.options.token);
     }
+    // Identify this device to the server's presence layer. It has to ride on
+    // the URL: the server sends its snapshot and registers presence inside the
+    // connection handler, so a post-connect hello message would arrive too late
+    // to be reflected in the snapshot this socket receives.
+    url.searchParams.set('clientId', getClientId());
+    url.searchParams.set('label', getClientLabel());
 
     this.ws = new WebSocket(url.toString());
 

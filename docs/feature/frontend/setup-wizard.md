@@ -5,6 +5,14 @@ First-run onboarding. Two parallel implementations share the same `data/server-c
 - **Electron GUI wizard** — five-step flow: Welcome → Check Deps → Configure → Install → Done. Resolves port, picks which CLIs to monitor (Claude always on, Codex optional), hook density, session-history retention, and an optional dashboard password, then installs hooks.
 - **CLI wizard** (`hooks/setup-wizard.js`, run by `npm run setup`) — six interactive prompts in the terminal: port, CLI selection, hook density, debug, history retention, password — then writes config and runs `install-hooks.js`.
 
+> ⚠ **The CLI wizard writes `<repo>/data/server-config.json` only.** A packaged
+> Electron app reads `$APP_USER_DATA/server-config.json` (`serverConfig.ts`), so
+> running the wizard to set a password for an **installed** app writes a hash
+> the app never reads — it silently appears to do nothing. Use
+> **`npm run set-password`** ([`scripts/set-password.mjs`](../../../scripts/set-password.mjs))
+> for the password; it resolves the app's real config path. This caveat applies
+> to every value the wizard writes, not just the password.
+
 ## Purpose
 Hooks must be wired into each CLI's settings file before the dashboard can observe sessions. The wizard turns a multi-step CLI install into a guided flow — a native window on first Electron launch, or a terminal flow for headless/server installs.
 

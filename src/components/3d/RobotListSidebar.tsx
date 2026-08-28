@@ -14,6 +14,7 @@ import { sortSessions } from '@/lib/sessionSort';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { closeManagedTerminal } from '@/lib/terminalTransport';
 import type { KillSessionResponse, Session } from '@/types';
+import styles from '@/styles/modules/RobotListSidebar.module.css';
 
 // ---------------------------------------------------------------------------
 // Status Colors (matches SceneOverlay)
@@ -57,11 +58,11 @@ function RobotEntry({
     <button
       data-session-id={session.sessionId}
       data-status={session.status}
+      className={styles.entryRow}
       onClick={() => onSelect(session.sessionId)}
       style={{
         display: 'flex',
         alignItems: 'center',
-        gap: 8,
         width: '100%',
         padding: '8px 10px',
         border: (isSelected || needsAttention)
@@ -151,6 +152,7 @@ function RobotEntry({
         title={pinned
           ? 'Pinned — stays in the list and auto-recreates on restart / if it dies. Click to unpin.'
           : 'Pin — keep this session fixed and auto-recreate it.'}
+        className={styles.iconBtn}
         onClick={(e) => {
           e.stopPropagation();
           onTogglePin(session.sessionId);
@@ -194,6 +196,7 @@ function RobotEntry({
       <span
         role="button"
         tabIndex={-1}
+        className={styles.iconBtn}
         onClick={(e) => {
           e.stopPropagation();
           onClose(session.sessionId);
@@ -478,48 +481,13 @@ export default function RobotListSidebar() {
   if (!hasAnySessions) return null;
 
   return (
-    <div
-      style={{
-        position: 'absolute',
-        top: 16,
-        left: 20,
-        width: panelCollapsed ? 'auto' : 280,
-        maxHeight: 'calc(100vh - 100px)',
-        overflowY: panelCollapsed ? 'hidden' : 'auto',
-        background: 'color-mix(in srgb, var(--bg-panel) 85%, transparent)',
-        backdropFilter: 'blur(20px)',
-        border: '1px solid var(--border-accent)',
-        borderRadius: 4,
-        padding: panelCollapsed ? '10px 12px' : '14px 12px',
-        pointerEvents: 'all',
-        zIndex: 11,
-        boxShadow: '0 0 12px var(--glow-accent), inset 0 0 24px var(--glow-accent)',
-        transition: 'width 0.2s ease, padding 0.2s ease',
-      }}
-    >
+    <div className={`${styles.sidebar} ${panelCollapsed ? styles.collapsed : ''}`}>
       {/* Header with collapse toggle */}
       <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          cursor: 'pointer',
-          marginBottom: panelCollapsed ? 0 : 4,
-          paddingLeft: 2,
-          userSelect: 'none',
-        }}
+        className={styles.header}
         onClick={() => setPanelCollapsed((c) => !c)}
       >
-        <span
-          style={{
-            fontSize: 12,
-            letterSpacing: 2,
-            color: 'var(--text-dim)',
-            textTransform: 'uppercase',
-            fontFamily: "'Share Tech Mono', 'JetBrains Mono', monospace",
-            flex: 1,
-          }}
-        >
+        <span className={styles.headerTitle}>
           Agents ({totalCount})
         </span>
         <svg

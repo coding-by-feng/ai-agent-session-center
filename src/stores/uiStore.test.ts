@@ -73,4 +73,33 @@ describe('uiStore', () => {
       expect(useUiStore.getState().pendingFileChooser?.projectPath).toBe('/q');
     });
   });
+
+  describe('toggleQueueViewMode', () => {
+    beforeEach(() => {
+      localStorage.removeItem('queue-view-mode');
+      useUiStore.setState({ queueViewMode: 'list' });
+    });
+
+    it('defaults to list', () => {
+      expect(useUiStore.getState().queueViewMode).toBe('list');
+    });
+
+    it('toggles from list to card', () => {
+      useUiStore.getState().toggleQueueViewMode();
+      expect(useUiStore.getState().queueViewMode).toBe('card');
+    });
+
+    it('toggles back from card to list on a second call', () => {
+      useUiStore.getState().toggleQueueViewMode();
+      useUiStore.getState().toggleQueueViewMode();
+      expect(useUiStore.getState().queueViewMode).toBe('list');
+    });
+
+    it('persists the mode to localStorage', () => {
+      useUiStore.getState().toggleQueueViewMode();
+      expect(localStorage.getItem('queue-view-mode')).toBe('card');
+      useUiStore.getState().toggleQueueViewMode();
+      expect(localStorage.getItem('queue-view-mode')).toBe('list');
+    });
+  });
 });

@@ -8,6 +8,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import RobotListSidebar from '@/components/3d/RobotListSidebar';
 import SceneOverlay from '@/components/3d/SceneOverlay';
 import { useSessionStore } from '@/stores/sessionStore';
+import styles from '@/styles/modules/LiveView.module.css';
 
 const CyberdromeScene = lazy(() => import('@/components/3d/CyberdromeScene'));
 
@@ -73,22 +74,15 @@ function FlatView() {
   const activeCount = Array.from(sessions.values()).filter(
     (s) => s.status !== 'ended',
   ).length;
+  // RobotListSidebar renders null with zero sessions (`hasAnySessions` in that
+  // file). The mobile rule below hides this placeholder ONLY when the sidebar
+  // has content to replace it with — hiding it unconditionally would leave a
+  // phone with no active sessions looking at a blank page.
+  const hasAnySessions = sessions.size > 0;
 
   return (
-    <div style={{ position: 'absolute', inset: 0, background: 'var(--bg-primary, #0a0a1a)' }}>
-      <div style={{
-        position: 'absolute',
-        inset: 0,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: 'var(--border-subtle)',
-        fontFamily: "'Share Tech Mono', 'JetBrains Mono', monospace",
-        fontSize: 14,
-        letterSpacing: 4,
-        textTransform: 'uppercase',
-        userSelect: 'none',
-      }}>
+    <div className={styles.flatRoot}>
+      <div className={`${styles.scenePaused} ${hasAnySessions ? styles.scenePausedHasSidebar : ''}`}>
         3D Scene Paused
       </div>
       <SceneOverlay sessionCount={activeCount} />

@@ -136,3 +136,43 @@
 .apiKeyInput:focus { border-color: var(--accent-cyan, #00e5ff); }
 .apiKeyToggle { font-family: var(--font-mono); font-size: 10px; letter-spacing: 1px; padding: 6px 10px; background: transparent; color: var(--text-secondary, #888); border: 1px solid var(--border-accent, #1a1a3a); border-radius: 4px; cursor: pointer; }
 .apiKeyToggle:hover { color: var(--text-primary, #e0e0e0); border-color: var(--text-secondary, #888); }
+
+/* ---- Responsive ----------------------------------------------------------
+ * The settings modal already sized itself with `95vw` / `90vh`, so it fit a
+ * phone — but the 7-tab row had no overflow handling and simply clipped its
+ * last tabs off the right edge, with no affordance that more existed.
+ * DetailPanel's tab strip solves the same problem the same way (`:146`).
+ */
+@media (max-width: 640px) {
+  .tabs {
+    padding: 0 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+
+  .tab {
+    padding: 10px 12px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .tabContent {
+    padding: 14px 14px;
+    /* dvh: iOS Safari's vh includes the URL bar, pushing the bottom of a
+       scrollable panel out of reach. */
+    max-height: 72dvh;
+  }
+
+  .header { margin-bottom: 14px; }
+  .header h3 { font-size: 14px; }
+
+  .themeGrid { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; }
+}
+
+@media (pointer: coarse) {
+  .tab { min-height: 44px; }
+}

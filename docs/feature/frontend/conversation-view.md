@@ -12,12 +12,15 @@ The in-memory session logs that drive most of the UI are truncated and split int
 
 | File | Role |
 |------|------|
-| `src/components/session/ConversationView.tsx` | React component: fetches transcript on mount, runs it through `transformEntries`, renders each entry (`EntryRow`), the per-entry `CopyButton`, collapsible `PrevSessionSection` and `SystemRow` blocks, and a sticky toolbar (role filter + jump-to-latest); shows loading / empty states. |
+| `src/components/session/ConversationView.tsx` | React component: fetches transcript on mount, runs it through `transformEntries`, renders each entry (`EntryRow`), the per-entry `CopyButton`, collapsible `PrevSessionSection` and `SystemRow` blocks, and a sticky toolbar (role filter + **search** + jump-to-latest); shows loading / empty states. |
+| `src/lib/textHighlight.ts` | Shared, dependency-free match/highlight helpers: `normalizeQuery`, `matchesQuery`, `splitHighlight`, `clipToMatch`. One definition of "does this text match", shared with the [Prompt Trace](./prompt-trace.md) view. |
+| `src/lib/textHighlight.test.ts` | `normalizeQuery` case-fold/trim/all-whitespace-collapses-to-empty; the shared match/highlight/clip contract both this view and Prompt Trace depend on |
 | `src/lib/transcript.ts` | Client helpers: `ConversationEntry` union type (incl. client-only `command`/`system` roles), `fetchTranscript()` (calls the server endpoint), and `reconstructFromLogs()` (in-memory fallback builder). |
 | `src/lib/commandMessage.ts` | `transformEntries()` + `classifyInjection()` — rewrites Claude Code harness plumbing (`<command-name>` / `<command-args>` / `<local-command-stdout>` / `<local-command-caveat>`) into compact `command` chips, and demotes **injected** `user` content the user never typed (skill bodies, `<system-reminder>`, hook context) into labelled, collapsible `system` rows (`kind`: `plumbing`/`skill`/`reminder`/`hook`). |
 | `src/components/session/DetailPanel.tsx` | Host: passes session logs + `searchQuery` + `projectPath` into `ConversationView` as `promptsContent`, and drives search-match highlight/navigation over the rendered `.search-highlight` nodes. |
 | `src/components/session/DetailTabs.tsx` | Defines the `conversation` tab (label `CONVERSATION`) and wraps `promptsContent` in a `tabScroll` container. |
-| `src/components/session/LinkifiedText.tsx` | Renders entry text, turning file paths into clickable links (used for user/assistant/previous-session text) via the shared Unicode-aware `createFilePathRegex()` (`src/lib/filePathLink.ts`) — so non-English paths like `客户版-业务流程确认.md` linkify too. Clicking a path opens the [File-Open Chooser](./file-open-chooser.md) popover anchored at the cursor. |
+| `src/components/session/LinkifiedText.tsx` | Renders entry text, turning file paths into clickable links (used for user/assistant/previous-session text) via the shared Unicode-aware `createFilePathRegex()` (`src/lib/filePathLink.ts`) — so non-English paths like `客户版-业务流程确认.md` linkify too. Clicking a path opens the [File-Open Chooser](./file-open-chooser.md) popover anchored at the cursor. Also accepts `highlight` and exports `MarkedText` for the rows that must **not** linkify. |
+| `src/components/session/ConversationView.test.tsx` | Search behavior: AND-with-role-filter, honest count, `<mark>` output, controlled/uncontrolled modes, empty state, prev-session hiding. |
 | `server/extractPreviousAnswer.ts` | Server source of the transcript: `readClaudeTranscript()` parses the Claude JSONL into the matching `ConversationEntry[]` (also defines `readClaudeLastAssistant`). |
 | `server/apiRouter.ts` | Hosts `GET /api/sessions/:id/transcript`, which calls `readClaudeTranscript` and never 500s (returns empty array on any error). |
 | `src/styles/modules/DetailPanel.module.css` | All `conv*` / `prevSession*` styles (entry rows, role badges, tool name/input, copy button, collapsible headers, the sticky `convToolbar` filter pills + jump-to-latest, `convCommand*` chip, and `convSystemRow*` collapsible). |
@@ -60,24 +63,48 @@ Claude Code wraps internal `user` messages in harness tags **and** injects conte
 
 ### Component props — `ConversationViewProps`
 
-`sessionId`, `transcriptPath?`, `prompts: PromptEntry[]`, `responses: ResponseEntry[]`, `toolCalls: ToolLogEntry[]`, `events: SessionEvent[]`, `previousSessions?: ArchivedSession[]` (carries only `sessionId`/`startedAt`/`endedAt`/`promptHistory` — `PrevSessionSection` is its only renderer and reads nothing else), `searchQuery?`, `projectPath?`. (`transcriptPath` is accepted in the prop interface but not currently consumed by the component — the fetch is keyed on `sessionId` only; the server resolves the path itself.)
+`sessionId`, `transcriptPath?`, `prompts: PromptEntry[]`, `responses: ResponseEntry[]`, `toolCalls: ToolLogEntry[]`, `events: SessionEvent[]`, `previousSessions?: ArchivedSession[]` (carries only `sessionId`/`startedAt`/`endedAt`/`promptHistory` — `PrevSessionSection` is its only renderer and reads nothing else), `searchQuery?`, `onSearchChange?`, `onMatchCountChange?`, `projectPath?`. (`transcriptPath` is accepted in the prop interface but not currently consumed by the component — the fetch is keyed on `sessionId` only; the server resolves the path itself.)
+
+**Controlled vs. uncontrolled search.** When `onSearchChange` is supplied (DetailPanel always does), the query lives in the host and the toolbar input is fully controlled — so the toolbar box and the panel's Cmd+F find bar drive **one** query rather than two competing ones. Without it, the component falls back to internal `localSearch` state and works standalone (used by the tests).
 
 ### Local state
 
 - `entries: ConversationEntry[]` — the rendered thread, already passed through `transformEntries` (`useState([])`).
 - `loading: boolean` — true while the fetch is in flight (`useState(true)`).
-- `filter: RoleFilter` — `'all' | 'user' | 'asst' | 'tool'` (starts `'all'`); drives the toolbar pills and `visibleEntries`.
+- `filter: RoleFilter` — `'all' | 'user' | 'asst' | 'tool'` (starts `'all'`); drives the toolbar pills and `roleFiltered`.
+- `matchesOnly: boolean` — **starts `true`**; when a query is active, narrows the thread to matching entries only.
+- `localSearch: string` — the uncontrolled-mode query (unused while `onSearchChange` is supplied).
 - `atBottom: boolean` — whether the bottom sentinel is in view; disables the jump-to-latest button (starts `true`).
-- `rootRef` / `bottomRef` — refs to the view root (for scroll-parent discovery) and the bottom sentinel `<div>` (scroll target + IntersectionObserver subject).
-- `query` — `searchQuery?.toLowerCase() || ''`, used for highlight matching.
+- `rootRef` / `bottomRef` / `searchRef` — refs to the view root (for scroll-parent discovery), the bottom sentinel `<div>` (scroll target + IntersectionObserver subject), and the search input (re-focused on clear).
+- `query` — `normalizeQuery(search)`: lowercased **and trimmed**, so an all-whitespace query counts as no query (otherwise a stray space matches everything and "matches only" becomes a silent no-op).
 - `CopyButton`: `copied: boolean` (resets after **1500 ms**).
 - `PrevSessionSection`: `collapsed: boolean` (starts `true` — collapsed by default).
 - `SystemRow`: `collapsed: boolean` (starts `true` — caveat hidden by default).
 
+### In-tab search
+
+One rule decides everything, so the count, the rendered rows, and the `.search-highlight` nodes DetailPanel steps through can never describe different sets:
+
+```
+roleFiltered  = filter === 'all' ? entries : entries.filter(matchesFilter)
+matchCount    = query ? roleFiltered.filter(e => matchesQuery(entryText(e), query)).length : 0
+visibleEntries = query && matchesOnly ? roleFiltered.filter(…same predicate…) : roleFiltered
+```
+
+- **`entryText(entry)`** is the single searchable projection per role: `user`/`assistant`/`system` → `text`; `command` → `name + args + stdout`; `tool_use` → `tool + input`; `tool_result` → `tool + output`; `event` → `eventType + detail`.
+- Search and the role filter are **ANDed**.
+- Matching rows keep the existing whole-row `.search-highlight` class **in both modes** — that is what `DetailPanel.navigateMatch` steps through, so suppressing it in matches-only mode would kill ▲▼ navigation.
+- The matched substring is additionally wrapped in `<mark>` (amber — cyan is already spoken for by the row tint and the active-match glow). Text that linkifies goes through `LinkifiedText highlight={query}`; tool/command/event text goes through the exported `MarkedText`, which marks without turning contents into clickable paths.
+- `capForDisplay(text, cap, query)` replaces the plain head-truncation for `tool_use` (240) and `tool_result` (400): when the match falls outside the cap it slides the window to include it, so a row can never claim a match it does not show.
+- A matching **collapsed** `SystemRow` previews the text *around* the hit (`clipToMatch`, 24 leading / 48 trailing) instead of its opening line.
+- Previous-session blocks are hidden while `query && matchesOnly` (they are collapsed archives, not part of the searched thread) and reappear when the toggle is switched off.
+- `onMatchCountChange(matchCount)` fires on every change so the host's find-bar counter agrees with the view.
+
 ### Role filter & jump-to-latest
 
 - `FILTERS` = `[All, User, Asst, Tool]`. `matchesFilter(role, filter)`: **User** → `user` + `command`; **Asst** → `assistant`; **Tool** → `tool_use` + `tool_result`; **All** → everything. `system`/`event` and previous-session blocks only appear under **All**.
-- `visibleEntries` (`useMemo`) is `entries` filtered by `matchesFilter` (or all of `entries` when `filter === 'all'`).
+- `visibleEntries` (`useMemo`) is `roleFiltered`, further narrowed by the query when `matchesOnly` is on.
+- The toolbar is `flex-wrap: wrap` with `row-gap: 6px`. This is load-bearing, not cosmetic: pills + search + count + toggle + jump is ~520 px of content and the panel is routinely docked at 480 px, where a non-wrapping row squeezes the input to a few unusable pixels. Verified rendered at 620 px — `↓ latest` drops to a second row (it keeps `margin-left: auto`) and nothing clips.
 - `getScrollParent(el)` walks up from `rootRef` to the nearest ancestor whose computed `overflow-y` is `auto`/`scroll` and that actually overflows; used as the IntersectionObserver `root` so "at bottom" is measured against the real tab scroll container, not the viewport.
 - An `IntersectionObserver` (guarded by `typeof IntersectionObserver !== 'undefined'`, re-created on `visibleEntries.length` change) observes `bottomRef` and sets `atBottom`. `jumpToLatest` calls `bottomRef.current.scrollIntoView({ block: 'end', behavior: 'smooth' })`.
 
@@ -98,6 +125,10 @@ Server (`extractPreviousAnswer.ts`, applied before the data is sent):
 |---------|-----------------|--------------------|
 | Role badge (`convRole`) | `USER`, `ASSISTANT`, `TOOL`, `TOOL RESULT`, `TOOL ERROR`, or the raw `eventType` for events | static |
 | Filter pills (`convFilterPill` / `convFilterPillActive`) | `All` / `User` / `Asst` / `Tool` in the sticky `convToolbar` | `onClick` → `setFilter(key)` |
+| Search box (`convSearch` / `convSearchInput`) | `⌕` + placeholder `Search conversation…` (`data-testid="conv-search-input"`) | `onChange` → `setSearch`; `Escape` clears (and `stopPropagation`, so the panel-level Esc handler doesn't close the whole panel instead) |
+| Clear (`convSearchClear`) | `✕`, only while the box is non-empty | `onClick` → clear + refocus the input |
+| Match count (`convSearchCount`) | `No matches` / `1 match` / `N matches` (`data-testid="conv-search-count"`), only while a query is active | static; `convSearchCountEmpty` dims the zero case |
+| Matches-only toggle | `Matches only` pill, `aria-pressed`, **active by default** | `onClick` → `setMatchesOnly(v => !v)` |
 | Jump-to-latest (`convJumpLatest`) | `↓ latest` | `onClick` → `jumpToLatest()`; `disabled` while `atBottom` |
 | Command chip (`convCommand`) | `⌘ {name}` (`convCommandName`) + optional `{args}` (`convCommandArgs`), and a folded `↳ {stdout}` line (`convCommandStdout`) | static; carries a `USER` badge |
 | System row (`convSystemRow`) | `▶ <kind-label>` header (`convSystemHeader`, e.g. `SKILL · systematic-debugging`) + one-line preview; `data-kind` drives the accent colour; expands to the full injected text (`convSystemBody`) | `onClick` header toggles `collapsed` (starts collapsed) |
@@ -107,11 +138,16 @@ Server (`extractPreviousAnswer.ts`, applied before the data is sent):
 | Previous-session header (`prevSessionHeader`) | `Previous Session #{i+1} ({start} - {end}) · {n} prompts`, with ▶ toggle (`prevSessionToggle`) | `onClick` toggles `collapsed`; prompts listed newest-first, numbered `#{count - j}` |
 | Loading state | `Loading transcript…` (`tabEmpty`) | shown while `loading && entries.length === 0` |
 | Empty state | `No conversation yet` (`tabEmpty`) | shown when not loading, no entries, and no previous sessions |
+| Search empty state | `No entries match “<query>” · clear search` (`tabEmptyAction`) | distinct from the role-filter empty state — different cause, so it names the query and carries a clickable escape hatch |
 | Per-section empty | `No prompts in this session` | inside an expanded previous-session block with no prompts |
 
 ### Search highlighting
 
-`highlightClass(text, query)` appends the **global** class `search-highlight` (note: not a CSS-module class — it is a plain global selector in `src/styles/base.css`) to any entry whose text contains the lowercased query. DetailPanel owns search-match navigation: it queries `.search-highlight` nodes across the panel and toggles `search-highlight-active` on the current match as the user steps through results. The query string is built per entry by role (e.g. tool entries match against `` `${entry.tool} ${entry.input}` ``; tool results match against `entry.output`; events against `` `${entry.eventType} ${entry.detail}` ``).
+`highlightClass(entry, query)` appends the **global** class `search-highlight` (note: not a CSS-module class — it is a plain global selector in `src/styles/base.css`) to any entry whose `entryText()` contains the query. DetailPanel owns search-match navigation: it queries `.search-highlight` nodes across the panel and toggles `search-highlight-active` on the current match as the user steps through results.
+
+Substring-level marking is separate and layered on top: `<mark>` elements produced by `splitHighlight`, styled by `.convEntry mark` / `.convSystemRow mark` (amber, `color-mix(... var(--accent-yellow) 38%)`, `color: inherit`).
+
+Both come from the same predicate in `src/lib/textHighlight.ts`, and `entryText()` is the single per-role projection — so the row tint, the `<mark>`s, and the counter can't disagree.
 
 ### Endpoint
 
@@ -145,7 +181,7 @@ Server (`extractPreviousAnswer.ts`, applied before the data is sent):
 2. Previous sessions (if any, and only when `filter === 'all'`) render next, **reversed** (most recent prior session first), each as a collapsed `PrevSessionSection`.
 3. Then `visibleEntries` render: `system` entries via `SystemRow`, everything else via `EntryRow` (keyed `` `${entry.timestamp}-${i}` ``).
 4. A bottom sentinel `<div ref={bottomRef} />` is the scroll target for jump-to-latest and the IntersectionObserver subject for `atBottom`.
-5. If `visibleEntries` is empty: show `Loading transcript…` while loading; otherwise `No conversation yet` (filter `all`) or `No matching messages` (a narrowing filter is active) — unless previous sessions are shown, in which case nothing extra is shown.
+5. If `visibleEntries` is empty, a four-way ladder decides what shows, in source order: `loading` → `Loading transcript…`; else previous sessions are shown (`showPrev`) → nothing extra; else an active search `query` → `No entries match "<query>"` with a **clear search** action (distinct from the role-filter empty state below — different cause, so it names the query and offers the escape hatch); else `No conversation yet` (filter `all`) or `No matching messages` (a narrowing filter is active).
 
 ## Dependencies & Connections
 
@@ -153,7 +189,8 @@ Server (`extractPreviousAnswer.ts`, applied before the data is sent):
 
 - [server/api-endpoints.md](../server/api-endpoints.md) — hosts `GET /api/sessions/:id/transcript` consumed by `fetchTranscript`.
 - [server/floating-session-spawner.md](../server/floating-session-spawner.md) — `server/extractPreviousAnswer.ts` (the transcript reader and the canonical `ConversationEntry` type) is part of the floating-session/extract-previous-answer module.
-- [frontend/session-detail-panel.md](./session-detail-panel.md) — DetailPanel/DetailTabs host the view, supply props (session logs, `projectPath`, `previousSessions`), and own the `searchQuery` and match-navigation logic.
+- [frontend/session-detail-panel.md](./session-detail-panel.md) — DetailPanel/DetailTabs host the view, supply props (session logs, `projectPath`, `previousSessions`), own the `searchQuery` string and the match-navigation logic, and consume `onMatchCountChange`.
+- [frontend/prompt-trace.md](./prompt-trace.md) — shares `src/lib/textHighlight.ts` (same match/highlight rule across both search surfaces).
 - [frontend/state-management.md](./state-management.md) — `PromptEntry`, `ResponseEntry`, `ToolLogEntry`, `SessionEvent`, `ArchivedSession` come from the session store / shared types.
 
 ### Depended On By
@@ -173,6 +210,10 @@ Server (`extractPreviousAnswer.ts`, applied before the data is sent):
 - **`ConversationEntry` shape drift** — the **five base roles** must stay in sync across `src/lib/transcript.ts` and `server/extractPreviousAnswer.ts`: server fields the client doesn't render are dropped, and client expectations the server stops sending cause blank entries. The `command`/`system` roles are **client-only** (synthesized by `transformEntries`); the server must never emit them, and `EntryRow` returns `null` for any non-`event` role it doesn't explicitly handle (so a future client-only role won't render until a branch is added).
 - **`transformEntries` tag coupling** — the parser keys off the literal Claude Code tags (`<command-name>`, `<command-args>`, `<local-command-stdout>`, `<local-command-caveat>`). If the CLI renames or restructures these, commands silently fall back to raw `user` text again. The pre-check `RE_ANY_TAG` and the per-tag regexes in `commandMessage.ts` must be updated together (covered by `src/lib/commandMessage.test.ts`).
 - **Role filter hides content** — `User`/`Asst`/`Tool` deliberately drop `system`/`event` rows and previous-session blocks; only **All** shows everything. A stuck non-`all` filter can make the view look empty (`No matching messages`).
+- **Search hides content too** — `Matches only` defaults **on**, so typing collapses the thread. Combined with a role filter (they AND) a stray query can look like data loss. The count chip and the query-naming empty state are what make this legible; removing either brings the confusion back.
+- **Two notions of "matches"** — `entryText()` and `matchesQuery()` must stay the single source for the row tint, the `<mark>`s, and `matchCount`. Re-deriving any one of them separately is exactly the bug that made DetailPanel's counter read `1/2` while 7 rows were lit. Covered by `ConversationView.test.tsx`.
+- **Suppressing `.search-highlight` in matches-only mode** would look tidier (every visible row is a match) but breaks `DetailPanel.navigateMatch`, which indexes those DOM nodes.
+- **Removing the toolbar's `flex-wrap`** re-breaks the docked/narrow panel — no linter catches it; check at ≤620 px.
 - **Jump-to-latest scroll root** — `getScrollParent` must find the real scrolling ancestor (`DetailTabs` `tabScroll`); if the tab's overflow styling changes so no ancestor reports `auto`/`scroll`, the IntersectionObserver falls back to the viewport `root` and `atBottom` (button enable/disable) can read incorrectly.
 - **Endpoint contract** — `fetchTranscript` requires `{ success: true, data: [...] }`; any other shape (or a real 500) forces the in-memory fallback, which only shows failed tool results and truncated logs. Keep the endpoint returning an empty array (200) on error rather than throwing. Affects [server/api-endpoints.md](../server/api-endpoints.md).
 - **`sessionId`-only effect dependency** — because the fetch is keyed on `sessionId`, prop updates to `prompts`/`responses`/`toolCalls`/`events` after mount do **not** refresh the view; the fallback snapshot is captured once. Reworking the effect deps changes refresh semantics and could cause flicker on every store update.

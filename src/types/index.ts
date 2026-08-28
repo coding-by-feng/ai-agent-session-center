@@ -59,6 +59,11 @@ export type {
   TerminalReadyMessage,
   TerminalClosedMessage,
   ClearBrowserDbMessage,
+  DevicePresence,
+  ControlHolderView,
+  PresenceUpdateMessage,
+  ControlDeniedMessage,
+  ControlRequestedMessage,
   ServerMessage,
   TerminalInputMessage,
   TerminalResizeMessage,
@@ -127,6 +132,10 @@ export type {
   SessionSearchParams,
   FullTextSearchResult,
   FullTextSearchResponse,
+  PromptKind,
+  PromptTraceRow,
+  PromptSearchParams,
+  PromptSearchResponse,
   AddNoteRequest,
 } from './api.js';
 

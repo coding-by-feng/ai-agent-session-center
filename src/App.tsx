@@ -32,6 +32,7 @@ import appLayout from '@/styles/modules/AppLayout.module.css';
 
 // Lazy-load non-default routes for code splitting
 const HistoryView = lazy(() => import('@/routes/HistoryView'));
+const PromptsView = lazy(() => import('@/routes/PromptsView'));
 const QueueView = lazy(() => import('@/routes/QueueView'));
 const AgendaView = lazy(() => import('@/routes/AgendaView'));
 const ReviewView = lazy(() => import('@/routes/ReviewView'));
@@ -49,6 +50,17 @@ const queryClient = new QueryClient({
 function AppLayout() {
   useKeyboardShortcuts();
 
+  // A popped-out session's "back to main" button focuses this window and sends
+  // this signal — deselect back to the session list, mirroring FloatingTerminalRoot's
+  // onPopoutClosed listener just below it in spirit (an Electron main-process
+  // event driving this window's own store). Undefined in browser mode, same as
+  // every other window.electronAPI call in this file.
+  useEffect(() => {
+    return window.electronAPI?.onReturnToList?.(() => {
+      useSessionStore.getState().deselectSession();
+    });
+  }, []);
+
   // While a session detail panel is open and in view, hide both the dashboard
   // Header and the NavBar so the panel + scene reclaim the full vertical space.
   // They return the instant the panel closes (selectedSessionId → null) or is
@@ -60,7 +72,7 @@ function AppLayout() {
   const hideTopBars = !!selectedSessionId && !detailPanelMinimized;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+    <div className={appLayout.appRoot}>
       {/* Header + NavBar are hidden when a detail panel is in view. On macOS
           Electron the spacer takes over the Header's job of clearing the fixed
           28px TitleBar (it collapses to zero height elsewhere). */}
@@ -156,7 +168,7 @@ function Dashboard({ token }: { token: string | null }) {
         <Routes>
           {/* Standalone route — no AppLayout chrome */}
           <Route path="/project-browser" element={
-            <Suspense fallback={<div style={{ padding: '2rem', color: 'var(--text-secondary)', background: 'var(--bg-primary)', height: '100vh' }}>Loading...</div>}>
+            <Suspense fallback={<div className={appLayout.bootFallback}>Loading...</div>}>
               <ProjectBrowserView />
             </Suspense>
           } />
@@ -164,6 +176,7 @@ function Dashboard({ token }: { token: string | null }) {
             <Route path="/" element={<LiveView />} />
             <Route path="/agenda" element={<AgendaView />} />
             <Route path="/history" element={<HistoryView />} />
+            <Route path="/prompts" element={<PromptsView />} />
             <Route path="/queue" element={<QueueView />} />
             <Route path="/review" element={<ReviewView />} />
             <Route path="*" element={<Navigate to="/" replace />} />
@@ -187,7 +200,7 @@ function AuthGate() {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg-primary)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+      <div className={appLayout.bootScreen}>
         Connecting…
       </div>
     );
@@ -216,7 +229,7 @@ export default function App() {
     return (
       <>
         <TitleBar />
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg-primary)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+        <div className={appLayout.bootScreen}>
           Loading...
         </div>
       </>

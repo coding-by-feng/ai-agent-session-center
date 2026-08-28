@@ -1,7 +1,7 @@
-# TTS Voice Output (Hold-to-Speak + Local Click-to-Speak)
+# TTS Voice Output (Hold-to-Speak + Local Click-to-Speak + Point-and-Click Line Speaker)
 
 ## Function
-Read the latest terminal output aloud. Two independent providers:
+Read terminal output aloud. Three independent entry points:
 
 1. **Google Cloud TTS (hold-to-speak)** — hold **Space** (or the mic button)
    while focused on a terminal. Bilingual EN + zh-CN via Google Cloud
@@ -11,6 +11,14 @@ Read the latest terminal output aloud. Two independent providers:
    on-device **English** voice (Kokoro-82M) running entirely in the browser via
    a Web Worker. No API key, no server round-trip; the model downloads once
    (~90 MB) from the Hugging Face CDN, then runs offline.
+
+> **Removed (Aug 2026): the point-and-click line speaker.** A third surface used to
+> put a floating 🔊 icon beside whichever terminal line the mouse hovered, speaking
+> just that line. It was removed at the user's request — the hover icon intruded on
+> normal reading of terminal output. Gone with it: `useLineSpeaker.ts`,
+> `terminalHoverPosition.ts`, `terminalLineText.ts` (all three plus their tests),
+> `useTerminal`'s `getHoveredLine`/`getLineText`, `.lineSpeakBtn`, and
+> `tooltips.termSpeakLine`. The two surfaces above are unaffected.
 
 ## Purpose
 Reduce screen fatigue. When eyes are tired after a long work session, the user
@@ -34,7 +42,7 @@ credentials, offline after first use.
 - `server/index.ts` — CSP: `connect-src` includes Hugging Face hosts so the model can download, and `script-src` carries `'wasm-unsafe-eval'` so the runtime can compile
 
 ### Shared UI + settings
-- `src/hooks/useTerminal.ts` — `readRecentText({ lines?, sinceAbsLine? }) → { text, absBottom }` exposes buffer text
+- `src/hooks/useTerminal.ts` — `readRecentText({ lines?, sinceAbsLine? }) → { text, absBottom }` exposes buffer text for the toolbar's polling loop
 - `src/components/terminal/TerminalContainer.tsx` — Google spacebar/hold + local click-to-speak toggle, both 1.2s polling loops; local owner/voice refs + ownership/error-aware status subscription
 - `src/components/terminal/TerminalToolbar.tsx` — mic button (`ttsEnabled`, pointer hold) + speaker button (`localTtsEnabled`, click toggle, spinner while `localTtsLoading`)
 - `src/components/settings/SoundSettings.tsx` — **Cloud Voice (Google · English + 中文)**: API key field (Show/Hide), enable toggle, speaking-rate slider, EN/中文 voice pickers, **Preview voice** + **Test API key** buttons; **Local Voice (offline · English · no API key)**: enable toggle, voice picker, **Preview voice**, load-status line

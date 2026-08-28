@@ -13,6 +13,79 @@ Prevents unauthorized access when the dashboard is exposed on a network (not jus
 | `server/serverConfig.ts` (~1KB) | Reads data/server-config.json (or APP_USER_DATA/server-config.json in Electron); provides passwordHash and other server defaults |
 | `server/index.ts` | Auth endpoints (`/api/auth/status\|login\|refresh\|logout`, index.ts:106-173), `Set-Cookie` construction, WS origin + token gate (index.ts:207-236), `startTokenCleanup()` wiring, public-bind security warning |
 
+## Remote access requires a password (Aug 2026)
+
+`authMiddleware` (`server/authManager.ts`) and the WebSocket gate
+(`server/index.ts`) are **two-dimensional**: they branch on origin as well as
+on whether a password is configured.
+
+| Origin | Password configured | Result |
+|--------|---------------------|--------|
+| loopback | no  | **allow** — the Electron app and a local browser tab stay password-free |
+| loopback | yes | validate token (401 if bad) |
+| remote   | no  | **403** `REMOTE_PASSWORD_REQUIRED` / WS `close(4003)` |
+| remote   | yes | validate token (401 if bad) |
+
+Before this, both gates opened with `if (!isPasswordEnabled()) → allow`, so an
+install with no `passwordHash` — the default — served every `/api` route and
+the full session WebSocket to anyone who could reach the port: session
+content, PTY write, session kill. The server binds `0.0.0.0` and printed a
+`SECURITY: ... DANGEROUS` warning at startup, then answered the request
+anyway. That warning is now an informational notice, because the claim it made
+("anyone on the network has full access") is no longer true — leaving a false
+alarm in place trains the reader to ignore the next real one.
+
+Three rules hold this up:
+
+1. **Use `isLoopbackAddress`** (`presenceManager.ts`) — the same predicate
+   already backing the 🖥/📱 device split — never a second hand-rolled string
+   compare. It normalises `::ffff:` and accepts `127.0.0.1` / `::1`.
+   (`localhostOnlyMiddleware` still carries its own inline copy; worth
+   unifying.)
+2. **An unknown/empty address fails CLOSED**, i.e. is treated as remote. For a
+   security gate that is the correct direction. It is also why a test fixture
+   built as `{ headers: {} }` — no address at all — is now rejected: that
+   fixture gained a loopback address rather than the rule being loosened.
+3. **The no-password refusal is 403, not 401.** A 401 invites a login prompt,
+   and no credential exists that would satisfy it because none has been
+   configured. The body carries an actionable message naming
+   `npm run set-password`.
+
+`GET /api/config` additionally returns `passwordEnabled` (the boolean only,
+never the hash) so `DevicePresenceChip` can explain *why* a phone cannot
+connect, instead of showing a stale warning after a password has been set.
+
+### Setting the password: `npm run set-password`, never `npm run setup`
+
+`scripts/set-password.mjs` is the supported way to set or clear the password,
+and every user-facing message names it. It exists because **the setup wizard
+writes to a file a packaged app never reads**: `hooks/setup-wizard.js`
+hard-codes `<repo>/data/server-config.json`, while a packaged Electron app
+reads `$APP_USER_DATA/server-config.json` (`serverConfig.ts`). Directing an
+installed-app user at the wizard makes them set a password that has no effect,
+which presents as "the password doesn't work" with nothing logged anywhere.
+
+The script resolves the same path the app does, and writes the repo config too
+when one exists, so a dev `npm start` and the installed app cannot disagree
+about whether a password is set. Three properties are load-bearing:
+
+- **The password is prompted, never an argument.** A password in `argv` lands
+  in shell history and in `ps` output for every user on the machine.
+- **The non-TTY path must hold ONE readline for the whole run.** Creating and
+  closing one per prompt ends `process.stdin`, so the confirm read never
+  resolves — the script prints `Confirm:` and exits having written nothing,
+  with no error. That was a real defect caught only by an end-to-end run.
+- **Write-to-temp + `renameSync`, with the temp file created `mode 0o600`.**
+  `rename` is atomic, so a crash cannot truncate the config and take the user's
+  port/CLI settings with it; the mode is set before the file holds the hash and
+  is preserved across the rename.
+
+`--status` reports both config paths; `--clear` removes the password (which
+returns the server to localhost-only, since remote access is then refused).
+
+Covered by `test/authRemoteGate.test.ts` — both axes, including IPv4-mapped
+(`::ffff:192.168.x.x`) forms and the fail-closed case.
+
 ## Implementation
 
 ### Disabled by Default
@@ -21,7 +94,7 @@ Prevents unauthorized access when the dashboard is exposed on a network (not jus
 
 ### Public-Bind Warning
 - On startup (`index.ts` onReady, ~line 336): if auth is enabled it logs `Password protection ENABLED -- login required (1h token TTL)`.
-- If auth is **disabled** AND the listen address is `0.0.0.0` or `::`, it emits a boxed `log.error` block — "SECURITY: Server is publicly accessible WITHOUT a password!" pointing at `npm run setup`. It **warns only — it does not refuse to bind**. This is the only guard against the exact scenario in §Purpose.
+- If auth is **disabled** AND the listen address is `0.0.0.0` or `::`, it emits a boxed `log.info` block stating that remote devices are BLOCKED (403 / ws 4003), that localhost retains full access, and naming `npm run set-password`. It warns only — it does not refuse to bind, and no longer needs to: the remote gate above is what actually closes the §Purpose scenario, so this is now informational rather than the sole guard. (It was previously a `log.error` reading "Server is publicly accessible WITHOUT a password!", which became false once the gate landed — a false alarm left in place trains the user to ignore a real one.)
 
 ### Password Hashing
 - `hashPassword()`: crypto.scryptSync, salt=randomBytes(16).hex, hash=scryptSync(password, salt, SCRYPT_KEYLEN=64).hex

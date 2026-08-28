@@ -132,3 +132,78 @@ describe('FloatingTerminalPanel', () => {
     });
   });
 });
+
+// Mirrors DetailTabs.test.tsx's "opens the native project window" suite — same
+// Electron / stale-preload / browser three-way branch, same vi.stubGlobal
+// pattern, applied to handlePopOut instead of openProjectWindow.
+describe('FloatingTerminalPanel — pop-out to a native window', () => {
+  afterEach(() => {
+    localStorage.clear();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  const renderPanel = () =>
+    render(
+      <FloatingTerminalPanel
+        terminalId="term-float-9"
+        label="Explain (中文)"
+        stackIndex={0}
+        originSessionId="main-session-1"
+        onClose={vi.fn()}
+      />,
+    );
+
+  it('renders the detach button even without window.electronAPI (browser tab)', () => {
+    vi.stubGlobal('electronAPI', undefined);
+    renderPanel();
+
+    expect(screen.getByLabelText('Detach popup into its own window')).toBeInTheDocument();
+  });
+
+  it('opens the native terminal window (Electron) with the terminal id', () => {
+    const openTerminalWindow = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('electronAPI', { openTerminalWindow });
+    renderPanel();
+
+    fireEvent.click(screen.getByLabelText('Detach popup into its own window'));
+
+    expect(openTerminalWindow).toHaveBeenCalledWith({
+      terminalId: 'term-float-9',
+      originSessionId: 'main-session-1',
+      label: 'Explain (中文)',
+    });
+  });
+
+  it('falls back to window.open on the ?popout=terminal route in the browser', () => {
+    vi.stubGlobal('electronAPI', undefined);
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    renderPanel();
+
+    fireEvent.click(screen.getByLabelText('Detach popup into its own window'));
+
+    expect(openSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/\?.*popout=terminal.*terminalId=term-float-9/),
+      // Non-alphanumerics (including the hyphens in the terminalId) become
+      // underscores — same sanitizing regex openProjectWindow's window name uses.
+      'aasc-terminal-term_float_9',
+      // Third argument is required: a features string forces a real separate
+      // WINDOW (draggable to another monitor) instead of a new tab.
+      expect.stringContaining('popup'),
+    );
+  });
+
+  it('never falls back to window.open under Electron with a stale preload', () => {
+    // Same reasoning as DetailTabs.openProjectWindow: the Electron shell routes
+    // anything it can't place to the system browser, so falling back here would
+    // pop Chrome open on localhost. A preload missing openTerminalWindow is a
+    // build problem; do nothing rather than leave the app.
+    vi.stubGlobal('electronAPI', { createPty: vi.fn() });
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window);
+    renderPanel();
+
+    fireEvent.click(screen.getByLabelText('Detach popup into its own window'));
+
+    expect(openSpy).not.toHaveBeenCalled();
+  });
+});

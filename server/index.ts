@@ -19,7 +19,8 @@ import { config } from './serverConfig.js';
 import { reconstructPermissionFlags } from './config.js';
 import { ensureHooksInstalled } from './hookInstaller.js';
 import { resolvePort, killPortProcess } from './portManager.js';
-import { networkInterfaces } from 'os';
+import { getLocalIP } from './networkInfo.js';
+import { isLoopbackAddress } from './presenceManager.js';
 import {
   isPasswordEnabled, verifyPassword, createToken, validateToken,
   removeToken, parseCookieToken, extractToken, authMiddleware,
@@ -43,27 +44,6 @@ function openBrowser(url: string, noOpen: boolean): void {
   } catch {
     // Browser open failed -- not critical
   }
-}
-
-function getLocalIP(): string | null {
-  const nets = networkInterfaces();
-  // Prefer en0 (Wi-Fi on macOS) for the most useful LAN address
-  const preferred = ['en0', 'en1', 'eth0', 'wlan0'];
-  for (const name of preferred) {
-    if (nets[name]) {
-      for (const cfg of nets[name]!) {
-        if (cfg.family === 'IPv4' && !cfg.internal) return cfg.address;
-      }
-    }
-  }
-  // Fallback to first non-internal IPv4
-  for (const iface of Object.values(nets)) {
-    if (!iface) continue;
-    for (const cfg of iface) {
-      if (cfg.family === 'IPv4' && !cfg.internal) return cfg.address;
-    }
-  }
-  return null;
 }
 
 // Shutdown function set inside startServer, callable by Electron before quit
@@ -236,6 +216,11 @@ export function startServer(port?: number): Promise<number> {
       }
     }
 
+    // Same two-dimensional gate as authMiddleware — this socket carries every
+    // session's live content plus terminal write, so leaving it open when the
+    // HTTP side is closed would defeat the whole thing.
+    const wsAddress = req.socket?.remoteAddress ?? '';
+    const wsIsRemote = !isLoopbackAddress(wsAddress);
     if (isPasswordEnabled()) {
       // Prefer cookie-based auth (avoids token in URL query string)
       const token = parseCookieToken(req.headers.cookie) ?? extractToken(req);
@@ -244,8 +229,32 @@ export function startServer(port?: number): Promise<number> {
         ws.close(4001, 'Unauthorized');
         return;
       }
+    } else if (wsIsRemote) {
+      // No password configured: loopback still connects freely (the desktop
+      // app), but a remote device is refused. 4003 "Forbidden" rather than
+      // 4001 "Unauthorized" — 4001 means "your token was bad" and would send
+      // the client to a login screen that cannot help it.
+      log.warn('auth', `Blocked remote WebSocket (no password configured) from ${wsAddress}`);
+      ws.close(4003, 'Forbidden: set a password to allow remote devices');
+      return;
     }
-    handleConnection(ws);
+    // Identity travels on the upgrade URL rather than a post-connect handshake:
+    // `handleConnection` sends the snapshot and registers presence immediately,
+    // so an async hello would race its own first broadcast.
+    let clientId = '';
+    let label = '';
+    try {
+      const params = new URL(req.url ?? '', 'http://localhost').searchParams;
+      clientId = (params.get('clientId') ?? '').slice(0, 128);
+      label = (params.get('label') ?? '').slice(0, 200);
+    } catch {
+      /* malformed URL — connect as an unidentified client */
+    }
+    handleConnection(ws, {
+      clientId,
+      label,
+      address: req.socket.remoteAddress ?? '',
+    });
   });
 
   wss.on('error', (err) => {
@@ -349,14 +358,18 @@ export function startServer(port?: number): Promise<number> {
     if (isPasswordEnabled()) {
       log.info('server', 'Password protection ENABLED -- login required (1h token TTL)');
     } else {
-      // Warn/block if binding to all interfaces without password
+      // Bound to all interfaces with no password: remote clients are now
+      // REFUSED rather than served (authMiddleware + the WS gate), so this is
+      // an informational notice, not the former "DANGEROUS / anyone has full
+      // access" alarm — which stopped being true once the gate landed and
+      // would now train the reader to ignore a real warning.
       const bindAddr = (server.address() as { address?: string } | null)?.address;
       if (bindAddr === '0.0.0.0' || bindAddr === '::') {
-        log.error('server', '------------------------------------------------------------');
-        log.error('server', 'SECURITY: Server is publicly accessible WITHOUT a password!');
-        log.error('server', 'This is DANGEROUS. Anyone on the network has full access.');
-        log.error('server', 'Run `npm run setup` to set a password.');
-        log.error('server', '------------------------------------------------------------');
+        log.info('server', '------------------------------------------------------------');
+        log.info('server', 'No password set -- remote devices are BLOCKED (403 / ws 4003).');
+        log.info('server', 'This machine (localhost) has full access as usual.');
+        log.info('server', 'To use the dashboard from a phone, run `npm run set-password`.');
+        log.info('server', '------------------------------------------------------------');
       }
     }
     if (log.isDebug) {

@@ -93,6 +93,67 @@ export interface ClearBrowserDbMessage {
   type: 'clearBrowserDb';
 }
 
+// ---------------------------------------------------------------------------
+// Multi-device presence
+// ---------------------------------------------------------------------------
+
+/** A device with at least one open WebSocket. */
+export interface DevicePresence {
+  clientId: string;
+  label: string;
+  address: string;
+  /** True when connected over loopback — the desktop app or a local browser. */
+  isLocal: boolean;
+  connections: number;
+  connectedAt: number;
+  lastSeenAt: number;
+}
+
+/** Who holds the write baton for one session. */
+export interface ControlHolderView {
+  sessionId: string;
+  clientId: string;
+  label: string;
+  since: number;
+  lastActivityAt: number;
+  /** False when the holder has disconnected — the session is then free to take. */
+  online: boolean;
+}
+
+/** Full presence state; sent on connect and on every device/baton change. */
+export interface PresenceUpdateMessage {
+  type: 'presence_update';
+  devices: DevicePresence[];
+  controllers: ControlHolderView[];
+  /** Device that owns the one-shot workspace restore for this server lifetime. */
+  restoreOwner: string | null;
+  /** The single device permitted to persist the shared workspace snapshot. */
+  workspaceWriter: string | null;
+}
+
+/**
+ * This client tried to write to a session another device controls. Throttled
+ * server-side (once per session per few seconds) because `terminal_input`
+ * fires per keystroke.
+ */
+export interface ControlDeniedMessage {
+  type: 'control_denied';
+  sessionId: string;
+  terminalId: string;
+  by: string | null;
+  byClientId: string | null;
+}
+
+/** Another device is asking the current holder to hand over a session. */
+export interface ControlRequestedMessage {
+  type: 'control_requested';
+  sessionId: string;
+  fromClientId: string;
+  fromLabel: string;
+  /** The holder being asked — other clients ignore the message. */
+  toClientId: string;
+}
+
 /** Union of all server-to-client messages */
 export type ServerMessage =
   | SnapshotMessage
@@ -103,7 +164,10 @@ export type ServerMessage =
   | TerminalOutputMessage
   | TerminalReadyMessage
   | TerminalClosedMessage
-  | ClearBrowserDbMessage;
+  | ClearBrowserDbMessage
+  | PresenceUpdateMessage
+  | ControlDeniedMessage
+  | ControlRequestedMessage;
 
 // ---------------------------------------------------------------------------
 // Client -> Server Messages

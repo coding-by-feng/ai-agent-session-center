@@ -86,6 +86,15 @@ const api: ElectronAPI = {
     ipcRenderer.on('popout:closed', handler)
     return () => { ipcRenderer.removeListener('popout:closed', handler) }
   },
+
+  // ── Pop a whole session out into its own native window ──
+  openSessionWindow: (opts) => ipcRenderer.invoke('window:open-session', opts),
+  returnToMain: () => ipcRenderer.invoke('window:return-to-main'),
+  onReturnToList: (cb) => {
+    const handler = () => cb()
+    ipcRenderer.on('popout:return-to-list', handler)
+    return () => { ipcRenderer.removeListener('popout:return-to-list', handler) }
+  },
 }
 
 contextBridge.exposeInMainWorld('electronAPI', api)

@@ -57,6 +57,7 @@ import {
   type OnceGate,
 } from '@/lib/queueScheduler';
 import { sendPromptToTerminal } from '@/lib/terminalSend';
+import { canControlSession } from '@/stores/presenceStore';
 import {
   decideResume,
   faultLabel,
@@ -200,6 +201,19 @@ export function useGlobalQueueScheduler(): void {
       const sessions = useSessionStore.getState().sessions;
       const session = sessions.get(sessionId);
       if (!session) return;
+
+      // ── Multi-device gate ─────────────────────────────────────────────────
+      // This scheduler ticks on EVERY connected client. Two devices watching
+      // the same session would each evaluate it and each fire — the same queue
+      // item typed twice into one PTY, and the auto-resume watchdog burning two
+      // attempts out of a budget sized for one. Only the device holding the
+      // session's baton may drive it.
+      //
+      // Placed above the auto-resume call below (not just above the queue),
+      // because `maybeAutoResume` runs inside this function and sends prompts
+      // of its own. A session that is unclaimed, or whose holder went offline,
+      // stays drivable — see `canControlSession`.
+      if (!canControlSession(sessionId)) return;
 
       const queueState = useQueueStore.getState();
 

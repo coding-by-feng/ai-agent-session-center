@@ -58,14 +58,14 @@ Per-tone gain in `playTone`: `vol * masterVolume * 0.3` (default `vol` = 1). Def
 
 ### Per-CLI Sound Profiles
 
-3 per-CLI sound profiles (defined in `settingsStore` as `CLI_SOUND_PROFILES`, exposed via `soundSettings.perCli`) with independent action-to-sound mappings and per-CLI enable flag:
+2 per-CLI sound profiles (defined in `settingsStore` as `CLI_SOUND_PROFILES`, exposed via `soundSettings.perCli`) with independent action-to-sound mappings and per-CLI enable flag:
 
 | CLI | Default Volume |
 |-----|--------|
 | claude | 0.7 |
 | codex | 0.5 |
 
-**Quiet by default.** To avoid notification fatigue, the default profiles are built from `quietCliActions(cli)` — a `SILENT_ACTIONS` base (all 20 actions `'none'`) plus `QUIET_OVERRIDES`, which keeps only the high-signal events audible: `approvalNeeded` (alarm), `inputNeeded` (chime/ding/beep), `alert` (alarm), and `taskComplete`. Because `taskComplete` fires on **every** `Stop` (once per turn), the quiet profile deliberately uses a short `'blip'` — not the ~1s `fanfare` — across all three CLIs. Per-tool chatter (`toolRead`…`toolOther`), session/prompt/subagent/archive/kill sounds are silent by default. (`alert` has no event trigger today; it is kept audible for future wiring.)
+**Quiet by default.** To avoid notification fatigue, the default profiles are built from `quietCliActions(cli)` — a `SILENT_ACTIONS` base (all 20 actions `'none'`) plus `QUIET_OVERRIDES`, which keeps only the high-signal events audible: `approvalNeeded` (alarm), `inputNeeded` (chime for Claude, beep for Codex), `alert` (alarm), and `taskComplete`. Because `taskComplete` fires on **every** `Stop` (once per turn), the quiet profile deliberately uses a short `'blip'` — not the ~1s `fanfare` — across both CLIs. Per-tool chatter (`toolRead`…`toolOther`), session/prompt/subagent/archive/kill sounds are silent by default. (`alert` has no event trigger today; it is kept audible for future wiring.)
 
 **Re-enabling.** Every sound is restorable: per action via the `SoundSettings` dropdowns, or wholesale via the **Quiet** / **All sounds** preset buttons (Settings → Sound → Per-CLI Sound Profiles), which call the `applyCliSoundPreset(cli, 'quiet' | 'full')` store action. The full (expressive) maps are preserved as `FULL_CLI_ACTIONS` / `fullCliActions(cli)`.
 

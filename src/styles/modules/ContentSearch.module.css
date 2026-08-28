@@ -48,7 +48,7 @@
 
 .input {
   flex: 1;
-  background: var(--bg-input, #0d0d1a);
+  background: var(--bg-card, #0d0d1a);
   border: 1px solid var(--border-subtle, #2a2a40);
   border-radius: 4px;
   color: var(--text-primary, #e0e0e0);
@@ -65,7 +65,7 @@
 
 .globInput {
   width: 100px;
-  background: var(--bg-input, #0d0d1a);
+  background: var(--bg-card, #0d0d1a);
   border: 1px solid var(--border-subtle, #2a2a40);
   border-radius: 4px;
   color: var(--text-dim, #888);

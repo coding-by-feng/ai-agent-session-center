@@ -16,7 +16,7 @@
 }
 .statsSep { color: var(--text-dim); }
 
-.content { padding: 12px 24px; overflow-y: auto; max-height: calc(100vh - 200px); }
+.content { padding: 12px 24px; overflow-y: auto; max-height: calc(100vh - 200px); max-height: calc(100dvh - 200px); }
 
 .viewGroup { margin-bottom: 20px; border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; }
 .groupHeader { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border-subtle); font-size: 12px; }
@@ -36,3 +36,49 @@
 .text { color: var(--text-primary); max-width: 500px; white-space: pre-wrap; word-break: break-word; }
 .date { color: var(--text-dim); font-size: 11px; white-space: nowrap; }
 .deleteBtn { padding: 2px 8px !important; font-size: 10px !important; }
+
+/* ---- Responsive ----------------------------------------------------------
+ * This view postdates the Feb–Mar 2026 mobile pass and had no breakpoints, so
+ * on a phone the controls row and the queue table both overflowed the viewport
+ * — the table pushing the whole page into horizontal scroll rather than
+ * scrolling within itself.
+ */
+@media (max-width: 640px) {
+  .controls {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 14px;
+  }
+
+  .title { font-size: 14px; flex: 1 0 100%; }
+
+  .stats { padding: 8px 14px; font-size: 11px; flex-wrap: wrap; }
+
+  .content { padding: 12px 14px; }
+
+  /* Keep the wide table inside its own scroller so the PAGE never scrolls
+     sideways (see the "wide content scrolls in its own container" rule). */
+  .viewGroup {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .table { min-width: 460px; }
+
+  /* The truncated session id in each group header — redundant next to the
+     session name it sits beside, and the first thing to push that name onto a
+     second line at 390px. Safe to hide: it is a <span> in .groupHeader, NOT a
+     table cell, so nothing falls out of column alignment. */
+  .sid { display: none; }
+
+  .text { max-width: none; }
+
+  .groupHeader { flex-wrap: wrap; gap: 6px; }
+}
+
+@media (pointer: coarse) {
+  .deleteBtn {
+    min-height: 44px;
+    padding: 0 12px !important;
+  }
+}

@@ -26,8 +26,9 @@ floating windows are ephemeral. The REVIEW tab is the persistent journal:
 
 | File | Role |
 |------|------|
-| `src/lib/db.ts` | `DbTranslationLog` interface + `translationLogs` table. This table last changed in **v6** (favorite + alias + sourceFilePath, with an `.upgrade()` back-fill); the shared `AascDb` schema itself is now at **v7** (`promptSnippets`, purely additive — see [Saved Prompts](./saved-prompts.md)). |
-| `src/lib/translationLog.ts` | CRUD helpers: `createLog`, `findByUuid`, `findByFloatTerminalId`, `updateLog`, `captureResponse`, `listLogs`, `listByOriginSession`, `listFavoritedByFile`, `setArchived`, `setNotes`, `setFavorite`, `setAlias`, `deleteLog`, `migrateOriginSessionId(oldId, newId)` (lines 87-98) — re-points rows from an old origin session id to a new one on re-key (clone/fork/`claude --resume` via `replacesId`), called from `useWebSocket.ts:100` so `AiPopupHistory` (lists by `originSessionId`) isn't empty for a resumed session. |
+| `src/lib/db.ts` | `DbTranslationLog` interface + `translationLogs` table. This table last changed in **v6** (favorite + alias + sourceFilePath, with an `.upgrade()` back-fill); the shared `DashboardDb` schema itself is now at **v7** (`promptSnippets`, purely additive — see [Saved Prompts](./saved-prompts.md)). |
+| `src/lib/translationLog.ts` | CRUD helpers: `createLog`, `findByUuid`, `findByFloatTerminalId`, `updateLog`, `captureResponse`, `listLogs`, `listByOriginSession`, `listFavoritedByFile`, `setArchived`, `setNotes`, `setFavorite`, `setAlias`, `deleteLog`, `migrateOriginSessionId(oldId, newId)` (lines 87-98) — re-points rows from an old origin session id to a new one on re-key (clone/fork/`claude --resume` via `replacesId`), called from `useWebSocket.ts` (line number drifts on every edit there — see call site) so `AiPopupHistory` (lists by `originSessionId`) isn't empty for a resumed session. |
+| `src/components/session/FloatingTerminalRoot.tsx` | Runs the continuous capture while a float is open — `setInterval(captureNow, 6000)` + `beforeunload` + a final flush on unmount / float-set change (see [Capture Pipeline](#capture-pipeline) below). |
 | `src/lib/ansi.ts` | `stripAnsi` + `cleanCapturedOutput` (the latter also drops box-drawing / block / Braille-spinner TUI chrome). `captureResponse` uses `cleanCapturedOutput` at **capture** time. |
 | `src/lib/popupResponse.ts` | `formatPopupResponse(raw)` — **display-time**, non-destructive cleanup layered on top of the stored capture: drops heredoc `quote>`-style continuation echoes, the `--fork-session`/`--resume` spawn command echo, shell-prompt header lines, and the `ClaudeCode` / `Welcome back` CLI banner. Returns the readable answer (possibly empty if the snapshot caught only chrome). Does **not** attempt to repair character-doubling from terminal reflow. |
 | `src/components/session/PopupResponse.tsx` | **Shared** response-display component used by both `AiPopupHistory` and `ReviewView`. Cleans the raw `response` via `formatPopupResponse`, renders it as themed **markdown** (`react-markdown` + `remark-gfm`, **no** `rehype-raw` → raw HTML disabled, no XSS), and exposes a raw ⇆ formatted toggle + copy. Falls back to a raw `<pre>` (with a note) when nothing formats, and an empty hint when nothing was captured. |
@@ -63,7 +64,7 @@ interface DbTranslationLog {
   learningLanguage: string;
   selection: string;            // selected text (empty for translate-file)
   contextLine: string;          // surrounding sentence/line
-  filePath: string;             // prompt-attached path (translate-file)
+  filePath: string;             // file path attached to the prompt by an Explain-mode spawn (historically: translate-file)
   fileContent: string;          // LEGACY — historical rows only; SelectionPopup (the
                                 //   sole createLog caller) hard-codes '' , so no
                                 //   newly written row populates this
@@ -131,12 +132,26 @@ before the `DELETE`. The base64 is decoded via `TextDecoder` (not bare `atob`)
 so multibyte UTF-8 characters survive — bare `atob` yields a Latin-1 string that
 mojibakes (e.g. `·` → `Â·`).
 
+Between the mode-selection row and the `custom` row, `SelectionPopup` also
+renders a read-only **selection preview** and a **Model/Effort quick-settings
+row** (Claude: two `Combobox`es; Codex: a live-catalog `Select`) — see
+[Floating Terminal Fork → Quick settings](./floating-terminal-fork.md#quick-settings-model--effort).
+Both `model` and `effortLevel` are sent in the `spawn-floating` POST body, but
+`createLog` does not persist either field on `DbTranslationLog` — a saved
+REVIEW row cannot be traced back to which model/effort produced its answer.
+
 ## REVIEW View
 
 Live polling reload (every 4 s) plus immediate reload after local mutations.
 Filters: `mode`, `archived` (active / archived / all), `favorite` toggle, and a
 200 ms-debounced free-text `search` (matches selection / response / contextLine
 / notes / filePath).
+
+The expanded row's file-path line is gated on `row.mode === 'translate-file'`
+(`ReviewView.tsx`) — a path attached by an Explain-mode spawn's "Attach file
+path?" confirm is recorded on `DbTranslationLog.filePath` but never rendered
+anywhere in this UI, since `translate-file` itself has no client trigger today
+(see [Modes](./floating-terminal-fork.md#modes)).
 
 Each row:
 - Header (always visible): ★/☆ favorite toggle, mode icon + label (or alias),
@@ -210,9 +225,10 @@ All data lives in the local browser IndexedDB (`claude-dashboard` /
 
 ## Change Risks
 
-* **DB migration**: schema is at **v6**; favorite / alias / sourceFilePath are
-  back-filled by the v6 `.upgrade()`. Rolling back below the relevant version
-  leaves rows intact but those fields unindexed/unused.
+* **DB migration**: the `translationLogs` table last *changed* in **v6**
+  (favorite / alias / sourceFilePath, back-filled by the v6 `.upgrade()`); the
+  shared `DashboardDb` schema itself is at **v7**. Rolling back below the
+  relevant version leaves rows intact but those fields unindexed/unused.
 * **Response capture is best-effort**: the PTY output ring buffer defaults to
   `DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES = 1 MB` (`src/types/terminal.ts`),
   configurable via Settings ▸ ADVANCED ▸ Terminal and clamped to 256 KB–32 MB by

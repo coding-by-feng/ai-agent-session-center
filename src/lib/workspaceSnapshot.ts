@@ -7,6 +7,7 @@ import type { Session, SshConfig } from '@/types';
 import { useRoomStore } from '@/stores/roomStore';
 import type { Room } from '@/stores/roomStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { canWriteWorkspace } from '@/stores/presenceStore';
 import { useQueueStore } from '@/stores/queueStore';
 import type { QueueItem, QueueAutomationConfig } from '@/stores/queueStore';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
@@ -677,6 +678,24 @@ export async function importSnapshot(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ suppressBroadcast: true }),
     });
+
+    // 409 = the server refused because sessions are live and this client does
+    // not own the workspace restore. ABORT the whole import — do not fall
+    // through. Continuing would clear the Zustand store and then re-create
+    // every session on top of the ones still running on the server, which is
+    // exactly the duplicate-card / dead-terminal outcome the guard exists to
+    // prevent. This is the one failure mode where "continue anyway" is worse
+    // than doing nothing.
+    if (clearRes.status === 409) {
+      const detail = await clearRes.json().catch(() => ({}) as { by?: string; liveSessions?: number });
+      console.warn(
+        `[workspace] Import aborted — ${detail.liveSessions ?? 'some'} session(s) are live and ` +
+          `the workspace is owned by ${detail.by ?? 'another device'}.`,
+      );
+      _importInProgress = false;
+      return { created: 0, failed: 0, failedTitles: [] };
+    }
+
     if (clearRes.ok) {
       const clearData = await clearRes.json();
       if (Array.isArray(clearData.savedOutputs)) {
@@ -1208,6 +1227,14 @@ export function scheduleAutoSave(
       // guard only checked sshConfig presence, so it persisted that empty snapshot
       // and silently wiped the saved workspace, breaking restart-to-resume.
       if (snapshot.sessions.length === 0) return;
+      // Only ONE device may persist the shared snapshot. It carries the ROOM
+      // LAYOUT, which lives in each client's own localStorage — so a phone that
+      // has never seen the desktop's rooms would overwrite them with an empty
+      // set, and the guard above would not catch it (the session list is fully
+      // populated from the WS snapshot; only the rooms are wrong). The server
+      // rejects a non-writer with 409 regardless; skipping here avoids the
+      // pointless request every few seconds.
+      if (!canWriteWorkspace()) return;
       await saveToConfig(snapshot);
     } catch {
       // Silent failure — auto-save is best-effort
@@ -1242,5 +1269,11 @@ export async function flushSave(
   // Same guard as scheduleAutoSave: never flush an empty snapshot over a good one
   // (all-ended/archived/non-SSH sessions reduce to zero exportable sessions).
   if (snapshot.sessions.length === 0) return;
+  // ...and the same single-writer guard. A closing phone would otherwise POST
+  // its own (localStorage-derived, likely empty) room layout over the desktop's
+  // on the way out. The server 409s a non-writer regardless, so this only
+  // prevents a pointless request — but the two save paths must agree, or the
+  // rule looks conditional on which one happened to run.
+  if (!canWriteWorkspace()) return;
   await saveToConfig(snapshot);
 }

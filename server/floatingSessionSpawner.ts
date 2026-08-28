@@ -155,6 +155,12 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
   // Spawn the same CLI as the origin session (prefers the authoritative
   // cliSource so codex parents aren't misdetected as claude).
   const cliKind = resolveOriginCli(origin);
+  // Popup "quick settings" override (SelectionPopup's Model/Effort row).
+  // Empty/absent falls back to the origin's own model/effort — the
+  // pre-existing inherit-only behavior. Raw strings only; the real allow-list
+  // check happens downstream in applyClaudeLaunchFlags/sanitizeModelId.
+  const effectiveModel = args.model || origin.model;
+  const effectiveEffort = args.effortLevel || origin.effortLevel;
   // Recursive fork: a popup spawned from inside a floating terminal forks from
   // that terminal's session — resolved here from spawnTerminalId — so context
   // chains down (root → A → B → …). Selections without a host terminal (e.g. the
@@ -204,21 +210,21 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
   const permsCmd = cliKind === 'claude'
     ? reconstructPermissionFlags(baseLaunchCmd, origin.permissionMode)
     : baseLaunchCmd;
-  // Inherit the parent's model + effort as launch flags so they apply before the
+  // Apply the popup's model + effort (override if the quick-settings row set
+  // one, else the parent's own) as launch flags so they apply before the
   // popup's first prompt runs. ultracode launches as `--effort xhigh` (its valid
   // base) and is upgraded to true ultracode via the slash injection below.
-  const launchCmd = applyClaudeLaunchFlags(permsCmd, origin.model, origin.effortLevel);
+  const launchCmd = applyClaudeLaunchFlags(permsCmd, effectiveModel, effectiveEffort);
 
   const cfg = origin.sshConfig;
   const isSsh = !!(cfg && cfg.username);
-  // Inherit model/effort/characterModel from the origin so the popup matches the
-  // parent (also persisted onto the popup's session for display + recursive forks).
-  // Sanitize the inherited model so a contaminated origin (e.g. a stripped-ANSI
-  // `claude-opus-4-8[1m]` from an older session) doesn't propagate down the fork
-  // chain or get persisted/displayed on the popup.
+  // Carry the same effective model/effort/characterModel onto the popup's own
+  // session (display + recursive forks). Sanitize so either a contaminated
+  // origin (e.g. a stripped-ANSI `claude-opus-4-8[1m]` from an older session)
+  // or a bad override can't propagate down the fork chain or get displayed.
   const inherit = {
-    model: sanitizeModelId(origin.model) || undefined,
-    effortLevel: origin.effortLevel,
+    model: sanitizeModelId(effectiveModel) || undefined,
+    effortLevel: effectiveEffort,
     characterModel: origin.characterModel,
   };
   const newConfig: TerminalConfig = isSsh
@@ -251,14 +257,14 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
 
   // ultracode launches as `--effort xhigh` (above); upgrade it to true ultracode
   // via /effort once Claude Code is ready (the raw flag rejects `ultracode`).
-  if (cliKind === 'claude' && origin.effortLevel === 'ultracode') {
+  if (cliKind === 'claude' && effectiveEffort === 'ultracode') {
     injectClaudeCommandsWhenReady(terminalId, ['/effort ultracode']);
   }
 
   if (parentHasConversation && !shouldInheritContext && cliKind === 'claude' && !parentIsRemote && !parentIdIsInternal) {
     log.warn('floating-spawn', `No resumable transcript for ${forkParentId} — launching a fresh session instead of forking (Claude never persisted this conversation; check for an inherited CLAUDE_CODE_CHILD_SESSION)`);
   }
-  log.info('floating-spawn', `Spawned ${args.mode} float (terminalId=${terminalId}, cli=${cliKind}, originSession=${origin.sessionId}, originModel=${origin.model || '-'}, originEffort=${origin.effortLevel || '-'}, forkParent=${forkParentId}, resumeId=${resumeId || '-'}, inheritContext=${shouldInheritContext})`);
+  log.info('floating-spawn', `Spawned ${args.mode} float (terminalId=${terminalId}, cli=${cliKind}, originSession=${origin.sessionId}, model=${effectiveModel || '-'}${args.model ? ' (override)' : ' (inherited)'}, effort=${effectiveEffort || '-'}${args.effortLevel ? ' (override)' : ' (inherited)'}, forkParent=${forkParentId}, resumeId=${resumeId || '-'}, inheritContext=${shouldInheritContext})`);
 
   return { terminalId, label };
 }

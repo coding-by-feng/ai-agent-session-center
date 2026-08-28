@@ -12,11 +12,13 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 | `server/sshManager.ts` (~1100 lines) | PTY creation, shell-ready detection, output ring buffer, pending links, slash-command injection |
 | `server/ptyRing.ts` | Replay ring buffer: `RingState`, `createRing`/`ringWrite`/`ringSnapshot`/`ringLength`/`ringReset`, `nextRingCapacity`. Lazily grown from `INITIAL_RING_BYTES = 64 KB`. sshManager keeps thin `Terminal`-shaped adapters over it. **Duplicated verbatim in `electron/ptyRing.ts`** |
 | `test/ptyRing.test.ts` | 47 tests run against BOTH ring copies (parity + growth/wrap/reset semantics), including a byte-for-byte equivalence check against an eagerly-allocated ring |
+| `server/ptySubscribers.ts` | Pure `fanOutToSockets(clients, payload)` — sends to every OPEN socket and prunes the dead ones. Import-free and `ws`-free (structural `SubscriberSocket`) so it is testable without loading node-pty |
+| `test/ptySubscribers.test.ts` | 6 tests — OPEN fan-out, CONNECTING never pruned, CLOSING/CLOSED pruned, a throwing `send` prunes without aborting the loop |
 | `server/terminalCapacity.ts` | Terminal budget policy: `MAX_SESSIONS = 50`, `MAX_TERMINALS = 130`, `countSessionTerminals()`, `checkTerminalCapacity()`. Pure — no PTY/IO access, so apiRouter's cap decisions are unit-testable |
 | `test/terminalCapacity.test.ts` | 10 tests covering the session/PTY budget split, up-front reservation, and the exact 51-PTY/25-session state that triggered the premature cap |
 | `test/sessionKillOpsTerminal.test.ts` | 3 tests asserting `killSession()` tears down the ops shell and nulls `opsTerminalId` |
 | `server/config.ts` | Provides `appendSessionName` (injects `-n "title"`) and the historically named `applyClaudeLaunchFlags` (Claude `--model`/`--effort`; Codex `--model`) plus `CLAUDE_TUI_ENV_DEFAULTS` / `withClaudeTuiEnvDefaults` |
-| `src/types/terminal.ts` | Shared `Terminal` / `TerminalConfig` / `TerminalInfo` / `TmuxSessionInfo` / `SshKeyInfo` types (PTY, wsClient, output ring fields); also the replay-buffer constants `DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES` / `MIN_…` / `MAX_…` and `clampReplayBufferBytes()` |
+| `src/types/terminal.ts` | Shared `Terminal` / `TerminalConfig` / `TerminalInfo` / `TmuxSessionInfo` / `SshKeyInfo` types (PTY, `wsClients` subscriber Set, output ring fields); also the replay-buffer constants `DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES` / `MIN_…` / `MAX_…` and `clampReplayBufferBytes()` |
 | `test/launchFlags.test.ts`, `test/claudeTuiEnv.test.ts` | Claude/Codex launch-flag sanitization/placement and classic-renderer environment regression coverage |
 
 ## Implementation
@@ -27,6 +29,7 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 ### PTY Spawn
 - xterm-256color, 120x40
 - env includes AGENT_MANAGER_TERMINAL_ID + optional API keys + `withClaudeTuiEnvDefaults` (see Environment)
+- **Local env vs. remote export — SSH does not forward env vars.** A local PTY gets `AGENT_MANAGER_TERMINAL_ID: terminalId` directly in the spawn env (`sshManager.ts:420`, and the tmux-attach spawn at `:733`). For any **non-local** terminal that env would never reach the far side, so the id is re-exported inside the launch command line itself: `cd '<workDir>' && export AGENT_MANAGER_TERMINAL_ID='<id>' && export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN="${CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN:-1}" [&& export <API_KEY_VAR>=…] && <command>` (`sshManager.ts:624-640`), with the `useTmux` path doing the same inside the `tmux new-session` inner command (`:608-621`). Every interpolated value goes through `shellEscapeSingleQuote`. **This prefix is rebuilt at every remote relaunch site** — `apiRouter.ts:779` (resume), `:829` (reconnect-terminal), `:901`, `:972`, `:1582`, `:1596`, plus `floatingSessionSpawner.ts:251` and `index.ts:338` — so a change to the export contract must be made in all of them or remote sessions silently lose their terminal binding and fall through to [Priority 2/5](./session-matching.md).
 
 ### Terminal ID Format
 - Standard: term-{Date.now()}-{random6}
@@ -48,10 +51,22 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 - This replaces the previous `Buffer.concat([old, chunk])` + `slice(-cap)` pattern, which was O(n) per PTY write and allocated a new Buffer for every onData event. The new path is O(1) per append with zero steady-state allocation.
 - Ring helpers (`ringWrite`, `ringSnapshot`, `ringLength`, `ringReset`) are module-local; do not export — callers should use the existing buffer API (`getTerminalOutputBuffer`, `prefillTerminalOutput`).
 
+### Output Subscribers (multi-device)
+- **`Terminal.wsClient: WebSocket | null` became `Terminal.wsClients: Set<WebSocket>`** (`src/types/terminal.ts`). The single reference made terminals **last-subscriber-wins**: opening the dashboard on a second device silently stole the output stream, and the first device's terminal then sat frozen with no error raised anywhere. A Set is what lets two devices watch one PTY at once — reads are shared; only WRITES are arbitrated, by [Multi-Device Presence](./multi-device-presence.md)'s per-session baton (enforced in [wsManager](./websocket-manager.md), not here).
+- **`setWsClient(terminalId, wsClient)` is now ADDITIVE**, not last-wins: it `add`s to the Set and returns `false` **only** when the terminal does not exist (the subscribe-race check callers depend on). A `null` client is a no-op returning `true`. **Scrollback replay (`terminal_ready` + the ring snapshot) goes ONLY to the joining socket** — the existing subscribers are already up to date, and re-sending the ring to them would duplicate their whole screen.
+- All PTY→client messages go through the file-local `sendToSubscribers(term, message)` (used by both `onData` seams and `broadcastToClient`), which delegates to **`fanOutToSockets`** in [`server/ptySubscribers.ts`](../../../server/ptySubscribers.ts). Its prune rules are load-bearing:
+  - **`CONNECTING` (readyState 0) is never pruned.** A socket mid-handshake is not dead; evicting it unsubscribes a device during its own connect and leaves it with a permanently blank terminal only a reload fixes.
+  - **`CLOSING` (2) / `CLOSED` (3) are pruned** on the send path — pruning is part of sending, not an optional sweep, because a Set retains every socket that ever joined.
+  - **A throwing `send` prunes and the loop continues.** `ws` can throw on a socket that closed between the readyState check and the write; aborting the loop there would starve every subscriber after it in iteration order, forever.
+- The module is kept free of `ws` types and of any import, so the fan-out rules can be unit-tested without pulling node-pty in at module scope.
+- Dead sockets are also evicted proactively by `removeClientFromAllTerminals(ws)`, called from wsManager's `detachClient` on socket close/error — see [WebSocket Manager](./websocket-manager.md).
+
 ### Pending Links
-- workDir -> {terminalId, host, createdAt}
-- Expires 60s (cleaned every 30s)
+- `Map<workDir, PendingLink[]>` — an **array** per workDir, appended FIFO, so several terminals can share one project directory (e.g. workspace import) without overwriting each other. Entry shape `{terminalId, host, createdAt}`
+- Expires 60s (swept every 30s)
 - Used by session matcher Priority 2
+- **Which terminals register one**: the gate is `if (!skipAutoLaunch || config.deferredLaunch)` where `skipAutoLaunch = config.command === ''` (`sshManager.ts:402, :519-521`). A normal terminal registers. An **ops shell** (`command: ''`, no `deferredLaunch`) does **not** — it would otherwise overwrite the main terminal's link for the same workDir. But a **resume / workspace-import** terminal also arrives with `command: ''` *and* sets `deferredLaunch: true` (`apiRouter.ts:1536-1538`) precisely so that it **does** register: the caller writes the real `claude` launch later via `writeWhenReady`, and without a link the `SessionStart` hooks of several sessions sharing one workDir collapse onto a single card.
+- **Resume consumes the link it just created.** `POST /api/sessions/:id/resume` spawns the new PTY, then calls `consumePendingLink(...)` **before** `reconnectSessionTerminal()` (`apiRouter.ts:761-771`; same pattern in the reconnect-terminal SSH branch at `:819`). The resume flow matches via `pendingResume`, **not** `pendingLinks` — so a surviving link is pure hazard: any *other* Claude in the same working directory could match it via Priority 2, steal the terminal, and mint a duplicate card.
 
 ### Input Validation
 - Zod + shell metacharacter regex /[;|&$`\\!><()\n\r{}[\]]/
@@ -122,7 +137,11 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 - prefillTerminalOutput(terminalId, base64Data) (sshManager.ts:1016) — prepend saved output into the ring buffer; consumed by `POST /api/terminals/:id/prefill-output`
 - getTerminals() — list all active terminals with metadata; consumed by `GET /api/terminals`
 - linkSession(terminalId, sessionId) — associate a session with a terminal
-- setWsClient(terminalId, wsClient) (sshManager.ts:966) — attach a ws client to a terminal, send `terminal_ready`, and replay the ring buffer (used on browser reconnect); returns `false` if the terminal no longer exists
+- setWsClient(terminalId, wsClient) — **add** a ws client to the terminal's subscriber Set, send `terminal_ready`, and replay the ring buffer **to that socket only** (used on browser reconnect and on every additional device); returns `false` only if the terminal no longer exists
+- removeWsClient(terminalId, wsClient) — unsubscribe ONE client from ONE terminal; the PTY keeps running. Used by wsManager's `terminal_disconnect`
+- removeClientFromAllTerminals(wsClient) — unsubscribe a socket from every terminal (returns the count); called from wsManager's `detachClient` on close/error. Without it a long-lived server accumulates dead sockets on every terminal
+- getSubscriberCount(terminalId) — how many clients are watching (diagnostics/tests)
+- getTerminalSessionId(terminalId) — the session a terminal belongs to, or `null` when unlinked (ops shell / pre-first-hook). O(1) Map read, used on the `terminal_input` hot path to find which control baton applies
 - `__addPendingLinkForTest` / `__resetPendingLinksForTest` / `__getPendingLinksSizeForTest` / `__getPendingLinksForWorkDirForTest` — test-only helpers, no production callers
 
 ### Fork / Clone / Floating Sessions

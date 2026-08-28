@@ -1,6 +1,21 @@
 // wsManager.ts — WebSocket broadcast manager with bidirectional terminal support
-import { getAllSessions, getAllTeams, getEventSeq, getEventsSince, updateQueueCount } from './sessionStore.js';
-import { writeToTerminal, resizeTerminal, setWsClient } from './sshManager.js';
+import {
+  getAllSessions,
+  getAllTeams,
+  getEventSeq,
+  getEventsSince,
+  updateQueueCount,
+  getSessionIdByTerminalId,
+} from './sessionStore.js';
+import {
+  writeToTerminal,
+  resizeTerminal,
+  setWsClient,
+  removeWsClient,
+  removeClientFromAllTerminals,
+  getTerminalSessionId,
+} from './sshManager.js';
+import * as presence from './presenceManager.js';
 import { WS_TYPES } from './constants.js';
 import log from './logger.js';
 import type WebSocket from 'ws';
@@ -10,7 +25,26 @@ interface WsClient extends WebSocket {
   _isAlive: boolean;
   _msgCount: number;
   _msgWindowStart: number;
+  /** Which device this socket belongs to (see presenceManager). '' when unidentified. */
+  _clientId: string;
+  _label: string;
+  /** Last time we told this client it lacks control of a session — throttles the notice. */
+  _lastDenyAt: Map<string, number>;
 }
+
+/** Identity supplied by the client on the WebSocket URL. */
+export interface ClientIdentity {
+  clientId: string;
+  label: string;
+  address: string;
+}
+
+/**
+ * How often a client may be told it lacks control of a given session.
+ * `terminal_input` fires per keystroke, so an un-throttled notice would emit one
+ * message per character typed by a spectator.
+ */
+const CONTROL_DENY_NOTICE_MS = 3000;
 
 const clients = new Set<WsClient>();
 const MAX_WS_CONNECTIONS = 50;
@@ -60,7 +94,7 @@ export function stopHeartbeat(): void {
 /**
  * Handle a new WebSocket connection: send snapshot and wire up message/close handlers.
  */
-export function handleConnection(ws: WebSocket): void {
+export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void {
   // Enforce connection limit
   if (clients.size >= MAX_WS_CONNECTIONS) {
     log.warn('ws', `Connection limit reached (${MAX_WS_CONNECTIONS}), rejecting`);
@@ -74,6 +108,16 @@ export function handleConnection(ws: WebSocket): void {
   client._isAlive = true;
   client._msgCount = 0;
   client._msgWindowStart = Date.now();
+  client._clientId = identity?.clientId ?? '';
+  client._label = presence.sanitizeDeviceLabel(identity?.label ?? '');
+  client._lastDenyAt = new Map();
+  if (client._clientId) {
+    presence.registerClient({
+      clientId: client._clientId,
+      label: client._label,
+      address: identity?.address ?? '',
+    });
+  }
   log.info('ws', `Client connected (total: ${clients.size})`);
 
   // Start heartbeat on first connection
@@ -90,6 +134,11 @@ export function handleConnection(ws: WebSocket): void {
   const seq = getEventSeq();
   log.debug('ws', `Sending snapshot: ${Object.keys(sessions).length} sessions, ${Object.keys(teams).length} teams, seq=${seq}`);
   client.send(JSON.stringify({ type: WS_TYPES.SNAPSHOT, sessions, teams, seq }));
+
+  // Tell everyone (including this client) who is now connected and what they
+  // control, so the joining device knows immediately that it is a spectator and
+  // the existing devices see it arrive.
+  broadcastPresence();
 
   // Handle incoming messages (terminal input, resize, etc.)
   client.on('message', (raw: WebSocket.RawData) => {
@@ -122,6 +171,10 @@ export function handleConnection(ws: WebSocket): void {
               log.warn('ws', `Blocked terminal_input to unsubscribed terminal ${msg.terminalId}`);
               break;
             }
+            // Reads are shared across devices; WRITES are not. Two people typing
+            // into one PTY interleaves their keystrokes into garbage, so a
+            // spectator's input is dropped until it holds the session's baton.
+            if (!holdsControl(client, msg.terminalId)) break;
             writeToTerminal(msg.terminalId, msg.data);
           }
           break;
@@ -130,6 +183,9 @@ export function handleConnection(ws: WebSocket): void {
               && Number.isInteger(msg.cols) && msg.cols > 0 && msg.cols <= 500
               && Number.isInteger(msg.rows) && msg.rows > 0 && msg.rows <= 200) {
             if (!client._terminalIds.has(msg.terminalId)) break;
+            // A resize mutates the shared PTY — a phone in portrait would
+            // reflow the desktop's terminal to ~40 columns. Same gate as input.
+            if (!holdsControl(client, msg.terminalId)) break;
             // #31: Relay resize errors back to client
             const resizeErr = resizeTerminal(msg.terminalId, msg.cols, msg.rows);
             if (resizeErr && client.readyState === 1) {
@@ -140,8 +196,10 @@ export function handleConnection(ws: WebSocket): void {
         case WS_TYPES.TERMINAL_DISCONNECT:
           // Unsubscribe this client from terminal output without killing the PTY.
           // The PTY is only destroyed by explicit DELETE /api/terminals/:id or session kill.
+          // Remove THIS client only — with multi-device viewing, dropping the
+          // whole subscriber set would blank every other device's terminal.
           if (typeof msg.terminalId === 'string' && client._terminalIds.has(msg.terminalId)) {
-            setWsClient(msg.terminalId, null);
+            removeWsClient(msg.terminalId, client);
             client._terminalIds.delete(msg.terminalId);
           }
           break;
@@ -194,17 +252,94 @@ export function handleConnection(ws: WebSocket): void {
   });
 
   client.on('close', () => {
-    clients.delete(client);
+    detachClient(client);
     log.info('ws', `Client disconnected (total: ${clients.size})`);
     // Stop heartbeat if no clients remain
     if (clients.size === 0) {
       stopHeartbeat();
     }
+    broadcastPresence();
   });
   client.on('error', (err: Error) => {
-    clients.delete(client);
+    detachClient(client);
     log.error('ws', 'Client error:', err.message);
+    broadcastPresence();
   });
+}
+
+/**
+ * Tear down every reference to a departing socket.
+ *
+ * Terminal subscribers are a Set now, so — unlike the old single `wsClient`
+ * reference, which the next subscriber simply overwrote — nothing evicts a dead
+ * socket on its own. Skipping this leaks one entry per terminal per reconnect,
+ * and every PTY chunk then pays a failed send for each corpse.
+ */
+function detachClient(client: WsClient): void {
+  if (!clients.delete(client)) return; // already detached (close after error)
+  removeClientFromAllTerminals(client);
+  client._terminalIds.clear();
+  if (client._clientId) presence.unregisterClient(client._clientId);
+}
+
+/**
+ * Which session owns this PTY.
+ *
+ * `sshManager.getTerminalSessionId` is the O(1) answer but is only populated by
+ * `linkSession`, which runs on the workDir-matching path — sessions matched by
+ * any other priority (and API-created ones) leave `term.sessionId` null. Relying
+ * on it alone would silently disable the write gate for most terminals, which is
+ * the worst possible failure here: the feature would look implemented and
+ * arbitrate nothing. The session-store scan is the authoritative fallback
+ * (`session.terminalId` survives CLI re-keying); it walks at most MAX_SESSIONS
+ * entries and allocates nothing.
+ */
+function sessionIdForTerminal(terminalId: string): string | null {
+  return getTerminalSessionId(terminalId) ?? getSessionIdByTerminalId(terminalId);
+}
+
+/**
+ * May this client write to the session behind `terminalId`?
+ *
+ * A terminal with no linked session (an ops shell, or a PTY whose first hook
+ * has not landed) has no baton to arbitrate and is always writable — otherwise
+ * a brand-new session would be unusable for the seconds before it is matched.
+ *
+ * Also emits a throttled `control_denied` so the UI can explain the silence
+ * rather than looking broken.
+ */
+function holdsControl(client: WsClient, terminalId: string): boolean {
+  // An unidentified socket (an old cached client, or a non-browser consumer)
+  // is not arbitrated: it writes freely, exactly as before this feature. It
+  // must NOT reach noteControlActivity, which would otherwise register '' as
+  // the holder and put a phantom device in the presence UI.
+  if (!client._clientId) return true;
+
+  const sessionId = sessionIdForTerminal(terminalId);
+  if (!sessionId) return true;
+  if (presence.noteControlActivity(sessionId, client._clientId)) return true;
+
+  const now = Date.now();
+  const lastAt = client._lastDenyAt.get(sessionId) ?? 0;
+  if (now - lastAt >= CONTROL_DENY_NOTICE_MS && client.readyState === 1) {
+    client._lastDenyAt.set(sessionId, now);
+    const holder = presence.getController(sessionId);
+    try {
+      client.send(JSON.stringify({
+        type: WS_TYPES.CONTROL_DENIED,
+        sessionId,
+        terminalId,
+        by: holder?.label ?? null,
+        byClientId: holder?.clientId ?? null,
+      }));
+    } catch { /* client vanished mid-send */ }
+  }
+  return false;
+}
+
+/** Push presence state to every client (device list, batons, writer). */
+export function broadcastPresence(): void {
+  broadcast({ type: WS_TYPES.PRESENCE_UPDATE, ...presence.presenceSnapshot() });
 }
 
 /**

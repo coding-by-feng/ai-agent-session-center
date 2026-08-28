@@ -56,6 +56,19 @@ Server-side persistence that survives restarts. IndexedDB on frontend is the mir
 
 ### Full-Text Search
 - searchSessions() + fullTextSearch() across prompts.text and responses.text_excerpt
+- **Both join `sessions` INNER**, so a prompt whose session row is missing is invisible to them. `searchPrompts()` below deliberately does not.
+
+### Prompt Trace Search — `searchPrompts(params)`
+Backs `GET /api/db/prompts` and the [PROMPTS view](../frontend/prompt-trace.md). Returns `{ prompts, total, page, pageSize }`.
+
+- `FROM prompts p LEFT JOIN sessions s ON p.session_id = s.id`, selecting `s.project_name`, `s.project_path`, `s.title AS session_title` — **all nullable**. LEFT because this is the one query whose contract is never to lose a prompt; an inner join turns "session row gone" into "prompt never existed".
+- `ORDER BY p.timestamp <dir>, p.id <dir>` — `p.id` (AUTOINCREMENT) is the tiebreak that makes pagination a total order; many prompts share a millisecond.
+- Filters: `query` (LIKE), `project` (`s.project_path`), `session` (`p.session_id`), `dateFrom`/`dateTo` (`p.timestamp`), `kind`.
+- **LIKE wildcards in `query` are escaped** (`\`, `%`, `_`) with `ESCAPE '\'`. Measured on real data: `100%` unescaped matches 852 rows vs. 144 genuine ones. `searchSessions`/`fullTextSearch` do **not** do this.
+- Source facets (`PromptKind`): `mine` (default) = `NOT agent AND non-blank`; `cmd` = `mine AND (starts '/' or '$')`; `agent` = text starts with `<`; `all` = unfiltered. ~10% of rows are harness-injected (`<task-notification>`, `<observed_from_primary_session>`, `<system-reminder>`, `<agent-message>`, `<<autonomous-loop-dynamic>>`), which is what `agent` isolates.
+- **All trims pass an explicit charset** — `ltrim(p.text, ' ' || char(9) || char(10) || char(13))`. SQLite's bare `ltrim(X)`/`trim(X)` strip **spaces only**, so a tag behind a leading newline was classified as user-typed.
+- Errors are caught → empty page + `log.warn`, never a throw.
+- Covered by `test/searchPrompts.test.ts`.
 
 ### Projects
 - getDistinctProjects() — list all distinct project_path/project_name pairs
@@ -89,6 +102,7 @@ Server-side persistence that survives restarts. IndexedDB on frontend is the mir
 - getSessionsByProjectPath(path) — filter by project
 - updateSessionTitle/Summary/Archived — individual field updates (no `updateSessionLabel` — removed)
 - fullTextSearch() — cross-table search across prompts.text and responses.text_excerpt
+- searchPrompts() — paginated, faceted prompt trace (see above)
 
 ## Dependencies & Connections
 

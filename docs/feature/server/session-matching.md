@@ -31,11 +31,22 @@ After fork routing, the matcher caches `claude_pid` on the resolved session (not
 | 1 | agent_terminal_id direct Map key (pre-created terminal) | Low |
 | 1b | Scan by terminalId property (subsequent starts in same terminal) | Low |
 | 1.5 | Cached PID match (same process, new session_id) | Medium |
-| 2 | tryLinkByWorkDir via pendingLinks Map (SSH terminal) — **`SessionStart` only** | Medium |
-| 3 | Path scan of CONNECTING sessions (picks newest if >1) — **`SessionStart` only** | Medium |
+| 2 | tryLinkByWorkDir via pendingLinks Map (SSH terminal) — **`SessionStart` only**; when the terminal resolves but no session owns it, mints a card with an **inherited `sshConfig`** (see below) | Medium |
+| 3 | Path scan of CONNECTING sessions (picks newest if >1) — **`SessionStart` only**; candidate must already have a `terminalId` (`sessionMatcher.ts:503`), so an unbound CONNECTING card is never adopted by path | Medium |
 | 4 | PID parent check via pgrep -P (unreliable across shells) | High |
 | 4.5 | Terminal adoption — re-key the **sole** owner of `agent_terminal_id` on ANY event type (covers a lost `SessionStart`) | Medium |
 | 5 | External fallback — create an `isExternal` card for a real hook-only session the dashboard didn't launch (gated on `tty_path`, non-subagent, non-teardown) | Medium |
+
+### `pendingResume` Lifecycle
+`pendingResume: Map<terminalId, {oldSessionId, timestamp}>` (`sessionStore.ts:57`) is the intent record that makes Priority 0 an *explicit user action* rather than a guess.
+
+- **Registered** by `reconnectSessionTerminal()` under the **new** terminal id (`sessionStore.ts:1513`) and by `resumeSession()` under `session.lastTerminalId` (`:1473`).
+- **Consumed** by Priority 0's terminal-id branch (`sessionMatcher.ts:276-278`) and its single-candidate path fallback (`:302`). A `SessionStart` resolved by direct Map lookup also deletes a stale entry for its own terminal (`:260-264`).
+- **Expiry is a revert, not a delete.** The 2-minute expiry is swept every 15s: if the referenced session is still `CONNECTING` it is reverted to `idle` / `ANIMATION_STATE.IDLE` with `terminalId = null` and re-broadcast — logged `RESUME TIMEOUT: reverted session … to idle (preserved)` (`autoIdleManager.ts:83-103`). The card survives a failed resume instead of being stranded in `connecting`.
+- **Survives restart.** Entries are persisted in the snapshot and restored only when `oldSessionId` still exists in the Map, with `timestamp` refreshed to `Date.now()` so the 2-min sweep doesn't instantly collect them (`sessionStore.ts:153-165, :338-356`). Terminal ids are stale after a restart, but Priority 0's path fallback only needs `oldSessionId` + `projectPath`.
+
+### Priority 2 — inherited `sshConfig` on the new-session sub-case
+When `tryLinkByWorkDir` resolves a terminal but **no session owns it**, Priority 2 creates a fresh card via `createDefaultSession(session_id, cwd, hookData, 'ssh', linkedTerminalId, inheritedConfig)`, where `inheritedConfig = findSshConfig(sessions, linkedTerminalId, cwd)` (`sessionMatcher.ts:179-202`). `findSshConfig` prefers an **exact terminal match** — any session whose `sshConfig` exists and whose `terminalId` *or* `lastTerminalId` equals the linked terminal — and only then falls back to a session with an `sshConfig`, `source === 'ssh'`, and an equal trailing-slash-normalized `projectPath`. Returns `null` if neither hits. `createDefaultSession` copies it by spread (`{...sshConfig}`), never by reference, so the sibling's config can't be mutated through the new card.
 
 ### Priority 0.5 (snapshot restore auto-link)
 Gated on `hook_event_name === SESSION_START` + a `cwd` (sessionMatcher.ts:325-369). Collects candidates whose `projectPath` (trailing slash stripped) equals the hook `cwd`, via three independent matches:

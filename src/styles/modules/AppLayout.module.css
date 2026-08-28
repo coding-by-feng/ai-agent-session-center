@@ -15,3 +15,39 @@
   height: 28px;
   -webkit-app-region: drag;
 }
+
+/* Full-viewport roots.
+   `dvh` matters on iOS Safari, where `100vh` is the URL-bar-*expanded* height —
+   taller than what is actually visible — so the bottom of the app (NavBar,
+   a detail panel's footer controls) sits under the browser chrome and cannot be
+   reached. These were inline `height: '100vh'` in App.tsx; a style attribute
+   cannot carry the vh→dvh fallback pair, since the second declaration of a
+   property simply overwrites the first in a JS object. body already does the
+   same pairing in base.css. */
+.appRoot {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* Centred splash used before the dashboard mounts (auth check, boot error). */
+.bootScreen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  height: 100dvh;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+/* Suspense fallback for the lazily-loaded dashboard shell. */
+.bootFallback {
+  padding: 2rem;
+  height: 100vh;
+  height: 100dvh;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+}

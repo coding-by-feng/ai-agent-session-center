@@ -21,6 +21,7 @@ context); otherwise it falls back to a fresh launch with a self-contained prompt
 | `server/floatingPrompt.ts` | Pure, dependency-free prompt synthesis + labels. Exports `buildPrompt`, `floatLabel`, `customFloatLabel`, `MAX_PROMPT_BYTES`, and the `FloatingMode`/`SpawnFloatingArgs` types. Extracted so prompt logic is unit-testable without the db/pty module graph. |
 | `server/extractPreviousAnswer.ts` | Read the last assistant message (`readClaudeLastAssistant`, for translate-answer) and the full ordered transcript (`readClaudeTranscript`, backs the [Conversation tab](../frontend/conversation-view.md)) from a Claude `~/.claude/projects/<encoded>/<sessionId>.jsonl` file. Also exports `resolveResumableClaudeSessionId` — the strict "can this session be `--resume`d at all" check used to gate the fork. |
 | `test/resumableTranscript.test.ts` | Unit coverage for `resolveResumableClaudeSessionId` (exact-id hit, transcriptPath fallback, no newest-jsonl fallback, `term-*` rejection). |
+| `test/floatingSpawnerCli.test.ts` | `resolveOriginCli` precedence (its original scope) **plus** `spawnFloatingSession`'s model/effort override precedence: an `args` override wins, blank/absent inherits `origin.*` unchanged, and an empty-string override doesn't shadow the inherited value (falsy, not "chosen blank"). |
 | `server/apiRouter.ts` | Mounts `POST /api/sessions/spawn-floating` (Zod-validated). |
 | `src/lib/cliDetect.ts` | Frontend-side CLI detection that hides translate-answer for non-Claude origins before the request reaches this endpoint. The server's `resolveOriginCli` mirrors its `cliSource → command → model` precedence. |
 | `hooks/dashboard-hook-codex.sh` | Emits `cli_source` (`"codex"`) so the origin session carries an authoritative CLI family for `resolveOriginCli` to read. |
@@ -47,6 +48,8 @@ Request body (Zod-validated):
   nativeLanguage: string,             // required (1–64) e.g. "简体中文"
   learningLanguage: string,           // required (1–64) e.g. "English"
   inheritContext?: boolean,           // opt out of forking; defaults true client-side
+  model?: string,                     // ≤ 200 chars — quick-settings override, else inherits origin.model
+  effortLevel?: string,               // ≤ 32 chars — Claude-only override, else inherits origin.effortLevel
 }
 ```
 
@@ -76,6 +79,8 @@ spawnFloatingSession(args)
   ├─ enforce ≤ MAX_PROMPT_BYTES (256 KB)
   ├─ resolveOriginCli(origin)                         [claude | codex]
   │     cliSource (authoritative) → command → model → 'claude'
+  ├─ effectiveModel  = args.model || origin.model     [popup quick-settings
+  ├─ effectiveEffort = args.effortLevel || origin.effortLevel   override, else inherit]
   ├─ resolve fork parent:
   │     spawnParent = spawnTerminalId ? getSessionByTerminalId(...) : null
   │     forkParentSession = spawnParent ?? origin
@@ -95,18 +100,20 @@ spawnFloatingSession(args)
   │                    : buildLaunchCommand(cli, prompt)            [shell-escaped]
   ├─ permsCmd  = claude ? reconstructPermissionFlags(base, origin.permissionMode)
   │                     : base
-  ├─ launchCmd = applyClaudeLaunchFlags(permsCmd, origin.model, origin.effortLevel)
+  ├─ launchCmd = applyClaudeLaunchFlags(permsCmd, effectiveModel, effectiveEffort)
   │     [model is run through sanitizeModelId — strips ANSI/[1m] junk, drops the
-  │      flag if no safe token remains, so a contaminated origin can't break the
-  │      unquoted --model flag]
+  │      flag if no safe token remains, so a contaminated origin OR a bad
+  │      override can't break the unquoted --model flag; effort is checked
+  │      against FLAG_EFFORT_LEVELS the same way regardless of source]
   ├─ build TerminalConfig (SSH passthrough or localhost), inheriting
-  │     { model: sanitizeModelId(origin.model), effortLevel, characterModel }
+  │     { model: sanitizeModelId(effectiveModel), effortLevel: effectiveEffort,
+  │       characterModel: origin.characterModel }
   ├─ createTerminal(config)
   ├─ consumePendingLink(workingDir)
   ├─ createTerminalSession(terminalId, { command: launchCmd, sessionTitle,
   │       isFork: true, isFloating: true, originSessionId })
   ├─ writeWhenReady(terminalId, prefix + launchCmd + '\r')
-  └─ if claude && origin.effortLevel === 'ultracode':
+  └─ if claude && effectiveEffort === 'ultracode':
         injectClaudeCommandsWhenReady(terminalId, ['/effort ultracode'])
 ```
 
@@ -372,10 +379,17 @@ return a 400 with a user-readable error.
   unknown encodings will fall back to the newest transcript in the dir.
 * **cwd resolution.** SSH origins reuse `sshConfig.workingDir`; local origins use
   `origin.projectPath`. Either falls back to `~` when empty.
-* **Effort/model inheritance.** Claude inherits `model` + `effortLevel` as
-  `--model` / `--effort`; Codex inherits `model` as `--model` before `fork` or
-  the prompt. `ultracode` remains Claude-only: it launches as `--effort xhigh`
-  and is upgraded via `/effort ultracode` once Claude Code is ready.
+* **Effort/model inheritance, with an optional override.** Claude applies
+  `effectiveModel`/`effectiveEffort` as `--model` / `--effort`; Codex applies
+  `effectiveModel` as `--model` before `fork` or the prompt. Each effective
+  value is `args.model || origin.model` (or `args.effortLevel ||
+  origin.effortLevel`) — SelectionPopup's quick-settings row is the one
+  caller that ever sets `args.model`/`args.effortLevel` today; every other
+  caller omits them and inherits the origin unchanged, identical to the
+  pre-override behavior. `ultracode` remains Claude-only: it launches as
+  `--effort xhigh` and is upgraded via `/effort ultracode` once Claude Code
+  is ready — gated on `effectiveEffort === 'ultracode'`, so an override to
+  ultracode upgrades the popup even when the origin itself isn't on it.
 * **CLI misdetection leaks the parent's model.** `applyClaudeLaunchFlags` now
   rewrites leading Claude and Codex commands, so correct CLI detection prevents
   a model (e.g. `gpt-5.5`) from being injected into the wrong binary.

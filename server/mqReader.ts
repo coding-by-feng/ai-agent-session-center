@@ -10,7 +10,8 @@ import {
   openSync, fstatSync, closeSync, watch,
 } from 'fs';
 import { open as fsOpen, stat as fsStat, writeFile as fsWriteFile } from 'fs/promises';
-import type { FSWatcher, FileHandle } from 'fs';
+import type { FileHandle } from 'fs/promises';
+import type { FSWatcher } from 'fs';
 import { join } from 'path';
 import { processHookEvent } from './hookProcessor.js';
 import log from './logger.js';

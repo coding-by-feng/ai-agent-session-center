@@ -34,6 +34,30 @@ The bridge between AI CLI processes (Claude, Codex) and the dashboard. Without h
 - TTY caching in `/tmp/claude-tty-cache/$PPID`; on `SessionStart` the resolved session UUID is also written to `$CWD/.claude/last-session-id` for shell-level `claude --resume`
 - Delivery: append to `/tmp/claude-session-center/queue.jsonl` if the MQ dir exists, else `curl` POST to `http://localhost:3333/api/hooks` (1s connect / 3s max timeout) as fallback
 
+**Where each enriched field comes from.** The field *names* above are the wire contract; these are the shell sources that fill them, which is what makes the "changes to jq enrichment affect session matching" risk below concrete:
+
+| Field | Source |
+|-------|--------|
+| `claude_pid` | `$PPID` |
+| `hook_sent_at` | `date +%s` × 1000 |
+| `tty_path` | TTY cache, else `ps -o tty= -p $PPID` |
+| `term_program` / `term_program_version` | `$TERM_PROGRAM` / `$TERM_PROGRAM_VERSION` |
+| `vscode_pid` | `$VSCODE_PID` |
+| `term` | `$TERM` |
+| `tab_id` | first of `$ITERM_SESSION_ID`, `$KITTY_WINDOW_ID`, `$WARP_SESSION_ID`, `$WEZTERM_PANE`, `$TERM_SESSION_ID` (prefixed — see above) |
+| `window_id` | `$WINDOWID` |
+| `tmux` | `$TMUX` + `$TMUX_PANE`, emitted as `{session, pane}` |
+| `is_ghostty` | `$GHOSTTY_RESOURCES_DIR` |
+| `kitty_pid` | `$KITTY_PID` |
+| `wezterm_pane` | `$WEZTERM_PANE` |
+| `agent_terminal_id` | `$AGENT_MANAGER_TERMINAL_ID` — the linchpin of Priorities 1/1b/4.5 ([session matching](./session-matching.md)) |
+| `claude_project_dir` | `$CLAUDE_PROJECT_DIR` |
+| `parent_session_id` | `$CLAUDE_CODE_PARENT_SESSION_ID` |
+| `team_name` / `agent_name` / `agent_type` / `agent_id` / `agent_color` | `$CLAUDE_CODE_TEAM_NAME` / `_AGENT_NAME` / `_AGENT_TYPE` / `_AGENT_ID` / `_AGENT_COLOR` |
+| `startup_command` | **`ps -p $PPID -o args=`, on `SessionStart` only** — not an env var; null on every other event |
+
+**Why the append needs no locking.** `echo "$ENRICHED" >> "$MQ_FILE"` is safe against interleaving from N concurrent hook processes because POSIX guarantees atomic appends up to `PIPE_BUF` (4096 bytes) and the enriched payload runs ~300-800 bytes — the guarantee `mqReader.ts`'s own module header relies on. The append costs ~0.1ms and spawns no process. **Growing the enriched payload past 4096 bytes would silently break that atomicity** and interleave partial JSON lines from concurrent hooks.
+
 ### Codex Hook Script (`dashboard-hook-codex.sh`)
 - Codex command hooks read JSON from stdin; keeps a legacy `$1` fallback only for old `notify` installs
 - Normalizes the event: `hook_event_name`, else `type == "agent-turn-complete"` → `Stop`, else default `Stop`; session_id falls back to `thread-id`
@@ -43,6 +67,7 @@ The bridge between AI CLI processes (Claude, Codex) and the dashboard. Without h
 ### MQ Reader
 - fs.watch() -> scheduleRead(10ms debounce) -> async read from lastByteOffset -> split newlines -> parse JSON -> processHookEvent()
 - Concurrent read protection (readInProgress flag prevents overlapping reads)
+- **Partial-line hold-back**: a chunk can end mid-line when the read lands between the writer's payload and its newline. The trailing fragment is held in `partialLine` and prepended to the next cycle rather than parsed-and-dropped, and `lastByteOffset` advances by `bytesRead` **minus** the held-back fragment's byte length — so the boundary event is delivered once, intact, instead of being lost as malformed JSON
 - Snapshot resume: accepts resumeOffset on startup
 - Truncation at 1MB to prevent unbounded file growth
 - 500ms fallback poll in case fs.watch misses events

@@ -31,8 +31,20 @@ export const tooltips = {
     description: 'Stop the stacked view and return Terminal and Project to individual tabs.',
   },
   floatProject: {
-    label: 'Open Project in a window',
-    description: 'Open the Project browser in its own OS window you can drag to another monitor.',
+    label: 'Detach Project into its own window',
+    description: 'Open the Project browser in a separate OS window you can drag to another monitor.',
+  },
+  floatSessionPopOut: {
+    label: 'Detach session into its own window',
+    description: 'Open every tab of this session in a separate OS window you can drag to another monitor.',
+  },
+  sessionPin: {
+    label: 'Pin session',
+    description: 'Keep this session fixed at the top of the list and auto-recreate it if it dies or the app restarts.',
+  },
+  sessionUnpin: {
+    label: 'Unpin session',
+    description: 'Stop keeping this session fixed and auto-recreating it.',
   },
   searchPrev: {
     label: 'Previous match',
@@ -162,7 +174,11 @@ export const tooltips = {
   },
   selCustomPrompt: {
     label: 'Custom prompt',
-    description: 'Type your own instruction; it\'s combined with the selected text to start a fresh floating session. Enter or ⌘/Ctrl+Enter to run.',
+    description: 'Type your own instruction; it\'s combined with the selected text to start a fresh floating session. Enter or ⌘/Ctrl+Enter to run. Supports / commands, $ Codex skills, and @ file references.',
+  },
+  floatTerminalPopOut: {
+    label: 'Detach popup into its own window',
+    description: 'Open this floating session in a separate OS window you can drag to another monitor.',
   },
   floatTerminalClose: {
     label: 'Close floating session',

@@ -9,7 +9,10 @@ Packages the dashboard as a native desktop app with window management, tray icon
 ## Source Files
 | File | Role |
 |------|------|
-| `electron/main.ts` | App lifecycle, BrowserWindow, native menu, pop-out terminal + project windows, native folder picker, IPC registration, server embedding, graceful shutdown |
+| `electron/main.ts` | App lifecycle, BrowserWindow, native menu, pop-out terminal + project + whole-session windows, `window.open` policy, native folder picker, IPC registration, server embedding, graceful shutdown |
+| `electron/internalUrl.ts` | Pure `isInternalAppUrl(url, port)` predicate — classifies a `window.open` target as "our own origin" (loopback host **and** our server port) vs external. Import-free and side-effect-free so it unit-tests without booting Electron |
+| `electron/popoutBounds.ts` | Pure per-KIND popout bounds logic (`parsePopoutBoundsFile`, `mergePopoutBounds`, `POPOUT_DEFAULT_SIZES`) — same import-free pattern as `internalUrl.ts`. `main.ts` owns the Electron-dependent glue (`readFileSync`/`screen.*`) and calls into this for the shape/migration logic |
+| `test/internalUrl.test.ts` | Own-origin (bare root, `/project-browser`, `?popout=`, loopback IP, query+fragment) vs external; hosts merely ending in `localhost`, bare `localhost` with no port, `file:`/`ms-msdt:`/`javascript:`, malformed input |
 | `electron/tray.ts` | System tray / menu bar icon with dynamic menu; hide-to-tray on window close |
 | `electron/crashLogger.ts` | Main-process crash capture: `uncaughtException`/`unhandledRejection`, `render-process-gone`, `child-process-gone`, native `crashReporter` minidumps; writes `<userData>/logs/main.log` |
 | `server/logger.ts` | Debug-aware `log.info`/`warn`/`error`/`debug`/`debugJson` utility; also persists to `<userData>/logs/server.log` (or `data/logs/server.log` outside Electron) |
@@ -99,24 +102,47 @@ Registered by `registerAppHandlers()`.
 | `app:rerun-setup` | Deletes `setup.json` flag, then `app.relaunch()` + `app.exit(0)` to restart into the setup wizard |
 | `app:quit` | Calls `app.quit()`, which triggers `before-quit` → workspace save → PTY dispose → server shutdown → exit |
 
+### `window.open` Policy (`attachWindowOpenPolicy`)
+
+Every BrowserWindow the app creates — main, terminal pop-out, project pop-out, and internal-URL windows — installs the **same** handler via `attachWindowOpenPolicy(win)`. It replaced three near-identical `setWindowOpenHandler` blocks that all did `if (http|https) shell.openExternal(url)`.
+
+```
+window.open(url) from any renderer
+        │
+        ▼
+attachWindowOpenPolicy(win)
+        │
+  isInternalAppUrl(url, originPort(win))?
+        │
+   yes ─┴─▶ openInternalWindow(url)   native BrowserWindow, de-duped by URL
+    no ───▶ shell.openExternal(url)   http/https only; file:/ms-msdt:/javascript: dropped
+                                      (the calling window is never navigated away)
+```
+
+- **Why the internal branch exists:** `shell.openExternal` cannot tell one of our in-app routes from a real website. Any renderer call site that reached for `window.open('/project-browser?path=…')` — `ProjectTab`'s right-click **Open in New Tab**, and its two standalone fallbacks — therefore *left the app entirely* and popped the user's default browser open on `http://localhost:<port>/…`. That leak was invisible in review because the CSS-free call site and the shell policy live in different files.
+- **`originPort(win)`** reads the port off `win.webContents.getURL()`, so dev and production agree without a second source of truth; it falls back to `process.env.SERVER_PORT ?? (isDev ? '3332' : '3333')` while the window is still on the `file://` loading screen.
+- **Port-scoped on purpose, not a blanket "localhost is internal" rule.** The terminal's link handler routes clicked URLs down the same path, and a user clicking their own dev server (`http://localhost:3000`) still expects a real browser. Only *our* port is ours.
+- `openInternalWindow(url)` reuses `computePopoutBounds('internal')` / `savePopoutBounds('internal', …)` (its own bounds slot, not shared with terminal/project/session) and the same `#ece9d8` background + security `webPreferences` as the other pop-outs, tracks windows in an `internalUrlWindows` Map **keyed by URL** (a repeat open focuses), and re-attaches the policy to the new window so the rule is transitive.
+- Covered by `test/internalUrl.test.ts` (12 cases: our origin, other loopback ports, bare `localhost` with no port, hosts that merely *end* in `localhost`, non-http protocols, malformed input).
+
 ### Pop-out Terminal Windows
 
-`registerPopoutHandler()` exposes the `window:open-terminal` IPC handler (called from the renderer as `electronAPI.openTerminalWindow({ terminalId, originSessionId?, label? })`). It opens a separate, draggable BrowserWindow (`POPOUT_DEFAULT_SIZE` = 820x560, min 480x320, same `#ece9d8` background and security webPreferences as the main window) loading `http://localhost:${SERVER_PORT ?? 3333}/?popout=terminal&terminalId=…` (with optional `originSessionId` / `label` query params). Open windows are tracked in a `popoutWindows` Map keyed by `terminalId` — re-opening an existing terminal focuses its window instead of duplicating. When a pop-out window closes, the main process sends `popout:closed` (with the `terminalId`) to the main window so it can re-dock the in-app float. The same `before-input-event` reload guard (main.ts:177-179) and `setWindowOpenHandler` link restriction (main.ts:180-183) apply to **terminal** pop-out windows — see the project-window section below for the deliberate asymmetry. The renderer side is documented in [Floating Terminal Fork](../frontend/floating-terminal-fork.md).
+`registerPopoutHandler()` exposes the `window:open-terminal` IPC handler (called from the renderer as `electronAPI.openTerminalWindow({ terminalId, originSessionId?, label? })`). It opens a separate, draggable BrowserWindow (`POPOUT_DEFAULT_SIZES.terminal` = 820x560, min 480x320, same `#ece9d8` background and security webPreferences as the main window) loading `http://localhost:${SERVER_PORT ?? 3333}/?popout=terminal&terminalId=…` (with optional `originSessionId` / `label` query params). Open windows are tracked in a `popoutWindows` Map keyed by `terminalId` — re-opening an existing terminal focuses its window instead of duplicating. When a pop-out window closes, the main process sends `popout:closed` (with the `terminalId`) to the main window so it can re-dock the in-app float. The same `before-input-event` reload guard and the shared `attachWindowOpenPolicy(w)` apply to **terminal** pop-out windows — see the project-window section below for the deliberate asymmetry. The renderer side is documented in [Floating Terminal Fork](../frontend/floating-terminal-fork.md).
 
-**Multi-monitor placement & position memory** (`computePopoutBounds()`, uses Electron's `screen` API):
+**Multi-monitor placement & position memory** (`computePopoutBounds(kind)`, uses Electron's `screen` API):
 - The window's `x`/`y`/`width`/`height` are computed before creation rather than left to OS defaults, so a fresh pop-out **opens on a second monitor when one exists**.
 - Placement order: (1) the **last-saved bounds** if still visible (`boundsOnSomeDisplay()` checks the window center against every connected `screen.getAllDisplays()` display); else (2) **centered on the first non-primary display**'s `workArea`; else (3) centered on the display under the cursor (`getDisplayNearestPoint(getCursorScreenPoint())`, falling back to primary).
-- The window's bounds are persisted on every `moved` / `resized` event to `popout-bounds.json` in userData (`savePopoutBounds(w.getBounds())`, guarded by `!w.isDestroyed()`), so the next pop-out re-opens where the user last left it (e.g. dragged onto monitor 2). `loadPopoutBounds()` validates the JSON shape and falls back to auto-placement when missing/malformed or when that monitor is no longer connected.
+- The window's bounds are persisted on every `moved` / `resized` event to `popout-bounds.json` in userData, under that window's own KIND key (`savePopoutBounds('terminal', w.getBounds())`, guarded by `!w.isDestroyed()`), so the next pop-out of the SAME kind re-opens where the user last left it (e.g. dragged onto monitor 2) — without affecting where a project/session/internal window opens. `loadPopoutBounds(kind)` validates the JSON shape and falls back to that kind's own default/auto-placement when missing/malformed, on a disconnected monitor, or simply never saved for this kind.
 - Both window families share this one bounds slot — see [Persisted State](#persisted-state--env-vars).
 
 ### Pop-out PROJECT Windows
 
-`registerProjectWindowHandler()` (main.ts:221) exposes the `window:open-project` IPC handler (called from the renderer as `electronAPI.openProjectWindow({ path, file?, label? })`, returns `{ ok }`). It opens the standalone project browser in its own native BrowserWindow (same `POPOUT_DEFAULT_SIZE`, min 480x320, `#ece9d8` background and security `webPreferences` as the terminal pop-out) loading `http://localhost:${SERVER_PORT ?? 3333}/?popout=project&path=…` (plus an optional `file` query param). The renderer routes this via the `popout === 'project'` branch in `src/main.tsx:70`.
+`registerProjectWindowHandler()` (main.ts:221) exposes the `window:open-project` IPC handler (called from the renderer as `electronAPI.openProjectWindow({ path, file?, label? })`, returns `{ ok }`). It opens the standalone project browser in its own native BrowserWindow (`POPOUT_DEFAULT_SIZES.project` = 1400x900 — its own default, distinct from the terminal pop-out's 820x560; min 480x320, `#ece9d8` background and security `webPreferences` as the terminal pop-out) loading `http://localhost:${SERVER_PORT ?? 3333}/?popout=project&path=…` (plus an optional `file` query param). The renderer routes this via the `popout === 'project'` branch in `src/main.tsx:70`.
 
 - **This is the live replacement for the retired in-app floating PROJECT overlay** — a DOM panel can't leave the app window, so the "float" affordance opens a real OS window instead. It is reached from `openProjectWindow()` in `DetailTabs.tsx:433`.
 - Open windows are tracked in a **`projectPopoutWindows` Map keyed by `projectPath`** (main.ts:216) — a second open of the same path focuses the existing window rather than duplicating it.
-- Placement reuses the same `computePopoutBounds()` (main.ts:232) and `savePopoutBounds()` on `moved` / `resized` (main.ts:247-249) as the terminal pop-out.
-- **Security asymmetry (deliberate):** project windows install **only** the `setWindowOpenHandler` link restriction (main.ts:251-254) — there is **no** `before-input-event` guard, so `Cmd+R` / `Ctrl+R` / `F5` *do* reload a project window. Unlike a terminal, a project browser has no PTY state to lose, so reload stays available.
+- Placement reuses the same `computePopoutBounds('project')`/`savePopoutBounds('project', …)` machinery as the terminal pop-out, but under its OWN bounds key — resizing this window no longer affects where a terminal popup opens (fixed Aug 2026; see the Persisted State table above).
+- **Security asymmetry (deliberate):** project windows install **only** `attachWindowOpenPolicy(w)` — there is **no** `before-input-event` guard, so `Cmd+R` / `Ctrl+R` / `F5` *do* reload a project window. Unlike a terminal, a project browser has no PTY state to lose, so reload stays available.
 - Unlike the terminal pop-out, closing a project window sends no `popout:closed` push — it only deletes its Map entry (main.ts:256).
 
 ### Native OS Folder Picker
@@ -165,7 +191,7 @@ Both modules export a getter for their resolved path — `getCrashLogPath()` (cr
 |-----|-----------------|---------|
 | `setup.json` (`SETUP_FLAG`) | `userData/setup.json` | First-run flag; presence = setup complete (`{ completedAt }`) |
 | `server-config.json` (`CONFIG_PATH`) | `userData/server-config.json` | Persisted server config from setup wizard |
-| `popout-bounds.json` (`POPOUT_BOUNDS_FILE`) | `userData/popout-bounds.json` | Last-used pop-out window bounds (`{x,y,width,height}`) for second-monitor placement / position memory. **Shared by both terminal and project pop-outs** — a single global slot, not per-window-type, so moving one relocates the next open of the other |
+| `popout-bounds.json` (`POPOUT_BOUNDS_FILE`) | `userData/popout-bounds.json` | Last-used pop-out window bounds for second-monitor placement / position memory — **one slot per popout KIND** (`terminal`/`project`/`session`/`internal`, see `electron/popoutBounds.ts`), fixed Aug 2026. Before that it was a single flat `{x,y,width,height}` shared by all kinds, so resizing/maximizing the content-heavy PROJECT or SESSION window permanently oversized every later TERMINAL popout (a one-line Explain/Translate prompt would open at whatever huge size a file browser was last left at). A legacy flat file is deliberately NOT migrated into the new shape — see `parsePopoutBoundsFile`'s docblock |
 | `logs/` | `userData/logs/` | `main.log`/`main.old.log` (crashLogger.ts), `server.log`/`server.old.log` (server/logger.ts), `crashDumps/` (native crashReporter). One shared root — see [Crash & Debug Logging](#crash--debug-logging) |
 | `APP_USER_DATA` | env var | Points the embedded server at the writable userData dir |
 | `SERVER_PORT` | env var | Resolved server port, shared across IPC handlers, tray, and pop-out windows (dev default `3332`, IPC/tray fallback `3333`) |
@@ -230,7 +256,7 @@ Windows installers are built by GitHub Actions, not locally — `electron:build:
 
 ### Shared Resources
 - Main BrowserWindow + pop-out terminal BrowserWindows (`popoutWindows` Map, keyed by `terminalId`) + pop-out project BrowserWindows (`projectPopoutWindows` Map, keyed by `projectPath`)
-- `popout-bounds.json` — one bounds slot written by **both** pop-out Maps
+- `popout-bounds.json` — one bounds slot **per popout kind**, written by all four pop-out Maps/handlers (terminal, project, session, internal) via the shared pure module `electron/popoutBounds.ts`
 - Embedded Express server instance + `SERVER_PORT` env var
 - System tray
 
@@ -242,6 +268,7 @@ Windows installers are built by GitHub Actions, not locally — `electron:build:
 - Missing `loading.html` (it must be copied into `dist/electron/` during `electron:build`) causes a blank screen during server startup.
 - The `before-quit` 5s timeout is best-effort: if `flushSave()` exceeds it, the app quits anyway and workspace state may be lost. Don't lengthen it without UX consideration.
 - The TS→CJS rename step (`scripts/cjsRename.mjs`) is required because `main` is `main.cjs`; skipping it leaves Electron unable to find its entry point.
-- Pop-out window placement depends on `boundsOnSomeDisplay()` to reject saved bounds on a disconnected monitor; weakening that check can strand the window off-screen. The `screen` API is only valid after `app.whenReady()` — `computePopoutBounds()` runs inside the IPC handler (post-ready), so it must not be hoisted to module load.
+- Pop-out window placement depends on `boundsOnSomeDisplay()` to reject saved bounds on a disconnected monitor; weakening that check can strand the window off-screen. The `screen` API is only valid after `app.whenReady()` — `computePopoutBounds(kind)` runs inside the IPC handler (post-ready), so it must not be hoisted to module load.
+- **Every popout call site must pass its own `PopoutKind`** (`'terminal' | 'project' | 'session' | 'internal'`) to `computePopoutBounds()`/`savePopoutBounds()` — omitting one, or reusing another kind's, reopens the shared-bounds bug this was split to fix. `electron/popoutBounds.ts` is the pure, Electron-import-free module owning the shape/migration logic (`parsePopoutBoundsFile`, `mergePopoutBounds`), unit-tested directly (`test/popoutBounds.test.ts`) without booting Electron — same pattern as `internalUrl.ts`. It deliberately does NOT special-case detecting a legacy flat file: the per-kind extraction only reads the four kind-named keys, so a flat `{x,y,width,height}` file naturally contributes nothing (verified — an explicit `isWindowBounds(parsed)` early-return was tried and found to be dead code).
 - `crashLogger.ts` and `server/logger.ts` must keep resolving the **same** `<userData>/logs/` root independently (crashLogger.ts calls `app.getPath('userData')` directly; server/logger.ts reads the `APP_USER_DATA` env var). If either drifts back to Electron's OS-specific `app.getPath('logs')` or a different directory, `main.log` and `server.log` split across two folders and "Open Logs Folder" only reveals half the story.
 - `initCrashLogger()` must stay called before `app.whenReady()` (not inside it) — a crash during the pre-ready window (IPC handler registration, `createWindow()`) would otherwise go uncaught again.

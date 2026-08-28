@@ -13,7 +13,7 @@ Power user efficiency — quick navigation, session control, and modal toggling 
 | `src/stores/shortcutStore.ts` | Zustand store: bindings, rebind/reset, conflict + event lookup, IndexedDB persistence |
 | `src/lib/shortcutKeys.ts` (~10KB) | `DEFAULTS`, `ACTION_IDS`, `SECTION_ORDER`, `buildBindings`, KeyCombo utilities |
 | `src/types/shortcut.ts` | `KeyCombo`, `ShortcutActionId` (37 ids), `ShortcutBinding` types |
-| `src/components/modals/ShortcutsPanel.tsx` | Read-only reference overlay (`shortcuts` modal), opened from NavBar |
+| `src/components/modals/ShortcutsPanel.tsx` | Read-only reference overlay (`shortcuts` modal), opened from the `?` button in `Header`'s icon cluster (moved there from NavBar) or the `?` key |
 | `src/components/modals/ShortcutSettingsModal.tsx` | Standalone rebind/reset modal (`shortcut-settings` modal, mounted in App.tsx) |
 | `src/components/settings/ShortcutSettings.tsx` | Embedded rebind/reset UI for the Settings panel's Shortcuts tab |
 | `src/components/modals/ShortcutRow.tsx` | Shared row: label, clickable `<kbd>`, reset button (used by both editors) |

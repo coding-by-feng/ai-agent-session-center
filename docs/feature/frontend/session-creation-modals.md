@@ -97,5 +97,6 @@ Still compiles but is not wired into the app (nothing opens `modalId="quick-sess
 - `deriveRemoteControlName` reads `useSessionStore.getState()` directly (not a hook) to avoid stale closures; a store-shape change breaks it silently.
 - `autoEnable` defaults `false` on parse error — a corrupted `remote-control:settings` loses the user's setting.
 - NewSessionModal and (orphaned) QuickSessionModal duplicate the remote-control and model/effort UI + save logic — keep them in sync if QuickSessionModal is revived.
+- `.quickLabelInputRow input` / `.quickWorkdirRow input` in `Modal.module.css` referenced `var(--bg-secondary)` — undefined in every theme file, so both inputs always rendered the same hardcoded-adjacent fallback regardless of theme. Fixed to `var(--bg-card)`, the real token every other themed input surface in this codebase uses.
 - The Codex catalog depends on the locally installed/authenticated Codex CLI. Failure must keep session creation available at the Codex default; never replace this with a hard-coded model list that requires a dashboard release to refresh.
 - WorkdirLauncher and NewSessionModal both write `dir-session-configs` — relaunch params are last-write-wins per directory.

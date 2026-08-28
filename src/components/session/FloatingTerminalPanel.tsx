@@ -17,7 +17,9 @@ import { keyComboToString } from '@/lib/shortcutKeys';
 import type { ShortcutActionId } from '@/types/shortcut';
 import { PALETTE } from '@/lib/robotPalette';
 import Tooltip from '@/components/ui/Tooltip';
+import DetachIcon from '@/components/ui/DetachIcon';
 import { tooltips } from '@/lib/tooltips';
+import { openFloatWindow } from '@/lib/popoutTerminalWindow';
 import styles from '@/styles/modules/FloatingTerminalPanel.module.css';
 
 const POS_KEY = 'float-terminal-pos';
@@ -153,23 +155,28 @@ export default function FloatingTerminalPanel({
     ? originSession.accentColor || PALETTE[(originSession.colorIndex ?? 0) % PALETTE.length]
     : undefined;
 
-  // Pop out into a native window (Electron only) — draggable to another monitor.
-  // Hide the in-app panel on success so only the popout window subscribes to the
-  // PTY; FloatingTerminalRoot re-docks it when that window closes.
+  // Pop out into its own window — draggable to another monitor. Electron gets a
+  // real native BrowserWindow via IPC and hides the in-app panel so the popout
+  // becomes the sole WS subscriber (re-docked via popout:closed when it shuts).
+  // A plain browser tab has no IPC, so it falls back to a real detached
+  // window.open() popup loading the SAME ?popout=terminal route Electron uses —
+  // PopoutTerminalView needs no Electron API, so no second renderer is needed.
+  // Mirrors DetailTabs.openProjectWindow's Electron/stale-preload/browser chain;
+  // unlike that popout, this one has no reliable close signal outside Electron,
+  // so the in-app panel is left visible/subscribed rather than hidden — same as
+  // openProjectWindow, which never hides anything in the calling window either.
   const setPoppedOut = useFloatingSessionsStore((s) => s.setPoppedOut);
   const shortcutBindings = useShortcutStore((s) => s.bindings);
   const comboFor = (id: ShortcutActionId): string =>
     keyComboToString(shortcutBindings.find((b) => b.actionId === id)?.combo ?? null);
-  const canPopOut = typeof window !== 'undefined' && !!window.electronAPI?.openTerminalWindow;
   const handlePopOut = useCallback(() => {
-    window.electronAPI
-      ?.openTerminalWindow?.({ terminalId, originSessionId, label })
-      .then((r) => {
-        if (r?.ok) setPoppedOut(terminalId, true);
-      })
-      .catch(() => {
-        /* ignore — panel stays in-app */
-      });
+    // Shares `openFloatWindow` with SelectionPopup's spawn path so the
+    // Electron / stale-preload / browser rules live in exactly one place.
+    // Here the panel is already docked, so a `docked` outcome just means
+    // "stay put" — there is no orphan risk to guard against.
+    void openFloatWindow({ terminalId, originSessionId, label }).then((outcome) => {
+      if (outcome.placed === 'window') setPoppedOut(terminalId, true);
+    });
   }, [terminalId, originSessionId, label, setPoppedOut]);
 
   const rootRef = useRef<HTMLElement | null>(null);
@@ -380,18 +387,16 @@ export default function FloatingTerminalPanel({
         </span>
         <span className={styles.title}>{label}</span>
         <div className={styles.headerBtns}>
-          {canPopOut && (
-            <Tooltip label="Pop out to a window (drag to another monitor)" placement="bottom">
-              <button
-                type="button"
-                className={styles.headerBtn}
-                onClick={handlePopOut}
-                aria-label="Pop out to a window"
-              >
-                ⧉
-              </button>
-            </Tooltip>
-          )}
+          <Tooltip {...tooltips.floatTerminalPopOut} placement="bottom">
+            <button
+              type="button"
+              className={styles.headerBtn}
+              onClick={handlePopOut}
+              aria-label={tooltips.floatTerminalPopOut.label}
+            >
+              <DetachIcon size={12} />
+            </button>
+          </Tooltip>
           <Tooltip label={`Minimize to icon (${comboFor('floatMinimize')})`} placement="bottom">
             <button
               type="button"

@@ -46,6 +46,40 @@
   cursor: default;
 }
 
+/* Mobile toolbar overflow menu — the "⋯" grid holding the actions that don't
+   fit at <=480px. Portaled to <body>, so its z-index competes with full-screen
+   overlays rather than with its own toolbar row: it sits in the same 10000+
+   band as the app's other body-portaled overlays (Tooltip 10000,
+   SelectionPopup 10050, DevicePresence panel 10060). A "reasonable-looking"
+   small value here would render it BEHIND .detailOverlay (z-index 100) and
+   make the ⋯ button look dead. */
+.iconOverflowMenu {
+  position: fixed;
+  z-index: 10070;
+  display: grid;
+  grid-template-columns: repeat(5, 34px);
+  gap: 2px;
+  box-sizing: border-box;
+  padding: 8px;
+  border: 1px solid var(--border-accent, var(--border-subtle));
+  border-radius: 8px;
+  background: var(--bg-panel);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 28%);
+}
+
+/* Disabled actions stay VISIBLE here rather than hidden: this menu is the only
+   place several of them exist on mobile, so hiding one would read as "that
+   feature is gone" instead of "not applicable to the current file". */
+.iconOverflowMenu .iconBtn:disabled {
+  opacity: 0.35;
+}
+
+/* The inline group divider is a 1px-wide element — in a grid it would consume
+   a whole 34px cell and punch a gap in the middle of the icons. */
+.iconOverflowMenu .iconBarSep {
+  display: none;
+}
+
 .iconBarSep {
   width: 1px;
   height: 16px;
@@ -94,7 +128,9 @@
   background: rgba(0, 229, 255, 0.05);
 }
 .fileTabIcon {
-  font-size: 11px;
+  width: 12px;
+  height: 12px;
+  color: var(--text-dim);
   flex-shrink: 0;
 }
 .fileTabName {
@@ -285,9 +321,9 @@
 
 .fileIcon {
   flex-shrink: 0;
-  width: 22px;
-  text-align: center;
-  font-size: 14px;
+  width: 14px;
+  height: 14px;
+  color: var(--text-dim);
 }
 
 .fileName {
@@ -374,6 +410,7 @@
   height: 100%;
   max-width: calc(100vw - 48px);
   max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
   background: var(--bg-panel, #0d0d1a);
   border: 1px solid var(--border-subtle-strong, rgba(255,255,255,0.15));
   border-radius: 8px;
@@ -561,6 +598,7 @@
 .pdfViewer {
   width: 100%;
   height: calc(100vh - 180px);
+  height: calc(100dvh - 180px);
   min-height: 500px;
   border: none;
   border-radius: 4px;
@@ -584,6 +622,7 @@
 .mediaImage {
   max-width: 100%;
   max-height: calc(100vh - 240px);
+  max-height: calc(100dvh - 240px);
   object-fit: contain;
   border-radius: 4px;
   background: repeating-conic-gradient(
@@ -605,6 +644,7 @@
 .mediaVideo {
   max-width: 100%;
   max-height: calc(100vh - 240px);
+  max-height: calc(100dvh - 240px);
   border-radius: 4px;
   outline: none;
 }
@@ -651,7 +691,7 @@
 
 .imageZoomBtn:hover:not(:disabled) {
   background: rgba(0, 255, 255, 0.1);
-  color: var(--text-bright, #e0e0ff);
+  color: var(--text-primary, #e0e0ff);
 }
 
 .imageZoomBtn:disabled {
@@ -675,7 +715,7 @@
 
 .imageZoomLevel:hover {
   background: rgba(0, 255, 255, 0.1);
-  color: var(--text-bright, #e0e0ff);
+  color: var(--text-primary, #e0e0ff);
 }
 
 .imageZoomContainer {
@@ -1386,8 +1426,8 @@
   }
 
   .fileIcon {
-    font-size: 16px;
-    width: 26px;
+    width: 18px;
+    height: 18px;
   }
 
   .breadBtn {
@@ -1447,7 +1487,11 @@
   min-width: 140px;
   max-width: 50%;
   border-right: 1px solid var(--border-faint);
-  background: rgba(10, 10, 26, 0.5);
+  /* Was a hardcoded rgba(10, 10, 26, 0.5) — the dark theme's own navy,
+     regardless of the active theme. Under a light theme (windows-xp, blonde,
+     warm, light) that rendered as a dark, semi-transparent overlay muddying
+     into a washed-out gray instead of the theme's real panel color. */
+  background: var(--bg-panel);
   overflow-y: auto;
   overflow-x: auto;
 }
@@ -1561,16 +1605,92 @@
   font-size: 28px;
 }
 
-/* ---- Small screens: collapse tree panel ---- */
+/* ---- Small screens: file tree becomes a slide-over overlay ----------------
+ *
+ * This block used to be `.treePanel { display: none }` — an explicit "collapse
+ * tree panel on small screens" rule. The goal was sound (a 390px screen cannot
+ * host a usable tree AND a usable viewer side by side), but hiding it outright
+ * left NO way to browse or pick a file, making the whole PROJECT tab
+ * non-functional on a phone: the viewer's own empty state read "Select a file
+ * from the tree to view" while pointing at UI that had been removed.
+ *
+ * The tree is now an overlay instead — closed by default (so the viewer still
+ * gets the full width, preserving the original intent) and opened from the
+ * toolbar's `.mobileTreeToggle`. Full-width rather than a partial drawer for
+ * the same reason the split was dropped: at this size, one thing at a time.
+ */
+/* Base (desktop) state for the two width-dependent affordances below. These
+   MUST be declared BEFORE the media query: both rules have identical
+   specificity (0,1,0), so source order decides the winner — a base rule placed
+   after the breakpoint would beat it at every width and silently un-do the
+   mobile behaviour. (Caught in a render check, where the toggle came back
+   `display: none` on a 386px viewport.)
+
+   Above 480px the tree is a permanently-visible side panel, so a toolbar
+   toggle would duplicate the sidebar's own collapse chevron. */
+.mobileTreeToggle {
+  display: none;
+}
+
+.welcomeHintDesktop { display: block; }
+.welcomeHintMobile { display: none; }
 
 @media (max-width: 480px) {
+  .mobileTreeToggle {
+    display: inline-flex;
+  }
+
   .treePanel {
+    position: absolute;
+    z-index: 5;
+    inset: 0;
+    /* `!important` overrides the inline `width`/`minWidth` ProjectTab.tsx sets
+       for the DESKTOP resizable panel — an inline style beats a media query,
+       so without this the overlay renders stuck at its ~220px desktop width. */
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none;
+    border-right: none;
+    /* Closed by default: parked off-screen AND `visibility: hidden`, so the
+       closed tree is not focusable/tabbable.
+
+       Deliberately NOT animated. A slide-in was tried and removed: whether the
+       panel is USABLE depended on a transition reaching its end state, and a
+       transform transition that stalls leaves the tree "open" but still parked
+       off-screen — i.e. the feature silently does nothing. (Observed exactly
+       that in a render check: `visibility` flipped to visible while `transform`
+       stayed pinned at -100%.) An instant open cannot land in that state.
+       Related trap, kept as a note: `visibility` is DISCRETE and must never be
+       given a duration — `transition: visibility .18s` pins the computed value
+       at `hidden` even once the class has flipped. */
+    visibility: hidden;
+    transform: translateX(-100%);
+  }
+
+  .treePanelMobileOpen {
+    visibility: visible;
+    transform: translateX(0);
+  }
+
+  /* The split is the overlay's positioning context — without this the tree
+     would anchor to the nearest positioned ancestor further up and could
+     cover the toolbar (including its own toggle button). */
+  .vscodeSplit {
+    position: relative;
+  }
+
+  /* Desktop-only affordances inside the panel: the drag-resize divider and
+     the collapse chevron are meaningless for a full-width overlay that is
+     dismissed by picking a file or re-tapping the toolbar button. */
+  .treeDivider,
+  .treePanelToggle {
     display: none;
   }
-  .treeDivider {
-    display: none;
-  }
+
+  .welcomeHintDesktop { display: none; }
+  .welcomeHintMobile { display: block; }
 }
+
 
 /* ---- Line-based Code Viewer ---- */
 
@@ -2092,7 +2212,8 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: var(--bg-base, #0a0a1a);
+  height: 100dvh;
+  background: var(--bg-primary, #0a0a1a);
   color: var(--text-primary, #e0e0e0);
   font-family: var(--font-mono, 'JetBrains Mono', monospace);
 }

@@ -10,14 +10,17 @@ Real-time bridge between server and browser. Handles connection lifecycle, recon
 | File | Role |
 |------|------|
 | `src/lib/wsClient.ts` (~4KB) | `WsClient` class: connect/reconnect, send with backpressure guard, replay request on reconnect, auth-failure handling, raw-socket access for terminal relay |
-| `src/hooks/useWebSocket.ts` | React hook that creates one `WsClient`, routes `ServerMessage`s (snapshot, session_update, session_removed, clearBrowserDb), and integrates sound, persistence, pinned respawn, and floating-popup cleanup. `team_update`/`hook_stats`/`terminal_output`/`terminal_ready`/`terminal_closed` are no-ops here (`break;`) — handled by other hooks/components |
-| `src/types/websocket.ts` | Discriminated-union message contracts shared by server + client: `ServerMessage` / `ClientMessage` and every member interface, plus `HookStats` shape |
+| `src/hooks/useWebSocket.ts` | React hook that creates one `WsClient`, routes `ServerMessage`s (snapshot, session_update, session_removed, clearBrowserDb, presence_update, control_denied, control_requested), and integrates sound, persistence, pinned respawn, and floating-popup cleanup. `team_update`/`hook_stats`/`terminal_output`/`terminal_ready`/`terminal_closed` are no-ops here (`break;`) — handled by other hooks/components |
+| `src/types/websocket.ts` | Discriminated-union message contracts shared by server + client: `ServerMessage` / `ClientMessage` and every member interface, plus `HookStats`, `DevicePresence`, and `ControlHolderView` shapes |
+| `src/lib/deviceIdentity.ts` | `getClientId()` / `getClientLabel()` — the stable per-browser-profile identity appended to the WS URL |
+| `src/lib/presenceClient.ts` | `installClientIdentityHeaders()` — the same identity on HTTP, patched onto `window.fetch` once from `src/main.tsx` |
 
 ## Implementation
 
 ### WsClient (`wsClient.ts`)
 - **Constructor options**: `{ url, token?, onMessage, onStatus }`.
-- **URL build**: resolves `url` against `window.location.origin`, upgrades scheme to `wss:`/`ws:`, appends `?token=` when a token is set.
+- **URL build**: resolves `url` against `window.location.origin`, upgrades scheme to `wss:`/`ws:`, appends `?token=` when a token is set, then appends `clientId` + `label` from `src/lib/deviceIdentity.ts`.
+- **Why identity rides on the URL, not a post-connect `hello`**: the server sends the `snapshot` and registers the device with `presenceManager` **synchronously** inside `handleConnection`, so an async handshake would race its own first broadcast — the joining device would render the snapshot before it knew it was a spectator. Query params are the only channel available before the first byte, since a browser `WebSocket` cannot set request headers. See [Multi-Device Presence](../server/multi-device-presence.md).
 - **Reconnection**: `BASE_DELAY = 1000` (1s), `MAX_DELAY = 10000` (10s), delay `= min(1000 * 2^attempt, 10000)`; attempt counter resets to 0 on a successful `onopen`.
 - **No reconnect on auth failure**: close code `4001` → emits `disconnected` status, dispatches `document` CustomEvent `'ws-auth-failed'`, and stops (no reconnect).
 - **Replay on reconnect**: `onopen` sends `{ type: 'replay', sinceSeq: lastSeq }` when `lastSeq > 0`. `lastSeq` is tracked from `snapshot` messages (`msg.seq`).
@@ -32,9 +35,15 @@ Message handlers:
 - **`session_update`**: captures `prevStatus` before mutating. If `session.replacesId` is set, migrates the old id → new id **synchronously in Zustand first** (`queueStore.migrateSession`, `roomStore.migrateSession`, `floatingSessionsStore.migrateOriginSession`) **before** the async IndexedDB migration (`migrateSessionId(...).then(delete old)`). The async path also calls `migrateOriginSessionId(replacesId, sessionId)` (`useWebSocket.ts:100`, from `@/lib/translationLog`) to re-point persisted AI-popup/REVIEW rows at the surviving id, so `AiPopupHistory` (which lists by `originSessionId`) doesn't go empty after a re-key. This ordering is intentional: `updateSession()` re-keys the in-memory map atomically and may shift `selectedSessionId`, so QueueTab/Room/floating views must already see the new id by the time React re-renders. It does NOT call `removeSession()` (that would clear `selectedSessionId` before `updateSession` can follow it). Then `updateSession(session)` + `persistSessionUpdate`. On a **fresh** transition to `status === 'ended'` (had a prior non-ended status), calls `onSessionEnded(session)` for pinned auto-respawn (no-op for unpinned/user-closed sessions). Finally `handleEventSounds(session)` and `checkAlarms(session, ...)`.
 - **`session_removed`**: `floatingSessionsStore.closeByOriginSession(msg.sessionId)` (close that session's popups so their PTYs don't leak), then `removeSession(msg.sessionId)`.
 - **`clearBrowserDb`**: `floatingSessionsStore.closeAll()`, `setSessions(new Map())` (so autoSave can't re-publish killed sessions), then `db.delete().then(db.open())` to wipe + reopen IndexedDB.
+- **`presence_update`** (broadcast): `presenceStore.applyPresence(msg)` — the whole device list, control batons, `restoreOwner`, and `workspaceWriter` are replaced wholesale; the server is the single source of truth and this store is a read-model.
+- **`control_denied`** (unicast to the rejected writer): `presenceStore.setDenial({ sessionId, by, at: Date.now() })`. The server throttles these per session (`terminal_input` fires per keystroke), so it is a notice explaining the silence, not a per-key event.
+- **`control_requested`** (broadcast, carries `toClientId`): `presenceStore.addRequest({...})` **only when `msg.toClientId === getClientId()`**. Unlike `control_denied` this one is sent to every client, so the addressing is enforced on the receiving end — drop the check and a hand-over request aimed at one holder raises a prompt on every connected device.
+
+### HTTP-side identity (`presenceClient.ts`)
+The same `clientId`/`label` reach the REST API as `x-aasc-client-id` / `x-aasc-client-label`, installed **once** by `installClientIdentityHeaders()` from `src/main.tsx` before anything fetches. Threading a header through ~100 call sites would let a single omission silently degrade that call to "anonymous device". The patch touches **same-origin requests only** — attaching a custom header to a cross-origin request converts it from a CORS *simple* request into a *preflighted* one, which would break third-party calls that work today — and never overwrites a header the caller already set.
 
 ### Message contracts (`types/websocket.ts`)
-- **`ServerMessage`** union: `snapshot` (`{ sessions, teams, seq }`), `session_update` (`{ session, team? }`), `session_removed` (`{ sessionId }`), `team_update` (`{ team }`), `hook_stats` (`{ stats }`), `terminal_output` (`{ terminalId, data }`), `terminal_ready` (`{ terminalId }`), `terminal_closed` (`{ terminalId, reason? }`), `clearBrowserDb`.
+- **`ServerMessage`** union: `snapshot` (`{ sessions, teams, seq }`), `session_update` (`{ session, team? }`), `session_removed` (`{ sessionId }`), `team_update` (`{ team }`), `hook_stats` (`{ stats }`), `terminal_output` (`{ terminalId, data }`), `terminal_ready` (`{ terminalId }`), `terminal_closed` (`{ terminalId, reason? }`), `clearBrowserDb`, `presence_update` (`{ devices, controllers, restoreOwner, workspaceWriter }`), `control_denied` (`{ sessionId, terminalId, by, byClientId }`), `control_requested` (`{ sessionId, fromClientId, fromLabel, toClientId }`).
 - **`ClientMessage`** union: `terminal_input` (`{ terminalId, data }`), `terminal_resize` (`{ terminalId, cols, rows }`), `terminal_disconnect` (`{ terminalId }`), `terminal_subscribe` (`{ terminalId }`), `update_queue_count` (`{ sessionId, count }`), `replay` (`{ sinceSeq }`).
 - **`HookStats`**: `{ totalHooks, hooksPerMin, events: Record<string, HookEventStats>, sampledAt }`, with per-event `count`/`rate`/`latency`/`processing` (`HookTimingStats` = `{ avg, min, max, p95 }`). Consumed elsewhere (hook stats UI), not in this hook.
 
@@ -48,6 +57,7 @@ Message handlers:
 - [Sound & Alarm System](../multimedia/sound-alarm-system.md) — `handleEventSounds` / `checkAlarms` on each `session_update`
 - [Floating Terminal Fork](./floating-terminal-fork.md) — floatingSessionsStore popup-lifecycle calls in every handler
 - [Workspace Snapshot](./workspace-snapshot.md) — `isImportInProgress()` gate that suppresses orphan-close during restore
+- [Multi-Device Presence](../server/multi-device-presence.md) — `deviceIdentity` supplies the URL params + fetch headers; `presenceStore` consumes all three presence messages
 
 ### Depended On By
 - [Terminal UI](./terminal-ui.md) — terminal I/O relay (browser transport) via `getRawSocket()` and the terminal `ClientMessage`s
@@ -62,3 +72,6 @@ Message handlers:
 - The synchronous-Zustand-then-async-IDB ordering in the `replacesId` path is load-bearing: reversing it can orphan queue/room/floating state under the dead session id.
 - Skipping the floating-popup cleanup calls (`closeOrphans`/`closeByOriginSession`/`closeAll`) leaks server-side PTYs as invisible orphans.
 - Dropping `handleEventSounds`/`checkAlarms` silences all event notifications and alarms.
+- **Moving `clientId`/`label` to a post-connect handshake re-opens the snapshot race** — the server registers presence and sends the snapshot synchronously, so an async hello lands after both.
+- **Dropping the `msg.toClientId === getClientId()` check on `control_requested`** pops a hand-over prompt on every connected device, since the message is broadcast.
+- **Widening `installClientIdentityHeaders` past same-origin** turns every cross-origin `fetch` into a preflighted request.

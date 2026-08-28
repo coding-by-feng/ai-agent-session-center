@@ -92,7 +92,7 @@ interface DbSummaryPrompt {
 
 ### Storage keys
 
-- IndexedDB (Dexie `AascDb`): table `summaryPrompts` (`++id, isDefault`).
+- IndexedDB (Dexie `DashboardDb`): table `summaryPrompts` (`++id, isDefault`).
 - SQLite (`server/db.ts`): `sessions.summary` column, written via `updateSessionSummary`.
 
 ### Step-by-step flows

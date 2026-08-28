@@ -1,0 +1,40 @@
+/* LiveView — FlatView (the no-WebGL fallback shown when `scene3dEnabled` is
+ * false, which is the default since 3D became opt-in).
+ */
+
+.flatRoot {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-primary, #0a0a1a);
+}
+
+/* "3D SCENE PAUSED" watermark. On a desktop it labels the empty space the
+ * scene would occupy, next to the agent list rail. On a phone the agent list
+ * goes full-bleed and IS the page, so this stops being a label for anything
+ * and becomes a full-screen sign explaining an absence — hidden there.
+ *
+ * BUT only when the sidebar actually has content to replace it with: with
+ * zero sessions RobotListSidebar renders null (`hasAnySessions` in that
+ * file), so a blanket hide here left a session-less phone visit looking at a
+ * blank page with nothing to explain why. `.scenePausedHasSidebar` is added
+ * by LiveView only when `sessions.size > 0`, and the mobile hide is scoped to
+ * that modifier — the true-empty case keeps this as its only content. */
+.scenePaused {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--border-subtle);
+  font-family: 'Share Tech Mono', 'JetBrains Mono', monospace;
+  font-size: 14px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+@media (max-width: 640px) {
+  .scenePausedHasSidebar {
+    display: none;
+  }
+}

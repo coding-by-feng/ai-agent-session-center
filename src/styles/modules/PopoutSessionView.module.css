@@ -1,0 +1,37 @@
+/*
+ * PopoutSessionView — just the "back to main" button. Everything else in this
+ * window is DetailPanel, styled by DetailPanel.module.css.
+ *
+ * `.detailOverlay` (DetailPanel's own root) is `position: absolute; z-index:
+ * 100`. This button must render on TOP of it regardless of which tab is active
+ * (including the terminal fullscreen state, which raises its own overlay even
+ * higher — see Terminal.module.css) — position: fixed + a z-index above every
+ * in-app overlay, same 10000+ band as Tooltip/SelectionPopup/the presence
+ * panel, keeps it clickable no matter what DetailPanel is currently showing.
+ */
+
+.backBtn {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  z-index: 10070;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px solid var(--accent-cyan, #00e5ff);
+  border-radius: 6px;
+  background: var(--bg-panel, #0d1117);
+  color: var(--accent-cyan, #00e5ff);
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 35%);
+  transition: background 0.15s, color 0.15s;
+}
+
+.backBtn:hover {
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 15%, var(--bg-panel, #0d1117));
+}

@@ -7,7 +7,7 @@
  * in-app panel is hidden, so this window is the sole WS subscriber; closing it
  * re-docks the in-app float (FloatingTerminalRoot listens for popout:closed).
  */
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useSettingsInit } from '@/hooks/useSettingsInit';
 import { useWsStore } from '@/stores/wsStore';
@@ -36,9 +36,15 @@ export default function PopoutTerminalView({ terminalId, originSessionId, label 
   const connected = useWsStore((s) => s.connected);
   const ws = useMemo(() => client?.getRawSocket() ?? null, [client, connected]);
 
+  // Native/browser-popup window chrome already shows this — an in-page title
+  // strip would just duplicate it (and, unlike Electron's BrowserWindow title
+  // option, a window.open() popup has no other way to get a real title).
+  useEffect(() => {
+    if (label) document.title = label;
+  }, [label]);
+
   return (
     <div className={styles.root}>
-      {label && <div className={styles.titlebar} title={label}>{label}</div>}
       <div className={styles.body}>
         <TerminalContainer
           terminalId={terminalId}

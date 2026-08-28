@@ -65,12 +65,12 @@
 
 /* ---- Hook Stats Panel ---- */
 
-.hookStatsToggle { border-left: 1px solid var(--border-dim); padding-left: 12px; }
+.hookStatsToggle { border-left: 1px solid var(--border-subtle); padding-left: 12px; }
 .hookRate { color: var(--text-secondary); font-weight: 300; font-size: 10px; }
 
 .hookStatsPanel {
   position: absolute; top: 100%; right: 0; margin-top: 8px;
-  background: var(--bg-card, #12122a); border: 1px solid var(--border-dim);
+  background: var(--bg-card, #12122a); border: 1px solid var(--border-subtle);
   border-radius: 8px; padding: 12px 16px; z-index: 1000;
   min-width: 560px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
 }
@@ -82,14 +82,14 @@
 }
 
 .hookStatsReset {
-  background: none; border: 1px solid var(--border-dim);
+  background: none; border: 1px solid var(--border-subtle);
   color: var(--text-secondary); font-size: 10px; padding: 2px 8px;
   border-radius: 4px; cursor: pointer; font-family: inherit; letter-spacing: 0.5px;
 }
 .hookStatsReset:hover { border-color: var(--accent-red); color: var(--accent-red); }
 
 .hookStatsTable { width: 100%; border-collapse: collapse; font-size: 11px; }
-.hookStatsTable th { text-align: left; color: var(--text-secondary); font-weight: 400; padding: 4px 8px; border-bottom: 1px solid var(--border-dim); letter-spacing: 0.5px; font-size: 10px; text-transform: uppercase; }
+.hookStatsTable th { text-align: left; color: var(--text-secondary); font-weight: 400; padding: 4px 8px; border-bottom: 1px solid var(--border-subtle); letter-spacing: 0.5px; font-size: 10px; text-transform: uppercase; }
 .hookStatsTable td { padding: 4px 8px; color: var(--text-primary); border-bottom: 1px solid rgba(255, 255, 255, 0.03); }
 
 .hookEvName { color: var(--accent-cyan); font-weight: 500; }
@@ -142,6 +142,17 @@
 .headerIconBtn svg {
   width: 16px;
   height: 16px;
+}
+
+/* For an icon button whose content is a TEXT glyph (the `?` shortcuts button)
+   rather than an SVG — `.headerIconBtn` only sizes `svg`, so without this the
+   glyph inherits the header's own font/size and sits visibly smaller and
+   mis-aligned next to its SVG neighbours. */
+.headerIconGlyph {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .exitBtn:hover {
@@ -391,7 +402,7 @@
   right: 0;
   margin-top: 6px;
   background: var(--bg-card, #12122a);
-  border: 1px solid var(--border-dim);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 6px 0;
   z-index: 1000;
@@ -405,7 +416,7 @@
   font-weight: 600;
   letter-spacing: 1.5px;
   color: var(--text-dim);
-  border-bottom: 1px solid var(--border-dim);
+  border-bottom: 1px solid var(--border-subtle);
   margin-bottom: 4px;
 }
 
@@ -442,5 +453,17 @@
 @media (max-width: 640px) {
   .header { flex-direction: column; gap: 8px; padding: 10px 16px; }
   .title { font-size: 12px; letter-spacing: 2px; }
-  .stats { font-size: 10px; gap: 12px; }
+  /* Six icon-only controls share this row now (was four, before the `?` button
+     and the presence chip moved up from NavBar). The old 12px gap was WIDER
+     than the desktop default and would overflow a phone; tighten it and allow
+     wrapping rather than clipping. `margin-left: auto` is neutralised because
+     the header is `flex-direction: column` here — the cluster centres under the
+     stacked title instead of hugging an edge. */
+  .stats {
+    font-size: 10px;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-left: 0;
+  }
 }

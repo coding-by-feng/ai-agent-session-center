@@ -31,7 +31,9 @@ npm start                # Start production server
 npm test                 # Vitest
 npm run test:e2e         # Playwright E2E
 npm run test:coverage    # Coverage report
-npm run typecheck        # tsc --noEmit
+npm run typecheck        # tsc --noEmit (src/ only)
+npm run typecheck:server # tsc --noEmit -p tsconfig.server.json (server/ + src/types)
+npm run typecheck:all    # both, in sequence
 npm run lint             # ESLint src/
 npm run format           # Prettier
 npm run electron:dev     # Build and launch Electron app
@@ -44,8 +46,10 @@ npm run reset            # Remove hooks, clean config, backup
 
 Use the smallest verification command that fits the change. For shared contracts,
 state shape, server routes, Electron IPC, terminal behavior, or feature-doc work,
-prefer at least `npm run typecheck` plus any targeted tests that cover the touched
-area.
+prefer at least `npm run typecheck:all` (plain `typecheck` only covers `src/` —
+`server/` has its own `tsconfig.server.json` and nothing runs it automatically,
+so a server-only change checked with plain `typecheck` can still ship a type
+error) plus any targeted tests that cover the touched area.
 
 ## Feature Documentation Workflow
 
@@ -217,7 +221,7 @@ Check connected docs and tests when touching these contracts:
 <claude-mem-context>
 # Memory Context
 
-# [agent-manager] recent context, 2026-08-03 8:40pm GMT+12
+# [agent-manager] recent context, 2026-08-07 11:04pm GMT+12
 
 Legend: 🎯session 🔴bugfix 🟣feature 🔄refactor ✅change 🔵discovery ⚖️decision
 Format: ID TIME TYPE TITLE

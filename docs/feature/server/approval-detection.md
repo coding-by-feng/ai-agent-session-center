@@ -9,7 +9,7 @@ Enables the dashboard to show approval/input status, trigger alarms, and alert u
 ## Source Files
 | File | Role |
 |------|------|
-| `server/approvalDetector.ts` (~5.8KB, 135 lines) | Timer management, category-based timeouts, child-process check, **thinking-spinner guard** (`isAgentBusyOutput` + `BUSY_SPINNER_RE`), timer Map |
+| `server/approvalDetector.ts` (~7.0KB, 154 lines) | Timer management, category-based timeouts, child-process check, **thinking-spinner guard** (`isAgentBusyOutput` + `BUSY_SPINNER_RE`), timer Map |
 | `server/sshManager.ts` | `getTerminalOutputTail(terminalId, maxBytes)` — supplies the live terminal tail the spinner guard inspects |
 | `server/config.ts` | Tool category definitions + timeouts/labels for approval detection (the approval slice only; this file also hosts auto-idle/animation/launch-flag config consumed by other features) |
 | `server/sessionStore.ts` | Coordinator — calls `startApprovalTimer`/`clearApprovalTimer` per hook event and handles `PermissionRequest` directly |

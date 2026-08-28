@@ -87,7 +87,19 @@ export interface Terminal {
   pty: import('node-pty').IPty;
   sessionId: string | null;
   config: TerminalConfig;
-  wsClient: import('ws').WebSocket | null;
+  /**
+   * Every WebSocket currently watching this terminal.
+   *
+   * This was a single `wsClient` reference, which made terminals last-subscriber-
+   * wins: opening the dashboard on a phone silently stole the output stream from
+   * the desktop app, whose terminal then sat frozen with no error anywhere. A Set
+   * is what lets two devices watch one PTY at the same time — reads are shared;
+   * only WRITES are arbitrated, by `presenceManager`'s per-session baton.
+   *
+   * Mutate only through sshManager's `setWsClient` / `removeWsClient` /
+   * `removeClientFromAllTerminals`, which also prune closed sockets.
+   */
+  wsClients: Set<import('ws').WebSocket>;
   createdAt: number;
   /**
    * Output ring buffer state. Owned by `server/ptyRing.ts` — use its ring*

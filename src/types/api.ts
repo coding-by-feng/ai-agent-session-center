@@ -343,6 +343,60 @@ export interface FullTextSearchResponse {
   pageSize: number;
 }
 
+// ---------------------------------------------------------------------------
+// Prompt trace (GET /api/db/prompts) — the global record of every prompt sent
+// ---------------------------------------------------------------------------
+
+/**
+ * Which prompts to include.
+ *
+ * ~10% of the rows in `prompts` were never typed by a human: the harness posts
+ * `<task-notification>`, `<observed_from_primary_session>`, `<system-reminder>`
+ * and friends through the same `UserPromptSubmit` hook. Every one of those
+ * starts with `<`, which is what the `agent` facet keys off.
+ *
+ * - `mine`  — everything the human sent (prose + slash/`$` commands). Default.
+ * - `cmd`   — only slash (`/…`) or Codex skill (`$…`) invocations.
+ * - `agent` — only harness/agent-injected turns.
+ * - `all`   — no filtering, blanks included.
+ */
+export type PromptKind = 'mine' | 'cmd' | 'agent' | 'all';
+
+/** One prompt, joined to the session it was sent in. */
+export interface PromptTraceRow {
+  id: number;
+  session_id: string;
+  text: string;
+  timestamp: number;
+  /** Null when the session row is gone (LEFT JOIN — the prompt still counts). */
+  project_name: string | null;
+  project_path: string | null;
+  session_title: string | null;
+}
+
+/** GET /api/db/prompts query parameters */
+export interface PromptSearchParams {
+  query?: string;
+  /** Filter by `sessions.project_path`. */
+  project?: string;
+  /** Filter to a single session id. */
+  session?: string;
+  kind?: PromptKind;
+  dateFrom?: number;
+  dateTo?: number;
+  sortDir?: 'asc' | 'desc';
+  page?: number;
+  pageSize?: number;
+}
+
+/** GET /api/db/prompts — paginated prompt trace */
+export interface PromptSearchResponse {
+  prompts: PromptTraceRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 /** POST /api/db/sessions/:id/notes */
 export interface AddNoteRequest {
   text: string;

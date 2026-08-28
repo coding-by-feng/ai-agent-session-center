@@ -1,6 +1,7 @@
 // authManager.ts — Password authentication with scrypt hashing and token sessions
 import { scryptSync, randomBytes, timingSafeEqual } from 'crypto';
 import { config } from './serverConfig.js';
+import { isLoopbackAddress } from './presenceManager.js';
 import log from './logger.js';
 import type { IncomingMessage } from 'http';
 import type { Request, Response, NextFunction } from 'express';
@@ -205,8 +206,64 @@ export function extractToken(req: IncomingMessage): string | null {
  * Checks cookie, Authorization header, and query string.
  * Skips auth check if password is not enabled.
  */
+/**
+ * Message shown to a remote client that is blocked purely because no password
+ * has been configured. Deliberately actionable: a bare "Forbidden" is
+ * indistinguishable from a bug at the other end.
+ */
+/**
+ * Names `npm run set-password`, NOT `npm run setup`. The setup wizard
+ * hard-codes `<repo>/data/server-config.json`, but a packaged Electron app
+ * reads `$APP_USER_DATA/server-config.json` (see serverConfig.ts) — so telling
+ * a user to run the wizard against an installed app sends them to write a
+ * password the app never reads, which looks like the password "not working".
+ */
+export const REMOTE_REQUIRES_PASSWORD =
+  'This dashboard is not reachable from other devices until a password is set. '
+  + 'Run `npm run set-password` on the host machine to configure one.';
+
+/**
+ * True when this request did NOT come from the machine running the server.
+ *
+ * Reuses `isLoopbackAddress` (presenceManager) rather than a second hand-rolled
+ * string compare: that predicate already backs the 🖥/📱 device split in
+ * production and handles `::1`, `::ffff:127.0.0.1` and `127.0.0.1`. An empty
+ * address is treated as REMOTE — failing closed is the correct direction for a
+ * security gate when the origin cannot be determined.
+ */
+function isRemoteRequest(req: Request): boolean {
+  const ip = req.ip || req.socket?.remoteAddress || '';
+  return !isLoopbackAddress(ip);
+}
+
+/**
+ * Gate every `/api` route.
+ *
+ * Two dimensions, not one. Previously this opened with
+ * `if (!isPasswordEnabled()) next()`, so an install with no `passwordHash` —
+ * the default — served **everything** to anyone who could reach the port:
+ * every session's content, PTY write, and kill. The server binds `0.0.0.0`,
+ * printed a "SECURITY: ... DANGEROUS" warning at startup, and then served the
+ * requests anyway.
+ *
+ *   loopback + no password  → ALLOW  (the desktop app and a local browser tab;
+ *                                     unchanged, and what keeps the normal
+ *                                     workflow password-free)
+ *   loopback + password     → validate token
+ *   REMOTE   + no password  → 403, refuse. The new branch.
+ *   REMOTE   + password     → validate token
+ *
+ * 403 rather than 401 for the no-password case on purpose: 401 invites a login
+ * prompt, and there is no credential that would work — nothing has been
+ * configured to log in *with*.
+ */
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   if (!isPasswordEnabled()) {
+    if (isRemoteRequest(req)) {
+      log.warn('auth', `Blocked remote request (no password configured): ${req.method} ${req.originalUrl} from ${req.ip || req.socket?.remoteAddress}`);
+      res.status(403).json({ error: REMOTE_REQUIRES_PASSWORD, code: 'REMOTE_PASSWORD_REQUIRED' });
+      return;
+    }
     next();
     return;
   }

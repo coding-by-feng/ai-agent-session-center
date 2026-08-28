@@ -17,7 +17,8 @@ import type {
 } from '@/types';
 import { fetchTranscript, reconstructFromLogs, type ConversationEntry, type SystemKind } from '@/lib/transcript';
 import { transformEntries } from '@/lib/commandMessage';
-import LinkifiedText from './LinkifiedText';
+import { clipToMatch, matchesQuery, normalizeQuery } from '@/lib/textHighlight';
+import LinkifiedText, { MarkedText } from './LinkifiedText';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 function formatTime(ts: number): string {
@@ -40,6 +41,28 @@ function matchesFilter(role: ConversationEntry['role'], filter: RoleFilter): boo
     case 'asst': return role === 'assistant';
     case 'tool': return role === 'tool_use' || role === 'tool_result';
     default: return true;
+  }
+}
+
+/**
+ * The searchable text of an entry — ONE definition, used by both the match
+ * count and the row highlight. Two separate notions of "does this entry match"
+ * is exactly how a counter starts disagreeing with what is lit up on screen.
+ */
+function entryText(entry: ConversationEntry): string {
+  switch (entry.role) {
+    case 'user':
+    case 'assistant':
+    case 'system':
+      return entry.text;
+    case 'command':
+      return `${entry.name} ${entry.args || ''} ${entry.stdout || ''}`;
+    case 'tool_use':
+      return `${entry.tool} ${entry.input}`;
+    case 'tool_result':
+      return `${entry.tool || ''} ${entry.output}`;
+    case 'event':
+      return `${entry.eventType} ${entry.detail}`;
   }
 }
 
@@ -91,9 +114,10 @@ interface PrevSectionProps {
   prev: ArchivedSession;
   index: number;
   projectPath?: string;
+  query: string;
 }
 
-function PrevSessionSection({ prev, index, projectPath }: PrevSectionProps) {
+function PrevSessionSection({ prev, index, projectPath, query }: PrevSectionProps) {
   const [collapsed, setCollapsed] = useState(true);
   const prompts = [...(prev.promptHistory || [])].sort((a, b) => b.timestamp - a.timestamp);
   const startTime = prev.startedAt ? formatTime(prev.startedAt) : '?';
@@ -118,7 +142,7 @@ function PrevSessionSection({ prev, index, projectPath }: PrevSectionProps) {
                   <span className={styles.convTime}>{formatTime(p.timestamp)}</span>
                 </div>
                 <div className={styles.convText}>
-                  <LinkifiedText text={p.text} projectPath={projectPath} />
+                  <LinkifiedText text={p.text} projectPath={projectPath} highlight={query} />
                 </div>
               </div>
             ))
@@ -135,8 +159,21 @@ function PrevSessionSection({ prev, index, projectPath }: PrevSectionProps) {
 // Single conversation entry
 // ---------------------------------------------------------------------------
 
-function highlightClass(text: string, query: string): string {
-  return query && text.toLowerCase().includes(query) ? ' search-highlight' : '';
+function highlightClass(entry: ConversationEntry, query: string): string {
+  return matchesQuery(entryText(entry), query) ? ' search-highlight' : '';
+}
+
+/**
+ * Truncate for display, but keep the match visible: a query that hits at
+ * character 900 of a tool result would otherwise be marked in text the cap
+ * already cut away, leaving a row that claims to match and shows nothing.
+ */
+function capForDisplay(text: string, cap: number, query: string): string {
+  if (text.length <= cap) return text;
+  const at = query ? text.toLowerCase().indexOf(query) : -1;
+  if (at < 0 || at + query.length <= cap) return `${text.slice(0, cap)}…`;
+  const start = Math.max(0, at - Math.floor(cap / 3));
+  return `…${text.slice(start, start + cap)}${start + cap < text.length ? '…' : ''}`;
 }
 
 function EntryRow({
@@ -149,17 +186,18 @@ function EntryRow({
   projectPath?: string;
 }) {
   const time = formatTime(entry.timestamp);
+  const hl = highlightClass(entry, query);
 
   if (entry.role === 'user') {
     return (
-      <div className={`${styles.convEntry} ${styles.convUser}${highlightClass(entry.text, query)}`}>
+      <div className={`${styles.convEntry} ${styles.convUser}${hl}`}>
         <div className={styles.convHeader}>
           <span className={styles.convRole}>USER</span>
           <span className={styles.convTime}>{time}</span>
           <CopyButton text={entry.text} />
         </div>
         <div className={styles.convText}>
-          <LinkifiedText text={entry.text} projectPath={projectPath} />
+          <LinkifiedText text={entry.text} projectPath={projectPath} highlight={query} />
         </div>
       </div>
     );
@@ -167,14 +205,14 @@ function EntryRow({
 
   if (entry.role === 'assistant') {
     return (
-      <div className={`${styles.convEntry} ${styles.convAssistant}${highlightClass(entry.text, query)}`}>
+      <div className={`${styles.convEntry} ${styles.convAssistant}${hl}`}>
         <div className={styles.convHeader}>
           <span className={styles.convRole}>ASSISTANT</span>
           <span className={styles.convTime}>{time}</span>
           <CopyButton text={entry.text} />
         </div>
         <div className={styles.convText}>
-          <LinkifiedText text={entry.text} projectPath={projectPath} />
+          <LinkifiedText text={entry.text} projectPath={projectPath} highlight={query} />
         </div>
       </div>
     );
@@ -182,31 +220,47 @@ function EntryRow({
 
   if (entry.role === 'command') {
     return (
-      <div className={`${styles.convEntry} ${styles.convCommand}${highlightClass(`${entry.name} ${entry.args || ''} ${entry.stdout || ''}`, query)}`}>
+      <div className={`${styles.convEntry} ${styles.convCommand}${hl}`}>
         <div className={styles.convHeader}>
           <span className={styles.convRole}>USER</span>
           <span className={styles.convTime}>{time}</span>
         </div>
         <div className={styles.convText}>
-          <span className={styles.convCommandName}>&#8984; {entry.name}</span>
-          {entry.args && <span className={styles.convCommandArgs}>{entry.args}</span>}
+          <span className={styles.convCommandName}>
+            &#8984; <MarkedText value={entry.name} query={query} />
+          </span>
+          {entry.args && (
+            <span className={styles.convCommandArgs}>
+              <MarkedText value={entry.args} query={query} />
+            </span>
+          )}
         </div>
-        {entry.stdout && <div className={styles.convCommandStdout}>&#8627; {entry.stdout}</div>}
+        {entry.stdout && (
+          <div className={styles.convCommandStdout}>
+            &#8627; <MarkedText value={entry.stdout} query={query} />
+          </div>
+        )}
       </div>
     );
   }
 
   if (entry.role === 'tool_use') {
-    const input = entry.input.length > 240 ? `${entry.input.slice(0, 240)}…` : entry.input;
+    const input = capForDisplay(entry.input, 240, query);
     return (
-      <div className={`${styles.convEntry} ${styles.convTool}${highlightClass(`${entry.tool} ${entry.input}`, query)}`}>
+      <div className={`${styles.convEntry} ${styles.convTool}${hl}`}>
         <div className={styles.convHeader}>
           <span className={styles.convRole}>TOOL</span>
           <span className={styles.convTime}>{time}</span>
         </div>
         <div className={styles.convText}>
-          <span className={styles.convToolName}>{entry.tool}</span>
-          {input && <span className={styles.convToolInput}>{input}</span>}
+          <span className={styles.convToolName}>
+            <MarkedText value={entry.tool} query={query} />
+          </span>
+          {input && (
+            <span className={styles.convToolInput}>
+              <MarkedText value={input} query={query} />
+            </span>
+          )}
         </div>
       </div>
     );
@@ -214,16 +268,22 @@ function EntryRow({
 
   if (entry.role === 'tool_result') {
     const cls = entry.isError ? styles.convToolFailed : styles.convTool;
-    const output = entry.output.length > 400 ? `${entry.output.slice(0, 400)}…` : entry.output;
+    const output = capForDisplay(entry.output, 400, query);
     return (
-      <div className={`${styles.convEntry} ${cls}${highlightClass(entry.output, query)}`}>
+      <div className={`${styles.convEntry} ${cls}${hl}`}>
         <div className={styles.convHeader}>
           <span className={styles.convRole}>{entry.isError ? 'TOOL ERROR' : 'TOOL RESULT'}</span>
           <span className={styles.convTime}>{time}</span>
         </div>
         <div className={styles.convText}>
-          {entry.tool && <span className={styles.convToolName}>{entry.tool}</span>}
-          <span className={styles.convToolInput}>{output}</span>
+          {entry.tool && (
+            <span className={styles.convToolName}>
+              <MarkedText value={entry.tool} query={query} />
+            </span>
+          )}
+          <span className={styles.convToolInput}>
+            <MarkedText value={output} query={query} />
+          </span>
         </div>
       </div>
     );
@@ -234,12 +294,16 @@ function EntryRow({
 
   // event
   return (
-    <div className={`${styles.convEntry} ${styles.convEvent}${highlightClass(`${entry.eventType} ${entry.detail}`, query)}`}>
+    <div className={`${styles.convEntry} ${styles.convEvent}${hl}`}>
       <div className={styles.convHeader}>
         <span className={styles.convRole}>{entry.eventType}</span>
         <span className={styles.convTime}>{time}</span>
       </div>
-      {entry.detail && <div className={styles.convText}>{entry.detail}</div>}
+      {entry.detail && (
+        <div className={styles.convText}>
+          <MarkedText value={entry.detail} query={query} />
+        </div>
+      )}
     </div>
   );
 }
@@ -268,20 +332,36 @@ function SystemRow({
   const kind = entry.kind ?? 'plumbing';
   const label =
     kind === 'skill' && entry.label ? `skill · ${entry.label}` : SYSTEM_KIND_LABEL[kind];
+  const hit = matchesQuery(entry.text, query);
   // Only needed while collapsed; slice first so the whitespace-collapse never
-  // scans a multi-KB injected body to keep ~64 chars.
-  const preview = collapsed ? entry.text.slice(0, 160).replace(/\s+/g, ' ').trim().slice(0, 64) : '';
+  // scans a multi-KB injected body to keep ~64 chars. When the search hit is
+  // buried inside the collapsed body, preview the text AROUND the match
+  // instead — otherwise the row advertises a match and shows an unrelated
+  // opening line, with no clue that expanding would reveal it.
+  const preview = !collapsed
+    ? ''
+    : hit
+      ? clipToMatch(entry.text.replace(/\s+/g, ' ').trim(), query, { leading: 24, trailing: 48 })
+      : entry.text.slice(0, 160).replace(/\s+/g, ' ').trim().slice(0, 64);
   return (
     <div
-      className={`${styles.convSystemRow}${collapsed ? '' : ` ${styles.convSystemRowOpen}`}${highlightClass(entry.text, query)}`}
+      className={`${styles.convSystemRow}${collapsed ? '' : ` ${styles.convSystemRowOpen}`}${hit ? ' search-highlight' : ''}`}
       data-kind={kind}
     >
       <div className={styles.convSystemHeader} onClick={() => setCollapsed((c) => !c)}>
         <span className={styles.convSystemToggle}>&#9654;</span>
         <span className={styles.convSystemLabel}>{label}</span>
-        {collapsed && <span className={styles.convSystemCount}>{preview}</span>}
+        {collapsed && (
+          <span className={styles.convSystemCount}>
+            <MarkedText value={preview} query={query} />
+          </span>
+        )}
       </div>
-      {!collapsed && <div className={styles.convSystemBody}>{entry.text}</div>}
+      {!collapsed && (
+        <div className={styles.convSystemBody}>
+          <MarkedText value={entry.text} query={query} />
+        </div>
+      )}
     </div>
   );
 }
@@ -299,6 +379,14 @@ interface ConversationViewProps {
   events: SessionEvent[];
   previousSessions?: ArchivedSession[];
   searchQuery?: string;
+  /** Present ⇒ the search box is controlled by the host (DetailPanel), so the
+   *  toolbar input and the panel's Cmd+F bar drive ONE query. Absent ⇒ the
+   *  component keeps its own state and works standalone. */
+  onSearchChange?: (query: string) => void;
+  /** Reports how many entries match the current query, so the host's find-bar
+   *  counter reflects what is actually highlighted rather than re-deriving it
+   *  from a different data set. */
+  onMatchCountChange?: (count: number) => void;
   projectPath?: string;
 }
 
@@ -310,15 +398,24 @@ export default function ConversationView({
   events,
   previousSessions,
   searchQuery,
+  onSearchChange,
+  onMatchCountChange,
   projectPath,
 }: ConversationViewProps) {
   const [entries, setEntries] = useState<ConversationEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<RoleFilter>('all');
   const [atBottom, setAtBottom] = useState(true);
+  const [matchesOnly, setMatchesOnly] = useState(true);
+  const [localSearch, setLocalSearch] = useState('');
   const rootRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const query = searchQuery?.toLowerCase() || '';
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  const controlled = onSearchChange !== undefined;
+  const search = controlled ? searchQuery ?? '' : localSearch;
+  const setSearch = controlled ? onSearchChange : setLocalSearch;
+  const query = normalizeQuery(search);
 
   useEffect(() => {
     let cancelled = false;
@@ -342,13 +439,40 @@ export default function ConversationView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
-  const hasPrev = !!previousSessions && previousSessions.length > 0;
-  const showPrev = hasPrev && filter === 'all';
-
-  const visibleEntries = useMemo(
+  // Role filter and search are ANDed. Both derive from `roleFiltered` so the
+  // match count can never describe a different set than the one on screen.
+  const roleFiltered = useMemo(
     () => (filter === 'all' ? entries : entries.filter((e) => matchesFilter(e.role, filter))),
     [entries, filter],
   );
+
+  const matchCount = useMemo(
+    () => (query ? roleFiltered.filter((e) => matchesQuery(entryText(e), query)).length : 0),
+    [roleFiltered, query],
+  );
+
+  const visibleEntries = useMemo(
+    () =>
+      query && matchesOnly
+        ? roleFiltered.filter((e) => matchesQuery(entryText(e), query))
+        : roleFiltered,
+    [roleFiltered, query, matchesOnly],
+  );
+
+  const hasPrev = !!previousSessions && previousSessions.length > 0;
+  // Archived prior sessions are not part of the searched thread, so while a
+  // narrowing search is active they would be N collapsed blocks claiming space
+  // among the hits without being hits themselves.
+  const showPrev = hasPrev && filter === 'all' && !(query && matchesOnly);
+
+  useEffect(() => {
+    onMatchCountChange?.(matchCount);
+  }, [matchCount, onMatchCountChange]);
+
+  const clearSearch = useCallback(() => {
+    setSearch('');
+    searchRef.current?.focus();
+  }, [setSearch]);
 
   // Disable the jump-to-latest button while the bottom sentinel is in view.
   useEffect(() => {
@@ -369,7 +493,8 @@ export default function ConversationView({
 
   return (
     <div ref={rootRef}>
-      {/* Sticky toolbar — role filter + jump-to-latest */}
+      {/* Sticky toolbar — role filter + search + jump-to-latest.
+          Wraps at narrow panel widths; the pills keep row 1. */}
       <div className={styles.convToolbar}>
         <div className={styles.convFilterPills}>
           {FILTERS.map((f) => (
@@ -382,6 +507,62 @@ export default function ConversationView({
             </button>
           ))}
         </div>
+
+        <div className={styles.convSearch}>
+          <span className={styles.convSearchIcon} aria-hidden="true">&#8981;</span>
+          <input
+            ref={searchRef}
+            type="text"
+            className={styles.convSearchInput}
+            placeholder="Search conversation…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              // Stop at the input: the panel-level Escape handler would close
+              // the whole find bar / restore the panel instead of just clearing.
+              if (e.key === 'Escape' && search) {
+                e.stopPropagation();
+                setSearch('');
+              }
+            }}
+            aria-label="Search conversation"
+            data-testid="conv-search-input"
+          />
+          {search && (
+            <button
+              className={styles.convSearchClear}
+              onClick={clearSearch}
+              title="Clear search (Esc)"
+              aria-label="Clear search"
+            >
+              &#10005;
+            </button>
+          )}
+        </div>
+
+        {query && (
+          <>
+            <span
+              className={`${styles.convSearchCount}${matchCount === 0 ? ` ${styles.convSearchCountEmpty}` : ''}`}
+              data-testid="conv-search-count"
+            >
+              {matchCount === 0 ? 'No matches' : `${matchCount} match${matchCount === 1 ? '' : 'es'}`}
+            </span>
+            <button
+              className={`${styles.convFilterPill}${matchesOnly ? ` ${styles.convFilterPillActive}` : ''}`}
+              onClick={() => setMatchesOnly((v) => !v)}
+              aria-pressed={matchesOnly}
+              title={
+                matchesOnly
+                  ? 'Showing only matching entries — click to show the full thread'
+                  : 'Showing the full thread — click to show only matching entries'
+              }
+            >
+              Matches only
+            </button>
+          </>
+        )}
+
         <button
           className={styles.convJumpLatest}
           onClick={jumpToLatest}
@@ -397,7 +578,13 @@ export default function ConversationView({
         [...previousSessions!]
           .reverse()
           .map((prev, i) => (
-            <PrevSessionSection key={prev.sessionId} prev={prev} index={i} projectPath={projectPath} />
+            <PrevSessionSection
+              key={prev.sessionId}
+              prev={prev}
+              index={i}
+              projectPath={projectPath}
+              query={query}
+            />
           ))}
 
       {/* Current session conversation */}
@@ -411,7 +598,17 @@ export default function ConversationView({
         )
       ) : loading ? (
         <div className={styles.tabEmpty}>Loading transcript…</div>
-      ) : showPrev ? null : (
+      ) : showPrev ? null : query ? (
+        // Distinct from the role-filter empty state: different cause, so it
+        // names the query and offers the escape hatch.
+        <div className={styles.tabEmpty}>
+          No entries match “{search.trim()}”
+          {' · '}
+          <button className={styles.tabEmptyAction} onClick={clearSearch}>
+            clear search
+          </button>
+        </div>
+      ) : (
         <div className={styles.tabEmpty}>
           {filter === 'all' ? 'No conversation yet' : 'No matching messages'}
         </div>

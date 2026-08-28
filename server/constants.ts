@@ -61,11 +61,6 @@ export const CODEX_HOOK_EVENTS: string[] = [
 // Known event types set (all transports — Claude, Codex)
 export const KNOWN_EVENTS: Set<string> = new Set([
   ...ALL_CLAUDE_HOOK_EVENTS,
-  EVENT_TYPES.BEFORE_AGENT,
-  EVENT_TYPES.BEFORE_TOOL,
-  EVENT_TYPES.AFTER_TOOL,
-  EVENT_TYPES.AFTER_AGENT,
-  EVENT_TYPES.PRE_COMPRESS,
   EVENT_TYPES.AGENT_TURN_COMPLETE,
   EVENT_TYPES.POST_COMPACT,
 ]);
@@ -161,6 +156,10 @@ export const WS_TYPES = {
   UPDATE_QUEUE_COUNT: 'update_queue_count',
   REPLAY: 'replay',
   CLEAR_BROWSER_DB: 'clearBrowserDb',
+  // Multi-device coordination
+  PRESENCE_UPDATE: 'presence_update',
+  CONTROL_REQUESTED: 'control_requested',
+  CONTROL_DENIED: 'control_denied',
 } as const;
 
 // Session sources

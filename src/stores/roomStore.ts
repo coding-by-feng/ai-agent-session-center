@@ -44,6 +44,22 @@ interface RoomState {
   migrateSession: (oldSessionId: string, newSessionId: string) => void;
   getRoomForSession: (sessionId: string) => Room | undefined;
   loadFromStorage: () => void;
+  /**
+   * Replace the room list wholesale from an authoritative source.
+   *
+   * Rooms live ONLY in this client's `localStorage`, so a second device (a
+   * phone on the LAN) starts with none — its room dropdown showed just
+   * "No room" while the desktop had a dozen. That device is also, correctly,
+   * DENIED the workspace restore claim (the one-shot gate that stops a second
+   * device clear-all'ing the desktop's sessions), so it never ran the import
+   * that would otherwise have brought rooms across.
+   *
+   * This is the rooms-only half of that import: it writes rooms and nothing
+   * else. It must NEVER be reachable from a path that also creates or clears
+   * sessions — that is exactly the destructive behaviour the restore claim
+   * exists to prevent.
+   */
+  hydrateRooms: (rooms: Room[]) => void;
 }
 
 export const useRoomStore = create<RoomState>((set, get) => ({
@@ -168,5 +184,10 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       rooms.map((r) => `${r.name}(${r.sessionIds.length})`).join(', '));
     set({ rooms });
     return rooms;
+  },
+
+  hydrateRooms: (rooms) => {
+    saveToLocalStorage(rooms);
+    set({ rooms });
   },
 }));

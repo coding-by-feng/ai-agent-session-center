@@ -44,14 +44,15 @@ transcript reader exists.
 
 | File | Role |
 |------|------|
-| `src/components/translate/SelectionPopup.tsx` | Floating toolbar at the selection: three icon rows (row 1 Explain ×2, row 2 Translate ×2, row 3 Vocabulary ×1) + a read-only **selection preview** + an inline **"Attach file path?" confirm** (explain modes only) + a **custom-prompt row** (textarea + Run). The preview mirrors the captured selection text because focusing the textarea collapses the browser's native selection highlight — without it the user thinks the selection was lost (the string is still held in `active.selection` and sent on spawn). |
+| `src/components/translate/SelectionPopup.tsx` | Floating toolbar at the selection: three icon rows (row 1 Explain ×2, row 2 Translate ×2, row 3 Vocabulary ×1) + a read-only **selection preview** + a **quick-settings row** (Model, +Effort on Claude) + an inline **"Attach file path?" confirm** (explain modes only) + a **custom-prompt row** (`AutocompleteTextarea` + Run). The preview mirrors the captured selection text because focusing the textarea collapses the browser's native selection highlight — without it the user thinks the selection was lost (the string is still held in `active.selection` and sent on spawn). See [Quick settings (Model + Effort)](#quick-settings-model--effort) below. |
 | `server/floatingPrompt.ts` | **Pure** prompt synthesis + window labels (`buildPrompt`, `floatLabel`, `customFloatLabel`, `MAX_PROMPT_BYTES`, `FloatingMode`/`SpawnFloatingArgs` types). Extracted from the spawner so it's unit-testable without the db/pty graph (no better-sqlite3). |
 | `src/styles/modules/SelectionPopup.module.css` | Popup styling — theme-aware via CSS variables (no hardcoded colours). |
 | `src/hooks/useSelectionPopup.ts` | Surface-agnostic selection-watcher hook (`auto`/`alt`/`off` triggers; mouseup + click-outside + Esc to dismiss; `open()` for programmatic show). Opens **only on a real selection gesture** — a drag past `CLICK_DRAG_THRESHOLD_PX` (4px) or a double/triple-click — and skips editable fields (`input`/`textarea`). A bare click never opens it: the Claude Code TUI captures mouse events so xterm keeps a **stale** selection after a click, and without this guard clicking into the terminal input re-opened the modes popup on the previous selection. |
 | `src/lib/selectionExtractors.ts` | Strategies: `extractDomSelection` (markdown) and `extractXtermSelection` (terminals). Selection capped at `MAX_SELECTION = 4000`, context line at `MAX_CONTEXT_LINE = 400`. |
 | `src/lib/cliDetect.ts` | `detectCli(session)` → `'claude' | 'codex' | null`. The **canonical client CLI detector**; the server's `resolveOriginCli` (`floatingSessionSpawner.ts`) deliberately mirrors its precedence (cliSource → command → model) to avoid backend/frontend divergence. |
 | `src/lib/translationLog.ts` | Dexie helpers `createLog` (draft on spawn) / `captureResponse` (called periodically while the float is open — every 6s — plus on `beforeunload` and on close, keyed/overwritten by `terminalId` so it's idempotent) feeding the REVIEW tab. |
-| `src/components/session/FloatingTerminalPanel.tsx` | Picture-in-picture window hosting one TerminalContainer. Forwards its **`originSessionId`** prop (the **root** session) to TerminalContainer so the float's translate/explain lookups resolve a real session **and float-visibility scoping keeps nested floats visible under the selected root** (never orphaned). Recursive fork is handled server-side: the inner `TerminalContainer` sends this float's `terminalId` as `spawnTerminalId`, and the server resolves *its* session as the fork parent. Constrains both size and position to the renderer viewport before render and after viewport/state transitions. Also hosts the **⧉ pop-out** button (Electron) and rebindable hotkeys (`floatMinimize`/`floatMaximize`/`floatClose`). See [Recursive fork](#recursive-fork). |
+| `src/components/session/FloatingTerminalPanel.tsx` | Picture-in-picture window hosting one TerminalContainer. Forwards its **`originSessionId`** prop (the **root** session) to TerminalContainer so the float's translate/explain lookups resolve a real session **and float-visibility scoping keeps nested floats visible under the selected root** (never orphaned). Recursive fork is handled server-side: the inner `TerminalContainer` sends this float's `terminalId` as `spawnTerminalId`, and the server resolves *its* session as the fork parent. Constrains both size and position to the renderer viewport before render and after viewport/state transitions. Also hosts the **`DetachIcon` pop-out** button (always rendered — Electron gets a native window, a browser tab gets a `window.open` popup) and rebindable hotkeys (`floatMinimize`/`floatMaximize`/`floatClose`). See [Recursive fork](#recursive-fork). |
+| `src/components/ui/DetachIcon.tsx` | Shared window-with-escaping-arrow SVG (`size` prop, default 14) for every "pop out to a native OS window" button — used here at `size={12}`; see [Session detail panel → Pop-out to a native window](./session-detail-panel.md#pop-out-to-a-native-window) for the other two consumers. |
 | `src/components/session/FloatingTerminalPanel.test.tsx` | Regression coverage for origin-session forwarding plus initial and live-resize viewport fitting of the in-app panel. |
 | `src/styles/modules/FloatingTerminalPanel.module.css` | Window styling (drag, resize, collapse, popout chrome) — theme-aware via CSS variables (icons/chrome recolour per theme), with border-box viewport caps and shrinkable flex children so the right edge and header controls remain visible. |
 | `src/components/session/FloatingTerminalRoot.tsx` | Renders the open floats **belonging to the currently selected session** (`originSessionId === selectedSessionId`), excluding any that are **popped out** into a native window. Mounted once in AppLayout. Listens for `popout:closed` to re-dock. See [Per-session scoping](#per-session-popup-scoping). |
@@ -59,8 +60,10 @@ transcript reader exists.
 | `src/styles/modules/PopoutTerminalView.module.css` | Layout for the popout window (titlebar + full-height terminal body). |
 | `src/stores/floatingSessionsStore.ts` | Zustand store holding open floats; capped at `MAX_FLOATS = 4` (`open` **DELETEs the evicted PTY** so it doesn't leak). Adds `closeByOriginSession(id)`, `migrateOriginSession(oldId, newId)`, `closeOrphans(liveIds)`, `captureNow(terminalId)`, and the `poppedOut: string[]` list + `setPoppedOut(id, on)`. `captureNow(terminalId)` GETs `/api/terminals/:id/output` and snapshots the PTY output (base64 → UTF-8 via `TextDecoder`) into the REVIEW log via `captureResponse` **without killing the PTY** — idempotent/pollable (overwrite keyed by `terminalId`). `close()` delegates to `captureNow()` to take a final snapshot before it DELETEs the PTY. |
 | `src/components/settings/TranslationSettings.tsx` | Settings tab for native/learning languages, inherit-context toggle, explain attach-file-path policy, and trigger mode. |
-| `server/floatingSessionSpawner.ts` | Server-side: resolve origin + fork parent (via `spawnTerminalId`), detect CLI, build the launch/fork command (Claude `--resume … --fork-session` / `--continue --fork-session`; Codex `fork`/`fork --last`), apply permission + model/effort launch flags, create the PTY, and write the command. Forwards the origin's model/effort/characterModel onto the popup session; injects `/effort ultracode` post-launch when the origin is on ultracode. |
+| `server/floatingSessionSpawner.ts` | Server-side: resolve origin + fork parent (via `spawnTerminalId`), detect CLI, build the launch/fork command (Claude `--resume … --fork-session` / `--continue --fork-session`; Codex `fork`/`fork --last`), apply permission + model/effort launch flags, create the PTY, and write the command. Applies the popup's quick-settings model/effort **override** when present, else forwards the origin's own model/effort/characterModel onto the popup session; injects `/effort ultracode` post-launch when the effective effort is ultracode. |
+| `src/components/ui/AutocompleteTextarea.tsx` | Powers the custom-prompt textarea's `/` command, `$` Codex-skill and `@` file autocomplete — see [Command Autocomplete](./command-autocomplete.md). Its dropdown is portaled to `document.body`; nesting it un-portaled inside `.popup` (which has `backdrop-filter: blur(8px)`) would have put the dropdown's `position: fixed` math inside a CSS containing block the ancestor establishes, offsetting it by roughly the popup's own on-screen position instead of the true viewport — confirmed with a throwaway harness before this was wired in. |
 | `server/extractPreviousAnswer.ts` | Claude transcript reader: `readClaudeLastAssistant` (used by `translate-answer`) and `readClaudeTranscript` (used by the CONVERSATION tab — see [conversation-view](./conversation-view.md)). |
+| `src/components/translate/SelectionPopup.test.tsx` | Custom-prompt spawn payload; quick-settings row (Claude Combobox pair vs. Codex `Select` + live catalog fetch, model/effort flowing into the payload, blank-stays-inherited default). |
 
 Wired surfaces:
 
@@ -70,11 +73,11 @@ Wired surfaces:
 | `src/components/terminal/TerminalToolbar.tsx` | Renders the `⧉` pop-out button (`PopOutIcon`, `tooltips.termPopOut`) **only when the `onPopOut` prop is passed**, which is how floats and the popout view itself suppress re-popping-out. TerminalContainer omits `onPopOut`/`onClone` on its fullscreen-overlay toolbar instance, so ⧉ is absent in fullscreen. Carries **no** translate/explain buttons — the removed `translate-answer` trigger lived here. |
 | `src/components/session/ProjectTab.tsx` | Mounts the popup with `extractDomSelection` on `markdownRef` (and `markdownFsRef` for fullscreen). Markdown selections have **no** `spawnTerminalId`, so they fork from the root. |
 | `src/components/session/ProjectTabContainer.tsx` | Threads `sessionId` → `originSessionId` to `ProjectTab`. |
-| `src/components/session/DetailPanel.tsx` | Threads `sessionId` → `originSessionId` to `TerminalContainer`. |
+| `src/components/session/DetailPanel.tsx` | Threads `sessionId` → `originSessionId` to the **main TERMINAL** `TerminalContainer` only; the COMMANDS ops-shell `TerminalContainer` omits it, so the AI popup (`enabled: translationEnabled && !!originSessionId`) is disabled in COMMANDS — the pop-out is shared between the two (see [Pop-out to a native window](#pop-out-to-a-native-window)), the popup is not. |
 | `src/main.tsx` | Detects `?popout=terminal` and renders `PopoutTerminalView` instead of the full dashboard. The import is `lazy()` **inside that branch** and wrapped in `<Suspense fallback={null}>`, so the dashboard window never loads the popout renderers — see [Views & Routing → Bundle splitting](./views-routing.md). |
 | `electron/main.ts` | `registerPopoutHandler` (`window:open-terminal` IPC) opens the popout `BrowserWindow` (820×560, min 480×320) and sends `popout:closed` on close. |
 | `electron/preload.ts` | Bridges `openTerminalWindow` (→ `window:open-terminal`) and `onPopoutClosed`. |
-| `src/stores/settingsStore.ts` | `translationEnabled / translationNativeLanguage / translationLearningLanguage / translationTrigger / translationInheritContext / explainAttachFilePath` (+ setters; persisted via `persistSetting`). |
+| `src/stores/settingsStore.ts` | `translationEnabled / translationNativeLanguage / translationLearningLanguage / translationTrigger / translationInheritContext / explainAttachFilePath` (+ setters; persisted via `persistSetting`). Also `selectionSpawnModel / selectionSpawnCodexModel / selectionSpawnEffort` — the quick-settings row's remembered override (see below). |
 
 ## Data Flow
 
@@ -91,7 +94,7 @@ useSelectionPopup hook (mouseup → extractor → ExtractedSelection)
 POST /api/sessions/spawn-floating
    { originSessionId, spawnTerminalId?, mode, selection?, contextLine?,
      fileContent?, filePath?, customPrompt?, nativeLanguage,
-     learningLanguage, inheritContext? }
+     learningLanguage, inheritContext?, model?, effortLevel? }
         │
         ▼
 server/floatingSessionSpawner.ts
@@ -167,8 +170,8 @@ via `resolveResumableClaudeSessionId`). Either miss falls back to a fresh launch
 because `--resume … --fork-session` against a conversation Claude cannot find
 exits instantly with "No conversation found with session ID" and leaves the float
 sitting on a bare shell — while the popup prompt is self-contained anyway. See
-[Floating Session Spawner → Per-mode policy](../server/floating-session-spawner.md#fork-mode-claudecodex)
-for why prompt history alone is not proof. launches fresh.
+[Floating Session Spawner → Fork-mode (Claude/Codex)](../server/floating-session-spawner.md#fork-mode-claudecodex)
+for why prompt history alone is not proof.
 
 Prompts are shell-escaped (single-quote wrapping) and capped at
 `MAX_PROMPT_BYTES = 256 KB` (256 × 1024) to stay well under typical `ARG_MAX`;
@@ -187,6 +190,51 @@ the spawn endpoint's Zod schema independently caps `fileContent` at 256 KB and
 * **Trigger** (`translationTrigger`) — `auto` (every selection) / `alt` (require ⌥ held) / `off` (labelled **Disabled** in the UI). Since the popup is the only client trigger, `off` disables the feature's whole UI surface.
 
 No API key field exists — the feature is auth-free.
+
+## Quick settings (Model + Effort)
+
+A row between the selection preview and the custom-prompt row lets the user
+override which model (and, on Claude, effort level) the **next** spawn from
+this popup launches with — any of the six buttons, not just custom. Blank
+stays on the pre-existing default: inherit the origin session's own
+`model`/`effortLevel`.
+
+* **CLI-conditional.** `cli = detectCli(origin) ?? 'claude'` (same precedence
+  the server's `resolveOriginCli` uses) decides what renders:
+  * **Claude** — two `Combobox`es (`MODEL_OPTIONS` / `EFFORT_LEVELS` from
+    `src/lib/remoteControlName.ts`), matching `NewSessionModal`'s own
+    Model/Effort row.
+  * **Codex** — one `Select` sourced from the live `GET /api/codex/models`
+    catalog (fetched once per popup mount), matching `NewSessionModal`'s
+    Codex model picker's `{value, label}` shape and its `Default (Codex
+    recommended)` `placeholder` — but the resolved **default option's own
+    label** is shortened here to `Default (<displayName>)` to fit the
+    popup's narrower `quickSettingsModel` width, where `NewSessionModal`
+    spells it out as `Default (Codex recommended: <displayName>)`. The
+    `Select` itself renders only once the catalog resolves
+    (`codexModelStatus === 'ready'`, a 4-state `'idle' | 'loading' | 'ready'
+    | 'error'` machine); while loading or after a failed fetch, a disabled
+    placeholder input shows `Loading Codex models…` / `Default (catalog
+    unavailable)` instead, and the spawn falls through to the inherited
+    origin model. The fetch is aborted (`AbortController`) on unmount or CLI
+    change. Codex has no effort concept, so no second control renders.
+* **Separate Claude/Codex model fields.** `selectionSpawnModel` (Claude) and
+  `selectionSpawnCodexModel` (Codex) are kept apart in settingsStore — a
+  single shared field would show a Claude alias like `sonnet` as the value
+  in a Codex origin's picker (or vice versa) the next time the popup opens
+  against the other CLI. Mirrors `SessionPrefs`'s existing
+  `model`/`codexModel` split in `remoteControlName.ts`.
+* **Persisted immediately on change**, like `explainAttachFilePath` — the
+  choice is remembered across popups (and origin sessions) via
+  `persistSetting`, not reset per-popup.
+* **Server precedence.** `spawnFloatingSession` computes
+  `effectiveModel = args.model || origin.model` and
+  `effectiveEffort = args.effortLevel || origin.effortLevel` once, near the
+  top — every downstream use (`applyClaudeLaunchFlags`, the `inherit` object
+  written onto the popup's own session, the ultracode upgrade check, the log
+  line) reads the effective value, not `origin.*` directly. An empty-string
+  override (a blank Combobox) is falsy, so it correctly falls through to the
+  inherited value rather than being treated as "explicitly chosen blank".
 
 ## In-app panel sizing
 
@@ -259,11 +307,29 @@ that floating session — not the original root — so context chains down
 All modes inherit context when the setting is on and the parent has a
 conversation, so recursive forking applies to every mode on Claude/Codex origins
 
-## Pop-out to a native window (Electron)
+## Pop-out to a native window
 
-A floating terminal can be **popped out** into its own native OS window (the ⧉
-header button, shown only under Electron) so it can be dragged to another
-monitor — a DOM panel can't leave the app window.
+A floating terminal can be **popped out** into its own window (the header
+`DetachIcon` button, **always rendered**) so it can be dragged to another
+monitor — a DOM panel can't leave the app window. The button used to
+render as a raw `⧉` Unicode glyph; it now renders `DetachIcon`
+(`src/components/ui/DetachIcon.tsx`, `size={12}`) — the same window-with-
+escaping-arrow SVG the PROJECT and SESSION popout buttons use (see [Session
+detail panel → Pop-out to a native window](./session-detail-panel.md#pop-out-to-a-native-window)),
+extracted to a shared component so a third copy was never hand-rolled.
+`TerminalToolbar`'s own `PopOutIcon` (main TERMINAL/COMMANDS tabs, see the
+callout below) is a **separate, unchanged** icon component — the two happen
+to serve the same action but were never the same code.
+
+Its tooltip is now also registered (`tooltips.floatTerminalPopOut` in
+`src/lib/tooltips.ts`, spread via `{...tooltips.floatTerminalPopOut}` exactly
+like PROJECT's `tooltips.floatProject` and the main terminal's
+`tooltips.termPopOut`), following the same "Detach ___ into its own window"
+label + description shape. It used to be an ad-hoc inline `label="Pop out to
+a window (drag to another monitor)"` with no `description` line — functionally
+identical, but the one pop-out tooltip in the app that wasn't wired through
+the shared registry, and visibly less polished than PROJECT's (bold title +
+description) side by side.
 
 > **Reused by the main TERMINAL and COMMANDS tabs.** The same machinery
 > (`openTerminalWindow` → `PopoutTerminalView` via `?popout=terminal` →
@@ -271,38 +337,180 @@ monitor — a DOM panel can't leave the app window.
 > and the COMMANDS (ops) terminal in `DetailPanel`. Those use the **same**
 > `floatingSessionsStore.poppedOut` list and the `FloatingTerminalRoot`
 > `popout:closed` listener, but render a `PoppedOutTerminalPlaceholder` in the
-> detail panel (not a hidden float) while out. See [Session detail panel →
+> detail panel (not a hidden float) while out — and, like this float's own
+> button, the `⧉` is **always rendered** (no more Electron-only gate) with the
+> exact same three-way branch, sharing the browser-fallback half via
+> `openTerminalPopupFallback` (`src/lib/popoutTerminalWindow.ts`) so the two
+> `DetailPanel` call sites and this float's own never drift on sizing. See
+> [Session detail panel →
 > Pop-out to a native window](./session-detail-panel.md#pop-out-to-a-native-window).
 
-* **Trigger.** `FloatingTerminalPanel` calls `electronAPI.openTerminalWindow({
-  terminalId, originSessionId, label })` and, on success, marks the float
-  `poppedOut` in `floatingSessionsStore`. `FloatingTerminalRoot` then **hides**
-  the in-app panel (the float entry + server PTY stay alive), so the popout
-  window becomes the **sole WS subscriber** — no two-subscriber contention.
+* **Trigger.** `handlePopOut` delegates to
+  [`openFloatWindow`](../../../src/lib/popoutTerminalWindow.ts), which owns the
+  three-way branch (it is shared with `SelectionPopup`'s spawn path — see
+  [Spawning straight into a window](#spawning-straight-into-a-window) — so the
+  platform rules cannot drift between "detach an existing panel" and "open a new
+  session directly"). It mirrors `DetailTabs`'s `openProjectWindow` exactly:
+  (1) `electronAPI.openTerminalWindow` present → calls it with
+  `{ terminalId, originSessionId, label }` and, on success, marks
+  the float `poppedOut` in `floatingSessionsStore` — `FloatingTerminalRoot` then
+  **hides** the in-app panel (the float entry + server PTY stay alive), so the
+  popout window becomes the **sole WS subscriber**, no two-subscriber
+  contention; (2) `electronAPI` present but missing `openTerminalWindow` (stale
+  preload) → returns `{ placed: 'docked', reason: 'stale-preload' }`, same
+  reasoning as `openProjectWindow` (falling through to
+  `window.open` under Electron would pop the system browser open on
+  localhost); (3) no `electronAPI` at all (browser tab) → delegates to
+  [`openTerminalPopupFallback`](../../../src/lib/popoutTerminalWindow.ts) (a
+  small shared helper, also used by `DetailPanel`'s two `handlePopOut`s — see
+  the callout below), which `window.open`s the same `?popout=terminal&terminalId=…`
+  URL Electron loads, with a `popup,width=…,height=…` features string that
+  forces a real detached window rather than a new tab, and a deterministic
+  window `name` so a second click focuses it instead of duplicating it. That
+  helper returns the `Window | null` handle so a **blocked popup** is
+  distinguishable from a successful open (`{ placed: 'docked', reason:
+  'popup-blocked' }`) rather than failing silently. For `handlePopOut`
+  specifically a `docked` outcome simply means "stay put" — the panel is already
+  on screen — but see the spawn path below, where it is load-bearing. Branch
+  3 has no reliable "window closed" signal back
+  to the opener the way Electron's `popout:closed` IPC does, so unlike branch 1
+  it does **not** hide the in-app panel — the float and the browser popup
+  simply coexist as two live subscribers, which `wsClients: Set<WebSocket>`
+  (see [WebSocket manager](../server/websocket-manager.md)) already supports
+  safely. The button itself is **always rendered** — there is no
+  Electron-only visibility gate — so branch 3 is reachable at all.
 * **The window.** `electron/main.ts` `registerPopoutHandler` creates a
   `BrowserWindow` (820×560, same `webPreferences`/reload-block/`setWindowOpenHandler`
   as the main window) loading `http://localhost:${port}/?popout=terminal&terminalId=…`.
   It's tracked per `terminalId` (re-focused instead of duplicated).
-* **Monitor placement.** `computePopoutBounds()` (main process) sets the window's
-  `x`/`y` so a fresh popout opens on a **second monitor** when one exists (centered
-  on the first non-primary display, else the display under the cursor). The bounds
-  are remembered across opens — saved to `popout-bounds.json` on `moved`/`resized`
-  and restored next time (validated against connected displays so an unplugged
-  monitor falls back to auto-placement). See [App lifecycle](../electron/app-lifecycle.md).
+* **Monitor placement.** `computePopoutBounds('terminal')` (main process) sets the
+  window's `x`/`y` so a fresh popout opens on a **second monitor** when one exists
+  (centered on the first non-primary display, else the display under the cursor).
+  The bounds are remembered across opens — saved to `popout-bounds.json` under the
+  `'terminal'` key on `moved`/`resized` and restored next time (validated against
+  connected displays so an unplugged monitor falls back to auto-placement). **This
+  key is exclusive to terminal floats** (fixed Aug 2026) — before that, ONE shared
+  slot was read/written by all four popout kinds (terminal, project, session,
+  internal), so resizing or maximizing the content-heavy Project Browser or
+  whole-session popout permanently oversized every later terminal float, even a
+  one-line Explain/Translate prompt opening at whatever huge size a file browser
+  was last left at. See `electron/popoutBounds.ts` and [App lifecycle](../electron/app-lifecycle.md).
 * **The renderer.** `src/main.tsx` detects `?popout=terminal` and renders
   `PopoutTerminalView` (its own `useWebSocket` + `useSettingsInit` + one
   `TerminalContainer` attached to the existing PTY by id) **instead of** the full
-  dashboard.
+  dashboard. It sets `document.title = label` rather than drawing its own
+  in-page title strip — the native/browser-popup window chrome already shows a
+  title, so an in-page one only duplicated it (and, unlike Electron's
+  `BrowserWindow` `title` option, a `window.open` popup has no other way to get
+  a real one). Matches `PopoutProjectView`, which has never drawn an in-page
+  title for the same reason.
 * **Re-dock.** When the native window closes, `main.ts` sends `popout:closed`
   (terminalId) to the main window; `FloatingTerminalRoot` (via
   `electronAPI.onPopoutClosed`) clears `poppedOut`, re-mounting the in-app panel,
   which re-attaches and replays the PTY buffer. The session is only ended by the
-  in-app float's ✕.
+  in-app float's ✕. **Electron only** — a browser-popup fallback (branch 3
+  above) has no equivalent close signal, so its float is never hidden in the
+  first place and there is nothing to re-dock.
 
-**Limitations:** Electron only (the button is hidden in the browser). Auth tokens
-aren't carried into the popout window, so password-protected setups would need
-token plumbing. Nested floats spawned from inside a popout window aren't rendered
-(the popout hosts a single terminal).
+**Limitations:** Auth tokens aren't carried into the popout window (Electron or
+browser), so password-protected setups would need token plumbing. Nested floats
+spawned from inside a popout window aren't rendered (the popout hosts a single
+terminal). The browser-popup fallback (branch 3) has no re-dock signal, so its
+originating float stays visible and subscribed for as long as the popup is open
+— by design, not a bug (see Trigger, above).
+
+## Spawning straight into a window
+
+Clicking Explain / Translate / a custom prompt in `SelectionPopup` lands the new
+session **directly in a real OS window**, skipping the in-app panel entirely.
+Previously the spawn always docked, and reaching a second monitor took a second
+manual click on the panel's `⧉` detach button.
+
+`SelectionPopup.spawn()` calls the same
+[`openFloatWindow`](../../../src/lib/popoutTerminalWindow.ts) as `handlePopOut`
+(one branch point, so the two can never diverge), then:
+
+* `{ placed: 'window' }` → `setPoppedOut(terminalId, true)`. **This must be set
+  even though no panel ever mounted** — it is what keeps the popout the sole WS
+  subscriber and what `FloatingTerminalRoot` reads to stay out of the way.
+* `{ placed: 'docked', … }` → falls back to `openFloat()`, i.e. the classic
+  in-app panel, plus a toast for the two user-actionable reasons
+  (`stale-preload` → restart the app; `popup-blocked` → allow popups).
+
+> **The docked fallback is not politeness — it is orphan prevention.** The
+> session is created **server-side by `POST /api/sessions/spawn-floating` before
+> any window exists**. If the window can't be opened and the caller does nothing,
+> the result is a live forked CLI session holding a WebSocket subscription with
+> **no UI attached to it** — invisible, and unclosable from the dashboard. This
+> is the same class of hazard as [Orphan
+> prevention](#orphan-prevention-a-popup-whose-origin-can-never-be-selected-would-be-invisible-and-leak-its-pty)
+> above, reached by a different route. It is also why `openFloatWindow` **resolves**
+> on a rejected IPC call instead of throwing: a throw would escape into
+> `spawn()`'s `catch`, be shown as a spawn *error*, and the user would retry —
+> creating a **second** live session.
+
+Controlled by `settingsStore.selectionSpawnTarget` (`'window'` default |
+`'docked'`), persisted to Dexie like the other `selectionSpawn*` keys and exposed
+as **Settings ▸ TRANSLATION ▸ "Where the result opens"**. Choosing `'docked'`
+restores the old always-dock behaviour; `'window'` still falls back to docking
+when no window can be opened.
+
+Covered by `src/lib/popoutTerminalWindow.test.ts` (all three branches, plus the
+blocked-popup and rejected-IPC fallbacks).
+
+### Preopening — why the browser popup didn't reliably survive its own spawn
+
+**Fixed Aug 2026.** In the plain-browser branch, `'popup-blocked'` used to fire
+close to *every* spawn, not as a rare edge case. `spawn()` did `await
+fetch('/api/sessions/spawn-floating')` — a real network round trip, forking a
+CLI session server-side — **before** its only `window.open()` call, since the
+URL needs the `terminalId` that fetch returns. By the time it resolved,
+Chrome's transient activation (the short window in which a `window.open()` is
+still trusted as user-initiated) had already expired, so the popup reliably got
+blocked and the toast fired on the ordinary path, not just flaky networks.
+
+The fix is the standard workaround: [`preopenTerminalPopup()`](../../../src/lib/popoutTerminalWindow.ts)
+opens a placeholder window **synchronously**, as the first thing inside
+`spawn()`'s body — still within the click's call stack even though `spawn` is
+`async`, because everything up to its first `await` runs synchronously in the
+same task as the triggering event. The placeholder loads a `data:` URL (a tiny
+inline "Starting session…" page matching the app's light theme) rather than a
+real route — a `data:` URL renders with no network round trip, so there's never
+a flash of true blank-white while the spawn is still in flight, and unlike a
+real route it can't itself fail to load. Once the spawn resolves,
+`openFloatWindow`'s new `preopened` param **navigates that same window**
+(`.location.href = …`) instead of calling `window.open()` a second time —
+setting `.location` on a window reference you already hold is not subject to
+the popup-blocking gate, only `window.open()` itself is, which is the entire
+point.
+
+Three rules hold this up:
+
+1. **Skipped when `spawnTarget === 'docked'`** — no reason to flash a
+   placeholder open only to abandon it when the user has chosen to always dock.
+2. **Every path that doesn't consume the preopened window must close it, or a
+   failed/redirected spawn strands a "Starting session…" tab forever.**
+   `openFloatWindow` closes it in the Electron IPC-success and stale-preload
+   branches (the real window there comes from somewhere else, or doesn't exist
+   at all); `spawn()`'s own `catch` closes it if the fetch itself throws.
+3. **A closed-or-never-given preopened window falls through to the ORIGINAL
+   fresh `window.open()` call**, unchanged from before this fix — so the
+   graceful docked-fallback behavior above still holds exactly as documented;
+   this only removes the structural, every-time cause, not the residual
+   possibility of a real site-level "always block popups" setting.
+
+Also harmless under Electron: `attachWindowOpenPolicy` intercepts `window.open`,
+and a `data:` URL matches neither "our own origin" nor "http/https external" —
+the same "everything else — dropped" bucket as `ms-msdt:`/`file:`/`javascript:`
+— so the call either returns `null` or a non-functional handle, and
+`openFloatWindow`'s Electron branches close/ignore it either way.
+
+Covered by `src/lib/popoutTerminalWindow.test.ts` (preopen geometry/naming, the
+navigate-vs-fresh-open branch, close-on-every-non-consuming-path) and
+`src/components/translate/SelectionPopup.test.tsx` (asserts `window.open` fires
+**synchronously, before the spawn fetch resolves** — the actual claim the fix
+rests on; verified to fail — 3 of 4 new tests red — against a version with the
+preopen call removed).
 
 ## Cross-Feature Dependencies
 
@@ -312,7 +520,8 @@ token plumbing. Nested floats spawned from inside a popout window aren't rendere
 | [Terminal/SSH](../server/terminal-ssh.md) | Float pty registration goes through `sshManager.createTerminal`. |
 | [Session detail panel](./session-detail-panel.md) | DetailPanel passes `originSessionId` into TerminalContainer. |
 | [Project browser](./project-browser.md) | ProjectTab markdown viewer is the second translatable surface. |
-| [UI primitives](./ui-primitives.md) | Popup/toolbar buttons use the shared `Tooltip` + `tooltips` registry: `selExplainLearning`, `selExplainNative`, `selVocabNative`, `selTranslateLearning`, `selTranslateNative`, `selCustomPrompt`, `floatTerminalClose`. |
+| [UI primitives](./ui-primitives.md) | Popup/toolbar buttons use the shared `Tooltip` + `tooltips` registry: `selExplainLearning`, `selExplainNative`, `selVocabNative`, `selTranslateLearning`, `selTranslateNative`, `selCustomPrompt`, `floatTerminalClose`. The quick-settings row reuses `Combobox` and `Select` (both `src/components/ui/`), the same components `NewSessionModal` uses for its own Model/Effort fields. |
+| [Command Autocomplete](./command-autocomplete.md) | The custom-prompt row is an `AutocompleteTextarea`, not a plain `<textarea>` — `/` commands, `$` Codex skills (session-CLI-gated), and `@` files (via `origin.projectPath`), same as the Queue compose box. |
 | [Terminal UI](./terminal-ui.md) | TerminalContainer mounts the popup and re-attaches/replays the PTY buffer on re-dock. |
 | [Conversation view](./conversation-view.md) | Shares `extractPreviousAnswer.ts` — `readClaudeTranscript` backs the CONVERSATION tab; `readClaudeLastAssistant` backs `translate-answer`. |
 | [REVIEW tab](./review-tab.md) | Each spawn writes a draft via `createLog`; the response is captured via `captureResponse` — periodically while the float is open (every 6s), on `beforeunload`, and on close — through the idempotent `captureNow`, so a restart/reload with a popup open no longer loses the answer. |
@@ -331,8 +540,11 @@ token plumbing. Nested floats spawned from inside a popout window aren't rendere
   (⌥-drag) is the fallback for TUIs that still capture the mouse. Don't remove
   either guard.
 * **Origin session must exist server-side.** The endpoint requires a live
-  `Session` (`getSession(originSessionId)`); standalone Project Browser route
-  has no session, so floats are disabled there.
+  `Session` (`getSession(originSessionId)`). The standalone Project Browser
+  route resolves an origin by matching `?path=` against live sessions'
+  `projectPath` (see [Project browser](./project-browser.md)); floats are
+  disabled there only when **no** session matches that path, and which
+  session gets picked is non-deterministic when several share the directory.
 * **`translate-answer` only supports Claude origins.** The spawner reads the
   previous answer only when `resolveOriginCli(origin) === 'claude'` and returns a
   400 otherwise (only the Claude transcript reader exists). It currently has **no
@@ -349,6 +561,18 @@ token plumbing. Nested floats spawned from inside a popout window aren't rendere
   `closeByOriginSession` / `migrateOriginSession` or the `idRemap` re-link.
 * **Settings shape changed** (`translationEnabled`, etc.) — exported settings
   files from older versions still load, but new fields fall back to defaults.
+* **`AutocompleteTextarea`'s dropdown must stay portaled to `document.body`.**
+  `.popup` sets `backdrop-filter: blur(8px)`, which (confirmed empirically,
+  not assumed) establishes a CSS containing block for `position: fixed`
+  descendants in this Chromium build — an un-portaled dropdown's
+  `getBoundingClientRect()`-based math would be re-scoped to `.popup`'s own
+  box instead of the true viewport, landing roughly the popup's own
+  on-screen offset away from the textarea. Reverting the portal (in
+  `AutocompleteTextarea.tsx`, shared with the Queue compose box) reintroduces
+  this the moment any consumer nests it inside a `filter`/`backdrop-filter`/
+  `transform`/`will-change` ancestor — its two other homes (`QueueTab`,
+  `QueueItemEditModal`) have none today, so the bug is latent there too, not
+  exclusive to this popup.
 * **Popup colours are fully theme-variable-driven** — `SelectionPopup.module.css` uses
   `var(--bg-card)`, `var(--glow-accent)`, `var(--bg-accent)`, `var(--border-accent-strong)`,
   and `var(--bg-accent-strong)`. Adding new themes must define all five variables or the

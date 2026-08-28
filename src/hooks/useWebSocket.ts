@@ -5,6 +5,8 @@ import { useQueueStore } from '@/stores/queueStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useWsStore } from '@/stores/wsStore';
+import { usePresenceStore } from '@/stores/presenceStore';
+import { getClientId } from '@/lib/deviceIdentity';
 import { db, migrateSessionId, persistSessionUpdate, deleteSessionChildrenBatch } from '@/lib/db';
 import { isImportInProgress } from '@/lib/workspaceSnapshot';
 import { onSessionEnded } from '@/lib/pinnedRespawn';
@@ -137,6 +139,36 @@ export function useWebSocket(token: string | null): WsClient | null {
           // re-publish the just-killed sessions back into the snapshot.
           setSessions(new Map());
           db.delete().then(() => db.open()).catch(() => {});
+          break;
+        }
+
+        case 'presence_update': {
+          usePresenceStore.getState().applyPresence(msg);
+          break;
+        }
+
+        case 'control_denied': {
+          // A write was dropped because another device holds this session. The
+          // server throttles these (terminal_input fires per keystroke), so
+          // this is a notice to explain the silence, not a per-key event.
+          usePresenceStore.getState().setDenial({
+            sessionId: msg.sessionId,
+            by: msg.by,
+            at: Date.now(),
+          });
+          break;
+        }
+
+        case 'control_requested': {
+          // Broadcast to everyone; only the addressed holder should react.
+          if (msg.toClientId === getClientId()) {
+            usePresenceStore.getState().addRequest({
+              sessionId: msg.sessionId,
+              fromClientId: msg.fromClientId,
+              fromLabel: msg.fromLabel,
+              at: Date.now(),
+            });
+          }
           break;
         }
 

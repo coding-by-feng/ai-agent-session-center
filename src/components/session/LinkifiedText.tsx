@@ -2,17 +2,50 @@
  * LinkifiedText — renders plain text with clickable file paths.
  * File paths are detected via regex; clicking opens the FileOpenChooser
  * popover (open in app / default app / reveal in Finder).
+ *
+ * With `highlight` set, occurrences of that query are additionally wrapped in
+ * <mark>. Marking happens INSIDE each part, after path splitting, so a query
+ * that lands on a file path highlights the path without breaking its link.
  */
-import { useMemo } from 'react';
+import { Fragment, useMemo } from 'react';
 import { useUiStore } from '@/stores/uiStore';
 import { createFilePathRegex } from '@/lib/filePathLink';
+import { normalizeQuery, splitHighlight } from '@/lib/textHighlight';
 
 interface LinkifiedTextProps {
   text: string;
   projectPath?: string;
+  /** Raw search query; matches are wrapped in <mark>. Normalized internally. */
+  highlight?: string;
 }
 
-export default function LinkifiedText({ text, projectPath }: LinkifiedTextProps) {
+/**
+ * Render one run of text, wrapping query matches in <mark>.
+ *
+ * Exported for the rows that deliberately do NOT linkify (tool inputs, tool
+ * results, command chips, events) — they still need identical highlighting, and
+ * routing them through LinkifiedText just to reach this would silently start
+ * turning their contents into clickable paths.
+ *
+ * `query` must be pre-normalized (see `normalizeQuery`).
+ */
+export function MarkedText({ value, query }: { value: string; query: string }) {
+  return <Marked value={value} query={query} />;
+}
+
+function Marked({ value, query }: { value: string; query: string }) {
+  if (!query) return <>{value}</>;
+  return (
+    <>
+      {splitHighlight(value, query).map((seg, i) =>
+        seg.match ? <mark key={i}>{seg.text}</mark> : <Fragment key={i}>{seg.text}</Fragment>,
+      )}
+    </>
+  );
+}
+
+export default function LinkifiedText({ text, projectPath, highlight }: LinkifiedTextProps) {
+  const query = useMemo(() => normalizeQuery(highlight), [highlight]);
   const parts = useMemo(() => {
     if (!text || !projectPath) return null;
     const result: Array<{ type: 'text' | 'path'; value: string }> = [];
@@ -33,7 +66,7 @@ export default function LinkifiedText({ text, projectPath }: LinkifiedTextProps)
     return result.length > 0 && result.some((p) => p.type === 'path') ? result : null;
   }, [text, projectPath]);
 
-  if (!parts) return <>{text}</>;
+  if (!parts) return <Marked value={text} query={query} />;
 
   return (
     <>
@@ -64,10 +97,12 @@ export default function LinkifiedText({ text, projectPath }: LinkifiedTextProps)
               }
             }}
           >
-            {part.value}
+            <Marked value={part.value} query={query} />
           </span>
         ) : (
-          <span key={i}>{part.value}</span>
+          <span key={i}>
+            <Marked value={part.value} query={query} />
+          </span>
         ),
       )}
     </>

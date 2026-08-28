@@ -94,6 +94,19 @@ export interface ElectronAPI {
    *  the in-app float can re-dock. Returns an unsubscribe fn. */
   onPopoutClosed?(cb: (terminalId: string) => void): () => void
 
+  /** Pop a whole session (all DetailTabs — Project/Terminal/Commands/Conversation/
+   *  AI Popups/Notes/Queue) out into its own native window, draggable to another
+   *  monitor. De-duped by sessionId. Electron-only. */
+  openSessionWindow?(opts: { sessionId: string; label?: string }): Promise<{ ok: boolean }>
+  /** Called FROM a popped-out session window: focuses the main window, tells it
+   *  to return to the session list (deselects the session), then closes the
+   *  calling popout. Electron-only. */
+  returnToMain?(): Promise<{ ok: boolean }>
+  /** Fires (in the main window) when a popped-out session's `returnToMain` runs,
+   *  so the main window can deselect back to the session list. Returns an
+   *  unsubscribe fn. Electron-only. */
+  onReturnToList?(cb: () => void): () => void
+
   /** Open the native OS folder picker and resolve to the chosen absolute
    *  directory path, or null if the user cancelled. Electron-only — the browser
    *  sandbox can't return an absolute path, so this is undefined there. */
