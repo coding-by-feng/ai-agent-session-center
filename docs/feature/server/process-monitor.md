@@ -97,13 +97,20 @@ If a real hook later fires for that PID, [`sessionMatcher`](./session-matching.m
 
 | Status | Timeout | Transitions To |
 |--------|---------|----------------|
-| `prompting` | `30_000` (30s) | `waiting` |
+| `prompting` | `30_000` (30s) of hook **and terminal** silence | `waiting` |
+| `prompting`, terminal still printing | never, while it prints | — |
 | `waiting` | `300_000` (5min) | `idle` |
 | `approval` | `600_000` (10min) | `idle` (safety net) |
 | `input` | `600_000` (10min) | `idle` (safety net) |
 | any other working state | `900_000` (15min) | `idle` (safety net) |
 
 `ended` and `idle` sessions are skipped outright. The final "working" branch explicitly excludes `waiting`, `prompting`, `approval`, `input`, and `connecting` states so only genuine in-flight work hits the 15-min timeout. On a transition to `idle` from `approval`/`input`, `pendingTool`, `pendingToolDetail`, and `waitingDetail` are also cleared.
+
+**`prompting` decays only when the terminal has gone quiet too (Sep 2026).** Hook silence alone cannot tell a prompt that never ran (e.g. blocked by a `UserPromptSubmit` hook — no `Stop` ever follows) from a turn that is busy without firing hooks: Claude thinking or writing before its first tool call, or the whole turn at **Low** hook density, which sends no tool events. `waiting` is the prompt queue's "turn finished" signal, so the old 30 s rule made the queue send its next prompt into a running turn. A live turn keeps printing (Claude Code's spinner frames `·✢✳✶✻✽` and its "esc to interrupt" timer); a prompt that never ran does not. `notePtyOutput` (sshManager) stamps [`terminalActivity.ts`](../../../server/terminalActivity.ts) on every chunk, and the `prompting` branch requires `now - lastOutputAt > 30s` as well. Sessions with no AASC terminal (external cards) keep the hook-only rule. The old comment "user likely cancelled" was wrong: Esc fires a real `Stop` (Claude Code hooks docs). **There is no time limit while the terminal prints.** A 15-minute flip to `idle` was tried and removed after review: `idle` is sendable for a queue item with no open gate, and it is the edge the Remote Control relink types into (`onSessionIdle` below), so both landed in the running turn. Covered by `test/autoIdleManager.test.ts` (the decay had no tests before).
+
+**None of these transitions is broadcast.** The loop only mutates the session; clients see the new status with that session's next broadcast update (or a reconnect snapshot). So a decay by itself does not reach a client's prompt queue — anything that must reach clients promptly belongs in `handleEvent`, which broadcasts (the subagent-count resets live there for that reason).
+
+**Every tick that lands a session on `idle` also fires a Remote Control relink check** (`onSessionIdle`, EDGE-triggered by the same `continue` guard that skips already-idle sessions — it is not a per-tick poll of idle sessions). It dynamically `import()`s `sshManager.js` (avoids a static import cycle: `autoIdleManager` is loaded by `sessionStore`, which `sshManager` itself pulls in), confirms the session's terminal is a server-owned PTY via `getTerminalGeometry(terminalId)` (an Electron `pty-*` terminal lives in `ptyHost` and would silently swallow the write), then calls `shouldRelink`/`runRelink` from `server/remoteControlDaemon.ts` — which applies its own arming + cooldown checks, so this call site stays a plain notification. Errors are swallowed to `log.debug` so a dead PTY never stops every *other* session's idle transition. See [Remote Control Daemon](./remote-control-daemon.md) for the daemon itself (cooldown ledger, disconnect/reconnect command construction, why edge-triggering alone isn't sufficient).
 
 ### Stale `pendingResume` Cleanup
 `startPendingResumeCleanup(pendingResume, sessions, broadcastFn)` installs a separate `setInterval` firing every **15s** (`stopPendingResumeCleanup()` clears it). Entries older than `120000`ms (2min) are removed; if the associated session is still in `connecting` status it is reverted to `idle` (terminal detached, `terminalId = null`) and a `session_update` broadcast is sent. The 2-min grace gives slow `SessionStart` hooks (2-5s on congested systems) time to arrive before cleanup.
@@ -115,6 +122,7 @@ If a real hook later fires for that PID, [`sessionMatcher`](./session-matching.m
 - [Session Matching](./session-matching.md) — discovered `external-<pid>` cards are upgraded in place by `sessionMatcher` **Priority 1.5** (cached-PID match) when a real hook later fires for the PID
 - [Approval Detection](./approval-detection.md) — clears timers on dead process
 - [Team & Subagent Tracking](./team-subagent.md) — triggers team cleanup on member death
+- [Remote Control Daemon](./remote-control-daemon.md) — `autoIdleManager`'s edge-triggered idle transition calls `shouldRelink`/`runRelink`, gated on the terminal being a server-owned PTY (`getTerminalGeometry`)
 
 ### Depended On By
 - [Session Management](./session-management.md) — relies on process monitor for cleanup; `startExternalDiscovery(...)` is wired here

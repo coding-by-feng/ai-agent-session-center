@@ -85,6 +85,22 @@ export function fitToScreenRatio(
 }
 
 /**
+ * Whether a freshly-opened viewer should fit the image to its container.
+ *
+ * Fullscreen opens fitted — using the screen is the entire point of going
+ * fullscreen, and not doing so is what left an image marooned in a ring of
+ * dead space. The inline pane keeps its existing behaviour.
+ *
+ * The `hasPersistedView` half is the one worth stating: a saved view means the
+ * user deliberately zoomed or panned this exact file before, and silently
+ * re-fitting it on open would throw that away every time they reopened it.
+ * "Fit by default" must not mean "fit over the top of an explicit choice".
+ */
+export function shouldAutoFitOnOpen(fullscreen: boolean, hasPersistedView: boolean): boolean {
+  return fullscreen && !hasPersistedView;
+}
+
+/**
  * Zoom centered on the mouse cursor. Given the old zoom and the cursor
  * position relative to the container (with container center as origin),
  * returns the new pan offsets that keep the point under the cursor stable.

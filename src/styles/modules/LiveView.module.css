@@ -9,7 +9,8 @@
 }
 
 /* "3D SCENE PAUSED" watermark. On a desktop it labels the empty space the
- * scene would occupy, next to the agent list rail. On a phone the agent list
+ * scene would occupy (there is no agent list there any more: the LIVE tab
+ * opens the session panel instead). On a phone the agent list
  * goes full-bleed and IS the page, so this stops being a label for anything
  * and becomes a full-screen sign explaining an absence — hidden there.
  *
@@ -17,8 +18,9 @@
  * zero sessions RobotListSidebar renders null (`hasAnySessions` in that
  * file), so a blanket hide here left a session-less phone visit looking at a
  * blank page with nothing to explain why. `.scenePausedHasSidebar` is added
- * by LiveView only when `sessions.size > 0`, and the mobile hide is scoped to
- * that modifier — the true-empty case keeps this as its only content. */
+ * by LiveView only when the sidebar actually shows (a phone with sessions),
+ * and the mobile hide is scoped to that modifier — the true-empty case keeps
+ * this as its only content. */
 .scenePaused {
   position: absolute;
   inset: 0;

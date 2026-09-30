@@ -212,6 +212,18 @@ export interface Session {
    */
   interruption?: SessionInterruption | null;
 
+  /**
+   * When the user stopped the current turn — Esc mid-turn, or declining a tool
+   * and redirecting — detected from Claude Code's own "What should Claude do
+   * instead?" line. Claude Code fires a real Stop for a cancel, so without this
+   * the queue reads it as a finished turn and sends the next prompt. The queue
+   * holds while set; cleared by the user's next prompt (UserPromptSubmit), a new
+   * session (SessionStart), or the queue's Resume. Deliberately separate from
+   * `interruption`: the auto-resume watchdog must never continue a turn the
+   * user cancelled on purpose.
+   */
+  userCancelledAt?: number | null;
+
   // Subagents
   subagentCount: number;
   lastSubagentName?: string;
@@ -250,6 +262,34 @@ export interface Session {
   colorIndex?: number;
   muted?: boolean;
   pinned?: boolean;
+  /**
+   * May this session be seen by a device that is NOT the machine running the
+   * server? Absent means NO — see server/sessionVisibility.ts for why the flag
+   * is "may be seen" rather than "hidden": the absent state must be the safe
+   * one, because that is the state of every row written before this existed.
+   */
+  remoteVisible?: boolean;
+  /**
+   * Does selecting terminal text open the AI popup (Explain / Translate) for
+   * this session? Defaults to ON.
+   *
+   * Note the inversion relative to `remoteVisible` above, and that it is
+   * deliberate rather than inconsistent: there, absent must mean "hidden",
+   * because the safe state for a NEW capability is deny. Here the feature
+   * already shipped enabled for everyone, so the safe state — the one that
+   * changes nothing for an existing session — is ON. Both follow the same
+   * rule ("absent = the safe state"); they differ because the safe state
+   * differs. Always read through `isAiPopupEnabled()`, never the raw field,
+   * so `undefined` can never be mistaken for `false`.
+   */
+  aiPopupEnabled?: boolean;
+  /**
+   * Is the Remote Control relink daemon armed for this session? Mirrored from
+   * `server/remoteControlDaemon.ts` onto the session so the UI can render the
+   * toggle from the ordinary session broadcast rather than polling a second
+   * endpoint. The daemon remains the source of truth; this is a view of it.
+   */
+  remoteControlDaemon?: boolean;
   /** When true, play loud alert sounds for approval, input, and task completion */
   alerted?: boolean;
   /**

@@ -9,7 +9,7 @@ Prevents unauthorized access when the dashboard is exposed on a network (not jus
 ## Source Files
 | File | Role |
 |------|------|
-| `server/authManager.ts` (~9KB) | Password hashing, token management, middleware |
+| `server/authManager.ts` (~11KB, 326 lines) | Password hashing, token management, middleware |
 | `server/serverConfig.ts` (~1KB) | Reads data/server-config.json (or APP_USER_DATA/server-config.json in Electron); provides passwordHash and other server defaults |
 | `server/index.ts` | Auth endpoints (`/api/auth/status\|login\|refresh\|logout`, index.ts:106-173), `Set-Cookie` construction, WS origin + token gate (index.ts:207-236), `startTokenCleanup()` wiring, public-bind security warning |
 
@@ -149,7 +149,7 @@ Covered by `test/authRemoteGate.test.ts` — both axes, including IPv4-mapped
 
 ### Export Inventory (`authManager.ts`)
 Each is described in its own section above — this is the complete list, not a re-description:
-`hashPassword`, `verifyPassword`, `validatePasswordComplexity`, `createToken`, `validateToken`, `refreshToken`, `getTokenTTL`, `removeToken`, `isPasswordEnabled`, `parseCookieToken`, `extractToken`, `authMiddleware`, `localhostOnlyMiddleware`, `checkLoginRateLimit`, `recordLoginAttempt`, `clearLoginAttempts`, `startTokenCleanup`, `stopTokenCleanup`, `TOKEN_TTL_SECONDS`, `PasswordValidation` (interface).
+`hashPassword`, `verifyPassword`, `validatePasswordComplexity`, `createToken`, `validateToken`, `refreshToken`, `getTokenTTL`, `removeToken`, `isPasswordEnabled`, `parseCookieToken`, `extractToken`, `authMiddleware`, `localhostOnlyMiddleware`, `checkLoginRateLimit`, `recordLoginAttempt`, `clearLoginAttempts`, `startTokenCleanup`, `stopTokenCleanup`, `TOKEN_TTL_SECONDS`, `REMOTE_REQUIRES_PASSWORD` (the actionable message returned on the no-password remote 403, naming `npm run set-password`), `PasswordValidation` (interface).
 
 ### Localhost Restriction
 - `localhostOnlyMiddleware` blocks non-loopback IPs from hook endpoints (403 `{ error: 'Hook endpoint restricted to localhost' }`)
@@ -175,3 +175,107 @@ Each is described in its own section above — this is the complete list, not a 
 - Auth is off entirely when `config.passwordHash` is null — any check that assumes auth is always on is wrong
 - Modifying cookie settings affects cross-site behavior; the `Secure` flag is only added over HTTPS
 - `/api/auth/*` and `/api/hooks` must stay registered before `authMiddleware`, or they become inaccessible
+
+
+## Per-session remote visibility (deny by default)
+
+The password gate decides *who may connect*. This decides *what they see once
+connected*: a session reaches a device other than the host machine only if it
+has been explicitly shared. Localhost is unaffected — the desktop app sees
+everything, always.
+
+`server/sessionVisibility.ts` is the single rule
+(`canSeeSession(isLocalClient, session)`), kept pure so both the HTTP and
+WebSocket boundaries can use it without importing each other.
+
+### The flag is `remoteVisible`, not `hidden`
+
+Deliberate inversion. A `hidden` flag reads as `false` on every row written
+before the feature existed, which would expose the entire backlog on the day it
+shipped. Storing "may be seen" makes the absent/NULL state the safe one, so a
+pre-existing session and a brand-new one are both hidden until someone acts.
+The SQLite column follows the same logic: `remote_visible INTEGER DEFAULT 0`.
+
+### Six paths, not one
+
+Filtering the session list alone yields a feature that only appears to work:
+
+| Path | Why it leaks |
+|---|---|
+| WS snapshot on connect | Largest single leak — every session's full state |
+| `SESSION_UPDATE` broadcast | Without it, the next status change re-adds the card |
+| `GET /api/sessions` | The list itself |
+| 17 × `/sessions/:id/*` | Includes `kill`, `fork`, `resume` — *control*, not just reads |
+| **`TERMINAL_SUBSCRIBE`** | Keyed by `terminalId`, **not** session id — streams live PTY output of a session whose card is invisible |
+| **`/db/sessions`, `/db/search`, `/db/prompts`** | A **second store**: hiding a live session does nothing for its recorded prompt text |
+
+The REST side is gated by one `router.use('/sessions/:id', requireVisibleSession)`
+rather than 17 per-route checks — a per-site check is only as good as the newest
+route, and the routes here can destroy a session.
+
+### Rules that hold it up
+
+1. **A hidden session returns 404, not 403.** A remote client must not be able
+   to distinguish "no such session" from "hidden from you", or the status code
+   becomes an oracle for enumerating session ids.
+2. **An unresolvable subject fails closed.** A terminal with no owning session
+   (an ops shell, or a PTY whose first hook has not landed) is denied to remote
+   clients. An **archived** session has no in-memory record to carry the flag
+   and so resolves to hidden — deliberately: it can no longer be opted in
+   through the UI, so treating "no live record" as permissive would create a
+   growing body of permanently readable history that no control can revoke.
+3. **`PUT /sessions/:id/remote-visible` is localhost-only** (403 otherwise).
+   Anything that can reach the port must not be able to grant itself access.
+
+`isLoopbackAddress` (`presenceManager.ts`) is the shared predicate for "this
+machine" — the same one behind the auth gate and the 🖥/📱 device split. Never
+add a second address comparison.
+
+### UI
+
+📡 **HOST ONLY** / **SHARED** in `SessionControlBar`. The WS snapshot also
+carries `hiddenCount` so a remote device can report "18 hidden" rather than
+appearing broken with a near-empty dashboard.
+
+Covered by `test/sessionVisibility.test.ts` (14 tests), including the
+permissive-default regression: flipping `=== true` to `!== false` turns 5 red.
+
+
+## The periodic re-login (fixed Aug 2026)
+
+**Symptom:** the dashboard demanded the password again roughly every hour.
+
+**Cause:** the silent refresh was gated, twice over, on a token that can never
+exist. The session lives in an `HttpOnly` cookie — `/api/auth/login` sets it
+via `Set-Cookie` and responds `{ success, expiresIn }` with **no `token`
+field** — so `getStoredToken()` is always `null`. Two places required one
+anyway:
+
+1. `checkAuth` only scheduled the refresh when `getStoredToken()` was truthy,
+   so **the refresh timer was never armed at all**.
+2. `doRefreshToken` returned early on `if (!token) return null`, and then
+   only counted a refresh as successful when the response carried
+   `data.token` — which the server never sends.
+
+`TOKEN_TTL_MS` is an **absolute** lifetime, not an idle timeout: `validateToken`
+compares a fixed `createdAt` and never slides it. So the token expired exactly
+one hour after login regardless of activity, and the next `/api/auth/status`
+returned `authenticated: false` → login screen.
+
+**Fix:** authenticate the refresh the way the rest of the app already does —
+via the cookie. `doRefreshToken` sends the request unconditionally
+(`credentials: 'same-origin'`), and treats `res.ok && data.success` as success;
+`Authorization` and `data.token` are still honoured when present but no longer
+required. The scheduling gate dropped its `getStoredToken()` condition.
+
+**Why not "return the token in the response body" instead:** that was the first
+plan, and it is the wrong half to change. The cookie is `HttpOnly` precisely so
+the token is unreachable from JS; handing it back in the body would undo that
+for no benefit. The WebSocket already appends `?token=` only when one exists —
+it has been `null` all along and the handshake authenticates by cookie — which
+confirms cookie-only is the design the app was already running on.
+
+Covered by `src/hooks/useAuth.test.ts`, which drives the real hook through its
+real timer (the "was a refresh scheduled at all" half is only observable from
+outside). Reverting either half turns 2 tests red, and the genuine-rejection
+path is asserted separately so an expired session still forces a re-login.

@@ -10,10 +10,11 @@
  * group it rendered as a sliver, and its autocomplete dropdown was clipped by
  * `.queueBody`'s 250px scroll box. One editor, one behaviour, everywhere.
  */
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   useQueueStore,
   DEFAULT_AUTOMATION,
+  DEFAULT_COMPOSE_DRAFT,
   type QueueItem,
   type QueueImageAttachment,
   type QueueItemType,
@@ -30,6 +31,7 @@ import {
   isSendableStatus,
   totalChainSteps,
   currentChainStep,
+  queueHoldReason,
 } from '@/lib/queueScheduler';
 import { parseHHMM } from '@/lib/timePicker';
 import { sendPromptToTerminal } from '@/lib/terminalSend';
@@ -45,6 +47,8 @@ import PromptSnippetPicker, {
   SNIPPET_TRIGGER_ATTR,
 } from './PromptSnippetPicker';
 import { appendSnippet } from '@/lib/promptSnippetInsert';
+import { useQueueDragReorder } from '@/hooks/useQueueDragReorder';
+import type { DragRect } from '@/lib/queueDragReorder';
 import QueueItemEditModal from './QueueItemEditModal';
 import QueueMovePicker, { MOVE_TRIGGER_ATTR, type QueueMoveTarget } from './QueueMovePicker';
 import QueueHistorySheet from './QueueHistorySheet';
@@ -97,6 +101,7 @@ export default function QueueTab({
   fullHeight,
 }: QueueTabProps) {
   const items = useQueueStore((s) => s.queues.get(sessionId) ?? EMPTY_QUEUE);
+  const activeCount = items.filter((it) => !it.disabled).length;
   const add = useQueueStore((s) => s.add);
   const remove = useQueueStore((s) => s.remove);
   const reorder = useQueueStore((s) => s.reorder);
@@ -123,6 +128,24 @@ export default function QueueTab({
   const currentSession = sessions.get(sessionId);
   const currentSessionTitle = currentSession?.title ?? '';
   const currentProjectPath = currentSession?.projectPath ?? null;
+  // Same rule the scheduler applies (useGlobalQueueScheduler), so the notice
+  // can never claim a hold the scheduler is not enforcing, or vice versa.
+  const queueHold = currentSession ? queueHoldReason(currentSession, Date.now()) : null;
+  const runningSubagents = currentSession?.subagentCount ?? 0;
+
+  /** The queue's Resume after a user cancel — the server clears the hold. */
+  const handleResumeAfterCancel = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/queue/resume`, { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // resumed: false means nothing was held any more — another device got
+      // there first, or your own prompt already cleared it.
+      const body = (await res.json().catch(() => ({}))) as { resumed?: boolean };
+      showToast(body.resumed === false ? 'The queue is already running' : 'Queue resumed', 'info', 1500);
+    } catch {
+      showToast('Could not resume the queue — try again', 'error', 2500);
+    }
+  }, [sessionId]);
 
   const historyEntries = useQueueHistoryStore((s) => s.entries);
   const historyCount = historyEntries.length;
@@ -166,15 +189,72 @@ export default function QueueTab({
     [removeFromHistory, saveToHistory, updateItem, sessionId, currentSessionTitle],
   );
 
-  const [composeText, setComposeText] = useState('');
-  const [composeImages, setComposeImages] = useState<QueueImageAttachment[]>([]);
-  /** Automation type for the next item added via the compose row. */
-  const [composeType, setComposeType] = useState<QueueItemType>('once');
-  /** Loop interval as a "value + unit" tuple (60 minutes by default). */
-  const [composeIntervalValue, setComposeIntervalValue] = useState<number>(10);
-  const [composeIntervalUnit, setComposeIntervalUnit] = useState<'sec' | 'min' | 'hour'>('min');
-  /** Schedule one-shot run-at as a datetime-local string. */
-  const [composeRunAt, setComposeRunAt] = useState<string>('');
+  // ---- Compose draft (per-session, NOT per-component) ----
+  //
+  // Session-scoped in queueStore rather than local useState: `QueueTab` mounts
+  // TWICE simultaneously for the same session (the always-on strip in
+  // DetailPanel + the dedicated Queue tab — see the automationConfig comment
+  // below), and neither `<QueueTab>` render call site keys the component by
+  // sessionId, so switching the visible session does NOT unmount/remount it —
+  // React just updates the sessionId prop on the same instance. Local state
+  // would therefore survive the switch and leak into whatever session you
+  // switched TO, which is exactly the reported bug: an unfinished draft for
+  // session A showing up in session B's (previously empty) queue box.
+  //
+  // Storing it in the store instead — keyed by sessionId, mirroring
+  // `automation` below — makes each session's draft genuinely independent AND
+  // gives session A's draft back when you switch away and back, which a bare
+  // `key={sessionId}` remount could not do (that would reset EVERY session's
+  // draft on every switch, including the one you're returning to).
+  //
+  // The six `composeXxx` / `setComposeXxx` names below are kept exactly as
+  // they were as local state, so every existing read/write site further down
+  // this file needed zero changes — only their SOURCE moved.
+  const composeDraft = useQueueStore((s) => s.composeDrafts.get(sessionId) ?? DEFAULT_COMPOSE_DRAFT);
+  const setComposeDraftPatch = useQueueStore((s) => s.setComposeDraft);
+  const { text: composeText, images: composeImages, type: composeType,
+    intervalValue: composeIntervalValue, intervalUnit: composeIntervalUnit,
+    runAt: composeRunAt } = composeDraft;
+  // Accepts a functional updater as well as a plain value — the useState
+  // setters this replaced supported both forms, and one real call site (the
+  // saved-prompt picker's onInsert, which appends onto whatever is already
+  // typed) genuinely needs the previous value rather than a value closed over
+  // at render time. TypeScript caught this: a text-only version compiled
+  // clean until this exact call site, which fails type-checking with the
+  // function passed where a string was expected — proof the stricter
+  // signature is pulling its weight, not just ceremony.
+  const setComposeText = useCallback(
+    (updater: string | ((prev: string) => string)) => {
+      const prev = composeDraft.text;
+      const text = typeof updater === 'function' ? updater(prev) : updater;
+      setComposeDraftPatch(sessionId, { text });
+    },
+    [sessionId, setComposeDraftPatch, composeDraft.text],
+  );
+  const setComposeImages = useCallback(
+    (updater: QueueImageAttachment[] | ((prev: QueueImageAttachment[]) => QueueImageAttachment[])) => {
+      const prev = composeDraft.images;
+      const images = typeof updater === 'function' ? updater(prev) : updater;
+      setComposeDraftPatch(sessionId, { images });
+    },
+    [sessionId, setComposeDraftPatch, composeDraft.images],
+  );
+  const setComposeType = useCallback(
+    (type: QueueItemType) => setComposeDraftPatch(sessionId, { type }),
+    [sessionId, setComposeDraftPatch],
+  );
+  const setComposeIntervalValue = useCallback(
+    (intervalValue: number) => setComposeDraftPatch(sessionId, { intervalValue }),
+    [sessionId, setComposeDraftPatch],
+  );
+  const setComposeIntervalUnit = useCallback(
+    (intervalUnit: 'sec' | 'min' | 'hour') => setComposeDraftPatch(sessionId, { intervalUnit }),
+    [sessionId, setComposeDraftPatch],
+  );
+  const setComposeRunAt = useCallback(
+    (runAt: string) => setComposeDraftPatch(sessionId, { runAt }),
+    [sessionId, setComposeDraftPatch],
+  );
   const imageInputRef = useRef<HTMLInputElement>(null);
   /** Item id open in the edit modal. EDIT on any row (once / loop / schedule)
    *  sets this — there is no separate inline-edit mode. */
@@ -204,9 +284,6 @@ export default function QueueTab({
    *  it can no longer derive placement from its parent row — it needs the
    *  trigger element itself to measure against. */
   const [moveAnchor, setMoveAnchor] = useState<HTMLElement | null>(null);
-  /** Id (not index) of the row being dragged — index is derived live so a
-   *  concurrent scheduler add/remove can't shift it out from under the drag. */
-  const [draggingId, setDraggingId] = useState<number | null>(null);
 
   // ---- Snap composeType back to Once when Auto-send turns OFF ----
   // Loop/Schedule items can't fire without Auto-send. If the user toggles
@@ -216,7 +293,7 @@ export default function QueueTab({
     if (!autoSend && composeType !== 'once') {
       setComposeType('once');
     }
-  }, [autoSend, composeType]);
+  }, [autoSend, composeType, setComposeType]);
 
   // ---- Live countdown tick ----
   // `describeNextFire` reads Date.now() on render, so the countdown freezes
@@ -323,11 +400,11 @@ export default function QueueTab({
     });
     // Reset input so same file can be re-selected
     e.target.value = '';
-  }, []);
+  }, [setComposeImages]);
 
   const handleRemoveComposeImage = useCallback((idx: number) => {
     setComposeImages((prev) => prev.filter((_, i) => i !== idx));
-  }, []);
+  }, [setComposeImages]);
 
   // ---- Paste images/files from clipboard ----
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
@@ -359,7 +436,7 @@ export default function QueueTab({
         .map((r) => r.value);
       setComposeImages((prev) => [...prev, ...imgs].slice(0, 5));
     });
-  }, []);
+  }, [setComposeImages]);
 
   // ---- Drag and drop files onto compose area ----
   const [dragOver, setDragOver] = useState(false);
@@ -384,7 +461,34 @@ export default function QueueTab({
         .map((r) => r.value);
       setComposeImages((prev) => [...prev, ...imgs].slice(0, 5));
     });
+  }, [setComposeImages]);
+
+  // ---- Press-and-hold drag reordering (List AND Card) ----
+  // One mechanism for both layouts, on pointer events rather than native HTML5
+  // drag: native drag events never fire on touch, so this is what makes
+  // reordering work from a phone at all. Item elements register themselves
+  // here so the hook can measure real on-screen boxes without querying the DOM
+  // by class name.
+  const itemElsRef = useRef<Map<number, HTMLElement>>(new Map());
+  const registerItemEl = useCallback((id: number, el: HTMLElement | null) => {
+    if (el) itemElsRef.current.set(id, el);
+    else itemElsRef.current.delete(id);
   }, []);
+  const itemIds = useMemo(() => items.map((i) => i.id), [items]);
+  const getDragRects = useCallback((): DragRect[] => {
+    const out: DragRect[] = [];
+    for (const item of items) {
+      const el = itemElsRef.current.get(item.id);
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      out.push({ id: item.id, left: r.left, right: r.right, top: r.top, bottom: r.bottom });
+    }
+    return out;
+  }, [items]);
+  const handleDragReorder = useCallback((nextIds: number[]) => {
+    reorder(sessionId, nextIds);
+  }, [reorder, sessionId]);
+  const drag = useQueueDragReorder(itemIds, getDragRects, handleDragReorder);
 
   // ---- Add to queue ----
   const handleAdd = useCallback(() => {
@@ -411,11 +515,10 @@ export default function QueueTab({
     }
     const newItem = applyTypeDefaults(base, composeType, { intervalMs, runAt });
     add(sessionId, newItem);
-    setComposeText('');
-    setComposeImages([]);
-    // Reset the schedule time so the next 'schedule' item asks for a new one,
-    // but keep the type + interval since power-users often add a batch.
-    setComposeRunAt('');
+    // One patch, one store update. Reset the schedule time so the next
+    // 'schedule' item asks for a new one, but keep type + interval — power
+    // users often add a batch of the same loop/schedule shape in a row.
+    setComposeDraftPatch(sessionId, { text: '', images: [], runAt: '' });
   }, [
     composeText,
     composeImages,
@@ -426,6 +529,7 @@ export default function QueueTab({
     sessionId,
     items.length,
     add,
+    setComposeDraftPatch,
   ]);
 
   // ---- Saved-prompt snippets (compose row) ----
@@ -566,56 +670,6 @@ export default function QueueTab({
   // (preserving each item's other fields incl. execState) and persists via the
   // store subscription. Dragging an in-flight chain item just moves its list
   // position; its execState is kept, so the scheduler never double-fires.
-  const handleDragStart = useCallback((e: React.DragEvent, item: QueueItem) => {
-    setDraggingId(item.id);
-    // Setting dataTransfer is REQUIRED for the drag to start in Firefox /
-    // browser mode (Chromium/Electron is lenient); harmless everywhere else.
-    if (e.dataTransfer) {
-      e.dataTransfer.effectAllowed = 'move';
-      try {
-        e.dataTransfer.setData('text/plain', String(item.id));
-      } catch {
-        /* ignore */
-      }
-      // The grip is the drag handle, but drag the WHOLE row visually.
-      const row = (e.currentTarget as HTMLElement).parentElement;
-      if (row) {
-        try {
-          e.dataTransfer.setDragImage(row, 16, 12);
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  }, []);
-
-  const handleDragOver = useCallback(
-    (e: React.DragEvent, targetIdx: number) => {
-      e.preventDefault();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-      if (draggingId === null) return;
-      // Derive the dragged row's CURRENT index by id every time, so a concurrent
-      // scheduler add/remove that shifts the list can't splice the wrong row.
-      const fromIdx = items.findIndex((i) => i.id === draggingId);
-      if (fromIdx < 0 || fromIdx === targetIdx) return;
-      // Immutable reorder: build new array without mutating
-      const newItems = [...items];
-      const [moved] = newItems.splice(fromIdx, 1);
-      newItems.splice(targetIdx, 0, moved);
-      // Validate array integrity
-      if (newItems.length !== items.length) return;
-      reorder(
-        sessionId,
-        newItems.map((i) => i.id),
-      );
-    },
-    [draggingId, items, reorder, sessionId],
-  );
-
-  const handleDragEnd = useCallback(() => {
-    setDraggingId(null);
-  }, []);
-
   // ---- Click/keyboard reorder (▲/▼) ----
   // A discoverable, keyboard-reachable alternative to the drag grip (native
   // HTML5 DnD has no keyboard path). Swaps the item one slot in `dir` and calls
@@ -855,7 +909,32 @@ export default function QueueTab({
           }}
         >
           <span className={styles.queueToggleArrow}>&#x25B6;</span>
-          QUEUE <span className={styles.queueCount}>({items.length})</span>
+          QUEUE{' '}
+          {/* Active = enabled rows the scheduler may send; inactive = rows
+              switched off with their own toggle ("— paused —" on the row).
+              Not called "paused" here: in this header that word is the
+              held-queue chip's. Session-wide states (held, automation
+              paused, auto-send off) have their own notices and are not
+              folded into these numbers. */}
+          <span className={styles.queueCount}>
+            {items.length === 0 ? (
+              '(0)'
+            ) : (
+              <>
+                ({activeCount} active{' '}
+                <span className={styles.queueCountInactive}>· {items.length - activeCount} inactive</span>)
+              </>
+            )}
+          </span>
+          {/* Collapsed, the held-queue notice is out of sight — say it here
+              so a paused queue never looks like a broken one. Clicking
+              expands to the notice (and its Resume). Expanded, the notice
+              says it, so no chip. */}
+          {collapsed && queueHold && items.length > 0 && (
+            <span className={styles.queueHoldChip}>
+              {queueHold === 'cancelled' ? '⏸ paused' : '⏳ subagents'}
+            </span>
+          )}
         </button>
         <button
           className={styles.queueHistoryBtn}
@@ -934,16 +1013,20 @@ export default function QueueTab({
           onClick={(e) => {
             e.stopPropagation();
             const next = !autoEnter;
-            // Enabling Auto-Enter also flips Auto-send ON (handled in the store),
-            // so a queued prompt is actually fired AND submitted. Surface that
-            // when it changed something the user didn't directly click.
-            const enabledAutoSend = next && !autoSend;
+            // Independent of Auto-send (Aug 2026 — see setAutoEnter's comment
+            // in queueStore.ts). This toggle only decides HOW a prompt is
+            // delivered once something fires it; it never touches Auto-send,
+            // which decides WHEN. When Auto-send happens to be off, the toast
+            // says so explicitly rather than silently flipping it on — the
+            // `queueAutoSendBanner` below stays the one place that explains
+            // Auto-send's own effect.
             setAutoEnter(sessionId, next);
             showToast(
               next
-                ? enabledAutoSend
-                  ? 'Auto-Enter ON — also enabled Auto-send, so prompts now send & submit automatically'
-                  : 'Auto-Enter ON — prompts send & submit automatically'
+                ? autoSend
+                  ? 'Auto-Enter ON — prompts send & submit automatically'
+                  : 'Auto-Enter ON — prompts will be typed & submitted when sent, '
+                    + 'but Auto-send is OFF so nothing fires on its own (use ⚡ NOW)'
                 : 'Auto-Enter disabled — prompt typed only, press Enter yourself',
               'info',
               2200,
@@ -1021,6 +1104,28 @@ export default function QueueTab({
             >
               Enable
             </button>
+          </div>
+        )}
+        {/* Held: the user stopped the last turn (Esc fires a real Stop, so
+            without this the queue would send its next prompt into the turn
+            they just stopped), or subagents are still running. Only when
+            there is something waiting to send. */}
+        {queueHold && items.length > 0 && (
+          <div className={`${styles.queueAutoSendBanner} ${styles.queueHoldBanner}`} role="status">
+            <span>
+              {queueHold === 'cancelled'
+                ? '⏸ Paused — you stopped the last turn. Nothing sends until you resume or send a prompt yourself.'
+                : `⏳ Waiting for ${runningSubagents} subagent${runningSubagents === 1 ? '' : 's'} to finish before sending the next prompt.`}
+            </span>
+            {queueHold === 'cancelled' && (
+              <button
+                type="button"
+                className={`${styles.queueAutoSendBannerBtn} ${styles.queueHoldBannerBtn}`}
+                onClick={() => { void handleResumeAfterCancel(); }}
+              >
+                Resume
+              </button>
+            )}
           </div>
         )}
         {/* Compose */}
@@ -1220,18 +1325,14 @@ export default function QueueTab({
               : items.map((item, idx) => (
                   <div
                     key={item.id}
-                    className={`${styles.queueItem}${draggingId === item.id ? ` ${styles.dragging}` : ''}${item.disabled ? ` ${styles.queueItemDisabled}` : ''}`}
-                    onDragOver={(e) => handleDragOver(e, idx)}
-                    onDrop={(e) => e.preventDefault()}
-                    onDragEnd={handleDragEnd}
+                    ref={(el) => registerItemEl(item.id, el)}
+                    className={`${styles.queueItem}${drag.draggingId === item.id ? ` ${styles.dragging}` : ''}${drag.insertIndex === idx ? ` ${styles.dropBefore}` : ''}${drag.insertIndex === idx + 1 && idx === items.length - 1 ? ` ${styles.dropAfter}` : ''}${item.disabled ? ` ${styles.queueItemDisabled}` : ''}`}
+                    onPointerDown={(e) => drag.onPointerDown(e, item.id)}
                   >
                     <span
                       className={styles.queueDragHandle}
-                      title="Drag to reorder"
-                      aria-label="Drag to reorder"
-                      role="button"
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, item)}
+                      title="Press and hold, then drag to reorder"
+                      aria-hidden="true"
                     >
                       <svg
                         width="8"
@@ -1301,12 +1402,16 @@ export default function QueueTab({
               : items.map((item, idx) => (
                   <div
                     key={item.id}
-                    className={`${styles.queueCard}${item.disabled ? ` ${styles.queueItemDisabled}` : ''}`}
+                    ref={(el) => registerItemEl(item.id, el)}
+                    className={`${styles.queueCard}${drag.draggingId === item.id ? ` ${styles.dragging}` : ''}${drag.insertIndex === idx ? ` ${styles.dropBefore}` : ''}${drag.insertIndex === idx + 1 && idx === items.length - 1 ? ` ${styles.dropAfter}` : ''}${item.disabled ? ` ${styles.queueItemDisabled}` : ''}`}
+                    onPointerDown={(e) => drag.onPointerDown(e, item.id)}
                   >
-                    {/* No drag handle in Card mode — a wrapping grid has no
-                      unambiguous drop target, so reordering goes through the
-                      ▲/▼ buttons in renderItemActions instead (see the
-                      QueueViewMode doc comment in uiStore.ts). */}
+                    {/* Press-and-hold to drag (useQueueDragReorder). Cards used
+                      to have no drag at all on the grounds that a wrapping grid
+                      has no unambiguous drop target — that was an unmade
+                      decision, not an impossibility: queueDragReorder.ts picks
+                      before/after from the pointer's side of the nearest card.
+                      ▲/▼ remain for keyboard and precision. */}
                     <div className={styles.queueCardHeader}>
                       <button
                         className={`${styles.queueToggleBtn}${item.disabled ? ` ${styles.queueToggleBtnOff}` : ` ${styles.queueToggleBtnOn}`}`}

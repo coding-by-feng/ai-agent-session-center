@@ -153,6 +153,7 @@ Both come from the same predicate in `src/lib/textHighlight.ts`, and `entryText(
 
 `GET /api/sessions/:id/transcript` → `{ success: true, data: ConversationEntry[] }`
 
+- Inherits `requireVisibleSession`, the single `router.use('/sessions/:id', …)` gate mounted ahead of every `/sessions/:id/*` route: a remote (non-loopback) client requesting a hidden session's transcript gets a plain **404** (never 403, so the status code can't be used to enumerate which session ids exist) rather than a 200 with data. Localhost is unaffected.
 - Server resolves the live session, then calls `readClaudeTranscript(session.sessionId || id, session.projectPath, session.transcriptPath ?? null)`.
 - Returns `{ success: true, data: [] }` when the session is unknown, has no `projectPath`, or on any thrown error (logged via `log.warn('api', …)`) — it **never 500s**, so the client can always fall back to in-memory logs.
 - Server transcript lookup order (in `readClaudeTranscript`/`findTranscriptFile`): (1) `transcriptPath` if it exists; (2) `<sessionId>.jsonl` under the encoded `~/.claude/projects/<encoded-project>` directory; (3) newest `.jsonl` in that directory. JSONL `system`/`summary` records are skipped; assistant `text` blocks → `assistant`, assistant `tool_use` blocks → `tool_use`, user content → `user`/`tool_result`. Timestamps come from each record's `timestamp` (falling back to the previous entry's timestamp when missing).

@@ -14,6 +14,7 @@ Create sessions without leaving the dashboard. NewSessionModal covers local sess
 | `src/components/layout/WorkdirLauncher.tsx` | `DIRS` dropdown in the NavBar. Lists recent + known working directories; each row carries Claude / Codex launch buttons that start a local session running that CLI in the directory. |
 | `src/components/layout/CliBrandIcons.tsx` | `ClaudeIcon` / `CodexIcon` — official-style brand marks (Anthropic sunburst, OpenAI blossom-knot) used by the DIRS launch buttons. |
 | `src/components/modals/QuickSessionModal.tsx` | Fast local launch form with label chips, model, effort, remote control. **Orphaned: not imported, rendered, or opened by any shortcut/handler** — kept for reference, code below still describes its behavior. |
+| `src/components/modals/QuickSessionModal.test.tsx` | Launch transport: `POST /api/terminals` even when `electronAPI.createPty` exists |
 | `src/lib/remoteControlName.ts` | Remote control name derivation, remote-control settings persistence (`remote-control:settings`), and shared model/effort prefs + `EFFORT_LEVELS` + `MODEL_OPTIONS` (`session-create-prefs`). |
 | `src/lib/remoteControlName.test.ts` | Effort normalization and separate Claude/Codex model-preference coverage. |
 | `src/styles/modules/Modal.module.css` | New-session layout plus full-width Codex selector and catalog metadata styling. |
@@ -43,7 +44,7 @@ Create sessions without leaving the dashboard. NewSessionModal covers local sess
 
 Still compiles but is not wired into the app (nothing opens `modalId="quick-session"`). Behavior if mounted:
 - Fields: label chips (built-ins `ONEOFF`/`HEAVY`/`IMPORTANT` + custom labels in `custom-labels`), session title, working dir (defaults to first `workdir-history` entry), command (default `claude`), model, effort, remote control, room, commands terminal.
-- Dual transport: `window.electronAPI?.createPty` (Electron IPC) when available, else `POST /api/terminals` with `forceNew: true`.
+- Transport: always `POST /api/terminals` with `forceNew: true`. The Electron `createPty` branch was removed in Sep 2026: a `pty-*` terminal is invisible to the server (queue writes, auto-resume, other devices), and the branch had only been dormant because the Electron preload never loaded. See [IPC Transport](../electron/ipc-transport.md#quicksessionmodal-no-longer-branches).
 - Persists session prefs and remote-control settings on launch; auto-selects the session and assigns to room.
 
 ### Remote Control section (both modals)
@@ -56,7 +57,7 @@ Still compiles but is not wired into the app (nothing opens `modalId="quick-sess
 
 ### Model + Effort application
 
-`model` travels in `CreateTerminalRequest.model`; Claude and Codex both receive `--model <id>` before the first prompt. `effortLevel` is Claude-only and becomes `--effort <level>`. `ultracode` is a special case: the raw `--effort ultracode` value is rejected by Claude Code, so it launches as `--effort xhigh` and is then upgraded via `/effort ultracode`. The active NewSessionModal path is server-backed (`server/config.ts` + `sshManager.ts`); the orphaned QuickSessionModal still has a separate Electron IPC branch.
+`model` travels in `CreateTerminalRequest.model`; Claude and Codex both receive `--model <id>` before the first prompt. `effortLevel` is Claude-only and becomes `--effort <level>`. `ultracode` is a special case: the raw `--effort ultracode` value is rejected by Claude Code, so it launches as `--effort xhigh` and is then upgraded via `/effort ultracode`. Both modals are server-backed (`server/config.ts` + `sshManager.ts`).
 
 ### remoteControlName.ts
 
@@ -77,8 +78,7 @@ Still compiles but is not wired into the app (nothing opens `modalId="quick-sess
 - [Project Browser](./project-browser.md) — `useKnownProjects()` / `GET /api/known-projects` for working-dir suggestions.
 - [Command Autocomplete](./command-autocomplete.md) — `getCommandSuggestions`/`saveCommand` for the command field.
 - [API Endpoints](../server/api-endpoints.md) — `POST /api/terminals`, `GET /api/known-projects`, and official Codex discovery through `GET /api/codex/models`. (`GET /api/ssh-keys` is no longer called — the private-key-path field was removed with remote mode.)
-- [IPC Transport](../electron/ipc-transport.md) — QuickSessionModal branches on `window.electronAPI?.createPty` (orphaned path).
-- [PTY Host](../electron/pty-host.md) — receives `remoteControlName`/`effortLevel`/`model` in the create config for auto-apply.
+- [IPC Transport](../electron/ipc-transport.md) — `BrowseDirButton`'s native folder picker (`dialog:select-directory`). Neither modal calls `createPty` any more.
 
 ### Depended On By
 - [Views & Routing](./views-routing.md) — NavBar (`+ NEW`, `DIRS`) is the primary launch surface.

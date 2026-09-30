@@ -41,6 +41,8 @@ Hooks must be wired into each CLI's settings file before the dashboard can obser
 ### Boot gate (Electron only)
 `App.tsx` calls `window.electronAPI.isSetup()` (`setup:is-complete`, returns `existsSync(setup.json)` in `userData`). `null` → loading splash, `false` → render `<SetupWizard/>`, `true` → dashboard. In **web mode** (`window.electronAPI` absent) the gate is skipped entirely (`isSetup` forced to `true`); the wizard component still renders if mounted directly but every Electron-only step degrades gracefully.
 
+The gate only started running in the packaged app in Sep 2026: before that the Electron preload never loaded, so `window.electronAPI` was absent and every install took the web-mode path. Installs used during that period have no `setup.json`. `adoptExistingInstall()` in `electron/main.ts` writes one for them (when `data/sessions.db` or `server-config.json` already exists) before the first window opens, so only genuinely fresh installs see the wizard. See [App Lifecycle → Window Management](../electron/app-lifecycle.md#window-management).
+
 ### Default config
 `defaultConfig = { port: 3333, enabledClis: ['claude'], hookDensity: 'medium', debug: false, sessionHistoryHours: 24 }`. Matches the `SetupConfig` type (electron.d.ts:11-18); `passwordHash?: string` is optional.
 
@@ -66,7 +68,7 @@ Hooks must be wired into each CLI's settings file before the dashboard can obser
 `InstallStep` runs once (`startedRef`). It registers `onInstallLog` (`setup:install-log`), then calls `installHooks({ hookDensity, enabledClis })` (`setup:install-hooks`). The main process loads `hooks/install-hooks-api.cjs` (a `.cjs` so `require()` can read it directly from `extraResources` in packaged builds) and calls `installHooks({ density, enabledClis, projectRoot, onLog })`, streaming log lines back to the renderer; a final `DONE` line flips status to done and auto-advances after 1500 ms. On error the step shows a Retry button. **Web mode** logs `[skip] No Electron API` and auto-advances.
 
 ### Done
-`DoneStep` shows a summary (port, CLIs, density). "Launch Dashboard" calls `completeSetup()` (`setup:complete`) which writes the `setup.json` flag, sets `APP_USER_DATA`, starts the embedded server (`server/index.js startServer()`), and reloads the window at `http://localhost:<port>`. "Open in browser instead" calls `openInBrowser()` (`app:open-browser`).
+`DoneStep` shows a summary (port, CLIs, density). "Launch Dashboard" calls `completeSetup()` (`setup:complete`) which writes the `setup.json` flag, resizes the window to 1400×900 and reloads it; `App.tsx` then reads the flag and renders the dashboard. No server is started, because the one that served the wizard is already running. It used to `require('server/index.js')`, which is not packaged, and threw after writing the flag, leaving a fresh install stuck on this step until relaunch (`DoneStep` swallows the rejection). "Open in browser instead" calls `openInBrowser()` (`app:open-browser`).
 
 ### Re-run
 `rerunSetup()` (`app:rerun-setup`) deletes the `setup.json` flag and relaunches the app, forcing the wizard on next boot.
@@ -87,7 +89,7 @@ Each CLI's settings file is patched atomically (write-to-tmp + rename per the pr
 - [Authentication](../server/authentication.md) — optional password is scrypt-hashed (`salt:hash`) and seeded into config so first launch already has a login
 - [Hook System](../server/hook-system.md) — installer writes density-selected events into each CLI's settings
 - [IPC Transport](../electron/ipc-transport.md) — all wizard ↔ main-process calls go through the `setup:*` / `app:*` IPC channels
-- [App Lifecycle](../electron/app-lifecycle.md) — `setup:complete` starts the embedded server and reloads the window; `app:rerun-setup` relaunches
+- [App Lifecycle](../electron/app-lifecycle.md) — `setup:complete` reloads the window; `adoptExistingInstall()` marks already-used installs as set up; `app:rerun-setup` relaunches
 - [Settings System](./settings-system.md) — `server-config.json` (port, CLIs, density, debug, history, passwordHash) is the persisted config the dashboard reads
 
 ### Depended On By
@@ -99,6 +101,7 @@ Each CLI's settings file is patched atomically (write-to-tmp + rename per the pr
 - `~/.claude/settings.json`, `~/.codex/config.toml` — modified with atomic write / TOML block replacement
 
 ## Change Risks
+- **The wizard is only ever rendered by the running dashboard.** `setup:complete` must reload, never start a server, and an install that already has `data/sessions.db` or `server-config.json` must never reach the wizard (its Configure step rewrites `server-config.json`). Both are pinned by `test/electronSetupGate.test.ts`.
 - Adding a step without updating the `labels` array in `WizardHeader` desyncs the progress bar
 - Changing `SetupConfig` shape requires updating `defaultConfig`, the `setup:save-config` validators (electron), and `hooks/setup-wizard.js` to match
 - The Electron install path goes through `install-hooks-api.cjs` (not `hookInstaller.js`); the `.cjs` extension is load-bearing for `require()` from packaged `extraResources`

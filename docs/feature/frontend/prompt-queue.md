@@ -9,8 +9,8 @@ Users can queue up multiple prompts for a session and have them sent automatical
 ## Source Files
 | File | Role |
 |------|------|
-| `src/stores/queueStore.ts` | `queues: Map<string, QueueItem[]>` + `automation: Map<string, QueueAutomationConfig>`; add/remove/reorder/moveToSession/setQueue/updateItem, automation setters, migrateSession, loadFromDb, and the IndexedDB persist subscription |
-| `src/components/session/QueueTab.tsx` | Per-session queue view — compose row (+ 🔖 keep / library buttons), type pills (Once/Loop/Schedule), per-item rows, header toggles (📚 history, ↵ auto-enter, ➤ auto-send), automation status row |
+| `src/stores/queueStore.ts` | `queues: Map<string, QueueItem[]>` + `automation: Map<string, QueueAutomationConfig>` + `composeDrafts: Map<string, QueueComposeDraft>`; add/remove/reorder/moveToSession/setQueue/updateItem, automation setters, `getComposeDraft`/`setComposeDraft`, migrateSession, loadFromDb, and the IndexedDB persist subscription |
+| `src/components/session/QueueTab.tsx` | Per-session queue view — compose row (+ 🔖 keep / library buttons), type pills (Once/Loop/Schedule), per-item rows, header count (`N active · M inactive`) and toggles (📚 history, ↵ auto-enter, ➤ auto-send), automation status row |
 | `src/components/session/QueueMovePicker.tsx` | Move-to-session dropdown opened by a row's MOVE button — themed target list, keyboard nav, portaled + viewport-placed |
 | `src/lib/queueMovePlacement.ts` | Pure placement maths shared by that dropdown and `PromptSnippetPicker` (`computeMovePickerPosition`, `HorizontalAlign`, `ANCHOR_GAP`, `VIEWPORT_PAD`) — DOM-free so the rules are unit-testable |
 | `src/routes/QueueView.tsx` | Global queue view across all sessions (grouped table, add-to-any-session, move/delete) |
@@ -32,7 +32,9 @@ Closely-related features documented elsewhere (this doc cross-links rather than 
 - **QueueAutomationConfig** (per-session): `{paused, autoSend, autoEnter, idleGuard, skipWhenPrompting, autoResume, resumeMaxRetries, resumePrompt, loopExcludeWindows?}`. `DEFAULT_AUTOMATION` is a frozen sentinel `{paused:false, autoSend:true, autoEnter:true, idleGuard:true, skipWhenPrompting:true, autoResume:true, resumeMaxRetries:3, resumePrompt:''}` — selectors fall back to it so a missing entry returns a stable reference (avoids a re-render loop). `idleGuard`, `skipWhenPrompting`, and `loopExcludeWindows` only gate the scheduler (see [Queue Scheduler](./queue-scheduler.md)); `autoSend` and `autoEnter` are described below. `autoResume`/`resumeMaxRetries`/`resumePrompt` belong to [Auto-Resume Watchdog](./auto-resume-watchdog.md) — setters `setAutoResume`, `setResumeMaxRetries` (clamped 1..10), `setResumePrompt` (capped 4000 chars); an empty `resumePrompt` means "use the built-in wording". The status row's 🩺 **Auto-resume on/off** toggle is the only UI for them; note `paused` suppresses the watchdog too, since the scheduler's pause check runs first.
 
 ### Queue operations
-- **Compose row state**: `composeType` (default `once`), `composeIntervalValue` / `composeIntervalUnit` (default `10` + `min`; `sec`→1000ms, `min`→60_000ms, `hour`→3_600_000ms, floored at 1 unit), and `composeRunAt` (a `datetime-local` string, parsed with `Date.parse`; ignored if `NaN`). `handleAdd` builds the base item (`id` from the monotonic `localId()` counter seeded with `Date.now()`, `position: items.length`, `createdAt: Date.now()`) and runs it through `applyTypeDefaults(base, composeType, { intervalMs, runAt })`. It clears text, images, and `composeRunAt` afterwards but deliberately KEEPS the type + interval so a batch of timed items can be added back-to-back. Cmd/Ctrl+Enter in the compose textarea is ADD; the ADD button is `disabled` while both text and images are empty.
+- **Compose row state is a per-session store entry, not local `useState` (Aug 2026).** `QueueComposeDraft` (`{text, images, type, intervalValue, intervalUnit, runAt}`) lives in `queueStore.composeDrafts: Map<sessionId, QueueComposeDraft>`, read via `getComposeDraft(sessionId)` / written via `setComposeDraft(sessionId, patch)` — the exact same shape as `automation` above. **Why it can't be local component state**: neither `<QueueTab>` render call site in `DetailPanel.tsx` passes `key={sessionId}`, so switching the visible session updates props on the SAME component instance rather than unmounting it — local state would survive the switch and leak an unfinished draft from session A into session B's (previously empty) box. It also fixes a second, less obvious instance of the identical bug: `DetailPanel` mounts `QueueTab` **twice simultaneously** for one session (the always-on strip below the terminal + the dedicated Queue tab), and with local state each mount had its own independent draft even though both represent the same session's queue. In-memory only — deliberately not persisted to IndexedDB like `automation` is; this is about not leaking between sessions while the app is open, not about surviving a restart. `migrateSession` carries an in-progress draft across a `claude --resume` re-key, same "don't clobber an existing entry at the target id" rule as `automation`. `QueueTab`'s own `composeText`/`composeImages`/etc. local names and their setter call signatures are unchanged — they're now thin wrappers over `setComposeDraft`, so the ~20 read/write sites elsewhere in the component needed no changes. Defaults: `type: 'once'`, `intervalValue: 10` + `intervalUnit: 'min'` (`sec`→1000ms, `min`→60_000ms, `hour`→3_600_000ms, floored at 1 unit), `runAt: ''` (a `datetime-local` string, parsed with `Date.parse`; ignored if `NaN`).
+- `handleAdd` builds the base item (`id` from the monotonic `localId()` counter seeded with `Date.now()`, `position: items.length`, `createdAt: Date.now()`) and runs it through `applyTypeDefaults(base, composeType, { intervalMs, runAt })`, then patches the draft back to `{ text: '', images: [], runAt: '' }` in one `setComposeDraft` call — deliberately NOT `type`/`intervalValue`/`intervalUnit`, so a batch of timed items can be added back-to-back without re-picking Loop/Schedule and the interval each time. Cmd/Ctrl+Enter in the compose textarea is ADD; the ADD button is `disabled` while both text and images are empty.
+- Covered by `queueStore.test.ts` (isolation, patch-merge, migrateSession re-keying) and `QueueTab.test.tsx` (a real component render using RTL's `rerender()` — not two separate `render()` calls, and not a `key`-forced remount — since `rerender()` is the one thing that reproduces "same instance, new `sessionId` prop," which is exactly what `DetailPanel` does today).
 - **Live countdown**: a 1000 ms `setInterval` re-render ticker runs **only** while the queue holds at least one `loop` item (`hasLoopItem`) — `describeNextFire` reads `Date.now()` at render, so the countdown would otherwise freeze; once-only and schedule-only queues stay fully tick-free.
 - `add` (append), `remove` (by id), `reorder` (drag-and-drop, re-stamps `position`), `moveToSession` (dropdown picker; re-stamps `sessionId` + appends past target's max position), `setQueue` (bulk replace), `updateItem` (partial patch to one item).
 - **Drag-to-reorder** — the leftmost **grip handle** (`queueDragHandle`, a 6-dot icon) is the sole drag source, so the row body text stays selectable. `handleDragStart(e, item)` tracks the dragged row **by id** (`draggingId`), sets `dataTransfer` (`setData` + `effectAllowed='move'`) — required so the drag actually starts in Firefox / browser mode, not just Chromium/Electron — and calls `setDragImage(row)` so the whole row is the drag ghost. `handleDragOver` derives the dragged row's current index by id (`items.findIndex`) — immune to a concurrent scheduler add/remove shifting the list — splices it to the hovered index, and calls `reorder`, which persists via the store subscription. Because `reorder` re-stamps only `position` (spreading the rest of each item), a mid-flight `loop`/`schedule` chain keeps its `execState`, so moving it never double-fires.
@@ -65,9 +67,10 @@ Closely-related features documented elsewhere (this doc cross-links rather than 
 - **Disabled action buttons must look disabled.** `.queueActionBtn:disabled { opacity: .35; cursor: default }` plus `.queueActionBtn:disabled:hover` (transparent background, neutral border, `!important` to outrank the accent hover rules — `:disabled:hover` wins on specificity) in `Terminal.module.css`. There was no `:disabled` rule at all, so a disabled `⚡ NOW` kept its full amber accent *and* still lit up on hover; a click that did nothing read as a broken queue rather than an off control. `.queueReorder:disabled` (opacity `.25`) is declared later and still wins for ▲/▼.
 
 ### Layout — List vs Card view
-- `queueViewMode: 'list' | 'card'` lives in `uiStore` (persisted to `localStorage['queue-view-mode']`, default `'list'`) — see [State Management](./state-management.md#uistore) for the store slice. QueueTab reads it and a header icon button (`toggleQueueViewMode`, next to the 📚 history button) flips it; the icon shows the *destination* view (a 2×2 grid glyph while in List, three lines while in Card), matching the "click to switch to X" convention the other header icon buttons already use.
+- `queueViewMode: 'list' | 'card'` lives in `uiStore` (persisted to `localStorage['queue-view-mode']`, **default `'card'`** since Aug 2026 — `loadQueueViewMode` is written as "explicitly `'list'` wins, everything else is card" rather than the reverse, so an unset key gets the new default while a user who deliberately chose list keeps it; `toggleQueueViewMode` persists both values, which is what makes those two cases distinguishable. The default is resolved at module init, so it is only testable by re-importing the store with `localStorage` pre-set — the old `defaults to list` test set the state in its own `beforeEach` and asserted it, never reaching the loader, and would have passed through this change unchanged) — see [State Management](./state-management.md#uistore) for the store slice. QueueTab reads it and a header icon button (`toggleQueueViewMode`, next to the 📚 history button) flips it; the icon shows the *destination* view (a 2×2 grid glyph while in List, three lines while in Card), matching the "click to switch to X" convention the other header icon buttons already use.
 - **List** is the original row layout above — drag-to-reorder via the grip handle, one row per item.
-- **Card** (`.queueCardGrid`, a CSS `grid-template-columns: repeat(auto-fill, minmax(200px, 1fr))`) wraps items into a grid instead. Cards have **no drag handle**: a 2D wrapping grid has no unambiguous drop target for native HTML5 DnD, so reordering in Card mode goes through the same ▲/▼ buttons List already has. Each card's header holds only the pause toggle + position number (the drag grip is omitted, everything else is unchanged).
+- **Card** (`.queueCardGrid`, a CSS `grid-template-columns: repeat(auto-fill, minmax(200px, 1fr))`) wraps items into a grid instead. **Both layouts now support press-and-hold drag reordering** (Aug 2026) — this replaced the native HTML5 DnD that List used and Card never had. Cards previously had no drag on the grounds that "a 2D wrapping grid has no unambiguous drop target"; that was an unmade decision rather than an impossibility. [`queueDragReorder.ts`](../../../src/lib/queueDragReorder.ts) picks the nearest item, then a midpoint test, with the AXIS chosen from the layout itself — an item sharing a row splits left/right (grid), an item alone on its row splits top/bottom (list) — so one rule serves both and they cannot drift. ▲/▼ remain for keyboard and precision.
+- **Why pointer events, not `draggable`**: native drag events never fire on touch, so drag-to-reorder had never worked from a phone in *either* layout. [`useQueueDragReorder`](../../../src/hooks/useQueueDragReorder.ts) uses pointer events, covering mouse/pen/touch in one path. Two thresholds carry the gesture: `HOLD_MS` (350ms) so a tap on a card's SEND/EDIT/DEL stays a tap, and `MOVE_CANCEL_PX` (8px) so a swipe scrolls `.queueBody` instead of snagging a card. `touch-action: none` on `.queueItem`/`.queueCard` is **required, not cosmetic** — without it the browser claims the touch gesture for scrolling and `pointermove` never arrives, so dragging silently does nothing on the exact device this was built for. The window listeners are attached in `onPointerDown`, NOT in an effect: `pointerdown` only writes a ref, so an effect keyed on drag state would not run until a re-render and the scroll-cancel could never fire (found by a gesture test, not by review — the symptom is a card lifting mid-scroll).
 - **Both modes render through the exact same two functions** — `renderItemMeta(item)` (type chip / next-fire / chain badge) and `renderItemActions(item, idx)` (the 7-button action group + its `QueueMovePicker`) — extracted out of what was previously a List-only inline IIFE. This is deliberate: List and Card sharing one implementation means they can never disagree about what a given item's state means: a bugfix to quiet-hours wording, the daily-start clamp, or a button's disabled condition lands in both layouts automatically. Only the surrounding container markup (row vs. card) differs between the two branches.
 - **Cards show their actions unconditionally**, unlike List's hover-reveal (`.queueItem:hover .queueActions`). `.queueCard .queueActions { display: flex }` overrides the plain `.queueActions { display: none }` rule by selector specificity (two classes beat one, regardless of source order). Hover-to-reveal is a density trick that makes sense for a tight row; a card is already spaced out, so hiding its only controls behind hover would just make them harder to find (and hurts touch/keyboard use, which can't hover at all).
 - Text truncation, image thumbnails, and narrow-width button wrapping (`.queueActions` is `flex-wrap: wrap`) behave identically to List — verified at both a normal panel width and a ~240px docked-left width via a static render-check harness (inlining the real CSS-module rules + theme tokens and screenshotting with Playwright), since `npm run dev`'s backend does not currently boot on this machine's active Node/better-sqlite3 ABI pairing.
@@ -82,13 +85,19 @@ QueueTab is a single component mounted in two places ([Session Detail Panel](./s
 ### Auto-send (➤ paper-plane)
 - **Per-session** toggle stored in `QueueAutomationConfig.autoSend`, persisted to the `queueAutomation` IndexedDB table (defaults to ON). Toggling it on session A never affects session B.
 - When a session is `waiting`/`input`/`idle` (`isSendableStatus`), its first queued item is sent and only removed after a successful write. **The firing itself lives entirely in `useGlobalQueueScheduler`** — QueueTab holds no auto-send effect; its only send path is the manual `handleSendNow`, and it imports `isSendableStatus` solely to render the automation status row (`⏳ Waiting for session to be idle (status: …)`). Both QueueTab mounts for a session (the always-on strip in DetailPanel + the Queue tab) AND the scheduler read the SAME per-session `automationConfig.autoSend` (re-read each tick), so the visible toggle and the actual firing can never disagree — and a session whose QueueTab is unmounted still fires.
-- Older `queueAutomation` rows saved before auto-send became per-session lack the column and are read as ON (`loadFromDb` defaults `row.autoSend === undefined → true`).
+- Older `queueAutomation` rows saved before auto-send became per-session lack the column and are read as ON (`automationConfigFromRow` — the pure row-mapper `loadFromDb` delegates to — defaults `row.autoSend === undefined → true`).
 - Turning auto-send OFF snaps `composeType` back to `once` (loop/schedule pills are disabled) and shows a warning banner with an inline Enable button, so users can't quietly create dead timed items.
 - Note: `settingsStore.autoSendQueue` is an unrelated global settings flag consumed only by the Settings → Hooks UI (`HookSettings.tsx`); it does NOT gate firing — the per-session `autoSend` is the real control.
 
 ### Auto-enter (↵ return-arrow)
 - **Per-session** toggle in `QueueAutomationConfig.autoEnter`, persisted to the same table (defaults to ON). Controls whether the send follows the prompt text with a real Enter keystroke (`\r`) to actually submit it in the CLI TUI. When OFF, the text is typed into the input box only and the user presses Enter themselves. auto-send governs *when* the prompt leaves the queue; auto-enter governs *how* it is delivered.
-- **Invariant — Auto-Enter ON ⟹ Auto-send ON**: `setAutoEnter(id, true)` also flips `autoSend` ON in the same store update, because "Auto-Enter on" must mean the prompt is actually sent *and* submitted (the old decoupling silently produced "typed but never fired"). Disabling Auto-Enter leaves Auto-send untouched. The same invariant is **self-healed on load**: `loadFromDb` coerces any persisted `autoEnter && !autoSend` row to `autoSend: true`. (History: both flags were global `localStorage` keys through early Jun 2026, then made per-session; the coupling was added shortly after.)
+- **Deliberately independent in both directions (Aug 2026)**: `setAutoEnter` never touches `autoSend`, and vice versa. This reverses an earlier invariant — "Auto-Enter ON ⟹ Auto-send ON" — that forced `autoSend` on whenever `autoEnter` turned on, to stop "typed but never fired" from reading as a silent no-op. That traded away a real, valid combo: Auto-send OFF + Auto-Enter ON means the user drives *when* manually (⚡ NOW's `forceStart` still bypasses the Auto-send gate — see [Queue Scheduler](./queue-scheduler.md)) but still wants a real Enter keystroke, not typed-only, whenever they do fire something. Worse, the coupling was **also self-healed on every reload** (`loadFromDb` used to coerce any persisted `autoEnter && !autoSend` row back to `autoSend: true`), so a user's explicit "Auto-send off" choice silently reverted on restart with nothing logged — a worse bug than the one it replaced. The `queueAutoSendBanner` already tells the user when Auto-send is off and why Loop/Schedule won't fire, so discoverability doesn't depend on the coupling; the Auto-Enter toggle's own toast now says explicitly when Auto-Enter turns on with Auto-send off ("nothing fires on its own (use ⚡ NOW)") rather than silently changing the other setting. Both the live-toggle path (`setAutoEnter`/`setAutoSend`) and the restore path (`automationConfigFromRow`, the pure function `loadFromDb` delegates its row-mapping to — extracted specifically so this is unit-testable without IndexedDB) read/write each field independently; covered by `queueStore.test.ts`. (History: both flags were global `localStorage` keys through early Jun 2026, then made per-session; the coupling was added shortly after, then removed in favor of independence.)
+
+### Held queue notice (Sep 2026)
+- While the scheduler holds a session's queue (see [Queue Scheduler](./queue-scheduler.md) — user cancel or running subagents) and it has items, `QueueTab` shows a `role="status"` notice above the compose row: `⏸ Paused — you stopped the last turn. Nothing sends until you resume or send a prompt yourself.` with a **Resume** button (`POST /api/sessions/:id/queue/resume`; the toast says `Queue resumed`, or `The queue is already running` when the server answers `resumed: false` — another device resumed first, or your own prompt already cleared it), or `⏳ Waiting for N subagents to finish before sending the next prompt.` (no button — nothing to do). It reuses `queueHoldReason`, so it can never disagree with what the scheduler enforces.
+- Collapsed, the notice is out of sight, so the `QUEUE (N)` toggle carries a small chip (`⏸ paused` / `⏳ subagents`); clicking expands to the notice. Expanded, no chip (the notice says it).
+- Colour: informational cyan, not the auto-send banner's warning orange. Text is `color-mix(accent-cyan 50%, --text-primary)` — bare `--accent-cyan` measured 3.25:1 on the light theme; the mix measured ≥4.58:1 in all 10 themes.
+- Resume is the notice's only way out, so `.queueHoldBannerBtn` has its own `:active` and `:focus-visible` states and a real target: `min-height` 28 px with a mouse, 44 px under `(pointer: coarse)` (measured in a touch context); the shared banner button is ~20 px.
 
 ### Send mechanism
 - Both `sendItemToTerminal` (manual "send now") and the global scheduler's `sendToTerminal` delegate to `sendPromptToTerminal` (`src/lib/terminalSend.ts`). It POSTs the prompt text to `/api/terminals/{terminalId}/write` with `{data: textToSend}`, and **when auto-enter is ON, sends the submitting `\r` as a SEPARATE write** after a short pause (`SUBMIT_ENTER_DELAY_MS`, 1000 ms). The `\r` is never concatenated onto the text: a single `text + "\r"` write is read by Claude Code / Codex TUIs as a bracketed-paste-like burst, so the trailing `\r` is inserted as a literal newline and the prompt is typed but never submitted (the "only a newline" bug). A standalone `\r`, arriving after the TUI has consumed the text, registers as a real Enter keypress — mirroring the manual paste flow (paste text, then press Enter). `\n` alone only inserts a newline inside the input box.
@@ -105,6 +114,7 @@ QueueTab is a single component mounted in two places ([Session Detail Panel](./s
 - **Resume re-key ordering**: `src/main.tsx` `await`s `loadFromDb()` (queue + history) BEFORE rendering `<App>` (which mounts the WebSocket), so on `claude --resume` the order is deterministic — load → render → WS connect → `session_update` → `migrateSession` always sees hydrated items and re-keys instead of no-oping.
 - `migrateSession(oldSessionId, newSessionId)` re-keys all queue items when a session is replaced (e.g., `claude --resume`).
 - QueueTab collapsible state: `localStorage['queue-panel-collapsed']` (defaults to collapsed).
+- **Header count (Sep 2026)**: the toggle reads `QUEUE (N active · M inactive)`, or `QUEUE (0)` when empty. Active = rows with `!item.disabled` (including one mid-chain), i.e. rows the scheduler may send; inactive = rows switched off with their own toggle (`— paused —` on the row). Session-wide states — held (`queueHoldReason`), automation paused, auto-send off — have their own notices and are deliberately not folded into these numbers. The count never says "paused": in this header that word is the held-queue chip's, and a test pins it. Styling: the active part is `color-mix(accent-cyan 50%, --text-primary)` (bare cyan measured 3.65:1 on the light theme), the inactive part `color-mix(--text-secondary 40%, --text-primary)` (bare secondary 3.37:1 in solarized; 50% measured 4.39) — measured from pixels ≥5.06 / ≥4.63 in all 10 themes. The count is `nowrap` with `letter-spacing: 0` (the label's 1px tracking cost ~23px), and `.queueToggle` is `flex-wrap: wrap` + `min-width: 0`, so on a narrow panel the whole count (and the held chip, now `nowrap` too — it used to split `⏸`/`paused` over two lines) drops under `QUEUE` instead of pushing the header's icon buttons off the edge. Measured: one line at ≥360px (≥500px with the held chip), no horizontal overflow down to 240px. The DetailTabs QUEUE badge and the session cards' queue badge still show the total.
 
 ### Favorites entry point
 - The QUEUE header has a 📚 button opening `QueueHistorySheet`, and each row carries a ★ button (`handleToggleFavorite`) that saves/removes a snapshot in the `queueHistory` table and stamps `QueueItem.historyId` so the star renders filled. The full history feature (apply/edit/view/alias/export/import) is documented in [Queue Scheduler](./queue-scheduler.md).
@@ -145,3 +155,139 @@ QueueTab is a single component mounted in two places ([Session Detail Panel](./s
 - **Never lower `.queueMovePicker`'s z-index below `.detailOverlay`'s**: portaling to `<body>` makes the menu a sibling of the session detail panel rather than its descendant, so anything under the panel's **100** is painted behind it — the menu still opens and places correctly, it is simply invisible, which presents as "MOVE does nothing". Keep it in the 10000+ portal band. Guarded by the "stacking against the session detail panel" cases in `QueueMovePicker.test.tsx`.
 - **`scroll` listener must keep `capture: true`**: scroll events don't bubble, so a window-level listener only sees `.queueBody`'s inner scroll during the capture phase. Drop it and the menu detaches from its trigger the moment the queue is scrolled.
 - **Placement stays pure**: `computeMovePickerPosition` must not read the DOM or any ancestor's height — measuring anything but the trigger's viewport rect is exactly the bug that made the flip-up unreachable.
+
+
+## Shared across devices (server-backed, Aug 2026)
+
+The queue is stored on the SERVER and mirrored to every connected device.
+Before this it lived only in each browser's IndexedDB, so the desktop Electron
+app and a phone at `http://<lan-ip>:<port>` kept entirely private queues for
+the same session — the reported symptom was `QUEUE (0)` on the phone for a
+session with a full queue on the Mac. There was no server-side queue table at
+all, so nothing *could* sync. (The workspace snapshot does carry queue items,
+but it is explicit save/restore and its auto-save is single-writer — it was
+never a live-sync mechanism.)
+
+### Storage
+
+`session_queues` (`server/db.ts`): `session_id` PK, `items` JSON, `automation`
+JSON, `updated_at`. Encode/decode lives in the pure, import-free
+[`server/sessionQueueCodec.ts`](../../../server/sessionQueueCodec.ts).
+
+**Items are opaque JSON, not normalized columns.** The server runs no logic on
+queue items — the scheduler is entirely client-side — so it is pure
+transport+storage. Normalizing would put a second copy of the ~18-field
+`QueueItem` type on the server that has to track the client's forever, and the
+failure mode of forgetting a field is silent user-data loss. A JSON document
+carries new fields for free and cannot drift.
+
+### Endpoints
+
+| Route | Purpose |
+|---|---|
+| `GET /api/sessions/:id/queue` | One session's shared queue |
+| `PUT /api/sessions/:id/queue` | Replace it, then broadcast `QUEUE_UPDATE` |
+| `GET /api/queues` | Every queue, for one-shot boot hydration |
+
+The per-session routes sit under `/sessions/:id` deliberately, inheriting
+`requireVisibleSession` so a remote device cannot read the queue of a session
+that hasn't been shared with it. **`GET /api/queues` is outside that path and
+filters for itself** — a bulk endpoint is exactly where the six-path audit in
+[authentication.md](../server/authentication.md) stops covering you.
+
+### Client sync (`queueStore.ts`)
+
+- **Boot**: `main.tsx` calls `loadFromDb()` (IndexedDB) and then
+  `syncFromServer()`. Order matters — seeding needs the hydrated local queues
+  to know what to push. Not awaited, so a slow server never delays first paint.
+- **Local change** → the existing persist subscription also calls
+  `pushQueueToServer` (debounced 400ms, since a drag-reorder fires per frame).
+- **Remote change** → `queue_update` over the WebSocket → `applyRemoteQueue`.
+- **Dexie is unchanged**, now acting as a local cache: if the server is
+  unreachable the app behaves exactly as it did before this feature.
+
+### The two rules that make it safe
+
+1. **Echo guard.** The server broadcasts every write back to its sender, so
+   applying your own echo marks the store dirty → pushes again → ping-pongs
+   forever between two devices. `originClientId` (from `getClientId()`) plus
+   the `_skipServerPush` set closes both halves. It is deliberately separate
+   from `_skipPersist`: that one suppresses the IndexedDB write after a local
+   DB load. Conflating them either re-echoes remote changes or stops local
+   edits from syncing at all.
+2. **Seed on "no RECORD", never "no items".** An empty queue is stored as a
+   real record. If empty read back as "server has nothing", clearing your
+   queue on one device would let the other re-seed from its stale local copy
+   and resurrect the prompts you just deleted.
+
+Conflict resolution is last-write-wins, matching how session state already
+behaves. Firing is unaffected — [`useGlobalQueueScheduler`](./queue-scheduler.md)
+still gates on the control baton, so a shared queue does not mean two devices
+send the same prompt twice.
+
+### Testing note
+
+`server/db.ts` opens better-sqlite3 at module scope against **Electron's** ABI,
+so it cannot load under system Node — every other server test stubs `db.js` out
+entirely. That is why encode/decode was extracted to `sessionQueueCodec.ts`
+(pure, always runs). `test/sessionQueueDb.test.ts` exercises live SQLite and
+skips on an ABI mismatch:
+
+```bash
+npm rebuild better-sqlite3            # switch to the Node ABI
+npx vitest run test/sessionQueueDb.test.ts
+npm run electron:rebuild              # restore it for the app
+```
+
+Its catch **re-throws anything that is not an ABI error** — a bare
+`catch { db = null }` converts any import failure into a skip, which is how an
+earlier revision of that file silently "passed" by skipping 8/8 forever after
+a typo in its import path.
+
+
+## Resizable terminal / queue split (Aug 2026)
+
+The always-on queue strip below the terminal used to be pinned by two rules:
+`.queueBody { max-height: 250px }` and `.bottomRow { flex-shrink: 0 }` with no
+height of its own. A draggable divider (`.queueResizer`, rendered by
+`DetailPanel` between `.terminalSection` and `.bottomRow`) now sets that height,
+persisted globally to `localStorage['queue-panel-height']`.
+
+Global rather than per-session, matching `queue-view-mode` and `nav-position` —
+a per-session height would resize the panel on every session switch.
+
+### The maths lives in `src/lib/panelResize.ts`
+
+Pure and DOM-free, because the two things that are easy to get wrong here are
+invisible in a diff:
+
+- **The delta is inverted.** The divider is the queue's *top* edge, so dragging
+  DOWN must make the queue SHORTER (`startHeight - dy`). A sign error produces
+  a handle that appears to flee the cursor.
+- **Two clamps, not one.** `MIN_QUEUE_HEIGHT` (120) stops the compose row and
+  type pills clipping. The maximum is `containerHeight - MIN_TERMINAL_HEIGHT`
+  (160) rather than a percentage: a percentage cap still starves the terminal
+  to a couple of rows in a short window. When the container cannot satisfy both
+  floors the QUEUE yields, since a terminal squeezed to nothing is worse.
+  A container height of 0 (first layout) applies the minimum only — clamping
+  against a bogus maximum would snap the panel shut on mount.
+
+### Two implementation details worth keeping
+
+- **`fullHeight` is now passed by BOTH QueueTab mounts.** The strip needs to
+  fill the dragged height, which is exactly what `.queuePanelFull` already did
+  for the QUEUE tab. The first attempt instead wrote
+  `:global(.bottomRow) .queueBody { … }` in `Terminal.module.css` — that can
+  never match, because `.bottomRow` is a hashed CSS-module class belonging to
+  `DetailPanel.module.css`, so the rule would have silently done nothing.
+  Reusing the existing prop is both correct and one line.
+- **Pointer events, `touch-action: none`, 6px hit area.** Same reasoning as the
+  queue's drag-reorder: mouse-only events aren't grabbable on a phone, without
+  `touch-action: none` the browser claims the gesture for scrolling, and a 1px
+  target is unusable with a finger. Double-click resets to 250.
+
+Verified against a harness reproducing the real CSS and driven with real
+pointer drags: up 100px → queue 250→342 (terminal 243→151), down 160px →
+342→182, and both clamps hit exactly (queue floor 120; max = container −160).
+Unit coverage in `panelResize.test.ts` — reverting the subtraction to an
+addition turns the two direction tests red.

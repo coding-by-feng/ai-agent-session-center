@@ -6,8 +6,22 @@ export interface Room {
   sessionIds: string[];
   collapsed: boolean;
   createdAt: number;
-  /** Mapped room index: 0=NW, 1=NE, 2=SW, 3=SE. Undefined = corridor. */
+  /** Mapped room index: 0=NW, 1=NE, 2=SW, 3=SE. Undefined = corridor.
+   *
+   *  This is a 3D WORLD-SPACE position, not a display-order hint — it drives
+   *  `computeRoomCenter` (the room's actual walls/floor/doors in the
+   *  cyberdrome), the camera-focus target in `SceneOverlay`, and the room's
+   *  color in `HeaderAgentStrip`/`SessionSwitcher` (`roomIndex % PALETTE.length`).
+   *  Reordering a room in a 2D list must NEVER write this field — see
+   *  `listOrder` below, which exists specifically so list views have
+   *  somewhere to put "order" without moving the room in the 3D scene. */
   roomIndex?: number;
+  /** Display order for LIST views only (`SessionSwitcher`'s room-grouped
+   *  strip) — independent of `roomIndex`. Undefined means "no explicit
+   *  order yet"; the list falls back to `roomIndex` (then array order) so
+   *  existing rooms don't visibly reshuffle until the user actually
+   *  reorders one for the first time. Never read by anything 3D. */
+  listOrder?: number;
 }
 
 const STORAGE_KEY = 'session-rooms';
@@ -41,6 +55,9 @@ interface RoomState {
   moveSession: (sessionId: string, fromRoomId: string, toRoomId: string) => void;
   toggleCollapse: (roomId: string) => void;
   setRoomIndex: (roomId: string, roomIndex: number | undefined) => void;
+  /** List-view display order only — see `Room.listOrder`. Never touches
+   *  `roomIndex`, so this can never move a room in the 3D scene. */
+  setListOrder: (roomId: string, listOrder: number | undefined) => void;
   migrateSession: (oldSessionId: string, newSessionId: string) => void;
   getRoomForSession: (sessionId: string) => Room | undefined;
   loadFromStorage: () => void;
@@ -153,6 +170,15 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     set((state) => {
       const rooms = state.rooms.map((r) =>
         r.id === roomId ? { ...r, roomIndex } : r,
+      );
+      saveToLocalStorage(rooms);
+      return { rooms };
+    }),
+
+  setListOrder: (roomId, listOrder) =>
+    set((state) => {
+      const rooms = state.rooms.map((r) =>
+        r.id === roomId ? { ...r, listOrder } : r,
       );
       saveToLocalStorage(rooms);
       return { rooms };

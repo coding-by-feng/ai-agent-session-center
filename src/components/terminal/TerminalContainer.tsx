@@ -6,37 +6,23 @@
 import { useEffect, useRef, useState, useCallback, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTerminal } from '@/hooks/useTerminal';
-import type { TerminalBookmarkPosition } from '@/hooks/useTerminal';
 import TerminalToolbar from './TerminalToolbar';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { ttsEngine } from '@/lib/ttsEngine';
-import { kokoroTts } from '@/lib/kokoroTts';
 import SelectionPopup from '@/components/translate/SelectionPopup';
 import { useSelectionPopup } from '@/hooks/useSelectionPopup';
+import { useSessionStore } from '@/stores/sessionStore';
+import { isAiPopupEnabled } from '@/lib/aiPopup';
 import { extractXtermSelection } from '@/lib/selectionExtractors';
+import { useIsMobile } from '@/lib/platform';
 import styles from '@/styles/modules/Terminal.module.css';
 import '@xterm/xterm/css/xterm.css';
-
-interface TerminalBookmark {
-  id: string;
-  terminalId: string;
-  scrollLine: number;
-  selectedText: string;
-  note: string;
-  timestamp: number;
-  selStartX: number;
-  selStartY: number;
-  selEndX: number;
-  selEndY: number;
-}
 
 interface TerminalContainerProps {
   terminalId: string | null;
   ws: WebSocket | null;
   showReconnect?: boolean;
   onReconnect?: () => void;
-  /** When provided, the bookmark panel is rendered via portal into this element instead of inline */
-  bookmarkPortalTarget?: HTMLDivElement | null;
   /** Project root path — enables clickable file paths in terminal output */
   projectPath?: string;
   /** Fork the current Claude/Codex session. */
@@ -60,7 +46,6 @@ export default memo(function TerminalContainer({
   ws,
   showReconnect = false,
   onReconnect,
-  bookmarkPortalTarget,
   projectPath,
   onFork,
   onClone,
@@ -75,8 +60,6 @@ export default memo(function TerminalContainer({
     }
   });
 
-  const [bookmarks, setBookmarks] = useState<TerminalBookmark[]>([]);
-  const [showBookmarkPanel, setShowBookmarkPanel] = useState(false);
   const [isClosed, setIsClosed] = useState(false);
 
   const fsContainerRef = useRef<HTMLDivElement | null>(null);
@@ -96,6 +79,9 @@ export default memo(function TerminalContainer({
     refitTerminal,
     setTheme,
     handleTerminalOutput,
+    handleTerminalGeometry,
+    widthMode,
+    setWidthMode,
     handleTerminalReady,
     handleTerminalClosed,
     reparent,
@@ -103,9 +89,6 @@ export default memo(function TerminalContainer({
     refreshOutput,
     scrollPageUp,
     scrollPageDown,
-    getTerminalBookmark,
-    scrollToLine,
-    jumpToBookmark,
     autoScrollEnabled,
     toggleAutoScroll,
     readRecentText,
@@ -203,82 +186,6 @@ export default memo(function TerminalContainer({
     if (!ttsEnabled) stopTts();
   }, [ttsEnabled, stopTts]);
 
-  // ---- Click-to-speak (local, offline English voice via Kokoro) ----
-  const ttsLocalEnabled = useSettingsStore((s) => s.ttsLocalEnabled);
-  const ttsLocalVoice = useSettingsStore((s) => s.ttsLocalVoice);
-  const [localTtsActive, setLocalTtsActive] = useState(false);
-  const [localTtsLoading, setLocalTtsLoading] = useState(() => kokoroTts.getStatus().loading);
-  const localTtsActiveRef = useRef(false);
-  const localLastAbsRef = useRef<number>(-1);
-  const localPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Stable per-terminal ownership token: the Kokoro engine is a shared singleton,
-  // so this lets only one terminal drive playback at a time and ensures our
-  // stop() never cuts another terminal's audio.
-  const localOwnerRef = useRef<symbol>(Symbol('term-local-tts'));
-  // Read the voice at speak-time so a mid-playback voice change takes effect.
-  const localVoiceRef = useRef(ttsLocalVoice);
-  useEffect(() => { localVoiceRef.current = ttsLocalVoice; }, [ttsLocalVoice]);
-
-  const resetLocalTtsUi = useCallback(() => {
-    localTtsActiveRef.current = false;
-    setLocalTtsActive(false);
-    if (localPollRef.current) {
-      clearInterval(localPollRef.current);
-      localPollRef.current = null;
-    }
-  }, []);
-
-  const stopLocalTts = useCallback(() => {
-    if (!localTtsActiveRef.current) return;
-    resetLocalTtsUi();
-    kokoroTts.stop(localOwnerRef.current);
-  }, [resetLocalTtsUi]);
-
-  const startLocalTts = useCallback(() => {
-    if (!ttsLocalEnabled || localTtsActiveRef.current) return;
-    localTtsActiveRef.current = true;
-    setLocalTtsActive(true);
-    const owner = localOwnerRef.current;
-    // Speak the current tail immediately, then stream new lines while active.
-    const initial = readRecentText({ lines: 20 });
-    localLastAbsRef.current = initial.absBottom;
-    if (initial.text) kokoroTts.speak(initial.text, { voice: localVoiceRef.current, owner });
-    localPollRef.current = setInterval(() => {
-      if (!localTtsActiveRef.current) return;
-      const snap = readRecentText({ sinceAbsLine: localLastAbsRef.current });
-      if (snap.absBottom > localLastAbsRef.current && snap.text) {
-        localLastAbsRef.current = snap.absBottom;
-        kokoroTts.speak(snap.text, { voice: localVoiceRef.current, owner });
-      } else {
-        localLastAbsRef.current = snap.absBottom;
-      }
-    }, 1200);
-  }, [ttsLocalEnabled, readRecentText]);
-
-  const toggleLocalTts = useCallback(() => {
-    if (localTtsActiveRef.current) stopLocalTts();
-    else startLocalTts();
-  }, [startLocalTts, stopLocalTts]);
-
-  // Track model load state for the spinner, and reset our UI if we lose the
-  // engine (another terminal took over) or the model fails to load — so the
-  // speaker button never gets stuck "on".
-  useEffect(() => {
-    return kokoroTts.subscribe((st) => {
-      setLocalTtsLoading(st.loading);
-      if (!localTtsActiveRef.current) return;
-      const lostEngine = st.activeOwner !== null && st.activeOwner !== localOwnerRef.current;
-      if (st.error || lostEngine) resetLocalTtsUi();
-    });
-  }, [resetLocalTtsUi]);
-
-  // Stop local TTS when the feature is turned off…
-  useEffect(() => {
-    if (!ttsLocalEnabled) stopLocalTts();
-  }, [ttsLocalEnabled, stopLocalTts]);
-  // …and when the terminal changes or the panel unmounts.
-  useEffect(() => stopLocalTts, [terminalId, stopLocalTts]);
-
   // Attach/detach when terminalId changes
   useEffect(() => {
     setIsClosed(false);
@@ -292,27 +199,6 @@ export default memo(function TerminalContainer({
   // IPC subscription failures and PTY exits are reported by useTerminal. The
   // WebSocket transport reaches the same state through terminal_closed below.
   const terminalIsClosed = isClosed || terminalClosed?.terminalId === terminalId;
-
-  // Load bookmarks when terminalId changes
-  useEffect(() => {
-    if (!terminalId) { setBookmarks([]); return; }
-    try {
-      const saved = localStorage.getItem(`term-bookmarks:${terminalId}`);
-      setBookmarks(saved ? JSON.parse(saved) : []);
-    } catch {
-      setBookmarks([]);
-    }
-  }, [terminalId]);
-
-  // Persist bookmarks whenever they change
-  useEffect(() => {
-    if (!terminalId) return;
-    try {
-      localStorage.setItem(`term-bookmarks:${terminalId}`, JSON.stringify(bookmarks));
-    } catch {
-      // ignore
-    }
-  }, [terminalId, bookmarks]);
 
   // Move xterm element between inline and fullscreen containers
   useEffect(() => {
@@ -337,6 +223,14 @@ export default memo(function TerminalContainer({
     return () => document.body.classList.remove('term-fullscreen');
   }, [isFullscreen]);
 
+  // The wrap/pan toggle is only offered where panning is the default — a
+  // desktop terminal already fits its container, so there is nothing to pan to
+  // and the button would be a no-op control taking up toolbar space.
+  const showWrapToggle = useIsMobile();
+  const toggleWrapMode = useCallback(() => {
+    setWidthMode(widthMode === 'pan' ? 'wrap' : 'pan');
+  }, [widthMode, setWidthMode]);
+
   // Listen for terminal WS messages
   useEffect(() => {
     if (!ws) return;
@@ -346,6 +240,11 @@ export default memo(function TerminalContainer({
         const msg = JSON.parse(event.data);
         if (msg.type === 'terminal_output' && msg.terminalId) {
           handleTerminalOutput(msg.terminalId, msg.data);
+        } else if (msg.type === 'terminal_geometry' && msg.terminalId
+                   && typeof msg.cols === 'number') {
+          // The PTY's real width. On a narrow device this is what the canvas
+          // renders at, so it can pan instead of soft-wrapping mid-word.
+          handleTerminalGeometry(msg.terminalId, msg.cols);
         } else if (msg.type === 'terminal_ready' && msg.terminalId) {
           handleTerminalReady(msg.terminalId);
         } else if (msg.type === 'terminal_closed' && msg.terminalId) {
@@ -361,7 +260,7 @@ export default memo(function TerminalContainer({
 
     ws.addEventListener('message', handler);
     return () => ws.removeEventListener('message', handler);
-  }, [ws, terminalId, handleTerminalOutput, handleTerminalReady, handleTerminalClosed]);
+  }, [ws, terminalId, handleTerminalOutput, handleTerminalGeometry, handleTerminalReady, handleTerminalClosed]);
 
   // Refit on visibility change
   useEffect(() => {
@@ -393,8 +292,19 @@ export default memo(function TerminalContainer({
     },
     [getXtermSelection, hasXtermSelection],
   );
+  // Per-session AI-popup toggle. Read through isAiPopupEnabled so a session
+  // that has never been toggled (aiPopupEnabled === undefined — i.e. every
+  // session that existed before this shipped) resolves to ON.
+  const aiPopupEnabled = useSessionStore(
+    (st) => isAiPopupEnabled(originSessionId ? st.sessions.get(originSessionId) : undefined),
+  );
+  const toggleAiPopup = useSessionStore((st) => st.toggleAiPopup);
+  const handleToggleAiPopup = useCallback(() => {
+    if (originSessionId) toggleAiPopup(originSessionId);
+  }, [originSessionId, toggleAiPopup]);
+
   const popup = useSelectionPopup({
-    enabled: translationEnabled && !!originSessionId,
+    enabled: translationEnabled && !!originSessionId && aiPopupEnabled,
     trigger: translationTrigger,
     containerRef: rootRef,
     extract: popupExtract,
@@ -403,48 +313,6 @@ export default memo(function TerminalContainer({
     // the select-to-translate popup still fires there. See useSelectionPopup.
     scopeSelector: '.xterm',
   });
-
-  const handleBookmark = useCallback(() => {
-    const pos: TerminalBookmarkPosition | null = getTerminalBookmark();
-    if (pos) {
-      const newBookmark: TerminalBookmark = {
-        id: `tbm-${Date.now()}`,
-        terminalId: terminalId!,
-        scrollLine: pos.scrollLine,
-        selectedText: pos.selectedText,
-        note: '',
-        timestamp: Date.now(),
-        selStartX: pos.selStartX,
-        selStartY: pos.selStartY,
-        selEndX: pos.selEndX,
-        selEndY: pos.selEndY,
-      };
-      setBookmarks((prev) => [newBookmark, ...prev]);
-      setShowBookmarkPanel(true);
-    } else {
-      // No selection — toggle panel visibility
-      setShowBookmarkPanel((prev) => !prev);
-    }
-  }, [getTerminalBookmark, terminalId]);
-
-  const handleDeleteBookmark = useCallback((id: string) => {
-    setBookmarks((prev) => prev.filter((b) => b.id !== id));
-  }, []);
-
-  const handleBookmarkNoteChange = useCallback((id: string, note: string) => {
-    setBookmarks((prev) => prev.map((b) => (b.id === id ? { ...b, note } : b)));
-  }, []);
-
-  const handleJumpToBookmark = useCallback((bm: TerminalBookmark) => {
-    jumpToBookmark({
-      scrollLine: bm.scrollLine,
-      selectedText: bm.selectedText,
-      selStartX: bm.selStartX,
-      selStartY: bm.selStartY,
-      selEndX: bm.selEndX,
-      selEndY: bm.selEndY,
-    });
-  }, [jumpToBookmark]);
 
   // Keyboard-shortcut bridge: a 'terminal:action' event (dispatched by
   // useKeyboardShortcuts) runs the matching toolbar action, but ONLY for the
@@ -457,7 +325,6 @@ export default memo(function TerminalContainer({
       switch (detail.action) {
         case 'toggleAutoScroll': toggleAutoScroll(); break;
         case 'refresh': refreshOutput(); break;
-        case 'bookmark': handleBookmark(); break;
         case 'clone': onClone?.(); break;
         case 'fork': onFork?.(); break;
         case 'popOut': onPopOut?.(); break;
@@ -465,60 +332,7 @@ export default memo(function TerminalContainer({
     };
     document.addEventListener('terminal:action', handler);
     return () => document.removeEventListener('terminal:action', handler);
-  }, [terminalId, toggleAutoScroll, refreshOutput, handleBookmark, onClone, onFork, onPopOut]);
-
-  const bookmarkPanelContent = (
-    <div className={styles.termBookmarkPanel}>
-      <div className={styles.termBookmarkHeader}>
-        <span className={styles.termBookmarkTitle}>Bookmarks</span>
-        <button
-          className={styles.termBookmarkClose}
-          onClick={() => setShowBookmarkPanel(false)}
-          title="Close bookmark panel"
-        >
-          ✕
-        </button>
-      </div>
-      {bookmarks.length === 0 ? (
-        <div className={styles.termBookmarkEmpty}>
-          Select terminal text then click the bookmark button to save a position.
-        </div>
-      ) : (
-        <div className={styles.termBookmarkList}>
-          {bookmarks.map((bm) => (
-            <div key={bm.id} className={styles.termBookmarkItem}>
-              <div className={styles.termBookmarkPreview} title={bm.selectedText}>
-                {bm.selectedText.slice(0, 80)}
-              </div>
-              <textarea
-                className={styles.termBookmarkNote}
-                rows={1}
-                placeholder="Add note…"
-                value={bm.note}
-                onChange={(e) => handleBookmarkNoteChange(bm.id, e.target.value)}
-              />
-              <div className={styles.termBookmarkActions}>
-                <button
-                  className={styles.termBookmarkJumpBtn}
-                  onClick={() => handleJumpToBookmark(bm)}
-                  title="Jump to this position"
-                >
-                  Jump
-                </button>
-                <button
-                  className={styles.termBookmarkDelBtn}
-                  onClick={() => handleDeleteBookmark(bm.id)}
-                  title="Delete bookmark"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  }, [terminalId, toggleAutoScroll, refreshOutput, onClone, onFork, onPopOut]);
 
   if (!terminalId) {
     return (
@@ -549,10 +363,12 @@ export default memo(function TerminalContainer({
         onReconnect={onReconnect}
         onScrollToBottom={scrollToBottom}
         onRefreshOutput={refreshOutput}
-        onBookmark={handleBookmark}
-        bookmarkCount={bookmarks.length}
+        aiPopupEnabled={aiPopupEnabled}
+        onToggleAiPopup={originSessionId ? handleToggleAiPopup : undefined}
         autoScrollEnabled={autoScrollEnabled}
         onToggleAutoScroll={toggleAutoScroll}
+        wrapMode={showWrapToggle ? widthMode : undefined}
+        onToggleWrapMode={showWrapToggle ? toggleWrapMode : undefined}
         onFork={onFork}
         onClone={onClone}
         onPopOut={onPopOut}
@@ -562,10 +378,6 @@ export default memo(function TerminalContainer({
         ttsActive={ttsActive}
         onTtsPressStart={startTts}
         onTtsPressEnd={stopTts}
-        localTtsEnabled={ttsLocalEnabled}
-        localTtsActive={localTtsActive}
-        localTtsLoading={localTtsLoading}
-        onLocalSpeakToggle={toggleLocalTts}
       />
       {popup.active && originSessionId && (
         <SelectionPopup
@@ -595,15 +407,10 @@ export default memo(function TerminalContainer({
         <div className={styles.terminalRow}>
           <div
             ref={containerRef}
-            className={styles.container}
+            className={`${styles.container} ${widthMode === 'pan' ? styles.panMode : ''}`}
             style={{ minHeight: DEFAULT_MIN_HEIGHT }}
           />
         </div>
-        {/* Bookmark panel: portal to external target if provided, else render inline */}
-        {showBookmarkPanel && (bookmarkPortalTarget
-          ? createPortal(bookmarkPanelContent, bookmarkPortalTarget)
-          : bookmarkPanelContent
-        )}
         <div className={styles.mobileScrollOverlay}>
           <button
             className={styles.mobileScrollBtn}
@@ -649,18 +456,16 @@ export default memo(function TerminalContainer({
               onReconnect={onReconnect}
               onScrollToBottom={scrollToBottom}
               onRefreshOutput={refreshOutput}
-              onBookmark={handleBookmark}
-              bookmarkCount={bookmarks.length}
+                          aiPopupEnabled={aiPopupEnabled}
+              onToggleAiPopup={originSessionId ? handleToggleAiPopup : undefined}
               autoScrollEnabled={autoScrollEnabled}
               onToggleAutoScroll={toggleAutoScroll}
+              wrapMode={showWrapToggle ? widthMode : undefined}
+              onToggleWrapMode={showWrapToggle ? toggleWrapMode : undefined}
               onFork={onFork}
               isFullscreen={isFullscreen}
               showReconnect={showReconnect}
-              localTtsEnabled={ttsLocalEnabled}
-              localTtsActive={localTtsActive}
-              localTtsLoading={localTtsLoading}
-              onLocalSpeakToggle={toggleLocalTts}
-            />
+                                    />
           </div>
           <div className={styles.fullscreenArea}>
             <div ref={fsContainerRef} className={styles.fullscreenContainer} />

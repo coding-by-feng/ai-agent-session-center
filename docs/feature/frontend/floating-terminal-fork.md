@@ -56,7 +56,8 @@ transcript reader exists.
 | `src/components/session/FloatingTerminalPanel.test.tsx` | Regression coverage for origin-session forwarding plus initial and live-resize viewport fitting of the in-app panel. |
 | `src/styles/modules/FloatingTerminalPanel.module.css` | Window styling (drag, resize, collapse, popout chrome) — theme-aware via CSS variables (icons/chrome recolour per theme), with border-box viewport caps and shrinkable flex children so the right edge and header controls remain visible. |
 | `src/components/session/FloatingTerminalRoot.tsx` | Renders the open floats **belonging to the currently selected session** (`originSessionId === selectedSessionId`), excluding any that are **popped out** into a native window. Mounted once in AppLayout. Listens for `popout:closed` to re-dock. See [Per-session scoping](#per-session-popup-scoping). |
-| `src/components/session/PopoutTerminalView.tsx` | The **entire renderer** when the window is a popped-out float (`/?popout=terminal&terminalId=…`). Sets up its own `useWebSocket(null)` + `useSettingsInit` and hosts one `TerminalContainer` attached to the existing PTY by id, plus its own `<FileOpenChooser>` mount (separate React root from AppLayout, so the popover for terminal file-path clicks needs a local mount). Auth tokens are *not* carried in (localhost Electron only). |
+| `src/components/session/PopoutTerminalView.tsx` | The **entire renderer** when the window is a popped-out float (`/?popout=terminal&terminalId=…`). Sets up its own `useWebSocket(null)` + `useSettingsInit` and hosts one `TerminalContainer` attached to the existing PTY by id, plus its own `<FileOpenChooser>` mount (separate React root from AppLayout, so the popover for terminal file-path clicks needs a local mount). No token is passed: auth rides on the HttpOnly `auth_token` cookie that every same-origin window shares. |
+| `src/components/session/PopoutTerminalView.test.tsx` | Renders the real memo'd `TerminalContainer` inside the pop-out and asserts it subscribes once its socket opens — the blank-pop-out regression test |
 | `src/styles/modules/PopoutTerminalView.module.css` | Layout for the popout window (titlebar + full-height terminal body). |
 | `src/stores/floatingSessionsStore.ts` | Zustand store holding open floats; capped at `MAX_FLOATS = 4` (`open` **DELETEs the evicted PTY** so it doesn't leak). Adds `closeByOriginSession(id)`, `migrateOriginSession(oldId, newId)`, `closeOrphans(liveIds)`, `captureNow(terminalId)`, and the `poppedOut: string[]` list + `setPoppedOut(id, on)`. `captureNow(terminalId)` GETs `/api/terminals/:id/output` and snapshots the PTY output (base64 → UTF-8 via `TextDecoder`) into the REVIEW log via `captureResponse` **without killing the PTY** — idempotent/pollable (overwrite keyed by `terminalId`). `close()` delegates to `captureNow()` to take a final snapshot before it DELETEs the PTY. |
 | `src/components/settings/TranslationSettings.tsx` | Settings tab for native/learning languages, inherit-context toggle, explain attach-file-path policy, and trigger mode. |
@@ -69,11 +70,11 @@ Wired surfaces:
 
 | File | Wiring |
 |------|--------|
-| `src/components/terminal/TerminalContainer.tsx` | Mounts the popup using `extractXtermSelection` (sends its own `terminalId` as `spawnTerminalId`). Accepts the `originSessionId` prop; the popup is gated on `enabled: translationEnabled && !!originSessionId` and rendered only when `popup.active && originSessionId`. `useSelectionPopup` is given `scopeSelector: '.xterm'` because distraction-free fullscreen reparents the xterm element into a body-level overlay, outside `rootRef`'s subtree — without the scope the popup would stop firing in fullscreen. |
-| `src/components/terminal/TerminalToolbar.tsx` | Renders the `⧉` pop-out button (`PopOutIcon`, `tooltips.termPopOut`) **only when the `onPopOut` prop is passed**, which is how floats and the popout view itself suppress re-popping-out. TerminalContainer omits `onPopOut`/`onClone` on its fullscreen-overlay toolbar instance, so ⧉ is absent in fullscreen. Carries **no** translate/explain buttons — the removed `translate-answer` trigger lived here. |
-| `src/components/session/ProjectTab.tsx` | Mounts the popup with `extractDomSelection` on `markdownRef` (and `markdownFsRef` for fullscreen). Markdown selections have **no** `spawnTerminalId`, so they fork from the root. |
+| `src/components/terminal/TerminalContainer.tsx` | Mounts the popup using `extractXtermSelection` (sends its own `terminalId` as `spawnTerminalId`). Accepts the `originSessionId` prop; the popup is gated on `enabled: translationEnabled && !!originSessionId && aiPopupEnabled` (the last term is the per-terminal toggle below) and rendered only when `popup.active && originSessionId`. `useSelectionPopup` is given `scopeSelector: '.xterm'` because distraction-free fullscreen reparents the xterm element into a body-level overlay, outside `rootRef`'s subtree — without the scope the popup would stop firing in fullscreen. |
+| `src/components/terminal/TerminalToolbar.tsx` | Renders the `⧉` pop-out button (`PopOutIcon`, `tooltips.termPopOut`) **only when the `onPopOut` prop is passed**, which is how floats and the popout view itself suppress re-popping-out. TerminalContainer omits `onPopOut`/`onClone` on its fullscreen-overlay toolbar instance, so ⧉ is absent in fullscreen. Also renders the sparkle `AiPopupIcon` per-terminal on/off toggle (`onToggleAiPopup`/`aiPopupEnabled` — see [Per-terminal enable/disable](#per-terminal-enabledisable)) whenever the caller passes it. Carries **no** translate/explain buttons — the removed `translate-answer` trigger lived here. |
+| `src/components/session/ProjectTab.tsx` | Mounts the popup with `extractDomSelection` on `markdownRef` (and `markdownFsRef` for fullscreen). Markdown selections have **no** `spawnTerminalId`, so they fork from the root. Gated only on `translationEnabled && !!originSessionId` (+ its own edit/fullscreen view-state flags) — the per-terminal `aiPopupEnabled` toggle below does not apply here. |
 | `src/components/session/ProjectTabContainer.tsx` | Threads `sessionId` → `originSessionId` to `ProjectTab`. |
-| `src/components/session/DetailPanel.tsx` | Threads `sessionId` → `originSessionId` to the **main TERMINAL** `TerminalContainer` only; the COMMANDS ops-shell `TerminalContainer` omits it, so the AI popup (`enabled: translationEnabled && !!originSessionId`) is disabled in COMMANDS — the pop-out is shared between the two (see [Pop-out to a native window](#pop-out-to-a-native-window)), the popup is not. |
+| `src/components/session/DetailPanel.tsx` | Threads `sessionId` → `originSessionId` to the **main TERMINAL** `TerminalContainer` only; the COMMANDS ops-shell `TerminalContainer` omits it, so the AI popup (and its toolbar toggle) is disabled in COMMANDS — the pop-out is shared between the two (see [Pop-out to a native window](#pop-out-to-a-native-window)), the popup is not. |
 | `src/main.tsx` | Detects `?popout=terminal` and renders `PopoutTerminalView` instead of the full dashboard. The import is `lazy()` **inside that branch** and wrapped in `<Suspense fallback={null}>`, so the dashboard window never loads the popout renderers — see [Views & Routing → Bundle splitting](./views-routing.md). |
 | `electron/main.ts` | `registerPopoutHandler` (`window:open-terminal` IPC) opens the popout `BrowserWindow` (820×560, min 480×320) and sends `popout:closed` on close. |
 | `electron/preload.ts` | Bridges `openTerminalWindow` (→ `window:open-terminal`) and `onPopoutClosed`. |
@@ -190,6 +191,30 @@ the spawn endpoint's Zod schema independently caps `fileContent` at 256 KB and
 * **Trigger** (`translationTrigger`) — `auto` (every selection) / `alt` (require ⌥ held) / `off` (labelled **Disabled** in the UI). Since the popup is the only client trigger, `off` disables the feature's whole UI surface.
 
 No API key field exists — the feature is auth-free.
+
+## Per-terminal enable/disable
+
+Independent of the global `translationEnabled` toggle above, each **terminal**
+carries its own on/off switch: a sparkle `AiPopupIcon` button in
+`TerminalToolbar`, rendered whenever `originSessionId` is set — the main
+TERMINAL tab only, since `DetailPanel`'s COMMANDS ops-shell `TerminalContainer`
+never receives `originSessionId` and so never renders the button. Clicking it
+calls `sessionStore.toggleAiPopup(sessionId)`, flipping `session.aiPopupEnabled`.
+
+The gate always reads through [`isAiPopupEnabled(session)`](../../../src/lib/aiPopup.ts),
+never the raw field directly: an unset `aiPopupEnabled` (every session that
+predates this toggle, or one still missing its DB record) resolves to
+**enabled**. This is the same "the absent state must be the safe state" rule
+`remoteVisible` follows, but with the opposite polarity — the popup already
+shipped on for everyone, so its safe default is *on*, not *off* (`!undefined`
+being `true` is exactly the trap a naive `session.aiPopupEnabled` read falls
+into). `TerminalContainer`'s full enable expression is therefore
+`translationEnabled && !!originSessionId && aiPopupEnabled`.
+
+This toggle is **terminal-only** — `ProjectTab`'s two `useSelectionPopup`
+instances (inline markdown viewer + fullscreen) are unaffected and keep gating
+only on `translationEnabled && !!originSessionId` plus their own edit/fullscreen
+view-state flags.
 
 ## Quick settings (Model + Effort)
 
@@ -412,8 +437,7 @@ description) side by side.
   above) has no equivalent close signal, so its float is never hidden in the
   first place and there is nothing to re-dock.
 
-**Limitations:** Auth tokens aren't carried into the popout window (Electron or
-browser), so password-protected setups would need token plumbing. Nested floats
+**Limitations:** Nested floats
 spawned from inside a popout window aren't rendered (the popout hosts a single
 terminal). The browser-popup fallback (branch 3) has no re-dock signal, so its
 originating float stays visible and subscribed for as long as the popup is open
@@ -503,7 +527,9 @@ Also harmless under Electron: `attachWindowOpenPolicy` intercepts `window.open`,
 and a `data:` URL matches neither "our own origin" nor "http/https external" —
 the same "everything else — dropped" bucket as `ms-msdt:`/`file:`/`javascript:`
 — so the call either returns `null` or a non-functional handle, and
-`openFloatWindow`'s Electron branches close/ignore it either way.
+`openFloatWindow`'s Electron branches close/ignore it either way. (Unexercised
+until Sep 2026: with the preload missing, Electron always took branch 3 — see
+below.)
 
 Covered by `src/lib/popoutTerminalWindow.test.ts` (preopen geometry/naming, the
 navigate-vs-fresh-open branch, close-on-every-non-consuming-path) and
@@ -511,6 +537,29 @@ navigate-vs-fresh-open branch, close-on-every-non-consuming-path) and
 **synchronously, before the spawn fetch resolves** — the actual claim the fix
 rests on; verified to fail — 3 of 4 new tests red — against a version with the
 preopen call removed).
+
+### Why one spawn opened a blank native window *and* a docked panel (fixed Sep 2026)
+
+The screenshot that kept coming back: one Explain/Translate/Vocab spawn produced
+a native window whose terminal stayed blank (toolbar and cursor, no output), the
+docked in-app panel for the same session, and the toast "Popup blocked — opened
+in-app instead". Two independent bugs combined:
+
+1. **The Electron preload never loaded** ([App Lifecycle → Build Configuration](../electron/app-lifecycle.md#build-configuration)).
+   With `window.electronAPI` undefined, `openFloatWindow` took branch 3 (plain
+   browser). `attachWindowOpenPolicy` caught its `window.open('/?popout=terminal…')`
+   and opened a real native window via `openInternalWindow()`, but the handler
+   returns `deny`, so the renderer got `null` → `{ placed: 'docked', reason:
+   'popup-blocked' }` → `openDocked()` + the toast. With the preload loading,
+   spawns take branch 1 (`window:open-terminal`) and nothing docks. The Sep 16
+   change to branch 3's `catch` was correct but was never on this path.
+2. **The pop-out never subscribed to its PTY**: `memo(TerminalContainer)`
+   swallowed the re-render that follows the socket opening. See
+   [Terminal UI → Blank pop-out terminal](./terminal-ui.md#blank-pop-out-terminal-a-websocket-reference-identity-race-not-a-layout-bug).
+
+With both fixed, closing the native window re-docks the session into the in-app
+panel via `popout:closed` (branch 1's behaviour, described above); ✕ on that
+panel ends the session.
 
 ## Cross-Feature Dependencies
 

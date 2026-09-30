@@ -56,6 +56,8 @@ The bridge between AI CLI processes (Claude, Codex) and the dashboard. Without h
 | `team_name` / `agent_name` / `agent_type` / `agent_id` / `agent_color` | `$CLAUDE_CODE_TEAM_NAME` / `_AGENT_NAME` / `_AGENT_TYPE` / `_AGENT_ID` / `_AGENT_COLOR` |
 | `startup_command` | **`ps -p $PPID -o args=`, on `SessionStart` only** — not an env var; null on every other event |
 
+**Known issue — the merge overwrites Claude's own `agent_id` / `agent_type`.** The jq program is `. + {…}`, and in an object merge the right side wins, so the env-derived values above replace the fields Claude Code itself sends — with `null` whenever the `CLAUDE_CODE_AGENT_*` vars are unset, i.e. outside a team. Claude Code sends `agent_id` "only when the hook fires from within a subagent … absent for the main thread" (2.1.285 hook schema) and `agent_type` on `SubagentStart`, so after the merge the server cannot tell a subagent's tool call from the main agent's, and `SubagentStart` details read "unknown". Found Sep 2026 while building the user-cancel queue hold, and left alone there: fixing it (e.g. `else .agent_id end`) changes what team auto-detection sees (`addPendingSubagent`), which needs its own check.
+
 **Why the append needs no locking.** `echo "$ENRICHED" >> "$MQ_FILE"` is safe against interleaving from N concurrent hook processes because POSIX guarantees atomic appends up to `PIPE_BUF` (4096 bytes) and the enriched payload runs ~300-800 bytes — the guarantee `mqReader.ts`'s own module header relies on. The append costs ~0.1ms and spawns no process. **Growing the enriched payload past 4096 bytes would silently break that atomicity** and interleave partial JSON lines from concurrent hooks.
 
 ### Codex Hook Script (`dashboard-hook-codex.sh`)

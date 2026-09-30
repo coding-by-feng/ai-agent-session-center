@@ -115,6 +115,7 @@ Runs inside `evaluateSession`, **after** the `paused` / `terminalId` / cooldown 
 - Sends via `sendPromptToTerminal(terminalId, prompt, /* autoEnter */ true)` — **always** auto-Enter, because a resume prompt typed but not submitted leaves the session exactly as stuck, plus text sitting in the box.
 - **On send failure the ledger entry is rolled back** (`attempts.slice(0, -1)`) and the state re-armed for `now + 5_000`; nothing was delivered, so it must not consume budget.
 - Shares `firingRefs` / `coolDownRefs` (800ms) with the queue, so a resume and a queue fire can never interleave into the same PTY.
+- **Skipped while the queue is held** (user cancel or running subagents — `queueHoldReason`). A user cancel is deliberately kept out of `interruption` (it lives in `userCancelledAt`): auto-continuing a turn the user stopped on purpose would be exactly wrong. For the same reason a confirmed cancel **clears** any `interruption` left from earlier in that turn (a 529 before the Esc): otherwise pressing Resume would let this watchdog continue the cancelled turn about 30 s later.
 - Toasts: `[name] Auto-resumed after <reason> (n/max)` (`info`, 4s) and, once, `[name] Auto-resume gave up after N attempts — needs you` (`error`, 8s).
 
 ### UI
@@ -123,7 +124,7 @@ Runs inside `evaluateSession`, **after** the `paused` / `terminalId` / cooldown 
 - `.ctrlInterrupted` is styled **against** `.ctrlBtn` on purpose — pill radius (`999px`) instead of `4px`, no border, `font-weight: 400`, sentence case, `cursor: help`. It shares a row with KILL / MUTE / ALERT (and ALERT is also orange), so matching the button treatment made it read as a fourth, fake-clickable button. The differentiators are structural, not colour.
 
 ### Storage keys
-Dexie `queueAutomation` table (keyed by `sessionId`) gains three **non-indexed** columns — `autoResume` (0/1), `resumeMaxRetries` (int), `resumePrompt` (string, omitted when empty). Non-indexed means **no schema version bump**, the same back-compat route `autoSend` / `autoEnter` / `skipWhenPrompting` took. Rows written before the watchdog existed read `undefined` and the loader maps them to the defaults (`autoResume: true`, `3`, `''`).
+Dexie `queueAutomation` table (keyed by `sessionId`) gains three **non-indexed** columns — `autoResume` (0/1), `resumeMaxRetries` (int), `resumePrompt` (string, omitted when empty). Non-indexed means **no schema version bump**, the same back-compat route `autoSend` / `autoEnter` / `skipWhenPrompting` took. Rows written before the watchdog existed read `undefined` and the loader maps them to the defaults (`autoResume: true`, `3`, `''`). `queueStore`'s own setters clamp on write, independent of `resumeWatchdog.ts`'s policy-level floor of 1: `setResumeMaxRetries` rounds and clamps to `1..10`, `setResumePrompt` truncates to 4000 characters.
 
 ## Dependencies & Connections
 

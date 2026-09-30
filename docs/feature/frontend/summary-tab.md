@@ -85,7 +85,7 @@ interface DbSummaryPrompt {
 
 ### Endpoints
 
-- `POST /api/sessions/:id/summarize` — body `{ context: string, promptTemplate?: string, custom_prompt?: string }`.
+- `POST /api/sessions/:id/summarize` — body `{ context: string, promptTemplate?: string, custom_prompt?: string }`. Sits under `/sessions/:id`, so it inherits `requireVisibleSession`: a remote (non-loopback) client targeting a session hidden from it gets a 404 before the handler runs; localhost is unaffected.
   - Returns `{ ok: true, summary }` on success.
   - `429 { success: false, error: 'Too many concurrent summarize requests (max 2)' }` when over the concurrency cap.
   - `500 { success: false, error: 'Summarize failed' }` on subprocess error.

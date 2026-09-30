@@ -501,6 +501,19 @@
 .ctrlBtn.muted:hover { background: rgba(255, 204, 0, 0.2); }
 .ctrlBtn.alert { color: var(--accent-orange); border-color: rgba(255, 145, 0, 0.3); }
 .ctrlBtn.alert:hover { background: rgba(255, 145, 0, 0.15); }
+/* Remote-visibility toggle. Cyan (the "connected device" accent used by the
+   presence chip) rather than green/orange, which already mean success and
+   alert on this bar. The OFF state deliberately keeps the default neutral
+   style — host-only is the safe default and should not read as a warning. */
+/* Auto-relink: purple, so it reads as a distinct axis from 📡 SHARED (cyan,
+   "who may SEE this session") — the two sit next to each other and both
+   concern remote access, which is exactly why they must not look alike. */
+.ctrlBtn.rcDaemonOn { color: var(--accent-purple, #a855f7); border-color: var(--accent-purple, #a855f7); background: rgba(168, 85, 247, 0.18); font-weight: 900; }
+.ctrlBtn.rcDaemonOn:hover { background: rgba(168, 85, 247, 0.28); }
+
+.ctrlBtn.remoteShared { color: var(--accent-cyan, #00e5ff); border-color: var(--accent-cyan, #00e5ff); background: rgba(0, 229, 255, 0.18); font-weight: 900; }
+.ctrlBtn.remoteShared:hover { background: rgba(0, 229, 255, 0.28); }
+
 .ctrlBtn.alertActive { color: var(--accent-orange); border-color: var(--accent-orange); background: rgba(255, 145, 0, 0.2); font-weight: 900; }
 .ctrlBtn.alertActive:hover { background: rgba(255, 145, 0, 0.3); }
 .ctrlBtn.summarize { color: #ffcc00; border-color: rgba(255, 204, 0, 0.3); }
@@ -704,19 +717,41 @@
   overflow: hidden;
 }
 
+/* Draggable divider between the terminal and the queue strip. The hit area is
+   deliberately taller than the visible line — a 1px target is unusable with a
+   mouse and impossible with a finger. */
+.queueResizer {
+  flex-shrink: 0;
+  height: 6px;
+  cursor: row-resize;
+  background: transparent;
+  border-top: 1px solid var(--border-subtle);
+  transition: background 0.12s ease;
+  /* Required for a touch drag: without it the browser claims the gesture for
+     scrolling and pointermove never arrives — the same rule the queue's
+     drag-reorder needs. */
+  touch-action: none;
+}
+.queueResizer:hover,
+.queueResizerActive {
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 45%, transparent);
+}
+
 .bottomRow {
   display: flex;
   flex-direction: row;
+  /* Height comes from the dragged value (inline style). `flex-shrink: 0`
+     keeps it from being squeezed by the terminal above; min-height: 0 lets
+     the queue's own scroll box do the overflowing instead of this row
+     growing past the height it was given. */
   flex-shrink: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .bottomRow > :first-child {
   flex: 1;
   min-width: 0;
-}
-
-.bookmarkPortal {
-  flex-shrink: 0;
 }
 
 /* ---- Session Switcher ---- */
@@ -1303,6 +1338,23 @@
   border-color: var(--text-dim);
 }
 
+/* The session this panel is showing, listed alongside the rest (it used to be
+   left out, which also dropped a room whose only session it was). A quiet
+   wayfinding cue in its room's own colour — `--room-color` is inherited from
+   the frame; a loose card falls back to cyan. Border + faint tint, not a bar:
+   the sequence badge sits on the card's left edge and would hide one. It does
+   not lift on hover, because clicking it does nothing — you are already here. */
+.sessionTabCard.sessionTabCardCurrent {
+  border-color: var(--room-color, var(--accent-cyan));
+  background: color-mix(in srgb, var(--room-color, var(--accent-cyan)) 10%, var(--bg-card));
+}
+
+.sessionTabCard.sessionTabCardCurrent:hover {
+  transform: none;
+  border-color: var(--room-color, var(--accent-cyan));
+  cursor: default;
+}
+
 .sessionTabAttentionBadge {
   position: absolute;
   top: -4px;
@@ -1708,6 +1760,32 @@
   padding: 8px 8px 6px;
 }
 
+/* The built-in RECENT frame (SessionSwitcher, first in room mode). Dashed and
+   neutral so it reads as worked out, not as one of your rooms: the room
+   palette's eight colours all mean "a room". Its sessions are also listed in
+   their own rooms. Must come after .sessionTabRoomGroup, which it overrides
+   at equal specificity. */
+.recentRoomGroup {
+  --room-color: var(--text-secondary);
+  border-style: dashed;
+}
+
+/* The frame's text takes --text-primary. --text-secondary measured below
+   4.5:1 against the label's --bg-card in solarized (2.92), nord (3.74) and
+   monokai (4.26), and --text-primary is the only neutral that clears it in
+   all ten themes (solarized's lowest, 4.86). The dashed border and the
+   triangle keep the quieter --room-color. */
+.recentRoomGroup .sessionTabRoomGroupLabel,
+.recentRoomGroup .roomCollapsedCount {
+  color: var(--text-primary);
+}
+
+/* Half the rooms' 16% pill tint: at 16% the collapsed count measured 4.36:1
+   in solarized, whose tint lightens the pill toward its own text. */
+.recentRoomGroup .roomCollapsedCount {
+  background: color-mix(in srgb, var(--room-color, transparent) 8%, transparent);
+}
+
 /* Room-frame header controls — collapse chevron + kill-all skull (+ the
    collapsed count) on ONE horizontal row. A flex-row wrapper renders its
    children inline whether the parent group is a row (horizontal top bar) or a
@@ -1739,6 +1817,14 @@
 
 .roomCollapseToggle:hover {
   opacity: 1;
+}
+
+/* Same ring as .roomMoveToggle. The collapse toggle had none, and in the
+   RECENT frame it is the only control. */
+.roomCollapseToggle:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--room-color, var(--accent-cyan, #00e5ff));
+  outline-offset: 1px;
 }
 
 /* Kill-all-sessions-in-room control. Sits next to the collapse chevron in the
@@ -1773,6 +1859,167 @@
   color: var(--accent-red, #ff3355);
   outline: 2px solid var(--accent-red, #ff3355);
   outline-offset: 1px;
+}
+
+/* Press-and-hold drag handle for reordering rooms in the list (never touches
+   roomIndex / the 3D scene — see Room.listOrder). touch-action:none is
+   REQUIRED, not cosmetic: without it the browser claims the gesture for
+   scrolling the rail and pointermove never reaches the handler, so dragging
+   would silently do nothing on a phone — same reasoning as the queue's own
+   drag handle in Terminal.module.css. */
+/* Grab target for room drag-reorder.
+   The BOX is 24x24 while the OCCUPIED space stays 12x16: the negative margins
+   cancel the extra width and height exactly, so the glyph's centre and every
+   sibling icon's position are unchanged, and only the hit area grows. The
+   8x12 glyph on its own is a quarter of the 44x44 touch minimum and easy to
+   miss entirely with a trackpad, which made a gesture that was ALSO refusing
+   to start (see useRoomDragReorder) look even more like a dead control.
+   Hit box deliberately overlaps the frame's left padding — nothing else is
+   there — and the 2px it overlaps the collapse button is won by that button,
+   which paints later in the same stacking context. */
+.roomDragHandle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin: -4px -6px;
+  flex-shrink: 0;
+  color: var(--room-color, var(--text-dim));
+  opacity: 0.45;
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: opacity 0.15s;
+}
+
+.roomDragHandle:hover {
+  opacity: 0.9;
+}
+
+/* ---- Room drag: the "carry" preview ----
+   While a room is in hand the strip carries .roomDragActive. The lifted room
+   follows the pointer and the rooms it has passed slide aside, so the opened
+   slot IS the drop indicator — this replaced a dim-in-place frame (opacity .4,
+   scale .98, which read as "disabled" rather than "picked up") plus an inset
+   cyan caret drawn INSIDE the target frame's top edge (which read as "drop
+   into this room", and also wiped that frame's room glow). Gesture: see
+   useRoomDragReorder.ts. The queue's own drag still uses the old fade + caret. */
+
+/* Drag-wide cursor, quiet hovers. The pointer spends a drag over session
+   cards (cursor: pointer, hover tints), so a grabbing cursor set on the 24x24
+   grip alone was gone after the first few px. Switching every descendant's
+   pointer-events off makes the strip itself the hit target for the whole
+   drag: its cursor shows everywhere inside it and nothing under the pointer
+   lights up. Safe because the gesture listens on window, not on these nodes. */
+.sessionTabStrip.roomDragActive {
+  cursor: grabbing;
+}
+
+.sessionTabStrip.roomDragActive * {
+  pointer-events: none;
+}
+
+/* Wheel-scroll lock. Every rect is measured once, at lift, so scrolling the
+   rail mid-drag would land the drop in the wrong slot and pull the carried
+   room away from the pointer. `hidden` keeps scrollTop and costs no layout
+   (the rail's scrollbar is already hidden). Rail only — the grip, and so the
+   drag, exists only in the rail. */
+.switcherBarVertical .sessionTabStrip.roomDragActive {
+  overflow-y: hidden;
+}
+
+/* Passed rooms slide aside to open the landing slot. --room-shift is set per
+   frame from the hook's `shifts`. The transition lives ONLY under
+   .roomDragActive on purpose: on drop, the class and the shifts go away in
+   the same render that commits the new order, so the after-change style has
+   no translate transition and the slid rooms stay exactly where they are —
+   with it, each would jump one pitch and visibly slide back. Individual
+   `translate`/`scale` properties rather than `transform`, so the lifted room
+   can ease its scale in while its translate tracks the pointer 1:1.
+   Reduced motion needs nothing here: base.css already zeroes every
+   transition under prefers-reduced-motion, and the drop's settle (a Web
+   Animation, which that rule cannot reach) is skipped by the hook itself.
+   EVERY frame gets a translate during a drag — 0px for rooms that do not
+   move — on purpose: a non-`none` translate makes each frame a stacking
+   context, which keeps its absolutely-positioned decorations (the room label
+   at `z-index: 4`, its cards' index badges) inside it. Scope this to the
+   sliding rooms only and the other rooms' labels and badges paint OVER the
+   carried room (z-index 1) — confirmed by rendering exactly that mutation. */
+.roomDragActive .sessionTabRoomGroup {
+  translate: 0 var(--room-shift, 0px);
+  transition: box-shadow 0.2s, translate 180ms ease-out;
+}
+
+/* The lifted room. --room-drag-dy is written by the hook on every move (no
+   translate transition, so it never lags the pointer). Painted above its
+   neighbours on an OPAQUE surface: the frame's resting background is 7% room
+   colour over transparent, which would show the neighbours' text through a
+   room carried across them. `scale` must equal LIFT_SCALE in
+   useRoomDragReorder.ts — the drop's settle animation starts from it, and a
+   test pins the two together. */
+.roomDragActive .sessionTabRoomGroup.roomGroupDragging {
+  z-index: 1;
+  translate: 0 var(--room-drag-dy, 0px);
+  scale: 1.02;
+  background: color-mix(in srgb, var(--room-color, transparent) 7%, var(--bg-card, var(--bg-primary)));
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.12),
+    0 1px 3px rgba(0, 0, 0, 0.08),
+    0 0 14px color-mix(in srgb, var(--room-color, transparent) 45%, transparent);
+  transition: box-shadow 0.2s, scale 150ms ease-out;
+}
+
+/* Hairline separator between the room header's control clusters:
+   [grip collapse] | [move up/down] | [kill all]. Paired with the glyph-family
+   split (filled triangle for collapse, arrow-with-shaft for move) — see the
+   icon comments in SessionSwitcher.tsx. Two independent signals, because
+   these controls are 9-10px tall and dimmed, where a single subtle one is
+   not enough to tell "fold this room" from "move this room down". */
+.roomHeaderDivider {
+  width: 1px;
+  height: 10px;
+  flex-shrink: 0;
+  background: var(--room-color, var(--border-subtle));
+  opacity: 0.3;
+}
+
+/* ▲/▼ single-step room reorder — same sizing/dimming family as the collapse
+   triangle and kill toggle beside them, so all four header icons read as one
+   control cluster. */
+.roomMoveToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--room-color, var(--text-dim));
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.roomMoveToggle:hover:not(:disabled) {
+  opacity: 1;
+}
+
+.roomMoveToggle:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--room-color, var(--accent-cyan, #00e5ff));
+  outline-offset: 1px;
+}
+
+/* First/last room in the visible list — nothing to swap with. Disabled,
+   not hidden: hiding would shift the other icons' positions between rooms,
+   making the header row an inconsistent width to click on. */
+.roomMoveToggle:disabled {
+  opacity: 0.2;
+  cursor: default;
 }
 
 .roomCollapsedCount {

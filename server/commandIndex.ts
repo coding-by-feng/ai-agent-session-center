@@ -45,6 +45,15 @@ export interface CommandEntry {
 const CACHE_TTL_MS = 30_000;
 const cache = new Map<string, { ts: number; entries: CommandEntry[] }>();
 
+/** A YAML block-scalar header: `>` (folded) or `|` (literal), optionally with
+ *  a chomping indicator (`-` strip, `+` keep) and/or an indentation indicator
+ *  (1-9), in either order — `>`, `>-`, `|+`, `>2-`, `|-2`. Only the bare `>`
+ *  and `|` used to count, so `description: >-` (a common way to write a long
+ *  skill description) came through as the literal text ">-" and the folded
+ *  lines under it were dropped — the `/` dropdown then printed ">-". A
+ *  trailing `# comment` after the header is legal YAML and allowed too. */
+const BLOCK_SCALAR_HEADER = /^[>|](?:[+-]?[1-9]?|[1-9][+-])(?:\s+#.*)?$/;
+
 /** Strip YAML frontmatter and return (parsedFields, body). */
 function parseFrontmatter(raw: string): { fields: Record<string, string>; body: string } {
   if (!raw.startsWith('---')) return { fields: {}, body: raw };
@@ -54,12 +63,15 @@ function parseFrontmatter(raw: string): { fields: Record<string, string>; body: 
   const body = raw.slice(end + 4).replace(/^\r?\n/, '');
   const fields: Record<string, string> = {};
   let currentKey: string | null = null;
-  for (const line of fmRaw.split('\n')) {
+  // Strip a trailing \r from every line: a SKILL.md saved with CRLF endings
+  // otherwise matched no `key: value` line at all (`.` stops before \r, so
+  // `(.*)$` fails) and lost its whole frontmatter, name included.
+  for (const line of fmRaw.split('\n').map((l) => l.replace(/\r$/, ''))) {
     const m = line.match(/^([A-Za-z_][\w-]*):\s*(.*)$/);
     if (m) {
       currentKey = m[1];
       const val = m[2].trim();
-      if (val === '>' || val === '|') {
+      if (BLOCK_SCALAR_HEADER.test(val)) {
         fields[currentKey] = '';
       } else {
         fields[currentKey] = val.replace(/^["']|["']$/g, '');

@@ -14,7 +14,9 @@ interface ShortcutDef {
 }
 
 // Platform detection: macOS uses Cmd (metaKey), Windows/Linux uses Ctrl (ctrlKey)
-const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
+// Exported so other modifier-driven features (e.g. useSessionSwitchHold) share
+// this one detection rather than growing a second copy of the regex.
+export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
 
 /** Build a session-switch KeyCombo: Cmd+Alt+N on macOS, Ctrl+Alt+N elsewhere. */
 function sw(key: string): KeyCombo {
@@ -36,11 +38,12 @@ const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
   // Terminal toolbar buttons — unbound by default; the user assigns keys in Settings.
   terminalToggleAutoScroll:   { label: 'Toggle auto-scroll',            section: 'Terminal',      combo: null },
   terminalRefresh:            { label: 'Clear & replay output',         section: 'Terminal',      combo: null },
-  terminalBookmark:           { label: 'Add / view bookmarks',          section: 'Terminal',      combo: null },
   terminalClone:              { label: 'Duplicate session',             section: 'Terminal',      combo: null },
   terminalFork:               { label: 'Branch (fork) session',         section: 'Terminal',      combo: null },
   terminalPopOut:             { label: 'Pop out into a window',         section: 'Terminal',      combo: null },
   switchLatestSession:        { label: 'Switch to previous session',    section: 'Session Switch', combo: isMac ? { key: 'p', shiftKey: true, metaKey: true } : { key: 'p', shiftKey: true, ctrlKey: true } },
+  // Opens the "go to session #" box: type any badge number (1…9 only reach so far).
+  jumpToSession:              { label: 'Go to session by number',       section: 'Session Switch', combo: sw('0') },
   switchSession1:             { label: 'Switch to session 1',           section: 'Session Switch', combo: sw('1') },
   switchSession2:             { label: 'Switch to session 2',           section: 'Session Switch', combo: sw('2') },
   switchSession3:             { label: 'Switch to session 3',           section: 'Session Switch', combo: sw('3') },
@@ -78,9 +81,10 @@ const DEFAULTS: Record<ShortcutActionId, ShortcutDef> = {
 /** All action IDs in display order. */
 export const ACTION_IDS: ShortcutActionId[] = [
   'toggleFullscreen', 'scrollToBottom',
-  'terminalToggleAutoScroll', 'terminalRefresh', 'terminalBookmark',
+  'terminalToggleAutoScroll', 'terminalRefresh',
   'terminalClone', 'terminalFork', 'terminalPopOut',
   'switchLatestSession',
+  'jumpToSession',
   'switchSession1', 'switchSession2', 'switchSession3',
   'switchSession4', 'switchSession5', 'switchSession6',
   'switchSession7', 'switchSession8', 'switchSession9',

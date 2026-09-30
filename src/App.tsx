@@ -11,6 +11,8 @@ import NewSessionModal from '@/components/modals/NewSessionModal';
 import ShortcutsPanel from '@/components/modals/ShortcutsPanel';
 import ShortcutSettingsModal from '@/components/modals/ShortcutSettingsModal';
 import GlobalSearchModal from '@/components/modals/GlobalSearchModal';
+import SessionSwitchOverlay from '@/components/modals/SessionSwitchOverlay';
+import SessionJumpOverlay from '@/components/modals/SessionJumpOverlay';
 import DetailPanel from '@/components/session/DetailPanel';
 import FloatingTerminalRoot from '@/components/session/FloatingTerminalRoot';
 import FileOpenChooser from '@/components/session/FileOpenChooser';
@@ -37,6 +39,7 @@ const QueueView = lazy(() => import('@/routes/QueueView'));
 const AgendaView = lazy(() => import('@/routes/AgendaView'));
 const ReviewView = lazy(() => import('@/routes/ReviewView'));
 const ProjectBrowserView = lazy(() => import('@/routes/ProjectBrowserView'));
+const ResourcesView = lazy(() => import('@/routes/ResourcesView'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -96,6 +99,8 @@ function AppLayout() {
       <ShortcutsPanel />
       <ShortcutSettingsModal />
       <GlobalSearchModal />
+      <SessionSwitchOverlay />
+      <SessionJumpOverlay />
       <FloatingTerminalRoot />
       <FileOpenChooser />
     </div>
@@ -179,6 +184,7 @@ function Dashboard({ token }: { token: string | null }) {
             <Route path="/prompts" element={<PromptsView />} />
             <Route path="/queue" element={<QueueView />} />
             <Route path="/review" element={<ReviewView />} />
+            <Route path="/resources" element={<ResourcesView />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

@@ -138,6 +138,23 @@ export function canWriteWorkspace(): boolean {
   return writer === null || writer === getClientId();
 }
 
+/**
+ * Is `clientId` connected over loopback, according to the SERVER?
+ *
+ * Pure so it can be a store selector. An unknown client reads as false: callers
+ * gate machine-local features on it (the RESOURCES tab reads ~/.claude and
+ * ~/.codex, and its routes answer loopback only), and "not confirmed local"
+ * must fail closed — the same absent-is-safe rule as `remoteVisible`.
+ */
+export function isLocalDevice(devices: DevicePresence[], clientId: string): boolean {
+  return devices.some((d) => d.clientId === clientId && d.isLocal);
+}
+
+/** Is THIS device the desktop app or a browser on the machine running AASC? */
+export function thisDeviceIsLocal(): boolean {
+  return isLocalDevice(usePresenceStore.getState().devices, getClientId());
+}
+
 /** Devices other than this one. */
 export function otherDevices(): DevicePresence[] {
   const me = getClientId();

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sortSessions, sortSessionsByActivity } from './sessionSort';
+import { sortSessions, sortSessionsByActivity, numberedSessions } from './sessionSort';
 import type { Session } from '@/types/session';
 
 function s(partial: Partial<Session>): Session {
@@ -107,5 +107,41 @@ describe('sortSessionsByActivity', () => {
     const before = list.map((x) => x.title);
     sortSessionsByActivity(list);
     expect(list.map((x) => x.title)).toEqual(before);
+  });
+});
+
+/**
+ * The session numbers on the rail's cards. The badges, Alt+⌘+1…9 and the
+ * "go to session #" jump all read this one order, so the number you type is
+ * the number you see.
+ */
+describe('numberedSessions', () => {
+  it('drops ended sessions and orders pinned, then status, then title', () => {
+    const list = [
+      s({ title: 'b-idle', status: 'idle' }),
+      s({ title: 'gone', status: 'ended' }),
+      s({ title: 'a-waiting', status: 'waiting' }),
+      s({ title: 'z-pinned-idle', status: 'idle', pinned: true }),
+      s({ title: 'c-working', status: 'working' }),
+    ];
+    expect(numberedSessions(list).map((x) => x.title)).toEqual(['z-pinned-idle', 'c-working', 'a-waiting', 'b-idle']);
+  });
+
+  it('falls back to the project name, then to nothing, like the rail always has', () => {
+    // Not sessionDisplayTitle ("Unnamed"): an untitled, project-less card has
+    // always sorted first among its status, and renumbering it would move
+    // every badge after it.
+    const list = [
+      s({ sessionId: 'p', title: '', projectName: 'beta', status: 'idle' }),
+      s({ sessionId: 'n', title: '', projectName: '', status: 'idle' }),
+      s({ sessionId: 't', title: 'alpha', status: 'idle' }),
+    ];
+    expect(numberedSessions(list).map((x) => x.sessionId)).toEqual(['n', 't', 'p']);
+  });
+
+  it('does not reorder its input', () => {
+    const list = [s({ title: 'b' }), s({ title: 'a' })];
+    numberedSessions(list);
+    expect(list.map((x) => x.title)).toEqual(['b', 'a']);
   });
 });

@@ -15,7 +15,7 @@ Secure communication between React renderer and node-pty/Electron APIs. The prel
 | `electron/preload.ts` | contextBridge exposing electronAPI to renderer |
 | `src/types/electron.d.ts` | Canonical `ElectronAPI` contract + payload/result types (`PtyCreateConfig`, `PtyCreateResult`, `PtySubscribeResult`, `SetupConfig`, etc.) |
 
-Note: the `window:open-terminal` / `window:open-project` / `dialog:select-directory` / `popout:closed` channels are *registered* in `electron/main.ts` (not in `terminalHandlers.ts` or `appHandlers.ts`) but bridged through `preload.ts`; they are documented here because they ride the same `electronAPI` surface.
+Note: the `window:open-terminal` / `window:open-project` / `window:open-session` / `window:return-to-main` / `dialog:select-directory` / `popout:closed` / `popout:return-to-list` channels are *registered* in `electron/main.ts` (not in `terminalHandlers.ts` or `appHandlers.ts`) but bridged through `preload.ts`; they are documented here because they ride the same `electronAPI` surface.
 
 ## Implementation
 
@@ -23,7 +23,7 @@ Note: the `window:open-terminal` / `window:open-project` / `dialog:select-direct
 
 | Channel | Direction | Pattern | Description |
 |---------|-----------|---------|-------------|
-| `pty:create` | Renderer -> Main | invoke (request/response) | Creates PTY via ptyHost.createPty, returns `{ok, terminalId, error}`. Payload (`PtyCreateConfig`, electron.d.ts:25-38) now includes optional `effortLevel?: string`, `model?: string`, and `remoteControlName?: string` fields used by ptyHost auto-apply (see [PTY Host](./pty-host.md)). |
+| `pty:create` | Renderer -> Main | invoke (request/response) | Creates PTY via ptyHost.createPty, returns `{ok, terminalId, error}`. Payload (`PtyCreateConfig`, electron.d.ts:25-38) now includes optional `effortLevel?: string`, `model?: string`, and `remoteControlName?: string` fields used by ptyHost auto-apply (see [PTY Host](./pty-host.md)). **No renderer caller since Sep 2026** — see [QuickSessionModal no longer branches](#quicksessionmodal-no-longer-branches). |
 | `pty:write` | Renderer -> Main | on (fire-and-forget) | Writes data to PTY stdin via ptyHost.writePty |
 | `pty:resize` | Renderer -> Main | on (fire-and-forget) | Resizes PTY via ptyHost.resizePty |
 | `pty:kill` | Renderer -> Main | invoke (request/response) | Kills PTY via ptyHost.killPty, returns `{ok}` |
@@ -50,7 +50,7 @@ The distinction between `on` (fire-and-forget) and `invoke` (request/response) i
 
 ### ElectronAPI Interface
 
-The preload exposes a comprehensive API surface, grouped by concern (setup wizard, dashboard/lifecycle, native folder picker, PTY terminal, pop-out windows). PTY methods are checked at runtime (`window.electronAPI?.createPty`) to determine IPC vs WebSocket transport:
+The preload exposes a comprehensive API surface, grouped by concern (setup wizard, dashboard/lifecycle, native folder picker, PTY terminal, pop-out windows). The PTY methods are still bridged, but no renderer path creates a `pty-*` terminal any more (see [Transport Selection](#transport-selection)):
 
 Canonical source: `src/types/electron.d.ts`. The shape below mirrors that file — keep them in sync.
 
@@ -90,10 +90,13 @@ interface ElectronAPI {
   onPtyData?: (cb: (terminalId: string, base64Data: string) => void) => () => void
   onPtyExit?: (cb: (terminalId: string, exitCode: number, signal: number) => void) => () => void
 
-  // Pop-out floating terminal / project windows (optional — Electron only)
+  // Pop-out floating terminal / project / whole-session windows (optional — Electron only)
   openTerminalWindow?: (opts: { terminalId: string; originSessionId?: string; label?: string }) => Promise<{ ok: boolean }>
   openProjectWindow?: (opts: { path: string; file?: string; label?: string }) => Promise<{ ok: boolean }>
   onPopoutClosed?: (cb: (terminalId: string) => void) => () => void
+  openSessionWindow?: (opts: { sessionId: string; label?: string }) => Promise<{ ok: boolean }>
+  returnToMain?: () => Promise<{ ok: boolean }>
+  onReturnToList?: (cb: () => void) => () => void
 }
 ```
 
@@ -103,12 +106,15 @@ Notes:
 - `PtyCreateConfig`, `PtyCreateResult`, `PtySubscribeResult` are named types in electron.d.ts (lines 25, 40, 46) — refer by name rather than inlining shapes that drift.
 - `PtyCreateConfig` carries terminal-launch options consumed by ptyHost auto-apply: `workingDir?`, `command?`, `label?`, `sessionTitle?`, `apiKey?`, `enableOpsTerminal?`, `effortLevel?` (low/medium/high/xhigh/max/ultracode), `model?` (opus/sonnet/haiku), and `remoteControlName?` (runs `/remote-control <name>`).
 - Floating-fork / translate sessions reuse the same `pty:*` channels as regular sessions — the channels are surface-agnostic (no separate "floating" IPC namespace). See [Floating Terminal Fork](../frontend/floating-terminal-fork.md).
-- `openTerminalWindow?` / `openProjectWindow?` / `onPopoutClosed?` / `selectDirectory?` are optional, Electron-only methods. Their handlers live in `electron/main.ts`, not in `terminalHandlers.ts` / `appHandlers.ts`.
+- `openTerminalWindow?` / `openProjectWindow?` / `onPopoutClosed?` / `openSessionWindow?` / `returnToMain?` / `onReturnToList?` / `selectDirectory?` are optional, Electron-only methods. Their handlers live in `electron/main.ts`, not in `terminalHandlers.ts` / `appHandlers.ts`.
 - `openProjectWindow?` (electron.d.ts:92, preload.ts:82) opens the PROJECT tab in its own native window — the live replacement for the retired in-app floating PROJECT overlay. See [App Lifecycle → Pop-out PROJECT Windows](./app-lifecycle.md).
+- `openSessionWindow?` (electron.d.ts:100, preload.ts:91) pops the WHOLE session (every `DetailTabs` tab) into its own native window; `returnToMain?` (electron.d.ts:104, preload.ts:92) and `onReturnToList?` (electron.d.ts:108, preload.ts:93) are its "back to main" pair — called from a popped-out session window and received by the main window respectively. Called from `SessionSwitcher.tsx`'s title-row `DetachIcon`. See [App Lifecycle → Pop-out SESSION Windows](./app-lifecycle.md).
 
 ### Preload Context Bridge
 
 `contextBridge.exposeInMainWorld('electronAPI', {...})` creates a secure, typed API surface on `window.electronAPI`. This is the only way the renderer can access main process capabilities.
+
+Every `BrowserWindow` loads the preload from `PRELOAD_PATH` (`dist/electron/preload.cjs`; see [App Lifecycle → Build Configuration](./app-lifecycle.md#build-configuration)). If that file is missing, Electron throws nothing: `window.electronAPI` is simply undefined and every caller in this doc takes its browser path. That is what happened from 2026-03-05 to 2026-09-18, so none of this IPC ran in the packaged app during that period. `preload-error` is now logged to `main.log`.
 
 ### Setup IPC Channels
 
@@ -145,12 +151,13 @@ In `useTerminal`, transport is selected at runtime per-terminal:
 
 - `isPtyHostTerminal(terminalId)` checks `terminalId.startsWith('pty-') && !!window.electronAPI?.writePty`
 - If true: **IPC transport** (no chunking needed -- no WS frame limit, no JSON overhead, no auth required)
-- If false: **WebSocket transport** (browser fallback, chunks large pastes at 4096 bytes)
+- If false: **WebSocket transport** (chunks large pastes at 4096 bytes)
 
-### QuickSessionModal Branching
+In practice every terminal is a server-owned `term-*` PTY on the WebSocket transport, in Electron as well as the browser. Nothing in the renderer creates a `pty-*` terminal (see below), so the IPC branch is reachable only through a `pty-*` id from elsewhere.
 
-- `window.electronAPI?.createPty` exists -> IPC path (direct PTY creation)
-- Otherwise -> HTTP `POST /api/terminals` (server-side terminal creation)
+### QuickSessionModal no longer branches
+
+`QuickSessionModal` used to create its PTY through `electronAPI.createPty` whenever the bridge existed. It now always calls `POST /api/terminals` (`forceNew: true`). A `pty-*` terminal lives in `ptyHost`, where the server sees none of its bytes: the queue's `POST /api/terminals/:id/write` 404s, `interruptionDetector` and the auto-resume watchdog never fire, and no other device can subscribe. The branch had only been dormant because the preload never loaded; restoring the preload would have silently moved new Quick Launch sessions onto it. Covered by `src/components/modals/QuickSessionModal.test.tsx`.
 
 ## Dependencies & Connections
 
@@ -174,3 +181,5 @@ In `useTerminal`, transport is selected at runtime per-terminal:
 - Using `invoke` instead of `on` for `pty:write` would add round-trip latency on every keystroke, degrading terminal responsiveness.
 - The preload script runs in a sandboxed context -- importing Node.js modules directly in preload will fail. Only `contextBridge` and `ipcRenderer` are available.
 - Adding new IPC channels requires updates to both the handler registration (main process) and the preload bridge (contextBridge) -- forgetting either side results in undefined methods.
+- The preload filename must match the build output (`preload.cjs`). A mismatch is silent — see Preload Context Bridge above.
+- Don't re-add an `electronAPI.createPty` caller without first giving the server a write/subscribe path for `pty-*` terminals — see QuickSessionModal above.

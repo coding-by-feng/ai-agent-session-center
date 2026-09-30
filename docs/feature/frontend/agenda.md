@@ -71,6 +71,7 @@ All agenda routes return a non-standard success envelope `{ ok: true, data }` (e
 
 ### NavBar
 - `/agenda` link labeled `AGENDA`; shows a red `badge` with the incomplete-task count (`tasks` filtered by `!completed`) when > 0.
+- **Hidden on phone-sized viewports.** `NAV_ITEMS` marks the Agenda entry `desktopOnly: true` (a data flag, not an inline conditional), and `NavBar` filters it out via `useIsMobile()` (`src/lib/platform.ts`) — a size check, not an `electronAPI` capability check, so a desktop *browser* keeps the full nav regardless of Electron. This hides the tab only: `/agenda` still resolves if deep-linked or restored from a workspace snapshot, since silently redirecting a URL the user typed would be worse than rendering a page not optimized for the width. Agenda is a wide multi-column task board and not a phone workflow, which is why it (rather than another tab) was chosen to drop first as the nav row crowds.
 
 ## Dependencies & Connections
 

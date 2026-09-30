@@ -13,8 +13,10 @@ Packages the dashboard as a native desktop app with window management, tray icon
 | `electron/internalUrl.ts` | Pure `isInternalAppUrl(url, port)` predicate — classifies a `window.open` target as "our own origin" (loopback host **and** our server port) vs external. Import-free and side-effect-free so it unit-tests without booting Electron |
 | `electron/popoutBounds.ts` | Pure per-KIND popout bounds logic (`parsePopoutBoundsFile`, `mergePopoutBounds`, `POPOUT_DEFAULT_SIZES`) — same import-free pattern as `internalUrl.ts`. `main.ts` owns the Electron-dependent glue (`readFileSync`/`screen.*`) and calls into this for the shape/migration logic |
 | `test/internalUrl.test.ts` | Own-origin (bare root, `/project-browser`, `?popout=`, loopback IP, query+fragment) vs external; hosts merely ending in `localhost`, bare `localhost` with no port, `file:`/`ms-msdt:`/`javascript:`, malformed input |
+| `test/electronPreloadPath.test.ts` | Source-text drift guard: `PRELOAD_PATH` names the extension `scripts/cjsRename.mjs` emits, every `BrowserWindow` loads it, no `'preload.js'` literal survives under `electron/`, and `crashLogger.ts` logs `preload-error` |
+| `test/electronSetupGate.test.ts` | Source-text drift guard: `adoptExistingInstall()` runs in `whenReady` before `createWindow()`, checks the files the embedded server really writes, and `setup:complete` never starts a server |
 | `electron/tray.ts` | System tray / menu bar icon with dynamic menu; hide-to-tray on window close |
-| `electron/crashLogger.ts` | Main-process crash capture: `uncaughtException`/`unhandledRejection`, `render-process-gone`, `child-process-gone`, native `crashReporter` minidumps; writes `<userData>/logs/main.log` |
+| `electron/crashLogger.ts` | Main-process crash capture: `uncaughtException`/`unhandledRejection`, `render-process-gone`, `child-process-gone`, `preload-error` (every window, via `web-contents-created`), native `crashReporter` minidumps; writes `<userData>/logs/main.log`. Exports `logMainError(message)` for main-process code that must log rather than throw |
 | `server/logger.ts` | Debug-aware `log.info`/`warn`/`error`/`debug`/`debugJson` utility; also persists to `<userData>/logs/server.log` (or `data/logs/server.log` outside Electron) |
 | `electron/ipc/appHandlers.ts` | Dashboard IPC: `app:get-port`, `app:open-browser`, `app:rerun-setup`, `app:quit` |
 | `electron/ipc/setupHandlers.ts` | Setup wizard IPC: `setup:is-complete`, `setup:check-deps`, `setup:save-config`, `setup:install-hooks`, `setup:complete` |
@@ -38,7 +40,7 @@ Electron Main (main.ts + tray + ptyHost + setup/app/terminal/popout IPC + embedd
   -> window.electronAPI via preload contextBridge
 ```
 
-On `app.whenReady()` the registration order is: `registerSetupHandlers()`, `registerAppHandlers()`, `registerTerminalHandlers()`, `registerPopoutHandler()`, `registerDirectoryPickerHandler()`, `registerProjectWindowHandler()` (main.ts:302-307) — IPC handlers are registered **before** `createWindow()` so the renderer can call them as soon as it loads.
+On `app.whenReady()` the registration order is: `registerSetupHandlers()`, `registerAppHandlers()`, `registerTerminalHandlers()`, `registerPopoutHandler()`, `registerDirectoryPickerHandler()`, `registerProjectWindowHandler()`, `registerSessionWindowHandler()` (main.ts:445-451) — IPC handlers are registered **before** `createWindow()` so the renderer can call them as soon as it loads.
 
 ### Build Configuration
 
@@ -48,6 +50,7 @@ On `app.whenReady()` the registration order is: `registerSetupHandlers()`, `regi
 - `main` entry is `dist/electron/main.cjs`; `asar: true` with `better-sqlite3` and `node-pty` in `asarUnpack`; `hooks/` copied to `extraResources`
 - `npmRebuild: false` — electron-builder does **not** re-run a native rebuild during packaging. `electron:build` already rebuilds `better-sqlite3`/`node-pty` for Electron's ABI via `electron:rebuild` (see [Native Module Rebuilding](#native-module-rebuilding)), so letting the packager rebuild again is redundant and, on a runner without the full toolchain, a build failure
 - Separate tsconfig: `tsconfig.electron.json` (compiled to CJS, then `scripts/cjsRename.mjs` renames `.js` → `.cjs`)
+- **Preload path.** All five `BrowserWindow`s load `PRELOAD_PATH` = `path.join(__dirname, 'preload.cjs')`. `cjsRename.mjs` rewrites only `require("…/x.js")` specifiers, never a bare filename, so from 2026-03-05 to 2026-09-18 every window pointed at a `preload.js` that no build produced, and Electron **silently loaded no preload**. `window.electronAPI` was undefined in the main window and every pop-out: the setup gate, IPC pop-outs, the `popout:closed` re-dock and the `app:before-close` save handshake never ran, and `openFloatWindow` always took its plain-browser branch. The tell is `server.log` labelling the desktop app `Mac · Chrome` instead of `Mac · Desktop App`. See [Floating Terminal Fork](../frontend/floating-terminal-fork.md#why-one-spawn-opened-a-blank-native-window-and-a-docked-panel-fixed-sep-2026).
 
 #### macOS Gatekeeper / "damaged" first-run helper
 
@@ -56,6 +59,7 @@ The app is **not Apple-notarized**, so a freshly-downloaded copy is quarantined 
 ### Window Management
 
 - First run: smaller window (640x520, minimum 640x520) for setup wizard; subsequent runs: full-size (1400x900, minimum 900x600)
+- **An install that has already run is never a first run.** `adoptExistingInstall()` runs first thing in `app.whenReady()`, before `createWindow()` reads the flag and before the embedded server starts. When `setup.json` is missing but `<userData>/data/sessions.db` or `<userData>/server-config.json` exists, it writes `setup.json` as `{ completedAt, adopted: true }`. Installs made while the preload was broken are configured and in use but have no flag (the wizard was unreachable), so without this the first build with a working preload would open them in the 640×520 wizard, whose Configure step rewrites `server-config.json` and drops the password. The check must stay ahead of the server start: the server creates `data/sessions.db` on its first launch, so checking later would adopt genuinely fresh installs too. A write failure is logged via `logMainError` and the wizard shows instead.
 - Background color `#ece9d8` to avoid a flash before content loads. This is painted before any web content and cannot read a CSS variable, so it is a **literal that must be kept in step with the default theme** (`defaultSettings.themeName` in `settingsStore.ts`, mirrored on `index.html`'s `<body data-theme>`). The default is the light `windows-xp` theme; leaving the old navy here makes every window open flash dark. See [Settings System](../frontend/settings-system.md).
 - Production: shows `loading.html` immediately, then starts the embedded Express server, mirrors all process stdout/stderr to the loading screen, finally navigates to `http://localhost:{port}`
 - Development: `createWindow()` loads `http://localhost:${SERVER_PORT ?? 3332}` directly (the `electron:dev` npm script runs Vite + `tsx watch server/index.ts` concurrently and `wait-on tcp:3333` before launching Electron)
@@ -89,7 +93,7 @@ Registered by `registerSetupHandlers()`. All inputs from the renderer are valida
 | `setup:check-deps` | macOS/Linux: checks `jq` (optional, recommended) and `curl` (required for HTTP fallback). Windows: checks PowerShell execution policy (must be `RemoteSigned`/`Unrestricted`/`Bypass`) |
 | `setup:save-config` | Validates and writes `server-config.json` to userData with **atomic write** (temp file with random suffix → `renameSync`). Persisted fields: `port`, `enabledClis`, `hookDensity`, `debug`, `sessionHistoryHours` (1–8760, default 24), optional `passwordHash` (≤256 chars) |
 | `setup:install-hooks` | `require()`s `hooks/install-hooks-api.cjs` (from `extraResources` when packaged, else `PROJECT_ROOT`) and runs `installHooks({ density, enabledClis, projectRoot, onLog })`, streaming each line via `setup:install-log` push channel, then a final `DONE` |
-| `setup:complete` | Writes `setup.json`, sets `APP_USER_DATA`, starts the server (`require('server/index.js').startServer()`), writes `SERVER_PORT`, resizes window to 1400x900 + centers, navigates to dashboard; returns `{ ok, port }` |
+| `setup:complete` | Writes `setup.json`, resizes the calling window to 1400x900 + centers it, and reloads it so `App.tsx` re-reads the flag and renders the dashboard; returns `{ ok, port }` (port read from the window's URL). The wizard is only ever served by the already-running dashboard server, so nothing is started. Until Sep 2026 it `require`d `server/index.js`, which is not in the package (the server is `server/index.ts`, bundled as `dist/server-bundle.cjs`), and threw right after writing the flag, leaving a fresh install stuck on the Done step until relaunch |
 
 ### App IPC
 
@@ -104,7 +108,7 @@ Registered by `registerAppHandlers()`.
 
 ### `window.open` Policy (`attachWindowOpenPolicy`)
 
-Every BrowserWindow the app creates — main, terminal pop-out, project pop-out, and internal-URL windows — installs the **same** handler via `attachWindowOpenPolicy(win)`. It replaced three near-identical `setWindowOpenHandler` blocks that all did `if (http|https) shell.openExternal(url)`.
+Every BrowserWindow the app creates — main, terminal pop-out, project pop-out, session pop-out, and internal-URL windows — installs the **same** handler via `attachWindowOpenPolicy(win)`. It replaced three near-identical `setWindowOpenHandler` blocks that all did `if (http|https) shell.openExternal(url)`.
 
 ```
 window.open(url) from any renderer
@@ -137,17 +141,26 @@ attachWindowOpenPolicy(win)
 
 ### Pop-out PROJECT Windows
 
-`registerProjectWindowHandler()` (main.ts:221) exposes the `window:open-project` IPC handler (called from the renderer as `electronAPI.openProjectWindow({ path, file?, label? })`, returns `{ ok }`). It opens the standalone project browser in its own native BrowserWindow (`POPOUT_DEFAULT_SIZES.project` = 1400x900 — its own default, distinct from the terminal pop-out's 820x560; min 480x320, `#ece9d8` background and security `webPreferences` as the terminal pop-out) loading `http://localhost:${SERVER_PORT ?? 3333}/?popout=project&path=…` (plus an optional `file` query param). The renderer routes this via the `popout === 'project'` branch in `src/main.tsx:70`.
+`registerProjectWindowHandler()` (main.ts:297) exposes the `window:open-project` IPC handler (called from the renderer as `electronAPI.openProjectWindow({ path, file?, label? })`, returns `{ ok }`). It opens the standalone project browser in its own native BrowserWindow (`POPOUT_DEFAULT_SIZES.project` = 1400x900 — its own default, distinct from the terminal pop-out's 820x560; min 480x320, `#ece9d8` background and security `webPreferences` as the terminal pop-out) loading `http://localhost:${SERVER_PORT ?? 3333}/?popout=project&path=…` (plus an optional `file` query param). The renderer routes this via the `popout === 'project'` branch in `src/main.tsx:70`.
 
 - **This is the live replacement for the retired in-app floating PROJECT overlay** — a DOM panel can't leave the app window, so the "float" affordance opens a real OS window instead. It is reached from `openProjectWindow()` in `DetailTabs.tsx:433`.
-- Open windows are tracked in a **`projectPopoutWindows` Map keyed by `projectPath`** (main.ts:216) — a second open of the same path focuses the existing window rather than duplicating it.
+- Open windows are tracked in a **`projectPopoutWindows` Map keyed by `projectPath`** (main.ts:292) — a second open of the same path focuses the existing window rather than duplicating it.
 - Placement reuses the same `computePopoutBounds('project')`/`savePopoutBounds('project', …)` machinery as the terminal pop-out, but under its OWN bounds key — resizing this window no longer affects where a terminal popup opens (fixed Aug 2026; see the Persisted State table above).
 - **Security asymmetry (deliberate):** project windows install **only** `attachWindowOpenPolicy(w)` — there is **no** `before-input-event` guard, so `Cmd+R` / `Ctrl+R` / `F5` *do* reload a project window. Unlike a terminal, a project browser has no PTY state to lose, so reload stays available.
-- Unlike the terminal pop-out, closing a project window sends no `popout:closed` push — it only deletes its Map entry (main.ts:256).
+- Unlike the terminal pop-out, closing a project window sends no `popout:closed` push — it only deletes its Map entry (main.ts:331).
+
+### Pop-out SESSION Windows
+
+`registerSessionWindowHandler()` exposes two IPC handlers, both bridged through `preload.ts`:
+
+- **`window:open-session`** (called from the renderer as `electronAPI.openSessionWindow({ sessionId, label? })`, returns `{ ok }`) pops the **whole session** — every `DetailTabs` tab (Project/Terminal/Commands/Conversation/AI Popups/Notes/Queue), not just the terminal — into its own native BrowserWindow (`POPOUT_DEFAULT_SIZES.session` = 1400x900, matching the main window's own default rather than the terminal pop-out's smaller utility size; min 480x320, same `#ece9d8` background and security `webPreferences` as the other pop-outs) loading `http://localhost:${SERVER_PORT ?? 3333}/?popout=session&sessionId=…`. Open windows are tracked in a **`sessionPopoutWindows` Map keyed by `sessionId`** — a second open of the same session focuses the existing window instead of duplicating it. Called from `SessionSwitcher.tsx`'s title-row `DetachIcon`.
+- **`window:return-to-main`** (called as `electronAPI.returnToMain()`) is invoked FROM a popped-out session window's own "back to main" button: it shows + focuses `mainWindowRef`, sends it `popout:return-to-list`, then closes the **calling** window — found via `BrowserWindow.fromWebContents(event.sender)`, not looked up by `sessionId`, since this handler doesn't know which session it belongs to and doesn't need to: it only ever closes the window that asked.
+
+Placement reuses `computePopoutBounds('session')` / `savePopoutBounds('session', …)` under its own bounds key, the same machinery as the terminal/project pop-outs. Like the terminal pop-out (and unlike the project pop-out), a session window installs the `before-input-event` reload guard — a session has PTY/terminal state to lose, so `Cmd+R`/`Ctrl+R`/`F5` are blocked exactly as on the main window. Unlike the terminal pop-out, though, closing a session window sends **no** `popout:closed` push — mirroring the project pop-out, a session has no in-app float to re-dock; the popout and the main window's own `DetailPanel` for the same session simply coexist as two live views of the same WebSocket-driven state. The renderer side (`onReturnToList` subscription, deselecting back to the session list) is documented in [IPC Transport](./ipc-transport.md).
 
 ### Native OS Folder Picker
 
-`registerDirectoryPickerHandler()` (main.ts:200) exposes the `dialog:select-directory` IPC (payload `{ defaultPath? }`), backing the "Browse…" button in the session-creation modals. It calls `dialog.showOpenDialog` with `properties: ['openDirectory', 'createDirectory']`, parented to `mainWindowRef` when alive, defaulting to `app.getPath('home')`, and resolves the chosen absolute path or `null` when cancelled. Like the window handlers it lives in `main.ts`, **not** in `appHandlers.ts`. Fuller channel description in [IPC Transport](./ipc-transport.md).
+`registerDirectoryPickerHandler()` (main.ts:276) exposes the `dialog:select-directory` IPC (payload `{ defaultPath? }`), backing the "Browse…" button in the session-creation modals. It calls `dialog.showOpenDialog` with `properties: ['openDirectory', 'createDirectory']`, parented to `mainWindowRef` when alive, defaulting to `app.getPath('home')`, and resolves the chosen absolute path or `null` when cancelled. Like the window handlers it lives in `main.ts`, **not** in `appHandlers.ts`. Fuller channel description in [IPC Transport](./ipc-transport.md).
 
 ### Graceful Shutdown
 
@@ -169,6 +182,7 @@ Before `electron/crashLogger.ts` existed, a crash after startup left **no trace 
 - `process.on('unhandledRejection')` — logs and continues (mirrors the existing policy in `server/index.ts`'s own handler, further below).
 - `app.on('render-process-gone', ...)` — logs `reason` (`crashed`/`oom`/`killed`/`launch-failed`/`abnormal-exit`/`integrity-failure` at `ERROR`; `clean-exit` at `INFO`) + `exitCode` + the dead `webContents`' URL. This is the prime suspect for "the app crashes and the window just goes blank" — Electron never throws a catchable JS exception for a dead renderer, it only fires this event, which nothing previously listened for.
 - `app.on('child-process-gone', ...)` — logs GPU/utility process death (`type`/`reason`/`exitCode`). The most likely single crash source for a WebGL-heavy renderer (the Three.js cyberdrome scene) on a flaky GPU driver.
+- `app.on('web-contents-created')` → `contents.on('preload-error', …)` — logs `Preload failed to load: <path> -- <message>` for every window, including pop-outs created later. Otherwise a missing preload surfaces only in a devtools console that a packaged app never shows, which is how a wrong preload filename went unnoticed for six months.
 - `crashReporter.start({ uploadToServer: false, compress: true })` — native (segfault-level) crashes inside the `better-sqlite3` / `node-pty` native addons never reach a JS `try/catch`; minidumps are the only way to see those at all. `uploadToServer` is always `false` — nothing leaves the machine.
 
 **Log locations** — all under one root, `<userData>/logs/`, matching every other piece of persisted state (see Persisted State below) rather than Electron's OS-specific `app.getPath('logs')`:
@@ -189,7 +203,7 @@ Both modules export a getter for their resolved path — `getCrashLogPath()` (cr
 
 | Key | Location / type | Purpose |
 |-----|-----------------|---------|
-| `setup.json` (`SETUP_FLAG`) | `userData/setup.json` | First-run flag; presence = setup complete (`{ completedAt }`) |
+| `setup.json` (`SETUP_FLAG`) | `userData/setup.json` | First-run flag; presence = setup complete (`{ completedAt }`, plus `adopted: true` when written by `adoptExistingInstall()`) |
 | `server-config.json` (`CONFIG_PATH`) | `userData/server-config.json` | Persisted server config from setup wizard |
 | `popout-bounds.json` (`POPOUT_BOUNDS_FILE`) | `userData/popout-bounds.json` | Last-used pop-out window bounds for second-monitor placement / position memory — **one slot per popout KIND** (`terminal`/`project`/`session`/`internal`, see `electron/popoutBounds.ts`), fixed Aug 2026. Before that it was a single flat `{x,y,width,height}` shared by all kinds, so resizing/maximizing the content-heavy PROJECT or SESSION window permanently oversized every later TERMINAL popout (a one-line Explain/Translate prompt would open at whatever huge size a file browser was last left at). A legacy flat file is deliberately NOT migrated into the new shape — see `parsePopoutBoundsFile`'s docblock |
 | `logs/` | `userData/logs/` | `main.log`/`main.old.log` (crashLogger.ts), `server.log`/`server.old.log` (server/logger.ts), `crashDumps/` (native crashReporter). One shared root — see [Crash & Debug Logging](#crash--debug-logging) |
@@ -255,7 +269,7 @@ Windows installers are built by GitHub Actions, not locally — `electron:build:
 - [PTY Host](./pty-host.md) -- `disposePtyHost()` called on quit
 
 ### Shared Resources
-- Main BrowserWindow + pop-out terminal BrowserWindows (`popoutWindows` Map, keyed by `terminalId`) + pop-out project BrowserWindows (`projectPopoutWindows` Map, keyed by `projectPath`)
+- Main BrowserWindow + pop-out terminal BrowserWindows (`popoutWindows` Map, keyed by `terminalId`) + pop-out project BrowserWindows (`projectPopoutWindows` Map, keyed by `projectPath`) + pop-out session BrowserWindows (`sessionPopoutWindows` Map, keyed by `sessionId`) + internal-URL BrowserWindows (`internalUrlWindows` Map, keyed by `url`)
 - `popout-bounds.json` — one bounds slot **per popout kind**, written by all four pop-out Maps/handlers (terminal, project, session, internal) via the shared pure module `electron/popoutBounds.ts`
 - Embedded Express server instance + `SERVER_PORT` env var
 - System tray
@@ -272,3 +286,5 @@ Windows installers are built by GitHub Actions, not locally — `electron:build:
 - **Every popout call site must pass its own `PopoutKind`** (`'terminal' | 'project' | 'session' | 'internal'`) to `computePopoutBounds()`/`savePopoutBounds()` — omitting one, or reusing another kind's, reopens the shared-bounds bug this was split to fix. `electron/popoutBounds.ts` is the pure, Electron-import-free module owning the shape/migration logic (`parsePopoutBoundsFile`, `mergePopoutBounds`), unit-tested directly (`test/popoutBounds.test.ts`) without booting Electron — same pattern as `internalUrl.ts`. It deliberately does NOT special-case detecting a legacy flat file: the per-kind extraction only reads the four kind-named keys, so a flat `{x,y,width,height}` file naturally contributes nothing (verified — an explicit `isWindowBounds(parsed)` early-return was tried and found to be dead code).
 - `crashLogger.ts` and `server/logger.ts` must keep resolving the **same** `<userData>/logs/` root independently (crashLogger.ts calls `app.getPath('userData')` directly; server/logger.ts reads the `APP_USER_DATA` env var). If either drifts back to Electron's OS-specific `app.getPath('logs')` or a different directory, `main.log` and `server.log` split across two folders and "Open Logs Folder" only reveals half the story.
 - `initCrashLogger()` must stay called before `app.whenReady()` (not inside it) — a crash during the pre-ready window (IPC handler registration, `createWindow()`) would otherwise go uncaught again.
+- **`PRELOAD_PATH` must name the file `cjsRename.mjs` emits.** A mismatch throws nothing: Electron loads no preload and every `electronAPI` consumer silently takes its browser path. Pinned by `test/electronPreloadPath.test.ts`; `main.log` now records `Preload failed to load` if it regresses.
+- **Restoring the preload re-enabled every desktop-only path at once** (Sep 2026): the setup gate, IPC pop-outs, `popout:closed` re-dock, the quit-time save handshake, and `useIsDesktopApp()` UI. `adoptExistingInstall()` exists because the first of those would otherwise have sent every existing user into the wizard. Known gap: `before-quit` sends `app:before-close` to `BrowserWindow.getAllWindows()[0]`, and when that is a pop-out (which never registers `onBeforeClose`) quit waits the full 5 s.

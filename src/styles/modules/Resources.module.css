@@ -1,0 +1,800 @@
+/* Resources — the RESOURCES tab (ResourcesView + src/components/resources/*).
+
+   Colours come only from the theme contract (src/styles/base.css +
+   themes/*.css). Two local tokens are derived on .view:
+   - --res-accent and the chip colours mix an accent with --text-primary. The
+     raw accents are tuned for dark backgrounds; on the light and XP themes
+     they land near 3:1 on white. Mixed 65-80% with the text colour they read
+     at roughly 5-7:1 there, and stay bright on the dark themes.
+   - --res-code-font is the mono stack code panes switch --font-mono to. The
+     windows-xp theme forces `font-family: var(--font-mono) !important` on
+     every element and sets that variable to Tahoma, so a code pane must
+     REDEFINE the variable on its root (see TexViewer.module.css) rather than
+     declare a font-family of its own.
+   Short rules sit on one line, as in Settings/DetailPanel.module.css. */
+
+.view {
+  --res-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
+  --res-code-font: 'JetBrains Mono', 'Fira Code', Consolas, 'Lucida Console', monospace;
+  height: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 24px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  overflow: hidden;
+}
+
+/* ---- Header -------------------------------------------------------------- */
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.titleRow { display: flex; align-items: center; gap: 16px; min-width: 0; }
+
+.title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--res-accent);
+  white-space: nowrap;
+}
+
+.countsLine { margin: 0; font-size: 11px; line-height: 1.6; color: var(--text-secondary); }
+
+/* Sub-tab strips (sections; Preview / Files / Compare). They scroll sideways
+   instead of wrapping at narrow widths, like DetailPanel's tabs. */
+.sectionTabs,
+.detailTabs { display: flex; flex-wrap: nowrap; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.sectionTabs::-webkit-scrollbar,
+.detailTabs::-webkit-scrollbar { display: none; }
+.sectionTabs { flex: 1 1 auto; }
+.detailTabs { flex-shrink: 0; border-bottom: 1px solid var(--border-subtle); }
+
+.tab {
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: 0 16px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tab:hover { color: var(--text-primary); }
+.tab:active { color: var(--res-accent); }
+.tab:focus-visible { outline: 2px solid var(--res-accent); outline-offset: -2px; }
+.tabActive { color: var(--res-accent); border-bottom-color: var(--res-accent); }
+
+/* ---- Controls ------------------------------------------------------------ */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 12px;
+  background: transparent;
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.button:hover:not(:disabled) { background: var(--bg-accent); border-color: var(--res-accent); color: var(--res-accent); }
+.button:active:not(:disabled) { background: var(--bg-accent-strong); }
+.button:focus-visible { outline: 2px solid var(--res-accent); outline-offset: 2px; }
+.button:disabled { opacity: 0.5; cursor: not-allowed; }
+.rescanButton { margin-left: auto; flex-shrink: 0; }
+
+.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+.search,
+.textInput,
+.select {
+  height: 32px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+}
+.search,
+.textInput { min-width: 0; padding: 0 12px; }
+.search { flex: 1 1 240px; }
+.textInput { flex: 1 1 320px; }
+.select { max-width: 280px; padding: 0 8px; cursor: pointer; }
+.search::placeholder,
+.textInput::placeholder { color: var(--text-secondary); }
+.search:hover,
+.textInput:hover,
+.select:hover { border-color: var(--border-accent-strong); }
+.search:focus-visible,
+.textInput:focus-visible,
+.select:focus-visible { outline: 2px solid var(--res-accent); outline-offset: 1px; border-color: var(--res-accent); }
+.textInput[aria-invalid='true'] { border-color: var(--accent-red); }
+
+.field { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.fieldLabel { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-secondary); white-space: nowrap; }
+
+/* The plugin & system pill — the same shape as ReviewView's favourites filter. */
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.toggle:hover { color: var(--text-primary); border-color: var(--border-accent-strong); }
+.toggle:active { background: var(--bg-subtle-strong); }
+.toggle:focus-visible { outline: 2px solid var(--res-accent); outline-offset: 2px; }
+.toggleOn,
+.toggleOn:hover {
+  color: color-mix(in srgb, var(--accent-purple) 70%, var(--text-primary));
+  border-color: var(--accent-purple);
+  background: color-mix(in srgb, var(--accent-purple) 14%, transparent);
+}
+
+/* ---- Body, states, banners, text ------------------------------------------ */
+
+.body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding-top: 16px; }
+
+.stateBox {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
+}
+.stateBox p { margin: 0; max-width: 520px; }
+
+.banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent-red) 50%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent-red) 10%, transparent);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.hint,
+.note,
+.muted,
+.errorNote { margin: 0; font-size: 12px; line-height: 1.6; }
+.hint,
+.muted { color: var(--text-secondary); }
+.hint { font-size: 11px; }
+.note { font-size: 11px; color: color-mix(in srgb, var(--accent-yellow) 60%, var(--text-primary)); }
+.errorNote { color: color-mix(in srgb, var(--accent-red) 65%, var(--text-primary)); }
+.emptyNote { margin: 0; padding: 16px 8px; color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
+.inlineError { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+
+.visuallyHidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+.subheading,
+.paneHeading {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.paneHeading { padding: 0 8px 8px; }
+
+/* ---- Badges and chips ------------------------------------------------------ */
+
+.badge,
+.maskedChip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  white-space: nowrap;
+}
+.chipOk,
+.cov_scanned {
+  background: color-mix(in srgb, var(--accent-green) 14%, transparent);
+  color: color-mix(in srgb, var(--accent-green) 65%, var(--text-primary));
+}
+.chipWarn,
+.sev_warning,
+.cov_failed,
+.cov_inaccessible {
+  background: color-mix(in srgb, var(--accent-orange) 14%, transparent);
+  color: color-mix(in srgb, var(--accent-orange) 65%, var(--text-primary));
+}
+.chipError,
+.sev_error {
+  background: color-mix(in srgb, var(--accent-red) 14%, transparent);
+  color: color-mix(in srgb, var(--accent-red) 65%, var(--text-primary));
+}
+.chipOrigin {
+  background: color-mix(in srgb, var(--accent-purple) 14%, transparent);
+  color: color-mix(in srgb, var(--accent-purple) 70%, var(--text-primary));
+}
+.maskedChip {
+  background: color-mix(in srgb, var(--accent-yellow) 14%, transparent);
+  color: color-mix(in srgb, var(--accent-yellow) 60%, var(--text-primary));
+}
+.sev_info,
+.cov_not-scanned,
+.cov_excluded { background: var(--bg-accent); color: var(--res-accent); }
+.chipMuted,
+.cov_empty,
+.cov_not-found,
+.cov_unsupported { background: var(--bg-subtle); color: var(--text-secondary); }
+.chipRow { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+/* A chip carrying a path ("worktree of ~/…") wraps instead of widening its column. */
+.badgeWrap { height: auto; min-height: 20px; padding: 2px 4px; line-height: 1.4; white-space: normal; overflow-wrap: anywhere; }
+
+.chipButton {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 12px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.chipButton:hover { border-color: var(--res-accent); color: var(--res-accent); }
+.chipButton:active { background: var(--bg-accent); }
+.chipButton:focus-visible { outline: 2px solid var(--res-accent); outline-offset: 2px; }
+
+/* ---- Library: rail | list | detail ------------------------------------------ */
+
+.library {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 184px minmax(240px, 336px) minmax(0, 1fr);
+  gap: 16px;
+}
+.rail,
+.listPane,
+.detailPane,
+.detailPlaceholder { min-width: 0; min-height: 0; overflow-y: auto; }
+
+.rail { padding-right: 8px; border-right: 1px solid var(--border-subtle); }
+.railList { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.railEntry { flex-shrink: 0; }
+.railItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.railItem:hover { background: var(--bg-subtle); }
+.railItem:active { background: var(--bg-subtle-strong); }
+.railItem:focus-visible { outline: 2px solid var(--res-accent); outline-offset: -2px; }
+.railCount { color: var(--text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+/* Zero rows are dimmed, never hidden — the zero is the information. Secondary
+   text rather than --text-dim, which is below 4.5:1 on the dark themes. */
+.railItemEmpty { color: var(--text-secondary); }
+/* After .railItemEmpty: an empty type can still be the selected one. */
+.railItemActive { background: var(--bg-accent); border-color: var(--border-accent-strong); color: var(--res-accent); }
+.railItemActive .railCount { color: var(--res-accent); }
+
+.listPane { display: flex; flex-direction: column; }
+/* Stays put while a revealed selection scrolls the rows beneath it. */
+.listPane > .paneHeading { position: sticky; top: 0; z-index: 20; background: var(--bg-primary); }
+.list { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.row {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.row:hover { background: var(--bg-card-hover); border-color: var(--border-accent-strong); }
+.row:active { background: var(--bg-accent); }
+.row:focus-visible { outline: 2px solid var(--res-accent); outline-offset: -2px; } /* inset: .listPane has no side padding */
+.rowSelected { background: var(--bg-accent); border-color: var(--res-accent); }
+.rowName {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rowBadges { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.rowSecondary {
+  flex: 1 1 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Detail pane ----------------------------------------------------------- */
+
+.detailPane {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 0 8px 24px 16px;
+  border-left: 1px solid var(--border-subtle);
+}
+.detailPlaceholder { display: flex; align-items: center; justify-content: center; padding: 24px; border-left: 1px solid var(--border-subtle); text-align: center; }
+
+/* Only the stacked phone layout needs a way back to the list. */
+.backButton {
+  display: none;
+  align-self: flex-start;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  background: transparent;
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.backButton:hover { border-color: var(--res-accent); color: var(--res-accent); }
+.backButton:active { background: var(--bg-accent); }
+.backButton:focus-visible { outline: 2px solid var(--res-accent); outline-offset: 2px; }
+
+.detailHeader { display: flex; flex-direction: column; gap: 4px; }
+.detailTitleRow { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.detailTitle { margin: 0; font-size: 16px; font-weight: 700; overflow-wrap: anywhere; }
+.detailType { color: var(--text-secondary); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+.detailMeta,
+.detailFacts { margin: 0; color: var(--text-secondary); font-size: 12px; }
+.detailFacts { font-size: 11px; }
+.detailPath { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.linkArrow { color: var(--res-accent); }
+.variantRow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+.detailPanel { min-width: 0; }
+
+/* Code panes: redefine the variable, never the family (see file header). */
+.codeBlock,
+.patch,
+.fieldTable,
+.detailPath,
+.pathCell,
+.filePath,
+.compareFilePath,
+.compareSides code,
+.rootsList code { --font-mono: var(--res-code-font); font-family: var(--font-mono); }
+
+.codeBlock {
+  margin: 0;
+  padding: 12px 16px;
+  overflow-x: auto;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---- Markdown preview ------------------------------------------------------- */
+
+.markdownPane { display: flex; flex-direction: column; gap: 16px; }
+.frontmatterCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--res-accent);
+  border-radius: 6px;
+}
+.frontmatterList {
+  display: grid;
+  grid-template-columns: minmax(80px, max-content) minmax(0, 1fr);
+  gap: 4px 16px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.frontmatterRow { display: contents; }
+.frontmatterRow dt { color: var(--text-secondary); }
+.frontmatterRow dd { margin: 0; overflow-wrap: anywhere; }
+
+.markdown { min-width: 0; color: var(--text-primary); font-size: 13px; line-height: 1.65; overflow-wrap: break-word; }
+.markdown > :first-child { margin-top: 0; }
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 { margin: 16px 0 8px; line-height: 1.3; }
+/* Capped at the resource title's 16px so a document heading never out-ranks it. */
+.markdown h1 { font-size: 16px; }
+.markdown h2 { font-size: 14px; }
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 { font-size: 13px; }
+.markdown p,
+.markdown ul,
+.markdown ol,
+.markdown blockquote,
+.markdown pre { margin: 0 0 8px; }
+.markdown ul,
+.markdown ol { padding-left: 24px; }
+.markdown a { color: var(--res-accent); text-decoration: underline; text-underline-offset: 2px; }
+.markdown a:hover { text-decoration-thickness: 2px; }
+.markdown a:focus-visible { outline: 2px solid var(--res-accent); outline-offset: 2px; }
+.markdown blockquote { padding: 0 16px; border-left: 3px solid var(--border-subtle-strong); color: var(--text-secondary); }
+.markdown hr { margin: 16px 0; border: none; border-top: 1px solid var(--border-subtle); }
+.markdown code,
+.markdown pre { --font-mono: var(--res-code-font); font-family: var(--font-mono); font-size: 12px; }
+/* Inline code only. A bare `.markdown code` background (0-1-1) would outrank
+   highlight.js's `.hljs` (0-1-0) and repaint every highlighted block. */
+.markdown :not(pre) > code { padding: 2px 4px; border-radius: 4px; background: var(--bg-subtle-strong); }
+.markdown pre { overflow-x: auto; border-radius: 6px; background: var(--bg-subtle); line-height: 1.5; }
+/* A fenced block without a language gets no .hljs padding of its own. */
+.markdown pre > code:not(:global(.hljs)) { display: block; padding: 12px 16px; }
+.mdTableWrap { margin: 0 0 8px; overflow-x: auto; }
+.markdown table { border-collapse: collapse; font-size: 12px; }
+.markdown th,
+.markdown td { padding: 4px 8px; border: 1px solid var(--border-subtle); text-align: left; }
+.mdImage { color: var(--text-secondary); font-style: italic; }
+.mdInertLink { text-decoration: underline dotted; text-underline-offset: 2px; cursor: help; }
+
+/* ---- Tables: config fields, projects, coverage ------------------------------- */
+
+.configPane { display: flex; flex-direction: column; gap: 8px; }
+.tableScroll { min-width: 0; overflow-x: auto; }
+.fieldTable,
+.dataTable { width: 100%; border-collapse: collapse; font-size: 12px; }
+.fieldTable th,
+.fieldTable td,
+.dataTable th,
+.dataTable td { padding: 4px 8px; border-bottom: 1px solid var(--border-subtle); text-align: left; vertical-align: top; }
+.dataTable th,
+.dataTable td { padding: 8px; }
+.fieldTable thead th,
+.dataTable thead th {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.dataTable tbody th { font-weight: 500; }
+.fieldKey { max-width: 40ch; color: var(--text-secondary); font-weight: 400; overflow-wrap: anywhere; }
+.fieldValue { overflow-wrap: anywhere; }
+.valueString { color: var(--text-primary); }
+.valueLiteral { color: color-mix(in srgb, var(--accent-purple) 65%, var(--text-primary)); }
+.valueMasked { color: var(--text-secondary); letter-spacing: 0.1em; }
+.tableCaption { padding: 0 0 8px; caption-side: top; color: var(--res-accent); font-size: 12px; font-weight: 600; text-align: left; }
+/* Two classes: `.dataTable td` (0-1-1) would otherwise out-rank a bare .numCell. */
+.dataTable .numCell { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.noteCell { color: var(--text-secondary); }
+.pathCell { overflow-wrap: anywhere; }
+/* In a table cell, `anywhere` lets the column's minimum width collapse to one
+   character; break at the <wbr> after each `/` instead (see BreakablePath). */
+.tablePath { overflow-wrap: break-word; }
+.projectName { font-weight: 600; }
+
+/* ---- Files ------------------------------------------------------------------- */
+
+.filesPane,
+.comparePane { display: flex; flex-direction: column; gap: 16px; }
+.fileList { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.fileButton,
+.fileStatic {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+.fileButton { background: transparent; color: var(--text-primary); cursor: pointer; }
+.fileButton:hover { background: var(--bg-subtle); }
+.fileButton:active { background: var(--bg-subtle-strong); }
+.fileButton:focus-visible { outline: 2px solid var(--res-accent); outline-offset: -2px; }
+.fileButton[aria-pressed='true'] { background: var(--bg-accent); border-color: var(--border-accent-strong); color: var(--res-accent); }
+.fileStatic { color: var(--text-secondary); }
+.filePath { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fileSize { flex-shrink: 0; color: var(--text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+.filePreview { display: flex; flex-direction: column; gap: 8px; margin: 0; }
+
+/* ---- Compare ----------------------------------------------------------------- */
+
+.compareSides { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; margin: 0; font-size: 12px; }
+.compareSides dt { color: var(--text-secondary); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
+.compareSides dd { margin: 0; overflow-wrap: anywhere; }
+.compareFiles { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.compareFile { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; }
+/* Not flex-grow: on a wide pane the status chip belongs next to its path. */
+.compareFilePath { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* One grid column as wide as the longest line, so a coloured line's
+   background runs the full scroll width, not just the visible part. */
+.patch {
+  display: grid;
+  grid-template-columns: minmax(100%, max-content);
+  margin: 0;
+  padding: 8px 0;
+  overflow-x: auto;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+}
+.patch > span { min-height: 1.5em; padding: 0 16px; }
+.patchAdd {
+  background: color-mix(in srgb, var(--accent-green) 14%, transparent);
+  color: color-mix(in srgb, var(--accent-green) 65%, var(--text-primary));
+}
+.patchDel {
+  background: color-mix(in srgb, var(--accent-red) 14%, transparent);
+  color: color-mix(in srgb, var(--accent-red) 65%, var(--text-primary));
+}
+.patchHunk { background: var(--bg-accent); color: var(--res-accent); }
+.patchMeta { color: var(--text-secondary); }
+.patchContext { color: var(--text-primary); }
+
+/* ---- Findings ---------------------------------------------------------------- */
+
+.detailFindings { display: flex; flex-direction: column; gap: 8px; padding-top: 16px; border-top: 1px solid var(--border-subtle); }
+.findingList { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.findingItem { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: 12px; }
+.findingLabel,
+.findingName { font-weight: 700; }
+.findingMessage,
+.findingWhere { color: var(--text-secondary); }
+.findingWhere { font-size: 11px; }
+
+/* ---- Sources and Checks panels ---------------------------------------------- */
+
+.panelScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-bottom: 24px;
+  overflow-y: auto;
+}
+.sourcesSection,
+.checksSection { display: flex; flex-direction: column; gap: 8px; }
+.sectionHead { display: flex; align-items: baseline; gap: 8px; }
+.sectionAside { color: var(--text-secondary); font-size: 11px; }
+.rootsList { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 16px; margin: 0; font-size: 12px; }
+.rootsList > div { display: contents; }
+.rootsList dt { color: var(--text-secondary); }
+.rootsList dd { margin: 0; overflow-wrap: anywhere; }
+.coverageGroups { display: flex; flex-direction: column; gap: 16px; }
+.addFolderForm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.extraRoots { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.extraRoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 4px 4px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.checksSection { padding-left: 16px; border-left: 3px solid var(--border-subtle-strong); }
+.checks_error { border-left-color: var(--accent-red); }
+.checks_warning { border-left-color: var(--accent-orange); }
+.checks_info { border-left-color: var(--res-accent); }
+.checkGroup { background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 6px; }
+.checkSummary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.checkSummary:hover { background: var(--bg-subtle); }
+.checkSummary:active { background: var(--bg-subtle-strong); }
+.checkSummary:focus-visible { outline: 2px solid var(--res-accent); outline-offset: -2px; }
+/* `display: flex` drops the native disclosure marker; keep a visible cue. */
+.checkSummary::before { content: '▸'; color: var(--text-secondary); }
+.checkGroup[open] > .checkSummary::before { content: '▾'; }
+.checkSummary::-webkit-details-marker { display: none; }
+.checkList { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0 8px 8px; list-style: none; }
+.findingButton,
+.findingStatic {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-height: 32px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+.findingButton { background: transparent; color: var(--text-primary); cursor: pointer; }
+.findingButton:hover { background: var(--bg-subtle); border-color: var(--border-accent-strong); }
+.findingButton:active { background: var(--bg-accent); }
+.findingButton:focus-visible { outline: 2px solid var(--res-accent); outline-offset: -2px; }
+
+/* ---- Motion: colour and border only, and none when reduced ----------------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  .tab,
+  .button,
+  .toggle,
+  .chipButton,
+  .railItem,
+  .row,
+  .backButton,
+  .fileButton,
+  .findingButton,
+  .checkSummary,
+  .search,
+  .textInput,
+  .select { transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; }
+}
+
+/* ---- Coarse pointers: 44px targets ------------------------------------------- */
+
+@media (pointer: coarse) {
+  .tab,
+  .button,
+  .toggle,
+  .search,
+  .textInput,
+  .select,
+  .railItem,
+  .row,
+  .backButton,
+  .fileButton,
+  .findingButton,
+  .checkSummary,
+  .chipButton { min-height: 44px; }
+  .search,
+  .textInput,
+  .select,
+  .toggle { height: 44px; }
+}
+
+/* ---- Narrow desktop: the rail becomes a strip above list | detail ------------ */
+
+@media (max-width: 900px) {
+  .library { grid-template-columns: minmax(200px, 280px) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  /* Wrap, never scroll: a sideways-scrolling strip clipped Plugins and
+     Settings off the right edge with no cue, hiding exactly the types the
+     rail exists to keep visible. Two short rows beat a hidden type. */
+  .rail {
+    grid-column: 1 / -1;
+    padding: 0 0 8px;
+    overflow: visible;
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .rail .paneHeading { display: none; }
+  .railList { flex-direction: row; flex-wrap: wrap; gap: 4px; }
+  .railItem { width: auto; white-space: nowrap; }
+}
+
+/* ---- Phone (<= 480px, MOBILE_BREAKPOINT in src/lib/platform.ts) --------------
+   One thing at a time: rail strip + list, and an open resource REPLACES both
+   (with a back button), like ProjectTab's file-tree overlay. Instant rather
+   than animated, for the reason ProjectTab gives: a stalled slide leaves the
+   pane "open" but parked off-screen. */
+
+@media (max-width: 480px) {
+  .view { padding: 8px 16px; }
+  .titleRow { flex-wrap: wrap; row-gap: 8px; }
+  .sectionTabs { order: 3; flex-basis: 100%; }
+  .search { flex-basis: 100%; }
+  /* Scoped to the filter row: .field also wraps Compare's select, where a
+     flex-basis in a column flexbox becomes a 136px HEIGHT. */
+  .filters .field { flex: 1 1 136px; }
+  .filters .field .select { flex: 1 1 auto; max-width: none; }
+  .viewDetailOpen .filters,
+  .viewDetailOpen .countsLine { display: none; }
+  /* Tables scroll sideways inside .tableScroll instead of crushing the path
+     column to a few characters per line. */
+  .dataTable { min-width: 560px; }
+  .library { display: flex; flex-direction: column; gap: 8px; }
+  .rail { flex: 0 0 auto; }
+  .listPane { flex: 1 1 auto; }
+  .detailPlaceholder,
+  .detailPane { display: none; }
+  .libraryDetailOpen .rail,
+  .libraryDetailOpen .listPane { display: none; }
+  .libraryDetailOpen .detailPane { display: flex; flex: 1 1 auto; padding: 0 0 24px; border-left: none; }
+  .backButton { display: inline-flex; }
+  .detailTitle { font-size: 15px; }
+}

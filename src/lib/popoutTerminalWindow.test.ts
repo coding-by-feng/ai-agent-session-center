@@ -178,6 +178,25 @@ describe('openFloatWindow — plain browser, with a preopened window', () => {
     expect(params.get('label')).toBe(OPTS.label);
   });
 
+  it('closes the preopened window if navigating it throws, instead of stranding it', async () => {
+    // The "extremely unlikely" case: assigning .location.href throws. Must not
+    // leave the placeholder open on screen while falling through to a fresh
+    // popup attempt — same "nothing left stranded" rule as the other branches.
+    const fakeWin = {} as Window;
+    const spy = vi.fn().mockReturnValue(fakeWin);
+    window.open = spy as unknown as typeof window.open;
+    const preopened = fakePreopenedWindow();
+    Object.defineProperty(preopened.location, 'href', {
+      configurable: true,
+      set() { throw new Error('navigation blocked'); },
+    });
+
+    await expect(openFloatWindow({ ...OPTS, preopened })).resolves.toEqual({ placed: 'window' });
+
+    expect(preopened.closeCalls).toBe(1);
+    expect(spy).toHaveBeenCalledTimes(1); // fell through to the fresh popup
+  });
+
   it('falls back to a fresh window.open when the preopened window was closed by the user', async () => {
     const fakeWin = {} as Window;
     const spy = vi.fn().mockReturnValue(fakeWin);

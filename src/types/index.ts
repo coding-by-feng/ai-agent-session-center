@@ -174,3 +174,35 @@ export type {
 export type {
   DistinctProject,
 } from './analytics.js';
+
+// Agent Resources (RESOURCES tab)
+export type {
+  ResourceType,
+  ResourceAgent,
+  ResourceScope,
+  ResourceOrigin,
+  ResourceFormat,
+  RepoStatus,
+  ResourceSummary,
+  FindingCode,
+  FindingSeverity,
+  ResourceFinding,
+  DiscoveryEvidence,
+  ResourceProject,
+  CoverageCategory,
+  CoverageStatus,
+  CoverageEntry,
+  ScanState,
+  ScanProgress,
+  ResourceRoots,
+  ResourceCatalog,
+  ResourceFile,
+  ResourceFieldKind,
+  ResourceField,
+  ResourceDetail,
+  ResourceFileContent,
+  CompareTarget,
+  ResourceCompareFile,
+  ResourceCompare,
+  ResourcesApiResponse,
+} from './resources.js';

@@ -59,6 +59,10 @@ LIMIT ? OFFSET ?
 - **LIKE wildcards in user input are escaped** (`\`, `%`, `_`, via `ESCAPE '\'`). This is not cosmetic: on real data, searching `100%` unescaped returns **852** rows against **144** genuine ones.
 - Wrapped in `try/catch` → returns an empty page and `log.warn`s rather than throwing.
 
+### Remote-visibility gate
+
+`router.use('/db/prompts', requireLocalForHistory)` sits in front of the endpoint. History is a SECOND store — hiding a live session from the session list does nothing for its recorded prompt *text*, which this endpoint returns in full — so a remote (non-loopback) client is blocked outright unless the request names one session (`session` query param) that is currently visible to it (`canSeeSession(false, getSession(id))`); localhost is unaffected. An archived session has no in-memory record to carry a visibility flag and therefore resolves to hidden for a remote caller — deliberate fail-closed, since a session that has ended can no longer be opted back in through the UI. See [Multi-Device Presence](../server/multi-device-presence.md) / [Authentication](../server/authentication.md).
+
 ### Endpoint — `GET /api/db/prompts`
 
 | Param | Type | Default | Clamp |
@@ -122,6 +126,7 @@ The header reads `N prompts · showing A–B`. Day-group headers read `N shown`,
 - [ui-primitives.md](./ui-primitives.md) — `SearchInput`, `Select`, `Tooltip`, `showToast`.
 - [views-routing.md](./views-routing.md) — route registration, `AppLayout` chrome, NavBar entry.
 - [session-management.md](../server/session-management.md) — `sessionDisplayTitle()` for row labels.
+- [multi-device-presence.md](../server/multi-device-presence.md) — `requireLocalForHistory`/`canSeeSession` gate a remote client's access to `GET /api/db/prompts`.
 
 ### Depended On By
 
@@ -143,4 +148,5 @@ The header reads `N prompts · showing A–B`. Day-group headers read `N shown`,
 - **Raising `pageSize` past 200** (or removing the clamp) makes a single request serialize an unbounded number of multi-KB prompts; several thousand rows in a real DB exceed 4 KB each.
 - **Head-truncating instead of `clipToMatch`** re-introduces rows that match invisibly.
 - **Static-importing this view in `App.tsx`** (instead of `lazy()`) would move it, its CSS, and its store imports into the eager entry chunk — see the zero-static-imports rule in [views-routing.md](./views-routing.md).
+- **Widening `requireLocalForHistory`'s single-session escape hatch** (e.g. letting a remote client pass an arbitrary `session` param without the `canSeeSession` check) reopens the exact leak the gate exists to close — this endpoint returns full prompt *text*, not just metadata, so it can defeat per-session remote-visibility even while the session list itself stays correctly hidden.
 - **No retention policy exists** for the `prompts` table. This view makes the volume visible (a working install is already ~370 MB of `sessions.db`) but does not prune; adding pruning would silently destroy the record this feature exists to present.

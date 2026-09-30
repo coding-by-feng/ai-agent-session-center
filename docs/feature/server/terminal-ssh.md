@@ -9,7 +9,7 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 ## Source Files
 | File | Role |
 |------|------|
-| `server/sshManager.ts` (~1100 lines) | PTY creation, shell-ready detection, output ring buffer, pending links, slash-command injection |
+| `server/sshManager.ts` (~1258 lines) | PTY creation, shell-ready detection, output ring buffer, terminal geometry, pending links, slash-command injection |
 | `server/ptyRing.ts` | Replay ring buffer: `RingState`, `createRing`/`ringWrite`/`ringSnapshot`/`ringLength`/`ringReset`, `nextRingCapacity`. Lazily grown from `INITIAL_RING_BYTES = 64 KB`. sshManager keeps thin `Terminal`-shaped adapters over it. **Duplicated verbatim in `electron/ptyRing.ts`** |
 | `test/ptyRing.test.ts` | 47 tests run against BOTH ring copies (parity + growth/wrap/reset semantics), including a byte-for-byte equivalence check against an eagerly-allocated ring |
 | `server/ptySubscribers.ts` | Pure `fanOutToSockets(clients, payload)` — sends to every OPEN socket and prunes the dead ones. Import-free and `ws`-free (structural `SubscriberSocket`) so it is testable without loading node-pty |
@@ -71,7 +71,7 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 ### Input Validation
 - Zod + shell metacharacter regex /[;|&$`\\!><()\n\r{}[\]]/
 - workingDir max 1024 chars, command max 512
-- tmuxSession max 128, regex `/^[a-zA-Z0-9_.\-]+$/` — alphanumerics plus underscore, dot, hyphen (`TMUX_SESSION_RE`, sshManager.ts:36)
+- tmuxSession max 128, regex `/^[a-zA-Z0-9_.\-]+$/` — alphanumerics plus underscore, dot, hyphen (`TMUX_SESSION_RE`, sshManager.ts:77)
 - host max 255, username max 128, port 1-65535
 
 ### Session Name Flag (`-n`)
@@ -91,7 +91,7 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 ### SSH Password Auto-Typing
 - For remote SSH connections (`!local && config.password`), a watcher buffers PTY output (cap 4096 bytes, tail-trimmed), strips ANSI (`ANSI_ESC_RE`), and lowercases it to match `password:` / `password for`. On match it writes the stored password + `\r` after a 100ms delay, then resets the buffer so the same prompt can't re-trigger.
 - Capped at `maxAttempts = 2` — a 3rd prompt logs an error (`SSH password rejected after 2 attempts`) and disposes the watcher.
-- Self-disposes once auth succeeds (`last login` in output, or the last non-empty line matches `SHELL_PROMPT_RE`), and unconditionally after a 30s safety timeout (sshManager.ts:434-468).
+- Self-disposes once auth succeeds (`last login` in output, or the last non-empty line matches `SHELL_PROMPT_RE`), and unconditionally after a 30s safety timeout (sshManager.ts:461-495).
 
 ### Folder-Trust Auto-Confirm
 - For every terminal (including `deferredLaunch` ones), a watcher buffers PTY output (cap 8192 bytes), strips ANSI, and collapses whitespace/punctuation to robustly match Claude Code's "Yes, I trust this folder" prompt (`yesitrustthisfolder`). On match it writes `\r` to auto-accept. Watcher self-disposes after 60s.
@@ -105,6 +105,7 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 ### Post-Startup Slash Injection (ultracode / remote-control)
 - After the launch command is written, if `effortLevel === 'ultracode'` or `remoteControlName` is set (and the base command starts with `claude`), an inline watcher waits for the string `Claude Code` in PTY output, settles 2500ms, then writes `/effort ultracode` and/or `/remote-control <name>` sequentially with 800ms gaps. Self-disposes after 30s.
 - `injectClaudeCommandsWhenReady(terminalId, cmds)` is the exported version of this same logic (2.5s settle + 800ms gaps). It is used by the floating-session spawner, which writes its own launch command and so bypasses `createTerminal`'s inline injection.
+- `maybeInjectUltracode(terminalId, effortLevel, launchCmd)` is a thin wrapper over `injectClaudeCommandsWhenReady` for the other spawn paths that bypass `createTerminal`'s inline injector: resume, reconnect, fork, and clone all spawn with `command: ''` and write the real launch command later via `writeWhenReady`, so each of those call sites (apiRouter.ts) calls this to keep `ultracode` uniform across every relaunch route. No-op unless `effortLevel === 'ultracode'` and `launchCmd` starts with `claude`; harmless to call on a path that never reaches the `Claude Code` banner, since the underlying watcher is banner-gated with its own 30s timeout.
 
 ### Environment
 - **The launching Claude Code session's markers are stripped from every spawned PTY** via `stripInheritedClaudeSessionEnv()` (`server/config.ts`, list in `INHERITED_CLAUDE_SESSION_ENV_KEYS`): `CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_EXECPATH`. A dashboard terminal is a NEW top-level session, not a child of whatever launched the app. `CLAUDE_CODE_CHILD_SESSION` is the load-bearing one: Claude Code ≥ 2.1.x reads an inherited marker as "I am a nested child/subagent session" and **disables transcript persistence** (`⚠ Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker`), so no `~/.claude/projects/<encoded>/<sessionId>.jsonl` is written and every later `claude --resume <id>` / `--fork-session` dies with `No conversation found with session ID: <id>` — a dead AI-popup float ([Floating Session Spawner](./floating-session-spawner.md)), a silent fresh-instead-of-resumed session on [workspace restore](../frontend/workspace-snapshot.md), an empty [Conversation tab](../frontend/conversation-view.md), and no translate-answer. The app inherits the marker whenever it is started from **inside** a Claude Code session — i.e. the normal dev loop (an agent running `npm run electron:build` / `npm run dev` / `open`ing the built app) — which is why this failed invisibly in development but never for a Finder launch. Applied at all three PTY spawn sites (local/SSH `createTerminal`, `attachToTmuxPane`, and the Electron [PTY host](../electron/pty-host.md) mirror). Credentials, `CLAUDE_CONFIG_DIR`, user feature flags and `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN` are deliberately preserved. Covered by `test/claudeSessionEnv.test.ts`, which also fails on drift between the server list and the Electron mirror.
@@ -115,7 +116,11 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 - Detects local addresses via hostname, `.local` suffix, and network interface addresses to distinguish local vs remote connections
 
 ### Security
-- API keys passed via env object, never interpolated into shell command strings
+- API keys are passed via env object **for local terminals only** (`env[apiKeyEnvForCommand(command)] = config.apiKey`). SSH does not forward env vars, so remote (SSH/tmux) terminals export the key into the launch command string itself instead — the same re-export pattern used for `AGENT_MANAGER_TERMINAL_ID` (see above) — as `export <API_KEY_VAR>='<key>'`, with the value passed through `shellEscapeSingleQuote` (single quotes doubled via `'\''`) before interpolation. Never interpolated *unescaped*, but not confined to an env object either — a security review of this file should check the escaped form, not assume env-only.
+
+### Terminal Geometry
+- `getTerminalGeometry(terminalId)` reads `pty.cols`/`pty.rows` live off the PTY (not a cached copy, so it is correct after any resize regardless of who performed it) and returns `null` for a terminal the server doesn't own (e.g. an Electron `pty-*` terminal, or an already-closed one). Backs the `TERMINAL_GEOMETRY` WS message ([WebSocket Manager](./websocket-manager.md)'s `sendGeometry`/`broadcastGeometry`, sent on subscribe and after any resize) and the Remote Control daemon's liveness check ([Process Monitor](./process-monitor.md)'s `onSessionIdle`) — both need "is this actually a PTY I can write to" before acting.
+- This is the mechanism that keeps a narrow device (a phone) from corrupting a wide PTY's scrollback: reporting the PTY's real width lets a narrow client render at that size and pan/soft-wrap locally instead of resizing the shared PTY down to its own viewport. See [Terminal UI](../frontend/terminal-ui.md) for the client-side pan-vs-wrap rendering this feeds.
 
 ### Additional Exports
 - registerTerminalExitCallback(cb) — register callback for terminal exit events; sessionStore registers one to null `session.terminalId` when the PTY dies
@@ -123,18 +128,20 @@ Enables the dashboard to create interactive terminal sessions that connect to AI
 - listSshKeys() — enumerate `~/.ssh/` key files (excludes `.pub`, `known_hosts`, `config`, `authorized_keys`, dotfiles); consumed by `GET /api/ssh-keys`
 - listTmuxSessions(config) — list tmux sessions on a local or remote host; consumed by `POST /api/tmux-sessions`
 - attachToTmuxPane(tmuxPaneId, wsClient) — attach to an existing tmux pane (`%N` format); consumed by `POST /api/teams/:teamId/members/:sessionId/terminal`
-- writeWhenReady(terminalId, data) (sshManager.ts:801) — await the `shellReady` promise, then write to PTY
-- injectClaudeCommandsWhenReady(terminalId, cmds) (sshManager.ts:818) — watch for Claude Code readiness then inject slash commands (2.5s settle + 800ms gaps); used by floatingSessionSpawner
-- writeToTerminal(terminalId, data) (sshManager.ts:788) — direct write to PTY, stripping `TERMINAL_RESPONSE_RE`; consumed by `POST /api/terminals/:id/write` and wsManager terminal relay
-- resizeTerminal(terminalId, cols, rows) (sshManager.ts:850) — returns error string on failure for wsManager relay
-- closeTerminal(terminalId) (sshManager.ts:865) — sends per-PTY `pty.kill` (group SIGHUP); used by fork/clone close paths to avoid touching the origin's claude PID
-- consumePendingLink(workDir, terminalId?) (sshManager.ts:923) — remove a specific pendingLink entry (or the front entry); called after Priority-0 resume match
-- tryLinkByWorkDir(workDir, sessionId) (sshManager.ts:899) — FIFO-consume a pendingLink and link the terminal; used by Priority-2 session matcher
+- writeWhenReady(terminalId, data) (sshManager.ts:824) — await the `shellReady` promise, then write to PTY
+- injectClaudeCommandsWhenReady(terminalId, cmds) (sshManager.ts:841) — watch for Claude Code readiness then inject slash commands (2.5s settle + 800ms gaps); used by floatingSessionSpawner
+- writeToTerminal(terminalId, data) (sshManager.ts:811) — direct write to PTY, stripping `TERMINAL_RESPONSE_RE`; consumed by `POST /api/terminals/:id/write` and wsManager terminal relay
+- resizeTerminal(terminalId, cols, rows) (sshManager.ts:915) — returns error string on failure for wsManager relay
+- closeTerminal(terminalId) (sshManager.ts:930) — sends per-PTY `pty.kill` (group SIGHUP); used by fork/clone close paths to avoid touching the origin's claude PID
+- consumePendingLink(workDir, terminalId?) (sshManager.ts:997) — remove a specific pendingLink entry (or the front entry); called after Priority-0 resume match
+- tryLinkByWorkDir(workDir, sessionId) (sshManager.ts:973) — FIFO-consume a pendingLink and link the terminal; used by Priority-2 session matcher
 - getTerminalForSession(sessionId) — look up terminal for a session; used by processMonitor
-- getTerminalByPtyChild(childPid) — find terminal whose PTY is parent of given PID (via `ps -o ppid=`); used by Priority-4 PID-parent matching in sessionMatcher
-- getTerminalOutputBuffer(terminalId) (sshManager.ts:993) — get buffered output for replay; consumed by `GET /api/terminals/:id/output` (apiRouter.ts:1432) for the REVIEW tab
-- getTerminalOutputTail(terminalId, maxBytes = 2048) (sshManager.ts:1004) — linearize the ring and return only the last `maxBytes` as UTF-8; used by server-side screen-tail heuristics (approval / thinking-spinner detection in `sessionStore.ts:736`) that need the live tail of the screen, not the whole scrollback
-- prefillTerminalOutput(terminalId, base64Data) (sshManager.ts:1016) — prepend saved output into the ring buffer; consumed by `POST /api/terminals/:id/prefill-output`
+- getTerminalByPtyChild(childPid) — find terminal whose PTY is parent of given PID (via `ps -o ppid=`, **execSync**); used by Priority-4 PID-parent matching in sessionMatcher. Never call from an interval — see `getTerminalByPtyPid` below.
+- getTerminalByPtyPid(ptyPid) (sshManager.ts:1036) — pure `Map` scan (no syscall) resolving a PTY's own shell pid to its terminal id; the syscall-free counterpart to `getTerminalByPtyChild` above. Used by [Process Monitor](./process-monitor.md)'s external-discovery ownership check, which runs on a 20s interval and must never block the event loop with a sync process spawn.
+- getTerminalGeometry(terminalId) — see Terminal Geometry above
+- getTerminalOutputBuffer(terminalId) (sshManager.ts:1150) — get buffered output for replay; consumed by `GET /api/terminals/:id/output` (apiRouter.ts:1432) for the REVIEW tab
+- getTerminalOutputTail(terminalId, maxBytes = 2048) (sshManager.ts:1161) — linearize the ring and return only the last `maxBytes` as UTF-8; used by server-side screen-tail heuristics (approval / thinking-spinner detection in `sessionStore.ts:781`) that need the live tail of the screen, not the whole scrollback
+- prefillTerminalOutput(terminalId, base64Data) (sshManager.ts:1173) — prepend saved output into the ring buffer; consumed by `POST /api/terminals/:id/prefill-output`
 - getTerminals() — list all active terminals with metadata; consumed by `GET /api/terminals`
 - linkSession(terminalId, sessionId) — associate a session with a terminal
 - setWsClient(terminalId, wsClient) — **add** a ws client to the terminal's subscriber Set, send `terminal_ready`, and replay the ring buffer **to that socket only** (used on browser reconnect and on every additional device); returns `false` only if the terminal no longer exists

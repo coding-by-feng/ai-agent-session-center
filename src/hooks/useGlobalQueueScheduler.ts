@@ -46,15 +46,20 @@ import {
   advanceBlockedLoops,
   chainGateDecision,
   onceGateDecision,
-  NO_WORK_FALLBACK_MS,
+  resolveNoWorkFallbackMs,
   itemType,
   getActiveStep,
   isExecuting,
   isSendableStatus,
   totalChainSteps,
   currentChainStep,
+  queueHoldReason,
+  trackStatus,
+  statusSettled,
+  pickWhileHeld,
   type ChainGate,
   type OnceGate,
+  type StatusSeen,
 } from '@/lib/queueScheduler';
 import { sendPromptToTerminal } from '@/lib/terminalSend';
 import { canControlSession } from '@/stores/presenceStore';
@@ -66,10 +71,13 @@ import {
 } from '@/lib/resumeWatchdog';
 import { showToast } from '@/components/ui/ToastContainer';
 
-// NO_WORK_FALLBACK_MS lives in queueScheduler.ts next to the gate logic it
-// parameterizes, so the gate tests can assert against the REAL value. Its
-// length is load-bearing (it must outlast a hook-less /compact), and a value
-// defined only here was invisible to every test.
+// The no-work fallback constants live in queueScheduler.ts next to the gate
+// logic and resolveNoWorkFallbackMs() that pick between them, so the gate
+// tests can assert against the REAL values. Both lengths are load-bearing —
+// NO_WORK_FALLBACK_MS must outlast a hook-less /compact, and
+// NO_WORK_FALLBACK_NO_AUTOENTER_MS must outlast a normal human review pause
+// when autoEnter is off — and values defined only here would be invisible to
+// every test.
 
 async function uploadImages(images: QueueImageAttachment[]): Promise<string[]> {
   try {
@@ -117,6 +125,8 @@ export function useGlobalQueueScheduler(): void {
   // task has actually finished, so multiple queued once items drain one-at-a-
   // time instead of flooding the CLI in a burst.
   const onceGateRefs = useRef<Map<string, OnceGate>>(new Map());
+  /** When each session's current status was first seen — see STATUS_SETTLE_MS. */
+  const statusSeenRefs = useRef<Map<string, StatusSeen>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -202,6 +212,11 @@ export function useGlobalQueueScheduler(): void {
       const session = sessions.get(sessionId);
       if (!session) return;
 
+      // Remember when this status first appeared. Tracked before any early
+      // return below, so a status change is never missed on a skipped tick.
+      const statusSeen = trackStatus(statusSeenRefs.current.get(sessionId), session.status, Date.now(), session.lastActivityAt);
+      statusSeenRefs.current.set(sessionId, statusSeen);
+
       // ── Multi-device gate ─────────────────────────────────────────────────
       // This scheduler ticks on EVERY connected client. Two devices watching
       // the same session would each evaluate it and each fire — the same queue
@@ -228,19 +243,22 @@ export function useGlobalQueueScheduler(): void {
       const cooldownUntil = coolDownRefs.current.get(sessionId) ?? 0;
       if (now < cooldownUntil) return;
 
+      // ── Held: the user cancelled, or subagents are still running ──────────
+      // Both reach `waiting` without the turn being finished (Esc fires a real
+      // Stop), so nothing automatic may send: not the queue below, and not the
+      // auto-resume watchdog, which would otherwise "continue" a turn the user
+      // stopped on purpose. A fresh ⚡ NOW still forces one item further down.
+      const hold = queueHoldReason(session, now);
+
       // ── Auto-resume watchdog ──────────────────────────────────────────────
       // Runs BEFORE the queue and independently of it: a session interrupted by
       // a 529 needs rescuing whether or not it has queued items, so this must
       // sit above the `items.length === 0` bail-out below. It shares
       // `firingRefs` / `coolDownRefs` with the queue so a resume and a queue
       // fire can never interleave into the same PTY.
-      const resumed = await maybeAutoResume(
-        sessionId,
-        session,
-        terminalId,
-        automationConfig,
-        now,
-      );
+      const resumed = hold
+        ? false
+        : await maybeAutoResume(sessionId, session, terminalId, automationConfig, now);
       if (resumed || cancelled) return;
 
       const items = queueState.queues.get(sessionId);
@@ -252,13 +270,23 @@ export function useGlobalQueueScheduler(): void {
       // tick (one scan) instead of walking the whole evaluation. Per-session:
       // read off THIS session's automation config, not a global flag.
       const autoSend = automationConfig.autoSend;
+      // Read once here (not just at fire time below) so both gate decisions
+      // and the eventual send agree on the same toggle state for this tick —
+      // see resolveNoWorkFallbackMs in queueScheduler.ts for why the gates
+      // need it at all.
+      const autoEnter = automationConfig.autoEnter;
       const hasActiveWork = items.some(
         (it) => !it.disabled && (it.forceStart || isExecuting(it)),
       );
       if (!autoSend && !hasActiveWork) return;
 
       const sessionStatus = session.status;
-      const sessionWaiting = isSendableStatus(sessionStatus);
+      // Busy-ness is read from the raw status; readiness also needs the status
+      // to have settled (STATUS_SETTLE_MS), so a cancel mark that lands a
+      // moment after its Stop is always seen before anything sends.
+      const rawSendable = isSendableStatus(sessionStatus);
+      const settled = statusSettled(statusSeen, now);
+      const sessionWaiting = rawSendable && settled;
 
       // Chain-gate observation: if a gate is open for this session and the
       // session is currently busy, record that the prior step's work has
@@ -266,7 +294,7 @@ export function useGlobalQueueScheduler(): void {
       // skip-prompting) so a busy tick is never missed just because no item
       // was picked this cycle.
       const openGate = chainGateRefs.current.get(sessionId);
-      if (openGate && !sessionWaiting && !openGate.sawWork) {
+      if (openGate && !rawSendable && !openGate.sawWork) {
         chainGateRefs.current.set(sessionId, { ...openGate, sawWork: true });
       }
 
@@ -274,7 +302,7 @@ export function useGlobalQueueScheduler(): void {
       // once item's task has begun the moment the session goes busy. Must also
       // run before any early-return so a busy tick is never missed.
       const openOnceGate = onceGateRefs.current.get(sessionId);
-      if (openOnceGate && !sessionWaiting && !openOnceGate.sawWork) {
+      if (openOnceGate && !rawSendable && !openOnceGate.sawWork) {
         onceGateRefs.current.set(sessionId, { ...openOnceGate, sawWork: true });
       }
 
@@ -283,6 +311,13 @@ export function useGlobalQueueScheduler(): void {
       const hasFreshForce = items.some(
         (it) => !it.disabled && it.forceStart && !isExecuting(it),
       );
+
+      // Held (see above): nothing sends until the user acts — their own next
+      // prompt or the queue's Resume clears a cancel; subagents finishing
+      // clears the other. Loop cadence is left alone, like a paused queue.
+      // Only a row you forced may go — see pickWhileHeld below.
+      const heldPick = hold ? pickWhileHeld(items) : null;
+      if (hold && !heldPick) return;
 
       const blockedByPrompting =
         automationConfig.skipWhenPrompting && sessionStatus === 'prompting';
@@ -317,7 +352,7 @@ export function useGlobalQueueScheduler(): void {
         }
       }
 
-      const pick = pickNext(
+      const pick = heldPick ?? pickNext(
         items,
         now,
         sessionWaiting,
@@ -337,14 +372,14 @@ export function useGlobalQueueScheduler(): void {
       if (isExecuting(pick)) {
         // `atRest` (status === 'waiting') is the genuine Stop signal — the only
         // reliable "prior step finished" marker. Decayed `idle` must not count.
-        const atRest = sessionStatus === 'waiting';
+        const atRest = sessionStatus === 'waiting' && settled;
         const decision = chainGateDecision(
           chainGateRefs.current.get(sessionId),
           pick.id,
           atRest,
           sessionWaiting,
           now,
-          NO_WORK_FALLBACK_MS,
+          resolveNoWorkFallbackMs(autoEnter),
           session.lastActivityAt,
           // ⚡ NOW pressed on an already-executing row: release the gate for
           // this one step. The item keeps its execState/execStepIdx, so it
@@ -362,10 +397,10 @@ export function useGlobalQueueScheduler(): void {
         if (itemType(pick) === 'once') {
           const onceDecision = onceGateDecision(
             onceGateRefs.current.get(sessionId),
-            sessionStatus === 'waiting',
+            sessionStatus === 'waiting' && settled,
             sessionWaiting,
             now,
-            NO_WORK_FALLBACK_MS,
+            resolveNoWorkFallbackMs(autoEnter),
             session.lastActivityAt,
           );
           if (onceDecision === 'hold') return;
@@ -374,9 +409,7 @@ export function useGlobalQueueScheduler(): void {
         chainGateRefs.current.delete(sessionId);
       }
 
-      // Read this session's autoEnter at fire time so toggles take effect
-      // immediately (per-session, from the same automation config).
-      const autoEnter = automationConfig.autoEnter;
+      // autoEnter was already read above, in time for both gate decisions.
 
       firingRefs.current.set(sessionId, true);
       try {

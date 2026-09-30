@@ -9,7 +9,6 @@ import {
 } from '@/lib/soundEngine';
 import { ambientEngine } from '@/lib/ambientEngine';
 import { ttsEngine, checkTTSStatus } from '@/lib/ttsEngine';
-import { kokoroTts, type KokoroStatus } from '@/lib/kokoroTts';
 import type { AmbientPreset } from '@/types';
 import Select from '@/components/ui/Select';
 import type { SelectOption } from '@/components/ui/Select';
@@ -51,18 +50,6 @@ const TTS_ZH_VOICES: SelectOption[] = [
   { value: 'cmn-CN-Chirp3-HD-Puck', label: 'Puck (Chirp 3 HD, male)' },
   { value: 'cmn-CN-Wavenet-A', label: 'Wavenet A (female)' },
   { value: 'cmn-CN-Wavenet-B', label: 'Wavenet B (male)' },
-];
-
-// Local, on-device English voices shipped with Kokoro-82M.
-const TTS_LOCAL_VOICES: SelectOption[] = [
-  { value: 'af_heart', label: 'Heart (US, female)' },
-  { value: 'af_bella', label: 'Bella (US, female)' },
-  { value: 'af_nicole', label: 'Nicole (US, female)' },
-  { value: 'am_michael', label: 'Michael (US, male)' },
-  { value: 'am_puck', label: 'Puck (US, male)' },
-  { value: 'bf_emma', label: 'Emma (UK, female)' },
-  { value: 'bm_george', label: 'George (UK, male)' },
-  { value: 'bm_fable', label: 'Fable (UK, male)' },
 ];
 
 const AMBIENT_PRESETS: Array<{ value: AmbientPreset; label: string }> = [
@@ -111,31 +98,6 @@ export default function SoundSettings() {
   const [ttsPreviewBusy, setTtsPreviewBusy] = useState(false);
   const [ttsKeyVisible, setTtsKeyVisible] = useState(false);
   const ttsKeyConfigured = googleTtsApiKey.trim().length > 0;
-
-  // Local (offline) voice settings
-  const ttsLocalEnabled = useSettingsStore((s) => s.ttsLocalEnabled);
-  const ttsLocalVoice = useSettingsStore((s) => s.ttsLocalVoice);
-  const setTtsLocalEnabled = useSettingsStore((s) => s.setTtsLocalEnabled);
-  const setTtsLocalVoice = useSettingsStore((s) => s.setTtsLocalVoice);
-  const [localStatus, setLocalStatus] = useState<KokoroStatus>(() => kokoroTts.getStatus());
-  useEffect(() => kokoroTts.subscribe(setLocalStatus), []);
-  // Own token for the preview so closing Settings never cuts a terminal's playback.
-  const previewOwnerRef = useRef<symbol>(Symbol('settings-preview'));
-  // Stop only our own preview when the panel unmounts.
-  useEffect(() => () => kokoroTts.stop(previewOwnerRef.current), []);
-
-  function handleLocalToggle(enabled: boolean) {
-    setTtsLocalEnabled(enabled);
-    if (enabled) kokoroTts.preload(); // start the one-time model download early
-    else kokoroTts.terminate(); // abort any in-flight download and free the worker
-  }
-
-  function handleLocalPreview() {
-    kokoroTts.speak('Hello. This is the local Kokoro voice, running entirely on your device.', {
-      voice: ttsLocalVoice,
-      owner: previewOwnerRef.current,
-    });
-  }
 
   // Notifications
   const toastEnabled = useSettingsStore((s) => s.toastEnabled);
@@ -348,60 +310,6 @@ export default function SoundSettings() {
               {ttsStatus.ok ? '✓ API key is valid' : `✗ ${ttsStatus.error ?? 'Invalid key'}`}
             </span>
           )}
-        </div>
-      </div>
-
-      {/* Local Voice (offline, English) */}
-      <div className={styles.section}>
-        <h4>Local Voice (offline · English · no API key)</h4>
-        <p style={{ margin: '4px 0 10px', fontSize: 12, opacity: 0.75 }}>
-          Runs entirely on your device via <strong>Kokoro-82M</strong> (Apache-2.0) — no API key, no network after setup.
-          Independent of the cloud voice above: leave the Google key blank and this still works.
-          When enabled, a <strong>🔊 speaker button</strong> appears in each terminal toolbar: click it to read the output aloud, click again to stop.
-          First use downloads the voice model (~90&nbsp;MB), then it's cached and works offline.
-        </p>
-
-        <div className={styles.soundControls}>
-          <label className={styles.toggleLabel}>
-            <input
-              type="checkbox"
-              checked={ttsLocalEnabled}
-              onChange={(e) => handleLocalToggle(e.target.checked)}
-            />
-            <span className={styles.toggleSwitch} />
-            <span>Enable local voice output</span>
-          </label>
-        </div>
-
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: 12,
-            marginTop: 12,
-            opacity: ttsLocalEnabled ? 1 : 0.5,
-            pointerEvents: ttsLocalEnabled ? 'auto' : 'none',
-          }}
-        >
-          <div>
-            <label style={{ fontSize: 12, opacity: 0.8 }}>Voice</label>
-            <Select value={ttsLocalVoice} onChange={setTtsLocalVoice} options={TTS_LOCAL_VOICES} />
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-          <button
-            className={styles.testBtn ?? styles.button}
-            onClick={handleLocalPreview}
-            disabled={!ttsLocalEnabled || localStatus.loading}
-          >
-            {localStatus.loading ? 'Loading model…' : 'Preview voice'}
-          </button>
-          {localStatus.error ? (
-            <span style={{ fontSize: 12, color: 'var(--accent-red, #ff6b6b)' }}>✗ {localStatus.error}</span>
-          ) : localStatus.ready ? (
-            <span style={{ fontSize: 12, color: 'var(--accent-green, #7ee787)' }}>✓ Model ready (cached, offline)</span>
-          ) : null}
         </div>
       </div>
 

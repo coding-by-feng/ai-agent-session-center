@@ -9,7 +9,7 @@ Server-side persistence that survives restarts. IndexedDB on frontend is the mir
 ## Source Files
 | File | Role |
 |------|------|
-| `server/db.ts` (556 lines) | Schema definition, prepared statements, upsert/query functions |
+| `server/db.ts` (880 lines) | Schema definition, prepared statements, upsert/query functions |
 
 ## Implementation
 
@@ -17,13 +17,14 @@ Server-side persistence that survives restarts. IndexedDB on frontend is the mir
 - Location: `data/sessions.db` (or `APP_USER_DATA/data/sessions.db` in packaged Electron, where `APP_USER_DATA = app.getPath('userData')`), WAL mode for concurrent reads/writes
 
 ### Schema
-- 8 tables: sessions (20 cols, 4 indexes), prompts (unique session_id+timestamp), responses (unique session_id+timestamp), tool_calls (unique session_id+timestamp+tool_name, additional tool_name index), events, notes, note_media (session_id + created_at indexes; metadata only — see Note media below), agenda_tasks (priority + completed indexes)
+- 9 tables: sessions (22 cols, 4 indexes), prompts (unique session_id+timestamp), responses (unique session_id+timestamp), tool_calls (unique session_id+timestamp+tool_name, additional tool_name index), events, notes, note_media (session_id + created_at indexes; metadata only — see Note media below), agenda_tasks (priority + completed indexes), session_queues (see Shared prompt queue below)
 - The `remark` column on `sessions` holds the user's hand-written progress note for a session
   (added by migration, nullable, no default — an existing row simply has no remark). Written by
   `updateSessionRemark(id, remark)` (empty string stored as `NULL`) and by `upsertSession`, which
   preserves the in-memory session's own value so a hook upsert re-writes the same remark rather than
   blanking it. Capped at 200 chars by the API layer, not the schema.
 - The `label` column on `sessions` is vestigial: it still exists in the schema for backward compatibility, but `upsertSession` no longer writes it and there is no `updateSessionLabel` export (removed). Do not rely on it.
+- Two more columns are added by the same idempotent `ALTER TABLE` migration block as `remark` (`PRAGMA table_info` gates each, so it is safe to run every boot): `remote_visible INTEGER DEFAULT 0` (opt-in for remote/non-loopback devices — see [Authentication → Per-session remote visibility](./authentication.md) for the full rule) and `ai_popup_enabled INTEGER DEFAULT 1` (select-to-explain popup toggle; defaults to enabled because the feature already shipped on for every existing session — a `DEFAULT 0` would have silently switched it off for all of them). The two defaults are deliberately opposite polarity for the same reason: a brand-new capability must default deny, a pre-existing one must default to what already shipped.
 
 ### Upsert Strategy
 - INSERT OR IGNORE for child records (dedup)
@@ -34,10 +35,11 @@ Server-side persistence that survives restarts. IndexedDB on frontend is the mir
 - Only SessionStart, UserPromptSubmit, Stop, SessionEnd trigger DB writes (not every hook)
 
 ### Cascade Delete
-- deleteSessionCascade() removes from prompts -> responses -> tool_calls -> events -> notes -> sessions in transaction
+- deleteSessionCascade() removes from prompts -> responses -> tool_calls -> events -> notes -> session_queues -> sessions in transaction. The queue delete has no FK to `sessions` (see Shared prompt queue below) so it needs an explicit step here or it would outlive the session it belonged to.
 
 ### Session ID Migration
 - migrateSessionId(old, new) updates session_id in all child tables (prompts, responses, tool_calls, events, notes) AND resolves the parent `sessions` row in one transaction: if the new-id row already exists (the normal upsert-then-migrate path on SESSION_START re-key) the old row is DELETEd; otherwise the old row is renamed (`UPDATE sessions SET id=new`). No-ops when old===new.
+- **Does NOT migrate `session_queues`.** A re-key (e.g. `claude --resume`) leaves a session's queue row keyed under its old id unless the caller separately re-keys it — the server performs no logic on queue contents, so this migration only touches the tables it already owned before the shared queue existed.
 - Why this matters: without resolving the parent row, every `claude --resume` / terminal→UUID re-key left the old `sessions` row orphaned — stuck at its last transient status (e.g. `connecting`), `ended_at` NULL (so its History duration grew forever), and 0 prompts/0 tools (children migrated away). These orphans surfaced as duplicate, wrong-status rows in the History view.
 
 ### Startup Heal
@@ -95,6 +97,12 @@ Backs `GET /api/db/prompts` and the [PROMPTS view](../frontend/prompt-trace.md).
 - addNoteMedia(row) / getNoteMedia(id) / getNoteMediaBySession(sessionId) / deleteNoteMediaRow(id)
 - getNoteMediaOlderThan(cutoff) + isNoteMediaReferenced(id) — the pair backing the hourly orphan sweep. `isNoteMediaReferenced` does a `LIKE` over **all** notes, not just the owning session's: note text is copy-pasteable between sessions, and deleting media that is still displayed somewhere is worse than retaining a few stale bytes.
 - `deleteSessionCascade` does **not** touch `note_media` — the API route calls `deleteNoteMediaForSession` first, since the cascade removes the very notes the reference check depends on.
+
+### Shared prompt queue
+`session_queues` (`session_id TEXT PRIMARY KEY, items TEXT NOT NULL, automation TEXT, updated_at INTEGER NOT NULL`) is the server-side source of truth for each session's prompt queue — added Aug 2026 so a phone and the desktop app looking at the same session see the same queue instead of two private IndexedDB copies that never sync. See [Prompt Queue](../frontend/prompt-queue.md) for the client side.
+- `items` and `automation` are stored as **opaque JSON** via `encodeQueue`/`decodeQueueRow` (`server/sessionQueueCodec.ts`), not normalized columns — deliberately, since the server runs no logic on queue contents (the scheduler is entirely client-side) and a JSON blob carries new client-side fields for free instead of needing this table kept in lockstep with the ~18-field `QueueItem` type forever.
+- `getSessionQueue(sessionId)` / `getAllSessionQueues()` (the latter backs a client's one-shot boot hydration) / `upsertSessionQueue(sessionId, items, automation)` / `deleteSessionQueue(sessionId)`.
+- No `FOREIGN KEY` to `sessions` — a queue can be written before its session row exists — so `deleteSessionCascade` deletes it explicitly (see Cascade Delete above), and `migrateSessionId` does **not** carry it across a re-key (see Session ID Migration above).
 
 ### Additional Exports
 - closeDb() — graceful shutdown
