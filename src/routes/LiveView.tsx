@@ -1,6 +1,8 @@
 /**
  * LiveView — Main dashboard view showing active sessions in 3D Cyberdrome.
- * When 3D is disabled, shows a flat list view with sidebar to save CPU/GPU.
+ * When 3D is disabled, shows a flat view instead to save CPU/GPU. The agent
+ * list sidebar appears on phones only; on desktop the LIVE tab opens the
+ * session panel (lib/liveSession.ts), whose rail lists the sessions.
  */
 import { lazy, Suspense, Component } from 'react';
 import type { ReactNode, ErrorInfo } from 'react';
@@ -8,6 +10,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import RobotListSidebar from '@/components/3d/RobotListSidebar';
 import SceneOverlay from '@/components/3d/SceneOverlay';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useIsMobile } from '@/lib/platform';
 import styles from '@/styles/modules/LiveView.module.css';
 
 const CyberdromeScene = lazy(() => import('@/components/3d/CyberdromeScene'));
@@ -77,12 +80,15 @@ function FlatView() {
   // RobotListSidebar renders null with zero sessions (`hasAnySessions` in that
   // file). The mobile rule below hides this placeholder ONLY when the sidebar
   // has content to replace it with — hiding it unconditionally would leave a
-  // phone with no active sessions looking at a blank page.
-  const hasAnySessions = sessions.size > 0;
+  // phone with no active sessions looking at a blank page. The sidebar also
+  // renders only on a phone now (see RobotListSidebar), so on desktop there
+  // is nothing to replace the placeholder and it must stay.
+  const isMobile = useIsMobile();
+  const sidebarShown = isMobile && sessions.size > 0;
 
   return (
     <div className={styles.flatRoot}>
-      <div className={`${styles.scenePaused} ${hasAnySessions ? styles.scenePausedHasSidebar : ''}`}>
+      <div className={`${styles.scenePaused} ${sidebarShown ? styles.scenePausedHasSidebar : ''}`}>
         3D Scene Paused
       </div>
       <SceneOverlay sessionCount={activeCount} />

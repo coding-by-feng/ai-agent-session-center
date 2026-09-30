@@ -2,6 +2,12 @@
  * RobotListSidebar — Left-side panel listing all active robots grouped by room.
  * Click an entry to select the session and fly the camera to that robot.
  * Shows label, title, and status for each agent.
+ *
+ * Phones only (useIsMobile, ≤480px), where it goes full-bleed and is the
+ * session list. On desktop it duplicated the session panel's own rail, and
+ * the LIVE tab now opens that panel instead (lib/liveSession.ts). The rule
+ * lives here rather than at the two mount sites (LiveView's flat view and
+ * CyberdromeScene) so neither can drift from it.
  */
 import { useMemo, useCallback, useState } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -13,6 +19,7 @@ import { markUserClosing } from '@/lib/pinnedRespawn';
 import { sortSessions } from '@/lib/sessionSort';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { closeManagedTerminal } from '@/lib/terminalTransport';
+import { useIsMobile } from '@/lib/platform';
 import type { KillSessionResponse, Session } from '@/types';
 import styles from '@/styles/modules/RobotListSidebar.module.css';
 
@@ -473,12 +480,14 @@ export default function RobotListSidebar() {
     })();
   }, [removeSession, togglePin]);
 
-  // Hide sidebar only when there are zero sessions at all
+  // Hide sidebar when there are zero sessions at all, and on desktop always
+  // (see the header comment).
+  const isMobile = useIsMobile();
   const hasAnySessions = useMemo(
     () => sessions.size > 0,
     [sessions],
   );
-  if (!hasAnySessions) return null;
+  if (!isMobile || !hasAnySessions) return null;
 
   return (
     <div className={`${styles.sidebar} ${panelCollapsed ? styles.collapsed : ''}`}>

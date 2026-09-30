@@ -451,6 +451,25 @@
   margin-top: 8px;
 }
 
+.required {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border: 1px solid rgba(255, 184, 108, 0.35);
+  border-radius: 3px;
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--accent-orange, #ffb86c);
+  vertical-align: middle;
+}
+
+.fieldHint {
+  margin-top: 8px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--text-secondary, #888);
+}
+
 /* ---- Install Step (Terminal Log) ---- */
 
 .logContainer {

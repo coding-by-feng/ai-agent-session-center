@@ -231,10 +231,7 @@ interface SettingsState extends BrowserSettings {
   ttsVoiceZh: string;
   ttsSpeakingRate: number;
 
-  // Local voice (offline, English) — Kokoro-82M in-browser, no API key.
   // Adds a click-to-speak icon to the terminal toolbar.
-  ttsLocalEnabled: boolean;
-  ttsLocalVoice: string;
 
   // Translation / Explain (select-to-translate)
   translationEnabled: boolean;
@@ -308,8 +305,6 @@ interface SettingsState extends BrowserSettings {
   setTtsVoiceEn: (voice: string) => void;
   setTtsVoiceZh: (voice: string) => void;
   setTtsSpeakingRate: (rate: number) => void;
-  setTtsLocalEnabled: (enabled: boolean) => void;
-  setTtsLocalVoice: (voice: string) => void;
   setTranslationEnabled: (enabled: boolean) => void;
   setTranslationNativeLanguage: (lang: string) => void;
   setTranslationLearningLanguage: (lang: string) => void;
@@ -375,8 +370,6 @@ const defaultSettings: SettingsData = {
   ttsVoiceEn: 'en-US-Chirp3-HD-Aoede',
   ttsVoiceZh: 'cmn-CN-Chirp3-HD-Aoede',
   ttsSpeakingRate: 1.0,
-  ttsLocalEnabled: false,
-  ttsLocalVoice: 'af_heart',
   translationEnabled: true,
   translationNativeLanguage: '简体中文',
   translationLearningLanguage: 'English',
@@ -637,8 +630,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setTtsVoiceEn: (voice) => { set({ ttsVoiceEn: voice }); get().persistSetting('ttsVoiceEn', voice); },
   setTtsVoiceZh: (voice) => { set({ ttsVoiceZh: voice }); get().persistSetting('ttsVoiceZh', voice); },
   setTtsSpeakingRate: (rate) => { set({ ttsSpeakingRate: rate }); get().persistSetting('ttsSpeakingRate', rate); },
-  setTtsLocalEnabled: (enabled) => { set({ ttsLocalEnabled: enabled }); get().persistSetting('ttsLocalEnabled', enabled); },
-  setTtsLocalVoice: (voice) => { set({ ttsLocalVoice: voice }); get().persistSetting('ttsLocalVoice', voice); },
   setTranslationEnabled: (enabled) => { set({ translationEnabled: enabled }); get().persistSetting('translationEnabled', enabled); },
   setTranslationNativeLanguage: (lang) => { set({ translationNativeLanguage: lang }); get().persistSetting('translationNativeLanguage', lang); },
   setTranslationLearningLanguage: (lang) => { set({ translationLearningLanguage: lang }); get().persistSetting('translationLearningLanguage', lang); },

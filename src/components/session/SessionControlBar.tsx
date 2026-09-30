@@ -26,6 +26,8 @@ interface SessionControlBarProps {
 export default function SessionControlBar({ session }: SessionControlBarProps) {
   const toggleMute = useSessionStore((s) => s.toggleMute);
   const toggleAlert = useSessionStore((s) => s.toggleAlert);
+  const toggleRemoteVisible = useSessionStore((s) => s.toggleRemoteVisible);
+  const toggleRcDaemon = useSessionStore((s) => s.toggleRemoteControlDaemon);
   const openModal = useUiStore((s) => s.openModal);
   const rooms = useRoomStore((s) => s.rooms);
   const addSession = useRoomStore((s) => s.addSession);
@@ -87,6 +89,40 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
       showToast('Session unmuted', 'info');
     }
   }, [session.sessionId, session.muted, toggleMute]);
+
+  // ---- Remote visibility ----
+  // Optimistic, same shape as handleToggleMute below: flip the LOCAL store
+  // first so the button changes on click, then let toggleRemoteVisible's
+  // fire-and-forget fetch persist it. The previous version awaited the fetch
+  // and only ever showed a toast — no local state changed either way, so the
+  // button never visually flipped; only a full reload picked up the write the
+  // server had already made. The authoritative gate stays server-side in
+  // sessionVisibility.ts regardless of what this optimistic flip shows.
+  const handleToggleRemoteVisible = useCallback(() => {
+    const next = !session.remoteVisible;
+    toggleRemoteVisible(session.sessionId);
+    showToast(
+      next
+        ? 'Session is now visible to your other devices'
+        : 'Session is now hidden from other devices',
+      'info',
+    );
+  }, [session.sessionId, session.remoteVisible, toggleRemoteVisible]);
+
+  // ---- Remote Control auto-relink ----
+  // Off by default and opt-in per session: this types slash commands into a
+  // live CLI, so it must never be something the user gets by accident.
+  const handleToggleRcDaemon = useCallback(() => {
+    const next = !session.remoteControlDaemon;
+    toggleRcDaemon(session.sessionId);
+    showToast(
+      next
+        ? 'Auto-relink ON — Remote Control refreshes when this session goes idle'
+        : 'Auto-relink OFF',
+      'info',
+      2400,
+    );
+  }, [session.sessionId, session.remoteControlDaemon, toggleRcDaemon]);
 
   // ---- Alert toggle ----
   const handleToggleAlert = useCallback(() => {
@@ -168,6 +204,24 @@ export default function SessionControlBar({ session }: SessionControlBarProps) {
           onClick={handleToggleMute}
         >
           {session.muted ? 'UNMUTE' : 'MUTE'}
+        </button>
+      </Tooltip>
+      <Tooltip {...(session.remoteVisible ? tooltips.ctrlRemoteVisibleOn : tooltips.ctrlRemoteVisibleOff)}>
+        <button
+          className={`${styles.ctrlBtn} ${session.remoteVisible ? styles.remoteShared : ''}`}
+          onClick={handleToggleRemoteVisible}
+          aria-pressed={!!session.remoteVisible}
+        >
+          {session.remoteVisible ? 'SHARED' : 'HOST ONLY'}
+        </button>
+      </Tooltip>
+      <Tooltip {...(session.remoteControlDaemon ? tooltips.ctrlRcDaemonOn : tooltips.ctrlRcDaemonOff)}>
+        <button
+          className={`${styles.ctrlBtn} ${session.remoteControlDaemon ? styles.rcDaemonOn : ''}`}
+          onClick={handleToggleRcDaemon}
+          aria-pressed={!!session.remoteControlDaemon}
+        >
+          {session.remoteControlDaemon ? '🛰 AUTO-RELINK' : '🛰 RELINK OFF'}
         </button>
       </Tooltip>
       <Tooltip {...(session.alerted ? tooltips.ctrlAlertOn : tooltips.ctrlAlertOff)}>

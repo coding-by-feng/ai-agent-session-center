@@ -93,6 +93,45 @@ function ScrollToBottomIcon() {
 }
 
 /** Auto-scroll toggle icon: down arrow with circular "auto" indicator. */
+/** Wrap mode: a line turning back on itself. Pan mode: a horizontal
+ *  double-arrow. Two distinct shapes rather than one icon plus a slash, so the
+ *  current mode is readable at 14px without comparing against a remembered
+ *  default. */
+function WrapModeIcon({ wrapping }: { wrapping: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      {wrapping ? (
+        <>
+          <path d="M4 6h13a4 4 0 0 1 0 8h-9" />
+          <polyline points="11 11 8 14 11 17" />
+          <line x1="4" y1="18" x2="6" y2="18" />
+        </>
+      ) : (
+        <>
+          <polyline points="7 8 3 12 7 16" />
+          <polyline points="17 8 21 12 17 16" />
+          <line x1="3" y1="12" x2="21" y2="12" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+/** Sparkle — the AI selection popup. Distinct silhouette from every other
+ *  toolbar glyph so the on/off state reads at 14px without a label. */
+function AiPopupIcon({ active }: { active?: boolean }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l1.8 4.9L18.7 9.7l-4.9 1.8L12 16.4l-1.8-4.9L5.3 9.7l4.9-1.8z" />
+      {active
+        ? <circle cx="18.5" cy="17.5" r="1.8" fill="currentColor" stroke="none" />
+        : <line x1="4" y1="20" x2="20" y2="4" />}
+    </svg>
+  );
+}
+
 function AutoScrollIcon({ enabled }: { enabled: boolean }) {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
@@ -102,17 +141,6 @@ function AutoScrollIcon({ enabled }: { enabled: boolean }) {
       {enabled && <circle cx="12" cy="3" r="2" fill="currentColor" stroke="none" />}
       {!enabled && <line x1="10" y1="1" x2="14" y2="5" />}
       {!enabled && <line x1="14" y1="1" x2="10" y2="5" />}
-    </svg>
-  );
-}
-
-/** Bookmark SVG icon (ribbon shape). */
-function BookmarkIcon({ active }: { active?: boolean }) {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24"
-      fill={active ? 'currentColor' : 'none'}
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
     </svg>
   );
 }
@@ -180,33 +208,6 @@ function MicIcon({ active }: { active?: boolean }) {
   );
 }
 
-/** Speaker SVG icon (click-to-speak, local/offline TTS). Body fills when active. */
-function SpeakerIcon({ active }: { active?: boolean }) {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24"
-      fill={active ? 'currentColor' : 'none'}
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M11 5 6 9H2v6h4l5 4z" />
-      <path d="M15.5 8.5a5 5 0 0 1 0 7" fill="none" />
-      <path d="M19 5.5a9 9 0 0 1 0 13" fill="none" />
-    </svg>
-  );
-}
-
-/** Spinner shown while the local voice model downloads/initializes. */
-function SpinnerIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-      <g>
-        <path d="M21 12a9 9 0 1 1-6.2-8.6" />
-        <animateTransform attributeName="transform" type="rotate"
-          from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite" />
-      </g>
-    </svg>
-  );
-}
-
 /** ESC key SVG icon. */
 function EscIcon() {
   return (
@@ -231,10 +232,14 @@ interface TerminalToolbarProps {
   onReconnect?: () => void;
   onScrollToBottom?: () => void;
   onRefreshOutput?: () => void;
-  onBookmark?: () => void;
-  bookmarkCount?: number;
+  /** Per-session AI selection popup. Omit both to hide the control. */
+  aiPopupEnabled?: boolean;
+  onToggleAiPopup?: () => void;
   autoScrollEnabled?: boolean;
   onToggleAutoScroll?: () => void;
+  /** Line-width mode. Omit both to hide the control (desktop keeps fitting). */
+  wrapMode?: 'pan' | 'wrap';
+  onToggleWrapMode?: () => void;
   onFork?: () => void;
   onClone?: () => void;
   /** Pop this terminal out into its own OS window (Electron only). */
@@ -247,10 +252,6 @@ interface TerminalToolbarProps {
   onTtsPressStart?: () => void;
   onTtsPressEnd?: () => void;
   /** Show click-to-speak speaker button (local offline voice enabled in settings). */
-  localTtsEnabled?: boolean;
-  localTtsActive?: boolean;
-  localTtsLoading?: boolean;
-  onLocalSpeakToggle?: () => void;
 }
 
 export default function TerminalToolbar({
@@ -265,9 +266,11 @@ export default function TerminalToolbar({
   onReconnect,
   onScrollToBottom,
   onRefreshOutput,
-  onBookmark,
-  bookmarkCount = 0,
+  aiPopupEnabled,
+  onToggleAiPopup,
   autoScrollEnabled = true,
+  wrapMode,
+  onToggleWrapMode,
   onToggleAutoScroll,
   onFork,
   onClone,
@@ -278,10 +281,6 @@ export default function TerminalToolbar({
   ttsActive = false,
   onTtsPressStart,
   onTtsPressEnd,
-  localTtsEnabled = false,
-  localTtsActive = false,
-  localTtsLoading = false,
-  onLocalSpeakToggle,
 }: TerminalToolbarProps) {
   const themeOptions = useMemo<SelectOption[]>(() => [
     { value: 'auto', label: 'Auto' },
@@ -351,6 +350,31 @@ export default function TerminalToolbar({
         </button>
       </Tooltip>
 
+      {onToggleAiPopup && (
+        <Tooltip {...(aiPopupEnabled ? tooltips.termAiPopupOn : tooltips.termAiPopupOff)}>
+          <button
+            className={`${styles.toolbarBtn} ${aiPopupEnabled ? styles.autoScrollActiveBtn : ''}`}
+            onClick={onToggleAiPopup}
+            aria-pressed={!!aiPopupEnabled}
+            aria-label={(aiPopupEnabled ? tooltips.termAiPopupOn : tooltips.termAiPopupOff).label}
+          >
+            <AiPopupIcon active={aiPopupEnabled} />
+          </button>
+        </Tooltip>
+      )}
+
+      {wrapMode && onToggleWrapMode && (
+        <Tooltip {...(wrapMode === 'wrap' ? tooltips.termWrapOn : tooltips.termWrapOff)}>
+          <button
+            className={`${styles.toolbarBtn} ${wrapMode === 'pan' ? styles.autoScrollActiveBtn : ''}`}
+            onClick={onToggleWrapMode}
+            aria-label={(wrapMode === 'wrap' ? tooltips.termWrapOn : tooltips.termWrapOff).label}
+          >
+            <WrapModeIcon wrapping={wrapMode === 'wrap'} />
+          </button>
+        </Tooltip>
+      )}
+
       {onToggleAutoScroll && (
         <Tooltip {...(autoScrollEnabled ? tooltips.termAutoScrollOn : tooltips.termAutoScrollOff)}>
           <button
@@ -383,29 +407,6 @@ export default function TerminalToolbar({
             aria-label={tooltips.termRefresh.label}
           >
             <RefreshIcon />
-          </button>
-        </Tooltip>
-      )}
-
-      {onBookmark && (
-        <Tooltip
-          label={tooltips.termBookmark.label}
-          description={
-            bookmarkCount > 0
-              ? `${bookmarkCount} saved. Select text to add a new one, or click to open the panel.`
-              : tooltips.termBookmark.description
-          }
-        >
-          <button
-            className={`${styles.toolbarBtn} ${bookmarkCount > 0 ? styles.bookmarkActiveBtn : ''}`}
-            onClick={onBookmark}
-            aria-label={tooltips.termBookmark.label}
-            style={{ position: 'relative' }}
-          >
-            <BookmarkIcon active={bookmarkCount > 0} />
-            {bookmarkCount > 0 && (
-              <span className={styles.bookmarkBadge}>{bookmarkCount}</span>
-            )}
           </button>
         </Tooltip>
       )}
@@ -458,19 +459,6 @@ export default function TerminalToolbar({
             aria-label={tooltips.termSpeak.label}
           >
             <MicIcon active={ttsActive} />
-          </button>
-        </Tooltip>
-      )}
-
-      {localTtsEnabled && onLocalSpeakToggle && (
-        <Tooltip {...tooltips.termSpeakLocal}>
-          <button
-            className={`${styles.toolbarBtn}${localTtsActive ? ` ${styles.autoScrollActiveBtn}` : ''}`}
-            onClick={onLocalSpeakToggle}
-            aria-label={tooltips.termSpeakLocal.label}
-            aria-pressed={localTtsActive}
-          >
-            {localTtsLoading ? <SpinnerIcon /> : <SpeakerIcon active={localTtsActive} />}
           </button>
         </Tooltip>
       )}

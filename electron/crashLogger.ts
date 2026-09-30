@@ -106,9 +106,20 @@ export function initCrashLogger(): void {
     // WebGL-heavy (Three.js cyberdrome scene) renderer on flaky GPU drivers.
     writeLine('ERROR', `Child process gone: type=${details.type} reason=${details.reason} exitCode=${details.exitCode}`)
   })
+
+  // Otherwise a missing preload surfaces only in a devtools console no packaged app shows.
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('preload-error', (_e, preloadPath, error) => {
+      writeLine('ERROR', `Preload failed to load: ${preloadPath} -- ${error.message}`)
+    })
+  })
 }
 
 /** Absolute path to the main-process log file, for surfacing in UI (tray menu, etc). */
 export function getCrashLogPath(): string {
   return resolveLogPath()
+}
+
+export function logMainError(message: string): void {
+  writeLine('ERROR', message)
 }

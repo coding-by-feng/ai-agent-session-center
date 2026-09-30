@@ -2,6 +2,8 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { isLoopbackAddress } from './presenceManager.js';
+import { canSeeSession, filterVisibleSessions, countHiddenSessions } from './sessionVisibility.js';
 
 // Express 5 types req.params as string | string[] and req.query similarly.
 // Our routes always use single-value params. This helper safely extracts a string.
@@ -10,7 +12,7 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
 import { getLocalIP } from './networkInfo.js';
 import { isPasswordEnabled } from './authManager.js';
@@ -43,6 +45,39 @@ import type { PromptKind } from '../src/types/api.js';
 const __apiDirname = dirname(fileURLToPath(import.meta.url));
 
 const router = Router();
+
+// ---------------------------------------------------------------------------
+// Remote visibility gate
+// ---------------------------------------------------------------------------
+
+/** True when the request came from the machine running the server. Uses the
+ *  same predicate as the auth gate and the device list — never a second
+ *  hand-rolled comparison. An unknown address fails CLOSED (treated remote). */
+function requestIsLocal(req: Request): boolean {
+  return isLoopbackAddress(req.ip || req.socket?.remoteAddress || '');
+}
+
+/**
+ * Blocks a remote client from touching a session it may not see.
+ *
+ * Mounted ONCE on the `/sessions/:id` family rather than repeated in each of
+ * the 17 routes there. A per-route check is only as good as the newest route,
+ * and the routes it must cover include `kill`, `fork` and `resume` — the cost
+ * of forgetting one is a remote device destroying a session it cannot even see.
+ *
+ * Returns **404, not 403**, on a hidden session: a remote client must not be
+ * able to distinguish "no such session" from "hidden from you", or the status
+ * code becomes an oracle for enumerating session ids.
+ */
+function requireVisibleSession(req: Request, res: Response, next: NextFunction): void {
+  if (requestIsLocal(req)) { next(); return; }
+  const id = str(req.params.id);
+  if (canSeeSession(false, getSession(id))) { next(); return; }
+  log.warn('api', `Blocked remote ${req.method} ${req.path} — session hidden`);
+  res.status(404).json({ error: 'Session not found' });
+}
+
+router.use('/sessions/:id', requireVisibleSession);
 
 // ---- Multi-device identity ----
 
@@ -381,6 +416,34 @@ const remarkSchema = z.object({
   remark: z.string().max(200),
 });
 
+
+/**
+ * Shared-queue payload.
+ *
+ * `items`/`automation` are validated only as "an array" / "an object" and
+ * stored as opaque JSON — see the `session_queues` table comment. Mirroring
+ * the full QueueItem shape here would put a second copy of the client type on
+ * the server that has to be updated in lockstep forever, and the failure mode
+ * of forgetting is silent user-data loss (a new field stripped on every sync).
+ * The server runs no logic on these values, so it has nothing to gain from
+ * understanding them.
+ *
+ * The size cap is the real guard: queue items can embed base64 image
+ * attachments (up to 5 per item), and an unbounded body would be written to
+ * SQLite AND fanned out over the WebSocket to every connected device.
+ */
+const MAX_QUEUE_PAYLOAD_BYTES = 8 * 1024 * 1024;
+
+const sessionQueueSchema = z.object({
+  items: z.array(z.unknown()),
+  automation: z.record(z.string(), z.unknown()).nullish(),
+  /** Sender's device id, echoed back in the broadcast so it can ignore its
+   *  own update instead of re-saving it in a loop. */
+  originClientId: z.string().max(200).nullish(),
+}).refine(
+  (v) => JSON.stringify(v.items).length <= MAX_QUEUE_PAYLOAD_BYTES,
+  { message: 'Queue payload too large to sync (over 8MB — likely oversized image attachments)' },
+);
 
 const pinnedSchema = z.object({
   pinned: z.boolean(),
@@ -1187,6 +1250,8 @@ router.post('/sessions/:id/kill', async (req: Request, res: Response) => {
     return;
   }
 
+  // Unpin before the ENDED broadcast, or every client's pinnedRespawn relaunches the session.
+  if (mem.pinned) setSessionPinned(sessionId, false);
   const session = killSession(sessionId);
   archiveSession(sessionId, true);
   if (!session && !pid) {
@@ -1304,6 +1369,125 @@ router.put('/sessions/:id/remark', (req: Request, res: Response) => {
 });
 
 // Update session pinned state
+/**
+ * Opt a session in/out of remote visibility.
+ *
+ * **Localhost only.** A remote device must never be able to unhide a session —
+ * that would let anything that reaches the port grant itself access, making the
+ * whole gate decorative. `requireVisibleSession` above already 404s a remote
+ * client here, but this is stated explicitly rather than relying on that: a
+ * session a remote device CAN see would otherwise be one it could keep visible.
+ */
+// ---- Shared prompt queue -------------------------------------------------
+//
+// The queue used to live only in each browser's IndexedDB, so the desktop app
+// and a phone on the LAN kept separate queues for the same session and never
+// agreed. These endpoints make the server the shared source of truth.
+//
+// Mounted under /sessions/:id deliberately: that path family already carries
+// `requireVisibleSession`, so a remote device cannot read or write the queue
+// of a session that hasn't been shared with it — without a second, separately
+// maintained permission check that could drift out of step with the first.
+
+/** One session's shared queue. `null` fields mean "server has no record yet",
+ *  which the client distinguishes from "an empty queue" — see the seeding
+ *  logic in queueStore.syncFromServer. */
+router.get('/sessions/:id/queue', (req: Request, res: Response) => {
+  const record = db.getSessionQueue(str(req.params.id));
+  res.json(record ?? { sessionId: str(req.params.id), items: null, automation: null, updatedAt: 0 });
+});
+
+/** Replace a session's queue and tell every other device. */
+router.put('/sessions/:id/queue', async (req: Request, res: Response) => {
+  const sessionId = str(req.params.id);
+  const body = validateBody(sessionQueueSchema, req.body, res);
+  if (!body) return;
+
+  const record = db.upsertSessionQueue(sessionId, body.items, body.automation ?? null);
+
+  // Fan out so other devices update live rather than only on their next
+  // reload. `originClientId` lets the sender ignore its own echo — without
+  // it, applying the broadcast would mark the store dirty and trigger
+  // another PUT, looping indefinitely between two devices.
+  const { broadcast } = await import('./wsManager.js');
+  broadcast({
+    type: WS_TYPES.QUEUE_UPDATE,
+    sessionId,
+    items: record.items,
+    automation: record.automation,
+    updatedAt: record.updatedAt,
+    originClientId: body.originClientId ?? null,
+  });
+
+  res.json({ ok: true, updatedAt: record.updatedAt });
+});
+
+/**
+ * Resume a queue held by a user cancel. After Esc (or declining a tool and
+ * redirecting) the session's `userCancelledAt` holds every automatic send
+ * until the user acts — their own next prompt clears it, and this is the
+ * explicit "carry on" for when they don't want to type one. Lives under
+ * /sessions/:id so the remote-visibility gate applies (a hidden session 404s).
+ */
+router.post('/sessions/:id/queue/resume', (req: Request, res: Response) => {
+  const id = str(req.params.id);
+  if (!getSession(id)) { res.status(404).json({ error: 'Session not found' }); return; }
+  const resumed = resumeQueueAfterCancel(id);
+  res.json({ ok: true, resumed });
+});
+
+/**
+ * Toggle the select-to-explain AI popup for one session.
+ *
+ * Broadcasts SESSION_UPDATE so the change reaches this user's other devices
+ * live — the setting is per session, not per device, so a phone and the
+ * desktop must not disagree about whether selecting text pops the AI menu.
+ */
+/**
+ * Arm/disarm the Remote Control relink daemon for one session.
+ *
+ * Disarming is sticky in the daemon — nothing re-arms automatically — so this
+ * is the only way the flag ever becomes true.
+ */
+router.put('/sessions/:id/remote-control-daemon', async (req: Request, res: Response) => {
+  const id = str(req.params.id);
+  const session = getSession(id);
+  if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
+  const armed = req.body?.armed === true;
+  const rcd = await import('./remoteControlDaemon.js');
+  rcd.setArmed(id, armed);
+  session.remoteControlDaemon = armed;
+  const { broadcast } = await import('./wsManager.js');
+  broadcast({ type: WS_TYPES.SESSION_UPDATE, session });
+  res.json({ ok: true, armed, name: rcd.remoteControlNameFor(session) });
+});
+
+router.put('/sessions/:id/ai-popup', async (req: Request, res: Response) => {
+  const id = str(req.params.id);
+  if (!getSession(id)) { res.status(404).json({ error: 'Session not found' }); return; }
+  const enabled = req.body?.aiPopupEnabled !== false;
+  setSessionAiPopupEnabled(id, enabled);
+  const updated = getSession(id);
+  if (updated) {
+    const { broadcast } = await import('./wsManager.js');
+    broadcast({ type: WS_TYPES.SESSION_UPDATE, session: updated });
+  }
+  res.json({ ok: true, aiPopupEnabled: enabled });
+});
+
+router.put('/sessions/:id/remote-visible', (req: Request, res: Response) => {
+  if (!requestIsLocal(req)) {
+    log.warn('api', 'Blocked remote attempt to change session visibility');
+    res.status(403).json({ error: 'Only the host machine can change remote visibility' });
+    return;
+  }
+  const id = str(req.params.id);
+  if (!getSession(id)) { res.status(404).json({ error: 'Session not found' }); return; }
+  const visible = req.body?.remoteVisible === true;
+  setSessionRemoteVisible(id, visible);
+  res.json({ success: true, remoteVisible: visible });
+});
+
 router.put('/sessions/:id/pinned', (req: Request, res: Response) => {
   const body = validateBody(pinnedSchema, req.body, res);
   if (!body) return;
@@ -1864,6 +2048,41 @@ router.post('/teams/:teamId/members/:sessionId/terminal', async (req: Request, r
 });
 
 // ---- Session History & DB endpoints (SQLite) ----
+
+/**
+ * History is a SECOND store, and hiding a live session does not hide its rows.
+ *
+ * `/db/search` and `/db/prompts` return prompt TEXT, so a remote client could
+ * read the full content of a session that was withheld from its list — which
+ * would make the visibility feature cosmetic. This mounts the same rule over
+ * the history family.
+ *
+ * The rule for a remote client is: history is available only for sessions it
+ * can currently see. An ARCHIVED session has no in-memory record to carry a
+ * `remoteVisible` flag, so it resolves to hidden — deliberately. A session that
+ * has ended can no longer be opted in through the UI, so treating "no live
+ * record" as permissive would create a growing set of permanently readable
+ * history that no control can revoke.
+ *
+ * Localhost is untouched: the desktop's History and Prompts views behave
+ * exactly as before.
+ */
+function requireLocalForHistory(req: Request, res: Response, next: NextFunction): void {
+  if (requestIsLocal(req)) { next(); return; }
+  const id = str(req.params.id) || str(req.query.sessionId);
+  // A single-session lookup is allowed when that session is visible.
+  if (id && canSeeSession(false, getSession(id))) { next(); return; }
+  log.warn('api', `Blocked remote ${req.method} ${req.path} — history is host-only`);
+  res.status(403).json({
+    error: 'Session history is only available on the host machine',
+    code: 'HISTORY_HOST_ONLY',
+  });
+}
+
+router.use('/db/sessions', requireLocalForHistory);
+router.use('/db/search', requireLocalForHistory);
+router.use('/db/prompts', requireLocalForHistory);
+
 
 // Search/list sessions from DB (used by history panel, replaces IndexedDB reads)
 router.get('/db/sessions', (req: Request, res: Response) => {
@@ -2803,8 +3022,35 @@ router.get('/config', (_req: Request, res: Response) => {
 
 // ---- Sessions list ----
 
-router.get('/sessions', (_req: Request, res: Response) => {
-  res.json(getAllSessions());
+/**
+ * Every session's shared queue, for one-shot hydration on client boot.
+ *
+ * NOT under `/sessions/:id`, so it does NOT inherit `requireVisibleSession` —
+ * it must filter for itself. Getting this wrong would leak the prompt text of
+ * every hidden session to any remote device in a single request, which is
+ * exactly the class of hole the six-path audit in sessionVisibility.ts exists
+ * to prevent; a bulk endpoint added later is precisely where that audit stops
+ * covering you.
+ */
+router.get('/queues', (req: Request, res: Response) => {
+  const isLocal = requestIsLocal(req);
+  const all = db.getAllSessionQueues();
+  const visible = isLocal
+    ? all
+    : all.filter((q) => canSeeSession(false, getSession(q.sessionId)));
+  res.json({ queues: visible });
+});
+
+router.get('/sessions', (req: Request, res: Response) => {
+  const all = getAllSessions();
+  const isLocal = requestIsLocal(req);
+  // Express serializes the record directly, so filtering here is the only
+  // thing standing between a remote device and every session's full state.
+  res.json(filterVisibleSessions(isLocal, all));
+  if (!isLocal) {
+    const hidden = countHiddenSessions(false, all);
+    if (hidden) log.debug('api', `GET /sessions withheld ${hidden} session(s) from remote client`);
+  }
 });
 
 // Returns the resume command for the most recent non-ended session at a given path.

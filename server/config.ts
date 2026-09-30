@@ -51,7 +51,11 @@ export const WAITING_LABELS: Record<string, (toolName: string, detail: string) =
 // ---- Auto-Idle Timeouts ----
 // Sessions transition to idle/waiting if no activity for these durations (ms)
 export const AUTO_IDLE_TIMEOUTS: Record<string, number> = {
-  prompting: 30_000,    // prompting -> waiting (user likely cancelled)
+  // prompting -> waiting after this much hook AND terminal silence: a prompt
+  // that never ran (e.g. blocked by a UserPromptSubmit hook). Not a user cancel
+  // — Esc fires a real Stop. A live turn keeps printing, so it is left alone
+  // for as long as it prints (see autoIdleManager).
+  prompting: 30_000,
   waiting: 300_000,     // waiting -> idle (5 min)
   // working -> idle is a pure SAFETY NET for a crashed/abandoned tool whose
   // Stop/PostToolUse hook was lost. A genuinely busy agent can think (or run a

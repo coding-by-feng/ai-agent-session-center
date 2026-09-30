@@ -6,6 +6,8 @@
  * be asserted without needing to spin up the full ProjectTab + DOM.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   DEFAULT_VIEW,
   ZOOM_MAX,
@@ -16,6 +18,7 @@ import {
   imageViewKey,
   parseView,
   serializeView,
+  shouldAutoFitOnOpen,
   zoomAroundCursor,
   zoomInStep,
   zoomOutStep,
@@ -198,5 +201,59 @@ describe('persistence round-trip via localStorage', () => {
     window.localStorage.setItem(imageViewKey('/b.png'), serializeView(b));
     expect(parseView(window.localStorage.getItem(imageViewKey('/a.png')))!.zoom).toBeCloseTo(2);
     expect(parseView(window.localStorage.getItem(imageViewKey('/b.png')))!.zoom).toBeCloseTo(0.5);
+  });
+});
+
+describe('shouldAutoFitOnOpen', () => {
+  it('fits a fresh fullscreen open', () => {
+    expect(shouldAutoFitOnOpen(true, false)).toBe(true);
+  });
+
+  it('never re-fits over a persisted view', () => {
+    // A saved view means the user deliberately zoomed/panned this file.
+    // Re-fitting on open would discard that every single time they reopened
+    // it — "fit by default" must not overwrite an explicit choice.
+    expect(shouldAutoFitOnOpen(true, true)).toBe(false);
+  });
+
+  it('leaves the inline pane alone in both states', () => {
+    expect(shouldAutoFitOnOpen(false, false)).toBe(false);
+    expect(shouldAutoFitOnOpen(false, true)).toBe(false);
+  });
+});
+
+/**
+ * The zoom baseline is structural, not arithmetic: it lives in whether the
+ * CSS max-width/max-height caps are applied, which no pure helper can see.
+ * These pin the two halves of it in the component source — a deletion and a
+ * scoping — the same drift-guard approach QueueMovePicker.test.tsx uses for
+ * its portal/z-index pair.
+ */
+describe('zoom baseline (source guards)', () => {
+  const SRC = readFileSync(resolve(__dirname, 'ProjectTab.tsx'), 'utf8');
+  const CSS = readFileSync(
+    resolve(__dirname, '../../styles/modules/ProjectTab.module.css'),
+    'utf8',
+  );
+
+  it('never flips the CSS caps off above 100% zoom', () => {
+    // The regression: `maxWidth: view.zoom > 1 ? 'none' : undefined` made the
+    // zoom number mean a fraction of the FITTED size at <=100% and a multiple
+    // of NATURAL pixels above it, so one image jumped violently on the first
+    // click while another read "200%" at a third of the screen.
+    expect(SRC).not.toMatch(/maxWidth:\s*view\.zoom\s*>\s*1/);
+    expect(SRC).not.toMatch(/maxHeight:\s*view\.zoom\s*>\s*1/);
+  });
+
+  it('scopes the fullscreen image cap so it stops inheriting the inline budget', () => {
+    // The inline cap reserves 240px of viewport height for surrounding chrome
+    // that does not exist in the fullscreen modal.
+    expect(CSS).toMatch(/\.mediaViewerFullscreen\s+\.mediaImage\s*\{[^}]*max-height:\s*100%/);
+    expect(CSS).toMatch(/\.mediaImage\s*\{[^}]*100dvh\s*-\s*240px/);
+  });
+
+  it('passes the fullscreen flag from the fullscreen call site only', () => {
+    const fullscreenCall = SRC.match(/<ImageViewer key=\{file\.path\}[^/]*\/>/);
+    expect(fullscreenCall?.[0]).toMatch(/\bfullscreen\b/);
   });
 });

@@ -23,6 +23,8 @@ import {
 import { matchSession, detectHookSource } from './sessionMatcher.js';
 import { startApprovalTimer, clearApprovalTimer, hasChildProcesses } from './approvalDetector.js';
 import { closeTerminal, registerTerminalExitCallback, registerTerminalFaultCallback, getTerminalOutputBuffer, getTerminalOutputTail, getTerminals, getTerminalByPtyPid } from './sshManager.js';
+import { checkTurnInterrupted } from './transcriptInterrupt.js';
+import { isCodexSession } from './sessionKillPolicy.js';
 import {
   findPendingSubagentMatch, handleTeamMemberEnd, addPendingSubagent,
   linkByParentSessionId,
@@ -33,6 +35,10 @@ import { followSessionAlias } from './sessionAliasResolver.js';
 import type { DiscoveredProcess } from './processMonitor.js';
 import { startAutoIdle, stopAutoIdle, startPendingResumeCleanup, stopPendingResumeCleanup } from './autoIdleManager.js';
 import { migrateControl, dropControl } from './presenceManager.js';
+import {
+  migrateSession as migrateRcDaemon,
+  forgetSession as forgetRcDaemon,
+} from './remoteControlDaemon.js';
 import {
   upsertSession as dbUpsertSession,
   updateSessionTitle as dbUpdateTitle,
@@ -644,9 +650,29 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
     session.interruption = null;
   }
 
+  // A user cancel holds the prompt queue until the user acts. Their own next
+  // prompt is that action (so is a brand-new session). Not PreToolUse: a
+  // cancel stops the turn, and nothing else should silently release the hold.
+  // Either event also starts a new turn, which makes any transcript check
+  // still pending from the last Stop stale (see scheduleInterruptCheck).
+  if (
+    hook_event_name === EVENT_TYPES.USER_PROMPT_SUBMIT
+    || hook_event_name === EVENT_TYPES.SESSION_START
+  ) {
+    turnGeneration.set(session, (turnGeneration.get(session) ?? 0) + 1);
+    if (session.userCancelledAt) {
+      log.debug('session', `User cancel cleared for ${session_id?.slice(0, 8)} by ${hook_event_name}`);
+      session.userCancelledAt = null;
+    }
+  }
+
   switch (hook_event_name) {
     case EVENT_TYPES.SESSION_START: {
       session.status = SESSION_STATUS.IDLE;
+      // Startup, resume, /clear and /compact all start clean: no subagent from
+      // before can still be running under this session. Without the reset one
+      // lost SubagentStop held the prompt queue until 15 minutes of silence.
+      session.subagentCount = 0;
       session.animationState = ANIMATION_STATE.IDLE;
       session.model = hookData.model || session.model;
       if ('transcript_path' in hookData && hookData.transcript_path) session.transcriptPath = hookData.transcript_path;
@@ -817,6 +843,23 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
 
       // Reset tool counter for next turn
       session.totalToolCalls = 0;
+
+      // Claude Code lists its in-flight background work on every Stop. The
+      // subagents in it are the ones still running, so the count is reset
+      // from that instead of trusting every SubagentStart/Stop to arrive.
+      const backgroundTasks = 'background_tasks' in hookData ? hookData.background_tasks : undefined;
+      if (Array.isArray(backgroundTasks)) {
+        session.subagentCount = backgroundTasks.filter(
+          (t) => !!t && typeof t === 'object' && (t as { type?: unknown }).type === 'subagent',
+        ).length;
+      }
+
+      scheduleInterruptCheck(
+        session,
+        ('transcript_path' in hookData && typeof hookData.transcript_path === 'string' ? hookData.transcript_path : undefined)
+          ?? session.transcriptPath,
+        'prompt_id' in hookData && typeof hookData.prompt_id === 'string' ? hookData.prompt_id : undefined,
+      );
       break;
     }
 
@@ -898,6 +941,7 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       session.status = SESSION_STATUS.ENDED;
       session.animationState = ANIMATION_STATE.DEATH;
       session.endedAt = Date.now();
+      session.subagentCount = 0;
       eventEntry.detail = `Session ended (${('reason' in hookData ? hookData.reason : undefined) || 'unknown'})`;
 
       // Release PID cache for this session
@@ -948,6 +992,10 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
     // that no longer exists — silently demoting the device that just launched
     // the session to a spectator on it.
     migrateControl(session.replacesId, session_id);
+    // Same reason as migrateControl above: without this an armed session
+    // silently disarms on every `claude --resume` re-key, and its cooldown
+    // resets — so the first idle after a resume would relink immediately.
+    migrateRcDaemon(session.replacesId, session_id);
   }
   // Clean up one-time re-key flag
   delete session.replacesId;
@@ -1312,6 +1360,7 @@ export function deleteSessionFromMemory(sessionId: string): boolean {
   // Forget the control baton — otherwise a killed session's id keeps an entry
   // that would silently pre-assign control if the id were ever reused.
   dropControl(resolvedId);
+  forgetRcDaemon(resolvedId);
   sessions.delete(resolvedId);
   invalidateSessionsCache();
   return true;
@@ -1383,6 +1432,7 @@ export function clearAllSessions(): { removed: number; savedOutputs: SavedTermin
       pidToSession.delete(session.cachedPid);
     }
     dropControl(id);
+    forgetRcDaemon(id);
     sessions.delete(id);
     removed++;
   }
@@ -1419,6 +1469,25 @@ export function setSessionRemark(sessionId: string, remark: string): Session | n
 export function setSessionPinned(sessionId: string, pinned: boolean): void {
   const session = sessions.get(sessionId);
   if (session) { session.pinned = pinned; invalidateSessionsCache(); }
+}
+
+/**
+ * Opt a session in or out of being visible to remote (non-loopback) devices.
+ *
+ * Only ever called from a localhost-only route: a remote device must not be
+ * able to unhide itself, or the gate is decorative.
+ */
+export function setSessionRemoteVisible(sessionId: string, remoteVisible: boolean): void {
+  const session = sessions.get(sessionId);
+  if (session) { session.remoteVisible = remoteVisible; invalidateSessionsCache(); }
+}
+
+/** Turn the select-to-explain AI popup on/off for one session. Absent means
+ *  enabled — see isAiPopupEnabled() — so this only ever writes an explicit
+ *  boolean. */
+export function setSessionAiPopupEnabled(sessionId: string, aiPopupEnabled: boolean): void {
+  const session = sessions.get(sessionId);
+  if (session) { session.aiPopupEnabled = aiPopupEnabled; invalidateSessionsCache(); }
 }
 
 export function setSessionMuted(sessionId: string, muted: boolean): void {
@@ -1822,6 +1891,75 @@ registerTerminalFaultCallback((terminalId: string, fault) => {
     return;
   }
 });
+
+// ---- User cancel (Esc, or a declined tool) --------------------------------
+// Claude Code fires an ordinary Stop for a cancel, so the prompt queue would
+// read it as a finished turn and send its next prompt. The transcript says
+// which it was (see transcriptInterrupt.ts), so every Stop of a Claude session
+// is followed by a read of the transcript's tail.
+
+/**
+ * Bumped on UserPromptSubmit and SessionStart. A check scheduled at a Stop
+ * applies only if no new turn began since. Keyed by the session object, which
+ * survives a re-key.
+ */
+const turnGeneration = new WeakMap<Session, number>();
+
+/**
+ * When to read the transcript after a Stop. The marker is written before the
+ * Stop fires; the second read covers a slow write. Both land inside the
+ * queue's STATUS_SETTLE_MS (800 ms), so the hold arrives before the queue acts.
+ */
+const INTERRUPT_CHECK_DELAYS_MS = [150, 600] as const;
+
+function scheduleInterruptCheck(session: Session, transcriptPath: string | undefined, promptId: string | undefined): void {
+  // Codex writes a different transcript and never this marker.
+  if (!transcriptPath || isCodexSession(session)) return;
+  const generation = turnGeneration.get(session) ?? 0;
+  const attempt = async (n: number): Promise<void> => {
+    const interrupted = await checkTurnInterrupted(transcriptPath, promptId);
+    // The user already acted (new prompt, new session), or it ended: moot.
+    if ((turnGeneration.get(session) ?? 0) !== generation || session.status === SESSION_STATUS.ENDED) return;
+    if (interrupted) {
+      confirmUserCancel(session);
+      return;
+    }
+    const next = INTERRUPT_CHECK_DELAYS_MS[n + 1];
+    if (next !== undefined) setTimeout(() => { void attempt(n + 1); }, next - INTERRUPT_CHECK_DELAYS_MS[n]).unref?.();
+  };
+  setTimeout(() => { void attempt(0); }, INTERRUPT_CHECK_DELAYS_MS[0]).unref?.();
+}
+
+/**
+ * Hold the queue for a turn the user stopped. Also clears `interruption`: a
+ * 529 banner from earlier in the turn would otherwise let the auto-resume
+ * watchdog "continue" it once the user presses Resume.
+ */
+function confirmUserCancel(session: Session): void {
+  if (session.userCancelledAt) return;
+  session.userCancelledAt = Date.now();
+  session.interruption = null;
+  log.info('session', `USER CANCEL on ${session.sessionId.slice(0, 8)} — prompt queue held until the user acts`);
+  invalidateSessionsCache();
+  void broadcastSessionUpdate(session);
+}
+
+/**
+ * The queue's Resume: clear a user cancel so the prompt queue may send again.
+ * Returns false when the session is unknown or was not held.
+ */
+export function resumeQueueAfterCancel(sessionId: string): boolean {
+  // Resolve like getSession does: the route checks existence with it, and a
+  // card restored from a snapshot can still carry an older id.
+  const resolved = resolveSessionId(sessionId);
+  const session = resolved ? sessions.get(resolved) : undefined;
+  if (!session || !session.userCancelledAt) return false;
+  session.userCancelledAt = null;
+  log.info('session', `Queue resumed after cancel on ${session.sessionId.slice(0, 8)}`);
+  invalidateSessionsCache();
+  void broadcastSessionUpdate(session);
+  return true;
+}
 
 // ---- Start background monitors ----
 

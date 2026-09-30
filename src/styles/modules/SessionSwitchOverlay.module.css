@@ -1,0 +1,179 @@
+/* ============================================================
+   SessionSwitchOverlay — Cmd+Tab-style session switcher popup
+   ============================================================ */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.panel {
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(60vh, 480px);
+  background: var(--bg-panel, #0d0d1a);
+  border: 1px solid rgba(0, 229, 255, 0.25);
+  border-radius: 10px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(0, 229, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  flex-shrink: 0;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  /* Not --text-dim: on this panel that measured 1.96-4.01:1 across the ten
+     themes, below the 4.5:1 minimum for 11px text. Solarized sets the limit:
+     10% of --text-secondary is the most that still clears it (4.52); 15%
+     fell to 4.41. Shared by the Cmd+E switcher and the go-to-session box. */
+  color: color-mix(in srgb, var(--text-secondary, #888) 10%, var(--text-primary, #e4e4f0));
+}
+
+.hint {
+  font-size: 11px;
+}
+
+/* Vertical list, viewport-capped by .panel's max-height + this scroll — a
+   long recent-session list must scroll rather than overflow the popup or
+   the window (see the Floating UI viewport-safety rule in frontend.md). */
+.list {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 6px;
+  gap: 2px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-primary, #e4e4f0);
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.rowHighlighted,
+.rowHighlighted:hover {
+  background: rgba(0, 229, 255, 0.12);
+  border-color: rgba(0, 229, 255, 0.4);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.project {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--text-secondary, #888) 10%, var(--text-primary, #e4e4f0));
+  font-size: 11px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status {
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--text-secondary, #888) 10%, var(--text-primary, #e4e4f0));
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* ---- "Go to session #" box (SessionJumpOverlay) ----
+   Shares .overlay/.panel/.header/.row with the switcher above so the two
+   read as one family. */
+.jumpBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px 14px;
+}
+
+.jumpNumber {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-primary, #e4e4f0);
+  min-height: 30px;
+}
+
+.jumpHash {
+  color: color-mix(in srgb, var(--accent-cyan, #00e5ff) 50%, var(--text-primary, #e4e4f0));
+}
+
+.jumpCaret {
+  font-weight: 400;
+  color: color-mix(in srgb, var(--accent-cyan, #00e5ff) 50%, var(--text-primary, #e4e4f0));
+  animation: jumpCaretBlink 1s steps(1) infinite;
+}
+
+@keyframes jumpCaretBlink {
+  50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jumpCaret { animation: none; }
+}
+
+.jumpHint {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text-secondary, #888) 10%, var(--text-primary, #e4e4f0));
+}
+
+/* The one row the typed number points at. Outlined rather than given
+   .rowHighlighted's cyan fill: it is not a choice among many, and on the
+   solarized panel that fill pulled the project/status text to 3.52:1. Not
+   clickable, so no hover and no pointer. */
+.jumpPreview,
+.jumpPreview:hover {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--accent-cyan, #00e5ff) 45%, transparent);
+  cursor: default;
+}
+
+/* Out of range: the text stays the readable colour (no red text clears 4.5:1
+   on the solarized panel; the best mix measured 3.01) and the red goes on
+   a glyph, which only needs 3:1. */
+.jumpErrorMark {
+  color: var(--accent-red, #ff4d6d);
+  font-weight: 700;
+}
