@@ -32,6 +32,29 @@ export function sortSessions(sessions: Session[]): Session[] {
 }
 
 /**
+ * The session numbers on the rail's cards (`#1`, `#2`, …): live sessions only,
+ * pinned first, then by status, then by title. The badges (SessionSwitcher),
+ * Alt+⌘+1…9 and the "go to session #" jump (lib/sessionJump.ts) all read this
+ * one function, so a number typed is the number shown.
+ *
+ * The title key is deliberately `title || projectName || ''`, not
+ * `sessionDisplayTitle` ("Unnamed"): that is how the rail has always numbered,
+ * and an untitled card switching keys would renumber every card after it.
+ */
+export function numberedSessions(sessions: Iterable<Session>): Session[] {
+  return [...sessions]
+    .filter((s) => s.status !== 'ended')
+    .sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+      const oa = STATUS_ORDER[a.status] ?? 5;
+      const ob = STATUS_ORDER[b.status] ?? 5;
+      if (oa !== ob) return oa - ob;
+      return (a.title || a.projectName || '').localeCompare(b.title || b.projectName || '');
+    });
+}
+
+/**
  * Most-recently-active first. Status is deliberately ignored — a long-running
  * `working` session that last emitted an event an hour ago belongs below an
  * `idle` one the user touched seconds ago.

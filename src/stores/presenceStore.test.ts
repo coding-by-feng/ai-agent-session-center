@@ -25,6 +25,8 @@ import {
   canWriteWorkspace,
   otherDevices,
   controlledCount,
+  isLocalDevice,
+  thisDeviceIsLocal,
 } from './presenceStore';
 import type { ControlHolderView, DevicePresence } from '@/types';
 
@@ -187,5 +189,38 @@ describe('applyPresence', () => {
     expect(s.devices.map((d) => d.clientId)).toEqual(['b']);
     expect(s.controllers.size).toBe(0);
     expect(s.workspaceWriter).toBe('b');
+  });
+});
+
+// The RESOURCES tab reads ~/.claude and ~/.codex, so its server routes answer
+// only loopback requests. The nav hides the tab on any device the SERVER has
+// not confirmed as local — a phone or a LAN browser would open a tab that can
+// only 404. Unknown (presence not loaded yet) must read as "not local": the
+// absent state is the safe state, exactly like `remoteVisible`.
+describe('thisDeviceIsLocal', () => {
+  it('is false before any presence has arrived', () => {
+    expect(thisDeviceIsLocal()).toBe(false);
+  });
+
+  it('is true when the server lists THIS device as loopback', () => {
+    apply({ devices: [device('me', true)] });
+    expect(thisDeviceIsLocal()).toBe(true);
+  });
+
+  it('is false when this device is connected remotely', () => {
+    apply({ devices: [device('me', false)] });
+    expect(thisDeviceIsLocal()).toBe(false);
+  });
+
+  it('ignores OTHER local devices — the desktop being local says nothing about the phone', () => {
+    apply({ devices: [device('desktop', true), device('me', false)] });
+    expect(thisDeviceIsLocal()).toBe(false);
+  });
+
+  it('isLocalDevice is the pure form, usable as a store selector', () => {
+    const devices = [device('a', true), device('b', false)];
+    expect(isLocalDevice(devices, 'a')).toBe(true);
+    expect(isLocalDevice(devices, 'b')).toBe(false);
+    expect(isLocalDevice(devices, 'zzz')).toBe(false);
   });
 });

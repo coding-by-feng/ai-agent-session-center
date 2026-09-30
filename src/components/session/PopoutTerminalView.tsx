@@ -23,8 +23,8 @@ interface Props {
 
 export default function PopoutTerminalView({ terminalId, originSessionId, label }: Props) {
   useSettingsInit();
-  // Auth tokens aren't carried into the popout window — localhost Electron runs
-  // without auth. (Password-protected setups would need token plumbing here.)
+  // No token to pass: auth rides on the HttpOnly auth_token cookie, which every
+  // same-origin window shares — login never hands JS a token at all.
   useWebSocket(null);
   const client = useWsStore((s) => s.client);
   // Re-derive the raw socket whenever the connection re-establishes. The

@@ -2,8 +2,11 @@ import { NavLink } from 'react-router';
 import { useUiStore } from '@/stores/uiStore';
 import { useAgendaStore } from '@/stores/agendaStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { usePresenceStore, isLocalDevice } from '@/stores/presenceStore';
+import { getClientId } from '@/lib/deviceIdentity';
 import WorkdirLauncher from './WorkdirLauncher';
 import { useIsMobile } from '@/lib/platform';
+import { openLiveSession } from '@/lib/liveSession';
 import styles from '@/styles/modules/NavBar.module.css';
 
 interface NavItem {
@@ -21,6 +24,13 @@ interface NavItem {
    * that merely isn't optimised for the width.
    */
   desktopOnly?: boolean;
+  /**
+   * Shown only on a device the SERVER has confirmed is on this machine
+   * (presence `isLocal`). For tabs whose routes answer loopback only — a phone
+   * or a LAN browser would open a tab that can only 404. Deliberately not a
+   * size or `electronAPI` check: a desktop browser on the LAN is remote too.
+   */
+  localOnly?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -32,6 +42,9 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/prompts', label: 'PROMPTS' },
   { to: '/queue', label: 'QUEUE' },
   { to: '/review', label: 'REVIEW' },
+  // Every Claude Code / Codex resource on this machine — reads ~/.claude and
+  // ~/.codex, so /api/resources answers loopback only.
+  { to: '/resources', label: 'RESOURCES', localOnly: true },
 ];
 
 // ---------------------------------------------------------------------------
@@ -49,7 +62,12 @@ export default function NavBar() {
   // check) because this is a SIZE decision — a desktop browser must keep the
   // full nav. See src/lib/platform.ts for the rule.
   const isMobile = useIsMobile();
-  const navItems = isMobile ? NAV_ITEMS.filter((i) => !i.desktopOnly) : NAV_ITEMS;
+  // Unknown (presence not loaded yet) reads as not-local: the absent state is
+  // the safe state, so a local-only tab appears once the server confirms it.
+  const isLocal = usePresenceStore((s) => isLocalDevice(s.devices, getClientId()));
+  const navItems = NAV_ITEMS.filter(
+    (i) => !(isMobile && i.desktopOnly) && !(i.localOnly && !isLocal),
+  );
 
   return (
     <nav className={styles.nav}>
@@ -83,10 +101,12 @@ export default function NavBar() {
           key={item.to}
           to={item.to}
           end={item.to === '/'}
-          // Switching top-level tabs closes any open session detail panel so the
-          // target view is actually visible (the panel overlays every route) and
-          // the dashboard Header (hidden while a detail is open) returns.
-          onClick={() => deselectSession()}
+          // Switching to another tab closes the session panel so the target
+          // view is visible (the panel overlays every route) and the dashboard
+          // Header (hidden while a panel is open) returns. LIVE does the
+          // opposite: it opens the panel on the session you had open — only
+          // the panel's minimize (‒) hides it on LIVE. See lib/liveSession.ts.
+          onClick={() => (item.to === '/' ? openLiveSession() : deselectSession())}
           className={({ isActive }) =>
             `${styles.navBtn} ${isActive ? styles.active : ''}`
           }

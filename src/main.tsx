@@ -55,6 +55,13 @@ async function bootstrap(): Promise<void> {
     // the picker never opens against an empty library on a cold start.
     usePromptSnippetStore.getState().loadFromDb(),
   ]);
+  // Reconcile with the SERVER's shared queue after the local IndexedDB load,
+  // never before: syncFromServer seeds any session the server hasn't heard of
+  // from local state, so it has to see the hydrated local queues to know what
+  // to seed. Deliberately NOT awaited — a slow or unreachable server must not
+  // hold up first paint, and the local copy renders correctly on its own until
+  // the sync lands.
+  void useQueueStore.getState().syncFromServer();
   createRoot(root!).render(
     <StrictMode>
       <App />

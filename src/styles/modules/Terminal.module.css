@@ -176,6 +176,33 @@
   overflow-y: auto !important;
 }
 
+/* ---- Pan mode (narrow devices) ----
+   The canvas renders at the PTY's real column count instead of the container's,
+   so nothing soft-wraps and box drawing / tables / diffs keep their alignment;
+   the container scrolls horizontally instead.
+
+   Why the width rules are needed: .xterm is a block, so it would take the
+   container's width (~350px on a phone) while its .xterm-screen child is sized
+   in px to cols x charWidth (~790px at 120 cols). The container's scrollWidth
+   does account for an overflowing descendant, but .xterm would still clip its
+   own background and any full-row highlight at 350px. `max-content` makes the
+   element itself as wide as the canvas; `min-width: 100%` keeps it filling the
+   container in the (valid) case where the PTY is narrower than the viewport.
+
+   Both axes are declared explicitly because a `visible` axis computes to `auto`
+   when the other is `auto` — leaving overflow-y unset here would create a
+   SECOND vertical scroller outside xterm's own viewport. */
+.container.panMode {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.container.panMode :global(.xterm) {
+  width: max-content;
+  min-width: 100%;
+}
+
 .status {
   font-size: 10px;
   text-transform: uppercase;
@@ -206,6 +233,13 @@
 .queueToggle {
   display: flex;
   align-items: center;
+  /* A narrow panel (a phone, a small pop-out) cannot fit "QUEUE (63 active
+     · 37 inactive)" plus the held chip on one row. Let the count and chip
+     drop under "QUEUE" as whole pieces rather than push the history button
+     off the edge; min-width 0 lets the button shrink so they can. */
+  flex-wrap: wrap;
+  row-gap: 2px;
+  min-width: 0;
   gap: 6px;
   flex: 1;
   padding: 6px 8px;
@@ -231,7 +265,23 @@
   transform: rotate(90deg);
 }
 .queueCount {
-  color: var(--accent-cyan, #00e5ff);
+  /* Mixed toward --text-primary like the held-queue notice: bare
+     --accent-cyan measured 3.65:1 here on the light theme. The mix measured
+     >= 5.05:1 in all 10 themes (solarized lowest). */
+  color: color-mix(in srgb, var(--accent-cyan, #00e5ff) 50%, var(--text-primary, #e0e0e0));
+  /* "(7 active · 3 inactive)" must read as one unit; never break it. */
+  white-space: nowrap;
+  /* The header's 1px tracking is for the QUEUE label; on the count it only
+     costs width (~23px on a two-digit count). */
+  letter-spacing: 0;
+}
+
+/* The inactive part of the header count: grey rather than cyan, so the
+   number that will actually send stands out by hue. Not bare
+   --text-secondary (3.37:1 in solarized); 40% of it measured >= 4.62:1 in
+   all 10 themes, where 50% fell to 4.39. */
+.queueCountInactive {
+  color: color-mix(in srgb, var(--text-secondary, #888) 40%, var(--text-primary, #e0e0e0));
 }
 
 .queueHistoryBtn {
@@ -330,16 +380,23 @@
 }
 
 .queueBody {
+  /* Fallback cap only. Both real mounts pass `fullHeight`, which swaps in
+     `.queuePanelFull` below and removes this cap: the QUEUE tab fills its
+     tab, and the always-on strip fills whatever height the draggable divider
+     in DetailPanel gave it. */
   max-height: 250px;
   overflow-y: auto;
   padding: 0 4px 4px;
 }
+
 .queuePanel.collapsed .queueBody {
   display: none !important;
 }
 
-/* Opt-in variant for the dedicated QUEUE tab (DetailPanel's `queueContent`,
-   passed via QueueTab's `fullHeight` prop) — the tab sits inside DetailTabs'
+/* Fill-the-container variant, used by BOTH mounts via QueueTab's `fullHeight`
+   prop: the dedicated QUEUE tab (DetailPanel's `queueContent`) and — since the
+   terminal/queue divider became draggable — the always-on strip below the
+   terminal, whose height now comes from that drag rather than a fixed cap — the tab sits inside DetailTabs'
    `.tabScroll` (DetailPanel.module.css: `flex: 1; overflow-y: auto`), which
    has a full tab's height to give, but the base rules above are sized for the
    OTHER place this component renders: the always-on strip below the
@@ -485,7 +542,7 @@
     opacity 0.12s ease,
     color 0.12s ease;
 }
-.queueDragHandle:active {
+.queueItem.dragging .queueDragHandle {
   cursor: grabbing;
 }
 .queueItem:hover .queueDragHandle {
@@ -549,7 +606,13 @@
    a given item's state means. */
 .queueCardGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  /* Raised from 200px: at 200px the grid's 1fr already stretched cards to
+     ~450-480px on a wide panel, but .queueText's single-line ellipsis
+     (below) truncated regardless of that extra width, and 7 action buttons
+     didn't reliably fit one row either. 280px trades some column count for
+     enough width that both problems are addressed by the card-specific
+     overrides below, not by the floor alone. */
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 8px;
   padding: 2px;
 }
@@ -563,6 +626,21 @@
   border: 1px solid rgba(255, 255, 255, 0.04);
   border-radius: 6px;
   font-size: 11px;
+}
+/* Card-only overrides of the shared list-row classes (renderItemMeta /
+   renderItemActions render identically into both layouts — see the comment
+   above .queueCardGrid). A card has vertical room a dense list row doesn't,
+   so it can show more per item without the list's own density changing. */
+.queueCard .queueText {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.queueCard .queueItemThumb {
+  width: 48px;
+  height: 48px;
 }
 .queueCard:hover {
   background: rgba(255, 255, 255, 0.05);
@@ -870,9 +948,44 @@
 .queueItem.popping {
   animation: queue-item-pop 0.25s ease-in forwards;
 }
-.queueItem.dragging {
+/* ---- Press-and-hold drag reordering (List + Card) ----
+   `touch-action: none` is REQUIRED, not cosmetic: without it the browser
+   claims a touch gesture for scrolling `.queueBody` and `pointermove` never
+   reaches the handler, so dragging silently does nothing on a phone — the
+   exact device this replaced native HTML5 drag to support. `user-select` is
+   here for the same class of reason: a long press otherwise starts a text
+   selection that fights the drag. */
+.queueItem,
+.queueCard {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.queueItem.dragging,
+.queueCard.dragging {
   opacity: 0.35;
   transform: scale(0.97);
+}
+
+/* Insertion caret. Drawn as a box-shadow rather than a border so it costs no
+   layout — a border would resize the card mid-drag and shift every rect the
+   drag was measured against. */
+.queueItem.dropBefore,
+.queueCard.dropBefore {
+  box-shadow: inset 3px 0 0 0 var(--accent-cyan, #00e5ff);
+}
+.queueItem.dropAfter,
+.queueCard.dropAfter {
+  box-shadow: inset -3px 0 0 0 var(--accent-cyan, #00e5ff);
+}
+/* In List mode items stack vertically, so the caret reads as a top/bottom
+   edge rather than a left/right one. */
+.queueList .queueItem.dropBefore {
+  box-shadow: inset 0 3px 0 0 var(--accent-cyan, #00e5ff);
+}
+.queueList .queueItem.dropAfter {
+  box-shadow: inset 0 -3px 0 0 var(--accent-cyan, #00e5ff);
 }
 
 @keyframes queue-item-enter {
@@ -1069,6 +1182,62 @@
 }
 .queueAutoSendBannerBtn:hover {
   background: rgba(255, 184, 108, 0.25);
+}
+
+/* Queue held: the user stopped the last turn, or subagents are still running.
+   Informational (cyan), not a warning like the auto-send banner above: nothing
+   is wrong, the queue is deliberately waiting. Shares that banner's layout and
+   must come after it (same specificity; the later rule wins). */
+.queueHoldBanner {
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 8%, transparent);
+  border-color: color-mix(in srgb, var(--accent-cyan, #00e5ff) 35%, transparent);
+  /* Half accent, half the theme's own text colour: bare --accent-cyan is only
+     3.3:1 on the light theme (4.3:1 on solarized and windows-xp) — below the
+     4.5:1 body-text minimum at this 11px size. Mixing toward --text-primary
+     always raises contrast (it is dark on light themes, light on dark ones);
+     at 50% every one of the 10 themes clears 4.5:1 (solarized lowest, 4.5). */
+  color: color-mix(in srgb, var(--accent-cyan, #00e5ff) 50%, var(--text-primary, #e0e0e0));
+}
+.queueHoldBannerBtn {
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 15%, transparent);
+  border-color: color-mix(in srgb, var(--accent-cyan, #00e5ff) 40%, transparent);
+  color: color-mix(in srgb, var(--accent-cyan, #00e5ff) 50%, var(--text-primary, #e0e0e0));
+}
+.queueHoldBannerBtn:hover {
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 25%, transparent);
+}
+.queueHoldBannerBtn:active {
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 35%, transparent);
+}
+.queueHoldBannerBtn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent-cyan, #00e5ff) 50%, var(--text-primary, #e0e0e0));
+  outline-offset: 2px;
+}
+/* The shared banner button is ~20px tall. Resume is this notice's only way
+   out, so give it a real target: 28px with a mouse, 44px on touch. */
+.queueHoldBannerBtn {
+  min-height: 28px;
+  padding: 4px 12px;
+}
+@media (pointer: coarse) {
+  .queueHoldBannerBtn {
+    min-height: 44px;
+  }
+}
+/* The same held state, in the header while the queue is collapsed. */
+.queueHoldChip {
+  margin-left: 6px;
+  padding: 0 6px;
+  /* "⏸ paused" is one chip: it used to break into two lines inside itself. */
+  white-space: nowrap;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 12%, transparent);
+  color: color-mix(in srgb, var(--accent-cyan, #00e5ff) 50%, var(--text-primary, #e0e0e0));
 }
 .queueIntervalGroup,
 .queueScheduleGroup {
@@ -1692,6 +1861,12 @@
 /* ---- Responsive ---- */
 
 @media (max-width: 480px) {
+  /* Every pixel of padding is a lost column on a phone; 2px still visually
+     separates the text from the container edge. */
+  .container :global(.xterm) {
+    padding: 2px;
+  }
+
   .toolbar {
     gap: 4px;
     padding: 2px;
@@ -1724,34 +1899,6 @@
   background: color-mix(in srgb, var(--accent-green, #00ff88) 20%, transparent) !important;
 }
 
-/* ---- Toolbar bookmark badge ---- */
-
-.bookmarkActiveBtn {
-  color: var(--accent-cyan, #00e5ff) !important;
-  border-color: rgba(0, 229, 255, 0.3) !important;
-}
-.bookmarkActiveBtn:hover {
-  background: rgba(0, 229, 255, 0.1) !important;
-}
-
-.bookmarkBadge {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  background: var(--accent-cyan, #00e5ff);
-  color: #0a0a1a;
-  font-size: 8px;
-  font-weight: 700;
-  line-height: 1;
-  min-width: 14px;
-  height: 14px;
-  border-radius: 7px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 3px;
-}
-
 /* ---- Terminal Row ---- */
 
 .terminalRow {
@@ -1764,147 +1911,6 @@
 .terminalRow .container {
   flex: 1 1 auto;
   min-width: 0;
-}
-
-/* ---- Terminal Bookmark Panel ---- */
-
-.termBookmarkPanel {
-  width: 220px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 0, 0.25);
-  overflow: hidden;
-  max-height: 100%;
-}
-
-.termBookmarkList {
-  overflow-y: auto;
-  flex: 1 1 auto;
-  padding: 4px;
-}
-
-.termBookmarkItem {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 4px;
-  padding: 6px;
-  margin-bottom: 4px;
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
-}
-
-.termBookmarkHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  flex-shrink: 0;
-}
-
-.termBookmarkTitle {
-  font-size: 10px;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  color: var(--text-secondary, #888);
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
-  font-weight: 600;
-}
-
-.termBookmarkClose {
-  background: transparent;
-  border: none;
-  color: var(--text-dim, #555);
-  cursor: pointer;
-  padding: 1px 4px;
-  font-size: 11px;
-  line-height: 1;
-  border-radius: 3px;
-}
-.termBookmarkClose:hover {
-  color: var(--text-primary, #e0e0e0);
-}
-
-.termBookmarkEmpty {
-  padding: 16px 8px;
-  text-align: center;
-  color: var(--text-dim, #555);
-  font-size: 10px;
-  font-style: italic;
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
-  line-height: 1.5;
-}
-
-.termBookmarkPreview {
-  font-size: 10px;
-  color: var(--text-secondary, #888);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-bottom: 4px;
-}
-
-.termBookmarkNote {
-  width: 100%;
-  box-sizing: border-box;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 3px;
-  color: var(--text-primary, #e0e0e0);
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
-  font-size: 10px;
-  padding: 3px 5px;
-  resize: none;
-  outline: none;
-  margin-bottom: 4px;
-  display: block;
-}
-.termBookmarkNote:focus {
-  border-color: var(--accent-cyan, #00e5ff);
-}
-.termBookmarkNote::placeholder {
-  color: var(--text-dim, #555);
-  font-style: italic;
-}
-
-.termBookmarkActions {
-  display: flex;
-  gap: 4px;
-}
-
-.termBookmarkJumpBtn {
-  flex: 1;
-  background: transparent;
-  border: 1px solid rgba(0, 229, 255, 0.3);
-  color: var(--accent-cyan, #00e5ff);
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  padding: 2px 4px;
-  border-radius: 3px;
-  cursor: pointer;
-  text-transform: uppercase;
-}
-.termBookmarkJumpBtn:hover {
-  background: rgba(0, 229, 255, 0.1);
-}
-
-.termBookmarkDelBtn {
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: var(--text-dim, #555);
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
-  font-size: 9px;
-  padding: 2px 6px;
-  border-radius: 3px;
-  cursor: pointer;
-}
-.termBookmarkDelBtn:hover {
-  border-color: rgba(255, 51, 85, 0.4);
-  color: var(--accent-red, #ff5555);
-  background: rgba(255, 51, 85, 0.08);
 }
 
 /* ---- Fullscreen ---- */

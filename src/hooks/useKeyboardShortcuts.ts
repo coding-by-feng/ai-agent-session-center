@@ -7,6 +7,7 @@ import { useUiStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useShortcutStore } from '@/stores/shortcutStore';
 import { showToast } from '@/components/ui/ToastContainer';
+import { jumpToSessionNumber } from '@/lib/sessionJump';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -127,6 +128,9 @@ function dispatchAction(actionId: string): void {
     case 'switchLatestSession':
       switchToPreviousSession();
       break;
+    case 'jumpToSession':
+      useUiStore.getState().openSessionJump();
+      break;
     default:
       if (actionId.startsWith('fileBrowser')) {
         document.dispatchEvent(
@@ -190,7 +194,6 @@ const TAB_ACTION_MAP: Record<string, string> = {
 const TERMINAL_ACTION_MAP: Record<string, string> = {
   terminalToggleAutoScroll: 'toggleAutoScroll',
   terminalRefresh: 'refresh',
-  terminalBookmark: 'bookmark',
   terminalClone: 'clone',
   terminalFork: 'fork',
   terminalPopOut: 'popOut',
@@ -199,11 +202,6 @@ const TERMINAL_ACTION_MAP: Record<string, string> = {
 // ---------------------------------------------------------------------------
 // Session switching helper
 // ---------------------------------------------------------------------------
-
-const SWITCH_STATUS_ORDER: Record<string, number> = {
-  working: 0, prompting: 1, approval: 2, input: 2,
-  waiting: 3, idle: 4, connecting: 5, ended: 6,
-};
 
 function switchToPreviousSession(): void {
   const { sessions, previousSessionId, selectedSessionId } = useSessionStore.getState();
@@ -232,24 +230,9 @@ function switchToLatestFinishedSession(): void {
   showToast(`Jumped to ${name}`, 'info', 1500);
 }
 
+/** Alt+⌘+1…9: badge #(index+1). Same numbering and switch path as the
+ *  "go to session #" box (lib/sessionJump.ts), which reaches any number. */
 function switchToSessionByIndex(index: number): void {
-  const sessions = useSessionStore.getState().sessions;
-  // Sort matching SessionSwitcher order: pinned first, then status, then title
-  const active = [...sessions.values()]
-    .filter((s) => s.status !== 'ended')
-    .sort((a, b) => {
-      if (a.pinned && !b.pinned) return -1;
-      if (!a.pinned && b.pinned) return 1;
-      const oa = SWITCH_STATUS_ORDER[a.status] ?? 5;
-      const ob = SWITCH_STATUS_ORDER[b.status] ?? 5;
-      if (oa !== ob) return oa - ob;
-      return (a.title || a.projectName || '').localeCompare(b.title || b.projectName || '');
-    });
-  if (index >= 0 && index < active.length) {
-    const target = active[index];
-    useSessionStore.getState().selectSession(target.sessionId);
-    const name = target.title || target.projectName || `session ${index + 1}`;
-    showToast(`Switched to ${name}`, 'info', 1500);
-  }
+  jumpToSessionNumber(index + 1);
 }
 

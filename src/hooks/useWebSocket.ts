@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { WsClient } from '@/lib/wsClient';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useQueueStore } from '@/stores/queueStore';
+import type { QueueItem, QueueAutomationConfig } from '@/stores/queueStore';
 import { useRoomStore } from '@/stores/roomStore';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useWsStore } from '@/stores/wsStore';
@@ -168,6 +169,27 @@ export function useWebSocket(token: string | null): WsClient | null {
               fromLabel: msg.fromLabel,
               at: Date.now(),
             });
+          }
+          break;
+        }
+
+        // Another device changed this session's shared queue. Applying it
+        // here (rather than re-fetching) is what makes the phone and the
+        // desktop agree live instead of only after a reload.
+        case 'queue_update': {
+          const m = msg as unknown as {
+            sessionId?: string;
+            items?: unknown;
+            automation?: unknown;
+            originClientId?: string | null;
+          };
+          if (typeof m.sessionId === 'string' && Array.isArray(m.items)) {
+            useQueueStore.getState().applyRemoteQueue(
+              m.sessionId,
+              m.items as QueueItem[],
+              (m.automation ?? null) as QueueAutomationConfig | null,
+              m.originClientId ?? null,
+            );
           }
           break;
         }

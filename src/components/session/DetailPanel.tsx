@@ -30,6 +30,12 @@ import TerminalContainer from '@/components/terminal/TerminalContainer';
 import { PALETTE } from '@/lib/robotPalette';
 import { formatDuration, getStatusLabel } from '@/lib/format';
 import { detectCli } from '@/lib/cliDetect';
+import {
+  loadQueueHeight,
+  saveQueueHeight,
+  resolveQueueHeight,
+  DEFAULT_QUEUE_HEIGHT,
+} from '@/lib/panelResize';
 import { isProjectEditing } from '@/lib/projectEditGuard';
 import { retainRecentProjects, isMostRecentProject } from '@/lib/mountedProjectsLru';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
@@ -113,7 +119,47 @@ const TerminalContent = memo(function TerminalContent({
   const hasStartupCommand = !!session?.startupCommand;
   const canReconnect = isSSH || hasStartupCommand;
   const showReconnect = canReconnect && status === 'ended' && !terminalId;
-  const [bookmarkTarget, setBookmarkTarget] = useState<HTMLDivElement | null>(null);
+
+  // ---- Terminal / queue split ----
+  // The queue strip used to be pinned to a hard-coded 250px. Height is now
+  // dragged from the divider below and persisted globally (same scope as
+  // queue-view-mode / nav-position — a per-session height would surprise the
+  // user on every session switch).
+  const splitRef = useRef<HTMLDivElement | null>(null);
+  const [queueHeight, setQueueHeight] = useState(() => loadQueueHeight());
+  const [resizingQueue, setResizingQueue] = useState(false);
+
+  const handleResizeStart = useCallback((e: React.PointerEvent) => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    e.preventDefault();
+    const startY = e.clientY;
+    const startHeight = queueHeight;
+    // Measured once at press: the container cannot change size mid-drag, and
+    // reading layout on every pointermove would thrash.
+    const containerHeight = splitRef.current?.getBoundingClientRect().height ?? 0;
+    setResizingQueue(true);
+
+    const onMove = (ev: PointerEvent) => {
+      setQueueHeight(resolveQueueHeight(startHeight, ev.clientY - startY, containerHeight));
+    };
+    const onUp = () => {
+      setResizingQueue(false);
+      // Persist from the committed state rather than recomputing, so what is
+      // stored is exactly what is on screen.
+      setQueueHeight((h) => { saveQueueHeight(h); return h; });
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  }, [queueHeight]);
+
+  const handleResizeReset = useCallback(() => {
+    setQueueHeight(DEFAULT_QUEUE_HEIGHT);
+    saveQueueHeight(DEFAULT_QUEUE_HEIGHT);
+  }, []);
 
   const cli = session ? detectCli(session) : null;
   const isForkableCli = cli === 'claude' || cli === 'codex';
@@ -186,7 +232,7 @@ const TerminalContent = memo(function TerminalContent({
   }, [sessionId]);
 
   return (
-    <div className={styles.terminalWithQueue}>
+    <div className={styles.terminalWithQueue} ref={splitRef}>
       <div className={styles.terminalSection}>
         {isPoppedOut ? (
           <PoppedOutTerminalPlaceholder label="Terminal" onFocus={handlePopOut} />
@@ -199,19 +245,34 @@ const TerminalContent = memo(function TerminalContent({
             onFork={isForkableCli ? handleFork : undefined}
             onClone={handleClone}
             onPopOut={terminalId ? handlePopOut : undefined}
-            bookmarkPortalTarget={bookmarkTarget}
             projectPath={projectPath}
             originSessionId={sessionId}
           />
         )}
       </div>
-      <div className={styles.bottomRow}>
+      {/* Draggable divider between the terminal and the always-on queue
+          strip. Pointer events (not mouse) so it is grabbable on a phone,
+          same reason as the queue's drag-reorder. */}
+      <div
+        className={`${styles.queueResizer}${resizingQueue ? ` ${styles.queueResizerActive}` : ''}`}
+        onPointerDown={handleResizeStart}
+        onDoubleClick={handleResizeReset}
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Resize queue area"
+        title="Drag to resize the queue — double-click to reset"
+      />
+      <div className={styles.bottomRow} style={{ height: queueHeight }}>
+        {/* `fullHeight` makes the panel fill the height the divider produced
+            rather than the old hard-coded 250px cap. It is the same mechanism
+            the QUEUE tab uses — the class is defined in Terminal.module.css,
+            so it cannot be reached from this file's own stylesheet. */}
         <QueueTab
           sessionId={sessionId}
           sessionStatus={status}
           terminalId={terminalId}
+          fullHeight
         />
-        <div ref={setBookmarkTarget} className={styles.bookmarkPortal} />
       </div>
     </div>
   );

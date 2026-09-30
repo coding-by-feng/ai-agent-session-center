@@ -117,8 +117,10 @@ describe('DetailPanel', () => {
       sessions: new Map([['sess-1', session]]),
       selectedSessionId: 'sess-1',
     });
-    render(<DetailPanel />);
-    expect(screen.getByText('test-project')).toBeInTheDocument();
+    const { container } = render(<DetailPanel />);
+    // Scoped to the header: the selected session is also listed as a card in
+    // the session strip, so its name appears twice on the panel.
+    expect(container.querySelector('[class*="switcherProject"]')).toHaveTextContent('test-project');
   });
 
   it('displays session title', () => {
@@ -127,8 +129,9 @@ describe('DetailPanel', () => {
       sessions: new Map([['sess-1', session]]),
       selectedSessionId: 'sess-1',
     });
-    render(<DetailPanel />);
-    expect(screen.getByText('Build the feature')).toBeInTheDocument();
+    const { container } = render(<DetailPanel />);
+    // Header, not the strip — see 'renders panel when session is selected'.
+    expect(container.querySelector('[class*="switcherNameText"]')).toHaveTextContent('Build the feature');
   });
 
   it('displays status badge', () => {

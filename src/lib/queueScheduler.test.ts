@@ -6,6 +6,8 @@ import {
   chainGateDecision,
   onceGateDecision,
   NO_WORK_FALLBACK_MS,
+  NO_WORK_FALLBACK_NO_AUTOENTER_MS,
+  resolveNoWorkFallbackMs,
   applyTypeDefaults,
   itemType,
   getActiveStep,
@@ -16,6 +18,12 @@ import {
   isItemInQuietHours,
   totalChainSteps,
   currentChainStep,
+  queueHoldReason,
+  SUBAGENT_HOLD_MAX_IDLE_MS,
+  trackStatus,
+  statusSettled,
+  STATUS_SETTLE_MS,
+  pickWhileHeld,
 } from './queueScheduler';
 import type { ChainStep, ExcludeWindow, QueueItem } from '@/stores/queueStore';
 
@@ -241,6 +249,69 @@ describe('queueScheduler', () => {
       const gate = { sawWork: false, openedAt: 1000, activityAtOpen: 900 };
       expect(onceGateDecision(gate, true, true, 2000, FALLBACK, 900)).toBe('hold');
       expect(onceGateDecision(gate, true, true, 2000, FALLBACK, 800)).toBe('hold');
+    });
+  });
+
+  describe('resolveNoWorkFallbackMs', () => {
+    it('uses the short fallback when autoEnter is on', () => {
+      expect(resolveNoWorkFallbackMs(true)).toBe(NO_WORK_FALLBACK_MS);
+    });
+
+    it('uses the long fallback when autoEnter is off', () => {
+      expect(resolveNoWorkFallbackMs(false)).toBe(NO_WORK_FALLBACK_NO_AUTOENTER_MS);
+    });
+
+    it('keeps the autoEnter-off fallback meaningfully longer than the normal one', () => {
+      // Guards the constants' own relationship — collapsing them back together
+      // silently reopens the concatenation bug below without touching a
+      // single line of gate logic.
+      expect(NO_WORK_FALLBACK_NO_AUTOENTER_MS).toBeGreaterThan(NO_WORK_FALLBACK_MS * 3);
+    });
+
+    // --- The reported bug ----------------------------------------------------
+    // Screenshot: autoEnter OFF, four queued items each auto-typed into the
+    // terminal's input line but never submitted (Enter is the human's job with
+    // autoEnter off) — they concatenated into one unsendable string, because
+    // each item's send had been treated as an unacknowledged no-op and the once
+    // gate released the next one on top of it. The trigger was passing the same
+    // 5-minute NO_WORK_FALLBACK_MS regardless of autoEnter: with it off, NEITHER
+    // acceptance signal (sawWork, lastActivityAt) can ever fire until the human
+    // actually presses Enter, so a routine review pause looks identical to a
+    // true no-op and released the gate far too early.
+    //
+    // Uses the REAL shipped constants, not local copies — the defect was in
+    // which constant the call site chose, so a test with its own fallback
+    // value would have passed against the buggy build.
+    it('REGRESSION: does not release a once-gate during a normal autoEnter-off review pause', () => {
+      const gate = { sawWork: false, openedAt: 0 };
+      const twentyMinutesLater = 20 * 60_000; // past the old 5-min fallback, well under 30-min
+      // Without the fix, the call site always passed NO_WORK_FALLBACK_MS here —
+      // which WOULD already have released by 20 minutes. Demonstrate that explicitly:
+      expect(onceGateDecision(gate, true, true, twentyMinutesLater, NO_WORK_FALLBACK_MS)).toBe('fire');
+      // With autoEnter correctly resolved, the same tick still holds.
+      expect(
+        onceGateDecision(gate, true, true, twentyMinutesLater, resolveNoWorkFallbackMs(false)),
+      ).toBe('hold');
+    });
+
+    it('REGRESSION: does not release a chain-gate during a normal autoEnter-off review pause', () => {
+      const gate = { itemId: 7, sawWork: false, openedAt: 0 };
+      const twentyMinutesLater = 20 * 60_000;
+      expect(
+        chainGateDecision(gate, 7, true, true, twentyMinutesLater, NO_WORK_FALLBACK_MS),
+      ).toBe('fire');
+      expect(
+        chainGateDecision(gate, 7, true, true, twentyMinutesLater, resolveNoWorkFallbackMs(false)),
+      ).toBe('hold');
+    });
+
+    it('still escapes an abandoned autoEnter-off item once the long fallback truly elapses', () => {
+      // The fallback exists to keep the queue from stalling forever, not to
+      // hold indefinitely — confirm it still eventually fires.
+      const gate = { sawWork: false, openedAt: 0 };
+      expect(
+        onceGateDecision(gate, true, true, NO_WORK_FALLBACK_NO_AUTOENTER_MS, resolveNoWorkFallbackMs(false)),
+      ).toBe('fire');
     });
   });
 
@@ -1080,3 +1151,97 @@ describe('queueScheduler', () => {
     });
   });
 });
+
+/**
+ * Two things that look like "turn finished" but must never send the next
+ * queued prompt: the user stopping the turn (Esc fires a real Stop, so the
+ * session lands in `waiting` exactly like a clean finish), and subagents that
+ * are still running after the main agent's Stop.
+ */
+describe('queueHoldReason', () => {
+  const NOW = 1_800_000_000_000;
+  const base = { userCancelledAt: null, subagentCount: 0, lastActivityAt: NOW - 1_000 };
+
+  it('holds after the user cancelled a turn', () => {
+    expect(queueHoldReason({ ...base, userCancelledAt: NOW - 500 }, NOW)).toBe('cancelled');
+  });
+
+  it('holds while subagents are still running', () => {
+    expect(queueHoldReason({ ...base, subagentCount: 2 }, NOW)).toBe('subagents');
+  });
+
+  it('a cancel outranks running subagents (it is the one that needs your action)', () => {
+    expect(queueHoldReason({ ...base, userCancelledAt: NOW - 500, subagentCount: 2 }, NOW)).toBe('cancelled');
+  });
+
+  it('ignores a subagent count that has seen no hook activity for the safety cap', () => {
+    // SubagentStop can be lost, and nothing else ever resets the count — without
+    // the cap one lost event would freeze this queue forever.
+    const stale = { ...base, subagentCount: 1, lastActivityAt: NOW - SUBAGENT_HOLD_MAX_IDLE_MS - 1 };
+    expect(queueHoldReason(stale, NOW)).toBeNull();
+  });
+
+  it('does not hold a normal finished turn', () => {
+    expect(queueHoldReason(base, NOW)).toBeNull();
+    expect(queueHoldReason({ lastActivityAt: NOW } as never, NOW)).toBeNull(); // fields absent on older sessions
+  });
+});
+
+describe('trackStatus / statusSettled — a status must hold for a moment before the queue acts on it', () => {
+  // Esc produces a Stop AND the cancel line in the terminal, milliseconds apart
+  // and in either order. Acting on `waiting` the instant it appears could send
+  // before the cancel mark lands; one settle period closes that race.
+  it('a status seen for the first time is not settled', () => {
+    const seen = trackStatus(undefined, 'waiting', 1000);
+    expect(statusSettled(seen, 1000)).toBe(false);
+  });
+
+  it('settles once it has held for STATUS_SETTLE_MS — i.e. by the next 1 s tick', () => {
+    const seen = trackStatus(undefined, 'waiting', 1000);
+    const again = trackStatus(seen, 'waiting', 1000 + STATUS_SETTLE_MS);
+    expect(again).toBe(seen); // unchanged status keeps its original timestamp
+    expect(statusSettled(again, 1000 + STATUS_SETTLE_MS)).toBe(true);
+    expect(STATUS_SETTLE_MS).toBeLessThan(1000);
+  });
+
+  it('a status change restarts the clock', () => {
+    const seen = trackStatus(undefined, 'waiting', 1000);
+    const changed = trackStatus(seen, 'prompting', 1500);
+    expect(changed.since).toBe(1500);
+    expect(statusSettled(trackStatus(changed, 'waiting', 1600), 1700)).toBe(false);
+  });
+
+  it('a whole turn between two ticks restarts it too (same status, newer activity)', () => {
+    // A prompt and its Esc can both land between two 1 s ticks: the status
+    // reads `waiting` before and after, and only the activity time moved.
+    const seen = trackStatus(undefined, 'waiting', 1000, 900);
+    expect(statusSettled(seen, 5000)).toBe(true);
+    const nextTurn = trackStatus(seen, 'waiting', 5000, 4800);
+    expect(nextTurn.since).toBe(5000);
+    expect(statusSettled(nextTurn, 5100)).toBe(false);
+    expect(trackStatus(nextTurn, 'waiting', 6000, 4800)).toBe(nextTurn); // nothing new: kept
+  });
+});
+
+describe('pickWhileHeld — what ⚡ NOW may send while the queue is held', () => {
+  const item = (over: Partial<QueueItem>): QueueItem =>
+    ({ id: 1, sessionId: 's1', text: 't', position: 0, createdAt: 0, type: 'once', ...over });
+
+  it('sends the item you forced, not the stopped chain\'s next step', () => {
+    const chain = item({ id: 1, execState: 'main', afterChain: [{ text: 'after' } as ChainStep] });
+    const forced = item({ id: 2, forceStart: true });
+    expect(pickWhileHeld([chain, forced])?.id).toBe(2);
+  });
+
+  it('⚡ NOW on the stopped chain itself resumes that chain', () => {
+    const chain = item({ id: 1, execState: 'main', forceStart: true, afterChain: [{ text: 'after' } as ChainStep] });
+    const forced = item({ id: 2, forceStart: true });
+    expect(pickWhileHeld([forced, chain])?.id).toBe(1);
+  });
+
+  it('nothing without a force, and never a disabled row', () => {
+    expect(pickWhileHeld([item({ id: 1 }), item({ id: 2, execState: 'main' })])).toBeNull();
+    expect(pickWhileHeld([item({ id: 3, forceStart: true, disabled: true })])).toBeNull();
+  });
+});
+

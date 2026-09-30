@@ -13,6 +13,7 @@ import { createTerminal, consumePendingLink, writeWhenReady } from './sshManager
 import { WS_TYPES } from './constants.js';
 import { closeDb, markStaleSessionsEnded } from './db.js';
 import apiRouter, { hookRateLimitMiddleware } from './apiRouter.js';
+import { createResourceRouter, resourceErrorHandler } from './resourceRouter.js';
 import { startMqReader, stopMqReader, getMqOffset } from './mqReader.js';
 import log from './logger.js';
 import { config } from './serverConfig.js';
@@ -75,22 +76,26 @@ export function startServer(port?: number): Promise<number> {
     if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     }
-    // CSP: connect-src is 'self' (covers ws:/wss: same-origin) plus the CDNs the
-    // app fetches from. Hugging Face hosts are required for the local voice
-    // (Kokoro) model download — the ONNX runtime is served from our own origin,
-    // but the model weights are fetched once from huggingface.co (and its
-    // LFS/Xet CDNs) then cached in the browser for offline use. jsDelivr is
-    // required by troika-three-text's unicode-font-resolver in the 3D scene.
+    // CSP: connect-src is 'self' (covers ws:/wss: same-origin) plus the one CDN
+    // the app still fetches from. jsDelivr is required by troika-three-text's
+    // unicode-font-resolver in the 3D scene.
     //
-    // 'wasm-unsafe-eval' is what lets the local voice compile its ONNX runtime:
-    // without it Chromium refuses the module with "Compiling or instantiating
-    // WebAssembly module violates ... 'unsafe-eval' is not an allowed source",
-    // and local TTS cannot start at all. It permits WebAssembly compilation
-    // only — it does NOT enable eval() of JavaScript strings, so keep it in
-    // place of the far broader 'unsafe-eval'.
+    // The huggingface.co / *.hf.co / cas-bridge.xethub.hf.co hosts were dropped
+    // in Aug 2026 along with the local Kokoro voice: they existed solely to
+    // fetch that model's weights, and leaving them would grant the renderer
+    // network access to third-party origins nothing reaches any more.
+    //
+    // 'wasm-unsafe-eval' is DELIBERATELY kept. It was introduced for the ONNX
+    // runtime the local voice compiled, but a `WebAssembly` reference survives
+    // in the built client bundle, so removing it risks a runtime failure that
+    // no test here would catch — Chromium refuses the module with "Compiling or
+    // instantiating WebAssembly module violates ... 'unsafe-eval' is not an
+    // allowed source". It permits WebAssembly compilation only; it does NOT
+    // enable eval() of JavaScript strings, so it remains far narrower than
+    // 'unsafe-eval'. Verify the real consumer before removing it.
     res.setHeader(
       'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co https://cas-bridge.xethub.hf.co; img-src 'self' data: blob:; font-src 'self' data: https://cdn.jsdelivr.net; worker-src 'self' blob:; frame-src 'self' blob:",
+      "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://cdn.jsdelivr.net; img-src 'self' data: blob:; font-src 'self' data: https://cdn.jsdelivr.net; worker-src 'self' blob:; frame-src 'self' blob:",
     );
     next();
   });
@@ -171,6 +176,19 @@ export function startServer(port?: number): Promise<number> {
 
   // -- Hook endpoints (localhost only -- CLI hooks must work without login but are restricted to loopback) --
   app.use('/api/hooks', localhostOnlyMiddleware, hookRateLimitMiddleware, hookRouter);
+
+  // -- Agent Resources (RESOURCES tab) --
+  // Read-only catalog of ~/.claude, ~/.codex, ~/.agents and project resources.
+  // Mounted before the generic /api router so it owns its prefix; the router
+  // itself answers loopback requests only (404 for every other device).
+  app.use('/api/resources', authMiddleware, createResourceRouter({
+    sessionProjectPaths: () =>
+      Object.values(getAllSessions()).map((s) => s.projectPath).filter(Boolean),
+  }));
+  // The global express.json() above parses bodies before the router runs, so a
+  // malformed body never reaches the router's own handler — without this it
+  // falls through to Express's default page, stack trace included.
+  app.use('/api/resources', resourceErrorHandler);
 
   // -- Protected API routes --
   app.use('/api', authMiddleware, apiRouter);

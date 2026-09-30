@@ -153,6 +153,14 @@ export const WS_TYPES = {
   TERMINAL_RESIZE: 'terminal_resize',
   TERMINAL_DISCONNECT: 'terminal_disconnect',
   TERMINAL_SUBSCRIBE: 'terminal_subscribe',
+  /** Server → client: the PTY's real cols/rows. Sent on subscribe and after
+   *  any resize, so a client too narrow to drive the PTY can still render at
+   *  the PTY's width and pan instead of soft-wrapping mid-word. */
+  TERMINAL_GEOMETRY: 'terminal_geometry',
+  /** Server -> clients: a session's shared prompt queue changed. Carries the
+   *  full items + automation so a receiver needs no follow-up fetch, plus the
+   *  originating device id so the sender can ignore its own echo. */
+  QUEUE_UPDATE: 'queue_update',
   UPDATE_QUEUE_COUNT: 'update_queue_count',
   REPLAY: 'replay',
   CLEAR_BROWSER_DB: 'clearBrowserDb',

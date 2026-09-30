@@ -127,8 +127,29 @@
   color: var(--text-primary);
   font-family: var(--font-mono);
   font-size: 11px;
-  padding: 4px 6px;
+  padding: 4px 20px 4px 6px;
   cursor: pointer;
+  /* base.css already sets a global `select { appearance: none; ...
+     background-image: <chevron> }`, but the `background` SHORTHAND above
+     silently resets background-image/position/repeat/size back to their
+     initial values (a shorthand always resets every sub-property it
+     doesn't mention) — so this rule was overriding just enough of the
+     global one, at higher specificity, to erase its chevron while still
+     losing the native arrow to appearance:none. What filled the gap
+     turned out to be Electron/macOS's own fallback indicator (confirmed:
+     a plain Chrome tab renders no arrow at all in that state, not a
+     misplaced one — this is a real cross-platform inconsistency, not a
+     rendering fluke). Fix: make this rule self-contained — its own
+     appearance/background-image/padding — so it never depends on
+     inheriting non-conflicting properties from the global rule. Same
+     pattern as Agenda.module.css's .priorityBadge / DetailPanel.module.css's
+     .ctrlSelect. */
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-image: url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%23888' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 .controlSelect:focus {
   outline: none;

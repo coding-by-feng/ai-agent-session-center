@@ -1,20 +1,6 @@
 import { defineConfig, createLogger } from 'vite';
 import react from '@vitejs/plugin-react';
-import { createRequire } from 'node:module';
 import path from 'path';
-
-// Local Kokoro TTS runs onnxruntime-web, whose ~21MB WASM binary transformers.js
-// otherwise pulls from jsDelivr at runtime — which fails offline, behind a
-// firewall, or wherever the CDN is blocked. Serve it from our own origin instead
-// (see `src/lib/kokoroWorker.ts`). It can't be deep-imported by specifier because
-// neither package's `exports` map exposes `./dist/*`, so resolve it on disk and
-// alias it. Throwing here at config load is deliberate: a missing binary must
-// break the build loudly rather than silently fall back to the CDN.
-const nodeRequire = createRequire(path.join(__dirname, 'vite.config.ts'));
-const ORT_WASM_FILE = path.join(
-  path.dirname(nodeRequire.resolve('@huggingface/transformers')),
-  'ort-wasm-simd-threaded.jsep.wasm',
-);
 
 // Suppress EPIPE/ECONNRESET noise from Vite's WS proxy.
 // These happen every time the browser closes a WebSocket mid-proxy (page refresh,
@@ -34,7 +20,6 @@ export default defineConfig({
     // Array form so the ORT binary can be matched by regex — a string `find` is
     // compared against the bare specifier and would never match the `?url` query.
     alias: [
-      { find: /^ort-wasm-binary\?url$/, replacement: `${ORT_WASM_FILE}?url` },
       { find: '@', replacement: path.resolve(__dirname, 'src') },
     ],
   },

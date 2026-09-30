@@ -1,8 +1,32 @@
 import { ipcMain, app, BrowserWindow } from 'electron'
 import { execSync } from 'child_process'
 import { writeFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from 'fs'
-import { randomBytes } from 'crypto'
+import { randomBytes, scryptSync } from 'crypto'
 import path, { join } from 'path'
+
+/**
+ * MIRROR of `hashPassword` in server/authManager.ts — kept byte-identical in
+ * behaviour, not imported, because `tsconfig.electron.json` cannot reach
+ * `server/` (the same constraint as ptyRing.ts and internalUrl.ts).
+ *
+ * The format is load-bearing: `verifyPassword` splits on ':' and re-derives
+ * with the same keylen, so a hash produced here with a different keylen or
+ * encoding is silently *unverifiable* — the user would set a password during
+ * setup and then be unable to log in with it, with nothing logged anywhere.
+ * `test/setupPasswordHash.test.ts` pins these two constants against
+ * authManager's and fails on drift.
+ *
+ * Hashing happens HERE rather than in the renderer because scrypt is Node
+ * crypto only — the Web Crypto API the renderer has offers PBKDF2, not
+ * scrypt, so a renderer-side hash could not match verifyPassword at all.
+ */
+const SCRYPT_KEYLEN = 64
+
+function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString('hex')
+  const hash = scryptSync(password, salt, SCRYPT_KEYLEN).toString('hex')
+  return `${salt}:${hash}`
+}
 
 const SETUP_FLAG  = join(app.getPath('userData'), 'setup.json')
 // __dirname resolves to dist/electron/ipc/ after CJS compilation
@@ -109,9 +133,15 @@ export function registerSetupHandlers() {
         && c.sessionHistoryHours > 0
         && c.sessionHistoryHours <= 8760
         ? c.sessionHistoryHours : 24,
-      ...(typeof c.passwordHash === 'string' && c.passwordHash.length <= 256
-        ? { passwordHash: c.passwordHash }
-        : {}),
+      // A plaintext `password` (setup wizard) is hashed here; a pre-computed
+      // `passwordHash` is still accepted so any other caller keeps working.
+      // Plaintext never leaves this process — it crosses only the local IPC
+      // bridge, is hashed immediately, and is never part of `config`.
+      ...(typeof c.password === 'string' && c.password.length > 0
+        ? { passwordHash: hashPassword(c.password) }
+        : typeof c.passwordHash === 'string' && c.passwordHash.length <= 256
+          ? { passwordHash: c.passwordHash }
+          : {}),
     }
 
     const dataDir = app.getPath('userData')
@@ -172,21 +202,14 @@ export function registerSetupHandlers() {
     if (!existsSync(userData)) mkdirSync(userData, { recursive: true })
     writeFileSync(SETUP_FLAG, JSON.stringify({ completedAt: new Date().toISOString() }))
 
-    // Start server and resize/reload window
-    // Set APP_USER_DATA so server reads config from writable userData dir
-    process.env.APP_USER_DATA = app.getPath('userData')
-    // Use require() to avoid TypeScript following ESM server files during CJS compilation
-    const serverPath = path.join(PROJECT_ROOT, 'server', 'index.js')
-    const { startServer } = require(serverPath) as { startServer: (port?: number) => Promise<number> }
-    const port = await startServer()
-    process.env.SERVER_PORT = String(port)
-
+    // The running dashboard server served this wizard; a reload lets App.tsx re-read the flag.
+    const port = Number(new URL(event.sender.getURL()).port)
     const win = BrowserWindow.fromWebContents(event.sender)
     if (win) {
       win.setResizable(true)
       win.setSize(1400, 900)
       win.center()
-      await win.loadURL(`http://localhost:${port}`)
+      win.webContents.reload()
     }
 
     return { ok: true, port }

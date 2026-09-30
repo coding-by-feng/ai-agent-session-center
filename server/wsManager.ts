@@ -6,16 +6,20 @@ import {
   getEventsSince,
   updateQueueCount,
   getSessionIdByTerminalId,
+  getSession,
 } from './sessionStore.js';
 import {
   writeToTerminal,
   resizeTerminal,
+  getTerminalGeometry,
   setWsClient,
   removeWsClient,
   removeClientFromAllTerminals,
   getTerminalSessionId,
 } from './sshManager.js';
 import * as presence from './presenceManager.js';
+import { isLoopbackAddress } from './presenceManager.js';
+import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
 import { WS_TYPES } from './constants.js';
 import log from './logger.js';
 import type WebSocket from 'ws';
@@ -28,6 +32,10 @@ interface WsClient extends WebSocket {
   /** Which device this socket belongs to (see presenceManager). '' when unidentified. */
   _clientId: string;
   _label: string;
+  /** True when this socket came from the machine running the server. Computed
+   *  once at connect from the SAME predicate as the auth gate and the device
+   *  list, so all three agree on what "this machine" means. */
+  _isLocal: boolean;
   /** Last time we told this client it lacks control of a session — throttles the notice. */
   _lastDenyAt: Map<string, number>;
 }
@@ -109,6 +117,9 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
   client._msgCount = 0;
   client._msgWindowStart = Date.now();
   client._clientId = identity?.clientId ?? '';
+  // An unknown address fails CLOSED (treated as remote), matching the auth
+  // gate: for a visibility boundary that is the correct direction.
+  client._isLocal = isLoopbackAddress(identity?.address ?? '');
   client._label = presence.sanitizeDeviceLabel(identity?.label ?? '');
   client._lastDenyAt = new Map();
   if (client._clientId) {
@@ -129,11 +140,18 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
   });
 
   // Send full snapshot on connect (includes teams + event sequence for replay)
-  const sessions = getAllSessions();
+  const allSessions = getAllSessions();
+  // Deny by default for anything that is not this machine. The snapshot is the
+  // first and largest leak: it carries every session's full state on connect.
+  const sessions = filterVisibleSessions(client._isLocal, allSessions);
+  const hiddenCount = Object.keys(allSessions).length - Object.keys(sessions).length;
   const teams = getAllTeams();
   const seq = getEventSeq();
-  log.debug('ws', `Sending snapshot: ${Object.keys(sessions).length} sessions, ${Object.keys(teams).length} teams, seq=${seq}`);
-  client.send(JSON.stringify({ type: WS_TYPES.SNAPSHOT, sessions, teams, seq }));
+  log.debug('ws', `Sending snapshot: ${Object.keys(sessions).length} sessions`
+    + `${hiddenCount ? ` (${hiddenCount} hidden from remote)` : ''}`
+    + `, ${Object.keys(teams).length} teams, seq=${seq}`);
+  // hiddenCount lets the client say "18 hidden" rather than looking broken.
+  client.send(JSON.stringify({ type: WS_TYPES.SNAPSHOT, sessions, teams, seq, hiddenCount }));
 
   // Tell everyone (including this client) who is now connected and what they
   // control, so the joining device knows immediately that it is a spectator and
@@ -188,6 +206,10 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
             if (!holdsControl(client, msg.terminalId)) break;
             // #31: Relay resize errors back to client
             const resizeErr = resizeTerminal(msg.terminalId, msg.cols, msg.rows);
+            // Every OTHER subscriber is now rendering at a stale width. Tell
+            // them all, so a panning phone re-pins to the new size rather than
+            // silently clipping or over-padding until it reconnects.
+            if (!resizeErr) broadcastGeometry(msg.terminalId);
             if (resizeErr && client.readyState === 1) {
               try { client.send(JSON.stringify({ type: 'terminal_error', terminalId: msg.terminalId, error: `Resize failed: ${resizeErr}` })); } catch { /* ignore */ }
             }
@@ -206,9 +228,25 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
         case WS_TYPES.TERMINAL_SUBSCRIBE:
           // #30/#44: Only subscribe if terminal actually exists
           if (typeof msg.terminalId === 'string') {
+            // THE non-obvious leak: terminal subscribe is keyed by
+            // terminalId, not session id. Without this check a remote client
+            // could hide a session from its own list and still stream the
+            // session's live PTY output in full — the card invisible while the
+            // content flows. Resolved through the owning session so the rule
+            // is the same one the list and REST routes use.
+            if (!canSubscribeToTerminal(client, msg.terminalId)) {
+              log.warn('ws', `Blocked remote terminal subscribe to ${msg.terminalId} (session hidden)`);
+              break;
+            }
             const exists = setWsClient(msg.terminalId, client);
             if (exists) {
               client._terminalIds.add(msg.terminalId);
+              // Tell the joining client the PTY's real width. A device too
+              // narrow to drive the PTY (a phone) renders at this size and
+              // pans, instead of soft-wrapping 120 columns into ~49 and
+              // breaking every line mid-word. Sent only to the joining
+              // socket — the others already have it.
+              sendGeometry(client, msg.terminalId);
             } else {
               log.debug('ws', `Terminal subscribe ignored — ${msg.terminalId} not found`);
               if (client.readyState === 1) {
@@ -283,6 +321,39 @@ function detachClient(client: WsClient): void {
 }
 
 /**
+ * Send one client the PTY's real geometry.
+ *
+ * Failure is deliberately silent: this is an optimization hint, not state the
+ * client needs to function. A client that never receives it falls back to
+ * fitting its own container, which is exactly the pre-existing behavior.
+ */
+function sendGeometry(client: WsClient, terminalId: string): void {
+  const geom = getTerminalGeometry(terminalId);
+  if (!geom || client.readyState !== 1) return;
+  try {
+    client.send(JSON.stringify({
+      type: WS_TYPES.TERMINAL_GEOMETRY,
+      terminalId,
+      cols: geom.cols,
+      rows: geom.rows,
+    }));
+  } catch { /* socket closed between the readyState check and the write */ }
+}
+
+/**
+ * Tell every subscriber of this terminal its new geometry.
+ *
+ * Scoped to sockets that actually subscribed (`_terminalIds`) rather than
+ * broadcast to all clients: a device with no terminal open has no use for it,
+ * and terminal traffic is the highest-volume thing on this socket already.
+ */
+function broadcastGeometry(terminalId: string): void {
+  for (const client of clients) {
+    if (client._terminalIds.has(terminalId)) sendGeometry(client, terminalId);
+  }
+}
+
+/**
  * Which session owns this PTY.
  *
  * `sshManager.getTerminalSessionId` is the O(1) answer but is only populated by
@@ -296,6 +367,23 @@ function detachClient(client: WsClient): void {
  */
 function sessionIdForTerminal(terminalId: string): string | null {
   return getTerminalSessionId(terminalId) ?? getSessionIdByTerminalId(terminalId);
+}
+
+/**
+ * May this client receive output from the PTY behind `terminalId`?
+ *
+ * Localhost always may. A remote client may only if the owning session is
+ * opted into remote visibility. A terminal with NO resolvable session (an ops
+ * shell, or a PTY whose first hook has not landed) is denied to remote clients:
+ * an unattributable terminal cannot be shown to be safe, and for a visibility
+ * gate the unknown case must fail closed. Localhost is unaffected, so the
+ * desktop's ops shells keep working exactly as before.
+ */
+function canSubscribeToTerminal(client: WsClient, terminalId: string): boolean {
+  if (client._isLocal) return true;
+  const sessionId = sessionIdForTerminal(terminalId);
+  if (!sessionId) return false;
+  return canSeeSession(false, getSession(sessionId));
 }
 
 /**
@@ -381,11 +469,30 @@ export function broadcast(data: { type: string; [key: string]: unknown }): void 
   broadcastToClients(data, critical);
 }
 
+/**
+ * A session-bearing broadcast carries `session` (SESSION_UPDATE) — pull the
+ * visibility flag off it so remote clients can be skipped. Returns null for
+ * broadcasts that are not about one session (presence, hook stats, teams),
+ * which are sent to everyone as before.
+ */
+function broadcastSubject(data: { type: string; [key: string]: unknown }):
+  { remoteVisible?: boolean | null } | null {
+  const session = data.session as { remoteVisible?: boolean | null } | undefined;
+  return session && typeof session === 'object' ? session : null;
+}
+
 function broadcastToClients(data: { type: string; [key: string]: unknown }, critical: boolean): void {
   const msg = JSON.stringify(data);
+  // Serialized once for the common case; a hidden-from-remote session simply
+  // isn't sent, so no second payload is ever built.
+  const subject = broadcastSubject(data);
   log.debug('ws', `Broadcasting ${data.type} to ${clients.size} clients`);
   for (const client of clients) {
     if (client.readyState !== 1) continue;
+    // A session update must not reach a device the session is hidden from —
+    // otherwise the snapshot filter is pointless, since the very next status
+    // change would re-introduce the card.
+    if (subject && !canSeeSession(client._isLocal, subject)) continue;
     // Backpressure: skip non-critical updates if buffer is too large
     if (!critical && client.bufferedAmount > MAX_BUFFERED_AMOUNT) {
       log.debug('ws', `Skipping ${data.type} for client (buffered=${client.bufferedAmount})`);

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useSessionStore } from './sessionStore';
 import type { Session } from '@/types';
 
@@ -133,6 +133,131 @@ describe('sessionStore', () => {
     });
   });
 
+  describe('toggleRemoteVisible', () => {
+    // The bug this covers: the button previously only awaited a fetch and
+    // showed a toast — it never wrote to the local store, so nothing here
+    // would have failed even though the click was silently inert in the UI.
+    // Asserting on `sessions.get(...).remoteVisible` synchronously,
+    // immediately after the call, is what actually catches that: it fails
+    // unless the flip happens in the same `set()` as the fetch is fired, not
+    // after the request resolves.
+    let fetchSpy: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      fetchSpy = vi.fn().mockResolvedValue({ ok: true });
+      vi.stubGlobal('fetch', fetchSpy);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('flips remoteVisible synchronously, before the request settles', () => {
+      useSessionStore.getState().addSession(makeSession('s1', { remoteVisible: false }));
+      useSessionStore.getState().toggleRemoteVisible('s1');
+      // fetchSpy's promise has not resolved yet (no await) — if the flip were
+      // gated on the response, this read would still see the old value.
+      expect(useSessionStore.getState().sessions.get('s1')?.remoteVisible).toBe(true);
+    });
+
+    it('toggles back off on a second call', () => {
+      useSessionStore.getState().addSession(makeSession('s1', { remoteVisible: true }));
+      useSessionStore.getState().toggleRemoteVisible('s1');
+      expect(useSessionStore.getState().sessions.get('s1')?.remoteVisible).toBe(false);
+    });
+
+    it('PUTs the new value to the remote-visible route', () => {
+      useSessionStore.getState().addSession(makeSession('s1', { remoteVisible: false }));
+      useSessionStore.getState().toggleRemoteVisible('s1');
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/sessions/s1/remote-visible',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({ remoteVisible: true }),
+        }),
+      );
+    });
+
+    it('does nothing for an unknown session id', () => {
+      useSessionStore.getState().addSession(makeSession('s1'));
+      useSessionStore.getState().toggleRemoteVisible('does-not-exist');
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(useSessionStore.getState().sessions.size).toBe(1);
+    });
+
+    it('leaves other sessions untouched', () => {
+      useSessionStore.getState().addSession(makeSession('s1', { remoteVisible: false }));
+      useSessionStore.getState().addSession(makeSession('s2', { remoteVisible: false }));
+      useSessionStore.getState().toggleRemoteVisible('s1');
+      expect(useSessionStore.getState().sessions.get('s2')?.remoteVisible).toBe(false);
+    });
+  });
+
+  describe('toggleAiPopup', () => {
+    let fetchSpy: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      fetchSpy = vi.fn().mockResolvedValue({ ok: true });
+      vi.stubGlobal('fetch', fetchSpy);
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('turns the popup OFF on the first click of an untouched session', () => {
+      // THE trap: an untouched session has aiPopupEnabled === undefined, and
+      // the feature is ON by default. A naive `!session.aiPopupEnabled` reads
+      // undefined as false and "enables" something already enabled — so the
+      // first click would appear to do nothing.
+      useSessionStore.getState().addSession(makeSession('s1'));
+      expect(useSessionStore.getState().sessions.get('s1')?.aiPopupEnabled).toBeUndefined();
+
+      useSessionStore.getState().toggleAiPopup('s1');
+
+      expect(useSessionStore.getState().sessions.get('s1')?.aiPopupEnabled).toBe(false);
+    });
+
+    it('toggles back on', () => {
+      useSessionStore.getState().addSession(makeSession('s1', { aiPopupEnabled: false }));
+      useSessionStore.getState().toggleAiPopup('s1');
+      expect(useSessionStore.getState().sessions.get('s1')?.aiPopupEnabled).toBe(true);
+    });
+
+    it('flips synchronously, before the request settles', () => {
+      useSessionStore.getState().addSession(makeSession('s1'));
+      useSessionStore.getState().toggleAiPopup('s1');
+      // No await — if the flip were gated on the response this would still
+      // read the old value, and the button would not react to the click.
+      expect(useSessionStore.getState().sessions.get('s1')?.aiPopupEnabled).toBe(false);
+    });
+
+    it('PUTs the new value to the ai-popup route', () => {
+      useSessionStore.getState().addSession(makeSession('s1'));
+      useSessionStore.getState().toggleAiPopup('s1');
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/sessions/s1/ai-popup',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({ aiPopupEnabled: false }),
+        }),
+      );
+    });
+
+    it('does nothing for an unknown session', () => {
+      useSessionStore.getState().addSession(makeSession('s1'));
+      useSessionStore.getState().toggleAiPopup('nope');
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('leaves other sessions untouched', () => {
+      useSessionStore.getState().addSession(makeSession('s1'));
+      useSessionStore.getState().addSession(makeSession('s2'));
+      useSessionStore.getState().toggleAiPopup('s1');
+      expect(useSessionStore.getState().sessions.get('s2')?.aiPopupEnabled).toBeUndefined();
+    });
+  });
+
   describe('setSessions', () => {
     it('replaces all sessions', () => {
       useSessionStore.getState().addSession(makeSession('s1'));
@@ -146,5 +271,40 @@ describe('sessionStore', () => {
       expect(sessions.has('s2')).toBe(true);
       expect(sessions.has('s3')).toBe(true);
     });
+  });
+});
+
+/**
+ * The LIVE tab reopens "the session you last had open", but every other nav
+ * tab closes the panel with deselectSession — which also wipes the persisted
+ * selection. So the last open session is remembered separately.
+ */
+describe('sessionStore — lastSelectedSessionId', () => {
+  beforeEach(() => {
+    useSessionStore.setState({ sessions: new Map(), selectedSessionId: null, previousSessionId: null, lastSelectedSessionId: null });
+  });
+
+  it('remembers the selected session through a deselect', () => {
+    const st = useSessionStore.getState();
+    st.addSession(makeSession('a'));
+    st.selectSession('a');
+    useSessionStore.getState().deselectSession();
+    expect(useSessionStore.getState().selectedSessionId).toBeNull();
+    expect(useSessionStore.getState().lastSelectedSessionId).toBe('a');
+  });
+
+  it('follows the session when a resume re-keys it', () => {
+    useSessionStore.getState().addSession(makeSession('old'));
+    useSessionStore.getState().selectSession('old');
+    useSessionStore.getState().deselectSession();
+    useSessionStore.getState().updateSession(makeSession('new', { replacesId: 'old' }));
+    expect(useSessionStore.getState().lastSelectedSessionId).toBe('new');
+  });
+
+  it('forgets a session that is removed', () => {
+    useSessionStore.getState().addSession(makeSession('a'));
+    useSessionStore.getState().selectSession('a');
+    useSessionStore.getState().removeSession('a');
+    expect(useSessionStore.getState().lastSelectedSessionId).toBeNull();
   });
 });

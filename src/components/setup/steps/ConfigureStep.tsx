@@ -27,26 +27,27 @@ const passwordSchema = z.string()
   .regex(/[0-9]/, 'Need digit')
   .regex(/[^A-Za-z0-9]/, 'Need special character')
 
+// A password is REQUIRED at setup — there is deliberately no opt-out. Without
+// one, `authManager`'s gate refuses every non-loopback client (403 / ws 4003),
+// so the LAN address the Connected-Devices panel advertises for phones is dead
+// on arrival. An opt-out here produced an install that silently could not do
+// the thing the UI invites the user to do.
 const formSchema = z.object({
   port: z.number({ error: 'Must be a number' }).int().min(1, 'Min 1').max(65535, 'Max 65535'),
   enableCodex: z.boolean(),
   hookDensity: z.enum(['high', 'medium', 'low']),
   sessionHistoryHours: z.number(),
-  enablePassword: z.boolean(),
-  password: z.string().optional(),
-  confirmPassword: z.string().optional(),
+  password: z.string(),
+  confirmPassword: z.string(),
 }).superRefine((data, ctx) => {
-  if (data.enablePassword) {
-    const pw = data.password ?? ''
-    const result = passwordSchema.safeParse(pw)
-    if (!result.success) {
-      for (const issue of result.error.issues) {
-        ctx.addIssue({ ...issue, path: ['password'] })
-      }
+  const result = passwordSchema.safeParse(data.password)
+  if (!result.success) {
+    for (const issue of result.error.issues) {
+      ctx.addIssue({ ...issue, path: ['password'] })
     }
-    if (pw !== (data.confirmPassword ?? '')) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Passwords do not match', path: ['confirmPassword'] })
-    }
+  }
+  if (data.password !== data.confirmPassword) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Passwords do not match', path: ['confirmPassword'] })
   }
 })
 
@@ -68,14 +69,12 @@ export default function ConfigureStep({ config, setConfig, onNext }: StepProps) 
       enableCodex: config.enabledClis.includes('codex'),
       hookDensity: config.hookDensity,
       sessionHistoryHours: config.sessionHistoryHours,
-      enablePassword: false,
       password: '',
       confirmPassword: '',
     },
   })
 
   const hookDensity = watch('hookDensity')
-  const enablePassword = watch('enablePassword')
 
   const onSubmit = async (data: FormValues) => {
     const clis: SetupConfig['enabledClis'] = ['claude']
@@ -89,12 +88,16 @@ export default function ConfigureStep({ config, setConfig, onNext }: StepProps) 
       sessionHistoryHours: data.sessionHistoryHours,
     }
 
+    // The wizard's own state must NOT carry the plaintext password — it is
+    // passed to the IPC (which hashes it) and dropped. Earlier this step
+    // validated a password and then never sent it anywhere, so every install
+    // completed with no password at all however carefully it was typed.
     setConfig(cfg)
 
     if (window.electronAPI) {
       setSaving(true)
       try {
-        await window.electronAPI.saveConfig(cfg)
+        await window.electronAPI.saveConfig({ ...cfg, password: data.password })
       } catch {
         setSaving(false)
         return
@@ -169,45 +172,35 @@ export default function ConfigureStep({ config, setConfig, onNext }: StepProps) 
           />
         </div>
 
-        {/* Password */}
+        {/* Password — required, no opt-out (see formSchema's comment) */}
         <div className={styles.fieldGroup}>
-          <label className={styles.toggleRow} htmlFor="enablePassword">
-            <input
-              id="enablePassword"
-              type="checkbox"
-              {...register('enablePassword')}
-              onChange={(e) => {
-                setValue('enablePassword', e.target.checked)
-                if (!e.target.checked) {
-                  setValue('password', '')
-                  setValue('confirmPassword', '')
-                }
-              }}
-            />
-            <span className={styles.toggleSwitch} />
-            Require password to access dashboard
+          <label className={styles.fieldLabel} htmlFor="password">
+            Dashboard Password <span className={styles.required}>required</span>
           </label>
-
-          {enablePassword && (
-            <div className={styles.passwordFields}>
-              <input
-                type="password"
-                className={styles.textInput}
-                placeholder="Password"
-                autoComplete="new-password"
-                {...register('password')}
-              />
-              {errors.password && <div className={styles.fieldError}>{errors.password.message}</div>}
-              <input
-                type="password"
-                className={styles.textInput}
-                placeholder="Confirm password"
-                autoComplete="new-password"
-                {...register('confirmPassword')}
-              />
-              {errors.confirmPassword && <div className={styles.fieldError}>{errors.confirmPassword.message}</div>}
-            </div>
-          )}
+          <div className={styles.passwordFields}>
+            <input
+              id="password"
+              type="password"
+              className={styles.textInput}
+              placeholder="Password"
+              autoComplete="new-password"
+              {...register('password')}
+            />
+            {errors.password && <div className={styles.fieldError}>{errors.password.message}</div>}
+            <input
+              type="password"
+              className={styles.textInput}
+              placeholder="Confirm password"
+              autoComplete="new-password"
+              {...register('confirmPassword')}
+            />
+            {errors.confirmPassword && <div className={styles.fieldError}>{errors.confirmPassword.message}</div>}
+          </div>
+          <div className={styles.fieldHint}>
+            Needed to open the dashboard from another device. Without one, phones
+            and other computers on your network are refused — only this Mac can
+            connect. This Mac itself never has to type it.
+          </div>
         </div>
 
         <button className={styles.primaryBtn} type="submit" disabled={saving}>

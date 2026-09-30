@@ -8,7 +8,7 @@ import { registerSetupHandlers } from './ipc/setupHandlers.js'
 import { registerAppHandlers } from './ipc/appHandlers.js'
 import { registerTerminalHandlers } from './ipc/terminalHandlers.js'
 import { disposeAll as disposePtyHost } from './ptyHost.js'
-import { initCrashLogger } from './crashLogger.js'
+import { initCrashLogger, logMainError } from './crashLogger.js'
 import { isInternalAppUrl } from './internalUrl.js'
 import {
   POPOUT_DEFAULT_SIZES, parsePopoutBoundsFile, mergePopoutBounds,
@@ -32,9 +32,25 @@ let serverShutdown: (() => Promise<void>) | null = null
 const SETUP_FLAG = path.join(app.getPath('userData'), 'setup.json')
 // __dirname resolves to dist/electron/ after CJS compilation
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..')
+// cjsRename.mjs emits preload.cjs; any other name silently loads no preload (test/electronPreloadPath.test.ts).
+const PRELOAD_PATH = path.join(__dirname, 'preload.cjs')
 
 function isFirstRun(): boolean {
   return !existsSync(SETUP_FLAG)
+}
+
+// Installs used while the preload never loaded have no setup.json, yet are fully configured.
+function adoptExistingInstall(): void {
+  if (existsSync(SETUP_FLAG)) return
+  const userData = app.getPath('userData')
+  const serverHasRun = existsSync(path.join(userData, 'data', 'sessions.db'))
+    || existsSync(path.join(userData, 'server-config.json'))
+  if (!serverHasRun) return
+  try {
+    writeFileSync(SETUP_FLAG, JSON.stringify({ completedAt: new Date().toISOString(), adopted: true }))
+  } catch (err) {
+    logMainError(`Could not mark the existing install as set up: ${err instanceof Error ? err.message : String(err)}`)
+  }
 }
 
 async function createWindow(): Promise<BrowserWindow> {
@@ -51,7 +67,7 @@ async function createWindow(): Promise<BrowserWindow> {
     // <body>) or every window open flashes dark before the UI settles.
     backgroundColor: '#ece9d8',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: PRELOAD_PATH,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -175,7 +191,7 @@ function openInternalWindow(url: string): void {
     // Must match the default theme — see the main window above.
     backgroundColor: '#ece9d8',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: PRELOAD_PATH,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -241,7 +257,7 @@ function registerPopoutHandler() {
       backgroundColor: '#ece9d8',
       title: opts.label || 'Floating terminal',
       webPreferences: {
-        preload: path.join(__dirname, 'preload.js'),
+        preload: PRELOAD_PATH,
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
@@ -313,7 +329,7 @@ function registerProjectWindowHandler() {
       backgroundColor: '#ece9d8',
       title: opts.label || 'Project',
       webPreferences: {
-        preload: path.join(__dirname, 'preload.js'),
+        preload: PRELOAD_PATH,
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
@@ -363,7 +379,7 @@ function registerSessionWindowHandler() {
       backgroundColor: '#ece9d8',
       title: opts.label || 'Session',
       webPreferences: {
-        preload: path.join(__dirname, 'preload.js'),
+        preload: PRELOAD_PATH,
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
@@ -441,6 +457,7 @@ function captureLogsToLoadingScreen(win: BrowserWindow): () => void {
 }
 
 app.whenReady().then(async () => {
+  adoptExistingInstall()
   // Register IPC handlers first so renderer can call them on load
   registerSetupHandlers()
   registerAppHandlers()

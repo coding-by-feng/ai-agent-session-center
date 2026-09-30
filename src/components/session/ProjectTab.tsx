@@ -32,6 +32,7 @@ import {
   imageViewKey,
   parseView,
   serializeView,
+  shouldAutoFitOnOpen,
   zoomAroundCursor,
   zoomInStep,
   zoomOutStep,
@@ -634,6 +635,14 @@ interface ImageViewerProps {
   filePath: string;
   /** Optional subtitle line shown below the image (e.g. "foo.png — 123 KB") */
   caption?: string;
+  /**
+   * Rendered inside the fullscreen modal rather than inline in the file pane.
+   * The two surfaces have very different space budgets, so this drives both
+   * the CSS scoping and the auto-fit-on-open below. Without it, every constant
+   * in here is sized for the inline pane and simply inherited by fullscreen,
+   * which is what left a dead band around the image there.
+   */
+  fullscreen?: boolean;
 }
 
 /**
@@ -641,18 +650,24 @@ interface ImageViewerProps {
  * per-path persistence (localStorage). Shared between the inline and
  * fullscreen viewers.
  */
-function ImageViewer({ src, alt, filePath, caption }: ImageViewerProps) {
+function ImageViewer({ src, alt, filePath, caption, fullscreen }: ImageViewerProps) {
   // Restore persisted view on mount. The parent re-mounts this component via
   // `key={file.path}` when the file changes, so the lazy initializer fires
   // exactly once per file — no follow-up "reset on path change" effect needed.
-  const [view, setView] = useState<ImageView>(() => {
+  // Read localStorage exactly once, into plain state rather than a ref: the
+  // lazy initializer runs during RENDER, and writing a ref there is the React
+  // anti-pattern the compiler lint flags (`react-hooks/refs`). Keeping both
+  // facts in one snapshot also means the "was anything persisted?" answer can
+  // never drift from the view it describes.
+  const [initialView] = useState(() => {
     try {
-      const raw = localStorage.getItem(imageViewKey(filePath));
-      return parseView(raw) ?? { ...DEFAULT_VIEW };
+      const restored = parseView(localStorage.getItem(imageViewKey(filePath)));
+      return { view: restored ?? { ...DEFAULT_VIEW }, hadPersisted: restored !== null };
     } catch {
-      return { ...DEFAULT_VIEW };
+      return { view: { ...DEFAULT_VIEW }, hadPersisted: false };
     }
   });
+  const [view, setView] = useState<ImageView>(initialView.view);
   const [isDragging, setIsDragging] = useState(false);
   const [isWheeling, setIsWheeling] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -842,22 +857,38 @@ function ImageViewer({ src, alt, filePath, caption }: ImageViewerProps) {
   const handleImgLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
     naturalSizeRef.current = { w: img.naturalWidth, h: img.naturalHeight };
-  }, []);
+    // Fullscreen opens fitted — the point of going fullscreen is to use the
+    // screen. Only when nothing was persisted for this file, so a deliberate
+    // zoom/pan the user set earlier is never silently thrown away.
+    if (shouldAutoFitOnOpen(!!fullscreen, initialView.hadPersisted)) {
+      const { w, h } = getContainerSize();
+      const ratio = fitToScreenRatio(w, h, img.naturalWidth, img.naturalHeight);
+      setView({ zoom: ratio, panX: 0, panY: 0 });
+    }
+  }, [fullscreen, getContainerSize, initialView.hadPersisted]);
 
   const containerStyle: React.CSSProperties = {
     cursor: isDragging ? 'grabbing' : view.zoom > 1 ? 'grab' : 'default',
     userSelect: isDragging ? 'none' : undefined,
   };
 
+  // NOTE: the CSS max-width/max-height caps are deliberately left in place at
+  // every zoom level. They used to be flipped to `none` once zoom > 1, which
+  // silently changed what the zoom number MEANT: at or below 100% it was a
+  // fraction of the fitted size, above it a multiple of the image's natural
+  // pixels. A large image therefore jumped from "fitted" straight to
+  // "natural × 1.25" on the first zoom-in click, and a small one could read
+  // 200% while still occupying a third of the screen. Keeping the caps on
+  // gives one baseline — scale() always multiplies the fitted size — and it
+  // also keeps the img's LAYOUT box constant, which is what clampPan's
+  // container-relative maths already assumes.
   const imageStyle: React.CSSProperties = {
     transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`,
     transformOrigin: 'center center',
-    maxWidth: view.zoom > 1 ? 'none' : undefined,
-    maxHeight: view.zoom > 1 ? 'none' : undefined,
   };
 
   return (
-    <div className={styles.mediaViewer}>
+    <div className={`${styles.mediaViewer}${fullscreen ? ` ${styles.mediaViewerFullscreen}` : ''}`}>
       <div className={styles.imageZoomToolbar}>
         <Tooltip {...tooltips.projImageZoomOut}>
           <button className={styles.imageZoomBtn} onClick={zoomOut} aria-label={tooltips.projImageZoomOut.label} disabled={view.zoom <= ZOOM_MIN}>
@@ -2872,7 +2903,7 @@ export default function ProjectTab({ projectPath, initialPath, initialIsFile, na
               ) : file.streamable && file.ext === 'pdf' && file.blobUrl ? (
                 <iframe src={file.blobUrl} className={styles.pdfViewer} title={file.name} />
               ) : file.streamable && file.blobUrl && isImageExt(file.ext) ? (
-                <ImageViewer key={file.path} src={file.blobUrl} alt={file.name} filePath={file.path} />
+                <ImageViewer key={file.path} src={file.blobUrl} alt={file.name} filePath={file.path} fullscreen />
               ) : file.binary ? (
                 <div className={styles.empty}>Binary file ({formatSize(file.size)})</div>
               ) : file.ext === 'tex' ? (

@@ -16,7 +16,6 @@ export type ShortcutActionId =
   // Terminal toolbar buttons (act on the selected session's terminal)
   | 'terminalToggleAutoScroll'
   | 'terminalRefresh'
-  | 'terminalBookmark'
   | 'terminalClone'
   | 'terminalFork'
   | 'terminalPopOut'
@@ -30,6 +29,8 @@ export type ShortcutActionId =
   | 'switchSession8'
   | 'switchSession9'
   | 'switchLatestSession'
+  // Type a session's badge number to go to it (SessionJumpOverlay)
+  | 'jumpToSession'
   // Detail panel tabs
   | 'switchTabProject'
   | 'switchTabTerminal'

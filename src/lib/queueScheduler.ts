@@ -99,6 +99,87 @@ export function isSendableStatus(status: string): boolean {
 }
 
 /**
+ * A subagent count that has seen no hook activity for this long is ignored.
+ * The server resets the count on SessionStart / SessionEnd and from the
+ * background work every Stop reports, so a lost SubagentStop heals at the
+ * next Stop; this cap covers a session whose next Stop never comes (and Low
+ * hook density, which sends no subagent events at all). Same 15 minutes as
+ * the server's `working → idle` safety net.
+ */
+export const SUBAGENT_HOLD_MAX_IDLE_MS = 15 * 60_000;
+
+/** Why a session's queue must not send right now, even though it looks done. */
+export type QueueHold = 'cancelled' | 'subagents';
+
+/**
+ * Two things reach `waiting` — the "turn finished" signal — without the turn
+ * being finished, and neither may send the next queued prompt:
+ *
+ *  - `cancelled`: the user stopped the turn (Esc, or declining a tool).
+ *    Claude Code fires a real Stop for that, so the status alone is identical
+ *    to a clean finish; the server marks `userCancelledAt` when the turn's
+ *    transcript ends in Claude Code's "[Request interrupted by user]" entry,
+ *    and clears it on the user's next prompt (or the queue's Resume). Nothing
+ *    sends until then, except an item you force with ⚡ NOW (pickWhileHeld).
+ *  - `subagents`: the main agent stopped but its subagents are still running.
+ *
+ * A cancel outranks running subagents: it is the one that needs the user.
+ */
+export function queueHoldReason(
+  session: { userCancelledAt?: number | null; subagentCount?: number; lastActivityAt: number },
+  now: number,
+): QueueHold | null {
+  if (session.userCancelledAt) return 'cancelled';
+  if ((session.subagentCount ?? 0) > 0 && now - session.lastActivityAt < SUBAGENT_HOLD_MAX_IDLE_MS) {
+    return 'subagents';
+  }
+  return null;
+}
+
+/**
+ * How long a status must hold before the queue acts on it. An Esc produces a
+ * Stop (→ `waiting`) at once, but the cancel mark follows only when the server
+ * has read the transcript (150 ms, again at 600 ms); acting on `waiting` the
+ * instant it appears could send before the mark lands. Below the 1 s tick, so
+ * a settled status is acted on at the next tick — one tick of latency on every
+ * send.
+ */
+export const STATUS_SETTLE_MS = 800;
+
+/** A session status, the activity time it came with, and when this client first saw them. */
+export interface StatusSeen {
+  status: string;
+  activityAt?: number;
+  since: number;
+}
+
+/**
+ * Keep the original timestamp while nothing changed; restart it when the
+ * status changes or the activity time moves. The second matters: a prompt and
+ * its Esc can both land between two ticks, so the status reads `waiting`
+ * before and after, and only `lastActivityAt` shows a new turn ended.
+ */
+export function trackStatus(prev: StatusSeen | undefined, status: string, now: number, activityAt?: number): StatusSeen {
+  return prev && prev.status === status && prev.activityAt === activityAt ? prev : { status, activityAt, since: now };
+}
+
+/**
+ * The one item a held queue may send: one you forced with ⚡ NOW. Not
+ * pickNext, whose first rule resumes an in-flight chain — while held that is
+ * the very chain you just stopped. A forced row of that chain itself resumes
+ * it; otherwise the first forced row goes. Disabled rows never.
+ */
+export function pickWhileHeld(items: QueueItem[]): QueueItem | null {
+  const forced = items.filter((it) => !it.disabled && it.forceStart);
+  return forced.find(isExecuting) ?? forced[0] ?? null;
+}
+
+/** Has this status held for at least STATUS_SETTLE_MS? */
+export function statusSettled(seen: StatusSeen, now: number): boolean {
+  return now - seen.since >= STATUS_SETTLE_MS;
+}
+
+/**
  * True iff this LOOP item is currently silenced by either its own
  * `excludeWindows` or the supplied session-level windows. Used by the UI
  * to show "— in quiet hours —" instead of a misleading "due now" when the
@@ -489,6 +570,41 @@ export function advanceBlockedLoops(
  * a queue that waits, and the cost of being too short is prompts that collide.
  */
 export const NO_WORK_FALLBACK_MS = 300_000;
+
+/**
+ * The no-work fallback when the session's `autoEnter` is OFF.
+ *
+ * With autoEnter off, `sendToTerminal` types the prompt into the terminal and
+ * deliberately does NOT press Enter — the human decides when to submit (or
+ * whether to at all). Until they do, the CLI never receives the prompt, so
+ * NEITHER acceptance signal `gateAccepted` checks can ever fire: no busy
+ * status, no hook event, nothing. That is not a stuck queue, it's the
+ * feature working as designed — but it looks EXACTLY like the "CLI never
+ * acknowledged at all" case `NO_WORK_FALLBACK_MS` exists to recover from.
+ *
+ * Using the same 5-minute value here meant the gate released on a perfectly
+ * normal review pause and typed the NEXT queued prompt on top of the still-
+ * unsent one — no separator, concatenated into one unsendable string. Four
+ * queued items left untouched for 20+ minutes produced exactly that.
+ *
+ * This is deliberately much longer than `NO_WORK_FALLBACK_MS`, not infinite:
+ * an autoEnter-off item nobody ever submits still eventually releases its
+ * session's queue rather than blocking it forever, matching this fallback's
+ * original purpose — it just no longer races a normal human reaction time to
+ * do it. Resolve via `resolveNoWorkFallbackMs`, never inline a literal here.
+ */
+export const NO_WORK_FALLBACK_NO_AUTOENTER_MS = 30 * 60_000; // 30 minutes
+
+/**
+ * Which no-work fallback a gate should use this tick, based on whether the
+ * session's autoEnter is on. The ONLY reason this exists as its own function
+ * rather than an inline ternary at each call site: it is the one place that
+ * decides it, so a future change to either constant, or to the condition
+ * itself, cannot update one gate's call site and miss the other's.
+ */
+export function resolveNoWorkFallbackMs(autoEnter: boolean): number {
+  return autoEnter ? NO_WORK_FALLBACK_MS : NO_WORK_FALLBACK_NO_AUTOENTER_MS;
+}
 
 export interface ChainGate {
   /** The in-flight item this gate guards. Cleared/reset when the item id changes. */

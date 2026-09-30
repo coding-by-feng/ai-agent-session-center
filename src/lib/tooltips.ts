@@ -112,13 +112,50 @@ export const tooltips = {
     label: 'Speak latest output',
     description: 'Hold to read the most recent terminal output aloud via TTS. Hold Space when focused.',
   },
-  termSpeakLocal: {
-    label: 'Read output aloud (offline)',
-    description: 'Click to read the terminal output aloud with the on-device English voice (Kokoro). Click again to stop. First use downloads the model.',
-  },
   termReconnect: {
     label: 'Reconnect terminal',
     description: 'Re-establish the PTY/SSH connection if it dropped. Buffer is restored on reconnect.',
+  },
+  ctrlRcDaemonOn: {
+    label: 'Auto-relink on',
+    description: 'When this session goes idle, its Claude Code Remote Control link '
+      + 'is refreshed (disconnect + reconnect) so it keeps showing as live in the '
+      + 'Claude app. At most once every 30 minutes. Click to turn off.',
+  },
+  ctrlRcDaemonOff: {
+    label: 'Auto-relink off',
+    description: 'This session will not refresh its Claude Code Remote Control link. '
+      + 'Click to keep it alive automatically when the session goes idle.',
+  },
+  ctrlRemoteVisibleOn: {
+    label: 'Visible to other devices',
+    description: 'Phones and other devices on your network can see and open this '
+      + 'session. Click to hide it again.',
+  },
+  ctrlRemoteVisibleOff: {
+    label: 'Host-only',
+    description: 'Hidden from every device except this Mac — its list entry, live '
+      + 'terminal output and history are all withheld. Click to share it.',
+  },
+  termAiPopupOn: {
+    label: 'AI popup on',
+    description: 'Selecting terminal text opens the Explain / Translate menu. '
+      + 'Click to turn it off for this session only.',
+  },
+  termAiPopupOff: {
+    label: 'AI popup off',
+    description: 'Selecting terminal text will NOT open the Explain / Translate '
+      + 'menu in this session. Click to turn it back on.',
+  },
+  termWrapOn: {
+    label: 'Wrapping lines',
+    description: 'Long lines wrap to fit the screen — easier for reading prose, '
+      + 'but box drawing and tables lose their alignment. Click to pan instead.',
+  },
+  termWrapOff: {
+    label: 'Panning (no wrap)',
+    description: "Lines render at the terminal's real width — swipe sideways to "
+      + 'read long ones. Box drawing, tables and diffs stay aligned. Click to wrap.',
   },
   termAutoScrollOn: {
     label: 'Auto-scroll on',
@@ -127,10 +164,6 @@ export const tooltips = {
   termAutoScrollOff: {
     label: 'Auto-scroll off',
     description: 'Auto-scroll is disabled — your scroll position stays put. Click to re-enable.',
-  },
-  termBookmark: {
-    label: 'Terminal bookmarks',
-    description: 'Select text in the terminal first, then click to save it. Click again to open the bookmark panel.',
   },
   termClone: {
     label: 'Clone session',

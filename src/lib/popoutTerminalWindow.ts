@@ -174,8 +174,11 @@ export async function openFloatWindow(opts: {
       return { placed: 'window' };
     } catch {
       // Extremely unlikely for a same-origin relative navigation, but if it
-      // does happen, fall through to the ordinary fresh-open path below
-      // rather than leaving the placeholder stranded on screen.
+      // does happen, close the placeholder before falling through to the
+      // fresh-open path below — otherwise it strands on screen, blank,
+      // while the caller separately acts on whatever outcome that fresh
+      // attempt returns.
+      try { opts.preopened.close(); } catch { /* already closed — fine */ }
     }
   }
 

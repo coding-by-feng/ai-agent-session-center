@@ -2,7 +2,7 @@
  * QuickSessionModal - Quick-launch a session with label selection.
  * Reuses last working directory from history, allows label + workdir override.
  */
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import Modal from '@/components/ui/Modal';
 import Combobox from '@/components/ui/Combobox';
 import BrowseDirButton from '@/components/ui/BrowseDirButton';
@@ -142,16 +142,17 @@ export default function QuickSessionModal() {
     saveCommand(command || 'claude');
 
     try {
-      let terminalId: string | undefined;
-
       const remoteControlPayload =
         isClaudeCommand && enableRemoteControl && effectiveRemoteControlName
           ? effectiveRemoteControlName
           : undefined;
 
-      // Electron: use IPC to create PTY directly (VS Code-style)
-      if (window.electronAPI?.createPty) {
-        const result = await window.electronAPI.createPty({
+      // Server PTY only: a pty-* terminal is invisible to the queue, auto-resume and other devices.
+      const res = await fetch('/api/terminals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          host: window.location.hostname || 'localhost',
           workingDir: workingDir || '~',
           command: command || 'claude',
           label: selectedLabel || undefined,
@@ -160,37 +161,15 @@ export default function QuickSessionModal() {
           model: model || undefined,
           enableOpsTerminal: enableOpsTerminal || undefined,
           remoteControlName: remoteControlPayload,
-        });
-        if (!result.ok) {
-          showToast(result.error || 'Failed to create terminal', 'error');
-          return;
-        }
-        terminalId = result.terminalId;
-      } else {
-        // Browser: use HTTP API (existing path)
-        const res = await fetch('/api/terminals', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            host: window.location.hostname || 'localhost',
-            workingDir: workingDir || '~',
-            command: command || 'claude',
-            label: selectedLabel || undefined,
-            sessionTitle: sessionTitle.trim() || undefined,
-            effortLevel: effortLevel || undefined,
-            model: model || undefined,
-            enableOpsTerminal: enableOpsTerminal || undefined,
-            remoteControlName: remoteControlPayload,
-            forceNew: true,
-          }),
-        });
-        const data = await res.json();
-        if (!data.ok) {
-          showToast(data.error || 'Failed to launch session', 'error');
-          return;
-        }
-        terminalId = data.terminalId;
+          forceNew: true,
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        showToast(data.error || 'Failed to launch session', 'error');
+        return;
       }
+      const terminalId: string | undefined = data.terminalId;
 
       saveSessionPrefs({ model: model || undefined, effortLevel: effortLevel || undefined });
       saveRemoteControlSettings({

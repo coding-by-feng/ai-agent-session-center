@@ -12,7 +12,10 @@ import { useRoomStore, type Room } from '@/stores/roomStore';
 import { useLabelStore } from '@/stores/labelStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { useDropdownFlipX } from '@/hooks/useDropdownFlipX';
-import { sortSessionsByActivity } from '@/lib/sessionSort';
+import { useRoomDragReorder } from '@/hooks/useRoomDragReorder';
+import type { RoomDragRect } from '@/lib/roomDragReorder';
+import { sortSessionsByActivity, numberedSessions } from '@/lib/sessionSort';
+import { pickRecentSessions, RECENT_TICK_MS, RECENT_WINDOW_MS } from '@/lib/recentSessions';
 import LabelPicker, { LabelChip } from './LabelPicker';
 import DetachIcon from '@/components/ui/DetachIcon';
 import Tooltip from '@/components/ui/Tooltip';
@@ -30,13 +33,8 @@ const STATUS_COLORS: Record<string, string> = {
   connecting: 'var(--text-dim)',
 };
 
-const STATUS_ORDER: Record<string, number> = {
-  working: 0, prompting: 1, approval: 2, input: 2,
-  waiting: 3, idle: 4, connecting: 5, ended: 6,
-};
-
 // Ordered status → human label for the colour-legend popover. Order follows
-// STATUS_ORDER; each swatch is drawn from STATUS_COLORS, so the legend always
+// STATUS_ORDER (lib/sessionSort.ts); each swatch is drawn from STATUS_COLORS, so the legend always
 // reflects the active theme's accent palette (body[data-theme]).
 const STATUS_LEGEND: ReadonlyArray<{ status: string; label: string }> = [
   { status: 'working', label: 'Working' },
@@ -151,7 +149,14 @@ function getRoomColor(room: Room): string {
 
 type TabRenderItem =
   | { type: 'session'; session: Session }
-  | { type: 'room'; room: Room; sessions: Session[]; color: string };
+  | { type: 'room'; room: Room; sessions: Session[]; color: string }
+  // The built-in RECENT frame. Not a Room: nothing stores it, and it is not
+  // part of room reordering (visibleRoomIds keeps only type 'room').
+  | { type: 'recent'; sessions: Session[] };
+
+const RECENT_FRAME_KEY = 'builtin:recent';
+const RECENT_FRAME_TITLE =
+  `Recent: sessions with activity in the last ${RECENT_WINDOW_MS / 60_000} min. Each is also listed in its own room.`;
 
 /** Detect CLI tool from session command */
 function getCliBadge(session: Session): string | null {
@@ -233,6 +238,75 @@ function KillRoomIcon() {
       <path d="M8 8.1l-.7 1.3h1.4L8 8.1Z" fill="currentColor" />
       {/* teeth */}
       <path d="M6.2 12v1.4M8 12v1.4M9.8 12v1.4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Six-dot grip — "drag to reorder this room". Purely a visual affordance;
+ *  the actual `onPointerDown` lives on the wrapping non-button span (see
+ *  `.roomDragHandle`), not on this glyph. The span carries a deliberately
+ *  oversized hit box (see the CSS) — the glyph is 8x12, which is a quarter of
+ *  the 44x44 touch minimum and hard to land on with a trackpad. */
+function RoomDragHandleIcon() {
+  return (
+    <svg width="8" height="12" viewBox="0 0 8 12" fill="currentColor" aria-hidden="true">
+      <circle cx="2" cy="2" r="1.1" />
+      <circle cx="6" cy="2" r="1.1" />
+      <circle cx="2" cy="6" r="1.1" />
+      <circle cx="6" cy="6" r="1.1" />
+      <circle cx="2" cy="10" r="1.1" />
+      <circle cx="6" cy="10" r="1.1" />
+    </svg>
+  );
+}
+
+/** Up arrow WITH A SHAFT — move this room one slot earlier in the list.
+ *
+ *  The shaft is the entire point, not decoration. These two buttons used to
+ *  be bare chevrons, which is also the collapse toggle's glyph — so the room
+ *  header row carried two pixel-similar down-chevrons two slots apart, one
+ *  folding the room and one moving it, with nothing but position to tell them
+ *  apart. Arrow-with-shaft (movement) vs triangle (disclosure) are different
+ *  glyph FAMILIES, which survives being 10px tall and dimmed to 60% opacity
+ *  in a way "slightly different chevron angle" does not. Paired with the
+ *  divider that groups these two away from the collapse control. */
+function MoveRoomUpIcon() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M6 10.2V2.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <polyline points="2.7 5.7 6 2.4 9.3 5.7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Down arrow WITH A SHAFT — move this room one slot later in the list.
+ *  Mirror of `MoveRoomUpIcon`; see that comment for why it is not a chevron. */
+function MoveRoomDownIcon() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M6 1.8V9.6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <polyline points="2.7 6.3 6 9.6 9.3 6.3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Filled disclosure triangle — folds/unfolds a room frame. Rotates -90deg
+ *  when collapsed, same as the chevron it replaced. Solid, not stroked: it
+ *  has to read as a different KIND of control from the stroked reorder arrows
+ *  beside it, and a filled mass does that at 10px where a thinner or wider
+ *  chevron would not. */
+function RoomCollapseIcon({ collapsed }: { collapsed: boolean }) {
+  return (
+    <svg
+      width="9"
+      height="9"
+      viewBox="0 0 12 12"
+      fill="currentColor"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      style={{ transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s ease' }}
+    >
+      <path d="M1.9 3.9h8.2a.55.55 0 0 1 .43.89l-4.1 4.6a.55.55 0 0 1-.86 0l-4.1-4.6a.55.55 0 0 1 .43-.89Z" />
     </svg>
   );
 }
@@ -445,10 +519,19 @@ export default function SessionSwitcher({
       }
       prevStatusRef.current.set(s.sessionId, s.status);
     });
+    // Viewing a session acknowledges its completion. The strip click path
+    // clears it in handleSwitch, but a session can also become current via
+    // the sidebar, Cmd+N or Cmd+E — and since the current session is listed
+    // too, its stale ✓ would otherwise sit on the current card.
+    if (next.delete(currentSession.sessionId)) changed = true;
     if (changed) setAttentionIds(next);
   }, [sessions, currentSession.sessionId, attentionIds]);
 
   const handleSwitch = useCallback((id: string) => {
+    // The current session is listed too. Re-selecting it would record it as
+    // its own "previous session" (selectSession stores the outgoing id), which
+    // silently breaks the switch-to-previous shortcut — so it is a no-op.
+    if (id === currentSession.sessionId) return;
     setAttentionIds((prev) => {
       if (!prev.has(id)) return prev;
       const next = new Set(prev);
@@ -456,7 +539,7 @@ export default function SessionSwitcher({
       return next;
     });
     onSwitch(id);
-  }, [onSwitch]);
+  }, [onSwitch, currentSession.sessionId]);
   const cardDisplayMode = useUiStore((s) => s.cardDisplayMode);
   const toggleCardDisplayMode = useUiStore((s) => s.toggleCardDisplayMode);
   const navPosition = useUiStore((s) => s.navPosition);
@@ -467,6 +550,8 @@ export default function SessionSwitcher({
   const toggleNavRailCollapsed = useUiStore((s) => s.toggleNavRailCollapsed);
   const sessionSortMode = useUiStore((s) => s.sessionSortMode);
   const toggleSessionSortMode = useUiStore((s) => s.toggleSessionSortMode);
+  const recentRoomCollapsed = useUiStore((s) => s.recentRoomCollapsed);
+  const toggleRecentRoomCollapsed = useUiStore((s) => s.toggleRecentRoomCollapsed);
   const openRoomKill = useUiStore((s) => s.openRoomKill);
   const sortByActivity = sessionSortMode === 'activity';
   // Vertical rail only when docked-left AND not maximized
@@ -476,6 +561,7 @@ export default function SessionSwitcher({
   const isRailCollapsed = isVertical && navRailCollapsed;
   const rooms = useRoomStore((s) => s.rooms);
   const toggleRoomCollapse = useRoomStore((s) => s.toggleCollapse);
+  const setRoomListOrder = useRoomStore((s) => s.setListOrder);
 
   const selectedRoomIds = useUiStore((s) => s.selectedRoomIds);
   const toggleRoomFilter = useUiStore((s) => s.toggleRoomFilter);
@@ -533,18 +619,14 @@ export default function SessionSwitcher({
     return parts.join('\n');
   }, [sessions, sortByActivity]);
 
-  // Build globally indexed session list (all active, sorted), then split out "others"
+  // Build the globally indexed session list (all active, sorted). The current
+  // session stays IN it: dropping it (the strip began as a "switch to another
+  // session" list) also removed any room whose only session was the current
+  // one, so the room you were working in vanished from the rail.
   const { sortedSessions, sessionIndexMap, currentIndex } = useMemo(() => {
-    const allActive = [...sessions.values()]
-      .filter((s) => s.status !== 'ended')
-      .sort((a, b) => {
-        if (a.pinned && !b.pinned) return -1;
-        if (!a.pinned && b.pinned) return 1;
-        const oa = STATUS_ORDER[a.status] ?? 5;
-        const ob = STATUS_ORDER[b.status] ?? 5;
-        if (oa !== ob) return oa - ob;
-        return (a.title || a.projectName || '').localeCompare(b.title || b.projectName || '');
-      });
+    // The badge numbers. numberedSessions is shared with Alt+⌘+1…9 and the
+    // "go to session #" box, so a number typed is the number shown here.
+    const allActive = numberedSessions(sessions.values());
     // The index map is always built from the status ordering above, never from
     // the activity ordering: these numbers are the session's identity in the
     // strip (and in keyboard switching), so flat mode must reorder rows without
@@ -555,9 +637,8 @@ export default function SessionSwitcher({
       indexMap.set(s.sessionId, i + 1);
       if (s.sessionId === currentSession.sessionId) curIdx = i + 1;
     });
-    const others = allActive.filter((s) => s.sessionId !== currentSession.sessionId);
     return {
-      sortedSessions: sortByActivity ? sortSessionsByActivity(others) : others,
+      sortedSessions: sortByActivity ? sortSessionsByActivity(allActive) : allActive,
       sessionIndexMap: indexMap,
       currentIndex: curIdx,
     };
@@ -565,6 +646,24 @@ export default function SessionSwitcher({
     // excluded so unchanged-content re-renders skip the sort.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionsSignature, currentSession.sessionId, sortByActivity]);
+
+  // ---- Built-in RECENT frame (room mode only) ----
+  // Membership depends on the clock as well as on updates: a session leaves
+  // RECENT when it has been quiet for the whole window, and no update arrives
+  // to say so. The tick re-checks once a minute.
+  const [recentNow, setRecentNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setRecentNow(Date.now()), RECENT_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+  // The RECENT ids in order, as one string. It is rebuilt from the fresh
+  // `sessions` on every update and tick, but it only changes when a session
+  // joins, leaves or moves, so everything downstream stays put otherwise.
+  const recentIdsKey = useMemo(() => {
+    if (sortByActivity) return '';
+    const live = [...sessions.values()].filter((s) => s.status !== 'ended');
+    return pickRecentSessions(live, recentNow).map((s) => s.sessionId).join('\n');
+  }, [sessions, sortByActivity, recentNow]);
 
   // Rooms that have at least one session in the current active list
   const activeSessionIds = useMemo(() => {
@@ -578,7 +677,8 @@ export default function SessionSwitcher({
     [rooms, activeSessionIds],
   );
 
-  // Apply room filter to the tab strip (current session is never filtered out)
+  // Apply the room filter to the tab strip. It treats the current session's
+  // card like any other; the header above the strip always shows it.
   const filteredSessions = useMemo(() => {
     if (selectedRoomIds.size === 0) return sortedSessions;
     const allowedIds = new Set<string>();
@@ -610,8 +710,26 @@ export default function SessionSwitcher({
 
     const items: TabRenderItem[] = [];
 
+    // RECENT goes first. Its sessions also stay in their own rooms below, and
+    // it takes them from filteredSessions, so the room filter narrows it too.
+    if (recentIdsKey) {
+      const shown = new Map(filteredSessions.map((s) => [s.sessionId, s]));
+      const recent = recentIdsKey.split('\n').flatMap((id) => {
+        const s = shown.get(id);
+        return s ? [s] : [];
+      });
+      if (recent.length > 0) items.push({ type: 'recent', sessions: recent });
+    }
+
+    // listOrder is the LIST's own order, independent of roomIndex (the 3D
+    // scene's world-space room slot — reordering here must never touch that,
+    // see Room.roomIndex's own comment). Falling back to roomIndex, then
+    // array order, means existing rooms keep today's visible order until the
+    // user actually drags/clicks a room for the first time.
     const orderedRooms = [...rooms].sort(
-      (a, b) => (a.roomIndex ?? Number.MAX_SAFE_INTEGER) - (b.roomIndex ?? Number.MAX_SAFE_INTEGER),
+      (a, b) =>
+        (a.listOrder ?? a.roomIndex ?? Number.MAX_SAFE_INTEGER) -
+        (b.listOrder ?? b.roomIndex ?? Number.MAX_SAFE_INTEGER),
     );
 
     for (const room of orderedRooms) {
@@ -628,7 +746,56 @@ export default function SessionSwitcher({
     }
 
     return items;
-  }, [filteredSessions, rooms, sortByActivity]);
+  }, [filteredSessions, rooms, sortByActivity, recentIdsKey]);
+
+  // ---- Room reorder (drag + ▲/▼) — writes ONLY listOrder, never roomIndex ----
+  // Scoped to rooms that actually render a frame right now (a room with no
+  // sessions passing the active filter has nothing to grab or drop onto) —
+  // "adjacent" must mean visually adjacent, not adjacent in the full rooms
+  // array, or a click on ▼ could jump over an invisible room with no
+  // observable effect.
+  const visibleRoomIds = useMemo(
+    () => tabRenderItems.filter((i) => i.type === 'room').map((i) => i.room.id),
+    [tabRenderItems],
+  );
+
+  const roomElsRef = useRef<Map<string, HTMLElement>>(new Map());
+  const registerRoomEl = useCallback((id: string, el: HTMLElement | null) => {
+    if (el) roomElsRef.current.set(id, el);
+    else roomElsRef.current.delete(id);
+  }, []);
+  const getRoomDragRects = useCallback((): RoomDragRect[] => {
+    const out: RoomDragRect[] = [];
+    for (const id of visibleRoomIds) {
+      const el = roomElsRef.current.get(id);
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      out.push({ id, top: r.top, bottom: r.bottom });
+    }
+    return out;
+  }, [visibleRoomIds]);
+
+  /** Stamp a dense 0..N-1 listOrder across every visible room in `nextIds`'
+   *  order. Re-normalizing on every commit (not just patching the two that
+   *  moved) means a room's listOrder never depends on a borrowed roomIndex or
+   *  MAX_SAFE_INTEGER value from before its first-ever reorder. */
+  const commitRoomOrder = useCallback((nextIds: string[]) => {
+    nextIds.forEach((id, i) => setRoomListOrder(id, i));
+  }, [setRoomListOrder]);
+
+  // The frame the hook writes the carry offset onto and settles on drop.
+  const getRoomEl = useCallback((id: string) => roomElsRef.current.get(id), []);
+
+  const roomDrag = useRoomDragReorder(visibleRoomIds, getRoomDragRects, commitRoomOrder, getRoomEl);
+
+  const moveRoom = useCallback((roomId: string, direction: -1 | 1) => {
+    const idx = visibleRoomIds.indexOf(roomId);
+    const swapIdx = idx + direction;
+    if (idx === -1 || swapIdx < 0 || swapIdx >= visibleRoomIds.length) return;
+    const next = [...visibleRoomIds];
+    [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+    commitRoomOrder(next);
+  }, [visibleRoomIds, commitRoomOrder]);
 
   const selectedRoomNames = useMemo(() => {
     if (selectedRoomIds.size === 0) return '';
@@ -654,14 +821,22 @@ export default function SessionSwitcher({
   const [headerDraft, setHeaderDraft] = useState(primaryName);
   const headerInputRef = useRef<HTMLInputElement | null>(null);
 
+  /** What the rename box was pre-filled with. An untitled session pre-fills
+   *  its project name, and saving that untouched would be a manual rename —
+   *  which permanently suppresses the automatic title from the first prompt.
+   *  So only text the user actually changed is ever saved. */
+  const headerEditFrom = useRef('');
+
   const beginHeaderEdit = useCallback(() => {
-    setHeaderDraft(currentSession.title || currentSession.projectName || '');
+    const initial = currentSession.title || currentSession.projectName || '';
+    headerEditFrom.current = initial.trim();
+    setHeaderDraft(initial);
     setHeaderEditing(true);
   }, [currentSession.title, currentSession.projectName]);
 
   const commitHeaderEdit = useCallback(() => {
     const trimmed = headerDraft.trim();
-    if (trimmed && trimmed !== currentSession.title) {
+    if (trimmed && trimmed !== headerEditFrom.current && trimmed !== currentSession.title) {
       useSessionStore.getState().setSessionTitle(currentSession.sessionId, trimmed);
     }
     setHeaderEditing(false);
@@ -1136,8 +1311,53 @@ export default function SessionSwitcher({
 
       {/* ── Session tab strip ── (hidden when the panel is maximized) */}
       {!maximized && filteredSessions.length > 0 && (
-        <div className={styles.sessionTabStrip}>
+        <div className={`${styles.sessionTabStrip}${roomDrag.draggingId ? ` ${styles.roomDragActive}` : ''}`}>
           {tabRenderItems.map((item) => {
+            if (item.type === 'recent') {
+              return (
+                <div
+                  key={RECENT_FRAME_KEY}
+                  className={`${styles.sessionTabRoomGroup} ${styles.recentRoomGroup}${recentRoomCollapsed ? ` ${styles.sessionTabRoomGroupCollapsed}` : ''}`}
+                  title={RECENT_FRAME_TITLE}
+                >
+                  <span className={styles.sessionTabRoomGroupLabel}>Recent</span>
+                  {/* Collapse is the only control. RECENT is worked out from
+                      activity, so there is nothing to drag, reorder, rename,
+                      or kill as a group. */}
+                  <div className={styles.roomHeaderRow}>
+                    <button
+                      type="button"
+                      className={styles.roomCollapseToggle}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleRecentRoomCollapsed();
+                      }}
+                      title={recentRoomCollapsed ? 'Expand Recent' : 'Collapse Recent'}
+                      aria-label={recentRoomCollapsed ? 'Expand Recent' : 'Collapse Recent'}
+                      aria-expanded={!recentRoomCollapsed}
+                    >
+                      <RoomCollapseIcon collapsed={recentRoomCollapsed} />
+                    </button>
+                    {recentRoomCollapsed && (
+                      <span className={styles.roomCollapsedCount}>{item.sessions.length}</span>
+                    )}
+                  </div>
+                  {!recentRoomCollapsed &&
+                    item.sessions.map((s) => (
+                      <SessionTabCard
+                        key={s.sessionId}
+                        session={s}
+                        isCurrent={s.sessionId === currentSession.sessionId}
+                        isRecentCopy
+                        onSwitch={handleSwitch}
+                        isCompact={isCompact}
+                        index={sessionIndexMap.get(s.sessionId) ?? 0}
+                        needsAttention={s.sessionId !== currentSession.sessionId && attentionIds.has(s.sessionId)}
+                      />
+                    ))}
+                </div>
+              );
+            }
             if (item.type === 'room') {
               const collapsed = item.room.collapsed;
               // Live (killable) sessions in this room, independent of the room
@@ -1147,20 +1367,58 @@ export default function SessionSwitcher({
                 const s = sessions.get(id);
                 return s && s.status !== 'ended' ? n + 1 : n;
               }, 0);
+              const roomVisualIndex = visibleRoomIds.indexOf(item.room.id);
+              const isFirstRoom = roomVisualIndex <= 0;
+              const isLastRoom = roomVisualIndex === visibleRoomIds.length - 1;
+              // How far this frame slides aside while another room is carried
+              // past it (the opened slot is the drop indicator — there is no
+              // separate caret). Unset outside a drag and for unpassed rooms.
+              const roomShift = roomDrag.shifts.get(item.room.id);
               return (
                 <div
                   key={item.room.id}
-                  className={`${styles.sessionTabRoomGroup}${collapsed ? ` ${styles.sessionTabRoomGroupCollapsed}` : ''}`}
-                  style={{ '--room-color': item.color } as React.CSSProperties}
+                  ref={(el) => registerRoomEl(item.room.id, el)}
+                  className={`${styles.sessionTabRoomGroup}${collapsed ? ` ${styles.sessionTabRoomGroupCollapsed}` : ''}${roomDrag.draggingId === item.room.id ? ` ${styles.roomGroupDragging}` : ''}`}
+                  style={{
+                    '--room-color': item.color,
+                    '--room-shift': roomShift ? `${roomShift}px` : undefined,
+                  } as React.CSSProperties}
                   title={item.room.name}
                 >
                   <span className={styles.sessionTabRoomGroupLabel}>{item.room.name}</span>
-                  {/* Header controls live in one flex row so the collapse chevron
-                      and the kill-all skull stay on the SAME line — in the vertical
-                      rail the group itself is a column, which would otherwise stack
-                      each icon onto its own row. The session cards render as
-                      siblings below and keep their column stacking. */}
+                  {/* Header controls live in one flex row so the drag handle,
+                      collapse chevron, ▲▼ reorder buttons and the kill-all
+                      skull all stay on the SAME line — in the vertical rail
+                      the group itself is a column, which would otherwise
+                      stack each icon onto its own row. The session cards
+                      render as siblings below and keep their column stacking.
+                      Order is deliberate: grab (drag) → structural (collapse)
+                      → reorder (▲▼) → destructive (skull) LAST, so the two
+                      reorder buttons never sit immediately next to the
+                      one-click "kill all" action.
+                      The hairline dividers are load-bearing, not decoration:
+                      collapse and "move down" were previously two near-
+                      identical down-chevrons two slots apart. The glyphs now
+                      differ by family (filled triangle vs arrow-with-shaft)
+                      AND the dividers separate them into clusters, so the
+                      distinction survives even if one of the two is ever
+                      restyled back toward the other. */}
                   <div className={styles.roomHeaderRow}>
+                    {/* Rail only. In the top bar the rooms sit side by side,
+                        but the drop math (computeRoomInsertIndex) compares Y
+                        only, so a drag there could never land where it was
+                        released — and the carry preview's vertical slides
+                        would visibly break the row. ▲▼ still reorder there. */}
+                    {isVertical && (
+                      <span
+                        className={styles.roomDragHandle}
+                        title="Drag to reorder this room"
+                        aria-hidden="true"
+                        onPointerDown={(e) => roomDrag.onPointerDown(e, item.room.id)}
+                      >
+                        <RoomDragHandleIcon />
+                      </span>
+                    )}
                     <button
                       type="button"
                       className={styles.roomCollapseToggle}
@@ -1172,21 +1430,38 @@ export default function SessionSwitcher({
                       aria-label={collapsed ? `Expand room ${item.room.name}` : `Collapse room ${item.room.name}`}
                       aria-expanded={!collapsed}
                     >
-                      <svg
-                        width="11"
-                        height="11"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        style={{ transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s ease' }}
-                      >
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
+                      <RoomCollapseIcon collapsed={collapsed} />
+                    </button>
+                    <span className={styles.roomHeaderDivider} aria-hidden="true" />
+                    <button
+                      type="button"
+                      className={styles.roomMoveToggle}
+                      disabled={isFirstRoom}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        moveRoom(item.room.id, -1);
+                      }}
+                      title={`Move ${item.room.name} up`}
+                      aria-label={`Move room ${item.room.name} up`}
+                    >
+                      <MoveRoomUpIcon />
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.roomMoveToggle}
+                      disabled={isLastRoom}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        moveRoom(item.room.id, 1);
+                      }}
+                      title={`Move ${item.room.name} down`}
+                      aria-label={`Move room ${item.room.name} down`}
+                    >
+                      <MoveRoomDownIcon />
                     </button>
                     {roomLiveCount > 0 && (
+                      <>
+                      <span className={styles.roomHeaderDivider} aria-hidden="true" />
                       <button
                         type="button"
                         className={styles.roomKillToggle}
@@ -1199,6 +1474,7 @@ export default function SessionSwitcher({
                       >
                         <KillRoomIcon />
                       </button>
+                      </>
                     )}
                     {collapsed && (
                       <span className={styles.roomCollapsedCount}>{item.sessions.length}</span>
@@ -1209,10 +1485,11 @@ export default function SessionSwitcher({
                       <SessionTabCard
                         key={s.sessionId}
                         session={s}
+                        isCurrent={s.sessionId === currentSession.sessionId}
                         onSwitch={handleSwitch}
                         isCompact={isCompact}
                         index={sessionIndexMap.get(s.sessionId) ?? 0}
-                        needsAttention={attentionIds.has(s.sessionId)}
+                        needsAttention={s.sessionId !== currentSession.sessionId && attentionIds.has(s.sessionId)}
                       />
                     ))}
                 </div>
@@ -1222,10 +1499,11 @@ export default function SessionSwitcher({
               <SessionTabCard
                 key={item.session.sessionId}
                 session={item.session}
+                isCurrent={item.session.sessionId === currentSession.sessionId}
                 onSwitch={handleSwitch}
                 isCompact={isCompact}
                 index={sessionIndexMap.get(item.session.sessionId) ?? 0}
-                needsAttention={attentionIds.has(item.session.sessionId)}
+                needsAttention={item.session.sessionId !== currentSession.sessionId && attentionIds.has(item.session.sessionId)}
               />
             );
           })}
@@ -1237,12 +1515,20 @@ export default function SessionSwitcher({
 
 function SessionTabCard({
   session,
+  isCurrent = false,
+  isRecentCopy = false,
   onSwitch,
   isCompact,
   index,
   needsAttention,
 }: {
   session: Session;
+  /** The session this panel is showing — listed like the rest, marked apart. */
+  isCurrent?: boolean;
+  /** This card is the RECENT frame's second listing of the session. It looks
+   *  the same, but leaves aria-current to the copy in the session's own room:
+   *  one list should announce one current item. */
+  isRecentCopy?: boolean;
   onSwitch: (id: string) => void;
   isCompact: boolean;
   index: number;
@@ -1268,16 +1554,26 @@ function SessionTabCard({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  /** Pre-fill of the rename box — see headerEditFrom in SessionSwitcher. */
+  const editFrom = useRef('');
+  /** Was this card already the current one when the click sequence began?
+   *  Its first click switches to it and the card now stays put (the current
+   *  session is listed), so the second click's dblclick lands here: that
+   *  double-click means "open", not "rename". */
+  const currentAtPress = useRef(false);
 
   const beginEdit = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    setDraft(session.title || session.projectName || '');
+    if (!currentAtPress.current) return;
+    const initial = session.title || session.projectName || '';
+    editFrom.current = initial.trim();
+    setDraft(initial);
     setEditing(true);
   }, [session.title, session.projectName]);
 
   const commitEdit = useCallback(() => {
     const trimmed = draft.trim();
-    if (trimmed && trimmed !== session.title) {
+    if (trimmed && trimmed !== editFrom.current && trimmed !== session.title) {
       useSessionStore.getState().setSessionTitle(session.sessionId, trimmed);
     }
     setEditing(false);
@@ -1296,8 +1592,12 @@ function SessionTabCard({
 
   return (
     <button
-      className={`${styles.sessionTabCard}${isCompact ? ` ${styles.sessionTabCardCompact}` : ''}`}
+      className={`${styles.sessionTabCard}${isCompact ? ` ${styles.sessionTabCardCompact}` : ''}${isCurrent ? ` ${styles.sessionTabCardCurrent}` : ''}`}
+      aria-current={isCurrent && !isRecentCopy ? 'true' : undefined}
       data-status={session.status}
+      onMouseDown={(e) => {
+        if (e.detail === 1) currentAtPress.current = isCurrent;
+      }}
       style={{ '--robot-color': color } as React.CSSProperties}
       onClick={() => onSwitch(session.sessionId)}
       title={[title, session.projectName, session.status].filter(Boolean).join(' · ')}
@@ -1382,7 +1682,7 @@ function SessionTabCard({
         <div
           className={styles.sessionTabTitle}
           onDoubleClick={beginEdit}
-          title="Double-click to rename"
+          title={isCurrent ? 'Double-click to rename' : undefined}
         >
           {queueLen > 0 && (
             <span

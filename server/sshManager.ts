@@ -22,6 +22,7 @@ import {
 } from './ptyRing.js';
 import { fanOutToSockets, type SubscriberSocket } from './ptySubscribers.js';
 import { scanChunk, clearFaultState } from './interruptionDetector.js';
+import { noteTerminalOutput, forgetTerminalOutput } from './terminalActivity.js';
 import type { FaultMatch } from './interruptionDetector.js';
 import type { PendingLink } from '../src/types/session.js';
 import type WebSocket from 'ws';
@@ -58,13 +59,17 @@ export function registerTerminalFaultCallback(cb: OnTerminalFaultCallback): void
  * synchronous-but-cheap (regex only, no I/O) so it is safe on the hot path.
  */
 function notePtyOutput(terminalId: string, data: string): void {
-  if (!onTerminalFaultCallback) return;
+  // A live turn keeps printing (spinner, timer, streamed text); the prompting
+  // auto-decay reads this to tell a busy turn from a prompt that never ran.
+  noteTerminalOutput(terminalId);
   try {
-    const fault = scanChunk(terminalId, data);
-    if (fault) onTerminalFaultCallback(terminalId, fault);
+    if (onTerminalFaultCallback) {
+      const fault = scanChunk(terminalId, data);
+      if (fault) onTerminalFaultCallback(terminalId, fault);
+    }
   } catch (e: unknown) {
     // Detection is best-effort — it must never break terminal streaming.
-    log.debug('pty', `Fault scan failed for ${terminalId}: ${(e as Error).message}`);
+    log.debug('pty', `Output scan failed for ${terminalId}: ${(e as Error).message}`);
   }
 }
 
@@ -891,6 +896,26 @@ export function maybeInjectUltracode(
   }
 }
 
+/**
+ * The PTY's CURRENT geometry, or null if the terminal is gone.
+ *
+ * A viewing device needs this because it must NOT resize the PTY to its own
+ * viewport: a phone in portrait measures ~49 columns, and pushing that to a
+ * 120-column PTY makes Claude Code hard-wrap its own output at 49 — damage
+ * xterm can never re-flow away, on every device, permanently. Reporting the
+ * real width instead lets a narrow client render at the PTY's size and pan,
+ * keeping box drawing and tables intact without touching the PTY at all.
+ *
+ * Read from `pty.cols`/`pty.rows` rather than a cached copy so it stays correct
+ * after any resize, whoever performed it.
+ */
+export function getTerminalGeometry(terminalId: string): { cols: number; rows: number } | null {
+  const term = terminals.get(terminalId);
+  if (!term?.pty) return null;
+  const { cols, rows } = term.pty;
+  return Number.isFinite(cols) && Number.isFinite(rows) ? { cols, rows } : null;
+}
+
 // #31: Returns error message on failure so wsManager can relay to client
 export function resizeTerminal(terminalId: string, cols: number, rows: number): string | null {
   const term = terminals.get(terminalId);
@@ -1193,6 +1218,7 @@ function cleanup(terminalId: string): void {
   // Terminal ids can be reused across a resume; a stale carry/dedupe entry
   // would make the new terminal's first banner look like a redraw of the old.
   clearFaultState(terminalId);
+  forgetTerminalOutput(terminalId);
   const term = terminals.get(terminalId);
   if (term) {
     // #19: Dispose event listeners to prevent memory leaks

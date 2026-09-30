@@ -15,6 +15,14 @@ export interface SetupConfig {
   debug: boolean
   sessionHistoryHours: number
   passwordHash?: string
+  /**
+   * Plaintext, write-only, and never persisted: `setup:save-config` hashes it
+   * in the main process (scrypt is Node-crypto-only, so the renderer cannot
+   * produce a hash `verifyPassword` would accept) and stores the result as
+   * `passwordHash`. Present on the payload sent TO the IPC, never on the
+   * config read back out.
+   */
+  password?: string
 }
 
 export interface InstallResult {

@@ -66,6 +66,12 @@ interface UiState {
    *  the content. Only takes effect when navPosition === 'left' && !maximized.
    *  Persisted to localStorage['nav-rail-collapsed']. */
   navRailCollapsed: boolean;
+  /** Is the rail's built-in RECENT frame folded? That frame is not a Room, so
+   *  this cannot live on room.collapsed. Persisted to
+   *  localStorage['recent-room-collapsed']. */
+  recentRoomCollapsed: boolean;
+  /** The "go to session #" box (SessionJumpOverlay) is open. Not persisted. */
+  sessionJumpOpen: boolean;
   /** Session strip ordering. Persisted to localStorage['session-sort-mode'].
    *  'activity' flattens the room frames away — see SessionSortMode. */
   sessionSortMode: SessionSortMode;
@@ -96,6 +102,9 @@ interface UiState {
   toggleMaximized: () => void;
   setNavRailCollapsed: (on: boolean) => void;
   toggleNavRailCollapsed: () => void;
+  toggleRecentRoomCollapsed: () => void;
+  openSessionJump: () => void;
+  closeSessionJump: () => void;
   toggleSessionSortMode: () => void;
   startWorkspaceLoad: (total: number) => void;
   advanceWorkspaceLoad: (done: number, currentTitle: string) => void;
@@ -113,11 +122,28 @@ function loadCardDisplayMode(): CardDisplayMode {
   }
 }
 
+/**
+ * Prompt Queue layout, defaulting to CARD (changed Aug 2026 — was 'list').
+ *
+ * Written as "explicitly 'list' wins, everything else is card" rather than
+ * "'card' wins, else list", so the three cases stay distinct:
+ *
+ *   absent      → card   (the new default: never toggled, or a fresh install)
+ *   'card'      → card
+ *   'list'      → list   (an explicit choice, preserved — NOT overridden)
+ *
+ * `toggleQueueViewMode` persists both values, so a stored 'list' really does
+ * mean the user picked it. Defaulting by flipping the comparison keeps that
+ * distinction; special-casing only 'card' would have silently forced everyone
+ * who deliberately chose list back onto the new default.
+ */
 function loadQueueViewMode(): QueueViewMode {
   try {
-    return localStorage.getItem('queue-view-mode') === 'card' ? 'card' : 'list';
+    return localStorage.getItem('queue-view-mode') === 'list' ? 'list' : 'card';
   } catch {
-    return 'list';
+    // localStorage unavailable (private mode / disabled site data) — fall back
+    // to the same default an unset key gets, not the old one.
+    return 'card';
   }
 }
 
@@ -132,6 +158,14 @@ function loadNavPosition(): NavPosition {
 function loadNavRailCollapsed(): boolean {
   try {
     return localStorage.getItem('nav-rail-collapsed') === '1';
+  } catch {
+    return false;
+  }
+}
+
+function loadRecentRoomCollapsed(): boolean {
+  try {
+    return localStorage.getItem('recent-room-collapsed') === '1';
   } catch {
     return false;
   }
@@ -182,6 +216,8 @@ export const useUiStore = create<UiState>((set) => ({
   navPosition: loadNavPosition(),
   maximized: false,
   navRailCollapsed: loadNavRailCollapsed(),
+  recentRoomCollapsed: loadRecentRoomCollapsed(),
+  sessionJumpOpen: false,
   sessionSortMode: loadSessionSortMode(),
   workspaceLoad: { active: false, total: 0, done: 0, currentTitle: '' },
   selectedRoomIds: loadRoomFilter(),
@@ -258,6 +294,18 @@ export const useUiStore = create<UiState>((set) => ({
       }
       return { navRailCollapsed: next };
     }),
+  toggleRecentRoomCollapsed: () =>
+    set((s) => {
+      const next = !s.recentRoomCollapsed;
+      try {
+        localStorage.setItem('recent-room-collapsed', next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return { recentRoomCollapsed: next };
+    }),
+  openSessionJump: () => set({ sessionJumpOpen: true }),
+  closeSessionJump: () => set({ sessionJumpOpen: false }),
   toggleSessionSortMode: () =>
     set((s) => {
       const next: SessionSortMode = s.sessionSortMode === 'activity' ? 'room' : 'activity';

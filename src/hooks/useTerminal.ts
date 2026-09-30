@@ -8,11 +8,20 @@ import { useRef, useCallback, useEffect, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
+import { CanvasAddon } from '@xterm/addon-canvas';
 import { resolveTheme } from '@/components/terminal/themes';
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useWsStore } from '@/stores/wsStore';
 import { createFilePathRegex, mapLineColumns } from '@/lib/filePathLink';
 import { openTerminalUrl, TERMINAL_LINK_HANDLER } from '@/lib/terminalLinkHandler';
+import {
+  resolveRenderCols,
+  mayDrivePtyGeometry,
+  defaultWidthMode,
+  type TerminalWidthMode,
+} from '@/lib/terminalGeometry';
+import { useIsMobile } from '@/lib/platform';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,21 +54,6 @@ interface UseTerminalOptions {
   projectPath?: string;
 }
 
-export interface TerminalBookmarkPosition {
-  /** Absolute buffer line to scroll to */
-  scrollLine: number;
-  /** Selected text at capture time */
-  selectedText: string;
-  /** Selection start column */
-  selStartX: number;
-  /** Selection start row (absolute buffer line) */
-  selStartY: number;
-  /** Selection end column */
-  selEndX: number;
-  /** Selection end row (absolute buffer line) */
-  selEndY: number;
-}
-
 interface UseTerminalReturn {
   containerRef: React.RefObject<HTMLDivElement | null>;
   attach: (terminalId: string) => void;
@@ -77,6 +71,12 @@ interface UseTerminalReturn {
   refitTerminal: () => void;
   setTheme: (themeName: string) => void;
   handleTerminalOutput: (terminalId: string, base64Data: string) => void;
+  /** Server-reported PTY width; drives pan mode. */
+  handleTerminalGeometry: (terminalId: string, cols: number) => void;
+  /** 'pan' renders at the PTY's width and scrolls horizontally; 'wrap' fits
+   *  the container and soft-wraps. Local-only — never resizes the PTY. */
+  widthMode: TerminalWidthMode;
+  setWidthMode: (mode: TerminalWidthMode) => void;
   handleTerminalReady: (terminalId: string) => void;
   handleTerminalClosed: (terminalId: string, reason?: string) => void;
   /** Move the xterm element to a different container (e.g. for fullscreen) */
@@ -86,12 +86,9 @@ interface UseTerminalReturn {
   refreshOutput: () => void;
   scrollPageUp: () => void;
   scrollPageDown: () => void;
-  /** Capture current selection + viewport position for bookmarking. Returns null if nothing selected. */
-  getTerminalBookmark: () => TerminalBookmarkPosition | null;
   /** Scroll terminal to the given buffer line. */
   scrollToLine: (line: number) => void;
   /** Scroll to bookmark and briefly highlight the original selection. */
-  jumpToBookmark: (bm: TerminalBookmarkPosition) => void;
   /** Whether auto-scroll-to-bottom on new output is enabled. */
   autoScrollEnabled: boolean;
   /** Toggle auto-scroll-to-bottom on new output. */
@@ -274,6 +271,44 @@ async function uploadClipboardImages(blobs: Blob[]): Promise<string[]> {
 export const MIN_SANE_COLS = 20;
 
 /**
+ * xterm's own default `wordSeparator` (`Terminal.options.wordSeparator` on a
+ * fresh instance, confirmed against the installed `@xterm/xterm` version
+ * rather than hand-transcribed from memory — it's easy to get one escaped
+ * character wrong). Kept as an explicit constant, rather than read from a
+ * throwaway instance at runtime, so `DEFAULT_WORD_SEPARATOR + CJK_WORD_SEPARATORS`
+ * below can be passed directly into the real terminal's own constructor
+ * options.
+ */
+const DEFAULT_WORD_SEPARATOR = " ()[]{}',\"`";
+
+/**
+ * Extends xterm's default double-click word-boundary set with fullwidth CJK
+ * punctuation.
+ *
+ * Without this, double-clicking a Latin word immediately followed by CJK
+ * punctuation over-selects across it — confirmed via a harness reproduction:
+ * double-clicking "Claudekit" in "加上 Claudekit、Anthropic" selected
+ * `"Claudekit、Anthropic"`, because `、` isn't in xterm's separator set.
+ * Renderer-independent (reproduces identically under the DOM and Canvas
+ * renderers) — this is a word-boundary/selection-model issue, not a paint
+ * issue, so it needs its own fix regardless of the CanvasAddon below.
+ *
+ * Additive to xterm's own default (`DEFAULT_WORD_SEPARATOR`) rather than
+ * replacing it, so existing ASCII word-selection behavior (splitting on
+ * brackets/quotes/etc.) is unaffected — only CJK punctuation is newly
+ * treated as a boundary.
+ */
+// Split across two concatenated literals rather than one: an earlier attempt
+// at a single string had its curly quotes (U+2018/2019/201C/201D) silently
+// normalized to straight ASCII quotes by the editing tool, which closed the
+// string early and broke the build — a real failure, caught only by
+// re-running tsc and then diffing actual codepoints, not by eye. Verify with
+// `[...str].map(c => c.codePointAt(0).toString(16))` after touching this line.
+export const CJK_WORD_SEPARATORS =
+  '、。，；：？！（）【】'
+  + '《》‘’“”…—～·　';
+
+/**
  * True when a fitAddon measurement is a plausible real layout worth sending to
  * the PTY. Rejects the collapsed/not-yet-laid-out case (cols ~0) that would
  * otherwise permanently hard-wrap scrollback. Exported for unit testing.
@@ -283,7 +318,83 @@ export function isSaneGeometry(cols: number, rows: number): boolean {
     && cols >= MIN_SANE_COLS && rows > 0;
 }
 
+/**
+ * Mutable rules the fit wrapper reads on every call. A ref (not a closure over
+ * state) because the FitAddon is installed once at terminal construction but
+ * the mode and the PTY width both change afterwards.
+ */
+export interface WidthRules {
+  mode: TerminalWidthMode;
+  /** The PTY's real width, from the server's `terminal_geometry` message.
+   *  Null until it arrives, or if it was implausible. */
+  ptyCols: number | null;
+  /** False on a phone: this device may render at any width it likes, but must
+   *  never push that width to the shared PTY. */
+  mayDrivePty: boolean;
+}
+
+/**
+ * Make `fitAddon.fit()` honour the width mode, at the ONE place the addon is
+ * constructed.
+ *
+ * This wraps the addon instance rather than editing call sites because there
+ * are a dozen `fit()` calls in this file and the failure mode of missing one is
+ * severe and silent — CLAUDE.md already records four sites that went unguarded
+ * through three separate debugging passes. Wrapping at construction means a
+ * call site added later cannot bypass the rule, which a convention ("remember
+ * to call fitTerminal()") demonstrably cannot guarantee.
+ *
+ * `fit()` still measures the container exactly as before; this only re-widens
+ * the canvas afterwards when the mode asks for it. The PTY is never touched
+ * here — `sendResize` remains the only thing that talks to it.
+ */
+export function installWidthModeFit(
+  fitAddon: FitAddon,
+  term: Terminal,
+  rulesRef: React.MutableRefObject<WidthRules>,
+): void {
+  const baseFit = fitAddon.fit.bind(fitAddon);
+  fitAddon.fit = () => {
+    baseFit();
+    const { mode, ptyCols } = rulesRef.current;
+    const target = resolveRenderCols(mode, term.cols, ptyCols);
+    // term.resize is a no-op when the value is unchanged, but guard anyway:
+    // every resize invalidates xterm's render layers.
+    if (target !== term.cols) term.resize(target, term.rows);
+  };
+}
+
+/**
+ * Whether THIS DEVICE may push its viewport width to a shared PTY.
+ *
+ * Module-scoped rather than passed per call because it describes the device,
+ * not the terminal — every terminal in a given browser answers identically —
+ * and because there are a dozen `sendResize` call sites in this file. A
+ * parameter would have to be threaded through all of them correctly, and the
+ * cost of missing ONE is a permanently hard-wrapped PTY on every device, with
+ * nothing logged. Defaulting to the safe behavior at the choke point means a
+ * call site added later is covered without knowing this rule exists.
+ *
+ * Defaults to true so a non-React consumer (tests, the pop-out window before
+ * its first effect runs) behaves exactly as it did before panning existed.
+ */
+let deviceMayDrivePty = true;
+
+/** Set from `useTerminal` once the viewport class is known. Exported for tests. */
+export function setDeviceMayDrivePty(mayDrive: boolean): void {
+  deviceMayDrivePty = mayDrive;
+}
+
+/** Current value — exported for tests. */
+export function getDeviceMayDrivePty(): boolean {
+  return deviceMayDrivePty;
+}
+
 function sendResize(ws: WebSocket | null, terminalId: string, cols: number, rows: number): void {
+  // A phone renders at whatever width it likes but must never push it to the
+  // shared PTY — that hard-wraps every device's scrollback permanently. See
+  // mayDrivePtyGeometry() for why this holds even while the phone has control.
+  if (!deviceMayDrivePty) return;
   if (!isSaneGeometry(cols, rows)) return;
   if (isPtyHostTerminal(terminalId)) {
     window.electronAPI!.resizePty!(terminalId, cols, rows);
@@ -391,6 +502,30 @@ function forceCanvasRepaint(
 export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminalOptions): UseTerminalReturn {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeRef = useRef<ActiveTerminal | null>(null);
+  // Phones render at the PTY's width and pan; everything else fits its
+  // container as before. Held in a ref because the FitAddon is installed once
+  // per terminal but these values change afterwards (mode toggle, PTY resize).
+  const isMobile = useIsMobile();
+  const widthRulesRef = useRef<WidthRules>({
+    mode: defaultWidthMode(isMobile),
+    ptyCols: null,
+    mayDrivePty: mayDrivePtyGeometry(isMobile),
+  });
+  // Mirrored into state so the toolbar button can render the current mode;
+  // the ref stays the source of truth for the fit wrapper, which runs outside
+  // React's render cycle.
+  const [widthMode, setWidthModeState] = useState<TerminalWidthMode>(
+    () => defaultWidthMode(isMobile),
+  );
+
+  // Keep the device rule current across an orientation change or a resized
+  // desktop window crossing the breakpoint. Applied as an effect rather than
+  // at render because it mutates module state shared by every terminal.
+  useEffect(() => {
+    const mayDrive = mayDrivePtyGeometry(isMobile);
+    widthRulesRef.current.mayDrivePty = mayDrive;
+    setDeviceMayDrivePty(mayDrive);
+  }, [isMobile]);
   const pendingOutputRef = useRef<Map<string, string[]>>(new Map());
   const pendingOutputTtlRef = useRef<Map<string, number>>(new Map());
   /** Saved scroll offsets (lines above bottom) per terminalId — restored after session switch */
@@ -413,6 +548,8 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   const projectPathRef = useRef(projectPath);
   /** Track which terminalId is currently subscribed on the server to avoid double-subscribe (#74) */
   const subscribedTerminalIdRef = useRef<string | null>(null);
+  /** The socket whose replay the current xterm already received. */
+  const subscribedSocketRef = useRef<WebSocket | null>(null);
   /** RAF handle for batched output writes (#76) */
   const outputRafRef = useRef<number | null>(null);
   // Fallback flush handle used when the window is hidden and rAF is throttled
@@ -451,21 +588,23 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     projectPathRef.current = projectPath;
   }, [projectPath]);
 
+  // memo(TerminalContainer) drops the parent re-render after onopen, so watch the store directly.
+  const wsConnected = useWsStore((s) => s.connected);
+
   useEffect(() => {
     wsRef.current = ws;
-    // Re-subscribe on WS reconnect (#74: unsubscribe old before subscribing new)
-    // Skip for PTY host terminals — they use IPC, not WebSocket
-    if (activeRef.current && ws && ws.readyState === 1) {
-      const { terminalId } = activeRef.current;
-      if (!isPtyHostTerminal(terminalId)) {
-        if (subscribedTerminalIdRef.current && subscribedTerminalIdRef.current !== terminalId) {
-          ws.send(JSON.stringify({ type: 'terminal_disconnect', terminalId: subscribedTerminalIdRef.current }));
-        }
-        ws.send(JSON.stringify({ type: 'terminal_subscribe', terminalId }));
-        subscribedTerminalIdRef.current = terminalId;
-      }
+    if (!activeRef.current || !ws || ws.readyState !== 1) return;
+    const { terminalId } = activeRef.current;
+    if (isPtyHostTerminal(terminalId)) return;
+    // Each subscribe replays the whole scrollback: send one per (socket, xterm).
+    if (subscribedSocketRef.current === ws && subscribedTerminalIdRef.current === terminalId) return;
+    if (subscribedTerminalIdRef.current && subscribedTerminalIdRef.current !== terminalId) {
+      ws.send(JSON.stringify({ type: 'terminal_disconnect', terminalId: subscribedTerminalIdRef.current }));
     }
-  }, [ws]);
+    ws.send(JSON.stringify({ type: 'terminal_subscribe', terminalId }));
+    subscribedTerminalIdRef.current = terminalId;
+    subscribedSocketRef.current = ws;
+  }, [ws, ws?.readyState, wsConnected, activeTerminalId]);
 
   // Detach
   const detach = useCallback(() => {
@@ -569,6 +708,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
 
       // Subscribe for output (#74: track subscription to prevent duplicates)
       // PTY host terminals subscribe via IPC; others use WebSocket
+      subscribedSocketRef.current = null; // a fresh xterm needs its own replay
       if (isPtyHostTerminal(terminalId)) {
         window.electronAPI!.subscribePty!(terminalId).then((result) => {
           // Stale attach: we already unsubscribed in detach(); dropping the
@@ -592,6 +732,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
         }
         wsRef.current.send(JSON.stringify({ type: 'terminal_subscribe', terminalId }));
         subscribedTerminalIdRef.current = terminalId;
+        subscribedSocketRef.current = wsRef.current;
       }
 
       // Wait for container dimensions
@@ -664,10 +805,15 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           // then is Option(⌥)-drag with this flag on — without it, you can't
           // select (or select-to-translate) inside a running agent's terminal.
           macOptionClickForcesSelection: true,
+          // See CJK_WORD_SEPARATORS's own comment: xterm's default double-click
+          // word-boundary set doesn't include CJK punctuation, so a double-click
+          // on a Latin word next to it over-selects across the boundary.
+          wordSeparator: DEFAULT_WORD_SEPARATOR + CJK_WORD_SEPARATORS,
         });
 
         const fitAddon = new FitAddon();
         term.loadAddon(fitAddon);
+        installWidthModeFit(fitAddon, term, widthRulesRef);
 
         try {
           const unicode11 = new Unicode11Addon();
@@ -675,6 +821,41 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
           term.unicode.activeVersion = '11';
         } catch {
           // Unicode11 addon not available
+        }
+
+        // Paint via canvas instead of xterm's default DOM renderer.
+        //
+        // The DOM renderer forces each CJK glyph's <span> to exactly 2
+        // cell-widths using compensating CSS letter-spacing (the fallback CJK
+        // font's real glyph width doesn't match the assumed monospace cell
+        // width). The SELECTION HIGHLIGHT overlay, though, is a separate
+        // element positioned from idealized `column * cellWidth` math that
+        // never learns about that compensation — so on any line mixing CJK
+        // and Latin text, the highlight box visibly drifts from the glyphs it
+        // is meant to cover. Measured directly via getBoundingClientRect() in
+        // a harness reproduction: a uniform 13px drift across the whole
+        // selected box (same width, shifted) — a rigid mispositioning, not
+        // per-character smearing. The SELECTED TEXT itself was never wrong in
+        // either renderer (term.getSelection() is buffer-based, independent
+        // of how it's painted) — this is purely a paint-layer bug.
+        //
+        // The canvas renderer draws both the glyphs and the selection from
+        // the SAME direct pixel math (no letter-spacing compensation trick
+        // needed), which eliminates the drift entirely — confirmed via the
+        // same harness with 0px measurable offset. It does not touch
+        // fitAddon's column/row measurement or the PTY-facing resize path at
+        // all (verified: .xterm / .xterm-viewport / .xterm-screen, which
+        // terminalGeometry's pan-mode CSS targets, all still exist under
+        // canvas mode — the addon only replaces how the row CONTENT paints),
+        // and extractXtermSelection() reads term.getSelection() rather than
+        // scraping DOM text, so the AI-popup select-to-translate flow is
+        // unaffected. Loaded last among the paint-affecting addons, same
+        // fail-soft pattern as Unicode11 above: a construction failure here
+        // must fall back to the DOM renderer, not break the terminal.
+        try {
+          term.loadAddon(new CanvasAddon());
+        } catch {
+          // Canvas unavailable (e.g. no GPU context) — DOM renderer still works.
         }
 
         // Custom URL link provider — handles URLs spanning wrapped terminal lines.
@@ -1425,45 +1606,40 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     }
   }, []);
 
-  const getTerminalBookmark = useCallback((): TerminalBookmarkPosition | null => {
-    if (!activeRef.current) return null;
-    const { term } = activeRef.current;
-    const selectedText = term.getSelection();
-    if (!selectedText) return null;
-    const selPos = term.getSelectionPosition();
-    const baseY = term.buffer.active.baseY;
-    const scrollLine = selPos
-      ? selPos.start.y + baseY
-      : term.buffer.active.viewportY;
-    return {
-      scrollLine,
-      selectedText,
-      selStartX: selPos?.start.x ?? 0,
-      selStartY: selPos ? selPos.start.y + baseY : scrollLine,
-      selEndX: selPos?.end.x ?? 0,
-      selEndY: selPos ? selPos.end.y + baseY : scrollLine,
-    };
+  /**
+   * Record the PTY's real geometry, reported by the server on subscribe and
+   * after any resize. In pan mode this is the width the canvas renders at, so
+   * a change must trigger a refit — otherwise a phone keeps panning across a
+   * width the PTY no longer has.
+   */
+  const handleTerminalGeometry = useCallback((terminalId: string, cols: number) => {
+    widthRulesRef.current.ptyCols = Number.isFinite(cols) ? cols : null;
+    const active = activeRef.current;
+    if (!active || active.terminalId !== terminalId) return;
+    // The wrapper reads the new ptyCols and re-widens the canvas. Safe in wrap
+    // mode too: resolveRenderCols ignores ptyCols there.
+    try { active.fitAddon.fit(); } catch { /* container mid-layout */ }
+  }, []);
+
+  /**
+   * Switch between panning at the PTY's width and wrapping to the container.
+   * Only the local canvas changes — the PTY is never resized either way, so
+   * this cannot affect what any other device sees.
+   */
+  const setWidthMode = useCallback((mode: TerminalWidthMode) => {
+    widthRulesRef.current.mode = mode;
+    setWidthModeState(mode);
+    const active = activeRef.current;
+    if (!active) return;
+    try {
+      active.fitAddon.fit();
+      active.term.refresh(0, active.term.rows - 1);
+    } catch { /* container mid-layout */ }
   }, []);
 
   const scrollToLine = useCallback((line: number) => {
     if (activeRef.current) {
       activeRef.current.term.scrollToLine(line);
-    }
-  }, []);
-
-  const jumpToBookmark = useCallback((bm: TerminalBookmarkPosition) => {
-    if (!activeRef.current) return;
-    const { term } = activeRef.current;
-    term.scrollToLine(bm.scrollLine);
-    const baseY = term.buffer.active.baseY;
-    const startRow = bm.selStartY - baseY;
-    const endRow = bm.selEndY - baseY;
-    const length = endRow === startRow
-      ? bm.selEndX - bm.selStartX
-      : (term.cols - bm.selStartX) + bm.selEndX + Math.max(0, endRow - startRow - 1) * term.cols;
-    if (length > 0) {
-      term.select(bm.selStartX, startRow, length);
-      setTimeout(() => term.clearSelection(), 2000);
     }
   }, []);
 
@@ -1561,6 +1737,9 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     containerRef,
     attach,
     detach,
+    handleTerminalGeometry,
+    widthMode,
+    setWidthMode,
     isAttached,
     activeTerminalId,
     terminalClosed,
@@ -1581,9 +1760,7 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     refreshOutput,
     scrollPageUp,
     scrollPageDown,
-    getTerminalBookmark,
     scrollToLine,
-    jumpToBookmark,
     autoScrollEnabled,
     toggleAutoScroll,
     readRecentText,

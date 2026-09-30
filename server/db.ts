@@ -8,6 +8,8 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import log from './logger.js';
 import { sanitizeModelId, extractModelFromCommand } from './config.js';
+import { encodeQueue, decodeQueueRow } from './sessionQueueCodec.js';
+import type { SessionQueueRecord, SessionQueueRow } from './sessionQueueCodec.js';
 import type { Session } from '../src/types/session.js';
 import type {
   DbSessionRow, DbPromptRow, DbResponseRow, DbToolCallRow, DbEventRow, DbNoteRow,
@@ -149,6 +151,28 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_agenda_tasks_priority ON agenda_tasks(priority);
   CREATE INDEX IF NOT EXISTS idx_agenda_tasks_completed ON agenda_tasks(completed);
+
+  -- Per-session prompt queue, shared across every device.
+  --
+  -- Until Aug 2026 the queue lived ONLY in each browser's IndexedDB, so a
+  -- phone at http://<lan-ip>:<port> and the desktop app kept entirely separate
+  -- queues that never synced — the same session showed "QUEUE (0)" on one and
+  -- a full list on the other. This table is the shared source of truth.
+  --
+  -- items and automation are stored as JSON documents rather than normalized
+  -- columns ON PURPOSE: the server performs no logic on queue items (the
+  -- scheduler is entirely client-side), so it is pure transport+storage.
+  -- Normalizing would mean mirroring ~18 QueueItem fields here and keeping
+  -- them in lockstep with the client type forever, where a missed field
+  -- silently drops user data. A JSON blob carries new fields for free and
+  -- cannot drift. (No backticks in this comment — it sits inside a JS
+  -- template literal, where one would terminate the SQL string early.)
+  CREATE TABLE IF NOT EXISTS session_queues (
+    session_id TEXT PRIMARY KEY,
+    items TEXT NOT NULL,
+    automation TEXT,
+    updated_at INTEGER NOT NULL
+  );
 `);
 
 log.info('db', `SQLite database opened: ${DB_PATH}`);
@@ -167,6 +191,15 @@ try {
     // User-authored progress note shown under the session title in the detail
     // rail. Nullable with no default — an existing row simply has no remark.
     { name: 'remark', ddl: 'ALTER TABLE sessions ADD COLUMN remark TEXT' },
+    // Opt-in for remote (non-loopback) devices. INTEGER 0/1, defaulting to 0 —
+    // an existing row is hidden, which is the point: deny by default cannot be
+    // retrofitted if the migration back-fills the permissive value.
+    { name: 'remote_visible', ddl: 'ALTER TABLE sessions ADD COLUMN remote_visible INTEGER DEFAULT 0' },
+    // DEFAULT 1, unlike remote_visible's 0: ALTER TABLE back-fills every
+    // existing row with the default, and the AI popup was already on for all
+    // of them. A 0 default would silently switch the feature off for every
+    // session the user already had.
+    { name: 'ai_popup_enabled', ddl: 'ALTER TABLE sessions ADD COLUMN ai_popup_enabled INTEGER DEFAULT 1' },
   ];
   for (const col of ADDED_COLUMNS) {
     if (existing.has(col.name)) continue;
@@ -273,6 +306,17 @@ const stmts = {
   getNoteMediaOlderThan: db.prepare('SELECT * FROM note_media WHERE created_at < ?'),
   getNoteMediaBySession: db.prepare('SELECT * FROM note_media WHERE session_id = ?'),
   deleteNoteMediaById: db.prepare('DELETE FROM note_media WHERE id = ?'),
+
+  // ---- Shared per-session prompt queue ----
+  getSessionQueue: db.prepare('SELECT * FROM session_queues WHERE session_id = ?'),
+  getAllSessionQueues: db.prepare('SELECT * FROM session_queues'),
+  upsertSessionQueue: db.prepare(`
+    INSERT INTO session_queues (session_id, items, automation, updated_at)
+    VALUES (@session_id, @items, @automation, @updated_at)
+    ON CONFLICT(session_id) DO UPDATE SET
+      items = @items, automation = @automation, updated_at = @updated_at
+  `),
+  deleteSessionQueue: db.prepare('DELETE FROM session_queues WHERE session_id = ?'),
   // Reference check for the orphan sweep. Deliberately NOT session-scoped: note
   // text can be copy-pasted between sessions, and deleting media still shown
   // somewhere is worse than keeping a few extra bytes.
@@ -432,6 +476,9 @@ export const deleteSessionCascade: (id: string) => void = db.transaction((id: st
   stmts.deleteToolCallsBySession.run(id);
   stmts.deleteEventsBySession.run(id);
   stmts.deleteNotesBySession.run(id);
+  // The shared queue has no FK to sessions (it is written before a session row
+  // may exist), so it would otherwise outlive the session forever.
+  stmts.deleteSessionQueue.run(id);
   stmts.deleteSession.run(id);
 });
 
@@ -509,6 +556,41 @@ export function getNoteMediaBySession(sessionId: string): DbNoteMediaRow[] {
 
 export function deleteNoteMediaRow(id: string): void {
   stmts.deleteNoteMediaById.run(id);
+}
+
+// ---- Shared per-session prompt queue -------------------------------------
+//
+// The server stores these as opaque JSON and never inspects them — see the
+// `session_queues` table comment for why that is deliberate rather than lazy.
+
+export function getSessionQueue(sessionId: string): SessionQueueRecord | null {
+  return decodeQueueRow(stmts.getSessionQueue.get(sessionId) as SessionQueueRow | undefined);
+}
+
+/** Every stored queue, for a client's one-shot hydration on connect. */
+export function getAllSessionQueues(): SessionQueueRecord[] {
+  const rows = stmts.getAllSessionQueues.all() as SessionQueueRow[];
+  return rows.map(decodeQueueRow).filter((r): r is SessionQueueRecord => r !== null);
+}
+
+export function upsertSessionQueue(
+  sessionId: string,
+  items: unknown[],
+  automation: unknown | null,
+): SessionQueueRecord {
+  const updatedAt = Date.now();
+  const encoded = encodeQueue(items, automation);
+  stmts.upsertSessionQueue.run({
+    session_id: sessionId,
+    items: encoded.items,
+    automation: encoded.automation,
+    updated_at: updatedAt,
+  });
+  return { sessionId, items, automation: automation ?? null, updatedAt };
+}
+
+export function deleteSessionQueue(sessionId: string): void {
+  stmts.deleteSessionQueue.run(sessionId);
 }
 
 /** True when any note's text still embeds this media id. */

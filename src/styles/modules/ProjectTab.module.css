@@ -619,6 +619,36 @@
   min-height: 0;
 }
 
+/* Fullscreen overrides. The same ImageViewer serves the inline file pane and
+   the fullscreen modal, so every constant below is the INLINE budget unless
+   re-scoped here. The 240px viewport reservation in .mediaImage is the clear
+   case: the fullscreen modal is `100dvh - 48px` tall and its header is ~41px,
+   leaving ~100dvh - 89px of body — so the inline cap stranded roughly 150px
+   of guaranteed dead band, and because object-fit: contain preserves aspect
+   ratio, a tall image that hit the height cap first ALSO gave away its width,
+   which is where the side margins came from. */
+.mediaViewerFullscreen {
+  padding: 8px;
+  gap: 8px;
+}
+.mediaViewerFullscreen .mediaImage {
+  /* Bounded by the container, not by a viewport-minus-chrome guess. */
+  max-height: 100%;
+}
+.mediaViewerFullscreen .imageZoomToolbar {
+  gap: 4px;
+  padding: 5px 7px;
+}
+.mediaViewerFullscreen .imageZoomBtn {
+  width: 30px;
+  height: 30px;
+}
+.mediaViewerFullscreen .imageZoomLevel {
+  font-size: 13px;
+  min-width: 54px;
+  padding: 3px 6px;
+}
+
 .mediaImage {
   max-width: 100%;
   max-height: calc(100vh - 240px);
