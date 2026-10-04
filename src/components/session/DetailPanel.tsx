@@ -128,6 +128,11 @@ const TerminalContent = memo(function TerminalContent({
   const splitRef = useRef<HTMLDivElement | null>(null);
   const [queueHeight, setQueueHeight] = useState(() => loadQueueHeight());
   const [resizingQueue, setResizingQueue] = useState(false);
+  // A collapsed queue is only its header: the row gives its dragged height back
+  // to the terminal (queueHeight is kept for when it expands) and the divider
+  // goes, since there is nothing to resize. Without this the row kept its height
+  // and the header sat over ~220px of nothing.
+  const queueCollapsed = useUiStore((s) => s.queuePanelCollapsed);
 
   const handleResizeStart = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
@@ -253,16 +258,18 @@ const TerminalContent = memo(function TerminalContent({
       {/* Draggable divider between the terminal and the always-on queue
           strip. Pointer events (not mouse) so it is grabbable on a phone,
           same reason as the queue's drag-reorder. */}
-      <div
-        className={`${styles.queueResizer}${resizingQueue ? ` ${styles.queueResizerActive}` : ''}`}
-        onPointerDown={handleResizeStart}
-        onDoubleClick={handleResizeReset}
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label="Resize queue area"
-        title="Drag to resize the queue — double-click to reset"
-      />
-      <div className={styles.bottomRow} style={{ height: queueHeight }}>
+      {!queueCollapsed && (
+        <div
+          className={`${styles.queueResizer}${resizingQueue ? ` ${styles.queueResizerActive}` : ''}`}
+          onPointerDown={handleResizeStart}
+          onDoubleClick={handleResizeReset}
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="Resize queue area"
+          title="Drag to resize the queue — double-click to reset"
+        />
+      )}
+      <div className={styles.bottomRow} style={queueCollapsed ? undefined : { height: queueHeight }}>
         {/* `fullHeight` makes the panel fill the height the divider produced
             rather than the old hard-coded 250px cap. It is the same mechanism
             the QUEUE tab uses — the class is defined in Terminal.module.css,

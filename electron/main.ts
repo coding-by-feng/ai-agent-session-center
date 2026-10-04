@@ -420,10 +420,11 @@ function registerSessionWindowHandler() {
 
 // Native QUEUE windows, keyed by sessionId. The QUEUE panel's "float" button opens
 // one session's queue in its own OS window (draggable to another monitor),
-// mirroring the PROJECT popout: the docked panel is left alone and the two
-// coexist as live views of the same shared queue, which the per-window echo
-// guard in queueStore keeps in step. De-duped per session — a second open
-// focuses the existing window instead of stacking a duplicate.
+// mirroring the PROJECT popout. Once it opens, the renderer folds its docked
+// panel to the header (QueueTab.handleFloat); the two stay live views of the
+// same shared queue, which the per-window echo guard in queueStore keeps in
+// step. De-duped per session — a second open focuses the existing window
+// instead of stacking a duplicate.
 const queuePopoutWindows = new Map<string, BrowserWindow>()
 
 /** Register the `window:open-queue` IPC: open the standalone queue view

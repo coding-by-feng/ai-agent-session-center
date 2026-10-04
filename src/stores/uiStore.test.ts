@@ -353,4 +353,62 @@ describe('uiStore', () => {
       expect(useUiStore.getState().workdirLauncherOpen).toBe(false);
     });
   });
+
+  // The docked queue (the strip under the terminal, and the QUEUE tab) folds to
+  // its header. One flag, because TerminalContent sizes the strip's row from it
+  // and both QueueTab mounts show it; the float window ignores it.
+  describe('queuePanelCollapsed', () => {
+    async function freshStore(stored: string | null) {
+      localStorage.removeItem('queue-panel-collapsed');
+      if (stored !== null) localStorage.setItem('queue-panel-collapsed', stored);
+      vi.resetModules();
+      const mod = await import('./uiStore');
+      return mod.useUiStore;
+    }
+
+    it('starts collapsed on a fresh profile, as the strip always has', async () => {
+      expect((await freshStore(null)).getState().queuePanelCollapsed).toBe(true);
+    });
+
+    it('restores a stored choice either way', async () => {
+      expect((await freshStore('0')).getState().queuePanelCollapsed).toBe(false);
+      expect((await freshStore('1')).getState().queuePanelCollapsed).toBe(true);
+    });
+
+    it('persists both ways under the key QueueTab has always used', async () => {
+      const store = await freshStore('0');
+      store.getState().setQueuePanelCollapsed(true);
+      expect(store.getState().queuePanelCollapsed).toBe(true);
+      expect(localStorage.getItem('queue-panel-collapsed')).toBe('1');
+      store.getState().setQueuePanelCollapsed(false);
+      expect(store.getState().queuePanelCollapsed).toBe(false);
+      expect(localStorage.getItem('queue-panel-collapsed')).toBe('0');
+    });
+
+    it('still collapses for this visit when the browser will not store it', async () => {
+      const store = await freshStore('0');
+      const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('quota', 'QuotaExceededError');
+      });
+      try {
+        store.getState().setQueuePanelCollapsed(true);
+        expect(store.getState().queuePanelCollapsed).toBe(true);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('reads a blocked storage as collapsed, the default', async () => {
+      const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new DOMException('denied', 'SecurityError');
+      });
+      try {
+        vi.resetModules();
+        const mod = await import('./uiStore');
+        expect(mod.useUiStore.getState().queuePanelCollapsed).toBe(true);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
 });

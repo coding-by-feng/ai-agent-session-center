@@ -740,10 +740,11 @@
 .bottomRow {
   display: flex;
   flex-direction: row;
-  /* Height comes from the dragged value (inline style). `flex-shrink: 0`
-     keeps it from being squeezed by the terminal above; min-height: 0 lets
-     the queue's own scroll box do the overflowing instead of this row
-     growing past the height it was given. */
+  /* Height comes from the dragged value (inline style) — none while the queue
+     is collapsed, so the row is only the queue header and the terminal takes
+     the rest. `flex-shrink: 0` keeps it from being squeezed by the terminal
+     above; min-height: 0 lets the queue's own scroll box do the overflowing
+     instead of this row growing past the height it was given. */
   flex-shrink: 0;
   min-height: 0;
   overflow: hidden;

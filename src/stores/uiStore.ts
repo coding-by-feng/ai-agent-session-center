@@ -6,6 +6,10 @@ import { LIVE_HINT_STORAGE_KEY } from '@/lib/liveHint';
  *  component import cycle; the modal and DetailPanel import it from the store. */
 export const ROOM_KILL_MODAL_ID = 'room-kill-confirm';
 
+/** Where `queuePanelCollapsed` persists: the key QueueTab used while the flag was
+ *  its own local state, so a stored choice survives the move. */
+export const QUEUE_PANEL_COLLAPSED_KEY = 'queue-panel-collapsed';
+
 interface PendingFileOpen {
   filePath: string;
   projectPath: string;
@@ -98,6 +102,13 @@ interface UiState {
    *  boot until useWorkspaceAutoLoad resolves, so the LIVE page does not say
    *  "No agent sessions yet" just before a restore re-creates them. */
   workspaceRestorePending: boolean;
+  /** The docked queue (the strip under the terminal, and the QUEUE tab) is folded
+   *  to its header. Shared, not local, because DetailPanel's TerminalContent sizes
+   *  the strip's row from it — collapsed, the row drops to the header and the
+   *  terminal gets the height — and both QueueTab mounts must agree. The float
+   *  window ignores it. Persisted to localStorage['queue-panel-collapsed'];
+   *  collapsed when nothing is stored. */
+  queuePanelCollapsed: boolean;
 
   openModal: (modalId: string) => void;
   /** Open the room-kill confirm modal targeting a specific room. */
@@ -134,6 +145,7 @@ interface UiState {
   clearRoomFilter: () => void;
   dismissLiveHint: () => void;
   setWorkdirLauncherOpen: (open: boolean) => void;
+  setQueuePanelCollapsed: (collapsed: boolean) => void;
 }
 
 function loadCardDisplayMode(): CardDisplayMode {
@@ -191,6 +203,15 @@ function loadRecentRoomCollapsed(): boolean {
     return localStorage.getItem('recent-room-collapsed') === '1';
   } catch {
     return false;
+  }
+}
+
+function loadQueuePanelCollapsed(): boolean {
+  try {
+    const stored = localStorage.getItem(QUEUE_PANEL_COLLAPSED_KEY);
+    return stored === null ? true : stored === '1';
+  } catch {
+    return true;
   }
 }
 
@@ -284,6 +305,7 @@ export const useUiStore = create<UiState>((set) => ({
   liveHintDismissed: loadLiveHintDismissed(),
   workdirLauncherOpen: false,
   workspaceRestorePending: true,
+  queuePanelCollapsed: loadQueuePanelCollapsed(),
 
   openModal: (modalId) => set({ activeModal: modalId }),
   openRoomKill: (roomId) => set({ activeModal: ROOM_KILL_MODAL_ID, roomKillTargetId: roomId }),
@@ -413,4 +435,12 @@ export const useUiStore = create<UiState>((set) => ({
     set({ liveHintDismissed: true });
   },
   setWorkdirLauncherOpen: (open) => set({ workdirLauncherOpen: open }),
+  setQueuePanelCollapsed: (collapsed) => {
+    try {
+      localStorage.setItem(QUEUE_PANEL_COLLAPSED_KEY, collapsed ? '1' : '0');
+    } catch {
+      /* ignore — still applies for this visit */
+    }
+    set({ queuePanelCollapsed: collapsed });
+  },
 }));

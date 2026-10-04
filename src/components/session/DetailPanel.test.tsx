@@ -217,4 +217,43 @@ describe('DetailPanel', () => {
     render(<DetailPanel />);
     expect(await screen.findByText('Notes for sess-1')).toBeInTheDocument();
   });
+
+  // The queue strip under the terminal sits in a row with its own dragged height.
+  // Collapsing the queue has to give that height back to the terminal: before, the
+  // row kept it and the header sat over ~220px of nothing.
+  describe('terminal / queue split', () => {
+    const DIVIDER = { name: 'Resize queue area' };
+    const queueRow = () =>
+      screen.getByTestId('terminal-tab').querySelector('[class*="bottomRow"]') as HTMLElement;
+    const open = () => {
+      useSessionStore.setState({ sessions: new Map([['sess-1', makeSession()]]), selectedSessionId: 'sess-1' });
+      render(<DetailPanel />);
+    };
+
+    it('expanded: the divider is there and the row keeps its dragged height', () => {
+      useUiStore.setState({ queuePanelCollapsed: false });
+      open();
+      expect(screen.getByRole('separator', DIVIDER)).toBeInTheDocument();
+      expect(queueRow().style.height).toMatch(/^\d+px$/);
+    });
+
+    it('collapsed: no divider, and the row is only as tall as the queue header', () => {
+      useUiStore.setState({ queuePanelCollapsed: true });
+      open();
+      expect(screen.queryByRole('separator', DIVIDER)).toBeNull();
+      expect(queueRow().style.height).toBe('');
+    });
+
+    it('gives the height back the moment the queue collapses, and takes it again on expand', () => {
+      useUiStore.setState({ queuePanelCollapsed: false });
+      open();
+      const dragged = queueRow().style.height;
+      fireEvent.click(screen.getByRole('button', { name: 'Collapse the queue' }));
+      expect(screen.queryByRole('separator', DIVIDER)).toBeNull();
+      expect(queueRow().style.height).toBe('');
+      fireEvent.click(screen.getByRole('button', { name: 'Expand the queue' }));
+      expect(screen.getByRole('separator', DIVIDER)).toBeInTheDocument();
+      expect(queueRow().style.height).toBe(dragged);
+    });
+  });
 });
