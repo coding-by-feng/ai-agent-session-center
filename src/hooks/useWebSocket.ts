@@ -22,7 +22,7 @@ export function useWebSocket(token: string | null): WsClient | null {
   useEffect(() => {
     const { addSession, updateSession, removeSession, setSessions } =
       useSessionStore.getState();
-    const { setConnected, setReconnecting, setLastSeq } = useWsStore.getState();
+    const { setConnected, setReconnecting, setLastSeq, setSnapshotReceived, setHiddenCount } = useWsStore.getState();
     // Every pop-out (`?popout=…`) connects through this same hook, so whatever it
     // does, every window does. Two things must happen once, in the main window:
     // relaunching a pinned session that died (two windows = two terminals resuming
@@ -48,6 +48,10 @@ export function useWebSocket(token: string | null): WsClient | null {
           }
           setSessions(deduped);
           setLastSeq(msg.seq);
+          // The session map is now the real list (see wsStore.snapshotReceived),
+          // minus what is not shared with this device (wsStore.hiddenCount).
+          setSnapshotReceived(true);
+          setHiddenCount(typeof msg.hiddenCount === 'number' ? msg.hiddenCount : 0);
 
           // Close floating popups whose origin session vanished from the snapshot
           // (server pruned it while we were disconnected) — they could never

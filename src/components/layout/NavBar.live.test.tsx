@@ -19,6 +19,8 @@ vi.mock('./WorkdirLauncher', () => ({ default: () => null }));
 import NavBar from './NavBar';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { useWsStore } from '@/stores/wsStore';
 
 const T = Date.now();
 
@@ -89,5 +91,61 @@ describe('NavBar — the LIVE tab opens the session panel', () => {
     renderNav();
     click('HISTORY');
     expect(useSessionStore.getState().selectedSessionId).toBeNull();
+  });
+});
+
+// The one-time tip on the LIVE board ("Open a session: click a card, or LIVE")
+// marks the LIVE tab with a dot, so the word LIVE in the tip has something to
+// point at. LIVE is already the active tab, so its highlight alone reads as
+// "you are here", not "click me".
+describe('NavBar — the LIVE tab carries the tip mark', () => {
+  beforeEach(() => {
+    useUiStore.setState({ liveHintDismissed: false, detailPanelMinimized: false });
+    useSettingsStore.setState({ scene3dEnabled: false } as never);
+    useWsStore.setState({ snapshotReceived: true });
+  });
+
+  const liveLink = () => screen.getByRole('link', { name: /^LIVE/ });
+  const mark = () => liveLink().querySelector('[data-live-cue]');
+
+  it('marks LIVE while the tip is up on the LIVE board', () => {
+    setSessions(s('a'));
+    renderNav('/');
+    expect(mark()).not.toBeNull();
+  });
+
+  it('the mark is decorative: the tab is still called LIVE', () => {
+    setSessions(s('a'));
+    renderNav('/');
+    expect(liveLink()).toHaveAccessibleName('LIVE');
+    expect(mark()?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it.each<[string, () => void, string]>([
+    ['with no sessions yet (the empty state explains instead)', () => setSessions(), '/'],
+    ['on another page', () => setSessions(s('a')), '/history'],
+    ['with the 3D scene on', () => { setSessions(s('a')); useSettingsStore.setState({ scene3dEnabled: true } as never); }, '/'],
+    ['once the tip is dismissed', () => { setSessions(s('a')); useUiStore.setState({ liveHintDismissed: true }); }, '/'],
+    ['before the session list has loaded', () => { setSessions(s('a')); useWsStore.setState({ snapshotReceived: false }); }, '/'],
+  ])('no mark %s', (_why, arrange, path) => {
+    arrange();
+    renderNav(path);
+    expect(mark()).toBeNull();
+  });
+
+  it('a LIVE click that opens nothing does not retire it (a first-run user has not learned it yet)', () => {
+    setSessions();
+    renderNav('/history');
+    click('LIVE');
+    expect(useSessionStore.getState().selectedSessionId).toBeNull();
+    expect(useUiStore.getState().liveHintDismissed).toBe(false);
+  });
+
+  it('clicking LIVE retires the tip for good', () => {
+    setSessions(s('a'));
+    renderNav('/');
+    click('LIVE');
+    expect(useUiStore.getState().liveHintDismissed).toBe(true);
+    expect(localStorage.getItem('live-hint-dismissed')).toBe('1');
   });
 });

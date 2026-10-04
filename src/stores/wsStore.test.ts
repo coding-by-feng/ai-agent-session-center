@@ -50,4 +50,26 @@ describe('wsStore', () => {
       expect(useWsStore.getState().lastSeq).toBe(20);
     });
   });
+
+  // Sessions not shared with a remote device are left out of its snapshot; the
+  // server says how many, so that device can say "not shared" instead of "none".
+  describe('hiddenCount', () => {
+    it('starts at 0 and takes the snapshot\'s count', () => {
+      useWsStore.setState({ hiddenCount: 0 });
+      useWsStore.getState().setHiddenCount(3);
+      expect(useWsStore.getState().hiddenCount).toBe(3);
+    });
+  });
+
+  // Until the first snapshot lands the session map is empty because nothing
+  // has loaded yet, not because there are no sessions. The LIVE page waits
+  // for this before it says "No agent sessions yet".
+  describe('snapshotReceived', () => {
+    it('starts false and is set once a snapshot arrives', () => {
+      useWsStore.setState({ snapshotReceived: false });
+      expect(useWsStore.getState().snapshotReceived).toBe(false);
+      useWsStore.getState().setSnapshotReceived(true);
+      expect(useWsStore.getState().snapshotReceived).toBe(true);
+    });
+  });
 });

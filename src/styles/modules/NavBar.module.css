@@ -28,6 +28,21 @@
 .navBtn:hover { color: var(--text-secondary); }
 .navBtn.active { color: var(--accent-cyan); border-bottom-color: var(--accent-cyan); }
 
+/* Dot on the LIVE tab while the LIVE board's one-time tip is up (lib/liveHint.ts),
+   so "LIVE" in the tip has something to point at. LIVE is already the active tab,
+   whose underline means "you are here"; the dot is the "this one" mark. Static on
+   purpose: a pulse that never ends is noise, and the tip beside it does the asking. */
+.liveCueDot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-cyan) 25%, transparent);
+  vertical-align: 1px;
+}
+
 .badge {
   display: inline-flex; align-items: center; justify-content: center;
   background: var(--accent-cyan); color: #fff;

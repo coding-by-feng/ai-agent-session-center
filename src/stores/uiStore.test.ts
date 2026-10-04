@@ -288,4 +288,69 @@ describe('uiStore', () => {
       }
     });
   });
+
+  // The LIVE page's one-time tip ("Open a session: click a card, or LIVE").
+  // Retired for good on this device by its ✕, a card click or a LIVE click.
+  describe('liveHintDismissed', () => {
+    async function freshStore(stored: string | null) {
+      localStorage.removeItem('live-hint-dismissed');
+      if (stored !== null) localStorage.setItem('live-hint-dismissed', stored);
+      vi.resetModules();
+      const mod = await import('./uiStore');
+      return mod.useUiStore;
+    }
+
+    it('starts not dismissed on a fresh profile', async () => {
+      expect((await freshStore(null)).getState().liveHintDismissed).toBe(false);
+    });
+
+    it('stays dismissed across reloads', async () => {
+      expect((await freshStore('1')).getState().liveHintDismissed).toBe(true);
+    });
+
+    it('dismissLiveHint retires it and remembers that', async () => {
+      const store = await freshStore(null);
+      store.getState().dismissLiveHint();
+      expect(store.getState().liveHintDismissed).toBe(true);
+      expect(localStorage.getItem('live-hint-dismissed')).toBe('1');
+    });
+
+    it('still retires it for this visit when the browser will not store it', async () => {
+      const store = await freshStore(null);
+      const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('quota', 'QuotaExceededError');
+      });
+      try {
+        store.getState().dismissLiveHint();
+        expect(store.getState().liveHintDismissed).toBe(true);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('reads a blocked storage as not dismissed instead of throwing', async () => {
+      const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new DOMException('denied', 'SecurityError');
+      });
+      try {
+        vi.resetModules();
+        const mod = await import('./uiStore');
+        expect(mod.useUiStore.getState().liveHintDismissed).toBe(false);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
+
+  // DIRS (the recent-directories launcher in the top bar) can be opened from
+  // elsewhere, e.g. the LIVE page's "no sessions yet" card.
+  describe('workdirLauncherOpen', () => {
+    it('starts closed and opens and closes on request', () => {
+      useUiStore.setState({ workdirLauncherOpen: false });
+      useUiStore.getState().setWorkdirLauncherOpen(true);
+      expect(useUiStore.getState().workdirLauncherOpen).toBe(true);
+      useUiStore.getState().setWorkdirLauncherOpen(false);
+      expect(useUiStore.getState().workdirLauncherOpen).toBe(false);
+    });
+  });
 });

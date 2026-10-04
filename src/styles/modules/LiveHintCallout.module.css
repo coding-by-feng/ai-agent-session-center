@@ -1,0 +1,101 @@
+/* LiveHintCallout — the LIVE board's one-time tip (lib/liveHint.ts).
+ *
+ * In the page's flow above the board, not floating: it pushes the board down
+ * instead of covering the first row, and the top bar (which scrolls sideways
+ * below 640px) cannot clip it. LiveHintCallout.tsx writes --hint-left and
+ * --caret-x after measuring the LIVE tab; placeLiveHint keeps both inside the
+ * board, whose padding is the gutter to the window edge.
+ */
+
+.row {
+  /* room for the caret, which pokes 7px above the bubble */
+  padding-top: 8px;
+  margin-bottom: 16px;
+}
+
+.bubble {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: min(100%, 420px);
+  margin-left: var(--hint-left, 0px);
+  padding: 8px 8px 8px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--accent-cyan);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--accent-cyan) 18%, transparent);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  animation: hintIn 200ms ease-out;
+}
+
+/* The caret: a rotated square whose two top edges continue the border. */
+.bubble::before {
+  content: '';
+  position: absolute;
+  top: -7px;
+  left: calc(var(--caret-x, 24px) - 6px);
+  width: 12px;
+  height: 12px;
+  background: var(--bg-card);
+  border-left: 1px solid var(--accent-cyan);
+  border-top: 1px solid var(--accent-cyan);
+  transform: rotate(45deg);
+}
+
+.text {
+  margin: 0;
+}
+
+.lead {
+  color: var(--accent-cyan);
+  font-weight: 700;
+}
+
+.close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.close:hover {
+  background: var(--bg-subtle-strong);
+  color: var(--text-primary);
+}
+.close:active {
+  background: var(--bg-accent);
+}
+.close:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  .close {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+@keyframes hintIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble { animation: none; }
+  .close { transition: none; }
+}

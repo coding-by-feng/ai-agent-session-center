@@ -8,12 +8,8 @@
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
 import { lastWorkAt } from '@/lib/recentSessions';
+import { isListedSession as isListed } from '@/lib/sessionSort';
 import type { Session } from '@/types';
-
-/** Shown in the session lists: not ended, not a floating AI popup. */
-function isListed(s: Session): boolean {
-  return s.status !== 'ended' && !s.isFloating;
-}
 
 /**
  * Pure. The session to open, in order:
@@ -51,19 +47,30 @@ export function pickLiveSession(
 }
 
 /**
- * The LIVE tab's click. Opens the panel on `pickLiveSession`'s choice, or
- * leaves the LIVE page as it is when there is nothing to open. Selects only
- * when the choice differs: re-selecting the open session would record it as
- * its own "previous" and break the switch-to-previous shortcut.
+ * Show one session's panel: the LIVE tab's pick, or a card on the LIVE board.
+ * Selects only when it differs from the open one: re-selecting the open
+ * session would record it as its own "previous" and break the
+ * switch-to-previous shortcut. Then brings a minimized panel back.
  */
-export function openLiveSession(): void {
-  const { sessions, selectedSessionId, lastSelectedSessionId, selectSession, deselectSession } =
+export function openSessionPanel(sessionId: string): void {
+  const { selectedSessionId, selectSession } = useSessionStore.getState();
+  if (sessionId !== selectedSessionId) selectSession(sessionId);
+  useUiStore.getState().restoreDetailPanel();
+}
+
+/**
+ * The LIVE tab's click. Opens the panel on `pickLiveSession`'s choice, or
+ * leaves the LIVE page as it is when there is nothing to open. Returns whether
+ * it opened a session (the LIVE board's tip is retired only then).
+ */
+export function openLiveSession(): boolean {
+  const { sessions, selectedSessionId, lastSelectedSessionId, deselectSession } =
     useSessionStore.getState();
   const pick = pickLiveSession(sessions, selectedSessionId, lastSelectedSessionId);
   if (!pick) {
     deselectSession();
-    return;
+    return false;
   }
-  if (pick !== selectedSessionId) selectSession(pick);
-  useUiStore.getState().restoreDetailPanel();
+  openSessionPanel(pick);
+  return true;
 }

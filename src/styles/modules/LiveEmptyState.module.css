@@ -1,0 +1,164 @@
+/* LiveEmptyState — the 3D-off LIVE page on a desktop before there is any
+ * session. A centred card; below 1000px it is pushed up by the HUD's height
+ * (--hud-clear-bottom, set on LiveView's .flatRoot) so the HUD in the
+ * bottom-right corner never covers its lower half.
+ */
+
+.wrap {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+@media (max-width: 999px) {
+  .wrap {
+    padding-bottom: var(--hud-clear-bottom, 232px);
+  }
+}
+
+.card {
+  width: min(440px, 100%);
+  margin: auto;
+  padding: 24px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.lead {
+  margin: 0 0 16px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.steps {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.num {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-accent-strong);
+  border-radius: 50%;
+  color: var(--accent-cyan);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.action,
+.secondary {
+  flex-shrink: 0;
+  min-width: 72px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.action:focus-visible,
+.secondary:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+}
+
+/* The two ways in: the top bar's own look, one size up. */
+.action {
+  border: 1px solid var(--border-accent-strong);
+  background: var(--bg-accent);
+  color: var(--accent-cyan);
+}
+.action:hover {
+  background: var(--bg-accent-strong);
+  border-color: var(--accent-cyan);
+}
+.action:active {
+  background: color-mix(in srgb, var(--accent-cyan) 22%, var(--bg-card));
+}
+
+.secondary {
+  border: 1px solid var(--border-subtle-strong);
+  background: none;
+  color: var(--text-secondary);
+}
+.secondary:hover {
+  background: var(--bg-subtle-strong);
+  color: var(--text-primary);
+}
+.secondary:active {
+  background: var(--bg-accent);
+}
+
+.desc {
+  min-width: 0;
+}
+
+.code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--bg-subtle-strong);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+@media (pointer: coarse) {
+  .action,
+  .secondary {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .action,
+  .secondary {
+    transition: none;
+  }
+}

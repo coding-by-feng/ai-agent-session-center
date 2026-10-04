@@ -34,10 +34,14 @@
 
 /* ---- Dropdown ---- */
 
+/* Fixed, at --dd-top / --dd-left (WorkdirLauncher measures the DIRS button):
+   below 640px the top bar scrolls sideways (overflow-x: auto), which clipped the
+   old absolutely positioned dropdown to the bar's height, so it opened unseen.
+   Do not go back to `position: absolute` + top/left here. */
 .dropdown {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
+  position: fixed;
+  top: var(--dd-top, 0px);
+  left: var(--dd-left, 0px);
   min-width: 280px;
   max-width: 380px;
   max-height: 320px;
@@ -189,10 +193,10 @@
 
 /* #68 — Constrain dropdown width on small phones */
 @media (max-width: 480px) {
+  /* No `left` here: the dropdown is fixed at --dd-left, already kept 8px inside the window. */
   .dropdown {
     max-width: calc(100vw - 32px);
     min-width: unset;
-    left: 0;
   }
 }
 

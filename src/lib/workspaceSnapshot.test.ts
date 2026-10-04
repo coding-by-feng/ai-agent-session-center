@@ -27,6 +27,7 @@ import type { Session } from '@/types';
 import type { Room } from '@/stores/roomStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useRoomStore } from '@/stores/roomStore';
+import { useUiStore } from '@/stores/uiStore';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useQueueStore, type QueueItem } from '@/stores/queueStore';
 import { itemType } from './queueScheduler';
@@ -787,6 +788,17 @@ describe('scheduleAutoSave restore-pending guard', () => {
       String(c[0]).includes('/api/workspace/save'),
     );
     expect(saveCalls).toHaveLength(0);
+  });
+
+  // The LIVE page also waits for the restore decision before it says "No agent
+  // sessions yet" (the first snapshot of a fresh server is empty, and sessions
+  // started from that card would be killed by the restore's clear-all). The flag
+  // lives here as module state, so it is mirrored into uiStore for React.
+  it('mirrors the restore decision into uiStore, so the LIVE page can wait for it', () => {
+    _resetAutoSaveStateForTests();
+    expect(useUiStore.getState().workspaceRestorePending).toBe(true);
+    setRestorePending(false);
+    expect(useUiStore.getState().workspaceRestorePending).toBe(false);
   });
 
   it('saves once restore is resolved (setRestorePending(false))', async () => {
