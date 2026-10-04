@@ -3,12 +3,14 @@ import {
   BAY_BORDER,
   BAY_LENGTH,
   BAY_WIDTH,
+  THRESHOLD_WIDTH,
   buildBayStrips,
   buildLaneStrips,
+  buildThresholdStrips,
   type MarkingStrip,
 } from './groundMarkings';
-import { ROOM_CELL, ROOM_COLS, computeRoomCenter } from './roomGrid';
-import { buildDynamicWorkstations, computeRoomConfigs } from './cyberdromeScene';
+import { ROOM_CELL, ROOM_COLS, ROOM_HALF, computeRoomCenter } from './roomGrid';
+import { DOOR_GAP, buildDynamicWorkstations, computeRoomConfigs } from './cyberdromeScene';
 
 /** The rooms a roomStore with these grid slots produces — only the field the markings read. */
 const rooms = (...indices: number[]) => indices.map((index) => ({ index }));
@@ -213,6 +215,76 @@ describe('buildBayStrips', () => {
         const span = [box.maxX - box.minX, box.maxZ - box.minZ].sort((p, q) => p - q);
         expect(span[0]).toBeCloseTo(BAY_WIDTH, 6);
         expect(span[1]).toBeCloseTo(BAY_LENGTH, 6);
+      }
+    });
+  });
+});
+
+describe('buildThresholdStrips', () => {
+  const room = (cx: number, cz: number, stripColor: 0 | 1 = 0) => ({ center: [cx, 0, cz] as [number, number, number], stripColor });
+
+  it('paints nothing without rooms', () => {
+    expect(buildThresholdStrips([], DOOR_GAP)).toEqual([]);
+  });
+
+  it('puts one strip in each doorway of a room: the north wall and the south wall', () => {
+    const strips = buildThresholdStrips([room(-15, 0)], DOOR_GAP);
+    expect(strips).toHaveLength(2);
+    expect(strips.map((s) => s.z).sort((a, b) => a - b)).toEqual([-ROOM_HALF, ROOM_HALF]);
+    for (const s of strips) expect(s.x).toBe(-15);
+  });
+
+  it('only ever marks threshold strips', () => {
+    expect(buildThresholdStrips([room(0, 0), room(10, 0)], DOOR_GAP).every((s) => s.kind === 'threshold')).toBe(true);
+  });
+
+  it('spans exactly the doorway, so it never runs under a wall', () => {
+    for (const s of buildThresholdStrips([room(0, 0)], DOOR_GAP)) {
+      expect(s.length).toBeCloseTo(DOOR_GAP, 9);
+      expect(s.rotY).toBe(0); // along X, across the doorway
+      expect(s.width).toBe(THRESHOLD_WIDTH);
+    }
+  });
+
+  it('carries its room’s accent, so a doorway is painted in the colour of the room it leads into', () => {
+    expect(buildThresholdStrips([room(0, 0, 0)], DOOR_GAP).every((s) => s.accent === 0)).toBe(true);
+    expect(buildThresholdStrips([room(0, 0, 1)], DOOR_GAP).every((s) => s.accent === 1)).toBe(true);
+  });
+
+  it('gives every room its own pair', () => {
+    expect(buildThresholdStrips([room(0, 0), room(10, 0), room(20, 0)], DOOR_GAP)).toHaveLength(6);
+  });
+
+  // The real layout: a threshold must not land on a seat outline or a lane dash.
+  describe('on the real layout', () => {
+    const configs = computeRoomConfigs(
+      [0, 1, 4, 5].map((roomIndex) => ({ id: `r${roomIndex}`, name: `r${roomIndex}`, sessionIds: [], collapsed: false, createdAt: 0, roomIndex })),
+    );
+    const thresholds = buildThresholdStrips(configs, DOOR_GAP);
+    const others = [
+      ...buildLaneStrips(configs),
+      ...buildBayStrips(buildDynamicWorkstations(configs).map((w) => ({ x: w.seatPos.x, z: w.seatPos.z, faceRot: w.faceRot }))),
+    ];
+
+    const box = (s: MarkingStrip) => {
+      const alongX = Math.abs(Math.cos(s.rotY)) > 0.5;
+      const [hx, hz] = alongX ? [s.length / 2, s.width / 2] : [s.width / 2, s.length / 2];
+      return { minX: s.x - hx, maxX: s.x + hx, minZ: s.z - hz, maxZ: s.z + hz };
+    };
+
+    it('has a pair for every room', () => {
+      expect(thresholds).toHaveLength(configs.length * 2);
+    });
+
+    it('never overlaps a lane dash or a seat outline', () => {
+      for (const t of thresholds) {
+        const a = box(t);
+        for (const o of others) {
+          const b = box(o);
+          const overlapX = Math.min(a.maxX, b.maxX) - Math.max(a.minX, b.minX);
+          const overlapZ = Math.min(a.maxZ, b.maxZ) - Math.max(a.minZ, b.minZ);
+          expect(overlapX > 1e-9 && overlapZ > 1e-9, `threshold at (${t.x}, ${t.z}) vs ${o.kind} at (${o.x.toFixed(2)}, ${o.z.toFixed(2)})`).toBe(false);
+        }
       }
     });
   });

@@ -12,6 +12,7 @@
  *
  * Pure, so the balance is testable without a renderer.
  */
+import { hslToRgb, parseHex, rgbToHsl, toHex } from './colorMath';
 import type { Scene3DTheme } from './sceneThemes';
 
 /** Multipliers against the theme's own values, for dark and for bright palettes. */
@@ -31,14 +32,8 @@ const LIGHT_BACKGROUND = 0.6;
  * anything else — a colour name, `rgb(…)`, junk.
  */
 function hexLuma(hex: string): number | null {
-  const match = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(hex.trim());
-  if (!match) return null;
-  const body = match[1].length <= 4 ? [...match[1]].map((c) => c + c).join('') : match[1];
-  const digits = body.slice(0, 6);
-  const r = parseInt(digits.slice(0, 2), 16) / 255;
-  const g = parseInt(digits.slice(2, 4), 16) / 255;
-  const b = parseInt(digits.slice(4, 6), 16) / 255;
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const rgb = parseHex(hex);
+  return rgb && (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
 }
 
 /**
@@ -54,7 +49,12 @@ export function isLightBackground(hex: string): boolean {
 // The robot's clay body
 // ---------------------------------------------------------------------------
 
-/** Which clay paints the diorama's robots: the standard mid blue-grey, or a deeper slate for bright scenes. */
+/**
+ * The diorama's paint tone for a palette: `standard` on a dark one, `deep` on a bright one. One split, one
+ * rule (`clayToneFor`), for everything that is painted and has to read against a floor it sits on — the
+ * robot's clay (`CLAY_PAINT`), its livery (`liveryPaint`) and the floor paint (`markingColors`). The name
+ * is the clay's, where it started: a bright palette's rig lifted the standard clay to near white.
+ */
 export type ClayTone = 'standard' | 'deep';
 
 /**
@@ -71,6 +71,37 @@ export const CLAY_PAINT: Readonly<Record<ClayTone, { readonly body: string; read
   standard: { body: '#9fadcb', shade: '#74839f' },
   deep: { body: '#2a354f', shade: '#1d263a' },
 };
+
+/**
+ * How the session colour is repainted for the robot's livery (arms and chest band) on a bright palette.
+ * A neon colour is lit hard by a bright rig and carries an emissive glow on top, so it renders as pale ice
+ * — 1.05-1.21:1 against the furniture, 8.7 CIELAB units from Windows XP's floor. Lowering the lightness
+ * leaves headroom for the rig to light it without clipping, and the saturation floor keeps it a colour
+ * rather than a grey. The hue is never touched: it is how one CLI is told from another.
+ */
+export const DEEP_LIVERY = { minSaturation: 0.85, maxLightness: 0.3 } as const;
+
+/**
+ * Below this chroma (the spread of the colour's channels, 0..1) a colour is a grey, which has no hue to keep:
+ * the saturation floor must not turn it into a colour. Chroma, not HSL saturation — HSL saturation is
+ * unstable near white and black (`#fffffe` is "100% saturated"), and that is exactly where greys live.
+ */
+const GREY_CHROMA = 0.06;
+
+/**
+ * The livery paint for a session colour: untouched on a dark palette (neon on dark is right), the same hue
+ * at a saturation and lightness a bright rig can light without washing it out on a bright one. A grey stays
+ * grey (just darker). A colour that is not `#rgb`/`#rrggbb` comes back as it was.
+ */
+export function liveryPaint(hex: string, tone: ClayTone): string {
+  if (tone === 'standard') return hex;
+  const rgb = parseHex(hex);
+  if (!rgb) return hex;
+  const [h, s, l] = rgbToHsl(rgb);
+  const isGrey = (Math.max(...rgb) - Math.min(...rgb)) / 255 < GREY_CHROMA;
+  const saturation = isGrey ? 0 : Math.max(s, DEEP_LIVERY.minSaturation);
+  return toHex(hslToRgb(h, saturation, Math.min(l, DEEP_LIVERY.maxLightness)));
+}
 
 /** Furniture brighter than this on average (0..1) is "bright". The palettes sit at 0.07–0.23 or 0.60–0.65. */
 const BRIGHT_FURNITURE = 0.4;

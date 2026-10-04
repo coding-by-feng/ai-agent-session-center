@@ -1,6 +1,6 @@
 /**
  * GroundMarkings — the diorama style's painted floor: dashed lanes down the corridors between
- * rooms, and a thin outline around every seat.
+ * rooms, a thin outline around every seat, and a band across every doorway.
  *
  * One instanced mesh draws all of it. The strips are laid out by `groundMarkings.ts` (pure) and
  * written into the instance buffer once per layout change — never per frame.
@@ -9,30 +9,37 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import { buildBayStrips, buildLaneStrips } from '@/lib/groundMarkings';
-import type { RoomConfig, Workstation } from '@/lib/cyberdromeScene';
+import { buildBayStrips, buildLaneStrips, buildThresholdStrips } from '@/lib/groundMarkings';
+import { DOOR_GAP, type RoomConfig, type Workstation } from '@/lib/cyberdromeScene';
+import type { ClayTone } from '@/lib/dioramaLighting';
 import type { Scene3DTheme } from '@/lib/sceneThemes';
-import { DECAL_Y, markingColors } from './sceneDecals';
+import { DECAL_Y, markingColors, stripColorFor } from './sceneDecals';
 
 interface GroundMarkingsProps {
   rooms: RoomConfig[];
   workstations: Workstation[];
   theme: Scene3DTheme;
+  /** Dark palettes get road paint (eased toward white); bright ones the theme's own colours. */
+  tone: ClayTone;
 }
 
-export default function GroundMarkings({ rooms, workstations, theme }: GroundMarkingsProps) {
+export default function GroundMarkings({ rooms, workstations, theme, tone }: GroundMarkingsProps) {
   const meshRef = useRef<THREE.InstancedMesh>(null);
 
   const strips = useMemo(
     () => [
       ...buildLaneStrips(rooms),
       ...buildBayStrips(workstations.map((w) => ({ x: w.seatPos.x, z: w.seatPos.z, faceRot: w.faceRot }))),
+      ...buildThresholdStrips(rooms, DOOR_GAP),
     ],
     [rooms, workstations],
   );
 
-  const { grid1, stripSecondary } = theme;
-  const colors = useMemo(() => markingColors({ grid1, stripSecondary }), [grid1, stripSecondary]);
+  const { grid1, stripPrimary, stripSecondary } = theme;
+  const colors = useMemo(
+    () => markingColors({ grid1, stripPrimary, stripSecondary }, tone),
+    [grid1, stripPrimary, stripSecondary, tone],
+  );
 
   // A unit square already lying flat: each instance scales it to (length, 1, width).
   const geometry = useMemo(() => new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), []);
@@ -69,7 +76,7 @@ export default function GroundMarkings({ rooms, workstations, theme }: GroundMar
       position.set(strip.x, DECAL_Y, strip.z);
       scale.set(strip.length, 1, strip.width);
       mesh.setMatrixAt(i, matrix.compose(position, rotation, scale));
-      mesh.setColorAt(i, strip.kind === 'lane' ? colors.lane : colors.bay);
+      mesh.setColorAt(i, stripColorFor(strip, colors));
     });
     mesh.count = strips.length;
     mesh.instanceMatrix.needsUpdate = true;

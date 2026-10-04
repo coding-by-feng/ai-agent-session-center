@@ -152,6 +152,7 @@ function SceneContent({
         workstations={workstations}
         theme={sceneTheme}
         sceneStyle={sceneStyle}
+        tone={clayTone}
       />
       <RoomLabels rooms={rooms} casualAreas={casualAreas} storeRooms={storeRooms} sessions={sessionsMap} />
       {sessionArray.map((session) => (

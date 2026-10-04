@@ -7,6 +7,8 @@
  * (colour, opacity) is the only thing that varies, and that is the caller's.
  */
 import * as THREE from 'three';
+import type { ClayTone } from '@/lib/dioramaLighting';
+import type { MarkingStrip } from '@/lib/groundMarkings';
 
 /** How far above the floor the flat decals sit — clear of the floor panels (0.003) and borders (0.015). */
 export const DECAL_Y = 0.03;
@@ -61,19 +63,52 @@ export function getSoftDiscTexture(): THREE.Texture {
 // Marking paint
 // ---------------------------------------------------------------------------
 
-/** Lane paint and bay paint, taken from the theme so every palette gets markings that suit it. */
-export function markingColors(theme: { grid1: string; stripSecondary: string }): {
+/**
+ * Lane paint and bay paint, taken from the theme so every palette gets markings that suit it.
+ *
+ * On a dark palette (`standard`) the paint is eased toward white: road paint on dark asphalt. On a bright
+ * one (`deep`) that is exactly wrong — white on a white floor, measured at 5-12 CIELAB units from it on
+ * light, warm and blonde — so the paint is the theme's own colour (amber, blue, copper), which is already
+ * paint-like and 62-76 units from those floors.
+ */
+export function markingColors(
+  theme: { grid1: string; stripPrimary: string; stripSecondary: string },
+  tone: ClayTone,
+): {
   lane: THREE.Color;
   bay: THREE.Color;
+  /** The theme's two room accents, as paint — a doorway threshold wears its room's. */
+  accents: [THREE.Color, THREE.Color];
 } {
+  if (tone === 'deep') {
+    return {
+      lane: new THREE.Color(theme.grid1),
+      bay: new THREE.Color(theme.stripSecondary),
+      accents: [new THREE.Color(theme.stripPrimary), new THREE.Color(theme.stripSecondary)],
+    };
+  }
   const white = new THREE.Color('#ffffff');
   return {
-    // Road paint is white-ish whatever the palette: lean the theme's grid colour toward white.
+    // Road paint is white-ish on a dark floor: lean the theme's grid colour toward white.
     lane: new THREE.Color(theme.grid1).lerp(white, 0.6),
     // Bay paint: the theme's accent, eased toward white so a seat's outline reads as paint on the
     // floor, not a neon tube.
     bay: new THREE.Color(theme.stripSecondary).lerp(white, 0.3),
+    accents: [
+      new THREE.Color(theme.stripPrimary).lerp(white, 0.3),
+      new THREE.Color(theme.stripSecondary).lerp(white, 0.3),
+    ],
   };
+}
+
+/** The paint for one marking strip: the lane colour, the bay colour, or — for a doorway threshold — its room's accent. */
+export function stripColorFor(
+  strip: Pick<MarkingStrip, 'kind' | 'accent'>,
+  colours: ReturnType<typeof markingColors>,
+): THREE.Color {
+  if (strip.kind === 'lane') return colours.lane;
+  if (strip.kind === 'threshold') return colours.accents[strip.accent ?? 0];
+  return colours.bay;
 }
 
 // ---------------------------------------------------------------------------
@@ -121,6 +156,61 @@ export function getRibbedTexture(length: number): THREE.Texture | null {
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 4;
   ribbedByCount.set(ribs, texture);
+  return texture;
+}
+
+// ---------------------------------------------------------------------------
+// Floor slabs — faint joints
+// ---------------------------------------------------------------------------
+
+/** Width of one floor slab in world units: a joint falls every `SLAB` units. */
+export const SLAB = 4;
+
+/** How many slabs a floor `size` units across carries — whole slabs, so the pattern tiles cleanly. */
+export function slabCount(size: number): number {
+  return Math.max(1, Math.round(size / SLAB));
+}
+
+const slabsByCount = new Map<number, THREE.Texture>();
+
+/** The slab image's size in pixels, the joint's thickness, and the share of the slab's brightness the joint keeps. */
+const SLAB_PX = 128;
+const JOINT_PX = 2;
+const JOINT_SHADE = 0.88;
+
+/**
+ * Paving joints for a floor `size` units across, to be multiplied with the floor colour: a light slab with
+ * a faint darker joint down its left edge and along its top edge (the two edges that tile into a full
+ * grid). One texture per slab count, shared by every floor of that size. Null where there is no 2D canvas
+ * (a unit test) — the floor is then simply plain.
+ *
+ * Faint on purpose: it is a hint of scale and distance, like the pavement joints in the reference, not a
+ * grid that competes with the lane dashes and the seat outlines.
+ */
+export function getSlabTexture(size: number): THREE.Texture | null {
+  const slabs = slabCount(size);
+  const known = slabsByCount.get(slabs);
+  if (known) return known;
+  const canvas = typeof document !== 'undefined' ? document.createElement('canvas') : null;
+  const ctx = canvas ? canvas.getContext('2d') : null;
+  if (!canvas || !ctx) return null;
+
+  canvas.width = SLAB_PX;
+  canvas.height = SLAB_PX;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, SLAB_PX, SLAB_PX);
+  const shade = Math.round(255 * JOINT_SHADE).toString(16).padStart(2, '0');
+  ctx.fillStyle = `#${shade}${shade}${shade}`;
+  ctx.fillRect(0, 0, JOINT_PX, SLAB_PX);
+  ctx.fillRect(0, 0, SLAB_PX, JOINT_PX);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(slabs, slabs);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  slabsByCount.set(slabs, texture);
   return texture;
 }
 
