@@ -25,14 +25,24 @@ export const ROOM_COLS = 4;                     // max rooms per row before wrap
 // Room placement
 // ---------------------------------------------------------------------------
 
+/**
+ * World X of a grid column's centre — the columns are centred around x = 0. Also valid one step
+ * outside the grid (-1, ROOM_COLS), which is where a ring road around the rooms runs.
+ */
+export function computeColumnX(col: number): number {
+  return (col - (ROOM_COLS - 1) / 2) * ROOM_CELL;
+}
+
+/** World Z of a grid row's centre. */
+export function computeRowZ(row: number): number {
+  return row * ROOM_CELL;
+}
+
 /** Compute the world-space center of a room by its grid index. */
 export function computeRoomCenter(roomIndex: number): [number, number, number] {
   const col = roomIndex % ROOM_COLS;
   const row = Math.floor(roomIndex / ROOM_COLS);
-  // Center the columns around x=0
-  const x = (col - (ROOM_COLS - 1) / 2) * ROOM_CELL;
-  const z = row * ROOM_CELL;
-  return [x, 0, z];
+  return [computeColumnX(col), 0, computeRowZ(row)];
 }
 
 // ---------------------------------------------------------------------------

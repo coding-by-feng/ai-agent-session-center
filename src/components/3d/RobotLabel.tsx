@@ -12,6 +12,8 @@ import { useFrame } from '@react-three/fiber';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import type { Session } from '@/types';
 import type { Robot3DState } from '@/lib/robotStateMap';
+import type { SceneStyle } from '@/lib/sceneStyle';
+import RobotChip from './RobotChip';
 
 // ---------------------------------------------------------------------------
 // Status dot color mapping
@@ -54,6 +56,8 @@ interface RobotLabelProps {
   isSelected: boolean;
   isHovered: boolean;
   fontSize: number;
+  /** `diorama` draws the light name chip (`RobotChip`) instead of this dark panel. */
+  sceneStyle: SceneStyle;
 }
 
 // ---------------------------------------------------------------------------
@@ -160,8 +164,19 @@ function RobotLabelInner({ session, robotState, fontSize }: RobotLabelProps) {
   );
 }
 
+/**
+ * Picks the look. A separate component, so neither look's hooks sit behind the other's early
+ * return, and a style switch swaps one label for the other cleanly.
+ */
+function RobotLabelView(props: RobotLabelProps) {
+  if (props.sceneStyle === 'diorama') {
+    return <RobotChip session={props.session} isSelected={props.isSelected} fontSize={props.fontSize} />;
+  }
+  return <RobotLabelInner {...props} />;
+}
+
 // Memoize to prevent unnecessary re-renders.
-const RobotLabel = memo(RobotLabelInner, (prev, next) =>
+const RobotLabel = memo(RobotLabelView, (prev, next) =>
   prev.session.sessionId === next.session.sessionId &&
   prev.session.status === next.session.status &&
   prev.session.title === next.session.title &&
@@ -169,6 +184,7 @@ const RobotLabel = memo(RobotLabelInner, (prev, next) =>
   prev.robotState === next.robotState &&
   prev.isSelected === next.isSelected &&
   prev.isHovered === next.isHovered &&
-  prev.fontSize === next.fontSize
+  prev.fontSize === next.fontSize &&
+  prev.sceneStyle === next.sceneStyle
 );
 export default RobotLabel;

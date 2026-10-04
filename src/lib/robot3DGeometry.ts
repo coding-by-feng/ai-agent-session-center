@@ -14,6 +14,7 @@ import * as THREE from 'three';
 // Re-exported here so 3D code keeps its single import site.
 export { PALETTE } from './robotPalette';
 import { PALETTE } from './robotPalette';
+import { CLAY_PAINT, type ClayTone } from './dioramaLighting';
 
 // ---------------------------------------------------------------------------
 // Shared Body Geometries (10 parts)
@@ -60,6 +61,48 @@ export const darkMat = new THREE.MeshStandardMaterial({
 });
 
 // ---------------------------------------------------------------------------
+// Diorama style — matte clay body, livery paint in the session colour
+// ---------------------------------------------------------------------------
+
+function createClay(tone: ClayTone) {
+  return {
+    /** Matte body (head, torso, feet). */
+    body: new THREE.MeshStandardMaterial({ color: CLAY_PAINT[tone].body, roughness: 0.62, metalness: 0 }),
+    /** A darker clay for the parts that should recede (antenna, legs). */
+    shade: new THREE.MeshStandardMaterial({ color: CLAY_PAINT[tone].shade, roughness: 0.7, metalness: 0 }),
+  };
+}
+
+const clay: Record<ClayTone, ReturnType<typeof createClay>> = {
+  standard: createClay('standard'),
+  deep: createClay('deep'),
+};
+
+/**
+ * The diorama's clay materials for a tone — shared, so a caller that animates one clones it. The tone is
+ * a parameter and the materials are NOT exported on their own: a bare `clayMat` would be one paint for
+ * every palette, which is exactly how the robot ended up white on white (see `CLAY_PAINT`).
+ */
+export function clayMaterials(tone: ClayTone) {
+  return clay[tone];
+}
+
+/**
+ * Matte paint in a session's colour — the arms and the chest band, where the neon style used glowing
+ * metal. A little emissive keeps the colour from going muddy in a dim scene.
+ */
+export function createLiveryMat(hex: string): THREE.MeshStandardMaterial {
+  const c = new THREE.Color(hex);
+  return new THREE.MeshStandardMaterial({
+    color: c,
+    emissive: c,
+    emissiveIntensity: 0.28,
+    roughness: 0.55,
+    metalness: 0,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Per-Color Material Factories
 // ---------------------------------------------------------------------------
 
@@ -88,4 +131,5 @@ export function createEdgeMat(hex: string): THREE.LineBasicMaterial {
 
 export const neonMats = PALETTE.map((h) => createNeonMat(h));
 export const edgeMats = PALETTE.map((h) => createEdgeMat(h));
+export const liveryMats = PALETTE.map((h) => createLiveryMat(h));
 
