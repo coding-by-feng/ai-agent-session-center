@@ -127,6 +127,8 @@ export interface NotificationPayload extends HookPayloadBase {
   hook_event_name: 'Notification';
   message?: string;
   title?: string;
+  /** e.g. 'permission_prompt' (a permission dialog is open), 'idle_prompt', 'auth_success'. */
+  notification_type?: string;
 }
 
 /** TeammateIdle event payload */

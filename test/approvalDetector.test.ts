@@ -1,6 +1,6 @@
 // test/approvalDetector.test.ts — Tests for server/approvalDetector.ts
 import { describe, it, beforeEach, afterEach, expect, vi } from 'vitest';
-import { startApprovalTimer, clearApprovalTimer, hasChildProcesses, isAgentBusyOutput } from '../server/approvalDetector.js';
+import { startApprovalTimer, clearApprovalTimer, hasChildProcesses, isAgentBusyOutput, mayAwaitApproval, toolCallInFlight } from '../server/approvalDetector.js';
 import { SESSION_STATUS, ANIMATION_STATE } from '../server/constants.js';
 
 describe('approvalDetector', () => {
@@ -134,6 +134,92 @@ describe('approvalDetector', () => {
       expect(session.status).toBe(SESSION_STATUS.APPROVAL);
       expect(session.animationState).toBe(ANIMATION_STATE.WAITING);
       clearApprovalTimer('idle-1', session as never);
+    });
+  });
+
+  // `dontAsk` never prompts (asks become refusals). `bypassPermissions` prompts only
+  // for explicit `ask` rules and the bypass-immune safety checks (e.g. a dangerous
+  // `rm`), and those real dialogs send PermissionRequest plus a "permission_prompt"
+  // Notification (see test/approvalPermissionMode.test.ts). So in both modes the
+  // timeout heuristic is dropped: it could only guess wrong there. The reported
+  // case: a bypass-mode session an hour into thinking after a Read showed "!".
+  describe('mayAwaitApproval — modes where only a real signal may mean approval', () => {
+    it.each(['Read', 'Edit', 'Write', 'Bash', 'WebFetch'])('a %s gets no approval timer in bypassPermissions or dontAsk', (tool) => {
+      expect(mayAwaitApproval(tool, 'bypassPermissions')).toBe(false);
+      expect(mayAwaitApproval(tool, 'dontAsk')).toBe(false);
+    });
+
+    it.each(['default', 'acceptEdits', 'plan', 'auto', null, undefined, ''])('mode %s may still prompt, so the timer stays', (mode) => {
+      expect(mayAwaitApproval('Read', mode as string | null | undefined)).toBe(true);
+      expect(mayAwaitApproval('Bash', mode as string | null | undefined)).toBe(true);
+    });
+
+    it('a question to the user still waits in every mode', () => {
+      expect(mayAwaitApproval('AskUserQuestion', 'bypassPermissions')).toBe(true);
+      expect(mayAwaitApproval('AskUserQuestion', 'dontAsk')).toBe(true);
+    });
+  });
+
+  describe('toolCallInFlight — is a tool call still waiting for its result?', () => {
+    const ev = (...types: string[]) => types.map((type) => ({ type }));
+    it('yes after a PreToolUse or a PermissionRequest', () => {
+      expect(toolCallInFlight(ev('UserPromptSubmit', 'PreToolUse'))).toBe(true);
+      expect(toolCallInFlight(ev('PreToolUse', 'PermissionRequest'))).toBe(true);
+      expect(toolCallInFlight(ev('PermissionRequest', 'Notification'))).toBe(true);
+    });
+    it('no once the call closed, the turn stopped, or nothing ever ran', () => {
+      expect(toolCallInFlight(ev('PreToolUse', 'PostToolUse'))).toBe(false);
+      expect(toolCallInFlight(ev('PreToolUse', 'PostToolUseFailure'))).toBe(false);
+      expect(toolCallInFlight(ev('PreToolUse', 'Stop'))).toBe(false);
+      expect(toolCallInFlight(ev('SessionStart'))).toBe(false);
+      expect(toolCallInFlight([])).toBe(false);
+    });
+  });
+
+  describe('startApprovalTimer in a mode that never prompts', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it('bypassPermissions: a long-silent Read stays working, with no busy spinner in sight', () => {
+      const session = { status: SESSION_STATUS.WORKING, pendingTool: null, pendingToolDetail: null };
+      const broadcastFn = vi.fn(async () => {});
+      const noSpinner = () => 'Reading 1 file…';
+      startApprovalTimer('bypass-1', session as never, 'Read', '06-cache.png', broadcastFn, () => session as never, noSpinner, 'bypassPermissions');
+      vi.advanceTimersByTime(60_000);
+      expect(session.status).toBe(SESSION_STATUS.WORKING);
+      expect(broadcastFn).not.toHaveBeenCalled();
+      // the robot still shows which tool is running
+      expect(session.pendingTool).toBe('Read');
+      expect(session.pendingToolDetail).toBe('06-cache.png');
+      clearApprovalTimer('bypass-1', session as never);
+    });
+
+    it('dontAsk: a Bash with no child process still stays working', () => {
+      const session = { status: SESSION_STATUS.WORKING, pendingTool: null, pendingToolDetail: null, cachedPid: null };
+      const broadcastFn = vi.fn(async () => {});
+      startApprovalTimer('dontask-1', session as never, 'Bash', 'ls', broadcastFn, () => session as never, () => '', 'dontAsk');
+      vi.advanceTimersByTime(60_000);
+      expect(session.status).toBe(SESSION_STATUS.WORKING);
+      expect(broadcastFn).not.toHaveBeenCalled();
+      clearApprovalTimer('dontask-1', session as never);
+    });
+
+    it('bypassPermissions: a question still turns into input', () => {
+      const session = { status: SESSION_STATUS.WORKING, pendingTool: null, pendingToolDetail: null };
+      const broadcastFn = vi.fn(async () => {});
+      startApprovalTimer('bypass-q', session as never, 'AskUserQuestion', 'Which one?', broadcastFn, () => session as never, () => '', 'bypassPermissions');
+      vi.advanceTimersByTime(5000);
+      expect(session.status).toBe(SESSION_STATUS.INPUT);
+      clearApprovalTimer('bypass-q', session as never);
+    });
+
+    it('default mode is unchanged: no spinner, no answer, approval', () => {
+      const session = { status: SESSION_STATUS.WORKING, pendingTool: null, pendingToolDetail: null };
+      const broadcastFn = vi.fn(async () => {});
+      startApprovalTimer('default-1', session as never, 'Read', 'x', broadcastFn, () => session as never, () => 'Listed 3 files', 'default');
+      vi.advanceTimersByTime(5000);
+      expect(session.status).toBe(SESSION_STATUS.APPROVAL);
+      clearApprovalTimer('default-1', session as never);
     });
   });
 
