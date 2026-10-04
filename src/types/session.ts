@@ -150,6 +150,46 @@ export interface SessionInterruption {
 }
 
 // ---------------------------------------------------------------------------
+// Plan usage (the CLI's subscription limits — what `/usage` and `/status` show)
+// ---------------------------------------------------------------------------
+
+/** The AI CLIs that report plan limits. */
+export type PlanCli = 'claude' | 'codex';
+
+/** One plan-limit bucket: a CLI's "5-hour" or "weekly" allowance. */
+export interface PlanUsageWindow {
+  /**
+   * Length of the window in minutes (300 = 5 h, 10080 = a week). It identifies
+   * the window — the UI derives the label from it — so two observations of the
+   * same window can be compared and a window that has rolled over is told apart
+   * from the one before it by `resetsAt`.
+   */
+  minutes: number;
+  /** 0–100: how much of the limit is used. */
+  usedPercent: number;
+  /** Epoch ms at which the window resets; null when the CLI did not say. */
+  resetsAt: number | null;
+}
+
+/**
+ * Plan limits as last reported by a CLI. They belong to the ACCOUNT, not to a
+ * session, so the server attaches the freshest observation to every live
+ * session of that CLI (`server/planUsageService.ts`); the field rides the
+ * ordinary session update and so inherits its visibility gate.
+ */
+export interface PlanUsage {
+  cli: PlanCli;
+  /** At least one window: an observation with none is never produced. */
+  windows: PlanUsageWindow[];
+  /** The login's plan as the CLI names it (Codex `plan_type`), when it says. */
+  plan?: string;
+  /** The CLI reported that a limit has been hit. */
+  limitReached?: boolean;
+  /** Epoch ms when a session last reported these numbers. */
+  asOf: number;
+}
+
+// ---------------------------------------------------------------------------
 // Core Session
 // ---------------------------------------------------------------------------
 
@@ -211,6 +251,14 @@ export interface Session {
    * auto-resume watchdog reads as "recovered". Absent on a healthy session.
    */
   interruption?: SessionInterruption | null;
+
+  /**
+   * The CLI's plan limits (5-hour / weekly usage and when they reset), as last
+   * reported. Account-wide, so every live session of one CLI carries the same
+   * value; absent until some session of that CLI has reported. Never read it as
+   * "this session's usage" — it is not.
+   */
+  planUsage?: PlanUsage | null;
 
   /**
    * When the user stopped the current turn — Esc mid-turn, or declining a tool

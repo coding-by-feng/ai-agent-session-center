@@ -28,11 +28,14 @@ export type QueueViewMode = 'list' | 'card';
  *  (default) or a vertical rail down the left side (reclaims vertical space). */
 export type NavPosition = 'top' | 'left';
 
-/** How the session strip is ordered:
+/** How the session strip is grouped and ordered:
  *  - 'room'     (default) — room-coloured frames, sessions ordered by status.
  *  - 'activity'           — no room frames at all; one flat list, most recently
- *                           active first. Answers "what did I touch last?". */
-export type SessionSortMode = 'room' | 'activity';
+ *                           active first. Answers "what did I touch last?".
+ *  - 'project'            — one frame per project directory instead of per room,
+ *                           each with buttons to start a new Claude / Codex
+ *                           session there. Answers "what is running in X?". */
+export type SessionSortMode = 'room' | 'activity' | 'project';
 
 export interface WorkspaceLoadState {
   active: boolean;
@@ -72,9 +75,14 @@ interface UiState {
   recentRoomCollapsed: boolean;
   /** The "go to session #" box (SessionJumpOverlay) is open. Not persisted. */
   sessionJumpOpen: boolean;
-  /** Session strip ordering. Persisted to localStorage['session-sort-mode'].
-   *  'activity' flattens the room frames away — see SessionSortMode. */
+  /** Session strip grouping/ordering. Persisted to localStorage['session-sort-mode'].
+   *  'activity' flattens the room frames away, 'project' swaps them for project
+   *  frames — see SessionSortMode. */
   sessionSortMode: SessionSortMode;
+  /** Project frames the user has folded, by `projectKey` (host|path). Project
+   *  frames are not Rooms, so there is no room.collapsed to keep this on.
+   *  Persisted to localStorage['collapsed-projects'] as a JSON array. */
+  collapsedProjects: Set<string>;
   workspaceLoad: WorkspaceLoadState;
   /** Room filter: persisted across session switches */
   selectedRoomIds: Set<string>;
@@ -105,7 +113,8 @@ interface UiState {
   toggleRecentRoomCollapsed: () => void;
   openSessionJump: () => void;
   closeSessionJump: () => void;
-  toggleSessionSortMode: () => void;
+  setSessionSortMode: (mode: SessionSortMode) => void;
+  toggleProjectCollapsed: (projectKey: string) => void;
   startWorkspaceLoad: (total: number) => void;
   advanceWorkspaceLoad: (done: number, currentTitle: string) => void;
   finishWorkspaceLoad: () => void;
@@ -173,9 +182,37 @@ function loadRecentRoomCollapsed(): boolean {
 
 function loadSessionSortMode(): SessionSortMode {
   try {
-    return localStorage.getItem('session-sort-mode') === 'activity' ? 'activity' : 'room';
+    const stored = localStorage.getItem('session-sort-mode');
+    return stored === 'activity' || stored === 'project' ? stored : 'room';
   } catch {
     return 'room';
+  }
+}
+
+function loadCollapsedProjects(): Set<string> {
+  try {
+    const raw = localStorage.getItem('collapsed-projects');
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return new Set(parsed.filter((key): key is string => typeof key === 'string'));
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return new Set();
+}
+
+function saveCollapsedProjects(keys: Set<string>): void {
+  try {
+    if (keys.size === 0) {
+      localStorage.removeItem('collapsed-projects');
+    } else {
+      localStorage.setItem('collapsed-projects', JSON.stringify([...keys]));
+    }
+  } catch {
+    /* ignore */
   }
 }
 
@@ -219,6 +256,7 @@ export const useUiStore = create<UiState>((set) => ({
   recentRoomCollapsed: loadRecentRoomCollapsed(),
   sessionJumpOpen: false,
   sessionSortMode: loadSessionSortMode(),
+  collapsedProjects: loadCollapsedProjects(),
   workspaceLoad: { active: false, total: 0, done: 0, currentTitle: '' },
   selectedRoomIds: loadRoomFilter(),
 
@@ -306,15 +344,22 @@ export const useUiStore = create<UiState>((set) => ({
     }),
   openSessionJump: () => set({ sessionJumpOpen: true }),
   closeSessionJump: () => set({ sessionJumpOpen: false }),
-  toggleSessionSortMode: () =>
-    set((s) => {
-      const next: SessionSortMode = s.sessionSortMode === 'activity' ? 'room' : 'activity';
+  setSessionSortMode: (mode) =>
+    set(() => {
       try {
-        localStorage.setItem('session-sort-mode', next);
+        localStorage.setItem('session-sort-mode', mode);
       } catch {
         /* ignore */
       }
-      return { sessionSortMode: next };
+      return { sessionSortMode: mode };
+    }),
+  toggleProjectCollapsed: (projectKey) =>
+    set((s) => {
+      const next = new Set(s.collapsedProjects);
+      if (next.has(projectKey)) next.delete(projectKey);
+      else next.add(projectKey);
+      saveCollapsedProjects(next);
+      return { collapsedProjects: next };
     }),
   startWorkspaceLoad: (total) =>
     set({ workspaceLoad: { active: true, total, done: 0, currentTitle: '' } }),

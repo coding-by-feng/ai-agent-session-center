@@ -10,6 +10,7 @@
  */
 import { useEffect, useId, useLayoutEffect, useRef } from 'react';
 import type { RepoStatus, ResourceProject, ResourceSummary, ResourceType } from '@/types/resources';
+import { stripShortcutPrefix, type ResourceShortcuts } from '@/lib/commandShortcuts';
 import {
   AGENT_LABELS,
   RESOURCE_TYPE_LABELS,
@@ -33,6 +34,8 @@ interface ResourceListProps {
    * list opens at whatever offset the previous one was scrolled to.
    */
   scrollResetKey: string;
+  /** Shortcut commands ↔ their targets (src/lib/commandShortcuts.ts). */
+  shortcuts: ResourceShortcuts;
   onSelect: (id: string) => void;
 }
 
@@ -51,15 +54,19 @@ function ResourceRow({
   resource: r,
   selected,
   projectsById,
+  shortcuts,
   onSelect,
 }: {
   resource: ResourceSummary;
   selected: boolean;
   projectsById: ReadonlyMap<string, ResourceProject>;
+  shortcuts: ResourceShortcuts;
   onSelect: (id: string) => void;
 }) {
   const origin = originTag(r);
   const repo = repoChipLabel(r.repo.status);
+  const target = shortcuts.targetOf.get(r.id);
+  const aliases = shortcuts.aliasesOf.get(r.id);
   return (
     <button
       type="button"
@@ -78,8 +85,10 @@ function ResourceRow({
         {repo && <>{' '}<Badge className={REPO_CHIP_CLASS[r.repo.status]}>{repo}</Badge></>}
         {hasVariantDiff(r) && <>{' '}<Badge className={styles.chipWarn}>≠ variant</Badge></>}
         {r.orphaned && <>{' '}<Badge className={styles.chipError}>orphaned</Badge></>}
+        {target && <>{' '}<Badge className={styles.chipOrigin}>{`→ ${target.name}`}</Badge></>}
+        {aliases && <>{' '}<Badge className={styles.chipOrigin}>{`shortcut ${aliases.map((a) => `/${a.name}`).join(' ')}`}</Badge></>}
       </span>{' '}
-      <span className={styles.rowSecondary}>{r.description || r.path}</span>
+      <span className={styles.rowSecondary}>{(target ? stripShortcutPrefix(r.description ?? '') : r.description) || r.path}</span>
     </button>
   );
 }
@@ -91,6 +100,7 @@ export default function ResourceList({
   projectsById,
   emptyMessage,
   scrollResetKey,
+  shortcuts,
   onSelect,
 }: ResourceListProps) {
   const headingId = useId();
@@ -129,6 +139,7 @@ export default function ResourceList({
                 resource={r}
                 selected={r.id === selectedId}
                 projectsById={projectsById}
+                shortcuts={shortcuts}
                 onSelect={onSelect}
               />
             </li>

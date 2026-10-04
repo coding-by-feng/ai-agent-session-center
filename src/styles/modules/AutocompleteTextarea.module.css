@@ -66,6 +66,22 @@
   flex-shrink: 0;
   font-weight: 500;
 }
+.acHint {
+  /* Shortcut link (`→ /target` / `shortcut /alias`). The description
+     (flex: 1, basis 0) gives up its space first; then this truncates, so a
+     narrow dropdown never clips it at the edge — the command name never
+     yields. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 4px;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  border-radius: 3px;
+  color: var(--accent-cyan, #00e5ff);
+  font-size: 10px;
+  white-space: nowrap;
+}
 .acSub {
   flex: 1;
   color: var(--text-dim, #555);

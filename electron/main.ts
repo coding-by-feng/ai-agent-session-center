@@ -418,6 +418,62 @@ function registerSessionWindowHandler() {
   })
 }
 
+// Native QUEUE windows, keyed by sessionId. The QUEUE panel's "float" button opens
+// one session's queue in its own OS window (draggable to another monitor),
+// mirroring the PROJECT popout: the docked panel is left alone and the two
+// coexist as live views of the same shared queue, which the per-window echo
+// guard in queueStore keeps in step. De-duped per session — a second open
+// focuses the existing window instead of stacking a duplicate.
+const queuePopoutWindows = new Map<string, BrowserWindow>()
+
+/** Register the `window:open-queue` IPC: open the standalone queue view
+ *  (`?popout=queue&sessionId=…`) in its own native window, placed on a
+ *  secondary monitor when one exists with its bounds remembered per kind. */
+function registerQueueWindowHandler() {
+  ipcMain.handle('window:open-queue', (e, opts: { sessionId?: string; label?: string }) => {
+    const sessionId = opts?.sessionId
+    if (!sessionId) return { ok: false }
+    const existing = queuePopoutWindows.get(sessionId)
+    if (existing && !existing.isDestroyed()) { existing.focus(); return { ok: true } }
+
+    // Load from the origin of the window that asked, the same source of truth
+    // attachWindowOpenPolicy uses: under electron:dev the main window is served
+    // by Vite on 3332 while 3333 serves a possibly stale dist/client, and a float
+    // that loaded from there would be a different build from the window that
+    // opened it. The env/default is only for a caller that cannot be found.
+    const caller = BrowserWindow.fromWebContents(e.sender)
+    const port = caller ? originPort(caller) : (process.env.SERVER_PORT ?? '3333')
+    const qs = new URLSearchParams({ popout: 'queue', sessionId })
+
+    const bounds = computePopoutBounds('queue')
+    const w = new BrowserWindow({
+      x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
+      minWidth: 480, minHeight: 320,
+      // Must match the default theme — see the main window above.
+      backgroundColor: '#ece9d8',
+      title: opts.label || 'Queue',
+      webPreferences: {
+        preload: PRELOAD_PATH,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    })
+
+    // Remember where the user leaves it (incl. which monitor) for next time.
+    const persistBounds = () => { if (!w.isDestroyed()) savePopoutBounds('queue', w.getBounds()) }
+    w.on('moved', persistBounds)
+    w.on('resized', persistBounds)
+    // Our routes → a native window; external links → the system browser. Never
+    // navigate this window away. (No reload guard: a queue holds no PTY state.)
+    attachWindowOpenPolicy(w)
+    queuePopoutWindows.set(sessionId, w)
+    w.on('closed', () => { queuePopoutWindows.delete(sessionId) })
+    void w.loadURL(`http://localhost:${port}/?${qs.toString()}`)
+    return { ok: true }
+  })
+}
+
 function js(win: BrowserWindow, expr: string) {
   win.webContents.executeJavaScript(expr).catch(() => {})
 }
@@ -466,6 +522,7 @@ app.whenReady().then(async () => {
   registerDirectoryPickerHandler()
   registerProjectWindowHandler()
   registerSessionWindowHandler()
+  registerQueueWindowHandler()
 
   // Create window immediately — shows loading screen in production
   const win = await createWindow()

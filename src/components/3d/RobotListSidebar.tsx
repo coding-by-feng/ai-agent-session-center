@@ -15,7 +15,6 @@ import { useRoomStore } from '@/stores/roomStore';
 import { useUiStore } from '@/stores/uiStore';
 import SearchInput from '@/components/ui/SearchInput';
 import { showToast } from '@/components/ui/ToastContainer';
-import { markUserClosing } from '@/lib/pinnedRespawn';
 import { sortSessions } from '@/lib/sessionSort';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { closeManagedTerminal } from '@/lib/terminalTransport';
@@ -431,18 +430,9 @@ export default function RobotListSidebar() {
   }, [togglePin]);
 
   const handleClose = useCallback((sessionId: string) => {
-    // Closing a PINNED session is a deliberate "stop keeping this alive" — confirm,
-    // then unpin (so it won't auto-recreate) and flag it so its death is not
-    // treated as an unexpected crash to respawn.
+    // A pinned session is killed like any other, immediately: the server unpins it
+    // before it terminates anything, so no device respawns it (see pinnedRespawn.ts).
     const session = useSessionStore.getState().sessions.get(sessionId);
-    if (session?.pinned) {
-      const ok = window.confirm(
-        `"${session.title || 'This session'}" is pinned and auto-recreates.\n\nClose and unpin it?`,
-      );
-      if (!ok) return;
-      markUserClosing(session);
-      togglePin(sessionId);
-    }
     // Kill the process, THEN remove from view — only when the server confirms the
     // process is gone. Previously this was fire-and-forget with a synchronous
     // removeSession, so the card vanished whether or not anything actually died
@@ -478,7 +468,7 @@ export default function RobotListSidebar() {
         showToast((err as Error).message || 'Failed to kill session', 'error');
       }
     })();
-  }, [removeSession, togglePin]);
+  }, [removeSession]);
 
   // Hide sidebar when there are zero sessions at all, and on desktop always
   // (see the header comment).

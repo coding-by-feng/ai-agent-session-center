@@ -632,9 +632,13 @@ describe.skipIf(NO_SYMLINKS)('single files are confined to their root (security 
       '.claude/commands/swap.md': 'SWAP-ORIGINAL\n',
       '.claude/skills/pkg/SKILL.md': '---\nname: pkg\ndescription: P\n---\nbody\n',
       'elsewhere/pkg2/SKILL.md': '---\nname: pkg\ndescription: P2\n---\nOTHER-PACKAGE\n',
+      '.kube/config': 'KUBE-SECRET-CONFIG\n',
+      '.aws/SKILL.md': '---\nname: awsdir\ndescription: x\n---\nAWS-PKG-BODY\n',
     }, undefined, (h) => {
       symlinkSync(join(h, 'elsewhere', 'notes.md'), join(h, '.claude', 'commands', 'outside.md'));
       symlinkSync(join(h, '.aws', 'credentials'), join(h, '.claude', 'commands', 'aws.md'));
+      symlinkSync(join(h, '.kube'), join(h, '.claude', 'skills', '_shared'), 'dir');
+      symlinkSync(join(h, '.aws'), join(h, '.claude', 'skills', 'awsdir'), 'dir');
     });
   });
   afterAll(() => rmSync(fx.root, { recursive: true, force: true }));
@@ -664,6 +668,18 @@ describe.skipIf(NO_SYMLINKS)('single files are confined to their root (security 
     const r = fx.find('command', 'aws');
     expect(r?.hash).toBeUndefined();
     expect(JSON.stringify(await fx.svc.getDetail(r?.id ?? ''))).not.toContain('AWS-SECRET-VALUE');
+  });
+
+  it('never walks, hashes or serves a package that links into a credential folder (review follow-up)', async () => {
+    for (const [name, inside] of [['_shared', 'config'], ['awsdir', 'credentials']]) {
+      const r = fx.find('skill', name);
+      expect(r, name).toMatchObject({ fileCount: 0 });
+      expect(r?.hash, name).toBeUndefined();
+      const detail = await fx.svc.getDetail(r?.id ?? '');
+      expect(detail?.files, name).toBeUndefined();
+      await expect(fx.svc.getFile(r?.id ?? '', inside), name).rejects.toMatchObject({ status: 404 });
+      expect(JSON.stringify(detail) + JSON.stringify(fx.svc.getCatalog()), name).not.toMatch(/KUBE-SECRET|AWS-SECRET-VALUE|AWS-PKG-BODY/);
+    }
   });
 
   it('refuses (409) a file or package that resolves somewhere else than at scan time', async () => {

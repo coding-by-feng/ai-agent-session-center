@@ -16,10 +16,6 @@ let idleInterval: ReturnType<typeof setInterval> | null = null;
 let pendingResumeCleanupInterval: ReturnType<typeof setInterval> | null = null;
 
 /**
- * Start the auto-idle check interval.
- * Transitions sessions to idle/waiting if no activity for configured durations.
- */
-/**
  * A session just went idle — relink its Remote Control if the daemon is armed
  * and out of cooldown.
  *
@@ -56,11 +52,34 @@ async function onSessionIdle(session: Session): Promise<void> {
   }
 }
 
-export function startAutoIdle(sessions: Map<string, Session>): void {
+/**
+ * Start the auto-idle check interval.
+ * Transitions sessions to idle/waiting if no activity for configured durations.
+ *
+ * These transitions run on the server's own clock — no hook event is behind them — so nothing else
+ * tells a browser (or dirties the snapshot cache a reconnecting browser is served from). The tick
+ * hands the sessions it ANNOUNCES to `onChange` in ONE call, after the whole pass, so the caller can
+ * invalidate once and broadcast each.
+ *
+ * Only two decays are announced, because only they are both right to show and safe to act on:
+ *  - `prompting → waiting` (a prompt that never ran: hook AND terminal silent) — without it the badge
+ *    stayed "prompting" for good, and the queue never learned its turn was over;
+ *  - `waiting → idle` (five minutes unreviewed) — the CLI really is at rest, and both are sendable.
+ * The SAFETY NETS stay silent: `approval`/`input` → idle (10 min) and `working` → idle (15 min) are
+ * guesses for a lost hook, and far more often wrong than right — the user is simply away with the
+ * permission dialog still up, or a tool is running silently. Announcing them would flip a pending
+ * approval's badge to "Idle" (hiding the request) and hand the queue an `idle` it treats as sendable,
+ * typing the next prompt into the dialog. The server still holds them as idle internally.
+ */
+export function startAutoIdle(
+  sessions: Map<string, Session>,
+  onChange?: (changed: Session[]) => void,
+): void {
   if (idleInterval) return;
 
   idleInterval = setInterval(() => {
     const now = Date.now();
+    const announce: Session[] = [];
     for (const [_id, session] of sessions) {
       if (session.status === SESSION_STATUS.ENDED || session.status === SESSION_STATUS.IDLE) continue;
       const elapsed = now - session.lastActivityAt;
@@ -100,11 +119,13 @@ export function startAutoIdle(sessions: Map<string, Session>): void {
           session.status = SESSION_STATUS.WAITING;
           session.animationState = ANIMATION_STATE.WAITING;
           session.emote = null;
+          announce.push(session);
         }
       } else if (session.status === SESSION_STATUS.WAITING && elapsed > AUTO_IDLE_TIMEOUTS.waiting) {
         session.status = SESSION_STATUS.IDLE;
         session.animationState = ANIMATION_STATE.IDLE;
         session.emote = null;
+        announce.push(session);
       } else if (session.status !== SESSION_STATUS.WAITING
         && session.status !== SESSION_STATUS.APPROVAL && session.status !== SESSION_STATUS.INPUT
         && session.status !== SESSION_STATUS.CONNECTING
@@ -124,6 +145,14 @@ export function startAutoIdle(sessions: Map<string, Session>): void {
       // cooldown checks, so this stays a plain notification.
       if (session.status === SESSION_STATUS.IDLE) {
         void onSessionIdle(session);
+      }
+    }
+    if (announce.length > 0 && onChange) {
+      // A failing handler must not stop the interval: every other session would stop transitioning.
+      try {
+        onChange(announce);
+      } catch (err) {
+        log.warn('session', `auto-idle change handler failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }, 10000);

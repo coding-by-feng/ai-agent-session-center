@@ -87,6 +87,9 @@ const api: ElectronAPI = {
     return () => { ipcRenderer.removeListener('popout:closed', handler) }
   },
 
+  // ── Pop one session's QUEUE panel out into its own native window ──
+  openQueueWindow: (opts) => ipcRenderer.invoke('window:open-queue', opts),
+
   // ── Pop a whole session out into its own native window ──
   openSessionWindow: (opts) => ipcRenderer.invoke('window:open-session', opts),
   returnToMain: () => ipcRenderer.invoke('window:return-to-main'),

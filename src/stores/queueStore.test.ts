@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   useQueueStore,
   automationConfigFromRow,
   DEFAULT_AUTOMATION,
   type QueueItem,
 } from './queueStore';
-import { getClientId } from '@/lib/deviceIdentity';
+import { getClientId, getWindowOriginId } from '@/lib/deviceIdentity';
 import { clearLocalStorage } from '../__tests__/setup';
 import type { DbQueueAutomation } from '@/lib/db';
 
@@ -539,9 +539,57 @@ describe('queueStore — server sync', () => {
     // The server broadcasts every write to all devices including the sender.
     // Applying our own echo would mark the store dirty, push it again, and
     // loop indefinitely between two devices.
-    const myId = getClientId();
+    const myId = getWindowOriginId();
     useQueueStore.getState().applyRemoteQueue('s1', [makeItem(1, 's1', 0)], null, myId);
     expect(useQueueStore.getState().queues.has('s1')).toBe(false);
+  });
+
+  it('APPLIES an update from another window of this same device', () => {
+    // Two windows of one app install share one device id (localStorage). A
+    // guard keyed on the device id would drop the sibling window's update as
+    // "my own echo", leaving this window — and the scheduler that fires from
+    // its store — blind to items added in the float window.
+    //
+    // The id a sibling really sends (`<device>:<its nonce>`) differs from ours
+    // under EITHER guard, so on its own this proves little; the case that tells
+    // the two guards apart is the bare device id — what a window of an older
+    // build stamps — which a device-keyed guard would drop and ours must apply.
+    // queueStore.sync.test.ts runs the real thing: two store instances and a
+    // fake server between them.
+    useQueueStore.getState().applyRemoteQueue(
+      's1',
+      [makeItem(1, 's1', 0)],
+      null,
+      `${getClientId()}:another-window`,
+    );
+    expect(useQueueStore.getState().queues.get('s1')).toHaveLength(1);
+
+    useQueueStore.getState().applyRemoteQueue(
+      's2',
+      [makeItem(2, 's2', 0)],
+      null,
+      getClientId(),
+    );
+    expect(useQueueStore.getState().queues.get('s2')).toHaveLength(1);
+  });
+
+  it("stamps its pushes with this window's origin id, not the device id", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      useQueueStore.getState().add('push-s1', makeItem(1, 'push-s1', 0));
+      await vi.advanceTimersByTimeAsync(500);
+
+      const call = fetchMock.mock.calls.find(([url]) => String(url) === '/api/sessions/push-s1/queue');
+      expect(call).toBeDefined();
+      const body = JSON.parse((call![1] as RequestInit).body as string);
+      expect(body.originClientId).toBe(getWindowOriginId());
+      expect(body.originClientId).not.toBe(getClientId());
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
   });
 
   it('applies an update with no origin (a pull, not an echo)', () => {

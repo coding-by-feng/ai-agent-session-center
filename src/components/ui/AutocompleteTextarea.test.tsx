@@ -153,3 +153,58 @@ describe('AutocompleteTextarea — $ skill trigger', () => {
     expect(screen.getByText('/todo')).toBeTruthy();
   });
 });
+
+// Shortcut commands (`~/.claude/commands/raab.md`: "Shortcut for
+// /retouch-ascii-auto-build — …") are linked both ways in the menu: the
+// target names its shortcut, the shortcut names its target. The rule lives in
+// src/lib/commandShortcuts.ts; these pin what the dropdown shows.
+const SHORTCUT_CLAUDE: CommandEntry[] = [
+  { name: 'raab', description: 'Shortcut for /retouch-ascii-auto-build — retouch, ASCII sketch, build without waiting', cli: 'claude', kind: 'command', source: 'global' },
+  { name: 'retouch-ascii-auto-build', description: 'Retouch, sketch, build', cli: 'claude', kind: 'skill', source: 'global' },
+];
+const SHORTCUT_CODEX: CommandEntry[] = [
+  { name: 'raab', description: 'Shortcut for /retouch-ascii-auto-build — build without waiting', cli: 'codex', kind: 'command', source: 'global' },
+  { name: 'retouch-ascii-auto-build', description: 'Retouch, sketch, build', cli: 'codex', kind: 'skill', source: 'global' },
+];
+
+describe('AutocompleteTextarea — shortcut commands', () => {
+  it('shows a skill\'s shortcut even when the query filters the shortcut itself out', async () => {
+    fetchCommandIndex.mockResolvedValue(SHORTCUT_CLAUDE);
+    seedSession('s-claude', 'claude');
+    const user = userEvent.setup();
+    render(<Harness sessionId="s-claude" />);
+
+    await user.click(screen.getByLabelText('prompt'));
+    await user.keyboard('/retouch-a');
+
+    expect(await screen.findByText('/retouch-ascii-auto-build')).toBeTruthy();
+    expect(screen.getByText('shortcut /raab')).toBeTruthy();
+    expect(screen.queryByText('/raab')).toBeNull();
+  });
+
+  it('shows what a shortcut expands to, without repeating it in the description', async () => {
+    fetchCommandIndex.mockResolvedValue(SHORTCUT_CLAUDE);
+    seedSession('s-claude', 'claude');
+    const user = userEvent.setup();
+    render(<Harness sessionId="s-claude" />);
+
+    await user.click(screen.getByLabelText('prompt'));
+    await user.keyboard('/raab');
+
+    expect(await screen.findByText('→ /retouch-ascii-auto-build')).toBeTruthy();
+    expect(screen.getByText('retouch, ASCII sketch, build without waiting')).toBeTruthy();
+    expect(screen.queryByText(/^Shortcut for/)).toBeNull();
+  });
+
+  it('on Codex, names the target with the sigil Codex uses for it ($ for a skill)', async () => {
+    fetchCommandIndex.mockResolvedValue(SHORTCUT_CODEX);
+    seedSession('s-codex', 'codex');
+    const user = userEvent.setup();
+    render(<Harness sessionId="s-codex" />);
+
+    await user.click(screen.getByLabelText('prompt'));
+    await user.keyboard('/raab');
+
+    expect(await screen.findByText('→ $retouch-ascii-auto-build')).toBeTruthy();
+  });
+});

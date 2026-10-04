@@ -34,6 +34,10 @@ export const tooltips = {
     label: 'Detach Project into its own window',
     description: 'Open the Project browser in a separate OS window you can drag to another monitor.',
   },
+  floatQueue: {
+    label: 'Detach Queue into its own window',
+    description: "Open this session's queue in a separate OS window you can drag to another monitor.",
+  },
   floatSessionPopOut: {
     label: 'Detach session into its own window',
     description: 'Open every tab of this session in a separate OS window you can drag to another monitor.',

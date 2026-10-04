@@ -167,9 +167,11 @@ const SECRET_NAME_RE = /key|token|secret|pass/i;
 /**
  * `name: value`, `"name": "value"`, `name = value` — JSON, YAML, TOML and
  * notes. Judged on the name's LAST word (`api_key`, `apiKey`, `DB_PASSWORD`),
- * so `keywords:` or `token_url:` stay readable.
+ * so `keywords:` or `token_url:` stay readable. A quoted value is unbounded
+ * and still linear: every scan for a closing quote ends at the next quote of
+ * its kind, so the scans of all starts on a line add up to the line.
  */
-const ASSIGN_RE = /(?<![A-Za-z0-9_.-])(["']?)([A-Za-z_][A-Za-z0-9_.-]{0,63})\1([ \t]*:[ \t]*|[ \t]+=[ \t]*|[ \t]*=[ \t]+)("[^"\n]{0,512}"|'[^'\n]{0,512}'|[^\s"',;]+)/g;
+const ASSIGN_RE = /(?<![A-Za-z0-9_.-])(["']?)([A-Za-z_][A-Za-z0-9_.-]{0,63})\1([ \t]*:[ \t]*|[ \t]+=[ \t]*|[ \t]*=[ \t]+)("[^"\n]*"|'[^'\n]*'|[^\s"',;]+)/g;
 const SECRET_WORDS: ReadonlySet<string> = new Set([
   'key', 'apikey', 'token', 'secret', 'password', 'passwd', 'pass', 'pwd', 'passphrase', 'credential', 'credentials',
 ]);
@@ -180,7 +182,7 @@ function isSecretName(name: string): boolean {
 }
 
 /** `--token abc`: a secret-named flag and its value as separate words of ONE string (hook commands). */
-const FLAG_VALUE_RE = /(?<![A-Za-z0-9_.-])(--?[A-Za-z][A-Za-z0-9_.-]{0,63})([ \t]+)("[^"\n]{0,512}"|'[^'\n]{0,512}'|[^\s"'-][^\s"']*)/g;
+const FLAG_VALUE_RE = /(?<![A-Za-z0-9_.-])(--?[A-Za-z][A-Za-z0-9_.-]{0,63})([ \t]+)("[^"\n]*"|'[^'\n]*'|[^\s"'-][^\s"']*)/g;
 
 const LONG_RUN_RE = /(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{40,}/g;
 /** Maximal runs of the base64/base62 alphabet — judged whole by `looksLikeSecret`. */
@@ -188,13 +190,16 @@ const TOKEN_RUN_RE = /(?<![A-Za-z0-9+/=_-])[A-Za-z0-9+/=_-]{20,}/g;
 
 /**
  * A generated secret rather than a word or a path: mixed case plus a digit,
- * and at most two `/` (so `/Users/me/Documents/x` survives) — or exactly 40
- * base64 characters, the shape of an AWS secret access key, slashes and all.
+ * and at most two `/` (so `/Users/me/Documents/x` survives). Two exceptions
+ * catch base64 that happens to hold more `/`: exactly 40 characters (an AWS
+ * secret access key), or 64+ characters with at most one `/` per 16 — base64
+ * averages one per 64, a path one every ten or so.
  */
 function looksLikeSecret(run: string): boolean {
   if (!/\d/.test(run) || !/[A-Z]/.test(run) || !/[a-z]/.test(run)) return false;
   const slashes = run.length - run.replace(/\//g, '').length;
   if (slashes <= 2) return true;
+  if (run.length >= 64 && slashes * 16 <= run.length) return true;
   return run.length === 40 && /^[A-Za-z0-9/+]+$/.test(run) && !run.startsWith('/') && !run.includes('//');
 }
 
@@ -206,7 +211,8 @@ function looksGenerated(segment: string): boolean {
 
 function maskUrls(input: string): string {
   return input.replace(URL_RE, (url) => url
-    .replace(/([?&][^=&#\s]+=)[^&#\s]*/g, `$1${MASK}`)
+    // `?` is excluded from the name too: otherwise every `?` of `a????…` rescans to the end (quadratic).
+    .replace(/([?&][^=&#?\s]+=)[^&#\s]*/g, `$1${MASK}`)
     .replace(/(?<=\/)[A-Za-z0-9_-]{20,}(?=[/?#]|$)/g, (segment) => (looksGenerated(segment) ? MASK : segment)));
 }
 
@@ -236,8 +242,10 @@ function scrub(text: string): string {
       return `${q}${name}${q}${sep}${vq}${MASK}${vq}`;
     })
     .replace(FLAG_VALUE_RE, (match, flag: string, gap: string) => (isSecretFlag(flag) ? `${flag}${gap}${MASK}` : match))
-    .replace(LONG_RUN_RE, MASK)
-    .replace(TOKEN_RUN_RE, (run) => (looksLikeSecret(run) ? MASK : run));
+    // Whole base64 runs first: the long-run rule's class has no `/` or `+`, so
+    // running it first would mask pieces of a blob and strand the rest.
+    .replace(TOKEN_RUN_RE, (run) => (looksLikeSecret(run) ? MASK : run))
+    .replace(LONG_RUN_RE, MASK);
 }
 
 /**
@@ -331,12 +339,13 @@ export function redactPatch(patch: string): string {
   return texts.map((t, i) => marks[i] + t).join('\n');
 }
 
-/** Every string inside a parsed value (frontmatter), redacted; everything else unchanged. */
+/** Every string inside a parsed value (frontmatter) — keys as well as values — redacted. */
 export function redactStrings(value: unknown): unknown {
   if (typeof value === 'string') return redactText(value);
   if (Array.isArray(value)) return value.map(redactStrings);
   if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, redactStrings(v)]));
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .map(([k, v]) => [redactSecretsInString(k), redactStrings(v)]));
   }
   return value;
 }

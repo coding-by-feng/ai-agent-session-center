@@ -1622,6 +1622,58 @@
   font-size: 10px;
 }
 
+/* ---- Session view menu (SessionViewModeMenu) ----
+   Reuses .roomFilterWrap / .roomFilterDropdown / .roomFilterOption; each row
+   here is glyph + label + a reserved tick slot, so the labels do not shift
+   when the tick moves between views. */
+.viewModeOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  /* The room filter's option colour (--text-secondary) measured 2.9:1 in
+     solarized, 3.7:1 in nord and 4.3:1 in monokai on this background, and its
+     checked colour (--accent-cyan) about 4.1:1 in light and solarized — all at
+     11px. --text-primary clears 4.5:1 in every theme; the tick and the tint
+     still say which view is current. After .roomFilterOption(Active) above, at
+     the same specificity, so it wins both. */
+  color: var(--text-primary);
+}
+
+.viewModeOption svg {
+  flex-shrink: 0;
+}
+
+.viewModeLabel {
+  flex: 1;
+}
+
+.viewModeCheck {
+  display: inline-flex;
+  justify-content: center;
+  width: 10px;
+}
+
+.viewModeOption:focus-visible {
+  outline: 2px solid var(--accent-cyan, #00e5ff);
+  outline-offset: -2px;
+}
+
+/* The current view is marked by its tick and a heavier weight, not a tint: the
+   10% accent tint the room filter's ticked option gets took the text from
+   4.9:1 to 4.2:1 in solarized. (0,2,0) so it beats .roomFilterOptionActive. */
+.viewModeOption.roomFilterOptionActive {
+  background: transparent;
+  font-weight: 600;
+}
+
+/* A fingertip needs 44px; the options are ~24px. */
+@media (pointer: coarse) {
+  .viewModeOption {
+    min-height: 44px;
+  }
+}
+
 /* ---- Status colour legend popover ---- */
 .statusLegendDropdown {
   position: absolute;
@@ -2032,6 +2084,135 @@
   background: color-mix(in srgb, var(--room-color, transparent) 16%, transparent);
 }
 
+/* ---- Project frame (SessionSwitcher, Projects view) ----
+   A room frame with a different header: it borrows the border, tint, label and
+   fold rules above (.sessionTabRoomGroup*, .roomHeaderRow, .roomCollapseToggle),
+   so this adds only what is specific to a project. */
+.projectGroup {
+  /* A folded frame is only as wide as its header row. A remote project's has no
+     launch buttons, so it came out ~60px wide and clipped its own name to six
+     characters. Room for about fifteen at the label's size. */
+  min-width: 112px;
+}
+
+.projectGroup .sessionTabRoomGroupLabel {
+  /* A project's folder name is longer than a room's, and a folded frame is only
+     as wide as its header row, so an unbounded label would run out over the
+     next frame. Clip it to the frame; the frame's title carries the full path. */
+  max-width: calc(100% - 20px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* A room label is set in the room's own colour, which measured 2.8-3.9:1
+     against the label's backdrop across the themes. At 8px that is below the
+     4.5:1 text minimum, and here the label is the project's name. Even a
+     tint of the room colour fails in solarized (3.66:1 at 40%): as for the
+     RECENT frame, --text-primary is the only colour that clears 4.5:1 in all
+     ten themes. The border, divider and fold triangle keep the frame's colour. */
+  color: var(--text-primary);
+}
+
+/* The count a folded frame shows is 11px text in the room's colour, which
+   measured 2.6-4.2:1 (the hash can hand any project a failing colour). Neutral
+   text alone is not enough: the pill sits on the frame's own 7% tint, and with
+   even RECENT's halved pill tint on top, solarized measured 3.8:1. So the pill
+   is opaque card colour, where --text-primary is the ratio the label already
+   relies on (4.86:1 at worst), with the frame colour kept as a ring. */
+.projectGroup .roomCollapsedCount {
+  color: var(--text-primary);
+  background: var(--bg-card, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--room-color, transparent) 55%, transparent);
+}
+
+/* "New <CLI> session here". A chip, not a bare mark: a lone brand icon is what
+   the session cards use as a CLI badge, and borders are reserved for what can
+   be pressed. Same look as the DIRS launcher's buttons (.dirLaunchBtn). */
+.projectLaunchBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  flex-shrink: 0;
+  height: 24px;
+  min-width: 32px;
+  padding: 0 6px;
+  background: var(--bg-card, #12122a);
+  border: 1px solid color-mix(in srgb, var(--room-color, var(--border-subtle)) 60%, transparent);
+  border-radius: 6px;
+  /* Drives the "+" (currentColor). Neutral rather than the room colour: the "+"
+     is what says "new", and the room colours measured as low as 2.2:1 against
+     the chip. The border and hover tint carry the frame's colour instead. */
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, opacity 0.15s, transform 0.1s;
+}
+
+.projectLaunchBtn:hover:not([aria-disabled='true']) {
+  border-color: var(--room-color, var(--accent-cyan, #00e5ff));
+  background: color-mix(in srgb, var(--room-color, var(--accent-cyan, #00e5ff)) 16%, var(--bg-card, #12122a));
+}
+
+.projectLaunchBtn:active:not([aria-disabled='true']) {
+  transform: scale(0.94);
+}
+
+/* A focus ring needs 3:1 against what it is drawn on, and the frame colours
+   measured as low as 2.2:1 against the chip. */
+.projectLaunchBtn:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 1px;
+}
+
+/* Held while a launch is in flight, and for a path the server will not accept
+   (see ProjectFrameHeader). aria-disabled, not :disabled: a focused button that
+   becomes disabled drops keyboard focus to <body>. */
+.projectLaunchBtn[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* The one that was clicked is the one still waiting: say so with the cursor.
+   After the rule above, at the same specificity, so it wins. */
+.projectLaunchBtn[aria-busy='true'] {
+  cursor: progress;
+}
+
+/* A fingertip needs the full 44px; on a mouse the 24px chip sits in the
+   header's 16px-icon rhythm. The fold triangle shares the row, and a 16px
+   target beside 44px chips is the one a thumb misses. */
+@media (pointer: coarse) {
+  .projectLaunchBtn {
+    height: 44px;
+    min-width: 44px;
+  }
+
+  .projectGroup .roomCollapseToggle {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .projectLaunchBtn {
+    transition: none;
+  }
+}
+
+/* The fold triangle's turn (FrameCollapseIcon). Was inline style; the repo's
+   components style through their modules. */
+.frameCollapseIcon {
+  transition: transform 0.15s ease;
+}
+
+.frameCollapseIconFolded {
+  transform: rotate(-90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frameCollapseIcon {
+    transition: none;
+  }
+}
+
 .sessionTabCardCompact .sessionTabTitle {
   font-size: 8px;
   text-align: left;
@@ -2236,3 +2417,276 @@
 /* macOS Electron: no panel-level offset needed. The detail panel is bounded to
    <main>, which already sits below the 28px fixed TitleBar (the Header's
    electron-mac padding clears it), so the panel fills <main> at top:0 / height:100%. */
+
+/* =============================================================================
+   Plan usage chip — the CLI's plan limits, top-left of the session header.
+   PlanUsageChip.tsx draws it; lib/planUsage.ts decides what it says.
+
+   It is the FIRST child of .switcherNameDisplay, never part of .switcherMeta:
+   that row is sized to eight 26px children in the 230px rail (see the
+   .switcherBarVertical .switcherMeta comment) and a ninth would wrap it.
+
+   Tiers, by the CONTENT width of the name row (the box the title competes in;
+   a container query measures the content box, so the row's 20px of padding is
+   not in it):
+     rail           own full-width first line: mark · window · bar · % · ↻ countdown
+     top bar        mark · window · %                       80px, fixed
+     top bar, tight mark · %  (≤ 220px)                      64px, fixed
+     top bar, out   hidden (≤ 120px) — chip + dot + # chip no longer fit (64 + 8 + 9 + 8
+                    + 20); the chip must not push the dot and the # chip out
+   The meta row beside the name row is ~880px wide, so the name row is roughly
+   (window width − 880)px: the title is already gone below ~1100px windows, and
+   the tiers only change inside that cramped band. Both thresholds sit there on
+   purpose — measured, the name row differs by up to ~100px between sessions at
+   one window width (a longer status badge, a shorter model name), so a threshold
+   in the usual 1200–1500px range would give the chip a different width from one
+   session to the next.
+   Widths are PIXELS, not `ch`: the default theme (Windows XP) swaps --font-mono
+   for a proportional face, and the ▲ is not in any monospace face, so a width
+   counted in characters moves with the font. A fixed box keeps the dot, the #
+   chip and the title still when 9% becomes 100% or "—" becomes a number.
+   Text is always --text-primary: severity lives in the bar fill and a ▲, so
+   contrast does not depend on the theme's accent colours.
+   ========================================================================== */
+
+/* The name row is the box the title competes in, so it is what the tiers are
+   measured against. `container-type` also makes it a containing block for
+   fixed-position descendants: nothing inside it is fixed (the tooltips are
+   portalled to <body>, the label picker is rendered outside this row) — keep it
+   that way. */
+.switcherNameDisplay {
+  container-type: inline-size;
+}
+
+.planUsageSlot {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.planUsageChip {
+  /* The gauge draws on its OWN fixed near-black track (like the tooltip's surface), so
+     its fills are fixed too: theme accents were tried against a themed track and cleared
+     3:1 in only some themes (Nord's red was 1.5:1, Solarized's 1.6:1). On this track the
+     three fills measure 14.3 / 12.7 / 6.2:1. */
+  --usage-track: #0b0d22;
+  --usage-fill: #00ff88;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  /* 13px mark + 14px window + two 4px gaps leave 45px for "100%▲" in any UI font. */
+  width: 80px;
+  padding: 2px 0;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 16px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  /* A readout, not a button: no hover fill, no pointer. */
+  cursor: default;
+}
+.planUsageChip[data-severity='warn'] {
+  --usage-fill: #ffcc00;
+}
+.planUsageChip[data-severity='high'] {
+  --usage-fill: #ff5577;
+}
+.planUsageChip:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.planUsageMark {
+  display: inline-flex;
+  flex: 0 0 13px;
+}
+
+.planUsageWindow {
+  flex: 0 0 14px;
+}
+
+/* Takes what is left. The digits start where the window label ends and the ▲
+   (a suffix) appears after them, so the digits never move. */
+.planUsageValue {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+/* Stale: still the last known figure, but marked — italic and a dashed
+   underline. Never opacity: that would take the text below 4.5:1. */
+.planUsageChip[data-stale='true'] .planUsageValue {
+  font-style: italic;
+  text-decoration: underline dashed;
+  text-underline-offset: 2px;
+}
+
+/* A box of its own width: the ▲ is not in any monospace face, so its advance is
+   whatever the fallback font says. Pinning the box pins the layout. */
+.planUsageAlert {
+  display: inline-block;
+  flex: 0 0 7px;
+  width: 7px;
+  margin-left: 2px;
+  font-size: 8px;
+  text-align: center;
+}
+
+/* Bar and countdown are the rail's; the top bar has no room for them. */
+.planUsageBar,
+.planUsageReset {
+  display: none;
+}
+
+.planUsageBar {
+  position: relative;
+  flex: 1 1 24px;
+  min-width: 24px;
+  max-width: 72px;
+  height: 8px;
+  box-sizing: border-box;
+  overflow: hidden;
+  /* The hairline is what shows the bar's extent on a dark theme (a dark track on a
+     dark backdrop is otherwise invisible); on a light theme the track itself stands out. */
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 3px;
+  background: var(--usage-track);
+}
+/* Ten segments: a 1px gap at every 10%, in the track's own colour, over track and fill alike. */
+.planUsageBar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(90deg, transparent 0, transparent calc(10% - 1px), var(--usage-track) calc(10% - 1px), var(--usage-track) 10%);
+}
+.planUsageFill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--pct, 0%);
+  background: var(--usage-fill);
+}
+/* Stale: hatched, the way the underline marks the number. */
+.planUsageChip[data-stale='true'] .planUsageFill {
+  background-image: repeating-linear-gradient(135deg, rgba(0, 0, 0, 0.4) 0, rgba(0, 0, 0, 0.4) 2px, transparent 2px, transparent 4px);
+}
+
+.planUsageReset {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 4px;
+}
+
+/* ---- Left rail: its own full-width first line, with the bar and the countdown. ---- */
+.switcherBarVertical .planUsageSlot {
+  display: flex;
+  flex: 0 0 100%;
+}
+/* The Tooltip's wrapper is the slot's only child: let it take the whole row, so
+   the bar can grow and the countdown sits at the right edge. */
+.switcherBarVertical .planUsageSlot > * {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.switcherBarVertical .planUsageChip {
+  width: 100%;
+}
+.switcherBarVertical .planUsageWindow {
+  display: block;
+}
+.switcherBarVertical .planUsageValue {
+  flex: 0 0 auto;
+  min-width: 40px;
+}
+.switcherBarVertical .planUsageBar {
+  display: block;
+}
+.switcherBarVertical .planUsageReset {
+  display: block;
+}
+
+/* ---- Top bar, tight: drop the window label. ---- */
+@container (max-width: 220px) {
+  .planUsageWindow {
+    display: none;
+  }
+  .planUsageChip {
+    width: 64px;
+  }
+}
+/* ---- Top bar, out of room: the dot and the # chip matter more. ---- */
+@container (max-width: 120px) {
+  .planUsageSlot {
+    display: none;
+  }
+}
+
+/* ---- Tooltip body. The tooltip surface is the same near-black in every theme (Tooltip.module.css hard-codes it), so
+   the colours inside it are fixed too: theme tokens would turn to dark-on-dark in the light themes. ---- */
+.planUsageTip {
+  display: grid;
+  row-gap: 8px;
+  min-width: 208px;
+  margin-top: 8px;
+  color: #e0e0ff;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.planUsageTipRow {
+  --tip-fill: #00ff88;
+  display: grid;
+  grid-template-columns: 56px 72px 36px;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+}
+.planUsageTipRow[data-severity='warn'] {
+  --tip-fill: #ffcc00;
+}
+.planUsageTipRow[data-severity='high'] {
+  --tip-fill: #ff5577;
+}
+.planUsageTipName {
+  white-space: nowrap;
+}
+.planUsageTipBar {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.18);
+  -webkit-mask-image: repeating-linear-gradient(90deg, #000 0, #000 calc(10% - 1px), transparent calc(10% - 1px), transparent 10%);
+  mask-image: repeating-linear-gradient(90deg, #000 0, #000 calc(10% - 1px), transparent calc(10% - 1px), transparent 10%);
+}
+.planUsageTipFill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--pct, 0%);
+  background: var(--tip-fill);
+}
+.planUsageTipPercent {
+  text-align: right;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.planUsageTipReset {
+  grid-column: 1 / -1;
+  color: #aab0d0;
+  font-size: 10px;
+}
+.planUsageTipNote {
+  margin: 0;
+  color: #aab0d0;
+  font-size: 10px;
+  line-height: 1.45;
+}
+.planUsageTipAlert {
+  margin: 0;
+  color: #ff8fa3;
+  font-weight: 700;
+}

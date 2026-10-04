@@ -5,10 +5,10 @@ import {
   buildRespawnBody,
   shouldRespawn,
   onSessionEnded,
-  markUserClosing,
   _resetForTests,
   MAX_ATTEMPTS,
 } from './pinnedRespawn';
+import { useSessionStore } from '@/stores/sessionStore';
 import type { Session } from '@/types/session';
 
 const toasts: Array<{ msg: string; kind: string }> = [];
@@ -45,11 +45,18 @@ function fetchCallsToCreate(fetchMock: ReturnType<typeof vi.fn>) {
   return fetchMock.mock.calls.filter((c) => String(c[0]).endsWith('/api/terminals'));
 }
 
+/** What useWebSocket does on a fresh 'ended': store the update first, then hand it to onSessionEnded. */
+function die(session: Session): void {
+  useSessionStore.getState().updateSession(session);
+  onSessionEnded(session);
+}
+
 describe('pinnedRespawn', () => {
   let clock = 0;
   beforeEach(() => {
     toasts.length = 0;
     clock = 1_000_000;
+    useSessionStore.setState({ sessions: new Map() });
     _resetForTests(() => clock);
     vi.useFakeTimers();
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ ok: true, terminalId: 't-new' }) })));
@@ -123,7 +130,7 @@ describe('pinnedRespawn', () => {
 
   describe('onSessionEnded', () => {
     it('respawns a pinned session after backoff with pinned:true', async () => {
-      onSessionEnded(mkSession());
+      die(mkSession());
       const fetchMock = global.fetch as unknown as ReturnType<typeof vi.fn>;
       expect(fetchCallsToCreate(fetchMock)).toHaveLength(0); // not yet — waiting on backoff
       await vi.advanceTimersByTimeAsync(2000);
@@ -135,15 +142,7 @@ describe('pinnedRespawn', () => {
     });
 
     it('does nothing for a non-pinned session', async () => {
-      onSessionEnded(mkSession({ pinned: false }));
-      await vi.advanceTimersByTimeAsync(10000);
-      expect(fetchCallsToCreate(global.fetch as never)).toHaveLength(0);
-    });
-
-    it('does not respawn a session the user is closing', async () => {
-      const s = mkSession();
-      markUserClosing(s);
-      onSessionEnded(s);
+      die(mkSession({ pinned: false }));
       await vi.advanceTimersByTimeAsync(10000);
       expect(fetchCallsToCreate(global.fetch as never)).toHaveLength(0);
     });
@@ -151,27 +150,70 @@ describe('pinnedRespawn', () => {
     it('gives up after MAX_ATTEMPTS deaths within the window', async () => {
       // Realistic interleave: each death's respawn fires before the next death.
       for (let i = 0; i < MAX_ATTEMPTS; i++) {
-        onSessionEnded(mkSession());
+        die(mkSession());
         await vi.advanceTimersByTimeAsync(8000);
       }
       const before = fetchCallsToCreate(global.fetch as never).length;
       expect(before).toBe(MAX_ATTEMPTS); // 3 respawns fired
 
       // The (MAX_ATTEMPTS + 1)th death is capped — no further respawn, a toast instead.
-      onSessionEnded(mkSession());
+      die(mkSession());
       await vi.advanceTimersByTimeAsync(8000);
       expect(fetchCallsToCreate(global.fetch as never)).toHaveLength(MAX_ATTEMPTS);
       expect(toasts.some((t) => t.kind === 'error' && /giving up/i.test(t.msg))).toBe(true);
     });
   });
 
-  describe('markUserClosing', () => {
-    it('cancels a respawn already scheduled for that session', async () => {
+  // The timer holds a snapshot taken when the session died. A kill makes the
+  // server broadcast ENDED more than once (a hook-driven one can land before
+  // the kill route finishes), so by the time the backoff ends the live store may
+  // say something different — the respawn must follow the store, not the snapshot.
+  describe('when the backoff ends', () => {
+    it('skips the respawn if the card was removed meanwhile (closed / killed)', async () => {
       const s = mkSession();
-      onSessionEnded(s);           // schedules a respawn in 2s
-      markUserClosing(s);          // user closes before it fires → cancel
-      await vi.advanceTimersByTimeAsync(5000);
+      die(s);
+      useSessionStore.getState().removeSession(s.sessionId);
+      await vi.advanceTimersByTimeAsync(10000);
       expect(fetchCallsToCreate(global.fetch as never)).toHaveLength(0);
+    });
+
+    it('skips the respawn if the session was unpinned meanwhile — a kill\'s final ENDED carries pinned:false', async () => {
+      const s = mkSession();
+      die(s); // early ENDED, still pinned: schedules a respawn
+      useSessionStore.getState().updateSession({ ...s, pinned: false }); // final ENDED from the kill route
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(fetchCallsToCreate(global.fetch as never)).toHaveLength(0);
+    });
+
+    it('skips the respawn if the session came back to life meanwhile', async () => {
+      const s = mkSession();
+      die(s);
+      useSessionStore.getState().updateSession({ ...s, status: 'idle', endedAt: null });
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(fetchCallsToCreate(global.fetch as never)).toHaveLength(0);
+    });
+
+    it('still respawns when nothing about the dead session changed', async () => {
+      die(mkSession());
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(fetchCallsToCreate(global.fetch as never)).toHaveLength(1);
+    });
+
+    it('does not count a skipped respawn toward the crash-loop cap', async () => {
+      // /clear re-keys the card, ✕ lands during the backoff, a kill unpins it: every
+      // one of these ends with the timer skipping, so none of them relaunched anything.
+      for (let i = 0; i < MAX_ATTEMPTS; i++) {
+        const s = mkSession();
+        die(s);
+        useSessionStore.getState().removeSession(s.sessionId);
+        await vi.advanceTimersByTimeAsync(8000);
+      }
+      expect(fetchCallsToCreate(global.fetch as never)).toHaveLength(0);
+
+      die(mkSession()); // a genuine crash right after
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(fetchCallsToCreate(global.fetch as never)).toHaveLength(1);
+      expect(toasts.some((t) => /giving up/i.test(t.msg))).toBe(false);
     });
   });
 });

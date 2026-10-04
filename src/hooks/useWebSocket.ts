@@ -8,6 +8,7 @@ import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useWsStore } from '@/stores/wsStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { getClientId } from '@/lib/deviceIdentity';
+import { isPopoutWindow } from '@/lib/windowRole';
 import { db, migrateSessionId, persistSessionUpdate, deleteSessionChildrenBatch } from '@/lib/db';
 import { isImportInProgress } from '@/lib/workspaceSnapshot';
 import { onSessionEnded } from '@/lib/pinnedRespawn';
@@ -22,6 +23,13 @@ export function useWebSocket(token: string | null): WsClient | null {
     const { addSession, updateSession, removeSession, setSessions } =
       useSessionStore.getState();
     const { setConnected, setReconnecting, setLastSeq } = useWsStore.getState();
+    // Every pop-out (`?popout=…`) connects through this same hook, so whatever it
+    // does, every window does. Two things must happen once, in the main window:
+    // relaunching a pinned session that died (two windows = two terminals resuming
+    // one conversation) and migrating the room list on a re-key (a pop-out's copy
+    // was read at boot and may be hours stale, and the migration writes it back
+    // over the main window's edits). Sounds and alarms still run in each window.
+    const popout = isPopoutWindow();
 
     function handleMessage(msg: ServerMessage): void {
       switch (msg.type) {
@@ -91,7 +99,9 @@ export function useWebSocket(token: string | null): WsClient | null {
             // Migrate queue items in Zustand store (synchronous, before updateSession
             // changes the selectedSessionId so QueueTab reads with the new ID)
             useQueueStore.getState().migrateSession(session.replacesId, session.sessionId);
-            useRoomStore.getState().migrateSession(session.replacesId, session.sessionId);
+            if (!popout) {
+              useRoomStore.getState().migrateSession(session.replacesId, session.sessionId);
+            }
             // Keep floating popups attached to the surviving session id, else
             // they'd render only under the dead origin id (i.e. never).
             useFloatingSessionsStore
@@ -111,9 +121,11 @@ export function useWebSocket(token: string | null): WsClient | null {
           persistSessionUpdate(session).catch(() => {});
 
           // Pinned auto-respawn: when a session FRESHLY transitions to 'ended'
-          // (its process died / connection lost), relaunch it if it's pinned and
-          // wasn't deliberately closed. onSessionEnded is a no-op otherwise.
-          if (session.status === 'ended' && prevStatus && prevStatus !== 'ended') {
+          // (its process died / connection lost), relaunch it if it's still pinned.
+          // A deliberate kill is already unpinned server-side, so it never gets
+          // here as pinned. onSessionEnded is a no-op otherwise. Not in a pop-out:
+          // the main window owns respawning (see `popout` above).
+          if (!popout && session.status === 'ended' && prevStatus && prevStatus !== 'ended') {
             onSessionEnded(session);
           }
 
@@ -173,9 +185,12 @@ export function useWebSocket(token: string | null): WsClient | null {
           break;
         }
 
-        // Another device changed this session's shared queue. Applying it
-        // here (rather than re-fetching) is what makes the phone and the
-        // desktop agree live instead of only after a reload.
+        // Another device — or another window of this one — changed this
+        // session's shared queue. Applying it here (rather than re-fetching) is
+        // what makes the phone, the desktop and a floated queue agree live
+        // instead of only after a reload. `originClientId` is the sender's
+        // WINDOW origin id, not its device id: only this window's own echo is
+        // dropped (see `queueStore.applyRemoteQueue`).
         case 'queue_update': {
           const m = msg as unknown as {
             sessionId?: string;

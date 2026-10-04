@@ -18,6 +18,7 @@ import type {
   ResourceProject,
   ResourceSummary,
 } from '@/types/resources';
+import type { ResourceShortcuts } from '@/lib/commandShortcuts';
 import {
   AGENT_LABELS,
   RESOURCE_TYPE_SINGULAR,
@@ -58,16 +59,54 @@ interface ResourceDetailProps {
   summary?: ResourceSummary;
   byId: ReadonlyMap<string, ResourceSummary>;
   projectsById: ReadonlyMap<string, ResourceProject>;
+  /** Shortcut commands ↔ their targets (src/lib/commandShortcuts.ts). */
+  shortcuts: ResourceShortcuts;
   onSelect: (id: string) => void;
   onBack: () => void;
+}
+
+/**
+ * Jump buttons between a shortcut command and what it expands to. A target the
+ * catalog does not have is still named — as text, since there is nothing to open.
+ */
+function ShortcutRows({ summary, shortcuts, onSelect }: Pick<ResourceDetailProps, 'shortcuts' | 'onSelect'> & { summary: ResourceSummary }) {
+  const aliases = shortcuts.aliasesOf.get(summary.id);
+  const target = shortcuts.targetOf.get(summary.id);
+  return (
+    <>
+      {aliases && (
+        <div className={styles.variantRow}>
+          <span className={styles.fieldLabel}>Shortcuts</span>
+          {aliases.map((alias) => (
+            <button key={alias.id} type="button" className={styles.chipButton} onClick={() => onSelect(alias.id)}>
+              {`/${alias.name}`}
+            </button>
+          ))}
+        </div>
+      )}
+      {target && (
+        <div className={styles.variantRow}>
+          <span className={styles.fieldLabel}>Shortcut for</span>
+          {target.id ? (
+            <button type="button" className={styles.chipButton} onClick={() => onSelect(target.id as string)}>
+              {target.name}
+            </button>
+          ) : (
+            <span className={styles.badge}>{target.name}</span>
+          )}
+        </div>
+      )}
+    </>
+  );
 }
 
 function DetailHeader({
   summary,
   byId,
   projectsById,
+  shortcuts,
   onSelect,
-}: Pick<ResourceDetailProps, 'byId' | 'projectsById' | 'onSelect'> & { summary: ResourceSummary }) {
+}: Pick<ResourceDetailProps, 'byId' | 'projectsById' | 'shortcuts' | 'onSelect'> & { summary: ResourceSummary }) {
   const variants = compareTargets(summary, byId, projectsById).filter((o) => o.value !== 'repo');
   const files = summary.fileCount === 1 ? '1 file' : `${summary.fileCount} files`;
   return (
@@ -103,6 +142,7 @@ function DetailHeader({
           ))}
         </div>
       )}
+      <ShortcutRows summary={summary} shortcuts={shortcuts} onSelect={onSelect} />
     </header>
   );
 }
@@ -275,7 +315,7 @@ function DetailBody({ id, detail, summary, byId, projectsById }: {
   );
 }
 
-export default function ResourceDetail({ id, summary: catalogSummary, byId, projectsById, onSelect, onBack }: ResourceDetailProps) {
+export default function ResourceDetail({ id, summary: catalogSummary, byId, projectsById, shortcuts, onSelect, onBack }: ResourceDetailProps) {
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
 
@@ -304,7 +344,7 @@ export default function ResourceDetail({ id, summary: catalogSummary, byId, proj
       <button type="button" className={styles.backButton} onClick={onBack} aria-label="Back to list">
         ‹ Back
       </button>
-      {summary && <DetailHeader summary={summary} byId={byId} projectsById={projectsById} onSelect={onSelect} />}
+      {summary && <DetailHeader summary={summary} byId={byId} projectsById={projectsById} shortcuts={shortcuts} onSelect={onSelect} />}
       {load.status === 'loading' && <p className={styles.muted}>Loading…</p>}
       {load.status === 'missing' && (
         <p className={styles.emptyNote}>

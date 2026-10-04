@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { db } from '@/lib/db';
 import type { DbQueueAutomation } from '@/lib/db';
-import { getClientId } from '@/lib/deviceIdentity';
+import { getWindowOriginId } from '@/lib/deviceIdentity';
+import { mergeQueueItems } from '@/lib/queueMerge';
 import { DEFAULT_MAX_RETRIES } from '@/lib/resumeWatchdog';
 
 export interface QueueImageAttachment {
@@ -258,12 +259,24 @@ interface QueueState {
    * `loadFromDb`. Makes the desktop app and a phone on the LAN show the same
    * queue for a session — before this, each browser's IndexedDB was an
    * entirely private copy that never synced.
+   *
+   * By default it also SEEDS: a session this window has that the server has no
+   * record of is pushed up, so the first device to run the shared-queue build does
+   * not appear to lose its queue. A window that only joins an app which is already
+   * running (the queue float) passes `{ seed: false }`: its IndexedDB copy is the
+   * older of the two, and a record the server no longer has was deleted on purpose
+   * (`DELETE /db/sessions/:id`) — seeding would bring it back as a zombie queue.
    */
-  syncFromServer: () => Promise<void>;
+  syncFromServer: (opts?: { seed?: boolean }) => Promise<void>;
 
   /**
-   * Apply a queue pushed by ANOTHER device (the `queue_update` WS message).
-   * A no-op for our own echo — see `applyRemoteQueue`'s implementation.
+   * Apply a queue pushed by ANOTHER device or ANOTHER WINDOW of this device (the
+   * `queue_update` WS message). A no-op only for this window's own echo.
+   *
+   * Replaces this window's list with the incoming one — except while this window
+   * has edits the server has not seen yet (a push waiting out its debounce). Then
+   * it three-way merges instead (`mergeQueueItems`) and pushes the result, so a
+   * removal or an add made here is neither undone nor lost. See `queueMerge.ts`.
    */
   applyRemoteQueue: (
     sessionId: string,
@@ -368,40 +381,113 @@ interface ServerQueueRecord {
 }
 
 /**
- * Sessions whose next change must NOT be pushed to the server, because the
- * change CAME from the server. The mirror image of `_skipPersist`, and needed
- * for the same reason: without it, applying a remote update marks the store
- * dirty, which pushes it straight back, which broadcasts it again.
+ * The lists and automation configs this window installed FROM the server, by
+ * identity. The mirror image of `_skipPersist`, needed for the same reason: applying
+ * a remote update changes the store, which would push it straight back, which would
+ * broadcast it again. The persist subscription recognises exactly these objects and
+ * skips the push for them.
+ *
+ * This used to be a per-session flag cleared by a zero-delay timer, which also
+ * swallowed any REAL local edit that ran before the timer did (the scheduler removing
+ * a sent item right after a remote update, say): the edit reached IndexedDB but never
+ * the server or the other windows. Identity cannot do that — every local mutation
+ * builds a new array, so only the installed one ever matches.
  */
-const _skipServerPush = new Set<string>();
+const _installedByRemote = new Map<string, QueueItem[]>();
+const _installedAutomationByRemote = new Map<string, QueueAutomationConfig>();
 
-/** Coalesces rapid changes (drag-reorder fires per frame) into one PUT. */
-const _pushTimers = new Map<string, ReturnType<typeof setTimeout>>();
+/**
+ * Per session, the last list this window knows the server to hold: what it loaded
+ * from IndexedDB, what the server last sent it, or what it last pushed successfully.
+ * It is the "base" of the three-way merge in `applyRemoteQueue` — the only way to tell
+ * an item this window removed from one it never had.
+ */
+const _syncedBase = new Map<string, QueueItem[]>();
+
+/**
+ * Per session, how many remote lists this window has applied. A push that finished
+ * after one was applied says nothing about what the server holds now, so it must not
+ * overwrite the base the newer list set.
+ */
+const _remoteEpoch = new Map<string, number>();
+
+interface PendingPush {
+  timer: ReturnType<typeof setTimeout>;
+  items: QueueItem[];
+  automation: QueueAutomationConfig | null;
+}
+
+/**
+ * Pushes waiting out their debounce, with what each will send. Coalesces rapid
+ * changes (drag-reorder fires per frame) into one PUT, and is what `pagehide` flushes
+ * and what tells `applyRemoteQueue` that this window holds edits the server has not seen.
+ */
+const _pending = new Map<string, PendingPush>();
 const PUSH_DEBOUNCE_MS = 400;
 
 /**
- * Mirror one session's queue to the server so other devices converge on it.
+ * The PUT itself. Fire-and-forget by design: the local IndexedDB write is what
+ * guarantees the user doesn't lose work, so a failed sync must never surface as an
+ * error or block the UI — it just means this device stays authoritative until the
+ * next change succeeds.
  *
- * Fire-and-forget by design: the local IndexedDB write is what guarantees the
- * user doesn't lose work, so a failed sync must never surface as an error or
- * block the UI — it just means this device stays authoritative until the next
- * change succeeds.
+ * `keepalive` lets the request outlive the page (see `flushPendingPushes`). The
+ * browser caps a keepalive body at 64 KB; a bigger one is rejected and, like any
+ * failed push, simply leaves the local copy as the only one.
+ */
+function putQueue(
+  sessionId: string,
+  items: QueueItem[],
+  automation: QueueAutomationConfig | null,
+  keepalive: boolean,
+): void {
+  const epoch = _remoteEpoch.get(sessionId) ?? 0;
+  void fetch(`/api/sessions/${encodeURIComponent(sessionId)}/queue`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items, automation, originClientId: getWindowOriginId() }),
+    ...(keepalive ? { keepalive: true } : {}),
+  }).then((res) => {
+    // The server holds exactly this list now — unless another window's list was
+    // applied while the request was out, in which case the base it set is newer.
+    if (res.ok && (_remoteEpoch.get(sessionId) ?? 0) === epoch) _syncedBase.set(sessionId, items);
+  }).catch(() => { /* offline — local copy remains the source of truth */ });
+}
+
+/**
+ * Mirror one session's queue to the server so other devices converge on it. Waits
+ * out `PUSH_DEBOUNCE_MS` and sends what it was last given.
  */
 function pushQueueToServer(
   sessionId: string,
   items: QueueItem[],
   automation: QueueAutomationConfig | null,
 ): void {
-  const existing = _pushTimers.get(sessionId);
-  if (existing) clearTimeout(existing);
-  _pushTimers.set(sessionId, setTimeout(() => {
-    _pushTimers.delete(sessionId);
-    void fetch(`/api/sessions/${encodeURIComponent(sessionId)}/queue`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items, automation, originClientId: getClientId() }),
-    }).catch(() => { /* offline — local copy remains the source of truth */ });
-  }, PUSH_DEBOUNCE_MS));
+  const existing = _pending.get(sessionId);
+  if (existing) clearTimeout(existing.timer);
+  const timer = setTimeout(() => {
+    _pending.delete(sessionId);
+    putQueue(sessionId, items, automation, false);
+  }, PUSH_DEBOUNCE_MS);
+  _pending.set(sessionId, { timer, items, automation });
+}
+
+/**
+ * The page is going away: send what is still waiting NOW. An edit made in the last
+ * `PUSH_DEBOUNCE_MS` before a window closes (a float is closed in a click) would
+ * otherwise exist only in this window's IndexedDB, which no other window reads, and
+ * the next change anywhere would erase it.
+ */
+function flushPendingPushes(): void {
+  for (const [sessionId, pending] of _pending) {
+    clearTimeout(pending.timer);
+    putQueue(sessionId, pending.items, pending.automation, true);
+  }
+  _pending.clear();
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', flushPendingPushes);
 }
 
 export const useQueueStore = create<QueueState>((set, get) => ({
@@ -608,6 +694,17 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
   migrateSession: (oldSessionId, newSessionId) =>
     set((state) => {
+      // The merge base is keyed by session too. Carried across even when the queue
+      // itself is empty: a window that has removed everything still needs to know what
+      // it removed. An id that already has a base keeps it.
+      const base = _syncedBase.get(oldSessionId);
+      if (base) {
+        _syncedBase.delete(oldSessionId);
+        if (!_syncedBase.has(newSessionId)) {
+          _syncedBase.set(newSessionId, base.map((i) => ({ ...i, sessionId: newSessionId })));
+        }
+      }
+
       const items = state.queues.get(oldSessionId);
       const auto = state.automation.get(oldSessionId);
       const draft = state.composeDrafts.get(oldSessionId);
@@ -745,6 +842,11 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
       for (const [sid, items] of bySession) {
         items.sort((a, b) => a.position - b.position);
+        // What this window holds is, until the server says otherwise, what it knows
+        // the queue to be. IndexedDB hands out its own ids, so without this base the
+        // sync that follows (whose items carry the ids the pushing window used) would
+        // read every loaded item as this window's own new addition.
+        _syncedBase.set(sid, items);
         useQueueStore.getState().setQueue(sid, items);
       }
 
@@ -755,7 +857,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     }
   },
 
-  syncFromServer: async () => {
+  syncFromServer: async (opts) => {
     try {
       const resp = await fetch('/api/queues');
       if (!resp.ok) return;
@@ -783,6 +885,9 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       // Only sessions genuinely absent server-side are pushed, so a queue
       // someone already cleared on another device is NOT resurrected from
       // this device's stale IndexedDB copy.
+      //
+      // A window that joins a running app opts out — see `syncFromServer`'s doc.
+      if (opts?.seed === false) return;
       const state = useQueueStore.getState();
       for (const [sid, items] of state.queues) {
         if (serverSessions.has(sid)) continue;
@@ -799,23 +904,47 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     set((state) => {
       // Our own echo. Applying it would be harmless data-wise but would mark
       // the store dirty and trigger another push, ping-ponging forever
-      // between two devices.
-      if (originClientId && originClientId === getClientId()) return state;
+      // between two devices. Keyed per WINDOW, not per device: another window
+      // of this device (a floating queue) shares our device id but is a
+      // different writer, and its updates must apply.
+      if (originClientId && originClientId === getWindowOriginId()) return state;
 
-      // Suppress the push that this state change would otherwise trigger —
-      // we are applying what the server already has, so echoing it back is
-      // pure noise (and the other half of the same loop).
-      _skipServerPush.add(sessionId);
-      setTimeout(() => _skipServerPush.delete(sessionId), 0);
+      const remote = [...items].sort((a, b) => a.position - b.position);
+      const local = state.queues.get(sessionId);
+
+      // A push waiting out its debounce means this window holds edits the server
+      // has not seen. Replacing the list would undo them (a removal comes back and
+      // is sent twice), and the push still waiting would then overwrite the server
+      // with a list built before this one arrived. So merge instead, and send the
+      // result. Nothing waiting: the incoming list is simply the newer one.
+      const hasUnpushedEdits = local !== undefined && _pending.has(sessionId);
+      const next = hasUnpushedEdits
+        ? mergeQueueItems(_syncedBase.get(sessionId) ?? [], local, remote)
+        : remote;
+
+      // The server holds `remote` whatever this window ends up showing.
+      _syncedBase.set(sessionId, remote);
+      _remoteEpoch.set(sessionId, (_remoteEpoch.get(sessionId) ?? 0) + 1);
+
+      // A list taken straight from the server must not be pushed back — we are
+      // applying what it already has, so echoing it is pure noise (and the other
+      // half of the loop the origin check closes). A merged list is NOT what the
+      // server holds, so it is left for the subscription to push, which replaces the
+      // stale push that was waiting.
+      if (!hasUnpushedEdits) _installedByRemote.set(sessionId, next);
 
       const patch: Partial<QueueState> = {};
       const nextQueues = new Map(state.queues);
-      nextQueues.set(sessionId, [...items].sort((a, b) => a.position - b.position));
+      nextQueues.set(sessionId, next);
       patch.queues = nextQueues;
 
+      // Automation is whole-object last-write-wins: it is a handful of switches,
+      // not a list, and merging them field by field would invent combinations
+      // nobody chose.
       if (automation) {
         const nextAutomation = new Map(state.automation);
         nextAutomation.set(sessionId, automation);
+        _installedAutomationByRemote.set(sessionId, automation);
         patch.automation = nextAutomation;
       }
       return patch;
@@ -847,15 +976,19 @@ useQueueStore.subscribe((state) => {
   }
   _prevQueues = nextQueues;
   for (const sid of changedSessionIds) {
-    if (_skipPersist.has(sid)) continue;
     const items = nextQueues.get(sid) ?? [];
+    // Taken before the persist-skip below so the marker is always consumed.
+    const fromServer = _installedByRemote.get(sid) === items;
+    if (fromServer) _installedByRemote.delete(sid);
+    if (_skipPersist.has(sid)) continue;
     persistSessionQueue(sid, items);
     // Mirror to the server so other devices see it. Guarded separately from
     // `_skipPersist`: that one suppresses the IndexedDB write after a local
     // DB load, this one suppresses the push after a REMOTE update — different
     // triggers, and conflating them would either re-echo remote changes or
-    // stop local edits from ever syncing.
-    if (!_skipServerPush.has(sid)) {
+    // stop local edits from ever syncing. By identity, not by timer: see
+    // `_installedByRemote`.
+    if (!fromServer) {
       pushQueueToServer(sid, items, nextAutomation.get(sid) ?? null);
     }
   }
@@ -872,8 +1005,11 @@ useQueueStore.subscribe((state) => {
   }
   _prevAutomation = nextAutomation;
   for (const sid of automationChanged) {
-    if (_skipAutomationPersist.has(sid)) continue;
     const cfg = nextAutomation.get(sid);
+    // Same identity rule as the items above.
+    const fromServer = cfg !== undefined && _installedAutomationByRemote.get(sid) === cfg;
+    if (fromServer) _installedAutomationByRemote.delete(sid);
+    if (_skipAutomationPersist.has(sid)) continue;
     if (!cfg) {
       // Entry removed → drop the row.
       void db.queueAutomation.delete(sid).catch(() => { /* silent */ });
@@ -904,7 +1040,7 @@ useQueueStore.subscribe((state) => {
     // phone, or the two devices disagree about whether the scheduler should
     // fire. Pushed under the same skip-guard as items, and only when the
     // session actually has a queue entry to attach it to.
-    if (!_skipServerPush.has(sid) && cfg) {
+    if (!fromServer && cfg) {
       pushQueueToServer(sid, nextQueues.get(sid) ?? [], cfg);
     }
   }

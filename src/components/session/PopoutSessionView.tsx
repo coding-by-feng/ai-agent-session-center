@@ -22,6 +22,7 @@ import { useEffect, useMemo } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useSettingsInit } from '@/hooks/useSettingsInit';
 import { useSessionStore } from '@/stores/sessionStore';
+import ToastContainer from '@/components/ui/ToastContainer';
 import DetailPanel from './DetailPanel';
 import FileOpenChooser from './FileOpenChooser';
 import styles from '@/styles/modules/PopoutSessionView.module.css';
@@ -63,6 +64,10 @@ export default function PopoutSessionView() {
       </button>
       <DetailPanel />
       <FileOpenChooser />
+      {/* Toasts publish to whichever container is mounted and only App.tsx mounts one, so without
+          this every toast the panel raises in this window (a launch from a project frame, a control
+          bar action…) was dropped. PopoutQueueView mounts its own for the same reason. */}
+      <ToastContainer />
     </>
   );
 }

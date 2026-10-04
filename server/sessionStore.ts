@@ -50,7 +50,10 @@ import {
   insertFullPrompt as dbInsertFullPrompt,
 } from './db.js';
 import { toArchivedSession, pushPrompt, trimCurrentPrompt } from './sessionTrim.js';
-import type { Session, HandleEventResult, BufferedEvent, PendingResume, SessionEvent } from '../src/types/session.js';
+import { planCliOf } from './planUsageCodec.js';
+import { createClaudeSnapshotSource, createCodexRolloutSource } from './planUsageSources.js';
+import { createPlanUsageService, applyUsageToSessions, kickDelayFor } from './planUsageService.js';
+import type { Session, HandleEventResult, BufferedEvent, PendingResume, SessionEvent, PlanCli } from '../src/types/session.js';
 import type { HookPayload } from '../src/types/hook.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
 import type { TeamSerialized } from '../src/types/team.js';
@@ -477,6 +480,10 @@ function summarizeToolInput(toolInput: Record<string, unknown> | undefined, tool
 
 // Async broadcast helper — lazy imports wsManager to avoid circular deps
 async function broadcastAsync(data: unknown): Promise<void> {
+  // Telling clients a session changed means the snapshot's copy of it is stale: getAllSessions() holds
+  // COPIES, so a change made in place never reaches them on its own. Dirtying the cache here covers
+  // every path that broadcasts without a hook behind it (process exit, resume timeout, connecting timeout).
+  if ((data as { type?: string } | null)?.type === WS_TYPES.SESSION_UPDATE) invalidateSessionsCache();
   const { broadcast } = await import('./wsManager.js');
   broadcast(data as { type: string; [key: string]: unknown });
 }
@@ -512,7 +519,82 @@ async function debouncedBroadcast(data: { type: string; session?: Session; [key:
 
 // Broadcast helper for approval timer
 async function broadcastSessionUpdate(session: Session): Promise<void> {
+  // Dirty the snapshot NOW, not when the debounce below fires: a client that connects in those
+  // 20 ms (or whose snapshot is read in the same tick) must not be handed the pre-change copy.
+  invalidateSessionsCache();
   await debouncedBroadcast({ type: WS_TYPES.SESSION_UPDATE, session: { ...session } });
+}
+
+// ---- Plan usage (each CLI's subscription limits) ----
+// Account-wide, so the freshest reading per CLI goes on every live session of
+// that CLI — see planUsageService.ts for why it is not looked up per session.
+
+/** hookProcessor throttles its session updates by 250 ms; an update sent sooner can land under one that still carries the old value. */
+const PLAN_USAGE_BROADCAST_DELAY_MS = 300;
+/** A session is a reason to look at plan usage only while it can still be using the plan. */
+const isLiveSession = (session: Session): boolean => session.status !== SESSION_STATUS.ENDED;
+/** attachPlanUsage runs on every hook event, so a persistent fault may be reported at most this often. */
+const PLAN_USAGE_WARN_INTERVAL_MS = 60_000;
+let planUsageWarnedAt = 0;
+
+const planUsageService = createPlanUsageService(
+  {
+    liveClis() {
+      const clis = new Set<PlanCli>();
+      for (const session of sessions.values()) {
+        const cli = isLiveSession(session) ? planCliOf(session) : null;
+        if (cli) clis.add(cli);
+      }
+      return clis;
+    },
+    apply(cli, usage) {
+      const changed = applyUsageToSessions(sessions.values(), cli, usage, isLiveSession);
+      if (changed.length === 0) return;
+      invalidateSessionsCache();
+      setTimeout(() => {
+        for (const { sessionId } of changed) {
+          const live = sessions.get(sessionId);
+          if (live) void broadcastSessionUpdate(live);
+        }
+      }, PLAN_USAGE_BROADCAST_DELAY_MS).unref?.();
+    },
+  },
+  [createClaudeSnapshotSource(), createCodexRolloutSource()],
+);
+
+/**
+ * Put the freshest known plan usage on a session as it is created or reports in,
+ * and at the turn boundaries that move the numbers ask for a new reading: a
+ * prompt going in, and — once the status line has had a moment to render — a
+ * turn coming out.
+ *
+ * Plan usage is decoration: it is called from the middle of handleEvent, after
+ * the session has been mutated and before its aliasing, baton migration and
+ * replay-buffer work, so a throw here would leave the hook half-processed.
+ * Contain it, and say so (at most once a minute — this runs on every event).
+ */
+function attachPlanUsage(session: Session, eventName?: string): void {
+  try {
+    const cli = planCliOf(session);
+    if (!cli) return;
+    const known = planUsageService.latest(cli);
+    if (known) applyUsageToSessions([session], cli, known, isLiveSession);
+    const delay = kickDelayFor(eventName);
+    if (delay !== null) planUsageService.kick(cli, delay);
+  } catch (err) {
+    const now = Date.now();
+    if (Math.abs(now - planUsageWarnedAt) < PLAN_USAGE_WARN_INTERVAL_MS) return; // abs: a clock stepped back must not mute it for the whole step
+    planUsageWarnedAt = now;
+    log.warn('plan-usage', `could not attach plan usage to ${session.sessionId?.slice(0, 8)}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+export function startPlanUsage(): void {
+  planUsageService.start();
+}
+
+export function stopPlanUsage(): void {
+  planUsageService.stop();
 }
 
 /**
@@ -978,6 +1060,8 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
     dbUpsertSession(session);
   }
 
+  attachPlanUsage(session, hook_event_name);
+
   const result: HandleEventResult = { session: { ...session } };
   // Migrate DB records when session is re-keyed (e.g., after claude --resume)
   if (session.replacesId) {
@@ -1237,6 +1321,7 @@ export async function createTerminalSession(terminalId: string, config: Terminal
     if (config.originSessionId) session.originSessionId = config.originSessionId;
   }
   if (config.isFloating) session.isFloating = true;
+  attachPlanUsage(session);
   sessions.set(terminalId, session);
   invalidateSessionsCache();
   dbUpsertSession(session);
@@ -1804,7 +1889,11 @@ export function registerDiscoveredSession(proc: DiscoveredProcess): void {
     queueCount: 0,
     terminalId: null,
     cachedPid: proc.pid,
+    // The scan only ever surfaces `claude` (isInteractiveClaude). Hookless, the card has no startup
+    // command or model to detect the CLI from, so without this it never learns whose plan limits to show.
+    cliSource: 'claude',
   };
+  attachPlanUsage(session);
   sessions.set(id, session);
   pidToSession.set(proc.pid, id);
   invalidateSessionsCache();
@@ -1963,8 +2052,11 @@ export function resumeQueueAfterCancel(sessionId: string): boolean {
 
 // ---- Start background monitors ----
 
-// Auto-idle transitions
-startAutoIdle(sessions);
+// Auto-idle transitions. They are made on the server's clock with no hook behind them, so each
+// changed session is broadcast here (broadcastSessionUpdate also dirties the snapshot cache).
+startAutoIdle(sessions, (changed) => {
+  for (const session of changed) void broadcastSessionUpdate(session);
+});
 
 // Process liveness monitoring
 startMonitoring(

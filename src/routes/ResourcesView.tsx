@@ -41,6 +41,7 @@ import {
   startScan,
   writeExtraRoots,
 } from '@/lib/resourcesApi';
+import { buildResourceShortcuts } from '@/lib/commandShortcuts';
 import ResourceTypeRail from '@/components/resources/ResourceTypeRail';
 import ResourceList from '@/components/resources/ResourceList';
 import ResourceDetail from '@/components/resources/ResourceDetail';
@@ -297,6 +298,8 @@ export default function ResourcesView() {
   const projects = catalog?.projects ?? NO_PROJECTS;
   const byId = useMemo(() => new Map(resources.map((r) => [r.id, r] as const)), [resources]);
   const projectsById = useMemo(() => new Map(projects.map((p) => [p.id, p] as const)), [projects]);
+  // Shortcut commands ("Shortcut for /x") ↔ their targets, once per catalog.
+  const shortcuts = useMemo(() => buildResourceShortcuts(resources), [resources]);
   const { agent, scope, projectId, query, showPluginSystem } = params;
   const filters = useMemo<ResourceFilters>(
     () => ({ agent, scope, projectId, query, showPluginSystem }),
@@ -446,6 +449,7 @@ export default function ResourcesView() {
               projectsById={projectsById}
               emptyMessage={emptyStateMessage(type, filters, projectId ? projectsById.get(projectId)?.name : undefined)}
               scrollResetKey={`${type}|${agent}|${scope}|${projectId ?? ''}|${query}|${showPluginSystem}`}
+              shortcuts={shortcuts}
               onSelect={selectResource}
             />
             {params.id ? (
@@ -457,6 +461,7 @@ export default function ResourcesView() {
                 summary={byId.get(params.id)}
                 byId={byId}
                 projectsById={projectsById}
+                shortcuts={shortcuts}
                 onSelect={selectResource}
                 onBack={closeDetail}
               />
