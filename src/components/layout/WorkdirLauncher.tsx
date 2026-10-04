@@ -6,25 +6,12 @@
  */
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useClickOutside } from '@/hooks/useClickOutside';
-import { showToast } from '@/components/ui/ToastContainer';
-import { useSessionStore } from '@/stores/sessionStore';
 import { useKnownProjects } from '@/hooks/useKnownProjects';
-import { ClaudeIcon, CodexIcon } from './CliBrandIcons';
+import { launchSession, shortenPath } from '@/lib/launchSession';
+import { CLI_LAUNCHERS } from './cliLaunchers';
 import styles from '@/styles/modules/WorkdirLauncher.module.css';
 
 const WORKDIR_HISTORY_KEY = 'workdir-history';
-const DIR_SESSION_CONFIGS_KEY = 'dir-session-configs';
-
-/** The CLIs the launcher can start, with their official-style brand icons. */
-const CLI_OPTIONS = [
-  { command: 'claude', label: 'Claude', Icon: ClaudeIcon },
-  { command: 'codex', label: 'Codex', Icon: CodexIcon },
-] as const;
-
-interface DirSessionConfig {
-  command?: string;
-  workingDir?: string;
-}
 
 function loadWorkdirHistory(): string[] {
   try {
@@ -36,26 +23,6 @@ function loadWorkdirHistory(): string[] {
 
 function saveWorkdirHistory(dirs: string[]): void {
   localStorage.setItem(WORKDIR_HISTORY_KEY, JSON.stringify(dirs));
-}
-
-/** Remember the last CLI launched in a directory (read by the session modals). */
-function saveDirSessionConfig(dir: string, config: DirSessionConfig): void {
-  if (!dir) return;
-  try {
-    const all: Record<string, DirSessionConfig> = JSON.parse(
-      localStorage.getItem(DIR_SESSION_CONFIGS_KEY) || '{}',
-    );
-    all[dir] = { ...config, workingDir: dir };
-    localStorage.setItem(DIR_SESSION_CONFIGS_KEY, JSON.stringify(all));
-  } catch { /* ignore quota errors */ }
-}
-
-/** Extract the last meaningful segment from a path for display. */
-function shortenPath(fullPath: string): string {
-  const normalized = fullPath.replace(/\/+$/, '');
-  if (normalized === '~' || normalized === '/') return normalized;
-  const segments = normalized.split('/');
-  return segments[segments.length - 1] || normalized;
 }
 
 export default function WorkdirLauncher() {
@@ -99,33 +66,10 @@ export default function WorkdirLauncher() {
 
   async function handleLaunch(workingDir: string, command: string) {
     close();
-
-    // The command is the CLI the user explicitly picked (claude/codex).
-    // No host/username — the server spawns a local PTY for host-less requests.
-    const body = { workingDir, command };
-
-    try {
-      const res = await fetch('/api/terminals', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        // Auto-select the new session so the detail panel stays open
-        if (data.terminalId) {
-          useSessionStore.getState().selectSession(data.terminalId);
-        }
-        // Remember the last CLI used for this directory (consumed by the
-        // session-creation modals when they prefill a command).
-        saveDirSessionConfig(workingDir, { command, workingDir });
-        showToast(`Launched ${command} in ${shortenPath(workingDir)}`, 'success');
-      } else {
-        showToast(data.error || 'Failed to launch session', 'error');
-      }
-    } catch {
-      showToast('Network error launching session', 'error');
-    }
+    // The command is the CLI the user explicitly picked (claude/codex). No
+    // forceNew: relaunching a directory that already runs that CLI reuses the
+    // running session (the project frames in the session strip do force one).
+    await launchSession({ workingDir, command });
   }
 
   function handleRemove(dir: string, e: React.MouseEvent) {
@@ -160,7 +104,7 @@ export default function WorkdirLauncher() {
                   <span className={styles.dirPath}>{dir}</span>
                 </div>
                 <div className={styles.dirLaunchers}>
-                  {CLI_OPTIONS.map(({ command, label, Icon }) => (
+                  {CLI_LAUNCHERS.map(({ command, label, Icon }) => (
                     <button
                       key={command}
                       type="button"

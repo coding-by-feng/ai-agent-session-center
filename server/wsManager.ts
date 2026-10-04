@@ -470,16 +470,32 @@ export function broadcast(data: { type: string; [key: string]: unknown }): void 
 }
 
 /**
- * A session-bearing broadcast carries `session` (SESSION_UPDATE) — pull the
- * visibility flag off it so remote clients can be skipped. Returns null for
- * broadcasts that are not about one session (presence, hook stats, teams),
- * which are sent to everyone as before.
+ * What a broadcast is ABOUT, so remote clients can be skipped when that session is
+ * hidden from them. Returns null for broadcasts that are not about one session
+ * (presence, hook stats, teams), which are sent to everyone as before.
+ *
+ *  - `session_update` carries the session itself — read the flag off it.
+ *  - `queue_update` carries only a `sessionId`, and what it carries is PROMPT TEXT.
+ *    It is resolved through `getSession`, the lookup `requireVisibleSession` uses for
+ *    the REST routes, so a re-keyed id resolves the same way on both paths. Without
+ *    this the message had no `session` to inspect and went to every client: editing a
+ *    hidden session's queue on the desktop pushed its prompts to every remote device.
  */
 function broadcastSubject(data: { type: string; [key: string]: unknown }):
   { remoteVisible?: boolean | null } | null {
+  if (data.type === WS_TYPES.QUEUE_UPDATE) {
+    const sessionId = typeof data.sessionId === 'string' ? data.sessionId : '';
+    // A session that cannot be resolved (removed, archived, an id nobody has heard of, a
+    // malformed message) is not visible to a remote client: for a visibility gate the
+    // unknown case fails closed. The local desktop is unaffected — it sees everything.
+    return getSession(sessionId) ?? UNRESOLVED_SUBJECT;
+  }
   const session = data.session as { remoteVisible?: boolean | null } | undefined;
   return session && typeof session === 'object' ? session : null;
 }
+
+/** Stands in for a session that cannot be found: no `remoteVisible`, so hidden from remote clients. */
+const UNRESOLVED_SUBJECT: { remoteVisible?: boolean | null } = Object.freeze({});
 
 function broadcastToClients(data: { type: string; [key: string]: unknown }, critical: boolean): void {
   const msg = JSON.stringify(data);

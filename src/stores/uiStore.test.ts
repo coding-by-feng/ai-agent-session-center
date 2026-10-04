@@ -162,4 +162,130 @@ describe('uiStore', () => {
       expect(localStorage.getItem('recent-room-collapsed')).toBe('0');
     });
   });
+
+  // How the session strip is grouped: by room (the default), flat by recent
+  // activity, or by project.
+  describe('sessionSortMode', () => {
+    async function freshStore(stored: string | null) {
+      localStorage.removeItem('session-sort-mode');
+      if (stored !== null) localStorage.setItem('session-sort-mode', stored);
+      vi.resetModules();
+      const mod = await import('./uiStore');
+      return mod.useUiStore;
+    }
+
+    it('starts grouped by room when nothing is stored', async () => {
+      expect((await freshStore(null)).getState().sessionSortMode).toBe('room');
+    });
+
+    it.each(['room', 'activity', 'project'] as const)('restores a stored %s', async (mode) => {
+      expect((await freshStore(mode)).getState().sessionSortMode).toBe(mode);
+    });
+
+    it('falls back to room on a value it does not know', async () => {
+      expect((await freshStore('by-colour')).getState().sessionSortMode).toBe('room');
+    });
+
+    it('switches to any mode and remembers it', async () => {
+      const store = await freshStore(null);
+      store.getState().setSessionSortMode('project');
+      expect(store.getState().sessionSortMode).toBe('project');
+      expect(localStorage.getItem('session-sort-mode')).toBe('project');
+      store.getState().setSessionSortMode('activity');
+      expect(store.getState().sessionSortMode).toBe('activity');
+      expect(localStorage.getItem('session-sort-mode')).toBe('activity');
+      store.getState().setSessionSortMode('room');
+      expect(store.getState().sessionSortMode).toBe('room');
+      expect(localStorage.getItem('session-sort-mode')).toBe('room');
+    });
+
+    it('still switches when the browser will not store it', async () => {
+      const store = await freshStore(null);
+      const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('quota', 'QuotaExceededError');
+      });
+      try {
+        store.getState().setSessionSortMode('project');
+        expect(store.getState().sessionSortMode).toBe('project');
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
+
+  // Project frames in the session strip are not Rooms either, so their folded
+  // state is kept here, by project key.
+  describe('collapsedProjects', () => {
+    async function freshStore(stored: string | null) {
+      localStorage.removeItem('collapsed-projects');
+      if (stored !== null) localStorage.setItem('collapsed-projects', stored);
+      vi.resetModules();
+      const mod = await import('./uiStore');
+      return mod.useUiStore;
+    }
+
+    it('starts with every project expanded', async () => {
+      expect((await freshStore(null)).getState().collapsedProjects.size).toBe(0);
+    });
+
+    it('restores the projects that were folded', async () => {
+      const store = await freshStore(JSON.stringify(['localhost|/w/app', 'localhost|/w/kts']));
+      expect([...store.getState().collapsedProjects].sort()).toEqual(['localhost|/w/app', 'localhost|/w/kts']);
+    });
+
+    it.each(['not json', '"just a string"', '{"a":1}', '42'])('starts empty on a stored %s', async (junk) => {
+      expect((await freshStore(junk)).getState().collapsedProjects.size).toBe(0);
+    });
+
+    it('keeps only the strings from a mixed list', async () => {
+      const store = await freshStore(JSON.stringify(['localhost|/w/app', 7, null, { a: 1 }]));
+      expect([...store.getState().collapsedProjects]).toEqual(['localhost|/w/app']);
+    });
+
+    it('folds and unfolds a project, remembering each change', async () => {
+      const store = await freshStore(null);
+      store.getState().toggleProjectCollapsed('localhost|/w/app');
+      expect(store.getState().collapsedProjects.has('localhost|/w/app')).toBe(true);
+      expect(JSON.parse(localStorage.getItem('collapsed-projects') ?? '[]')).toEqual(['localhost|/w/app']);
+
+      store.getState().toggleProjectCollapsed('localhost|/w/kts');
+      expect(JSON.parse(localStorage.getItem('collapsed-projects') ?? '[]').sort()).toEqual([
+        'localhost|/w/app',
+        'localhost|/w/kts',
+      ]);
+
+      store.getState().toggleProjectCollapsed('localhost|/w/app');
+      expect(store.getState().collapsedProjects.has('localhost|/w/app')).toBe(false);
+      expect(JSON.parse(localStorage.getItem('collapsed-projects') ?? '[]')).toEqual(['localhost|/w/kts']);
+    });
+
+    it('clears the stored entry once the last project is unfolded', async () => {
+      const store = await freshStore(null);
+      store.getState().toggleProjectCollapsed('localhost|/w/app');
+      store.getState().toggleProjectCollapsed('localhost|/w/app');
+      expect(localStorage.getItem('collapsed-projects')).toBeNull();
+    });
+
+    it('replaces the set instead of changing it, so subscribers see the change', async () => {
+      const store = await freshStore(null);
+      const before = store.getState().collapsedProjects;
+      store.getState().toggleProjectCollapsed('localhost|/w/app');
+      const after = store.getState().collapsedProjects;
+      expect(after).not.toBe(before);
+      expect(before.size).toBe(0);
+    });
+
+    it('still folds when the browser will not store it', async () => {
+      const store = await freshStore(null);
+      const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('quota', 'QuotaExceededError');
+      });
+      try {
+        store.getState().toggleProjectCollapsed('localhost|/w/app');
+        expect(store.getState().collapsedProjects.has('localhost|/w/app')).toBe(true);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
 });

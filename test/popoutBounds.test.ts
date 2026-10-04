@@ -109,6 +109,29 @@ describe('mergePopoutBounds', () => {
   });
 });
 
+describe("the 'queue' kind — a session's QUEUE panel floated into its own window", () => {
+  it('is a recognised kind, so its saved bounds are read back', () => {
+    expect(POPOUT_KINDS).toContain('queue');
+    expect(parsePopoutBoundsFile(JSON.stringify({ queue: B(7) }))).toEqual({ queue: B(7) });
+  });
+
+  it('has its own bounds slot: saving it leaves every other kind alone', () => {
+    const existing = { terminal: B(1), project: B(2), session: B(3) };
+    expect(mergePopoutBounds(existing, 'queue', B(9)))
+      .toEqual({ terminal: B(1), project: B(2), session: B(3), queue: B(9) });
+  });
+
+  it('opens at its own default: usable for the compose row, smaller than a full workspace window', () => {
+    // A compose box, three chips and a grid of prompts need real room, but this is not a
+    // file tree plus editor — it must not inherit the 1400×900 the project/session windows use.
+    const q = POPOUT_DEFAULT_SIZES.queue;
+    expect(q.width).toBeGreaterThanOrEqual(640);
+    expect(q.height).toBeGreaterThanOrEqual(480);
+    expect(q.width).toBeLessThan(POPOUT_DEFAULT_SIZES.session.width);
+    expect(q.height).toBeLessThan(POPOUT_DEFAULT_SIZES.session.height);
+  });
+});
+
 describe('POPOUT_DEFAULT_SIZES', () => {
   it('has a default for every kind', () => {
     for (const kind of POPOUT_KINDS) {

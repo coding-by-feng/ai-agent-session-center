@@ -16,10 +16,16 @@ import { useRoomDragReorder } from '@/hooks/useRoomDragReorder';
 import type { RoomDragRect } from '@/lib/roomDragReorder';
 import { sortSessionsByActivity, numberedSessions } from '@/lib/sessionSort';
 import { pickRecentSessions, RECENT_TICK_MS, RECENT_WINDOW_MS } from '@/lib/recentSessions';
+import { groupSessionsByProject, type ProjectGroup } from '@/lib/projectGroups';
 import LabelPicker, { LabelChip } from './LabelPicker';
+import PlanUsageChip from './PlanUsageChip';
+import ProjectFrameHeader from './ProjectFrameHeader';
+import SessionViewModeMenu from './SessionViewModeMenu';
+import { FrameCollapseIcon } from './SessionFrameIcons';
 import DetachIcon from '@/components/ui/DetachIcon';
 import Tooltip from '@/components/ui/Tooltip';
 import { tooltips } from '@/lib/tooltips';
+import { justCompleted, completionStillApplies } from '@/lib/sessionAttention';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -152,7 +158,10 @@ type TabRenderItem =
   | { type: 'room'; room: Room; sessions: Session[]; color: string }
   // The built-in RECENT frame. Not a Room: nothing stores it, and it is not
   // part of room reordering (visibleRoomIds keeps only type 'room').
-  | { type: 'recent'; sessions: Session[] };
+  | { type: 'recent'; sessions: Session[] }
+  // One project's frame (Projects view). Worked out from the sessions' paths,
+  // so, like RECENT, it is not a Room and takes no part in room reordering.
+  | { type: 'project'; group: ProjectGroup; color: string };
 
 const RECENT_FRAME_KEY = 'builtin:recent';
 const RECENT_FRAME_TITLE =
@@ -290,27 +299,6 @@ function MoveRoomDownIcon() {
   );
 }
 
-/** Filled disclosure triangle — folds/unfolds a room frame. Rotates -90deg
- *  when collapsed, same as the chevron it replaced. Solid, not stroked: it
- *  has to read as a different KIND of control from the stroked reorder arrows
- *  beside it, and a filled mass does that at 10px where a thinner or wider
- *  chevron would not. */
-function RoomCollapseIcon({ collapsed }: { collapsed: boolean }) {
-  return (
-    <svg
-      width="9"
-      height="9"
-      viewBox="0 0 12 12"
-      fill="currentColor"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-      style={{ transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s ease' }}
-    >
-      <path d="M1.9 3.9h8.2a.55.55 0 0 1 .43.89l-4.1 4.6a.55.55 0 0 1-.86 0l-4.1-4.6a.55.55 0 0 1 .43-.89Z" />
-    </svg>
-  );
-}
-
 /** Stacked-list glyph — "this session has queued prompts". Paired with the queue
  *  count in `.sessionTabQueueBadge`; inherits the cyan queue colour via
  *  `currentColor`. */
@@ -393,28 +381,6 @@ function LegendIcon() {
       <circle cx="3" cy="7" r="1.5" fill="currentColor" />
       <circle cx="3" cy="11" r="1.5" fill="currentColor" />
       <path d="M6.5 3H12M6.5 7H12M6.5 11H12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-/** Descending bars + down arrow — toggles the flat "most recently active first"
- *  ordering (rooms off) */
-function SortByActivityIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M1 3.5H8M1 7H6M1 10.5H4"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-      />
-      <path
-        d="M11 2.5V11M9.2 9.2L11 11L12.8 9.2"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
     </svg>
   );
 }
@@ -510,15 +476,33 @@ export default function SessionSwitcher({
       // `idle` is included because Codex (legacy `notify`-only mode) jumps
       // straight from idle to waiting on agent-turn-complete — no working/
       // prompting intermediate — and we still want the red ! to appear.
-      if (prev && prev !== 'waiting' && prev !== 'ended' && s.status === 'waiting') {
+      if (justCompleted(prev, s.status)) {
         // Don't mark the currently selected session
         if (s.sessionId !== currentSession.sessionId) {
           next.add(s.sessionId);
           changed = true;
         }
       }
+      // The ✓ outranks the status glyph on the card, so it must not outlive the completion:
+      // a session that is busy again, needs approval, is resuming or has ended shows that
+      // instead — without waiting for a click. (`idle` keeps it: see sessionAttention.ts.)
+      if (next.has(s.sessionId) && !completionStillApplies(s.status)) {
+        next.delete(s.sessionId);
+        changed = true;
+      }
       prevStatusRef.current.set(s.sessionId, s.status);
     });
+    // A session that has left the store takes its flag and its remembered status with it, so it
+    // cannot come back later (a restore, a resume under the same id) wearing a stale ✓.
+    for (const id of [...next]) {
+      if (!sessions.has(id)) {
+        next.delete(id);
+        changed = true;
+      }
+    }
+    for (const id of [...prevStatusRef.current.keys()]) {
+      if (!sessions.has(id)) prevStatusRef.current.delete(id);
+    }
     // Viewing a session acknowledges its completion. The strip click path
     // clears it in handleSwitch, but a session can also become current via
     // the sidebar, Cmd+N or Cmd+E — and since the current session is listed
@@ -549,11 +533,14 @@ export default function SessionSwitcher({
   const navRailCollapsed = useUiStore((s) => s.navRailCollapsed);
   const toggleNavRailCollapsed = useUiStore((s) => s.toggleNavRailCollapsed);
   const sessionSortMode = useUiStore((s) => s.sessionSortMode);
-  const toggleSessionSortMode = useUiStore((s) => s.toggleSessionSortMode);
+  const setSessionSortMode = useUiStore((s) => s.setSessionSortMode);
+  const collapsedProjects = useUiStore((s) => s.collapsedProjects);
+  const toggleProjectCollapsed = useUiStore((s) => s.toggleProjectCollapsed);
   const recentRoomCollapsed = useUiStore((s) => s.recentRoomCollapsed);
   const toggleRecentRoomCollapsed = useUiStore((s) => s.toggleRecentRoomCollapsed);
   const openRoomKill = useUiStore((s) => s.openRoomKill);
   const sortByActivity = sessionSortMode === 'activity';
+  const projectView = sessionSortMode === 'project';
   // Vertical rail only when docked-left AND not maximized
   // (maximizing always collapses the nav to the slim top bar).
   const isVertical = navPosition === 'left' && !maximized;
@@ -613,7 +600,10 @@ export default function SessionSwitcher({
     const parts: string[] = [];
     sessions.forEach((s) => {
       const activity = sortByActivity ? `|${s.lastActivityAt ?? 0}` : '';
-      parts.push(`${s.sessionId}|${s.status}|${s.pinned ? 1 : 0}|${s.title ?? ''}|${s.projectName ?? ''}|${s.colorIndex ?? ''}|${s.accentColor ?? ''}|${s.terminalId ?? ''}${activity}`);
+      // projectPath and sshHost are what the Projects view groups by; a session
+      // whose directory changes (an SSH session follows its hook's cwd) has to
+      // move frames without waiting for some other field to change.
+      parts.push(`${s.sessionId}|${s.status}|${s.pinned ? 1 : 0}|${s.title ?? ''}|${s.projectName ?? ''}|${s.projectPath ?? ''}|${s.sshHost ?? ''}|${s.colorIndex ?? ''}|${s.accentColor ?? ''}|${s.terminalId ?? ''}${activity}`);
     });
     parts.sort();
     return parts.join('\n');
@@ -647,7 +637,7 @@ export default function SessionSwitcher({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionsSignature, currentSession.sessionId, sortByActivity]);
 
-  // ---- Built-in RECENT frame (room mode only) ----
+  // ---- Built-in RECENT frame (Rooms view only: each session is also listed in its own room) ----
   // Membership depends on the clock as well as on updates: a session leaves
   // RECENT when it has been quiet for the whole window, and no update arrives
   // to say so. The tick re-checks once a minute.
@@ -660,10 +650,10 @@ export default function SessionSwitcher({
   // `sessions` on every update and tick, but it only changes when a session
   // joins, leaves or moves, so everything downstream stays put otherwise.
   const recentIdsKey = useMemo(() => {
-    if (sortByActivity) return '';
+    if (sessionSortMode !== 'room') return '';
     const live = [...sessions.values()].filter((s) => s.status !== 'ended');
     return pickRecentSessions(live, recentNow).map((s) => s.sessionId).join('\n');
-  }, [sessions, sortByActivity, recentNow]);
+  }, [sessions, sessionSortMode, recentNow]);
 
   // Rooms that have at least one session in the current active list
   const activeSessionIds = useMemo(() => {
@@ -696,9 +686,28 @@ export default function SessionSwitcher({
   // Activity-sort mode skips grouping entirely: room frames would fight the
   // ordering, since a room can only sit in one place while its sessions belong
   // all over a recency-ranked list.
+  //
+  // The Projects view swaps the room frames for one frame per project
+  // directory. Rooms play no part in it (no room frames, no RECENT), though the
+  // room filter still narrows `filteredSessions` first. A session with no
+  // project path follows the frames as a plain card, like a room-less one does.
   const tabRenderItems = useMemo((): TabRenderItem[] => {
     if (sortByActivity) {
       return filteredSessions.map((session) => ({ type: 'session', session }));
+    }
+
+    if (projectView) {
+      // Colours are resolved among ALL the strip's projects (`sortedSessions`), not only the ones the
+      // room filter lets through: otherwise filtering recolours projects that did not change.
+      const { groups, ungrouped } = groupSessionsByProject(
+        filteredSessions,
+        ROOM_COLOR_PALETTE.length,
+        sortedSessions,
+      );
+      return [
+        ...groups.map((group): TabRenderItem => ({ type: 'project', group, color: ROOM_COLOR_PALETTE[group.colorIndex] })),
+        ...ungrouped.map((session): TabRenderItem => ({ type: 'session', session })),
+      ];
     }
 
     const sessionToRoom = new Map<string, Room>();
@@ -746,7 +755,7 @@ export default function SessionSwitcher({
     }
 
     return items;
-  }, [filteredSessions, rooms, sortByActivity, recentIdsKey]);
+  }, [filteredSessions, sortedSessions, rooms, sortByActivity, projectView, recentIdsKey]);
 
   // ---- Room reorder (drag + ▲/▼) — writes ONLY listOrder, never roomIndex ----
   // Scoped to rooms that actually render a frame right now (a room with no
@@ -974,6 +983,9 @@ export default function SessionSwitcher({
       {/* ── Top row: current session name + meta controls ── */}
       <div className={styles.switcherToggle}>
         <div className={styles.switcherNameDisplay}>
+          {/* The CLI's plan limits — first, so it is the top-left corner. Never in
+              .switcherMeta below: that row's icon count is what the rail is sized for. */}
+          <PlanUsageChip session={currentSession} />
           <span
             className={styles.switcherDot}
             style={{ background: currentColor, boxShadow: `0 0 6px ${currentColor}` }}
@@ -1188,17 +1200,11 @@ export default function SessionSwitcher({
             </div>
           )}
 
-          {/* Sort by recent activity — flattens the room frames into a single
-              list, most recently active first */}
-          <button
-            className={`${styles.displayModeToggle}${sortByActivity ? ` ${styles.roomFilterActive}` : ''}`}
-            onClick={toggleSessionSortMode}
-            title={sortByActivity ? 'Group by room' : 'Sort by recent activity (flat list)'}
-            aria-label={sortByActivity ? 'Group by room' : 'Sort by recent activity'}
-            type="button"
-          >
-            <SortByActivityIcon />
-          </button>
+          {/* Session view — Rooms (default), Projects, or the flat recent-activity
+              list. One button in the slot the old sort toggle held, so the
+              header's icon row stays at eight children (see
+              `.switcherBarVertical .switcherMeta`). */}
+          <SessionViewModeMenu mode={sessionSortMode} onChange={setSessionSortMode} />
 
           {/* Status-colour legend — hint for what each session-title/badge colour
               means under the currently selected theme */}
@@ -1336,7 +1342,7 @@ export default function SessionSwitcher({
                       aria-label={recentRoomCollapsed ? 'Expand Recent' : 'Collapse Recent'}
                       aria-expanded={!recentRoomCollapsed}
                     >
-                      <RoomCollapseIcon collapsed={recentRoomCollapsed} />
+                      <FrameCollapseIcon collapsed={recentRoomCollapsed} />
                     </button>
                     {recentRoomCollapsed && (
                       <span className={styles.roomCollapsedCount}>{item.sessions.length}</span>
@@ -1349,6 +1355,39 @@ export default function SessionSwitcher({
                         session={s}
                         isCurrent={s.sessionId === currentSession.sessionId}
                         isRecentCopy
+                        onSwitch={handleSwitch}
+                        isCompact={isCompact}
+                        index={sessionIndexMap.get(s.sessionId) ?? 0}
+                        needsAttention={s.sessionId !== currentSession.sessionId && attentionIds.has(s.sessionId)}
+                      />
+                    ))}
+                </div>
+              );
+            }
+            if (item.type === 'project') {
+              const { group } = item;
+              const collapsed = collapsedProjects.has(group.key);
+              return (
+                <div
+                  key={group.key}
+                  className={`${styles.sessionTabRoomGroup} ${styles.projectGroup}${collapsed ? ` ${styles.sessionTabRoomGroupCollapsed}` : ''}`}
+                  style={{ '--room-color': item.color } as React.CSSProperties}
+                  title={group.local ? group.path : `${group.host}:${group.path}`}
+                  role="group"
+                  aria-label={`Project ${group.label}`}
+                >
+                  <span className={styles.sessionTabRoomGroupLabel}>{group.label}</span>
+                  <ProjectFrameHeader
+                    group={group}
+                    collapsed={collapsed}
+                    onToggleCollapse={() => toggleProjectCollapsed(group.key)}
+                  />
+                  {!collapsed &&
+                    group.sessions.map((s) => (
+                      <SessionTabCard
+                        key={s.sessionId}
+                        session={s}
+                        isCurrent={s.sessionId === currentSession.sessionId}
                         onSwitch={handleSwitch}
                         isCompact={isCompact}
                         index={sessionIndexMap.get(s.sessionId) ?? 0}
@@ -1430,7 +1469,7 @@ export default function SessionSwitcher({
                       aria-label={collapsed ? `Expand room ${item.room.name}` : `Collapse room ${item.room.name}`}
                       aria-expanded={!collapsed}
                     >
-                      <RoomCollapseIcon collapsed={collapsed} />
+                      <FrameCollapseIcon collapsed={collapsed} />
                     </button>
                     <span className={styles.roomHeaderDivider} aria-hidden="true" />
                     <button

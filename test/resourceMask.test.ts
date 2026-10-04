@@ -7,11 +7,13 @@
 // deny rule matches, and every shown string is still scrubbed for token shapes.
 // Each case below is a way that rule could quietly regress into a leak.
 import { describe, it, expect } from 'vitest';
+import { createHash } from 'crypto';
 import {
   flattenMasked,
   redactSecretsInString,
   redactText,
   redactPatch,
+  redactStrings,
   isDeniedKeyName,
   ALLOWED_KEY_PATHS,
   MASK,
@@ -375,6 +377,21 @@ describe('redactText — whole bodies, line by line (security review M2b)', () =
     expect(redactPatch(patch)).toBe(['===', '--- ~/a', '+++ ~/b', '@@ -1,3 +1,3 @@', ' Token handling notes', '-Key sk-ant-****** here.', '+Key sk-ant-****** here.', '-password: ******'].join('\n'));
   });
 
+  it('masks a long quoted secret value whole, and a long base64 run whatever its slashes (review follow-up)', () => {
+    // Deterministic, realistic base64 (≈ one '/' per 64 characters), like a raw DER key.
+    const der = Array.from({ length: 18 }, (_, i) => createHash('sha512').update(`k${i}`).digest('base64').replace(/=+$/, '')).join('');
+    expect(der.split('/').length - 1).toBeGreaterThan(2);
+    const out = redactText(`{"private_key": "${der}", "id": "x"}`);
+    expect(out).toBe('{"private_key": "******", "id": "x"}');
+    expect(redactText(`blob ${der} end`)).toBe('blob ****** end');
+    expect(redactText(["see /Use", "rs/Me2/P", "rojects/", "Alpha/Be", "ta/Gamma", "/Delta/E", "psilon/Z", "eta/Eta/", "Theta/fi", "le.md"].join(''))).toContain('/Users/Me2/');
+  });
+
+  it('redacts frontmatter keys as well as values (review follow-up)', () => {
+    const out = redactStrings({ 'https://deploy:Hunter2Secret@registry.example.com': 1, nested: { [GH_TOKEN]: 'v' } });
+    expect(JSON.stringify(out)).not.toMatch(/Hunter2Secret|A1b2C3d4E5A1b2C3d4E5/);
+  });
+
   it('has no 300-character cap, but cuts a line over the per-line cap and never shows a token in part', () => {
     expect(redactText('word '.repeat(1000))).toHaveLength(5000);
     const cut = redactText(`${'a '.repeat(4094)}Ab3dEf6hIj9kLm2nOp5qRs\nnext line`);
@@ -387,7 +404,8 @@ describe('redactText — whole bodies, line by line (security review M2b)', () =
 
   it.each([
     'a-', 'eyJ-', 'eyJa.', 'sk-', 'x://', 'https://a/', '--token ', 'x="', "a='", 'Authorization: ', 'Cookie: ',
-    '1234567890:', 'A1b/', '//@', '-----BEGIN RSA PRIVATE KEY-----', 'key: ', 'hf_', 'k=v&', '%2F',
+    '1234567890:', 'A1b/', '//@', '-----BEGIN RSA PRIVATE KEY-----', 'key: ', 'hf_', 'k=v&', '%2F', 'a://?', 'a://&',
+    'k: "', "k: '", '--token "',
   ])('stays linear on 512 KB (the file cap) of hostile %j lines', (unit) => {
     // Every line sits at the per-line cap, where one quadratic pattern costs
     // ~0.6 s here (the old `\beyJ…` JWT rule measured 574 ms); every pattern

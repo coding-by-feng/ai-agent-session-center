@@ -30,6 +30,8 @@ import {
   row,
   detail,
   LAZY,
+  CATALOG,
+  res,
 } from '@/__tests__/fixtures/resourceCatalog';
 
 beforeEach(() => {
@@ -537,5 +539,43 @@ describe('ResourcesView — URL state after outside navigation', () => {
     fireEvent.click(screen.getByRole('button', { name: /Show plugin/ }));
     await waitFor(() => expect(urlParams().get('plugins')).toBe('1'));
     expect(urlParams().get('id')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shortcut commands (`~/.claude/commands/td.md`: "Shortcut for /tdd — …")
+// ---------------------------------------------------------------------------
+
+describe('ResourcesView — shortcut commands', () => {
+  const TD = res({
+    id: 'cmd-td', type: 'command', name: 'td', path: '~/.claude/commands/td.md',
+    description: 'Shortcut for /tdd — test-driven development',
+  });
+  beforeEach(() => {
+    stubApi({ catalogs: [{ ...CATALOG, resources: [...CATALOG.resources, TD] }] });
+  });
+
+  it('chips a shortcut with its target, and the target with its shortcut — same agent only', async () => {
+    renderView('/resources?type=command');
+    await ready();
+    expect(row(/^td Claude/)).toHaveTextContent('→ tdd');
+    // The chip says what it expands to, so the description loses that lead-in.
+    expect(row(/^td Claude/)).toHaveTextContent('test-driven development');
+    expect(row(/^td Claude/)).not.toHaveTextContent('Shortcut for');
+
+    fireEvent.click(railButton('Skills'));
+    expect(row(/^tdd Claude/)).toHaveTextContent('shortcut /td');
+    // Codex has its own `tdd`; a Claude command is not its shortcut.
+    expect(row(/^tdd Codex/)).not.toHaveTextContent('shortcut');
+  });
+
+  it('jumps between a skill and its shortcut from the detail header', async () => {
+    renderView('/resources?type=skill&id=sk-claude-tdd');
+    await ready();
+    fireEvent.click(within(detail()).getByRole('button', { name: '/td' }));
+    await waitFor(() => expect(urlParams().get('id')).toBe('cmd-td'));
+
+    fireEvent.click(within(detail()).getByRole('button', { name: 'tdd' }));
+    await waitFor(() => expect(urlParams().get('id')).toBe('sk-claude-tdd'));
   });
 });

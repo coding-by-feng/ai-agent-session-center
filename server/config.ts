@@ -1,4 +1,7 @@
 // config.ts — Extracted session status & approval detection configuration
+import { existsSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
 import { config as serverConfig } from './serverConfig.js';
 import type { ToolCategory } from '../src/types/settings.js';
 
@@ -254,9 +257,15 @@ export function sanitizeModelId(model: string | null | undefined): string {
  * safe token (`claude-opus-4-8[1m]` → `claude-opus-4-8`), or the flag is dropped
  * when nothing safe remains. Without this, a contaminated `--model` survives into
  * the launch command unquoted and zsh treats `[1m]` as a glob → the spawn fails.
+ *
+ * It also drops the status-line tap's `--settings` flag ({@link stripStatusLineTap}).
+ * This is the one function every ingest of a stored command already passes through —
+ * the hook's `ps` capture (`session.startupCommand`), a workspace import, and the start
+ * of {@link applyClaudeLaunchFlags} — so a stored command can never carry the flag: it
+ * is added again, correctly quoted, only when a launch line is typed.
  */
 export function sanitizeModelInCommand(command: string): string {
-  return command.replace(/\s*--model(?:=|\s+)(\S+)/g, (_full, value: string) => {
+  return stripStatusLineTap(command).replace(/\s*--model(?:=|\s+)(\S+)/g, (_full, value: string) => {
     const clean = sanitizeModelId(value);
     return clean ? ` --model ${clean}` : '';
   });
@@ -375,6 +384,153 @@ export function applyClaudeLaunchFlags(
   }
   if (flags.length === 0) return cleaned;
   return cleaned.replace(/^claude\b/, `claude ${flags.join(' ')}`);
+}
+
+// ---------------------------------------------------------------------------
+// Status-line tap — how the dashboard learns Claude's plan limits
+// ---------------------------------------------------------------------------
+
+/**
+ * Where hooks/dashboard-statusline.sh is installed (server/hookInstaller.js). Claude
+ * runs a status-line command through a shell, which expands the `~`.
+ */
+export const STATUS_LINE_TAP_COMMAND = '~/.claude/hooks/dashboard-statusline.sh';
+const STATUS_LINE_TAP_SCRIPT = 'dashboard-statusline.sh';
+
+/**
+ * The settings a launch is given so Claude pipes its status JSON — the only place it
+ * reports plan limits — to the tap. Inline JSON rather than a settings file, so a launch
+ * can never fail on a missing file. It holds no space and no single quote: it is typed
+ * inside single quotes, and `ps` shows it bare (see {@link stripStatusLineTap}).
+ */
+export const STATUS_LINE_TAP_SETTINGS = JSON.stringify({
+  statusLine: { type: 'command', command: STATUS_LINE_TAP_COMMAND },
+});
+
+const STATUS_LINE_TAP_FLAG = ` --settings '${STATUS_LINE_TAP_SETTINGS}'`;
+
+/**
+ * The opt-out. The tap replaces a session's own status line (it chains to it), which is a
+ * change to how someone's Claude looks and runs; `AASC_DISABLE_STATUSLINE_TAP=1` in the
+ * dashboard's environment launches Claude exactly as before and the plan-usage chip shows
+ * only what the Codex/other sessions report. Only an explicit `1` counts: an empty or `0`
+ * must not switch off something the user did not mean to.
+ */
+export function isStatusLineTapEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.AASC_DISABLE_STATUSLINE_TAP !== '1';
+}
+
+/** The tap script is only synced once the hooks are installed; a launch must not name a script that is not there. */
+export function isStatusLineTapInstalled(home: string = homedir()): boolean {
+  return existsSync(join(home, '.claude', 'hooks', STATUS_LINE_TAP_SCRIPT));
+}
+
+const STATUS_LINE_TAP_MARKER = 'dashboard-statusline';
+
+/**
+ * Every spelling the tap's settings flag can take in a stored command: the quoted flag as
+ * typed, the bare JSON the hook's `ps` capture shows (the shell has eaten the quotes),
+ * a double-quoted form, and a settings-file path. All name the script, which is what
+ * identifies them — a user's own `--settings` never contains it.
+ */
+const STATUS_LINE_TAP_FLAG_RE = new RegExp(
+  String.raw`\s*--settings(?:=|\s+)(?:'[^']*${STATUS_LINE_TAP_MARKER}[^']*'|"(?:[^"\\]|\\.)*${STATUS_LINE_TAP_MARKER}(?:[^"\\]|\\.)*"|\S*${STATUS_LINE_TAP_MARKER}\S*)`,
+  'g',
+);
+
+/**
+ * Remove the tap's `--settings` flag from a command. The flag must never be stored:
+ * the hook records `ps -o args=` as the session's `startupCommand`, where the JSON has
+ * lost its quotes, and replayed into a shell it is brace-expanded into garbage — a
+ * resume that cannot start. A user's own `--settings` is left alone.
+ */
+export function stripStatusLineTap(command: string): string {
+  return command.replace(STATUS_LINE_TAP_FLAG_RE, '');
+}
+
+interface ShellWord {
+  start: number;
+  end: number;
+}
+
+/**
+ * Split a shell line into its simple commands, each a list of words. Only as much shell
+ * as the launch lines this server builds need: quotes, backslash escapes, and the
+ * separators `; & | ( )` and newline. A quoted `claude` (a session title is untrusted
+ * text) is part of a word, never a command.
+ */
+function simpleCommands(line: string): ShellWord[][] {
+  const commands: ShellWord[][] = [[]];
+  let wordStart = -1;
+  let quote: '"' | "'" | null = null;
+
+  const endWord = (at: number): void => {
+    if (wordStart < 0) return;
+    commands[commands.length - 1].push({ start: wordStart, end: at });
+    wordStart = -1;
+  };
+  const startCommand = (): void => {
+    if (commands[commands.length - 1].length > 0) commands.push([]);
+  };
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quote) {
+      if (ch === '\\' && quote === '"') i++; // an escaped character inside double quotes
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '\\') {
+      if (wordStart < 0) wordStart = i;
+      i++;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      if (wordStart < 0) wordStart = i;
+      quote = ch;
+      continue;
+    }
+    if (ch === ' ' || ch === '\t') {
+      endWord(i);
+      continue;
+    }
+    if (ch === '\n' || ch === '\r' || ch === ';' || ch === '&' || ch === '|' || ch === '(' || ch === ')') {
+      endWord(i);
+      startCommand();
+      continue;
+    }
+    if (wordStart < 0) wordStart = i;
+  }
+  endWord(line.length);
+  return commands;
+}
+
+/**
+ * Point every `claude` command on a launch line at the status-line tap:
+ * `claude --model opus` → `claude --settings '<json>' --model opus`.
+ *
+ * Works on a whole line, not just a command — a resume is typed as
+ * `claude … --resume 'id' || claude …`, after a `cd … &&` on remote hosts, and ends in the
+ * carriage return that submits it — and decides per command, so each half of a fallback is
+ * tapped. It leaves alone anything that is not a bare `claude` (the same rule as
+ * {@link applyClaudeLaunchFlags}: Codex, a path to claude, `echo claude`), a command that
+ * already has a `--settings` of the user's own, and everything on Windows (the tap is a
+ * bash script). Idempotent.
+ *
+ * Call it only for the string about to be typed into a LOCAL terminal whose
+ * {@link isStatusLineTapInstalled} is true, and never store the result.
+ */
+export function applyStatusLineTap(command: string): string {
+  if (process.platform === 'win32') return command;
+  let result = '';
+  let copied = 0;
+  for (const [first, ...args] of simpleCommands(command)) {
+    if (!first || command.slice(first.start, first.end) !== 'claude') continue;
+    if (args.some((w) => /^--settings(?:=|$)/.test(command.slice(w.start, w.end)))) continue;
+    result += command.slice(copied, first.end) + STATUS_LINE_TAP_FLAG;
+    copied = first.end;
+  }
+  return result + command.slice(copied);
 }
 
 /**

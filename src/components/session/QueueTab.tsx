@@ -40,6 +40,11 @@ import { useUiStore } from '@/stores/uiStore';
 import { useQueueHistoryStore } from '@/stores/queueHistoryStore';
 import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
 import { showToast } from '@/components/ui/ToastContainer';
+import Tooltip from '@/components/ui/Tooltip';
+import DetachIcon from '@/components/ui/DetachIcon';
+import { tooltips } from '@/lib/tooltips';
+import { openQueuePopout, queuePopoutTitle } from '@/lib/queuePopout';
+import { useIsMobile } from '@/lib/platform';
 import AutocompleteTextarea from '@/components/ui/AutocompleteTextarea';
 import PromptSnippetPicker, {
   BookmarkIcon,
@@ -51,6 +56,7 @@ import { useQueueDragReorder } from '@/hooks/useQueueDragReorder';
 import type { DragRect } from '@/lib/queueDragReorder';
 import QueueItemEditModal from './QueueItemEditModal';
 import QueueMovePicker, { MOVE_TRIGGER_ATTR, type QueueMoveTarget } from './QueueMovePicker';
+import QueueItemText from './QueueItemText';
 import QueueHistorySheet from './QueueHistorySheet';
 import LoopExcludeWindowsModal from './LoopExcludeWindowsModal';
 import styles from '@/styles/modules/Terminal.module.css';
@@ -91,6 +97,12 @@ interface QueueTabProps {
    *  squeezed, and must NOT pass this. See `.queuePanelFull` in
    *  Terminal.module.css. */
   fullHeight?: boolean;
+  /** This is the copy rendered INSIDE the queue's own pop-out window
+   *  (`PopoutQueueView`). Three differences from a docked panel: no float button
+   *  (it already is one); always expanded, because the stored collapse flag is
+   *  shared by every window of the app and a pop-out must neither inherit nor
+   *  rewrite the docked strip's; and an inert header for the same reason. */
+  floating?: boolean;
 }
 
 export default function QueueTab({
@@ -99,6 +111,7 @@ export default function QueueTab({
   terminalId,
   onQueueCountChange,
   fullHeight,
+  floating = false,
 }: QueueTabProps) {
   const items = useQueueStore((s) => s.queues.get(sessionId) ?? EMPTY_QUEUE);
   const activeCount = items.filter((it) => !it.disabled).length;
@@ -261,7 +274,7 @@ export default function QueueTab({
   const [chainEditId, setChainEditId] = useState<number | null>(null);
   /** The compose row's "saved prompts" trigger, while its picker is open. */
   const [snippetAnchor, setSnippetAnchor] = useState<HTMLElement | null>(null);
-  const [collapsed, setCollapsed] = useState(() => {
+  const [dockedCollapsed, setCollapsed] = useState(() => {
     try {
       const stored = localStorage.getItem('queue-panel-collapsed');
       return stored === null ? true : stored === '1';
@@ -269,6 +282,22 @@ export default function QueueTab({
       return true;
     }
   });
+  // The float window is the whole window: collapsing it would leave a bare header.
+  const collapsed = floating ? false : dockedCollapsed;
+  const isMobile = useIsMobile();
+  /** A float is a desktop-window workflow: not offered inside the float itself, nor on a phone. */
+  const canFloat = !floating && !isMobile;
+  /** Open this session's queue in its own window (see lib/queuePopout.ts). The
+   *  docked panel stays exactly as it is — both are live views of one queue. */
+  const handleFloat = useCallback(async () => {
+    const session = useSessionStore.getState().sessions.get(sessionId);
+    const outcome = await openQueuePopout({ sessionId, label: queuePopoutTitle(session) });
+    if (outcome === 'blocked') {
+      showToast('Pop-ups are blocked — allow them for this site to float the queue', 'error');
+    } else if (outcome === 'unsupported') {
+      showToast("Floating the queue isn't available in this app build — update the app", 'error');
+    }
+  }, [sessionId]);
   // Per-session auto-send / auto-enter. These live in THIS session's
   // QueueAutomationConfig (read above as `automationConfig`), so toggling them
   // affects only the current session. Both QueueTab mounts for a session AND
@@ -284,6 +313,19 @@ export default function QueueTab({
    *  it can no longer derive placement from its parent row — it needs the
    *  trigger element itself to measure against. */
   const [moveAnchor, setMoveAnchor] = useState<HTMLElement | null>(null);
+  /** Items whose prompt is shown in full instead of the clipped preview. View
+   *  state of THIS panel, not queue data: the same queue shown in the strip and in
+   *  the QUEUE tab expands independently, nothing is stored, and ids are unique
+   *  across sessions, so the set survives a session switch without leaking. */
+  const [expandedIds, setExpandedIds] = useState<ReadonlySet<number>>(() => new Set());
+  const toggleExpanded = useCallback((id: number) => {
+    setExpandedIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   // ---- Snap composeType back to Once when Auto-send turns OFF ----
   // Loop/Schedule items can't fire without Auto-send. If the user toggles
@@ -890,52 +932,67 @@ export default function QueueTab({
     </>
   );
 
+  // The header's label: shared by the docked toggle (a button) and the float window's
+  // static copy of it.
+  const queueLabel = (
+    <>
+      QUEUE{' '}
+      {/* Active = enabled rows the scheduler may send; inactive = rows
+          switched off with their own toggle ("— paused —" on the row).
+          Not called "paused" here: in this header that word is the
+          held-queue chip's. Session-wide states (held, automation
+          paused, auto-send off) have their own notices and are not
+          folded into these numbers. */}
+      <span className={styles.queueCount}>
+        {items.length === 0 ? (
+          '(0)'
+        ) : (
+          <>
+            ({activeCount} active{' '}
+            <span className={styles.queueCountInactive}>· {items.length - activeCount} inactive</span>)
+          </>
+        )}
+      </span>
+      {/* Collapsed, the held-queue notice is out of sight — say it here
+          so a paused queue never looks like a broken one. Clicking
+          expands to the notice (and its Resume). Expanded, the notice
+          says it, so no chip. */}
+      {collapsed && queueHold && items.length > 0 && (
+        <span className={styles.queueHoldChip}>
+          {queueHold === 'cancelled' ? '⏸ paused' : '⏳ subagents'}
+        </span>
+      )}
+    </>
+  );
+
   return (
     <div
       className={`${styles.queuePanel}${collapsed ? ` ${styles.collapsed}` : ''}${fullHeight ? ` ${styles.queuePanelFull}` : ''}`}
     >
       {/* Toggle header */}
       <div className={styles.queueHeader}>
-        <button
-          className={styles.queueToggle}
-          onClick={() => {
-            const next = !collapsed;
-            setCollapsed(next);
-            try {
-              localStorage.setItem('queue-panel-collapsed', next ? '1' : '0');
-            } catch {
-              /* ignore */
-            }
-          }}
-        >
-          <span className={styles.queueToggleArrow}>&#x25B6;</span>
-          QUEUE{' '}
-          {/* Active = enabled rows the scheduler may send; inactive = rows
-              switched off with their own toggle ("— paused —" on the row).
-              Not called "paused" here: in this header that word is the
-              held-queue chip's. Session-wide states (held, automation
-              paused, auto-send off) have their own notices and are not
-              folded into these numbers. */}
-          <span className={styles.queueCount}>
-            {items.length === 0 ? (
-              '(0)'
-            ) : (
-              <>
-                ({activeCount} active{' '}
-                <span className={styles.queueCountInactive}>· {items.length - activeCount} inactive</span>)
-              </>
-            )}
-          </span>
-          {/* Collapsed, the held-queue notice is out of sight — say it here
-              so a paused queue never looks like a broken one. Clicking
-              expands to the notice (and its Resume). Expanded, the notice
-              says it, so no chip. */}
-          {collapsed && queueHold && items.length > 0 && (
-            <span className={styles.queueHoldChip}>
-              {queueHold === 'cancelled' ? '⏸ paused' : '⏳ subagents'}
-            </span>
-          )}
-        </button>
+        {floating ? (
+          // The float window is the whole window: there is nothing to collapse, so
+          // its header is a label — not a disabled button, which assistive tech
+          // would announce as "dimmed" for something with nothing to act on.
+          <div className={`${styles.queueToggle} ${styles.queueToggleStatic}`}>{queueLabel}</div>
+        ) : (
+          <button
+            className={styles.queueToggle}
+            onClick={() => {
+              const next = !collapsed;
+              setCollapsed(next);
+              try {
+                localStorage.setItem('queue-panel-collapsed', next ? '1' : '0');
+              } catch {
+                /* ignore */
+              }
+            }}
+          >
+            <span className={styles.queueToggleArrow}>&#x25B6;</span>
+            {queueLabel}
+          </button>
+        )}
         <button
           className={styles.queueHistoryBtn}
           onClick={(e) => {
@@ -1080,6 +1137,29 @@ export default function QueueTab({
             <polygon points="22 2 15 22 11 13 2 9 22 2" />
           </svg>
         </button>
+        {/* Detach is an ACTION, not a fifth toggle: a hairline sets it apart and
+            its glyph is the shared window-with-arrow family (the PROJECT tab's
+            float button), not another line-art toggle. Not offered inside the
+            float window (it already is the float) nor on a phone (a second
+            window is not a phone workflow — see lib/platform.ts, rule 3). */}
+        {canFloat && (
+          <>
+            <span className={styles.queueHeaderDivider} aria-hidden="true" />
+            <Tooltip {...tooltips.floatQueue}>
+              <button
+                type="button"
+                className={styles.queueHistoryBtn}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleFloat();
+                }}
+                aria-label={tooltips.floatQueue.label}
+              >
+                <DetachIcon />
+              </button>
+            </Tooltip>
+          </>
+        )}
       </div>
 
       {/* Body */}
@@ -1326,7 +1406,7 @@ export default function QueueTab({
                   <div
                     key={item.id}
                     ref={(el) => registerItemEl(item.id, el)}
-                    className={`${styles.queueItem}${drag.draggingId === item.id ? ` ${styles.dragging}` : ''}${drag.insertIndex === idx ? ` ${styles.dropBefore}` : ''}${drag.insertIndex === idx + 1 && idx === items.length - 1 ? ` ${styles.dropAfter}` : ''}${item.disabled ? ` ${styles.queueItemDisabled}` : ''}`}
+                    className={`${styles.queueItem}${drag.draggingId === item.id ? ` ${styles.dragging}` : ''}${drag.insertIndex === idx ? ` ${styles.dropBefore}` : ''}${drag.insertIndex === idx + 1 && idx === items.length - 1 ? ` ${styles.dropAfter}` : ''}${item.disabled ? ` ${styles.queueItemDisabled}` : ''}${expandedIds.has(item.id) ? ` ${styles.queueItemExpanded}` : ''}`}
                     onPointerDown={(e) => drag.onPointerDown(e, item.id)}
                   >
                     <span
@@ -1377,7 +1457,13 @@ export default function QueueTab({
                     <span className={styles.queuePos}>{idx + 1}</span>
 
                     <div className={styles.queueTextCol}>
-                      {item.text && <span className={styles.queueText}>{item.text}</span>}
+                      {item.text && (
+                        <QueueItemText
+                          text={item.text}
+                          expanded={expandedIds.has(item.id)}
+                          onToggle={() => toggleExpanded(item.id)}
+                        />
+                      )}
                       {item.images && item.images.length > 0 && (
                         <div className={styles.queueItemImages}>
                           {item.images.map((img, i) => (
@@ -1442,7 +1528,13 @@ export default function QueueTab({
                     </div>
 
                     <div className={styles.queueTextCol}>
-                      {item.text && <span className={styles.queueText}>{item.text}</span>}
+                      {item.text && (
+                        <QueueItemText
+                          text={item.text}
+                          expanded={expandedIds.has(item.id)}
+                          onToggle={() => toggleExpanded(item.id)}
+                        />
+                      )}
                       {item.images && item.images.length > 0 && (
                         <div className={styles.queueItemImages}>
                           {item.images.map((img, i) => (

@@ -44,8 +44,11 @@ import {
   fetchCommandIndex,
   filterAndGroup,
   entryToken,
+  entryDisplayName,
+  type CommandEntry,
   type CommandGroup,
 } from '@/lib/commandIndex';
+import { menuShortcuts, type MenuShortcuts } from '@/lib/commandShortcuts';
 import { parseTrigger, type TriggerType } from '@/lib/autocompleteTrigger';
 import { detectCli } from '@/lib/cliDetect';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -55,6 +58,8 @@ interface AcItem {
   label: string;
   insert: string;
   sub?: string;
+  /** Shortcut link: `→ /target` on a shortcut command, `shortcut /alias` on its target. */
+  hint?: string;
   /** Drives the icon shown before the label. */
   kind?: 'command' | 'skill' | 'file';
 }
@@ -93,7 +98,17 @@ interface AutocompleteTextareaProps {
 
 const DROPDOWN_MIN_DOWN_HEIGHT = 220;
 
-function commandEntriesToMenu(groups: CommandGroup[]): {
+/** Shortcut links over the CLI's whole index — see src/lib/commandShortcuts.ts. */
+function shortcutsFor(entries: readonly CommandEntry[]): MenuShortcuts {
+  return menuShortcuts(entries.map((e) => ({
+    name: entryDisplayName(e),
+    description: e.description,
+    token: entryToken(e),
+    kind: e.kind,
+  })));
+}
+
+function commandEntriesToMenu(groups: CommandGroup[], shortcuts: MenuShortcuts): {
   items: AcItem[];
   groupSpans: Array<{ title: string; startIdx: number; count: number }>;
 } {
@@ -106,10 +121,13 @@ function commandEntriesToMenu(groups: CommandGroup[]): {
       // everything else inserts `/name` — deriving it per entry keeps the two
       // menus from ever disagreeing with what the CLI accepts.
       const token = entryToken(e);
+      const name = entryDisplayName(e);
+      const hint = shortcuts.hintFor(name);
       items.push({
         label: token,
         insert: token,
-        sub: e.description || (e.kind === 'skill' ? 'skill' : 'command'),
+        sub: shortcuts.subFor(name, e.description) || (e.kind === 'skill' ? 'skill' : 'command'),
+        ...(hint ? { hint } : {}),
         kind: e.kind,
       });
     }
@@ -217,6 +235,7 @@ export default function AutocompleteTextarea({
             menuType === 'skill' ? ['skill'] : cli === 'codex' ? ['command'] : ['command', 'skill'];
           const { items, groupSpans } = commandEntriesToMenu(
             mergeGroups(kinds.map((k) => filterAndGroup(entries, trigger.query, k))),
+            shortcutsFor(entries),
           );
           setAcMenu((prev) =>
             prev && prev.type === menuType && prev.triggerStart === trigger.triggerStart
@@ -429,6 +448,7 @@ export default function AutocompleteTextarea({
                   </span>
                 )}
                 <span className={styles.acLabel}>{item.label}</span>
+                {item.hint && <span className={styles.acHint} title={item.hint}>{item.hint}</span>}
                 {item.sub && <span className={styles.acSub}>{item.sub}</span>}
               </div>
             </div>

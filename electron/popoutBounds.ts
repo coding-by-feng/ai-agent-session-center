@@ -1,11 +1,12 @@
 /**
  * Pure logic behind per-kind popout window bounds persistence.
  *
- * Four structurally different popout kinds — 'terminal' (a floating
+ * Structurally different popout kinds — 'terminal' (a floating
  * Explain/Translate/custom AI popup, or the main/commands terminal detached:
  * a small utility window), 'project' (file tree + editor), 'session' (the
- * WHOLE DetailPanel — every tab), and 'internal' (any other in-app route
- * opened as a native window) — used to share ONE bounds slot. Resizing or
+ * WHOLE DetailPanel — every tab), 'queue' (one session's QUEUE panel), and
+ * 'internal' (any other in-app route opened as a native window) — used to
+ * share ONE bounds slot. Resizing or
  * maximizing a content-heavy PROJECT or SESSION window permanently poisoned
  * the size of every later TERMINAL popout, even a one-line Explain prompt: a
  * fresh session would open at whatever huge size the user last left a project
@@ -19,9 +20,9 @@
  * actual shape/migration logic.
  */
 
-export type PopoutKind = 'terminal' | 'project' | 'session' | 'internal';
+export type PopoutKind = 'terminal' | 'project' | 'session' | 'queue' | 'internal';
 
-export const POPOUT_KINDS: readonly PopoutKind[] = ['terminal', 'project', 'session', 'internal'];
+export const POPOUT_KINDS: readonly PopoutKind[] = ['terminal', 'project', 'session', 'queue', 'internal'];
 
 export interface WindowBounds {
   x: number;
@@ -40,6 +41,9 @@ export const POPOUT_DEFAULT_SIZES: Record<PopoutKind, { width: number; height: n
   // inherit by accident whenever the shared slot happened to hold it.
   project: { width: 1400, height: 900 },
   session: { width: 1400, height: 900 },
+  // One session's queue: a compose box, the Once/Loop/Schedule chips and a grid
+  // of prompts. Needs real room, but it is not a file tree plus an editor.
+  queue: { width: 960, height: 720 },
   internal: { width: 1100, height: 720 },
 };
 
@@ -55,13 +59,13 @@ export function isWindowBounds(v: unknown): v is WindowBounds {
  *
  * A file from BEFORE this change is a bare `{x,y,width,height}` — the single
  * shared bounds every kind used to read. It is deliberately NOT migrated by
- * seeding all four kinds from it: that value most likely belongs to whichever
+ * seeding every kind from it: that value most likely belongs to whichever
  * content-heavy window the user resized last, and copying it forward would
  * hand TERMINAL that same oversized bounds it already has today —
  * reproducing the exact bug this change fixes, just once more before
  * self-correcting. No special-casing is needed to discard it, either: the
- * extraction below reads only the four KIND-named keys (`terminal`,
- * `project`, `session`, `internal`), and a flat legacy file's own keys (`x`,
+ * extraction below reads only the KIND-named keys (`terminal`, `project`,
+ * `session`, `queue`, `internal`), and a flat legacy file's own keys (`x`,
  * `y`, `width`, `height`) don't collide with any of them — so it naturally
  * contributes nothing, by construction rather than by an explicit check.
  * (Verified, not assumed: a version of this function with an added

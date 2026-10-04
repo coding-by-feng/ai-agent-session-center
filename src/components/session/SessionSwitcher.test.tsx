@@ -2,11 +2,15 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, createEvent, act, within } from '@testing-library/react';
 
 import SessionSwitcher from './SessionSwitcher';
-import type { Session } from '@/types';
+import type { PlanUsage, Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore, ROOM_KILL_MODAL_ID } from '@/stores/uiStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { useRoomStore, type Room } from '@/stores/roomStore';
+import { usePresenceStore } from '@/stores/presenceStore';
+import { projectColorIndex } from '@/lib/projectGroups';
+import { getClientId } from '@/lib/deviceIdentity';
+import type { DevicePresence } from '@/types/websocket';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -885,6 +889,79 @@ describe('SessionSwitcher — the current session is listed too', () => {
     expect(cardOf(container, 'Exmouth').querySelector('[class*="sessionTabAttentionBadge"]')).toBeNull();
   });
 
+  // ---- The completed ✓ must not outlive the completion ----
+  // Raised when a card finishes while you are elsewhere, cleared by viewing it. Nothing else cleared
+  // it, and it outranks the status glyph — so a card that had moved on (a queued prompt fired, a tool
+  // needed approval, the session was resumed) kept saying "completed" until it was clicked.
+  const attentionOf = (container: HTMLElement) =>
+    cardOf(container, 'Exmouth').querySelector('[class*="sessionTabAttentionBadge"]');
+  const statusBadgeOf = (container: HTMLElement) =>
+    cardOf(container, 'Exmouth').querySelector('[class*="sessionTabStatusBadge"]');
+
+  /** B finishes while you are on `cur`; hands back the render so a test can move B on. */
+  function finishedWhileAway() {
+    const b = makeSession({ sessionId: 'x', title: 'Exmouth', status: 'working' });
+    const utils = renderSwitcher([sms, exm], [cur, b]);
+    switchTo(utils.rerender, [cur, { ...b, status: 'waiting' } as Session], 'cur');
+    expect(attentionOf(utils.container)).toBeTruthy();
+    return { ...utils, b };
+  }
+
+  it.each([
+    ['working', 'Working'],
+    ['prompting', 'Prompting'],
+    ['approval', 'Approval needed'],
+    ['input', 'Waiting for input'],
+    ['connecting', 'Connecting'],
+  ])('a completed ✓ gives way to the live status when the session becomes %s — no click needed', (status, label) => {
+    const { container, rerender, b } = finishedWhileAway();
+    switchTo(rerender, [cur, { ...b, status } as Session], 'cur');
+    expect(attentionOf(container)).toBeNull();
+    expect(statusBadgeOf(container)?.getAttribute('aria-label')).toBe(label);
+  });
+
+  it('…but it survives auto-idle: a finished session nobody has looked at is still ready for review', () => {
+    const { container, rerender, b } = finishedWhileAway();
+    switchTo(rerender, [cur, { ...b, status: 'idle' } as Session], 'cur');
+    expect(attentionOf(container)).toBeTruthy();
+  });
+
+  it('a second completion raises the ✓ again', () => {
+    const { container, rerender, b } = finishedWhileAway();
+    switchTo(rerender, [cur, { ...b, status: 'working' } as Session], 'cur');
+    expect(attentionOf(container)).toBeNull();
+    switchTo(rerender, [cur, { ...b, status: 'waiting' } as Session], 'cur');
+    expect(attentionOf(container)).toBeTruthy();
+  });
+
+  it('a session that ends and is resumed does not come back wearing the old ✓', () => {
+    // An ended session has no card, so the stale flag is invisible until the same id returns.
+    const { container, rerender, b } = finishedWhileAway();
+    switchTo(rerender, [cur, { ...b, status: 'ended' } as Session], 'cur');
+    switchTo(rerender, [cur, { ...b, status: 'connecting' } as Session], 'cur');
+    expect(attentionOf(container)).toBeNull();
+    expect(statusBadgeOf(container)?.getAttribute('aria-label')).toBe('Connecting');
+  });
+
+  it('a session that leaves and returns finished is a first sighting, not a completion', () => {
+    // Its remembered status goes with it: a returning card has nothing to compare against, so it is
+    // not raised as "just completed" (a restore would otherwise flag every finished session).
+    const b = makeSession({ sessionId: 'x', title: 'Exmouth', status: 'working' });
+    const { container, rerender } = renderSwitcher([sms, exm], [cur, b]);
+    switchTo(rerender, [cur], 'cur'); // B leaves while it is still working
+    switchTo(rerender, [cur, { ...b, status: 'waiting' } as Session], 'cur'); // …and returns finished
+    expect(attentionOf(container)).toBeNull();
+    expect(statusBadgeOf(container)?.getAttribute('aria-label')).toBe('Waiting');
+  });
+
+  it('a card that disappears takes its ✓ with it, so it cannot come back stale', () => {
+    const { container, rerender, b } = finishedWhileAway();
+    switchTo(rerender, [cur], 'cur'); // B is gone from the store
+    switchTo(rerender, [cur, { ...b, status: 'idle' } as Session], 'cur'); // …and returns, idle
+    expect(attentionOf(container)).toBeNull();
+    expect(statusBadgeOf(container)?.getAttribute('aria-label')).toBe('Idle');
+  });
+
   it('after switching to a card, clicking it again does nothing', () => {
     const onSwitch = vi.fn();
     useRoomStore.setState({ rooms: [sms, exm] });
@@ -1178,5 +1255,478 @@ describe('SessionSwitcher — built-in RECENT frame', () => {
     );
     fireEvent.click(within(recentOf(container)!).getByText('SMS Fixing').closest('button')!);
     expect(onSwitch).toHaveBeenCalledWith('sms');
+  });
+});
+
+/**
+ * The PROJECT view: one frame per project directory instead of per room, each with buttons that start
+ * a new Claude / Codex session there. The grouping rules themselves are projectGroups.test.ts's; the
+ * header's launch behaviour is ProjectFrameHeader.test.tsx's. This block covers how the strip puts
+ * them together.
+ */
+describe('SessionSwitcher — project view', () => {
+  const mk = (over: Partial<Session> & { sessionId: string }): Session =>
+    ({
+      title: over.sessionId,
+      projectName: '',
+      projectPath: '',
+      status: 'idle',
+      startedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      ...over,
+    }) as Session;
+
+  const queueFloat = mk({ sessionId: 'a1', title: 'Queue float', projectName: 'agent-manager', projectPath: '/w/agent-manager' });
+  // A trailing slash, and mid-turn so it sorts ahead of the idle one in the strip's status order.
+  const pinnedKill = mk({ sessionId: 'a2', title: 'Pinned kill', projectName: 'agent-manager', projectPath: '/w/agent-manager/', status: 'working' });
+  const kts = mk({ sessionId: 'k1', title: 'KTS Agent', projectName: 'kts', projectPath: '/w/kts' });
+  const loose = mk({ sessionId: 'x1', title: 'Loose end', projectName: '', projectPath: '' });
+  const deploy = mk({ sessionId: 'r1', title: 'Deploy', projectName: 'api', projectPath: '/srv/api', sshHost: 'build-box' });
+
+  const makeRoom = (over: Partial<Room>): Room => ({
+    id: 'room-a', name: 'Room', sessionIds: [], collapsed: false, createdAt: 0, ...over,
+  });
+
+  const realSelectSession = useSessionStore.getState().selectSession;
+  let selectSession: ReturnType<typeof vi.fn>;
+  let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>;
+
+  function renderProjects(sessions: Session[], rooms: Room[] = []) {
+    useRoomStore.setState({ rooms });
+    const view = render(
+      <SessionSwitcher currentSession={sessions[0]} sessions={new Map(sessions.map((s) => [s.sessionId, s]))} onSwitch={vi.fn()} />,
+    );
+    return {
+      ...view,
+      /** Same strip, a fresh sessions Map: what the store hands the switcher on every update. */
+      update: (next: Session[]) =>
+        view.rerender(
+          <SessionSwitcher currentSession={next[0]} sessions={new Map(next.map((s) => [s.sessionId, s]))} onSwitch={vi.fn()} />,
+        ),
+    };
+  }
+
+  const projectFrames = (container: HTMLElement) =>
+    [...container.querySelectorAll('[class*="projectGroup"]')] as HTMLElement[];
+  const labelOf = (frame: HTMLElement) => frame.querySelector('[class*="sessionTabRoomGroupLabel"]')?.textContent;
+  const frameLabeled = (container: HTMLElement, label: string) =>
+    projectFrames(container).find((f) => labelOf(f) === label)!;
+  const titlesIn = (frame: HTMLElement) =>
+    [...frame.querySelectorAll('[class*="sessionTabTitle"]')].map((el) => el.textContent);
+  const terminalRequests = () => fetchMock.mock.calls.filter(([url]) => url === '/api/terminals');
+  /** This device as the server's presence list reports it (the chips are offered only on the host machine). */
+  const thisDevice = (isLocal: boolean): DevicePresence => ({
+    clientId: getClientId(),
+    label: isLocal ? 'Mac' : 'iPhone',
+    address: isLocal ? '127.0.0.1' : '192.168.1.20',
+    isLocal,
+    connections: 1,
+    connectedAt: 0,
+    lastSeenAt: 0,
+  });
+
+  beforeEach(() => {
+    try { localStorage.clear(); } catch { /* ignore */ }
+    usePresenceStore.setState({ devices: [thisDevice(true)] });
+    useSessionStore.setState({ sessions: new Map() } as never);
+    selectSession = vi.fn();
+    useSessionStore.setState({ selectSession } as never);
+    useUiStore.setState({
+      activeModal: null, roomKillTargetId: null, sessionSortMode: 'project',
+      navPosition: 'left', maximized: false, navRailCollapsed: false,
+      selectedRoomIds: new Set(), recentRoomCollapsed: false, collapsedProjects: new Set(),
+    });
+    fetchMock = vi.fn<typeof fetch>().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ok: true, terminalId: 'term-new' }),
+    } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    useSessionStore.setState({ selectSession: realSelectSession } as never);
+    usePresenceStore.setState({ devices: [] });
+    vi.unstubAllGlobals();
+    useRoomStore.setState({ rooms: [] });
+    useUiStore.setState({
+      navPosition: 'top', selectedRoomIds: new Set(), sessionSortMode: 'room', collapsedProjects: new Set(),
+    });
+  });
+
+  describe('the frames', () => {
+    it('draws one frame per project, alphabetical, each named for its project', () => {
+      const { container } = renderProjects([kts, queueFloat, deploy]);
+      expect(projectFrames(container).map(labelOf)).toEqual(['agent-manager', 'api@build-box', 'kts']);
+    });
+
+    it("lists a project's sessions in its frame, trailing-slash spellings together", () => {
+      const { container } = renderProjects([queueFloat, pinnedKill, kts]);
+      expect(titlesIn(frameLabeled(container, 'agent-manager'))).toEqual(['Pinned kill', 'Queue float']);
+      expect(titlesIn(frameLabeled(container, 'kts'))).toEqual(['KTS Agent']);
+    });
+
+    it('lists the current session like any other', () => {
+      const { container } = renderProjects([queueFloat, kts]);
+      const current = container.querySelector('[aria-current="true"]')!;
+      expect(frameLabeled(container, 'agent-manager').contains(current)).toBe(true);
+    });
+
+    it('leaves a session with no project path as a plain card after the frames', () => {
+      const { container } = renderProjects([queueFloat, loose]);
+      const strip = container.querySelector('[class*="sessionTabStrip"]')!;
+      const last = strip.lastElementChild as HTMLElement;
+      expect(projectFrames(container)).toHaveLength(1);
+      expect(last.matches('[class*="sessionTabCard"]')).toBe(true);
+      expect(last.textContent).toContain('Loose end');
+    });
+
+    it('names each frame as a group for assistive technology', () => {
+      renderProjects([queueFloat, kts]);
+      expect(screen.getByRole('group', { name: 'Project agent-manager' })).toBeInTheDocument();
+      expect(screen.getByRole('group', { name: 'Project kts' })).toBeInTheDocument();
+    });
+
+    it("puts the full path in the frame's title, with the host when it is another machine", () => {
+      const { container } = renderProjects([queueFloat, deploy]);
+      expect(frameLabeled(container, 'agent-manager').getAttribute('title')).toBe('/w/agent-manager');
+      expect(frameLabeled(container, 'api@build-box').getAttribute('title')).toBe('build-box:/srv/api');
+    });
+
+    it('gives neighbouring projects different colours', () => {
+      const { container } = renderProjects([queueFloat, kts, deploy]);
+      const colours = projectFrames(container).map((f) => f.style.getPropertyValue('--room-color'));
+      expect(colours.every(Boolean)).toBe(true);
+      expect(new Set(colours).size).toBe(colours.length);
+    });
+
+    it('is the same in the top bar', () => {
+      useUiStore.setState({ navPosition: 'top' });
+      const { container } = renderProjects([queueFloat, kts]);
+      expect(projectFrames(container).map(labelOf)).toEqual(['agent-manager', 'kts']);
+    });
+
+    // The strip skips regrouping while nothing it watches has changed, so these change ONLY the one
+    // field under test: with projectName changing too, the strip would regroup for that reason alone.
+    it('moves a session to its new project when only its directory changes', () => {
+      const { container, update } = renderProjects([queueFloat, kts]);
+      expect(titlesIn(frameLabeled(container, 'kts'))).toEqual(['KTS Agent']);
+      update([queueFloat, { ...kts, projectPath: '/w/agent-manager' }]);
+      expect(projectFrames(container).map(labelOf)).toEqual(['agent-manager']);
+      expect(titlesIn(frameLabeled(container, 'agent-manager')).sort()).toEqual(['KTS Agent', 'Queue float']);
+    });
+
+    it('moves a session to the other machine\'s frame when only its host changes', () => {
+      const { container, update } = renderProjects([queueFloat, kts]);
+      update([queueFloat, { ...kts, sshHost: 'build-box' }]);
+      expect(projectFrames(container).map(labelOf)).toEqual(['agent-manager', 'kts@build-box']);
+      expect(titlesIn(frameLabeled(container, 'kts@build-box'))).toEqual(['KTS Agent']);
+    });
+  });
+
+  describe('instead of rooms', () => {
+    const rooms = [makeRoom({ id: 'room-1', name: 'SMS OPS', sessionIds: ['a1', 'k1'], roomIndex: 0 })];
+
+    it('draws no room frames, whatever rooms exist', () => {
+      const { container } = renderProjects([queueFloat, kts], rooms);
+      expect(container.querySelector('[title="SMS OPS"]')).toBeNull();
+      expect(screen.queryByRole('button', { name: /^Move room/ })).toBeNull();
+    });
+
+    it('draws no RECENT frame — it says "also listed in its own room"', () => {
+      const working = mk({ sessionId: 'a3', title: 'Busy', projectName: 'agent-manager', projectPath: '/w/agent-manager', status: 'working' });
+      const { container } = renderProjects([working], rooms);
+      expect(container.querySelector('[class*="recentRoomGroup"]')).toBeNull();
+    });
+
+    it('still narrows to the rooms picked in the room filter', () => {
+      useUiStore.setState({ selectedRoomIds: new Set(['room-1']) });
+      const { container } = renderProjects([queueFloat, kts, deploy], rooms);
+      expect(projectFrames(container).map(labelOf)).toEqual(['agent-manager', 'kts']);
+    });
+  });
+
+  describe('folding a project', () => {
+    it('hides its sessions behind a count, keeps the launch buttons, and remembers it', () => {
+      const { container } = renderProjects([queueFloat, pinnedKill, kts]);
+      const frame = frameLabeled(container, 'agent-manager');
+      fireEvent.click(within(frame).getByRole('button', { name: 'Collapse project agent-manager' }));
+
+      expect(useUiStore.getState().collapsedProjects.has('localhost|/w/agent-manager')).toBe(true);
+      expect(titlesIn(frame)).toEqual([]);
+      expect(frame.querySelector('[class*="roomCollapsedCount"]')?.textContent).toBe('2');
+      expect(within(frame).getByRole('button', { name: 'New Claude session in agent-manager' })).toBeInTheDocument();
+      expect(titlesIn(frameLabeled(container, 'kts'))).toEqual(['KTS Agent']); // the others stay open
+    });
+
+    it('unfolds again', () => {
+      const { container } = renderProjects([queueFloat, kts]);
+      const toggle = () => within(frameLabeled(container, 'agent-manager'));
+      fireEvent.click(toggle().getByRole('button', { name: 'Collapse project agent-manager' }));
+      fireEvent.click(toggle().getByRole('button', { name: 'Expand project agent-manager' }));
+      expect(titlesIn(frameLabeled(container, 'agent-manager'))).toEqual(['Queue float']);
+      expect(useUiStore.getState().collapsedProjects.size).toBe(0);
+    });
+
+    it('opens folded when it was left folded', () => {
+      useUiStore.setState({ collapsedProjects: new Set(['localhost|/w/kts']) });
+      const { container } = renderProjects([queueFloat, kts]);
+      expect(titlesIn(frameLabeled(container, 'kts'))).toEqual([]);
+      expect(titlesIn(frameLabeled(container, 'agent-manager'))).toEqual(['Queue float']);
+    });
+  });
+
+  describe('quick launch', () => {
+    it('offers Claude and Codex in every frame on this machine, and none on another', () => {
+      const { container } = renderProjects([queueFloat, deploy]);
+      const local = within(frameLabeled(container, 'agent-manager'));
+      expect(local.getByRole('button', { name: 'New Claude session in agent-manager' })).toBeInTheDocument();
+      expect(local.getByRole('button', { name: 'New Codex session in agent-manager' })).toBeInTheDocument();
+      expect(within(frameLabeled(container, 'api@build-box')).queryByRole('button', { name: /^New / })).toBeNull();
+    });
+
+    it('asks the server for a NEW session of that CLI in that project, and selects it', async () => {
+      const { container } = renderProjects([queueFloat, kts]);
+      fireEvent.click(within(frameLabeled(container, 'kts')).getByRole('button', { name: 'New Codex session in kts' }));
+
+      await vi.waitFor(() => expect(selectSession).toHaveBeenCalledWith('term-new'));
+      // Only this feature's request: an earlier block's debounced queue push can land in the same stub.
+      expect(terminalRequests()).toHaveLength(1);
+      const [url, init] = terminalRequests()[0];
+      expect(url).toBe('/api/terminals');
+      expect(JSON.parse(String(init?.body))).toEqual({ workingDir: '/w/kts', command: 'codex', forceNew: true, requireExistingDir: true });
+    });
+
+    it('offers none to a phone: a session started from there is hidden from it, so each tap would start a PTY it cannot see', () => {
+      usePresenceStore.setState({ devices: [thisDevice(false)] });
+      const { container } = renderProjects([queueFloat, kts]);
+      expect(projectFrames(container).map(labelOf)).toEqual(['agent-manager', 'kts']); // the frames themselves are still there
+      expect(screen.queryByRole('button', { name: /^New .* session in/ })).toBeNull();
+    });
+
+    it("launches in the path a session really used, as it stored it — not the tidied key the frame is grouped by", async () => {
+      const { container } = renderProjects([pinnedKill]); // only the '/w/agent-manager/' session
+      fireEvent.click(within(frameLabeled(container, 'agent-manager')).getByRole('button', { name: 'New Claude session in agent-manager' }));
+      await vi.waitFor(() => expect(terminalRequests()).toHaveLength(1));
+      expect(JSON.parse(String(terminalRequests()[0][1]?.body)).workingDir).toBe('/w/agent-manager/');
+    });
+
+    it('offers a folder the server would refuse (`site (old)`) as a disabled chip that says why, and sends nothing', () => {
+      const awkward = mk({ sessionId: 'w1', title: 'Old site', projectName: 'site (old)', projectPath: '/w/site (old)' });
+      const { container } = renderProjects([awkward]);
+      const chip = within(frameLabeled(container, 'site (old)')).getByRole('button', { name: 'New Claude session in site (old)' });
+      expect(chip).toHaveAttribute('aria-disabled', 'true');
+      expect(chip.getAttribute('title')).toContain('( )');
+      fireEvent.click(chip);
+      expect(terminalRequests()).toHaveLength(0);
+    });
+
+    // The session the server starts has no room, and the strip under a room filter shows only sessions in the
+    // selected rooms: before the new session joined its project's room it never appeared, the header switched to
+    // it, and a user who thought the click had failed clicked again and started a second PTY.
+    it('shows the session a chip started even with a room filter on', async () => {
+      const ops = makeRoom({ id: 'room-ops', name: 'OPS', sessionIds: ['k1'], roomIndex: 0 });
+      useUiStore.setState({ selectedRoomIds: new Set(['room-ops']) });
+      const { container, update } = renderProjects([kts], [ops]);
+      expect(titlesIn(frameLabeled(container, 'kts'))).toEqual(['KTS Agent']);
+
+      fireEvent.click(within(frameLabeled(container, 'kts')).getByRole('button', { name: 'New Claude session in kts' }));
+      await vi.waitFor(() => expect(selectSession).toHaveBeenCalledWith('term-new'));
+      await vi.waitFor(() => expect(useRoomStore.getState().rooms[0].sessionIds).toContain('term-new'));
+
+      // The card arrives over the WebSocket, with the project's path and no room of its own.
+      const started = mk({ sessionId: 'term-new', title: 'Fresh one', projectName: 'kts', projectPath: '/w/kts', status: 'connecting' });
+      act(() => update([kts, started]));
+      expect(titlesIn(frameLabeled(container, 'kts')).sort()).toEqual(['Fresh one', 'KTS Agent']);
+    });
+  });
+
+  describe('a frame is stable while the sessions in it change', () => {
+    const colourOf = (frame: HTMLElement) => frame.style.getPropertyValue('--room-color');
+
+    it('keeps its place and its colour when sessions with another name for the folder come and go', () => {
+      // The server names a home-directory session "Home"; a card discovered from a process is named for the
+      // folder. A label drawn from those names flipped, and the frame — sorted by it — jumped past its neighbour.
+      const lz = mk({ sessionId: 'lz', title: 'LZ', projectName: 'lz', projectPath: '/Users/lz' });
+      const me1 = mk({ sessionId: 'me1', title: 'Me 1', projectName: 'me', projectPath: '/Users/me' });
+      const me2 = mk({ sessionId: 'me2', title: 'Me 2', projectName: 'me', projectPath: '/Users/me' });
+      const { container, update } = renderProjects([lz, me1, me2]);
+      const before = projectFrames(container).map((f) => [labelOf(f), colourOf(f)]);
+      expect(before.map(([label]) => label)).toEqual(['lz', 'me']);
+
+      const home1 = mk({ sessionId: 'h1', title: 'Home 1', projectName: 'Home', projectPath: '/Users/me' });
+      const home2 = mk({ sessionId: 'h2', title: 'Home 2', projectName: 'Home', projectPath: '/Users/me' });
+      act(() => update([lz, me1, me2, home1, home2]));
+
+      expect(projectFrames(container).map((f) => [labelOf(f), colourOf(f)])).toEqual(before);
+    });
+
+    it('keeps a project\'s colour when the room filter hides the project it was colliding with', () => {
+      // Two directories whose hashed colours collide: one of them is moved to the next free colour.
+      const seen = new Map<number, string>();
+      let pair: [string, string] | null = null;
+      for (let n = 0; n < 200 && !pair; n++) {
+        const path = `/w/project-${n}`;
+        const colour = projectColorIndex(`localhost|${path}`, 8);
+        const earlier = seen.get(colour);
+        if (earlier) pair = [earlier, path];
+        else seen.set(colour, path);
+      }
+      expect(pair).not.toBeNull();
+      const [first, second] = [...pair!].sort((a, b) => (`localhost|${a}` < `localhost|${b}` ? -1 : 1));
+      const sFirst = mk({ sessionId: 'f1', title: 'First', projectName: 'first', projectPath: first });
+      const sSecond = mk({ sessionId: 's1', title: 'Second', projectName: 'second', projectPath: second });
+
+      const { container, update } = renderProjects([sFirst, sSecond]);
+      const unfiltered = colourOf(projectFrames(container).find((f) => f.getAttribute('title') === second)!);
+
+      // A room that holds only the second project's session: the first is filtered out.
+      useRoomStore.setState({ rooms: [makeRoom({ id: 'room-only-second', name: 'ONLY', sessionIds: ['s1'], roomIndex: 0 })] });
+      act(() => useUiStore.setState({ selectedRoomIds: new Set(['room-only-second']) }));
+      act(() => update([sFirst, sSecond]));
+
+      const frames = projectFrames(container);
+      expect(frames).toHaveLength(1);
+      expect(colourOf(frames[0])).toBe(unfiltered);
+    });
+  });
+
+  describe('switching views', () => {
+    it('moves between rooms and projects from the header menu', () => {
+      useUiStore.setState({ sessionSortMode: 'room' });
+      const rooms = [makeRoom({ id: 'room-1', name: 'SMS OPS', sessionIds: ['a1'], roomIndex: 0 })];
+      const { container } = renderProjects([queueFloat, kts], rooms);
+      expect(container.querySelector('[title="SMS OPS"]')).not.toBeNull();
+      expect(projectFrames(container)).toHaveLength(0);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Session view: Rooms' }));
+      fireEvent.click(screen.getByRole('menuitemradio', { name: 'Projects' }));
+      expect(useUiStore.getState().sessionSortMode).toBe('project');
+      expect(projectFrames(container).map(labelOf)).toEqual(['agent-manager', 'kts']);
+      expect(container.querySelector('[title="SMS OPS"]')).toBeNull();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Session view: Projects' }));
+      fireEvent.click(screen.getByRole('menuitemradio', { name: 'Rooms' }));
+      expect(useUiStore.getState().sessionSortMode).toBe('room');
+      expect(projectFrames(container)).toHaveLength(0);
+      expect(container.querySelector('[title="SMS OPS"]')).not.toBeNull();
+    });
+
+    it('still reaches the flat recent-activity list', () => {
+      const { container } = renderProjects([queueFloat, kts]);
+      fireEvent.click(screen.getByRole('button', { name: 'Session view: Projects' }));
+      fireEvent.click(screen.getByRole('menuitemradio', { name: 'Recent activity' }));
+      expect(useUiStore.getState().sessionSortMode).toBe('activity');
+      expect(projectFrames(container)).toHaveLength(0);
+      expect(container.querySelectorAll('[class*="sessionTabCard"]')).toHaveLength(2);
+    });
+  });
+});
+
+
+/**
+ * Plan-usage chip — the CLI's plan limits at the top-left of the header. It is
+ * the first child of the name row (before the status dot) and never part of the
+ * meta row, whose icon count is fixed by the rail's width. See PlanUsageChip.tsx.
+ */
+describe('SessionSwitcher — plan usage chip', () => {
+  const makeSession = (over: Partial<Session> = {}): Session => ({
+    sessionId: 's1',
+    title: 'Queue float',
+    projectName: 'agent-manager',
+    projectPath: '/Users/me/agent-manager',
+    status: 'idle',
+    cliSource: 'claude',
+    model: 'claude-opus-5-5',
+    startedAt: Date.now(),
+    lastActivityAt: Date.now(),
+    ...over,
+  } as Session);
+
+  const usage = (over: Partial<PlanUsage> = {}): PlanUsage => ({
+    cli: 'claude',
+    windows: [{ minutes: 300, usedPercent: 63, resetsAt: Date.now() + 72 * 60_000 }],
+    asOf: Date.now(),
+    ...over,
+  });
+
+  const renderSwitcher = (session: Session) =>
+    render(
+      <SessionSwitcher
+        currentSession={session}
+        sessions={new Map([[session.sessionId, session]])}
+        onSwitch={vi.fn()}
+      />,
+    );
+  const nameRow = (container: HTMLElement) =>
+    container.querySelector('[class*="switcherNameDisplay"]') as HTMLElement;
+  const chips = (container: HTMLElement) => container.querySelectorAll('[class*="planUsageChip"]');
+
+  beforeEach(() => {
+    useSessionStore.setState({ sessions: new Map() } as never);
+    useUiStore.setState({
+      activeModal: null, sessionSortMode: 'room', navPosition: 'top', maximized: false,
+      navRailCollapsed: false, selectedRoomIds: new Set(),
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+    try { localStorage.clear(); } catch { /* ignore */ }
+  });
+
+  afterEach(() => {
+    useUiStore.setState({ navPosition: 'top', selectedRoomIds: new Set() });
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('is the first thing in the title row, before the status dot', () => {
+    const { container } = renderSwitcher(makeSession({ planUsage: usage() }));
+    const row = nameRow(container);
+    expect(row.firstElementChild?.className).toMatch(/planUsageSlot/);
+    expect(row.firstElementChild?.querySelector('[class*="planUsageChip"]')).toBeTruthy();
+    expect(row.children[1].className).toMatch(/switcherDot/);
+  });
+
+  it('shows the figures a session carries', () => {
+    renderSwitcher(makeSession({ planUsage: usage() }));
+    const group = screen.getByRole('group', { name: /^Claude plan usage: 63% of the 5-hour limit used/ });
+    expect(within(group).getByText('5h')).toBeInTheDocument();
+    expect(within(group).getByText('63%')).toBeInTheDocument();
+  });
+
+  it('is there as a dash, with a reason, before any report has arrived', () => {
+    renderSwitcher(makeSession());
+    const group = screen.getByRole('group', { name: /^Claude plan usage unavailable:/ });
+    expect(within(group).getByText('—')).toBeInTheDocument();
+  });
+
+  it('is absent for a session that is not Claude or Codex, and the dot leads the row', () => {
+    const { container } = renderSwitcher(makeSession({ cliSource: undefined, model: '', startupCommand: 'zsh' }));
+    expect(chips(container)).toHaveLength(0);
+    expect(nameRow(container).firstElementChild?.className).toMatch(/switcherDot/);
+  });
+
+  it('is never in the meta row — its icon count is what the rail width is sized for', () => {
+    const { container } = renderSwitcher(makeSession({ planUsage: usage() }));
+    expect(container.querySelector('[class*="switcherMeta"] [class*="planUsageChip"]')).toBeNull();
+    expect(chips(container)).toHaveLength(1);
+  });
+
+  it('is the same single chip, still first in the row, in the left rail', () => {
+    useUiStore.setState({ navPosition: 'left' });
+    const { container } = renderSwitcher(makeSession({ planUsage: usage() }));
+    expect(container.querySelector('[class*="switcherBarVertical"]')).toBeTruthy();
+    expect(chips(container)).toHaveLength(1);
+    expect(nameRow(container).firstElementChild?.className).toMatch(/planUsageSlot/);
+  });
+
+  it('follows the session it is switched to', () => {
+    const { container, rerender } = renderSwitcher(makeSession({ planUsage: usage() }));
+    expect(chips(container)[0].getAttribute('data-cli')).toBe('claude');
+    const codex = makeSession({ sessionId: 's2', cliSource: 'codex', model: 'gpt-5', title: 'KTS' });
+    rerender(
+      <SessionSwitcher currentSession={codex} sessions={new Map([[codex.sessionId, codex]])} onSwitch={vi.fn()} />,
+    );
+    expect(chips(container)).toHaveLength(1);
+    expect(chips(container)[0].getAttribute('data-cli')).toBe('codex');
+    expect(chips(container)[0].getAttribute('data-state')).toBe('empty');
   });
 });

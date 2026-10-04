@@ -54,6 +54,30 @@ const CODEX_DENSITY_EVENTS = {
 const HOOK_SOURCE = 'ai-agent-session-center';
 const HOOK_PATTERN = 'dashboard-hook';
 
+// The status-line tap (plan limits for the dashboard) is deployed next to the hook script but
+// is not a hook: it is not registered anywhere (it is passed per launch, see
+// server/config.ts applyStatusLineTap), so removing the hooks has to remove the file itself.
+// Its name does not contain HOOK_PATTERN, which is why nothing matched it before.
+const STATUS_LINE_TAP_SCRIPT = 'dashboard-statusline.sh';
+const PROJECT_MARKER = 'claude-session-center';
+
+/**
+ * Delete the status-line tap from a hooks directory — only if it is ours (it carries the
+ * project marker), so a same-named file of the user's is never touched.
+ * @returns {boolean} whether a file was removed
+ */
+function removeStatusLineTap(hooksDestDir) {
+  const file = join(hooksDestDir, STATUS_LINE_TAP_SCRIPT);
+  try {
+    if (!existsSync(file)) return false;
+    if (!readFileSync(file, 'utf8').includes(PROJECT_MARKER)) return false;
+    rmSync(file, { force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   return `${(bytes / 1024).toFixed(1)} KB`;
@@ -172,8 +196,10 @@ export async function installHooks({
     log(`[4/${TOTAL_STEPS}] Removing dashboard hooks${uninstallOnly ? ` (${uninstallOnly.join(', ')} only)` : ''}...`);
 
     let removed = 0;
+    let statusLineTapRemoved = false;
     if (wants('claude')) {
       removed = removeAllClaudeHooks(settings, ALL_EVENTS, HOOK_PATTERN);
+      statusLineTapRemoved = removeStatusLineTap(HOOKS_DEST_DIR);
     }
 
     let codexRemoved = 0;
@@ -222,9 +248,10 @@ export async function installHooks({
     log(
       `Uninstall complete -- ${removed} Claude hook(s), ${codexRemoved} Codex hook block(s), `
       + `${geminiRemoved} Gemini hook event(s)`
-      + `${geminiScriptRemoved ? ' + Gemini hook script' : ''} removed`,
+      + `${geminiScriptRemoved ? ' + Gemini hook script' : ''}`
+      + `${statusLineTapRemoved ? ' + status-line tap' : ''} removed`,
     );
-    return { success: true, summary: { removed, codexRemoved, geminiRemoved, geminiScriptRemoved } };
+    return { success: true, summary: { removed, codexRemoved, geminiRemoved, geminiScriptRemoved, statusLineTapRemoved } };
   }
 
   // ── STEP 4: Configure Hook Events ──
@@ -244,6 +271,18 @@ export async function installHooks({
   deployHookScript(src, HOOK_DEST, isWindows);
   const srcSize = statSync(src).size;
   log(`Deployed ${HOOK_SCRIPT} -> ${HOOK_DEST} (${formatBytes(srcSize)})`);
+
+  // Deploy the status-line tap next to it (bash, so not on Windows)
+  if (!isWindows) {
+    const tapSrc = join(hooksDir, STATUS_LINE_TAP_SCRIPT);
+    if (existsSync(tapSrc)) {
+      const tapDest = join(HOOKS_DEST_DIR, STATUS_LINE_TAP_SCRIPT);
+      deployHookScript(tapSrc, tapDest, false);
+      log(`Deployed ${STATUS_LINE_TAP_SCRIPT} -> ${tapDest} (${formatBytes(statSync(tapSrc).size)})`);
+    } else {
+      log(`Status-line tap not found: ${tapSrc}`);
+    }
+  }
 
   // Deploy alternate platform hook (for reference)
   const altScript = isWindows ? 'dashboard-hook.sh' : 'dashboard-hook.ps1';

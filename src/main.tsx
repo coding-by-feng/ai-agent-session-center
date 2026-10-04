@@ -6,6 +6,7 @@ import { useQueueStore } from '@/stores/queueStore';
 import { useQueueHistoryStore } from '@/stores/queueHistoryStore';
 import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
 import { installClientIdentityHeaders } from '@/lib/presenceClient';
+import { resolveWindowRole } from '@/lib/windowRole';
 import '@/styles/global.css';
 import '@/styles/themes/cyberpunk.css';
 import '@/styles/themes/dracula.css';
@@ -38,7 +39,9 @@ window.addEventListener('keydown', (e) => {
 const root = document.getElementById('root');
 if (!root) throw new Error('Root element not found');
 
-// Hydrate persisted queue items from IndexedDB BEFORE rendering <App>.
+// Hydrate persisted queue items from IndexedDB BEFORE rendering <App> — or any
+// pop-out window that shows or acts on a queue (the whole-session and the
+// queue-only ones), which is why this is a function.
 // <App> mounts the WebSocket; a `session_update` carrying `replacesId`
 // (a `claude --resume` re-key) calls queueStore.migrateSession() synchronously.
 // If the queue map isn't hydrated yet, migrateSession sees an empty queue and
@@ -46,8 +49,8 @@ if (!root) throw new Error('Root element not found');
 // (invisible under the new session). Awaiting load first makes the ordering
 // deterministic: load → render → WS connect → session_update. loadFromDb()
 // swallows its own errors, so a failure still falls through to render.
-async function bootstrap(): Promise<void> {
-  await Promise.all([
+function hydrateQueueStores(): Promise<unknown> {
+  return Promise.all([
     useQueueStore.getState().loadFromDb(),
     useQueueHistoryStore.getState().loadFromDb(),
     // Snippets have no re-key ordering requirement (they're global, not keyed
@@ -55,6 +58,10 @@ async function bootstrap(): Promise<void> {
     // the picker never opens against an empty library on a cold start.
     usePromptSnippetStore.getState().loadFromDb(),
   ]);
+}
+
+async function bootstrap(): Promise<void> {
+  await hydrateQueueStores();
   // Reconcile with the SERVER's shared queue after the local IndexedDB load,
   // never before: syncFromServer seeds any session the server hasn't heard of
   // from local state, so it has to see the hydrated local queues to know what
@@ -69,15 +76,18 @@ async function bootstrap(): Promise<void> {
   );
 }
 
-// The four render targets below are mutually exclusive — a window is either the
-// dashboard, a popped-out terminal, a popped-out project browser, or a popped-
-// out whole session. The popout views are imported lazily, inside their own
+// The render targets below are mutually exclusive — a window is either the
+// dashboard, a popped-out terminal, a popped-out project browser, a popped-out
+// whole session, a popped-out queue, or a notice that it asked for a kind this
+// build has no view for (never the dashboard: see UnknownPopoutNotice). The
+// popout views are imported lazily, inside their own
 // branch, so the DASHBOARD never loads them: PopoutProjectView (and, through
 // DetailPanel, PopoutSessionView) reaches ProjectTab, which drags in xlsx,
 // react-arborist, highlight.js, DOMPurify and the react-markdown stack. That
 // static import was the single biggest reason the entry chunk sat at 2.5 MB.
 const popoutParams = new URLSearchParams(window.location.search);
-const popoutKind = popoutParams.get('popout');
+const windowRole = resolveWindowRole(window.location.search);
+const popoutKind = windowRole.role === 'dashboard' ? null : windowRole.kind;
 if (popoutKind === 'terminal') {
   // This window is a popped-out terminal (main / commands / fork) — render just
   // that terminal, not the whole dashboard.
@@ -113,11 +123,7 @@ if (popoutKind === 'terminal') {
   // hydrated queue stores (the same reason `bootstrap()` awaits them below), so
   // this branch awaits the same load before rendering rather than skipping it.
   void (async () => {
-    await Promise.all([
-      useQueueStore.getState().loadFromDb(),
-      useQueueHistoryStore.getState().loadFromDb(),
-      usePromptSnippetStore.getState().loadFromDb(),
-    ]);
+    await hydrateQueueStores();
     const PopoutSessionView = lazy(() => import('@/components/session/PopoutSessionView'));
     createRoot(root!).render(
       <StrictMode>
@@ -129,6 +135,43 @@ if (popoutKind === 'terminal') {
       </StrictMode>,
     );
   })();
+} else if (popoutKind === 'queue') {
+  // Popped-out QUEUE panel — render one session's queue, not the whole dashboard.
+  // Hydrate first, exactly like the session branch. Unlike it, also reconcile with
+  // the SERVER's shared queue the way `bootstrap()` does: this window opens
+  // while the main one is live, so the IndexedDB copy can be a few edits behind.
+  // Not awaited, for the same reason as in bootstrap() — the local copy renders
+  // correctly until the sync lands. PULL ONLY: `seed: false`. Seeding pushes any
+  // session the server has no record of from this window's copy, and a record the
+  // server lacks while the app is running was deleted on purpose
+  // (`DELETE /db/sessions/:id`) — this window's older IndexedDB copy would bring it
+  // back as a zombie queue on every boot. The main window did the seeding at its own boot.
+  void (async () => {
+    await hydrateQueueStores();
+    void useQueueStore.getState().syncFromServer({ seed: false });
+    const PopoutQueueView = lazy(() => import('@/components/session/PopoutQueueView'));
+    createRoot(root!).render(
+      <StrictMode>
+        <BrowserRouter>
+          <Suspense fallback={null}>
+            <PopoutQueueView />
+          </Suspense>
+        </BrowserRouter>
+      </StrictMode>,
+    );
+  })();
+} else if (windowRole.role === 'unknown-popout') {
+  // A pop-out kind this build has no view for — a window opened by another version
+  // of the app. Say so. Falling through to bootstrap() would start a SECOND
+  // dashboard, with its own queue scheduler, sending every queued prompt twice.
+  const UnknownPopoutNotice = lazy(() => import('@/components/session/UnknownPopoutNotice'));
+  createRoot(root).render(
+    <StrictMode>
+      <Suspense fallback={null}>
+        <UnknownPopoutNotice kind={windowRole.kind} />
+      </Suspense>
+    </StrictMode>,
+  );
 } else {
   void bootstrap();
 }

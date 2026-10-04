@@ -126,7 +126,7 @@
 .textInput { min-width: 0; padding: 0 12px; }
 .search { flex: 1 1 240px; }
 .textInput { flex: 1 1 320px; }
-.select { max-width: 280px; padding: 0 8px; cursor: pointer; }
+.select { max-width: 280px; padding: 0 28px 0 8px; cursor: pointer; appearance: none; -webkit-appearance: none; background: var(--bg-card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238888aa'/%3E%3C/svg%3E") no-repeat right 10px center / 10px 6px; } /* own chevron + reserved room: the shared `background` erased base.css's arrow, and XP's re-painted one sat on the label */
 .search::placeholder,
 .textInput::placeholder { color: var(--text-secondary); }
 .search:hover,

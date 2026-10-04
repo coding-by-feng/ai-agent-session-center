@@ -102,6 +102,11 @@ export interface ElectronAPI {
    *  the in-app float can re-dock. Returns an unsubscribe fn. */
   onPopoutClosed?(cb: (terminalId: string) => void): () => void
 
+  /** Pop one session's QUEUE panel out into its own native window, draggable to
+   *  another monitor, on the standalone `?popout=queue` view. The docked panel is
+   *  left alone (both stay live). De-duped by sessionId. Electron-only. */
+  openQueueWindow?(opts: { sessionId: string; label?: string }): Promise<{ ok: boolean }>
+
   /** Pop a whole session (all DetailTabs — Project/Terminal/Commands/Conversation/
    *  AI Popups/Notes/Queue) out into its own native window, draggable to another
    *  monitor. De-duped by sessionId. Electron-only. */

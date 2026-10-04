@@ -332,6 +332,12 @@ const terminalCreateSchema = z.object({
   label: z.string().optional(),
   enableOpsTerminal: z.boolean().optional(),
   forceNew: z.boolean().optional(),
+  /**
+   * Refuse (400) instead of starting the shell in the home directory when `workingDir` does not exist on this
+   * machine. `createTerminal` falls back to home for a missing directory (RC-6) so a workspace restore never loses a
+   * card; a caller that means "a new session in THIS project" (the session strip's project frames) must not get that.
+   */
+  requireExistingDir: z.boolean().optional(),
   startupCommand: z.string().max(1024).optional(),
   /** Permission mode from snapshot — used to reconstruct CLI flags when startupCommand is absent */
   permissionMode: z.string().max(100).optional(),
@@ -437,8 +443,10 @@ const MAX_QUEUE_PAYLOAD_BYTES = 8 * 1024 * 1024;
 const sessionQueueSchema = z.object({
   items: z.array(z.unknown()),
   automation: z.record(z.string(), z.unknown()).nullish(),
-  /** Sender's device id, echoed back in the broadcast so it can ignore its
-   *  own update instead of re-saving it in a loop. */
+  /** Sender's WINDOW origin id (`<device id>:<window nonce>`, capped at 128
+   *  characters by the client), echoed back in the broadcast so that window can
+   *  ignore its own update instead of re-saving it in a loop. Per window rather
+   *  than per device: two windows of one device must not drop each other's updates. */
   originClientId: z.string().max(200).nullish(),
 }).refine(
   (v) => JSON.stringify(v.items).length <= MAX_QUEUE_PAYLOAD_BYTES,
@@ -1228,6 +1236,14 @@ router.post('/sessions/:id/kill', async (req: Request, res: Response) => {
   // target. Never signal the shared Codex host PID.
   const pid = processShared ? null : resolvedPid;
 
+  // A kill is deliberate, so the session stops being pinned BEFORE anything
+  // dies, and stays unpinned even if the process then survives SIGKILL.
+  // Anything that ends the card while terminateProcessTree is still waiting
+  // (say, the CLI's SessionEnd hook), or a stuck process that is only reaped
+  // later, broadcasts ENDED; one that still says pinned:true makes every
+  // connected client schedule a pinnedRespawn that nothing can recall.
+  if (mem.pinned) setSessionPinned(sessionId, false);
+
   let processSurvived = false;
   if (pid) {
     const dead = await terminateProcessTree(pid);
@@ -1250,8 +1266,6 @@ router.post('/sessions/:id/kill', async (req: Request, res: Response) => {
     return;
   }
 
-  // Unpin before the ENDED broadcast, or every client's pinnedRespawn relaunches the session.
-  if (mem.pinned) setSessionPinned(sessionId, false);
   const session = killSession(sessionId);
   archiveSession(sessionId, true);
   if (!session && !pid) {
@@ -1408,7 +1422,11 @@ router.put('/sessions/:id/queue', async (req: Request, res: Response) => {
   // Fan out so other devices update live rather than only on their next
   // reload. `originClientId` lets the sender ignore its own echo — without
   // it, applying the broadcast would mark the store dirty and trigger
-  // another PUT, looping indefinitely between two devices.
+  // another PUT, looping indefinitely between two writers. The message carries
+  // prompt text but names its session only by id, so `broadcast` resolves that id
+  // itself and skips every remote client the session is hidden from
+  // (`broadcastSubject`) — this route's own `requireVisibleSession` only gates
+  // who may WRITE.
   const { broadcast } = await import('./wsManager.js');
   broadcast({
     type: WS_TYPES.QUEUE_UPDATE,
@@ -1636,6 +1654,20 @@ router.post('/terminals', async (req: Request, res: Response) => {
     // Normalize any local address (IP, hostname, .local) to 'localhost' so that
     // dedup matching, PTY creation, and stored sshHost are all consistent.
     const resolvedHost = isLocalHost(body.host || '') ? 'localhost' : (body.host || 'localhost');
+
+    // Opt-in (see `requireExistingDir`): checked before anything is saved or spawned. `~` is expanded the way
+    // `createTerminalSession` does it, so both sides mean the same directory. A directory on another machine
+    // says nothing about this disk, so it is not checked.
+    if (body.requireExistingDir && resolvedHost === 'localhost' && body.workingDir) {
+      const dir = body.workingDir.startsWith('~') ? body.workingDir.replace(/^~/, homedir()) : body.workingDir;
+      let isDirectory = false;
+      try { isDirectory = statSync(dir).isDirectory(); } catch { /* missing or unreadable */ }
+      if (!isDirectory) {
+        res.status(400).json({ success: false, error: `Directory not found: ${body.workingDir}` });
+        return;
+      }
+    }
+
     const username = body.username || getDefaultUsername() || (resolvedHost === 'localhost' ? 'local' : null);
     if (!username) {
       res.status(400).json({ success: false, error: 'username required — set it once in "+ NEW SESSION" and it will be reused' });

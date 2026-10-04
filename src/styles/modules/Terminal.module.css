@@ -255,6 +255,26 @@
 .queueToggle:hover {
   color: var(--text-primary, #e0e0e0);
 }
+/* The float window's header (QueueTab `floating`) is a label, not a toggle, so
+   nothing about it may read as clickable. */
+.queueToggleStatic {
+  cursor: default;
+}
+.queueToggleStatic:hover {
+  color: var(--text-secondary, #888);
+}
+
+/* Hairline between the header's toggles and the float action: detach is an
+   ACTION, not a fifth toggle — the same rule the PROJECT tab's float button
+   follows (DetailPanel.module.css `.toggleDivider`). */
+.queueHeaderDivider {
+  flex-shrink: 0;
+  width: 1px;
+  height: 12px;
+  margin: 0 4px 0 2px;
+  background: var(--border-subtle);
+  pointer-events: none;
+}
 
 .queueToggleArrow {
   display: inline-block;
@@ -559,6 +579,150 @@
   white-space: nowrap;
   opacity: 1;
 }
+
+/* The prompt text and, when it is cut off, its unfold/fold toggle (QueueItemText).
+   A ROW, so `.queueText`'s `flex: 1` is a width — in the card it used to be a
+   column item whose `flex: 1` stretched it taller than its three-line clamp,
+   and the lines past the clamp showed under the ellipsis. `flex-start` keeps the
+   toggle level with the first line of an expanded prompt. */
+.queueTextLine {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+.queueTextLine .queueText {
+  min-width: 0;
+}
+/* Everything the preview cut off. Two classes more than `.queueCard .queueText`,
+   so it wins in the card whatever the source order. `pre-wrap` keeps the
+   prompt's own line breaks; `anywhere` lets an unbreakable token (a /tmp/…png
+   path, a URL) wrap instead of forcing the row wider. */
+.queueTextLine .queueText.queueTextExpanded {
+  display: block;
+  -webkit-line-clamp: none;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* On a touch screen an expanded prompt can be far taller than the queue panel,
+   and a finger on a row can never scroll the panel — `.queueItem` is
+   `touch-action: none` (the press-and-hold drag needs every move). So there the
+   text is its own scroller: capped, with `pan-y` handing vertical drags on it to
+   the browser (`touch-action` of ancestors only counts up to the nearest scroll
+   container, which this now is). Deliberately NOT `overscroll-behavior: contain`:
+   a drag that starts on this text is the only way a finger gets the list moving
+   past it, so containing the scroll would trap the user at the end of the text.
+   The cost is that a press-and-hold on the text itself no longer starts a
+   reorder drag; the grip and the rest of the row still do. */
+@media (pointer: coarse) {
+  .queueTextLine .queueText.queueTextExpanded {
+    max-height: min(50vh, 22rem);
+    overflow-x: hidden;
+    overflow-y: auto;
+    touch-action: pan-y;
+  }
+}
+/* A list row centres its pieces on the row; once the text is several lines tall
+   that floats the power toggle and the number to the middle of it. It also
+   wraps: an expanded prompt needs a real measure, and with the actions revealed
+   the column used to be left a few pixels wide — a character per line — so the
+   actions drop to their own line instead of taking the text's width. */
+.queueItem.queueItemExpanded {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.queueItem.queueItemExpanded > .queueTextCol {
+  flex: 1 1 180px;
+}
+.queueItem.queueItemExpanded > .queueActions {
+  margin-left: auto;
+}
+
+/* ---- Where the toggle sits in a LIST ROW: it must not move or be clipped ----
+   The row's actions exist only while it is hovered, and on a phone :hover applies
+   on touchstart — so the layout changes between the finger landing and the click,
+   which is resolved afterwards against the NEW layout. Anything that moves the
+   toggle (or clips it) in that gap sends the tap to whatever is there now: DEL
+   when the toggle sat at the end of the text, the row itself when it slid down or
+   was clipped. Three rules, one per way it went wrong: */
+
+/* 1. Before the text, not after. The actions take their width out of the text's
+      RIGHT edge, so a toggle at the end of the text moved as the pointer arrived;
+      the LEFT edge never moves. A card's actions are always shown, on their own
+      row, so its toggle keeps the end of the text. Only the visual order changes:
+      the toggle is the line's one focusable element, so tab order cannot differ. */
+.queueItem .queueTextLine .queueExpandBtn {
+  order: -1;
+}
+/* 2. Never squeezed out. A loop row's chips plus the seven revealed buttons (205px
+      at 390px wide) left the text column ~0px wide, and its `overflow: hidden`
+      clipped the toggle: present in the layout, absent from hit-testing, so the
+      tap hit the row. The minimum is the toggle and its gap. */
+.queueItem > .queueTextCol {
+  min-width: 22px;
+  /* 3. Never slid down. The revealed actions wrap onto a second line in a narrow
+        row (28px → 48px) and a centred column moved 10px with it. While the row is
+        hovered the column is pinned to its top; `min-height` is the toggle's own
+        18px — how tall a one-line row's content already is — so at rest nothing
+        moves, where without it a plain one-line prompt (15px) would jump 1px up on
+        every hover. */
+  min-height: 18px;
+  justify-content: center;
+}
+.queueItem:hover > .queueTextCol {
+  align-self: flex-start;
+}
+
+.queueExpandBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  /* The same 18px as the power toggle beside it: a row is as tall as its tallest
+     piece, so a larger button would make every row that has a toggle taller than
+     the rows that do not. */
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-primary, #e0e0e0);
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    transform 0.12s ease;
+}
+/* Hover is a tint and a border, NOT a colour change: the accent glyph measured
+   2.77:1 against its own tint in the solarized theme, under the 3:1 a graphic
+   needs, while the primary colour holds in every theme. */
+.queueExpandBtn:hover {
+  background: rgba(0, 229, 255, 0.1);
+  border-color: rgba(0, 229, 255, 0.45);
+}
+.queueExpandBtn:active {
+  transform: scale(0.92);
+}
+/* Drawn INSIDE the box (a negative offset equal to the width). The button sits
+   flush against `.queueTextCol`, which is `overflow: hidden`, so a ring outside
+   the box is clipped to a broken arc on two sides — a keyboard user would see
+   half a ring. Inside the 18px box nothing can clip it. */
+.queueExpandBtn:focus-visible {
+  outline: 2px solid var(--accent-cyan, #00e5ff);
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .queueExpandBtn {
+    transition: none;
+  }
+  .queueExpandBtn:active {
+    transform: none;
+  }
+}
+
 /* flex-wrap + right-justify so the action group (7 buttons: ▲ ▼ ★ SEND|⚡NOW
    EDIT MOVE DEL — the 4th slot is one or the other, never both) wraps to a
    second line at very narrow panel widths instead of overflowing the row's
@@ -615,6 +779,14 @@
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 8px;
   padding: 2px;
+}
+/* One expanded card must not stretch its neighbours. Grid items are
+   `align-items: stretch` by default, so every card in the row was drawn as tall
+   as the expanded one (987px for a 60-line prompt) — a three-line card over 900px
+   of nothing. Only while something is expanded, so rows otherwise keep their
+   equal height. */
+.queueCardGrid:has(.queueTextExpanded) {
+  align-items: start;
 }
 .queueCard {
   display: flex;

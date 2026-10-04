@@ -10,7 +10,7 @@ import { join } from 'path';
 import { homedir, networkInterfaces, hostname as osHostname } from 'os';
 import log from './logger.js';
 import { reapPtyChildren } from './processMonitor.js';
-import { appendSessionName, applyClaudeLaunchFlags, withClaudeTuiEnvDefaults, stripInheritedClaudeSessionEnv } from './config.js';
+import { appendSessionName, applyClaudeLaunchFlags, applyStatusLineTap, isStatusLineTapEnabled, isStatusLineTapInstalled, withClaudeTuiEnvDefaults, stripInheritedClaudeSessionEnv } from './config.js';
 import type { Terminal, TerminalConfig, TerminalInfo, TmuxSessionInfo, SshKeyInfo } from '../src/types/terminal.js';
 import { DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES, clampReplayBufferBytes } from '../src/types/terminal.js';
 import {
@@ -317,6 +317,21 @@ function isLocal(host: string | undefined): boolean {
   return !host || localAddresses.has(host);
 }
 
+/**
+ * Point a Claude launch line at the status-line tap, which is how the dashboard learns the
+ * plan limits Claude reports nowhere else (see applyStatusLineTap). Only for a LOCAL terminal
+ * and only once the script is installed: a remote host has no such script, and naming a
+ * missing one would put an error in the session's footer. `AASC_DISABLE_STATUSLINE_TAP=1`
+ * turns it off altogether (isStatusLineTapEnabled).
+ *
+ * Applied to the string typed into the PTY and nothing else, so the flag is never part of a
+ * stored command: every launch path goes through here — createTerminal's auto-launch, and
+ * writeWhenReady for the deferred ones (resume, fork, clone, restore, floating forks).
+ */
+function withStatusLineTap(local: boolean, line: string): string {
+  return local && isStatusLineTapEnabled() && isStatusLineTapInstalled() ? applyStatusLineTap(line) : line;
+}
+
 function getDefaultShell(): string {
   return process.env.SHELL || '/bin/bash';
 }
@@ -399,13 +414,16 @@ export function createTerminal(config: TerminalConfig, wsClient: WebSocket | nul
     // Apply --model/--effort as launch flags (deterministic, before the prompt
     // runs). ultracode launches as `--effort xhigh` (its valid base) and is
     // upgraded to true ultracode via the /effort slash injection below.
-    const command = applyClaudeLaunchFlags(
-      appendSessionName(baseCommand, sessionName),
-      config.model,
-      config.effortLevel,
+    const local = isLocal(config.host);
+    const command = withStatusLineTap(
+      local,
+      applyClaudeLaunchFlags(
+        appendSessionName(baseCommand, sessionName),
+        config.model,
+        config.effortLevel,
+      ),
     );
     const skipAutoLaunch = config.command === '';
-    const local = isLocal(config.host);
 
     try {
       let shell: string;
@@ -825,6 +843,11 @@ export function writeToTerminal(terminalId: string, data: string): void {
  * Write data to a terminal after its shell is ready.
  * Awaits the shell prompt detection before writing, so commands aren't lost
  * if SSH hasn't finished connecting yet.
+ *
+ * Its callers type LAUNCH LINES — every deferred launch (resume, fork, clone, workspace
+ * restore, floating forks) writes its `claude … || claude …` through here because
+ * createTerminal was asked for an empty command — so a local Claude in the data is pointed
+ * at the status-line tap on the way (withStatusLineTap). Don't use it to type free text.
  */
 export async function writeWhenReady(terminalId: string, data: string): Promise<boolean> {
   const term = terminals.get(terminalId);
@@ -833,7 +856,7 @@ export async function writeWhenReady(terminalId: string, data: string): Promise<
   // Terminal might have been cleaned up while waiting
   const termNow = terminals.get(terminalId);
   if (!termNow || !termNow.pty) return false;
-  termNow.pty.write(data);
+  termNow.pty.write(withStatusLineTap(isLocal(termNow.config?.host), data));
   return true;
 }
 

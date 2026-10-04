@@ -8,7 +8,7 @@ import { dirname, join } from 'path';
 import { execFile } from 'child_process';
 import hookRouter from './hookRouter.js';
 import { handleConnection, stopHeartbeat, broadcast } from './wsManager.js';
-import { getAllSessions, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
+import { getAllSessions, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
 import { createTerminal, consumePendingLink, writeWhenReady } from './sshManager.js';
 import { WS_TYPES } from './constants.js';
 import { closeDb, markStaleSessionsEnded } from './db.js';
@@ -412,6 +412,9 @@ export function startServer(port?: number): Promise<number> {
     // Start periodic snapshot saving (every 10s)
     startPeriodicSave(getMqOffset);
 
+    // Keep each CLI's plan limits (the usage chip in the session header) current
+    startPlanUsage();
+
     // Start auth token cleanup (every hour)
     startTokenCleanup();
 
@@ -454,6 +457,7 @@ export function startServer(port?: number): Promise<number> {
     shutdownComplete = true;
     log.info('server', `Received ${signal}, shutting down...`);
     stopPeriodicSave();
+    stopPlanUsage();
     stopHeartbeat();
     stopMqReader();
     stopTokenCleanup();

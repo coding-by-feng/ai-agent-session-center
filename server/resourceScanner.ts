@@ -332,6 +332,14 @@ interface Measured {
 }
 
 async function measurePackage(entry: RawEntry, real: string, sc: ScanCtx): Promise<Measured> {
+  const rootReal = await sc.rootReal(entry.rootAbs);
+  // A package that resolves INTO a credential folder (`skills/x -> ~/.aws`) is
+  // listed by name only — never walked, hashed or served — exactly like a
+  // single file that resolves to a credential. With no recorded realPath the
+  // detail has no files or body, /file 404s and compare has no side.
+  if (isCredentialTarget({ rootAbs: entry.rootAbs, rootReal, absPath: entry.absPath, real })) {
+    return { fields: { fileCount: 0 }, internal: {}, findings: [] };
+  }
   const walk = await walkPackage(real, sc.limits, sc.limit);
   const hash = walk.capped ? undefined : packageHash(walk.files);
   const mainFile = entry.notASkill ? undefined : await packageMainFile(real, sc);
@@ -339,7 +347,7 @@ async function measurePackage(entry: RawEntry, real: string, sc: ScanCtx): Promi
   const capped = `Over ${files.toLocaleString('en-US')} files, ${Math.round(bytes / 1048576)} MB, ${depth} folder levels or ${dirs.toLocaleString('en-US')} folders — not hashed`;
   return {
     fields: { fileCount: walk.files.length, bytes: walk.bytes, mtimeMs: walk.mtimeMs, ...(hash ? { hash } : {}) },
-    internal: { realPath: real, rootReal: await sc.rootReal(entry.rootAbs), files: walk.files, ...(mainFile ? { mainFile } : {}) },
+    internal: { realPath: real, rootReal, files: walk.files, ...(mainFile ? { mainFile } : {}) },
     findings: walk.capped ? [finding('hash-capped', capped, { resourceId: entry.id })] : [],
   };
 }

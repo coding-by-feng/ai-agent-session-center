@@ -1,0 +1,19 @@
+/* UnknownPopoutNotice — a one-line explanation filling a pop-out window of a kind this build has no view for. */
+.root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  background: var(--bg-panel, #0a0a1a);
+  color: var(--text-primary, #e6f6ff);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.notice {
+  margin: auto;
+  padding: 24px;
+  max-width: 40ch;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary, #8899aa);
+}

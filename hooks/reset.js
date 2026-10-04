@@ -91,7 +91,7 @@ if (existsSync(SETTINGS_PATH)) {
 }
 
 // Backup deployed hook scripts (Claude)
-for (const script of ['dashboard-hook.sh', 'dashboard-hook.ps1']) {
+for (const script of ['dashboard-hook.sh', 'dashboard-hook.ps1', 'dashboard-statusline.sh']) {
   const deployed = join(HOOKS_DIR, script);
   if (existsSync(deployed)) {
     copyFileSync(deployed, join(backupPath, `claude-${script}`));
@@ -268,7 +268,7 @@ function safeRemoveHookScript(filePath, label) {
 }
 
 // Claude hooks
-for (const script of ['dashboard-hook.sh', 'dashboard-hook.ps1']) {
+for (const script of ['dashboard-hook.sh', 'dashboard-hook.ps1', 'dashboard-statusline.sh']) {
   safeRemoveHookScript(join(HOOKS_DIR, script), `Claude ${script}`);
 }
 

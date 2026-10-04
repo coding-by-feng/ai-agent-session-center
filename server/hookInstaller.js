@@ -93,6 +93,21 @@ export function ensureHooksInstalled(config) {
     // Copy hook script
     syncHookFile(src, dest, hooksDir, isWindows, 'claude');
 
+    // The status-line tap, which is how the dashboard learns Claude's plan limits. It is
+    // copied but NEVER registered in settings.json: it is passed per launch
+    // (`claude --settings …`, see server/config.ts applyStatusLineTap), whereas a status line
+    // registered there would take over the user's own in every session they start.
+    // A bash script, like the hook it sits next to: not on Windows.
+    if (!isWindows) {
+      syncHookFile(
+        join(__dirname, '..', 'hooks', 'dashboard-statusline.sh'),
+        join(hooksDir, 'dashboard-statusline.sh'),
+        hooksDir,
+        false,
+        'claude status-line',
+      );
+    }
+
     // Register in settings.json
     const densityEvents = {
       high: ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionRequest', 'Stop', 'Notification', 'SubagentStart', 'SubagentStop', 'TeammateIdle', 'TaskCompleted', 'PreCompact', 'SessionEnd'],

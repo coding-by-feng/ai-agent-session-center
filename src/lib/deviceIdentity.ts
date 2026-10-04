@@ -10,6 +10,9 @@
  *     claim is separately one-shot per SERVER lifetime, so a second tab still
  *     cannot trigger a second restore — see `presenceManager.claimWorkspaceRestore`.)
  *
+ *     The one thing that must tell windows apart is the shared queue's echo guard;
+ *     it uses `getWindowOriginId()`, never the device id.
+ *
  *  2. `deriveDeviceLabel` is a PURE function of the three inputs a browser can
  *     report, so it is unit-testable without a DOM. The impure lookups
  *     (localStorage, `navigator`, `crypto`) are confined to `getClientId()` /
@@ -120,6 +123,36 @@ export function getClientId(): string {
   memoryClientId = randomId();
   writeStorage(CLIENT_ID_KEY, memoryClientId);
   return memoryClientId;
+}
+
+/** One per window (JS context). Never persisted: a new window is a new identity. */
+let windowNonce: string | null = null;
+
+/**
+ * Longest window origin id ever sent. The server accepts 200 (`originClientId` in
+ * apiRouter's `sessionQueueSchema`) and rejects a longer one with a 400 that the
+ * fire-and-forget queue push never surfaces; staying at 128 keeps clear of it.
+ */
+export const MAX_ORIGIN_ID_LENGTH = 128;
+
+/**
+ * Identity of THIS window, as opposed to this device: `<device id>:<nonce>`.
+ *
+ * `getClientId()` is shared by every window of one app install (they share
+ * localStorage). That is right for presence and the control baton, and wrong for
+ * anything that must tell one window from another. The shared queue's echo guard
+ * is that case: each window has to apply — not drop — the edits a SIBLING window
+ * of the same device pushed, or a floating queue and the docked one disagree, and
+ * the scheduler (which only ticks in the main window) never sees an item added in
+ * the float. The nonce lives only in module memory, so it cannot leak across windows.
+ */
+export function getWindowOriginId(): string {
+  if (!windowNonce) windowNonce = randomId();
+  // `getClientId()` reads localStorage without a bound, so a stored value we did not
+  // generate could push the whole id past the server's limit. The DEVICE half is what
+  // gets cut: the nonce is what tells two windows apart, the device id is only context.
+  const device = getClientId().slice(0, Math.max(0, MAX_ORIGIN_ID_LENGTH - 1 - windowNonce.length));
+  return `${device}:${windowNonce}`;
 }
 
 /**

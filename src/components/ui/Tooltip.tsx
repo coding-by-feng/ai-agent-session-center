@@ -6,6 +6,10 @@
  *     <button onClick={refresh}>↻</button>
  *   </Tooltip>
  *
+ * `content` takes a small React body (rows, a bar) for a tooltip that has more
+ * to say than a sentence; the caller styles it. It is measured like the rest, so
+ * the viewport flip / clamp below applies to it unchanged.
+ *
  * The wrapper renders a span with hover/focus listeners. The tooltip itself
  * is rendered into document.body via portal so it never gets clipped by
  * scroll containers, overflow:hidden parents, or stacking contexts.
@@ -34,6 +38,8 @@ interface TooltipProps {
   description?: string;
   /** Optional keyboard shortcut hint, e.g. "⌘K" or "Ctrl+B". */
   shortcut?: string;
+  /** Optional rich body under the label / description. Styled by the caller. */
+  content?: ReactNode;
   /** Preferred side; flips automatically when clipped. */
   placement?: TooltipPlacement;
   /** Hover delay in ms before showing. Default 350. */
@@ -104,6 +110,7 @@ export default function Tooltip({
   label,
   description,
   shortcut,
+  content,
   placement = 'top',
   delay = 350,
   children,
@@ -141,7 +148,7 @@ export default function Tooltip({
     const tooltip = tooltipRef.current?.getBoundingClientRect();
     if (!trigger || !tooltip) return;
     setPos(computePosition(trigger, tooltip, placement));
-  }, [open, label, description, shortcut, placement]);
+  }, [open, label, description, shortcut, content, placement]);
 
   // Hide on scroll, resize, or Escape.
   useEffect(() => {
@@ -184,6 +191,7 @@ export default function Tooltip({
         >
           <div className={styles.label}>{label}</div>
           {description && <div className={styles.description}>{description}</div>}
+          {content}
           {shortcut && <div className={styles.shortcut}><kbd>{shortcut}</kbd></div>}
           <span className={styles.arrow} aria-hidden />
         </div>,

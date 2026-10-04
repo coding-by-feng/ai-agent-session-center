@@ -61,8 +61,12 @@ export interface SessionRemovedMessage {
  *
  * Carries the full items + automation rather than a "go re-fetch" nudge, so a
  * receiving device applies it with no follow-up request. `originClientId` is
- * the sender's device id, echoed back by the server so the sender can ignore
- * its own broadcast instead of re-saving it in a loop.
+ * the sender's WINDOW origin id (`<device id>:<window nonce>`, see
+ * `getWindowOriginId`), echoed back by the server so that window can ignore its
+ * own broadcast instead of re-saving it in a loop. It is per window, not per
+ * device: another window of the same device has a different one, and its update
+ * must be applied. The server sends this only to clients the session is visible
+ * to (see `broadcastSubject` in `wsManager.ts`).
  */
 export interface QueueUpdateMessage {
   type: 'queue_update';
