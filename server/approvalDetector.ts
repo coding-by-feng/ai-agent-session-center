@@ -40,6 +40,50 @@ export function isAgentBusyOutput(output: string | null | undefined): boolean {
 }
 
 /**
+ * Claude Code permission modes in which the PostToolUse-timeout heuristic must not
+ * decide "approval". `dontAsk` never prompts (an ask becomes a refusal).
+ * `bypassPermissions` prompts only for explicit `ask` rules and the CLI's
+ * bypass-immune safety checks (a dangerous `rm`, an `sh -c` script with `rm` it
+ * cannot analyse, reads outside allowed dirs…) — and those real dialogs send
+ * PermissionRequest plus a `permission_prompt` Notification (sessionStore), which
+ * set "approval" without any guessing. So in these two modes a timer can only be
+ * wrong: the reported case was a bypass-mode session an hour into "still thinking"
+ * after a Read, showing the "!" badge. `auto` (a classifier, may still ask) and the
+ * other modes keep the heuristic.
+ */
+const NEVER_PROMPTS_MODES: ReadonlySet<string> = new Set(['bypassPermissions', 'dontAsk']);
+
+/**
+ * May the timeout heuristic turn this tool call into a wait for the user? False only
+ * for a tool whose wait would be an APPROVAL, in one of the modes above. A question
+ * (`input`: AskUserQuestion, plan tools) still waits for an answer in every mode.
+ */
+export function mayAwaitApproval(toolName: string, permissionMode?: string | null): boolean {
+  if (!permissionMode || !NEVER_PROMPTS_MODES.has(permissionMode)) return true;
+  return getWaitingStatus(toolName) !== SESSION_STATUS.APPROVAL;
+}
+
+/** Tool-lifecycle hook names, in the order a call goes through them. */
+const CALL_OPENS = new Set(['PreToolUse', 'PermissionRequest']);
+const CALL_CLOSES = new Set(['PostToolUse', 'PostToolUseFailure', 'Stop', 'UserPromptSubmit', 'SessionStart', 'SessionEnd']);
+
+/**
+ * Is a tool call still waiting for its result? True when the latest tool-lifecycle
+ * event in the session's log opened a call (PreToolUse / PermissionRequest) rather
+ * than closed one. Unlike `pendingTool` this covers every tool, including MCP and
+ * other tools with no approval timeout. Used to accept a `permission_prompt`
+ * Notification only while a call is open, so a late one never flips a finished call.
+ */
+export function toolCallInFlight(events: ReadonlyArray<{ type: string }>): boolean {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const type = events[i].type;
+    if (CALL_OPENS.has(type)) return true;
+    if (CALL_CLOSES.has(type)) return false;
+  }
+  return false;
+}
+
+/**
  * Validate PID as a positive integer.
  */
 function validatePid(pid: unknown): number | null {
@@ -78,6 +122,9 @@ export async function hasChildProcesses(pid: number): Promise<boolean> {
 /**
  * Start an approval detection timer for a tool invocation.
  * If PostToolUse doesn't arrive within the timeout, transitions session to approval/input.
+ * `permissionMode` is the one the PreToolUse event itself carries (the session's
+ * recorded mode — from its launch config or first hook — is stale after a Shift+Tab
+ * switch); where `mayAwaitApproval` says no, no approval timer is armed at all.
  */
 export function startApprovalTimer(
   sessionId: string,
@@ -87,13 +134,17 @@ export function startApprovalTimer(
   broadcastFn: (session: Session) => Promise<void>,
   sessionLookupFn: (id: string) => Session | undefined,
   getTerminalOutput?: (session: Session) => string | null,
+  permissionMode?: string | null,
 ): void {
   clearTimeout(pendingToolTimers.get(sessionId));
+  pendingToolTimers.delete(sessionId);
 
   const approvalTimeout = getToolTimeout(toolName);
   if (approvalTimeout > 0) {
+    // Kept even when no timer is armed: the robot shows the running tool from it.
     session.pendingTool = toolName;
     session.pendingToolDetail = toolInputSummary;
+    if (!mayAwaitApproval(toolName, permissionMode)) return;
     const timer = setTimeout(async () => {
       pendingToolTimers.delete(sessionId);
       // Look up the current session state instead of using stale closure reference

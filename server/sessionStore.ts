@@ -21,7 +21,7 @@ import {
 
 // Sub-module imports
 import { matchSession, detectHookSource } from './sessionMatcher.js';
-import { startApprovalTimer, clearApprovalTimer, hasChildProcesses } from './approvalDetector.js';
+import { startApprovalTimer, clearApprovalTimer, hasChildProcesses, toolCallInFlight } from './approvalDetector.js';
 import { closeTerminal, registerTerminalExitCallback, registerTerminalFaultCallback, getTerminalOutputBuffer, getTerminalOutputTail, getTerminals, getTerminalByPtyPid } from './sshManager.js';
 import { checkTurnInterrupted } from './transcriptInterrupt.js';
 import { isCodexSession } from './sessionKillPolicy.js';
@@ -876,13 +876,18 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       eventEntry.detail = `${toolName}`;
 
       // Approval/input detection via timer (delegated to approvalDetector). The
-      // last arg samples the session's live terminal tail so the timer can tell a
-      // genuine approval wait from an active thinking/working spinner (suppresses
-      // false "approval" during long xhigh-effort thinking).
+      // terminal-tail sampler lets the timer tell a genuine approval wait from an
+      // active thinking/working spinner (suppresses false "approval" during long
+      // xhigh-effort thinking). The permission mode is THIS event's — the user can
+      // Shift+Tab mid-session, after the session's recorded mode was taken — and in
+      // bypass/dontAsk mode no approval timer is armed at all (a real dialog there
+      // is reported by PermissionRequest and the permission_prompt Notification).
       startApprovalTimer(
         session_id, session, toolName, toolInputSummary, broadcastSessionUpdate,
         (sid) => sessions.get(sid),
         (s) => (s.terminalId ? getTerminalOutputTail(s.terminalId) : null),
+        ('permission_mode' in hookData && typeof hookData.permission_mode === 'string' && hookData.permission_mode)
+          || session.permissionMode,
       );
       break;
     }
@@ -1013,11 +1018,27 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       eventEntry.detail = 'Context compaction completed';
       break;
 
-    case EVENT_TYPES.NOTIFICATION:
-      eventEntry.detail = ('message' in hookData ? hookData.message : undefined)
-        || ('title' in hookData ? hookData.title : undefined)
-        || 'Notification';
+    case EVENT_TYPES.NOTIFICATION: {
+      const message = 'message' in hookData ? hookData.message : undefined;
+      eventEntry.detail = message || ('title' in hookData ? hookData.title : undefined) || 'Notification';
+      // A real permission dialog is open ("Claude needs your permission to use X").
+      // The backstop for PermissionRequest, which can land BEFORE its PreToolUse
+      // (each hook is appended by its own detached shell) and then be overwritten
+      // back to working — with no approval timer left in bypass/dontAsk mode to
+      // catch it. Only while a tool call is still open, so a late notification
+      // never flips a call that already finished.
+      if (
+        'notification_type' in hookData && hookData.notification_type === 'permission_prompt'
+        && session.status === SESSION_STATUS.WORKING
+        && toolCallInFlight(session.events)
+      ) {
+        clearApprovalTimer(session_id, null); // stop the heuristic; keep pendingTool for the robot
+        session.status = SESSION_STATUS.APPROVAL;
+        session.animationState = ANIMATION_STATE.WAITING;
+        session.waitingDetail = message || 'Approval needed';
+      }
       break;
+    }
 
     case EVENT_TYPES.SESSION_END:
       session.status = SESSION_STATUS.ENDED;
