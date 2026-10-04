@@ -11,6 +11,7 @@ import { canWriteWorkspace } from '@/stores/presenceStore';
 import { useQueueStore } from '@/stores/queueStore';
 import type { QueueItem, QueueAutomationConfig } from '@/stores/queueStore';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
+import { useUiStore } from '@/stores/uiStore';
 
 // ---------------------------------------------------------------------------
 // Snapshot shape
@@ -1180,9 +1181,12 @@ export function isImportInProgress(): boolean {
   return _importInProgress;
 }
 
-/** Set by useWorkspaceAutoLoad: blocks auto-save until restore is resolved. */
+/** Set by useWorkspaceAutoLoad: blocks auto-save until restore is resolved.
+ *  Mirrored into uiStore (`workspaceRestorePending`) for the LIVE page, which
+ *  must not say "No agent sessions yet" before this is decided. */
 export function setRestorePending(v: boolean): void {
   _restorePending = v;
+  useUiStore.setState({ workspaceRestorePending: v });
 }
 
 export function isRestorePending(): boolean {
@@ -1195,6 +1199,7 @@ export function _resetAutoSaveStateForTests(): void {
   _autoSaveTimer = null;
   _importInProgress = false;
   _restorePending = true;
+  useUiStore.setState({ workspaceRestorePending: true });
 }
 
 /**

@@ -26,114 +26,9 @@ import DetachIcon from '@/components/ui/DetachIcon';
 import Tooltip from '@/components/ui/Tooltip';
 import { tooltips } from '@/lib/tooltips';
 import { justCompleted, completionStillApplies } from '@/lib/sessionAttention';
+import { STATUS_COLORS, STATUS_LEGEND } from '@/lib/sessionStatusStyle';
+import StatusGlyph from './StatusGlyph';
 import styles from '@/styles/modules/DetailPanel.module.css';
-
-const STATUS_COLORS: Record<string, string> = {
-  idle: 'var(--accent-green)',
-  prompting: 'var(--accent-cyan)',
-  working: 'var(--accent-orange)',
-  waiting: 'var(--accent-cyan)',
-  approval: 'var(--accent-yellow)',
-  input: 'var(--accent-purple)',
-  ended: 'var(--accent-red)',
-  connecting: 'var(--text-dim)',
-};
-
-// Ordered status → human label for the colour-legend popover. Order follows
-// STATUS_ORDER (lib/sessionSort.ts); each swatch is drawn from STATUS_COLORS, so the legend always
-// reflects the active theme's accent palette (body[data-theme]).
-const STATUS_LEGEND: ReadonlyArray<{ status: string; label: string }> = [
-  { status: 'working', label: 'Working' },
-  { status: 'prompting', label: 'Prompting' },
-  { status: 'approval', label: 'Approval needed' },
-  { status: 'input', label: 'Waiting for input' },
-  { status: 'waiting', label: 'Waiting' },
-  { status: 'idle', label: 'Idle' },
-  { status: 'connecting', label: 'Connecting' },
-  { status: 'ended', label: 'Disconnected' },
-];
-
-/** Shared SVG props for the stroked status glyphs — hoisted to module scope so
- *  it isn't re-allocated on every card render. */
-const GLYPH_PROPS = {
-  width: 10,
-  height: 10,
-  viewBox: '0 0 14 14',
-  fill: 'none',
-  stroke: 'currentColor',
-  strokeWidth: 1.8,
-  strokeLinecap: 'round' as const,
-  strokeLinejoin: 'round' as const,
-};
-
-/**
- * Distinct glyph per session status so completed / approval / input / working
- * etc. are tellable apart at a glance — not by colour alone (waiting and
- * prompting even share cyan, and accent colours repeat across themes). The
- * glyph inherits the badge colour via `currentColor`.
- *
- * The status→glyph mapping is backend-agnostic: status is derived identically
- * for Claude and Codex (same hook events → same status in sessionStore), so a
- * Codex session and a Claude session in the same real-world state show the
- * same icon.
- */
-function StatusGlyph({ status }: { status: string }) {
-  switch (status) {
-    case 'waiting': // completed — finished its turn, ready for review
-      return <svg {...GLYPH_PROPS}><polyline points="3,7.4 6,10.2 11,4.2" /></svg>;
-    case 'approval': // needs you to approve a tool — "!"
-      return (
-        <svg {...GLYPH_PROPS}>
-          <line x1="7" y1="2.8" x2="7" y2="8.4" />
-          <circle cx="7" cy="11" r="0.75" fill="currentColor" stroke="none" />
-        </svg>
-      );
-    case 'input': // needs you to answer a question — "?"
-      return (
-        <svg {...GLYPH_PROPS}>
-          <path d="M4.9 4.7a2.1 2.1 0 1 1 3.5 1.7c-.9.8-1.4 1.1-1.4 2.1" />
-          <circle cx="7" cy="11" r="0.75" fill="currentColor" stroke="none" />
-        </svg>
-      );
-    case 'working': // tool running — spinner
-      return (
-        <svg {...GLYPH_PROPS}>
-          <path d="M12 7a5 5 0 1 1-1.6-3.7" />
-          <polyline points="11.9,1.7 11.9,4 9.6,4" />
-        </svg>
-      );
-    case 'prompting': // prompt submitted — up arrow
-      return (
-        <svg {...GLYPH_PROPS}>
-          <line x1="7" y1="11.2" x2="7" y2="3.3" />
-          <polyline points="3.9,6.4 7,3.3 10.1,6.4" />
-        </svg>
-      );
-    case 'ended': // disconnected — ✕
-      return (
-        <svg {...GLYPH_PROPS}>
-          <line x1="3.9" y1="3.9" x2="10.1" y2="10.1" />
-          <line x1="10.1" y1="3.9" x2="3.9" y2="10.1" />
-        </svg>
-      );
-    case 'connecting': // handshaking — ellipsis
-      return (
-        <svg width="10" height="10" viewBox="0 0 14 14" fill="currentColor">
-          <circle cx="3.3" cy="7" r="1.05" />
-          <circle cx="7" cy="7" r="1.05" />
-          <circle cx="10.7" cy="7" r="1.05" />
-        </svg>
-      );
-    case 'idle': // available, doing nothing — pause bars
-    default:
-      return (
-        <svg {...GLYPH_PROPS}>
-          <line x1="5.2" y1="3.8" x2="5.2" y2="10.2" />
-          <line x1="8.8" y1="3.8" x2="8.8" y2="10.2" />
-        </svg>
-      );
-  }
-}
 
 // One color per room slot — cycles if more than 8 rooms exist.
 // Must match the palette in HeaderAgentStrip so colors agree across the UI.
@@ -1661,6 +1556,7 @@ function SessionTabCard({
       {needsAttention ? (
         <span
           className={styles.sessionTabAttentionBadge}
+          role="img"
           aria-label="Completed — ready for review"
           title="Completed — ready for review"
         >
@@ -1669,6 +1565,7 @@ function SessionTabCard({
       ) : (
         <span
           className={styles.sessionTabStatusBadge}
+          role="img"
           aria-label={statusTitle}
           title={statusTitle}
         >

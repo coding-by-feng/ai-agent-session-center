@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router';
+import { NavLink, useLocation } from 'react-router';
 import { useUiStore } from '@/stores/uiStore';
 import { useAgendaStore } from '@/stores/agendaStore';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -7,6 +7,7 @@ import { getClientId } from '@/lib/deviceIdentity';
 import WorkdirLauncher from './WorkdirLauncher';
 import { useIsMobile } from '@/lib/platform';
 import { openLiveSession } from '@/lib/liveSession';
+import { useLiveHint } from '@/hooks/useLiveBoard';
 import styles from '@/styles/modules/NavBar.module.css';
 
 interface NavItem {
@@ -68,6 +69,19 @@ export default function NavBar() {
   const navItems = NAV_ITEMS.filter(
     (i) => !(isMobile && i.desktopOnly) && !(i.localOnly && !isLocal),
   );
+  // The LIVE board's one-time tip ("…or press LIVE") marks this tab with a dot
+  // while it is up. A LIVE click that opens a session is one of the things it
+  // teaches, so it retires the tip; one that opens nothing (no sessions yet)
+  // has taught nothing and leaves it for later. See lib/liveHint.ts.
+  const liveHint = useLiveHint(useLocation().pathname === '/');
+
+  const onTabClick = (to: string) => {
+    if (to !== '/') {
+      deselectSession();
+      return;
+    }
+    if (openLiveSession()) liveHint.dismiss();
+  };
 
   return (
     <nav className={styles.nav}>
@@ -106,12 +120,17 @@ export default function NavBar() {
           // Header (hidden while a panel is open) returns. LIVE does the
           // opposite: it opens the panel on the session you had open — only
           // the panel's minimize (‒) hides it on LIVE. See lib/liveSession.ts.
-          onClick={() => (item.to === '/' ? openLiveSession() : deselectSession())}
+          onClick={() => onTabClick(item.to)}
           className={({ isActive }) =>
             `${styles.navBtn} ${isActive ? styles.active : ''}`
           }
+          // LiveHintCallout measures this tab to point its caret at it.
+          data-live-tab={item.to === '/' ? '' : undefined}
         >
           {item.label}
+          {item.to === '/' && liveHint.visible && (
+            <span className={styles.liveCueDot} data-live-cue="" aria-hidden="true" />
+          )}
           {item.to === '/agenda' && incompleteCount > 0 && (
             <span className={styles.badge}>{incompleteCount}</span>
           )}

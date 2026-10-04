@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { LIVE_HINT_STORAGE_KEY } from '@/lib/liveHint';
 
 /** Modal id for the room "kill all sessions" confirm dialog. Defined here (not
  *  in the modal component) so `openRoomKill` can reference it without a store↔
@@ -86,6 +87,17 @@ interface UiState {
   workspaceLoad: WorkspaceLoadState;
   /** Room filter: persisted across session switches */
   selectedRoomIds: Set<string>;
+  /** The LIVE board's one-time tip has been retired on this device (lib/liveHint.ts).
+   *  Persisted to localStorage['live-hint-dismissed']. */
+  liveHintDismissed: boolean;
+  /** The top bar's DIRS dropdown (WorkdirLauncher) is open. Shared, not local, so
+   *  the LIVE page's "no sessions yet" card can open it. Not persisted. */
+  workdirLauncherOpen: boolean;
+  /** The workspace auto-load has not decided yet whether to restore. Mirrors
+   *  workspaceSnapshot's module flag (`setRestorePending`) for React: true from
+   *  boot until useWorkspaceAutoLoad resolves, so the LIVE page does not say
+   *  "No agent sessions yet" just before a restore re-creates them. */
+  workspaceRestorePending: boolean;
 
   openModal: (modalId: string) => void;
   /** Open the room-kill confirm modal targeting a specific room. */
@@ -120,6 +132,8 @@ interface UiState {
   finishWorkspaceLoad: () => void;
   toggleRoomFilter: (roomId: string) => void;
   clearRoomFilter: () => void;
+  dismissLiveHint: () => void;
+  setWorkdirLauncherOpen: (open: boolean) => void;
 }
 
 function loadCardDisplayMode(): CardDisplayMode {
@@ -241,6 +255,14 @@ function saveRoomFilter(ids: Set<string>): void {
   }
 }
 
+function loadLiveHintDismissed(): boolean {
+  try {
+    return localStorage.getItem(LIVE_HINT_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export const useUiStore = create<UiState>((set) => ({
   activeModal: null,
   roomKillTargetId: null,
@@ -259,6 +281,9 @@ export const useUiStore = create<UiState>((set) => ({
   collapsedProjects: loadCollapsedProjects(),
   workspaceLoad: { active: false, total: 0, done: 0, currentTitle: '' },
   selectedRoomIds: loadRoomFilter(),
+  liveHintDismissed: loadLiveHintDismissed(),
+  workdirLauncherOpen: false,
+  workspaceRestorePending: true,
 
   openModal: (modalId) => set({ activeModal: modalId }),
   openRoomKill: (roomId) => set({ activeModal: ROOM_KILL_MODAL_ID, roomKillTargetId: roomId }),
@@ -379,4 +404,13 @@ export const useUiStore = create<UiState>((set) => ({
     saveRoomFilter(new Set());
     set({ selectedRoomIds: new Set() });
   },
+  dismissLiveHint: () => {
+    try {
+      localStorage.setItem(LIVE_HINT_STORAGE_KEY, '1');
+    } catch {
+      /* ignore — still retired for this visit */
+    }
+    set({ liveHintDismissed: true });
+  },
+  setWorkdirLauncherOpen: (open) => set({ workdirLauncherOpen: open }),
 }));

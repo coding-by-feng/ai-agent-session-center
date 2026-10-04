@@ -6,6 +6,11 @@
   position: absolute;
   inset: 0;
   background: var(--bg-primary, #0a0a1a);
+  /* The HUD's footprint (SceneOverlay: right 20px, up to 260px wide, ~200px
+     tall at bottom 16px), plus a 24px gap. LiveBoard and LiveEmptyState keep
+     their content out from under it with these. */
+  --hud-clear-right: 304px;
+  --hud-clear-bottom: 232px;
 }
 
 /* "3D SCENE PAUSED" watermark. On a desktop it labels the empty space the
@@ -39,4 +44,21 @@
   .scenePausedHasSidebar {
     display: none;
   }
+}
+
+/* The desktop flat view's one line while the session list has not arrived
+   (LiveView's LoadingNote, shown only after a delay). */
+.loadingNote {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 24px;
+  padding-bottom: var(--hud-clear-bottom, 232px);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 1px;
 }

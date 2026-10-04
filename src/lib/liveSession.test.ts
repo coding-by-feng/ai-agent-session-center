@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { pickLiveSession } from './liveSession';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { openLiveSession, openSessionPanel, pickLiveSession } from './liveSession';
+import { useSessionStore } from '@/stores/sessionStore';
+import { useUiStore } from '@/stores/uiStore';
 import type { Session } from '@/types';
 
 const T = 1_800_000_000_000;
@@ -58,5 +60,36 @@ describe('pickLiveSession — which session the LIVE tab opens', () => {
   it('returns null when there is nothing to open', () => {
     expect(pickLiveSession(map(), null, null)).toBeNull();
     expect(pickLiveSession(map(s('dead', { status: 'ended' })), null, 'dead')).toBeNull();
+  });
+});
+
+// The one rule for "open this session's panel from the LIVE page", shared by
+// the LIVE tab (openLiveSession) and the board's cards.
+describe('openSessionPanel', () => {
+  beforeEach(() => {
+    useSessionStore.setState({ sessions: map(s('a'), s('b')), selectedSessionId: null, previousSessionId: null, lastSelectedSessionId: null });
+    useUiStore.setState({ detailPanelMinimized: false });
+  });
+
+  it('openLiveSession says whether it opened anything', () => {
+    expect(openLiveSession()).toBe(true);
+    useSessionStore.setState({ sessions: map(), selectedSessionId: null, lastSelectedSessionId: null });
+    expect(openLiveSession()).toBe(false);
+  });
+
+  it('selects the session and shows its panel', () => {
+    useUiStore.setState({ detailPanelMinimized: true });
+    openSessionPanel('b');
+    expect(useSessionStore.getState().selectedSessionId).toBe('b');
+    expect(useUiStore.getState().detailPanelMinimized).toBe(false);
+  });
+
+  it('does not re-select the session already open, which would make it its own "previous"', () => {
+    useSessionStore.getState().selectSession('a');
+    const prev = useSessionStore.getState().previousSessionId;
+    useUiStore.setState({ detailPanelMinimized: true });
+    openSessionPanel('a');
+    expect(useSessionStore.getState().previousSessionId).toBe(prev);
+    expect(useUiStore.getState().detailPanelMinimized).toBe(false);
   });
 });

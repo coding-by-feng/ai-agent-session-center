@@ -41,6 +41,8 @@ export interface SnapshotMessage {
   sessions: Record<string, Session>;
   teams: Record<string, TeamSerialized>;
   seq: number;
+  /** Sessions left out because they are not shared with this device (sessionVisibility.ts); 0 or absent on this machine. */
+  hiddenCount?: number;
 }
 
 /** Session state update (delta) */

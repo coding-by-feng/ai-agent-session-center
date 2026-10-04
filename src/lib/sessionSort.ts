@@ -20,6 +20,14 @@ export const STATUS_ORDER: Record<string, number> = {
   waiting: 3, idle: 4, connecting: 5, ended: 6,
 };
 
+/**
+ * What the LIVE tab can open and the LIVE board lists: not ended, and not a
+ * floating AI popup (those belong to the session they were forked from).
+ */
+export function isListedSession(s: Session): boolean {
+  return s.status !== 'ended' && !s.isFloating;
+}
+
 export function sortSessions(sessions: Session[]): Session[] {
   return [...sessions].sort((a, b) => {
     // Pinned sessions float to the top of their group.

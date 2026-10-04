@@ -6,13 +6,15 @@
 // session list, so it stays. The rule lives inside RobotListSidebar, so the
 // 3D scene (which mounts it too) follows the same rule without its own check.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import type { Session } from '@/types';
 
 import LiveView from './LiveView';
 import RobotListSidebar from '@/components/3d/RobotListSidebar';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useUiStore } from '@/stores/uiStore';
+import { useWsStore } from '@/stores/wsStore';
 
 function phoneWidth(isPhone: boolean): void {
   vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
@@ -28,6 +30,9 @@ const session = (id: string): Session =>
 beforeEach(() => {
   useSessionStore.setState({ sessions: new Map([['a', session('a')], ['b', session('b')]]), selectedSessionId: null });
   useSettingsStore.setState({ scene3dEnabled: false } as never);
+  useWsStore.setState({ snapshotReceived: true });
+  useUiStore.setState({ workspaceLoad: { active: false, total: 0, done: 0, currentTitle: '' }, workspaceRestorePending: false });
+  useWsStore.setState({ connected: true });
 });
 
 afterEach(() => {
@@ -47,21 +52,96 @@ describe('the AGENTS list on the LIVE page', () => {
     expect(screen.getByText(/Agents \(2\)/i)).toBeInTheDocument();
   });
 
-  it('desktop LIVE page (3D off): no list, and the "3D Scene Paused" label stays visible', () => {
+  it('desktop LIVE page (3D off): no AGENTS list; the session board shows instead of the old "3D Scene Paused" label', () => {
     phoneWidth(false);
     const { container } = render(<LiveView />);
     expect(screen.queryByText(/Agents \(/i)).toBeNull();
-    const paused = screen.getByText(/3D Scene Paused/i);
-    // This class hides the label on narrow screens because the full-bleed list
-    // replaces it; with no list that would leave an empty page.
-    expect(paused.className).not.toMatch(/scenePausedHasSidebar/);
+    expect(screen.queryByText(/3D Scene Paused/i)).toBeNull();
+    expect(screen.getByRole('heading', { name: /Sessions \(2\)/i })).toBeInTheDocument();
     expect(container.querySelector('[class*="flatRoot"]')).not.toBeNull();
   });
 
-  it('phone LIVE page (3D off): the list replaces the label, as before', () => {
+  it('phone LIVE page (3D off): the list replaces the label, as before, and there is no board', () => {
     phoneWidth(true);
     render(<LiveView />);
     expect(screen.getByText(/Agents \(2\)/i)).toBeInTheDocument();
     expect(screen.getByText(/3D Scene Paused/i).className).toMatch(/scenePausedHasSidebar/);
+    expect(screen.queryByRole('heading', { name: /Sessions \(/i })).toBeNull();
+    expect(screen.queryByRole('heading', { name: /No agent sessions yet/i })).toBeNull();
+  });
+});
+
+// What a desktop LIVE page (3D off) shows depends on whether the session list
+// has loaded, and on whether there is anything in it. See lib/liveBoard.ts.
+describe('the desktop LIVE page (3D off) before and after sessions exist', () => {
+  beforeEach(() => phoneWidth(false));
+
+  it('shows neither the board nor "no sessions" before the first snapshot, so returning users see no flash', () => {
+    useWsStore.setState({ snapshotReceived: false });
+    useSessionStore.setState({ sessions: new Map() });
+    render(<LiveView />);
+    expect(screen.queryByRole('heading', { name: /No agent sessions yet/i })).toBeNull();
+    expect(screen.queryByRole('heading', { name: /Sessions \(/i })).toBeNull();
+  });
+
+  it('shows how to start once loaded with no sessions', () => {
+    useSessionStore.setState({ sessions: new Map() });
+    render(<LiveView />);
+    expect(screen.getByRole('heading', { name: /No agent sessions yet/i })).toBeInTheDocument();
+  });
+
+  it('holds "no sessions" back while a workspace restore is re-creating them', () => {
+    useSessionStore.setState({ sessions: new Map() });
+    useUiStore.setState({ workspaceLoad: { active: true, total: 3, done: 0, currentTitle: '' } });
+    render(<LiveView />);
+    expect(screen.queryByRole('heading', { name: /No agent sessions yet/i })).toBeNull();
+  });
+
+  it('holds "no sessions" back until the workspace auto-load has decided whether to restore', () => {
+    useSessionStore.setState({ sessions: new Map() });
+    useUiStore.setState({ workspaceRestorePending: true });
+    render(<LiveView />);
+    expect(screen.queryByRole('heading', { name: /No agent sessions yet/i })).toBeNull();
+    act(() => useUiStore.setState({ workspaceRestorePending: false }));
+    expect(screen.getByRole('heading', { name: /No agent sessions yet/i })).toBeInTheDocument();
+  });
+
+  it('counts only sessions it lists: an ended one does not keep the board up', () => {
+    useSessionStore.setState({ sessions: new Map([['gone', { ...session('gone'), status: 'ended' } as Session]]) });
+    render(<LiveView />);
+    expect(screen.getByRole('heading', { name: /No agent sessions yet/i })).toBeInTheDocument();
+  });
+
+  it('keeps the HUD (sound and 3D toggles) in every state', () => {
+    useSessionStore.setState({ sessions: new Map() });
+    render(<LiveView />);
+    expect(screen.getByRole('button', { name: /3D Off/i })).toBeInTheDocument();
+  });
+});
+
+// While loading, the page says nothing at first (no flash), then says why it is
+// empty if it stays that way: a dead server, or a remote device the server
+// refuses, would otherwise leave a blank page with only the HUD on it.
+describe('the desktop LIVE page while the session list has not arrived', () => {
+  beforeEach(() => {
+    phoneWidth(false);
+    vi.useFakeTimers();
+    useWsStore.setState({ snapshotReceived: false });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('is quiet at first, then says it is still connecting', () => {
+    useWsStore.setState({ connected: false });
+    render(<LiveView />);
+    expect(screen.queryByRole('status')).toBeNull();
+    act(() => { vi.advanceTimersByTime(2500); });
+    expect(screen.getByRole('status')).toHaveTextContent(/Connecting to the session server/i);
+  });
+
+  it('connected but still loading says so', () => {
+    useWsStore.setState({ connected: true });
+    render(<LiveView />);
+    act(() => { vi.advanceTimersByTime(2500); });
+    expect(screen.getByRole('status')).toHaveTextContent(/Loading sessions/i);
   });
 });
