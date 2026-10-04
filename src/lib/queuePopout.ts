@@ -4,8 +4,9 @@
  * Mirrors the PROJECT tab's float button (`DetailTabs.openProjectWindow`): under
  * Electron the session is handed to a native BrowserWindow (`window:open-queue`,
  * bounds remembered per kind, one window per session); a plain browser opens the
- * same view with `window.open`. The docked panel is left alone — the two are live
- * views of the same shared queue.
+ * same view with `window.open`. Once a window opens, the caller folds its docked
+ * panel to the header (`QueueTab.handleFloat`); the two stay live views of the
+ * same shared queue.
  *
  * Under Electron there is deliberately NO `window.open` fallback. The shell's
  * window-open policy sends anything it cannot place to the system browser, so a

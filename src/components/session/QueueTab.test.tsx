@@ -17,7 +17,7 @@
  * whether or not the fix was real.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import QueueTab from './QueueTab';
@@ -172,7 +172,7 @@ describe('QueueTab — held queue notice', () => {
   });
 
   it('with the queue collapsed, its header still says it is paused (and expanding shows the notice)', async () => {
-    localStorage.setItem('queue-panel-collapsed', '1');
+    useUiStore.setState({ queuePanelCollapsed: true });
     useSessionStore.setState({ sessions: new Map([['s1', session({ userCancelledAt: Date.now() }) as never]]) });
     render(<QueueTab sessionId="s1" sessionStatus="waiting" terminalId="term-1" />);
     const toggle = screen.getByRole('button', { name: /QUEUE/ });
@@ -271,6 +271,8 @@ describe('QueueTab — float (pop out to its own window)', () => {
     openMock.mockResolvedValue('native');
     useQueueStore.setState({ queues: new Map(), automation: new Map(), composeDrafts: new Map() });
     useSessionStore.setState({ sessions: new Map([['s1', session as never]]), selectedSessionId: null });
+    // A fresh profile: the docked default is collapsed.
+    useUiStore.setState({ queuePanelCollapsed: true });
     try { localStorage.removeItem('queue-panel-collapsed'); } catch { /* ignore */ }
   });
 
@@ -291,13 +293,31 @@ describe('QueueTab — float (pop out to its own window)', () => {
     expect(openMock).toHaveBeenCalledWith({ sessionId: 's1', label: 'Queue — KTS Agent' });
   });
 
-  it('leaves the docked panel exactly as it was — floating is not collapsing', async () => {
-    localStorage.setItem('queue-panel-collapsed', '0');
-    render(docked());
-    await userEvent.setup().click(screen.getByRole('button', FLOAT));
-    expect(panelRoot().className).not.toMatch(/collapsed/);
-    expect(localStorage.getItem('queue-panel-collapsed')).toBe('0');
-  });
+  it.each(['native', 'browser'] as const)(
+    'collapses the docked panel once a window opened (%s): the window shows the queue now',
+    async (outcome) => {
+      openMock.mockResolvedValue(outcome);
+      useUiStore.setState({ queuePanelCollapsed: false });
+      render(docked());
+      await userEvent.setup().click(screen.getByRole('button', FLOAT));
+      await vi.waitFor(() => expect(panelRoot().className).toMatch(/collapsed/));
+      expect(useUiStore.getState().queuePanelCollapsed).toBe(true);
+      expect(localStorage.getItem('queue-panel-collapsed')).toBe('1');
+    },
+  );
+
+  it.each(['blocked', 'unsupported'] as const)(
+    'keeps the docked panel open when no window opened (%s): the queue must not vanish behind the error',
+    async (outcome) => {
+      openMock.mockResolvedValue(outcome);
+      useUiStore.setState({ queuePanelCollapsed: false });
+      render(docked());
+      await userEvent.setup().click(screen.getByRole('button', FLOAT));
+      await screen.findByText(/Pop-ups are blocked|isn't available in this app build/i);
+      expect(panelRoot().className).not.toMatch(/collapsed/);
+      expect(useUiStore.getState().queuePanelCollapsed).toBe(false);
+    },
+  );
 
   it('says so when the browser blocked the popup', async () => {
     openMock.mockResolvedValue('blocked');
@@ -330,8 +350,14 @@ describe('QueueTab — float (pop out to its own window)', () => {
       expect(screen.queryByRole('button', FLOAT)).toBeNull();
     });
 
-    it('opens expanded even when the docked strip is stored as collapsed', () => {
-      localStorage.setItem('queue-panel-collapsed', '1');
+    it('has no collapse button either: the float window is the whole window', () => {
+      useUiStore.setState({ queuePanelCollapsed: false });
+      render(floating());
+      expect(screen.queryByRole('button', { name: /^(Collapse|Expand) the queue$/ })).toBeNull();
+    });
+
+    it('opens expanded even when the docked strip is collapsed', () => {
+      useUiStore.setState({ queuePanelCollapsed: true });
       render(floating());
       expect(panelRoot().className).not.toMatch(/collapsed/);
     });
@@ -342,15 +368,99 @@ describe('QueueTab — float (pop out to its own window)', () => {
     });
 
     it("has a static header, not a disabled button — and it cannot rewrite the docked strip's collapse flag", async () => {
-      localStorage.setItem('queue-panel-collapsed', '1');
+      // Seeded EXPANDED: a stray `setQueuePanelCollapsed(!collapsed)` in the float (whose
+      // `collapsed` is forced false) would write true / '1', so this is the seed that catches it.
+      useUiStore.setState({ queuePanelCollapsed: false });
+      localStorage.setItem('queue-panel-collapsed', '0');
       render(floating());
       // A disabled button would be announced as "dimmed" for a label that has nothing to act on.
       expect(screen.queryByRole('button', { name: /QUEUE/ })).toBeNull();
       const label = screen.getByText(/QUEUE/);
       await userEvent.setup().click(label);
-      expect(localStorage.getItem('queue-panel-collapsed')).toBe('1');
+      expect(useUiStore.getState().queuePanelCollapsed).toBe(false);
+      expect(localStorage.getItem('queue-panel-collapsed')).toBe('0');
       expect(panelRoot().className).not.toMatch(/collapsed/);
     });
+  });
+});
+
+/**
+ * The header's collapse button: the fold the "▶ QUEUE" label does, as an icon at
+ * the end of the row with the panel's other action (float). It stays in the row
+ * while collapsed, as "Expand the queue", so nothing beside it moves.
+ */
+describe('QueueTab — collapse button', () => {
+  const COLLAPSE = { name: 'Collapse the queue' };
+  const EXPAND = { name: 'Expand the queue' };
+  const panelRoots = () =>
+    screen.getAllByPlaceholderText(/Add a prompt to the queue/i)
+      .map((el) => el.closest('[class*="queuePanel"]') as HTMLElement);
+  const strip = () => <QueueTab sessionId="s1" sessionStatus="waiting" terminalId="term-1" fullHeight />;
+  const headerButtons = () =>
+    within(screen.getByRole('button', { name: /QUEUE/ }).closest('[class*="queueHeader"]') as HTMLElement)
+      .getAllByRole('button');
+
+  beforeEach(() => {
+    platform.isMobile = false;
+    useQueueStore.setState({ queues: new Map(), automation: new Map(), composeDrafts: new Map() });
+    useSessionStore.setState({ sessions: new Map(), selectedSessionId: null });
+    useUiStore.setState({ queuePanelCollapsed: false });
+    try { localStorage.removeItem('queue-panel-collapsed'); } catch { /* ignore */ }
+  });
+
+  it('folds the queue to its header, then offers to expand it', async () => {
+    render(strip());
+    const label = () => screen.getByRole('button', { name: /QUEUE/ });
+    expect(label()).toHaveAttribute('aria-expanded', 'true');
+    await userEvent.setup().click(screen.getByRole('button', COLLAPSE));
+    expect(panelRoots()[0].className).toMatch(/collapsed/);
+    expect(useUiStore.getState().queuePanelCollapsed).toBe(true);
+    expect(localStorage.getItem('queue-panel-collapsed')).toBe('1');
+    // The state is announced once, on the ▶ label; the icon's own name says what it will do.
+    expect(label()).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', EXPAND)).not.toHaveAttribute('aria-expanded');
+    expect(screen.queryByRole('button', COLLAPSE)).toBeNull();
+  });
+
+  it('expands it again from the same place', async () => {
+    useUiStore.setState({ queuePanelCollapsed: true });
+    render(strip());
+    await userEvent.setup().click(screen.getByRole('button', EXPAND));
+    expect(panelRoots()[0].className).not.toMatch(/collapsed/);
+    expect(useUiStore.getState().queuePanelCollapsed).toBe(false);
+    expect(screen.getByRole('button', COLLAPSE)).toBeInTheDocument();
+  });
+
+  it('agrees with the ▶ QUEUE label: both drive one state', async () => {
+    render(strip());
+    await userEvent.setup().click(screen.getByRole('button', { name: /QUEUE/ }));
+    expect(screen.getByRole('button', { name: /QUEUE/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', EXPAND)).toBeInTheDocument();
+  });
+
+  it('collapses every docked copy at once: the strip and the QUEUE tab show one queue', async () => {
+    render(<>{strip()}{strip()}</>);
+    await userEvent.setup().click(screen.getAllByRole('button', COLLAPSE)[0]);
+    const roots = panelRoots();
+    expect(roots).toHaveLength(2);
+    for (const root of roots) expect(root.className).toMatch(/collapsed/);
+  });
+
+  it('sits last, after the float button, and the row keeps its controls when it flips', async () => {
+    render(strip());
+    const before = headerButtons();
+    expect(before[before.length - 1]).toBe(screen.getByRole('button', COLLAPSE));
+    expect(before[before.length - 2]).toBe(screen.getByRole('button', { name: /Detach Queue into its own window/ }));
+    await userEvent.setup().click(screen.getByRole('button', COLLAPSE));
+    const after = headerButtons();
+    expect(after).toHaveLength(before.length);
+    expect(after[after.length - 1]).toBe(screen.getByRole('button', EXPAND));
+  });
+
+  it('is offered on a phone too, where there is no float button', () => {
+    platform.isMobile = true;
+    render(strip());
+    expect(screen.getByRole('button', COLLAPSE)).toBeInTheDocument();
   });
 });
 

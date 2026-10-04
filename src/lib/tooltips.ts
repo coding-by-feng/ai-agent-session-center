@@ -36,7 +36,15 @@ export const tooltips = {
   },
   floatQueue: {
     label: 'Detach Queue into its own window',
-    description: "Open this session's queue in a separate OS window you can drag to another monitor.",
+    description: "Open this session's queue in a separate OS window you can drag to another monitor. The queue here folds down to its header.",
+  },
+  collapseQueue: {
+    label: 'Collapse the queue',
+    description: 'Fold it down to its header. The queue keeps running while it is folded.',
+  },
+  expandQueue: {
+    label: 'Expand the queue',
+    description: 'Show the whole queue again.',
   },
   floatSessionPopOut: {
     label: 'Detach session into its own window',

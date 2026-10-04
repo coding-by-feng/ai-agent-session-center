@@ -274,30 +274,31 @@ export default function QueueTab({
   const [chainEditId, setChainEditId] = useState<number | null>(null);
   /** The compose row's "saved prompts" trigger, while its picker is open. */
   const [snippetAnchor, setSnippetAnchor] = useState<HTMLElement | null>(null);
-  const [dockedCollapsed, setCollapsed] = useState(() => {
-    try {
-      const stored = localStorage.getItem('queue-panel-collapsed');
-      return stored === null ? true : stored === '1';
-    } catch {
-      return true;
-    }
-  });
+  // Shared, not local: DetailPanel sizes the strip's row from it (collapsed, the
+  // terminal gets the height) and both docked mounts must agree — see uiStore.
+  const dockedCollapsed = useUiStore((s) => s.queuePanelCollapsed);
+  const setDockedCollapsed = useUiStore((s) => s.setQueuePanelCollapsed);
   // The float window is the whole window: collapsing it would leave a bare header.
   const collapsed = floating ? false : dockedCollapsed;
   const isMobile = useIsMobile();
   /** A float is a desktop-window workflow: not offered inside the float itself, nor on a phone. */
   const canFloat = !floating && !isMobile;
-  /** Open this session's queue in its own window (see lib/queuePopout.ts). The
-   *  docked panel stays exactly as it is — both are live views of one queue. */
+  /** Open this session's queue in its own window (see lib/queuePopout.ts). Once a
+   *  window is up it shows the queue, so the docked panel folds to its header and
+   *  gives its height back; both stay live views of one queue. Nothing folds when
+   *  no window opened — the queue must not vanish behind the error toast. */
   const handleFloat = useCallback(async () => {
     const session = useSessionStore.getState().sessions.get(sessionId);
     const outcome = await openQueuePopout({ sessionId, label: queuePopoutTitle(session) });
-    if (outcome === 'blocked') {
+    if (outcome === 'native' || outcome === 'browser') {
+      setDockedCollapsed(true);
+    } else if (outcome === 'blocked') {
       showToast('Pop-ups are blocked — allow them for this site to float the queue', 'error');
     } else if (outcome === 'unsupported') {
       showToast("Floating the queue isn't available in this app build — update the app", 'error');
     }
-  }, [sessionId]);
+  }, [sessionId, setDockedCollapsed]);
+  const collapseTip = collapsed ? tooltips.expandQueue : tooltips.collapseQueue;
   // Per-session auto-send / auto-enter. These live in THIS session's
   // QueueAutomationConfig (read above as `automationConfig`), so toggling them
   // affects only the current session. Both QueueTab mounts for a session AND
@@ -979,15 +980,8 @@ export default function QueueTab({
         ) : (
           <button
             className={styles.queueToggle}
-            onClick={() => {
-              const next = !collapsed;
-              setCollapsed(next);
-              try {
-                localStorage.setItem('queue-panel-collapsed', next ? '1' : '0');
-              } catch {
-                /* ignore */
-              }
-            }}
+            onClick={() => setDockedCollapsed(!collapsed)}
+            aria-expanded={!collapsed}
           >
             <span className={styles.queueToggleArrow}>&#x25B6;</span>
             {queueLabel}
@@ -1137,28 +1131,62 @@ export default function QueueTab({
             <polygon points="22 2 15 22 11 13 2 9 22 2" />
           </svg>
         </button>
-        {/* Detach is an ACTION, not a fifth toggle: a hairline sets it apart and
-            its glyph is the shared window-with-arrow family (the PROJECT tab's
-            float button), not another line-art toggle. Not offered inside the
-            float window (it already is the float) nor on a phone (a second
-            window is not a phone workflow — see lib/platform.ts, rule 3). */}
+        {/* Detach and collapse are ACTIONS on the panel, not more toggles: a
+            hairline sets them apart. Neither is offered inside the float window
+            (it already is the float, and it is the whole window). Detach's glyph
+            is the shared window-with-arrow family (the PROJECT tab's float
+            button); it is not offered on a phone either (a second window is not
+            a phone workflow — see lib/platform.ts, rule 3). */}
+        {!floating && <span className={styles.queueHeaderDivider} aria-hidden="true" />}
         {canFloat && (
-          <>
-            <span className={styles.queueHeaderDivider} aria-hidden="true" />
-            <Tooltip {...tooltips.floatQueue}>
-              <button
-                type="button"
-                className={styles.queueHistoryBtn}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void handleFloat();
-                }}
-                aria-label={tooltips.floatQueue.label}
+          <Tooltip {...tooltips.floatQueue}>
+            <button
+              type="button"
+              className={styles.queueHistoryBtn}
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleFloat();
+              }}
+              aria-label={tooltips.floatQueue.label}
+            >
+              <DetachIcon />
+            </button>
+          </Tooltip>
+        )}
+        {/* Collapse, last in the row like the app's other minimize controls. It
+            stays while collapsed (as Expand), so nothing beside it moves. The
+            glyph is a chevron pointing where the panel goes — down folds it to
+            its header, up brings it back — not the ▶ triangle, which is the
+            label's own state marker, and not UnfoldIcon, which already means
+            "show this whole prompt" in the rows below. */}
+        {!floating && (
+          <Tooltip {...collapseTip}>
+            <button
+              type="button"
+              className={styles.queueHistoryBtn}
+              onClick={(e) => {
+                e.stopPropagation();
+                setDockedCollapsed(!collapsed);
+              }}
+              // The label names the action and changes with it; the state itself
+              // is the ▶ label's aria-expanded, so it is not encoded twice here.
+              aria-label={collapseTip.label}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
               >
-                <DetachIcon />
-              </button>
-            </Tooltip>
-          </>
+                {collapsed ? <polyline points="6 15 12 9 18 15" /> : <polyline points="6 9 12 15 18 9" />}
+              </svg>
+            </button>
+          </Tooltip>
         )}
       </div>
 
