@@ -21,17 +21,20 @@ import {
 } from '@/lib/cyberdromeScene';
 import { PALETTE } from '@/lib/robot3DGeometry';
 import { roundedBox } from '@/lib/dioramaGeometry';
-import { dioramaLighting } from '@/lib/dioramaLighting';
+import { dioramaLighting, type ClayTone } from '@/lib/dioramaLighting';
+import { DIORAMA_WALL_H, DIORAMA_WALL_T, LOUNGE_SIZE, LOUNGE_TABLE_SPACING } from '@/lib/dioramaProps';
 import type { SceneStyle } from '@/lib/sceneStyle';
 import type { Scene3DTheme } from '@/lib/sceneThemes';
+import DoorPosts from './DoorPosts';
 import GroundMarkings from './GroundMarkings';
-import { getRibbedTexture } from './sceneDecals';
+import Plants from './Plants';
+import { getRibbedTexture, getSlabTexture } from './sceneDecals';
 
 /** Diorama walls are fence-height, so the desks behind them stay in view from the default camera. */
-const DIORAMA_WALL_H = 0.7;
-const DIORAMA_WALL_T = 0.14;
-
 type Vec3 = [number, number, number];
+
+/** A stable empty list, so an omitted `casualAreas` prop does not rebuild the plant layout every render. */
+const NO_AREAS: CasualArea[] = [];
 
 // ---------------------------------------------------------------------------
 // Block — a box that is sharp in the cyberdrome and softly rounded in the diorama
@@ -254,7 +257,13 @@ function Room({ room, deskOffset, theme, diorama }: { room: RoomConfig; deskOffs
       {/* Floor panel */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[cx, 0.003, cz]} receiveShadow>
         <planeGeometry args={[roomSize, roomSize]} />
-        <meshStandardMaterial color={theme.roomFloor} roughness={diorama ? 0.9 : 0.5} metalness={diorama ? 0 : 0.2} />
+        <meshStandardMaterial
+          key={diorama ? 'slab' : 'plain'} // a new material per look: toggling `map` on one needs needsUpdate (see environmentMaterials.test.ts)
+          color={theme.roomFloor}
+          map={diorama ? getSlabTexture(roomSize) : null}
+          roughness={diorama ? 0.9 : 0.5}
+          metalness={diorama ? 0 : 0.2}
+        />
       </mesh>
       <BorderGlow center={room.center} size={roomSize} glowColor={theme.borderGlow} diorama={diorama} />
 
@@ -343,12 +352,13 @@ function CoffeeTable({ x, z, mat }: { x: number; z: number; mat: THREE.Material 
 
 function CoffeeLounge({ area, theme, diorama }: { area: CasualArea; theme: Scene3DTheme; diorama: boolean }) {
   const [cx, , cz] = area.center;
-  const areaSize = 10;
-  const TABLE_SPACING = 3;
+  const areaSize = LOUNGE_SIZE;
+  const TABLE_SPACING = LOUNGE_TABLE_SPACING;
 
   const floorMat = useMemo(() => new THREE.MeshStandardMaterial({
-    color: theme.coffeeFloor, roughness: diorama ? 0.9 : 0.6, metalness: diorama ? 0 : 0.2,
-  }), [theme.coffeeFloor, diorama]);
+    color: theme.coffeeFloor, map: diorama ? getSlabTexture(areaSize) : null,
+    roughness: diorama ? 0.9 : 0.6, metalness: diorama ? 0 : 0.2,
+  }), [theme.coffeeFloor, diorama, areaSize]);
   const furnitureMat = useMemo(() => new THREE.MeshStandardMaterial({
     color: theme.coffeeFurniture, roughness: diorama ? 0.8 : 0.5, metalness: diorama ? 0 : 0.4,
   }), [theme.coffeeFurniture, diorama]);
@@ -540,9 +550,11 @@ interface EnvironmentProps {
   workstations: Workstation[];
   theme: Scene3DTheme;
   sceneStyle: SceneStyle;
+  /** The paint tone for this palette (`clayToneFor`) — derived in the DOM layer, like `sceneStyle`. */
+  tone: ClayTone;
 }
 
-export default function CyberdromeEnvironment({ rooms, casualAreas, workstations, theme, sceneStyle }: EnvironmentProps) {
+export default function CyberdromeEnvironment({ rooms, casualAreas, workstations, theme, sceneStyle, tone }: EnvironmentProps) {
   const floorSize = useMemo(() => computeFloorSize(rooms), [rooms]);
   const diorama = sceneStyle === 'diorama';
 
@@ -553,7 +565,13 @@ export default function CyberdromeEnvironment({ rooms, casualAreas, workstations
       {/* Main floor (+ the neon grid in the cyberdrome) */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[floorSize, floorSize]} />
-        <meshStandardMaterial color={theme.floor} roughness={diorama ? 0.9 : 0.7} metalness={diorama ? 0 : 0.3} />
+        <meshStandardMaterial
+          key={diorama ? 'slab' : 'plain'} // as above
+          color={theme.floor}
+          map={diorama ? getSlabTexture(floorSize) : null}
+          roughness={diorama ? 0.9 : 0.7}
+          metalness={diorama ? 0 : 0.3}
+        />
       </mesh>
       {!diorama && (
         <gridHelper args={[floorSize, Math.round(floorSize / 5), theme.grid2, theme.grid2]} position={[0, 0.005, 0]} />
@@ -571,7 +589,11 @@ export default function CyberdromeEnvironment({ rooms, casualAreas, workstations
       ))}
 
       {diorama ? (
-        <GroundMarkings rooms={rooms} workstations={workstations} theme={theme} />
+        <>
+          <GroundMarkings rooms={rooms} workstations={workstations} theme={theme} tone={tone} />
+          <DoorPosts rooms={rooms} theme={theme} />
+          <Plants rooms={rooms} workstations={workstations} areas={casualAreas ?? NO_AREAS} theme={theme} />
+        </>
       ) : (
         <>
           <DataParticles floorSize={floorSize} theme={theme} />

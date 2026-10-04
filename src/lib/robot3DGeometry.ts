@@ -14,7 +14,7 @@ import * as THREE from 'three';
 // Re-exported here so 3D code keeps its single import site.
 export { PALETTE } from './robotPalette';
 import { PALETTE } from './robotPalette';
-import { CLAY_PAINT, type ClayTone } from './dioramaLighting';
+import { CLAY_PAINT, liveryPaint, type ClayTone } from './dioramaLighting';
 
 // ---------------------------------------------------------------------------
 // Shared Body Geometries (10 parts)
@@ -88,15 +88,21 @@ export function clayMaterials(tone: ClayTone) {
 }
 
 /**
- * Matte paint in a session's colour — the arms and the chest band, where the neon style used glowing
- * metal. A little emissive keeps the colour from going muddy in a dim scene.
+ * How much the livery glows, per tone. A little emissive keeps the colour from going muddy in a dim scene;
+ * on a bright rig the same glow is what pushes saturated paint to pale ice, so it all but goes out there.
  */
-export function createLiveryMat(hex: string): THREE.MeshStandardMaterial {
-  const c = new THREE.Color(hex);
+const LIVERY_EMISSIVE: Record<ClayTone, number> = { standard: 0.28, deep: 0.06 };
+
+/**
+ * Matte paint in a session's colour — the arms and the chest band, where the neon style used glowing
+ * metal. On a bright palette the colour is repainted by `liveryPaint` (same hue, lit-able lightness).
+ */
+export function createLiveryMat(hex: string, tone: ClayTone): THREE.MeshStandardMaterial {
+  const c = new THREE.Color(liveryPaint(hex, tone));
   return new THREE.MeshStandardMaterial({
     color: c,
     emissive: c,
-    emissiveIntensity: 0.28,
+    emissiveIntensity: LIVERY_EMISSIVE[tone],
     roughness: 0.55,
     metalness: 0,
   });
@@ -131,5 +137,13 @@ export function createEdgeMat(hex: string): THREE.LineBasicMaterial {
 
 export const neonMats = PALETTE.map((h) => createNeonMat(h));
 export const edgeMats = PALETTE.map((h) => createEdgeMat(h));
-export const liveryMats = PALETTE.map((h) => createLiveryMat(h));
+const liveryPools: Record<ClayTone, THREE.MeshStandardMaterial[]> = {
+  standard: PALETTE.map((h) => createLiveryMat(h, 'standard')),
+  deep: PALETTE.map((h) => createLiveryMat(h, 'deep')),
+};
+
+/** The livery pool for a tone, one material per `PALETTE` colour (same order) — shared, never per robot. */
+export function liveryMaterials(tone: ClayTone): readonly THREE.MeshStandardMaterial[] {
+  return liveryPools[tone];
+}
 

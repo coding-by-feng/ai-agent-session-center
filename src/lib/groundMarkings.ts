@@ -1,21 +1,25 @@
 /**
  * Painted ground markings for the diorama scene style — pure layout, no rendering.
  *
- * Two kinds, both flat rectangles lying on the floor:
+ * Three kinds, all flat rectangles lying on the floor:
  *
  *  - lanes: dashed lines down the middle of the corridors between room cells (the road the robots
  *    walk between rooms), including a ring road around the whole block of rooms;
- *  - bays: a thin outline around every seat, the way a car park marks its spaces.
+ *  - bays: a thin outline around every seat, the way a car park marks its spaces;
+ *  - thresholds: a band across each doorway, in the colour of the room it leads into, the way a
+ *    loading dock marks its door.
  *
  * Everything is a `MarkingStrip` so one instanced mesh can draw the lot in a single call.
  *
  * No imports but the grid math: this runs in a unit test without Three.js, and the strips are
  * recomputed only when the layout changes — never per frame.
  */
-import { ROOM_CELL, ROOM_COLS, ROOM_GAP, computeColumnX, computeRowZ } from './roomGrid';
+import { ROOM_CELL, ROOM_COLS, ROOM_GAP, ROOM_HALF, computeColumnX, computeRowZ } from './roomGrid';
 
 export interface MarkingStrip {
-  kind: 'lane' | 'bay';
+  kind: 'lane' | 'bay' | 'threshold';
+  /** Which of the theme's two room accents paints it — thresholds only. */
+  accent?: 0 | 1;
   /** Centre on the ground plane. */
   x: number;
   z: number;
@@ -148,6 +152,39 @@ export function buildBayStrips(
         length: BAY_WIDTH - 2 * BAY_BORDER,
         width: BAY_BORDER,
         rotY: faceRot, // local X -> across the seat
+      });
+    }
+  }
+  return strips;
+}
+
+// ---------------------------------------------------------------------------
+// Thresholds
+// ---------------------------------------------------------------------------
+
+/** How deep the band is, across the wall line: half in the room, half in the corridor. Slim: a line, not a mat. */
+export const THRESHOLD_WIDTH = 0.36;
+
+/**
+ * A band across the doorway in each room's north and south walls, exactly as wide as the gap so it
+ * never runs under a wall, painted in the room's accent. A room's doorways are centred on it, at
+ * `ROOM_HALF` either side: where the lanes and the seat outlines are not.
+ */
+export function buildThresholdStrips(
+  rooms: ReadonlyArray<{ center: readonly [number, number, number]; stripColor: 0 | 1 }>,
+  doorGap: number,
+): MarkingStrip[] {
+  const strips: MarkingStrip[] = [];
+  for (const { center, stripColor } of rooms) {
+    for (const side of [-1, 1]) {
+      strips.push({
+        kind: 'threshold',
+        accent: stripColor,
+        x: center[0],
+        z: center[2] + side * ROOM_HALF,
+        length: doorGap,
+        width: THRESHOLD_WIDTH,
+        rotY: 0,
       });
     }
   }

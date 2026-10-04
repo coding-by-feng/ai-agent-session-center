@@ -1,14 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import { THEMES, type ThemeName } from '@/stores/settingsStore';
+import { parseHex, rgbToHsl } from './colorMath';
 import {
   BASE_EXPOSURE,
   CLAY_PAINT,
+  DEEP_LIVERY,
   clayToneFor,
   dioramaLighting,
   isLightBackground,
+  liveryPaint,
   sceneExposure,
   type ClayTone,
 } from './dioramaLighting';
+import { PALETTE } from './robotPalette';
 import { getScene3DTheme } from './sceneThemes';
 
 const darkTheme = {
@@ -266,5 +270,75 @@ describe('CLAY_PAINT', () => {
       const worst = Math.min(...surfaces.map((surface) => contrast(CLAY_PAINT.standard.body, surface)));
       expect(worst, name).toBeLessThan(1.5);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The robot's livery paint (arms and chest band)
+// ---------------------------------------------------------------------------
+
+describe('liveryPaint', () => {
+  const hsl = (hex: string) => rgbToHsl(parseHex(hex)!);
+  /** Smallest angle between two hues, in degrees. */
+  const hueGap = (a: number, b: number) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
+
+  it.each(PALETTE)('leaves %s exactly as it is on a dark palette: neon on dark is right', (hex) => {
+    expect(liveryPaint(hex, 'standard')).toBe(hex);
+  });
+
+  describe('on a bright palette (the deep tone)', () => {
+    // The defect: the neon session colours render as pale ice on a bright rig — measured at 1.05-1.21:1
+    // against the furniture, 8.7 CIELAB units from the floor on Windows XP — and the colour is the one
+    // thing that tells one CLI from another.
+    it.each(PALETTE)('keeps the hue of %s: the colour is how a CLI is told apart', (hex) => {
+      expect(hueGap(hsl(liveryPaint(hex, 'deep'))[0], hsl(hex)[0])).toBeLessThanOrEqual(4);
+    });
+
+    it.each(PALETTE)('paints %s saturated', (hex) => {
+      expect(hsl(liveryPaint(hex, 'deep'))[1]).toBeGreaterThanOrEqual(DEEP_LIVERY.minSaturation - 0.02);
+    });
+
+    it.each(PALETTE)('paints %s no lighter than the ceiling, and never lighter than it was', (hex) => {
+      const lightness = hsl(liveryPaint(hex, 'deep'))[2];
+      expect(lightness).toBeLessThanOrEqual(DEEP_LIVERY.maxLightness + 0.02);
+      expect(lightness).toBeLessThanOrEqual(hsl(hex)[2] + 0.02);
+    });
+
+    it('is idempotent: painting a deep colour again changes nothing', () => {
+      for (const hex of PALETTE) {
+        const once = liveryPaint(hex, 'deep');
+        expect(liveryPaint(once, 'deep')).toBe(once);
+      }
+    });
+
+    it('would not have: most neon colours sit above the lightness ceiling', () => {
+      const tooLight = PALETTE.filter((hex) => hsl(hex)[2] > DEEP_LIVERY.maxLightness + 0.02);
+      expect(tooLight.length).toBeGreaterThanOrEqual(12);
+    });
+
+    it('hands back a colour it cannot parse untouched', () => {
+      expect(liveryPaint('teal', 'deep')).toBe('teal');
+      expect(liveryPaint('', 'deep')).toBe('');
+    });
+
+    // The saturation floor lifts a pale colour to a real one — but a grey has no hue to keep, and must stay grey
+    // (a custom accentColor can be any string: white or grey would otherwise come out red or blue).
+    it.each(['#ffffff', '#808080', '#7f7f80', '#fffffe', '#c0c0c0', '#000000'])('leaves the grey %s grey', (hex) => {
+      const [r, g, b] = parseHex(liveryPaint(hex, 'deep'))!;
+      expect(Math.max(r, g, b) - Math.min(r, g, b), hex).toBeLessThanOrEqual(3);
+      expect(hsl(liveryPaint(hex, 'deep'))[2], hex).toBeLessThanOrEqual(DEEP_LIVERY.maxLightness + 0.02);
+    });
+
+    // Codex's green (#10a37f, saturation 0.82) is the one robot colour in play that the floor changes:
+    // the palette colours are all above it, so only a colour from outside the palette exercises it.
+    it.each(['#10a37f', '#aa66ff', '#5b8a72'])('lifts the weakly saturated %s to the floor, keeping its hue', (hex) => {
+      const [h, s] = hsl(liveryPaint(hex, 'deep'));
+      expect(s).toBeGreaterThanOrEqual(DEEP_LIVERY.minSaturation - 0.02);
+      expect(hueGap(h, hsl(hex)[0])).toBeLessThanOrEqual(4);
+    });
+
+    it('does lift #10a37f: it sits below the floor to begin with', () => {
+      expect(hsl('#10a37f')[1]).toBeLessThan(DEEP_LIVERY.minSaturation);
+    });
   });
 });

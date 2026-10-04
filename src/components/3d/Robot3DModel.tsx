@@ -18,7 +18,7 @@ import {
   clayMaterials,
   neonMats,
   edgeMats,
-  liveryMats,
+  liveryMaterials,
   createNeonMat,
   createEdgeMat,
   createLiveryMat,
@@ -129,19 +129,24 @@ export default function Robot3DModel({
   // Memoize tool category
   const toolCategory = useMemo(() => classifyTool(currentTool), [currentTool]);
 
-  // Resolve materials -- use pre-built palette pool if color matches, else create
-  const { neonMat, edgeMat, liveryMat, isCustom } = useMemo(() => {
-    const idx = (PALETTE as readonly string[]).indexOf(neonColor);
-    if (idx >= 0) {
-      return { neonMat: neonMats[idx], edgeMat: edgeMats[idx], liveryMat: liveryMats[idx], isCustom: false };
-    }
-    return {
-      neonMat: createNeonMat(neonColor),
-      edgeMat: createEdgeMat(neonColor),
-      liveryMat: createLiveryMat(neonColor),
-      isCustom: true,
-    };
-  }, [neonColor]);
+  // Resolve materials -- use the pre-built palette pools if the colour is in the palette, else build this
+  // robot's own. The neon and edge paint follow the colour alone; the livery also follows the paint tone
+  // (a dark <-> bright theme switch), so a robot in a colour outside the palette (Codex's green, an unknown
+  // CLI's) rebuilds only its livery then.
+  const paletteIndex = (PALETTE as readonly string[]).indexOf(neonColor);
+  const isCustom = paletteIndex < 0;
+  const liveries = liveryMaterials(clayTone);
+  const { neonMat, edgeMat } = useMemo(
+    () =>
+      paletteIndex >= 0
+        ? { neonMat: neonMats[paletteIndex], edgeMat: edgeMats[paletteIndex] }
+        : { neonMat: createNeonMat(neonColor), edgeMat: createEdgeMat(neonColor) },
+    [neonColor, paletteIndex],
+  );
+  const liveryMat = useMemo(
+    () => (paletteIndex >= 0 ? liveries[paletteIndex] : createLiveryMat(neonColor, clayTone)),
+    [neonColor, paletteIndex, liveries, clayTone],
+  );
 
   // Per-instance body materials: animations mutate emissive/color each frame,
   // so every robot needs its own clone to avoid cross-contamination of the shared pool.
@@ -159,9 +164,12 @@ export default function Robot3DModel({
     return () => {
       neonMat.dispose();
       edgeMat.dispose();
-      liveryMat.dispose();
     };
-  }, [isCustom, neonMat, edgeMat, liveryMat]);
+  }, [isCustom, neonMat, edgeMat]);
+  useEffect(() => {
+    if (!isCustom) return;
+    return () => liveryMat.dispose();
+  }, [isCustom, liveryMat]);
 
   // Track status duration for urgency escalation
   const statusElapsed = useRef(0);
