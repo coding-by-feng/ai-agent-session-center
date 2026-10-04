@@ -15,14 +15,20 @@ import {
   robotGeo,
   metalMat,
   darkMat,
+  clayMaterials,
   neonMats,
   edgeMats,
+  liveryMats,
   createNeonMat,
   createEdgeMat,
+  createLiveryMat,
   PALETTE,
 } from '@/lib/robot3DGeometry';
 import type { Robot3DState } from '@/lib/robotStateMap';
 import { getModelDef, type RobotModelType } from '@/lib/robot3DModels';
+import { bandPlacement, roundedBox, toDioramaGeometry } from '@/lib/dioramaGeometry';
+import type { ClayTone } from '@/lib/dioramaLighting';
+import type { SceneStyle } from '@/lib/sceneStyle';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 // Pre-created visor override materials (shared, never disposed)
@@ -71,6 +77,17 @@ export interface Robot3DModelProps {
   currentTool?: string | null;
   /** Timestamp (ms) when the current status started (for urgency + progress timer) */
   statusStartTime?: number;
+  /**
+   * The scene's look. `diorama` swaps the metal body for rounded matte parts in a livery colour (no
+   * edge lines, no shadow casting — a blob shadow stands in); `cyberdrome` is the original neon robot.
+   */
+  sceneStyle?: SceneStyle;
+  /**
+   * Which clay the diorama body is painted in (`CLAY_PAINT`). Follows the palette: the standard body
+   * renders near white under a bright palette's rig and vanishes into the furniture. Required: a default
+   * would let a caller that forgets it paint every palette the standard clay again, with no error.
+   */
+  clayTone: ClayTone;
 }
 
 // ---------------------------------------------------------------------------
@@ -87,7 +104,11 @@ export default function Robot3DModel({
   cliBadge,
   currentTool = null,
   statusStartTime,
+  sceneStyle = 'cyberdrome',
+  clayTone,
 }: Robot3DModelProps) {
+  const diorama = sceneStyle === 'diorama';
+  const clay = clayMaterials(clayTone);
   // Model variant overrides
   const modelDef = useMemo(() => getModelDef(modelType), [modelType]);
   const groupRef = useRef<THREE.Group>(null);
@@ -109,34 +130,38 @@ export default function Robot3DModel({
   const toolCategory = useMemo(() => classifyTool(currentTool), [currentTool]);
 
   // Resolve materials -- use pre-built palette pool if color matches, else create
-  const { neonMat, edgeMat, isCustom } = useMemo(() => {
+  const { neonMat, edgeMat, liveryMat, isCustom } = useMemo(() => {
     const idx = (PALETTE as readonly string[]).indexOf(neonColor);
     if (idx >= 0) {
-      return { neonMat: neonMats[idx], edgeMat: edgeMats[idx], isCustom: false };
+      return { neonMat: neonMats[idx], edgeMat: edgeMats[idx], liveryMat: liveryMats[idx], isCustom: false };
     }
     return {
       neonMat: createNeonMat(neonColor),
       edgeMat: createEdgeMat(neonColor),
+      liveryMat: createLiveryMat(neonColor),
       isCustom: true,
     };
   }, [neonColor]);
 
   // Per-instance body materials: animations mutate emissive/color each frame,
   // so every robot needs its own clone to avoid cross-contamination of the shared pool.
-  const bodyMat = useMemo(() => metalMat.clone(), []);
+  const bodySource = diorama ? clay.body : metalMat;
+  const bodyMat = useMemo(() => bodySource.clone(), [bodySource]);
   const bodyEdgeMat = useMemo(() => edgeMat.clone(), [edgeMat]);
 
-  // Dispose materials on unmount or color change
+  // Dispose each material this robot OWNS when it is replaced or the robot unmounts — one effect per
+  // resource, so replacing one (the body clone, on a style switch) never disposes another that is
+  // still in use. The shared palette pools are never ours to dispose.
+  useEffect(() => () => bodyMat.dispose(), [bodyMat]);
+  useEffect(() => () => bodyEdgeMat.dispose(), [bodyEdgeMat]);
   useEffect(() => {
+    if (!isCustom) return;
     return () => {
-      if (isCustom) {
-        neonMat.dispose();
-        edgeMat.dispose();
-      }
-      bodyMat.dispose();
-      bodyEdgeMat.dispose();
+      neonMat.dispose();
+      edgeMat.dispose();
+      liveryMat.dispose();
     };
-  }, [neonMat, edgeMat, isCustom, bodyMat, bodyEdgeMat]);
+  }, [isCustom, neonMat, edgeMat, liveryMat]);
 
   // Track status duration for urgency escalation
   const statusElapsed = useRef(0);
@@ -501,37 +526,51 @@ export default function Robot3DModel({
     return neonMat;
   }, [state, neonMat]);
 
-  // Resolve geometry: model-specific overrides or defaults
-  const headGeo = modelDef.head.geometry ?? robotGeo.head;
+  // Resolve geometry: model-specific overrides or defaults. The diorama rounds every box part
+  // (shared, built once per size — see dioramaGeometry.ts) and leaves spheres and cylinders alone.
+  const part = (override: THREE.BufferGeometry | undefined, fallback: THREE.BufferGeometry) =>
+    diorama ? toDioramaGeometry(override ?? fallback) : (override ?? fallback);
+  const headGeo = part(modelDef.head.geometry, robotGeo.head);
   const headPos = modelDef.head.position ?? [0, 1.32, 0];
-  const torsoGeo = modelDef.torso.geometry ?? robotGeo.torso;
+  const torsoGeo = part(modelDef.torso.geometry, robotGeo.torso);
   const torsoPos = modelDef.torso.position ?? [0, 0.87, 0];
-  const armLGeo = modelDef.armL.geometry ?? robotGeo.arm;
+  const armLGeo = part(modelDef.armL.geometry, robotGeo.arm);
   const armLPos = modelDef.armL.position ?? [-0.21, 1.07, 0];
-  const armRGeo = modelDef.armR.geometry ?? robotGeo.arm;
+  const armRGeo = part(modelDef.armR.geometry, robotGeo.arm);
   const armRPos = modelDef.armR.position ?? [0.21, 1.07, 0];
-  const legLGeo = modelDef.legL.geometry ?? robotGeo.leg;
+  const legLGeo = part(modelDef.legL.geometry, robotGeo.leg);
   const legLPos = modelDef.legL.position ?? [-0.09, 0.54, 0];
-  const legRGeo = modelDef.legR.geometry ?? robotGeo.leg;
+  const legRGeo = part(modelDef.legR.geometry, robotGeo.leg);
   const legRPos = modelDef.legR.position ?? [0.09, 0.54, 0];
   const showArmL = modelDef.armL.visible !== false;
   const showArmR = modelDef.armR.visible !== false;
   const showLegL = modelDef.legL.visible !== false;
   const showLegR = modelDef.legR.visible !== false;
 
-  // Memoize EdgesGeometry instances (skip invisible parts — #88: legs removed)
-  const headEdgeGeo = useMemo(() => new THREE.EdgesGeometry(headGeo), [headGeo]);
-  const torsoEdgeGeo = useMemo(() => new THREE.EdgesGeometry(torsoGeo), [torsoGeo]);
-  const armLEdgeGeo = useMemo(() => showArmL ? new THREE.EdgesGeometry(armLGeo) : null, [armLGeo, showArmL]);
-  const armREdgeGeo = useMemo(() => showArmR ? new THREE.EdgesGeometry(armRGeo) : null, [armRGeo, showArmR]);
-  const legLEdgeGeo = useMemo(() => showLegL ? new THREE.EdgesGeometry(legLGeo) : null, [legLGeo, showLegL]);
-  const legREdgeGeo = useMemo(() => showLegR ? new THREE.EdgesGeometry(legRGeo) : null, [legRGeo, showLegR]);
+  // The livery band round the torso: a thin rounded slab a hair wider than a box torso, placed by the
+  // torso's own height (the drone's and the spider's are far shorter than the standard robot's). A
+  // round torso (the orb) has no flat sides to wrap, so it goes without.
+  const band = useMemo(() => {
+    if (!diorama || !(torsoGeo instanceof THREE.BoxGeometry)) return null;
+    const { width, height, depth } = torsoGeo.parameters;
+    const { height: bandHeight, offsetY } = bandPlacement(height);
+    return { geometry: roundedBox(width + 0.02, bandHeight, depth + 0.02), offsetY };
+  }, [diorama, torsoGeo]);
+
+  // Memoize EdgesGeometry instances (skip invisible parts — #88: legs removed). The diorama draws no
+  // edge lines at all: a rounded box has hundreds of edges and a toy has no outline.
+  const headEdgeGeo = useMemo(() => (diorama ? null : new THREE.EdgesGeometry(headGeo)), [headGeo, diorama]);
+  const torsoEdgeGeo = useMemo(() => (diorama ? null : new THREE.EdgesGeometry(torsoGeo)), [torsoGeo, diorama]);
+  const armLEdgeGeo = useMemo(() => (!diorama && showArmL ? new THREE.EdgesGeometry(armLGeo) : null), [armLGeo, showArmL, diorama]);
+  const armREdgeGeo = useMemo(() => (!diorama && showArmR ? new THREE.EdgesGeometry(armRGeo) : null), [armRGeo, showArmR, diorama]);
+  const legLEdgeGeo = useMemo(() => (!diorama && showLegL ? new THREE.EdgesGeometry(legLGeo) : null), [legLGeo, showLegL, diorama]);
+  const legREdgeGeo = useMemo(() => (!diorama && showLegR ? new THREE.EdgesGeometry(legRGeo) : null), [legRGeo, showLegR, diorama]);
 
   // #50: Dispose edge geometries on unmount to prevent GPU memory leaks
   useEffect(() => {
     return () => {
-      headEdgeGeo.dispose();
-      torsoEdgeGeo.dispose();
+      headEdgeGeo?.dispose();
+      torsoEdgeGeo?.dispose();
       armLEdgeGeo?.dispose();
       armREdgeGeo?.dispose();
       legLEdgeGeo?.dispose();
@@ -547,19 +586,24 @@ export default function Robot3DModel({
       scale={state === 'connecting' ? 0 : scaleProp}
     >
       {/* Head */}
-      <mesh ref={headRef} geometry={headGeo} material={metalMat} position={headPos as unknown as THREE.Vector3Tuple} castShadow />
-      <lineSegments geometry={headEdgeGeo} material={edgeMat} position={headPos as unknown as THREE.Vector3Tuple} />
+      <mesh ref={headRef} geometry={headGeo} material={diorama ? clay.body : metalMat} position={headPos as unknown as THREE.Vector3Tuple} castShadow={!diorama} />
+      {headEdgeGeo && <lineSegments geometry={headEdgeGeo} material={edgeMat} position={headPos as unknown as THREE.Vector3Tuple} />}
 
       {/* Visor */}
       <mesh ref={visorRef} geometry={robotGeo.visor} material={visorMat} position={[headPos[0], headPos[1], (headPos[2] ?? 0) + 0.13]} />
 
       {/* Antenna */}
-      <mesh geometry={robotGeo.antenna} material={darkMat} position={[0.05, (headPos[1] ?? 1.32) + 0.2, 0]} />
+      <mesh geometry={robotGeo.antenna} material={diorama ? clay.shade : darkMat} position={[0.05, (headPos[1] ?? 1.32) + 0.2, 0]} />
       <mesh ref={aTipRef} geometry={robotGeo.aTip} material={neonMat} position={[0.05, (headPos[1] ?? 1.32) + 0.28, 0]} />
 
       {/* Torso */}
-      <mesh ref={bodyMeshRef} geometry={torsoGeo} material={bodyMat} position={torsoPos as unknown as THREE.Vector3Tuple} castShadow />
-      <lineSegments ref={bodyEdgeRef} geometry={torsoEdgeGeo} material={bodyEdgeMat} position={torsoPos as unknown as THREE.Vector3Tuple} />
+      <mesh ref={bodyMeshRef} geometry={torsoGeo} material={bodyMat} position={torsoPos as unknown as THREE.Vector3Tuple} castShadow={!diorama} />
+      {torsoEdgeGeo && <lineSegments ref={bodyEdgeRef} geometry={torsoEdgeGeo} material={bodyEdgeMat} position={torsoPos as unknown as THREE.Vector3Tuple} />}
+
+      {/* Livery band (diorama): a stripe in the session colour round the lower torso */}
+      {band && (
+        <mesh geometry={band.geometry} material={liveryMat} position={[(torsoPos[0] ?? 0), (torsoPos[1] ?? 0.87) + band.offsetY, (torsoPos[2] ?? 0)]} />
+      )}
 
       {/* Core glow */}
       <mesh ref={coreRef} geometry={robotGeo.core} material={neonMat} position={[(torsoPos[0] ?? 0), (torsoPos[1] ?? 0.87) + 0.04, (torsoPos[2] ?? 0) + 0.105]} />
@@ -597,10 +641,10 @@ export default function Robot3DModel({
       {showArmL && <mesh geometry={robotGeo.joint} material={neonMat} position={armLPos as unknown as THREE.Vector3Tuple} />}
       {showArmR && <mesh geometry={robotGeo.joint} material={neonMat} position={armRPos as unknown as THREE.Vector3Tuple} />}
 
-      {/* Left arm pivot */}
+      {/* Left arm pivot — livery paint in the diorama */}
       {showArmL && (
         <group ref={armLRef} position={armLPos as unknown as THREE.Vector3Tuple}>
-          <mesh geometry={armLGeo} material={darkMat} position={[0, -0.18, 0]} castShadow />
+          <mesh geometry={armLGeo} material={diorama ? liveryMat : darkMat} position={[0, -0.18, 0]} castShadow={!diorama} />
           {armLEdgeGeo && <lineSegments geometry={armLEdgeGeo} material={edgeMat} position={[0, -0.18, 0]} />}
         </group>
       )}
@@ -608,7 +652,7 @@ export default function Robot3DModel({
       {/* Right arm pivot */}
       {showArmR && (
         <group ref={armRRef} position={armRPos as unknown as THREE.Vector3Tuple}>
-          <mesh geometry={armRGeo} material={darkMat} position={[0, -0.18, 0]} castShadow />
+          <mesh geometry={armRGeo} material={diorama ? liveryMat : darkMat} position={[0, -0.18, 0]} castShadow={!diorama} />
           {armREdgeGeo && <lineSegments geometry={armREdgeGeo} material={edgeMat} position={[0, -0.18, 0]} />}
         </group>
       )}
@@ -620,18 +664,18 @@ export default function Robot3DModel({
       {/* Left leg pivot */}
       {showLegL && (
         <group ref={legLRef} position={legLPos as unknown as THREE.Vector3Tuple}>
-          <mesh geometry={legLGeo} material={darkMat} position={[0, -0.19, 0]} castShadow />
+          <mesh geometry={legLGeo} material={diorama ? clay.shade : darkMat} position={[0, -0.19, 0]} castShadow={!diorama} />
           {legLEdgeGeo && <lineSegments geometry={legLEdgeGeo} material={edgeMat} position={[0, -0.19, 0]} />}
-          <mesh geometry={robotGeo.foot} material={metalMat} position={[0, -0.36, 0.012]} castShadow />
+          <mesh geometry={robotGeo.foot} material={diorama ? clay.body : metalMat} position={[0, -0.36, 0.012]} castShadow={!diorama} />
         </group>
       )}
 
       {/* Right leg pivot */}
       {showLegR && (
         <group ref={legRRef} position={legRPos as unknown as THREE.Vector3Tuple}>
-          <mesh geometry={legRGeo} material={darkMat} position={[0, -0.19, 0]} castShadow />
+          <mesh geometry={legRGeo} material={diorama ? clay.shade : darkMat} position={[0, -0.19, 0]} castShadow={!diorama} />
           {legREdgeGeo && <lineSegments geometry={legREdgeGeo} material={edgeMat} position={[0, -0.19, 0]} />}
-          <mesh geometry={robotGeo.foot} material={metalMat} position={[0, -0.36, 0.012]} castShadow />
+          <mesh geometry={robotGeo.foot} material={diorama ? clay.body : metalMat} position={[0, -0.36, 0.012]} castShadow={!diorama} />
         </group>
       )}
 

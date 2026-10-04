@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { db } from '@/lib/db';
 import type { BrowserSettings, SoundSettings, LabelAlarmSettings, AmbientSettings, CliSoundConfig } from '@/types';
 import type { SoundAction, SoundName } from '@/lib/soundEngine';
+import { DEFAULT_SCENE_STYLE, type SceneStyle } from '@/lib/sceneStyle';
 import {
   DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES,
   clampReplayBufferBytes,
@@ -215,6 +216,8 @@ interface SettingsState extends BrowserSettings {
 
   // UI
   scene3dEnabled: boolean;
+  /** The look of the 3D scene (geometry, materials, decals) — colours still come from the theme. */
+  sceneStyle: SceneStyle;
   toastEnabled: boolean;
   autoSendQueue: boolean;
   defaultTerminalTheme: string;
@@ -295,6 +298,7 @@ interface SettingsState extends BrowserSettings {
   setTerminalReplayBufferBytes: (bytes: number) => void;
   setTerminalScrollbackLines: (lines: number) => void;
   setScene3dEnabled: (enabled: boolean) => void;
+  setSceneStyle: (style: SceneStyle) => void;
   setToastEnabled: (enabled: boolean) => void;
   setAutoSendQueue: (enabled: boolean) => void;
   setDefaultTerminalTheme: (theme: string) => void;
@@ -360,6 +364,7 @@ const defaultSettings: SettingsData = {
   movementActions: {},
   hookDensity: 'medium',
   scene3dEnabled: false,
+  sceneStyle: DEFAULT_SCENE_STYLE,
   toastEnabled: true,
   autoSendQueue: false,
   defaultTerminalTheme: 'auto',
@@ -583,6 +588,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setScene3dEnabled: (scene3dEnabled) => {
     set({ scene3dEnabled });
     get().persistSetting('scene3dEnabled', scene3dEnabled);
+  },
+
+  setSceneStyle: (sceneStyle) => {
+    set({ sceneStyle });
+    get().persistSetting('sceneStyle', sceneStyle);
   },
 
   setToastEnabled: (toastEnabled) => {

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useSettingsStore, CLI_SOUND_PROFILES, DEFAULT_AMBIENT_SETTINGS, fullCliActions } from './settingsStore';
 
 const defaultPerCli = {
@@ -87,6 +87,32 @@ describe('settingsStore', () => {
     it('updates character model', () => {
       useSettingsStore.getState().setCharacterModel('CustomBot');
       expect(useSettingsStore.getState().characterModel).toBe('CustomBot');
+    });
+  });
+
+  describe('sceneStyle', () => {
+    const realPersist = useSettingsStore.getState().persistSetting;
+    afterEach(() => {
+      useSettingsStore.setState({ persistSetting: realPersist, sceneStyle: 'diorama' });
+    });
+
+    it('starts as the diorama look', () => {
+      expect(useSettingsStore.getInitialState().sceneStyle).toBe('diorama');
+    });
+
+    it('switches the look and writes the choice to the settings table', () => {
+      const persist = vi.fn().mockResolvedValue(undefined);
+      useSettingsStore.setState({ persistSetting: persist });
+
+      useSettingsStore.getState().setSceneStyle('cyberdrome');
+
+      expect(useSettingsStore.getState().sceneStyle).toBe('cyberdrome');
+      expect(persist).toHaveBeenCalledWith('sceneStyle', 'cyberdrome');
+    });
+
+    it('restores a stored look when the settings load', () => {
+      useSettingsStore.getState().loadFromDb({ sceneStyle: 'cyberdrome' });
+      expect(useSettingsStore.getState().sceneStyle).toBe('cyberdrome');
     });
   });
 

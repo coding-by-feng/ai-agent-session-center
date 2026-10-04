@@ -10,6 +10,7 @@ import { useRef, useEffect } from 'react';
 import { Text, Billboard } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { DIALOGUE_Y } from '@/lib/robotChip';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -24,13 +25,15 @@ export interface DialogueData {
 
 export interface RobotDialogueProps {
   dialogueRef: React.RefObject<DialogueData | null>;
+  /** Raise the bubble by this much (the diorama lifts it above an attention pin). Default 0. */
+  liftY?: number;
 }
 
 // ---------------------------------------------------------------------------
 // Component (always mounted, visibility controlled by opacity)
 // ---------------------------------------------------------------------------
 
-export default function RobotDialogue({ dialogueRef }: RobotDialogueProps) {
+export default function RobotDialogue({ dialogueRef, liftY = 0 }: RobotDialogueProps) {
   const opacity = useRef(0);
   const lastTimestamp = useRef(0);
   const fadingOut = useRef(false);
@@ -89,7 +92,7 @@ export default function RobotDialogue({ dialogueRef }: RobotDialogueProps) {
   const panelHeight = 0.22;
 
   return (
-    <Billboard position={[0, 2.8, 0]} follow lockX={false} lockY={false} lockZ={false}>
+    <Billboard position={[0, DIALOGUE_Y + liftY, 0]} follow lockX={false} lockY={false} lockZ={false}>
       {/* Background panel */}
       <mesh position={[0, 0, -0.01]}>
         <planeGeometry args={[panelWidth, panelHeight]} />

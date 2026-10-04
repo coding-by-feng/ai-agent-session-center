@@ -14,7 +14,15 @@ import type { CliBadge } from './Robot3DModel';
 import RobotLabel from './RobotLabel';
 import RobotDialogue from './RobotDialogue';
 import StatusParticles from './StatusParticles';
+import SelectionMarker from './SelectionMarker';
+import AttentionPin from './AttentionPin';
+import BlobShadow from './BlobShadow';
+import { DECAL_Y } from './sceneDecals';
 import { sessionStatusToRobotState, getRobotStateBehavior, type Robot3DState } from '@/lib/robotStateMap';
+import { PIN_BUBBLE_LIFT, attentionPinColor, chipLayout } from '@/lib/robotChip';
+import { sessionRobotPropsEqual, type RobotMemoProps } from '@/lib/sessionRobotMemo';
+import type { SceneStyle } from '@/lib/sceneStyle';
+import type { ClayTone } from '@/lib/dioramaLighting';
 import {
   collidesAnyWall,
   getZone,
@@ -88,7 +96,27 @@ interface SessionRobotProps {
   roomIndex?: number;
   globalCharacterModel: string;
   fontSize: number;
+  /**
+   * Is this the robot whose session is open in the detail panel? Read from the store in the DOM layer
+   * (CyberdromeScene) and passed down — a Canvas never subscribes to a store itself.
+   */
+  isSelected: boolean;
+  /** The scene's look — see `sceneStyle.ts`. */
+  sceneStyle: SceneStyle;
+  /**
+   * The clay the diorama body is painted in — derived from the palette in the DOM layer
+   * (`clayToneFor`), because a Canvas never reads a theme from a store itself.
+   */
+  clayTone: ClayTone;
 }
+
+/**
+ * Compile-time guard for the memo comparator (`sessionRobotMemo.ts`). Every prop above must also be
+ * declared in the comparator's props type; add one to `SessionRobotProps` and forget that file, and
+ * this line stops compiling — naming the prop — instead of the robot silently ignoring its changes.
+ */
+type AssertNever<T extends never> = T;
+export type EveryRobotPropIsCompared = AssertNever<Exclude<keyof SessionRobotProps, keyof RobotMemoProps>>;
 
 // ---------------------------------------------------------------------------
 // Component
@@ -105,13 +133,18 @@ function SessionRobotInner({
   roomIndex,
   globalCharacterModel,
   fontSize,
+  isSelected,
+  sceneStyle,
+  clayTone,
 }: SessionRobotProps) {
   const robotState = sessionStatusToRobotState(session.status);
   const behavior = getRobotStateBehavior(robotState);
+  const diorama = sceneStyle === 'diorama';
+  // A pin floats over a robot that needs the user — diorama only; the neon label has its own banner.
+  const pinColor = diorama ? attentionPinColor(robotState) : null;
 
   const neonColor = session.accentColor || PALETTE[(session.colorIndex ?? 0) % PALETTE.length];
   const isHoveredRef = useRef(false);
-  const isSelected = false;
 
   // Model type: per-session override → global setting (passed as prop, no store subscription)
   const modelType = (session.characterModel || globalCharacterModel || 'robot') as RobotModelType;
@@ -423,12 +456,18 @@ function SessionRobotInner({
 
   // Three.js group ref for direct position updates (avoids re-render → position change → pointer event loop)
   const groupRef = useRef<THREE.Group>(null);
+  // The diorama's flat decals (blob shadow, selection marker) hang off this group. A seated robot
+  // sinks 0.12 into its chair, and the decals must stay on the floor, so the group is counter-shifted.
+  const groundRef = useRef<THREE.Group>(null);
 
   // Update scene group position directly from useFrame (not via React props)
   useFrame(() => {
     const n = nav.current;
     if (groupRef.current) {
       groupRef.current.position.set(n.posX, n.posY, n.posZ);
+    }
+    if (groundRef.current) {
+      groundRef.current.position.y = DECAL_Y - n.posY;
     }
   });
 
@@ -604,6 +643,8 @@ function SessionRobotInner({
         cliBadge={cliBadge}
         currentTool={currentTool}
         statusStartTime={statusStartTimeRef.current}
+        sceneStyle={sceneStyle}
+        clayTone={clayTone}
       />
       <StatusParticles state={robotState} />
       <RobotLabel
@@ -612,8 +653,16 @@ function SessionRobotInner({
         isSelected={isSelected}
         isHovered={isHoveredRef.current}
         fontSize={fontSize}
+        sceneStyle={sceneStyle}
       />
-      <RobotDialogue dialogueRef={dialogueRef} />
+      <RobotDialogue dialogueRef={dialogueRef} liftY={pinColor ? PIN_BUBBLE_LIFT : 0} />
+      {diorama && (
+        <group ref={groundRef} position={[0, DECAL_Y, 0]}>
+          <BlobShadow />
+          {isSelected && <SelectionMarker color={cliNeonColor} />}
+        </group>
+      )}
+      {pinColor && <AttentionPin color={pinColor} baseY={chipLayout(fontSize).pinBaseY} />}
     </group>
   );
 }
@@ -660,28 +709,7 @@ function extractFilename(input: string): string {
 
 // Memoize SessionRobot to prevent cascading re-renders when many robots exist.
 // Granular field comparison prevents re-renders when unrelated session fields change,
-// avoiding React Error #185 caused by cascading Html portal updates.
-const SessionRobot = memo(SessionRobotInner, (prev, next) =>
-  prev.session.sessionId === next.session.sessionId &&
-  prev.session.status === next.session.status &&
-  prev.session.accentColor === next.session.accentColor &&
-  prev.session.colorIndex === next.session.colorIndex &&
-  prev.session.model === next.session.model &&
-  prev.session.currentPrompt === next.session.currentPrompt &&
-  prev.session.pendingTool === next.session.pendingTool &&
-  prev.session.characterModel === next.session.characterModel &&
-  prev.session.title === next.session.title &&
-  prev.session.projectName === next.session.projectName &&
-  (prev.session.toolLog?.length ?? 0) === (next.session.toolLog?.length ?? 0) &&
-  (prev.session.events?.length ?? 0) === (next.session.events?.length ?? 0) &&
-  prev.sceneBound === next.sceneBound &&
-  prev.onSelect === next.onSelect &&
-  prev.workstations === next.workstations &&
-  prev.wallRects === next.wallRects &&
-  prev.rooms === next.rooms &&
-  prev.doors === next.doors &&
-  prev.roomIndex === next.roomIndex &&
-  prev.globalCharacterModel === next.globalCharacterModel &&
-  prev.fontSize === next.fontSize
-);
+// avoiding React Error #185 caused by cascading Html portal updates. The comparison lives in
+// `sessionRobotMemo.ts` (unit-tested); a prop added above must be added there too.
+const SessionRobot = memo(SessionRobotInner, sessionRobotPropsEqual);
 export default SessionRobot;
