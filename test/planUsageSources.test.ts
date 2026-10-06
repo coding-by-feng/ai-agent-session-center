@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, utimesSync, symlinkSync, statSync, chmodSync } from 'fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, utimesSync, symlinkSync, statSync, chmodSync, renameSync } from 'fs';
 import { tmpdir } from 'os';
+import { EventEmitter } from 'events';
 import { join } from 'path';
 import log from '../server/logger.js';
 import {
@@ -216,6 +217,148 @@ describe('createClaudeSnapshotSource', () => {
     expect(existsSync(stale)).toBe(false);
     expect(existsSync(fresh)).toBe(true);
     expect(existsSync(foreign)).toBe(true);
+  });
+
+  // A real fs.watch on a real directory. The status-line script writes `.<sid>.<pid>.tmp`
+  // and renames it to `<sid>.json`; that rename is the moment new numbers exist.
+  describe('watch', () => {
+    const settle = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+    const until = async (cond: () => boolean, ms = 3000): Promise<boolean> => {
+      const end = Date.now() + ms;
+      while (!cond() && Date.now() < end) await settle(10);
+      return cond();
+    };
+
+    const writeLikeTheTap = (): void => {
+      const tmp = join(dir, '.abc.123.tmp');
+      writeFileSync(tmp, snap(40));
+      renameSync(tmp, join(dir, 'abc.json'));
+    };
+
+    it('says so when a snapshot is written the way the status line writes it', async () => {
+      const source = createClaudeSnapshotSource(dir);
+      let changes = 0;
+      const stop = source.watch?.(() => { changes += 1; }, () => {});
+      expect(stop).toBeTypeOf('function');
+      try {
+        // Written again while waiting: under a heavy parallel run the OS may start
+        // delivering events a beat after the watch was opened.
+        let lastWrite = 0;
+        expect(await until(() => {
+          if (changes === 0 && Date.now() - lastWrite > 200) { writeLikeTheTap(); lastWrite = Date.now(); }
+          return changes > 0;
+        })).toBe(true);
+      } finally {
+        stop?.();
+      }
+    });
+
+    it('stays quiet about files that are not snapshots (the temp file on its own, anything else)', async () => {
+      const source = createClaudeSnapshotSource(dir);
+      let changes = 0;
+      const stop = source.watch?.(() => { changes += 1; }, () => {});
+      try {
+        await settle(50);
+        writeFileSync(join(dir, '.abc.123.tmp'), snap(40));
+        writeFileSync(join(dir, 'notes.txt'), 'x');
+        await settle(400);
+        expect(changes).toBe(0);
+        // ...and it was listening all along: a real snapshot is heard.
+        writeLikeTheTap();
+        expect(await until(() => changes > 0)).toBe(true);
+      } finally {
+        stop?.();
+      }
+    });
+
+    it('cannot watch a directory that is not there yet, and says so instead of throwing', () => {
+      const source = createClaudeSnapshotSource(join(root, 'not-yet'));
+      expect(source.watch?.(() => {}, () => {})).toBeNull();
+    });
+
+    it.skipIf(process.platform === 'win32')('will not watch a directory it would not read (a symlink to one)', () => {
+      const link = join(root, 'link');
+      symlinkSync(dir, link);
+      expect(createClaudeSnapshotSource(link).watch?.(() => {}, () => {})).toBeNull();
+    });
+
+    it.skipIf(process.platform === 'win32')('will not watch a directory others can write to', () => {
+      chmodSync(dir, 0o777);
+      expect(createClaudeSnapshotSource(dir).watch?.(() => {}, () => {})).toBeNull();
+    });
+
+    // inotify's watch limit, too many open files: fs.watch emits 'error' on a watch it
+    // cannot keep, and throws when it cannot open one. Stood in for, since neither can be
+    // provoked safely here.
+    it("gives the watch up on the watcher's 'error', so it can be armed again", () => {
+      const fake = Object.assign(new EventEmitter(), { close: vi.fn() });
+      const source = createClaudeSnapshotSource(dir, { watchDir: (() => fake) as never });
+      let lost = 0;
+      expect(source.watch?.(() => {}, () => { lost += 1; })).toBeTypeOf('function');
+      fake.emit('error', new Error('ENOSPC: System limit for number of file watchers reached'));
+      expect(lost).toBe(1);
+      expect(fake.close).toHaveBeenCalled();
+    });
+
+    it('says once, in the debug log, why it could not watch — then keeps quiet while it keeps trying', () => {
+      const debug = vi.spyOn(log, 'debug').mockImplementation(() => {});
+      try {
+        const source = createClaudeSnapshotSource(dir, {
+          watchDir: (() => { throw Object.assign(new Error('EMFILE: too many open files'), { code: 'EMFILE' }); }) as never,
+        });
+        expect(source.watch?.(() => {}, () => {})).toBeNull();
+        expect(source.watch?.(() => {}, () => {})).toBeNull();
+        expect(debug).toHaveBeenCalledTimes(1);
+        expect(String(debug.mock.calls[0][1])).toContain('EMFILE');
+      } finally {
+        debug.mockRestore();
+      }
+    });
+
+    // A watch on a directory that was swept, or swept and made again, hears nothing more.
+    // The next read notices — it checks the directory every poll anyway — and gives it up.
+    it('gives up a watch whose directory has gone, so it can be armed again', async () => {
+      const source = createClaudeSnapshotSource(dir);
+      let lost = 0;
+      const stop = source.watch?.(() => {}, () => { lost += 1; });
+      try {
+        rmSync(dir, { recursive: true, force: true });
+        await source.read(NOW);
+        expect(lost).toBe(1);
+      } finally {
+        stop?.();
+      }
+    });
+
+    it('gives up a watch whose directory was replaced by a new one', async () => {
+      const source = createClaudeSnapshotSource(dir);
+      let lost = 0;
+      const stop = source.watch?.(() => {}, () => { lost += 1; });
+      try {
+        rmSync(dir, { recursive: true, force: true });
+        mkdirSync(dir);
+        chmodSync(dir, 0o700);
+        await source.read(NOW);
+        expect(lost).toBe(1);
+        await source.read(NOW);
+        expect(lost).toBe(1); // once
+      } finally {
+        stop?.();
+      }
+    });
+
+    it('keeps a watch whose directory is still the same', async () => {
+      const source = createClaudeSnapshotSource(dir);
+      let lost = 0;
+      const stop = source.watch?.(() => {}, () => { lost += 1; });
+      try {
+        await source.read(NOW);
+        await source.read(NOW);
+        expect(lost).toBe(0);
+      } finally {
+        stop?.();
+      }
+    });
   });
 });
 

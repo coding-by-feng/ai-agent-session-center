@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -237,5 +237,206 @@ describe('WorkdirLauncher — the top bar cannot crop the dropdown', () => {
     expect(rule).toMatch(/position:\s*fixed/);
     expect(rule).toMatch(/top:\s*var\(--dd-top/);
     expect(rule).toMatch(/left:\s*var\(--dd-left/);
+  });
+});
+
+// App.tsx unmounts the top bar while a session panel is open, so the panel's
+// strip carries its own copy of DIRS, as a folder icon. Two things set that
+// copy apart from the top bar's:
+//  - DetailPanel keeps the strip mounted, hidden, after the panel closes
+//    (lastSessionRef), at the same moment the top bar comes back. Sharing the
+//    uiStore flag, the top bar's DIRS would open the hidden copy too, and the
+//    hidden copy's click-outside would shut the visible menu on the very
+//    mousedown meant to launch. So the panel copy owns its open state.
+//  - `.panel` has `will-change: transform`, which makes it the containing block
+//    for `position: fixed`, so the menu is portaled to <body>.
+describe('WorkdirLauncher — the session panel copy', () => {
+  let fetchMock: ReturnType<typeof vi.fn<typeof fetch>>;
+  const realSelectSession = useSessionStore.getState().selectSession;
+
+  beforeEach(() => {
+    try { localStorage.clear(); } catch { /* ignore */ }
+    useUiStore.setState({ workdirLauncherOpen: false });
+    fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ ok: true, terminalId: 'term-1' }));
+    vi.stubGlobal('fetch', fetchMock);
+    useSessionStore.setState({ selectSession: vi.fn() } as never);
+  });
+
+  afterEach(() => {
+    useSessionStore.setState({ selectSession: realSelectSession } as never);
+    vi.unstubAllGlobals();
+  });
+
+  const openPanelCopy = () => {
+    const view = render(<WorkdirLauncher variant="panel" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Recent directories' }));
+    return view;
+  };
+
+  // The panel closed: its strip is still mounted (hidden), and the top bar is back.
+  const renderPanelClosed = () =>
+    render(
+      <>
+        <div data-testid="topbar"><WorkdirLauncher /></div>
+        <div data-testid="panel" style={{ display: 'none' }}><WorkdirLauncher variant="panel" /></div>
+      </>,
+    );
+
+  // The rail's icon line is budgeted for 26px icons; the top bar's DIRS label would wrap it.
+  it('is an icon button, named for screen readers and hover only', () => {
+    render(<WorkdirLauncher variant="panel" />);
+    const trigger = screen.getByRole('button', { name: 'Recent directories' });
+    expect(trigger.textContent).toBe('');
+    expect(trigger).toHaveAttribute('title', 'Recent directories');
+    expect(trigger).toHaveAttribute('aria-haspopup', 'true');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it("opens its own menu and leaves the top bar's shared flag alone", () => {
+    openPanelCopy();
+    expect(screen.getByText('Recent Directories')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Recent directories' })).toHaveAttribute('aria-expanded', 'true');
+    expect(useUiStore.getState().workdirLauncherOpen).toBe(false);
+  });
+
+  it('portals the menu to <body>, out of the panel that would re-anchor a fixed menu', () => {
+    const { container } = openPanelCopy();
+    const menu = screen.getByText('Recent Directories').parentElement as HTMLElement;
+    expect(container.contains(menu)).toBe(false);
+    expect(menu.parentElement).toBe(document.body);
+  });
+
+  it('launches from a click inside the portaled menu', async () => {
+    openPanelCopy();
+    const launch = screen.getByRole('button', { name: 'Launch Codex in agent-manager' });
+    fireEvent.mouseDown(launch);
+    fireEvent.click(launch);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ workingDir: DIR, command: 'codex' });
+  });
+
+  it('closes on a click anywhere else', () => {
+    openPanelCopy();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByText('Recent Directories')).toBeNull();
+  });
+
+  // DetailPanel listens for Escape on window (close search, leave maximized).
+  it("Escape closes it without reaching the panel's own Escape handler", () => {
+    const panelEscape = vi.fn();
+    window.addEventListener('keydown', panelEscape);
+    try {
+      openPanelCopy();
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.queryByText('Recent Directories')).toBeNull();
+      expect(panelEscape).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('keydown', panelEscape);
+    }
+  });
+
+  // A deselect hides the strip (display: none) instead of unmounting it, and a
+  // menu portaled to <body> does not hide with it: it would float over the
+  // dashboard. jsdom has no layout or ResizeObserver, so both are stood in for.
+  it('closes when its icon stops being laid out, so the menu cannot outlive the panel', () => {
+    let notify: () => void = () => {};
+    const observed: Element[] = [];
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(cb: () => void) { notify = cb; }
+      observe(target: Element) { observed.push(target); }
+      disconnect() {}
+    });
+    openPanelCopy();
+    const trigger = screen.getByRole('button', { name: 'Recent directories' });
+    // The icon is what a hidden strip takes out of layout; the menu, in <body>, never is.
+    expect(observed).toEqual([trigger]);
+    const box = { top: 0, left: 0, bottom: 26, right: 26, width: 26, height: 26, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
+    const rects = vi.spyOn(trigger, 'getClientRects').mockReturnValue([box] as unknown as DOMRectList);
+    act(() => notify());
+    expect(screen.getByText('Recent Directories')).toBeInTheDocument();
+    rects.mockReturnValue([] as unknown as DOMRectList);
+    act(() => notify());
+    expect(screen.queryByText('Recent Directories')).toBeNull();
+  });
+
+  // The terminal's fullscreen hides the panel with `visibility: hidden`
+  // (body.term-fullscreen), which keeps the icon's box, so no resize fires.
+  it("closes when the terminal goes fullscreen, rather than floating over it", async () => {
+    openPanelCopy();
+    // MutationObserver callbacks run as microtasks: an async act() waits for them.
+    await act(async () => { document.body.classList.add('some-other-state'); });
+    expect(screen.getByText('Recent Directories')).toBeInTheDocument();
+    try {
+      await act(async () => { document.body.classList.add('term-fullscreen'); });
+      expect(screen.queryByText('Recent Directories')).toBeNull();
+    } finally {
+      document.body.classList.remove('term-fullscreen', 'some-other-state');
+    }
+  });
+
+  // Portaled to the end of <body>, the menu is no longer the next stop after
+  // its icon in Tab order (and the terminal behind it swallows Tab): a keyboard
+  // user who opened it could never reach a launch button.
+  it('opened from the keyboard, moves focus into the menu, and Escape hands it back', () => {
+    render(<WorkdirLauncher variant="panel" />);
+    const trigger = screen.getByRole('button', { name: 'Recent directories' });
+    trigger.focus();
+    fireEvent.click(trigger, { detail: 0 }); // Enter / Space
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Launch Claude in agent-manager' }));
+    expect(trigger).toHaveAttribute('aria-controls', screen.getByText('Recent Directories').parentElement?.id);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('opened with the mouse, leaves focus on its icon', () => {
+    render(<WorkdirLauncher variant="panel" />);
+    const trigger = screen.getByRole('button', { name: 'Recent directories' });
+    trigger.focus();
+    fireEvent.click(trigger, { detail: 1 });
+    expect(screen.getByText('Recent Directories')).toBeInTheDocument();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("stays shut when the top bar's DIRS or the LIVE card opens the shared menu", () => {
+    renderPanelClosed();
+    act(() => useUiStore.getState().setWorkdirLauncherOpen(true));
+    expect(screen.getAllByText('Recent Directories')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Recent directories', hidden: true }))
+      .toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it("does not stop the top bar's menu from launching", async () => {
+    renderPanelClosed();
+    const topbar = within(screen.getByTestId('topbar'));
+    fireEvent.click(topbar.getByRole('button', { name: 'DIRS' }));
+    const launch = topbar.getByRole('button', { name: 'Launch Claude in agent-manager' });
+    fireEvent.mouseDown(launch);
+    fireEvent.click(launch);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not close the top bar's menu when it unmounts", () => {
+    const { unmount } = render(<WorkdirLauncher variant="panel" />);
+    act(() => useUiStore.getState().setWorkdirLauncherOpen(true));
+    unmount();
+    expect(useUiStore.getState().workdirLauncherOpen).toBe(true);
+  });
+
+  // Portaled, the menu is a SIBLING of `.detailOverlay` in the root stacking
+  // context, not its child: below the panel's z-index it opens, places itself
+  // and is painted behind the panel (the QueueMovePicker bug). The two rules
+  // live in CSS modules that cannot reference each other, so read the source.
+  it('sits above the session panel, in the <body>-portal band', () => {
+    const readZIndex = (file: string, cls: string): number => {
+      const css = readFileSync(resolve(__dirname, '../../styles/modules', file), 'utf8');
+      const block = new RegExp(`\\.${cls}\\s*\\{([^}]*)\\}`).exec(css);
+      if (!block) throw new Error(`.${cls} not found in ${file}`);
+      const z = /z-index:\s*(\d+)/.exec(block[1]);
+      if (!z) throw new Error(`.${cls} in ${file} declares no z-index`);
+      return Number(z[1]);
+    };
+    const menu = readZIndex('WorkdirLauncher.module.css', 'dropdownPortaled');
+    expect(menu).toBeGreaterThan(readZIndex('DetailPanel.module.css', 'detailOverlay'));
+    expect(menu).toBeGreaterThanOrEqual(10000);
   });
 });

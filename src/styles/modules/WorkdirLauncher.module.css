@@ -59,6 +59,26 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* The session panel's copy, portaled to <body> (WorkdirLauncher `variant`).
+   There it is a SIBLING of .detailOverlay (z-index 100) in the root stacking
+   context, so it sits in the band of the other portaled overlays (Tooltip
+   10000, SelectionPopup / queueMovePicker 10050). Fade only, like them. */
+.dropdownPortaled {
+  z-index: 10050;
+  animation: dropFade 0.15s ease;
+}
+
+@keyframes dropFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dropdownPortaled {
+    animation: none;
+  }
+}
+
 .dropdown::-webkit-scrollbar { width: 6px; }
 .dropdown::-webkit-scrollbar-track { background: transparent; }
 .dropdown::-webkit-scrollbar-thumb { background: var(--border-accent, #1a1a3e); border-radius: 3px; }

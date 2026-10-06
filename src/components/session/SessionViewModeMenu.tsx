@@ -4,9 +4,9 @@
  * Recent activity. Its glyph shows the view you are in.
  *
  * It takes the slot the old room ⇄ activity toggle had instead of adding a
- * second toggle beside it: the header's icon row is sized to eight 26px
- * children in the 230px left rail (see `.switcherBarVertical .switcherMeta`),
- * and a ninth would push another icon onto a second line.
+ * second toggle beside it: in the 230px left rail, line one of the header's
+ * icon row fits seven 26px icons (see `.switcherBarVertical .switcherMeta`),
+ * and an eighth would push one down.
  *
  * The dropdown reuses the room filter's styles and, like it, anchors `right: 0`,
  * so `useDropdownFlipX` keeps it on screen when the trigger sits near the

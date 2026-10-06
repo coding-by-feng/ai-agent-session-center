@@ -14,6 +14,12 @@ import type { DevicePresence } from '@/types/websocket';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+// The strip hosts the panel's recent-directories menu, whose known-projects
+// fetch would otherwise resolve outside act() after every test here. One stable
+// array: a fresh literal per call re-runs the menu's effect forever.
+const { KNOWN_PROJECTS } = vi.hoisted(() => ({ KNOWN_PROJECTS: [] as string[] }));
+vi.mock('@/hooks/useKnownProjects', () => ({ useKnownProjects: () => KNOWN_PROJECTS }));
+
 /**
  * Progress remark — the note icon in the title row is the entry point for the
  * empty state, and the row below the title only exists once there is something
@@ -1728,5 +1734,80 @@ describe('SessionSwitcher — plan usage chip', () => {
     expect(chips(container)).toHaveLength(1);
     expect(chips(container)[0].getAttribute('data-cli')).toBe('codex');
     expect(chips(container)[0].getAttribute('data-state')).toBe('empty');
+  });
+});
+
+// App.tsx unmounts the top bar, and with it + NEW and DIRS, while a session
+// panel is open. The strip carries both as icons, so starting a session never
+// means minimizing the panel first.
+describe('SessionSwitcher — start a session without leaving the panel', () => {
+  const session = {
+    sessionId: 's1',
+    title: 'Zoe',
+    projectName: 'nz-property-management-website',
+    projectPath: '/Users/me/nz-property-management-website',
+    status: 'waiting',
+    startedAt: Date.now(),
+    lastActivityAt: Date.now(),
+  } as Session;
+
+  const renderSwitcher = () =>
+    render(
+      <SessionSwitcher
+        currentSession={session}
+        sessions={new Map([[session.sessionId, session]])}
+        onSwitch={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+  beforeEach(() => {
+    useUiStore.setState({ activeModal: null, workdirLauncherOpen: false });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ paths: [] }) }));
+  });
+
+  afterEach(() => {
+    useUiStore.setState({ activeModal: null, workdirLauncherOpen: false });
+    vi.unstubAllGlobals();
+  });
+
+  it('the + icon opens the new-session form', () => {
+    renderSwitcher();
+    fireEvent.click(screen.getByRole('button', { name: 'New session' }));
+    expect(useUiStore.getState().activeModal).toBe('new-session');
+  });
+
+  it('the folder icon opens the recent-directories menu', () => {
+    renderSwitcher();
+    fireEvent.click(screen.getByRole('button', { name: 'Recent directories' }));
+    expect(screen.getByText('Recent Directories')).toBeInTheDocument();
+  });
+
+  // A popped-out session window renders DetailPanel too, but not AppLayout,
+  // so NewSessionModal is never mounted there: a + would set activeModal and
+  // show nothing. The pair is the main window's.
+  it('is absent from a popped-out session window', () => {
+    const before = window.location.href;
+    window.history.replaceState({}, '', '/?popout=session&sessionId=s1');
+    try {
+      renderSwitcher();
+      expect(screen.queryByRole('button', { name: 'New session' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Recent directories' })).toBeNull();
+    } finally {
+      window.history.replaceState({}, '', before);
+    }
+  });
+
+  it('both are there in the left rail too', () => {
+    const prev = useUiStore.getState().navPosition;
+    useUiStore.setState({ navPosition: 'left' });
+    try {
+      const { container } = renderSwitcher();
+      expect(container.querySelector('[class*="switcherBarVertical"]')).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'New session' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Recent directories' })).toBeInTheDocument();
+    } finally {
+      act(() => useUiStore.setState({ navPosition: prev }));
+    }
   });
 });

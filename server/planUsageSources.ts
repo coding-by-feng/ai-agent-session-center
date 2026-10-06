@@ -10,10 +10,12 @@
  * mtime and size and a rollout is only ever read from the end — one can be over
  * 100 MB. Everything is async: this runs on the loop that also serves hooks and
  * terminal output. A missing directory, an unreadable file or garbage in either
- * is "no observation", never an error.
+ * is "no observation", never an error. The Claude directory is also watched, so a
+ * new snapshot is read the moment it lands rather than at the next poll.
  */
 import { homedir } from 'os';
 import { join } from 'path';
+import { lstatSync, watch as fsWatch, type FSWatcher, type Stats } from 'fs';
 import { lstat, open, readdir, readFile, rm, stat } from 'fs/promises';
 import type { PlanCli, PlanUsage } from '../src/types/session.js';
 import log from './logger.js';
@@ -56,6 +58,13 @@ const ROLLOUT_NAME_RE = /^rollout-.*\.jsonl$/;
 export interface UsageSource {
   cli: PlanCli;
   read(now?: number): Promise<PlanUsage[]>;
+  /**
+   * Optional: call `onChange` whenever new numbers may have landed, so they are read at
+   * once instead of at the next poll. Returns what stops the watch, or null when there is
+   * nothing to watch yet (the caller asks again later). `onLost` says the watch stopped on
+   * its own — its directory went away — and should be armed again.
+   */
+  watch?(onChange: () => void, onLost: () => void): (() => void) | null;
 }
 
 interface Cached {
@@ -82,15 +91,29 @@ async function namesIn(dir: string): Promise<string[]> {
 /** Is this ours: owned by the user this server runs as? (Where there are no uids — Windows — everything is.) */
 const ownedByUs = (st: { uid: number }): boolean => typeof process.getuid !== 'function' || st.uid === process.getuid();
 
-type DirectoryVerdict = { ok: true } | { ok: false; reason: string | null };
+/**
+ * `id` tells a directory from one made again at the same path (a /tmp sweep). Not the
+ * inode alone: ext4 and xfs often hand a recreated directory its old inode number, and
+ * an inotify watch on the deleted one is dead. Birth time is 0 where the filesystem
+ * keeps none, which only leaves the inode to decide, as before.
+ */
+type DirectoryVerdict = { ok: true; id: string } | { ok: false; reason: string | null };
 
 /**
  * May the usage directory be read — and, above all, swept? It lives under /tmp, shared
  * ground, and the sweep DELETES old files, so it must be a real directory (not a symlink
  * that leads the sweep into someone's project), owned by this user and not writable by
- * anyone else. The status-line script makes it `0700`. A directory that is simply not
- * there yet is the normal state before the first snapshot and says nothing (`reason: null`).
+ * anyone else. The status-line script makes it `0700`. Takes an `lstat` already done, so
+ * the async read and the synchronous watch apply the same rules.
  */
+function judgeUsageDirectory(st: Stats): DirectoryVerdict {
+  if (!st.isDirectory()) return { ok: false, reason: 'it is not a plain directory (a symlink, or a file)' };
+  if (!ownedByUs(st)) return { ok: false, reason: 'it is owned by another user' };
+  if (process.platform !== 'win32' && (st.mode & 0o022) !== 0) return { ok: false, reason: 'it is writable by other users' };
+  return { ok: true, id: `${st.dev}:${st.ino}:${st.birthtimeMs}` };
+}
+
+/** A directory that is simply not there yet is the normal state before the first snapshot and says nothing (`reason: null`). */
 async function checkUsageDirectory(dir: string): Promise<DirectoryVerdict> {
   let st;
   try {
@@ -98,20 +121,37 @@ async function checkUsageDirectory(dir: string): Promise<DirectoryVerdict> {
   } catch {
     return { ok: false, reason: null };
   }
-  if (!st.isDirectory()) return { ok: false, reason: 'it is not a plain directory (a symlink, or a file)' };
-  if (!ownedByUs(st)) return { ok: false, reason: 'it is owned by another user' };
-  if (process.platform !== 'win32' && (st.mode & 0o022) !== 0) return { ok: false, reason: 'it is writable by other users' };
-  return { ok: true };
+  return judgeUsageDirectory(st);
 }
 
-export function createClaudeSnapshotSource(dir: string = USAGE_DIR): UsageSource {
+export function createClaudeSnapshotSource(
+  dir: string = USAGE_DIR,
+  /** `watchDir` stands in for fs.watch in tests (a watcher's 'error', a watch that cannot open). */
+  options: { watchDir?: typeof fsWatch } = {},
+): UsageSource {
+  const watchDir = options.watchDir ?? fsWatch;
   const cache = new Map<string, Cached>();
   let warned = false;
+  let watchFailureNoted = false;
+  /** The live watch and the directory it was armed on. */
+  let watching: { watcher: FSWatcher; id: string; onLost: () => void } | null = null;
+
+  /** Give the watch up and say so, so whoever armed it can arm it again. */
+  const loseWatch = (): void => {
+    const lost = watching;
+    if (!lost) return;
+    watching = null;
+    lost.watcher.close();
+    lost.onLost();
+  };
 
   return {
     cli: 'claude',
     async read(now = Date.now()) {
       const verdict = await checkUsageDirectory(dir);
+      // A watch on a directory that has gone, or was swept and made again, hears nothing
+      // more. The poll checks the directory anyway, so this is where that is noticed.
+      if (watching && (!verdict.ok || verdict.id !== watching.id)) loseWatch();
       if (!verdict.ok) {
         cache.clear();
         if (verdict.reason && !warned) {
@@ -157,6 +197,45 @@ export function createClaudeSnapshotSource(dir: string = USAGE_DIR): UsageSource
 
       for (const key of [...cache.keys()]) if (!seen.has(key)) cache.delete(key);
       return found;
+    },
+
+    watch(onChange, onLost) {
+      // The read's trust rules. A watch only ever leads to a read, which checks again,
+      // but there is no reason to listen on a directory a read would refuse.
+      let verdict: DirectoryVerdict;
+      try {
+        verdict = judgeUsageDirectory(lstatSync(dir));
+      } catch {
+        return null; // not there yet: the first snapshot makes it
+      }
+      if (!verdict.ok) return null;
+      let watcher: FSWatcher;
+      try {
+        // The status-line script writes `.<sid>.<pid>.tmp` and renames it to `<sid>.json`:
+        // only a snapshot's name means new numbers. A platform that cannot say which file
+        // changed (no name) gets a read anyway.
+        watcher = watchDir(dir, { persistent: false }, (_event, name) => {
+          if (name == null || SNAPSHOT_NAME_RE.test(String(name))) onChange();
+        });
+      } catch (err) {
+        // Out of inotify watches, too many open files: the poll still reads. Asked again every
+        // tick, so said once — otherwise the only sign is a chip that is 15 s slow.
+        if (!watchFailureNoted) {
+          watchFailureNoted = true;
+          log.debug('plan-usage', `not watching ${dir} (polling instead): ${err instanceof Error ? err.message : String(err)}`);
+        }
+        return null;
+      }
+      if (watching) watching.watcher.close(); // never two at once
+      const armed = { watcher, id: verdict.id, onLost };
+      watching = armed;
+      watcher.on('error', () => {
+        if (watching === armed) loseWatch();
+      });
+      return () => {
+        if (watching === armed) watching = null;
+        watcher.close();
+      };
     },
   };
 }
