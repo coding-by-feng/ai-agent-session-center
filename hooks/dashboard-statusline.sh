@@ -9,7 +9,7 @@
 #   1. Record the plan rate limits (rate_limits.five_hour / seven_day). Claude Code reports
 #      them nowhere else, and only after the session's first API response. One tiny snapshot
 #      per session lands in /tmp/claude-session-center/usage/<session-id>.json, which the
-#      dashboard server polls (server/planUsageSources.ts).
+#      dashboard server watches and polls (server/planUsageSources.ts).
 #   2. Chain to the user's OWN status line (local project > project > user settings). This
 #      tap replaces it for the sessions the dashboard launches, so without the chain a bar
 #      they configured would silently vanish.

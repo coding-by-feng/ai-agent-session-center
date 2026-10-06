@@ -6,9 +6,11 @@ import {
   REFRESH_ASOF_MS,
   STOP_KICK_DELAY_MS,
   SOURCE_TIMEOUT_MS,
+  WATCH_READ_WINDOW_MS,
   type PlanUsageHost,
 } from '../server/planUsageService.js';
 import { MAX_FUTURE_SKEW_MS, MAX_RESET_AHEAD_MS } from '../server/planUsageCodec.js';
+import log from '../server/logger.js';
 import type { UsageSource } from '../server/planUsageSources.js';
 import type { PlanCli, PlanUsage, Session } from '../src/types/session.js';
 
@@ -390,6 +392,207 @@ describe('createPlanUsageService', () => {
     service.stop();
     await vi.advanceTimersByTimeAsync(5000);
     expect(claude.read).not.toHaveBeenCalled();
+  });
+
+  // The Claude status line writes a snapshot whenever a session re-renders it. Until the
+  // service was told, that write waited for the next 15 s tick, so the chip trailed the
+  // official usage page by up to a poll.
+  describe('watching a source', () => {
+    const watching = (cli: PlanCli, read: UsageSource['read']) => {
+      let onChange: () => void = () => {};
+      let onLost: () => void = () => {};
+      const unwatch = vi.fn();
+      const watch = vi.fn((change: () => void, lost: () => void): (() => void) | null => {
+        onChange = change;
+        onLost = lost;
+        return unwatch;
+      });
+      const src = { cli, read: vi.fn(read), watch } as UsageSource & { read: ReturnType<typeof vi.fn> };
+      return { src, watch, unwatch, write: () => onChange(), lose: () => onLost() };
+    };
+
+    it(`reads ${WATCH_READ_WINDOW_MS} ms after a write, not at the next tick`, async () => {
+      const w = watching('claude', async () => [usage('claude', 40, 1000)]);
+      const service = createPlanUsageService(host(['claude']), [w.src], { intervalMs: 15_000 });
+      service.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(w.src.read).toHaveBeenCalledTimes(1);
+      w.write();
+      await vi.advanceTimersByTimeAsync(WATCH_READ_WINDOW_MS - 1);
+      expect(w.src.read).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(w.src.read).toHaveBeenCalledTimes(2);
+      service.stop();
+    });
+
+    it('folds a burst of writes (several sessions rendering at once) into one read', async () => {
+      const w = watching('claude', async () => [usage('claude', 40, 1000)]);
+      const service = createPlanUsageService(host(['claude']), [w.src]);
+      service.start();
+      await vi.advanceTimersByTimeAsync(0);
+      w.write();
+      await vi.advanceTimersByTimeAsync(30);
+      w.write();
+      w.write();
+      await vi.advanceTimersByTimeAsync(WATCH_READ_WINDOW_MS);
+      expect(w.src.read).toHaveBeenCalledTimes(2);
+      service.stop();
+    });
+
+    it('is not held back by a pending Stop kick', async () => {
+      const w = watching('claude', async () => [usage('claude', 40, 1000)]);
+      const service = createPlanUsageService(host(['claude']), [w.src]);
+      service.start();
+      await vi.advanceTimersByTimeAsync(0);
+      service.kick('claude', STOP_KICK_DELAY_MS);
+      w.write();
+      await vi.advanceTimersByTimeAsync(WATCH_READ_WINDOW_MS);
+      expect(w.src.read).toHaveBeenCalledTimes(2);
+      service.stop();
+    });
+
+    it('reads again once a read that was under way when the write landed has finished', async () => {
+      // That read may have listed the directory before the new snapshot was there.
+      let finishFirst: (value: PlanUsage[]) => void = () => {};
+      let calls = 0;
+      const w = watching('claude', () => {
+        calls += 1;
+        return calls === 1 ? new Promise<PlanUsage[]>((r) => { finishFirst = r; }) : Promise.resolve([usage('claude', 41, 2000)]);
+      });
+      const h = host(['claude']);
+      const service = createPlanUsageService(h, [w.src]);
+      service.start();
+      await vi.advanceTimersByTimeAsync(0);
+      w.write();
+      await vi.advanceTimersByTimeAsync(WATCH_READ_WINDOW_MS);
+      expect(w.src.read).toHaveBeenCalledTimes(1);
+      finishFirst([usage('claude', 40, 1000)]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(w.src.read).toHaveBeenCalledTimes(2);
+      expect(h.apply).toHaveBeenLastCalledWith('claude', expect.objectContaining({ asOf: 2000 }));
+      service.stop();
+    });
+
+    it('reads nothing for a CLI no session is using', async () => {
+      const w = watching('claude', async () => [usage('claude', 40, 1000)]);
+      const service = createPlanUsageService(host([]), [w.src]);
+      service.start();
+      w.write();
+      await vi.advanceTimersByTimeAsync(WATCH_READ_WINDOW_MS * 5);
+      expect(w.src.read).not.toHaveBeenCalled();
+      service.stop();
+    });
+
+    it('stops watching when stopped, and a late write reads nothing', async () => {
+      const w = watching('claude', async () => [usage('claude', 40, 1000)]);
+      const service = createPlanUsageService(host(['claude']), [w.src]);
+      service.start();
+      await vi.advanceTimersByTimeAsync(0);
+      w.write();
+      service.stop();
+      expect(w.unwatch).toHaveBeenCalledTimes(1);
+      w.write();
+      await vi.advanceTimersByTimeAsync(WATCH_READ_WINDOW_MS * 5);
+      expect(w.src.read).toHaveBeenCalledTimes(1);
+    });
+
+    it('arms the watch on a later tick when it could not start yet (no directory before the first snapshot)', async () => {
+      const w = watching('claude', async () => [usage('claude', 40, 1000)]);
+      w.watch.mockReturnValueOnce(null);
+      const service = createPlanUsageService(host(['claude']), [w.src], { intervalMs: 15_000 });
+      service.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(w.watch).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(w.watch).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(w.watch).toHaveBeenCalledTimes(2); // armed: not asked again
+      service.stop();
+    });
+
+    it('arms it again on the next tick when it is lost (the directory was swept)', async () => {
+      const w = watching('claude', async () => [usage('claude', 40, 1000)]);
+      const service = createPlanUsageService(host(['claude']), [w.src], { intervalMs: 15_000 });
+      service.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(w.watch).toHaveBeenCalledTimes(1);
+      w.lose();
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(w.watch).toHaveBeenCalledTimes(2);
+      service.stop();
+    });
+
+    // start() sets its interval before the first tick arms the watches, so a source that
+    // reports while being armed (a snapshot landing that instant) is not taken for a late
+    // callback after stop().
+    it('hears a source that reports while it is being armed', async () => {
+      const w = watching('claude', async () => [usage('claude', 40, 1000)]);
+      w.watch.mockImplementationOnce((change: () => void) => { change(); return w.unwatch; });
+      const service = createPlanUsageService(host(['claude']), [w.src]);
+      service.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(w.src.read).toHaveBeenCalledTimes(1); // the start read
+      await vi.advanceTimersByTimeAsync(WATCH_READ_WINDOW_MS);
+      expect(w.src.read).toHaveBeenCalledTimes(2);
+      service.stop();
+    });
+
+    // Shutdown saves the sessions right after stop(): nothing may write planUsage after that.
+    it('drops the re-read it promised once stop() is called', async () => {
+      let finishFirst: (value: PlanUsage[]) => void = () => {};
+      let calls = 0;
+      const w = watching('claude', () => {
+        calls += 1;
+        return calls === 1 ? new Promise<PlanUsage[]>((r) => { finishFirst = r; }) : Promise.resolve([usage('claude', 41, 2000)]);
+      });
+      const service = createPlanUsageService(host(['claude']), [w.src]);
+      service.start();
+      await vi.advanceTimersByTimeAsync(0);
+      w.write();
+      await vi.advanceTimersByTimeAsync(WATCH_READ_WINDOW_MS); // the re-read now waits on the first read
+      service.stop();
+      finishFirst([usage('claude', 40, 1000)]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(w.src.read).toHaveBeenCalledTimes(1);
+    });
+
+    it('closes every watch on stop() even when one of them throws', async () => {
+      const a = watching('claude', async () => []);
+      const b = watching('codex', async () => []);
+      a.unwatch.mockImplementation(() => { throw new Error('close failed'); });
+      const service = createPlanUsageService(host(['claude', 'codex']), [a.src, b.src]);
+      service.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(() => service.stop()).not.toThrow();
+      expect(b.unwatch).toHaveBeenCalledTimes(1);
+    });
+
+    // One session the host chokes on, while sessions are streaming: every watch read asks
+    // liveClis(), so an unlimited warning would write ~10 lines a second to server.log.
+    it('warns about a host that cannot say which CLIs are live at most once a minute', async () => {
+      const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+      try {
+        let broken = true;
+        const h = {
+          liveClis: (): ReadonlySet<PlanCli> => { if (broken) throw new Error('boom'); return new Set<PlanCli>(['claude']); },
+          apply: vi.fn(),
+        };
+        const w = watching('claude', async () => [usage('claude', 40, 1000)]);
+        const service = createPlanUsageService(h, [w.src], { intervalMs: 15_000 });
+        service.start();
+        for (let i = 0; i < 40; i += 1) {
+          w.write();
+          await vi.advanceTimersByTimeAsync(WATCH_READ_WINDOW_MS);
+        }
+        expect(warn).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(warn.mock.calls.length).toBe(2);
+        broken = false;
+        service.stop();
+      } finally {
+        warn.mockRestore();
+      }
+    });
   });
 });
 

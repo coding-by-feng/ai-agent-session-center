@@ -45,6 +45,18 @@ export const REFRESH_ASOF_MS = 5 * 60 * 1000;
 export const STOP_KICK_DELAY_MS = 2500;
 
 /**
+ * A source saying new numbers landed opens a window this long; every write inside it
+ * folds into the one read at its end (a fixed window, not a debounce: a steady stream
+ * of writes cannot postpone the read). It caps watch reads at four a second per CLI
+ * while every busy session's status line writes several times a second, and costs
+ * nothing anyone can see: the broadcast after the read waits 300 ms anyway.
+ */
+export const WATCH_READ_WINDOW_MS = 250;
+
+/** A host that cannot say which CLIs are live is reported at most this often (watch reads ask it several times a second). */
+export const LIVE_CLIS_WARN_INTERVAL_MS = 60_000;
+
+/**
  * When to re-read plan usage after a hook event, in ms from now — null when the
  * event does not move the numbers. Only the edges of a turn do; tool calls fire
  * constantly and the interval already covers a long turn.
@@ -69,9 +81,9 @@ export interface PlanUsageHost {
 }
 
 export interface PlanUsageService {
-  /** Read once now, then on an interval. Does nothing if already started. */
+  /** Read once now, then on an interval; arm the sources' watches. Does nothing if already started. */
   start(): void;
-  /** Stop the interval and cancel pending kicks. */
+  /** Stop the interval, cancel pending kicks and watch reads, and close the watches. */
   stop(): void;
   /** Re-read a CLI's sources; a read already under way is shared rather than repeated. */
   refresh(cli: PlanCli): Promise<void>;
@@ -96,6 +108,11 @@ export function createPlanUsageService(
   /** Reads that have been started and have not ended — whether or not anyone is still waiting for them. */
   const pendingReads = new Map<UsageSource, Promise<unknown>>();
   let timer: ReturnType<typeof setInterval> | null = null;
+  /** Each watching source's stop function; null (or absent) while it has no watch to arm. */
+  const watches = new Map<UsageSource, (() => void) | null>();
+  /** One pending watch-triggered read per CLI. Not `kicks`: a pending 2.5 s Stop kick must not hold it back. */
+  const watchReads = new Map<PlanCli, ReturnType<typeof setTimeout>>();
+  let liveWarnedAt = Number.NEGATIVE_INFINITY;
 
   /**
    * One source's observations, or nothing if it fails, takes longer than
@@ -164,30 +181,86 @@ export function createPlanUsageService(
     return run;
   }
 
-  function tick(): void {
-    let clis: ReadonlySet<PlanCli>;
+  function liveClis(): ReadonlySet<PlanCli> | null {
     try {
-      clis = host.liveClis();
+      return host.liveClis();
     } catch (err) {
-      // One bad session must not stop plan usage for every CLI: try again next tick.
-      log.warn('plan-usage', `could not tell which CLIs are live: ${err instanceof Error ? err.message : String(err)}`);
-      return;
+      // One bad session must not stop plan usage for every CLI: try again next time. Said at
+      // most once a minute — watch reads ask several times a second, and each line is a
+      // synchronous write to server.log (abs: a clock stepped back must not mute it).
+      const now = Date.now();
+      if (Math.abs(now - liveWarnedAt) >= LIVE_CLIS_WARN_INTERVAL_MS) {
+        liveWarnedAt = now;
+        log.warn('plan-usage', `could not tell which CLIs are live: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return null;
     }
+  }
+
+  /** A source says new numbers landed: read them shortly, once, if anyone is using the CLI. */
+  function onWritten(cli: PlanCli): void {
+    if (!timer || watchReads.has(cli)) return; // stopped (a late callback), or a read is already due
+    const pending = setTimeout(() => {
+      watchReads.delete(cli);
+      if (!liveClis()?.has(cli)) return;
+      // A read already under way may have listed the files before this write: read again
+      // after it — unless stop() came first (shutdown saves the sessions right after it).
+      const reread = (): void => { if (timer) void refresh(cli); };
+      const running = inflight.get(cli);
+      if (running) void running.then(reread, reread);
+      else reread();
+    }, WATCH_READ_WINDOW_MS);
+    pending.unref?.();
+    watchReads.set(cli, pending);
+  }
+
+  /** Arm every watch that is not running: the first time, and again after one could not start or was lost. */
+  function armWatches(): void {
+    for (const source of sources) {
+      if (!source.watch || watches.get(source)) continue;
+      let stop: (() => void) | null = null;
+      try {
+        stop = source.watch(
+          () => onWritten(source.cli),
+          () => { watches.set(source, null); }, // lost: armed again on the next tick
+        );
+      } catch (err) {
+        log.debug('plan-usage', `${source.cli} watch failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      watches.set(source, stop);
+    }
+  }
+
+  function tick(): void {
+    armWatches();
+    const clis = liveClis();
+    if (!clis) return;
     for (const cli of clis) void refresh(cli);
   }
 
   return {
     start() {
       if (timer) return;
-      tick();
       timer = setInterval(tick, intervalMs);
       timer.unref?.();
+      tick();
     },
     stop() {
       if (timer) clearInterval(timer);
       timer = null;
       for (const pending of kicks.values()) clearTimeout(pending);
       kicks.clear();
+      for (const pending of watchReads.values()) clearTimeout(pending);
+      watchReads.clear();
+      for (const [source, stopWatch] of watches) {
+        // One that fails to close must not keep the rest open, nor stop the shutdown that called this.
+        try {
+          stopWatch?.();
+        } catch (err) {
+          log.debug('plan-usage', `${source.cli} watch did not close: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      watches.clear();
     },
     refresh,
     kick(cli, delayMs = 0) {

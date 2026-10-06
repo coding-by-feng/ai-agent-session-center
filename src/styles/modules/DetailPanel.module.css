@@ -828,18 +828,24 @@
   padding-right: 0;
   row-gap: 8px;
   /* The rail offers this row 213px (230px − 1px border − 2×8px .switcherToggle
-     padding). It holds eight 26px children: seven .displayModeToggle icons plus
-     the .switcherIconBtn minimize, which needs 236px even at this gap and so
-     keeps wrapping onto its own line — as it already did with six toggles.
+     padding). It holds seven 26px .displayModeToggle icons, the
+     .switcherIconBtn minimize, and .switcherLaunch (+ and the folder: 56px).
      The seven toggles alone need 206px, which only fits below a ~4px gap; at
      the base 8px they need 230px and the last one drops down to join minimize.
-     `space-between` re-spreads each line's slack afterwards, so this floor only
-     decides what fits — the icons still render ~5px apart.
-     Adding a ninth child requires re-checking this. */
+     Minimize would need 236px on that line, so it wraps onto line 2 — as it
+     already did with six toggles — and .switcherLaunch follows it there
+     (26 + 4 + 56 = 86px). `space-between` re-spreads each line's slack
+     afterwards, so this floor only decides what fits — the icons still render
+     ~5px apart. Adding another child requires re-checking this. */
   column-gap: 4px;
   /* Each wrapped line is justified edge-to-edge: the full-width control block
      sits on its own line(s), and the toggle icons spread evenly on theirs. */
   justify-content: space-between;
+}
+/* Keep the + / folder pair beside minimize: on their shared line, space-between
+   would push it to the far edge. The auto margin takes that line's slack. */
+.switcherBarVertical .switcherLaunch {
+  margin-right: auto;
 }
 /* In the narrow left rail, lay the controls out as clean stacked rows instead
    of cramming KILL/MUTE/ALERT + the room dropdown + 5 toggles onto wrapping
@@ -1009,6 +1015,15 @@
   gap: 8px;
   flex-shrink: 0;
   padding-right: 4px;
+}
+
+/* + (new session) and the folder (recent directories): the top bar's + NEW and
+   DIRS as icons, here because App.tsx unmounts the top bar while a panel is
+   open. One child of .switcherMeta, so a wrap never splits the pair. */
+.switcherLaunch {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 /* Inline controls (KILL/MUTE/ALERT/Room) hosted inside the compact top bar */
@@ -2424,8 +2439,8 @@
    PlanUsageChip.tsx draws it; lib/planUsage.ts decides what it says.
 
    It is the FIRST child of .switcherNameDisplay, never part of .switcherMeta:
-   that row is sized to eight 26px children in the 230px rail (see the
-   .switcherBarVertical .switcherMeta comment) and a ninth would wrap it.
+   that row's children are counted against the 230px rail (see the
+   .switcherBarVertical .switcherMeta comment) and another would re-wrap it.
 
    Tiers, by the CONTENT width of the name row (the box the title competes in;
    a container query measures the content box, so the row's 20px of padding is

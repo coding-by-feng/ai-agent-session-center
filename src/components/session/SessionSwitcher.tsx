@@ -1,6 +1,7 @@
 /**
  * SessionSwitcher — bar at the top of the DetailPanel.
- * Top row: current session name + status badge + duration + display toggle + minimize button.
+ * Top row: current session name + status badge + duration + display toggle + minimize button
+ *          + the new-session / recent-directories icons (the top bar is hidden while a panel is open).
  * Below: always-visible horizontal tab strip showing all other active sessions
  *        as mini robot cards (icon + title + project name + label).
  */
@@ -28,6 +29,8 @@ import { tooltips } from '@/lib/tooltips';
 import { justCompleted, completionStillApplies } from '@/lib/sessionAttention';
 import { STATUS_COLORS, STATUS_LEGEND } from '@/lib/sessionStatusStyle';
 import StatusGlyph from './StatusGlyph';
+import WorkdirLauncher from '@/components/layout/WorkdirLauncher';
+import { isPopoutWindow } from '@/lib/windowRole';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 // One color per room slot — cycles if more than 8 rooms exist.
@@ -340,6 +343,19 @@ function ExpandRailIcon() {
   );
 }
 
+/** Plus icon — the top bar's + NEW: opens the new-session form */
+function NewSessionIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M7 2.5v9M2.5 7h9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** The recent-directories icon matches the row's toggles, lit while its menu is open (as the legend's is). */
+const dirsTriggerClass = (open: boolean): string =>
+  `${styles.displayModeToggle}${open ? ` ${styles.roomFilterActive}` : ''}`;
+
 interface Props {
   currentSession: Session;
   sessions: Map<string, Session>;
@@ -434,6 +450,7 @@ export default function SessionSwitcher({
   const recentRoomCollapsed = useUiStore((s) => s.recentRoomCollapsed);
   const toggleRecentRoomCollapsed = useUiStore((s) => s.toggleRecentRoomCollapsed);
   const openRoomKill = useUiStore((s) => s.openRoomKill);
+  const openModal = useUiStore((s) => s.openModal);
   const sortByActivity = sessionSortMode === 'activity';
   const projectView = sessionSortMode === 'project';
   // Vertical rail only when docked-left AND not maximized
@@ -1096,8 +1113,8 @@ export default function SessionSwitcher({
           )}
 
           {/* Session view — Rooms (default), Projects, or the flat recent-activity
-              list. One button in the slot the old sort toggle held, so the
-              header's icon row stays at eight children (see
+              list. One button in the slot the old sort toggle held, so line one
+              of the rail's icon row stays at seven toggles (see
               `.switcherBarVertical .switcherMeta`). */}
           <SessionViewModeMenu mode={sessionSortMode} onChange={setSessionSortMode} />
 
@@ -1158,7 +1175,8 @@ export default function SessionSwitcher({
             {navPosition === 'left' ? <DockTopIcon /> : <DockLeftIcon />}
           </button>
           {/* Maximize — collapses the panel's own session strip for more terminal
-              space. The global dashboard header (+ NEW, tabs) always stays pinned. */}
+              space. (The dashboard's top bar is already hidden while a panel is
+              open — App.tsx — hence the + / folder icons at the end of this row.) */}
           <button
             className={`${styles.displayModeToggle}${maximized ? ` ${styles.roomFilterActive}` : ''}`}
             onClick={toggleMaximized}
@@ -1198,6 +1216,25 @@ export default function SessionSwitcher({
             >
               &#x2012;
             </button>
+          )}
+          {/* The top bar's + NEW and DIRS, as icons. App.tsx unmounts the top bar
+              while a panel is open, so without these, starting a session meant
+              minimizing the panel first. One child, so a wrap never splits them.
+              Main window only: a popped-out session window renders this strip
+              too, but not AppLayout, so NewSessionModal is not mounted there. */}
+          {!isPopoutWindow() && (
+            <div className={styles.switcherLaunch}>
+              <button
+                className={styles.displayModeToggle}
+                onClick={() => openModal('new-session')}
+                title="New session"
+                aria-label="New session"
+                type="button"
+              >
+                <NewSessionIcon />
+              </button>
+              <WorkdirLauncher variant="panel" triggerClassName={dirsTriggerClass} />
+            </div>
           )}
         </div>
       </div>
