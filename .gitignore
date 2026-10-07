@@ -44,3 +44,9 @@ docs/feature/.manifest.json.tmp.*
 # or package.json references anything under this directory; treat it as
 # disposable, per-machine scratch space, not a place to build real features.
 scratch/
+
+# Private: never publish
+/docs/
+/.agents/skills/
+/.codex/audit/
+/.github/
