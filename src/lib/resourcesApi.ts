@@ -5,8 +5,9 @@
  * identity-header patch in presenceClient applies), unwrapping the
  * `{ success, data | error }` envelope every `/api/resources` route answers.
  *
- * Read-only by construction: nothing here reaches `/api/files/*`, whose write
- * routes the PROJECT tab uses. The only POST is `/scan`, which re-reads disk.
+ * Nothing here reaches `/api/files/*`, whose write routes the PROJECT tab uses.
+ * The POSTs are `/scan` (re-reads disk) and the tab's only writes: uninstall,
+ * which MOVES a resource into the AASC trash, and restore, which moves it back.
  *
  * A 404 has its own error type. The router answers every non-loopback request
  * with 404 — deliberately not 403, so a remote device can't tell the feature
@@ -19,8 +20,10 @@ import type {
   ResourceCompare,
   ResourceDetail,
   ResourceFileContent,
+  RestoreResult,
   ScanProgress,
   ScanState,
+  UninstallResult,
 } from '@/types/resources';
 import { MAX_EXTRA_ROOTS, parseStoredExtraRoots } from './resourceFilters';
 
@@ -118,6 +121,28 @@ export function fetchResourceCompare(
 ): Promise<ResourceCompare> {
   const query = new URLSearchParams({ against });
   return request<ResourceCompare>(itemUrl(id, `/compare?${query.toString()}`), { method: 'GET', signal });
+}
+
+/**
+ * Moves the resource into the AASC trash. `confirmName` must be its exact name —
+ * the server checks it too. Its 404 means "gone since the scan" here, not a
+ * remote device (the tab never renders this control remotely).
+ */
+export function uninstallResource(id: string, confirmName: string): Promise<UninstallResult> {
+  return request<UninstallResult>(itemUrl(id, '/uninstall'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirmName }),
+  });
+}
+
+/** Moves a trash entry back to where it was uninstalled from (never over something new). */
+export function restoreResource(trashId: string): Promise<RestoreResult> {
+  return request<RestoreResult>(`${BASE}/trash/${encodeURIComponent(trashId)}/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  });
 }
 
 // ---------------------------------------------------------------------------

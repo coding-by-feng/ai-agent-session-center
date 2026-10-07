@@ -84,9 +84,11 @@ export default memo(function TerminalContainer({
     setWidthMode,
     handleTerminalReady,
     handleTerminalClosed,
+    handleTerminalCleared,
     reparent,
     scrollToBottom,
     refreshOutput,
+    clearOutput,
     scrollPageUp,
     scrollPageDown,
     autoScrollEnabled,
@@ -245,6 +247,10 @@ export default memo(function TerminalContainer({
           // The PTY's real width. On a narrow device this is what the canvas
           // renders at, so it can pan instead of soft-wrapping mid-word.
           handleTerminalGeometry(msg.terminalId, msg.cols);
+        } else if (msg.type === 'terminal_cleared' && msg.terminalId) {
+          // "Clear output", from this device or another: the server has
+          // already emptied the replay ring at this point of the stream.
+          handleTerminalCleared(msg.terminalId);
         } else if (msg.type === 'terminal_ready' && msg.terminalId) {
           handleTerminalReady(msg.terminalId);
         } else if (msg.type === 'terminal_closed' && msg.terminalId) {
@@ -260,7 +266,7 @@ export default memo(function TerminalContainer({
 
     ws.addEventListener('message', handler);
     return () => ws.removeEventListener('message', handler);
-  }, [ws, terminalId, handleTerminalOutput, handleTerminalGeometry, handleTerminalReady, handleTerminalClosed]);
+  }, [ws, terminalId, handleTerminalOutput, handleTerminalGeometry, handleTerminalCleared, handleTerminalReady, handleTerminalClosed]);
 
   // Refit on visibility change
   useEffect(() => {
@@ -363,6 +369,7 @@ export default memo(function TerminalContainer({
         onReconnect={onReconnect}
         onScrollToBottom={scrollToBottom}
         onRefreshOutput={refreshOutput}
+        onClearOutput={clearOutput}
         aiPopupEnabled={aiPopupEnabled}
         onToggleAiPopup={originSessionId ? handleToggleAiPopup : undefined}
         autoScrollEnabled={autoScrollEnabled}
@@ -456,6 +463,7 @@ export default memo(function TerminalContainer({
               onReconnect={onReconnect}
               onScrollToBottom={scrollToBottom}
               onRefreshOutput={refreshOutput}
+              onClearOutput={clearOutput}
                           aiPopupEnabled={aiPopupEnabled}
               onToggleAiPopup={originSessionId ? handleToggleAiPopup : undefined}
               autoScrollEnabled={autoScrollEnabled}

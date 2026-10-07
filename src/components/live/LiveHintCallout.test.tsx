@@ -66,9 +66,10 @@ describe('LiveHintCallout — aims at the LIVE tab', () => {
 });
 
 // The LIVE tab moves without the bubble or its row changing size: a theme with
-// another font re-lays the top bar out, the tip's dot widens the tab, + NEW or
-// DIRS change width. Found in a real render (Command Center at 600px: caret 5px
-// off after a theme switch). So the bubble also watches the top bar's items.
+// another font re-lays the top bar out, or the tip's dot widens the tab. Found
+// in a real render (Command Center at 600px: caret 5px off after a theme
+// switch). So the bubble also watches the top bar's items — every child, so
+// anything ever placed before LIVE (+ NEW / DIRS used to be) is covered too.
 describe('LiveHintCallout — re-aims when the top bar re-lays out', () => {
   class FakeResizeObserver {
     static instances: FakeResizeObserver[] = [];
@@ -90,7 +91,7 @@ describe('LiveHintCallout — re-aims when the top bar re-lays out', () => {
     render(
       <>
         <nav>
-          <div data-testid="actions">+ NEW DIRS</div>
+          <div data-testid="before">an item before LIVE</div>
           <a data-live-tab="">LIVE</a>
         </nav>
         <LiveHintCallout onDismiss={() => {}} />
@@ -98,8 +99,8 @@ describe('LiveHintCallout — re-aims when the top bar re-lays out', () => {
     );
     const ro = FakeResizeObserver.instances[0];
     expect(ro.observed.has(screen.getByText('LIVE'))).toBe(true);
-    expect(ro.observed.has(screen.getByTestId('actions'))).toBe(true);
-    tabLeft = 250; // the actions grew: LIVE moved right, nothing else resized
+    expect(ro.observed.has(screen.getByTestId('before'))).toBe(true);
+    tabLeft = 250; // the item before it grew: LIVE moved right, nothing else resized
     act(() => ro.fire());
     expect(screen.getByRole('note', { name: /tip/i }).style.getPropertyValue('--hint-left')).toBe('232px');
   });

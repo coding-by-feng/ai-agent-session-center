@@ -7,50 +7,12 @@
 import { AUTO_IDLE_TIMEOUTS } from './config.js';
 import { SESSION_STATUS, ANIMATION_STATE, WS_TYPES } from './constants.js';
 import log from './logger.js';
-import { runRelink, shouldRelink, remoteControlNameFor } from './remoteControlDaemon.js';
 import { terminalLastOutputAt } from './terminalActivity.js';
 import type { Session, PendingResume } from '../src/types/session.js';
 import type { ServerMessage } from '../src/types/websocket.js';
 
 let idleInterval: ReturnType<typeof setInterval> | null = null;
 let pendingResumeCleanupInterval: ReturnType<typeof setInterval> | null = null;
-
-/**
- * A session just went idle — relink its Remote Control if the daemon is armed
- * and out of cooldown.
- *
- * Dynamically imports `sshManager` because `autoIdleManager` is loaded by
- * `sessionStore`, which `sshManager` itself pulls in: a static import here
- * closes that cycle and leaves one of the two modules half-initialised at
- * require time.
- *
- * Fire-and-forget with a swallowed error. This is an unattended background
- * nicety — a dead PTY or a terminal that has already been closed must not
- * throw out of the 10-second auto-idle interval and stop every OTHER session
- * from ever transitioning again.
- */
-async function onSessionIdle(session: Session): Promise<void> {
-  try {
-    if (!shouldRelink(session.sessionId, Date.now())) return;
-    const terminalId = session.terminalId;
-    if (!terminalId) return;
-    const { writeToTerminal, getTerminalGeometry } = await import('./sshManager.js');
-    // Only server-owned PTYs can be written to. An Electron `pty-*` terminal
-    // lives in ptyHost, where the server sees no bytes and the write would
-    // silently go nowhere. `getTerminalGeometry` reads the live pty and
-    // returns null for anything the server does not own, which is exactly the
-    // liveness check needed here.
-    if (!getTerminalGeometry(terminalId)) return;
-    await runRelink({
-      sessionId: session.sessionId,
-      name: remoteControlNameFor(session),
-      write: (data) => writeToTerminal(terminalId, data),
-    });
-  } catch (err) {
-    log.debug('remote-control', `Relink skipped for ${session.sessionId.slice(0, 8)}: ${
-      err instanceof Error ? err.message : String(err)}`);
-  }
-}
 
 /**
  * Start the auto-idle check interval.
@@ -110,9 +72,8 @@ export function startAutoIdle(
         // cards) have no output to read and keep the hook-only rule.
         //
         // No time limit while it prints. A 15-minute flip to idle was tried:
-        // idle is sendable for a queue item with no open gate, and it is the
-        // edge the Remote Control relink types into, so both landed in the
-        // running turn.
+        // idle is sendable for a queue item with no open gate, so the next
+        // queued prompt landed in the running turn.
         const lastOutput = terminalLastOutputAt(session.terminalId);
         const quietFor = lastOutput === undefined ? Infinity : now - lastOutput;
         if (elapsed > AUTO_IDLE_TIMEOUTS.prompting && quietFor > AUTO_IDLE_TIMEOUTS.prompting) {
@@ -133,18 +94,6 @@ export function startAutoIdle(
         session.status = SESSION_STATUS.IDLE;
         session.animationState = ANIMATION_STATE.IDLE;
         session.emote = null;
-      }
-
-      // Remote Control relink, EDGE-triggered. This fires only on a
-      // transition INTO idle, never once per tick for a session already
-      // sitting idle — the guard is the `continue` at the top of this loop,
-      // which skips IDLE sessions outright. (An explicit `prevStatus !== IDLE`
-      // check was written here first; TypeScript rejected it as provably
-      // always-true, which is the type system confirming the invariant rather
-      // than a reason to weaken it.) The daemon applies its own arming and
-      // cooldown checks, so this stays a plain notification.
-      if (session.status === SESSION_STATUS.IDLE) {
-        void onSessionIdle(session);
       }
     }
     if (announce.length > 0 && onChange) {

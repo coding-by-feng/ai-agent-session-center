@@ -9,6 +9,16 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
 import type { Session } from '@/types';
 
+// WebGL is not what these tests are about: the scene is a marker element.
+const { scene } = vi.hoisted(() => ({ scene: { crash: false } }));
+vi.mock('@/components/3d/CyberdromeScene', () => ({
+  default: () => {
+    if (scene.crash) throw new Error('WebGL context lost');
+    return <div data-testid="scene" />;
+  },
+}));
+vi.mock('@/hooks/useKnownProjects', () => ({ useKnownProjects: () => [] }));
+
 import LiveView from './LiveView';
 import RobotListSidebar from '@/components/3d/RobotListSidebar';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -116,6 +126,86 @@ describe('the desktop LIVE page (3D off) before and after sessions exist', () =>
     useSessionStore.setState({ sessions: new Map() });
     render(<LiveView />);
     expect(screen.getByRole('button', { name: /3D Off/i })).toBeInTheDocument();
+  });
+});
+
+// With the 3D scene on there was no "no sessions yet" card: the top bar's + NEW
+// and DIRS were the only way to start a session. Those moved into the session
+// panel's strip, which cannot exist without a session, so the card shows over
+// the scene whenever the scene has no robot, under the flat page's loading
+// rules. The scene draws a robot only for a session the dashboard launched
+// (`source: 'ssh'`), so a claude started in iTerm leaves it empty too.
+describe('the desktop LIVE page with the 3D scene on', () => {
+  const OFFICE = /No sessions in the 3D office yet/i;
+  const robot = (id: string): Session => ({ ...session(id), source: 'ssh' } as Session);
+  const outside = (id: string): Session => ({ ...session(id), source: 'iterm' } as Session);
+
+  beforeEach(() => {
+    phoneWidth(false);
+    scene.crash = false;
+    useSettingsStore.setState({ scene3dEnabled: true } as never);
+  });
+
+  it('shows how to start over the empty scene once loaded with no sessions', async () => {
+    useSessionStore.setState({ sessions: new Map() });
+    render(<LiveView />);
+    expect(screen.getByRole('heading', { name: OFFICE })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '+ NEW' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'DIRS' })).toBeInTheDocument();
+    // A claude started elsewhere gets no robot, so the card does not promise one.
+    expect(screen.queryByText(/any terminal/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /Turn on 3D/i })).toBeNull();
+    expect(await screen.findByTestId('scene')).toBeInTheDocument(); // the scene stays under it
+    // Around the card, the pointer reaches the scene (orbit / zoom).
+    const heading = screen.getByRole('heading', { name: OFFICE });
+    expect(heading.closest('[class*="wrapOverScene"]')).not.toBeNull();
+  });
+
+  it('shows no card while the scene has a robot', async () => {
+    useSessionStore.setState({ sessions: new Map([['a', robot('a')], ['b', outside('b')]]) });
+    render(<LiveView />);
+    expect(await screen.findByTestId('scene')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: OFFICE })).toBeNull();
+  });
+
+  it('with only sessions started outside the dashboard, the office is empty: the card shows and points to LIVE', () => {
+    useSessionStore.setState({ sessions: new Map([['a', outside('a')], ['b', outside('b')]]) });
+    render(<LiveView />);
+    expect(screen.getByRole('heading', { name: OFFICE })).toBeInTheDocument();
+    expect(screen.getByText(/2 sessions are running outside the dashboard/i)).toHaveTextContent(/press LIVE/i);
+  });
+
+  it('waits for the first snapshot and for a restore decision, like the flat page', () => {
+    useSessionStore.setState({ sessions: new Map() });
+    useWsStore.setState({ snapshotReceived: false });
+    render(<LiveView />);
+    expect(screen.queryByRole('heading', { name: OFFICE })).toBeNull();
+    act(() => useWsStore.setState({ snapshotReceived: true }));
+    expect(screen.getByRole('heading', { name: OFFICE })).toBeInTheDocument();
+    act(() => useUiStore.setState({ workspaceRestorePending: true }));
+    expect(screen.queryByRole('heading', { name: OFFICE })).toBeNull();
+  });
+
+  it('a phone gets no card, as on the flat page', () => {
+    phoneWidth(true);
+    useSessionStore.setState({ sessions: new Map() });
+    render(<LiveView />);
+    expect(screen.queryByRole('heading', { name: OFFICE })).toBeNull();
+  });
+
+  // The scene's error screen (with RETRY) is centred where the card would be.
+  it('a crashed scene shows its error, not the card over it', async () => {
+    scene.crash = true;
+    useSessionStore.setState({ sessions: new Map() });
+    // React reports the caught error; the scene loads lazily, so keep it quiet until it has.
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      render(<LiveView />);
+      expect(await screen.findByText(/3D scene error/i)).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: OFFICE })).toBeNull();
+    } finally {
+      quiet.mockRestore();
+    }
   });
 });
 

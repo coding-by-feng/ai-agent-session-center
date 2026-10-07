@@ -25,6 +25,9 @@ import {
   orderProjects,
   sharedProjectNames,
 } from '@/lib/resourceFilters';
+import Button from '@/components/ui/Button';
+import { buttonClass } from '@/components/ui/buttonClass';
+import TextInput from '@/components/ui/TextInput';
 import styles from '@/styles/modules/Resources.module.css';
 
 interface SourcesPanelProps {
@@ -170,7 +173,7 @@ function ProjectsTable({ projects }: { projects: readonly ResourceProject[] }) {
                 <td>
                   {total > 0 ? (
                     <Link
-                      className={styles.button}
+                      className={buttonClass()}
                       to={{ search: projectSearch(project.id) }}
                       aria-label={`Show resources in ${project.name} (${project.path})`}
                     >
@@ -245,9 +248,9 @@ function AddFolder({ extraRoots, storageOk, onAddRoot, onRemoveRoot }: Pick<Sour
     <>
       <form className={styles.addFolderForm} onSubmit={submit} noValidate>
         <label htmlFor={inputId} className={styles.fieldLabel}>Folder path</label>
-        <input
+        <TextInput
           id={inputId}
-          className={styles.textInput}
+          className={styles.folderInput}
           value={draft}
           placeholder="/Users/you/code/project"
           spellCheck={false}
@@ -260,7 +263,7 @@ function AddFolder({ extraRoots, storageOk, onAddRoot, onRemoveRoot }: Pick<Sour
             setError(null);
           }}
         />
-        <button type="submit" className={styles.button}>Add</button>
+        <Button type="submit">Add</Button>
       </form>
       {error && <p id={errorId} role="alert" className={styles.errorNote}>{error}</p>}
       {!storageOk && (
@@ -271,9 +274,9 @@ function AddFolder({ extraRoots, storageOk, onAddRoot, onRemoveRoot }: Pick<Sour
           {extraRoots.map((path) => (
             <li key={path} className={styles.extraRoot}>
               <code className={styles.pathCell}>{path}</code>
-              <button type="button" className={styles.button} aria-label={`Remove ${path}`} onClick={() => onRemoveRoot(path)}>
+              <Button aria-label={`Remove ${path}`} onClick={() => onRemoveRoot(path)}>
                 Remove
-              </button>
+              </Button>
             </li>
           ))}
         </ul>

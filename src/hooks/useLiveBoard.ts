@@ -9,14 +9,35 @@ import { useUiStore } from '@/stores/uiStore';
 import { useWsStore } from '@/stores/wsStore';
 import { liveFlatState, type FlatState } from '@/lib/liveBoard';
 import { shouldShowLiveHint } from '@/lib/liveHint';
-import { isListedSession } from '@/lib/sessionSort';
+import { isListedSession, isSceneRobotSession } from '@/lib/sessionSort';
 import { useIsMobile } from '@/lib/platform';
 import type { Session } from '@/types';
 
-function countListed(sessions: ReadonlyMap<string, Session>): number {
+function countWhere(sessions: ReadonlyMap<string, Session>, keep: (s: Session) => boolean): number {
   let n = 0;
-  for (const s of sessions.values()) if (isListedSession(s)) n += 1;
+  for (const s of sessions.values()) if (keep(s)) n += 1;
   return n;
+}
+
+function countListed(sessions: ReadonlyMap<string, Session>): number {
+  return countWhere(sessions, isListedSession);
+}
+
+/**
+ * The 3D LIVE page's version: 'empty' when the scene has no robot to draw
+ * (it draws only sessions the dashboard launched), under the flat page's
+ * loading rules, plus how many listed sessions it is not showing — so the card
+ * over the scene can say where those are.
+ */
+export function useSceneEmptyState(): { state: FlatState; outside: number } {
+  const robotCount = useSessionStore((s) => countWhere(s.sessions, isSceneRobotSession));
+  const listedCount = useSessionStore((s) => countListed(s.sessions));
+  const snapshotReceived = useWsStore((s) => s.snapshotReceived);
+  const restoring = useUiStore((s) => s.workspaceLoad.active || s.workspaceRestorePending);
+  return {
+    state: liveFlatState({ snapshotReceived, restoring, listedCount: robotCount }),
+    outside: listedCount - robotCount,
+  };
 }
 
 /** What the 3D-off LIVE page shows: 'loading', 'empty' or 'board'. */

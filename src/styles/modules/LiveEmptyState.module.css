@@ -1,6 +1,8 @@
-/* LiveEmptyState — the 3D-off LIVE page on a desktop before there is any
- * session. A centred card; below 1000px it is pushed up by the HUD's height
- * (--hud-clear-bottom, set on LiveView's .flatRoot) so the HUD in the
+/* LiveEmptyState — the LIVE page on a desktop with nothing to show: the flat
+ * page before there is any session, and (.wrapOverScene) the 3D scene while it
+ * has no robot. A centred card; below 1000px it is pushed up by the HUD's height
+ * (--hud-clear-bottom: set on LiveView's .flatRoot for the flat HUD, and on
+ * .wrapOverScene for the 3D one, which is a button taller) so the HUD in the
  * bottom-right corner never covers its lower half.
  */
 
@@ -20,6 +22,18 @@
   }
 }
 
+/* Over the empty 3D scene (LiveView): the card takes clicks, the area around
+   it passes them through to the scene (orbit, zoom). The 3D HUD adds a "scene
+   look" button (about 34px) to the flat one, and nothing here inherits the flat
+   page's --hud-clear-bottom, so it is set for this case. */
+.wrapOverScene {
+  --hud-clear-bottom: 266px;
+  pointer-events: none;
+}
+.wrapOverScene .card {
+  pointer-events: auto;
+}
+
 .card {
   width: min(440px, 100%);
   margin: auto;
@@ -29,6 +43,11 @@
   border-radius: 8px;
   color: var(--text-primary);
   font-family: var(--font-mono);
+}
+/* Over the scene there is no footer, so the steps or the "outside the
+   dashboard" line end the card: their bottom margin would double its padding. */
+.card > :last-child {
+  margin-bottom: 0;
 }
 
 .title {
@@ -98,13 +117,14 @@
   outline-offset: 2px;
 }
 
-/* The two ways in: the top bar's own look, one size up. */
+/* The two ways in. DIRS stays lit while its menu is open. */
 .action {
   border: 1px solid var(--border-accent-strong);
   background: var(--bg-accent);
   color: var(--accent-cyan);
 }
-.action:hover {
+.action:hover,
+.action[aria-expanded='true'] {
   background: var(--bg-accent-strong);
   border-color: var(--accent-cyan);
 }

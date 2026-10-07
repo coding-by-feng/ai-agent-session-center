@@ -1,12 +1,13 @@
 /**
- * ResourcesView — the RESOURCES tab (Phase B: read-only).
+ * ResourcesView — the RESOURCES tab (Phase B: read-only, plus Uninstall).
  *
  * One catalog of every Claude Code and Codex resource on this machine —
  * skills, commands, rules, CLAUDE.md/AGENTS.md, memory, agents, hooks, MCP
  * servers, plugins, settings — global and per project, compared with the
  * agent-skills repo copy. Everything arrives through `/api/resources`
- * (src/lib/resourcesApi.ts); nothing on this tab can write a file, which is
- * why it never touches ProjectTab or `/api/files/*`.
+ * (src/lib/resourcesApi.ts). Its only write is Uninstall, which MOVES one
+ * resource into the AASC trash (Restore moves it back); it never edits a file
+ * in place, which is why it still never touches ProjectTab or `/api/files/*`.
  *
  * All view state lives in the URL (`section`, `type`, `agent`, `scope`,
  * `project`, `q`, `id`, `plugins`), so every view is a link:
@@ -15,7 +16,7 @@
  */
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigationType, useSearchParams } from 'react-router';
-import type { ResourceCatalog, ResourceProject, ResourceSummary, ResourceType } from '@/types/resources';
+import type { ResourceCatalog, ResourceProject, ResourceSummary, ResourceType, UninstallResult } from '@/types/resources';
 import {
   RESOURCE_SECTIONS,
   catalogSummaryLine,
@@ -38,15 +39,24 @@ import {
   fetchCatalog,
   isAbortError,
   readExtraRoots,
+  restoreResource,
   startScan,
   writeExtraRoots,
 } from '@/lib/resourcesApi';
+import { showToast } from '@/components/ui/ToastContainer';
+import Button from '@/components/ui/Button';
+import EmptyState from '@/components/ui/EmptyState';
+import Field from '@/components/ui/Field';
+import NativeSelect, { type NativeSelectOption } from '@/components/ui/NativeSelect';
+import TextInput from '@/components/ui/TextInput';
+import { useUiStore } from '@/stores/uiStore';
 import { buildResourceShortcuts } from '@/lib/commandShortcuts';
 import ResourceTypeRail from '@/components/resources/ResourceTypeRail';
 import ResourceList from '@/components/resources/ResourceList';
 import ResourceDetail from '@/components/resources/ResourceDetail';
 import SourcesPanel from '@/components/resources/SourcesPanel';
 import ChecksPanel from '@/components/resources/ChecksPanel';
+import { RESTORE_WINDOW_MS, UNINSTALL_MODAL_ID, UninstallDialog } from '@/components/resources/UninstallControls';
 import styles from '@/styles/modules/Resources.module.css';
 
 const POLL_MS = 750;
@@ -56,6 +66,17 @@ const UNAVAILABLE_MESSAGE = 'Resources are available only on this machine — op
 const SECTION_LABELS: Record<ResourceSection, string> = { library: 'Library', sources: 'Sources', checks: 'Checks' };
 const NO_RESOURCES: ResourceSummary[] = [];
 const NO_PROJECTS: ResourceProject[] = [];
+const AGENT_OPTIONS: readonly NativeSelectOption<AgentFilter>[] = [
+  { value: 'all', label: 'All' },
+  { value: 'claude', label: 'Claude' },
+  { value: 'codex', label: 'Codex' },
+  { value: 'shared', label: 'Shared' },
+];
+const SCOPE_OPTIONS: readonly NativeSelectOption<ScopeFilter>[] = [
+  { value: 'all', label: 'All' },
+  { value: 'global', label: 'Global' },
+  { value: 'project', label: 'Project' },
+];
 
 /**
  * Loads the catalog and keeps it current while a scan runs.
@@ -187,16 +208,18 @@ interface FilterBarProps {
 }
 
 function FilterBar({ params, queryDraft, projects, onQuery, onAgent, onScope, onProject, onTogglePlugins }: FilterBarProps) {
-  const agentId = useId();
-  const scopeId = useId();
-  const projectId = useId();
-  const sortedProjects = useMemo(
-    () => [...projects].sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)),
+  const projectOptions = useMemo<NativeSelectOption[]>(
+    () => [
+      { value: '', label: 'All projects' },
+      ...[...projects]
+        .sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path))
+        .map((p) => ({ value: p.id, label: p.duplicateName ? `${p.name} — ${p.path}` : p.name })),
+    ],
     [projects],
   );
   return (
     <div className={styles.filters}>
-      <input
+      <TextInput
         type="search"
         className={styles.search}
         aria-label="Search resources"
@@ -204,42 +227,20 @@ function FilterBar({ params, queryDraft, projects, onQuery, onAgent, onScope, on
         value={queryDraft}
         onChange={(e) => onQuery(e.target.value)}
       />
-      <div className={styles.field}>
-        <label htmlFor={agentId} className={styles.fieldLabel}>Agent</label>
-        <select id={agentId} className={styles.select} value={params.agent} onChange={(e) => onAgent(e.target.value as AgentFilter)}>
-          <option value="all">All</option>
-          <option value="claude">Claude</option>
-          <option value="codex">Codex</option>
-          <option value="shared">Shared</option>
-        </select>
-      </div>
-      <div className={styles.field}>
-        <label htmlFor={scopeId} className={styles.fieldLabel}>Scope</label>
-        <select id={scopeId} className={styles.select} value={params.scope} onChange={(e) => onScope(e.target.value as ScopeFilter)}>
-          <option value="all">All</option>
-          <option value="global">Global</option>
-          <option value="project">Project</option>
-        </select>
-      </div>
+      <Field label="Agent" className={styles.filterField}>
+        <NativeSelect className={styles.filterSelect} value={params.agent} onChange={onAgent} options={AGENT_OPTIONS} />
+      </Field>
+      <Field label="Scope" className={styles.filterField}>
+        <NativeSelect className={styles.filterSelect} value={params.scope} onChange={onScope} options={SCOPE_OPTIONS} />
+      </Field>
       {params.scope === 'project' && (
-        <div className={styles.field}>
-          <label htmlFor={projectId} className={styles.fieldLabel}>Project</label>
-          <select id={projectId} className={styles.select} value={params.projectId ?? ''} onChange={(e) => onProject(e.target.value)}>
-            <option value="">All projects</option>
-            {sortedProjects.map((p) => (
-              <option key={p.id} value={p.id}>{p.duplicateName ? `${p.name} — ${p.path}` : p.name}</option>
-            ))}
-          </select>
-        </div>
+        <Field label="Project" className={styles.filterField}>
+          <NativeSelect className={styles.filterSelect} value={params.projectId ?? ''} onChange={onProject} options={projectOptions} />
+        </Field>
       )}
-      <button
-        type="button"
-        className={params.showPluginSystem ? `${styles.toggle} ${styles.toggleOn}` : styles.toggle}
-        aria-pressed={params.showPluginSystem}
-        onClick={onTogglePlugins}
-      >
+      <Button pressed={params.showPluginSystem} onClick={onTogglePlugins}>
         {'Show plugin & system'}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -327,15 +328,53 @@ export default function ResourcesView() {
     setStorageOk(writeExtraRoots(next));
   }, []);
 
+  // The uninstall dialog lives HERE, not in the detail pane: the pane is keyed by
+  // `scannedAt` and remounts whenever a scan lands, which destroyed a dialog
+  // inside it mid-typing (UninstallControls.tsx).
+  const [uninstallTarget, setUninstallTarget] = useState<{ summary: ResourceSummary; otherCopies: string[] } | null>(null);
+  const activeModal = useUiStore((s) => s.activeModal);
+  const openModal = useUiStore((s) => s.openModal);
+  const requestUninstall = useCallback((summary: ResourceSummary, otherCopies: string[]) => {
+    setUninstallTarget({ summary, otherCopies });
+    openModal(UNINSTALL_MODAL_ID);
+  }, [openModal]);
+  // Leaving the tab must not strand the modal id with no dialog behind it.
+  useEffect(() => () => {
+    const ui = useUiStore.getState();
+    if (ui.activeModal === UNINSTALL_MODAL_ID) ui.closeModal();
+  }, []);
+
+  // The server already dropped it from the catalog; the rescan refreshes the
+  // counts, findings and variants around it, with the folders added in Sources.
+  // A failed Restore offers Restore again: the first toast — and its button —
+  // is gone by then, and the usual fix (move the new file away) is the user's.
+  const afterUninstall = useCallback((result: UninstallResult) => {
+    closeDetail();
+    rescan(extraRoots);
+    const restore = (): void => {
+      restoreResource(result.trashId).then(
+        (restored) => {
+          showToast(`Restored ${restored.name}`, 'success');
+          rescan(extraRoots);
+        },
+        (err: unknown) => showToast(
+          err instanceof ResourcesUnavailableError ? 'Nothing to restore — that trash entry is gone.' : errorMessage(err),
+          'error',
+          RESTORE_WINDOW_MS,
+          err instanceof ResourcesUnavailableError ? undefined : { label: 'Restore', onClick: restore },
+        ),
+      );
+    };
+    showToast(`Uninstalled ${result.name}`, 'success', RESTORE_WINDOW_MS, { label: 'Restore', onClick: restore });
+  }, [closeDetail, rescan, extraRoots]);
+
   if (unavailable) {
     return (
       <div className={styles.view}>
         <header className={styles.header}>
           <h1 className={styles.title}>Agent resources</h1>
         </header>
-        <div className={styles.stateBox} role="status">
-          <p>{UNAVAILABLE_MESSAGE}</p>
-        </div>
+        <EmptyState fill title={UNAVAILABLE_MESSAGE} />
       </div>
     );
   }
@@ -356,15 +395,14 @@ export default function ResourcesView() {
             section={params.section}
             onSelect={(s) => updateParams({ section: s === 'library' ? null : s })}
           />
-          <button
-            type="button"
-            className={`${styles.button} ${styles.rescanButton}`}
+          <Button
+            className={styles.rescanButton}
             disabled={!catalog || busy}
             aria-busy={busy || undefined}
             onClick={() => rescan(extraRoots)}
           >
             Rescan
-          </button>
+          </Button>
         </div>
         {inLibrary && resources.length > 0 && (
           <FilterBar
@@ -387,7 +425,7 @@ export default function ResourcesView() {
       {catalog && error && (
         <div className={styles.banner} role="alert">
           <span>{error}</span>
-          <button type="button" className={styles.button} onClick={reload}>Retry</button>
+          <Button onClick={reload}>Retry</Button>
         </div>
       )}
       {catalog?.state === 'error' && (
@@ -403,12 +441,9 @@ export default function ResourcesView() {
         id={`${baseId}-panel`}
         aria-labelledby={`${baseId}-tab-${params.section}`}
       >
-        {!catalog && !error && <div className={styles.stateBox} role="status">Loading resources…</div>}
+        {!catalog && !error && <EmptyState fill busy title="Loading resources…" />}
         {!catalog && error && (
-          <div className={styles.stateBox} role="alert">
-            <p>{error}</p>
-            <button type="button" className={styles.button} onClick={reload}>Retry</button>
-          </div>
+          <EmptyState fill tone="error" title={error} action={<Button onClick={reload}>Retry</Button>} />
         )}
         {catalog && params.section === 'sources' && (
           <SourcesPanel
@@ -423,21 +458,18 @@ export default function ResourcesView() {
           <ChecksPanel findings={catalog.findings} byId={byId} projectsById={projectsById} onSelect={showResource} />
         )}
         {catalog && inLibrary && resources.length === 0 && (
-          <div className={styles.stateBox}>
-            {catalog.state === 'error' ? (
-              <p>Nothing to show — the last scan failed before it found anything. Rescan to try again.</p>
-            ) : scanning ? (
-              <p>The first scan is running — results appear here as soon as it finishes.</p>
-            ) : (
-              <>
-                <p>No agent resources were found on this machine.</p>
-                <p className={styles.hint}>Sources lists every root and what was scanned there.</p>
-                <button type="button" className={styles.button} onClick={() => updateParams({ section: 'sources' })}>
-                  Open Sources
-                </button>
-              </>
-            )}
-          </div>
+          catalog.state === 'error' ? (
+            <EmptyState fill title="Nothing to show — the last scan failed before it found anything. Rescan to try again." />
+          ) : scanning ? (
+            <EmptyState fill busy title="The first scan is running — results appear here as soon as it finishes." />
+          ) : (
+            <EmptyState
+              fill
+              title="No agent resources were found on this machine."
+              hint="Sources lists every root and what was scanned there."
+              action={<Button onClick={() => updateParams({ section: 'sources' })}>Open Sources</Button>}
+            />
+          )
         )}
         {inLibrary && resources.length > 0 && (
           <div className={params.id ? `${styles.library} ${styles.libraryDetailOpen}` : styles.library}>
@@ -464,6 +496,7 @@ export default function ResourcesView() {
                 shortcuts={shortcuts}
                 onSelect={selectResource}
                 onBack={closeDetail}
+                onRequestUninstall={requestUninstall}
               />
             ) : (
               <div className={styles.detailPlaceholder}>
@@ -473,6 +506,16 @@ export default function ResourcesView() {
           </div>
         )}
       </div>
+      {uninstallTarget && activeModal === UNINSTALL_MODAL_ID && (
+        <UninstallDialog
+          // A fresh dialog (empty name field) for every resource it is opened for.
+          key={uninstallTarget.summary.id}
+          summary={uninstallTarget.summary}
+          otherCopies={uninstallTarget.otherCopies}
+          trashPath={catalog?.roots.trash}
+          onUninstalled={afterUninstall}
+        />
+      )}
     </div>
   );
 }

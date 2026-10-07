@@ -1,0 +1,98 @@
+/* Chip + CountBadge — non-interactive marks (a status, a count).
+
+   Filled-subtle with no border, so a mark never reads as a button: a bordered
+   pill beside a real button gets clicked. Tone text is the accent mixed with
+   --text-primary — the raw accents fall near 3:1 on the light and windows-xp
+   whites, mixed they hold 4.5:1 there and stay bright on the dark themes. */
+
+/* Neutral text is --text-primary 60% / --text-secondary 40%. --text-secondary
+   alone on --bg-subtle-strong measured 4.11 (default dark), 3.74 dracula, 3.14
+   monokai, 2.78 nord (Oct 2026, in Chromium); the mix holds ≥4.5:1 on nine of
+   the ten themes and still reads quieter than body text. Solarized fails even
+   with --text-primary (3.6:1) — a theme-level gap, not this file's. */
+.chip {
+  --chip-neutral: color-mix(in srgb, var(--text-primary) 60%, var(--text-secondary));
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--bg-subtle-strong);
+  color: var(--chip-neutral);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.info { background: var(--bg-accent); color: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary)); }
+.success {
+  background: color-mix(in srgb, var(--accent-green) 14%, transparent);
+  color: color-mix(in srgb, var(--accent-green) 65%, var(--text-primary));
+}
+.warning {
+  background: color-mix(in srgb, var(--accent-orange) 14%, transparent);
+  color: color-mix(in srgb, var(--accent-orange) 65%, var(--text-primary));
+}
+.danger {
+  background: color-mix(in srgb, var(--accent-red) 14%, transparent);
+  color: color-mix(in srgb, var(--accent-red) 65%, var(--text-primary));
+}
+.accent {
+  background: color-mix(in srgb, var(--accent-purple) 14%, transparent);
+  color: color-mix(in srgb, var(--accent-purple) 70%, var(--text-primary));
+}
+
+/* ---- CountBadge ------------------------------------------------------------
+   Sits on the text line with no vertical-align trickery: `vertical-align:
+   super` on an inline box grows its line box and drops the label beside it
+   below its neighbours' baseline (the AGENDA tab, Oct 2026). */
+
+/* `position: relative` contains the absolutely-positioned screen-reader text
+   (.srOnly). Without it that text's containing block was <main>, past every
+   scroller: a badge low in a long list grew <main>'s scroll height, and a
+   find-in-page or scrollIntoView then scrolled the whole view (toolbar
+   included) with no scrollbar to undo it. */
+.badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  line-height: 1;
+}
+/* Filled: the accent darkened toward the text colour on light themes and
+   lightened on dark ones, under the theme's on-accent text colour. */
+.badgeAccent {
+  background: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
+  color: var(--selection-text, var(--bg-primary));
+}
+/* Same neutral mix as .chip (see the note there). */
+.badgeMuted {
+  background: var(--bg-subtle-strong);
+  color: color-mix(in srgb, var(--text-primary) 60%, var(--text-secondary));
+}
+
+/* The badge's screen-reader wording ("32 open tasks"). */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

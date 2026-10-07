@@ -6,10 +6,12 @@
  * The diff is computed on the server; this only classifies and paints it.
  * Config resources arrive as masked `key: value` lines, never raw text.
  */
-import { memo, useEffect, useId, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import type { ResourceCompare as CompareResult, ResourceCompareFile } from '@/types/resources';
 import { classifyPatchLines, type CompareOption, type PatchLineKind } from '@/lib/resourceFilters';
 import { ResourcesUnavailableError, errorMessage, fetchResourceCompare, isAbortError } from '@/lib/resourcesApi';
+import Field from '@/components/ui/Field';
+import NativeSelect from '@/components/ui/NativeSelect';
 import styles from '@/styles/modules/Resources.module.css';
 
 interface ResourceCompareProps {
@@ -88,7 +90,6 @@ const CompareBody = memo(function CompareBody({ compare }: { compare: CompareRes
 });
 
 export default function ResourceCompare({ id, options }: ResourceCompareProps) {
-  const selectId = useId();
   const [target, setTarget] = useState(options[0]?.value ?? '');
   const [result, setResult] = useState<CompareState | null>(null);
 
@@ -114,14 +115,9 @@ export default function ResourceCompare({ id, options }: ResourceCompareProps) {
   const current = result?.target === target ? result : null;
   return (
     <div className={styles.comparePane}>
-      <div className={styles.field}>
-        <label htmlFor={selectId} className={styles.fieldLabel}>Compare with</label>
-        <select id={selectId} className={styles.select} value={target} onChange={(e) => setTarget(e.target.value)}>
-          {options.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </select>
-      </div>
+      <Field label="Compare with">
+        <NativeSelect value={target} onChange={setTarget} options={options} />
+      </Field>
       {!current && <p className={styles.muted}>Comparing…</p>}
       {current?.error && <p className={styles.errorNote}>{current.error}</p>}
       {current?.compare && <CompareBody compare={current.compare} />}

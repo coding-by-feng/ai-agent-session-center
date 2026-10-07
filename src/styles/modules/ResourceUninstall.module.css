@@ -1,0 +1,86 @@
+/* ResourceUninstall — the RESOURCES tab's one destructive control
+   (src/components/resources/UninstallControls.tsx).
+
+   Its own module because Resources.module.css is at its 800-line cap. Nothing
+   here leans on that sheet's .button/.textInput/.fieldLabel: the cascade
+   between two CSS modules depends on bundle order, so every control the dialog
+   needs is complete in this file (the Cancel button alone reuses .button).
+
+   The dialog is portaled to <body>, outside .view, so the panel re-declares the
+   --res-accent token .view derives. `.uninstallPanel p` / `.uninstallPanel
+   .uninstallError` out-rank Modal.module.css's `.panel p` (16px margin, grey):
+   without them the server's refusal read as ordinary grey prose. */
+
+.uninstallButton,
+.dangerButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 12px;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--accent-red) 55%, transparent);
+  border-radius: 6px;
+  color: color-mix(in srgb, var(--accent-red) 75%, var(--text-primary));
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.uninstallButton:hover:not(:disabled),
+.dangerButton:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-red) 12%, transparent); border-color: var(--accent-red); color: color-mix(in srgb, var(--accent-red) 85%, var(--text-primary)); }
+.uninstallButton:active:not(:disabled),
+.dangerButton:active:not(:disabled) { background: color-mix(in srgb, var(--accent-red) 22%, transparent); }
+.uninstallButton:focus-visible,
+.dangerButton:focus-visible { outline: 2px solid var(--accent-red); outline-offset: 2px; }
+.uninstallButton:disabled,
+.dangerButton:disabled { opacity: 0.5; cursor: not-allowed; }
+/* In the detail header's flex-wrap title row: pushed to the right end, and onto
+   its own line (still right-aligned) when the title is long or the pane narrow. */
+.uninstallButton { margin-left: auto; align-self: center; flex-shrink: 0; }
+
+.uninstallBlocked { flex-basis: 100%; margin: 0; color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
+
+.uninstallPanel { --res-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary)); font-family: var(--font-mono); }
+/* Modal's title row is a non-wrapping flex row: an unbroken memory filename in
+   the title pushed the ✕ out past the panel's edge. */
+.uninstallPanel h3 { min-width: 0; overflow-wrap: anywhere; }
+.uninstallForm { display: flex; flex-direction: column; gap: 8px; }
+.uninstallPanel p { margin: 0; }
+.uninstallPath { overflow-wrap: anywhere; }
+
+/* Wraps (the name can be a long memory filename); the name keeps its real case
+   because it must be typed exactly as shown. */
+.confirmLabel { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-secondary); line-height: 1.6; }
+.confirmName { text-transform: none; letter-spacing: 0; font-size: 12px; color: var(--text-primary); overflow-wrap: anywhere; }
+.confirmInput {
+  height: 32px;
+  min-width: 0;
+  padding: 0 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+}
+.confirmInput:hover { border-color: var(--border-accent-strong); }
+.confirmInput:focus-visible { outline: 2px solid var(--res-accent); outline-offset: 1px; border-color: var(--res-accent); }
+
+.uninstallPanel .uninstallError { margin: 0; font-size: 12px; line-height: 1.6; color: color-mix(in srgb, var(--accent-red) 65%, var(--text-primary)); }
+.uninstallActions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .uninstallButton,
+  .dangerButton,
+  .confirmInput { transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; }
+}
+
+@media (pointer: coarse) {
+  .uninstallButton,
+  .dangerButton,
+  .confirmInput { min-height: 44px; }
+  .confirmInput { height: 44px; }
+}

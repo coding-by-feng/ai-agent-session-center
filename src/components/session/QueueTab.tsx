@@ -34,7 +34,7 @@ import {
   queueHoldReason,
 } from '@/lib/queueScheduler';
 import { parseHHMM } from '@/lib/timePicker';
-import { sendPromptToTerminal } from '@/lib/terminalSend';
+import { sendPromptToTerminal, submitDelayFor } from '@/lib/terminalSend';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useQueueHistoryStore } from '@/stores/queueHistoryStore';
@@ -391,15 +391,18 @@ export default function QueueTab({
         return false;
       }
       let textToSend = item.text.replace(/\\n/g, '\n');
+      let imageCount = 0;
       if (item.images && item.images.length > 0) {
         const paths = await uploadImages(item.images);
         if (paths.length > 0) textToSend += '\n' + paths.join('\n');
+        imageCount = paths.length;
       }
       // Auto-Enter submits with a SEPARATE Enter keystroke. Concatenating "\r"
       // onto the text makes Claude Code / Codex TUIs insert a newline in
       // the input box instead of submitting; a standalone "\r" sent after the text
-      // registers as a real Enter keypress. See sendPromptToTerminal.
-      const ok = await sendPromptToTerminal(terminalId, textToSend, autoEnter);
+      // registers as a real Enter keypress. See sendPromptToTerminal; image paths
+      // need the longer pause (submitDelayFor).
+      const ok = await sendPromptToTerminal(terminalId, textToSend, autoEnter, submitDelayFor(imageCount));
       if (!ok) {
         showToast('Failed to send to terminal', 'error');
         return false;
@@ -598,11 +601,20 @@ export default function QueueTab({
   // Used for 'once' items: send the text and consume the queue entry. For loop
   // and schedule items, prefer `handleTriggerNow` which preserves loop config
   // and advances nextFireAt properly.
+  // The row stays in the list until its Enter is written (2.5 s for an image
+  // prompt), so a second click in that window must not type it again.
+  const sendingIdsRef = useRef<Set<number>>(new Set());
   const handleSendNow = useCallback(
     async (item: QueueItem) => {
-      const sent = await sendItemToTerminal(item);
-      if (sent) {
-        remove(sessionId, item.id);
+      if (sendingIdsRef.current.has(item.id)) return;
+      sendingIdsRef.current.add(item.id);
+      try {
+        const sent = await sendItemToTerminal(item);
+        if (sent) {
+          remove(sessionId, item.id);
+        }
+      } finally {
+        sendingIdsRef.current.delete(item.id);
       }
     },
     [sendItemToTerminal, remove, sessionId],

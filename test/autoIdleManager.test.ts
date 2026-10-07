@@ -86,8 +86,8 @@ describe('prompting auto-decay', () => {
 
   it('a turn that keeps printing is never decayed, however long it runs', () => {
     // A 15-minute flip to idle used to fire here. The turn is live, and idle
-    // is sendable to the queue and is the edge the Remote Control relink
-    // types into — so both would land in a running turn.
+    // is sendable to the queue — so the next prompt would land in a running
+    // turn.
     const s = makeSession();
     startAutoIdle(new Map([['s1', s]]));
     runFor(20 * 60_000, 'term-1');

@@ -2,12 +2,18 @@
  * AgendaView — Personal task/todo management view.
  * Groups tasks by priority (urgent -> high -> medium -> low),
  * with completed tasks in a collapsible section at the bottom.
+ *
+ * Built from the shared primitives (src/components/ui): SectionHeader for the
+ * collapsible groups, EmptyState for loading / empty / filtered-out / all-done.
  */
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useAgendaStore } from '@/stores/agendaStore';
 import AgendaFilterBar from '@/components/agenda/AgendaFilterBar';
 import AgendaTaskCard from '@/components/agenda/AgendaTaskCard';
 import AddTaskForm from '@/components/agenda/AddTaskForm';
+import SectionHeader from '@/components/ui/SectionHeader';
+import EmptyState from '@/components/ui/EmptyState';
+import Button from '@/components/ui/Button';
 import type { AgendaTask, AgendaPriority } from '@/types';
 import styles from '@/styles/modules/Agenda.module.css';
 
@@ -30,6 +36,8 @@ const PRIORITY_LABELS: Record<AgendaPriority, string> = {
   medium: 'Medium',
   low: 'Low',
 };
+
+const COMPLETED_GROUP = '__completed__';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -75,39 +83,50 @@ function sortTasks(
   });
 }
 
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
 // ---------------------------------------------------------------------------
-// Group Header
+// Task group
 // ---------------------------------------------------------------------------
 
-function GroupHeader({
+function TaskGroup({
+  id,
   label,
-  count,
+  tasks,
   collapsed,
   onToggle,
 }: {
+  id: string;
   label: string;
-  count: number;
+  tasks: AgendaTask[];
   collapsed: boolean;
   onToggle: () => void;
 }) {
+  const regionId = `agenda-group-${id}`;
   return (
-    <div className={styles.groupHeader} onClick={onToggle}>
-      <svg
-        className={`${styles.groupChevron} ${collapsed ? styles.collapsed : ''}`}
-        width="10"
-        height="10"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <polyline points="6 9 12 15 18 9" />
-      </svg>
-      <span className={styles.groupLabel}>{label}</span>
-      <span className={styles.groupCount}>{count}</span>
-    </div>
+    <section className={styles.group}>
+      {/* h2: the groups are the page's top-level sections (no page title above
+          them). aria-controls only while the list it names is mounted. */}
+      <SectionHeader
+        level={2}
+        label={label}
+        count={tasks.length}
+        countLabel={plural(tasks.length, 'task', 'tasks')}
+        collapsed={collapsed}
+        onToggle={onToggle}
+        controls={collapsed ? undefined : regionId}
+      />
+      {/* role="list": Safari/VoiceOver drops list semantics once list-style is none. */}
+      {!collapsed && (
+        <ul id={regionId} className={styles.taskList} role="list">
+          {tasks.map((task) => (
+            <li key={task.id}>
+              <AgendaTaskCard task={task} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -120,6 +139,7 @@ export default function AgendaView() {
   const loading = useAgendaStore((s) => s.loading);
   const filter = useAgendaStore((s) => s.filter);
   const fetchTasks = useAgendaStore((s) => s.fetchTasks);
+  const setFilter = useAgendaStore((s) => s.setFilter);
 
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
@@ -180,83 +200,82 @@ export default function AgendaView() {
     };
   }, [tasks, filter]);
 
-  if (loading) {
+  const filtersActive = filter.search !== '' || filter.priority !== 'all' || filter.tag !== 'all';
+  const showCompletedGroup = filter.showCompleted && completedTasks.length > 0;
+  const nothingVisible = groups.length === 0 && !showCompletedGroup;
+
+  function renderBody() {
+    // A refresh keeps the cached list on screen; the spinner is for a cold
+    // start only, so a tab switch never blanks the board for a round trip.
+    if (loading && tasks.size === 0) return <EmptyState busy fill title="Loading tasks…" />;
+    if (tasks.size === 0) {
+      return <EmptyState fill title="No tasks yet" hint="Add your first task below." />;
+    }
+    if (nothingVisible && completedTasks.length > 0 && !filtersActive) {
+      return (
+        <EmptyState
+          fill
+          title="All done"
+          hint="Every task is completed."
+          action={(
+            <Button onClick={() => setFilter({ showCompleted: true })}>
+              {`Show ${completedTasks.length} completed`}
+            </Button>
+          )}
+        />
+      );
+    }
+    if (nothingVisible) {
+      return (
+        <EmptyState
+          fill
+          title="No tasks match these filters"
+          action={(
+            <Button
+              variant="quiet"
+              onClick={() => setFilter({ search: '', priority: 'all', tag: 'all' })}
+            >
+              Clear filters
+            </Button>
+          )}
+        />
+      );
+    }
     return (
-      <div className={styles.container}>
-        <div className={styles.loading}>Loading tasks...</div>
-      </div>
+      <>
+        {groups.map((group) => (
+          <TaskGroup
+            key={group.id}
+            id={group.id}
+            label={group.label}
+            tasks={group.tasks}
+            collapsed={collapsedGroups.has(group.id)}
+            onToggle={() => toggleGroup(group.id)}
+          />
+        ))}
+        {showCompletedGroup && (
+          <TaskGroup
+            id="completed"
+            label="Completed"
+            tasks={completedTasks}
+            collapsed={collapsedGroups.has(COMPLETED_GROUP)}
+            onToggle={() => toggleGroup(COMPLETED_GROUP)}
+          />
+        )}
+      </>
     );
   }
 
-  const noResults = groups.length === 0 && completedTasks.length === 0;
-  const noTasks = tasks.size === 0;
-
   return (
-    <div className={styles.container} data-testid="agenda-view">
-      <AgendaFilterBar />
+    <div className={styles.view} data-testid="agenda-view">
+      <header className={styles.header}>
+        <AgendaFilterBar />
+        <p className={styles.summary}>
+          {totalIncomplete} open · {totalCompleted} completed
+        </p>
+      </header>
 
-      {/* Stats */}
-      <div className={styles.stats}>
-        <span>
-          {totalIncomplete} task{totalIncomplete !== 1 ? 's' : ''}
-        </span>
-        <span className={styles.statsSep}>|</span>
-        <span>
-          {totalCompleted} completed
-        </span>
-      </div>
-
-      {/* Task list */}
-      <div className={styles.taskList}>
-        {noTasks ? (
-          <div className={styles.emptyState}>
-            <div>No tasks yet</div>
-            <span>Add your first task below</span>
-          </div>
-        ) : noResults ? (
-          <div className={styles.emptyState}>
-            <div>No tasks match the current filter</div>
-            <span>Try adjusting your search or filter criteria</span>
-          </div>
-        ) : (
-          <>
-            {/* Priority groups */}
-            {groups.map((group) => {
-              const isCollapsed = collapsedGroups.has(group.id);
-              return (
-                <div key={group.id}>
-                  <GroupHeader
-                    label={group.label}
-                    count={group.tasks.length}
-                    collapsed={isCollapsed}
-                    onToggle={() => toggleGroup(group.id)}
-                  />
-                  {!isCollapsed &&
-                    group.tasks.map((task) => (
-                      <AgendaTaskCard key={task.id} task={task} />
-                    ))}
-                </div>
-              );
-            })}
-
-            {/* Completed section */}
-            {filter.showCompleted && completedTasks.length > 0 && (
-              <div>
-                <GroupHeader
-                  label="Completed"
-                  count={completedTasks.length}
-                  collapsed={collapsedGroups.has('__completed__')}
-                  onToggle={() => toggleGroup('__completed__')}
-                />
-                {!collapsedGroups.has('__completed__') &&
-                  completedTasks.map((task) => (
-                    <AgendaTaskCard key={task.id} task={task} />
-                  ))}
-              </div>
-            )}
-          </>
-        )}
-      </div>
+      <div className={styles.body}>{renderBody()}</div>
 
       <AddTaskForm />
     </div>

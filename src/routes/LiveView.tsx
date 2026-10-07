@@ -15,7 +15,7 @@ import LiveBoard from '@/components/live/LiveBoard';
 import LiveEmptyState from '@/components/live/LiveEmptyState';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
-import { useLiveFlatState } from '@/hooks/useLiveBoard';
+import { useLiveFlatState, useSceneEmptyState } from '@/hooks/useLiveBoard';
 import { boardSessions } from '@/lib/liveBoard';
 import { useIsMobile } from '@/lib/platform';
 import styles from '@/styles/modules/LiveView.module.css';
@@ -111,6 +111,20 @@ function DesktopFlatContent({ sessions }: { sessions: ReadonlyMap<string, Sessio
   return <LoadingNote />;
 }
 
+/** With the 3D scene on and no robot in it, the "no sessions" card over the
+ *  empty scene, under the flat page's rules (first snapshot in, no restore
+ *  pending, desktop only). The scene draws only sessions the dashboard launched,
+ *  so it counts those, and tells the card how many others are listed. With no
+ *  session there is no session panel, and the card is the only way to start
+ *  one; sessions started elsewhere have no robot to click. Inside the scene's
+ *  error boundary, so a crashed scene shows its own error instead. */
+function SceneEmptyCard() {
+  const { state, outside } = useSceneEmptyState();
+  const isMobile = useIsMobile();
+  if (isMobile || state !== 'empty') return null;
+  return <LiveEmptyState overScene outsideCount={outside} />;
+}
+
 /**
  * Flat view shown when 3D is disabled (the default) — no WebGL.
  *
@@ -178,6 +192,7 @@ export default function LiveView() {
         }>
           <CyberdromeScene />
         </Suspense>
+        <SceneEmptyCard />
       </SceneErrorBoundary>
     </div>
   );

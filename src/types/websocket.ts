@@ -111,6 +111,13 @@ export interface TerminalClosedMessage {
   reason?: string;
 }
 
+/** A terminal's output was cleared (the toolbar's "Clear output"): the server
+ *  emptied its replay ring; every subscriber clears its screen and scrollback. */
+export interface TerminalClearedMessage {
+  type: 'terminal_cleared';
+  terminalId: string;
+}
+
 /** Signal to browsers to clear their IndexedDB */
 export interface ClearBrowserDbMessage {
   type: 'clearBrowserDb';
@@ -188,6 +195,7 @@ export type ServerMessage =
   | TerminalOutputMessage
   | TerminalReadyMessage
   | TerminalClosedMessage
+  | TerminalClearedMessage
   | ClearBrowserDbMessage
   | PresenceUpdateMessage
   | ControlDeniedMessage
@@ -224,6 +232,13 @@ export interface TerminalSubscribeMessage {
   terminalId: string;
 }
 
+/** Clear a terminal's output for every device (its replay ring included).
+ *  Same gate as input: subscribed, and holding the session's baton. */
+export interface TerminalClearMessage {
+  type: 'terminal_clear';
+  terminalId: string;
+}
+
 /** Update the prompt queue count for a session */
 export interface UpdateQueueCountMessage {
   type: 'update_queue_count';
@@ -243,5 +258,6 @@ export type ClientMessage =
   | TerminalResizeMessage
   | TerminalDisconnectMessage
   | TerminalSubscribeMessage
+  | TerminalClearMessage
   | UpdateQueueCountMessage
   | ReplayMessage;

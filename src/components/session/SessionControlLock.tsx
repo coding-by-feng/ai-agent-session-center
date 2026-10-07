@@ -15,7 +15,10 @@
  *
  *  3. **We drive it while other devices are connected** → a quiet "Release"
  *     so handing over does not require the other device to wait out the idle
- *     window.
+ *     window. Release frees the baton, not the session's visibility: a device
+ *     that is not this machine (an iPad on the LAN) sees only SHARED sessions
+ *     (server/sessionVisibility.ts), so for a HOST ONLY session the toast says
+ *     so and offers Share. Sharing stays an explicit click, never a side effect.
  *
  * The idle countdown is derived from the holder's `lastActivityAt` and a local
  * ticking clock rather than a server push: the server has no reason to
@@ -25,6 +28,7 @@
  */
 import { useEffect, useState } from 'react';
 import { usePresenceStore } from '@/stores/presenceStore';
+import { useSessionStore } from '@/stores/sessionStore';
 import { getClientId } from '@/lib/deviceIdentity';
 import { claimControl, releaseControl, requestControl, grantControl } from '@/lib/presenceClient';
 import { showToast } from '@/components/ui/ToastContainer';
@@ -32,6 +36,8 @@ import styles from '@/styles/modules/DevicePresence.module.css';
 
 /** Mirrors `IDLE_TAKEOVER_MS` in server/presenceManager.ts. */
 const IDLE_TAKEOVER_MS = 60_000;
+/** The "can't see it — Share?" toast carries a button: long enough to read and press. */
+const SHARE_OFFER_MS = 8000;
 
 interface Props {
   sessionId: string;
@@ -144,17 +150,38 @@ export default function SessionControlLock({ sessionId }: Props) {
 
   // (3) We drive it, and someone else is around to hand it to.
   if (holder?.clientId === myId) {
+    const onRelease = async () => {
+      await releaseControl(sessionId);
+      // Only a device that is NOT this machine can be kept from a session:
+      // this Mac's other windows see host-only sessions too.
+      const remote = devices.filter((d) => d.clientId !== myId && !d.isLocal);
+      const shared = !!useSessionStore.getState().sessions.get(sessionId)?.remoteVisible;
+      if (shared || remote.length === 0) {
+        showToast('Released — any device can take this session now', 'info', 3000);
+        return;
+      }
+      const who = remote.length === 1 ? remote[0].label : 'your other devices';
+      showToast(
+        `Released — but this session is HOST ONLY, so ${who} can't see it.`,
+        'info',
+        SHARE_OFFER_MS,
+        {
+          label: 'Share',
+          onClick: () => {
+            // Read again: it may have been shared another way meanwhile, and the
+            // store only offers a toggle.
+            const store = useSessionStore.getState();
+            if (!store.sessions.get(sessionId)?.remoteVisible) store.toggleRemoteVisible(sessionId);
+            showToast(`Shared — ${who} can open it now`, 'info', 3000);
+          },
+        },
+      );
+    };
     return (
       <span className={styles.lock}>
         <span aria-hidden="true">🎮</span>
         <span className={styles.lockHolder}>You control this</span>
-        <button
-          className={styles.lockBtn}
-          onClick={async () => {
-            await releaseControl(sessionId);
-            showToast('Released — any device can take this session now', 'info', 3000);
-          }}
-        >
+        <button className={styles.lockBtn} onClick={onRelease}>
           Release
         </button>
       </span>

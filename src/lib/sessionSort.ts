@@ -28,6 +28,16 @@ export function isListedSession(s: Session): boolean {
   return s.status !== 'ended' && !s.isFloating;
 }
 
+/**
+ * Does the 3D scene draw a robot for this session? Only for a listed session
+ * the dashboard launched (its own PTY, `source: 'ssh'`): a claude started in
+ * iTerm or found by the process scan is listed, but gets no robot. The scene
+ * and the LIVE page's 3D empty card decide from this one rule.
+ */
+export function isSceneRobotSession(s: Session): boolean {
+  return isListedSession(s) && s.source === 'ssh';
+}
+
 export function sortSessions(sessions: Session[]): Session[] {
   return [...sessions].sort((a, b) => {
     // Pinned sessions float to the top of their group.

@@ -13,6 +13,20 @@
 /** Pause between the prompt-text write and the submitting Enter keystroke. */
 export const SUBMIT_ENTER_DELAY_MS = 1000;
 
+/**
+ * The same pause when uploaded image paths were appended to the prompt. Claude
+ * Code takes a pasted image path in slowly — ~1.3 s on an idle CLI, longer while
+ * SessionStart hooks run after a /clear — and an Enter that lands before it is
+ * done is swallowed: the text sits in the input box, unsent. 1 s lost that race.
+ * Anything slower still is caught by the queue's Enter retry (submitConfirm.ts).
+ */
+export const IMAGE_SUBMIT_ENTER_DELAY_MS = 2500;
+
+/** The submit delay for a prompt carrying `imageCount` appended image paths. */
+export function submitDelayFor(imageCount: number): number {
+  return imageCount > 0 ? IMAGE_SUBMIT_ENTER_DELAY_MS : SUBMIT_ENTER_DELAY_MS;
+}
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -45,5 +59,10 @@ export async function sendPromptToTerminal(
   if (!textOk) return false;
   if (!autoEnter) return true;
   await sleep(delayMs);
+  return pressEnterInTerminal(terminalId);
+}
+
+/** Press Enter alone — the standalone `\r` that submits whatever is in the input box. */
+export function pressEnterInTerminal(terminalId: string): Promise<boolean> {
   return writeToTerminalApi(terminalId, '\r');
 }

@@ -25,7 +25,6 @@ interface SessionState {
   toggleAlert: (sessionId: string) => void;
   toggleRemoteVisible: (sessionId: string) => void;
   toggleAiPopup: (sessionId: string) => void;
-  toggleRemoteControlDaemon: (sessionId: string) => void;
   setSessionTitle: (sessionId: string, title: string) => void;
   /** Set the inline progress remark. Empty string clears it. */
   setSessionRemark: (sessionId: string, remark: string) => void;
@@ -173,23 +172,6 @@ export const useSessionStore = create<SessionState>((set) => ({
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ aiPopupEnabled }),
-      }).catch(() => { /* ignore network errors */ });
-      return { sessions: next };
-    }),
-
-  // Optimistic, same shape as the toggles above. Defaults to OFF (unlike the
-  // AI popup): this one types into a live session, so it must be opted into.
-  toggleRemoteControlDaemon: (sessionId) =>
-    set((state) => {
-      const session = state.sessions.get(sessionId);
-      if (!session) return state;
-      const armed = !session.remoteControlDaemon;
-      const next = new Map(state.sessions);
-      next.set(sessionId, { ...session, remoteControlDaemon: armed });
-      fetch(`/api/sessions/${encodeURIComponent(sessionId)}/remote-control-daemon`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ armed }),
       }).catch(() => { /* ignore network errors */ });
       return { sessions: next };
     }),

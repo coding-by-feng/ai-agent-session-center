@@ -15,6 +15,8 @@ const mockHandleTerminalReady = vi.fn();
 const mockHandleTerminalClosed = vi.fn();
 const mockReparent = vi.fn();
 const mockScrollToBottom = vi.fn();
+const mockClearOutput = vi.fn();
+const mockHandleTerminalCleared = vi.fn();
 const mockContainerRef = { current: null };
 
 vi.mock('@/hooks/useTerminal', () => ({
@@ -31,6 +33,8 @@ vi.mock('@/hooks/useTerminal', () => ({
     handleTerminalOutput: mockHandleTerminalOutput,
     handleTerminalReady: mockHandleTerminalReady,
     handleTerminalClosed: mockHandleTerminalClosed,
+    handleTerminalCleared: mockHandleTerminalCleared,
+    clearOutput: mockClearOutput,
     reparent: mockReparent,
     scrollToBottom: mockScrollToBottom,
   }),
@@ -44,16 +48,19 @@ vi.mock('./TerminalToolbar', () => ({
     onSendEscape,
     onReconnect,
     showReconnect,
+    onClearOutput,
   }: {
     themeName: string;
     onFullscreen: () => void;
     onSendEscape: () => void;
     onReconnect?: () => void;
     showReconnect?: boolean;
+    onClearOutput?: () => void;
   }) => (
     <div data-testid="terminal-toolbar" data-theme={themeName}>
       <button data-testid="escape-btn" onClick={onSendEscape}>ESC</button>
       <button data-testid="fullscreen-btn" onClick={onFullscreen}>Fullscreen</button>
+      {onClearOutput && <button data-testid="clear-btn" onClick={onClearOutput}>Clear</button>}
       {showReconnect && onReconnect && (
         <button data-testid="reconnect-btn" onClick={onReconnect}>Reconnect</button>
       )}
@@ -112,6 +119,24 @@ describe('TerminalContainer', () => {
       />,
     );
     expect(screen.getAllByTestId('reconnect-btn')[0]).toBeInTheDocument();
+  });
+
+  // Both toolbar copies (inline and the fullscreen overlay's) offer it.
+  it('offers Clear output on both toolbars', () => {
+    render(<TerminalContainer terminalId="term-1" ws={null} />);
+    const buttons = screen.getAllByTestId('clear-btn');
+    expect(buttons).toHaveLength(2);
+    buttons[1].click();
+    expect(mockClearOutput).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands the server's terminal_cleared to the terminal", () => {
+    const mockWs = { addEventListener: vi.fn(), removeEventListener: vi.fn() } as unknown as WebSocket;
+    render(<TerminalContainer terminalId="term-1" ws={mockWs} />);
+    const handler = (mockWs.addEventListener as ReturnType<typeof vi.fn>).mock.calls
+      .find((c) => c[0] === 'message')?.[1] as (e: MessageEvent) => void;
+    handler({ data: JSON.stringify({ type: 'terminal_cleared', terminalId: 'term-1' }) } as MessageEvent);
+    expect(mockHandleTerminalCleared).toHaveBeenCalledWith('term-1');
   });
 
   it('listens for WS terminal messages', () => {

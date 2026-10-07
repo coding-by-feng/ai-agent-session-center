@@ -6,22 +6,19 @@
 // `isLocal`) — never inferred from screen size or `electronAPI`, because a
 // desktop browser on the LAN is remote too. Before presence arrives the tab is
 // hidden: the absent state is the safe state.
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
-import type { DevicePresence } from '@/types';
+import type { AgendaTask, DevicePresence } from '@/types';
 
 vi.mock('@/lib/deviceIdentity', () => ({
   getClientId: () => 'me',
   getClientLabel: () => 'Test Device',
 }));
 
-// The recent-directories launcher fetches and reads stores of its own; this
-// suite is about the route tabs only.
-vi.mock('./WorkdirLauncher', () => ({ default: () => null }));
-
 import NavBar from './NavBar';
 import { usePresenceStore } from '@/stores/presenceStore';
+import { useAgendaStore } from '@/stores/agendaStore';
 
 function device(clientId: string, isLocal: boolean): DevicePresence {
   return {
@@ -85,5 +82,49 @@ describe('NavBar — RESOURCES tab', () => {
     setDevices([device('me', false)]);
     renderNav();
     expect(tabLabels()).toEqual(['LIVE', 'AGENDA', 'HISTORY', 'PROMPTS', 'QUEUE', 'REVIEW']);
+  });
+});
+
+// The AGENDA count is a CountBadge: digits for the eye, "N open tasks" for a
+// screen reader, and the tab's visible label stays exactly "AGENDA".
+describe('NavBar — AGENDA count', () => {
+  function task(id: string, completed: boolean): AgendaTask {
+    return {
+      id, title: id, priority: 'medium', tags: [], completed,
+      createdAt: '2026-10-07T00:00:00Z', updatedAt: '2026-10-07T00:00:00Z',
+    };
+  }
+
+  afterEach(() => {
+    useAgendaStore.setState({ tasks: new Map() });
+  });
+
+  it('counts only open tasks and names them for a screen reader', () => {
+    useAgendaStore.setState({
+      tasks: new Map([['a', task('a', false)], ['b', task('b', false)], ['c', task('c', true)]]),
+    });
+    renderNav();
+    expect(screen.getByRole('link', { name: /AGENDA\s*2 open tasks/ })).toBeTruthy();
+    expect(screen.getByText('2').getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('shows no badge when everything is done', () => {
+    useAgendaStore.setState({ tasks: new Map([['c', task('c', true)]]) });
+    renderNav();
+    expect(screen.getByRole('link', { name: 'AGENDA' })).toBeTruthy();
+  });
+});
+
+// Starting a session lives in the session panel's strip (+ and the recent-
+// directories icon) and, with no session yet, on the LIVE page's card. The top
+// bar's + NEW and DIRS duplicated the strip's and were removed (Oct 2026).
+describe('NavBar — no session launchers', () => {
+  it('has no + NEW or DIRS: the top bar is the route tabs', () => {
+    setDevices([device('me', true)]);
+    renderNav();
+    expect(screen.queryByRole('button', { name: '+ NEW' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^DIRS$|recent (working )?directories/i })).toBeNull();
+    expect(screen.queryByText('+ NEW')).toBeNull();
+    expect(screen.queryByText('DIRS')).toBeNull();
   });
 });

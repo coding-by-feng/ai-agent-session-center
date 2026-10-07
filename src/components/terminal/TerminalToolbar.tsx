@@ -194,6 +194,19 @@ function RefreshIcon() {
   );
 }
 
+/** An eraser (Lucide's): "clear output". Not a bin, which would read as
+ *  deleting the session. */
+function ClearIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21" />
+      <path d="M22 21H7" />
+      <path d="m5 11 9 9" />
+    </svg>
+  );
+}
+
 /** Microphone SVG icon (hold-to-speak). */
 function MicIcon({ active }: { active?: boolean }) {
   return (
@@ -232,6 +245,8 @@ interface TerminalToolbarProps {
   onReconnect?: () => void;
   onScrollToBottom?: () => void;
   onRefreshOutput?: () => void;
+  /** Clear this terminal's screen and scrollback (see useTerminal.clearOutput). */
+  onClearOutput?: () => void;
   /** Per-session AI selection popup. Omit both to hide the control. */
   aiPopupEnabled?: boolean;
   onToggleAiPopup?: () => void;
@@ -266,6 +281,7 @@ export default function TerminalToolbar({
   onReconnect,
   onScrollToBottom,
   onRefreshOutput,
+  onClearOutput,
   aiPopupEnabled,
   onToggleAiPopup,
   autoScrollEnabled = true,
@@ -407,6 +423,18 @@ export default function TerminalToolbar({
             aria-label={tooltips.termRefresh.label}
           >
             <RefreshIcon />
+          </button>
+        </Tooltip>
+      )}
+
+      {onClearOutput && (
+        <Tooltip {...tooltips.termClear}>
+          <button
+            className={styles.toolbarBtn}
+            onClick={onClearOutput}
+            aria-label={tooltips.termClear.label}
+          >
+            <ClearIcon />
           </button>
         </Tooltip>
       )}

@@ -1,7 +1,7 @@
 /**
  * SessionSwitcher — bar at the top of the DetailPanel.
  * Top row: current session name + status badge + duration + display toggle + minimize button
- *          + the new-session / recent-directories icons (the top bar is hidden while a panel is open).
+ *          + the new-session / recent-directories icons (the app's only launchers while a session exists).
  * Below: always-visible horizontal tab strip showing all other active sessions
  *        as mini robot cards (icon + title + project name + label).
  */
@@ -343,7 +343,7 @@ function ExpandRailIcon() {
   );
 }
 
-/** Plus icon — the top bar's + NEW: opens the new-session form */
+/** Plus icon — opens the new-session form */
 function NewSessionIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1217,11 +1217,12 @@ export default function SessionSwitcher({
               &#x2012;
             </button>
           )}
-          {/* The top bar's + NEW and DIRS, as icons. App.tsx unmounts the top bar
-              while a panel is open, so without these, starting a session meant
-              minimizing the panel first. One child, so a wrap never splits them.
-              Main window only: a popped-out session window renders this strip
-              too, but not AppLayout, so NewSessionModal is not mounted there. */}
+          {/* Start a session: + (the new-session form) and the recent-directories
+              launcher. The app's one home for both while any session exists (the
+              top bar's + NEW / DIRS were removed, Oct 2026; with no session at all,
+              the LIVE page's card offers them). One child, so a wrap never splits
+              them. Main window only: a popped-out session window renders this
+              strip too, but not AppLayout, so NewSessionModal is not mounted there. */}
           {!isPopoutWindow() && (
             <div className={styles.switcherLaunch}>
               <button
@@ -1233,7 +1234,7 @@ export default function SessionSwitcher({
               >
                 <NewSessionIcon />
               </button>
-              <WorkdirLauncher variant="panel" triggerClassName={dirsTriggerClass} />
+              <WorkdirLauncher triggerClassName={dirsTriggerClass} />
             </div>
           )}
         </div>

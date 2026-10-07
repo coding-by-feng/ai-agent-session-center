@@ -1,0 +1,34 @@
+/* Pagination — Previous · numbered window · Next. On a phone the numbers give
+   way to a "Page x of y" read-out, so the row never wraps into a ragged second
+   line of page buttons. */
+
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 8px 0;
+}
+.pages { display: flex; align-items: center; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.page { min-width: 28px; font-variant-numeric: tabular-nums; }
+.gap { padding: 0 4px; color: var(--text-secondary); font-size: 12px; }
+.info {
+  display: none;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .pages { display: none; }
+  .info { display: inline; }
+}
+
+/* .page loads after Button.module.css, so its 28px would beat the button's own
+   44px touch width; restate it here. */
+@media (pointer: coarse) {
+  .page { min-width: 44px; }
+}

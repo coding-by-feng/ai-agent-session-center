@@ -1,0 +1,44 @@
+/* EmptyState — what a list says when it has nothing to show, is loading, or
+   failed. Calm and centred, secondary text (not --text-dim, which is below
+   4.5:1 on the dark themes), and an action when there is something to do.
+
+   Title and hint are scoped under .empty (0-2-0): an EmptyState inside the
+   shared Modal met `.panel p` (0-1-1), which out-ranked one-class rules and
+   restyled the title to 12px secondary text (HISTORY's detail dialog). */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 48px 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
+}
+.fill { flex: 1 1 auto; }
+.compact { padding: 24px 16px; }
+
+.icon { display: inline-flex; color: var(--text-secondary); }
+.icon svg { width: 24px; height: 24px; }
+.empty .title { margin: 0; max-width: 520px; color: var(--text-primary); font-size: 13px; }
+.empty .hint { margin: 0; max-width: 520px; color: var(--text-secondary); font-size: 12px; }
+.action { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
+
+.empty.error .title { color: color-mix(in srgb, var(--accent-red) 65%, var(--text-primary)); }
+
+/* StaleNote: a refresh failed but the rows are still on screen. Amber
+   (warning), not red: nothing shown was lost. A div, not a <p>, so Modal's
+   `.panel p` cannot restyle it. */
+.staleNote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  color: color-mix(in srgb, var(--accent-yellow) 60%, var(--text-primary));
+  font-size: 12px;
+  line-height: 1.6;
+}

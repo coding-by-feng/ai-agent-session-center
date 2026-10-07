@@ -1,11 +1,32 @@
 /**
- * AddTaskForm — Inline form at the bottom of the Agenda view for creating tasks.
+ * AddTaskForm — the new-task bar pinned under the Agenda list.
  * Title is required; priority defaults to medium; due date and tags are optional.
  */
 import { useState, useCallback } from 'react';
 import { useAgendaStore } from '@/stores/agendaStore';
+import Button from '@/components/ui/Button';
+import Field from '@/components/ui/Field';
+import NativeSelect, { type NativeSelectOption } from '@/components/ui/NativeSelect';
+import TextInput from '@/components/ui/TextInput';
 import type { AgendaPriority } from '@/types';
 import styles from '@/styles/modules/Agenda.module.css';
+
+const PRIORITY_OPTIONS: NativeSelectOption<AgendaPriority>[] = [
+  { value: 'urgent', label: 'Urgent' },
+  { value: 'high', label: 'High' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'low', label: 'Low' },
+];
+
+function PlusGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+      strokeLinecap="round" aria-hidden="true">
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
 
 export default function AddTaskForm() {
   const createTask = useAgendaStore((s) => s.createTask);
@@ -43,48 +64,47 @@ export default function AddTaskForm() {
   );
 
   return (
-    <form className={styles.addForm} onSubmit={handleSubmit}>
-      <input
-        type="text"
-        className={styles.titleInput}
-        placeholder="New task title..."
+    <form className={styles.addForm} onSubmit={handleSubmit} aria-label="Add a task">
+      <TextInput
+        className={styles.addTitle}
+        placeholder="New task…"
+        aria-label="New task title"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         required
       />
 
-      <select
-        value={priority}
-        onChange={(e) => setPriority(e.target.value as AgendaPriority)}
-      >
-        <option value="urgent">Urgent</option>
-        <option value="high">High</option>
-        <option value="medium">Medium</option>
-        <option value="low">Low</option>
-      </select>
+      {/* aria-labels keep the visible caption's words but name the field for
+          the NEW task — the toolbar above already has a "Priority" filter. */}
+      <Field label="Priority">
+        <NativeSelect
+          aria-label="New task priority"
+          value={priority}
+          onChange={setPriority}
+          options={PRIORITY_OPTIONS}
+        />
+      </Field>
 
-      <input
-        type="date"
-        value={dueDate}
-        onChange={(e) => setDueDate(e.target.value)}
-        title="Due date (optional)"
-      />
+      <Field label="Due">
+        <TextInput
+          type="date"
+          aria-label="Due date"
+          value={dueDate}
+          onChange={(e) => setDueDate(e.target.value)}
+        />
+      </Field>
 
-      <input
-        type="text"
-        className={styles.tagsInput}
-        placeholder="Tags (comma-sep)"
+      <TextInput
+        className={styles.addTags}
+        placeholder="Tags, comma-separated"
+        aria-label="Tags, comma-separated"
         value={tagsInput}
         onChange={(e) => setTagsInput(e.target.value)}
       />
 
-      <button
-        type="submit"
-        className={styles.addBtn}
-        disabled={!title.trim()}
-      >
-        ADD
-      </button>
+      <Button type="submit" variant="primary" icon={<PlusGlyph />} disabled={!title.trim()}>
+        Add task
+      </Button>
     </form>
   );
 }

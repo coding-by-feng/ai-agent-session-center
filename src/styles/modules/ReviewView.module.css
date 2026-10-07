@@ -1,430 +1,222 @@
-/* ReviewView — saved explanations & translations.
-   Colors reference the shared theme contract (body[data-theme] CSS vars defined
-   in src/styles/base.css + src/styles/themes/*.css) so the Review tab follows the
-   selected theme. Previously this used the non-existent --bg-deep / --panel-border
-   vars (always falling back to hardcoded cyberpunk navy/cyan) plus raw rgba
-   literals, so it ignored the theme. Accent tints with no themed bg-var (red/yellow)
-   use color-mix on the matching --accent-* so they re-tint per theme. */
+/* ReviewView — the REVIEW tab (saved explanations & translations).
+
+   Buttons, chips, the search box, the selects and the empty state come from the
+   shared primitives in src/components/ui/ and carry their own styles; this file
+   lays them out and styles the row, its detail and the summary line. Colours
+   come only from the theme contract (src/styles/base.css + themes/*.css).
+
+   --rv-accent is the cyan accent mixed with --text-primary. The raw accents are
+   tuned for dark backgrounds and land near 3:1 on the light and windows-xp
+   whites; mixed 80/20 they hold about 5:1 there and stay bright on the dark
+   themes. It is declared on .view, never on :root: themes set their variables
+   on <body>, so a :root mix would freeze the dark palette. */
 
 .view {
+  --rv-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
   height: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   padding: 16px 24px;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--font-mono);
   overflow: hidden;
 }
+
+/* ---- Header: toolbar + summary line --------------------------------------- */
 
 .header {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding-bottom: 12px;
+  gap: 8px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
 }
 
-.title {
-  font-size: 13px;
-  letter-spacing: 0.18em;
-  color: var(--accent-cyan);
-  text-transform: uppercase;
-}
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.search { flex: 1 1 240px; min-width: 0; }
 
-.filters {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: center;
-}
+.summary { margin: 0; font-size: 11px; line-height: 1.6; color: var(--text-secondary); }
 
-.search {
-  flex: 1 1 260px;
-  min-width: 220px;
-  padding: 6px 10px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  color: inherit;
-  font: inherit;
-  font-size: 12px;
-}
+/* ---- Body: the one scroller ------------------------------------------------ */
 
-.search:focus {
-  outline: none;
-  border-color: var(--accent-cyan);
-}
-
-.select {
-  padding: 6px 10px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  color: inherit;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.select:focus {
-  outline: none;
-  border-color: var(--accent-cyan);
-}
-
-.empty {
-  flex: 1;
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: var(--text-secondary);
-  text-align: center;
-  padding: 32px;
-}
-
-.hint {
-  max-width: 520px;
-  font-size: 12px;
-  line-height: 1.6;
+  padding-top: 16px;
 }
 
 .list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px 0;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
+
+/* ---- Row ------------------------------------------------------------------- */
 
 .row {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  transition: border-color 120ms ease, background 120ms ease;
 }
+.row:hover { border-color: var(--border-accent); }
 
-.row:hover {
-  border-color: var(--border-accent);
-}
+/* An open row keeps the card surface and says so with its border. A tinted
+   surface would sit under the info chip's own tint and the accent text, and on
+   the light theme that pair falls below 4.5:1. */
+.rowExpanded,
+.rowExpanded:hover { border-color: var(--rv-accent); }
 
-.rowExpanded {
-  border-color: var(--accent-cyan);
-  background: var(--bg-accent);
-}
+/* The favourite star is a sibling of the expand button: a button cannot hold a
+   button. The wrapper carries the hover tint so the band reads as one control. */
+.rowHeaderWrap { display: flex; align-items: flex-start; border-radius: 7px; }
+.rowHeaderWrap:hover { background: var(--bg-card-hover); }
+.rowHeaderWrap:active { background: var(--bg-accent); }
+.rowExpanded .rowHeaderWrap { border-radius: 7px 7px 0 0; }
+
+/* Centres the 28px star on the first text line; the 44px touch box needs no inset. */
+.favToggle { margin: 8px 0 0 8px; }
 
 .rowHeader {
-  width: 100%;
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-width: 0;
   display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: flex-start;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 12px 16px 12px 8px;
   background: transparent;
-  border: none;
+  border: 0;
+  border-radius: 6px;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
+.rowHeader:focus-visible { outline: 2px solid var(--rv-accent); outline-offset: -2px; }
 
-.modeIcon {
-  font-size: 18px;
-  line-height: 1.4;
-  margin-top: 1px;
-}
+/* A fixed box, not the glyph's own width: the narrower ✦ and ⤴ would otherwise
+   pull their row's text out of line with the emoji rows. */
+.modeIcon { width: 24px; font-size: 18px; line-height: 1.4; text-align: center; }
 
-.rowMain {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
+.rowMain { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 
 .rowTitle {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   font-size: 12px;
   letter-spacing: 0.05em;
 }
 
-.modeLabel {
-  text-transform: uppercase;
-  color: var(--accent-cyan);
-}
-
-.langChip {
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--bg-accent);
-  color: var(--text-primary);
-  font-size: 11px;
-}
-
-.archivedChip {
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--bg-subtle-strong);
-  color: var(--text-secondary);
-  font-size: 10px;
-  text-transform: uppercase;
-}
-
-.rowMeta {
-  font-size: 11px;
-  color: var(--text-secondary);
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.rowSnippet {
-  font-size: 12px;
-  color: var(--text-primary);
-  white-space: nowrap;
+/* A long alias gives way before the chips do. */
+.modeLabel,
+.aliasLabel {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 100%;
+  white-space: nowrap;
+  color: var(--rv-accent);
+}
+.modeLabel { text-transform: uppercase; }
+.aliasLabel { font-weight: 700; }
+
+.rowMeta { font-size: 11px; line-height: 1.5; color: var(--text-secondary); overflow-wrap: anywhere; }
+
+.rowSnippet {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
-.expandIcon {
-  color: var(--text-secondary);
-  font-size: 12px;
-  margin-top: 4px;
-}
+.expandIcon { margin-top: 4px; color: var(--text-secondary); font-size: 12px; }
+
+/* ---- Detail ---------------------------------------------------------------- */
 
 .detail {
-  padding: 0 14px 14px 14px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  border-top: 1px dashed var(--border-subtle);
-  margin-top: 4px;
-  padding-top: 14px;
+  gap: 16px;
+  padding: 16px;
+  border-top: 1px solid var(--border-subtle);
 }
 
-.section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+.section { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 
 .sectionLabel {
-  font-size: 11px;
+  font-size: 10px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-secondary);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
 }
 
-.linkBtn {
-  background: transparent;
-  border: none;
-  color: var(--accent-cyan);
-  font-size: 11px;
-  font-family: inherit;
-  text-transform: lowercase;
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.linkBtn:hover {
-  background: var(--bg-accent);
-}
-
-.body {
+/* The one box in the detail that scrolls itself: a selection can be a whole page. */
+.source {
   margin: 0;
-  padding: 10px 12px;
-  background: var(--bg-subtle-strong);
+  padding: 8px 12px;
+  background: var(--bg-subtle);
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
-  font-size: 12px;
-  font-family: inherit;
   color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.6;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
   max-height: 320px;
   overflow-y: auto;
 }
 
+.filePath { margin: 0; font-size: 11px; color: var(--text-secondary); overflow-wrap: anywhere; }
+
+/* The line around the selection, quoted. The selections here are often Chinese
+   and CJK has no italic (the browser fakes a slant), so it is set apart by a
+   rule, a quieter colour and a caption instead. */
 .contextLine {
-  font-size: 11px;
+  margin-top: 4px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border-subtle-strong);
   color: var(--text-secondary);
-  font-style: italic;
-  padding: 2px 0;
-}
-
-.metaLabel {
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 10px;
-  margin-right: 4px;
-}
-
-.filePath {
-  font-size: 11px;
-  color: var(--accent-cyan);
-  font-family: inherit;
-  word-break: break-all;
-}
-
-.notes {
-  width: 100%;
-  padding: 8px 10px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  color: inherit;
-  font: inherit;
   font-size: 12px;
-  resize: vertical;
-  min-height: 38px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.metaLabel { display: block; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; }
+
+.aliasInput { width: 100%; }
+
+/* Notes is the shared <TextArea> (FormControl.module.css); only its width is set here. */
+.notes { width: 100%; }
+
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.timestamp { margin-left: auto; color: var(--text-secondary); font-size: 11px; }
+
+/* ---- Motion, narrow, touch ------------------------------------------------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  .row { transition: border-color 150ms ease, background-color 150ms ease; }
+  .rowHeaderWrap,
+  .rowHeader { transition: background-color 150ms ease; }
 }
 
-.notes:focus {
-  outline: none;
-  border-color: var(--accent-cyan);
-}
-
-.actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.actionBtn {
-  padding: 5px 12px;
-  background: transparent;
-  border: 1px solid var(--border-subtle);
-  border-radius: 5px;
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  cursor: pointer;
-  text-transform: uppercase;
-  transition: background 100ms ease, border-color 100ms ease, color 100ms ease;
-}
-
-.actionBtn:hover {
-  background: var(--bg-accent);
-  border-color: var(--accent-cyan);
-  color: var(--accent-cyan);
-}
-
-.actionBtn.danger {
-  border-color: color-mix(in srgb, var(--accent-red) 50%, transparent);
-  color: var(--accent-red);
-}
-
-.actionBtn.danger:hover {
-  background: color-mix(in srgb, var(--accent-red) 12%, transparent);
-  border-color: var(--accent-red);
-  color: var(--accent-red);
-}
-
-.timestamp {
-  margin-left: auto;
-  font-size: 10px;
-  color: var(--text-secondary);
-}
-
-/* Favorites filter pill (header) */
-.favFilter {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: var(--bg-card);
-  color: var(--text-secondary);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  padding: 0 12px;
-  height: 32px;
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
-}
-.favFilter:hover { color: var(--text-primary); border-color: var(--border-accent); }
-.favFilterActive {
-  color: var(--accent-yellow);
-  border-color: var(--accent-yellow);
-  background: color-mix(in srgb, var(--accent-yellow) 13%, transparent);
-}
-
-/* Per-row favorite star (sibling of the expand header so it isn't a nested button) */
-.rowHeaderWrap {
-  display: flex;
-  align-items: stretch;
-}
-.rowHeaderWrap .rowHeader {
-  flex: 1 1 auto;
-  width: auto;
-  min-width: 0;
-}
-.favToggle {
-  flex: 0 0 auto;
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 16px;
-  line-height: 1;
-  padding: 0 12px;
-  cursor: pointer;
-  transition: color 120ms ease, transform 80ms ease;
-}
-.favToggle[aria-pressed='true'] { color: var(--accent-yellow); }
-.favToggle:hover { color: var(--accent-yellow); transform: scale(1.15); }
-
-/* Alias: bold label in the header (replaces the mode label) + editor input */
-.aliasLabel {
-  font-weight: 700;
-  color: var(--accent-cyan);
-  text-transform: none;
-}
-.aliasInput {
-  width: 100%;
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-family: var(--font-mono, monospace);
-  font-size: 12px;
-  padding: 5px 8px;
-  outline: none;
-  transition: border-color 120ms ease;
-}
-.aliasInput:focus { border-color: var(--accent-cyan); }
-
-/* ---- Responsive ----------------------------------------------------------
- * Added May 6 2026, after the mobile pass closed — no breakpoints existed, so
- * the 24px side padding ate ~12% of a 390px viewport before any content.
- */
-@media (max-width: 640px) {
-  .view { padding: 12px 14px; }
-
-  .search {
-    /* The 220px floor forced the search box and the selects onto separate
-       wrapped rows at phone width; let it shrink and share a row instead. */
-    min-width: 0;
-    flex: 1 1 140px;
-  }
-
-  .select { flex: 1 1 auto; }
-
-  .rowHeader { flex-wrap: wrap; gap: 6px; }
+@media (max-width: 480px) {
+  .view { padding: 8px 16px; }
 }
 
 @media (pointer: coarse) {
-  .search, .select { min-height: 44px; }
-  .row { min-height: 44px; }
+  .rowHeader { min-height: 44px; }
+  .favToggle { margin: 0; }
 }

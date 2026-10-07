@@ -167,7 +167,15 @@
 .toastClose:hover { color: var(--text-primary); }
 .toast.fadeOut { animation: toast-out 0.3s ease forwards; }
 .toastTitle { font-size: 11px; font-weight: 700; color: var(--accent-orange); letter-spacing: 1px; margin-bottom: 4px; }
-.toastMsg { font-size: 11px; color: var(--text-secondary); }
+.toastMsg { font-size: 11px; color: var(--text-secondary); overflow-wrap: anywhere; }
+/* Anchored right: 20px with no cap, a long message ran a toast into the LEFT edge of a phone. */
+.toast { max-width: calc(100vw - 40px); box-sizing: border-box; }
+/* One action per toast (e.g. RESTORE). Never disabled: it vanishes with its toast instead. */
+.toastAction { margin-left: 12px; min-height: 28px; padding: 4px 12px; background: transparent; border: 1px solid var(--border-subtle-strong); border-radius: 4px; color: var(--accent-cyan); font: inherit; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
+.toastAction:hover { background: var(--bg-accent); border-color: var(--accent-cyan); }
+.toastAction:active { background: var(--bg-accent-strong); }
+.toastAction:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 2px; }
+@media (pointer: coarse) { .toastAction { min-height: 44px; } }
 
 @keyframes toast-in { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 @keyframes toast-out { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0; } }

@@ -25,6 +25,12 @@ export default defineConfig({
   },
   server: {
     port: 3332,
+    // No CORS. Vite 7's default answers preflights from EVERY localhost origin,
+    // before the /api proxy runs — so while the dev server is up, a page on any
+    // local port could drive the API through it (read /api/resources, uninstall,
+    // POST /api/terminals). The dashboard's own calls are same-origin.
+    // Pinned by test/viteDevCors.test.ts.
+    cors: false,
     proxy: {
       '/api': {
         target: 'http://localhost:3333',

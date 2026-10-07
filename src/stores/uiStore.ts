@@ -94,9 +94,6 @@ interface UiState {
   /** The LIVE board's one-time tip has been retired on this device (lib/liveHint.ts).
    *  Persisted to localStorage['live-hint-dismissed']. */
   liveHintDismissed: boolean;
-  /** The top bar's DIRS dropdown (WorkdirLauncher) is open. Shared, not local, so
-   *  the LIVE page's "no sessions yet" card can open it. Not persisted. */
-  workdirLauncherOpen: boolean;
   /** The workspace auto-load has not decided yet whether to restore. Mirrors
    *  workspaceSnapshot's module flag (`setRestorePending`) for React: true from
    *  boot until useWorkspaceAutoLoad resolves, so the LIVE page does not say
@@ -144,7 +141,6 @@ interface UiState {
   toggleRoomFilter: (roomId: string) => void;
   clearRoomFilter: () => void;
   dismissLiveHint: () => void;
-  setWorkdirLauncherOpen: (open: boolean) => void;
   setQueuePanelCollapsed: (collapsed: boolean) => void;
 }
 
@@ -303,7 +299,6 @@ export const useUiStore = create<UiState>((set) => ({
   workspaceLoad: { active: false, total: 0, done: 0, currentTitle: '' },
   selectedRoomIds: loadRoomFilter(),
   liveHintDismissed: loadLiveHintDismissed(),
-  workdirLauncherOpen: false,
   workspaceRestorePending: true,
   queuePanelCollapsed: loadQueuePanelCollapsed(),
 
@@ -434,7 +429,6 @@ export const useUiStore = create<UiState>((set) => ({
     }
     set({ liveHintDismissed: true });
   },
-  setWorkdirLauncherOpen: (open) => set({ workdirLauncherOpen: open }),
   setQueuePanelCollapsed: (collapsed) => {
     try {
       localStorage.setItem(QUEUE_PANEL_COLLAPSED_KEY, collapsed ? '1' : '0');

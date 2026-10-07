@@ -622,13 +622,21 @@ export function searchSessions(params: SessionSearchParams = {}): SessionSearchR
     sqlParams.push(`%${query}%`);
   }
 
-  const allowedSort = ['started_at', 'last_activity_at', 'project_name', 'status'];
-  const col = allowedSort.includes(sortBy || '') ? sortBy : 'started_at';
+  // The column name is interpolated into ORDER BY, so it must come from this
+  // whitelist. total_prompts / total_tool_calls back the HISTORY tab's "Prompts"
+  // and "Tools" sorts, which silently fell back to started_at before Oct 2026.
+  const allowedSort = ['started_at', 'last_activity_at', 'project_name', 'status', 'total_prompts', 'total_tool_calls'];
+  // Interpolate OUR literal, never the request value — safe even if the
+  // comparison is ever loosened (a prefix match would otherwise pass
+  // `total_prompts, (SELECT …)` straight into the SQL).
+  const col = allowedSort.find((c) => c === sortBy) ?? 'started_at';
   const dir = sortDir === 'asc' ? 'ASC' : 'DESC';
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   const countSql = `SELECT COUNT(*) as cnt FROM sessions ${where}`;
-  const dataSql = `SELECT * FROM sessions ${where} ORDER BY ${col} ${dir} LIMIT ? OFFSET ?`;
+  // `id` breaks ties (many sessions share a prompt/tool count), so LIMIT/OFFSET
+  // pages are a total order and never repeat or skip a row.
+  const dataSql = `SELECT * FROM sessions ${where} ORDER BY ${col} ${dir}, id ${dir} LIMIT ? OFFSET ?`;
 
   const offset = ((page || 1) - 1) * (pageSize || 50);
   const total = (db.prepare(countSql).get(...sqlParams) as { cnt: number }).cnt;

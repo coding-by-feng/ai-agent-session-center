@@ -25,6 +25,7 @@ import { z } from 'zod';
 import { isLoopbackAddress } from './presenceManager.js';
 import { PathSafetyError } from './fsSafe.js';
 import { createResourceCatalog, ResourceLookupError } from './resourceCatalog.js';
+import { TRASH_ID_RE, TrashError } from './resourceUninstall.js';
 import log from './logger.js';
 
 export interface ResourceRouterDeps {
@@ -35,6 +36,8 @@ export interface ResourceRouterDeps {
   /** Tests override the environment and home dir (fixtures). Default process.env / os.homedir(). */
   env?: NodeJS.ProcessEnv;
   home?: string;
+  /** Where uninstalled resources go. Default `DEFAULT_TRASH_DIR` (resourceUninstall.ts). */
+  trashDir?: string;
 }
 
 /** Names a browser uses for this machine. A rebinding page's Host is ITS own name, re-resolved to 127.0.0.1. */
@@ -70,6 +73,23 @@ export function isLocalResourceRequest(req: Request): boolean {
   return String(req.headers['sec-fetch-site'] ?? '').toLowerCase() !== 'cross-site';
 }
 
+/**
+ * The extra bar for the two WRITE routes (uninstall, restore): the request must
+ * come from the AASC page itself, not merely from this machine. The local gate
+ * above accepts any loopback Origin — a page on another localhost port is local
+ * too — and for reads that is fine. For a write, a browser marks a different
+ * port `Sec-Fetch-Site: same-site`, so only `same-origin` (or no such header: a
+ * non-browser client, which can already touch these files itself) passes.
+ * Origin is deliberately not compared with Host: the Vite dev proxy rewrites
+ * Host (`changeOrigin`) while the browser still sees one origin. A cross-origin
+ * page cannot get this far anyway: the JSON body these routes require forces a
+ * CORS preflight, and this server answers none.
+ */
+export function isSameOriginWrite(req: Request): boolean {
+  const site = String(req.headers['sec-fetch-site'] ?? '').toLowerCase();
+  return site === '' || site === 'same-origin';
+}
+
 // Express 5 types params/query as string | string[] | …; routes here use single values.
 function str(val: unknown): string {
   if (typeof val === 'string') return val;
@@ -102,6 +122,12 @@ const compareQuerySchema = z.object({
   against: z.union([z.literal('repo'), resourceIdSchema]),
 });
 
+const uninstallBodySchema = z.object({
+  confirmName: z.string().max(4096),
+});
+
+const trashIdSchema = z.string().regex(TRASH_ID_RE);
+
 function fail(res: Response, status: number, error: string): void {
   res.status(status).json({ success: false, error });
 }
@@ -116,7 +142,7 @@ function validate<T>(schema: z.ZodType<T>, input: unknown, res: Response): T | n
 /** A known lookup/path error becomes its status; anything else is a logged, generic 500. */
 function sendError(res: Response, err: unknown, home: string): void {
   if (err instanceof PathSafetyError) return fail(res, err.reason === 'not-found' ? 404 : 400, err.message);
-  if (err instanceof ResourceLookupError) return fail(res, err.status, err.message);
+  if (err instanceof ResourceLookupError || err instanceof TrashError) return fail(res, err.status, err.message);
   const message = err instanceof Error ? err.message : String(err);
   log.warn('resources', `Request failed: ${message.split(home).join('~').slice(0, 300)}`);
   fail(res, 500, 'Internal error');
@@ -125,7 +151,9 @@ function sendError(res: Response, err: unknown, home: string): void {
 /** Body-parser failures (malformed JSON, oversized body) and anything a handler let escape. */
 function respondToError(res: Response, err: unknown, home: string): void {
   // Our own errors first: a ResourceLookupError carries a 4xx `status` too.
-  if (err instanceof PathSafetyError || err instanceof ResourceLookupError) return sendError(res, err, home);
+  if (err instanceof PathSafetyError || err instanceof ResourceLookupError || err instanceof TrashError) {
+    return sendError(res, err, home);
+  }
   const { type, status } = (err ?? {}) as { type?: string; status?: number };
   if (type === 'entity.parse.failed') return fail(res, 400, 'Invalid JSON body');
   if (type === 'entity.too.large' || status === 413) return fail(res, 413, 'Request body too large');
@@ -157,6 +185,7 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
     sessionProjectPaths: deps.sessionProjectPaths,
     ...(deps.env ? { env: deps.env } : {}),
     ...(deps.home ? { home: deps.home } : {}),
+    ...(deps.trashDir ? { trashDir: deps.trashDir } : {}),
   });
   const isLocal = deps.isLocalRequest ?? isLocalResourceRequest;
 
@@ -219,6 +248,44 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
       const compare = await catalog.getCompare(id, query.against);
       if (!compare) return fail(res, 404, 'Nothing to compare against');
       res.json({ success: true, data: compare });
+    } catch (err) {
+      sendError(res, err, home);
+    }
+  });
+
+  // ── The only writes: uninstall (a move into the trash) and restore ───────
+  /** JSON only (a cross-site form cannot send it) and from the AASC page itself. */
+  const writeAllowed = (req: Request, res: Response): boolean => {
+    if (!req.is('application/json')) {
+      fail(res, 415, 'Content-Type must be application/json');
+      return false;
+    }
+    if (!isSameOriginWrite(req)) {
+      fail(res, 403, 'Changes are accepted only from the AASC page itself');
+      return false;
+    }
+    return true;
+  };
+
+  router.post('/item/:id/uninstall', async (req, res) => {
+    if (!writeAllowed(req, res)) return;
+    const id = idOf(req);
+    if (!id) return fail(res, 404, 'Resource not found');
+    const body = validate(uninstallBodySchema, req.body ?? {}, res);
+    if (!body) return;
+    try {
+      res.json({ success: true, data: await catalog.uninstall(id, body.confirmName) });
+    } catch (err) {
+      sendError(res, err, home);
+    }
+  });
+
+  router.post('/trash/:trashId/restore', async (req, res) => {
+    if (!writeAllowed(req, res)) return;
+    const trashId = trashIdSchema.safeParse(str(req.params.trashId));
+    if (!trashId.success) return fail(res, 400, 'Invalid trash id');
+    try {
+      res.json({ success: true, data: await catalog.restore(trashId.data) });
     } catch (err) {
       sendError(res, err, home);
     }

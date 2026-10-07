@@ -3,41 +3,20 @@
    Dropdown popover for one-click session launch by directory
    ============================================================ */
 
-.wrapper {
-  position: relative;
-}
-
-.triggerBtn {
-  background: none;
-  border: 1px solid rgba(0, 255, 136, 0.4);
-  color: #00ff88;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  padding: 5px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.2s;
-  white-space: nowrap;
-}
-
-.triggerBtn:hover {
-  background: rgba(0, 255, 136, 0.12);
-  border-color: #00ff88;
-}
-
-.triggerBtn.open {
-  background: rgba(0, 255, 136, 0.15);
-  border-color: #00ff88;
-}
+/* The trigger has no style here: each host (the session panel's strip, the
+   LIVE page's "no sessions yet" card) passes its own through triggerClassName.
+   Its wrapper carries no style either: the menu is portaled and fixed, so it
+   needs no positioned ancestor. */
 
 /* ---- Dropdown ---- */
 
-/* Fixed, at --dd-top / --dd-left (WorkdirLauncher measures the DIRS button):
-   below 640px the top bar scrolls sideways (overflow-x: auto), which clipped the
-   old absolutely positioned dropdown to the bar's height, so it opened unseen.
-   Do not go back to `position: absolute` + top/left here. */
+/* Portaled to <body> and fixed at --dd-top / --dd-left (WorkdirLauncher measures
+   its trigger). Do not go back to `position: absolute` + top/left: the panel's
+   `will-change: transform` re-anchors a fixed child, and a scrolling ancestor
+   clips an absolute one (the old top-bar dropdown opened unseen below 640px).
+   In <body> it is a SIBLING of .detailOverlay (z-index 100) in the root stacking
+   context, so it sits in the band of the other portaled overlays (Tooltip
+   10000, SelectionPopup / queueMovePicker 10050). Fade only, like them. */
 .dropdown {
   position: fixed;
   top: var(--dd-top, 0px);
@@ -50,20 +29,6 @@
   border: 1px solid var(--border-accent, #1a1a3e);
   border-radius: 8px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-  z-index: 100;
-  animation: dropIn 0.15s ease;
-}
-
-@keyframes dropIn {
-  from { opacity: 0; transform: translateY(-4px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-/* The session panel's copy, portaled to <body> (WorkdirLauncher `variant`).
-   There it is a SIBLING of .detailOverlay (z-index 100) in the root stacking
-   context, so it sits in the band of the other portaled overlays (Tooltip
-   10000, SelectionPopup / queueMovePicker 10050). Fade only, like them. */
-.dropdownPortaled {
   z-index: 10050;
   animation: dropFade 0.15s ease;
 }
@@ -74,7 +39,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dropdownPortaled {
+  .dropdown {
     animation: none;
   }
 }
@@ -236,12 +201,5 @@
     align-items: center;
     justify-content: center;
     padding: 0;
-  }
-
-  .triggerBtn {
-    min-height: 44px;
-    padding: 0 12px;
-    display: inline-flex;
-    align-items: center;
   }
 }

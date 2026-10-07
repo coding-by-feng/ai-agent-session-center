@@ -61,7 +61,8 @@ import {
   type OnceGate,
   type StatusSeen,
 } from '@/lib/queueScheduler';
-import { sendPromptToTerminal } from '@/lib/terminalSend';
+import { sendPromptToTerminal, pressEnterInTerminal, submitDelayFor } from '@/lib/terminalSend';
+import { mayConfirmSubmit, retriesElapsed, submitRetryDecision, type PendingSubmit } from '@/lib/submitConfirm';
 import { canControlSession } from '@/stores/presenceStore';
 import {
   decideResume,
@@ -102,14 +103,16 @@ async function sendToTerminal(
   autoEnter: boolean,
 ): Promise<boolean> {
   let textToSend = item.text.replace(/\\n/g, '\n');
+  let imageCount = 0;
   if (item.images && item.images.length > 0) {
     const paths = await uploadImages(item.images);
     if (paths.length > 0) textToSend += '\n' + paths.join('\n');
+    imageCount = paths.length;
   }
   // Auto-Enter submits with a SEPARATE Enter keystroke — concatenating "\r" onto
   // the text makes the TUI insert a newline instead of submitting. See
-  // sendPromptToTerminal.
-  return sendPromptToTerminal(terminalId, textToSend, autoEnter);
+  // sendPromptToTerminal; image paths need the longer pause (submitDelayFor).
+  return sendPromptToTerminal(terminalId, textToSend, autoEnter, submitDelayFor(imageCount));
 }
 
 export function useGlobalQueueScheduler(): void {
@@ -127,6 +130,9 @@ export function useGlobalQueueScheduler(): void {
   const onceGateRefs = useRef<Map<string, OnceGate>>(new Map());
   /** When each session's current status was first seen — see STATUS_SETTLE_MS. */
   const statusSeenRefs = useRef<Map<string, StatusSeen>>(new Map());
+  // Per-session queue send the CLI has not acknowledged yet; its Enter is
+  // pressed again until a hook does — see submitConfirm.ts.
+  const submitRefs = useRef<Map<string, PendingSubmit>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -204,6 +210,54 @@ export function useGlobalQueueScheduler(): void {
       }
     };
 
+    /**
+     * Press Enter again for a queue prompt nothing has acknowledged — a swallowed
+     * Enter leaves it sitting in the input box (see submitConfirm.ts). Returns
+     * true when it pressed Enter, so the caller skips the queue this tick.
+     */
+    const maybeConfirmSubmit = async (
+      sessionId: string,
+      session: Session,
+      terminalId: string,
+      autoEnter: boolean,
+      now: number,
+    ): Promise<boolean> => {
+      const pending = submitRefs.current.get(sessionId);
+      if (!pending) return false;
+      const decision = submitRetryDecision(pending, {
+        now,
+        status: session.status,
+        activityAt: session.lastActivityAt,
+        terminalId,
+        userCancelled: !!session.userCancelledAt,
+        autoEnter,
+      });
+      if (decision === 'done') {
+        submitRefs.current.delete(sessionId);
+        return false;
+      }
+      if (decision === 'give-up') {
+        submitRefs.current.delete(sessionId);
+        const sessionName = session.title?.trim() || sessionId.slice(0, 6);
+        showToast(
+          `[${sessionName}] The CLI has not taken the queued prompt — if it is still in the input box, press Enter`,
+          'error',
+          8000,
+        );
+        return false;
+      }
+      if (decision === 'wait') return false;
+
+      submitRefs.current.set(sessionId, { ...pending, attempts: retriesElapsed(now - pending.enterAt) });
+      firingRefs.current.set(sessionId, true);
+      try {
+        await pressEnterInTerminal(terminalId);
+      } finally {
+        firingRefs.current.set(sessionId, false);
+      }
+      return true;
+    };
+
     const evaluateSession = async (sessionId: string): Promise<void> => {
       const firing = firingRefs.current.get(sessionId);
       if (firing) return;
@@ -227,14 +281,21 @@ export function useGlobalQueueScheduler(): void {
       // Placed above the auto-resume call below (not just above the queue),
       // because `maybeAutoResume` runs inside this function and sends prompts
       // of its own. A session that is unclaimed, or whose holder went offline,
-      // stays drivable — see `canControlSession`.
-      if (!canControlSession(sessionId)) return;
+      // stays drivable — see `canControlSession`. A pending Enter retry is
+      // dropped too: it must never press Enter for a device that took over.
+      if (!canControlSession(sessionId)) {
+        submitRefs.current.delete(sessionId);
+        return;
+      }
 
       const queueState = useQueueStore.getState();
 
       const automationConfig =
         queueState.automation.get(sessionId) ?? DEFAULT_AUTOMATION;
-      if (automationConfig.paused) return;
+      if (automationConfig.paused) {
+        submitRefs.current.delete(sessionId);
+        return;
+      }
 
       const terminalId = session.terminalId;
       if (!terminalId) return;
@@ -242,6 +303,21 @@ export function useGlobalQueueScheduler(): void {
       const now = Date.now();
       const cooldownUntil = coolDownRefs.current.get(sessionId) ?? 0;
       if (now < cooldownUntil) return;
+
+      // ── Unacknowledged send ───────────────────────────────────────────────
+      // Above every queue bail-out below: the prompt whose Enter was swallowed
+      // is often the last one, so the queue is already empty by now. A tick that
+      // presses Enter returns before the gate observation further down; that is
+      // safe only because a retry needs `waiting`/`idle`, which are sendable, so
+      // the observation would not have recorded work on this tick anyway.
+      const confirmed = await maybeConfirmSubmit(
+        sessionId,
+        session,
+        terminalId,
+        automationConfig.autoEnter,
+        now,
+      );
+      if (confirmed || cancelled) return;
 
       // ── Held: the user cancelled, or subagents are still running ──────────
       // Both reach `waiting` without the turn being finished (Esc fires a real
@@ -419,6 +495,17 @@ export function useGlobalQueueScheduler(): void {
         if (!sent || cancelled) return;
 
         coolDownRefs.current.set(sessionId, Date.now() + 800);
+        // Watch for the CLI to take it: a swallowed Enter is pressed again.
+        if (mayConfirmSubmit(active.text, autoEnter)) {
+          submitRefs.current.set(sessionId, {
+            terminalId,
+            enterAt: Date.now(),
+            activityAtOpen: session.lastActivityAt,
+            attempts: 0,
+          });
+        } else {
+          submitRefs.current.delete(sessionId);
+        }
 
         const advance = advanceAfterFire(pick, Date.now());
         if (advance.action === 'remove') {

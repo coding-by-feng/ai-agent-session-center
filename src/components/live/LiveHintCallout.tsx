@@ -46,8 +46,8 @@ export default function LiveHintCallout({ onDismiss }: LiveHintCalloutProps) {
     observer?.observe(row);
     observer?.observe(bubble);
     // The tab can move while nothing here changes size: another theme's font
-    // re-lays the top bar out, the tip's own dot widens the tab, + NEW / DIRS
-    // change width. Watch the top bar's items too (a handful of elements).
+    // re-lays the top bar out, or the tip's own dot widens the tab. Watch the
+    // top bar's items too (a handful of elements, whatever sits before LIVE).
     const tab = document.querySelector('[data-live-tab]');
     const bar = tab?.closest('nav') ?? tab?.parentElement;
     if (bar) for (const item of Array.from(bar.children)) observer?.observe(item);

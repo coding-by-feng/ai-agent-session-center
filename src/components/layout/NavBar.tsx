@@ -1,13 +1,12 @@
 import { NavLink, useLocation } from 'react-router';
-import { useUiStore } from '@/stores/uiStore';
 import { useAgendaStore } from '@/stores/agendaStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { usePresenceStore, isLocalDevice } from '@/stores/presenceStore';
 import { getClientId } from '@/lib/deviceIdentity';
-import WorkdirLauncher from './WorkdirLauncher';
 import { useIsMobile } from '@/lib/platform';
 import { openLiveSession } from '@/lib/liveSession';
 import { useLiveHint } from '@/hooks/useLiveBoard';
+import CountBadge from '@/components/ui/CountBadge';
 import styles from '@/styles/modules/NavBar.module.css';
 
 interface NavItem {
@@ -53,7 +52,6 @@ const NAV_ITEMS: NavItem[] = [
 // ---------------------------------------------------------------------------
 
 export default function NavBar() {
-  const openModal = useUiStore((s) => s.openModal);
   const tasks = useAgendaStore((s) => s.tasks);
   const deselectSession = useSessionStore((s) => s.deselectSession);
 
@@ -85,31 +83,11 @@ export default function NavBar() {
 
   return (
     <nav className={styles.nav}>
-      <div className={styles.actions}>
-        <div className={styles.actionsItems}>
-          {/* New session (full form) */}
-          <button
-            className={`${styles.qaBtn} ${styles.terminal}`}
-            onClick={() => openModal('new-session')}
-          >
-            + NEW
-          </button>
-
-          {/* Recent directories one-click launcher */}
-          <WorkdirLauncher />
-        </div>
-
-      </div>
-
-      {/* The `?` shortcuts button and <DevicePresenceChip /> used to sit here,
-          with a flex `.spacer` shoving the chip to the far right. Both are
-          icon-only controls, and at narrow widths that left a wide dead band
-          between them while pushing the route tabs off-screen entirely. They
-          now live in Header's `.stats` cluster alongside the other icon-only
-          controls (export/import/settings/quit). The spacer went with them —
-          without the chip there is nothing left to push right, and removing it
-          is what lets the tabs start immediately after DIRS. */}
-
+      {/* The route tabs only. + NEW and DIRS used to lead the bar; starting a
+          session now lives in the session panel's strip (+ and the recent-
+          directories icon) and, with no session yet, on the LIVE page's card
+          (Oct 2026). The `?` shortcuts button and <DevicePresenceChip /> live
+          in Header's `.stats` cluster with the other icon-only controls. */}
       {navItems.map((item) => (
         <NavLink
           key={item.to}
@@ -132,7 +110,12 @@ export default function NavBar() {
             <span className={styles.liveCueDot} data-live-cue="" aria-hidden="true" />
           )}
           {item.to === '/agenda' && incompleteCount > 0 && (
-            <span className={styles.badge}>{incompleteCount}</span>
+            <CountBadge
+              count={incompleteCount}
+              tone="accent"
+              max={999}
+              label={`${incompleteCount} open task${incompleteCount === 1 ? '' : 's'}`}
+            />
           )}
         </NavLink>
       ))}

@@ -157,6 +157,12 @@ export const WS_TYPES = {
    *  any resize, so a client too narrow to drive the PTY can still render at
    *  the PTY's width and pan instead of soft-wrapping mid-word. */
   TERMINAL_GEOMETRY: 'terminal_geometry',
+  /** Client → server: clear this terminal's output (the toolbar's "Clear
+   *  output"). Same gate as input: subscribed, and holding the session's baton. */
+  TERMINAL_CLEAR: 'terminal_clear',
+  /** Server → every subscriber: the terminal's replay ring was just emptied;
+   *  clear the screen and scrollback at this point of the output stream. */
+  TERMINAL_CLEARED: 'terminal_cleared',
   /** Server -> clients: a session's shared prompt queue changed. Carries the
    *  full items + automation so a receiver needs no follow-up fetch, plus the
    *  originating device id so the sender can ignore its own echo. */

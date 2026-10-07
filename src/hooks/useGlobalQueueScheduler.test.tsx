@@ -13,21 +13,30 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, act } from '@testing-library/react';
 
-vi.mock('@/lib/terminalSend', () => ({ sendPromptToTerminal: vi.fn(async () => true) }));
+vi.mock('@/lib/terminalSend', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/terminalSend')>()),
+  sendPromptToTerminal: vi.fn(async () => true),
+  pressEnterInTerminal: vi.fn(async () => true),
+}));
+const baton = vi.hoisted(() => ({ mine: true }));
 vi.mock('@/stores/presenceStore', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/stores/presenceStore')>()),
-  canControlSession: () => true,
+  canControlSession: () => baton.mine,
 }));
 vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
 
 import { useGlobalQueueScheduler } from './useGlobalQueueScheduler';
-import { sendPromptToTerminal } from '@/lib/terminalSend';
+import { sendPromptToTerminal, pressEnterInTerminal, IMAGE_SUBMIT_ENTER_DELAY_MS } from '@/lib/terminalSend';
+import { SUBMIT_GIVE_UP_GRACE_MS, SUBMIT_RETRY_AFTER_MS } from '@/lib/submitConfirm';
+import { showToast } from '@/components/ui/ToastContainer';
 import { useSessionStore } from '@/stores/sessionStore';
-import { useQueueStore, type QueueItem } from '@/stores/queueStore';
+import { useQueueStore, DEFAULT_AUTOMATION, type QueueItem } from '@/stores/queueStore';
 import type { Session } from '@/types';
 
 const T0 = 1_800_000_000_000;
 const send = vi.mocked(sendPromptToTerminal);
+const pressEnter = vi.mocked(pressEnterInTerminal);
+const toast = vi.mocked(showToast);
 
 function Harness() {
   useGlobalQueueScheduler();
@@ -67,7 +76,11 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(T0);
   vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
-  send.mockClear();
+  send.mockReset();
+  send.mockImplementation(async () => true);
+  pressEnter.mockClear();
+  toast.mockClear();
+  baton.mine = true;
   useSessionStore.setState({ sessions: new Map() } as never);
 });
 
@@ -157,5 +170,182 @@ describe('useGlobalQueueScheduler — what counts as "turn finished"', () => {
     act(() => { setSession({ userCancelledAt: Date.now() }); }); // the cancel line, just after
     await advance(4000);
     expect(send).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A prompt the CLI never took. Claude Code's fullscreen TUI needs ~1.3 s (more
+ * under load) to take in a pasted image path, and an Enter that lands inside
+ * that is swallowed: the text sits in the input box ("review and press Enter to
+ * send"), no hook ever fires, and the queue — which already removed the item —
+ * has nothing left to continue from. The scheduler presses Enter again until a
+ * hook or a busy status acknowledges the prompt.
+ */
+describe('useGlobalQueueScheduler — a sent prompt the CLI never took', () => {
+  it('presses Enter again when nothing acknowledges the prompt, and stops once something does', async () => {
+    setSession({ status: 'waiting' });
+    queueOnce('next prompt');
+    render(<Harness />);
+    await advance(2000);
+    expect(send).toHaveBeenCalledTimes(1);
+    const enterAt = Date.now();
+
+    await advance(SUBMIT_RETRY_AFTER_MS[0] + 1000);
+    expect(pressEnter).toHaveBeenCalledTimes(1);
+    expect(pressEnter).toHaveBeenCalledWith('term-1');
+    expect(Date.now() - enterAt).toBeGreaterThanOrEqual(SUBMIT_RETRY_AFTER_MS[0]);
+
+    act(() => { setSession({ status: 'prompting', lastActivityAt: Date.now() }); }); // UserPromptSubmit
+    await advance(70_000);
+    expect(pressEnter).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives up after the scheduled retries — and says so, once', async () => {
+    setSession({ status: 'waiting' });
+    queueOnce('next prompt');
+    render(<Harness />);
+    const last = SUBMIT_RETRY_AFTER_MS[SUBMIT_RETRY_AFTER_MS.length - 1];
+    await advance(2000 + last + 2000);
+    expect(pressEnter).toHaveBeenCalledTimes(SUBMIT_RETRY_AFTER_MS.length);
+    expect(toast.mock.calls.filter((c) => c[1] === 'error')).toHaveLength(0);
+
+    await advance(SUBMIT_GIVE_UP_GRACE_MS + 120_000);
+    expect(pressEnter).toHaveBeenCalledTimes(SUBMIT_RETRY_AFTER_MS.length);
+    const errors = toast.mock.calls.filter((c) => c[1] === 'error');
+    expect(errors).toHaveLength(1);
+    expect(String(errors[0][0])).toMatch(/press Enter/i);
+  });
+
+  it('stops pressing Enter once Auto-Enter is switched off after the send', async () => {
+    setSession({ status: 'waiting' });
+    queueOnce('next prompt');
+    render(<Harness />);
+    await advance(2000);
+    expect(send).toHaveBeenCalledTimes(1);
+    act(() => { useQueueStore.getState().setAutoEnter('s1', false); });
+    await advance(70_000);
+    expect(pressEnter).not.toHaveBeenCalled();
+  });
+
+  it('drops the retry when the queue is paused, and does not resume it on unpause', async () => {
+    setSession({ status: 'waiting' });
+    queueOnce('next prompt');
+    render(<Harness />);
+    await advance(2000);
+    act(() => { useQueueStore.getState().setPaused('s1', true); });
+    await advance(5000);
+    act(() => { useQueueStore.getState().setPaused('s1', false); });
+    await advance(70_000);
+    expect(pressEnter).not.toHaveBeenCalled();
+  });
+
+  it('drops the retry when another device takes the baton', async () => {
+    setSession({ status: 'waiting' });
+    queueOnce('next prompt');
+    render(<Harness />);
+    await advance(2000);
+    baton.mine = false;
+    await advance(5000);
+    baton.mine = true;
+    await advance(70_000);
+    expect(pressEnter).not.toHaveBeenCalled();
+  });
+
+  it('never presses Enter into a different terminal', async () => {
+    setSession({ status: 'waiting' });
+    queueOnce('next prompt');
+    render(<Harness />);
+    await advance(2000);
+    act(() => { setSession({ terminalId: 'term-2' }); });
+    await advance(70_000);
+    expect(pressEnter).not.toHaveBeenCalled();
+  });
+
+  it('a hook that lands DURING the send acknowledges it (the stamp is taken before the send)', async () => {
+    setSession({ status: 'waiting' });
+    queueOnce('next prompt');
+    send.mockImplementationOnce(async () => {
+      // UserPromptSubmit arrives inside the Enter delay; the status update lags.
+      setSession({ lastActivityAt: Date.now() + 1 });
+      return true;
+    });
+    render(<Harness />);
+    await advance(70_000);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(pressEnter).not.toHaveBeenCalled();
+  });
+
+  it('never presses Enter again after a slash command (it may have opened a picker)', async () => {
+    setSession({ status: 'waiting' });
+    queueOnce('/model');
+    render(<Harness />);
+    await advance(70_000);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(pressEnter).not.toHaveBeenCalled();
+  });
+
+  it('never presses Enter with Auto-Enter off', async () => {
+    setSession({ status: 'waiting' });
+    queueOnce('next prompt');
+    useQueueStore.setState({ automation: new Map([['s1', { ...DEFAULT_AUTOMATION, autoEnter: false }]]) });
+    render(<Harness />);
+    await advance(70_000);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(pressEnter).not.toHaveBeenCalled();
+  });
+
+  it('the /clear incident: the prompt queued after /clear is still submitted when its first Enter is swallowed', async () => {
+    const IMG = '/tmp/claude-queue-images/queue-img-1791329416741-u76qcd.png';
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      url === '/api/queue-images'
+        ? new Response(JSON.stringify({ paths: [IMG] }), { status: 200 })
+        : new Response('{}', { status: 200 }),
+    ));
+    const session = (over: Partial<Session>) =>
+      ({
+        sessionId: 's1', title: 'AASC Q & A', status: 'waiting', terminalId: 'term-1', lastActivityAt: T0,
+        interruption: null, subagentCount: 0, userCancelledAt: null, ...over,
+      }) as unknown as Session;
+    useSessionStore.setState({ sessions: new Map([['s1', session({})]]) } as never);
+    const clear: QueueItem = { id: 1, sessionId: 's1', text: '/clear', position: 0, createdAt: T0, type: 'once' };
+    const next: QueueItem = {
+      id: 2, sessionId: 's1', text: 'if we wanna provide uninstallation for skills /rar', position: 1, createdAt: T0,
+      type: 'once', images: [{ name: 'shot.png', dataUrl: 'data:image/png;base64,AAAA' } as never],
+    };
+    useQueueStore.setState({ queues: new Map([['s1', [clear, next]]]), automation: new Map() });
+    render(<Harness />);
+    await advance(2000);
+    expect(send.mock.calls.map((c) => c[1])).toEqual(['/clear']);
+
+    // SessionEnd(clear) — the old id is ended for a few seconds…
+    act(() => { useSessionStore.getState().updateSession(session({ status: 'ended', lastActivityAt: Date.now() })); });
+    await advance(4700);
+    // …then SessionStart(clear) re-keys the card onto the CLI's new id.
+    act(() => {
+      useQueueStore.getState().migrateSession('s1', 's2');
+      useSessionStore.getState().updateSession(
+        session({ sessionId: 's2', status: 'idle', lastActivityAt: Date.now(), replacesId: 's1' } as Partial<Session>),
+      );
+    });
+    await advance(3000);
+    expect(send).toHaveBeenCalledTimes(2);
+    // The exact shape that was lost: the text, a newline, then the image path…
+    expect(send.mock.calls[1][1]).toBe(`if we wanna provide uninstallation for skills /rar\n${IMG}`);
+    // …now given the longer pause before its Enter.
+    expect(send.mock.calls[1][3]).toBe(IMAGE_SUBMIT_ENTER_DELAY_MS);
+    expect(send.mock.calls[0][3]).not.toBe(IMAGE_SUBMIT_ENTER_DELAY_MS); // /clear has no image
+    expect(pressEnter).not.toHaveBeenCalled(); // /clear itself is never re-entered
+
+    // The CLI swallowed that Enter: no hook, the session just sits idle.
+    await advance(SUBMIT_RETRY_AFTER_MS[0] + 1000);
+    expect(pressEnter).toHaveBeenCalledWith('term-1');
+    const presses = pressEnter.mock.calls.length;
+
+    // The retried Enter landed: UserPromptSubmit arrives and the retries stop.
+    act(() => {
+      useSessionStore.getState().updateSession(session({ sessionId: 's2', status: 'prompting', lastActivityAt: Date.now() }));
+    });
+    await advance(70_000);
+    expect(pressEnter).toHaveBeenCalledTimes(presses);
   });
 });
