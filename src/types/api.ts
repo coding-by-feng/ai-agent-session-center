@@ -321,7 +321,7 @@ export interface SessionSearchParams {
   dateFrom?: number;
   dateTo?: number;
   archived?: boolean | string | number;
-  sortBy?: 'started_at' | 'last_activity_at' | 'project_name' | 'status';
+  sortBy?: 'started_at' | 'last_activity_at' | 'project_name' | 'status' | 'total_prompts' | 'total_tool_calls';
   sortDir?: 'asc' | 'desc';
   page?: number;
   pageSize?: number;

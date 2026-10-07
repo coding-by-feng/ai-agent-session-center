@@ -219,6 +219,7 @@ export function useWebSocket(token: string | null): WsClient | null {
         case 'terminal_output':
         case 'terminal_ready':
         case 'terminal_closed':
+        case 'terminal_cleared':
           break;
       }
     }

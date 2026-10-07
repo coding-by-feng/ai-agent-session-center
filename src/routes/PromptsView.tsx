@@ -12,17 +12,29 @@
  *  - Prompts are unbounded in length (thousands here exceed 4 KB), so rows
  *    clamp and expand on demand.
  */
-import { useCallback, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useCallback, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useShallow } from 'zustand/react/shallow';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router';
 import { authFetch } from '@/hooks/useAuth';
+import Button from '@/components/ui/Button';
+import Chip from '@/components/ui/Chip';
+import EmptyState from '@/components/ui/EmptyState';
+import Field from '@/components/ui/Field';
+import IconButton from '@/components/ui/IconButton';
+import NativeSelect from '@/components/ui/NativeSelect';
+import Pagination from '@/components/ui/Pagination';
 import SearchInput from '@/components/ui/SearchInput';
-import Select from '@/components/ui/Select';
-import Tooltip from '@/components/ui/Tooltip';
+import SectionHeader from '@/components/ui/SectionHeader';
+import StaleNote from '@/components/ui/StaleNote';
+import TextInput from '@/components/ui/TextInput';
 import { showToast } from '@/components/ui/ToastContainer';
+import UnfoldIcon from '@/components/ui/UnfoldIcon';
 import { useSessionStore } from '@/stores/sessionStore';
 import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
+import { uniqueProjectOptions } from '@/lib/projectOptions';
+import { canRetry, readJson } from '@/lib/requestJson';
 import { clipToMatch, normalizeQuery, splitHighlight } from '@/lib/textHighlight';
 import type { DistinctProject, PromptKind, PromptSearchResponse, PromptTraceRow } from '@/types';
 import styles from '@/styles/modules/Prompts.module.css';
@@ -61,21 +73,35 @@ function buildParams(filters: Filters): string {
   if (filters.query) params.set('query', filters.query);
   if (filters.project) params.set('project', filters.project);
   if (filters.kind) params.set('kind', filters.kind);
-  if (filters.dateFrom) params.set('dateFrom', String(new Date(filters.dateFrom).getTime()));
+  // Both ends LOCAL time. `new Date('YYYY-MM-DD')` is UTC midnight: at GMT+13
+  // "From Oct 1" silently dropped Oct 1's prompts before 13:00.
+  if (filters.dateFrom) params.set('dateFrom', String(new Date(`${filters.dateFrom}T00:00:00`).getTime()));
   if (filters.dateTo) params.set('dateTo', String(new Date(`${filters.dateTo}T23:59:59`).getTime()));
   params.set('page', String(filters.page));
   params.set('pageSize', String(PAGE_SIZE));
   return params.toString();
 }
 
+/** "Wed, Oct 7" — the year is implied for the current year, named for any other. */
 function formatDayKey(ts: number): string {
-  return new Date(ts).toLocaleDateString('en-US', {
-    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+  const date = new Date(ts);
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date.toLocaleDateString('en-US', {
+    weekday: 'short', day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }),
   });
 }
 
+// `hourCycle: 'h23'`, not `hour12: false`: en-US + hour12:false prints midnight
+// as "24:05" on engines that still map it to h24.
 function formatClock(ts: number): string {
-  return new Date(ts).toLocaleTimeString('en-US', { hour12: false });
+  return new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+}
+
+/** The seconds the minutes-only clock drops, kept for the row's hover title. */
+function formatExact(ts: number): string {
+  return new Date(ts).toLocaleTimeString('en-US', {
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  });
 }
 
 /** Group consecutive rows by calendar day, preserving server order. */
@@ -102,6 +128,40 @@ function Highlighted({ text, query }: { text: string; query: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Glyphs — stroked, `currentColor`; the primitives size them (14px / 12px).
+// ---------------------------------------------------------------------------
+
+function Glyph({ children }: { children: ReactNode }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {children}
+    </svg>
+  );
+}
+
+const RefreshGlyph = () => (
+  <Glyph>
+    <polyline points="23 4 23 10 17 10" />
+    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+  </Glyph>
+);
+
+const CopyGlyph = () => (
+  <Glyph>
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+  </Glyph>
+);
+
+const OpenGlyph = () => (
+  <Glyph>
+    <line x1="7" y1="17" x2="17" y2="7" />
+    <polyline points="7 7 17 7 17 17" />
+  </Glyph>
+);
+
+// ---------------------------------------------------------------------------
 // Row
 // ---------------------------------------------------------------------------
 
@@ -120,6 +180,14 @@ function PromptRow({
   const saveSnippet = usePromptSnippetStore((s) => s.save);
 
   const text = row.text ?? '';
+  const sessionTitle = sessionDisplayTitle({
+    title: row.session_title ?? '',
+    projectName: row.project_name ?? '',
+  });
+  // toLocale*String builds a new Intl formatter on every call; a row
+  // re-renders on expand and on every highlight change, so format once per time.
+  const clock = useMemo(() => formatClock(row.timestamp), [row.timestamp]);
+  const clockExact = useMemo(() => formatExact(row.timestamp), [row.timestamp]);
 
   // Clamp around the MATCH, not the start. Head-truncating a 22 KB prompt whose
   // hit sits at character 5,000 renders a row that claims to match and shows no
@@ -136,6 +204,11 @@ function PromptRow({
 
   const truncated = shown !== text;
 
+  // The row's actions are described by its time, project and session, so a
+  // screen reader's list of buttons is not N identical "Copy prompt"s.
+  const metaId = useId();
+  const describedBy = `${metaId}-time ${metaId}-project ${metaId}-session`;
+
   const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(text);
@@ -147,39 +220,40 @@ function PromptRow({
 
   const handleSaveSnippet = useCallback(async () => {
     const result = await saveSnippet(text);
+    // `id: null` without `duplicate` is a save that wrote nothing (blank text,
+    // or IndexedDB refused); it used to toast "Saved" anyway.
+    if (result.id === null && !result.duplicate) {
+      showToast('Could not save this prompt', 'error');
+      return;
+    }
     showToast(result.duplicate ? 'Already in your saved prompts' : 'Saved to your prompts', result.duplicate ? 'info' : 'success');
   }, [saveSnippet, text]);
 
   return (
-    <div className={styles.row}>
+    <li className={styles.row}>
       <div className={styles.rowMeta}>
-        <span className={styles.rowTime}>{formatClock(row.timestamp)}</span>
-        <span className={styles.rowProject}>{row.project_name || 'unknown project'}</span>
-        <span className={styles.rowSession}>
-          {sessionDisplayTitle({ title: row.session_title ?? '', projectName: row.project_name ?? '' })}
-        </span>
-        {isLive && <span className={styles.rowLive}>live</span>}
+        {/* Minutes only; the exact time (seconds included) is on hover. */}
+        <time id={`${metaId}-time`} className={styles.rowTime} title={clockExact}>{clock}</time>
+        <span id={`${metaId}-project`} className={styles.rowProject}>{row.project_name || 'unknown project'}</span>
+        <span id={`${metaId}-session`} className={styles.rowSession} title={sessionTitle}>{sessionTitle}</span>
+        {isLive && <Chip tone="success" title="On your dashboard — open it with the arrow button">live</Chip>}
 
         <div className={styles.rowActions}>
-          <Tooltip label="Copy prompt">
-            <button className={styles.rowAction} onClick={handleCopy} aria-label="Copy prompt">⧉</button>
-          </Tooltip>
-          <Tooltip label="Save to your prompts">
-            <button className={styles.rowAction} onClick={handleSaveSnippet} aria-label="Save to your prompts">🔖</button>
-          </Tooltip>
           {/* Only rendered while the session is still in memory — a dead
-              "open" button that silently does nothing is worse than none. */}
+              "open" button that silently does nothing is worse than none.
+              First in the group, so Copy and Save keep one column down the
+              list whether or not a row has it. */}
           {isLive && (
-            <Tooltip label="Open this session">
-              <button
-                className={styles.rowAction}
-                onClick={() => onOpen(row.session_id)}
-                aria-label="Open this session"
-              >
-                ↗
-              </button>
-            </Tooltip>
+            <IconButton size="sm" label="Open this session" aria-describedby={describedBy} onClick={() => onOpen(row.session_id)}>
+              <OpenGlyph />
+            </IconButton>
           )}
+          <IconButton size="sm" label="Copy prompt" aria-describedby={describedBy} onClick={handleCopy}>
+            <CopyGlyph />
+          </IconButton>
+          <IconButton size="sm" label="Save to your prompts" aria-describedby={describedBy} onClick={handleSaveSnippet}>
+            🔖
+          </IconButton>
         </div>
       </div>
 
@@ -188,11 +262,17 @@ function PromptRow({
       </div>
 
       {(truncated || expanded) && (
-        <button className={styles.rowExpand} onClick={() => setExpanded((v) => !v)}>
-          {expanded ? '⌃ show less' : `⌄ show all (${text.length.toLocaleString()} chars)`}
-        </button>
+        <Button
+          variant="quiet"
+          size="sm"
+          className={styles.rowExpand}
+          icon={<UnfoldIcon expanded={expanded} />}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? 'Show less' : `Show all (${text.length.toLocaleString()} chars)`}
+        </Button>
       )}
-    </div>
+    </li>
   );
 }
 
@@ -203,35 +283,54 @@ function PromptRow({
 export default function PromptsView() {
   const navigate = useNavigate();
   const [filters, setFilters] = useState<Filters>(INITIAL_FILTERS);
-  const sessions = useSessionStore((s) => s.sessions);
+  // The ids only, compared shallowly: reading the sessions Map re-rendered the
+  // whole page of rows on every session event, though a row only asks "is my
+  // session still live?".
+  const liveIds = useSessionStore(useShallow((s) => Array.from(s.sessions.keys())));
+  const liveSessions = useMemo(() => new Set(liveIds), [liveIds]);
   const selectSession = useSessionStore((s) => s.selectSession);
+  const resultsRef = useRef<HTMLDivElement>(null);
 
   const { data: projects } = useQuery({
     queryKey: ['db-projects'],
-    queryFn: async () => {
-      const res = await authFetch('/api/db/projects');
-      if (!res.ok) throw new Error('Failed to load projects');
-      return res.json() as Promise<DistinctProject[]>;
-    },
+    queryFn: async () =>
+      readJson<DistinctProject[]>(await authFetch('/api/db/projects'), 'Failed to load projects'),
     staleTime: 60_000,
   });
 
-  const { data, isLoading, isError, refetch, isFetching } = useQuery({
+  // readJson keeps the status (and the server's own reason), so a refusal
+  // offers no Retry; the app QueryClient does not auto-retry it either.
+  const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['db-prompts', filters],
-    queryFn: async () => {
-      const res = await authFetch(`/api/db/prompts?${buildParams(filters)}`);
-      if (!res.ok) throw new Error(`Failed to load prompts (${res.status})`);
-      return res.json() as Promise<PromptSearchResponse>;
-    },
-    placeholderData: (prev) => prev,
+    queryFn: async () =>
+      readJson<PromptSearchResponse>(
+        await authFetch(`/api/db/prompts?${buildParams(filters)}`),
+        'Failed to load prompts',
+      ),
+    placeholderData: keepPreviousData,
   });
+  // A failed REFRESH keeps the rows on screen (StaleNote); only a load with
+  // nothing to show is the error state.
+  const failedEmpty = isError && !data;
+
+  /** New rows start at the top: the results box kept its scroll offset, so
+   *  Next (or Clear filters) landed mid-way down the new list. */
+  const scrollToTop = useCallback(() => {
+    if (resultsRef.current) resultsRef.current.scrollTop = 0;
+  }, []);
 
   const updateFilter = useCallback(
     <K extends keyof Filters>(key: K, value: Filters[K]) => {
       setFilters((prev) => ({ ...prev, [key]: value, page: key === 'page' ? (value as number) : 1 }));
+      scrollToTop();
     },
-    [],
+    [scrollToTop],
   );
+
+  const clearFilters = useCallback(() => {
+    setFilters(INITIAL_FILTERS);
+    scrollToTop();
+  }, [scrollToTop]);
 
   const openSession = useCallback(
     (sessionId: string) => {
@@ -241,6 +340,11 @@ export default function PromptsView() {
     [selectSession, navigate],
   );
 
+  const projectOptions = useMemo(
+    () => [{ value: '', label: 'All' }, ...uniqueProjectOptions(projects)],
+    [projects],
+  );
+
   const prompts = useMemo(() => data?.prompts ?? [], [data]);
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -248,6 +352,9 @@ export default function PromptsView() {
   const query = useMemo(() => normalizeQuery(filters.query), [filters.query]);
   const firstShown = total === 0 ? 0 : (filters.page - 1) * PAGE_SIZE + 1;
   const lastShown = Math.min(filters.page * PAGE_SIZE, total);
+  const hasActiveFilters = Boolean(
+    filters.query || filters.project || filters.dateFrom || filters.dateTo || filters.kind !== 'mine',
+  );
 
   const handleExport = useCallback(() => {
     const payload = {
@@ -272,159 +379,159 @@ export default function PromptsView() {
 
   return (
     <div className={styles.container} data-testid="prompts-view">
-      {/* Filters */}
-      <div className={styles.filters}>
-        <SearchInput
-          value={filters.query}
-          onChange={(v) => updateFilter('query', v)}
-          placeholder="Search all prompts…"
-          className={styles.search}
-        />
-
-        <div className={styles.filterGroup}>
-          <span className={styles.filterLabel}>Project</span>
-          <Select
-            value={filters.project}
-            onChange={(val) => updateFilter('project', val)}
-            options={[
-              { value: '', label: 'All' },
-              ...(projects?.map((p) => ({ value: p.project_path, label: p.project_name })) ?? []),
-            ]}
+      <div className={styles.header}>
+        {/* Filters */}
+        <div className={styles.toolbar}>
+          <SearchInput
+            variant="field"
+            ariaLabel="Search all prompts"
+            value={filters.query}
+            onChange={(v) => updateFilter('query', v)}
+            placeholder="Search all prompts…"
+            className={styles.search}
           />
-        </div>
 
-        <div className={styles.filterGroup}>
-          <span className={styles.filterLabel}>From</span>
-          <input
-            type="date"
-            className={styles.filterInput}
-            value={filters.dateFrom}
-            onChange={(e) => updateFilter('dateFrom', e.target.value)}
-          />
-        </div>
+          <Field label="Project">
+            <NativeSelect
+              value={filters.project}
+              onChange={(val) => updateFilter('project', val)}
+              options={projectOptions}
+            />
+          </Field>
 
-        <div className={styles.filterGroup}>
-          <span className={styles.filterLabel}>To</span>
-          <input
-            type="date"
-            className={styles.filterInput}
-            value={filters.dateTo}
-            onChange={(e) => updateFilter('dateTo', e.target.value)}
-          />
-        </div>
+          <Field label="From">
+            <TextInput
+              type="date"
+              value={filters.dateFrom}
+              onChange={(e) => updateFilter('dateFrom', e.target.value)}
+            />
+          </Field>
 
-        <div className={styles.spacer} />
+          <Field label="To">
+            <TextInput
+              type="date"
+              value={filters.dateTo}
+              onChange={(e) => updateFilter('dateTo', e.target.value)}
+            />
+          </Field>
 
-        <button
-          className={styles.toolBtn}
-          onClick={() => refetch()}
-          disabled={isFetching}
-          title="Reload — new prompts are recorded continuously"
-        >
-          {isFetching ? '↻ …' : '↻ Refresh'}
-        </button>
-        <button
-          className={styles.toolBtn}
-          onClick={handleExport}
-          disabled={prompts.length === 0}
-          title="Download the prompts on this page as JSON"
-        >
-          Export
-        </button>
-      </div>
-
-      {/* Source facet + result summary */}
-      <div className={styles.subBar}>
-        <div className={styles.kindPills}>
-          {KINDS.map((k) => (
-            <button
-              key={k.key}
-              className={`${styles.kindPill}${filters.kind === k.key ? ` ${styles.kindPillActive}` : ''}`}
-              onClick={() => updateFilter('kind', k.key)}
-              title={k.title}
-              aria-pressed={filters.kind === k.key}
+          {/* One unit: wrapping splits the toolbar between controls, and a lone
+              Export under Refresh spends a whole row on one button. */}
+          <div className={styles.actions}>
+            {/* Busy, never disabled: disabling the button you just pressed
+                drops keyboard focus to <body>. A press while busy is ignored. */}
+            <Button
+              className={isFetching ? styles.refreshing : undefined}
+              icon={<RefreshGlyph />}
+              onClick={() => { if (!isFetching) refetch(); }}
+              aria-busy={isFetching || undefined}
+              title="Reload — new prompts are recorded continuously"
             >
-              {k.label}
-            </button>
-          ))}
+              Refresh
+            </Button>
+            <Button
+              onClick={handleExport}
+              disabled={prompts.length === 0}
+              title="Download the prompts on this page as JSON"
+            >
+              Export
+            </Button>
+          </div>
         </div>
 
-        <span className={styles.summary}>
-          {isLoading
-            ? 'Loading…'
-            : total === 0
-              ? 'No prompts'
-              : `${total.toLocaleString()} prompt${total === 1 ? '' : 's'} · showing ${firstShown.toLocaleString()}–${lastShown.toLocaleString()}`}
-        </span>
+        {/* Source facet + result summary */}
+        <div className={styles.facets}>
+          <div className={styles.kindGroup} role="group" aria-label="Source">
+            {KINDS.map((k) => (
+              <Button
+                key={k.key}
+                size="sm"
+                pressed={filters.kind === k.key}
+                title={k.title}
+                onClick={() => updateFilter('kind', k.key)}
+              >
+                {k.label}
+              </Button>
+            ))}
+          </div>
 
-        {(filters.query || filters.project || filters.dateFrom || filters.dateTo || filters.kind !== 'mine') && (
-          <button className={styles.clearFilters} onClick={() => setFilters(INITIAL_FILTERS)}>
-            Clear filters
-          </button>
-        )}
+          {/* The summary and the action that resets it wrap as one unit. Clear
+              filters stays last, so it appearing never moves the summary. */}
+          <div className={styles.facetInfo}>
+            <p className={styles.summary}>
+              {failedEmpty
+                ? ''
+                : isLoading
+                ? 'Loading…'
+                : total === 0
+                  ? 'No prompts'
+                  : `${total.toLocaleString()} prompt${total === 1 ? '' : 's'} · showing ${firstShown.toLocaleString()}–${lastShown.toLocaleString()}`}
+            </p>
+
+            {hasActiveFilters && (
+              <Button variant="quiet" size="sm" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Results */}
-      <div className={styles.results}>
-        {isError ? (
-          <div className={styles.empty}>
-            Could not load prompts.{' '}
-            <button className={styles.inlineAction} onClick={() => refetch()}>retry</button>
-          </div>
+      <div ref={resultsRef} className={styles.results}>
+        {failedEmpty ? (
+          <EmptyState
+            fill
+            tone="error"
+            title="Could not load prompts."
+            hint={error?.message}
+            action={canRetry(error) ? <Button onClick={() => refetch()}>Retry</Button> : undefined}
+          />
         ) : isLoading ? (
-          <div className={styles.empty}>Loading prompts…</div>
+          <EmptyState fill busy title="Loading prompts…" />
         ) : groups.length === 0 ? (
-          <div className={styles.empty}>
-            {filters.kind === 'mine' && !filters.query && !filters.project
-              ? 'No prompts recorded yet.'
-              : 'No prompts match these filters.'}
-          </div>
+          <EmptyState
+            fill
+            title={hasActiveFilters ? 'No prompts match these filters.' : 'No prompts recorded yet.'}
+          />
         ) : (
-          groups.map((group) => (
+          <>
+          {isError && <StaleNote onRetry={canRetry(error) ? () => refetch() : undefined} />}
+          {groups.map((group) => (
             <div key={group.day} className={styles.dayGroup}>
-              <div className={styles.dayHeader}>
-                <span className={styles.dayLabel}>{group.day}</span>
-                <span className={styles.dayRule} />
-                {/* "shown", not "prompts": a day straddling a page boundary
-                    only has part of its rows here, so a bare count would lie. */}
-                <span className={styles.dayCount}>{group.rows.length} shown</span>
-              </div>
-              {group.rows.map((row) => (
-                <PromptRow
-                  key={row.id}
-                  row={row}
-                  query={query}
-                  isLive={sessions.has(row.session_id)}
-                  onOpen={openSession}
-                />
-              ))}
+              {/* "shown", not "prompts": a day straddling a page boundary
+                  only has part of its rows here, so a bare count would lie. */}
+              <SectionHeader
+                level={2}
+                sticky
+                className={styles.dayHeader}
+                label={group.day}
+                aside={`${group.rows.length} shown`}
+              />
+              <ul className={styles.rows} role="list" aria-label={`Prompts on ${group.day}`}>
+                {group.rows.map((row) => (
+                  <PromptRow
+                    key={row.id}
+                    row={row}
+                    query={query}
+                    isLive={liveSessions.has(row.session_id)}
+                    onOpen={openSession}
+                  />
+                ))}
+              </ul>
             </div>
-          ))
+          ))}
+          </>
         )}
       </div>
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <div className={styles.pagination}>
-          <button
-            className={styles.pageBtn}
-            onClick={() => updateFilter('page', filters.page - 1)}
-            disabled={filters.page <= 1}
-          >
-            ‹ Prev
-          </button>
-          <span className={styles.pageInfo}>
-            Page {filters.page.toLocaleString()} / {totalPages.toLocaleString()}
-          </span>
-          <button
-            className={styles.pageBtn}
-            onClick={() => updateFilter('page', filters.page + 1)}
-            disabled={filters.page >= totalPages}
-          >
-            Next ›
-          </button>
-        </div>
-      )}
+      <Pagination
+        page={filters.page}
+        totalPages={totalPages}
+        onPageChange={(page) => updateFilter('page', page)}
+        label="Prompt pages"
+      />
     </div>
   );
 }

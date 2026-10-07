@@ -17,13 +17,15 @@ import { homedir } from 'os';
 import { basename, relative } from 'path';
 import { realpath } from 'fs/promises';
 import { createTwoFilesPatch } from 'diff';
-import type { ResourceCatalog, ResourceCompare, ResourceCompareFile, ResourceDetail, ResourceField, ResourceFile, ResourceFileContent, ResourceRoots, ScanProgress, ScanState } from '../src/types/resources.js';
+import type { ResourceCatalog, ResourceCompare, ResourceCompareFile, ResourceDetail, ResourceField, ResourceFile, ResourceFileContent, ResourceRoots, ResourceSummary, RestoreResult, ScanProgress, ScanState, UninstallResult } from '../src/types/resources.js';
+import { uninstallBlocker } from '../src/types/resources.js';
 import { createLimiter, displayPath, isCredentialPath, isCredentialTarget, isWithin, PACKAGE_SKIP, PathSafetyError, readTextCapped, resolveWithin, statKind, walkPackage } from './fsSafe.js';
 import type { Limiter, PackageFile } from './fsSafe.js';
 import { flattenMasked, redactPatch, redactPemBlocks, redactSecretsInString, redactStrings, redactText } from './resourceMask.js';
 import { globalRootPaths } from './resourceRoots.js';
 import { jsonSafe, parseFrontmatter, scanResources } from './resourceScanner.js';
 import type { InternalResource, ScanLimits, ScanOutput } from './resourceScanner.js';
+import { DEFAULT_TRASH_DIR, moveToTrash, restoreFromTrash } from './resourceUninstall.js';
 import log from './logger.js';
 
 export const BODY_MAX_BYTES = 256 * 1024;
@@ -41,6 +43,8 @@ export interface ResourceCatalogDeps {
   env?: NodeJS.ProcessEnv;
   home?: string;
   limits?: Partial<ScanLimits>;
+  /** Where uninstalled resources go (resourceUninstall.ts). Tests override. */
+  trashDir?: string;
 }
 
 export interface ResourceCatalogService {
@@ -54,13 +58,17 @@ export interface ResourceCatalogService {
   /** Throws `PathSafetyError` (400/404) or `ResourceLookupError` (403/404). */
   getFile(id: string, relPath: string): Promise<ResourceFileContent>;
   getCompare(id: string, against: string): Promise<ResourceCompare | null>;
+  /** Moves one resource into the trash. Throws `ResourceLookupError` (400/403/404/409) or `TrashError`. */
+  uninstall(id: string, confirmName: string): Promise<UninstallResult>;
+  /** Puts a trash entry back. Throws `TrashError` (404/409). */
+  restore(trashId: string): Promise<RestoreResult>;
 }
 
 /** A lookup that fails for a reason other than the path itself. */
 export class ResourceLookupError extends Error {
-  readonly status: 403 | 404 | 409;
+  readonly status: 400 | 403 | 404 | 409;
 
-  constructor(message: string, status: 403 | 404 | 409) {
+  constructor(message: string, status: 400 | 403 | 404 | 409) {
     super(message);
     this.name = 'ResourceLookupError';
     this.status = status;
@@ -361,6 +369,51 @@ async function compareOf(result: ScanOutput, id: string, against: string, limit:
 }
 
 // ---------------------------------------------------------------------------
+// Uninstall: every scan-time fact re-checked before anything moves
+// ---------------------------------------------------------------------------
+
+/**
+ * Throws unless this resource may be moved to the trash right now: the shared
+ * rule (`uninstallBlocker`), the exact name, the shape the type implies (a
+ * skill is one folder, the rest one file), unchanged since the scan, inside its
+ * root (never the root itself) and not a credential.
+ */
+async function assertUninstallable(r: InternalResource, confirmName: string, limit: Limiter): Promise<string> {
+  const blocker = uninstallBlocker(r.summary);
+  if (blocker) throw new ResourceLookupError(blocker, 403);
+  if (confirmName !== r.summary.name) throw new ResourceLookupError('Type the exact name to confirm', 400);
+  if (r.entry.kind !== (r.summary.type === 'skill' ? 'package' : 'file')) {
+    throw new ResourceLookupError('Not a single folder or file — not removed here', 403);
+  }
+  if (!r.realPath) throw new ResourceLookupError('Changed since the last scan — rescan', 409);
+  await assertUnchanged(r.entry.absPath, r.realPath, limit);
+  const rootReal = r.rootReal ?? r.entry.rootAbs;
+  if (r.realPath === rootReal || !isWithin(rootReal, r.realPath)) {
+    throw new ResourceLookupError('Outside the folder it was found in — not removed', 403);
+  }
+  if (isCredentialTarget({ rootAbs: r.entry.rootAbs, rootReal, absPath: r.entry.absPath, real: r.realPath })) {
+    throw new ResourceLookupError('Credential files are never touched', 403);
+  }
+  return r.entry.absPath;
+}
+
+/** The scan result minus one resource — so nothing stale is served before the rescan lands. */
+function withoutResource(out: ScanOutput, id: string): ScanOutput {
+  const strip = (s: ResourceSummary): ResourceSummary =>
+    (s.variantIds.includes(id) ? { ...s, variantIds: s.variantIds.filter((v) => v !== id) } : s);
+  const internals = new Map<string, InternalResource>();
+  for (const [key, r] of out.internals) {
+    if (key !== id) internals.set(key, r.summary.variantIds.includes(id) ? { ...r, summary: strip(r.summary) } : r);
+  }
+  return {
+    ...out,
+    internals,
+    resources: out.resources.filter((s) => s.id !== id).map(strip),
+    findings: out.findings.filter((f) => f.resourceId !== id),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Service: scan state + wiring
 // ---------------------------------------------------------------------------
 
@@ -370,6 +423,7 @@ export function createResourceCatalog(deps: ResourceCatalogDeps): ResourceCatalo
   const limit = createLimiter(8);
   // Its own limiter: a compare holds a slot while its fs calls go through `limit`.
   const compareLimit = createLimiter(COMPARE_CONCURRENCY);
+  const trashDir = deps.trashDir ?? DEFAULT_TRASH_DIR;
   let meta: Meta = { state: 'idle' };
   let result: ScanOutput | null = null;
   let inFlight: Promise<void> | null = null;
@@ -385,7 +439,7 @@ export function createResourceCatalog(deps: ResourceCatalogDeps): ResourceCatalo
 
   const getCatalog = (): ResourceCatalog => ({
     ...meta,
-    roots: result?.roots ?? initialRoots(),
+    roots: { ...(result?.roots ?? initialRoots()), trash: displayPath(trashDir, home) },
     projects: result?.projects ?? [],
     resources: result?.resources ?? [],
     findings: result?.findings ?? [],
@@ -458,6 +512,38 @@ export function createResourceCatalog(deps: ResourceCatalogDeps): ResourceCatalo
     while (inFlight) await inFlight;
   };
 
+
+  const uninstall = async (id: string, confirmName: string): Promise<UninstallResult> => {
+    // A scan in flight may already have listed it and would put it back in the
+    // catalog when it lands — the move must wait for a settled result.
+    if (inFlight) throw new ResourceLookupError('A scan is running — try again when it finishes', 409);
+    const r = result?.internals.get(id);
+    if (!result || !r) throw new ResourceLookupError('Resource not found', 404);
+    const absPath = await assertUninstallable(r, confirmName, limit);
+    const { trashId } = await moveToTrash({
+      absPath,
+      rootPath: r.entry.rootAbs,
+      type: r.summary.type,
+      name: r.summary.name,
+      display: r.summary.path,
+    }, trashDir);
+    // Whatever result is current now (a scan may have landed meanwhile) — it must not list it.
+    if (result) result = withoutResource(result, id);
+    log.info('resources', `Uninstalled ${r.summary.type} ${r.summary.path} → trash ${trashId}`);
+    return { trashId, name: r.summary.name, type: r.summary.type, path: r.summary.path };
+  };
+
+  const restore = async (trashId: string): Promise<RestoreResult> => {
+    const restored = await restoreFromTrash(trashId, trashDir);
+    // Restore is clicked within seconds of an uninstall — usually while the
+    // rescan it started is still running, which may already have read that
+    // folder. The client's own rescan would only JOIN it, so queue one trailing
+    // scan with the same roots: the restored item is listed when it lands.
+    if (inFlight && !queuedRoots) queuedRoots = [...inFlightRoots];
+    log.info('resources', `Restored ${restored.type} ${restored.path} from trash ${trashId}`);
+    return restored;
+  };
+
   return {
     getCatalog,
     getOrStartCatalog: () => {
@@ -472,5 +558,7 @@ export function createResourceCatalog(deps: ResourceCatalogDeps): ResourceCatalo
       return fileOf(result, id, relPath, limit);
     },
     getCompare: (id, against) => compareLimit(async () => (result ? compareOf(result, id, against, limit) : null)),
+    uninstall,
+    restore,
   };
 }

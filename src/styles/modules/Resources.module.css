@@ -84,6 +84,12 @@
 
 /* ---- Controls ------------------------------------------------------------ */
 
+/* Buttons, inputs, selects, field captions and empty states are the shared
+   primitives in src/components/ui; this sheet only places them (.rescanButton,
+   .search, .filterField …). .button is the same look for what Button cannot be:
+   SourcesPanel's "Show" <Link> (a real href; Button renders a <button>), plus
+   ResourceDetail's "Try again" and UninstallControls' "Cancel", which have not
+   moved to Button yet. */
 .button {
   display: inline-flex;
   align-items: center;
@@ -107,82 +113,21 @@
 .button:active:not(:disabled) { background: var(--bg-accent-strong); }
 .button:focus-visible { outline: 2px solid var(--res-accent); outline-offset: 2px; }
 .button:disabled { opacity: 0.5; cursor: not-allowed; }
-.rescanButton { margin-left: auto; flex-shrink: 0; }
+.rescanButton { margin-left: auto; }
 
 .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 
-.search,
-.textInput,
-.select {
-  height: 32px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle-strong);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 12px;
-}
-.search,
-.textInput { min-width: 0; padding: 0 12px; }
+/* Placement only; TextInput (src/components/ui) owns the look. */
 .search { flex: 1 1 240px; }
-.textInput { flex: 1 1 320px; }
-.select { max-width: 280px; padding: 0 28px 0 8px; cursor: pointer; appearance: none; -webkit-appearance: none; background: var(--bg-card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238888aa'/%3E%3C/svg%3E") no-repeat right 10px center / 10px 6px; } /* own chevron + reserved room: the shared `background` erased base.css's arrow, and XP's re-painted one sat on the label */
-.search::placeholder,
-.textInput::placeholder { color: var(--text-secondary); }
-.search:hover,
-.textInput:hover,
-.select:hover { border-color: var(--border-accent-strong); }
-.search:focus-visible,
-.textInput:focus-visible,
-.select:focus-visible { outline: 2px solid var(--res-accent); outline-offset: 1px; border-color: var(--res-accent); }
-.textInput[aria-invalid='true'] { border-color: var(--accent-red); }
+.folderInput { flex: 1 1 320px; }
 
-.field { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+/* Captions outside a Field: the detail pane's "Also in" / "Shortcuts" rows and
+   file-preview caption, and the Add-folder label. */
 .fieldLabel { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-secondary); white-space: nowrap; }
 
-/* The plugin & system pill — the same shape as ReviewView's favourites filter. */
-.toggle {
-  display: inline-flex;
-  align-items: center;
-  height: 32px;
-  padding: 0 12px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle-strong);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 12px;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.toggle:hover { color: var(--text-primary); border-color: var(--border-accent-strong); }
-.toggle:active { background: var(--bg-subtle-strong); }
-.toggle:focus-visible { outline: 2px solid var(--res-accent); outline-offset: 2px; }
-.toggleOn,
-.toggleOn:hover {
-  color: color-mix(in srgb, var(--accent-purple) 70%, var(--text-primary));
-  border-color: var(--accent-purple);
-  background: color-mix(in srgb, var(--accent-purple) 14%, transparent);
-}
-
-/* ---- Body, states, banners, text ------------------------------------------ */
+/* ---- Body, banners, text ---------------------------------------------------- */
 
 .body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding-top: 16px; }
-
-.stateBox {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 32px 16px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.6;
-  text-align: center;
-}
-.stateBox p { margin: 0; max-width: 520px; }
 
 .banner {
   display: flex;
@@ -713,17 +658,13 @@
 @media (prefers-reduced-motion: no-preference) {
   .tab,
   .button,
-  .toggle,
   .chipButton,
   .railItem,
   .row,
   .backButton,
   .fileButton,
   .findingButton,
-  .checkSummary,
-  .search,
-  .textInput,
-  .select { transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; }
+  .checkSummary { transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease; }
 }
 
 /* ---- Coarse pointers: 44px targets ------------------------------------------- */
@@ -731,10 +672,6 @@
 @media (pointer: coarse) {
   .tab,
   .button,
-  .toggle,
-  .search,
-  .textInput,
-  .select,
   .railItem,
   .row,
   .backButton,
@@ -742,10 +679,6 @@
   .findingButton,
   .checkSummary,
   .chipButton { min-height: 44px; }
-  .search,
-  .textInput,
-  .select,
-  .toggle { height: 44px; }
 }
 
 /* ---- Narrow desktop: the rail becomes a strip above list | detail ------------ */
@@ -778,10 +711,11 @@
   .titleRow { flex-wrap: wrap; row-gap: 8px; }
   .sectionTabs { order: 3; flex-basis: 100%; }
   .search { flex-basis: 100%; }
-  /* Scoped to the filter row: .field also wraps Compare's select, where a
-     flex-basis in a column flexbox becomes a 136px HEIGHT. */
-  .filters .field { flex: 1 1 136px; }
-  .filters .field .select { flex: 1 1 auto; max-width: none; }
+  /* Filter-row classes only: a flex-basis on the Compare pane's Field (a column
+     flexbox) would become a 136px HEIGHT. Two classes beat NativeSelect's own
+     `max-width: 280px` whatever order the sheets load in. */
+  .filterField { flex: 1 1 136px; }
+  .filterField .filterSelect { flex: 1 1 auto; max-width: none; }
   .viewDetailOpen .filters,
   .viewDetailOpen .countsLine { display: none; }
   /* Tables scroll sideways inside .tableScroll instead of crushing the path

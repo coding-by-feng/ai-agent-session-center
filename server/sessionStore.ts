@@ -36,10 +36,6 @@ import type { DiscoveredProcess } from './processMonitor.js';
 import { startAutoIdle, stopAutoIdle, startPendingResumeCleanup, stopPendingResumeCleanup } from './autoIdleManager.js';
 import { migrateControl, dropControl } from './presenceManager.js';
 import {
-  migrateSession as migrateRcDaemon,
-  forgetSession as forgetRcDaemon,
-} from './remoteControlDaemon.js';
-import {
   upsertSession as dbUpsertSession,
   updateSessionTitle as dbUpdateTitle,
   updateSessionSummary as dbUpdateSummary,
@@ -1097,10 +1093,6 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
     // that no longer exists — silently demoting the device that just launched
     // the session to a spectator on it.
     migrateControl(session.replacesId, session_id);
-    // Same reason as migrateControl above: without this an armed session
-    // silently disarms on every `claude --resume` re-key, and its cooldown
-    // resets — so the first idle after a resume would relink immediately.
-    migrateRcDaemon(session.replacesId, session_id);
   }
   // Clean up one-time re-key flag
   delete session.replacesId;
@@ -1466,7 +1458,6 @@ export function deleteSessionFromMemory(sessionId: string): boolean {
   // Forget the control baton — otherwise a killed session's id keeps an entry
   // that would silently pre-assign control if the id were ever reused.
   dropControl(resolvedId);
-  forgetRcDaemon(resolvedId);
   sessions.delete(resolvedId);
   invalidateSessionsCache();
   return true;
@@ -1538,7 +1529,6 @@ export function clearAllSessions(): { removed: number; savedOutputs: SavedTermin
       pidToSession.delete(session.cachedPid);
     }
     dropControl(id);
-    forgetRcDaemon(id);
     sessions.delete(id);
     removed++;
   }

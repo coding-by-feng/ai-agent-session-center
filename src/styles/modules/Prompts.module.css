@@ -1,350 +1,157 @@
-/* ============================================================
-   Prompts View — global prompt trace
-   ============================================================ */
+/* Prompts — the PROMPTS tab (PromptsView).
+
+   Every control is a shared primitive (Button, IconButton, Field, NativeSelect,
+   TextInput, SearchInput, Chip, SectionHeader, EmptyState, Pagination); this
+   file only lays them out and styles the rows.
+
+   One local token, derived on .container and never on :root (themes set their
+   variables on <body>, so a :root mix would freeze the dark palette):
+   --prompts-accent mixes the cyan accent with --text-primary. The raw accent is
+   tuned for dark backgrounds and lands near 3:1 on the light and windows-xp
+   whites; mixed 80/20 it reads at roughly 5-7:1 there and stays bright on the
+   dark themes. */
 
 .container {
+  --prompts-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: var(--layout-pad, 24px);
-  gap: 12px;
   min-width: 0;
+  padding: 16px 24px;
+  overflow: hidden;
 }
 
-/* ---- Filters ---- */
+/* ---- Header: toolbar + source facet / summary ------------------------------ */
 
-.filters {
+.header {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 8px;
-  align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
 }
 
-.search {
-  flex: 1 1 220px;
-  min-width: 0;
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.search { flex: 1 1 240px; min-width: 0; }
+
+/* Refresh + Export wrap together and sit at the right edge. The auto margin
+   takes the space the growing search leaves (none, on a full line), so the pair
+   is flush right there, and alone on its own line when it wraps. */
+.actions { display: flex; gap: 8px; margin-left: auto; }
+
+.facets { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.kindGroup { display: flex; gap: 4px; }
+.facetInfo { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.summary { margin: 0; color: var(--text-secondary); font-size: 11px; }
+
+/* The label stays put while a reload runs (a label that swaps to "↻ …" jumps
+   the toolbar); the glyph turning is the progress cue. */
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: no-preference) {
+  .refreshing svg { animation: spin 900ms linear infinite; }
 }
 
-.filterGroup {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.filterLabel {
-  font-size: 0.7rem;
-  color: var(--text-dim, #555577);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.filterInput {
-  padding: 6px 10px;
-  background: var(--bg-card, #12122a);
-  border: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15));
-  border-radius: 4px;
-  color: var(--text-primary, #e0e0ff);
-  font-size: 0.8rem;
-  font-family: var(--font-mono, monospace);
-  outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-.filterInput:focus {
-  border-color: var(--accent-cyan, #00e5ff);
-  box-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
-}
-
-.spacer { flex: 1 1 auto; }
-
-.toolBtn {
-  padding: 6px 12px;
-  background: transparent;
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
-  border-radius: 4px;
-  color: var(--text-secondary, #8888aa);
-  font-size: 0.75rem;
-  font-family: var(--font-mono, monospace);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: color 0.15s, border-color 0.15s;
-}
-
-.toolBtn:hover:not(:disabled) {
-  color: var(--accent-cyan, #00e5ff);
-  border-color: var(--accent-cyan, #00e5ff);
-}
-
-.toolBtn:disabled { opacity: 0.4; cursor: default; }
-
-/* ---- Source facet + summary ---- */
-
-.subBar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
-
-.kindPills { display: flex; gap: 4px; }
-
-.kindPill {
-  background: none;
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
-  color: var(--text-dim, #555577);
-  font-family: var(--font-mono, monospace);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  padding: 4px 10px;
-  border-radius: 3px;
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s, background 0.15s;
-}
-
-.kindPill:hover { color: var(--text-secondary, #8888aa); border-color: var(--text-dim, #555577); }
-
-.kindPillActive {
-  color: var(--accent-cyan, #00e5ff);
-  border-color: var(--accent-cyan, #00e5ff);
-  background: rgba(0, 229, 255, 0.1);
-}
-
-.summary {
-  font-family: var(--font-mono, monospace);
-  font-size: 0.7rem;
-  color: var(--text-dim, #555577);
-  letter-spacing: 0.04em;
-}
-
-.clearFilters {
-  background: none;
-  border: none;
-  padding: 0;
-  font-family: var(--font-mono, monospace);
-  font-size: 0.7rem;
-  color: var(--accent-cyan, #00e5ff);
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.clearFilters:hover { color: var(--text-primary, #e0e0ff); }
-
-/* ---- Results ---- */
+/* ---- Results: the one scrolling body --------------------------------------- */
 
 .results {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
-  border-radius: 6px;
-  background: var(--bg-card, #12122a);
-}
-
-.empty {
-  text-align: center;
-  padding: 48px 20px;
-  color: var(--text-dim, #555577);
-  font-size: 0.8rem;
-  letter-spacing: 0.05em;
-}
-
-.inlineAction {
-  background: none;
-  border: none;
-  padding: 0;
-  font: inherit;
-  color: var(--accent-cyan, #00e5ff);
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-/* ---- Day grouping ---- */
-
-.dayGroup { padding: 0; }
-
-.dayHeader {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px 6px;
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--bg-card, #12122a);
+  flex-direction: column;
+  margin-top: 16px;
+  overflow-y: auto;
+  /* Focus scrolls a control into view; without this it can land under the
+     pinned 32px day header (WCAG 2.4.11). */
+  scroll-padding-top: 40px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-card);
 }
 
-.dayLabel {
-  font-family: var(--font-mono, monospace);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-secondary, #8888aa);
-  white-space: nowrap;
-}
+/* Not a shrinkable flex item: the box scrolls instead of squeezing a day. */
+.dayGroup { flex-shrink: 0; }
 
-.dayRule {
-  flex: 1;
-  height: 1px;
-  background: var(--border-subtle, rgba(255, 255, 255, 0.06));
-}
+/* SectionHeader's sticky default paints --bg-primary; this box is a --bg-card
+   surface, so the pinned day repaints it (two classes beat the primitive's
+   one) and takes the rows' side padding. */
+.results .dayHeader { padding: 0 16px; background: var(--bg-card); }
 
-.dayCount {
-  font-family: var(--font-mono, monospace);
-  font-size: 0.65rem;
-  color: var(--text-dim, #555577);
-  white-space: nowrap;
-}
+.rows { margin: 0; padding: 0; list-style: none; }
 
-/* ---- Row ---- */
+/* ---- Row -------------------------------------------------------------------- */
 
 .row {
-  padding: 8px 14px 10px;
-  border-bottom: 1px solid var(--border-faint, rgba(255, 255, 255, 0.03));
   min-width: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-faint);
 }
-
-.row:hover { background: rgba(255, 255, 255, 0.02); }
+.row:hover { background: var(--bg-card-hover); }
 
 .rowMeta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  font-family: var(--font-mono, monospace);
-  font-size: 0.65rem;
-  margin-bottom: 4px;
+  gap: 4px 8px;
   min-width: 0;
+  margin-bottom: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
 }
 
-.rowTime { color: var(--text-dim, #555577); flex-shrink: 0; }
+.rowTime { flex-shrink: 0; font-variant-numeric: tabular-nums; }
 
 .rowProject {
-  color: var(--accent-cyan, #00e5ff);
-  opacity: 0.85;
   flex-shrink: 0;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--prompts-accent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rowSession {
-  color: var(--text-dim, #555577);
+  min-width: 0;
+  max-width: 260px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  min-width: 0;
-  max-width: 260px;
-}
-
-.rowLive {
-  color: var(--accent-green, #00ff88);
-  border: 1px solid color-mix(in srgb, var(--accent-green, #00ff88) 45%, transparent);
-  border-radius: 3px;
-  padding: 0 5px;
-  font-size: 0.6rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  flex-shrink: 0;
 }
 
 /* Actions sit at the far right of the meta line and stay put when it wraps.
-   Dimmed at rest rather than hidden: at opacity 0 the only affordances on the
-   row are invisible until you happen to hover, so nobody discovers them. */
-.rowActions {
-  margin-left: auto;
-  display: flex;
-  gap: 2px;
-  flex-shrink: 0;
-  opacity: 0.4;
-  transition: opacity 0.15s;
-}
-
-.row:hover .rowActions,
-.rowActions:focus-within { opacity: 1; }
-
-.rowAction {
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 3px;
-  color: var(--text-dim, #555577);
-  font-size: 0.75rem;
-  line-height: 1;
-  padding: 3px 5px;
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
-}
-
-.rowAction:hover {
-  color: var(--accent-cyan, #00e5ff);
-  border-color: var(--accent-cyan, #00e5ff);
-}
+   Always at full strength: they are the only affordances on the row, a touch
+   screen has no hover to raise them, and dimming a glyph that is already
+   --text-secondary measured 2.1-2.9:1 on solarized, nord and monokai (a control
+   needs 3:1). The icon buttons' own hover and focus states do the revealing. */
+.rowActions { display: flex; gap: 4px; flex-shrink: 0; margin-left: auto; }
 
 .rowText {
-  font-size: 0.8rem;
+  color: var(--text-primary);
+  font-size: 13px;
   line-height: 1.5;
-  color: var(--text-primary, #e0e0ff);
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
 }
 
 .rowText mark {
-  background: color-mix(in srgb, var(--accent-yellow, #ffcc00) 38%, transparent);
+  background: color-mix(in srgb, var(--accent-yellow) 38%, transparent);
   color: inherit;
   border-radius: 2px;
   padding: 0 1px;
 }
 
-.rowExpand {
-  margin-top: 4px;
-  background: none;
-  border: none;
-  padding: 0;
-  font-family: var(--font-mono, monospace);
-  font-size: 0.65rem;
-  color: var(--text-dim, #555577);
-  cursor: pointer;
-}
+/* The quiet button's own 8px side padding would indent its label past the text
+   above it; the negative margin lines the label up and lets the hover chip
+   reach into the row's padding. */
+.rowExpand { margin: 4px 0 0 -8px; }
 
-.rowExpand:hover { color: var(--accent-cyan, #00e5ff); }
-
-/* ---- Pagination ---- */
-
-.pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  flex-shrink: 0;
-}
-
-.pageBtn {
-  padding: 6px 14px;
-  background: transparent;
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
-  border-radius: 4px;
-  color: var(--text-secondary, #8888aa);
-  font-family: var(--font-mono, monospace);
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-
-.pageBtn:hover:not(:disabled) {
-  color: var(--accent-cyan, #00e5ff);
-  border-color: var(--accent-cyan, #00e5ff);
-}
-
-.pageBtn:disabled { opacity: 0.35; cursor: default; }
-
-.pageInfo {
-  font-family: var(--font-mono, monospace);
-  font-size: 0.7rem;
-  color: var(--text-dim, #555577);
-}
-
-/* ---- Narrow window ---- */
+/* ---- Narrow window ---------------------------------------------------------- */
 
 @media (max-width: 720px) {
   .rowSession { max-width: 140px; }
-  .summary { width: 100%; }
+}
+
+@media (max-width: 480px) {
+  .container { padding: 8px 16px; }
 }

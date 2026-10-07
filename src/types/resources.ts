@@ -219,6 +219,8 @@ export interface ResourceRoots {
   shared: string;
   /** The agent-skills repository, or null when none is configured/detected. */
   repo: string | null;
+  /** Where Uninstall moves things (display path) — named in the uninstall dialog. */
+  trash?: string;
 }
 
 export interface ResourceCatalog {
@@ -297,6 +299,53 @@ export interface ResourceCompare {
   /** Unified diff of the main file (SKILL.md, or the file itself); capped. */
   patch?: string;
   patchTruncated?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Uninstall — the tab's only write: a move into the AASC trash, and back
+// ---------------------------------------------------------------------------
+
+/**
+ * The types uninstall handles — each one folder (a skill) or one file. Hooks,
+ * MCP servers and settings live INSIDE config files, an instructions file is a
+ * project's own guide, and a plugin has its own uninstaller.
+ */
+export const UNINSTALLABLE_TYPES = ['skill', 'command', 'rule', 'agent', 'memory'] as const satisfies readonly ResourceType[];
+
+export function isUninstallableType(type: ResourceType): boolean {
+  return (UNINSTALLABLE_TYPES as readonly ResourceType[]).includes(type);
+}
+
+/**
+ * Why this resource may not be uninstalled, or null when it may. One rule for
+ * both sides: the server enforces it, the tab uses it to decide what to offer.
+ * A symlink is refused whatever its origin: removing the link would not remove
+ * what it points at, and the folder it points into may be someone else's.
+ */
+export function uninstallBlocker(r: Pick<ResourceSummary, 'type' | 'origin' | 'linkTarget' | 'pluginName'>): string | null {
+  if (!isUninstallableType(r.type)) return 'Only skills, commands, rules, agents and memory can be uninstalled here.';
+  if (r.origin === 'plugin') return `Part of the ${r.pluginName ?? 'its'} plugin — remove the plugin instead.`;
+  if (r.origin === 'system') return 'Bundled with the CLI — an update would only put it back.';
+  if (r.origin === 'synced') return 'Synced from claude.ai — remove it there.';
+  if (r.origin === 'linked') return `A link to ${r.linkTarget ?? 'another folder'}, which owns it — remove it there.`;
+  if (r.linkTarget) return `A link to ${r.linkTarget} — remove the link by hand if that is what you want.`;
+  return null;
+}
+
+/** `POST /item/:id/uninstall`: where it went, and the id that brings it back. */
+export interface UninstallResult {
+  trashId: string;
+  name: string;
+  type: ResourceType;
+  /** Display path it was moved from. */
+  path: string;
+}
+
+/** `POST /trash/:trashId/restore`. */
+export interface RestoreResult {
+  name: string;
+  type: ResourceType;
+  path: string;
 }
 
 // ---------------------------------------------------------------------------

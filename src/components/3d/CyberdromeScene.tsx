@@ -46,6 +46,7 @@ import {
   type DoorWaypoint,
 } from '@/lib/cyberdromeScene';
 import { PALETTE } from '@/lib/robot3DGeometry';
+import { isSceneRobotSession } from '@/lib/sessionSort';
 
 // ---------------------------------------------------------------------------
 // Scene Theme Sync — receives theme as props (no store subscription)
@@ -372,15 +373,12 @@ export default function CyberdromeScene() {
   const sceneBound = useMemo(() => computeSceneBounds(roomConfigs), [roomConfigs]);
 
   // Pre-compute session array and subagent connections in DOM layer
+  // Robots only for live sessions the dashboard launched: floating PiP
+  // sessions (Explain/Translate popups) have their own PiP UI, while
+  // clone/fork sessions set isFork only and DO get robots. LiveView's 3D empty
+  // card decides from the same rule (lib/sessionSort.ts).
   const sessionArray = useMemo(
-    () => [...sessions.values()].filter(
-      s => s.status !== 'ended'
-        && s.source === 'ssh'
-        // Floating PiP sessions (Explain/Translate popups) have their own
-        // PiP UI and shouldn't be represented as 3D robots in the cyberdrome.
-        // Clone/fork sessions set isFork only and DO get robots.
-        && !s.isFloating
-    ),
+    () => [...sessions.values()].filter(isSceneRobotSession),
     [sessions],
   );
 

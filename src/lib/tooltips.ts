@@ -112,6 +112,11 @@ export const tooltips = {
     label: 'Refresh terminal',
     description: 'Clear the rendered buffer and replay the ring-buffer snapshot from the server.',
   },
+  termClear: {
+    label: 'Clear output',
+    description: 'Clear this terminal’s screen and scrollback, on every device showing it. '
+      + 'It stays cleared after a refresh. Nothing is sent to the program running in it.',
+  },
   termNewSession: {
     label: 'New session like this',
     description: 'Start a new session reusing this session’s command, working directory, and config.',
@@ -127,17 +132,6 @@ export const tooltips = {
   termReconnect: {
     label: 'Reconnect terminal',
     description: 'Re-establish the PTY/SSH connection if it dropped. Buffer is restored on reconnect.',
-  },
-  ctrlRcDaemonOn: {
-    label: 'Auto-relink on',
-    description: 'When this session goes idle, its Claude Code Remote Control link '
-      + 'is refreshed (disconnect + reconnect) so it keeps showing as live in the '
-      + 'Claude app. At most once every 30 minutes. Click to turn off.',
-  },
-  ctrlRcDaemonOff: {
-    label: 'Auto-relink off',
-    description: 'This session will not refresh its Claude Code Remote Control link. '
-      + 'Click to keep it alive automatically when the session goes idle.',
   },
   ctrlRemoteVisibleOn: {
     label: 'Visible to other devices',

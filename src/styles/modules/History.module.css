@@ -1,446 +1,276 @@
-/* ============================================================
-   History View - Session History Browser
-   ============================================================ */
+/* History — the HISTORY tab (src/routes/HistoryView.tsx).
 
-.container {
+   Colours come only from the theme contract (src/styles/base.css +
+   themes/*.css). --hist-accent mixes the cyan accent with --text-primary: the
+   raw accent is tuned for dark backgrounds and lands near 3:1 on the light and
+   windows-xp whites; mixed 80/20 it reads at roughly 5-7:1 there and stays
+   bright on the dark themes. It is declared on .view AND on .detailPanel: the
+   dialog is portaled to <body>, outside .view, and themes set their variables
+   on <body>, so a :root declaration would freeze the dark palette.
+
+   The toolbar's controls, the pager, the chips and the empty states are the
+   shared primitives (src/components/ui/*); this file only lays them out. */
+
+.view {
+  --hist-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: var(--layout-pad, 24px);
-  gap: 16px;
+  min-width: 0;
+  padding: 16px 24px;
+  overflow: hidden;
 }
 
-/* ---- Filters Bar ---- */
+/* ---- Header: toolbar + summary ------------------------------------------- */
 
-.filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-
-.filterGroup {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.filterLabel {
-  font-size: 0.7rem;
-  color: var(--text-dim, #555577);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.filterSelect,
-.filterInput {
-  padding: 6px 10px;
-  background: var(--bg-card, #12122a);
-  border: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15));
-  border-radius: 4px;
-  color: var(--text-primary, #e0e0ff);
-  font-size: 0.8rem;
-  font-family: var(--font-mono, monospace);
-  outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-.filterSelect:focus,
-.filterInput:focus {
-  border-color: var(--accent-cyan, #00e5ff);
-  box-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
-}
-
-.sortToggle {
-  padding: 6px 10px;
-  background: transparent;
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
-  border-radius: 4px;
-  color: var(--text-secondary, #8888aa);
-  font-size: 0.75rem;
-  font-family: var(--font-mono, monospace);
-  cursor: pointer;
-}
-
-.sortToggle:hover {
-  color: var(--accent-cyan, #00e5ff);
-  border-color: var(--accent-cyan, #00e5ff);
-}
-
-/* ---- Results Grid ---- */
-
-.results {
-  flex: 1;
-  overflow-y: auto;
+.header {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
 }
 
-.emptyState {
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.search { flex: 1 1 240px; min-width: 0; }
+/* From + To, and the sort select + its direction button, wrap as one unit: a
+   toolbar that breaks between "From" and "To" reads as two unrelated filters. */
+.group { display: inline-flex; align-items: center; gap: 8px; }
+
+/* min-height is one line, so the toolbar does not jump when the count lands. */
+.summary { margin: 0; min-height: 18px; color: var(--text-secondary); font-size: 11px; line-height: 1.6; }
+
+/* ---- Body: the one scroll area ------------------------------------------- */
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 16px;
-  color: var(--text-dim, #555577);
-  font-size: 0.9rem;
+  flex-direction: column;
+  padding-top: 16px;
+  overflow-y: auto;
 }
+
+.list { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+
+/* ---- Session row ----------------------------------------------------------
+   The row is the card; .rowOpen is a button stretched over its text columns,
+   Resume / Delete sit beside it. Focus lands on .rowOpen, so its ring is drawn
+   inside the button, over the text columns. */
 
 .row {
-  display: grid;
-  grid-template-columns: 1fr 120px 150px 80px 80px 70px 70px 28px 28px;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  background: var(--bg-card, #12122a);
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
-  border-radius: 6px;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-
-.row:hover {
-  border-color: var(--border-accent, rgba(0, 229, 255, 0.15));
-  background: var(--bg-card-hover, #1a1a3a);
-}
-
-.rowTitle {
-  font-size: 0.85rem;
-  color: var(--text-primary, #e0e0ff);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rowProject {
-  font-size: 0.75rem;
-  color: var(--accent-cyan, #00e5ff);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rowDate {
-  font-size: 0.75rem;
-  color: var(--text-secondary, #8888aa);
-  white-space: nowrap;
-}
-
-.rowDuration {
-  font-size: 0.75rem;
-  color: var(--text-secondary, #8888aa);
-  white-space: nowrap;
-}
-
-.rowStatus {
-  font-size: 0.7rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  padding: 2px 6px;
-  border-radius: 3px;
-  text-align: center;
-}
-
-.rowStatus[data-status='idle'] {
-  color: var(--accent-green, #00ff88);
-  background: rgba(0, 255, 136, 0.1);
-}
-.rowStatus[data-status='working'] {
-  color: var(--accent-orange, #ff9100);
-  background: rgba(255, 145, 0, 0.1);
-}
-.rowStatus[data-status='ended'] {
-  color: var(--accent-red, #ff3355);
-  background: rgba(255, 51, 85, 0.1);
-}
-.rowStatus[data-status='waiting'] {
-  color: var(--accent-cyan, #00e5ff);
-  background: rgba(0, 229, 255, 0.1);
-}
-.rowStatus[data-status='approval'] {
-  color: #ffcc00;
-  background: rgba(255, 204, 0, 0.1);
-}
-
-.rowMeta {
-  font-size: 0.7rem;
-  color: var(--text-dim, #555577);
-  text-align: center;
-}
-
-.resumeBtn {
-  background: none;
-  border: none;
-  color: var(--text-dim, #555577);
-  cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
-  line-height: 1;
   display: flex;
   align-items: center;
-  justify-content: center;
-}
-
-.resumeBtn:hover {
-  color: var(--accent-cyan, #00e5ff);
-  background: rgba(0, 229, 255, 0.1);
-}
-
-.deleteBtn {
-  background: none;
-  border: none;
-  color: var(--text-dim, #555577);
-  font-size: 1rem;
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 4px;
-  line-height: 1;
-}
-
-.deleteBtn:hover {
-  color: var(--accent-red, #ff3355);
-  background: rgba(255, 51, 85, 0.1);
-}
-
-/* ---- Pagination ---- */
-
-.pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   gap: 4px;
-  padding: 8px 0;
+  padding-right: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
 }
+.row:hover { background: var(--bg-card-hover); border-color: var(--border-accent-strong); }
 
-.pageBtn {
-  padding: 4px 10px;
-  background: transparent;
-  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
-  border-radius: 4px;
-  color: var(--text-secondary, #8888aa);
-  font-size: 0.75rem;
-  font-family: var(--font-mono, monospace);
+.rowOpen {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 40px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 152px 72px 128px 88px 80px;
+  align-items: center;
+  column-gap: 12px;
+  padding: 8px 8px 8px 12px;
+  background: none;
+  border: 0;
+  border-radius: 5px 0 0 5px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
 }
+.rowOpen:active { background: var(--bg-accent); }
+.rowOpen:focus-visible { outline: 2px solid var(--hist-accent); outline-offset: -2px; }
 
-.pageBtn:hover:not(:disabled) {
-  border-color: var(--accent-cyan, #00e5ff);
-  color: var(--accent-cyan, #00e5ff);
-}
+.rowTitle,
+.rowProject,
+.rowDate,
+.rowDuration,
+.rowPrompts,
+.rowTools { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.pageBtn:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
+.rowTitle { color: var(--text-primary); font-size: 13px; }
+.rowProject { color: var(--hist-accent); font-size: 12px; }
+.rowDate,
+.rowDuration,
+.rowPrompts,
+.rowTools { color: var(--text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
+.rowPrompts,
+.rowTools { text-align: right; }
+.rowStatus { min-width: 0; }
 
-.pageBtnActive {
-  background: var(--bg-accent, rgba(0, 229, 255, 0.1));
-  border-color: var(--accent-cyan, #00e5ff);
-  color: var(--accent-cyan, #00e5ff);
-}
+/* ---- Session detail dialog -------------------------------------------------
+   Modal.module.css's .panel sets max-width: 400px, and a one-class override
+   would win or lose by bundle order, so the size rules double the class. The
+   same sheet's `.panel p` (16px margin, grey) out-ranks EmptyState's one-class
+   <p>s, hence `.detailPanel .detailState p`. */
 
-.pageEllipsis {
-  color: var(--text-dim, #555577);
-  padding: 0 4px;
-}
-
-/* ---- Session Detail Overlay ---- */
-
-.detailOverlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+.detailPanel.detailPanel {
+  --hist-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
   display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 8000;
-}
-
-.detailCard {
-  background: var(--bg-card, #12122a);
-  border: 1px solid var(--border-accent, rgba(0, 229, 255, 0.15));
-  border-radius: 12px;
-  padding: 24px;
-  max-width: 900px;
-  width: 90%;
+  flex-direction: column;
+  width: min(900px, calc(100vw - 32px));
+  max-width: none;
   max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  max-height: 80dvh;
   overflow: hidden;
 }
+/* Modal's title row does not wrap: an unbroken title would push the close
+   button out past the panel's edge. Its own 16px margin already separates it
+   from what follows, so the h3's 12px (`.panel h3`, which two classes out-rank)
+   is dropped. */
+.detailPanel.detailPanel h3 { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 
-.detailTabs {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.detailTabPanel {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.detailHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.detailTitle {
-  font-size: 1.1rem;
-  color: var(--accent-cyan, #00e5ff);
-  margin: 0;
-}
+.detailPanel .detailState { flex: 1 1 auto; }
+.detailPanel .detailState p { margin: 0; }
 
 .detailMeta {
   display: flex;
-  gap: 16px;
-  font-size: 0.75rem;
-  color: var(--text-secondary, #8888aa);
+  align-items: baseline;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-bottom: 12px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.6;
 }
+.detailMeta > span:last-child { min-width: 0; overflow-wrap: anywhere; }
 
-.detailCloseBtn {
+.detailTabs { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.tabList {
+  display: flex;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.tabList::-webkit-scrollbar { display: none; }
+
+.tab {
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: 0 16px;
   background: none;
   border: none;
-  color: var(--text-secondary, #8888aa);
-  font-size: 1.2rem;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
   cursor: pointer;
-  padding: 4px 8px;
 }
+.tab:hover { color: var(--text-primary); }
+.tab:active { color: var(--hist-accent); }
+.tab:focus-visible { outline: 2px solid var(--hist-accent); outline-offset: -2px; }
+.tabActive { color: var(--hist-accent); border-bottom-color: var(--hist-accent); }
 
-.detailCloseBtn:hover {
-  color: var(--text-primary, #e0e0ff);
-}
+.detailTabPanel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding-top: 12px; }
 
+/* Both tabs are one list, and this is the dialog's only scroll area. */
 .detailBody {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
   overflow-y: auto;
 }
 
-.convoEntry {
-  padding: 8px 12px;
-  border-left: 3px solid transparent;
-  margin-bottom: 4px;
-  border-radius: 0 4px 4px 0;
-  position: relative;
-}
+/* ---- Conversation ------------------------------------------------------- */
 
-.convoEntryHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
+.convoEntry { padding: 8px 12px; border-left: 3px solid transparent; border-radius: 0 6px 6px 0; }
+.convoPrompt { border-left-color: var(--accent-cyan); background: color-mix(in srgb, var(--accent-cyan) 6%, transparent); }
+.convoResponse { border-left-color: var(--accent-green); background: color-mix(in srgb, var(--accent-green) 6%, transparent); }
 
-.copyBtn {
-  background: none;
-  border: 1px solid transparent;
-  color: var(--text-dim, #555577);
-  font-size: 0.8rem;
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 4px;
-  line-height: 1;
-  opacity: 0;
-  transition: opacity 0.15s, color 0.15s, border-color 0.15s;
-}
-
-.convoEntry:hover .copyBtn {
-  opacity: 1;
-}
-
-.copyBtn:hover {
-  color: var(--accent-cyan, #00e5ff);
-  border-color: var(--accent-cyan, #00e5ff);
-}
-
-.convoPrompt {
-  border-left-color: var(--accent-cyan, #00e5ff);
-  background: rgba(0, 229, 255, 0.03);
-}
-
-.convoResponse {
-  border-left-color: var(--accent-green, #00ff88);
-  background: rgba(0, 255, 136, 0.03);
-}
-
-.convoTime {
-  font-size: 0.7rem;
-  color: var(--text-dim, #555577);
-  margin-bottom: 2px;
-}
+.convoEntryHeader { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 24px; }
+.convoMeta { display: flex; align-items: baseline; gap: 8px; font-size: 11px; }
+/* Who spoke is a word, not only the border colour. */
+.convoRole { font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.convoPrompt .convoRole { color: var(--hist-accent); }
+.convoResponse .convoRole { color: color-mix(in srgb, var(--accent-green) 65%, var(--text-primary)); }
+.convoTime { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 
 .convoText {
-  font-size: 0.8rem;
-  color: var(--text-primary, #e0e0ff);
+  margin-top: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.6;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
-.activityEntry {
-  display: flex;
-  gap: 8px;
-  padding: 4px 0;
-  font-size: 0.75rem;
-  align-items: baseline;
-}
+/* ---- Activity ----------------------------------------------------------- */
 
-.activityTime {
-  color: var(--text-dim, #555577);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.activityBadge {
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-size: 0.7rem;
-  font-weight: 600;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.activityBadgeTool {
-  color: var(--accent-orange, #ff9100);
-  background: rgba(255, 145, 0, 0.1);
-}
-
-.activityBadgeEvent {
-  color: var(--accent-purple, #aa66ff);
-  background: rgba(170, 102, 255, 0.1);
-}
-
-.activityDetail {
-  color: var(--text-secondary, #8888aa);
+.activityEntry { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 4px 0; font-size: 12px; line-height: 1.6; }
+.activityTime { flex-shrink: 0; color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* A long MCP tool name ellipsizes instead of pushing the detail out of the panel. */
+.activityEntry .activityChip {
+  display: block;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
+  line-height: 20px;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+.activityDetail { flex: 1 1 200px; min-width: 0; color: var(--text-secondary); overflow-wrap: anywhere; }
+
+/* ---- Motion and touch ---------------------------------------------------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  .row { transition: background-color 150ms ease, border-color 150ms ease; }
+  .tab { transition: color 150ms ease, border-color 150ms ease; }
 }
 
-/* ---- Responsive ---- */
+@media (pointer: coarse) {
+  .rowOpen { min-height: 44px; }
+  .tab { min-height: 44px; }
+}
 
-@media (max-width: 768px) {
-  .row {
-    grid-template-columns: 1fr 80px 28px 28px;
-  }
+/* ---- Responsive ---------------------------------------------------------- */
 
-  .rowProject,
-  .rowDate,
+/* Duration and tool count are the first to go. */
+@media (max-width: 1100px) {
+  .rowOpen { grid-template-columns: minmax(0, 1fr) 112px 152px 128px 88px; }
   .rowDuration,
-  .rowMeta:nth-child(6),
-  .rowMeta:nth-child(7) {
-    display: none;
-  }
+  .rowTools { display: none; }
+}
 
-  .filters {
-    flex-direction: column;
-    align-items: stretch;
-  }
+@media (max-width: 900px) {
+  .rowOpen { grid-template-columns: minmax(0, 1fr) 112px 152px 128px; }
+  .rowPrompts { display: none; }
+}
+
+/* Title, status and the two actions. */
+@media (max-width: 768px) {
+  .rowOpen { grid-template-columns: minmax(0, 1fr) auto; }
+  .rowProject,
+  .rowDate { display: none; }
+  .rowStatus { justify-self: end; }
+}
+
+@media (max-width: 480px) {
+  .view { padding: 8px 16px; }
+  .search { flex-basis: 100%; }
+  /* Two filters to a line. Two classes beat NativeSelect's own
+     `max-width: 280px` whatever order the sheets load in. */
+  .group { flex: 1 1 100%; }
+  .filterField { flex: 1 1 136px; }
+  .filterField .filterControl { flex: 1 1 auto; max-width: none; }
 }

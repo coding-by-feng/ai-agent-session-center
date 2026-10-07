@@ -12,6 +12,7 @@ import {
   writeToTerminal,
   resizeTerminal,
   getTerminalGeometry,
+  clearTerminalOutput,
   setWsClient,
   removeWsClient,
   removeClientFromAllTerminals,
@@ -215,6 +216,17 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
             }
           }
           break;
+        case WS_TYPES.TERMINAL_CLEAR:
+          // The toolbar's "Clear output". The output is the session's, not this
+          // device's: empty the replay ring, then have every subscriber clear on
+          // the same message, so the live view, a later replay and the other
+          // devices all agree on where the clear happened. It changes what every
+          // device sees, so it takes the input gate.
+          if (typeof msg.terminalId === 'string' && client._terminalIds.has(msg.terminalId)) {
+            if (!holdsControl(client, msg.terminalId)) break;
+            if (clearTerminalOutput(msg.terminalId)) broadcastTerminalCleared(msg.terminalId);
+          }
+          break;
         case WS_TYPES.TERMINAL_DISCONNECT:
           // Unsubscribe this client from terminal output without killing the PTY.
           // The PTY is only destroyed by explicit DELETE /api/terminals/:id or session kill.
@@ -350,6 +362,15 @@ function sendGeometry(client: WsClient, terminalId: string): void {
 function broadcastGeometry(terminalId: string): void {
   for (const client of clients) {
     if (client._terminalIds.has(terminalId)) sendGeometry(client, terminalId);
+  }
+}
+
+/** Tell every subscriber of this terminal that its output was cleared. */
+function broadcastTerminalCleared(terminalId: string): void {
+  const payload = JSON.stringify({ type: WS_TYPES.TERMINAL_CLEARED, terminalId });
+  for (const client of clients) {
+    if (!client._terminalIds.has(terminalId) || client.readyState !== 1) continue;
+    try { client.send(payload); } catch { /* socket closed between the check and the write */ }
   }
 }
 

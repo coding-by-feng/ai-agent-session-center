@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sortSessions, sortSessionsByActivity, numberedSessions } from './sessionSort';
+import { sortSessions, sortSessionsByActivity, numberedSessions, isSceneRobotSession } from './sessionSort';
 import type { Session } from '@/types/session';
 
 function s(partial: Partial<Session>): Session {
@@ -143,5 +143,24 @@ describe('numberedSessions', () => {
     const list = [s({ title: 'b' }), s({ title: 'a' })];
     numberedSessions(list);
     expect(list.map((x) => x.title)).toEqual(['b', 'a']);
+  });
+});
+
+// The 3D scene draws a robot only for a session the dashboard launched (its own
+// PTY, `source: 'ssh'`). The LIVE page's 3D empty card decides from the same
+// rule: a claude started in iTerm is listed, but the office stays empty.
+describe('isSceneRobotSession', () => {
+  it('is true for a live session the dashboard launched', () => {
+    expect(isSceneRobotSession(s({ title: 'a', source: 'ssh' }))).toBe(true);
+  });
+
+  it('is false for a session started outside the dashboard', () => {
+    expect(isSceneRobotSession(s({ title: 'a', source: 'iterm' }))).toBe(false);
+    expect(isSceneRobotSession(s({ title: 'b', source: 'terminal' }))).toBe(false);
+  });
+
+  it('is false for an ended session and for a floating popup', () => {
+    expect(isSceneRobotSession(s({ title: 'a', source: 'ssh', status: 'ended' }))).toBe(false);
+    expect(isSceneRobotSession(s({ title: 'b', source: 'ssh', isFloating: true }))).toBe(false);
   });
 });

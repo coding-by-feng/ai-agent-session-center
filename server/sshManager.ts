@@ -1174,6 +1174,19 @@ export function getTerminalSessionId(terminalId: string): string | null {
   return terminals.get(terminalId)?.sessionId ?? null;
 }
 
+/**
+ * Forget a terminal's output so far: the toolbar's "Clear output". Refresh,
+ * reconnect, a remount and every other device paint from this ring, so a clear
+ * that only blanked one screen would come straight back. Nothing is written to
+ * the PTY. Returns false when there is no such terminal.
+ */
+export function clearTerminalOutput(terminalId: string): boolean {
+  const term = terminals.get(terminalId);
+  if (!term) return false;
+  ringReset(term);
+  return true;
+}
+
 /** Get the raw output ring buffer for a terminal (base64-encoded). */
 export function getTerminalOutputBuffer(terminalId: string): string | null {
   const term = terminals.get(terminalId);

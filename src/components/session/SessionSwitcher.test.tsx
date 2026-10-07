@@ -1762,12 +1762,12 @@ describe('SessionSwitcher — start a session without leaving the panel', () => 
     );
 
   beforeEach(() => {
-    useUiStore.setState({ activeModal: null, workdirLauncherOpen: false });
+    useUiStore.setState({ activeModal: null });
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ paths: [] }) }));
   });
 
   afterEach(() => {
-    useUiStore.setState({ activeModal: null, workdirLauncherOpen: false });
+    useUiStore.setState({ activeModal: null });
     vi.unstubAllGlobals();
   });
 

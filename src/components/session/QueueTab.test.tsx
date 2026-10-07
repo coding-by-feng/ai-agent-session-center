@@ -27,12 +27,20 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
 import { installClipHarness } from '@/__tests__/clipHarness';
 import { openQueuePopout } from '@/lib/queuePopout';
+import { sendPromptToTerminal, IMAGE_SUBMIT_ENTER_DELAY_MS } from '@/lib/terminalSend';
+import type { QueueItem } from '@/stores/queueStore';
 
 // The float button's only job is to call this; what it does (IPC / window.open) is
 // covered by queuePopout.test.ts. The title helper stays real.
 vi.mock('@/lib/queuePopout', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/queuePopout')>()),
   openQueuePopout: vi.fn(),
+}));
+
+// The PTY write is the boundary for the SEND tests; nothing else here sends.
+vi.mock('@/lib/terminalSend', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/terminalSend')>()),
+  sendPromptToTerminal: vi.fn(async () => true),
 }));
 
 // A phone is a viewport, not a capability: tests flip this to see the phone layout.
@@ -573,4 +581,49 @@ describe('QueueTab — expanding a long prompt', () => {
       });
     });
   }
+});
+
+describe('QueueTab — manual SEND', () => {
+  const IMG = '/tmp/claude-queue-images/queue-img-1-abc.png';
+  const send = vi.mocked(sendPromptToTerminal);
+
+  beforeEach(() => {
+    send.mockReset();
+    send.mockImplementation(async () => true);
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      url === '/api/queue-images'
+        ? new Response(JSON.stringify({ paths: [IMG] }), { status: 200 })
+        : new Response('{}', { status: 200 }),
+    ));
+    const item: QueueItem = {
+      id: 7, sessionId: 's1', text: 'describe this', position: 0, createdAt: 1, type: 'once',
+      images: [{ name: 'shot.png', dataUrl: 'data:image/png;base64,AAAA' }],
+    };
+    useQueueStore.setState({ queues: new Map([['s1', [item]]]), automation: new Map(), composeDrafts: new Map() });
+    useSessionStore.setState({ sessions: new Map(), selectedSessionId: null });
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it('gives an image prompt the longer pause before its Enter', async () => {
+    render(<QueueTab sessionId="s1" sessionStatus="waiting" terminalId="term-1" />);
+    await userEvent.setup().click(screen.getByRole('button', { name: 'SEND' }));
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][1]).toBe(`describe this\n${IMG}`);
+    expect(send.mock.calls[0][3]).toBe(IMAGE_SUBMIT_ENTER_DELAY_MS);
+  });
+
+  it('a second click while the first send is still waiting to press Enter does not type it twice', async () => {
+    let finish: (ok: boolean) => void = () => {};
+    send.mockImplementationOnce(() => new Promise<boolean>((resolve) => { finish = resolve; }));
+    render(<QueueTab sessionId="s1" sessionStatus="waiting" terminalId="term-1" />);
+    const user = userEvent.setup();
+    const button = screen.getByRole('button', { name: 'SEND' });
+    await user.click(button);
+    await user.click(button);
+    expect(send).toHaveBeenCalledTimes(1);
+    finish(true);
+  });
 });

@@ -1,7 +1,6 @@
 /* ============================================================
    NavBar CSS Module
-   Main navigation, nav actions, quick action buttons,
-   keyboard shortcuts button, view panels
+   Main navigation (the route tabs), view panels
    ============================================================ */
 
 /* #70: Apply safe area insets for iPhone notch/Dynamic Island */
@@ -18,15 +17,28 @@
 }
 
 
+/* The tabs are <a> (NavLink), so they reset the UA underline themselves: with
+   only `background: none; border: none` every label rendered underlined like a
+   hyperlink, in every theme. inline-flex + center keeps a label, the AGENDA
+   count and LIVE's cue dot on one line — the old badge's `vertical-align:
+   super` grew AGENDA's line box and dropped its label ~7px below the others.
+   Labels at rest are --text-secondary: --text-dim measures under 4.5:1 for
+   11px text on the dark and windows-xp headers. The accent is mixed toward the
+   text colour for the same reason on the light themes. */
 .navBtn {
-  background: none; border: none; color: var(--text-dim);
+  --nav-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
+  display: inline-flex; align-items: center; gap: 6px;
+  background: none; border: none; color: var(--text-secondary);
   font-family: var(--font-mono); font-size: 11px; font-weight: 500;
   letter-spacing: 1.5px; padding: 10px 20px; cursor: pointer;
+  text-decoration: none; white-space: nowrap;
   border-bottom: 2px solid transparent;
   transition: color 0.2s, border-color 0.2s;
 }
-.navBtn:hover { color: var(--text-secondary); }
-.navBtn.active { color: var(--accent-cyan); border-bottom-color: var(--accent-cyan); }
+.navBtn:hover { color: var(--text-primary); }
+.navBtn:active { color: var(--nav-accent); }
+.navBtn:focus-visible { outline: 2px solid var(--nav-accent); outline-offset: -4px; }
+.navBtn.active { color: var(--nav-accent); border-bottom-color: var(--nav-accent); }
 
 /* Dot on the LIVE tab while the LIVE board's one-time tip is up (lib/liveHint.ts),
    so "LIVE" in the tip has something to point at. LIVE is already the active tab,
@@ -34,54 +46,15 @@
    purpose: a pulse that never ends is noise, and the tip beside it does the asking. */
 .liveCueDot {
   display: inline-block;
+  flex-shrink: 0;
   width: 6px;
   height: 6px;
-  margin-left: 6px;
   border-radius: 50%;
   background: var(--accent-cyan);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-cyan) 25%, transparent);
-  vertical-align: 1px;
 }
 
-.badge {
-  display: inline-flex; align-items: center; justify-content: center;
-  background: var(--accent-cyan); color: #fff;
-  font-size: 9px; font-weight: 700; line-height: 1;
-  min-width: 16px; height: 16px; padding: 0 4px;
-  border-radius: 8px; margin-left: 4px;
-  vertical-align: super;
-}
-
-
-/* ---- Nav Actions ---- */
-
-.actions { display: flex; align-items: center; gap: 8px; }
-.actionsItems { display: flex; align-items: center; gap: 8px; transition: opacity 0.2s, max-width 0.3s; overflow: visible; max-width: 600px; }
-.actions.collapsed .actionsItems { max-width: 0; opacity: 0; padding: 0; gap: 0; }
-
-.actionsToggle {
-  background: none; border: none; color: var(--text-secondary);
-  font-size: 14px; cursor: pointer; padding: 4px 6px;
-  border-radius: 4px; transition: all 0.2s; flex-shrink: 0;
-}
-.actionsToggle:hover { color: var(--accent-cyan); background: var(--bg-subtle); }
-
-.qaBtn {
-  background: none; border: 1px solid var(--border-subtle);
-  color: var(--text-secondary); font-family: var(--font-mono);
-  font-size: 10px; font-weight: 700; letter-spacing: 1px;
-  padding: 5px 12px; border-radius: 4px; cursor: pointer;
-  transition: all 0.2s; white-space: nowrap;
-}
-.qaBtn:hover { background: var(--bg-subtle); color: var(--accent-cyan); border-color: var(--border-accent); }
-.qaBtn.active { background: rgba(255, 51, 85, 0.15); color: var(--accent-red); border-color: var(--accent-red); }
-.qaBtn.terminal { color: #4caf50 !important; }
-.qaBtn.terminal:hover { background: rgba(76, 175, 80, 0.15) !important; }
-.qaBtn.quick { color: var(--accent-cyan) !important; border-color: var(--accent-cyan) !important; }
-.qaBtn.quick:hover { background: rgba(0, 229, 255, 0.12) !important; }
-
-/* ---- Keyboard Shortcuts Button ---- */
-
+/* The AGENDA count is <CountBadge tone="accent"> (Chip.module.css). */
 
 /* ---- View Panels ---- */
 
@@ -112,38 +85,13 @@
     white-space: nowrap;
     flex-shrink: 0;
   }
-
-  /* #59 — Ensure action buttons stay visible and don't overflow */
-  .actions {
-    flex-shrink: 0;
-    margin-left: 8px;
-  }
-
-  .actionsItems {
-    gap: 4px;
-    overflow: visible;
-    max-width: none;
-  }
-
-  .qaBtn {
-    padding: 5px 8px;
-    font-size: 9px;
-    white-space: nowrap;
-  }
 }
 
-/* #59 — Touch targets for nav/action buttons on coarse pointer devices */
+/* #59 — Touch targets for the nav tabs on coarse pointer devices */
 @media (pointer: coarse) {
   .navBtn {
     min-height: 44px;
     padding: 0 14px;
-    display: inline-flex;
-    align-items: center;
-  }
-
-  .qaBtn {
-    min-height: 44px;
-    padding: 0 12px;
     display: inline-flex;
     align-items: center;
   }

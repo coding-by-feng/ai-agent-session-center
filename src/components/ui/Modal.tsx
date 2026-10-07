@@ -38,20 +38,24 @@ export default function Modal({ modalId, children, title, onClose, panelClassNam
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, handleClose]);
 
-  // Focus trap
+  // Focus trap. The focusable set is read on every Tab, not once at open, and
+  // skips disabled controls: a confirm button that stays disabled until a field
+  // is filled in used to be `last`, so focus could never equal it and Tab
+  // walked out of the dialog.
   useEffect(() => {
     if (!isOpen || !contentRef.current) return;
-
-    const focusable = contentRef.current.querySelectorAll<HTMLElement>(
+    const content = contentRef.current;
+    const focusables = () => Array.from(content.querySelectorAll<HTMLElement>(
       'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-    );
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
+    )).filter((el) => !(el as HTMLButtonElement).disabled);
 
-    first?.focus();
+    focusables()[0]?.focus();
 
     function trapFocus(e: KeyboardEvent) {
       if (e.key !== 'Tab') return;
+      const focusable = focusables();
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
       if (focusable.length === 0) {
         e.preventDefault();
         return;

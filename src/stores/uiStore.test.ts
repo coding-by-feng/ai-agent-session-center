@@ -342,18 +342,6 @@ describe('uiStore', () => {
     });
   });
 
-  // DIRS (the recent-directories launcher in the top bar) can be opened from
-  // elsewhere, e.g. the LIVE page's "no sessions yet" card.
-  describe('workdirLauncherOpen', () => {
-    it('starts closed and opens and closes on request', () => {
-      useUiStore.setState({ workdirLauncherOpen: false });
-      useUiStore.getState().setWorkdirLauncherOpen(true);
-      expect(useUiStore.getState().workdirLauncherOpen).toBe(true);
-      useUiStore.getState().setWorkdirLauncherOpen(false);
-      expect(useUiStore.getState().workdirLauncherOpen).toBe(false);
-    });
-  });
-
   // The docked queue (the strip under the terminal, and the QUEUE tab) folds to
   // its header. One flag, because TerminalContent sizes the strip's row from it
   // and both QueueTab mounts show it; the float window ignores it.

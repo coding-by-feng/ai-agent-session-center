@@ -98,4 +98,39 @@ describe('Modal', () => {
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(dialog).toHaveAttribute('aria-label', 'Dialog Title');
   });
+
+  // A confirm button that stays disabled until a field is filled in used to be
+  // the trap's `last`: focus could never equal it, so Tab walked out of the
+  // dialog to the page behind the overlay.
+  it('keeps Tab inside when the last button is disabled', () => {
+    useUiStore.setState({ activeModal: 'test' });
+    render(
+      <>
+        <button type="button">Outside</button>
+        <Modal modalId="test">
+          <input aria-label="Name" />
+          <button type="button">Cancel</button>
+          <button type="button" disabled>Confirm</button>
+        </Modal>
+      </>,
+    );
+    screen.getByRole('button', { name: 'Cancel' }).focus();
+    const tab = fireEvent.keyDown(document, { key: 'Tab' });
+    expect(tab).toBe(false); // default prevented: the trap handled it
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Name' }));
+  });
+
+  it('wraps Shift+Tab from the first control to the last ENABLED one', () => {
+    useUiStore.setState({ activeModal: 'test' });
+    render(
+      <Modal modalId="test">
+        <input aria-label="Name" />
+        <button type="button">Cancel</button>
+        <button type="button" disabled>Confirm</button>
+      </Modal>,
+    );
+    screen.getByRole('textbox', { name: 'Name' }).focus();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' }));
+  });
 });

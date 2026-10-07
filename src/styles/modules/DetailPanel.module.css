@@ -505,12 +505,6 @@
    presence chip) rather than green/orange, which already mean success and
    alert on this bar. The OFF state deliberately keeps the default neutral
    style — host-only is the safe default and should not read as a warning. */
-/* Auto-relink: purple, so it reads as a distinct axis from 📡 SHARED (cyan,
-   "who may SEE this session") — the two sit next to each other and both
-   concern remote access, which is exactly why they must not look alike. */
-.ctrlBtn.rcDaemonOn { color: var(--accent-purple, #a855f7); border-color: var(--accent-purple, #a855f7); background: rgba(168, 85, 247, 0.18); font-weight: 900; }
-.ctrlBtn.rcDaemonOn:hover { background: rgba(168, 85, 247, 0.28); }
-
 .ctrlBtn.remoteShared { color: var(--accent-cyan, #00e5ff); border-color: var(--accent-cyan, #00e5ff); background: rgba(0, 229, 255, 0.18); font-weight: 900; }
 .ctrlBtn.remoteShared:hover { background: rgba(0, 229, 255, 0.28); }
 
@@ -1017,9 +1011,9 @@
   padding-right: 4px;
 }
 
-/* + (new session) and the folder (recent directories): the top bar's + NEW and
-   DIRS as icons, here because App.tsx unmounts the top bar while a panel is
-   open. One child of .switcherMeta, so a wrap never splits the pair. */
+/* + (new session) and the folder (recent directories): where sessions are
+   started while any exists (the top bar's + NEW and DIRS were removed, Oct 2026).
+   One child of .switcherMeta, so a wrap never splits the pair. */
 .switcherLaunch {
   display: flex;
   align-items: center;

@@ -1,6 +1,7 @@
 /**
  * ResourceDetail — the right pane: what a resource is, where it lives, and a
- * read-only look inside (Preview / Files / Compare), plus its findings.
+ * read-only look inside (Preview / Files / Compare), plus its findings. Its one
+ * write is the header's Uninstall (UninstallControls.tsx), a move to the trash.
  *
  * Mounted with `key={id}` by the view, so every selection starts from a clean
  * "loading" state and a fresh Preview tab without resetting state in an effect.
@@ -37,6 +38,7 @@ import {
 } from '@/lib/resourcesApi';
 import ConfigDetail from './ConfigDetail';
 import ResourceCompare from './ResourceCompare';
+import { UninstallAction } from './UninstallControls';
 import styles from '@/styles/modules/Resources.module.css';
 
 // See ResourceMarkdown's header: this boundary keeps react-markdown and
@@ -63,6 +65,11 @@ interface ResourceDetailProps {
   shortcuts: ResourceShortcuts;
   onSelect: (id: string) => void;
   onBack: () => void;
+  /**
+   * Opens the uninstall dialog. The VIEW renders it (UninstallControls.tsx): this
+   * pane remounts whenever a scan lands, which would destroy a dialog inside it.
+   */
+  onRequestUninstall: (summary: ResourceSummary, otherCopies: string[]) => void;
 }
 
 /**
@@ -106,7 +113,8 @@ function DetailHeader({
   projectsById,
   shortcuts,
   onSelect,
-}: Pick<ResourceDetailProps, 'byId' | 'projectsById' | 'shortcuts' | 'onSelect'> & { summary: ResourceSummary }) {
+  onRequestUninstall,
+}: Pick<ResourceDetailProps, 'byId' | 'projectsById' | 'shortcuts' | 'onSelect' | 'onRequestUninstall'> & { summary: ResourceSummary }) {
   const variants = compareTargets(summary, byId, projectsById).filter((o) => o.value !== 'repo');
   const files = summary.fileCount === 1 ? '1 file' : `${summary.fileCount} files`;
   return (
@@ -114,6 +122,7 @@ function DetailHeader({
       <div className={styles.detailTitleRow}>
         <h2 className={styles.detailTitle}>{summary.name}</h2>
         <span className={styles.detailType}>{RESOURCE_TYPE_SINGULAR[summary.type]}</span>
+        <UninstallAction summary={summary} onRequest={() => onRequestUninstall(summary, variants.map((v) => v.label))} />
       </div>
       <p className={styles.detailMeta}>
         {[AGENT_LABELS[summary.agent], scopeName(summary, projectsById), summary.origin].join(' · ')}
@@ -315,7 +324,7 @@ function DetailBody({ id, detail, summary, byId, projectsById }: {
   );
 }
 
-export default function ResourceDetail({ id, summary: catalogSummary, byId, projectsById, shortcuts, onSelect, onBack }: ResourceDetailProps) {
+export default function ResourceDetail({ id, summary: catalogSummary, byId, projectsById, shortcuts, onSelect, onBack, onRequestUninstall }: ResourceDetailProps) {
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
 
@@ -344,7 +353,16 @@ export default function ResourceDetail({ id, summary: catalogSummary, byId, proj
       <button type="button" className={styles.backButton} onClick={onBack} aria-label="Back to list">
         ‹ Back
       </button>
-      {summary && <DetailHeader summary={summary} byId={byId} projectsById={projectsById} shortcuts={shortcuts} onSelect={onSelect} />}
+      {summary && (
+        <DetailHeader
+          summary={summary}
+          byId={byId}
+          projectsById={projectsById}
+          shortcuts={shortcuts}
+          onSelect={onSelect}
+          onRequestUninstall={onRequestUninstall}
+        />
+      )}
       {load.status === 'loading' && <p className={styles.muted}>Loading…</p>}
       {load.status === 'missing' && (
         <p className={styles.emptyNote}>

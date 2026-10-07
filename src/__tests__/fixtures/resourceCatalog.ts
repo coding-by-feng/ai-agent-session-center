@@ -391,7 +391,9 @@ export function urlParams(): URLSearchParams {
 
 /** The counts line only appears once a catalog has loaded, in every section. */
 export async function ready(): Promise<void> {
-  await screen.findByText(/ projects? · scanned /);
+  // LAZY, not the 1 s default: the whole suite runs in parallel, and on a busy
+  // machine the first render of the tab alone can take longer than that.
+  await screen.findByText(/ projects? · scanned /, {}, LAZY);
 }
 
 export function rail() {

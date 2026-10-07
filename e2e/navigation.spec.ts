@@ -41,11 +41,14 @@ test.describe('Navigation', () => {
     await expect(liveLink).not.toHaveClass(/active/);
   });
 
-  test('new session button opens modal', async ({ page }) => {
+  // + NEW and DIRS left the top bar (Oct 2026): sessions are started from the
+  // session panel's strip, or, with no session yet, from the LIVE page's card.
+  test('the top bar carries no session launchers', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: '+ NEW' }).click();
-    // Modal should appear
-    await expect(page.getByRole('dialog')).toBeVisible();
+    const nav = page.locator('nav');
+    await expect(nav.getByRole('link', { name: 'LIVE' })).toBeVisible();
+    await expect(nav.getByRole('button', { name: '+ NEW' })).toHaveCount(0);
+    await expect(nav.getByRole('button', { name: 'DIRS' })).toHaveCount(0);
   });
 
   test('shortcuts button opens shortcuts panel', async ({ page }) => {

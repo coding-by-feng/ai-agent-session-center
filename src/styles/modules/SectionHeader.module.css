@@ -1,0 +1,69 @@
+/* SectionHeader — the header over a group of rows (a priority, a day, a
+   session): caption, count beside it, a hairline to the edge, an aside.
+
+   The count sits next to its label on purpose. A `flex: 1` label pushes it to
+   the far edge, ~1,900px from the word it counts on a wide window (AGENDA's
+   priority groups, Oct 2026); the rule fills that space instead and still
+   reads as structure. */
+
+.header {
+  --sh-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  margin: 0;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 400;
+}
+.sticky { position: sticky; top: 0; z-index: 2; background: var(--bg-primary); }
+
+.title,
+.toggle { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.title { flex: 1 1 auto; }
+
+/* A real button: the old header was a click-only <div> a keyboard could not
+   reach. It spans the row (rule included) so the whole line stays clickable. */
+.toggle {
+  flex: 1 1 auto;
+  min-height: 32px;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.toggle:hover .label,
+.toggle:hover .chevron { color: var(--text-primary); }
+.toggle:active .label { color: var(--sh-accent); }
+.toggle:focus-visible { outline: 2px solid var(--sh-accent); outline-offset: 2px; }
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.chevron { width: 10px; height: 10px; flex-shrink: 0; color: var(--text-secondary); }
+.collapsed .chevron { transform: rotate(-90deg); }
+
+.rule { flex: 1 1 auto; min-width: 16px; height: 1px; background: var(--border-subtle); }
+.aside { flex-shrink: 0; color: var(--text-secondary); font-size: 11px; white-space: nowrap; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .chevron { transition: transform 150ms ease, color 150ms ease; }
+  .label { transition: color 150ms ease; }
+}
+
+@media (pointer: coarse) {
+  .toggle { min-height: 44px; }
+}

@@ -1,11 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
 import styles from '@/styles/modules/Modal.module.css';
 
+/** A single button on a toast (e.g. "Restore"). Clicking it runs once and dismisses the toast. */
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 interface Toast {
   id: string;
   message: string;
   type: 'info' | 'success' | 'error' | 'warning';
   duration: number;
+  action?: ToastAction;
 }
 
 const DEFAULT_DURATION = 3000;
@@ -18,12 +25,14 @@ export function showToast(
   message: string,
   type: Toast['type'] = 'info',
   duration = DEFAULT_DURATION,
+  action?: ToastAction,
 ): void {
   const toast: Toast = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     message,
     type,
     duration,
+    ...(action ? { action } : {}),
   };
   for (const listener of listeners) {
     listener(toast);
@@ -64,6 +73,11 @@ export default function ToastContainer() {
     return () => timers.forEach(clearTimeout);
   }, [toasts]);
 
+  const runAction = useCallback((toast: Toast) => {
+    setToasts((prev) => prev.filter((t) => t.id !== toast.id));
+    toast.action?.onClick();
+  }, []);
+
   if (toasts.length === 0) return null;
 
   return (
@@ -75,6 +89,11 @@ export default function ToastContainer() {
           style={{ borderColor: typeMap[toast.type] }}
         >
           <span className={styles.toastMsg}>{toast.message}</span>
+          {toast.action && (
+            <button type="button" className={styles.toastAction} onClick={() => runAction(toast)}>
+              {toast.action.label}
+            </button>
+          )}
         </div>
       ))}
     </div>

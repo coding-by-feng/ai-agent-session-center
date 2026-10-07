@@ -40,7 +40,7 @@ import { getCodexModelCatalog } from './codexModelCatalog.js';
 import { synthesize as ttsSynthesize, checkApiKey as ttsCheckApiKey } from './ttsManager.js';
 import { readClaudeTranscript, resolveResumableClaudeSessionId } from './extractPreviousAnswer.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
-import type { PromptKind } from '../src/types/api.js';
+import type { PromptKind, SessionSearchParams } from '../src/types/api.js';
 
 const __apiDirname = dirname(fileURLToPath(import.meta.url));
 
@@ -1461,25 +1461,6 @@ router.post('/sessions/:id/queue/resume', (req: Request, res: Response) => {
  * live — the setting is per session, not per device, so a phone and the
  * desktop must not disagree about whether selecting text pops the AI menu.
  */
-/**
- * Arm/disarm the Remote Control relink daemon for one session.
- *
- * Disarming is sticky in the daemon — nothing re-arms automatically — so this
- * is the only way the flag ever becomes true.
- */
-router.put('/sessions/:id/remote-control-daemon', async (req: Request, res: Response) => {
-  const id = str(req.params.id);
-  const session = getSession(id);
-  if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
-  const armed = req.body?.armed === true;
-  const rcd = await import('./remoteControlDaemon.js');
-  rcd.setArmed(id, armed);
-  session.remoteControlDaemon = armed;
-  const { broadcast } = await import('./wsManager.js');
-  broadcast({ type: WS_TYPES.SESSION_UPDATE, session });
-  res.json({ ok: true, armed, name: rcd.remoteControlNameFor(session) });
-});
-
 router.put('/sessions/:id/ai-popup', async (req: Request, res: Response) => {
   const id = str(req.params.id);
   if (!getSession(id)) { res.status(404).json({ error: 'Session not found' }); return; }
@@ -2119,15 +2100,19 @@ router.use('/db/prompts', requireLocalForHistory);
 // Search/list sessions from DB (used by history panel, replaces IndexedDB reads)
 router.get('/db/sessions', (req: Request, res: Response) => {
   const { query, project, status, dateFrom, dateTo, archived, sortBy, sortDir, page, pageSize } = req.query;
+  // Every param through str(): a repeated key (`?project=a&project=b`) arrives
+  // as an array, which better-sqlite3 flattens into too many bound values and
+  // throws — Express's default handler then answered 500 with the stack trace.
   const result = db.searchSessions({
-    query: (query as string) || undefined,
-    project: (project as string) || undefined,
-    status: (status as string) || undefined,
-    dateFrom: dateFrom ? Number(dateFrom) : undefined,
-    dateTo: dateTo ? Number(dateTo) : undefined,
-    archived: (archived as string) || undefined,
-    sortBy: ((sortBy as string) || 'started_at') as 'started_at' | 'last_activity_at' | 'project_name' | 'status',
-    sortDir: ((sortDir as string) || 'desc') as 'asc' | 'desc',
+    query: str(query) || undefined,
+    project: str(project) || undefined,
+    status: str(status) || undefined,
+    dateFrom: str(dateFrom) ? Number(str(dateFrom)) : undefined,
+    dateTo: str(dateTo) ? Number(str(dateTo)) : undefined,
+    archived: str(archived) || undefined,
+    // Cast only — db.searchSessions whitelists the column before it reaches SQL.
+    sortBy: (str(sortBy) || 'started_at') as NonNullable<SessionSearchParams['sortBy']>,
+    sortDir: (str(sortDir) || 'desc') as 'asc' | 'desc',
     page: Math.max(1, Math.min(1000, page ? parseInt(String(page), 10) || 1 : 1)),
     pageSize: Math.max(1, Math.min(200, pageSize ? parseInt(String(pageSize), 10) || 50 : 50)),
   });

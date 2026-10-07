@@ -108,10 +108,18 @@ export default function QueueMovePicker({
     return () => document.removeEventListener('keydown', handleEscape);
   }, [onClose]);
 
-  // Focus the list on open so arrow-key navigation works without an extra click.
+  // Focus the list on open so arrow-key navigation works without an extra click
+  // — once it is PLACED. A mount effect ran while the menu was still in its
+  // `visibility: hidden` pre-measure frame (the placement re-render comes after
+  // it), and browsers refuse to focus a hidden element: focus stayed on the
+  // MOVE button, so ↑/↓ + Enter could never start from the keyboard. jsdom
+  // focuses hidden elements, which is why no unit test caught it.
+  const focusedOnOpen = useRef(false);
   useEffect(() => {
+    if (!pos || focusedOnOpen.current) return;
+    focusedOnOpen.current = true;
     ref.current?.focus();
-  }, []);
+  }, [pos]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

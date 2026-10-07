@@ -1,0 +1,168 @@
+/* Button + IconButton — the shared button vocabulary for the view tabs
+   (AGENDA … RESOURCES) and whatever is built after them.
+
+   Extracted from the RESOURCES tab (.button / .toggle in Resources.module.css),
+   the first view checked against every theme, so the other tabs stop re-rolling
+   it: one height scale (32px md, 24px sm), all five states, 44px targets on
+   coarse pointers, motion only when the user has not asked for less.
+
+   --btn-accent mixes the raw accent with --text-primary. The raw accents are
+   tuned for dark backgrounds and land near 3:1 on the light and windows-xp
+   whites; mixed 80/20 they read at roughly 5-7:1 there and stay bright on the
+   dark themes. Declared on the element, never on :root: themes set their
+   variables on <body>, so a :root mix would freeze the dark palette. */
+
+.button,
+.iconButton {
+  --btn-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
+  /* Text on an accent TINT (primary, pressed) mixes further toward the text
+     colour: at 80% it measured 3.96:1 on light and 3.92:1 on solarized over
+     the 14% fill (Oct 2026). */
+  --btn-accent-text: color-mix(in srgb, var(--accent-cyan) 65%, var(--text-primary));
+  --btn-danger: color-mix(in srgb, var(--accent-red) 75%, var(--text-primary));
+  --btn-warning: color-mix(in srgb, var(--accent-yellow) 75%, var(--text-primary));
+}
+
+/* ---- Button -------------------------------------------------------------- */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: 0 12px;
+  background: transparent;
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-transform: uppercase;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.button:hover:not(:disabled) { background: var(--bg-accent); border-color: var(--btn-accent); color: var(--btn-accent); }
+.button:active:not(:disabled) { background: var(--bg-accent-strong); }
+.button:focus-visible { outline: 2px solid var(--btn-accent); outline-offset: 2px; }
+.button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* The icon gets its own box: a JSX child on its own line would sit flush
+   against the label, and a text space between them is not a layout. */
+.buttonIcon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.buttonIcon svg { width: 12px; height: 12px; }
+
+.sm { min-height: 24px; padding: 0 8px; gap: 4px; }
+
+/* primary — the one action a view leads with (Add task, Add to queue). */
+.primary { background: color-mix(in srgb, var(--accent-cyan) 14%, transparent); border-color: var(--btn-accent); color: var(--btn-accent-text); }
+.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-cyan) 24%, transparent); }
+.primary:active:not(:disabled) { background: color-mix(in srgb, var(--accent-cyan) 32%, transparent); }
+
+/* danger — destructive, at rest already distinct from a neutral action. */
+.danger { border-color: color-mix(in srgb, var(--accent-red) 50%, transparent); color: var(--btn-danger); }
+.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-red) 12%, transparent); border-color: var(--btn-danger); color: var(--btn-danger); }
+.danger:active:not(:disabled) { background: color-mix(in srgb, var(--accent-red) 20%, transparent); }
+.danger:focus-visible { outline-color: var(--btn-danger); }
+
+/* quiet — a text-weight action that should not compete with the content. */
+.quiet { border-color: transparent; color: var(--text-secondary); }
+.quiet:hover:not(:disabled) { background: var(--bg-subtle-strong); border-color: transparent; color: var(--text-primary); }
+.quiet:active:not(:disabled) { background: var(--bg-accent-strong); }
+
+/* pressed — a toggle that is on. A stronger fill than hover, so "on" and
+   "hovered" never read the same. */
+.pressed,
+.pressed:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-cyan) 18%, transparent);
+  border-color: var(--btn-accent);
+  color: var(--btn-accent-text);
+}
+/* After the rule above (same 0-3-0): without it a press on an "on" toggle
+   gave no feedback, because pressed:hover repainted the hover fill. */
+.pressed:active:not(:disabled) { background: color-mix(in srgb, var(--accent-cyan) 28%, transparent); }
+
+/* ---- IconButton ------------------------------------------------------------
+   The glyph IS the button, so its two sizes are kept apart: the element is
+   the hit target (28px; 44px on coarse pointers) and the visible chip is
+   ::before, inset so it stays 28px everywhere. Growing the element's own
+   background would paint 44px slabs on exactly the touch screens the 44px is
+   for. `z-index: 0` gives the button its own stacking context, so the chip's
+   `z-index: -1` sits behind the glyph but inside the button — without it the
+   chip escapes behind the row and the button looks unstyled. Every state paints
+   the chip, never the element. */
+
+.iconButton {
+  position: relative;
+  z-index: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.iconButton::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+.iconButton svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+.iconSm { width: 24px; height: 24px; font-size: 12px; }
+.iconSm svg { width: 12px; height: 12px; }
+
+.iconButton:hover:not(:disabled) { color: var(--text-primary); }
+.iconButton:hover:not(:disabled)::before { background: var(--bg-subtle-strong); }
+.iconButton:active:not(:disabled)::before { background: var(--bg-accent-strong); }
+/* The ring is drawn on the chip. The transparent outline is for forced-colors
+   mode (Windows High Contrast), which drops box-shadow but paints a
+   transparent outline in the system colour — `outline: none` left no focus
+   indicator there at all. */
+.iconButton:focus-visible { outline: 2px solid transparent; outline-offset: -2px; }
+.iconButton:focus-visible::before { box-shadow: 0 0 0 2px var(--btn-accent); }
+.iconButton:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.iconButton[aria-pressed='true'] { color: var(--btn-accent); }
+.iconButton[aria-pressed='true']::before { background: var(--bg-accent); border-color: var(--border-accent-strong); }
+
+.iconDanger:hover:not(:disabled) { color: var(--btn-danger); }
+.iconDanger:hover:not(:disabled)::before { background: color-mix(in srgb, var(--accent-red) 12%, transparent); }
+.iconDanger:active:not(:disabled)::before { background: color-mix(in srgb, var(--accent-red) 20%, transparent); }
+
+/* warning — the favourite star: yellow when on, no chip (a star is its own mark). */
+.iconWarning:hover:not(:disabled),
+.iconWarning[aria-pressed='true'] { color: var(--btn-warning); }
+.iconWarning[aria-pressed='true']::before { background: transparent; border-color: transparent; }
+
+/* ---- Motion and touch ----------------------------------------------------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  .button,
+  .iconButton,
+  .iconButton::before { transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease; }
+}
+
+@media (pointer: coarse) {
+  /* Width too: a short label ("All") measured 39.8px wide on touch. */
+  .button { min-height: 44px; min-width: 44px; }
+  .iconButton,
+  .iconSm { width: 44px; height: 44px; }
+  .iconButton::before { inset: 8px; }
+  .iconSm::before { inset: 10px; }
+}

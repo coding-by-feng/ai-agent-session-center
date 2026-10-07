@@ -1,0 +1,105 @@
+/* FormControl — TextInput, NativeSelect, Field and SearchInput's `field`
+   variant: the shared input vocabulary, extracted from the RESOURCES tab's
+   .search / .select / .field so every tab's toolbar is the same height, border
+   and focus ring.
+
+   Two theme traps this file exists to absorb:
+   - windows-xp restyles every input and select with `body[data-theme] select`
+     (0-1-2), which outranks any one-class rule here. It wins on background,
+     border and radius — that IS the XP look, so nothing here fights it — and
+     it repaints its own chevron at `right 10px`. .select therefore keeps 28px
+     of right padding, so a label never runs under either chevron.
+   - Background longhands only. A `background` shorthand resets
+     background-image too, and would silently erase the chevron beside it. */
+
+.control {
+  --fc-accent: color-mix(in srgb, var(--accent-cyan) 80%, var(--text-primary));
+  box-sizing: border-box;
+  height: 32px;
+  min-width: 0;
+  padding: 0 12px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+}
+/* Placeholder is the 60/40 primary/secondary mix the chips use: bare
+   --text-secondary on --bg-card measured 2.9:1 (solarized), 3.7 (nord), 4.3
+   (monokai). Still visibly lighter than typed text. */
+.control::placeholder { color: color-mix(in srgb, var(--text-primary) 60%, var(--text-secondary)); opacity: 1; }
+.control:hover:not(:disabled) { border-color: var(--border-accent-strong); }
+/* Invalid is an inset outline as well as a border: windows-xp's field rule
+   (0-5-2) repaints border and box-shadow, but never outline, so the state
+   still shows there. Declared before :focus-visible so focus wins on focus. */
+.control[aria-invalid='true'] { border-color: var(--accent-red); outline: 1px solid var(--accent-red); outline-offset: -1px; }
+.control:focus-visible { outline: 2px solid var(--fc-accent); outline-offset: 1px; border-color: var(--fc-accent); }
+.control:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.select {
+  max-width: 280px;
+  padding: 0 28px 0 8px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238888aa'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 10px 6px;
+  text-overflow: ellipsis;
+}
+/* base.css gives every select a cyan focus glow tuned for the dark theme; the
+   outline above is the focus indicator here. */
+.select:focus { box-shadow: none; }
+
+/* ---- TextArea: the control box, multi-line ---------------------------------- */
+
+.textarea {
+  height: auto;
+  min-height: 56px;
+  padding: 8px 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+/* ---- Field: caption + control ---------------------------------------------- */
+
+.field { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.fieldLabel {
+  color: var(--text-secondary);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ---- SearchInput (field variant) ------------------------------------------- */
+
+.search { position: relative; display: flex; align-items: center; min-width: 0; }
+.searchInput { width: 100%; padding-left: 32px; padding-right: 32px; }
+.searchIcon {
+  position: absolute;
+  left: 10px;
+  width: 14px;
+  height: 14px;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+.searchClear { position: absolute; right: 4px; display: inline-flex; }
+
+/* ---- Motion and touch ------------------------------------------------------ */
+
+@media (prefers-reduced-motion: no-preference) {
+  .control { transition: border-color 150ms ease, background-color 150ms ease; }
+}
+
+@media (pointer: coarse) {
+  .control { height: 44px; }
+  /* After .control: a textarea keeps growing with its rows on touch too. */
+  .textarea { height: auto; min-height: 88px; }
+  .searchClear { right: 0; }
+  /* The clear button is 44px here; keep the text out from under it. */
+  .searchInput { padding-right: 44px; }
+}

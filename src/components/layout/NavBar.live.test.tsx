@@ -14,7 +14,6 @@ vi.mock('@/lib/deviceIdentity', () => ({
   getClientId: () => 'me',
   getClientLabel: () => 'Test Device',
 }));
-vi.mock('./WorkdirLauncher', () => ({ default: () => null }));
 
 import NavBar from './NavBar';
 import { useSessionStore } from '@/stores/sessionStore';

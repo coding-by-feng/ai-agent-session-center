@@ -84,6 +84,12 @@ interface UseTerminalReturn {
   scrollToBottom: () => void;
   /** Clear terminal display and replay buffered output from the server. */
   refreshOutput: () => void;
+  /** The toolbar's "Clear output": asks the server to forget this terminal's
+   *  output (its replay ring) and tell every device; clears locally only when
+   *  there is no socket to ask. Writes nothing to the PTY. */
+  clearOutput: () => void;
+  /** The server's `terminal_cleared`: clear this terminal's screen and scrollback. */
+  handleTerminalCleared: (terminalId: string) => void;
   scrollPageUp: () => void;
   scrollPageDown: () => void;
   /** Scroll terminal to the given buffer line. */
@@ -1594,6 +1600,29 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     }
   }, [handleTerminalOutput]);
 
+  /** Clear this terminal's output for good. The server empties its replay ring
+   *  and announces it to every subscriber (`terminal_cleared`, handled below),
+   *  so the screen is cleared at the same point of the output stream as the
+   *  ring: clearing here first would let bytes printed in between survive on
+   *  screen but vanish from the replay. An Electron `pty-*` terminal has no
+   *  server ring, and with the socket down there is no one to ask: those clear
+   *  locally. `term.clear()` keeps the cursor's line; a TUI redraws the rest
+   *  on its next update. Nothing is written to the PTY. */
+  const clearOutput = useCallback(() => {
+    if (!activeRef.current) return;
+    const { term, terminalId } = activeRef.current;
+    const ws = wsRef.current;
+    if (!isPtyHostTerminal(terminalId) && ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: 'terminal_clear', terminalId }));
+      return;
+    }
+    term.clear();
+  }, []);
+
+  const handleTerminalCleared = useCallback((terminalId: string) => {
+    if (activeRef.current?.terminalId === terminalId) activeRef.current.term.clear();
+  }, []);
+
   const scrollPageUp = useCallback(() => {
     if (activeRef.current) {
       activeRef.current.term.scrollPages(-1);
@@ -1758,6 +1787,8 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     reparent,
     scrollToBottom,
     refreshOutput,
+    clearOutput,
+    handleTerminalCleared,
     scrollPageUp,
     scrollPageDown,
     scrollToLine,

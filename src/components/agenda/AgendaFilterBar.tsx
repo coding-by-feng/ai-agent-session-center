@@ -1,25 +1,31 @@
 /**
- * AgendaFilterBar — Search, priority filter, completed toggle, and sort selector
- * for the Agenda task list.
+ * AgendaFilterBar — Search, priority filter, tag filter, sort, and the
+ * completed toggle for the Agenda task list, on the shared toolbar primitives
+ * (SearchInput `field`, Field + NativeSelect, a pressed Button).
  */
 import { useCallback, useMemo } from 'react';
 import SearchInput from '@/components/ui/SearchInput';
+import Field from '@/components/ui/Field';
+import NativeSelect, { type NativeSelectOption } from '@/components/ui/NativeSelect';
+import Button from '@/components/ui/Button';
 import { useAgendaStore } from '@/stores/agendaStore';
-import type { AgendaPriority, AgendaFilter } from '@/types';
+import type { AgendaFilter } from '@/types';
 import styles from '@/styles/modules/Agenda.module.css';
 
-const PRIORITY_OPTIONS: Array<{ value: AgendaFilter['priority']; label: string }> = [
-  { value: 'all', label: 'All priorities' },
+const PRIORITY_OPTIONS: NativeSelectOption<AgendaFilter['priority']>[] = [
+  { value: 'all', label: 'All' },
   { value: 'urgent', label: 'Urgent' },
   { value: 'high', label: 'High' },
   { value: 'medium', label: 'Medium' },
   { value: 'low', label: 'Low' },
 ];
 
-const SORT_OPTIONS: Array<{ value: AgendaFilter['sortBy']; label: string }> = [
+// Captioned "Sort by" — a bare "Priority" select beside the priority FILTER
+// read as a second priority filter (Oct 2026 screenshot).
+const SORT_OPTIONS: NativeSelectOption<AgendaFilter['sortBy']>[] = [
   { value: 'priority', label: 'Priority' },
   { value: 'dueDate', label: 'Due date' },
-  { value: 'createdAt', label: 'Created' },
+  { value: 'createdAt', label: 'Newest' },
 ];
 
 export default function AgendaFilterBar() {
@@ -37,80 +43,66 @@ export default function AgendaFilterBar() {
     return [...tagSet].sort((a, b) => a.localeCompare(b));
   }, [tasks]);
 
+  // The tag filter only appears once a tag exists — but an ACTIVE tag filter
+  // always stays visible (and listed), even after its last task is deleted,
+  // or the list would be filtered by a control nobody can see to reset.
+  const tagOptions = useMemo<NativeSelectOption[]>(() => {
+    const tags = filter.tag !== 'all' && !availableTags.includes(filter.tag)
+      ? [...availableTags, filter.tag]
+      : availableTags;
+    return [{ value: 'all', label: 'All' }, ...tags.map((t) => ({ value: t, label: `#${t}` }))];
+  }, [availableTags, filter.tag]);
+  const showTagFilter = availableTags.length > 0 || filter.tag !== 'all';
+
   const handleSearch = useCallback(
     (search: string) => setFilter({ search }),
     [setFilter],
   );
 
-  const handlePriority = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) =>
-      setFilter({ priority: e.target.value as AgendaPriority | 'all' }),
-    [setFilter],
-  );
-
-  const handleTag = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) =>
-      setFilter({ tag: e.target.value }),
-    [setFilter],
-  );
-
-  const handleSort = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) =>
-      setFilter({ sortBy: e.target.value as AgendaFilter['sortBy'] }),
-    [setFilter],
-  );
-
-  const handleToggleCompleted = useCallback(
-    () => setFilter({ showCompleted: !filter.showCompleted }),
-    [setFilter, filter.showCompleted],
-  );
-
   return (
-    <div className={styles.filterBar}>
+    <div className={styles.toolbar}>
       <SearchInput
+        variant="field"
+        ariaLabel="Search tasks"
         value={filter.search}
         onChange={handleSearch}
-        placeholder="Search tasks..."
+        placeholder="Search tasks…"
         debounceMs={200}
+        className={styles.search}
       />
 
-      <select value={filter.priority} onChange={handlePriority}>
-        {PRIORITY_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-
-      <select
-        value={filter.tag}
-        onChange={handleTag}
-        disabled={availableTags.length === 0}
-      >
-        <option value="all">All tags</option>
-        {availableTags.map((tag) => (
-          <option key={tag} value={tag}>
-            #{tag}
-          </option>
-        ))}
-      </select>
-
-      <select value={filter.sortBy} onChange={handleSort}>
-        {SORT_OPTIONS.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-
-      <label className={styles.toggleLabel}>
-        <input
-          type="checkbox"
-          checked={filter.showCompleted}
-          onChange={handleToggleCompleted}
+      <Field label="Priority">
+        <NativeSelect
+          value={filter.priority}
+          onChange={(priority) => setFilter({ priority })}
+          options={PRIORITY_OPTIONS}
         />
+      </Field>
+
+      {showTagFilter && (
+        <Field label="Tag">
+          <NativeSelect
+            value={filter.tag}
+            onChange={(tag) => setFilter({ tag })}
+            options={tagOptions}
+          />
+        </Field>
+      )}
+
+      <Field label="Sort by">
+        <NativeSelect
+          value={filter.sortBy}
+          onChange={(sortBy) => setFilter({ sortBy })}
+          options={SORT_OPTIONS}
+        />
+      </Field>
+
+      <Button
+        pressed={filter.showCompleted}
+        onClick={() => setFilter({ showCompleted: !filter.showCompleted })}
+      >
         Show completed
-      </label>
+      </Button>
     </div>
   );
 }

@@ -142,8 +142,8 @@
      rendering fluke). Fix: make this rule self-contained — its own
      appearance/background-image/padding — so it never depends on
      inheriting non-conflicting properties from the global rule. Same
-     pattern as Agenda.module.css's .priorityBadge / DetailPanel.module.css's
-     .ctrlSelect. */
+     pattern as FormControl.module.css's .select (the shared NativeSelect)
+     / DetailPanel.module.css's .ctrlSelect. */
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;

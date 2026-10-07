@@ -331,13 +331,6 @@ export interface Session {
    * so `undefined` can never be mistaken for `false`.
    */
   aiPopupEnabled?: boolean;
-  /**
-   * Is the Remote Control relink daemon armed for this session? Mirrored from
-   * `server/remoteControlDaemon.ts` onto the session so the UI can render the
-   * toggle from the ordinary session broadcast rather than polling a second
-   * endpoint. The daemon remains the source of truth; this is a view of it.
-   */
-  remoteControlDaemon?: boolean;
   /** When true, play loud alert sounds for approval, input, and task completion */
   alerted?: boolean;
   /**

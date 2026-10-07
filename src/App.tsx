@@ -23,6 +23,7 @@ import { useSettingsInit } from '@/hooks/useSettingsInit';
 import { useWorkspaceAutoSave } from '@/hooks/useWorkspaceAutoSave';
 import { useWorkspaceAutoLoad } from '@/hooks/useWorkspaceAutoLoad';
 import { useGlobalQueueScheduler } from '@/hooks/useGlobalQueueScheduler';
+import { retryOnceUnlessRefused } from '@/lib/requestJson';
 import LiveView from '@/routes/LiveView';
 import TitleBar from '@/components/layout/TitleBar';
 import SavingOverlay from '@/components/ui/SavingOverlay';
@@ -45,7 +46,10 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 30_000,
-      retry: 1,
+      // One retry, except for a refusal or a missing thing (a RequestError
+      // 403/404 from readJson): asking again cannot change those, and the
+      // retry only delayed the error by a second.
+      retry: retryOnceUnlessRefused,
     },
   },
 });

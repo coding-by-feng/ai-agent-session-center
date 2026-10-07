@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { sendPromptToTerminal, SUBMIT_ENTER_DELAY_MS } from './terminalSend';
+import {
+  sendPromptToTerminal,
+  pressEnterInTerminal,
+  submitDelayFor,
+  SUBMIT_ENTER_DELAY_MS,
+  IMAGE_SUBMIT_ENTER_DELAY_MS,
+} from './terminalSend';
 
 describe('sendPromptToTerminal', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -52,5 +58,43 @@ describe('sendPromptToTerminal', () => {
 
   it('uses a non-zero default submit delay', () => {
     expect(SUBMIT_ENTER_DELAY_MS).toBeGreaterThan(0);
+  });
+});
+
+describe('submitDelayFor', () => {
+  it('keeps the plain delay for a text-only prompt', () => {
+    expect(submitDelayFor(0)).toBe(SUBMIT_ENTER_DELAY_MS);
+  });
+
+  it('waits longer before pressing Enter when image paths were appended', () => {
+    // Claude Code took ~1.3 s to take in a pasted image path on an idle CLI; an
+    // Enter sent at 1 s landed inside that and was swallowed.
+    expect(submitDelayFor(1)).toBe(IMAGE_SUBMIT_ENTER_DELAY_MS);
+    expect(submitDelayFor(3)).toBe(IMAGE_SUBMIT_ENTER_DELAY_MS);
+    expect(IMAGE_SUBMIT_ENTER_DELAY_MS).toBeGreaterThan(SUBMIT_ENTER_DELAY_MS);
+  });
+});
+
+describe('pressEnterInTerminal', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('writes a single standalone \\r', async () => {
+    expect(await pressEnterInTerminal('term-9')).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/terminals/term-9/write');
+    expect(JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)).toEqual({ data: '\r' });
+  });
+
+  it('reports a failed write', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false });
+    expect(await pressEnterInTerminal('term-9')).toBe(false);
   });
 });
