@@ -49,6 +49,8 @@ export interface ResourceCatalogDeps {
 
 export interface ResourceCatalogService {
   getCatalog(): ResourceCatalog;
+  /** Private transfer access; never serialize these paths or raw records to the client. */
+  transferInternals(): InternalResource[];
   /** `GET /`: the first call ever starts a scan and reports `scanning`. */
   getOrStartCatalog(): ResourceCatalog;
   startScan(extraRoots?: readonly string[]): { state: ScanState; progress?: ScanProgress };
@@ -546,6 +548,10 @@ export function createResourceCatalog(deps: ResourceCatalogDeps): ResourceCatalo
 
   return {
     getCatalog,
+    transferInternals: () => {
+      if (inFlight || !result) throw new ResourceLookupError('Finish a scan before transferring', 409);
+      return [...result.internals.values()];
+    },
     getOrStartCatalog: () => {
       if (meta.state === 'idle' && !inFlight) startScan([]);
       return getCatalog();

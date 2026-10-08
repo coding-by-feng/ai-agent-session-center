@@ -12,6 +12,7 @@ const execFileAsync = promisify(execFile);
 import { SESSION_STATUS, ANIMATION_STATE, WS_TYPES } from './constants.js';
 import { PROCESS_CHECK_INTERVAL } from './config.js';
 import log from './logger.js';
+import { endAllRuns } from './subagentTracker.js';
 import type { Session } from '../src/types/session.js';
 import type { ServerMessage } from '../src/types/websocket.js';
 
@@ -61,6 +62,8 @@ export function startMonitoring(
         session.animationState = ANIMATION_STATE.DEATH;
         session.lastActivityAt = Date.now();
         session.endedAt = Date.now();
+        // The process is gone, so no hook will close its subagents.
+        session.subagents = endAllRuns(session.subagents ?? [], Date.now());
 
         session.events.push({
           type: 'SessionEnd',
@@ -352,7 +355,9 @@ export async function terminateProcessTree(pid: unknown): Promise<boolean> {
   const pgid = resolvePgid(validPid);
   const signal = (sig: NodeJS.Signals) => {
     // Prefer the group so child tools/MCP servers die too; fall back to the pid.
+    // Never a group of 1 or less: process.kill(-1) signals every process we own.
     try {
+      if (pgid <= 1) throw new Error('no usable process group');
       process.kill(-pgid, sig);
     } catch {
       try {
@@ -383,6 +388,29 @@ export async function terminateProcessTree(pid: unknown): Promise<boolean> {
 }
 
 /**
+ * The direct children of `pid` (`pgrep -P`), or [] when it has none, is gone, or
+ * pgrep is unavailable. For a PTY shell these are its agents (`claude`), each in
+ * its own process group — and they can only be found WHILE the shell is alive:
+ * once it dies they are reparented to launchd and `-P` no longer reaches them.
+ */
+export function listChildPids(pid: unknown): number[] {
+  const validPid = validatePid(pid);
+  if (!validPid) return [];
+  try {
+    const out = execFileSync('pgrep', ['-P', String(validPid)], {
+      encoding: 'utf8',
+    }).trim();
+    return out
+      .split(/\s+/)
+      .map((s) => parseInt(s, 10))
+      .filter((n) => Number.isFinite(n) && n > 0);
+  } catch {
+    /* no children, or pgrep unavailable */
+    return [];
+  }
+}
+
+/**
  * Best-effort reap of a PTY shell's descendant process groups. Called when a
  * terminal/PTY is closed: the login shell's direct children (the agent, e.g.
  * `claude`) each live in their own process group, so killing only the shell
@@ -391,21 +419,7 @@ export async function terminateProcessTree(pid: unknown): Promise<boolean> {
  * (closeTerminal) stays synchronous and must not block on process teardown.
  */
 export function reapPtyChildren(shellPid: unknown): void {
-  const validPid = validatePid(shellPid);
-  if (!validPid) return;
-  let children: number[] = [];
-  try {
-    const out = execFileSync('pgrep', ['-P', String(validPid)], {
-      encoding: 'utf8',
-    }).trim();
-    children = out
-      .split(/\s+/)
-      .map((s) => parseInt(s, 10))
-      .filter((n) => Number.isFinite(n) && n > 0);
-  } catch {
-    /* no children, or pgrep unavailable */
-  }
-  for (const child of children) {
+  for (const child of listChildPids(shellPid)) {
     void terminateProcessTree(child);
   }
 }

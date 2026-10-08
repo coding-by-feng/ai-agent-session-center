@@ -9,6 +9,7 @@ import { tryLinkByWorkDir, getTerminalByPtyChild, consumePendingLink } from './s
 import { EVENT_TYPES, SESSION_STATUS, ANIMATION_STATE } from './constants.js';
 import log from './logger.js';
 import { toArchivedSession } from './sessionTrim.js';
+import { forgetSubagentSession } from './subagentTracker.js';
 import type { Session, SessionSource, SshConfig, PendingResume } from '../src/types/session.js';
 import type { HookPayloadBase } from '../src/types/hook.js';
 
@@ -122,6 +123,8 @@ export function reKeyResumedSession(
   oldSession.toolUsage = {};
   oldSession.promptHistory = [];
   oldSession.toolLog = [];
+  oldSession.subagents = [];
+  forgetSubagentSession(oldSessionId);
   oldSession.responseLog = [];
   oldSession.events = [{ type: 'SessionResumed', timestamp: Date.now(), detail: `Resumed from ${oldSessionId?.slice(0, 8)}` }];
   sessions.set(newSessionId, oldSession);

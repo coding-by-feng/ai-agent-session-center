@@ -1,6 +1,6 @@
 /**
  * DetailTabs manages the tab bar and content switching for the detail panel.
- * Tabs: Project | Terminal | Commands | Prompts | Notes | Queue
+ * Tabs: Project | Terminal | Commands | Conversation | AI Popups | Notes | Queue | Agents
  *
  * Split-view: On wide screens the PROJECT tab has a merge icon that shows
  * Terminal (left) + Project (right) side-by-side with a draggable divider.
@@ -14,6 +14,7 @@ import { tooltips } from '@/lib/tooltips';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useNotesStore } from '@/stores/notesStore';
 import { useQueueStore } from '@/stores/queueStore';
+import { countLiveAgents } from '@/lib/agentFlow';
 
 const STORAGE_KEY = 'active-tab';
 const SPLIT_KEY = 'split-terminal-project';
@@ -30,6 +31,7 @@ interface DetailTabsProps {
   aiPopupsContent?: ReactNode;
   notesContent: ReactNode;
   queueContent: ReactNode;
+  agentsContent?: ReactNode;
   projectContent: ReactNode;
   commandsContent?: ReactNode;
   onTabChange?: (tabId: string) => void;
@@ -57,10 +59,12 @@ const BASE_TABS = [
   { id: 'aiPopups', label: 'AI POPUPS' },
   { id: 'notes', label: 'NOTES' },
   { id: 'queue', label: 'QUEUE' },
+  { id: 'agents', label: 'AGENTS' },
 ] as const;
 
 /** Hover/screen-reader text for a tab's count badge (the digit alone is mute). */
 function countTitle(tabId: string, count: number): string {
+  if (tabId === 'agents') return `${count} agent${count === 1 ? '' : 's'} working or waiting on you`;
   const noun = tabId === 'notes' ? 'note' : 'queued prompt';
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
 }
@@ -290,6 +294,7 @@ export default function DetailTabs({
   aiPopupsContent,
   notesContent,
   queueContent,
+  agentsContent,
   projectContent,
   commandsContent,
   onTabChange,
@@ -355,12 +360,30 @@ export default function DetailTabs({
     sessionId ? s.notes.get(sessionId)?.length ?? 0 : 0);
   const queueCount = useQueueStore((s) =>
     sessionId ? s.queues.get(sessionId)?.length ?? 0 : 0);
+  // Subagents working now plus teammates working or waiting on the user.
+  const agentsCount = useSessionStore((s) =>
+    sessionId ? countLiveAgents(s.sessions.get(sessionId), s.sessions) : 0);
 
   // NOTES mounts on demand, so the tab bar warms the notes cache itself —
   // otherwise the badge would read 0 until the tab was opened at least once.
   useEffect(() => {
     if (sessionId) void useNotesStore.getState().loadNotes(sessionId);
   }, [sessionId]);
+
+  // The strip scrolls sideways with its scrollbar hidden, so on a narrow
+  // panel the active tab (AGENTS, last) can sit past the edge with nothing
+  // showing it is open. Scroll just enough to bring it into view — never
+  // scrollIntoView, which would also scroll the panel's ancestors.
+  const tabStripRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const strip = tabStripRef.current;
+    const btn = strip?.querySelector<HTMLElement>(`[data-tab="${activeTab}"]`);
+    if (!strip || !btn) return;
+    const s = strip.getBoundingClientRect();
+    const b = btn.getBoundingClientRect();
+    if (b.right > s.right) strip.scrollLeft += b.right - s.right;
+    else if (b.left < s.left) strip.scrollLeft -= s.left - b.left;
+  }, [activeTab]);
 
   // Restore per-session split state when switching sessions.
   // If the session has no stored preference, default to off so the previous
@@ -503,6 +526,7 @@ export default function DetailTabs({
     aiPopups: <div key="scroll-aiPopups" className={styles.tabScroll}>{aiPopupsContent}</div>,
     queue: <div key="scroll-queue" className={styles.tabScroll}>{queueContent}</div>,
     notes: <div key="scroll-notes" className={styles.tabScroll}>{notesContent}</div>,
+    agents: <div key="scroll-agents" className={styles.tabScroll}>{agentsContent}</div>,
     split: (
       <DraggableSplitView
         left={terminalContent}
@@ -534,14 +558,16 @@ export default function DetailTabs({
 
   return (
     <>
-      <div className={styles.tabs}>
+      <div className={styles.tabs} ref={tabStripRef} data-tab-strip>
         {tabs.map((tab) => {
           const tabIsTermOrProj = tab.id === 'terminal' || tab.id === 'project';
           const combinedTermProj = (isSplit || isStacked) && tabIsTermOrProj;
           const isActive = combinedTermProj
             ? activeTab === 'terminal' || activeTab === 'project'
             : activeTab === tab.id;
-          const count = tab.id === 'notes' ? notesCount : tab.id === 'queue' ? queueCount : 0;
+          const count = tab.id === 'notes' ? notesCount
+            : tab.id === 'queue' ? queueCount
+              : tab.id === 'agents' ? agentsCount : 0;
 
           return (
             <button

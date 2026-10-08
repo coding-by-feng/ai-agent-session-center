@@ -52,6 +52,8 @@ import { menuShortcuts, type MenuShortcuts } from '@/lib/commandShortcuts';
 import { parseTrigger, type TriggerType } from '@/lib/autocompleteTrigger';
 import { detectCli } from '@/lib/cliDetect';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useSkillNotesStore } from '@/stores/skillNotesStore';
+import { lookupNote, type SkillNotes } from '@/lib/skillNotes';
 import styles from '@/styles/modules/AutocompleteTextarea.module.css';
 
 interface AcItem {
@@ -62,6 +64,9 @@ interface AcItem {
   hint?: string;
   /** Drives the icon shown before the label. */
   kind?: 'command' | 'skill' | 'file';
+  /** The user's own note on this skill (favourite, abbreviation). */
+  fav?: boolean;
+  abbr?: string;
 }
 
 interface AcMenu {
@@ -108,7 +113,7 @@ function shortcutsFor(entries: readonly CommandEntry[]): MenuShortcuts {
   })));
 }
 
-function commandEntriesToMenu(groups: CommandGroup[], shortcuts: MenuShortcuts): {
+function commandEntriesToMenu(groups: CommandGroup[], shortcuts: MenuShortcuts, notes: SkillNotes): {
   items: AcItem[];
   groupSpans: Array<{ title: string; startIdx: number; count: number }>;
 } {
@@ -123,12 +128,15 @@ function commandEntriesToMenu(groups: CommandGroup[], shortcuts: MenuShortcuts):
       const token = entryToken(e);
       const name = entryDisplayName(e);
       const hint = shortcuts.hintFor(name);
+      const note = lookupNote(notes, e.cli, name);
       items.push({
         label: token,
         insert: token,
         sub: shortcuts.subFor(name, e.description) || (e.kind === 'skill' ? 'skill' : 'command'),
         ...(hint ? { hint } : {}),
         kind: e.kind,
+        ...(note?.fav ? { fav: true } : {}),
+        ...(note?.abbr ? { abbr: note.abbr } : {}),
       });
     }
     if (items.length > startIdx) {
@@ -233,9 +241,11 @@ export default function AutocompleteTextarea({
           // Claude reaches both tiers through `/`, commands first.
           const kinds: Array<'command' | 'skill'> =
             menuType === 'skill' ? ['skill'] : cli === 'codex' ? ['command'] : ['command', 'skill'];
+          const notes = useSkillNotesStore.getState().notes;
           const { items, groupSpans } = commandEntriesToMenu(
-            mergeGroups(kinds.map((k) => filterAndGroup(entries, trigger.query, k))),
+            mergeGroups(kinds.map((k) => filterAndGroup(entries, trigger.query, k, notes))),
             shortcutsFor(entries),
+            notes,
           );
           setAcMenu((prev) =>
             prev && prev.type === menuType && prev.triggerStart === trigger.triggerStart
@@ -448,6 +458,8 @@ export default function AutocompleteTextarea({
                   </span>
                 )}
                 <span className={styles.acLabel}>{item.label}</span>
+                {item.fav && <span className={styles.acFav} role="img" aria-label="Favourite" title="Favourite">♥</span>}
+                {item.abbr && <span className={styles.acAbbr} title={`Abbreviation: ${item.abbr}`}>{item.abbr}</span>}
                 {item.hint && <span className={styles.acHint} title={item.hint}>{item.hint}</span>}
                 {item.sub && <span className={styles.acSub}>{item.sub}</span>}
               </div>

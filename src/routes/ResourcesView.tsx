@@ -1,15 +1,15 @@
 /**
- * ResourcesView — the RESOURCES tab (Phase B: read-only, plus Uninstall).
+ * ResourcesView — local resource catalog, restorable Uninstall and SSH copy tasks.
  *
  * One catalog of every Claude Code and Codex resource on this machine —
  * skills, commands, rules, CLAUDE.md/AGENTS.md, memory, agents, hooks, MCP
  * servers, plugins, settings — global and per project, compared with the
  * agent-skills repo copy. Everything arrives through `/api/resources`
- * (src/lib/resourcesApi.ts). Its only write is Uninstall, which MOVES one
- * resource into the AASC trash (Restore moves it back); it never edits a file
- * in place, which is why it still never touches ProjectTab or `/api/files/*`.
+ * (src/lib/resourcesApi.ts). Uninstall moves resources into the local trash.
+ * The separate TransferPanel and transfer API copy reviewed packages over SSH;
+ * neither path uses ProjectTab or `/api/files/*`.
  *
- * All view state lives in the URL (`section`, `type`, `agent`, `scope`,
+ * Catalog view state lives in the URL (`section`, `type`, `agent`, `scope`,
  * `project`, `q`, `id`, `plugins`), so every view is a link:
  * `/resources?project=<id>` opens a project's resources, and a Checks finding
  * opens the resource it is about.
@@ -51,6 +51,8 @@ import NativeSelect, { type NativeSelectOption } from '@/components/ui/NativeSel
 import TextInput from '@/components/ui/TextInput';
 import { useUiStore } from '@/stores/uiStore';
 import { buildResourceShortcuts } from '@/lib/commandShortcuts';
+import { useSkillNotesStore } from '@/stores/skillNotesStore';
+import { isNotable, readNoteParams, resourceNoteKey, tagsInUse } from '@/lib/skillNotes';
 import ResourceTypeRail from '@/components/resources/ResourceTypeRail';
 import ResourceList from '@/components/resources/ResourceList';
 import ResourceDetail from '@/components/resources/ResourceDetail';
@@ -58,14 +60,20 @@ import SourcesPanel from '@/components/resources/SourcesPanel';
 import ChecksPanel from '@/components/resources/ChecksPanel';
 import { RESTORE_WINDOW_MS, UNINSTALL_MODAL_ID, UninstallDialog } from '@/components/resources/UninstallControls';
 import styles from '@/styles/modules/Resources.module.css';
+import noteStyles from '@/styles/modules/SkillNotes.module.css';
+import transferStyles from '@/styles/modules/ResourceTransfers.module.css';
+import TransferPanel from '@/components/resources/TransferPanel';
+import { resourceIsSelected, withResourceSelection, type ResourceSelection } from '@/types/resourceTransfers';
 
 const POLL_MS = 750;
 /** How often "scanned 2m ago" is re-derived; it has minute resolution. */
 const AGE_TICK_MS = 30_000;
 const UNAVAILABLE_MESSAGE = 'Resources are available only on this machine — open AASC on the Mac that runs it.';
-const SECTION_LABELS: Record<ResourceSection, string> = { library: 'Library', sources: 'Sources', checks: 'Checks' };
+const SECTION_LABELS: Record<ResourceSection, string> = { library: 'Library', sources: 'Sources', checks: 'Checks', transfers: 'Transfers', devices: 'Devices' };
 const NO_RESOURCES: ResourceSummary[] = [];
 const NO_PROJECTS: ResourceProject[] = [];
+/** Most tag chips the filter bar shows; the rest stay reachable by search. */
+const MAX_TAG_CHOICES = 24;
 const AGENT_OPTIONS: readonly NativeSelectOption<AgentFilter>[] = [
   { value: 'all', label: 'All' },
   { value: 'claude', label: 'Claude' },
@@ -205,9 +213,15 @@ interface FilterBarProps {
   onScope: (scope: ScopeFilter) => void;
   onProject: (projectId: string) => void;
   onTogglePlugins: () => void;
+  /** Favourites and tags (the user's own notes, src/lib/skillNotes.ts). */
+  favOnly: boolean;
+  tags: readonly string[];
+  tagChoices: readonly { tag: string; count: number }[];
+  onFav: () => void;
+  onTag: (tag: string) => void;
 }
 
-function FilterBar({ params, queryDraft, projects, onQuery, onAgent, onScope, onProject, onTogglePlugins }: FilterBarProps) {
+function FilterBar({ params, queryDraft, projects, onQuery, onAgent, onScope, onProject, onTogglePlugins, favOnly, tags, tagChoices, onFav, onTag }: FilterBarProps) {
   const projectOptions = useMemo<NativeSelectOption[]>(
     () => [
       { value: '', label: 'All projects' },
@@ -241,6 +255,18 @@ function FilterBar({ params, queryDraft, projects, onQuery, onAgent, onScope, on
       <Button pressed={params.showPluginSystem} onClick={onTogglePlugins}>
         {'Show plugin & system'}
       </Button>
+      <Button pressed={favOnly} onClick={onFav}>
+        <span aria-hidden="true">♥ </span>Favourites
+      </Button>
+      {tagChoices.length > 0 && (
+        <div className={noteStyles.tagFilter} role="group" aria-label="Filter by tag">
+          {tagChoices.map(({ tag, count }) => (
+            <Button key={tag} size="sm" pressed={tags.includes(tag)} onClick={() => onTag(tag)}>
+              {`${tag} ${count}`}
+            </Button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -252,6 +278,8 @@ export default function ResourcesView() {
   const params = useMemo(() => readResourceParams(searchParams), [searchParams]);
   const [extraRoots, setExtraRoots] = useState<string[]>(() => readExtraRoots());
   const [storageOk, setStorageOk] = useState(true);
+  const [transferSelection, setTransferSelection] = useState<ResourceSelection>([]);
+  const [selectingTransfer, setSelectingTransfer] = useState(false);
   const { catalog, error, unavailable, now, reload, rescan, rescanPending } = useResourceCatalog(extraRoots);
 
   // The search box keeps its own draft. Navigations run inside startTransition,
@@ -297,15 +325,29 @@ export default function ResourcesView() {
 
   const resources = catalog?.resources ?? NO_RESOURCES;
   const projects = catalog?.projects ?? NO_PROJECTS;
+  const transferIds = useMemo(() => new Set(resources.filter(r => resourceIsSelected(r, transferSelection)).map(r => r.id)), [resources, transferSelection]);
   const byId = useMemo(() => new Map(resources.map((r) => [r.id, r] as const)), [resources]);
   const projectsById = useMemo(() => new Map(projects.map((p) => [p.id, p] as const)), [projects]);
   // Shortcut commands ("Shortcut for /x") ↔ their targets, once per catalog.
   const shortcuts = useMemo(() => buildResourceShortcuts(resources), [resources]);
   const { agent, scope, projectId, query, showPluginSystem } = params;
+  // The user's notes (favourite / tags / abbreviation) join the filter; they live in this browser.
+  const notes = useSkillNotesStore((s) => s.notes);
+  const { favOnly, tags } = useMemo(() => readNoteParams(searchParams), [searchParams]);
+  const tagKey = tags.join(',');
   const filters = useMemo<ResourceFilters>(
-    () => ({ agent, scope, projectId, query, showPluginSystem }),
-    [agent, scope, projectId, query, showPluginSystem],
+    () => ({ agent, scope, projectId, query, showPluginSystem, notes, favOnly, tags: tagKey ? tagKey.split(',') : [] }),
+    [agent, scope, projectId, query, showPluginSystem, notes, favOnly, tagKey],
   );
+  const tagChoices = useMemo(() => tagsInUse(notes).slice(0, MAX_TAG_CHOICES), [notes]);
+  const realNames = useMemo(
+    () => new Set(resources.filter(isNotable).map((r) => resourceNoteKey(r))),
+    [resources],
+  );
+  const toggleTag = useCallback((tag: string) => {
+    const next = tags.includes(tag) ? tags.filter((t) => t !== tag) : [...tags, tag];
+    updateParams({ tags: next.length > 0 ? next.join(',') : null }, true);
+  }, [tags, updateParams]);
   const counts = useMemo(() => countByType(resources, filters), [resources, filters]);
   // A bare deep link (no `type`) opens the first type that has anything in it.
   const type: ResourceType = searchParams.has('type')
@@ -417,8 +459,22 @@ export default function ResourcesView() {
             onScope={(value) => updateParams({ scope: value === 'all' ? null : value, project: null }, true)}
             onProject={(value) => updateParams({ scope: 'project', project: value || null }, true)}
             onTogglePlugins={() => updateParams({ plugins: showPluginSystem ? null : '1' }, true)}
+            favOnly={favOnly}
+            tags={tags}
+            tagChoices={tagChoices}
+            onFav={() => updateParams({ fav: favOnly ? null : '1' }, true)}
+            onTag={toggleTag}
           />
         )}
+        {inLibrary && resources.length > 0 && <div className={transferStyles.bulkBar}>
+          <Button pressed={selectingTransfer} onClick={() => setSelectingTransfer(v => !v)}>Select for transfer</Button>
+          {selectingTransfer && <>
+            <Button onClick={() => setTransferSelection(s => withResourceSelection(s, list.map(r => ({ resourceId: r.id, include: true }))))}>Select visible ({list.length})</Button>
+            <Button onClick={() => setTransferSelection([])}>Clear selection</Button>
+          </>}
+          {(selectingTransfer || transferIds.size > 0) && <Button variant="primary" onClick={() => updateParams({ section: 'transfers' })}>Create transfer ({transferIds.size})</Button>}
+          {selectingTransfer && <span className={transferStyles.hint}>Checkboxes select for transfer; resource names open previews. Use Transfers for whole scopes and projects.</span>}
+        </div>}
         {catalog && <p className={styles.countsLine}>{catalogSummaryLine(catalog, showPluginSystem, now)}</p>}
       </header>
 
@@ -445,6 +501,7 @@ export default function ResourcesView() {
         {!catalog && error && (
           <EmptyState fill tone="error" title={error} action={<Button onClick={reload}>Retry</Button>} />
         )}
+        {catalog && (params.section === 'transfers' || params.section === 'devices') && <TransferPanel section={params.section} catalog={catalog} selection={transferSelection} onSelection={setTransferSelection} onDevices={() => updateParams({ section: 'devices' })} />}
         {catalog && params.section === 'sources' && (
           <SourcesPanel
             catalog={catalog}
@@ -480,9 +537,11 @@ export default function ResourcesView() {
               selectedId={params.id}
               projectsById={projectsById}
               emptyMessage={emptyStateMessage(type, filters, projectId ? projectsById.get(projectId)?.name : undefined)}
-              scrollResetKey={`${type}|${agent}|${scope}|${projectId ?? ''}|${query}|${showPluginSystem}`}
+              scrollResetKey={`${type}|${agent}|${scope}|${projectId ?? ''}|${query}|${showPluginSystem}|${favOnly}|${tagKey}`}
               shortcuts={shortcuts}
               onSelect={selectResource}
+              transferIds={selectingTransfer ? transferIds : undefined}
+              onTransferSelect={(id, include) => setTransferSelection(s => withResourceSelection(s, [{ resourceId: id, include }]))}
             />
             {params.id ? (
               <ResourceDetail
@@ -497,6 +556,7 @@ export default function ResourcesView() {
                 onSelect={selectResource}
                 onBack={closeDetail}
                 onRequestUninstall={requestUninstall}
+                realNames={realNames}
               />
             ) : (
               <div className={styles.detailPlaceholder}>

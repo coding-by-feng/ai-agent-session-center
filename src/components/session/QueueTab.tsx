@@ -145,6 +145,7 @@ export default function QueueTab({
   // can never claim a hold the scheduler is not enforcing, or vice versa.
   const queueHold = currentSession ? queueHoldReason(currentSession, Date.now()) : null;
   const runningSubagents = currentSession?.subagentCount ?? 0;
+  const runningBackground = currentSession?.backgroundTaskCount ?? 0;
 
   /** The queue's Resume after a user cancel — the server clears the hold. */
   const handleResumeAfterCancel = useCallback(async () => {
@@ -972,7 +973,7 @@ export default function QueueTab({
           says it, so no chip. */}
       {collapsed && queueHold && items.length > 0 && (
         <span className={styles.queueHoldChip}>
-          {queueHold === 'cancelled' ? '⏸ paused' : '⏳ subagents'}
+          {queueHold === 'cancelled' ? '⏸ paused' : queueHold === 'background' ? '⏳ shell' : '⏳ subagents'}
         </span>
       )}
     </>
@@ -1235,7 +1236,9 @@ export default function QueueTab({
             <span>
               {queueHold === 'cancelled'
                 ? '⏸ Paused — you stopped the last turn. Nothing sends until you resume or send a prompt yourself.'
-                : `⏳ Waiting for ${runningSubagents} subagent${runningSubagents === 1 ? '' : 's'} to finish before sending the next prompt.`}
+                : queueHold === 'background'
+                  ? `⏳ Waiting for ${runningBackground} background shell${runningBackground === 1 ? '' : 's'} to finish before sending the next prompt.`
+                  : `⏳ Waiting for ${runningSubagents} subagent${runningSubagents === 1 ? '' : 's'} to finish before sending the next prompt.`}
             </span>
             {queueHold === 'cancelled' && (
               <button

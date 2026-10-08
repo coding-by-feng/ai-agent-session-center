@@ -109,7 +109,7 @@ export function isSendableStatus(status: string): boolean {
 export const SUBAGENT_HOLD_MAX_IDLE_MS = 15 * 60_000;
 
 /** Why a session's queue must not send right now, even though it looks done. */
-export type QueueHold = 'cancelled' | 'subagents';
+export type QueueHold = 'cancelled' | 'subagents' | 'background';
 
 /**
  * Two things reach `waiting` — the "turn finished" signal — without the turn
@@ -122,17 +122,18 @@ export type QueueHold = 'cancelled' | 'subagents';
  *    and clears it on the user's next prompt (or the queue's Resume). Nothing
  *    sends until then, except an item you force with ⚡ NOW (pickWhileHeld).
  *  - `subagents`: the main agent stopped but its subagents are still running.
+ *  - `background`: it stopped but a background shell (or monitor) is still running.
  *
  * A cancel outranks running subagents: it is the one that needs the user.
  */
 export function queueHoldReason(
-  session: { userCancelledAt?: number | null; subagentCount?: number; lastActivityAt: number },
+  session: { userCancelledAt?: number | null; subagentCount?: number; backgroundTaskCount?: number; lastActivityAt: number },
   now: number,
 ): QueueHold | null {
   if (session.userCancelledAt) return 'cancelled';
-  if ((session.subagentCount ?? 0) > 0 && now - session.lastActivityAt < SUBAGENT_HOLD_MAX_IDLE_MS) {
-    return 'subagents';
-  }
+  if (now - session.lastActivityAt >= SUBAGENT_HOLD_MAX_IDLE_MS) return null;
+  if ((session.subagentCount ?? 0) > 0) return 'subagents';
+  if ((session.backgroundTaskCount ?? 0) > 0) return 'background';
   return null;
 }
 

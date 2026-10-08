@@ -21,13 +21,14 @@ describe('DetailTabs', () => {
     try { localStorage.removeItem('active-tab'); } catch { /* ignore */ }
   });
 
-  it('renders all 7 tab buttons', () => {
+  it('renders all 8 tab buttons', () => {
     render(<DetailTabs {...defaultProps} />);
     expect(screen.getByText('PROJECT')).toBeInTheDocument();
     expect(screen.getByText('TERMINAL')).toBeInTheDocument();
     expect(screen.getByText('COMMANDS')).toBeInTheDocument();
     expect(screen.getByText('CONVERSATION')).toBeInTheDocument();
     expect(screen.getByText('AI POPUPS')).toBeInTheDocument();
+    expect(screen.getByText('AGENTS')).toBeInTheDocument();
     expect(screen.getByText('NOTES')).toBeInTheDocument();
     expect(screen.getByText('QUEUE')).toBeInTheDocument();
   });
@@ -259,5 +260,83 @@ describe('DetailTabs — NOTES / QUEUE count badges', () => {
     render(<DetailTabs {...defaultProps} sessionId="s1" />);
 
     expect(urls).toContain('/api/db/sessions/s1/notes');
+  });
+});
+
+describe('DetailTabs — AGENTS tab', () => {
+  const defaultProps = {
+    terminalContent: <div>Terminal Content</div>,
+    promptsContent: <div>Prompts Content</div>,
+    aiPopupsContent: <div>AI Popups Content</div>,
+    projectContent: <div>Project Content</div>,
+    notesContent: <div>Notes Content</div>,
+    queueContent: <div>Queue Content</div>,
+    agentsContent: <div>Agents Content</div>,
+  };
+
+  const run = (agentId: string, status: 'working' | 'done') => ({
+    agentId, agentType: 'Explore', description: null, status, startedAt: 1, endedAt: status === 'done' ? 2 : null,
+    lastActivityAt: 1, toolCount: 0, currentTool: null, currentTarget: null,
+  });
+
+  const seedSession = (subagents: ReturnType<typeof run>[]) => {
+    useSessionStore.setState({
+      sessions: new Map([['s1', { sessionId: 's1', status: 'working', subagents } as never]]),
+    });
+  };
+
+  beforeEach(() => {
+    try { localStorage.clear(); } catch { /* ignore */ }
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, json: async () => ({}) })));
+  });
+
+  afterEach(() => {
+    useSessionStore.setState({ sessions: new Map() });
+    vi.unstubAllGlobals();
+  });
+
+  it('shows the AGENTS tab content when clicked', () => {
+    render(<DetailTabs {...defaultProps} sessionId="s1" />);
+    fireEvent.click(screen.getByText('AGENTS'));
+    expect(screen.getByText('Agents Content')).toBeInTheDocument();
+  });
+
+  it('badges AGENTS with the agents working right now, not the finished ones', () => {
+    seedSession([run('a', 'working'), run('b', 'working'), run('c', 'done')]);
+    render(<DetailTabs {...defaultProps} sessionId="s1" />);
+    expect(document.querySelector('[data-tab="agents"]')?.textContent).toBe('AGENTS2');
+    expect(screen.getByLabelText('2 agents working or waiting on you')).toBeInTheDocument();
+  });
+
+  it('shows no chip when no agent is working', () => {
+    seedSession([run('c', 'done')]);
+    render(<DetailTabs {...defaultProps} sessionId="s1" />);
+    expect(document.querySelector('[data-tab="agents"]')?.textContent).toBe('AGENTS');
+  });
+});
+
+describe('DetailTabs — active tab stays in view', () => {
+  const props = {
+    terminalContent: <div />, promptsContent: <div />, aiPopupsContent: <div />, projectContent: <div />,
+    notesContent: <div />, queueContent: <div />, agentsContent: <div>Agents Content</div>,
+  };
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    try { localStorage.clear(); } catch { /* ignore */ }
+  });
+
+  it('scrolls the tab strip so a tab past its right edge is visible', () => {
+    // The strip is 600px wide; AGENTS sits at 640–720px, past its edge.
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      const rect = (left: number, right: number) => ({ left, right, top: 0, bottom: 30, width: right - left, height: 30, x: left, y: 0, toJSON: () => ({}) });
+      if (this.dataset.tab === 'agents') return rect(640, 720) as DOMRect;
+      if (this.dataset.tabStrip !== undefined) return rect(0, 600) as DOMRect;
+      return rect(0, 0) as DOMRect;
+    });
+    try { localStorage.setItem('active-tab', 'agents'); } catch { /* ignore */ }
+    render(<DetailTabs {...props} sessionId="s1" />);
+    const strip = document.querySelector('[data-tab-strip]') as HTMLElement;
+    expect(strip.scrollLeft).toBe(120);
   });
 });

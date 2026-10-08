@@ -1,0 +1,80 @@
+/* SkillNotes card (Library detail pane) and the favourite toggle on list rows.
+   Colour only ever backs a word or a glyph; every token has a dark and light
+   value in the theme files, and nothing here pins a font. */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-card);
+}
+.heading { margin: 0; font-size: 13px; font-weight: 700; color: var(--text-primary); }
+.scope { font-weight: 400; color: var(--text-secondary); }
+.row { display: flex; align-items: center; gap: 8px; }
+.caption { font-size: 12px; color: var(--text-secondary); }
+.block { display: flex; flex-direction: column; gap: 4px; }
+.label { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-secondary); }
+.inline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.inline > input { flex: 1 1 160px; min-width: 0; }
+
+.tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px 0 8px;
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+.tagRemove {
+  min-width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+.tagRemove:hover { color: var(--accent-red); }
+.tagRemove:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 1px; }
+
+.error { margin: 0; font-size: 12px; color: var(--accent-red); }
+.hint { margin: 0; font-size: 11px; color: var(--text-secondary); }
+
+/* List-row heart. Sits beside the row button, never inside it (a button
+   cannot hold a button), and keeps its place under :hover so a touch tap lands
+   where it was aimed. */
+.favToggle { flex: 0 0 auto; }
+
+/* A list item holding a heart and the row button. It also keeps working when
+   the transfer checkbox joins it (ResourceTransfers' .bulkRow sets every direct
+   button to flex: 1, which would stretch the heart; the higher-specificity
+   rule below wins). */
+.rowWrap { display: flex; align-items: center; gap: 8px; }
+.rowWrap > button:not(.favToggle) { flex: 1; min-width: 0; }
+.rowWrap > .favToggle { flex: 0 0 auto; }
+
+@media (pointer: coarse) {
+  .tagRemove { min-width: 44px; height: 44px; }
+}
+
+/* Tag chips under the Library's filter row: a row of their own so a long list
+   wraps instead of squeezing the search box. */
+.tagFilter { display: flex; flex: 1 1 100%; flex-wrap: wrap; align-items: center; gap: 4px; }
+
+/* "Also work inside Claude Code / Codex": the one opt-in that writes a file. */
+.cliBlock { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-subtle); }
+.cliLabel { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: var(--text-primary); cursor: pointer; }
+.cliLabel input { flex: 0 0 auto; margin-top: 2px; accent-color: var(--accent-cyan); }
+.fileList { margin: 0; padding: 0 0 0 16px; font-size: 11px; color: var(--text-secondary); overflow-wrap: anywhere; }
+@media (pointer: coarse) {
+  .cliLabel input { width: 24px; height: 24px; }
+}

@@ -117,6 +117,11 @@ export const tooltips = {
     description: 'Clear this terminal’s screen and scrollback, on every device showing it. '
       + 'It stays cleared after a refresh. Nothing is sent to the program running in it.',
   },
+  termRestart: {
+    label: 'Restart session',
+    description: 'Quit the agent in this terminal and reconnect the same session in a fresh one, '
+      + 'with the same name, model and effort. Asks first if it is mid-turn.',
+  },
   termNewSession: {
     label: 'New session like this',
     description: 'Start a new session reusing this session’s command, working directory, and config.',

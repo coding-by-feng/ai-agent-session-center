@@ -17,6 +17,7 @@ import userEvent from '@testing-library/user-event';
 import AutocompleteTextarea from './AutocompleteTextarea';
 import type { CommandEntry } from '@/lib/commandIndex';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useSkillNotesStore } from '@/stores/skillNotesStore';
 import type { Session } from '@/types';
 
 /** Rendered only inside the dropdown — a reliable "menu is open" probe. */
@@ -206,5 +207,48 @@ describe('AutocompleteTextarea — shortcut commands', () => {
     await user.keyboard('/raab');
 
     expect(await screen.findByText('→ $retouch-ascii-auto-build')).toBeTruthy();
+  });
+});
+
+describe('AutocompleteTextarea — skill notes (favourite, abbreviation)', () => {
+  const NOTE_ENTRIES: CommandEntry[] = [
+    { name: 'retouch-ascii-review', description: 'Retouch then sketch', cli: 'claude', kind: 'skill', source: 'global' },
+    { name: 'brainstorming', description: 'Explore ideas', cli: 'claude', kind: 'skill', source: 'global' },
+    { name: 'plan', description: 'Plan work', cli: 'claude', kind: 'skill', source: 'global' },
+  ];
+
+  afterEach(() => useSkillNotesStore.setState({ notes: {} }));
+
+  it('finds a skill by its abbreviation, shows it, and inserts the real name', async () => {
+    useSkillNotesStore.setState({ notes: { 'claude:retouch-ascii-review': { fav: false, tags: [], abbr: 'rar' } } });
+    fetchCommandIndex.mockResolvedValue(NOTE_ENTRIES);
+    seedSession('s-claude', 'claude');
+    const user = userEvent.setup();
+    render(<Harness sessionId="s-claude" />);
+
+    await user.click(screen.getByLabelText('prompt'));
+    await user.keyboard('/rar');
+
+    expect(await screen.findByText('/retouch-ascii-review')).toBeTruthy();
+    expect(screen.getByText('rar')).toBeTruthy();
+    await user.keyboard('{Enter}');
+    expect((screen.getByLabelText('prompt') as HTMLTextAreaElement).value).toContain('/retouch-ascii-review');
+    expect((screen.getByLabelText('prompt') as HTMLTextAreaElement).value).not.toContain('/rar');
+  });
+
+  it('lists a favourite first and marks it for screen readers', async () => {
+    useSkillNotesStore.setState({ notes: { 'claude:plan': { fav: true, tags: [] } } });
+    fetchCommandIndex.mockResolvedValue(NOTE_ENTRIES);
+    seedSession('s-claude', 'claude');
+    const user = userEvent.setup();
+    render(<Harness sessionId="s-claude" />);
+
+    await user.click(screen.getByLabelText('prompt'));
+    await user.keyboard('/');
+
+    await screen.findByText('/plan');
+    const labels = screen.getAllByText(/^\/(plan|brainstorming|retouch-ascii-review)$/).map((el) => el.textContent);
+    expect(labels[0]).toBe('/plan');
+    expect(screen.getByLabelText('Favourite')).toBeTruthy();
   });
 });

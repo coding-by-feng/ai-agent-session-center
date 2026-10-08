@@ -49,6 +49,8 @@ vi.mock('./TerminalToolbar', () => ({
     onReconnect,
     showReconnect,
     onClearOutput,
+    onRestart,
+    restartPending,
   }: {
     themeName: string;
     onFullscreen: () => void;
@@ -56,11 +58,14 @@ vi.mock('./TerminalToolbar', () => ({
     onReconnect?: () => void;
     showReconnect?: boolean;
     onClearOutput?: () => void;
+    onRestart?: () => void;
+    restartPending?: boolean;
   }) => (
     <div data-testid="terminal-toolbar" data-theme={themeName}>
       <button data-testid="escape-btn" onClick={onSendEscape}>ESC</button>
       <button data-testid="fullscreen-btn" onClick={onFullscreen}>Fullscreen</button>
       {onClearOutput && <button data-testid="clear-btn" onClick={onClearOutput}>Clear</button>}
+      {onRestart && <button data-testid="restart-btn" onClick={onRestart} disabled={restartPending}>Restart</button>}
       {showReconnect && onReconnect && (
         <button data-testid="reconnect-btn" onClick={onReconnect}>Reconnect</button>
       )}
@@ -128,6 +133,26 @@ describe('TerminalContainer', () => {
     expect(buttons).toHaveLength(2);
     buttons[1].click();
     expect(mockClearOutput).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers Restart on both toolbars only when the host supplies a handler', () => {
+    const { unmount } = render(<TerminalContainer terminalId="term-1" ws={null} />);
+    expect(screen.queryAllByTestId('restart-btn')).toHaveLength(0);
+    unmount();
+
+    const onRestart = vi.fn();
+    render(<TerminalContainer terminalId="term-1" ws={null} onRestart={onRestart} />);
+    const buttons = screen.getAllByTestId('restart-btn');
+    expect(buttons).toHaveLength(2);
+    buttons[1].click();
+    expect(onRestart).toHaveBeenCalledTimes(1);
+  });
+
+  it('hands restartPending to BOTH toolbars, so the double-click protection survives the pass-through', () => {
+    render(<TerminalContainer terminalId="term-1" ws={null} onRestart={vi.fn()} restartPending />);
+    const buttons = screen.getAllByTestId('restart-btn');
+    expect(buttons).toHaveLength(2);
+    for (const button of buttons) expect(button).toBeDisabled();
   });
 
   it("hands the server's terminal_cleared to the terminal", () => {

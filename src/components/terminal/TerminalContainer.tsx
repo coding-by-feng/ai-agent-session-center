@@ -29,6 +29,11 @@ interface TerminalContainerProps {
   onFork?: () => void;
   /** Clone — new session running the same startupCommand + config */
   onClone?: () => void;
+  /** Restart — quit the agent and reconnect the same session in a fresh terminal.
+   *  When omitted the toolbar button is hidden (floating forks, pop-outs, the ops shell). */
+  onRestart?: () => void;
+  /** A restart is in flight: the toolbar button stays but cannot be pressed again. */
+  restartPending?: boolean;
   /** Pop this terminal out into its own OS window (Electron only). When omitted
    *  the toolbar pop-out button is hidden (e.g. floating forks / the popout view
    *  itself, which must not re-pop-out). */
@@ -49,6 +54,8 @@ export default memo(function TerminalContainer({
   projectPath,
   onFork,
   onClone,
+  onRestart,
+  restartPending,
   onPopOut,
   originSessionId,
 }: TerminalContainerProps) {
@@ -378,6 +385,8 @@ export default memo(function TerminalContainer({
         onToggleWrapMode={showWrapToggle ? toggleWrapMode : undefined}
         onFork={onFork}
         onClone={onClone}
+        onRestart={onRestart}
+        restartPending={restartPending}
         onPopOut={onPopOut}
         isFullscreen={isFullscreen}
         showReconnect={showReconnect || (terminalIsClosed && !!onReconnect)}
@@ -471,6 +480,8 @@ export default memo(function TerminalContainer({
               wrapMode={showWrapToggle ? widthMode : undefined}
               onToggleWrapMode={showWrapToggle ? toggleWrapMode : undefined}
               onFork={onFork}
+              onRestart={onRestart}
+              restartPending={restartPending}
               isFullscreen={isFullscreen}
               showReconnect={showReconnect}
                                     />

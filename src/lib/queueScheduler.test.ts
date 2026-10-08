@@ -1170,6 +1170,16 @@ describe('queueHoldReason', () => {
     expect(queueHoldReason({ ...base, subagentCount: 2 }, NOW)).toBe('subagents');
   });
 
+  it('holds while a background shell is still running, with no subagents', () => {
+    expect(queueHoldReason({ ...base, backgroundTaskCount: 1 }, NOW)).toBe('background');
+  });
+
+  it('subagents outrank background shells, and a stale shell count is ignored past the cap', () => {
+    expect(queueHoldReason({ ...base, subagentCount: 1, backgroundTaskCount: 1 }, NOW)).toBe('subagents');
+    const stale = { ...base, backgroundTaskCount: 1, lastActivityAt: NOW - SUBAGENT_HOLD_MAX_IDLE_MS - 1 };
+    expect(queueHoldReason(stale, NOW)).toBeNull();
+  });
+
   it('a cancel outranks running subagents (it is the one that needs your action)', () => {
     expect(queueHoldReason({ ...base, userCancelledAt: NOW - 500, subagentCount: 2 }, NOW)).toBe('cancelled');
   });

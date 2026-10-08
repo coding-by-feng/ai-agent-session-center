@@ -886,3 +886,12 @@ export function closeDb(): void {
     log.warn('db', `Failed to close database: ${(err as Error).message}`);
   }
 }
+
+// Private resource-transfer metadata only: no resource payloads, passwords or private keys.
+db.exec('CREATE TABLE IF NOT EXISTS resource_transfer_state (id INTEGER PRIMARY KEY CHECK (id = 1), body TEXT NOT NULL)');
+export function loadResourceTransferState(): string | null {
+  return (db.prepare('SELECT body FROM resource_transfer_state WHERE id = 1').get() as { body: string } | undefined)?.body ?? null;
+}
+export function saveResourceTransferState(body: string): void {
+  db.prepare('INSERT INTO resource_transfer_state (id, body) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET body = excluded.body').run(body);
+}

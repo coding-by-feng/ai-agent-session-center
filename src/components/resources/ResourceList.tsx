@@ -20,9 +20,16 @@ import {
   revealDelta,
   scopeName,
 } from '@/lib/resourceFilters';
+import { useSkillNotesStore } from '@/stores/skillNotesStore';
+import { isNotable, noteForResource, type SkillNote } from '@/lib/skillNotes';
+import { FavToggle } from './SkillNotes';
+import noteStyles from '@/styles/modules/SkillNotes.module.css';
 import styles from '@/styles/modules/Resources.module.css';
+import transferStyles from '@/styles/modules/ResourceTransfers.module.css';
 
 interface ResourceListProps {
+  transferIds?: ReadonlySet<string>;
+  onTransferSelect?: (id: string, include: boolean) => void;
   type: ResourceType;
   resources: ResourceSummary[];
   selectedId: string | null;
@@ -55,12 +62,15 @@ function ResourceRow({
   selected,
   projectsById,
   shortcuts,
+  note,
   onSelect,
 }: {
   resource: ResourceSummary;
   selected: boolean;
   projectsById: ReadonlyMap<string, ResourceProject>;
   shortcuts: ResourceShortcuts;
+  /** The user's own marks on it (tags, abbreviation); the heart is separate. */
+  note: SkillNote | null;
   onSelect: (id: string) => void;
 }) {
   const origin = originTag(r);
@@ -87,6 +97,8 @@ function ResourceRow({
         {r.orphaned && <>{' '}<Badge className={styles.chipError}>orphaned</Badge></>}
         {target && <>{' '}<Badge className={styles.chipOrigin}>{`→ ${target.name}`}</Badge></>}
         {aliases && <>{' '}<Badge className={styles.chipOrigin}>{`shortcut ${aliases.map((a) => `/${a.name}`).join(' ')}`}</Badge></>}
+        {note?.abbr && <>{' '}<Badge className={styles.chipOrigin}>{`abbr ${note.abbr}`}</Badge></>}
+        {note?.tags.map((t) => <span key={t}>{' '}<Badge className={styles.chipMuted}>{`#${t}`}</Badge></span>)}
       </span>{' '}
       <span className={styles.rowSecondary}>{(target ? stripShortcutPrefix(r.description ?? '') : r.description) || r.path}</span>
     </button>
@@ -94,6 +106,8 @@ function ResourceRow({
 }
 
 export default function ResourceList({
+  transferIds,
+  onTransferSelect,
   type,
   resources,
   selectedId,
@@ -105,6 +119,8 @@ export default function ResourceList({
 }: ResourceListProps) {
   const headingId = useId();
   const paneRef = useRef<HTMLElement>(null);
+  // One subscription for every row; a row re-renders only when its note changes.
+  const notes = useSkillNotesStore((s) => s.notes);
 
   // Before paint, so a new type never flashes at the old offset. Runs before
   // the reveal effect below, which then brings a still-listed selection back.
@@ -134,12 +150,18 @@ export default function ResourceList({
       ) : (
         <ul className={styles.list} aria-label="Resources">
           {resources.map((r) => (
-            <li key={r.id}>
+            <li
+              key={r.id}
+              className={[transferIds ? transferStyles.bulkRow : '', isNotable(r) ? noteStyles.rowWrap : ''].filter(Boolean).join(' ') || undefined}
+            >
+              {transferIds && <input className={transferStyles.bulkCheck} type="checkbox" aria-label={`Transfer ${r.name} (${r.agent})`} checked={transferIds.has(r.id)} onChange={e => onTransferSelect?.(r.id, e.target.checked)} />}
+              <FavToggle resource={r} />
               <ResourceRow
                 resource={r}
                 selected={r.id === selectedId}
                 projectsById={projectsById}
                 shortcuts={shortcuts}
+                note={noteForResource(notes, r)}
                 onSelect={onSelect}
               />
             </li>

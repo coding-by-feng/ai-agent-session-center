@@ -9,7 +9,7 @@ import { readdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir, networkInterfaces, hostname as osHostname } from 'os';
 import log from './logger.js';
-import { reapPtyChildren } from './processMonitor.js';
+import { reapPtyChildren, listChildPids, terminateProcessTree } from './processMonitor.js';
 import { appendSessionName, applyClaudeLaunchFlags, applyStatusLineTap, isStatusLineTapEnabled, isStatusLineTapInstalled, withClaudeTuiEnvDefaults, stripInheritedClaudeSessionEnv } from './config.js';
 import type { Terminal, TerminalConfig, TerminalInfo, TmuxSessionInfo, SshKeyInfo } from '../src/types/terminal.js';
 import { DEFAULT_TERMINAL_REPLAY_BUFFER_BYTES, clampReplayBufferBytes } from '../src/types/terminal.js';
@@ -968,13 +968,64 @@ export function closeTerminal(terminalId: string): void {
         const shellPid = (term.pty as { pid?: number }).pid;
         if (shellPid) reapPtyChildren(shellPid);
       } catch { /* pty may already be gone */ }
-      try { term.pty.kill(); } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        log.debug('pty', `Kill failed for ${terminalId}: ${msg}`);
-      }
+      killPty(terminalId, term.pty);
     }
     cleanup(terminalId);
   }
+}
+
+function killPty(terminalId: string, pty: { kill: () => void }): void {
+  try { pty.kill(); } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    log.debug('pty', `Kill failed for ${terminalId}: ${msg}`);
+  }
+}
+
+/**
+ * closeTerminal() that resolves only once the agent it was running is confirmed
+ * dead. closeTerminal reaps the shell's children fire-and-forget, which is right
+ * for a kill but not for a restart: a restart types `claude --resume <same id>`
+ * into a fresh PTY, and two agents writing one transcript corrupt it.
+ *
+ * The children are listed BEFORE the shell is closed — afterwards they are
+ * reparented and `pgrep -P` can no longer see them. Each is signalled once, here
+ * (SIGTERM goes out synchronously, before the shell is killed, exactly as in
+ * closeTerminal), and this awaits the same promises: closeTerminal's own reap is
+ * skipped so a restart does not list and signal every child twice. Resolves false
+ * if a child outlived SIGKILL, true when everything is gone (or there was nothing
+ * to wait for). Only local processes can be confirmed: an SSH terminal's child is
+ * the local ssh client.
+ */
+export async function closeTerminalAndWait(terminalId: string): Promise<boolean> {
+  const term = terminals.get(terminalId);
+  if (!term) return true;
+  const shellPid = (term.pty as { pid?: number } | undefined)?.pid;
+  const stopping = (shellPid ? listChildPids(shellPid) : []).map((pid) => terminateProcessTree(pid));
+  if (term.pty) killPty(terminalId, term.pty);
+  cleanup(terminalId);
+  const results = await Promise.all(stopping);
+  return results.every(Boolean);
+}
+
+/**
+ * Launch-only settings a live terminal was created with that the Session record never keeps: the
+ * New Session modal's API-key override and its Remote Control name. A restart builds its new PTY from
+ * the stored SSH config, so it has to read these off the old terminal or the restarted agent silently
+ * runs on the default credentials and drops its Remote Control link.
+ */
+export function getTerminalRelaunchSettings(terminalId: string): { apiKey?: string; remoteControlName?: string } {
+  const config = terminals.get(terminalId)?.config;
+  return { apiKey: config?.apiKey, remoteControlName: config?.remoteControlName };
+}
+
+/**
+ * True when this terminal is a window onto a tmux session (attach or new). The
+ * agent then lives in the tmux server, not under the PTY, so closing the PTY
+ * detaches instead of stopping it — a restart would leave the old agent running.
+ */
+export function isTmuxBackedTerminal(terminalId: string): boolean {
+  const config = terminals.get(terminalId)?.config;
+  return !!(config?.tmuxSession || config?.useTmux);
 }
 
 export function linkSession(terminalId: string, sessionId: string): void {
