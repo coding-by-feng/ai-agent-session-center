@@ -52,6 +52,11 @@
 
 .toolbar {
   display: flex;
+  /* Wrap rather than clip: the panel is overflow:hidden, so a row that did not
+     fit used to push Fullscreen / Pop out / Fork out of reach on a narrow panel
+     or a phone. A second row costs a few terminal lines; a clipped control costs
+     the control. */
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   padding: 2px 4px;
@@ -100,6 +105,10 @@
   background: rgba(128, 128, 128, 0.15);
   color: var(--text-primary, #e0e0e0);
   border-color: rgba(128, 128, 128, 0.5);
+}
+.toolbarBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* Touch/mobile-only buttons — hidden on desktop (mouse) and Electron */

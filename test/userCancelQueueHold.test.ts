@@ -184,6 +184,27 @@ describe('subagent count (what the queue\'s subagent hold reads)', () => {
     expect(getSession('sa-2')?.subagentCount).toBe(0);
   });
 
+  it('counts running background shells apart from subagents, and a clean Stop clears them', () => {
+    runningTurn('sa-3', 'q3');
+    const file = transcript('sa-3', 'q3', false);
+    stop('sa-3', file, 'q3', { background_tasks: [
+      { id: 'b1', type: 'shell', status: 'running', description: 'npm run dev' },
+      { id: 'b2', type: 'shell', status: 'completed', description: 'old build' },
+    ] });
+    expect(getSession('sa-3')?.subagentCount).toBe(0);
+    expect(getSession('sa-3')?.backgroundTaskCount).toBe(1);
+    stop('sa-3', file, 'q3', { background_tasks: [] });
+    expect(getSession('sa-3')?.backgroundTaskCount).toBe(0);
+  });
+
+  it('SessionStart resets a background-shell count that never got its final Stop', () => {
+    runningTurn('sa-4', 'q4');
+    stop('sa-4', transcript('sa-4', 'q4', false), 'q4', { background_tasks: [{ id: 'b1', type: 'shell', status: 'running' }] });
+    expect(getSession('sa-4')?.backgroundTaskCount).toBe(1);
+    handleEvent({ session_id: 'sa-4', hook_event_name: EVENT_TYPES.SESSION_START });
+    expect(getSession('sa-4')?.backgroundTaskCount).toBe(0);
+  });
+
   it('keeps the count when the CLI sends no background_tasks (older versions)', () => {
     runningTurn('sa-3', 'q3');
     start('sa-3');

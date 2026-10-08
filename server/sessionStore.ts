@@ -32,6 +32,7 @@ import {
 } from './teamManager.js';
 import { startMonitoring, stopMonitoring, startExternalDiscovery, findClaudeProcess as _findClaudeProcess } from './processMonitor.js';
 import { followSessionAlias } from './sessionAliasResolver.js';
+import { trackSubagentEvent, forgetSubagentSession, subagentIdentity, endAllRuns } from './subagentTracker.js';
 import type { DiscoveredProcess } from './processMonitor.js';
 import { startAutoIdle, stopAutoIdle, startPendingResumeCleanup, stopPendingResumeCleanup } from './autoIdleManager.js';
 import { migrateControl, dropControl } from './presenceManager.js';
@@ -215,6 +216,10 @@ export function loadSnapshot(): { mqOffset: number } | null {
       // server-side just creates invisible idle zombies hidden from every list.
       // The dashboard re-opens any still-relevant popup during workspace import.
       if (session.isFloating || (session.isFork && session.originSessionId)) continue;
+
+      // Subagents from before the restart can't be vouched for. One still
+      // running reopens its run on its next tool call (subagentTracker.ts).
+      if (session.subagents?.length) session.subagents = endAllRuns(session.subagents, Date.now());
 
       // Skip sessions that were already ended
       if (session.status === SESSION_STATUS.ENDED) {
@@ -530,6 +535,9 @@ const PLAN_USAGE_BROADCAST_DELAY_MS = 300;
 /** A session is a reason to look at plan usage only while it can still be using the plan. */
 const isLiveSession = (session: Session): boolean => session.status !== SESSION_STATUS.ENDED;
 /** attachPlanUsage runs on every hook event, so a persistent fault may be reported at most this often. */
+/** `background_tasks` statuses that mean the work is over and must not hold the queue. */
+const FINISHED_TASK_STATUSES: ReadonlySet<string> = new Set(['completed', 'failed', 'killed', 'stopped', 'cancelled', 'canceled', 'done', 'exited']);
+
 const PLAN_USAGE_WARN_INTERVAL_MS = 60_000;
 let planUsageWarnedAt = 0;
 
@@ -599,6 +607,15 @@ export function stopPlanUsage(): void {
 export function handleEvent(hookData: HookPayload): HandleEventResult | null {
   const { session_id, hook_event_name, cwd } = hookData;
   if (!session_id) return null;
+
+  // A restart closed this event's terminal on purpose. Whatever its dying agent
+  // still reports (a SessionEnd, a last PostToolUse with its old pid) belongs to a
+  // process the card no longer has, but it names the card's own session id, so
+  // matching would find the card and apply it to the new terminal's session.
+  if (isRestartedAwayEvent(hookData.agent_terminal_id, session_id)) {
+    log.debug('session', `Dropped ${hook_event_name} from restarted-away terminal ${hookData.agent_terminal_id?.slice(0, 12)}`);
+    return null;
+  }
 
   if (hookData.claude_pid) {
     const env = [
@@ -744,6 +761,19 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
     }
   }
 
+  // In-process subagent runs for the AGENTS tab (subagentTracker.ts). A
+  // PreToolUse applies it below, where the tool summary exists, and learns
+  // which subagent (if any) made the call; every other event applies it here.
+  const applySubagentEvent = (toolTarget: string | null): string | null => {
+    const tracked = trackSubagentEvent(
+      session_id, session.subagents ?? [], hook_event_name,
+      hookData as unknown as Record<string, unknown>, toolTarget, Date.now(),
+    );
+    session.subagents = tracked.runs;
+    return tracked.toolAgentId;
+  };
+  if (hook_event_name !== EVENT_TYPES.PRE_TOOL_USE) applySubagentEvent(null);
+
   switch (hook_event_name) {
     case EVENT_TYPES.SESSION_START: {
       session.status = SESSION_STATUS.IDLE;
@@ -751,6 +781,7 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       // before can still be running under this session. Without the reset one
       // lost SubagentStop held the prompt queue until 15 minutes of silence.
       session.subagentCount = 0;
+      session.backgroundTaskCount = 0;
       session.animationState = ANIMATION_STATE.IDLE;
       session.model = hookData.model || session.model;
       if ('transcript_path' in hookData && hookData.transcript_path) session.transcriptPath = hookData.transcript_path;
@@ -863,10 +894,12 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
         ('tool_input' in hookData ? hookData.tool_input : undefined) as Record<string, unknown> | undefined,
         toolName
       );
+      const toolAgentId = applySubagentEvent(toolInputSummary);
       session.toolLog.push({
         tool: toolName,
         input: toolInputSummary,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        ...(toolAgentId ? { agentId: toolAgentId } : {}),
       });
       if (session.toolLog.length > 200) session.toolLog.shift();
       eventEntry.detail = `${toolName}`;
@@ -935,6 +968,13 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
         session.subagentCount = backgroundTasks.filter(
           (t) => !!t && typeof t === 'object' && (t as { type?: unknown }).type === 'subagent',
         ).length;
+        // Shells and monitors still running hold the queue just like subagents:
+        // the turn is not truly over until they report finished.
+        session.backgroundTaskCount = backgroundTasks.filter(
+          (t) => !!t && typeof t === 'object'
+            && (t as { type?: unknown }).type !== 'subagent'
+            && !FINISHED_TASK_STATUSES.has(String((t as { status?: unknown }).status ?? '')),
+        ).length;
       }
 
       scheduleInterruptCheck(
@@ -946,10 +986,14 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       break;
     }
 
-    case EVENT_TYPES.SUBAGENT_START:
+    case EVENT_TYPES.SUBAGENT_START: {
       session.subagentCount++;
       session.emote = EMOTE.JUMP;
-      eventEntry.detail = `Subagent spawned (${hookData.agent_type || 'unknown'}${hookData.agent_name ? ' ' + hookData.agent_name : ''}${hookData.agent_id ? ' #' + hookData.agent_id.slice(0, 8) : ''})`;
+      // Claude's own ids (agent_id/agent_type are the team env here, see subagentTracker.ts).
+      const spawned = subagentIdentity(hookData as unknown as Record<string, unknown>);
+      const spawnedType = spawned?.type || hookData.agent_type || 'unknown';
+      const spawnedId = spawned?.id || hookData.agent_id;
+      eventEntry.detail = `Subagent spawned (${spawnedType}${hookData.agent_name ? ' ' + hookData.agent_name : ''}${spawnedId ? ' #' + spawnedId.slice(0, 8) : ''})`;
       // Store agent name on session if available from enriched hook
       if (hookData.agent_name) {
         session.lastSubagentName = hookData.agent_name;
@@ -957,6 +1001,7 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       // Track pending subagent for team auto-detection (delegated to teamManager)
       addPendingSubagent(session_id, session.projectPath, hookData.agent_type, hookData.agent_id);
       break;
+    }
 
     case EVENT_TYPES.SUBAGENT_STOP:
       session.subagentCount = Math.max(0, session.subagentCount - 1);
@@ -982,15 +1027,20 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       clearApprovalTimer(session_id, session);
       session.status = SESSION_STATUS.WORKING;
       const failedTool = ('tool_name' in hookData ? hookData.tool_name : undefined) || 'Tool';
-      // Mark last tool log entry as failed if it matches
-      if (session.toolLog.length > 0) {
-        const lastEntry = session.toolLog[session.toolLog.length - 1];
-        if (lastEntry.tool === failedTool && !lastEntry.failed) {
-          lastEntry.failed = true;
-          lastEntry.error = ('error' in hookData ? hookData.error : undefined)
+      // Mark the failing agent's latest call to this tool as failed. With
+      // subagents running in parallel the newest entry can be another agent's,
+      // so match the caller too (the leader's own calls carry no agentId).
+      const failedBy = subagentIdentity(hookData as unknown as Record<string, unknown>)?.id;
+      for (let i = session.toolLog.length - 1; i >= 0; i--) {
+        const entry = session.toolLog[i];
+        if (entry.tool !== failedTool || entry.agentId !== failedBy) continue;
+        if (!entry.failed) {
+          entry.failed = true;
+          entry.error = ('error' in hookData ? hookData.error : undefined)
             || ('message' in hookData ? hookData.message : undefined)
             || 'Failed';
         }
+        break;
       }
       const errorMsg = ('error' in hookData ? hookData.error : undefined);
       eventEntry.detail = `${failedTool} failed${errorMsg ? ': ' + errorMsg.substring(0, 80) : ''}`;
@@ -1041,6 +1091,7 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       session.animationState = ANIMATION_STATE.DEATH;
       session.endedAt = Date.now();
       session.subagentCount = 0;
+      session.backgroundTaskCount = 0;
       eventEntry.detail = `Session ended (${('reason' in hookData ? hookData.reason : undefined) || 'unknown'})`;
 
       // Release PID cache for this session
@@ -1413,6 +1464,8 @@ export function killSession(sessionId: string): Session | null {
   session.archived = 1;
   session.lastActivityAt = Date.now();
   session.endedAt = Date.now();
+  // No hook will ever close its subagents now.
+  session.subagents = endAllRuns(session.subagents ?? [], Date.now());
   // Release or transfer the PID claim. Codex can have several independent
   // thread cards on one live host PID; when one managed PTY is closed in
   // isolation, preserve that PID mapping on a live sibling rather than leaving
@@ -1455,6 +1508,7 @@ export function deleteSessionFromMemory(sessionId: string): boolean {
   for (const alias of aliasesToDelete) sessionAliases.delete(alias);
   // Team cleanup
   handleTeamMemberEnd(resolvedId, sessions);
+  forgetSubagentSession(resolvedId);
   // Forget the control baton — otherwise a killed session's id keeps an entry
   // that would silently pre-assign control if the id were ever reused.
   dropControl(resolvedId);
@@ -1528,6 +1582,7 @@ export function clearAllSessions(): { removed: number; savedOutputs: SavedTermin
     if (session.cachedPid) {
       pidToSession.delete(session.cachedPid);
     }
+    forgetSubagentSession(id);
     dropControl(id);
     sessions.delete(id);
     removed++;
@@ -1665,14 +1720,22 @@ export function resumeSession(sessionId: string): { error: string } | { ok: true
  * Used when the original terminal died (server restart) and a new one was created.
  * Updates the REAL session in the Map and registers pendingResume for hook matching.
  */
-export function reconnectSessionTerminal(sessionId: string, newTerminalId: string): { error: string } | { ok: true; session: Session } {
+export function reconnectSessionTerminal(
+  sessionId: string,
+  newTerminalId: string,
+  options: { archivePrevious?: boolean } = {},
+): { error: string } | { ok: true; session: Session } {
   const session = sessions.get(sessionId);
   if (!session) return { error: 'Session not found' };
 
-  // Archive current session data (same as resumeSession)
-  if (!session.previousSessions) session.previousSessions = [];
-  session.previousSessions.push(toArchivedSession(session));
-  if (session.previousSessions.length > 5) session.previousSessions.shift();
+  // Archive current session data (same as resumeSession). A restart skips it: `--resume` keeps the same
+  // session id and prompt history, so the archive would only repeat the live prompts (and, from the second
+  // restart on, put two "previous sessions" with one id into the conversation view).
+  if (options.archivePrevious !== false) {
+    if (!session.previousSessions) session.previousSessions = [];
+    session.previousSessions.push(toArchivedSession(session));
+    if (session.previousSessions.length > 5) session.previousSessions.shift();
+  }
 
   // Register pending resume so session matching can link new Claude hooks
   pendingResume.set(newTerminalId, {
@@ -2059,6 +2122,115 @@ export function resumeQueueAfterCancel(sessionId: string): boolean {
   invalidateSessionsCache();
   void broadcastSessionUpdate(session);
   return true;
+}
+
+// ---- Terminal restart ("quit and reconnect with the same session") ----------
+//
+// The route (sessionRestart.ts) stops the agent, opens a fresh PTY and resumes
+// the same session in it. The card is never ended and never re-created: it goes
+// straight to CONNECTING (so the queue, which only sends into waiting/input/idle,
+// holds) and is re-linked to the new terminal by reconnectSessionTerminal.
+
+/** How long a closed terminal's late hooks keep being dropped. Terminal ids are unique per spawn. */
+const RESTARTED_TERMINAL_TTL_MS = 2 * 60_000;
+/** terminalId -> the card whose agent died there, and when to stop dropping its hooks. */
+const restartedAwayTerminals = new Map<string, { sessionId: string; until: number }>();
+
+/**
+ * True for an event from a terminal a restart closed, reported under the card
+ * that was restarted. The session id matters: a teammate that inherited the
+ * terminal id but lives outside the PTY's process tree (a tmux pane) survives a
+ * restart and reports under its own session id, which must keep reaching its card.
+ */
+function isRestartedAwayEvent(terminalId: string | null | undefined, sessionId: string): boolean {
+  if (!terminalId) return false;
+  const entry = restartedAwayTerminals.get(terminalId);
+  if (!entry) return false;
+  if (Date.now() >= entry.until) {
+    restartedAwayTerminals.delete(terminalId);
+    return false;
+  }
+  return (resolveSessionId(sessionId) ?? sessionId) === entry.sessionId;
+}
+
+/**
+ * Put a live session into "restarting": drop the old terminal's hooks, forget
+ * everything about the dying process, and show CONNECTING at once. Does not
+ * touch the terminals themselves; that is the caller's job.
+ */
+export function beginSessionRestart(
+  sessionId: string,
+): { error: string } | { ok: true; session: Session; oldTerminalId: string } {
+  const resolvedId = resolveSessionId(sessionId);
+  const session = resolvedId ? sessions.get(resolvedId) : undefined;
+  if (!session) return { error: 'Session not found' };
+  const oldTerminalId = session.terminalId;
+  if (!oldTerminalId) return { error: 'No terminal associated with this session' };
+
+  // Entries are only ever read for hooks of a terminal that is now closed, so an
+  // expired one is never looked up again: sweep them here instead.
+  const now = Date.now();
+  for (const [terminalId, entry] of restartedAwayTerminals) {
+    if (now >= entry.until) restartedAwayTerminals.delete(terminalId);
+  }
+  restartedAwayTerminals.set(oldTerminalId, { sessionId: session.sessionId, until: now + RESTARTED_TERMINAL_TTL_MS });
+
+  // The old agent's pid and everything it was in the middle of: none of it survives a restart.
+  if (session.cachedPid) {
+    pidToSession.delete(session.cachedPid);
+    session.cachedPid = null;
+  }
+  clearApprovalTimer(session.sessionId, session);
+  session.pendingTool = null;
+  session.waitingDetail = null;
+  session.interruption = null;
+  session.userCancelledAt = null;
+  session.subagentCount = 0;
+  session.backgroundTaskCount = 0;
+  if (session.subagents?.length) session.subagents = endAllRuns(session.subagents, Date.now());
+
+  session.status = SESSION_STATUS.CONNECTING as Session['status'];
+  session.animationState = ANIMATION_STATE.WALKING;
+  session.emote = EMOTE.WAVE;
+  session.lastActivityAt = Date.now();
+  session.events.push({
+    type: 'RestartRequested',
+    timestamp: Date.now(),
+    detail: 'Restart requested by user',
+  });
+  if (session.events.length > 50) session.events.shift();
+  invalidateSessionsCache();
+  log.info('session', `RESTART: session ${session.sessionId.slice(0, 8)} terminal ${oldTerminalId.slice(0, 8)} closing`);
+  return { ok: true, session: { ...session }, oldTerminalId };
+}
+
+/**
+ * A restart that could not finish: leave an ENDED card with its last terminal
+ * recorded (so RESUME / RECONNECT apply) and let the old terminal's hooks through
+ * again, because if its agent survived SIGKILL it is still the card's agent.
+ */
+export function failSessionRestart(sessionId: string, oldTerminalId: string): Session | null {
+  restartedAwayTerminals.delete(oldTerminalId);
+  const resolvedId = resolveSessionId(sessionId);
+  const session = resolvedId ? sessions.get(resolvedId) : undefined;
+  if (!session) return null;
+  session.status = SESSION_STATUS.ENDED;
+  session.animationState = ANIMATION_STATE.DEATH;
+  session.emote = null;
+  session.endedAt = Date.now();
+  session.lastActivityAt = Date.now();
+  session.lastTerminalId = oldTerminalId;
+  session.terminalId = null;
+  if (session.source === 'ssh') session.isHistorical = true;
+  session.events.push({
+    type: 'RestartFailed',
+    timestamp: Date.now(),
+    detail: 'Restart failed — the session is ended; resume it from the card',
+  });
+  if (session.events.length > 50) session.events.shift();
+  invalidateSessionsCache();
+  log.warn('session', `RESTART FAILED: session ${session.sessionId.slice(0, 8)} left ended (was terminal ${oldTerminalId.slice(0, 8)})`);
+  return { ...session };
 }
 
 // ---- Start background monitors ----

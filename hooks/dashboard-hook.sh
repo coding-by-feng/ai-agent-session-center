@@ -96,6 +96,11 @@ JQ_OUT=$(echo "$INPUT" | jq -c \
     agent_name: (if $cc_agent_name != "" then $cc_agent_name else null end),
     agent_type: (if $cc_agent_type != "" then $cc_agent_type else null end),
     agent_id: (if $cc_agent_id != "" then $cc_agent_id else null end),
+    # The ids Claude Code itself sends (on every event fired inside a subagent). The
+    # two lines above replace them with the team env (team linking reads that),
+    # so keep the originals for the AGENTS tab. `.` here is still the input.
+    claude_agent_id: (.agent_id // null),
+    claude_agent_type: (.agent_type // null),
     agent_color: (if $cc_agent_color != "" then $cc_agent_color else null end),
     startup_command: (if $startup_cmd != "" then $startup_cmd else null end)
   }),

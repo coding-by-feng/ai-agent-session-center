@@ -137,6 +137,35 @@ export function uninstallResource(id: string, confirmName: string): Promise<Unin
 }
 
 /** Moves a trash entry back to where it was uninstalled from (never over something new). */
+export interface AliasInput {
+  agent: 'claude' | 'codex' | 'shared';
+  kind: 'skill' | 'command';
+  target: string;
+  abbr: string;
+}
+export interface AliasFileResult {
+  path: string;
+  action: 'created' | 'updated' | 'unchanged' | 'removed' | 'kept' | 'absent';
+}
+
+/** Write the abbreviation as a real command in Claude Code / Codex (server/resourceAliases.ts). */
+export function createAliasCommand(input: AliasInput): Promise<{ files: AliasFileResult[] }> {
+  return request<{ files: AliasFileResult[] }>(`${BASE}/aliases`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+/** Remove the command AASC wrote for an abbreviation; a file AASC did not write is left alone. */
+export function removeAliasCommand(input: Omit<AliasInput, 'target'>): Promise<{ files: AliasFileResult[] }> {
+  return request<{ files: AliasFileResult[] }>(`${BASE}/aliases`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
 export function restoreResource(trashId: string): Promise<RestoreResult> {
   return request<RestoreResult>(`${BASE}/trash/${encodeURIComponent(trashId)}/restore`, {
     method: 'POST',

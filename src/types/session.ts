@@ -84,6 +84,55 @@ export interface ToolLogEntry {
   timestamp: number;
   failed?: boolean;
   error?: string;
+  /**
+   * The in-process subagent that made this call (its Claude `agent_id`).
+   * Absent for the session's own calls. Set only when the id matches one of
+   * the session's `subagents`, so a teammate's own identity never lands here.
+   */
+  agentId?: string;
+}
+
+/**
+ * `working` until the subagent's SubagentStop; `done` after it; `ended` when it
+ * was closed without one (the session restarted or ended, or the leader's Stop
+ * no longer listed it as running), so its outcome is unknown.
+ */
+export type SubagentRunStatus = 'working' | 'done' | 'ended';
+
+/**
+ * One in-process subagent (Claude Code's Agent/Task tool) run by a session.
+ * Built by `server/subagentTracker.ts`; drives the AGENTS tab.
+ */
+export interface SubagentRun {
+  agentId: string;
+  /** e.g. `Explore`, `code-reviewer`; `unknown` when the CLI didn't say. */
+  agentType: string;
+  /** The task the leader gave it (the Agent tool's `description`), when known. */
+  description: string | null;
+  /**
+   * True once the description came from an id-keyed source (the leader's
+   * Agent PostToolUse, or `background_tasks`). False while it is a FIFO guess,
+   * which parallel spawns of one type can get wrong.
+   */
+  descriptionConfirmed: boolean;
+  status: SubagentRunStatus;
+  startedAt: number;
+  endedAt: number | null;
+  lastActivityAt: number;
+  toolCount: number;
+  /** The latest tool it called (kept while it thinks between calls); null once finished. */
+  currentTool: string | null;
+  /** Short summary of that tool's input (a path, a command, a pattern). */
+  currentTarget: string | null;
+}
+
+/** An entry of Claude Code's `background_tasks` (on Stop and SubagentStop). */
+export interface BackgroundTask {
+  id?: string;
+  type?: string;
+  status?: string;
+  description?: string;
+  agent_type?: string;
 }
 
 /** A single response log entry */
@@ -274,7 +323,11 @@ export interface Session {
 
   // Subagents
   subagentCount: number;
+  /** Running background work that is not a subagent (shells, monitors) as of the last Stop. */
+  backgroundTaskCount?: number;
   lastSubagentName?: string;
+  /** In-process subagent runs, oldest first, capped (see subagentTracker.ts). */
+  subagents?: SubagentRun[];
 
   // Team
   teamId?: string | null;

@@ -49,12 +49,12 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('ResourcesView — shell', () => {
-  it('renders the title and exactly the Library / Sources / Checks sub-tabs', async () => {
+  it('renders the title and the Library / Sources / Checks / Transfers / Devices sub-tabs', async () => {
     renderView();
     await ready();
     expect(screen.getByRole('heading', { name: /agent resources/i, level: 1 })).toBeInTheDocument();
     const tabs = within(screen.getByRole('tablist', { name: 'Resource sections' })).getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['Library', 'Sources', 'Checks']);
+    expect(tabs.map((t) => t.textContent)).toEqual(['Library', 'Sources', 'Checks', 'Transfers', 'Devices']);
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
     // Sync is Phase C and Data is Phase D — not even as disabled tabs.
     expect(screen.queryByRole('tab', { name: /sync/i })).not.toBeInTheDocument();

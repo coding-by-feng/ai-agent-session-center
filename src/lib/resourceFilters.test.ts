@@ -50,6 +50,7 @@ import {
   orderProjects,
   sharedProjectNames,
   isExternalHref,
+  type ResourceFilters,
 } from './resourceFilters';
 
 function res(overrides: Partial<ResourceSummary> & Pick<ResourceSummary, 'id'>): ResourceSummary {
@@ -604,5 +605,44 @@ describe('isExternalHref — links in untrusted previews', () => {
     // Names that merely contain a loopback-looking label are ordinary hosts.
     expect(isExternalHref('https://127.0.0.1.example.com/', PAGE)).toBe(true);
     expect(isExternalHref('http://localhost.example.com/', PAGE)).toBe(true);
+  });
+});
+
+describe('matchesFilters with skill notes', () => {
+  const notes = {
+    'claude:tdd': { fav: true, tags: ['review', 'workflow'], abbr: 'tdd2' },
+    'codex:deploy': { fav: false, tags: ['ops'] },
+    'shared:shared-skill': { fav: true, tags: [] },
+  };
+  const ids = (f: Partial<ResourceFilters>) =>
+    RESOURCES.filter((r) => matchesFilters(r, { ...DEFAULT_FILTERS, showPluginSystem: true, notes, ...f })).map((r) => r.id);
+
+  it('is unchanged when no note filter is active', () => {
+    expect(ids({})).toEqual(RESOURCES.map((r) => r.id));
+  });
+
+  it('shows favourites only, and hides types that cannot have notes', () => {
+    expect(ids({ favOnly: true })).toEqual(['s1', 'sh1']);
+  });
+
+  it('matches several tags by ANY', () => {
+    expect(ids({ tags: ['ops'] })).toEqual(['s2']);
+    expect(ids({ tags: ['ops', 'review'] })).toEqual(['s1', 's2']);
+  });
+
+  it('combines favourites with tags (both must hold)', () => {
+    expect(ids({ favOnly: true, tags: ['ops', 'workflow'] })).toEqual(['s1']);
+  });
+
+  it('search also finds a skill by its tag or abbreviation', () => {
+    expect(ids({ query: 'workflow' })).toContain('s1');
+    expect(ids({ query: 'tdd2' })).toEqual(['s1']);
+    expect(ids({ query: 'ops' })).toContain('s2');
+  });
+
+  it('counts by type under a note filter', () => {
+    const counts = countByType(RESOURCES, { ...DEFAULT_FILTERS, showPluginSystem: true, notes, favOnly: true });
+    expect(counts.find((c) => c.type === 'skill')?.count).toBe(2);
+    expect(counts.find((c) => c.type === 'rule')?.count).toBe(0);
   });
 });

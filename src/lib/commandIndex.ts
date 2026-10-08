@@ -5,6 +5,7 @@
  * for 30 seconds keyed by (cli, projectPath). Used by the queue autocomplete
  * to surface every available slash command and skill for the session's CLI.
  */
+import { lookupNote, type SkillNotes } from './skillNotes';
 
 export type CommandKind = 'command' | 'skill';
 export type CommandSource = 'project' | 'global' | 'plugin' | 'builtin';
@@ -134,22 +135,33 @@ export function filterAndGroup(
   entries: CommandEntry[],
   query: string,
   kind: 'command' | 'skill',
+  notes?: SkillNotes,
 ): CommandGroup[] {
   const q = query.toLowerCase();
+  const noteOf = (e: CommandEntry) => (notes ? lookupNote(notes, e.cli, entryDisplayName(e)) : null);
   const matches: CommandEntry[] = [];
   for (const e of entries) {
     if (e.kind !== kind) continue;
     const display = entryDisplayName(e).toLowerCase();
-    if (!q || display.startsWith(q) || display.includes(q)) {
+    const abbr = noteOf(e)?.abbr;
+    if (!q || display.startsWith(q) || display.includes(q) || (abbr && abbr.startsWith(q))) {
       matches.push(e);
     }
   }
-  // Stable sort: exact prefix matches first, then alpha
+  // Stable sort: the exact abbreviation, then favourites, then prefix matches, then alpha
   matches.sort((a, b) => {
     const aName = entryDisplayName(a).toLowerCase();
     const bName = entryDisplayName(b).toLowerCase();
-    const aPrefix = q && aName.startsWith(q) ? 0 : 1;
-    const bPrefix = q && bName.startsWith(q) ? 0 : 1;
+    const aNote = noteOf(a);
+    const bNote = noteOf(b);
+    const aAbbr = q && aNote?.abbr === q ? 0 : 1;
+    const bAbbr = q && bNote?.abbr === q ? 0 : 1;
+    if (aAbbr !== bAbbr) return aAbbr - bAbbr;
+    const aFav = aNote?.fav ? 0 : 1;
+    const bFav = bNote?.fav ? 0 : 1;
+    if (aFav !== bFav) return aFav - bFav;
+    const aPrefix = q && (aName.startsWith(q) || aNote?.abbr?.startsWith(q)) ? 0 : 1;
+    const bPrefix = q && (bName.startsWith(q) || bNote?.abbr?.startsWith(q)) ? 0 : 1;
     if (aPrefix !== bPrefix) return aPrefix - bPrefix;
     return aName.localeCompare(bName);
   });

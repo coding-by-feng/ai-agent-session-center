@@ -19,6 +19,7 @@ const AiPopupHistory = lazy(() => import('./AiPopupHistory'));
 // the tab itself. Only `notesStore` needs to be eager (DetailTabs reads it for
 // the tab's count badge).
 const NotesTab = lazy(() => import('./NotesTab'));
+const AgentsTab = lazy(() => import('./AgentsTab'));
 import QueueTab from './QueueTab';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import SessionControlBar from './SessionControlBar';
@@ -40,6 +41,8 @@ import { isProjectEditing } from '@/lib/projectEditGuard';
 import { retainRecentProjects, isMostRecentProject } from '@/lib/mountedProjectsLru';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { openTerminalPopupFallback } from '@/lib/popoutTerminalWindow';
+import { restartNeedsConfirm, restartConfirmMessage, requestSessionRestart } from '@/lib/restartSession';
+import { showToast } from '@/components/ui/ToastContainer';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 /**
@@ -206,6 +209,24 @@ const TerminalContent = memo(function TerminalContent({
       .catch(() => {});
   }, [sessionId]);
 
+  // Quit the agent and reconnect the same session in a fresh terminal. The button is disabled while the
+  // request runs, which is what stops a second click (React commits a click's state change before the next
+  // click event). The pending flag names the CARD, not the panel: this component outlives a switch to
+  // another session, whose own button must not show as busy.
+  const [restartPendingFor, setRestartPendingFor] = useState<string | null>(null);
+  const handleRestart = useCallback(async () => {
+    const live = useSessionStore.getState().sessions.get(sessionId);
+    const name = sessionDisplayTitle(live);
+    if (restartNeedsConfirm(live?.status) && !window.confirm(restartConfirmMessage(name))) return;
+    setRestartPendingFor(sessionId);
+    try {
+      const result = await requestSessionRestart(sessionId);
+      if (!result.ok) showToast(`${name}: ${result.error}`, 'error');
+    } finally {
+      setRestartPendingFor((pending) => (pending === sessionId ? null : pending));
+    }
+  }, [sessionId]);
+
   const handleFork = useCallback(() => {
     fetch(`/api/sessions/${sessionId}/fork`, { method: 'POST' })
       .then((r) => r.json())
@@ -249,6 +270,8 @@ const TerminalContent = memo(function TerminalContent({
             onReconnect={canReconnect ? handleReconnect : undefined}
             onFork={isForkableCli ? handleFork : undefined}
             onClone={handleClone}
+            onRestart={isSSH && terminalId && !session?.isFork ? handleRestart : undefined}
+            restartPending={restartPendingFor === sessionId}
             onPopOut={terminalId ? handlePopOut : undefined}
             projectPath={projectPath}
             originSessionId={sessionId}
@@ -845,6 +868,11 @@ export default function DetailPanel() {
           notesContent={
             <Suspense fallback={<div className={styles.tabEmpty}>Loading…</div>}>
               <NotesTab sessionId={displaySession.sessionId} projectPath={displaySession.projectPath} />
+            </Suspense>
+          }
+          agentsContent={
+            <Suspense fallback={<div className={styles.tabEmpty}>Loading…</div>}>
+              <AgentsTab sessionId={displaySession.sessionId} />
             </Suspense>
           }
           queueContent={

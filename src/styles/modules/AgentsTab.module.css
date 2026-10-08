@@ -1,0 +1,198 @@
+/* AGENTS detail tab: agent diagram + activity log (AgentsTab.tsx).
+ *
+ * Connector geometry (keep in step with TREE_INSET_PX in AgentsTab.tsx):
+ *   .tree sits 40px in; the spine runs 16px left of it, under the leader card.
+ *   Every .slot has a 16px top pad: its bus runs along the slot's top edge
+ *   (from the spine, or from the previous card's centre) and its stub drops
+ *   from the bus to the card. Columns are equal-width (data-cols), which is
+ *   what lets a bus reach back exactly to the previous card's centre.
+ * Lines are dashed gradients; a working agent's lines flow, and only when
+ * the user allows motion. Colour sits on glyphs and borders, never alone on
+ * text: every state also has a word. */
+
+.root {
+  container: agents / inline-size;
+  --line: var(--border-subtle-strong);
+  --line-active: var(--accent-green);
+  --link: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.kindLeader { --kind: var(--accent-cyan); }
+.kindSubagent { --kind: var(--accent-purple); }
+.kindTeammate { --kind: var(--accent-orange); }
+
+/* ---- Legend ---- */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.legendItem { display: inline-flex; align-items: center; gap: 8px; }
+.swatch { width: 8px; height: 8px; border-radius: 2px; background: var(--kind); }
+.counts { margin-left: auto; }
+
+/* ---- Diagram ---- */
+.diagram { min-width: 0; }
+
+.card {
+  position: relative;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 360px;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--kind);
+  border-radius: 6px;
+}
+.slot .card { max-width: none; }
+
+/* The name keeps its natural width and the state wraps under it when both
+   don't fit; only a name longer than the whole card is cut (it has a title). */
+.cardHead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0 8px; min-width: 0; }
+.cardName {
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+.state { flex-shrink: 0; font-size: 11px; color: var(--text-primary); white-space: nowrap; }
+.state > span { color: var(--text-secondary); }
+.stateWorking > span { color: var(--accent-green); }
+.stateAttention > span { color: var(--accent-yellow); }
+.stateDone > span { color: var(--accent-green); }
+
+.cardRole {
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.cardTool { display: flex; gap: 8px; margin-top: 8px; min-width: 0; }
+.toolName { flex-shrink: 0; color: var(--kind); font-weight: 700; }
+.toolTarget { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cardDesc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  margin: 8px 0 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.cardMeta { margin-top: 4px; font-size: 11px; color: var(--text-secondary); }
+
+.tree { position: relative; margin: var(--link) 0 0 40px; }
+
+.row { position: relative; display: grid; column-gap: var(--link); }
+.row + .row { margin-top: var(--link); }
+.row[data-cols='1'] { grid-template-columns: minmax(0, 1fr); }
+.row[data-cols='2'] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.row[data-cols='3'] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.row[data-cols='4'] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.row[data-cols='5'] { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.row[data-cols='6'] { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+
+.slot { position: relative; min-width: 0; padding-top: var(--link); }
+
+/* Vertical lines: leader → first bus, bus → next row's bus, bus → card. */
+.trunk,
+.spine,
+.stub {
+  position: absolute;
+  width: 2px;
+  background-image: repeating-linear-gradient(to bottom, var(--line) 0 4px, transparent 4px 8px);
+}
+.trunk { left: calc(-1 * var(--link)); top: calc(-1 * var(--link)); height: var(--link); }
+.spine { left: calc(-1 * var(--link)); top: 0; bottom: calc(-1 * var(--link)); }
+.stub { left: calc(50% - 1px); top: 0; height: var(--link); }
+
+/* Horizontal lines: spine → first card, previous card → this card. */
+.bus,
+.busFirst {
+  position: absolute;
+  top: 0;
+  height: 2px;
+  background-image: repeating-linear-gradient(to right, var(--line) 0 4px, transparent 4px 8px);
+}
+.busFirst { left: calc(-1 * var(--link)); width: calc(50% + var(--link)); }
+.bus { left: calc(-50% - var(--link)); width: calc(100% + var(--link)); }
+
+.trunk[data-active='true'],
+.spine[data-active='true'],
+.stub[data-active='true'] {
+  background-image: repeating-linear-gradient(to bottom, var(--line-active) 0 4px, transparent 4px 8px);
+}
+.bus[data-active='true'],
+.busFirst[data-active='true'] {
+  background-image: repeating-linear-gradient(to right, var(--line-active) 0 4px, transparent 4px 8px);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .trunk[data-active='true'],
+  .spine[data-active='true'],
+  .stub[data-active='true'] { animation: flowDown 0.6s linear infinite; }
+  .bus[data-active='true'],
+  .busFirst[data-active='true'] { animation: flowRight 0.6s linear infinite; }
+}
+@keyframes flowDown { to { background-position: 0 8px; } }
+@keyframes flowRight { to { background-position: 8px 0; } }
+
+.note { margin: 16px 0 0; font-size: 11px; color: var(--text-secondary); }
+
+/* ---- Activity log ---- */
+.log {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.log th {
+  padding: 4px 8px;
+  text-align: left;
+  font-weight: 400;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.log th:nth-child(1) { width: 72px; }
+.log th:nth-child(2) { width: 120px; }
+.log th:nth-child(3) { width: 88px; }
+.log td {
+  padding: 4px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.logTime { color: var(--text-secondary); }
+.logAgent { box-shadow: inset 3px 0 0 var(--kind); }
+.logAction { font-weight: 700; }
+.logFailed .logAction,
+.logFailed .logTarget { color: var(--accent-red); }
+.failMark { font-weight: 700; }
+
+/* Sized by the PANEL, not the window: a docked panel is narrow on a wide screen.
+   Under 480px the time column goes (it is the least needed) so Target keeps room. */
+@container agents (max-width: 480px) {
+  .log th:nth-child(1), .log td:nth-child(1) { display: none; }
+  .log th:nth-child(2) { width: 96px; }
+  .log th:nth-child(3) { width: 80px; }
+}

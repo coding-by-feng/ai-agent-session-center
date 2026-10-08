@@ -207,6 +207,20 @@ function ClearIcon() {
   );
 }
 
+/** Power symbol whose ring ends in an arrowhead: "quit and start again". Drawn
+ *  apart from RefreshIcon's plain loop arrow, which sits next to it and only
+ *  repaints the screen, and from a bare power glyph, which would read as "quit". */
+function RestartIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18.4 6.6a9 9 0 1 1-12.77.04" />
+      <polyline points="2.4 6.6 5.6 6.6 5.6 9.9" />
+      <line x1="12" y1="2" x2="12" y2="10" />
+    </svg>
+  );
+}
+
 /** Microphone SVG icon (hold-to-speak). */
 function MicIcon({ active }: { active?: boolean }) {
   return (
@@ -257,6 +271,10 @@ interface TerminalToolbarProps {
   onToggleWrapMode?: () => void;
   onFork?: () => void;
   onClone?: () => void;
+  /** Quit the agent and reconnect the same session in a fresh terminal. Hidden when omitted. */
+  onRestart?: () => void;
+  /** A restart is in flight: the button is shown but cannot be pressed again. */
+  restartPending?: boolean;
   /** Pop this terminal out into its own OS window (Electron only). */
   onPopOut?: () => void;
   isFullscreen: boolean;
@@ -290,6 +308,8 @@ export default function TerminalToolbar({
   onToggleAutoScroll,
   onFork,
   onClone,
+  onRestart,
+  restartPending = false,
   onPopOut,
   isFullscreen,
   showReconnect = false,
@@ -435,6 +455,20 @@ export default function TerminalToolbar({
             aria-label={tooltips.termClear.label}
           >
             <ClearIcon />
+          </button>
+        </Tooltip>
+      )}
+
+      {onRestart && (
+        <Tooltip {...tooltips.termRestart}>
+          <button
+            className={styles.toolbarBtn}
+            onClick={onRestart}
+            disabled={restartPending}
+            aria-busy={restartPending || undefined}
+            aria-label={tooltips.termRestart.label}
+          >
+            <RestartIcon />
           </button>
         </Tooltip>
       )}

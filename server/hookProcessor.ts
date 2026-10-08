@@ -6,7 +6,7 @@ import { recordHook, getStats } from './hookStats.js';
 import { KNOWN_EVENTS, WS_TYPES } from './constants.js';
 import log from './logger.js';
 import type { HookPayload } from '../src/types/hook.js';
-import type { HandleEventResult } from '../src/types/session.js';
+import type { HandleEventResult, Session } from '../src/types/session.js';
 import { coalesceSessionUpdate } from './sessionUpdateCoalescer.js';
 
 // #80: Throttle session_update broadcasts to max 4/sec per session (250ms)
@@ -31,6 +31,21 @@ function scheduleBroadcast(sessionId: string, delta: HandleEventResult): void {
     }
   }, SESSION_UPDATE_THROTTLE_MS);
   pendingSessionUpdates.set(sessionId, { delta, timer });
+}
+
+/**
+ * Bring a held (throttled) update for this session up to date.
+ *
+ * A restart broadcasts the card's new state immediately. A delta that was still waiting out its
+ * 250 ms from an earlier hook would otherwise go out AFTER it and put the stale state (the old status
+ * and the closed terminal) back on every client until the next hook. The one-shot `replacesId`
+ * migration marker on the held delta is kept.
+ */
+export function refreshPendingSessionUpdate(sessionId: string, current: Session): void {
+  const pending = pendingSessionUpdates.get(sessionId);
+  if (!pending) return;
+  const replacesId = pending.delta.session.replacesId;
+  pending.delta = { ...pending.delta, session: replacesId ? { ...current, replacesId } : current };
 }
 
 /**

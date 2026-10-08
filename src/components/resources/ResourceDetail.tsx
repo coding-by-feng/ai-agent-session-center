@@ -39,6 +39,7 @@ import {
 import ConfigDetail from './ConfigDetail';
 import ResourceCompare from './ResourceCompare';
 import { UninstallAction } from './UninstallControls';
+import SkillNotes from './SkillNotes';
 import styles from '@/styles/modules/Resources.module.css';
 
 // See ResourceMarkdown's header: this boundary keeps react-markdown and
@@ -70,6 +71,8 @@ interface ResourceDetailProps {
    * pane remounts whenever a scan lands, which would destroy a dialog inside it.
    */
   onRequestUninstall: (summary: ResourceSummary, otherCopies: string[]) => void;
+  /** `agent:name` of every real skill and command, for the abbreviation check in the notes card. */
+  realNames?: ReadonlySet<string>;
 }
 
 /**
@@ -324,7 +327,7 @@ function DetailBody({ id, detail, summary, byId, projectsById }: {
   );
 }
 
-export default function ResourceDetail({ id, summary: catalogSummary, byId, projectsById, shortcuts, onSelect, onBack, onRequestUninstall }: ResourceDetailProps) {
+export default function ResourceDetail({ id, summary: catalogSummary, byId, projectsById, shortcuts, onSelect, onBack, onRequestUninstall, realNames }: ResourceDetailProps) {
   const [load, setLoad] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
 
@@ -363,6 +366,7 @@ export default function ResourceDetail({ id, summary: catalogSummary, byId, proj
           onRequestUninstall={onRequestUninstall}
         />
       )}
+      {summary && realNames && <SkillNotes resource={summary} realNames={realNames} />}
       {load.status === 'loading' && <p className={styles.muted}>Loading…</p>}
       {load.status === 'missing' && (
         <p className={styles.emptyNote}>

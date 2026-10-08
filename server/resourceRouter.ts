@@ -1,5 +1,5 @@
 /**
- * resourceRouter — `/api/resources`, the read-only RESOURCES tab API.
+ * resourceRouter — `/api/resources`, the local RESOURCES catalog and transfer API.
  *
  * Mounted by the integrator as
  *   app.use('/api/resources', authMiddleware, createResourceRouter({...}))
@@ -26,7 +26,10 @@ import { isLoopbackAddress } from './presenceManager.js';
 import { PathSafetyError } from './fsSafe.js';
 import { createResourceCatalog, ResourceLookupError } from './resourceCatalog.js';
 import { TRASH_ID_RE, TrashError } from './resourceUninstall.js';
+import { ABBR_RE, TARGET_RE, AliasError, aliasFilesFor, createAlias, removeAlias } from './resourceAliases.js';
 import log from './logger.js';
+import { createTransferRouter } from './resourceTransfers/router.js';
+import type { TransferServiceDeps } from './resourceTransfers/service.js';
 
 export interface ResourceRouterDeps {
   /** Project paths of sessions AASC knows about → evidence 'aasc-session'. */
@@ -38,6 +41,8 @@ export interface ResourceRouterDeps {
   home?: string;
   /** Where uninstalled resources go. Default `DEFAULT_TRASH_DIR` (resourceUninstall.ts). */
   trashDir?: string;
+  /** Isolated persistence/transport in tests. */
+  transfers?: Omit<TransferServiceDeps, 'catalog'>;
 }
 
 /** Names a browser uses for this machine. A rebinding page's Host is ITS own name, re-resolved to 127.0.0.1. */
@@ -74,7 +79,7 @@ export function isLocalResourceRequest(req: Request): boolean {
 }
 
 /**
- * The extra bar for the two WRITE routes (uninstall, restore): the request must
+ * The extra bar for resource WRITE routes (uninstall, restore and transfers): the request must
  * come from the AASC page itself, not merely from this machine. The local gate
  * above accepts any loopback Origin — a page on another localhost port is local
  * too — and for reads that is fine. For a write, a browser marks a different
@@ -128,6 +133,14 @@ const uninstallBodySchema = z.object({
 
 const trashIdSchema = z.string().regex(TRASH_ID_RE);
 
+const aliasBodySchema = z.object({
+  agent: z.enum(['claude', 'codex', 'shared']),
+  kind: z.enum(['skill', 'command']),
+  target: z.string().regex(TARGET_RE),
+  abbr: z.string().regex(ABBR_RE),
+});
+const aliasRemoveSchema = aliasBodySchema.omit({ target: true });
+
 function fail(res: Response, status: number, error: string): void {
   res.status(status).json({ success: false, error });
 }
@@ -142,7 +155,7 @@ function validate<T>(schema: z.ZodType<T>, input: unknown, res: Response): T | n
 /** A known lookup/path error becomes its status; anything else is a logged, generic 500. */
 function sendError(res: Response, err: unknown, home: string): void {
   if (err instanceof PathSafetyError) return fail(res, err.reason === 'not-found' ? 404 : 400, err.message);
-  if (err instanceof ResourceLookupError || err instanceof TrashError) return fail(res, err.status, err.message);
+  if (err instanceof ResourceLookupError || err instanceof TrashError || err instanceof AliasError) return fail(res, err.status, err.message);
   const message = err instanceof Error ? err.message : String(err);
   log.warn('resources', `Request failed: ${message.split(home).join('~').slice(0, 300)}`);
   fail(res, 500, 'Internal error');
@@ -151,7 +164,7 @@ function sendError(res: Response, err: unknown, home: string): void {
 /** Body-parser failures (malformed JSON, oversized body) and anything a handler let escape. */
 function respondToError(res: Response, err: unknown, home: string): void {
   // Our own errors first: a ResourceLookupError carries a 4xx `status` too.
-  if (err instanceof PathSafetyError || err instanceof ResourceLookupError || err instanceof TrashError) {
+  if (err instanceof PathSafetyError || err instanceof ResourceLookupError || err instanceof TrashError || err instanceof AliasError) {
     return sendError(res, err, home);
   }
   const { type, status } = (err ?? {}) as { type?: string; status?: number };
@@ -197,6 +210,7 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
     fail(res, 404, 'Not found');
   });
   router.use(json({ limit: '64kb' }));
+  router.use('/transfers', createTransferRouter({ ...deps.transfers, catalog }, isSameOriginWrite));
 
   const idOf = (req: Request): string | null => {
     const parsed = resourceIdSchema.safeParse(str(req.params.id));
@@ -286,6 +300,52 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
     if (!trashId.success) return fail(res, 400, 'Invalid trash id');
     try {
       res.json({ success: true, data: await catalog.restore(trashId.data) });
+    } catch (err) {
+      sendError(res, err, home);
+    }
+  });
+
+  // ── Abbreviation commands: a small file in ~/.claude or ~/.codex ─────────
+  // The writes and every refusal live in resourceAliases.ts. This adds what
+  // only the catalog knows: the target must exist, and the abbreviation must
+  // not be the name of a real skill or command (the alias's own files, listed
+  // by an earlier scan, don't count).
+  router.post('/aliases', async (req, res) => {
+    if (!writeAllowed(req, res)) return;
+    const body = validate(aliasBodySchema, req.body ?? {}, res);
+    if (!body) return;
+    try {
+      const current = catalog.getOrStartCatalog();
+      if (current.resources.length === 0) {
+        return fail(res, 409, current.state === 'ready' ? 'The catalog is empty.' : 'The first scan is still running; try again in a moment.');
+      }
+      const own = new Set(
+        (['claude', 'codex', 'shared'] as const)
+          .flatMap((agent) => aliasFilesFor(agent, body.kind, body.abbr, home))
+          .map((f) => f.display),
+      );
+      const realNames = new Set<string>();
+      let targetFound = false;
+      for (const r of current.resources) {
+        if ((r.type !== 'skill' && r.type !== 'command') || own.has(r.path)) continue;
+        const name = r.origin === 'plugin' && r.pluginName ? `${r.pluginName}:${r.name}` : r.name;
+        realNames.add(`${r.agent}:${name}`);
+        if (r.agent === body.agent && r.type === body.kind && name === body.target) targetFound = true;
+      }
+      // 409, not 404: the client reads a 404 on /api/resources as "not available on this machine".
+      if (!targetFound) return fail(res, 409, 'That skill or command is not in the catalog. Rescan and try again.');
+      res.json({ success: true, data: await createAlias(body, { home, realNames }) });
+    } catch (err) {
+      sendError(res, err, home);
+    }
+  });
+
+  router.delete('/aliases', async (req, res) => {
+    if (!writeAllowed(req, res)) return;
+    const body = validate(aliasRemoveSchema, req.body ?? {}, res);
+    if (!body) return;
+    try {
+      res.json({ success: true, data: await removeAlias(body, { home }) });
     } catch (err) {
       sendError(res, err, home);
     }

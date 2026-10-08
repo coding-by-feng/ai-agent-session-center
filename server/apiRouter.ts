@@ -18,6 +18,7 @@ import { getLocalIP } from './networkInfo.js';
 import { isPasswordEnabled } from './authManager.js';
 import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, maybeInjectUltracode, attachToTmuxPane, consumePendingLink, prefillTerminalOutput, setReplayBufferBytes } from './sshManager.js';
 import { terminateProcessTree } from './processMonitor.js';
+import { restartSessionTerminal, isSessionRestarting, holdSessionClosing } from './sessionRestart.js';
 import { checkTerminalCapacity } from './terminalCapacity.js';
 import { findLiveCodexPidPeers } from './sessionKillPolicy.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
@@ -61,7 +62,7 @@ function requestIsLocal(req: Request): boolean {
  * Blocks a remote client from touching a session it may not see.
  *
  * Mounted ONCE on the `/sessions/:id` family rather than repeated in each of
- * the 17 routes there. A per-route check is only as good as the newest route,
+ * the routes there. A per-route check is only as good as the newest route,
  * and the routes it must cover include `kill`, `fork` and `resume` — the cost
  * of forgetting one is a remote device destroying a session it cannot even see.
  *
@@ -78,6 +79,17 @@ function requireVisibleSession(req: Request, res: Response, next: NextFunction):
 }
 
 router.use('/sessions/:id', requireVisibleSession);
+
+/**
+ * A restart owns its card for the few seconds it runs. Kill, resume, reconnect and
+ * delete would stop, relink or remove it underneath the restart — which would then
+ * re-link the card the user just killed. Answers 409 and returns true when busy.
+ */
+function refuseWhileRestarting(sessionId: string, res: Response): boolean {
+  if (!isSessionRestarting(sessionId)) return false;
+  res.status(409).json({ ok: false, success: false, error: 'This session is restarting — try again in a moment' });
+  return true;
+}
 
 // ---- Multi-device identity ----
 
@@ -409,6 +421,16 @@ const hookInstallSchema = z.object({
 });
 
 const killSessionSchema = z.object({
+  confirm: z.literal(true),
+});
+
+/**
+ * Restart needs the same explicit JSON body as kill. A body-less POST is a "simple"
+ * cross-site request: a web page the user happens to visit could fire it with no
+ * preflight and stop a running agent. A JSON body forces a preflight this server
+ * never answers.
+ */
+const restartSessionSchema = z.object({
   confirm: z.literal(true),
 });
 
@@ -815,6 +837,7 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
     return;
   }
 
+  if (refuseWhileRestarting(sessionId, res)) return;
   const session = getSession(sessionId);
   if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
 
@@ -898,6 +921,7 @@ router.post('/sessions/:id/resume', async (req: Request, res: Response) => {
 // that have a captured startupCommand.
 router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Response) => {
   const sessionId = str(req.params.id);
+  if (refuseWhileRestarting(sessionId, res)) return;
   const session = getSession(sessionId);
   if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
   if (session.source !== 'ssh' && !session.startupCommand) {
@@ -962,6 +986,54 @@ router.post('/sessions/:id/reconnect-terminal', async (req: Request, res: Respon
     const msg = err instanceof Error ? err.message : String(err);
     log.error('api', `Reconnect terminal failed: ${msg}`);
     res.status(500).json({ error: 'Failed to reconnect terminal' });
+  }
+});
+
+// Restart the agent in this card's terminal: stop it, open a fresh PTY in the same
+// place and resume the same session in it (same id, title, model, effort). The
+// terminal toolbar's Restart button. See sessionRestart.ts for the ordering rules.
+router.post('/sessions/:id/restart-terminal', async (req: Request, res: Response) => {
+  if (!validateBody(restartSessionSchema, req.body, res)) return;
+  const requestedId = str(req.params.id);
+  // Same guard as /resume: the id ends up inside a shell command line.
+  if (!/^[a-zA-Z0-9_-]+$/.test(requestedId)) {
+    res.status(400).json({ ok: false, error: 'Invalid session ID format' });
+    return;
+  }
+  const session = getSession(requestedId);
+  if (!session) { res.status(404).json({ ok: false, error: 'Session not found' }); return; }
+  // The id that is typed is the card's own (an alias may have been followed above), so check that one too.
+  if (!/^[a-zA-Z0-9_-]+$/.test(session.sessionId)) {
+    res.status(400).json({ ok: false, error: 'Invalid session ID format' });
+    return;
+  }
+
+  // A Claude/Codex card whose id is not a real CLI session id yet (no hook has reported one) can only be
+  // relaunched blank: `buildResumeCommand` drops `--resume`. "Same session" would be a lie, so refuse.
+  const launchCommand = session.startupCommand || session.sshCommand || session.sshConfig?.command || '';
+  if ((commandStartsWithCli(launchCommand, 'claude') || commandStartsWithCli(launchCommand, 'codex'))
+      && !CLAUDE_SESSION_UUID_RE.test(session.sessionId)) {
+    res.status(409).json({
+      ok: false,
+      error: 'This session has not reported its Claude session id yet (no hook has arrived), so a restart could not bring its conversation back',
+    });
+    return;
+  }
+
+  try {
+    const outcome = await restartSessionTerminal(
+      session.sessionId,
+      buildResumeCommand(session, session.sessionId),
+    );
+    if (!outcome.ok) {
+      res.status(outcome.status).json({ ok: false, error: outcome.error });
+      return;
+    }
+    res.json({ ok: true, terminalId: outcome.terminalId });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('api', `Restart terminal failed: ${msg}`);
+    res.status(500).json({ ok: false, error: 'Failed to restart the session' });
   }
 });
 
@@ -1201,6 +1273,9 @@ router.post('/sessions/:id/kill', async (req: Request, res: Response) => {
     res.status(404).json({ success: false, error: 'Session not found' });
     return;
   }
+  if (refuseWhileRestarting(sessionId, res)) return;
+  // A restart that arrives while this kill is still waiting on the process must not re-link the card it is closing.
+  res.once('close', holdSessionClosing(sessionId));
   // Resolve and validate the hook-reported PID. Claude may fall back to a cwd
   // scan only for non-forks; Codex refuses that ambiguous scan. Forks
   // share the origin's projectPath, so a cwd fallback could return the ORIGIN's
@@ -1308,6 +1383,7 @@ router.post('/sessions/:id/kill', async (req: Request, res: Response) => {
 router.delete('/sessions/:id', async (req: Request, res: Response) => {
   const requestedSessionId = str(req.params.id);
   const sessionId = resolveSessionId(requestedSessionId) ?? requestedSessionId;
+  if (refuseWhileRestarting(sessionId, res)) return;
   const session = getSession(sessionId);
   // Close terminals if still active — including the ops shell, which otherwise
   // outlives the deleted card and keeps holding a slot in the terminal budget.

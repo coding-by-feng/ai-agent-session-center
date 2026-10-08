@@ -408,13 +408,14 @@ export function railCounts(): string[] {
   return within(rail()).getAllByRole('button').map((b) => b.textContent?.replace(/\s+/g, ' ').trim() ?? '');
 }
 
+/** The row buttons of the list. The favourite toggles beside them (aria-pressed) are not rows. */
 export function listRows(): HTMLElement[] {
   const list = screen.queryByRole('list', { name: 'Resources' });
-  return list ? within(list).getAllByRole('button') : [];
+  return list ? within(list).getAllByRole('button').filter((b) => !b.hasAttribute('aria-pressed')) : [];
 }
 
 export function row(name: RegExp): HTMLElement {
-  return within(screen.getByRole('list', { name: 'Resources' })).getByRole('button', { name });
+  return within(screen.getByRole('list', { name: 'Resources' })).getByRole('button', { name, pressed: undefined });
 }
 
 export function detail() {

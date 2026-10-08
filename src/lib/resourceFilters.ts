@@ -25,6 +25,7 @@ import {
   type ScanProgress,
 } from '@/types/resources';
 import { matchesQuery, normalizeQuery } from './textHighlight';
+import { hasNoteFilter, matchesNote, noteForResource, passesNoteFilter, type SkillNotes } from './skillNotes';
 
 // ---------------------------------------------------------------------------
 // Labels
@@ -107,7 +108,7 @@ export function findingLabel(code: FindingCode): string {
 // URL state
 // ---------------------------------------------------------------------------
 
-export const RESOURCE_SECTIONS = ['library', 'sources', 'checks'] as const;
+export const RESOURCE_SECTIONS = ['library', 'sources', 'checks', 'transfers', 'devices'] as const;
 export type ResourceSection = (typeof RESOURCE_SECTIONS)[number];
 
 export type AgentFilter = 'all' | ResourceAgent;
@@ -121,6 +122,16 @@ export interface ResourceFilters {
   query: string;
   /** Plugin- and CLI-shipped items are hidden (and uncounted) until this is on. */
   showPluginSystem: boolean;
+  /**
+   * The user's own notes (src/lib/skillNotes.ts). Optional, so a filter built
+   * without them behaves exactly as before; `favOnly` and `tags` mean nothing
+   * without `notes`, and search only looks at tags/abbreviations with it.
+   */
+  notes?: SkillNotes;
+  /** Only favourites. Items that cannot carry notes (rules, memory…) drop out. */
+  favOnly?: boolean;
+  /** Only items with ANY of these tags. */
+  tags?: readonly string[];
 }
 
 export interface ResourceViewParams extends ResourceFilters {
@@ -202,9 +213,11 @@ export function matchesFilters(r: ResourceSummary, f: ResourceFilters): boolean 
   if (f.agent !== 'all' && r.agent !== f.agent) return false;
   if (!inScope(r, f.scope)) return false;
   if (f.scope === 'project' && f.projectId && r.projectId !== f.projectId) return false;
+  const note = f.notes ? noteForResource(f.notes, r) : null;
+  if (hasNoteFilter(f) && !passesNoteFilter(note, f)) return false;
   const q = normalizeQuery(f.query);
   if (!q) return true;
-  return [r.name, r.description, r.path, r.pluginName].some((text) => matchesQuery(text, q));
+  return [r.name, r.description, r.path, r.pluginName].some((text) => matchesQuery(text, q)) || matchesNote(note, f.query);
 }
 
 function byName(a: ResourceSummary, b: ResourceSummary): number {
@@ -373,6 +386,8 @@ export function emptyStateMessage(type: ResourceType, f: ResourceFilters, projec
   if (f.agent !== 'all') context.push(AGENT_LABELS[f.agent]);
   if (f.scope === 'global') context.push(SCOPE_LABELS.global);
   if (f.scope === 'project') context.push((f.projectId && projectName) || SCOPE_LABELS.project);
+  if (f.favOnly) context.push('Favourites');
+  if (f.tags && f.tags.length > 0) context.push(`tagged ${f.tags.join(', ')}`);
   if (context.length > 0) return `${base} in ${context.join(' · ')}`;
   return q ? base : `${base} found`;
 }

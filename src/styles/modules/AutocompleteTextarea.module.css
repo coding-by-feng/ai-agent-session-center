@@ -66,6 +66,23 @@
   flex-shrink: 0;
   font-weight: 500;
 }
+/* The user's own marks on a skill. The heart is a glyph, never colour alone
+   (the ★ before the label already means "skill"); the abbreviation is a chip. */
+.acFav {
+  flex-shrink: 0;
+  color: var(--accent-red, #ff4d6d);
+  font-size: 11px;
+  line-height: 1;
+}
+.acAbbr {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  border-radius: 3px;
+  color: var(--text-secondary, #aaa);
+  font-size: 10px;
+  white-space: nowrap;
+}
 .acHint {
   /* Shortcut link (`→ /target` / `shortcut /alias`). The description
      (flex: 1, basis 0) gives up its space first; then this truncates, so a
