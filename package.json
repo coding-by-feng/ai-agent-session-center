@@ -35,6 +35,8 @@
     "electron:build": "npm run build && npm run build:server && npm run electron:rebuild && tsc -p tsconfig.electron.json && node -e \"require('fs').copyFileSync('electron/loading.html','dist/electron/loading.html')\" && node scripts/cjsRename.mjs && electron-builder",
     "electron:build:mac": "npm run electron:build -- --mac",
     "electron:build:win": "npm run electron:build -- --win",
+    "electron:build:linux": "npm run electron:build -- --linux --x64",
+    "electron:verify": "node scripts/verify-electron-artifacts.mjs",
     "electron:rebuild": "node scripts/rebuild-native.cjs",
     "electron:pack": "npm run build && tsc -p tsconfig.electron.json && electron-builder --dir",
     "set-password": "node scripts/set-password.mjs"

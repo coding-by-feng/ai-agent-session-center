@@ -49,6 +49,10 @@ scratch/
 /docs/
 /.agents/skills/
 /.codex/audit/
-/.github/
+/.github/*
+!/.github/workflows/
+/.github/workflows/*
+!/.github/workflows/build-windows.yml
+!/.github/workflows/build-linux.yml
 /AGENTS.md
 /CLAUDE.md
