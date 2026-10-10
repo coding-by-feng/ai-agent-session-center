@@ -60,5 +60,14 @@
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
     "runAfterFinish": true
+  },
+  "linux": {
+    "target": [
+      { "target": "AppImage", "arch": ["x64"] },
+      { "target": "deb", "arch": ["x64"] }
+    ],
+    "category": "Development",
+    "maintainer": "Kason Zhan",
+    "artifactName": "${name}-${version}-${arch}.${ext}"
   }
 }
