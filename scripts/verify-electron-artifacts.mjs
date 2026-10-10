@@ -10,7 +10,7 @@ const { productName } = JSON.parse(await readFile('electron-builder.json', 'utf8
 const artifacts = {
   mac: [`${productName}-${pkg.version}-arm64.dmg`, `${productName}-${pkg.version}-arm64-mac.zip`],
   win: [`${productName} Setup ${pkg.version}.exe`],
-  linux: [`${pkg.name}-${pkg.version}-x64.AppImage`, `${pkg.name}-${pkg.version}-x64.deb`],
+  linux: [`${pkg.name}-${pkg.version}-x86_64.AppImage`, `${pkg.name}-${pkg.version}-amd64.deb`],
 };
 
 if (!Object.hasOwn(artifacts, platform)) {

@@ -28,7 +28,7 @@ describe('versioned Electron artifact verification', () => {
   it.each([
     ['mac', ['Test App-1.2.3-arm64.dmg', 'Test App-1.2.3-arm64-mac.zip']],
     ['win', ['Test App Setup 1.2.3.exe']],
-    ['linux', ['test-app-1.2.3-x64.AppImage', 'test-app-1.2.3-x64.deb']],
+    ['linux', ['test-app-1.2.3-x86_64.AppImage', 'test-app-1.2.3-amd64.deb']],
   ])('checks every %s artifact and records its SHA-256', (platform, names) => {
     const files = Object.fromEntries(names.map((name) => [name, `bytes of ${name}`]));
     const result = verify(platform, files);
@@ -41,7 +41,7 @@ describe('versioned Electron artifact verification', () => {
   });
 
   it('rejects an incomplete Linux artifact set even with an older package present', () => {
-    expect(verify('linux', { 'test-app-1.2.3-x64.AppImage': 'image', 'test-app-1.2.2-x64.deb': 'old' }).status).not.toBe(0);
+    expect(verify('linux', { 'test-app-1.2.3-x86_64.AppImage': 'image', 'test-app-1.2.2-amd64.deb': 'old' }).status).not.toBe(0);
   });
 
   it('rejects empty artifacts', () => {
