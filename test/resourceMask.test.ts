@@ -17,19 +17,48 @@ import {
   isDeniedKeyName,
   ALLOWED_KEY_PATHS,
   MASK,
-} from ["../serve", "r/resour", "ceMask.j", "s"].join('');
-import type { ResourceField } from ["../src/t", "ypes/res", "ources.j", "s"].join('');
+} from '../server/resourceMask.js';
+import type { ResourceField } from '../src/types/resources.js';
 
 const field = (fields: ResourceField[], key: string) => fields.find((f) => f.key === key);
 const GH_TOKEN = `ghp_${'A1b2C3d4E5'.repeat(4)}`; // 44 chars — a real-looking PAT
+// Synthetic token shapes assembled at runtime so source scanners do not mistake
+// masking fixtures for issued credentials. Keep the full formats for coverage.
+const TELEGRAM_TOKEN = `${'123456789'}:${'A'.repeat(35)}`;
+const AWS_TEMP_ACCESS_KEY_ID = `ASIA${'EXAMPLE0'.repeat(2)}`;
+const ANTHROPIC_TOKEN = `sk-ant-api03-${'a'.repeat(16)}`;
+const OPENAI_TOKEN = `sk-proj-${'b'.repeat(11)}`;
+const FINE_GH_TOKEN = `github_pat_${'1'.repeat(21)}_${'c'.repeat(10)}`;
+const SLACK_TOKEN = `xoxb-${'1'.repeat(10)}-${'d'.repeat(10)}`;
+const AWS_ACCESS_KEY_ID = `AKIA${'EXAMPLE0'.repeat(2)}`;
+const GOOGLE_TOKEN = `AIza${'x'.repeat(35)}`;
+const JWT_TOKEN = [`${'eyJ'}${'a'.repeat(17)}`, `${'eyJ'}${'b'.repeat(14)}`, 'c'.repeat(16)].join('.');
+const HF_TOKEN = `hf_${'e'.repeat(36)}`;
+const STRIPE_SECRET = `sk_live_${'f'.repeat(24)}`;
+const STRIPE_RESTRICTED = `rk_test_${'g'.repeat(14)}`;
+const STRIPE_PUBLIC = `pk_live_${'h'.repeat(15)}`;
+const TWILIO_TOKEN = `SK${'0123456789abcdef'.repeat(2)}`;
+const GITLAB_TOKEN = `glpat-${'x'.repeat(20)}`;
+const NPM_TOKEN = `npm_${'j'.repeat(28)}`;
+const DO_TOKEN = `dop_v1_${'0123456789abcdef'.repeat(2)}`;
+const XAI_TOKEN = `xai-${'k'.repeat(32)}`;
+const AWS_SECRET = `${'example/'.repeat(4)}EXAMPLE0`;
+const OPAQUE_TOKEN = 'Ab3dEf6hIj'.repeat(2);
+const PASSWORD = ['synthetic', 'password'].join('-');
+const BASIC_AUTH = Buffer.from('synthetic-user:synthetic-password').toString('base64');
+const BEARER_TOKEN = ['synthetic', 'bearer-token'].join('.');
+const ARGS_TOKEN = 'abcdefghijklmnop'.repeat(2);
+const ANTHROPIC_NEW_TOKEN = `sk-ant-api03-${'b'.repeat(16)}`;
+const GENERIC_SECRET = ['synthetic', 'secret'].join('-');
+const PASSWORD_HASH = ['scrypt', 'synthetic-salt', 'synthetic-hash'].join('$');
 
 describe('flattenMasked — deny rules', () => {
   it('never lets an env value out, whatever its type', () => {
     const fields = flattenMasked({
-      env: { ANTHROPIC_API_KEY: ["sk-ant-a", "pi03-ENV", "SECRET"].join(''), PLAIN: 'hello-plain-value', PORT: 8080, ON: true },
+      env: { ANTHROPIC_API_KEY: ANTHROPIC_TOKEN, PLAIN: 'hello-plain-value', PORT: 8080, ON: true },
     });
     const out = JSON.stringify(fields);
-    expect(out).not.toContain('ENVSECRET');
+    expect(out).not.toContain(ANTHROPIC_TOKEN);
     expect(out).not.toContain('hello-plain-value');
     expect(out).not.toContain('8080');
     expect(field(fields, 'env.PLAIN')).toEqual({ key: 'env.PLAIN', value: MASK, masked: true, kind: 'string' });
@@ -41,11 +70,12 @@ describe('flattenMasked — deny rules', () => {
     const fields = flattenMasked({
       type: 'http',
       url: 'https://mcp.example.com/mcp',
-      headers: { Authorization: 'Bearer HEADERSECRET', 'X-Team': 'team-value-1' },
-      http_headers: { 'X-Api': 'CODEXHEADERSECRET' },
+      headers: { Authorization: `Bearer ${BEARER_TOKEN}`, 'X-Team': 'team-value-1' },
+      http_headers: { 'X-Api': GENERIC_SECRET },
     });
     const out = JSON.stringify(fields);
-    expect(out).not.toContain('HEADERSECRET');
+    expect(out).not.toContain(BEARER_TOKEN);
+    expect(out).not.toContain(GENERIC_SECRET);
     expect(out).not.toContain('team-value-1');
     expect(field(fields, 'headers.Authorization')?.masked).toBe(true);
     expect(field(fields, 'url')).toMatchObject({ value: 'https://mcp.example.com/mcp', masked: false });
@@ -53,20 +83,20 @@ describe('flattenMasked — deny rules', () => {
 
   it('masks passwordHash, apiKey, and everything under oauthAccount', () => {
     const fields = flattenMasked({
-      passwordHash: 'scrypt$abc$def',
-      apiKey: 'plain-key-value',
-      primaryApiKey: 'another',
+      passwordHash: PASSWORD_HASH,
+      apiKey: GENERIC_SECRET,
+      primaryApiKey: ARGS_TOKEN,
       oauthAccount: { emailAddress: 'me@example.com', accountUuid: 'uuid-1', hasExtraUsageEnabled: true },
     });
     const out = JSON.stringify(fields);
-    for (const secret of ['scrypt$abc$def', 'plain-key-value', 'another', 'me@example.com', 'uuid-1']) {
+    for (const secret of [PASSWORD_HASH, GENERIC_SECRET, ARGS_TOKEN, 'me@example.com', 'uuid-1']) {
       expect(out).not.toContain(secret);
     }
-    expect(field(fields, ["oauthAcc", "ount.has", "ExtraUsa", "geEnable", "d"].join(''))).toMatchObject({ masked: true, kind: 'boolean' });
+    expect(field(fields, 'oauthAccount.hasExtraUsageEnabled')).toMatchObject({ masked: true, kind: 'boolean' });
   });
 
   it('deny wins over the allowlist (statusLine.* is allowed, statusLine.token is not)', () => {
-    const fields = flattenMasked({ statusLine: { type: 'command', token: 'tok-value' } });
+    const fields = flattenMasked({ statusLine: { type: 'command', token: GENERIC_SECRET } });
     expect(field(fields, 'statusLine.type')).toMatchObject({ value: 'command', masked: false });
     expect(field(fields, 'statusLine.token')).toMatchObject({ value: MASK, masked: true });
   });
@@ -96,8 +126,8 @@ describe('flattenMasked — allowlist', () => {
 
   it('always shows numbers, booleans and null outside deny rules', () => {
     const fields = flattenMasked({ alwaysThinkingEnabled: true, cleanupPeriodDays: 30, nothing: null });
-    expect(field(fields, ["alwaysTh", "inkingEn", "abled"].join(''))).toEqual({
-      key: ["alwaysTh", "inkingEn", "abled"].join(''), value: 'true', masked: false, kind: 'boolean',
+    expect(field(fields, 'alwaysThinkingEnabled')).toEqual({
+      key: 'alwaysThinkingEnabled', value: 'true', masked: false, kind: 'boolean',
     });
     expect(field(fields, 'cleanupPeriodDays')).toMatchObject({ value: '30', masked: false, kind: 'number' });
     expect(field(fields, 'nothing')).toMatchObject({ value: 'null', masked: false, kind: 'null' });
@@ -143,7 +173,7 @@ describe('flattenMasked — shown strings are scrubbed', () => {
   });
 
   it('redacts URL query values on an allowlisted url', () => {
-    const fields = flattenMasked({ type: 'sse', url: 'https://mcp.example.com/sse?token=abc123secret&mode=x' });
+    const fields = flattenMasked({ type: 'sse', url: `https://mcp.example.com/sse?token=${GENERIC_SECRET}&mode=x` });
     expect(field(fields, 'url')?.value).toBe('https://mcp.example.com/sse?token=******&mode=******');
   });
 
@@ -194,31 +224,31 @@ describe('flattenMasked — caps', () => {
   });
 });
 
-describe(["redactSe", "cretsInS", "tring"].join(''), () => {
+describe('redactSecretsInString', () => {
   it.each([
-    [["sk-ant-a", "pi03-abc", "defghijk", "lmnop"].join(''), 'sk-ant-******'],
-    [["key sk-p", "roj-abcd", "efghijk"].join(''), 'key sk-******'],
+    [ANTHROPIC_TOKEN, 'sk-ant-******'],
+    [`key ${OPENAI_TOKEN}`, 'key sk-******'],
     [`gh ${GH_TOKEN}`, 'gh ghp_******'],
-    [["github_p", "at_11ABC", "DEFG0123", "456789_a", "bcdefghi", "j"].join(''), 'github_pat_******'],
-    [["xoxb-123", "4567890-", "abcdefgh", "ij"].join(''), 'xoxb-******'],
-    [["AKIAIOSF", "ODNN7EXA", "MPLE"].join(''), 'AKIA******'],
-    [`AIza${'x'.repeat(35)}`, 'AIza******'],
-    [["jwt eyJh", "bGciOiJI", "UzI1NiJ9", ".eyJzdWI", "iOiIxMjM", "0In0.c2l", "nbmF0dXJ", "l"].join(''), 'jwt ******'],
-    ['Authorization: Bearer abc.def-ghi', 'Authorization: Bearer ******'],
-    ['https://user:hunter2@example.com/x', 'https://******@example.com/x'],
-    ['https://example.com/a?token=abc&x=1#top', 'https://example.com/a?token=******&x=******#top'],
-    ['API_KEY=abc123 node server.js', 'API_KEY=****** node server.js'],
-    ['--db-password=hunter2', '--db-password=******'],
+    [FINE_GH_TOKEN, 'github_pat_******'],
+    [SLACK_TOKEN, 'xoxb-******'],
+    [AWS_ACCESS_KEY_ID, 'AKIA******'],
+    [GOOGLE_TOKEN, 'AIza******'],
+    [`jwt ${JWT_TOKEN}`, 'jwt ******'],
+    [`Authorization: Bearer ${BEARER_TOKEN}`, 'Authorization: Bearer ******'],
+    [`https://user:${PASSWORD}@example.com/x`, 'https://******@example.com/x'],
+    [`https://example.com/a?token=${GENERIC_SECRET}&x=1#top`, 'https://example.com/a?token=******&x=******#top'],
+    [`API_KEY=${GENERIC_SECRET} node server.js`, 'API_KEY=****** node server.js'],
+    [`--db-password=${PASSWORD}`, '--db-password=******'],
     [`id ${'a'.repeat(45)} end`, 'id ****** end'],
   ])('%s → %s', (input, expected) => {
     expect(redactSecretsInString(input)).toBe(expected);
   });
 
   it('leaves ordinary text alone', () => {
-    expect(redactSecretsInString(["npx -y @", "modelcon", "textprot", "ocol/ser", "ver-gith", "ub"].join(''))).toBe(
-      ["npx -y @", "modelcon", "textprot", "ocol/ser", "ver-gith", "ub"].join(''),
+    expect(redactSecretsInString('npx -y @modelcontextprotocol/server-github')).toBe(
+      'npx -y @modelcontextprotocol/server-github',
     );
-    expect(redactSecretsInString(["bash ~/.", "claude/h", "ooks/das", "hboard-h", "ook.sh"].join(''))).toBe(["bash ~/.", "claude/h", "ooks/das", "hboard-h", "ook.sh"].join(''));
+    expect(redactSecretsInString('bash ~/.claude/hooks/dashboard-hook.sh')).toBe('bash ~/.claude/hooks/dashboard-hook.sh');
   });
 
   it('truncates to 300 characters', () => {
@@ -257,68 +287,67 @@ describe('hardening (review findings)', () => {
   it('masks an args value that follows a secret-named flag, keeps ordinary flag values', () => {
     const fields = flattenMasked({
       command: 'server',
-      args: ['--api-key', ["abcdefgh", "ijklmnop", "qrstuvwx", "yz012345"].join(''), '--port', '8080', '-t', 'short', '--password', 'hunter2'],
+      args: ['--api-key', ARGS_TOKEN, '--port', '8080', '-t', 'short', '--password', PASSWORD],
     });
     expect(field(fields, 'args[1]')).toMatchObject({ value: MASK, masked: true });
     expect(field(fields, 'args[3]')?.value).toBe('8080');
     expect(field(fields, 'args[5]')?.value).toBe('short');
     expect(field(fields, 'args[7]')).toMatchObject({ value: MASK, masked: true });
-    expect(JSON.stringify(fields)).not.toContain(["abcdefgh", "ijklmnop", "qrstuvwx", "yz012345"].join(''));
+    expect(JSON.stringify(fields)).not.toContain(ARGS_TOKEN);
   });
 
   it.each([
-    ['curl -H "Authorization: Basic dXNlcjpwYXNz" x', 'curl -H "Authorization: Basic ******" x'],
-    ['curl -H "X-Api-Key: plainkey123" x', 'curl -H "X-Api-Key: ******" x'],
-    ['curl -u admin:hunter2 https://x', 'curl -u ****** https://x'],
+    [`curl -H "Authorization: Basic ${BASIC_AUTH}" x`, 'curl -H "Authorization: Basic ******" x'],
+    [`curl -H "X-Api-Key: ${GENERIC_SECRET}" x`, 'curl -H "X-Api-Key: ******" x'],
+    [`curl -u admin:${PASSWORD} https://x`, 'curl -u ****** https://x'],
     // Assembled at runtime (like GH_TOKEN above): GitHub push protection matches on
     // format, and this placeholder is deliberately shaped like a real webhook URL.
-    [`https://hooks.slack.com/services/T0123ABCD/B0456EFGH/${["aBcDeFgH", "iJkLmNoP", "qRsTuVwX"].join('')}`,
-      ["https://", "hooks.sl", "ack.com/", "services", "/T0123AB", "CD/B0456", "EFGH/***", "***"].join('')],
+    [`https://hooks.slack.com/services/T0123ABCD/B0456EFGH/${'aBcD'.repeat(6)}`,
+      'https://hooks.slack.com/services/T0123ABCD/B0456EFGH/******'],
   ])('%s → %s', (input, expected) => {
     expect(redactSecretsInString(input)).toBe(expected);
   });
 });
 
-describe(["redactSe", "cretsInS", "tring — ", "more tok", "en shape", "s (secur", "ity revi", "ew M4)"].join(''), () => {
+describe('redactSecretsInString — more token shapes (security review M4)', () => {
   it.each([
-    [["curl htt", "ps://api", ".telegra", "m.org/bo", "t1234567", "89:AAHdq", "TcvCH1vG", "WJxfSeof", "SAs0K5PA", "LDsaw0/s", "endMessa", "ge"].join(''),
+    [`curl https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`,
       'curl https://api.telegram.org/bot******/sendMessage'],
-    [["notify 1", "23456789", ":AAHdqTc", "vCH1vGWJ", "xfSeofSA", "s0K5PALD", "saw0 don", "e"].join(''), 'notify ****** done'],
-    ['curl -H "PRIVATE-TOKEN: glsecret123" x', 'curl -H "PRIVATE-TOKEN: ******" x'],
-    ['curl -H "X-Api-Key: plainkey123" x', 'curl -H "X-Api-Key: ******" x'],
-    ['curl -H "X-Auth-Token: abc123" x', 'curl -H "X-Auth-Token: ******" x'],
-    ['curl -H "Cookie: session=abc123; theme=dark" x', 'curl -H "Cookie: ******" x'],
-    ['curl -H "Set-Cookie: sid=abc123; Path=/" x', 'curl -H "Set-Cookie: ******" x'],
-    ['server --token abc123 --port 8080', 'server --token ****** --port 8080'],
-    ['server --password hunter2 -v', 'server --password ****** -v'],
-    ['server --passwd hunter2', 'server --passwd ******'],
-    ['server --api-key abc', 'server --api-key ******'],
-    ['server --apikey abc', 'server --apikey ******'],
-    ['server --secret abc', 'server --secret ******'],
-    ['server --access-key abc', 'server --access-key ******'],
-    ['server --auth abc', 'server --auth ******'],
-    [["hf_abcde", "fghijklm", "nopqrstu", "vwxyz012", "3456789"].join(''), 'hf_******'],
-    // Stripe's documented example key and an all-hex Twilio-shaped key, assembled at
-    // runtime for the same reason as the Slack webhook above.
-    [`sk_live_${["4eC39HqL", "yjWDarjt", "T1zdp7dc"].join('')}`, 'sk_live_******'],
-    [["rk_test_", "51Habc12", "3XYZ"].join(''), 'rk_test_******'],
-    [["pk_live_", "abc123DE", "F456"].join(''), 'pk_live_******'],
-    [`SK${["01234567", "89abcdef", "01234567", "89abcdef"].join('')}`, 'SK******'],
-    [["glpat-xx", "xxxxxxxx", "xxxxxxxx", "xx"].join(''), 'glpat-******'],
-    [["npm_abcd", "efghijkl", "mnopqrst", "uvwx0123"].join(''), 'npm_******'],
-    [["dop_v1_0", "12345678", "9abcdef0", "12345678", "9abcdef"].join(''), 'dop_v1_******'],
-    [["xai-abcd", "efghijkl", "mnopqrst", "uvwxyz01", "2345"].join(''), 'xai-******'],
-    [["ASIAIOSF", "ODNN7EXA", "MPLE"].join(''), 'ASIA******'],
-    [["aws_secr", "et_acces", "s_key = ", "wJalrXUt", "nFEMI/K7", "MDENG/bP", "xRfiCYEX", "AMPLEKEY"].join(''), 'aws_secret_access_key = ******'],
-    [["key wJal", "rXUtnFEM", "I/K7MDEN", "G/bPxRfi", "CYEXAMPL", "EKEY end"].join(''), 'key ****** end'],
-    [["x Ab3dEf", "6hIj9kLm", "2nOp5q e", "nd"].join(''), 'x ****** end'],
+    [`notify ${TELEGRAM_TOKEN} done`, 'notify ****** done'],
+    [`curl -H "PRIVATE-TOKEN: ${GENERIC_SECRET}" x`, 'curl -H "PRIVATE-TOKEN: ******" x'],
+    [`curl -H "X-Api-Key: ${GENERIC_SECRET}" x`, 'curl -H "X-Api-Key: ******" x'],
+    [`curl -H "X-Auth-Token: ${GENERIC_SECRET}" x`, 'curl -H "X-Auth-Token: ******" x'],
+    [`curl -H "Cookie: session=${GENERIC_SECRET}; theme=dark" x`, 'curl -H "Cookie: ******" x'],
+    [`curl -H "Set-Cookie: sid=${GENERIC_SECRET}; Path=/" x`, 'curl -H "Set-Cookie: ******" x'],
+    [`server --token ${GENERIC_SECRET} --port 8080`, 'server --token ****** --port 8080'],
+    [`server --password ${PASSWORD} -v`, 'server --password ****** -v'],
+    [`server --passwd ${PASSWORD}`, 'server --passwd ******'],
+    [`server --api-key ${GENERIC_SECRET}`, 'server --api-key ******'],
+    [`server --apikey ${GENERIC_SECRET}`, 'server --apikey ******'],
+    [`server --secret ${GENERIC_SECRET}`, 'server --secret ******'],
+    [`server --access-key ${GENERIC_SECRET}`, 'server --access-key ******'],
+    [`server --auth ${GENERIC_SECRET}`, 'server --auth ******'],
+    [HF_TOKEN, 'hf_******'],
+    // Stripe and Twilio fixtures retain their provider formats at runtime.
+    [STRIPE_SECRET, 'sk_live_******'],
+    [STRIPE_RESTRICTED, 'rk_test_******'],
+    [STRIPE_PUBLIC, 'pk_live_******'],
+    [TWILIO_TOKEN, 'SK******'],
+    [GITLAB_TOKEN, 'glpat-******'],
+    [NPM_TOKEN, 'npm_******'],
+    [DO_TOKEN, 'dop_v1_******'],
+    [XAI_TOKEN, 'xai-******'],
+    [AWS_TEMP_ACCESS_KEY_ID, 'ASIA******'],
+    [`aws_secret_access_key = ${AWS_SECRET}`, 'aws_secret_access_key = ******'],
+    [`key ${AWS_SECRET} end`, 'key ****** end'],
+    [`x ${OPAQUE_TOKEN} end`, 'x ****** end'],
   ])('%s → %s', (input, expected) => {
     expect(redactSecretsInString(input)).toBe(expected);
   });
 
   it.each([
-    ["bash ~/.", "claude/h", "ooks/das", "hboard-h", "ook.sh"].join(''),
-    ["/Users/m", "e/Docume", "nts/Code", "x/2026-0", "9-30/slu", "g"].join(''),
+    'bash ~/.claude/hooks/dashboard-hook.sh',
+    '/Users/me/Documents/Codex/2026-09-30/slug',
     'claude --model claude-opus-5-5 --effort high',
     'node dist/server.js --port 3333 --no-open',
     'Bash(npm run test:e2e)',
@@ -332,14 +361,14 @@ describe('flattenMasked — ids in rendered keys (security review L5)', () => {
   it('replaces UUIDs and long hex / id-like key segments with <id>', () => {
     const fields = flattenMasked({
       s1mAccessCache: { 'f47ac10b-58cc-4372-a567-0e02b2c3d479': { hasAccess: true } },
-      passesEligibilityCache: { [["01234567", "89abcdef", "0123"].join('')]: { eligible: false } },
-      orgs: { [["01HXYZ7K", "2M9Q4R6S", "8T0V2W4X", "6Y"].join('')]: 1, 'org:f47ac10b-58cc-4372-a567-0e02b2c3d479': 2 },
+      passesEligibilityCache: { '0123456789abcdef0123': { eligible: false } },
+      orgs: { '01HXYZ7K2M9Q4R6S8T0V2W4X6Y': 1, 'org:f47ac10b-58cc-4372-a567-0e02b2c3d479': 2 },
       features: { tengu_sonnet_4_5_launch: true, cachedStatsigGates: false },
       projects: { '/Users/k/work': { trust_level: 'trusted' } },
     }, { homeDirs: ['/Users/k'] });
     const keys = fields.map((f) => f.key);
     expect(keys).toEqual(expect.arrayContaining([
-      's1mAccessCache.<id>.hasAccess', ["passesEl", "igibilit", "yCache.<", "id>.elig", "ible"].join(''), 'orgs.<id>', 'orgs["org:<id>"]',
+      's1mAccessCache.<id>.hasAccess', 'passesEligibilityCache.<id>.eligible', 'orgs.<id>', 'orgs["org:<id>"]',
       'features.tengu_sonnet_4_5_launch', 'features.cachedStatsigGates', 'projects["~/work"].trust_level',
     ]));
     expect(JSON.stringify(fields)).not.toMatch(/f47ac10b|0123456789abcdef0123|01HXYZ7K2M9Q4R6S8T0V2W4X6Y/);
@@ -349,8 +378,8 @@ describe('flattenMasked — ids in rendered keys (security review L5)', () => {
 describe('redactText — whole bodies, line by line (security review M2b)', () => {
   it('masks secrets anywhere in a multi-line body and leaves every other line intact', () => {
     const body = [
-      '# Notes', '', ["The key ", "is sk-an", "t-api03-", "abcdefgh", "ijklmnop", "."].join(''), ["export O", "PENAI_AP", "I_KEY=sk", "-proj-ab", "cdefghij", "k"].join(''),
-      'password: hunter2', '  "apiKey": "plainvalue123",', 'Keywords: alpha, beta', 'Nothing secret here.',
+      '# Notes', '', `The key is ${ANTHROPIC_TOKEN}.`, `export OPENAI_API_KEY=${OPENAI_TOKEN}`,
+      `password: ${PASSWORD}`, `  "apiKey": "${GENERIC_SECRET}",`, 'Keywords: alpha, beta', 'Nothing secret here.',
     ].join('\n');
     expect(redactText(body)).toBe([
       '# Notes', '', 'The key is sk-ant-******.', 'export OPENAI_API_KEY=******',
@@ -359,21 +388,23 @@ describe('redactText — whole bodies, line by line (security review M2b)', () =
   });
 
   it('masks a whole PRIVATE KEY block, keeping its markers and line count', () => {
-    const pem = ['key:', '-----BEGIN RSA PRIVATE KEY-----', ["MIIEowIB", "AAKCAQEA", "1b2C3d4"].join(''), ["  q1W2e3", "R4t5/Y6u", "7I8o9P0/", "+/+abc"].join(''), '-----END RSA PRIVATE KEY-----', 'after'];
+    const pem = ['key:', '-----BEGIN RSA PRIVATE KEY-----', 'A'.repeat(23), `  ${'b/'.repeat(14)}`, '-----END RSA PRIVATE KEY-----', 'after'];
     expect(redactText(pem.join('\r\n'))).toBe(
       ['key:', '-----BEGIN RSA PRIVATE KEY-----', MASK, `  ${MASK}`, '-----END RSA PRIVATE KEY-----', 'after'].join('\r\n'),
     );
   });
 
   it('masks an escaped one-line PEM (a service-account JSON) and a block that never closes', () => {
-    const json = '{"private_key": "-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBg\\nkqhkiG9w0BAQE\\n-----END PRIVATE KEY-----\\n", "x": 1}';
-    expect(redactText(json)).not.toMatch(/MIIEvQIBADANBg|kqhkiG9w0BAQE/);
-    const open = redactText(["-----BEG", "IN OPENS", "SH PRIVA", "TE KEY--", "---\nb3Bl", "bnNzaC1r", "ZXktdjEA", "AAAA\nAAA", "AC3NzaC1", "lZDI1NTE", "5AAAA"].join(''));
+    const pemLines = ['-----BEGIN PRIVATE KEY-----', 'A'.repeat(14), 'b'.repeat(12), '-----END PRIVATE KEY-----', ''];
+    const json = JSON.stringify({ private_key: pemLines.join('\n'), x: 1 });
+    expect(redactText(json)).not.toContain(pemLines[1]);
+    expect(redactText(json)).not.toContain(pemLines[2]);
+    const open = redactText(`-----BEGIN OPENSSH PRIVATE KEY-----\n${'c'.repeat(24)}\n${'d'.repeat(24)}`);
     expect(open).toBe(`-----BEGIN OPENSSH PRIVATE KEY-----\n${MASK}\n${MASK}`);
   });
 
   it('judges a patch line by its text, never by its +/-/space marker', () => {
-    const patch = ['===', '--- ~/a', '+++ ~/b', '@@ -1,3 +1,3 @@', ' Token handling notes', ["-Key sk-", "ant-api0", "3-OLDabc", "defgh he", "re."].join(''), ["+Key sk-", "ant-api0", "3-NEWabc", "defgh he", "re."].join(''), '-password: hunter2'].join('\n');
+    const patch = ['===', '--- ~/a', '+++ ~/b', '@@ -1,3 +1,3 @@', ' Token handling notes', `-Key ${ANTHROPIC_TOKEN} here.`, `+Key ${ANTHROPIC_NEW_TOKEN} here.`, `-password: ${PASSWORD}`].join('\n');
     expect(redactPatch(patch)).toBe(['===', '--- ~/a', '+++ ~/b', '@@ -1,3 +1,3 @@', ' Token handling notes', '-Key sk-ant-****** here.', '+Key sk-ant-****** here.', '-password: ******'].join('\n'));
   });
 
@@ -384,17 +415,18 @@ describe('redactText — whole bodies, line by line (security review M2b)', () =
     const out = redactText(`{"private_key": "${der}", "id": "x"}`);
     expect(out).toBe('{"private_key": "******", "id": "x"}');
     expect(redactText(`blob ${der} end`)).toBe('blob ****** end');
-    expect(redactText(["see /Use", "rs/Me2/P", "rojects/", "Alpha/Be", "ta/Gamma", "/Delta/E", "psilon/Z", "eta/Eta/", "Theta/fi", "le.md"].join(''))).toContain('/Users/Me2/');
+    expect(redactText('see /Users/Me2/Projects/Alpha/Beta/Gamma/Delta/Epsilon/Zeta/Eta/Theta/file.md')).toContain('/Users/Me2/');
   });
 
   it('redacts frontmatter keys as well as values (review follow-up)', () => {
-    const out = redactStrings({ 'https://deploy:Hunter2Secret@registry.example.com': 1, nested: { [GH_TOKEN]: 'v' } });
-    expect(JSON.stringify(out)).not.toMatch(/Hunter2Secret|A1b2C3d4E5A1b2C3d4E5/);
+    const out = redactStrings({ [`https://deploy:${PASSWORD}@registry.example.com`]: 1, nested: { [GH_TOKEN]: 'v' } });
+    expect(JSON.stringify(out)).not.toContain(PASSWORD);
+    expect(JSON.stringify(out)).not.toContain(GH_TOKEN);
   });
 
   it('has no 300-character cap, but cuts a line over the per-line cap and never shows a token in part', () => {
     expect(redactText('word '.repeat(1000))).toHaveLength(5000);
-    const cut = redactText(`${'a '.repeat(4094)}Ab3dEf6hIj9kLm2nOp5qRs\nnext line`);
+    const cut = redactText(`${'a '.repeat(4094)}${OPAQUE_TOKEN}Rs\nnext line`);
     const [first, second] = cut.split('\n');
     expect(first.length).toBeLessThanOrEqual(8193);
     expect(first.endsWith('…')).toBe(true);
