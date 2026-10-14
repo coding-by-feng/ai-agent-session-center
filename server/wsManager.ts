@@ -46,6 +46,12 @@ export interface ClientIdentity {
   clientId: string;
   label: string;
   address: string;
+  /**
+   * Whether the connection is the Mac itself, decided by `isLocalRequest`
+   * (requestLocality.ts) on the upgrade request. The peer address alone is not
+   * enough: a tunnel on this machine connects from 127.0.0.1 too.
+   */
+  isLocal?: boolean;
 }
 
 /**
@@ -118,9 +124,10 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
   client._msgCount = 0;
   client._msgWindowStart = Date.now();
   client._clientId = identity?.clientId ?? '';
-  // An unknown address fails CLOSED (treated as remote), matching the auth
-  // gate: for a visibility boundary that is the correct direction.
-  client._isLocal = isLoopbackAddress(identity?.address ?? '');
+  // The upgrade handler decides locality with `isLocalRequest` and passes it
+  // in. Callers that only know an address (tests) fall back to the loopback
+  // check; an unknown address still fails CLOSED (treated as remote).
+  client._isLocal = identity?.isLocal ?? isLoopbackAddress(identity?.address ?? '');
   client._label = presence.sanitizeDeviceLabel(identity?.label ?? '');
   client._lastDenyAt = new Map();
   if (client._clientId) {
@@ -128,6 +135,7 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
       clientId: client._clientId,
       label: client._label,
       address: identity?.address ?? '',
+      isLocal: client._isLocal,
     });
   }
   log.info('ws', `Client connected (total: ${clients.size})`);

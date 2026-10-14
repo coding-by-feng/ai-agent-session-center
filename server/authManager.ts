@@ -1,7 +1,7 @@
 // authManager.ts — Password authentication with scrypt hashing and token sessions
 import { scryptSync, randomBytes, timingSafeEqual } from 'crypto';
 import { config } from './serverConfig.js';
-import { isLoopbackAddress } from './presenceManager.js';
+import { isLocalRequest } from './requestLocality.js';
 import log from './logger.js';
 import type { IncomingMessage } from 'http';
 import type { Request, Response, NextFunction } from 'express';
@@ -225,15 +225,13 @@ export const REMOTE_REQUIRES_PASSWORD =
 /**
  * True when this request did NOT come from the machine running the server.
  *
- * Reuses `isLoopbackAddress` (presenceManager) rather than a second hand-rolled
- * string compare: that predicate already backs the 🖥/📱 device split in
- * production and handles `::1`, `::ffff:127.0.0.1` and `127.0.0.1`. An empty
- * address is treated as REMOTE — failing closed is the correct direction for a
- * security gate when the origin cannot be determined.
+ * Delegates to `isLocalRequest` (requestLocality.ts), the one rule every gate
+ * shares: loopback peer, main listener, and no proxy forwarding headers. A
+ * tunnel on this machine connects from 127.0.0.1, so the address alone would
+ * hand every tunnel visitor password-free access. An empty address is REMOTE.
  */
 function isRemoteRequest(req: Request): boolean {
-  const ip = req.ip || req.socket?.remoteAddress || '';
-  return !isLoopbackAddress(ip);
+  return !isLocalRequest(req);
 }
 
 /**
@@ -281,14 +279,14 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
  * Used to protect hook endpoints from external access.
  */
 export function localhostOnlyMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const ip = req.ip || req.socket?.remoteAddress || '';
-  // Allow localhost, IPv4 loopback, IPv6 loopback, and IPv4-mapped IPv6 loopback
-  const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip === 'localhost';
-  if (isLoopback) {
+  // Same rule as every other gate (it used to carry its own inline loopback
+  // compare). The hook script posts directly to localhost and never sends
+  // forwarding headers; a request relayed by a tunnel does.
+  if (isLocalRequest(req)) {
     next();
     return;
   }
-  log.debug('auth', `Blocked non-localhost hook request from ${ip}`);
+  log.debug('auth', `Blocked non-localhost hook request from ${req.ip || req.socket?.remoteAddress || 'unknown'}`);
   res.status(403).json({ error: 'Hook endpoint restricted to localhost' });
 }
 

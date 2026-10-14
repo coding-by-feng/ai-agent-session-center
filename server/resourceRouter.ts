@@ -22,7 +22,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { homedir } from 'os';
 import { isAbsolute, resolve } from 'path';
 import { z } from 'zod';
-import { isLoopbackAddress } from './presenceManager.js';
+import { isLocalRequest } from './requestLocality.js';
 import { PathSafetyError } from './fsSafe.js';
 import { createResourceCatalog, ResourceLookupError } from './resourceCatalog.js';
 import { TRASH_ID_RE, TrashError } from './resourceUninstall.js';
@@ -70,7 +70,7 @@ function isLoopbackOrigin(origin: string): boolean {
  * Host it names, its Origin and its Sec-Fetch-Site — all four must pass.
  */
 export function isLocalResourceRequest(req: Request): boolean {
-  if (!isLoopbackAddress(req.socket?.remoteAddress ?? '')) return false;
+  if (!isLocalRequest({ socket: req.socket, headers: req.headers })) return false;
   const host = hostHeaderName(req.headers.host);
   if (!host || !LOOPBACK_HOSTNAMES.has(host)) return false;
   const origin = req.headers.origin;

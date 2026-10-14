@@ -21,7 +21,8 @@ import { reconstructPermissionFlags } from './config.js';
 import { ensureHooksInstalled } from './hookInstaller.js';
 import { resolvePort, killPortProcess } from './portManager.js';
 import { getLocalIP } from './networkInfo.js';
-import { isLoopbackAddress } from './presenceManager.js';
+import { isLocalRequest } from './requestLocality.js';
+import { resolveRemoteListenerPort, startRemoteListener } from './remoteListener.js';
 import {
   isPasswordEnabled, verifyPassword, createToken, validateToken,
   removeToken, parseCookieToken, extractToken, authMiddleware,
@@ -238,7 +239,10 @@ export function startServer(port?: number): Promise<number> {
     // session's live content plus terminal write, so leaving it open when the
     // HTTP side is closed would defeat the whole thing.
     const wsAddress = req.socket?.remoteAddress ?? '';
-    const wsIsRemote = !isLoopbackAddress(wsAddress);
+    // One locality rule for every gate (requestLocality.ts): a loopback socket
+    // that carries proxy headers, or arrived on the remote-only listener, is a
+    // remote device.
+    const wsIsRemote = !isLocalRequest(req);
     if (isPasswordEnabled()) {
       // Prefer cookie-based auth (avoids token in URL query string)
       const token = parseCookieToken(req.headers.cookie) ?? extractToken(req);
@@ -272,6 +276,7 @@ export function startServer(port?: number): Promise<number> {
       clientId,
       label,
       address: req.socket.remoteAddress ?? '',
+      isLocal: !wsIsRemote,
     });
   });
 
@@ -280,6 +285,10 @@ export function startServer(port?: number): Promise<number> {
   });
 
   const PORT = port ?? resolvePort(args, config);
+  const REMOTE_LISTENER_PORT = resolveRemoteListenerPort(
+    process.env.AASC_REMOTE_LISTENER_PORT, config.remoteListenerPort, PORT,
+  );
+  let remoteServer: import('http').Server | null = null;
 
   /**
    * After snapshot restore, respawn PTY terminals for SSH sessions that
@@ -367,6 +376,11 @@ export function startServer(port?: number): Promise<number> {
   }
 
   function onReady(): void {
+    if (REMOTE_LISTENER_PORT !== null && !remoteServer) {
+      startRemoteListener(app, wss, REMOTE_LISTENER_PORT)
+        .then((srv) => { remoteServer = srv; })
+        .catch((err: Error) => log.warn('remote-listener', `Remote-only listener failed to start: ${err.message}`));
+    }
     const localIP = getLocalIP();
     log.info('server', 'AI Agent Session Center');
     log.info('server', `Local:   http://localhost:${PORT}`);
@@ -464,6 +478,7 @@ export function startServer(port?: number): Promise<number> {
     // Save final snapshot before exiting
     try { saveSnapshot(getMqOffset()); } catch { /* best effort */ }
     try { closeDb(); } catch { /* best effort */ }
+    try { remoteServer?.close(); } catch { /* best effort */ }
     return new Promise<void>((resolve) => {
       server.close(() => resolve());
       // Force resolve after 2s if server.close() hangs (open connections)

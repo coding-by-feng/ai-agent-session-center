@@ -18,6 +18,12 @@ export interface ServerConfig {
   sessionHistoryHours: number;
   enabledClis: string[];
   passwordHash: string | null;
+  /**
+   * Optional remote-only listener (127.0.0.1) where every request counts as a
+   * remote device. Point tunnels and relays here, never at `port`. Absent or
+   * null = off. `AASC_REMOTE_LISTENER_PORT` overrides it.
+   */
+  remoteListenerPort?: number | null;
 }
 
 // ---------------------------------------------------------------------------

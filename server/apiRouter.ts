@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { isLoopbackAddress } from './presenceManager.js';
+import { isLocalRequest } from './requestLocality.js';
 import { canSeeSession, filterVisibleSessions, countHiddenSessions } from './sessionVisibility.js';
 
 // Express 5 types req.params as string | string[] and req.query similarly.
@@ -52,10 +52,11 @@ const router = Router();
 // ---------------------------------------------------------------------------
 
 /** True when the request came from the machine running the server. Uses the
- *  same predicate as the auth gate and the device list — never a second
- *  hand-rolled comparison. An unknown address fails CLOSED (treated remote). */
+ *  same rule as the auth gate and the device list (`isLocalRequest`), which also
+ *  treats proxied and remote-listener requests as remote. An unknown address
+ *  fails CLOSED (treated remote). */
 function requestIsLocal(req: Request): boolean {
-  return isLoopbackAddress(req.ip || req.socket?.remoteAddress || '');
+  return isLocalRequest(req);
 }
 
 /**
