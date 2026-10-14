@@ -12,7 +12,7 @@
  *  - Search and New session sit at the top: the drawer is where a phone user
  *    is when they look for, or start, a session.
  */
-import { useCallback, useState, type CSSProperties } from 'react';
+import { useCallback, useRef, useState, type CSSProperties } from 'react';
 import BottomSheet, { ConfirmSheet } from '@/components/ui/BottomSheet';
 import Button from '@/components/ui/Button';
 import IconButton from '@/components/ui/IconButton';
@@ -224,10 +224,13 @@ export default function SessionDrawer({ open, onClose, strip, currentSessionId, 
   const [actionsFor, setActionsFor] = useState<string | null>(null);
   const [killTarget, setKillTarget] = useState<Room | null>(null);
   const [killing, setKilling] = useState(false);
+  // Read by the cancel handler, which stays the same function: BottomSheet
+  // re-runs its focus handling whenever its onClose changes.
+  const killingRef = useRef(false);
 
   const closeLaunch = useCallback(() => setLaunchOpen(false), []);
   const closeActions = useCallback(() => setActionsFor(null), []);
-  const cancelKill = useCallback(() => { if (!killing) setKillTarget(null); }, [killing]);
+  const cancelKill = useCallback(() => { if (!killingRef.current) setKillTarget(null); }, []);
 
   const search = () => {
     onClose();
@@ -240,11 +243,18 @@ export default function SessionDrawer({ open, onClose, strip, currentSessionId, 
 
   const killTargets = killTarget ? liveRoomSessions(killTarget, sessions) : [];
   const confirmKill = async () => {
-    if (!killTarget || killing || killTargets.length === 0) return;
+    if (!killTarget || killing) return;
+    // Every session in the room ended while the sheet was open: nothing left to kill.
+    if (killTargets.length === 0) {
+      setKillTarget(null);
+      return;
+    }
+    killingRef.current = true;
     setKilling(true);
     try {
       await killRoomSessions(killTarget.name, killTargets);
     } finally {
+      killingRef.current = false;
       setKilling(false);
       setKillTarget(null);
     }

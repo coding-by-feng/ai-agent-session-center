@@ -150,19 +150,34 @@ export function useSessionStrip(sessions: Map<string, Session>, currentSessionId
  * not in an effect: lib/sessionAttention.ts `nextCompletionAttention` compares
  * each session's status with the one before.
  */
+/** Each session's status, and a key that changes only when an id or a status does. */
+function statusSnapshot(sessions: Map<string, Session>): { key: string; statuses: Map<string, { status: string }> } {
+  const statuses = new Map<string, { status: string }>();
+  const parts: string[] = [];
+  sessions.forEach((s, id) => {
+    statuses.set(id, { status: s.status });
+    parts.push(`${id}\u0000${s.status}`);
+  });
+  return { key: parts.join('\n'), statuses };
+}
+
 export function useCompletionAttention(
   sessions: Map<string, Session>,
   currentSessionId: string,
 ): [ReadonlySet<string>, (id: string) => void] {
   const [tracked, setTracked] = useState(() => ({
-    sessions,
+    ...statusSnapshot(sessions),
     currentSessionId,
     ids: new Set<string>() as ReadonlySet<string>,
   }));
   let ids = tracked.ids;
-  if (tracked.sessions !== sessions || tracked.currentSessionId !== currentSessionId) {
-    ids = nextCompletionAttention(tracked.ids, tracked.sessions, sessions, currentSessionId);
-    setTracked({ sessions, currentSessionId, ids });
+  // Only a status change, a session coming or going, or a switch can change the
+  // set, so only those store a new snapshot: most session updates (a tool call
+  // while working) change none of them and cost no second render.
+  const snapshot = statusSnapshot(sessions);
+  if (tracked.key !== snapshot.key || tracked.currentSessionId !== currentSessionId) {
+    ids = nextCompletionAttention(tracked.ids, tracked.statuses, sessions, currentSessionId);
+    setTracked({ ...snapshot, currentSessionId, ids });
   }
 
   const acknowledge = useCallback((id: string) => {

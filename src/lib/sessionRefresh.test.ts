@@ -2,7 +2,7 @@
 // session list, reconnect a dropped socket, and never replace the list with junk.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Session } from '@/types';
-import { dedupeSessionRecord, refreshSessionList } from './sessionRefresh';
+import { dedupeSessionRecord, mergeRefreshed, refreshSessionList } from './sessionRefresh';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
 import type { WsClient } from '@/lib/wsClient';
@@ -55,5 +55,27 @@ describe('refreshSessionList', () => {
     useWsStore.setState({ connected: false });
     await refreshSessionList();
     expect(reconnectNow).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('mergeRefreshed — what arrived over the socket during the request', () => {
+  it('is the fetched list when nothing changed meanwhile', () => {
+    const before = new Map([['a', s('a')]]);
+    const fetched = new Map([['b', s('b')]]);
+    expect(mergeRefreshed(fetched, before, before)).toBe(fetched);
+  });
+
+  it('keeps a newer socket copy and a session the socket added, drops what the server no longer lists', () => {
+    const before = new Map([['a', s('a', { lastActivityAt: 1 })], ['gone', s('gone')]]);
+    const now = new Map([
+      ['a', s('a', { lastActivityAt: 9, title: 'live' })],
+      ['gone', s('gone')],
+      ['new', s('new')],
+    ]);
+    const fetched = new Map([['a', s('a', { lastActivityAt: 5, title: 'fetched' })]]);
+    const merged = mergeRefreshed(fetched, before, now);
+    expect(merged.get('a')?.title).toBe('live');
+    expect(merged.has('new')).toBe(true);
+    expect(merged.has('gone')).toBe(false);
   });
 });

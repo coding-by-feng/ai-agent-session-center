@@ -7,7 +7,8 @@
  *    now rather than at the next back-off step; a live one is left alone, so a
  *    refresh never costs the terminal subscriptions or a held control baton;
  *  - the list is fetched over HTTP (GET /api/sessions, already filtered for a
- *    remote device) and replaces the store's, exactly as a snapshot does.
+ *    remote device) and replaces the store's, as a snapshot does, keeping what
+ *    the socket delivered while the request was in flight (`mergeRefreshed`).
  */
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
@@ -40,16 +41,37 @@ export function dedupeSessionRecord(record: unknown): Map<string, Session> | nul
   return deduped;
 }
 
+/**
+ * The fetched list, minus what the WebSocket already moved past while the
+ * request was in flight: a session the socket updated more recently keeps its
+ * newer copy, and one it added during the request stays (the reply may predate
+ * it). Otherwise the server's list wins, including what it no longer lists.
+ */
+export function mergeRefreshed(
+  fetched: Map<string, Session>,
+  before: ReadonlyMap<string, Session>,
+  now: ReadonlyMap<string, Session>,
+): Map<string, Session> {
+  if (now === before) return fetched;
+  const merged = new Map(fetched);
+  now.forEach((live, id) => {
+    const got = merged.get(id);
+    if (got ? (live.lastActivityAt || 0) > (got.lastActivityAt || 0) : !before.has(id)) merged.set(id, live);
+  });
+  return merged;
+}
+
 /** Re-request the session list. Resolves to whether the list was refreshed; never throws. */
 export async function refreshSessionList(): Promise<boolean> {
   const ws = useWsStore.getState();
   if (!ws.connected) ws.client?.reconnectNow();
   try {
+    const before = useSessionStore.getState().sessions;
     const res = await fetch('/api/sessions', { cache: 'no-store' });
     if (!res.ok) return false;
-    const sessions = dedupeSessionRecord(await res.json());
-    if (!sessions) return false;
-    useSessionStore.getState().setSessions(sessions);
+    const fetched = dedupeSessionRecord(await res.json());
+    if (!fetched) return false;
+    useSessionStore.getState().setSessions(mergeRefreshed(fetched, before, useSessionStore.getState().sessions));
     // The list is now the server's, as after a snapshot (see wsStore.snapshotReceived).
     if (!useWsStore.getState().snapshotReceived) useWsStore.getState().setSnapshotReceived(true);
     return true;
