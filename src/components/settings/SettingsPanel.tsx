@@ -13,7 +13,7 @@ import ApiKeySettings from './ApiKeySettings';
 import TranslationSettings from './TranslationSettings';
 
 import ShortcutSettings from './ShortcutSettings';
-import { isNativeMobileApp } from '@/lib/platform';
+import { isNativeMobileApp, useIsDesktopApp } from '@/lib/platform';
 import headerStyles from '@/styles/modules/Header.module.css';
 import styles from '@/styles/modules/Settings.module.css';
 
@@ -299,6 +299,28 @@ function TerminalBufferControl() {
   );
 }
 
+/** Desktop app only: the power blocker lives in its main process (AASC-16). */
+function KeepAwakeControl() {
+  const enabled = useSettingsStore((s) => s.keepAwakeWhileWorking);
+  const setEnabled = useSettingsStore((s) => s.setKeepAwakeWhileWorking);
+  const isDesktopApp = useIsDesktopApp();
+  if (!isDesktopApp) return null;
+  return (
+    <div className={styles.section}>
+      <h4>Keep this Mac awake</h4>
+      <p className={styles.settingsHint}>
+        While an agent is working or waiting for you, stop the Mac from sleeping on its own, so your phone can still
+        reach it and get notifications. The screen can still turn off.
+      </p>
+      <label className={styles.toggleLabel}>
+        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+        <span className={styles.toggleSwitch} />
+        <span>Keep awake while an agent is busy</span>
+      </label>
+    </div>
+  );
+}
+
 // Advanced settings sub-tab
 function AdvancedSettings({
   onExport,
@@ -312,6 +334,7 @@ function AdvancedSettings({
   return (
     <div>
       <TerminalBufferControl />
+      <KeepAwakeControl />
 
       <div className={styles.section}>
         <h4>Import / Export</h4>

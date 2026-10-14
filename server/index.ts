@@ -9,6 +9,7 @@ import { execFile } from 'child_process';
 import hookRouter from './hookRouter.js';
 import { handleConnection, stopHeartbeat, broadcast, disconnectDevice, onBroadcast } from './wsManager.js';
 import { createPushNotifier } from './push/pushNotifier.js';
+import { keepAwake } from './keepAwakeService.js';
 import { getPushSink } from './push/pushSink.js';
 import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
 import { getAllSessions, getSession, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
@@ -61,6 +62,14 @@ function openBrowser(url: string, noOpen: boolean): void {
 let _shutdownFn: (() => Promise<void>) | null = null;
 /** Gracefully shut down the server (save snapshot, close DB, stop timers).
  *  Called by Electron before app.quit() to guarantee state is saved. */
+/**
+ * Electron's main process holds a power blocker while this reports `true`
+ * (keepAwake.ts). Returns an unsubscribe.
+ */
+export function onKeepAwakeChange(listener: (awake: boolean) => void): () => void {
+  return keepAwake.onChange(listener);
+}
+
 export async function shutdownServer(): Promise<void> {
   if (_shutdownFn) await _shutdownFn();
 }
@@ -196,6 +205,14 @@ export function startServer(port?: number): Promise<number> {
     onError: (message) => log.warn('push', message),
   });
   onBroadcast((data) => pushNotifier.onBroadcast(data));
+
+  // -- Keep-awake (AASC-16, optional): re-check whenever a session changes --
+  onBroadcast((data) => {
+    if (data.type === WS_TYPES.SESSION_UPDATE || data.type === 'session_removed') keepAwake.evaluate();
+  });
+  // Auto-idle decays from working/approval/input are silent (no broadcast), so a
+  // slow re-check releases the blocker when a session quietly stops being busy.
+  setInterval(() => keepAwake.evaluate(), 60_000).unref();
 
   // -- Phone pairing (AASC-15) --
   // Mounted before authMiddleware: /pair, /session and /unpair are the phone's

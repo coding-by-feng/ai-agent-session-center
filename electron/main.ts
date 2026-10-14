@@ -1,6 +1,6 @@
 process.env.ELECTRON = '1'
 
-import { app, BrowserWindow, shell, Menu, ipcMain, screen, dialog } from 'electron'
+import { app, BrowserWindow, shell, Menu, ipcMain, screen, dialog, powerSaveBlocker } from 'electron'
 import path from 'path'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { setupTray } from './tray.js'
@@ -546,8 +546,21 @@ app.whenReady().then(async () => {
       const serverModule = require(serverPath) as {
         startServer: (port?: number) => Promise<number>
         shutdownServer: () => Promise<void>
+        onKeepAwakeChange?: (listener: (awake: boolean) => void) => () => void
       }
       serverShutdown = serverModule.shutdownServer
+      // Keep-awake (AASC-16): while the server says an agent is busy and the
+      // setting is on, stop the Mac from idling into sleep so a phone can still
+      // reach it. Never keeps the display on.
+      let powerBlockerId: number | null = null
+      serverModule.onKeepAwakeChange?.((awake) => {
+        if (awake && powerBlockerId === null) {
+          powerBlockerId = powerSaveBlocker.start('prevent-app-suspension')
+        } else if (!awake && powerBlockerId !== null) {
+          powerSaveBlocker.stop(powerBlockerId)
+          powerBlockerId = null
+        }
+      })
       sendLoadingUpdate(win, 30, 'Starting server')
       const port = await serverModule.startServer()
       process.env.SERVER_PORT = String(port)

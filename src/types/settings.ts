@@ -124,4 +124,8 @@ export interface BrowserSettings {
    *  from the replay buffer: this is renderer memory, roughly cols × 12 bytes
    *  per retained line. Default 20 000; clamped to [1 000, 200 000]. */
   terminalScrollbackLines: number;
+  /** Desktop app only: stop the Mac idling into sleep while an agent is working,
+   *  prompting or waiting on an approval or answer, so a phone can still reach
+   *  it (AASC-16). Off by default; never keeps the display on. */
+  keepAwakeWhileWorking: boolean;
 }
