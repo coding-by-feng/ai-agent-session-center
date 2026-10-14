@@ -1,6 +1,6 @@
 {
   "name": "ai-agent-session-center",
-  "version": "2.10.54",
+  "version": "2.10.55",
   "description": "A real-time dashboard for monitoring AI agent sessions (Claude Code, Codex) with 3D visualization",
   "type": "module",
   "main": "dist/electron/main.cjs",
@@ -80,6 +80,7 @@
     "latex.js": "^0.12.6",
     "mammoth": "^1.12.0",
     "node-pty": "^1.1.0",
+    "pdfjs-dist": "4.8.69",
     "react": "^19.2.4",
     "react-arborist": "^3.4.3",
     "react-dom": "^19.2.4",

@@ -46,6 +46,9 @@ import {
   advanceBlockedLoops,
   chainGateDecision,
   onceGateDecision,
+  isGateAtRest,
+  isCompactCommand,
+  latestSessionStartAt,
   resolveNoWorkFallbackMs,
   itemType,
   getActiveStep,
@@ -63,6 +66,7 @@ import {
 } from '@/lib/queueScheduler';
 import { sendPromptToTerminal, pressEnterInTerminal, submitDelayFor } from '@/lib/terminalSend';
 import { mayConfirmSubmit, retriesElapsed, submitRetryDecision, type PendingSubmit } from '@/lib/submitConfirm';
+import { isEffortCommand } from '@/lib/queueEffort';
 import { canControlSession } from '@/stores/presenceStore';
 import {
   decideResume,
@@ -447,15 +451,17 @@ export function useGlobalQueueScheduler(): void {
       // and fire immediately.
       if (isExecuting(pick)) {
         // `atRest` (status === 'waiting') is the genuine Stop signal — the only
-        // reliable "prior step finished" marker. Decayed `idle` must not count.
-        const atRest = sessionStatus === 'waiting' && settled;
+        // reliable "prior step finished" marker. Decayed `idle` must not count; a
+        // finished `/compact` (ends in SessionStart, no Stop) does.
+        const chainGate = chainGateRefs.current.get(sessionId);
+        const atRest = isGateAtRest(sessionStatus, settled, session.events, chainGate);
         const decision = chainGateDecision(
-          chainGateRefs.current.get(sessionId),
+          chainGate,
           pick.id,
           atRest,
           sessionWaiting,
           now,
-          resolveNoWorkFallbackMs(autoEnter),
+          resolveNoWorkFallbackMs(autoEnter, chainGate?.localCommand),
           session.lastActivityAt,
           // ⚡ NOW pressed on an already-executing row: release the gate for
           // this one step. The item keeps its execState/execStepIdx, so it
@@ -473,10 +479,10 @@ export function useGlobalQueueScheduler(): void {
         if (itemType(pick) === 'once') {
           const onceDecision = onceGateDecision(
             onceGateRefs.current.get(sessionId),
-            sessionStatus === 'waiting' && settled,
+            isGateAtRest(sessionStatus, settled, session.events, onceGateRefs.current.get(sessionId)),
             sessionWaiting,
             now,
-            resolveNoWorkFallbackMs(autoEnter),
+            resolveNoWorkFallbackMs(autoEnter, onceGateRefs.current.get(sessionId)?.localCommand),
             session.lastActivityAt,
           );
           if (onceDecision === 'hold') return;
@@ -491,6 +497,16 @@ export function useGlobalQueueScheduler(): void {
       try {
         const active = getActiveStep(pick);
         const send = { ...pick, text: active.text, images: active.images };
+        // What a finished `/compact` looks like to the gate this send opens (see isGateAtRest).
+        const gateRestMemo = {
+          afterCompact: isCompactCommand(active.text),
+          // `/effort <level>` fires no hook at all — see LOCAL_COMMAND_RELEASE_MS. Only when
+          // Enter was actually pressed: with Auto-Enter off the command is merely TYPED, and
+          // the gate must not remember it as a quiet one that switching Auto-Enter on would
+          // later release onto the same unsent line.
+          localCommand: autoEnter && isEffortCommand(active.text),
+          sessionStartAtOpen: latestSessionStartAt(session.events) ?? 0,
+        };
         const sent = await sendToTerminal(terminalId, send, autoEnter);
         if (!sent || cancelled) return;
 
@@ -520,6 +536,7 @@ export function useGlobalQueueScheduler(): void {
               // Pre-send stamp: any later hook event moves lastActivityAt past
               // this, proving the CLI took the prompt.
               activityAtOpen: session.lastActivityAt,
+              ...gateRestMemo,
             });
           }
         } else if (advance.action === 'continue') {
@@ -531,6 +548,7 @@ export function useGlobalQueueScheduler(): void {
             openedAt: Date.now(),
             // Pre-send stamp — see the once gate above.
             activityAtOpen: session.lastActivityAt,
+            ...gateRestMemo,
           });
         } else {
           // reschedule — chain completed, no gate needed for the next cycle.

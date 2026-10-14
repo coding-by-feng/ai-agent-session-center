@@ -4,6 +4,7 @@ import {
   isRecentlyActive,
   lastPromptAt,
   lastWorkAt,
+  lastWorkEventAt,
   pickRecentSessions,
 } from './recentSessions';
 import type { Session } from '@/types/session';
@@ -132,5 +133,38 @@ describe('pickRecentSessions', () => {
     const input = [a, b];
     pickRecentSessions(input, NOW);
     expect(input.map((s) => s.sessionId)).toEqual(['a', 'b']);
+  });
+});
+
+describe('lastWorkEventAt — the newest work hook event, never a prompt', () => {
+  it('is the time of the newest work event', () => {
+    const session = make({ events: [ev('PreToolUse', 30), ev('Stop', 12), ev('Notification', 11)] });
+    expect(lastWorkEventAt(session)).toBe(NOW - 11 * MIN);
+  });
+
+  it('ignores a prompt, even a newer one: a prompt is not a work event', () => {
+    const session = make({ events: [ev('Stop', 40)], promptHistory: [prompt(5)] });
+    expect(lastWorkEventAt(session)).toBe(NOW - 40 * MIN);
+    expect(lastWorkAt(session)).toBe(NOW - 5 * MIN);
+  });
+
+  it('is 0 for a restored session: its prompts came back from the database but its events started over', () => {
+    const restored = make({
+      events: [ev('TerminalCreated', 1), ev('SessionStart', 1)],
+      promptHistory: [prompt(180)],
+    });
+    expect(lastWorkEventAt(restored)).toBe(0);
+    // RECENT still reads the prompt, as it always did
+    expect(lastWorkAt(restored)).toBe(NOW - 180 * MIN);
+  });
+
+  it('skips app-internal markers and session start/end', () => {
+    const session = make({ events: [ev('Stop', 20), ev('ServerRestart', 3), ev('AutoRevived', 2), ev('SessionEnd', 1)] });
+    expect(lastWorkEventAt(session)).toBe(NOW - 20 * MIN);
+  });
+
+  it('is 0 for a thin session with no events at all', () => {
+    expect(lastWorkEventAt({ sessionId: 'x', status: 'idle' })).toBe(0);
+    expect(lastWorkEventAt(make({ events: null as never }))).toBe(0);
   });
 });

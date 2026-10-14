@@ -80,6 +80,15 @@ export interface PlanUsageHost {
   apply(cli: PlanCli, usage: PlanUsage): void;
 }
 
+/** What a user-asked read found: when it finished, the time of the newest reading, and whether the numbers moved. */
+export interface PlanUsageSyncResult {
+  checkedAt: number;
+  /** When the newest reading was taken; null when nothing has ever been read. */
+  asOf: number | null;
+  /** The percentages, resets or window set differ from before (a newer time alone is not a change). */
+  changed: boolean;
+}
+
 export interface PlanUsageService {
   /** Read once now, then on an interval; arm the sources' watches. Does nothing if already started. */
   start(): void;
@@ -87,6 +96,12 @@ export interface PlanUsageService {
   stop(): void;
   /** Re-read a CLI's sources; a read already under way is shared rather than repeated. */
   refresh(cli: PlanCli): Promise<void>;
+  /**
+   * The user asked: re-read a CLI's sources now, for a CLI nobody is using too. A read
+   * already under way is waited for, not shared — it may have listed the files before the
+   * write the user is waiting for — and then one more is made. Never rejects.
+   */
+  sync(cli: PlanCli): Promise<PlanUsageSyncResult>;
   /**
    * Re-read soon — a turn just ended and has probably moved the numbers. One
    * read is pending per CLI: the first request decides when, later ones fold in.
@@ -181,6 +196,20 @@ export function createPlanUsageService(
     return run;
   }
 
+  async function sync(cli: PlanCli): Promise<PlanUsageSyncResult> {
+    const before = latest.get(cli) ?? null;
+    const running = inflight.get(cli);
+    // `refresh` never rejects (every source and host failure is caught inside it), so there is nothing to handle here.
+    if (running) await running;
+    await refresh(cli);
+    const after = latest.get(cli) ?? null;
+    return {
+      checkedAt: Date.now(),
+      asOf: after?.asOf ?? null,
+      changed: before ? !sameNumbers(before, after) : after !== null,
+    };
+  }
+
   function liveClis(): ReadonlySet<PlanCli> | null {
     try {
       return host.liveClis();
@@ -263,6 +292,7 @@ export function createPlanUsageService(
       watches.clear();
     },
     refresh,
+    sync,
     kick(cli, delayMs = 0) {
       if (kicks.has(cli)) return;
       const pending = setTimeout(() => {

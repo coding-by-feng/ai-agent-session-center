@@ -1,7 +1,7 @@
 // LiveBoard.test.tsx — the 3D-off LIVE page on a desktop, when sessions exist:
 // a card per session, in the rail's order, each opening its session panel.
 // Plus the one-time tip above it, which points at how to open one.
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, render, screen, fireEvent, within } from '@testing-library/react';
 import type { Session } from '@/types';
 
@@ -11,6 +11,8 @@ import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useWsStore } from '@/stores/wsStore';
+import { useRoomStore, type Room } from '@/stores/roomStore';
+import { ROOM_COLOR_PALETTE } from '@/lib/roomColor';
 
 const s = (id: string, over: Partial<Session> = {}): Session =>
   ({
@@ -40,6 +42,7 @@ beforeEach(() => {
   useUiStore.setState({ detailPanelMinimized: false, liveHintDismissed: false });
   useSettingsStore.setState({ scene3dEnabled: false } as never);
   useWsStore.setState({ snapshotReceived: true });
+  useRoomStore.setState({ rooms: [] });
 });
 
 describe('LiveBoard — the cards', () => {
@@ -214,6 +217,190 @@ describe('LiveBoard — a card never moves from under the pointer', () => {
     expect(order()).toEqual(['beta', 'alpha']);
     act(() => (document.activeElement as HTMLElement).blur());
     expect(order()).toEqual(['alpha', 'beta']);
+  });
+});
+
+const room = (id: string, name: string, sessionIds: string[], roomIndex?: number): Room =>
+  ({ id, name, sessionIds, collapsed: false, createdAt: 1, roomIndex }) as Room;
+
+const card = (name: RegExp) => screen.getByRole('button', { name });
+
+describe('LiveBoard — the room on a card', () => {
+  it('names the room a session is in', () => {
+    useRoomStore.setState({ rooms: [room('r1', 'Research A', ['a'], 0)] });
+    renderBoard([s('a'), s('b')]);
+    expect(within(card(/^Open a/)).getByText('Research A')).toBeInTheDocument();
+  });
+
+  it("paints the room's dot in the colour the session strip gives that room", () => {
+    useRoomStore.setState({ rooms: [room('r1', 'Research A', ['a'], 2)] });
+    renderBoard([s('a')]);
+    const chip = within(card(/^Open a/)).getByText('Research A').parentElement as HTMLElement;
+    expect(chip.style.getPropertyValue('--room-color')).toBe(ROOM_COLOR_PALETTE[2]);
+  });
+
+  it('calls a session in no room "Common Area" once any room exists', () => {
+    useRoomStore.setState({ rooms: [room('r1', 'Research A', ['a'], 0)] });
+    renderBoard([s('a'), s('b')]);
+    expect(within(card(/^Open b/)).getByText('Common Area')).toBeInTheDocument();
+    expect(within(card(/^Open a/)).queryByText('Common Area')).toBeNull();
+  });
+
+  it('shows no room at all while there are no rooms, so a first run stays quiet', () => {
+    renderBoard([s('a')]);
+    const c = card(/^Open a/);
+    expect(within(c).queryByText('Common Area')).toBeNull();
+    // not even an empty chip: a room that is shown is a room that is named in the button's name
+    expect(c.getAttribute('aria-label')).not.toMatch(/Room/);
+  });
+
+  it("puts the room in the button's name, because its visible text is part of the name", () => {
+    useRoomStore.setState({ rooms: [room('r1', 'Research A', ['a'], 0)] });
+    renderBoard([s('a', { projectName: 'exmouth' })]);
+    expect(screen.getByRole('button', { name: /^Open a — Idle — exmouth — Room Research A/ })).toBeInTheDocument();
+  });
+
+  it('follows a session when it is moved to another room', () => {
+    useRoomStore.setState({ rooms: [room('r1', 'Research A', ['a'], 0), room('r2', 'Build', [], 1)] });
+    renderBoard([s('a')]);
+    expect(within(card(/^Open a/)).getByText('Research A')).toBeInTheDocument();
+    act(() => useRoomStore.setState({ rooms: [room('r1', 'Research A', [], 0), room('r2', 'Build', ['a'], 1)] }));
+    expect(within(card(/^Open a/)).getByText('Build')).toBeInTheDocument();
+  });
+
+  it('still opens the session, from the room chip too: the card stays one button', () => {
+    useRoomStore.setState({ rooms: [room('r1', 'Research A', ['a'], 0)] });
+    renderBoard([s('a'), s('b')]);
+    fireEvent.click(within(card(/^Open a/)).getByText('Research A'));
+    expect(useSessionStore.getState().selectedSessionId).toBe('a');
+    for (const c of cards()) expect(c.querySelector('button, a, [role="button"]')).toBeNull();
+  });
+});
+
+describe('LiveBoard — the note under the title', () => {
+  const asked = (text: string) => [{ text, timestamp: 5 }];
+
+  it('shows the last thing the session was asked', () => {
+    renderBoard([s('a', { promptHistory: asked('fix the cart total') })]);
+    const note = within(card(/^Open a/)).getByText('fix the cart total');
+    expect(note).toHaveAttribute('data-kind', 'prompt');
+  });
+
+  it("shows the user's own remark instead, when there is one", () => {
+    renderBoard([s('a', { remark: 'waiting on the client', promptHistory: asked('fix the cart total') })]);
+    const c = card(/^Open a/);
+    expect(within(c).getByText('waiting on the client')).toHaveAttribute('data-kind', 'remark');
+    expect(within(c).queryByText('fix the cart total')).toBeNull();
+  });
+
+  it('skips a prompt the harness injected and shows the last one a person typed', () => {
+    renderBoard([
+      s('a', {
+        promptHistory: [
+          { text: 'fix the cart total', timestamp: 5 },
+          { text: '<task-notification>build finished</task-notification>', timestamp: 6 },
+        ],
+      }),
+    ]);
+    const c = card(/^Open a/);
+    expect(within(c).getByText('fix the cart total')).toBeInTheDocument();
+    expect(within(c).queryByText(/task-notification/)).toBeNull();
+  });
+
+  it('has no note line when there is nothing to show', () => {
+    renderBoard([s('a')]);
+    expect(card(/^Open a/).querySelector('[data-kind]')).toBeNull();
+  });
+
+  it('describes the card by its note, so a screen reader hears it without it becoming the name', () => {
+    renderBoard([s('a', { promptHistory: asked('fix the cart total') })]);
+    const c = card(/^Open a/);
+    const describedBy = c.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy as string)).toHaveTextContent('fix the cart total');
+    expect(c.getAttribute('aria-label')).not.toMatch(/fix the cart total/);
+  });
+
+  it('leaves aria-describedby off when there is no note', () => {
+    renderBoard([s('a')]);
+    expect(card(/^Open a/)).not.toHaveAttribute('aria-describedby');
+  });
+});
+
+describe('LiveBoard — how long a quiet session has been quiet', () => {
+  const T0 = new Date('2026-10-14T00:00:00Z').getTime();
+  const quiet = (agoMs: number, over: Partial<Session> = {}) =>
+    s('a', { status: 'idle', events: [{ type: 'Stop', timestamp: T0 - agoMs, detail: '' }], ...over });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('shows it beside the status of an idle session', () => {
+    renderBoard([quiet(14 * 60_000)]);
+    const c = card(/^Open a/);
+    const age = within(c).getByText('14m');
+    expect(age.previousElementSibling).toHaveTextContent('Idle');
+  });
+
+  it("puts it in the button's name too", () => {
+    renderBoard([quiet(14 * 60_000)]);
+    expect(screen.getByRole('button', { name: /^Open a — Idle — agent-manager — quiet for 14m/ })).toBeInTheDocument();
+  });
+
+  it('is left off a session that is busy', () => {
+    renderBoard([quiet(14 * 60_000, { status: 'working' })]);
+    expect(within(card(/^Open a/)).queryByText('14m')).toBeNull();
+  });
+
+  it('is left off a session with no work to measure from', () => {
+    renderBoard([s('a', { status: 'idle', lastActivityAt: T0 })]);
+    expect(within(card(/^Open a/)).queryByText(/^(<1m|\d+[mhd])$/)).toBeNull();
+  });
+
+  it('reads from the last work, not lastActivityAt, which a restore stamps on every session', () => {
+    renderBoard([quiet(3 * 3_600_000, { lastActivityAt: T0 - 1_000 })]);
+    expect(within(card(/^Open a/)).getByText('3h')).toBeInTheDocument();
+  });
+
+  it('keeps counting while nothing else changes: a minute later it has moved on', () => {
+    renderBoard([quiet(14 * 60_000)]);
+    expect(within(card(/^Open a/)).getByText('14m')).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(within(card(/^Open a/)).getByText('15m')).toBeInTheDocument();
+  });
+
+  it('shows nothing on a restored session: its prompts are older than the restart and say nothing about the last work', () => {
+    renderBoard([
+      s('a', {
+        status: 'idle',
+        events: [
+          { type: 'TerminalCreated', timestamp: T0 - 60_000, detail: '' },
+          { type: 'SessionStart', timestamp: T0 - 59_000, detail: '' },
+        ],
+        promptHistory: [{ text: 'build the pdf', timestamp: T0 - 3 * 3_600_000 }],
+      }),
+    ]);
+    const c = card(/^Open a/);
+    expect(within(c).queryByText(/^(<1m|\d+[mhd])$/)).toBeNull();
+    expect(c.getAttribute('aria-label')).not.toMatch(/quiet for/);
+  });
+
+  it('stops its clock when the board goes away: the interval it started is the one cleared', () => {
+    const clear = vi.spyOn(window, 'clearInterval');
+    const { unmount } = renderBoard([quiet(14 * 60_000)]);
+    const running = vi.getTimerCount();
+    expect(clear).not.toHaveBeenCalled();
+    unmount();
+    expect(clear).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(running - 1);
+    clear.mockRestore();
   });
 });
 

@@ -12,7 +12,7 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel, syncPlanUsage } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
 import { getLocalIP } from './networkInfo.js';
 import { isPasswordEnabled } from './authManager.js';
@@ -2215,6 +2215,28 @@ router.delete('/db/sessions/:id', (req: Request, res: Response) => {
 // Get distinct projects
 router.get('/db/projects', (_req: Request, res: Response) => {
   res.json(db.getDistinctProjects());
+});
+
+// Plan usage: the chip's "sync" button. Re-reads the CLI's usage files now. The reply says when,
+// how old the newest reading is and whether the numbers moved, and carries no percentages: those
+// reach a client only on a session update, behind that session's visibility gate.
+const planUsageSyncSchema = z.object({ cli: z.enum(['claude', 'codex']) });
+
+router.post('/plan-usage/sync', async (req: Request, res: Response) => {
+  const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  if (isRateLimited(`plan-usage-sync:${ip}`, 2)) {
+    res.status(429).json({ success: false, error: 'Rate limit exceeded' });
+    return;
+  }
+  const body = validateBody(planUsageSyncSchema, req.body, res);
+  if (!body) return;
+  try {
+    const { checkedAt, asOf, changed } = await syncPlanUsage(body.cli);
+    res.json({ success: true, data: { cli: body.cli, checkedAt, asOf, changed } });
+  } catch (err) {
+    log.error('api', `plan-usage sync failed: ${err instanceof Error ? err.message : String(err)}`);
+    res.status(500).json({ success: false, error: 'Could not sync plan usage' });
+  }
 });
 
 // Full-text search across prompts and responses (rate-limited: expensive)

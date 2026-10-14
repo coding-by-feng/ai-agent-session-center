@@ -1742,6 +1742,15 @@
   gap: 6px;
   flex-wrap: wrap;
 }
+/* The two "insert a prepared step" pickers wrap as a PAIR. At phone width the three
+   chips total ~344px in a ~316px row, so one has to leave the line — this makes it a
+   chosen break ("+ Add" / "From saved… + Set effort…") instead of a stranded chip. */
+.chainPickerGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
 .chainFromSavedBtn {
   border-color: rgba(170, 102, 255, 0.35);
   color: var(--accent-purple, #aa66ff);
@@ -1751,6 +1760,35 @@
 }
 .chainFromSavedBtn:hover {
   background: rgba(170, 102, 255, 0.08);
+  border-style: solid;
+}
+
+/* "Set effort…" — the third action beside "+ Add step" and "From saved…". The orange
+   lives on the border and the bolt; the label is --text-primary because orange text
+   measured 3.07:1 on `light`, 2.75 on `solarized`, 3.48 on `windows-xp` (4.5 needed). */
+.chainEffortBtn {
+  border-color: rgba(255, 145, 0, 0.5);
+  color: var(--text-primary, #e0e0ff);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.chainEffortBtn svg {
+  color: var(--accent-orange, #ff9100);
+}
+.chainEffortBtn:hover {
+  background: rgba(255, 145, 0, 0.08);
+  border-style: solid;
+}
+.chainEffortBtn:active {
+  background: rgba(255, 145, 0, 0.18);
+}
+.chainEffortBtn:focus-visible {
+  outline: 1px solid var(--accent-orange, #ff9100);
+  outline-offset: 1px;
+}
+.chainEffortBtn[aria-expanded='true'] {
+  background: rgba(255, 145, 0, 0.12);
   border-style: solid;
 }
 

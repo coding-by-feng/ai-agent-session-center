@@ -38,8 +38,12 @@ import PromptSnippetPicker, {
   BookmarkStackIcon,
   SNIPPET_TRIGGER_ATTR,
 } from './PromptSnippetPicker';
+import EffortStepPicker, { EffortIcon } from './EffortStepPicker';
 import { appendSnippet } from '@/lib/promptSnippetInsert';
+import { EFFORT_TRIGGER_ATTR, effortStepText, type EffortLevel } from '@/lib/queueEffort';
+import { detectCli } from '@/lib/cliDetect';
 import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
+import { useSessionStore } from '@/stores/sessionStore';
 import { showToast } from '@/components/ui/ToastContainer';
 import styles from '@/styles/modules/Terminal.module.css';
 
@@ -151,6 +155,19 @@ export default function QueueItemEditModal({
   const saveSnippet = usePromptSnippetStore((s) => s.save);
   const snippetTexts = usePromptSnippetStore((s) => s.snippets);
 
+  /** Which chain side's "Set effort…" menu is open. `null` = none. Only one of this
+   *  and `snippetPicker` is ever open — both are portaled menus off the same row. */
+  const [effortPicker, setEffortPicker] = useState<{
+    anchor: HTMLElement;
+    target: 'before' | 'after';
+  } | null>(null);
+  /** `/effort` is a Claude Code command; Codex has no such thing. A session that is
+   *  not in the store yet counts as Claude, the same default the autocomplete uses. */
+  const supportsEffort = useSessionStore((s) => {
+    const session = s.sessions.get(sessionId);
+    return !session || detectCli(session) !== 'codex';
+  });
+
   /** Keep a prompt box's current text in the reusable library. */
   const handleKeepText = useCallback(
     async (text: string) => {
@@ -181,7 +198,18 @@ export default function QueueItemEditModal({
 
   const toggleSnippetPicker = useCallback(
     (anchor: HTMLElement, target: 'main' | 'before' | 'after') => {
+      setEffortPicker(null);
       setSnippetPicker((prev) =>
+        prev && prev.target === target ? null : { anchor, target },
+      );
+    },
+    [],
+  );
+
+  const toggleEffortPicker = useCallback(
+    (anchor: HTMLElement, target: 'before' | 'after') => {
+      setSnippetPicker(null);
+      setEffortPicker((prev) =>
         prev && prev.target === target ? null : { anchor, target },
       );
     },
@@ -229,7 +257,7 @@ export default function QueueItemEditModal({
     setImages((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
-  // ESC to close — but never while a snippet picker is open, so the topmost
+  // ESC to close — but never while a snippet or effort picker is open, so the topmost
   // layer closes first. `stopPropagation` cannot achieve this: the picker also
   // listens on `document`, and stopping propagation does NOT suppress a sibling
   // listener on the SAME node (that would need stopImmediatePropagation, whose
@@ -238,14 +266,14 @@ export default function QueueItemEditModal({
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
-        if (snippetPicker) return;
+        if (snippetPicker || effortPicker) return;
         e.stopPropagation();
         onClose();
       }
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose, snippetPicker]);
+  }, [onClose, snippetPicker, effortPicker]);
 
   const handleOverlayClick = useCallback(
     (e: React.MouseEvent) => {
@@ -258,6 +286,11 @@ export default function QueueItemEditModal({
   const addStep = (which: 'before' | 'after') => {
     const setter = which === 'before' ? setBeforeChain : setAfterChain;
     setter((prev) => [...prev, { id: newStepId(), text: '' }]);
+  };
+  /** A picked effort level lands as a NEW ordinary step, like a saved prompt does. */
+  const addEffortStep = (which: 'before' | 'after', level: EffortLevel) => {
+    const setter = which === 'before' ? setBeforeChain : setAfterChain;
+    setter((prev) => [...prev, { id: newStepId(), text: effortStepText(level) }]);
   };
   const updateStep = (which: 'before' | 'after', stepId: number, text: string) => {
     const setter = which === 'before' ? setBeforeChain : setAfterChain;
@@ -440,17 +473,36 @@ export default function QueueItemEditModal({
             aligned placement: this button sits at the left of a wide modal, and
             the default right-alignment would push the menu off-screen and leave
             it clamped to the viewport pad, visually detached from its trigger. */}
-        <button
-          className={`${styles.chainAddBtn} ${styles.chainFromSavedBtn}`}
-          {...{ [SNIPPET_TRIGGER_ATTR]: which }}
-          onClick={(e) => toggleSnippetPicker(e.currentTarget, which)}
-          aria-haspopup="dialog"
-          aria-expanded={snippetPicker?.target === which}
-          title="Add a step from your saved prompts"
-        >
-          <BookmarkStackIcon />
-          From saved…
-        </button>
+        <span className={styles.chainPickerGroup}>
+          <button
+            className={`${styles.chainAddBtn} ${styles.chainFromSavedBtn}`}
+            {...{ [SNIPPET_TRIGGER_ATTR]: which }}
+            onClick={(e) => toggleSnippetPicker(e.currentTarget, which)}
+            aria-haspopup="dialog"
+            aria-expanded={snippetPicker?.target === which}
+            title="Add a step from your saved prompts"
+          >
+            <BookmarkStackIcon />
+            From saved…
+          </button>
+          {supportsEffort && (
+            <button
+              className={`${styles.chainAddBtn} ${styles.chainEffortBtn}`}
+              {...{ [EFFORT_TRIGGER_ATTR]: which }}
+              onClick={(e) => toggleEffortPicker(e.currentTarget, which)}
+              aria-haspopup="menu"
+              aria-expanded={effortPicker?.target === which}
+              title={
+                which === 'before'
+                  ? 'Run this prompt at a chosen effort level'
+                  : 'Set the effort level again after the prompt'
+              }
+            >
+              <EffortIcon />
+              Set effort…
+            </button>
+          )}
+        </span>
       </div>
     </div>
   );
@@ -735,6 +787,17 @@ export default function QueueItemEditModal({
             }
           }}
           onClose={() => setSnippetPicker(null)}
+        />
+      )}
+      {effortPicker && (
+        <EffortStepPicker
+          // Keyed by side: moving from the BEFORE trigger to the AFTER one must remount, or
+          // the instance stays "placed" and never moves focus into its new menu.
+          key={effortPicker.target}
+          anchor={effortPicker.anchor}
+          align="left"
+          onPick={(level) => addEffortStep(effortPicker.target, level)}
+          onClose={() => setEffortPicker(null)}
         />
       )}
     </div>

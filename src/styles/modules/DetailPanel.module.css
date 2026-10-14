@@ -817,6 +817,44 @@
   row-gap: 6px;
   overflow: visible;
 }
+/* The title gets the line it shares with the dot and the # chip (up to two lines, with the
+   full text in its tooltip) and the actions drop to a row of their own under it. The basis
+   leaves ~60px free on purpose: it is what makes a label chip or a long project name wrap
+   below instead of joining this line and squeezing the title again (a short project name
+   still fits beside it, and the title does not shrink for that). Before, name and actions
+   were one 190px item, too wide for the dot's line, so the dot and # sat alone above it. */
+.switcherBarVertical .switcherName {
+  flex: 1 1 calc(100% - 60px);
+  min-width: 0;
+}
+.switcherBarVertical .switcherNameText {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
+}
+.switcherBarVertical .switcherTitleActions {
+  flex: 0 0 100%;
+  gap: 4px;
+}
+/* On a row of their own they have room to be legible: 28px targets, and --text-secondary at full
+   opacity instead of --text-dim at 0.55 (which only read as hints while they hid beside a title).
+   Lit state and hover are restated: this selector outranks both of their one-class rules. */
+.switcherBarVertical .switcherEditHint {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-secondary);
+  opacity: 1;
+}
+.switcherBarVertical .switcherEditHint:hover,
+.switcherBarVertical .switcherHintActive {
+  color: var(--accent-cyan);
+  background: var(--bg-accent, rgba(0, 240, 255, 0.12));
+}
 .switcherBarVertical .switcherMeta {
   flex-wrap: wrap;
   padding-right: 0;
@@ -1092,8 +1130,20 @@
   transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
 }
 
-.switcherName:hover .switcherEditHint {
+.switcherName:hover + .switcherTitleActions .switcherEditHint,
+.switcherTitleActions:hover .switcherEditHint {
   opacity: 1;
+}
+
+/* The title's pin / rename / label / remark / pop-out buttons. A sibling of .switcherName,
+   not inside it: in the left rail five buttons beside the name squeezed it to "Exmouth …".
+   Top bar: inline after the name, as before (7px between buttons, the row's own 8px gap
+   from the name). Left rail: a row of its own — see `.switcherBarVertical .switcherTitleActions`. */
+.switcherTitleActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
 }
 
 .switcherEditHint:hover {
@@ -2482,21 +2532,62 @@
   --usage-track: #0b0d22;
   --usage-fill: #00ff88;
   position: relative;
+  /* Scopes the hover chip's z-index: -1 to this button (as IconButton does). */
+  isolation: isolate;
   display: flex;
   align-items: center;
   gap: 4px;
   box-sizing: border-box;
   /* 13px mark + 14px window + two 4px gaps leave 45px for "100%▲" in any UI font. */
   width: 80px;
+  margin: 0;
   padding: 2px 0;
+  border: 0;
   border-radius: 4px;
+  background: none;
   font-family: var(--font-mono);
   font-size: 10px;
   line-height: 16px;
+  text-align: left;
   color: var(--text-primary);
   white-space: nowrap;
-  /* A readout, not a button: no hover fill, no pointer. */
-  cursor: default;
+  /* A button: a click re-reads the plan limits now (useSyncPlanUsage). It looks like the
+     readout it was — the hover chip below is the only sign — and the panel says "Click to sync". */
+  cursor: pointer;
+  user-select: none;
+  -webkit-app-region: no-drag;
+}
+.planUsageChip[aria-busy='true'] {
+  cursor: progress;
+}
+/* The hover / pressed fill is a chip drawn behind the readout, a little larger than it, so the
+   fixed widths below (which keep the dot and the # chip still) are not touched by it. */
+.planUsageChip::before {
+  content: '';
+  position: absolute;
+  inset: -2px -4px;
+  z-index: -1;
+  border-radius: 6px;
+  background: transparent;
+}
+.planUsageChip:hover::before {
+  background: var(--bg-subtle);
+}
+.planUsageChip:active::before {
+  background: var(--bg-accent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .planUsageChip::before {
+    transition: background 0.15s ease;
+  }
+}
+/* A 20px-tall readout is not a 44px touch target: widen the hit area, not the paint. */
+@media (pointer: coarse) {
+  .planUsageChip::after {
+    content: '';
+    position: absolute;
+    inset: -12px -4px;
+  }
 }
 .planUsageChip[data-severity='warn'] {
   --usage-fill: #ffcc00;
@@ -2509,9 +2600,39 @@
   outline-offset: 2px;
 }
 
-.planUsageMark {
+.planUsageMark,
+.planUsageSpinner {
   display: inline-flex;
   flex: 0 0 13px;
+}
+/* While the click is being answered the CLI mark gives way to this: a spinner that is still
+   a spinner (a turning arrow, not a motionless one) when reduced motion stops the turning. */
+.planUsageSpinner svg {
+  width: 13px;
+  height: 13px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .planUsageSpinner svg {
+    animation: planUsageSpin 0.9s linear infinite;
+  }
+}
+@keyframes planUsageSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* Spoken outcome of a click; seen by no one, announced to a screen reader. */
+.planUsageLive {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .planUsageWindow {
@@ -2617,7 +2738,15 @@
   display: block;
 }
 .switcherBarVertical .planUsageReset {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+/* The reset time's clock. The arrow ↻ it replaces now means "sync": the chip is the button for it. */
+.planUsageResetIcon {
+  flex: 0 0 10px;
+  width: 10px;
+  height: 10px;
 }
 
 /* ---- Top bar, tight: drop the window label. ---- */
@@ -2698,5 +2827,33 @@
 .planUsageTipAlert {
   margin: 0;
   color: #ff8fa3;
+  font-weight: 700;
+}
+/* What a click does, and what the last one found. The panel is a readout (the tooltip takes no
+   pointer), so this line is a status, not a button: the chip is the button. Tone is never the only
+   cue: the glyph and the words say the same thing. */
+.planUsageTipSync {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  color: #aab0d0;
+  font-size: 10px;
+  line-height: 1.45;
+}
+.planUsageTipSync[data-tone='busy'] {
+  color: #e0e0ff;
+}
+.planUsageTipSync[data-tone='ok'] {
+  color: #7dffb4;
+}
+.planUsageTipSync[data-tone='error'] {
+  color: #ff8fa3;
+  font-weight: 700;
+}
+.planUsageTipSyncGlyph {
+  flex: 0 0 auto;
   font-weight: 700;
 }

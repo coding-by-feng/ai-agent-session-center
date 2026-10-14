@@ -46,10 +46,10 @@ import {
   getPromptsForSession as dbGetPrompts,
   insertFullPrompt as dbInsertFullPrompt,
 } from './db.js';
-import { toArchivedSession, pushPrompt, trimCurrentPrompt } from './sessionTrim.js';
+import { toArchivedSession, pushPrompt, trimCurrentPrompt, toolInputDetail, dropStaleToolDetail } from './sessionTrim.js';
 import { planCliOf } from './planUsageCodec.js';
 import { createClaudeSnapshotSource, createCodexRolloutSource } from './planUsageSources.js';
-import { createPlanUsageService, applyUsageToSessions, kickDelayFor } from './planUsageService.js';
+import { createPlanUsageService, applyUsageToSessions, kickDelayFor, type PlanUsageSyncResult } from './planUsageService.js';
 import type { Session, HandleEventResult, BufferedEvent, PendingResume, SessionEvent, PlanCli } from '../src/types/session.js';
 import type { HookPayload } from '../src/types/hook.js';
 import type { TerminalConfig } from '../src/types/terminal.js';
@@ -470,7 +470,8 @@ function summarizeToolInput(toolInput: Record<string, unknown> | undefined, tool
     case 'Read': return (toolInput.file_path as string) || '';
     case 'Write': return (toolInput.file_path as string) || '';
     case 'Edit': return (toolInput.file_path as string) || '';
-    case 'Bash': return ((toolInput.command as string) || '').substring(0, 120);
+    // A hook payload is untrusted: a non-string command must not throw out of the event handler.
+    case 'Bash': return (typeof toolInput.command === 'string' ? toolInput.command : '').substring(0, 120);
     case 'Grep': return `${(toolInput.pattern as string) || ''} in ${(toolInput.path as string) || 'cwd'}`;
     case 'Glob': return (toolInput.pattern as string) || '';
     case 'WebFetch': return (toolInput.url as string) || '';
@@ -599,6 +600,11 @@ export function startPlanUsage(): void {
 
 export function stopPlanUsage(): void {
   planUsageService.stop();
+}
+
+/** The chip's "sync" button: read a CLI's usage files now instead of waiting for the poll or the watch. */
+export function syncPlanUsage(cli: PlanCli): Promise<PlanUsageSyncResult> {
+  return planUsageService.sync(cli);
 }
 
 /**
@@ -890,17 +896,18 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       session.toolUsage[toolName] = (session.toolUsage[toolName] || 0) + 1;
       session.totalToolCalls++;
       // Store detailed tool log entry for the detail panel
-      const toolInputSummary = summarizeToolInput(
-        ('tool_input' in hookData ? hookData.tool_input : undefined) as Record<string, unknown> | undefined,
-        toolName
-      );
+      const toolInput = ('tool_input' in hookData ? hookData.tool_input : undefined) as Record<string, unknown> | undefined;
+      const toolInputSummary = summarizeToolInput(toolInput, toolName);
+      const toolInputFull = toolInputDetail(toolName, toolInput, toolInputSummary);
       const toolAgentId = applySubagentEvent(toolInputSummary);
       session.toolLog.push({
         tool: toolName,
         input: toolInputSummary,
         timestamp: Date.now(),
+        ...(toolInputFull ? { detail: toolInputFull } : {}),
         ...(toolAgentId ? { agentId: toolAgentId } : {}),
       });
+      dropStaleToolDetail(session.toolLog);
       if (session.toolLog.length > 200) session.toolLog.shift();
       eventEntry.detail = `${toolName}`;
 

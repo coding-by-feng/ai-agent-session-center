@@ -969,7 +969,7 @@ export async function importSnapshot(
         // silenced session stays suppressed. migrateSession later carries this
         // forward when the CLI re-keys term-* → hookSessionId.
         if (sessionSnap.automation) {
-          useQueueStore.getState().setAutomation(data.terminalId, sessionSnap.automation);
+          useQueueStore.getState().restoreAutomation(data.terminalId, sessionSnap.automation);
         }
 
         // Restore terminal output from saved buffer (previous session's
@@ -1168,6 +1168,7 @@ export async function importSnapshot(
 // ---------------------------------------------------------------------------
 
 let _autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let _automationSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let _importInProgress = false;
 // Block auto-save until the workspace auto-load decides what to do.
 // Default true so the first auto-save can never overwrite the snapshot file
@@ -1175,6 +1176,8 @@ let _importInProgress = false;
 // useWorkspaceAutoLoad once it has either skipped restore or completed import.
 let _restorePending = true;
 const AUTO_SAVE_DEBOUNCE_MS = 5_000;
+/** A queue switch (Auto-send, pause, ...) is one click; it is saved sooner than a session change. */
+const AUTOMATION_SAVE_DEBOUNCE_MS = 1_000;
 const POST_IMPORT_QUIET_MS = 3_000;
 
 export function isImportInProgress(): boolean {
@@ -1197,15 +1200,58 @@ export function isRestorePending(): boolean {
 export function _resetAutoSaveStateForTests(): void {
   if (_autoSaveTimer) clearTimeout(_autoSaveTimer);
   _autoSaveTimer = null;
+  if (_automationSaveTimer) clearTimeout(_automationSaveTimer);
+  _automationSaveTimer = null;
   _importInProgress = false;
   _restorePending = true;
   useUiStore.setState({ workspaceRestorePending: true });
 }
 
 /**
+ * The guarded save both timers run. Every rule here applies to every caller, so
+ * a new trigger cannot forget one.
+ */
+async function saveSnapshotNow(
+  getSessions: () => Map<string, Session>,
+  getRooms: () => Room[],
+): Promise<void> {
+  // Never auto-save while a snapshot import is in flight — Zustand transiently
+  // mixes the dying old sessions with the freshly-created ones, and persisting
+  // that mid-state silently corrupts the saved snapshot with duplicates.
+  if (_importInProgress) return;
+  try {
+    const sessions = getSessions();
+    const rooms = getRooms();
+    const snapshot = buildSnapshot(sessions, rooms);
+    // Never overwrite a good snapshot with an empty one. buildSnapshot drops
+    // non-SSH, archived, and ENDED sessions — so a set that is all-ended (e.g.
+    // after a restart, where the client re-registers its IndexedDB sessions as
+    // ENDED before reconnecting to live PTYs) reduces to zero here. The old
+    // guard only checked sshConfig presence, so it persisted that empty snapshot
+    // and silently wiped the saved workspace, breaking restart-to-resume.
+    if (snapshot.sessions.length === 0) return;
+    // Only ONE device may persist the shared snapshot. It carries the ROOM
+    // LAYOUT, which lives in each client's own localStorage — so a phone that
+    // has never seen the desktop's rooms would overwrite them with an empty
+    // set, and the guard above would not catch it (the session list is fully
+    // populated from the WS snapshot; only the rooms are wrong). The server
+    // rejects a non-writer with 409 regardless; skipping here avoids the
+    // pointless request every few seconds.
+    if (!canWriteWorkspace()) return;
+    await saveToConfig(snapshot);
+  } catch {
+    // Silent failure — auto-save is best-effort
+  }
+}
+
+/**
  * Schedule a debounced auto-save of the workspace snapshot to the server.
  * Call this whenever sessions or rooms change. Multiple rapid calls are
  * coalesced into a single save after the debounce period.
+ *
+ * It is a TRAILING debounce: while sessions keep updating faster than
+ * `AUTO_SAVE_DEBOUNCE_MS` it never fires. A change that is not itself a session
+ * update must not depend on it — see `scheduleAutomationSave`.
  */
 export function scheduleAutoSave(
   getSessions: () => Map<string, Session>,
@@ -1215,43 +1261,42 @@ export function scheduleAutoSave(
   // the callback would be a guaranteed no-op, so avoid the clearTimeout/setTimeout churn.
   if (_restorePending) return;
   if (_autoSaveTimer) clearTimeout(_autoSaveTimer);
-  _autoSaveTimer = setTimeout(async () => {
+  _autoSaveTimer = setTimeout(() => {
     _autoSaveTimer = null;
-    // Never auto-save while a snapshot import is in flight — Zustand transiently
-    // mixes the dying old sessions with the freshly-created ones, and persisting
-    // that mid-state silently corrupts the saved snapshot with duplicates.
-    if (_importInProgress) return;
-    try {
-      const sessions = getSessions();
-      const rooms = getRooms();
-      const snapshot = buildSnapshot(sessions, rooms);
-      // Never overwrite a good snapshot with an empty one. buildSnapshot drops
-      // non-SSH, archived, and ENDED sessions — so a set that is all-ended (e.g.
-      // after a restart, where the client re-registers its IndexedDB sessions as
-      // ENDED before reconnecting to live PTYs) reduces to zero here. The old
-      // guard only checked sshConfig presence, so it persisted that empty snapshot
-      // and silently wiped the saved workspace, breaking restart-to-resume.
-      if (snapshot.sessions.length === 0) return;
-      // Only ONE device may persist the shared snapshot. It carries the ROOM
-      // LAYOUT, which lives in each client's own localStorage — so a phone that
-      // has never seen the desktop's rooms would overwrite them with an empty
-      // set, and the guard above would not catch it (the session list is fully
-      // populated from the WS snapshot; only the rooms are wrong). The server
-      // rejects a non-writer with 409 regardless; skipping here avoids the
-      // pointless request every few seconds.
-      if (!canWriteWorkspace()) return;
-      await saveToConfig(snapshot);
-    } catch {
-      // Silent failure — auto-save is best-effort
-    }
+    void saveSnapshotNow(getSessions, getRooms);
   }, AUTO_SAVE_DEBOUNCE_MS);
 }
 
-/** Cancel any pending auto-save (e.g. on unmount) */
+/**
+ * Save the snapshot soon after a per-session queue switch (Auto-send, pause,
+ * auto-enter, ...) changed. A restart gives every session a NEW id, so the
+ * Dexie and server queue rows keyed by the old id are unreachable and the
+ * snapshot's `automation` is the only thing the restore can read. A toggle
+ * changes neither `sessions` nor `rooms`, so without this the snapshot predated
+ * it and the session came back with the default (Auto-send ON) after a hard
+ * exit. Its own timer, not `scheduleAutoSave`'s: that one is reset by every
+ * session update, so a toggle on a busy board would wait for a lull.
+ */
+export function scheduleAutomationSave(
+  getSessions: () => Map<string, Session>,
+  getRooms: () => Room[],
+): void {
+  if (_restorePending) return;
+  if (_automationSaveTimer) clearTimeout(_automationSaveTimer);
+  _automationSaveTimer = setTimeout(() => {
+    _automationSaveTimer = null;
+    void saveSnapshotNow(getSessions, getRooms);
+  }, AUTOMATION_SAVE_DEBOUNCE_MS);
+}
+
 export function cancelAutoSave(): void {
   if (_autoSaveTimer) {
     clearTimeout(_autoSaveTimer);
     _autoSaveTimer = null;
+  }
+  if (_automationSaveTimer) {
+    clearTimeout(_automationSaveTimer);
+    _automationSaveTimer = null;
   }
 }
 

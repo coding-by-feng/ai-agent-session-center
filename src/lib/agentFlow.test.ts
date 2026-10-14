@@ -11,6 +11,7 @@ import {
   LOG_LIMIT,
   MAX_FINISHED_CARDS,
 } from './agentFlow';
+import { TOOL_DETAIL_KEEP } from '../../server/sessionTrim';
 
 const T0 = 1_791_000_000_000;
 
@@ -188,6 +189,53 @@ describe('buildAgentFlow: log', () => {
     const flow = buildAgentFlow(makeSession('L', { toolLog }), []);
     expect(flow.log).toHaveLength(LOG_LIMIT);
     expect(flow.log[0].target).toBe(`${LOG_LIMIT + 19}`);
+  });
+});
+
+describe('buildAgentFlow: log rows you can open', () => {
+  it('the server keeps the longer detail on every call the log can show', () => {
+    // The log shows the newest LOG_LIMIT rows, and a leader's own calls among them are at most that many
+    // newest tool-log entries; a smaller window left the older half of the rows with a cut-off "detail".
+    expect(TOOL_DETAIL_KEEP).toBeGreaterThanOrEqual(LOG_LIMIT);
+  });
+
+  const bash = (input: string, timestamp: number, extra: Record<string, unknown> = {}) => ({ tool: 'Bash', input, timestamp, ...extra });
+
+  it('keys a row by what it is, so it keeps its key when the capped tool log rolls over', () => {
+    const entries = [bash('a', T0 + 1), bash('b', T0 + 2), bash('c', T0 + 3)];
+    const before = buildAgentFlow(makeSession('L', { toolLog: entries }), []);
+    // the server shifts the oldest entry out and appends a new one: every array index moves
+    const after = buildAgentFlow(makeSession('L', { toolLog: [...entries.slice(1), bash('d', T0 + 4)] }), []);
+    const keyOf = (flow: typeof before, target: string) => flow.log.find((r) => r.target === target)!.key;
+    expect(keyOf(after, 'b')).toBe(keyOf(before, 'b'));
+    expect(keyOf(after, 'c')).toBe(keyOf(before, 'c'));
+  });
+
+  it('tells two calls of one tool in the same millisecond apart', () => {
+    const flow = buildAgentFlow(makeSession('L', { toolLog: [bash('first', T0), bash('second', T0)] }), []);
+    expect(new Set(flow.log.map((r) => r.key)).size).toBe(2);
+  });
+
+  it('keys a teammate\'s rows the same way', () => {
+    const mate = makeSession('T', { agentName: 'reviewer', toolLog: [bash('x', T0 + 1), bash('y', T0 + 2)] });
+    const before = buildAgentFlow(makeSession('L'), [mate]);
+    const rolled = makeSession('T', { agentName: 'reviewer', toolLog: [bash('y', T0 + 2), bash('z', T0 + 3)] });
+    const after = buildAgentFlow(makeSession('L'), [rolled]);
+    const keyOf = (flow: typeof before, target: string) => flow.log.find((r) => r.target === target)!.key;
+    expect(keyOf(after, 'y')).toBe(keyOf(before, 'y'));
+  });
+
+  it('carries the longer detail and the error of a call into its row', () => {
+    const flow = buildAgentFlow(makeSession('L', {
+      toolLog: [bash('cd ~/x && git sta', T0, { detail: 'cd ~/x && git status --short', failed: true, error: 'exit 1' })],
+    }), []);
+    expect(flow.log[0]).toMatchObject({ target: 'cd ~/x && git sta', detail: 'cd ~/x && git status --short', error: 'exit 1', failed: true });
+  });
+
+  it('leaves detail and error off a row that has neither', () => {
+    const flow = buildAgentFlow(makeSession('L', { toolLog: [bash('npm test', T0)] }), []);
+    expect('detail' in flow.log[0]).toBe(false);
+    expect('error' in flow.log[0]).toBe(false);
   });
 });
 

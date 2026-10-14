@@ -5,6 +5,7 @@ import { useRoomStore } from '@/stores/roomStore';
 import type { Room } from '@/stores/roomStore';
 import type { Session } from '@/types';
 import { detectCli } from '@/lib/cliDetect';
+import { roomColor } from '@/lib/roomColor';
 import styles from '@/styles/modules/Header.module.css';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -28,23 +29,6 @@ const STATUS_PRIORITY: Record<string, number> = {
   connecting: 5,
   ended: 6,
 };
-
-// One color per room slot — cycles if more than 8 rooms exist
-const ROOM_COLOR_PALETTE = [
-  'var(--accent-orange)',
-  '#4a9eff',
-  'var(--accent-green)',
-  'var(--accent-purple)',
-  'var(--accent-yellow)',
-  '#ff69b4',
-  'var(--accent-cyan)',
-  '#ff7043',
-];
-
-function getRoomColor(room: Room): string {
-  const index = ((room.roomIndex ?? 0) % ROOM_COLOR_PALETTE.length + ROOM_COLOR_PALETTE.length) % ROOM_COLOR_PALETTE.length;
-  return ROOM_COLOR_PALETTE[index];
-}
 
 const MAX_VISIBLE = 8;
 
@@ -117,7 +101,7 @@ export default function HeaderAgentStrip() {
         room.sessionIds.includes(s.sessionId),
       );
       if (roomSessions.length === 0) continue;
-      items.push({ type: 'room', room, sessions: roomSessions, color: getRoomColor(room) });
+      items.push({ type: 'room', room, sessions: roomSessions, color: roomColor(room) });
     }
 
     for (const session of activeSessions) {

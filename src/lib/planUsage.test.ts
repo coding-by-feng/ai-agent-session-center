@@ -6,6 +6,8 @@ import {
   WARN_AT_PERCENT,
   activeWindows,
   describePlanUsage,
+  describeSync,
+  formatAge,
   formatAsOf,
   formatPercent,
   formatResetAt,
@@ -347,5 +349,84 @@ describe('describePlanUsage', () => {
     expect(v.headline?.resetInText).toBeNull();
     expect(v.headline?.resetAtText).toBeNull();
     expect(v.ariaLabel).toBe('Claude plan usage: 40% of the 5-hour limit used');
+  });
+});
+
+describe('formatAge', () => {
+  it('says "just now" under a minute, including a clock that ran slightly behind the report', () => {
+    expect(formatAge(NOW - 30_000, NOW)).toBe('just now');
+    expect(formatAge(NOW, NOW)).toBe('just now');
+    expect(formatAge(NOW + 2 * MIN, NOW)).toBe('just now');
+  });
+
+  it('counts minutes, then hours and minutes, then days', () => {
+    expect(formatAge(NOW - MIN, NOW)).toBe('1m ago');
+    expect(formatAge(NOW - 59 * MIN, NOW)).toBe('59m ago');
+    expect(formatAge(NOW - 60 * MIN, NOW)).toBe('1h ago');
+    expect(formatAge(NOW - (HOUR + 45 * MIN), NOW)).toBe('1h 45m ago');
+    expect(formatAge(NOW - 23 * HOUR, NOW)).toBe('23h ago');
+    expect(formatAge(NOW - 24 * HOUR, NOW)).toBe('1d ago');
+    expect(formatAge(NOW - 3 * DAY - 5 * HOUR, NOW)).toBe('3d ago');
+  });
+
+  it('gives nothing for a time that is not one', () => {
+    expect(formatAge(Number.NaN, NOW)).toBe('');
+  });
+});
+
+describe('describePlanUsage — how old the reading is', () => {
+  it('says how long ago, beside the clock time', () => {
+    const v = describePlanUsage('claude', usage([win(300, 20)], { asOf: NOW - (HOUR + 45 * MIN) }), NOW, FMT);
+    expect(v.asOf).toBe('11:23');
+    expect(v.asOfAge).toBe('1h 45m ago');
+  });
+
+  it('has no age without a report', () => {
+    expect(describePlanUsage('claude', null, NOW, FMT).asOfAge).toBeNull();
+  });
+});
+
+describe('describeSync', () => {
+  it('offers the action while idle', () => {
+    expect(describeSync({ status: 'idle' }, NOW)).toEqual({ tone: 'hint', glyph: '↻', text: 'Click to sync', spoken: '' });
+  });
+
+  it('says it is working while syncing', () => {
+    const note = describeSync({ status: 'syncing' }, NOW);
+    expect(note.tone).toBe('busy');
+    expect(note.text).toBe('Syncing…');
+    expect(note.spoken).toBe('Syncing plan usage');
+  });
+
+  it('says the numbers were updated when they moved', () => {
+    const note = describeSync({ status: 'done', checkedAt: NOW - 10_000, changed: true }, NOW);
+    expect(note).toEqual({ tone: 'ok', glyph: '✓', text: 'Updated just now', spoken: 'Plan usage updated' });
+  });
+
+  it('says nothing newer was found, and when it looked', () => {
+    const note = describeSync({ status: 'done', checkedAt: NOW - 3 * MIN, changed: false }, NOW);
+    expect(note).toEqual({
+      tone: 'ok',
+      glyph: '✓',
+      text: 'Up to date · checked 3m ago',
+      spoken: 'Plan usage is up to date',
+    });
+  });
+
+  it('goes back to offering the click once an answer is as old as a stale report', () => {
+    const old = describeSync({ status: 'done', checkedAt: NOW - STALE_AFTER_MS - 1, changed: false }, NOW);
+    expect(old).toEqual(describeSync({ status: 'idle' }, NOW));
+    const fresh = describeSync({ status: 'done', checkedAt: NOW - STALE_AFTER_MS, changed: false }, NOW);
+    expect(fresh.tone).toBe('ok');
+  });
+
+  it('names a failure as text and a glyph, and offers a retry', () => {
+    const note = describeSync({ status: 'failed' }, NOW);
+    expect(note).toEqual({
+      tone: 'error',
+      glyph: '!',
+      text: "Couldn't sync · click to retry",
+      spoken: "Couldn't sync plan usage",
+    });
   });
 });

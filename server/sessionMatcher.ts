@@ -205,6 +205,31 @@ function findSshConfig(
 }
 
 /**
+ * True when a hook names a dashboard terminal but its process has no controlling tty, so
+ * the terminal id can only have come from a parent's environment, not from the agent
+ * living in that PTY. Only an explicit `tty_path: null` counts (dashboard-hook.sh and
+ * dashboard-hook-codex.sh send it when no tty was found); a payload that omits the key —
+ * the Windows hook, an older install — makes no claim either way and keeps matching.
+ *
+ * The claim is still honoured when the hook is provably the card's own process: its
+ * `claude_pid` is already bound (`pidToSession`) to a card owning that terminal. That is a
+ * real agent whose hook lost its tty to a race, or a new session id in the same process.
+ * Session ids prove nothing: a headless process can reuse one (claude-mem keeps resuming a
+ * single observer session), so a card stored under the hook's own id gets no exemption.
+ */
+export function isInheritedTerminalClaim(
+  hookData: HookPayloadBase,
+  sessions: ReadonlyMap<string, Session>,
+  pidToSession: ReadonlyMap<number, string>,
+): boolean {
+  const termId = hookData.agent_terminal_id;
+  if (!termId || hookData.tty_path !== null) return false;
+  const pid = Number(hookData.claude_pid);
+  const owner = pid > 0 ? sessions.get(pidToSession.get(pid) ?? '') : undefined;
+  return !(owner && (owner.terminalId === termId || owner.lastTerminalId === termId));
+}
+
+/**
  * Match an incoming hook event to an existing session, or create a new one.
  * Implements a priority fallback system:
  *   Priority 0: pendingResume + terminal ID / workDir matching
@@ -228,6 +253,18 @@ export function matchSession(
 ): Session | null {
   const { session_id, hook_event_name, cwd } = hookData;
   let session = sessions.get(session_id);
+
+  // AASC-10: an inherited terminal id is not ownership. A process with no controlling
+  // tty is not the agent in a dashboard PTY, so its `agent_terminal_id` came from a
+  // parent's environment (claude-mem's observer daemon, a `claude -p` run from a tool
+  // call). It must claim nothing and touch nothing: no PID cache (below), no re-key
+  // (P0/P1/P1b/P4.5), no workDir/path link (P0.5/P2/P3), and no event on a card that
+  // happens to share its session id. Priority 5 would drop such a hook anyway; this
+  // stops everything above it from getting there first.
+  if (isInheritedTerminalClaim(hookData, sessions, pidToSession)) {
+    log.debug('session', `Ignored ${hook_event_name} ${session_id?.slice(0, 8)}: headless hook inherited terminal ${hookData.agent_terminal_id?.slice(0, 12)}`);
+    return null;
+  }
 
   // Fork routing: `claude --resume '<originId>' --fork-session` causes the fork to
   // fire ALL hooks (including SessionEnd and PID updates) with session_id == originId.

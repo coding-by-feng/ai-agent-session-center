@@ -543,3 +543,26 @@ it('refuses credential paths in a destination package before returning its text'
     'TOKEN=do-not-export',
   );
 });
+
+it('refuses a project folder that a Project Sync link keeps (one owner per device path)', async () => {
+  await put(join(source, 'app/.claude/skills/p/SKILL.md'), '# Project skill\n');
+  const catalog = createResourceCatalog({ home: source, env: {}, sessionProjectPaths: () => [join(source, 'app')] });
+  catalog.startScan();
+  await catalog.whenIdle();
+  const project = catalog.getCatalog().projects.find((p) => p.path.endsWith('app'))!;
+  const service = createTransferService({
+    catalog,
+    store: memoryStore(),
+    remote: vi.fn(async (_device, request) => remote(request)),
+    fingerprint: async () => 'trusted',
+    linkedFolder: (_deviceId, folder) => (folder.startsWith(join(home, 'app')) ? 'app → mini' : null),
+  });
+  const device = await service.addDevice({ name: 'test', host: 'fixture', username: 'user', port: 22 });
+  const draft = await service.saveDraft({
+    name: 'copy',
+    selection: [{ scope: 'project', type: 'skill', include: true }],
+    targets: [{ deviceId: device.id, projects: { [project.id]: join(home, 'app') } }],
+  });
+  const compared = await service.compare(draft.id);
+  expect(compared.items[0]).toMatchObject({ action: 'review', reason: expect.stringMatching(/kept by the project link "app → mini"/) });
+});

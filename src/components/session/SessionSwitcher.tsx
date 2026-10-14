@@ -18,6 +18,7 @@ import type { RoomDragRect } from '@/lib/roomDragReorder';
 import { sortSessionsByActivity, numberedSessions } from '@/lib/sessionSort';
 import { pickRecentSessions, RECENT_TICK_MS, RECENT_WINDOW_MS } from '@/lib/recentSessions';
 import { groupSessionsByProject, type ProjectGroup } from '@/lib/projectGroups';
+import { ROOM_COLOR_PALETTE, roomColor } from '@/lib/roomColor';
 import LabelPicker, { LabelChip } from './LabelPicker';
 import PlanUsageChip from './PlanUsageChip';
 import ProjectFrameHeader from './ProjectFrameHeader';
@@ -32,24 +33,6 @@ import StatusGlyph from './StatusGlyph';
 import WorkdirLauncher from '@/components/layout/WorkdirLauncher';
 import { isPopoutWindow } from '@/lib/windowRole';
 import styles from '@/styles/modules/DetailPanel.module.css';
-
-// One color per room slot — cycles if more than 8 rooms exist.
-// Must match the palette in HeaderAgentStrip so colors agree across the UI.
-const ROOM_COLOR_PALETTE = [
-  'var(--accent-orange)',
-  '#4a9eff',
-  'var(--accent-green)',
-  'var(--accent-purple)',
-  'var(--accent-yellow)',
-  '#ff69b4',
-  'var(--accent-cyan)',
-  '#ff7043',
-];
-
-function getRoomColor(room: Room): string {
-  const index = ((room.roomIndex ?? 0) % ROOM_COLOR_PALETTE.length + ROOM_COLOR_PALETTE.length) % ROOM_COLOR_PALETTE.length;
-  return ROOM_COLOR_PALETTE[index];
-}
 
 type TabRenderItem =
   | { type: 'session'; session: Session }
@@ -658,7 +641,7 @@ export default function SessionSwitcher({
         room.sessionIds.includes(s.sessionId),
       );
       if (roomSessions.length === 0) continue;
-      items.push({ type: 'room', room, sessions: roomSessions, color: getRoomColor(room) });
+      items.push({ type: 'room', room, sessions: roomSessions, color: roomColor(room) });
     }
 
     for (const session of filteredSessions) {
@@ -925,90 +908,88 @@ export default function SessionSwitcher({
               maxLength={200}
             />
           ) : (
-            <span
-              className={styles.switcherName}
-              onDoubleClick={beginHeaderEdit}
-            >
-              <span className={styles.switcherNameText}>{primaryName}</span>
-              {/* Pin toggle — leads the cluster rather than trailing after
-                  Detach: Edit/Tag/Note all annotate the session, Pin changes
-                  its lifecycle/list-position instead, so it reads as a
-                  distinct action, not a fourth label-editing icon. */}
-              <Tooltip {...(currentSession.pinned ? tooltips.sessionUnpin : tooltips.sessionPin)}>
-                <button
-                  type="button"
-                  className={`${styles.switcherEditHint}${currentSession.pinned ? ` ${styles.switcherHintActive}` : ''}`}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={handleTogglePin}
-                  // See the tag/note buttons: block the parent's double-click-
-                  // to-rename so a double-click here can't overwrite the title.
-                  onDoubleClick={(e) => e.stopPropagation()}
-                  aria-label={(currentSession.pinned ? tooltips.sessionUnpin : tooltips.sessionPin).label}
-                  aria-pressed={currentSession.pinned}
-                >
-                  <PinIcon />
-                </button>
-              </Tooltip>
-              <button
-                type="button"
-                className={styles.switcherEditHint}
-                onClick={beginHeaderEdit}
-                title="Rename session"
-                aria-label="Rename session"
+            <>
+              <span
+                className={styles.switcherName}
+                onDoubleClick={beginHeaderEdit}
               >
-                <EditIcon />
-              </button>
-              <button
-                type="button"
-                className={`${styles.switcherEditHint}${labelAnchor ? ` ${styles.switcherHintActive}` : ''}`}
-                onClick={openLabelPicker}
-                // The parent .switcherName renames on double-click. `dblclick`
-                // is a separate bubbling event that stopPropagation on `click`
-                // does NOT stop — without this, double-clicking this icon (whose
-                // click does NOT rename) still opens the rename editor.
-                onDoubleClick={(e) => e.stopPropagation()}
-                title={currentLabel ? `Label: ${currentLabel}` : 'Add label'}
-                aria-label="Set session label"
-              >
-                <TagIcon />
-              </button>
-              {/* Remark entry point. Stays lit whenever this session carries a
-                  remark, so the bar shows at a glance that a note exists even
-                  while the row below is scrolled/ellipsized. */}
-              <button
-                type="button"
-                className={`${styles.switcherEditHint}${remarkEditing || currentRemark ? ` ${styles.switcherHintActive}` : ''}`}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={toggleRemarkEdit}
-                // See the tag button: block the parent's double-click-to-rename
-                // so a double-click here can't overwrite the session title.
-                onDoubleClick={(e) => e.stopPropagation()}
-                title={currentRemark ? `Remark: ${currentRemark}` : 'Add a remark'}
-                aria-label={currentRemark ? `Edit session remark: ${currentRemark}` : 'Add a session remark'}
-                aria-expanded={remarkEditing}
-              >
-                <NoteIcon />
-              </button>
-              {/* Pop the whole session (every tab) into its own native window.
-                  Electron only — the browser sandbox can't open a real OS window,
-                  and window.electronAPI is undefined there. */}
-              {canPopOutSession && (
-                <Tooltip {...tooltips.floatSessionPopOut}>
+                {/* title: the rail clamps a long name to two lines, so hover reads the rest. */}
+                <span className={styles.switcherNameText} title={primaryName}>{primaryName}</span>
+              </span>
+              {/* The title's actions. A sibling of the name, not inside it: in the 213px
+                  left rail five buttons beside the name squeezed it to "Exmouth …", so
+                  there they take a row of their own under it (the top bar keeps them
+                  inline). Being outside the name, a double-click on one can never reach
+                  its rename handler. */}
+              <span className={styles.switcherTitleActions}>
+                {/* Pin toggle — leads the cluster rather than trailing after
+                    Detach: Edit/Tag/Note all annotate the session, Pin changes
+                    its lifecycle/list-position instead, so it reads as a
+                    distinct action, not a fourth label-editing icon. */}
+                <Tooltip {...(currentSession.pinned ? tooltips.sessionUnpin : tooltips.sessionPin)}>
                   <button
                     type="button"
-                    className={styles.switcherEditHint}
+                    className={`${styles.switcherEditHint}${currentSession.pinned ? ` ${styles.switcherHintActive}` : ''}`}
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={handleDetachSession}
-                    onDoubleClick={(e) => e.stopPropagation()}
-                    aria-label={tooltips.floatSessionPopOut.label}
+                    onClick={handleTogglePin}
+                    aria-label={(currentSession.pinned ? tooltips.sessionUnpin : tooltips.sessionPin).label}
+                    aria-pressed={currentSession.pinned}
                   >
-                    {/* 13px to match EditIcon/TagIcon/NoteIcon in this row —
-                        DetailTabs.tsx's own usage stays at the 14px default. */}
-                    <DetachIcon size={13} />
+                    <PinIcon />
                   </button>
                 </Tooltip>
-              )}
-            </span>
+                <button
+                  type="button"
+                  className={styles.switcherEditHint}
+                  onClick={beginHeaderEdit}
+                  title="Rename session"
+                  aria-label="Rename session"
+                >
+                  <EditIcon />
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.switcherEditHint}${labelAnchor ? ` ${styles.switcherHintActive}` : ''}`}
+                  onClick={openLabelPicker}
+                  title={currentLabel ? `Label: ${currentLabel}` : 'Add label'}
+                  aria-label="Set session label"
+                >
+                  <TagIcon />
+                </button>
+                {/* Remark entry point. Stays lit whenever this session carries a
+                    remark, so the bar shows at a glance that a note exists even
+                    while the row below is scrolled/ellipsized. */}
+                <button
+                  type="button"
+                  className={`${styles.switcherEditHint}${remarkEditing || currentRemark ? ` ${styles.switcherHintActive}` : ''}`}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={toggleRemarkEdit}
+                  title={currentRemark ? `Remark: ${currentRemark}` : 'Add a remark'}
+                  aria-label={currentRemark ? `Edit session remark: ${currentRemark}` : 'Add a session remark'}
+                  aria-expanded={remarkEditing}
+                >
+                  <NoteIcon />
+                </button>
+                {/* Pop the whole session (every tab) into its own native window.
+                    Electron only — the browser sandbox can't open a real OS window,
+                    and window.electronAPI is undefined there. */}
+                {canPopOutSession && (
+                  <Tooltip {...tooltips.floatSessionPopOut}>
+                    <button
+                      type="button"
+                      className={styles.switcherEditHint}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={handleDetachSession}
+                      aria-label={tooltips.floatSessionPopOut.label}
+                    >
+                      {/* 13px to match EditIcon/TagIcon/NoteIcon in this row —
+                          DetailTabs.tsx's own usage stays at the 14px default. */}
+                      <DetachIcon size={13} />
+                    </button>
+                  </Tooltip>
+                )}
+              </span>
+            </>
           )}
           {currentLabel && (
             <LabelChip name={currentLabel} color={labelColor(currentLabel)} />

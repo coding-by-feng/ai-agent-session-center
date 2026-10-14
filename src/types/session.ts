@@ -85,6 +85,13 @@ export interface ToolLogEntry {
   failed?: boolean;
   error?: string;
   /**
+   * The fuller text behind `input` (a Bash command or an unrecognised tool's JSON,
+   * which `input` cuts to 100-120 characters), up to 1,000 characters. Only the
+   * newest ~30 entries keep it, and only when it says more than `input` does.
+   * Shown when a row of the AGENTS log is opened.
+   */
+  detail?: string;
+  /**
    * The in-process subagent that made this call (its Claude `agent_id`).
    * Absent for the session's own calls. Set only when the id matches one of
    * the session's `subagents`, so a teammate's own identity never lands here.

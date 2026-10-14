@@ -3,11 +3,12 @@
  * LIVE page (which draws the board and the tip) and the NavBar (which marks
  * the LIVE tab while the tip is up), so both decide from the same inputs.
  */
+import { useEffect, useState } from 'react';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useWsStore } from '@/stores/wsStore';
-import { liveFlatState, type FlatState } from '@/lib/liveBoard';
+import { BOARD_TICK_MS, liveFlatState, type FlatState } from '@/lib/liveBoard';
 import { shouldShowLiveHint } from '@/lib/liveHint';
 import { isListedSession, isSceneRobotSession } from '@/lib/sessionSort';
 import { useIsMobile } from '@/lib/platform';
@@ -71,4 +72,19 @@ export function useLiveHint(onLiveRoute: boolean): { visible: boolean; dismiss: 
     panelOpen: selected && !minimized,
   });
   return { visible, dismiss };
+}
+
+/**
+ * The board's clock: the time as of the last tick (`BOARD_TICK_MS`). A card's
+ * "quiet for 14m" is measured against it, so the label keeps counting on an idle
+ * board where no session update arrives to re-render it. One interval for the
+ * whole board, not one per card.
+ */
+export function useBoardClock(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), BOARD_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, []);
+  return now;
 }

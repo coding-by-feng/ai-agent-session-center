@@ -1,0 +1,43 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+.pageInput {
+  width: 64px;
+}
+.status {
+  padding: 16px;
+  color: var(--text-secondary);
+}
+.frame {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: #525659;
+}
+.scroller {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.scroller :global(.pdfViewer) {
+  --scale-factor: 1;
+}
+.scroller :global(.textLayer) {
+  --font-mono: sans-serif;
+}

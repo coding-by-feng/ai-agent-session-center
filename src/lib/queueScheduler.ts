@@ -99,6 +99,67 @@ export function isSendableStatus(status: string): boolean {
 }
 
 /**
+ * Events that can trail a session's `SessionStart` without meaning anything started:
+ * the idle-prompt notification and the end-of-compaction marker.
+ */
+const EVENTS_AFTER_CLEAN_START = new Set(['Notification', 'PostCompact']);
+
+/**
+ * When the session's latest meaningful hook event is a `SessionStart`, its timestamp;
+ * otherwise null. A turn that merely decayed to `idle` ends in its own tool or prompt
+ * event, so the status alone cannot tell the two apart.
+ */
+export function latestSessionStartAt(
+  events: ReadonlyArray<{ type: string; timestamp?: number }> | undefined,
+): number | null {
+  if (!events) return null;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const { type, timestamp } = events[i];
+    if (EVENTS_AFTER_CLEAN_START.has(type)) continue;
+    return type === 'SessionStart' ? (timestamp ?? 0) : null;
+  }
+  return null;
+}
+
+/** True for a queued `/compact` (with or without arguments). */
+export function isCompactCommand(text: string): boolean {
+  return /^\s*\/compact(\s|$)/.test(text);
+}
+
+/** What a gate remembers about the step it guards, to recognise a finished `/compact`
+ *  and a silent local command. */
+export interface GateRestMemo {
+  /** The guarded step was a `/compact`. */
+  afterCompact?: boolean;
+  /** The guarded step was a silent local command (`/effort <level>`): it fires no
+   *  hook, so the gate may release on {@link LOCAL_COMMAND_RELEASE_MS}. */
+  localCommand?: boolean;
+  /** Timestamp of the session's `SessionStart` when the gate opened (0 = none). */
+  sessionStartAtOpen?: number;
+}
+
+/**
+ * Has the CLI finished the turn a gate is waiting on? The genuine `Stop` signal is
+ * `waiting`. `/compact` never sends a `Stop`: it keeps the session id and ends with
+ * `SessionStart` (the server maps it to `idle`), so a gate guarding a `/compact` is also
+ * at rest on an `idle` whose latest event is a `SessionStart` NEWER than the one seen
+ * when the gate opened. Any other `idle` (decayed, or an automatic mid-turn compaction
+ * that is about to carry on) is not rest.
+ */
+export function isGateAtRest(
+  status: string,
+  settled: boolean,
+  events: ReadonlyArray<{ type: string; timestamp?: number }> | undefined,
+  gate?: GateRestMemo,
+): boolean {
+  if (!settled) return false;
+  if (status === 'waiting') return true;
+  if (status !== 'idle' || !gate?.afterCompact) return false;
+  const startAt = latestSessionStartAt(events);
+  return startAt !== null && startAt > (gate.sessionStartAtOpen ?? 0);
+}
+
+/**
  * A subagent count that has seen no hook activity for this long is ignored.
  * The server resets the count on SessionStart / SessionEnd and from the
  * background work every Stop reports, so a lost SubagentStop heals at the
@@ -558,8 +619,8 @@ export function advanceBlockedLoops(
  * forever.
  *
  * Deliberately long. It used to be 12s, which was SHORTER THAN A HOOK-LESS BUSY
- * PHASE: `/compact` emits no hooks, so the session's status stays stale at
- * 'waiting' (sendable) and `lastActivityAt` stops moving. The gate therefore
+ * PHASE: `/compact` emits no hooks while it runs (only a `SessionStart` at the end),
+ * so the session's status stays stale at 'waiting' (sendable) and `lastActivityAt` stops moving. The gate therefore
  * looked like an unacknowledged no-op and released — during a ~70s compaction
  * it released repeatedly and dumped every queued prompt into the CLI's own
  * input queue ("Press up to edit queued messages") instead of running them one
@@ -603,11 +664,29 @@ export const NO_WORK_FALLBACK_NO_AUTOENTER_MS = 30 * 60_000; // 30 minutes
  * decides it, so a future change to either constant, or to the condition
  * itself, cannot update one gate's call site and miss the other's.
  */
-export function resolveNoWorkFallbackMs(autoEnter: boolean): number {
-  return autoEnter ? NO_WORK_FALLBACK_MS : NO_WORK_FALLBACK_NO_AUTOENTER_MS;
+export function resolveNoWorkFallbackMs(autoEnter: boolean, localCommand = false): number {
+  if (!autoEnter) return NO_WORK_FALLBACK_NO_AUTOENTER_MS;
+  return localCommand ? LOCAL_COMMAND_RELEASE_MS : NO_WORK_FALLBACK_MS;
 }
 
-export interface ChainGate {
+/**
+ * How long a gate guarding a SILENT local command (`/effort <level>`) waits before
+ * it releases the next step.
+ *
+ * Probed against Claude Code 2.1.296 with a hook on every event: three `/effort`
+ * commands produced no hook at all, no busy status and no `lastActivityAt` move.
+ * Neither acceptance signal can ever fire, so such a gate is indistinguishable from
+ * a prompt the CLI never took — and without this it would hold the next step for
+ * the full {@link NO_WORK_FALLBACK_MS}.
+ *
+ * Applies ONLY with autoEnter on (see {@link resolveNoWorkFallbackMs}): with it off
+ * the command is merely typed, so quiet proves nothing and the long fallback stays.
+ * A few seconds is generous for a command the TUI answers instantly, and the
+ * session must still read as sendable for it to release.
+ */
+export const LOCAL_COMMAND_RELEASE_MS = 3_000;
+
+export interface ChainGate extends GateRestMemo {
   /** The in-flight item this gate guards. Cleared/reset when the item id changes. */
   itemId: number;
   /** True once we've seen the session go busy after the prior step's send. */
@@ -626,7 +705,8 @@ export interface ChainGate {
  * Pure decision for whether an in-flight chain's NEXT step may fire this tick.
  *
  * The only RELIABLE "the prior step's turn actually finished" signal is the
- * Stop event, i.e. the session reaching the `'waiting'` status (`atRest`).
+ * Stop event, i.e. the session reaching the `'waiting'` status (`atRest`; see
+ * `isGateAtRest` for the one exception, a finished `/compact`).
  * Auto-idle decays a genuinely-busy session `working → idle` after 3 minutes
  * of no hook events, so `idle` must NOT be treated as completion — a long task
  * that thinks silently would otherwise look "done" and the next step would be
@@ -697,7 +777,7 @@ export function chainGateDecision(
  * separate prompt with its own id, so the gate guards "the previous once's
  * turn", whatever id comes next.
  */
-export interface OnceGate {
+export interface OnceGate extends GateRestMemo {
   /** True once we've seen the session go busy after the prior once's send. */
   sawWork: boolean;
   /** When the gate was opened (unix ms) — drives the no-work fallback. */
@@ -726,8 +806,9 @@ export interface OnceGate {
  *    survives any tick timing. This is the reliable one.
  *
  * - No gate → fire.
- * - Accepted: fire ONLY when `atRest` ('waiting'); any other status (working,
- *   decayed idle, input) holds — wait strictly for Stop.
+ * - Accepted: fire ONLY when `atRest` ('waiting', or a finished `/compact`, see
+ *   `isGateAtRest`); any other status (working, decayed idle, input) holds — wait
+ *   strictly for Stop.
  * - Not accepted: busy → hold; sendable past `noWorkFallbackMs` → fire;
  *   sendable but inside the window → hold (the stale-status window right after
  *   the prior send).
@@ -735,7 +816,7 @@ export interface OnceGate {
  * The fallback is a last resort for a CLI that never acknowledges at all (e.g.
  * autoEnter off, so the text sits unsent in the input line). It must stay long
  * enough to outlast a hook-less busy phase — notably `/compact`, which emits no
- * hooks, leaves the status stale at 'waiting' and froze `lastActivityAt`. A
+ * hooks while it runs, leaves the status stale at 'waiting' and froze `lastActivityAt`. A
  * short window there released this gate and stacked every queued prompt into
  * the CLI's own input queue.
  */

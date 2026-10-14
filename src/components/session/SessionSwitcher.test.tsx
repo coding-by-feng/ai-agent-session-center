@@ -177,7 +177,7 @@ describe('SessionSwitcher — progress remark', () => {
   });
 
   it('does not hijack into the rename editor on a double-click of the note icon', () => {
-    // The note button sits inside .switcherName, which renames on double-click.
+    // The title actions sit beside .switcherName, which renames on double-click, not inside it.
     // Its onDoubleClick stopPropagation must keep a double-click from opening
     // the title editor (which would mount with the title pre-selected, so the
     // next keystroke would overwrite it).
@@ -1693,14 +1693,14 @@ describe('SessionSwitcher — plan usage chip', () => {
 
   it('shows the figures a session carries', () => {
     renderSwitcher(makeSession({ planUsage: usage() }));
-    const group = screen.getByRole('group', { name: /^Claude plan usage: 63% of the 5-hour limit used/ });
+    const group = screen.getByRole('button', { name: /^Claude plan usage: 63% of the 5-hour limit used/ });
     expect(within(group).getByText('5h')).toBeInTheDocument();
     expect(within(group).getByText('63%')).toBeInTheDocument();
   });
 
   it('is there as a dash, with a reason, before any report has arrived', () => {
     renderSwitcher(makeSession());
-    const group = screen.getByRole('group', { name: /^Claude plan usage unavailable:/ });
+    const group = screen.getByRole('button', { name: /^Claude plan usage unavailable:/ });
     expect(within(group).getByText('—')).toBeInTheDocument();
   });
 
@@ -1809,5 +1809,95 @@ describe('SessionSwitcher — start a session without leaving the panel', () => 
     } finally {
       act(() => useUiStore.setState({ navPosition: prev }));
     }
+  });
+});
+
+/**
+ * Title actions — pin, rename, label, remark (and pop-out in Electron). They used to
+ * sit inside the title element, so in the 213px left rail five buttons squeezed a
+ * title to "Exmouth …". They are a sibling now: the rail gives them a row of their
+ * own under the title, and the top bar keeps them inline.
+ */
+describe('SessionSwitcher — title actions row', () => {
+  const session = {
+    sessionId: 's1',
+    title: 'Exmouth Development',
+    projectName: 'exmouth',
+    projectPath: '/Users/me/exmouth',
+    status: 'idle',
+    cliSource: 'claude',
+    startedAt: Date.now(),
+    lastActivityAt: Date.now(),
+  } as Session;
+
+  const renderSwitcher = () =>
+    render(
+      <SessionSwitcher
+        currentSession={session}
+        sessions={new Map([[session.sessionId, session]])}
+        onSwitch={vi.fn()}
+      />,
+    );
+  const text = (c: HTMLElement) => c.querySelector('[class*="switcherNameText"]') as HTMLElement;
+  const actions = (c: HTMLElement) => c.querySelector('[class*="switcherTitleActions"]') as HTMLElement | null;
+
+  beforeEach(() => {
+    useSessionStore.setState({ sessions: new Map() } as never);
+    useUiStore.setState({
+      activeModal: null, sessionSortMode: 'room', navPosition: 'top', maximized: false,
+      navRailCollapsed: false, selectedRoomIds: new Set(),
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+    try { localStorage.clear(); } catch { /* ignore */ }
+  });
+  afterEach(() => {
+    useUiStore.setState({ navPosition: 'top', selectedRoomIds: new Set() });
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('keeps the actions out of the title element, in an element of their own right after it', () => {
+    const { container } = renderSwitcher();
+    const name = text(container).parentElement as HTMLElement;
+    const row = actions(container) as HTMLElement;
+    expect(row).not.toBeNull();
+    expect(name.contains(row)).toBe(false);
+    expect(name.nextElementSibling).toBe(row);
+    expect(name.querySelectorAll('button')).toHaveLength(0);
+  });
+
+  it('holds pin, rename, label and remark', () => {
+    const { container } = renderSwitcher();
+    const row = within(actions(container) as HTMLElement);
+    expect(row.getByRole('button', { name: 'Pin session' })).toBeInTheDocument();
+    expect(row.getByRole('button', { name: 'Rename session' })).toBeInTheDocument();
+    expect(row.getByRole('button', { name: 'Set session label' })).toBeInTheDocument();
+    expect(row.getByRole('button', { name: 'Add a session remark' })).toBeInTheDocument();
+  });
+
+  it('is the same in the left rail', () => {
+    useUiStore.setState({ navPosition: 'left' });
+    const { container } = renderSwitcher();
+    expect(container.querySelector('[class*="switcherBarVertical"]')).toBeTruthy();
+    const name = text(container).parentElement as HTMLElement;
+    expect(name.nextElementSibling).toBe(actions(container));
+  });
+
+  it('puts the whole title in a tooltip, since the rail may still clip a long one', () => {
+    const { container } = renderSwitcher();
+    expect(text(container).getAttribute('title')).toBe('Exmouth Development');
+  });
+
+  it('still renames on a double-click of the title, and the actions step aside while it is open', () => {
+    const { container } = renderSwitcher();
+    fireEvent.doubleClick(text(container));
+    expect(container.querySelector('input[class*="switcherNameInput"]')).toBeTruthy();
+    expect(actions(container)).toBeNull();
+  });
+
+  it('does not rename on a double-click of an action', () => {
+    const { container } = renderSwitcher();
+    fireEvent.doubleClick(within(actions(container) as HTMLElement).getByRole('button', { name: 'Set session label' }));
+    expect(container.querySelector('input[class*="switcherNameInput"]')).toBeNull();
   });
 });

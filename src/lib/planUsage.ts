@@ -72,6 +72,8 @@ export interface PlanUsageView {
   plan: string | null;
   /** When the figures were reported, as text. Null with no report. */
   asOf: string | null;
+  /** How long ago that was ("1h 45m ago"): a clock time alone cannot be judged. Null with no report. */
+  asOfAge: string | null;
   /** The tooltip's first line. */
   tooltipTitle: string;
   /** Why there is no number; null when there is one. */
@@ -199,6 +201,20 @@ export function formatAsOf(ts: number, now: number, opts: TimeFormatOptions = {}
   return `${shortDate(ts, opts)} ${clock(ts, opts)}`;
 }
 
+/**
+ * How long ago `ts` was: "just now" under a minute (a clock that ran a little behind the
+ * report counts too), then "5m ago", "1h 45m ago", "23h ago", "3d ago". Empty for a bad time.
+ */
+export function formatAge(ts: number, now: number): string {
+  if (!Number.isFinite(ts)) return '';
+  const minutes = Math.floor((now - ts) / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return minutes % 60 === 0 ? `${hours}h ago` : `${hours}h ${minutes % 60}m ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
 const plural = (n: number, unit: string): string => `${n} ${unit}${n === 1 ? '' : 's'}`;
 
 /** "in 1 hour 12 minutes", "in less than a minute", or "on Oct 12" from 48 h out. */
@@ -263,6 +279,7 @@ export function describePlanUsage(
     limitReached: usage?.limitReached === true,
     stale: usage ? isStale(usage, now) : false,
     asOf: usage ? formatAsOf(usage.asOf, now, opts) : null,
+    asOfAge: usage ? formatAge(usage.asOf, now) : null,
   };
 
   const live = usage ? activeWindows(usage, now) : [];
@@ -305,4 +322,47 @@ export function describePlanUsage(
     reason: null,
     ariaLabel: parts.join(', '),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Syncing — the chip's click
+// ---------------------------------------------------------------------------
+
+/** Where a click on the chip is: nothing asked yet, in flight, answered, or failed. */
+export type PlanUsageSyncState =
+  | { status: 'idle' }
+  | { status: 'syncing' }
+  | { status: 'done'; checkedAt: number; changed: boolean }
+  | { status: 'failed' };
+
+/** One line for the panel's footer. The glyph is not the only sign: the text says it too. */
+export interface PlanUsageSyncNote {
+  tone: 'hint' | 'busy' | 'ok' | 'error';
+  glyph: '↻' | '⟳' | '✓' | '!';
+  text: string;
+  /** For a live region; empty while idle, so opening the panel announces nothing. */
+  spoken: string;
+}
+
+/** An answer this old is noise, not news: the footer goes back to offering the click. */
+export const SYNC_NOTE_TTL_MS = STALE_AFTER_MS;
+
+const IDLE_NOTE: PlanUsageSyncNote = { tone: 'hint', glyph: '↻', text: 'Click to sync', spoken: '' };
+
+export function describeSync(state: PlanUsageSyncState, now: number): PlanUsageSyncNote {
+  switch (state.status) {
+    case 'syncing':
+      return { tone: 'busy', glyph: '⟳', text: 'Syncing…', spoken: 'Syncing plan usage' };
+    case 'done': {
+      if (now - state.checkedAt > SYNC_NOTE_TTL_MS) return IDLE_NOTE;
+      const when = formatAge(state.checkedAt, now);
+      return state.changed
+        ? { tone: 'ok', glyph: '✓', text: `Updated ${when}`, spoken: 'Plan usage updated' }
+        : { tone: 'ok', glyph: '✓', text: `Up to date · checked ${when}`, spoken: 'Plan usage is up to date' };
+    }
+    case 'failed':
+      return { tone: 'error', glyph: '!', text: "Couldn't sync · click to retry", spoken: "Couldn't sync plan usage" };
+    default:
+      return IDLE_NOTE;
+  }
 }

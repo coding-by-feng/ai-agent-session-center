@@ -71,6 +71,12 @@ function releaseModifier() {
   fireEvent.keyUp(document, releaseModifierInit);
 }
 
+// The arrows are pressed while the modifier is still held, so the events carry it.
+const heldModifier = isMac ? { metaKey: true } : { ctrlKey: true };
+function arrow(key: 'ArrowDown' | 'ArrowUp', extra: KeyboardEventInit = {}) {
+  fireEvent.keyDown(document, { key, ...heldModifier, ...extra });
+}
+
 describe('SessionSwitchOverlay — hold-to-cycle session switcher', () => {
   beforeEach(() => {
     useSessionStore.setState({ sessions: new Map(), selectedSessionId: null, previousSessionId: null });
@@ -248,5 +254,197 @@ describe('SessionSwitchOverlay — hold-to-cycle session switcher', () => {
 
     fireEvent.keyDown(document, { key: 'e' }); // plain "e", no modifier
     expect(screen.queryByText('SWITCH SESSION')).not.toBeInTheDocument();
+  });
+});
+
+// ↑ and ↓ move the highlight while the popup is open, so the row you want can be
+// reached in either direction, not only by tapping E forward.
+describe('SessionSwitchOverlay — ↑ / ↓ move the highlight', () => {
+  const seed = (...ids: string[]) => {
+    const store = useSessionStore.getState();
+    store.addSession(makeSession({ sessionId: 'current', title: 'Current', lastActivityAt: 1000 }));
+    ids.forEach((id, i) => store.addSession(makeSession({ sessionId: id, title: id.toUpperCase(), lastActivityAt: 900 - i * 100 })));
+    store.selectSession('current');
+  };
+  const highlighted = (name: string) =>
+    expect(screen.getByRole('button', { name: `Switch to ${name}` })).toHaveAttribute('aria-current', 'true');
+
+  beforeEach(() => {
+    useSessionStore.setState({ sessions: new Map(), selectedSessionId: null, previousSessionId: null });
+  });
+
+  it('↓ moves to the next row and ↑ back to the previous one', () => {
+    seed('b', 'c', 'd');
+    render(<SessionSwitchOverlay />);
+    tapE(); // open on B
+    arrow('ArrowDown');
+    highlighted('C');
+    arrow('ArrowDown');
+    highlighted('D');
+    arrow('ArrowUp');
+    highlighted('C');
+  });
+
+  it('wraps: ↑ on the first row goes to the last, ↓ on the last goes to the first', () => {
+    seed('b', 'c', 'd');
+    render(<SessionSwitchOverlay />);
+    tapE(); // B is first
+    arrow('ArrowUp');
+    highlighted('D');
+    arrow('ArrowDown');
+    highlighted('B');
+  });
+
+  it('releasing the modifier commits the row chosen with the arrows', () => {
+    seed('b', 'c', 'd');
+    render(<SessionSwitchOverlay />);
+    tapE();
+    arrow('ArrowDown');
+    arrow('ArrowDown'); // D
+    releaseModifier();
+    expect(screen.queryByText('SWITCH SESSION')).not.toBeInTheDocument();
+    expect(useSessionStore.getState().selectedSessionId).toBe('d');
+  });
+
+  it('mixes with E: E still steps forward from wherever the arrows left the highlight', () => {
+    seed('b', 'c', 'd');
+    render(<SessionSwitchOverlay />);
+    tapE(); // B
+    arrow('ArrowDown'); // C
+    tapE(); // D
+    highlighted('D');
+    arrow('ArrowUp'); // C
+    highlighted('C');
+  });
+
+  it('holding an arrow keeps moving (unlike E, an auto-repeating arrow is deliberate)', () => {
+    seed('b', 'c', 'd');
+    render(<SessionSwitchOverlay />);
+    tapE(); // B
+    arrow('ArrowDown', { repeat: true });
+    highlighted('C');
+    arrow('ArrowDown', { repeat: true });
+    highlighted('D');
+  });
+
+  it('moves whatever else is held with the modifier (a stray Shift or Alt must not leak the key to the terminal)', () => {
+    seed('b', 'c');
+    render(<SessionSwitchOverlay />);
+    tapE(); // B
+    arrow('ArrowDown', { shiftKey: true });
+    highlighted('C');
+    arrow('ArrowUp', { altKey: true });
+    highlighted('B');
+  });
+
+  it('with a single other session the arrows change nothing and break nothing', () => {
+    seed('b');
+    render(<SessionSwitchOverlay />);
+    tapE();
+    arrow('ArrowDown');
+    arrow('ArrowUp');
+    highlighted('B');
+  });
+
+  it('while open, the arrows are swallowed: the focused input never sees them and the default is prevented', () => {
+    seed('b', 'c');
+    render(
+      <>
+        <SessionSwitchOverlay />
+        <textarea data-testid="field" />
+      </>,
+    );
+    const field = screen.getByTestId('field') as HTMLTextAreaElement;
+    const seen: string[] = [];
+    field.addEventListener('keydown', (e) => seen.push(e.key));
+    field.focus();
+
+    tapE();
+    const notPrevented = fireEvent.keyDown(field, { key: 'ArrowDown', ...heldModifier });
+
+    expect(seen).toEqual([]); // a terminal or an autocomplete list would have moved
+    expect(notPrevented).toBe(false); // so no caret jump or page scroll either
+    highlighted('C');
+  });
+
+  it('while closed, the arrows are left alone: the focused input sees them and the default stands', () => {
+    seed('b', 'c');
+    render(
+      <>
+        <SessionSwitchOverlay />
+        <textarea data-testid="field" />
+      </>,
+    );
+    const field = screen.getByTestId('field') as HTMLTextAreaElement;
+    const seen: string[] = [];
+    field.addEventListener('keydown', (e) => seen.push(e.key));
+    field.focus();
+
+    const notPrevented = fireEvent.keyDown(field, { key: 'ArrowDown' });
+
+    expect(seen).toEqual(['ArrowDown']);
+    expect(notPrevented).toBe(true);
+    expect(screen.queryByText('SWITCH SESSION')).not.toBeInTheDocument();
+  });
+
+  it('once cancelled or committed the arrows are released again', () => {
+    seed('b', 'c');
+    render(
+      <>
+        <SessionSwitchOverlay />
+        <textarea data-testid="field" />
+      </>,
+    );
+    const field = screen.getByTestId('field') as HTMLTextAreaElement;
+    tapE();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(fireEvent.keyDown(field, { key: 'ArrowUp' })).toBe(true);
+
+    tapE();
+    releaseModifier();
+    expect(fireEvent.keyDown(field, { key: 'ArrowUp' })).toBe(true);
+  });
+
+  it('tells the user about the arrows in the header', () => {
+    seed('b');
+    render(<SessionSwitchOverlay />);
+    tapE();
+    expect(screen.getByText(/tap E or ↑↓/)).toBeInTheDocument();
+  });
+
+  it('an arrow still held when the modifier is released does not keep typing into the new session', () => {
+    seed('b', 'c');
+    render(
+      <>
+        <SessionSwitchOverlay />
+        <textarea data-testid="field" />
+      </>,
+    );
+    const field = screen.getByTestId('field') as HTMLTextAreaElement;
+    const seen: string[] = [];
+    field.addEventListener('keydown', (e) => seen.push(e.key));
+    field.focus();
+
+    tapE();
+    arrow('ArrowDown'); // the real press, held down
+    releaseModifier(); // commits; the held key is now a bare auto-repeat
+    expect(screen.queryByText('SWITCH SESSION')).not.toBeInTheDocument();
+
+    expect(fireEvent.keyDown(field, { key: 'ArrowDown', repeat: true })).toBe(false); // swallowed
+    expect(fireEvent.keyDown(field, { key: 'ArrowDown', repeat: true })).toBe(false);
+    expect(seen).toEqual([]);
+
+    // the next key that is not a repeat ends it: a fresh press is the user's again
+    expect(fireEvent.keyDown(field, { key: 'ArrowDown' })).toBe(true);
+    expect(seen).toEqual(['ArrowDown']);
+    expect(fireEvent.keyDown(field, { key: 'ArrowDown', repeat: true })).toBe(true);
+  });
+
+  it('leaves the arrows to an IME candidate list that is open', () => {
+    seed('b', 'c');
+    render(<SessionSwitchOverlay />);
+    tapE(); // B
+    arrow('ArrowDown', { isComposing: true });
+    highlighted('B');
   });
 });

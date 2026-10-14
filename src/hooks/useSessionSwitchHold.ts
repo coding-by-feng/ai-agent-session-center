@@ -3,8 +3,9 @@
  *
  * Hold Cmd (macOS) / Ctrl (other) and tap E repeatedly to cycle a highlight
  * through recently-active sessions; releasing the modifier commits the
- * highlighted session. Escape, or the window losing focus, cancels without
- * switching.
+ * highlighted session. While the popup is open the Up / Down arrows move the
+ * highlight too, in either direction (E only goes forward); both wrap.
+ * Escape, or the window losing focus, cancels without switching.
  *
  * This is a genuinely different interaction shape from everything else in
  * useKeyboardShortcuts.ts — that hook is one-shot keydown dispatch with no
@@ -85,6 +86,14 @@ export function useSessionSwitchHold(): SessionSwitchHoldState {
   }, [close]);
 
   useEffect(() => {
+    /** Move the highlight by one row, wrapping at both ends. */
+    function step(delta: 1 | -1) {
+      const len = itemsRef.current.length;
+      if (len === 0) return;
+      indexRef.current = (indexRef.current + delta + len) % len;
+      setHighlightedIndex(indexRef.current);
+    }
+
     function openOrAdvance() {
       if (!openRef.current) {
         const { sessions, selectedSessionId } = useSessionStore.getState();
@@ -102,10 +111,7 @@ export function useSessionSwitchHold(): SessionSwitchHoldState {
         setOpen(true);
         return;
       }
-      const len = itemsRef.current.length;
-      if (len === 0) return;
-      indexRef.current = (indexRef.current + 1) % len;
-      setHighlightedIndex(indexRef.current);
+      step(1);
     }
 
     function handleKeyDown(e: KeyboardEvent) {
@@ -119,6 +125,41 @@ export function useSessionSwitchHold(): SessionSwitchHoldState {
       if (openRef.current && e.key === 'Escape') {
         e.preventDefault();
         cancel();
+      }
+    }
+
+    // Up / Down while the popup is open. Registered in the CAPTURE phase and
+    // swallowed: the focused element runs before a bubbling `document` listener
+    // (like handleKeyDown above), so by then a terminal has already been sent
+    // the key (Ctrl+Up is `ESC[1;5A` to the PTY, the switcher's modifier off
+    // macOS), a textarea has moved its caret, and AutocompleteTextarea / Select
+    // / Combobox have moved their own selection. Whatever else is held with the
+    // modifier does not matter: while the popup is up the arrows are its keys.
+    // Unlike E, an auto-repeating arrow is deliberate (travelling a long list),
+    // so `e.repeat` is not filtered. Closed popup: not touched, not prevented.
+    //
+    // Two edges. An IME candidate list (`isComposing`) owns the arrows, so they
+    // are left to it. And an arrow still held when the modifier is released keeps
+    // auto-repeating into whatever has focus AFTER the commit (the new session's
+    // terminal, which would get `ESC[B`), without the modifier that used to mark
+    // it: its repeats are swallowed until the next key that is not a repeat. Not
+    // until its keyup: macOS sends none for a key released while Cmd is held.
+    let swallowedArrow: string | null = null;
+    function handleArrowKeys(e: KeyboardEvent) {
+      const isArrow = e.key === 'ArrowDown' || e.key === 'ArrowUp';
+      if (openRef.current && isArrow && !e.isComposing) {
+        e.preventDefault();
+        e.stopPropagation();
+        swallowedArrow = e.key;
+        step(e.key === 'ArrowDown' ? 1 : -1);
+        return;
+      }
+      if (swallowedArrow === null) return;
+      if (isArrow && e.repeat && e.key === swallowedArrow) {
+        e.preventDefault();
+        e.stopPropagation();
+      } else if (!e.repeat) {
+        swallowedArrow = null;
       }
     }
 
@@ -148,11 +189,13 @@ export function useSessionSwitchHold(): SessionSwitchHoldState {
     }
 
     document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keydown', handleArrowKeys, true);
     document.addEventListener('keyup', handleKeyUp);
     window.addEventListener('blur', handleLostFocus);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keydown', handleArrowKeys, true);
       document.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleLostFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);

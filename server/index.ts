@@ -184,6 +184,15 @@ export function startServer(port?: number): Promise<number> {
   app.use('/api/resources', authMiddleware, createResourceRouter({
     sessionProjectPaths: () =>
       Object.values(getAllSessions()).map((s) => s.projectPath).filter(Boolean),
+    sync: {
+      eagerLoad: true,
+      // Project Sync asks before running while a session is busy in the project.
+      activeSessionPaths: () =>
+        Object.values(getAllSessions())
+          .filter((s) => ['prompting', 'working', 'approval', 'input'].includes(s.status))
+          .map((s) => s.projectPath)
+          .filter(Boolean),
+    },
   }));
   // The global express.json() above parses bodies before the router runs, so a
   // malformed body never reaches the router's own handler — without this it

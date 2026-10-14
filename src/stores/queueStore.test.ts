@@ -248,6 +248,54 @@ describe('queueStore', () => {
       expect(useQueueStore.getState().automation.has('old-id')).toBe(false);
     });
 
+    // After a restart `claude --resume` keeps the session id, so the Dexie / server rows for that id are
+    // loaded at boot, BEFORE the card (still a `term-*` placeholder) turns back into it. The rule above
+    // protects those rows from a value the restore itself put on the placeholder. It must not also throw
+    // away a switch the USER flipped on the placeholder, which is newer than any row loaded at boot.
+    it('a switch the user flipped on a term-* placeholder wins over the rows stored under the id it turns into', () => {
+      useQueueStore.setState({ automation: new Map(), queues: new Map() });
+      useQueueStore.getState().setAutomation('hook-1', { ...DEFAULT_AUTOMATION }); // a row loaded at boot: Auto-send ON
+      useQueueStore.getState().setAutoSend('term-1', false); // the user clicks ➤ while the CLI is still booting
+
+      useQueueStore.getState().migrateSession('term-1', 'hook-1');
+
+      expect(useQueueStore.getState().getAutomation('hook-1').autoSend).toBe(false);
+      expect(useQueueStore.getState().automation.has('term-1')).toBe(false);
+    });
+
+    it('a value the restore installed and nobody touched still defers to the rows under the final id', () => {
+      useQueueStore.setState({ automation: new Map(), queues: new Map() });
+      useQueueStore.getState().setAutomation('hook-1', { ...DEFAULT_AUTOMATION, autoSend: false, paused: true });
+      useQueueStore.getState().restoreAutomation('term-1', { ...DEFAULT_AUTOMATION, autoSend: false });
+
+      useQueueStore.getState().migrateSession('term-1', 'hook-1');
+
+      const cfg = useQueueStore.getState().getAutomation('hook-1');
+      expect(cfg.paused).toBe(true); // the row, not the older restore value
+      expect(cfg.autoSend).toBe(false);
+    });
+
+    it('a restored value the user then changed counts as the user\'s', () => {
+      useQueueStore.setState({ automation: new Map(), queues: new Map() });
+      useQueueStore.getState().setAutomation('hook-1', { ...DEFAULT_AUTOMATION, autoSend: false });
+      useQueueStore.getState().restoreAutomation('term-1', { ...DEFAULT_AUTOMATION, autoSend: false });
+      useQueueStore.getState().setAutoSend('term-1', true); // flips the restored OFF back ON
+
+      useQueueStore.getState().migrateSession('term-1', 'hook-1');
+
+      expect(useQueueStore.getState().getAutomation('hook-1').autoSend).toBe(true);
+    });
+
+    it('only a term-* placeholder gets that precedence: a re-key between real ids keeps the target', () => {
+      useQueueStore.setState({ automation: new Map(), queues: new Map() });
+      useQueueStore.getState().setAutomation('hook-2', { ...DEFAULT_AUTOMATION, autoSend: false });
+      useQueueStore.getState().setAutoSend('hook-1', true);
+
+      useQueueStore.getState().migrateSession('hook-1', 'hook-2');
+
+      expect(useQueueStore.getState().getAutomation('hook-2').autoSend).toBe(false);
+    });
+
     it('migrates automation even when the session has no queue items', () => {
       useQueueStore.setState({ automation: new Map(), queues: new Map() });
       useQueueStore.getState().setPaused('old-id', true);
