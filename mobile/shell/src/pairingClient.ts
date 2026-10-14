@@ -3,6 +3,10 @@
 // Uses an injected HTTP client: on the phone it is Capacitor's native HTTP
 // (no CORS, no cookies of its own); in tests it is a fake. Never follows
 // redirects, never logs a token.
+//
+// After pairing, the device token never travels again: signing in answers a
+// single-use server nonce with HMAC-SHA256(key = SHA-256(token), nonce), so a
+// sniffed exchange on the home network can't be replayed.
 import type { PairingLink } from './pairingLink.js';
 
 export interface HttpResponse {
@@ -73,11 +77,28 @@ export async function pairWithBackend(
   return { deviceId, token };
 }
 
-/** Trade the device token for a one-hour session (the shell then sets the cookie). */
+/** HMAC-SHA256(SHA-256(deviceToken), nonce) as hex, with WebCrypto (the Mac computes the same). */
+export async function deviceProof(deviceToken: string, nonce: string): Promise<string> {
+  const enc = new TextEncoder();
+  const keyBytes = await crypto.subtle.digest('SHA-256', enc.encode(deviceToken));
+  const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signature = await crypto.subtle.sign('HMAC', key, enc.encode(nonce));
+  return [...new Uint8Array(signature)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Ask the Mac for a nonce and answer it: the body for /session or /unpair. */
+async function provenRequest(http: HttpClient, origin: string, creds: MacCredentials): Promise<{ deviceId: string; nonce: string; proof: string }> {
+  const challenge = await http.post(`${origin}/api/mobile/challenge`, { deviceId: creds.deviceId });
+  const nonce = field(challenge.data, ['data', 'nonce']);
+  if (challenge.status !== 200 || typeof nonce !== 'string') throw new Error(`Challenge failed (${challenge.status})`);
+  return { deviceId: creds.deviceId, nonce, proof: await deviceProof(creds.deviceToken, nonce) };
+}
+
+/** Prove the device token for a one-hour session (the shell then sets the cookie). */
 export async function openSession(http: HttpClient, origin: string, creds: MacCredentials): Promise<SessionResult> {
   let res: HttpResponse;
   try {
-    res = await http.post(`${origin}/api/mobile/session`, creds);
+    res = await http.post(`${origin}/api/mobile/session`, await provenRequest(http, origin, creds));
   } catch {
     return { status: 'unreachable' };
   }
@@ -89,4 +110,14 @@ export async function openSession(http: HttpClient, origin: string, creds: MacCr
   if (res.status === 403 && code === 'DEVICE_PENDING') return { status: 'pending' };
   if (res.status === 401) return { status: 'revoked' };
   return { status: 'error', message: `Sign-in failed (${res.status})` };
+}
+
+/** The phone removes itself from the Mac (the Mac revokes its backend device too). */
+export async function unpairSelf(http: HttpClient, origin: string, creds: MacCredentials): Promise<boolean> {
+  try {
+    const res = await http.post(`${origin}/api/mobile/unpair`, await provenRequest(http, origin, creds));
+    return res.status === 200;
+  } catch {
+    return false;
+  }
 }

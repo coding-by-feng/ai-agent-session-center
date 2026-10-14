@@ -2,7 +2,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { parsePairingLink, isPrivateLanAddress, isTailnetAddress } from './pairingLink';
 import { candidates, pickReachable, isAllowedNavigation, type PairedServer } from './connectionPlan';
-import { pairWithMac, pairWithBackend, openSession, type HttpClient } from './pairingClient';
+import { pairWithMac, pairWithBackend, openSession, unpairSelf, deviceProof, type HttpClient } from './pairingClient';
+import { proofForToken } from '../../../server/mobile/deviceAuth';
 import { parseReauthRequest, returnUrl } from './reauth';
 
 const GOOD = 'https://aasc.work/pair#v=2&name=Kason-MBP&lan=192.168.1.20&ts=100.101.102.103&p=3333&mc=K7Q2M9XPZT';
@@ -80,12 +81,12 @@ describe('connection plan', () => {
   });
 });
 
-function fakeHttp(routes: Record<string, { status: number; data: unknown }>): HttpClient & { calls: string[] } {
-  const calls: string[] = [];
+function fakeHttp(routes: Record<string, { status: number; data: unknown }>): HttpClient & { calls: Array<{ url: string; body: unknown }> } {
+  const calls: Array<{ url: string; body: unknown }> = [];
   return {
     calls,
-    async post(url) {
-      calls.push(url);
+    async post(url, body) {
+      calls.push({ url, body });
       const hit = routes[url];
       if (!hit) throw new Error('unreachable');
       return hit;
@@ -119,13 +120,38 @@ describe('pairing client', () => {
     expect(await pairWithBackend(http, { ...link, backendHost: null, backendCode: null }, 'Phone')).toBeNull();
   });
 
+  const challengeRoute = { [`${origin}/api/mobile/challenge`]: { status: 200, data: { data: { nonce: 'nonce-abcdefghijklmnopqrstuvwx' } } } };
+
   it('maps session answers to states the shell can show', async () => {
     const creds = { deviceId, deviceToken: 't'.repeat(43) };
     const url = `${origin}/api/mobile/session`;
-    expect(await openSession(fakeHttp({ [url]: { status: 200, data: { data: { token: 'sess' } } } }), origin, creds)).toEqual({ status: 'ok', token: 'sess' });
-    expect(await openSession(fakeHttp({ [url]: { status: 403, data: { code: 'DEVICE_PENDING' } } }), origin, creds)).toEqual({ status: 'pending' });
-    expect(await openSession(fakeHttp({ [url]: { status: 401, data: { code: 'DEVICE_REVOKED' } } }), origin, creds)).toEqual({ status: 'revoked' });
+    expect(await openSession(fakeHttp({ ...challengeRoute, [url]: { status: 200, data: { data: { token: 'sess' } } } }), origin, creds)).toEqual({ status: 'ok', token: 'sess' });
+    expect(await openSession(fakeHttp({ ...challengeRoute, [url]: { status: 403, data: { code: 'DEVICE_PENDING' } } }), origin, creds)).toEqual({ status: 'pending' });
+    expect(await openSession(fakeHttp({ ...challengeRoute, [url]: { status: 401, data: { code: 'DEVICE_REVOKED' } } }), origin, creds)).toEqual({ status: 'revoked' });
     expect(await openSession(fakeHttp({}), origin, creds)).toEqual({ status: 'unreachable' });
+  });
+
+  it('never sends the device token: the sign-in carries only a one-time proof', async () => {
+    const creds = { deviceId, deviceToken: 'secret-device-token-0123456789abcdef' };
+    const http = fakeHttp({ ...challengeRoute, [`${origin}/api/mobile/session`]: { status: 200, data: { data: { token: 's' } } } });
+    await openSession(http, origin, creds);
+    expect(JSON.stringify(http.calls)).not.toContain(creds.deviceToken);
+    const sent = http.calls[1].body as { nonce: string; proof: string };
+    expect(sent.nonce).toBe('nonce-abcdefghijklmnopqrstuvwx');
+    expect(sent.proof).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('computes exactly the proof the Mac expects (WebCrypto vs node:crypto)', async () => {
+    const token = 'tok_' + 'x'.repeat(40);
+    const nonce = 'abcDEF123_-abcDEF123_-abcDEF12';
+    expect(await deviceProof(token, nonce)).toBe(proofForToken(token, nonce));
+  });
+
+  it('unpairs itself with a proof too', async () => {
+    const creds = { deviceId, deviceToken: 't'.repeat(43) };
+    const http = fakeHttp({ ...challengeRoute, [`${origin}/api/mobile/unpair`]: { status: 200, data: { success: true } } });
+    expect(await unpairSelf(http, origin, creds)).toBe(true);
+    expect(await unpairSelf(fakeHttp({}), origin, creds)).toBe(false);
   });
 });
 
