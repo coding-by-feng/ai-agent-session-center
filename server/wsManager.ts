@@ -508,7 +508,10 @@ export function disconnectDevice(deviceId: string): number {
   let closed = 0;
   for (const client of clients) {
     if (client._deviceId === deviceId) {
-      client.close(4001, 'Device revoked');
+      // terminate(), not close(): ws keeps delivering incoming messages while a
+      // close handshake is pending (up to its 30 s timeout), so a client that
+      // ignores the close frame could keep typing after revocation.
+      client.terminate();
       closed++;
     }
   }

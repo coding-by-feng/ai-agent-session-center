@@ -12,7 +12,7 @@ vi.mock('../server/logger.js', () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), debugJson: vi.fn(), isDebug: false },
 }));
 
-import { createDeviceAuth, type MobileDeviceRecord, type MobileDeviceStore } from '../server/mobile/deviceAuth.js';
+import { createDeviceAuth, proofForToken, type MobileDeviceRecord, type MobileDeviceStore } from '../server/mobile/deviceAuth.js';
 import { createMobileRouter, buildPairingLink, PAIRING_LINK_BASE } from '../server/mobile/mobileRouter.js';
 
 function memoryStore(): MobileDeviceStore {
@@ -31,12 +31,14 @@ interface Res { status: number; body: Record<string, any>; headers: http.Incomin
 let server: http.Server;
 let port: number;
 let passwordEnabled: boolean;
+let signedIn: boolean;
 let failures: Map<string, number>;
 const createSessionToken = vi.fn((deviceId: string) => `session-for-${deviceId}`);
 const onRevoked = vi.fn();
 
 beforeEach(async () => {
   passwordEnabled = true;
+  signedIn = true;
   failures = new Map();
   createSessionToken.mockClear();
   onRevoked.mockClear();
@@ -46,6 +48,8 @@ beforeEach(async () => {
   app.use('/api/mobile', createMobileRouter({
     deviceAuth,
     isPasswordEnabled: () => passwordEnabled,
+    // Stands in for authMiddleware: the desktop page holds a dashboard session.
+    requireSession: (_req, res, next) => (signedIn ? next() : res.status(401).json({ error: 'Unauthorized' })),
     createSessionToken,
     sessionTtlSeconds: 3600,
     pairingTarget: () => ({ name: 'Test-Mac', port: 3333, lan: '192.168.1.20', tailnet: '100.100.1.2' }),
@@ -91,6 +95,14 @@ async function pairingCode(): Promise<string> {
   return res.body.data.code;
 }
 
+/** The phone's sign-in over HTTP: challenge, then the HMAC proof. */
+async function signIn(deviceId: string, deviceToken: string, path = '/session'): Promise<Res> {
+  const challenge = await call('POST', '/challenge', { body: { deviceId } });
+  expect(challenge.status).toBe(200);
+  const nonce = challenge.body.data.nonce as string;
+  return call('POST', path, { body: { deviceId, nonce, proof: proofForToken(deviceToken, nonce) } });
+}
+
 async function pairedPhone(): Promise<{ deviceId: string; deviceToken: string; confirmCode: string }> {
   const code = await pairingCode();
   const res = await call('POST', '/pair', { body: { code, label: 'Kason iPhone', platform: 'ios' } });
@@ -130,6 +142,24 @@ describe('POST /pairing (desktop)', () => {
   });
 });
 
+describe('desktop routes need the dashboard session too', () => {
+  it('a local caller without a signed-in session can’t mint, list or approve (curl, other accounts, header-less proxies)', async () => {
+    const phone = await pairedPhone();
+    signedIn = false;
+    expect((await call('POST', '/pairing', { body: {} })).status).toBe(401);
+    expect((await call('GET', '/devices')).status).toBe(401);
+    expect((await call('POST', `/devices/${phone.deviceId}/approve`)).status).toBe(401);
+    expect((await call('DELETE', `/devices/${phone.deviceId}`)).status).toBe(401);
+  });
+
+  it('the token never appears in a sign-in request: only a one-time proof', async () => {
+    const phone = await pairedPhone();
+    await call('POST', `/devices/${phone.deviceId}/approve`);
+    const legacy = await call('POST', '/session', { body: { deviceId: phone.deviceId, deviceToken: phone.deviceToken } });
+    expect(legacy.status).toBe(400);
+  });
+});
+
 describe('approve / deny from the desktop', () => {
   it('approve only works from the AASC page itself', async () => {
     const phone = await pairedPhone();
@@ -155,7 +185,7 @@ describe('approve / deny from the desktop', () => {
     await call('POST', `/devices/${b.deviceId}/approve`);
     expect((await call('DELETE', `/devices/${b.deviceId}`)).status).toBe(200);
     expect(onRevoked).toHaveBeenCalledTimes(2);
-    const session = await call('POST', '/session', { body: { deviceId: b.deviceId, deviceToken: b.deviceToken } });
+    const session = await signIn(b.deviceId, b.deviceToken);
     expect(session.status).toBe(401);
     expect(session.body.code).toBe('DEVICE_REVOKED');
   });
@@ -164,14 +194,13 @@ describe('approve / deny from the desktop', () => {
 describe('phone routes', () => {
   it('a pending phone is told to wait for approval; an approved one gets a session cookie', async () => {
     const phone = await pairedPhone();
-    const creds = { deviceId: phone.deviceId, deviceToken: phone.deviceToken };
-    const pending = await call('POST', '/session', { body: creds });
+    const pending = await signIn(phone.deviceId, phone.deviceToken);
     expect(pending.status).toBe(403);
     expect(pending.body.code).toBe('DEVICE_PENDING');
     expect(createSessionToken).not.toHaveBeenCalled();
 
     await call('POST', `/devices/${phone.deviceId}/approve`);
-    const ok = await call('POST', '/session', { body: creds });
+    const ok = await signIn(phone.deviceId, phone.deviceToken);
     expect(ok.status).toBe(200);
     expect(createSessionToken).toHaveBeenCalledWith(phone.deviceId);
     expect(String(ok.headers['set-cookie'])).toContain(`auth_token=session-for-${phone.deviceId}; HttpOnly; SameSite=Strict`);
@@ -181,9 +210,9 @@ describe('phone routes', () => {
     const phone = await pairedPhone();
     passwordEnabled = false;
     expect((await call('POST', '/pair', { body: { code: 'ABCDEFGHJK', label: 'x', platform: 'ios' } })).status).toBe(403);
-    const session = await call('POST', '/session', { body: { deviceId: phone.deviceId, deviceToken: phone.deviceToken } });
-    expect(session.status).toBe(403);
-    expect(session.body.code).toBe('REMOTE_PASSWORD_REQUIRED');
+    const challenge = await call('POST', '/challenge', { body: { deviceId: phone.deviceId } });
+    expect(challenge.status).toBe(403);
+    expect(challenge.body.code).toBe('REMOTE_PASSWORD_REQUIRED');
   });
 
   it('refuse cross-site browser requests and non-JSON bodies', async () => {
@@ -219,8 +248,8 @@ describe('phone routes', () => {
   it('a phone can unpair itself with its own token', async () => {
     const phone = await pairedPhone();
     await call('POST', `/devices/${phone.deviceId}/approve`);
-    expect((await call('POST', '/unpair', { body: { deviceId: phone.deviceId, deviceToken: 'w'.repeat(43) } })).status).toBe(401);
-    expect((await call('POST', '/unpair', { body: { deviceId: phone.deviceId, deviceToken: phone.deviceToken } })).status).toBe(200);
+    expect((await signIn(phone.deviceId, 'w'.repeat(43), '/unpair')).status).toBe(401);
+    expect((await signIn(phone.deviceId, phone.deviceToken, '/unpair')).status).toBe(200);
     expect(onRevoked).toHaveBeenCalledTimes(1);
   });
 });

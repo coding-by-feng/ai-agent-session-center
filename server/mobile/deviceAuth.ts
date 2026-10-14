@@ -4,12 +4,18 @@
 // redeems it and receives a device token at once, but the device is PENDING:
 // its token can't open a session until someone approves it on the desktop,
 // comparing a 6-digit confirmation code shown on both screens. An approved phone
-// exchanges its device token for the normal one-hour session (authManager), so
-// it survives server restarts without ever knowing the dashboard password.
+// then proves it holds the token to get the normal one-hour session
+// (authManager), so it survives server restarts without knowing the password.
+//
+// After pairing the token itself never travels again: the phone answers a
+// single-use server nonce with HMAC-SHA256(key = SHA-256(token), nonce). On the
+// unencrypted home-network path a sniffed exchange is worthless to replay.
+// Device tokens are also bound to the dashboard password in force when they
+// were issued: change the password and every paired phone must pair again.
 //
 // Pure logic over an injected store and clock, so it is testable without SQLite.
 
-import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'crypto';
 
 export type DevicePlatform = 'ios' | 'android';
 export type DeviceStatus = 'pending' | 'active' | 'revoked';
@@ -23,6 +29,8 @@ export interface MobileDeviceRecord {
   confirmCode: string;
   /** Non-secret reference to the backend pairing code this phone used, when there was one. */
   beCodeRef: string | null;
+  /** Fingerprint of the dashboard password when the token was issued (null: none set). */
+  credentialEpoch: string | null;
   createdAt: number;
   approvedAt: number | null;
   lastSeenAt: number | null;
@@ -55,6 +63,10 @@ export const PAIRING_CODE_TTL_MS = 2 * 60 * 1000;
 export const MAX_OUTSTANDING_CODES = 3;
 /** A phone nobody approves within this window is revoked. */
 export const PENDING_TTL_MS = 10 * 60 * 1000;
+/** A sign-in challenge is answered within this window, once. */
+export const CHALLENGE_TTL_MS = 60 * 1000;
+/** Open challenges kept per device; older ones are dropped. */
+const MAX_CHALLENGES_PER_DEVICE = 5;
 /** Base32 without I, O, 0 and 1, which read alike. 10 characters ≈ 50 bits. */
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const CODE_LENGTH = 10;
@@ -67,12 +79,31 @@ export type ExchangeResult =
 export interface DeviceAuthOptions {
   store: MobileDeviceStore;
   now?: () => number;
+  /**
+   * Fingerprint of the current dashboard password. A device token issued under
+   * another fingerprint is revoked on its next sign-in.
+   */
+  credentialEpoch?: () => string | null;
   /** Called once when a device stops being usable (deny, revoke, unpair, pending expiry). */
   onRevoked?: (device: MobileDeviceRecord) => void;
 }
 
 export function hashSecret(secret: string): string {
   return createHash('sha256').update(secret).digest('hex');
+}
+
+/**
+ * The phone's answer to a challenge: HMAC-SHA256 keyed with the SHA-256 of its
+ * device token, over the nonce, hex. The server keys with the stored hash, so
+ * it never needs the token. (The phone computes the same with WebCrypto.)
+ */
+export function challengeProof(tokenHashHex: string, nonce: string): string {
+  return createHmac('sha256', Buffer.from(tokenHashHex, 'hex')).update(nonce).digest('hex');
+}
+
+/** Convenience for callers that hold the token itself (the phone, tests). */
+export function proofForToken(deviceToken: string, nonce: string): string {
+  return challengeProof(hashSecret(deviceToken), nonce);
 }
 
 export function normalizePairingCode(raw: string): string {
@@ -117,8 +148,27 @@ export class TooManyPairingCodesError extends Error {
 export function createDeviceAuth(opts: DeviceAuthOptions) {
   const { store } = opts;
   const now = opts.now ?? Date.now;
+  const currentEpoch = (): string | null => opts.credentialEpoch?.() ?? null;
   /** Open pairing codes, keyed by their hash. In memory on purpose: they live two minutes. */
   const codes = new Map<string, { expiresAt: number }>();
+  /** Open sign-in challenges, keyed by nonce. */
+  const challenges = new Map<string, { deviceId: string; expiresAt: number }>();
+
+  function pruneChallenges(): void {
+    const t = now();
+    for (const [nonce, entry] of challenges) if (entry.expiresAt <= t) challenges.delete(nonce);
+  }
+
+  /** Consume a challenge and check the proof against the device's stored token hash. */
+  function verifyProof(deviceId: string, nonce: string, proof: string): MobileDeviceRecord | null {
+    pruneChallenges();
+    const entry = challenges.get(nonce);
+    if (!entry || entry.deviceId !== deviceId) return null;
+    challenges.delete(nonce); // single use, right or wrong
+    const rec = store.get(deviceId);
+    if (!rec || !/^[0-9a-f]{64}$/.test(proof)) return null;
+    return sameHash(challengeProof(rec.tokenHash, nonce), proof) ? rec : null;
+  }
 
   function pruneCodes(): void {
     const t = now();
@@ -139,11 +189,6 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
     }
   }
 
-  function findByToken(deviceId: string, deviceToken: string): MobileDeviceRecord | null {
-    const rec = store.get(deviceId);
-    if (!rec) return null;
-    return sameHash(rec.tokenHash, hashSecret(deviceToken)) ? rec : null;
-  }
 
   return {
     createPairingCode(): { code: string; expiresAt: number } {
@@ -171,6 +216,7 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
         status: 'pending',
         confirmCode: String(randomInt(0, 1_000_000)).padStart(6, '0'),
         beCodeRef: input.beCodeRef ?? null,
+        credentialEpoch: currentEpoch(),
         createdAt: now(),
         approvedAt: null,
         lastSeenAt: null,
@@ -180,12 +226,32 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
       return { device, deviceToken };
     },
 
-    /** Trade a device token for permission to open a session. */
-    exchange(deviceId: string, deviceToken: string): ExchangeResult {
+    /**
+     * A single-use nonce for the next sign-in or unpair. Issued for any id, so
+     * the answer doesn't reveal which device ids exist.
+     */
+    createChallenge(deviceId: string): { nonce: string; expiresAt: number } {
+      pruneChallenges();
+      const mine = [...challenges.entries()].filter(([, e]) => e.deviceId === deviceId);
+      for (const [nonce] of mine.slice(0, Math.max(0, mine.length - MAX_CHALLENGES_PER_DEVICE + 1))) {
+        challenges.delete(nonce);
+      }
+      const nonce = randomBytes(24).toString('base64url');
+      const expiresAt = now() + CHALLENGE_TTL_MS;
+      challenges.set(nonce, { deviceId, expiresAt });
+      return { nonce, expiresAt };
+    },
+
+    /** Prove the device token (challenge + HMAC) for permission to open a session. */
+    exchange(deviceId: string, nonce: string, proof: string): ExchangeResult {
       expirePending();
-      const rec = findByToken(deviceId, deviceToken);
+      const rec = verifyProof(deviceId, nonce, proof);
       if (!rec) return { ok: false, reason: 'invalid' };
       if (rec.status === 'revoked') return { ok: false, reason: 'revoked' };
+      if (rec.credentialEpoch !== currentEpoch()) {
+        revokeRecord(rec); // the dashboard password changed since this phone paired
+        return { ok: false, reason: 'revoked' };
+      }
       if (rec.status === 'pending') return { ok: false, reason: 'pending' };
       store.update(rec.id, { lastSeenAt: now() });
       return { ok: true, device: { ...rec, lastSeenAt: now() } };
@@ -216,9 +282,9 @@ export function createDeviceAuth(opts: DeviceAuthOptions) {
       return true;
     },
 
-    /** The phone removes itself. Requires its own device token. */
-    unpair(deviceId: string, deviceToken: string): boolean {
-      const rec = findByToken(deviceId, deviceToken);
+    /** The phone removes itself, proving its token the same way as sign-in. */
+    unpair(deviceId: string, nonce: string, proof: string): boolean {
+      const rec = verifyProof(deviceId, nonce, proof);
       if (!rec || rec.status === 'revoked') return false;
       revokeRecord(rec);
       return true;

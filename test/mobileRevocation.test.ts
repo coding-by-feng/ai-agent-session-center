@@ -35,6 +35,11 @@ describe('device-bound session tokens', () => {
     expect(validateToken(desktop)).toBe(true);
   });
 
+  it('keeps at most four live sessions per phone, dropping the oldest', () => {
+    const minted = Array.from({ length: 6 }, () => createToken('phone-cap'));
+    expect(minted.map(validateToken)).toEqual([false, false, true, true, true, true]);
+  });
+
   it('a refreshed token stays bound to its phone, so a later revoke still ends it', () => {
     const old = createToken('phone-c');
     const fresh = refreshToken(old)!;
@@ -57,7 +62,7 @@ describe('disconnectDevice', () => {
   let ws: typeof import('../server/wsManager.js');
   beforeAll(async () => { ws = await import('../server/wsManager.js'); });
 
-  it('closes every socket of the revoked phone with 4001 and leaves the others alone', () => {
+  it('terminates every socket of the revoked phone at once and leaves the others alone', () => {
     const phone1 = new FakeSocket();
     const phone2 = new FakeSocket();
     const other = new FakeSocket();
@@ -65,9 +70,10 @@ describe('disconnectDevice', () => {
     ws.handleConnection(phone2 as never, { clientId: 'p2', label: 'Phone', address: '100.64.0.9', isLocal: false, deviceId: 'phone-x' });
     ws.handleConnection(other as never, { clientId: 'd1', label: 'Desktop', address: '127.0.0.1', isLocal: true });
     expect(ws.disconnectDevice('phone-x')).toBe(2);
-    expect(phone1.close).toHaveBeenCalledWith(4001, 'Device revoked');
-    expect(phone2.close).toHaveBeenCalledWith(4001, 'Device revoked');
-    expect(other.close).not.toHaveBeenCalled();
+    // terminate(), not close(): a pending close handshake would still deliver its messages for up to 30 s.
+    expect(phone1.terminate).toHaveBeenCalled();
+    expect(phone2.terminate).toHaveBeenCalled();
+    expect(other.terminate).not.toHaveBeenCalled();
     for (const s of [phone1, phone2, other]) s.emit('close');
   });
 });

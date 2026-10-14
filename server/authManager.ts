@@ -121,6 +121,9 @@ export function verifyPassword(password: string, stored: string): boolean {
 /**
  * Create a new auth token with 1h TTL.
  */
+/** Live sessions one paired phone may hold (app + extensions); older ones are dropped. */
+const MAX_SESSIONS_PER_DEVICE = 4;
+
 export function createToken(deviceId?: string): string {
   return issueToken(randomBytes(16).toString('hex'), deviceId);
 }
@@ -128,6 +131,12 @@ export function createToken(deviceId?: string): string {
 function issueToken(lineage: string, deviceId?: string): string {
   const token = randomBytes(32).toString('hex');
   tokens.set(token, deviceId ? { createdAt: Date.now(), lineage, deviceId } : { createdAt: Date.now(), lineage });
+  if (deviceId) {
+    // Every sign-in mints a session; keep only the newest few per phone so
+    // repeated sign-ins can't pile up live tokens. Map order is insertion order.
+    const mine = [...tokens.entries()].filter(([, e]) => e.deviceId === deviceId);
+    for (const [old] of mine.slice(0, Math.max(0, mine.length - MAX_SESSIONS_PER_DEVICE))) tokens.delete(old);
+  }
   return token;
 }
 

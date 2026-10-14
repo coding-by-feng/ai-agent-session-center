@@ -22,7 +22,7 @@ import { ensureHooksInstalled } from './hookInstaller.js';
 import { resolvePort, killPortProcess } from './portManager.js';
 import { getLocalIP, getTailnetIP } from './networkInfo.js';
 import { hostname } from 'os';
-import { createDeviceAuth } from './mobile/deviceAuth.js';
+import { createDeviceAuth, hashSecret } from './mobile/deviceAuth.js';
 import { sqliteMobileDeviceStore } from './mobile/deviceStore.js';
 import { createMobileRouter } from './mobile/mobileRouter.js';
 import { isLocalRequest } from './requestLocality.js';
@@ -187,6 +187,8 @@ export function startServer(port?: number): Promise<number> {
   // own authentication, and the desktop routes use the RESOURCES local gate.
   const deviceAuth = createDeviceAuth({
     store: sqliteMobileDeviceStore,
+    // Changing the dashboard password revokes every paired phone on its next sign-in.
+    credentialEpoch: () => (config.passwordHash ? hashSecret(config.passwordHash).slice(0, 16) : null),
     onRevoked: (device) => {
       // End every session and live socket the phone holds. The backend half of
       // the cascade (revoking its backend device) joins when the cloud
@@ -199,6 +201,7 @@ export function startServer(port?: number): Promise<number> {
   app.use('/api/mobile', createMobileRouter({
     deviceAuth,
     isPasswordEnabled,
+    requireSession: authMiddleware,
     createSessionToken: (deviceId) => createToken(deviceId),
     sessionTtlSeconds: TOKEN_TTL_SECONDS,
     pairingTarget: () => ({

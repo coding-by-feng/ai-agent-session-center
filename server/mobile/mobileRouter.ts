@@ -6,14 +6,17 @@
 //     The same gate as RESOURCES: a loopback request on the main listener with a
 //     loopback Host and, for writes, a same-origin page. A web page open in the
 //     Mac's own browser reaches 127.0.0.1 too, so loopback alone would let it
-//     approve a phone it raced to pair.
+//     approve a phone it raced to pair. AND a signed-in dashboard session
+//     (`requireSession`, i.e. authMiddleware): pairing needs a password, and
+//     "loopback" also covers curl, other accounts on this Mac and header-less
+//     proxies, none of which may mint a phone.
 //
-//   Public (pair, session, unpair) — the phone's own calls
+//   Public (challenge, pair, session, unpair) — the phone's own calls
 //     They ARE the authentication, so authMiddleware can't sit in front of them.
 //     JSON only, no cross-site browser requests, the login rate limiter, and all
 //     refused when no dashboard password is set (remote access needs one).
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request, type Response, type RequestHandler } from 'express';
 import { z } from 'zod';
 import { isLocalResourceRequest, isSameOriginWrite } from '../resourceRouter.js';
 import { REMOTE_REQUIRES_PASSWORD } from '../authManager.js';
@@ -40,6 +43,8 @@ export interface BackendPhoneCode {
 export interface MobileRouterDeps {
   deviceAuth: DeviceAuth;
   isPasswordEnabled: () => boolean;
+  /** The dashboard's own sign-in check (authMiddleware), required on desktop routes. */
+  requireSession: RequestHandler;
   /** Mint the normal one-hour session token, bound to the device. */
   createSessionToken: (deviceId: string) => string;
   sessionTtlSeconds: number;
@@ -63,9 +68,15 @@ const PairBody = z.object({
   beCodeRef: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional(),
 }).strict();
 
-const DeviceCredentials = z.object({
+const ChallengeBody = z.object({
   deviceId: z.string().uuid(),
-  deviceToken: z.string().min(20).max(100),
+}).strict();
+
+/** Proof of the device token: HMAC-SHA256(SHA-256(token), nonce), hex. The token itself never travels. */
+const DeviceProof = z.object({
+  deviceId: z.string().uuid(),
+  nonce: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/),
+  proof: z.string().regex(/^[0-9a-f]{64}$/),
 }).strict();
 
 export function buildPairingLink(target: PairingTarget, macCode: string, backend: BackendPhoneCode | null): string {
@@ -101,16 +112,18 @@ function publicRequestAllowed(req: Request, res: Response): boolean {
 export function createMobileRouter(deps: MobileRouterDeps): Router {
   const router = Router();
 
-  const desktopRead = (req: Request, res: Response): boolean => {
-    if (isLocalResourceRequest(req)) return true;
-    res.status(404).json({ error: 'Not found' });
-    return false;
-  };
-  const desktopWrite = (req: Request, res: Response): boolean => {
-    if (isLocalResourceRequest(req) && isSameOriginWrite(req)) return true;
-    res.status(404).json({ error: 'Not found' });
-    return false;
-  };
+  // Desktop routes: the local gate first (404, so other devices learn nothing),
+  // then the dashboard session.
+  router.use(['/pairing', '/devices'], (req, res, next) => {
+    const local = req.method === 'GET'
+      ? isLocalResourceRequest(req)
+      : isLocalResourceRequest(req) && isSameOriginWrite(req);
+    if (!local) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    deps.requireSession(req, res, next);
+  });
 
   function passwordGate(res: Response): boolean {
     if (deps.isPasswordEnabled()) return true;
@@ -128,7 +141,6 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
   // ── Desktop ──────────────────────────────────────────────────────────────
 
   router.post('/pairing', async (req, res) => {
-    if (!desktopWrite(req, res)) return;
     if (!deps.isPasswordEnabled()) {
       res.status(409).json({
         error: 'Set a dashboard password first: phones are remote devices, and remote access needs one.',
@@ -166,13 +178,11 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
     });
   });
 
-  router.get('/devices', (req, res) => {
-    if (!desktopRead(req, res)) return;
+  router.get('/devices', (_req, res) => {
     res.json({ success: true, data: { devices: deps.deviceAuth.list() } });
   });
 
   router.post('/devices/:id/approve', (req, res) => {
-    if (!desktopWrite(req, res)) return;
     const view = deps.deviceAuth.approve(String(req.params.id));
     if (!view) {
       res.status(404).json({ error: 'No pending phone with that id' });
@@ -183,7 +193,6 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
   });
 
   router.delete('/devices/:id', (req, res) => {
-    if (!desktopWrite(req, res)) return;
     const id = String(req.params.id);
     const ok = deps.deviceAuth.deny(id) || deps.deviceAuth.revoke(id);
     if (!ok) {
@@ -220,14 +229,25 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
     });
   });
 
-  router.post('/session', (req, res) => {
+  router.post('/challenge', (req, res) => {
     if (!publicRequestAllowed(req, res) || !passwordGate(res) || rateLimited(req, res)) return;
-    const parsed = DeviceCredentials.safeParse(req.body);
+    const parsed = ChallengeBody.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Invalid request' });
       return;
     }
-    const result = deps.deviceAuth.exchange(parsed.data.deviceId, parsed.data.deviceToken);
+    res.json({ success: true, data: deps.deviceAuth.createChallenge(parsed.data.deviceId) });
+  });
+
+  router.post('/session', (req, res) => {
+    if (!publicRequestAllowed(req, res) || !passwordGate(res) || rateLimited(req, res)) return;
+    const parsed = DeviceProof.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid request' });
+      return;
+    }
+    const { deviceId, nonce, proof } = parsed.data;
+    const result = deps.deviceAuth.exchange(deviceId, nonce, proof);
     if (!result.ok) {
       if (result.reason === 'pending') {
         res.status(403).json({ error: 'Approve this phone on your Mac first', code: 'DEVICE_PENDING' });
@@ -249,12 +269,12 @@ export function createMobileRouter(deps: MobileRouterDeps): Router {
 
   router.post('/unpair', (req, res) => {
     if (!publicRequestAllowed(req, res) || rateLimited(req, res)) return;
-    const parsed = DeviceCredentials.safeParse(req.body);
+    const parsed = DeviceProof.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: 'Invalid request' });
       return;
     }
-    if (!deps.deviceAuth.unpair(parsed.data.deviceId, parsed.data.deviceToken)) {
+    if (!deps.deviceAuth.unpair(parsed.data.deviceId, parsed.data.nonce, parsed.data.proof)) {
       deps.rateLimit.record(clientIp(req));
       res.status(401).json({ error: 'This phone is not paired', code: 'DEVICE_UNKNOWN' });
       return;

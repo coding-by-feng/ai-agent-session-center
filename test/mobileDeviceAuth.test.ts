@@ -5,8 +5,8 @@
 // that reaches every session (onRevoked).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
-  createDeviceAuth, hashSecret, normalizePairingCode, sanitizeDeviceLabel, TooManyPairingCodesError,
-  PAIRING_CODE_TTL_MS, PENDING_TTL_MS, MAX_OUTSTANDING_CODES,
+  createDeviceAuth, hashSecret, normalizePairingCode, sanitizeDeviceLabel, TooManyPairingCodesError, proofForToken,
+  PAIRING_CODE_TTL_MS, PENDING_TTL_MS, MAX_OUTSTANDING_CODES, CHALLENGE_TTL_MS,
   type MobileDeviceRecord, type MobileDeviceStore,
 } from '../server/mobile/deviceAuth.js';
 
@@ -26,13 +26,25 @@ let clock = 1_000_000;
 let store: ReturnType<typeof memoryStore>;
 let onRevoked: ReturnType<typeof vi.fn>;
 let auth: ReturnType<typeof createDeviceAuth>;
+let epoch: string | null;
 
 beforeEach(() => {
   clock = 1_000_000;
+  epoch = 'pw-1';
   store = memoryStore();
   onRevoked = vi.fn();
-  auth = createDeviceAuth({ store, now: () => clock, onRevoked });
+  auth = createDeviceAuth({ store, now: () => clock, onRevoked, credentialEpoch: () => epoch });
 });
+
+/** Sign in the way the phone does: ask for a nonce, answer with the HMAC proof. */
+function signIn(deviceId: string, deviceToken: string) {
+  const { nonce } = auth.createChallenge(deviceId);
+  return auth.exchange(deviceId, nonce, proofForToken(deviceToken, nonce));
+}
+function unpair(deviceId: string, deviceToken: string) {
+  const { nonce } = auth.createChallenge(deviceId);
+  return auth.unpair(deviceId, nonce, proofForToken(deviceToken, nonce));
+}
 
 function pairPhone(label = 'Kason iPhone') {
   const { code } = auth.createPairingCode();
@@ -95,9 +107,9 @@ describe('a redeemed phone', () => {
 
   it('cannot open a session until approved', () => {
     const { device, deviceToken } = pairPhone();
-    expect(auth.exchange(device.id, deviceToken)).toEqual({ ok: false, reason: 'pending' });
+    expect(signIn(device.id, deviceToken)).toEqual({ ok: false, reason: 'pending' });
     expect(auth.approve(device.id)?.status).toBe('active');
-    const ok = auth.exchange(device.id, deviceToken);
+    const ok = signIn(device.id, deviceToken);
     expect(ok.ok).toBe(true);
     expect(store.rows.get(device.id)!.lastSeenAt).toBe(clock);
   });
@@ -105,16 +117,63 @@ describe('a redeemed phone', () => {
   it('is refused with a wrong token or an unknown id', () => {
     const { device } = pairPhone();
     auth.approve(device.id);
-    expect(auth.exchange(device.id, 'x'.repeat(43))).toEqual({ ok: false, reason: 'invalid' });
-    expect(auth.exchange('00000000-0000-4000-8000-000000000000', 'x'.repeat(43))).toEqual({ ok: false, reason: 'invalid' });
+    expect(signIn(device.id, 'x'.repeat(43))).toEqual({ ok: false, reason: 'invalid' });
+    expect(signIn('00000000-0000-4000-8000-000000000000', 'x'.repeat(43))).toEqual({ ok: false, reason: 'invalid' });
   });
 
   it('is revoked if nobody approves it within ten minutes', () => {
     const { device, deviceToken } = pairPhone();
     clock += PENDING_TTL_MS;
-    expect(auth.exchange(device.id, deviceToken)).toEqual({ ok: false, reason: 'revoked' });
+    expect(signIn(device.id, deviceToken)).toEqual({ ok: false, reason: 'revoked' });
     expect(auth.approve(device.id)).toBeNull();
     expect(onRevoked).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('sign-in challenges', () => {
+  it('never needs the token on the wire: a captured proof can’t be replayed', () => {
+    const { device, deviceToken } = pairPhone();
+    auth.approve(device.id);
+    const { nonce } = auth.createChallenge(device.id);
+    const proof = proofForToken(deviceToken, nonce);
+    expect(auth.exchange(device.id, nonce, proof).ok).toBe(true);
+    expect(auth.exchange(device.id, nonce, proof)).toEqual({ ok: false, reason: 'invalid' });
+  });
+
+  it('expire after a minute and belong to one device', () => {
+    const a = pairPhone('A');
+    const b = pairPhone('B');
+    auth.approve(a.device.id);
+    auth.approve(b.device.id);
+    const forA = auth.createChallenge(a.device.id);
+    expect(auth.exchange(b.device.id, forA.nonce, proofForToken(b.deviceToken, forA.nonce))).toEqual({ ok: false, reason: 'invalid' });
+    const late = auth.createChallenge(a.device.id);
+    clock += CHALLENGE_TTL_MS;
+    expect(auth.exchange(a.device.id, late.nonce, proofForToken(a.deviceToken, late.nonce))).toEqual({ ok: false, reason: 'invalid' });
+  });
+
+  it('are issued for unknown ids too, so the endpoint doesn’t reveal which devices exist', () => {
+    expect(auth.createChallenge('00000000-0000-4000-8000-000000000000').nonce).toMatch(/^[A-Za-z0-9_-]{32}$/);
+  });
+
+  it('a malformed proof fails without throwing', () => {
+    const { device } = pairPhone();
+    auth.approve(device.id);
+    const { nonce } = auth.createChallenge(device.id);
+    expect(auth.exchange(device.id, nonce, 'zz')).toEqual({ ok: false, reason: 'invalid' });
+  });
+});
+
+describe('password binding', () => {
+  it('changing the dashboard password revokes every paired phone at its next sign-in', () => {
+    const { device, deviceToken } = pairPhone();
+    auth.approve(device.id);
+    expect(signIn(device.id, deviceToken).ok).toBe(true);
+    epoch = 'pw-2';
+    expect(signIn(device.id, deviceToken)).toEqual({ ok: false, reason: 'revoked' });
+    expect(onRevoked).toHaveBeenCalledTimes(1);
+    epoch = 'pw-1'; // changing it back doesn't resurrect the phone
+    expect(signIn(device.id, deviceToken)).toEqual({ ok: false, reason: 'revoked' });
   });
 });
 
@@ -124,7 +183,7 @@ describe('deny, revoke and unpair', () => {
     expect(auth.deny(device.id)).toBe(true);
     expect(store.rows.has(device.id)).toBe(false);
     expect(onRevoked).toHaveBeenCalledWith(expect.objectContaining({ id: device.id, status: 'revoked' }));
-    expect(auth.exchange(device.id, deviceToken)).toEqual({ ok: false, reason: 'invalid' });
+    expect(signIn(device.id, deviceToken)).toEqual({ ok: false, reason: 'invalid' });
   });
 
   it('deny does nothing to an approved phone (that is revoke)', () => {
@@ -139,14 +198,14 @@ describe('deny, revoke and unpair', () => {
     expect(auth.revoke(device.id)).toBe(true);
     expect(auth.revoke(device.id)).toBe(false);
     expect(onRevoked).toHaveBeenCalledTimes(1);
-    expect(auth.exchange(device.id, deviceToken)).toEqual({ ok: false, reason: 'revoked' });
+    expect(signIn(device.id, deviceToken)).toEqual({ ok: false, reason: 'revoked' });
   });
 
   it('unpair needs the phone’s own token', () => {
     const { device, deviceToken } = pairPhone();
     auth.approve(device.id);
-    expect(auth.unpair(device.id, 'wrong-token-wrong-token')).toBe(false);
-    expect(auth.unpair(device.id, deviceToken)).toBe(true);
+    expect(unpair(device.id, 'wrong-token-wrong-token')).toBe(false);
+    expect(unpair(device.id, deviceToken)).toBe(true);
     expect(onRevoked).toHaveBeenCalledTimes(1);
   });
 });

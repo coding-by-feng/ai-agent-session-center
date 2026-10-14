@@ -907,6 +907,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS mobile_devices (
   status TEXT NOT NULL CHECK (status IN ('pending','active','revoked')),
   confirm_code TEXT NOT NULL,
   be_code_ref TEXT,
+  credential_epoch TEXT,
   created_at INTEGER NOT NULL,
   approved_at INTEGER,
   last_seen_at INTEGER,
@@ -921,6 +922,7 @@ export interface MobileDeviceRow {
   status: 'pending' | 'active' | 'revoked';
   confirm_code: string;
   be_code_ref: string | null;
+  credential_epoch: string | null;
   created_at: number;
   approved_at: number | null;
   last_seen_at: number | null;
@@ -929,8 +931,8 @@ export interface MobileDeviceRow {
 
 export function insertMobileDevice(row: MobileDeviceRow): void {
   db.prepare(`INSERT INTO mobile_devices (id, label, platform, token_hash, status, confirm_code, be_code_ref,
-    created_at, approved_at, last_seen_at, revoked_at) VALUES (@id, @label, @platform, @token_hash, @status,
-    @confirm_code, @be_code_ref, @created_at, @approved_at, @last_seen_at, @revoked_at)`).run(row);
+    credential_epoch, created_at, approved_at, last_seen_at, revoked_at) VALUES (@id, @label, @platform, @token_hash,
+    @status, @confirm_code, @be_code_ref, @credential_epoch, @created_at, @approved_at, @last_seen_at, @revoked_at)`).run(row);
 }
 export function getMobileDevice(id: string): MobileDeviceRow | null {
   return (db.prepare('SELECT * FROM mobile_devices WHERE id = ?').get(id) as MobileDeviceRow | undefined) ?? null;
