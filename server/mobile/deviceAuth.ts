@@ -16,6 +16,7 @@
 // Pure logic over an injected store and clock, so it is testable without SQLite.
 
 import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'crypto';
+import { PHONE_ACCESS, type PhoneAccess } from './phoneProfile.js';
 
 export type DevicePlatform = 'ios' | 'android';
 export type DeviceStatus = 'pending' | 'active' | 'revoked';
@@ -48,6 +49,8 @@ export interface MobileDeviceView {
   createdAt: number;
   approvedAt: number | null;
   lastSeenAt: number | null;
+  /** What the phone may do here (phoneProfile.ts). One set for every phone today. */
+  access: PhoneAccess;
 }
 
 export interface MobileDeviceStore {
@@ -136,6 +139,7 @@ export function toView(rec: MobileDeviceRecord): MobileDeviceView {
     createdAt: rec.createdAt,
     approvedAt: rec.approvedAt,
     lastSeenAt: rec.lastSeenAt,
+    access: PHONE_ACCESS,
   };
 }
 

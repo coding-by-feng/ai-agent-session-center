@@ -10,9 +10,9 @@ import hookRouter from './hookRouter.js';
 import { handleConnection, stopHeartbeat, broadcast, disconnectDevice, onBroadcast } from './wsManager.js';
 import { createPushNotifier } from './push/pushNotifier.js';
 import { getPushSink } from './push/pushSink.js';
-import { canSeeSession } from './sessionVisibility.js';
+import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
 import { getAllSessions, getSession, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
-import { createTerminal, consumePendingLink, writeWhenReady } from './sshManager.js';
+import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal } from './sshManager.js';
 import { WS_TYPES } from './constants.js';
 import { closeDb, markStaleSessionsEnded } from './db.js';
 import apiRouter, { hookRateLimitMiddleware } from './apiRouter.js';
@@ -27,6 +27,8 @@ import { getLocalIP, getTailnetIP } from './networkInfo.js';
 import { hostname } from 'os';
 import { createDeviceAuth, hashSecret } from './mobile/deviceAuth.js';
 import { sqliteMobileDeviceStore } from './mobile/deviceStore.js';
+import { createPhoneProfile } from './mobile/phoneProfile.js';
+import { listKnownProjects } from './knownProjects.js';
 import { createMobileRouter } from './mobile/mobileRouter.js';
 import { isLocalRequest } from './requestLocality.js';
 import { resolveRemoteListenerPort, startRemoteListener } from './remoteListener.js';
@@ -240,7 +242,16 @@ export function startServer(port?: number): Promise<number> {
   app.use('/api/resources', resourceErrorHandler);
 
   // -- Protected API routes --
-  app.use('/api', authMiddleware, apiRouter);
+  // A paired phone gets a narrower set than a password sign-in (AASC-28):
+  // shared sessions, a known project to launch in, read-only project files.
+  const phoneProfile = createPhoneProfile({
+    phoneOf: (req) => getTokenDeviceId(extractToken(req)),
+    sharedProjectPaths: () =>
+      Object.values(filterVisibleSessions(false, getAllSessions())).map((s) => s.projectPath).filter(Boolean),
+    knownProjectPaths: listKnownProjects,
+    isOpsTerminal,
+  });
+  app.use('/api', authMiddleware, phoneProfile, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {
     log.debug('api', 'GET /api/sessions');
     res.json(getAllSessions());

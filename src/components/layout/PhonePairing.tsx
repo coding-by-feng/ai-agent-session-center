@@ -23,6 +23,12 @@ import styles from '@/styles/modules/PhonePairing.module.css';
 /** How often the list refreshes while the panel is open. */
 const POLL_MS = 2000;
 
+/** Every paired phone has the same, narrower set than a password sign-in (server/mobile/phoneProfile.ts). */
+const ACCESS_LABEL = 'shared sessions only';
+const ACCESS_DETAIL =
+  'Paired phones can watch and drive shared sessions, start Claude or Codex in a known project, and read files '
+  + 'in shared projects. They can’t run other commands, change files or change this Mac’s settings.';
+
 function secondsLeft(expiresAt: number, now: number): number {
   return Math.max(0, Math.ceil((expiresAt - now) / 1000));
 }
@@ -174,7 +180,7 @@ export default function PhonePairing() {
               <span className={styles.phoneMain}>
                 <span className={styles.phoneName} title={p.label}>{p.label}</span>
                 <span className={styles.phoneMeta}>
-                  {p.platform === 'ios' ? 'iPhone' : 'Android'} · last seen {relative(p.lastSeenAt)}
+                  {p.platform === 'ios' ? 'iPhone' : 'Android'} · {ACCESS_LABEL} · last seen {relative(p.lastSeenAt)}
                 </span>
               </span>
               {confirmRevoke === p.id ? (
@@ -191,6 +197,8 @@ export default function PhonePairing() {
           ))}
         </ul>
       )}
+
+      {active.length > 0 && <p className={styles.note}>{ACCESS_DETAIL}</p>}
 
       {active.length === 0 && pending.length === 0 && !pairingLive && (
         <p className={styles.empty}>No phones paired.</p>

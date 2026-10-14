@@ -17,6 +17,7 @@ import {
   removeWsClient,
   removeClientFromAllTerminals,
   getTerminalSessionId,
+  isOpsTerminal,
 } from './sshManager.js';
 import { bindRemoteClientId } from './clientBinding.js';
 import { isLineageAlive } from './authManager.js';
@@ -438,6 +439,10 @@ function sessionIdForTerminal(terminalId: string): string | null {
  */
 function canSubscribeToTerminal(client: WsClient, terminalId: string): boolean {
   if (client._isLocal) return true;
+  // A paired phone never sees or types into an ops shell: it is a plain command
+  // prompt, the one thing the phone profile exists to keep out of reach (AASC-28).
+  // Typing goes through holdsControl, which asks this same question.
+  if (client._deviceId && isOpsTerminal(terminalId)) return false;
   const sessionId = sessionIdForTerminal(terminalId);
   if (!sessionId) return false;
   return canSeeSession(false, getSession(sessionId));

@@ -88,6 +88,13 @@ describe('PhonePairing', () => {
     await waitFor(() => expect(calls.some((c) => c.url === '/api/mobile/devices/p1' && c.method === 'DELETE')).toBe(true));
   });
 
+  it('says what an approved phone may do here (AASC-28)', async () => {
+    phones = [phone({ status: 'active', confirmCode: null, lastSeenAt: Date.now(), access: 'sessions-only' })];
+    render(<PhonePairing />);
+    expect(await screen.findByText(/iPhone · shared sessions only · last seen/)).toBeTruthy();
+    expect(screen.getByText(/can’t run other commands, change files or change this Mac’s settings/)).toBeTruthy();
+  });
+
   it('shows the server’s reason when pairing is refused (no password)', async () => {
     vi.stubGlobal('fetch', vi.fn((url: string) => (url === '/api/mobile/pairing'
       ? json(409, { error: 'Set a dashboard password first', code: 'PASSWORD_REQUIRED' })

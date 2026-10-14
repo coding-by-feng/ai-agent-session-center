@@ -23,6 +23,7 @@ import { restartSessionTerminal, isSessionRestarting, holdSessionClosing } from 
 import { checkTerminalCapacity } from './terminalCapacity.js';
 import { findLiveCodexPidPeers } from './sessionKillPolicy.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
+import { listKnownProjects } from './knownProjects.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
 import * as db from './db.js';
 import { saveNoteMedia, resolveNoteMedia, deleteNoteMediaForSession, MAX_MEDIA_BYTES } from './noteMedia.js';
@@ -1819,12 +1820,16 @@ router.post('/terminals', async (req: Request, res: Response) => {
 
     // Deduplicate: if an active session with matching config already exists, return it
     // Skip deduplication when forceNew is explicitly requested (e.g. Quick session modal)
+    // A remote device is never handed a hidden session as "the one already running
+    // here": its id is not the device's to learn (AASC-28). It gets a new one.
+    const isLocalCaller = requestIsLocal(req);
+    const reusable = (s: Parameters<typeof canSeeSession>[1]): boolean => isLocalCaller || canSeeSession(false, s);
     if (!body.forceNew) {
       // Priority 1: exact match by originalSessionId (workspace snapshot restart)
       // This correctly distinguishes multiple sessions sharing the same project path.
       if (body.originalSessionId) {
         const byId = getSession(body.originalSessionId);
-        if (byId && byId.status !== SESSION_STATUS.ENDED && !byId.archived) {
+        if (byId && byId.status !== SESSION_STATUS.ENDED && !byId.archived && reusable(byId)) {
           log.info('api', `Deduplicated by originalSessionId — reusing session ${byId.sessionId} for ${resolvedHost}:${config.workingDir}`);
           res.json({ ok: true, terminalId: byId.sessionId, deduplicated: true, hasTerminal: !!byId.terminalId });
           return;
@@ -1837,7 +1842,7 @@ router.post('/terminals', async (req: Request, res: Response) => {
       // UUID (e.g. multiple Claude sessions in the same project directory).
       if (!body.originalSessionId) {
         const existing = findActiveSessionByConfig(config);
-        if (existing) {
+        if (existing && reusable(existing)) {
           log.info('api', `Deduplicated terminal creation — reusing session ${existing.sessionId} for ${resolvedHost}:${config.workingDir}`);
           res.json({ ok: true, terminalId: existing.sessionId, deduplicated: true, hasTerminal: !!existing.terminalId });
           return;
@@ -1903,7 +1908,10 @@ router.post('/terminals', async (req: Request, res: Response) => {
     // Resume imports keep the original config.command while spawning a transient
     // blank shell. Raw startup-command imports intentionally store command=''
     // and keep the full launch string in startupCommand.
-    await createTerminalSession(terminalId, config, opsTerminalId);
+    // A session a remote device starts is shared with remote devices from its
+    // first broadcast, or the device that asked for it could never see it
+    // (AASC-28). Only the new card: a device still can't unhide another one.
+    await createTerminalSession(terminalId, isLocalCaller ? config : { ...config, remoteVisible: true }, opsTerminalId);
 
     // The device that launched a session controls it. This is what makes the
     // "joining device is a spectator by default" rule fall out with no extra
@@ -2473,58 +2481,8 @@ router.get('/sessions/history', (req: Request, res: Response) => {
 
 // ---- Known Claude Code projects (from ~/.claude/projects/) ----
 
-/**
- * Decode a Claude Code project directory name back to a real filesystem path.
- * Encoding: leading `-` = `/`, `--` = `.`, other `-` = `/` (but ambiguous
- * when folder names contain hyphens like `agent-manager`).
- * We resolve ambiguity by greedily matching against the actual filesystem.
- */
-function decodeProjectDir(encoded: string): string | null {
-  if (!encoded.startsWith('-')) return null;
-
-  // Replace `--` with a placeholder for `.` before splitting
-  const DOT = '\x00';
-  const prepared = encoded.slice(1).replace(/--/g, DOT);
-  const parts = prepared.split('-').map((p) => p.replaceAll(DOT, '.'));
-
-  // Greedily resolve: try longest segment match against filesystem first
-  function resolve(current: string, idx: number): string | null {
-    if (idx >= parts.length) return current;
-    for (let end = parts.length; end > idx; end--) {
-      const candidate = parts.slice(idx, end).join('-');
-      const fullPath = join(current, candidate);
-      if (existsSync(fullPath)) {
-        const result = resolve(fullPath, end);
-        if (result !== null) return result;
-      }
-    }
-    return null;
-  }
-
-  return resolve('/', 0);
-}
-
 router.get('/known-projects', (_req: Request, res: Response) => {
-  try {
-    const projectsDir = join(homedir(), '.claude', 'projects');
-    const entries = readdirSync(projectsDir, { withFileTypes: true });
-    const paths: string[] = [];
-
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      if (entry.name.includes('worktrees')) continue;
-
-      const decoded = decodeProjectDir(entry.name);
-      if (decoded && decoded !== '/') {
-        paths.push(decoded);
-      }
-    }
-
-    paths.sort();
-    res.json({ paths });
-  } catch {
-    res.json({ paths: [] });
-  }
+  res.json({ paths: listKnownProjects() });
 });
 
 // ---- File Browser (Project Tab) ----

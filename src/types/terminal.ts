@@ -185,6 +185,12 @@ export interface TerminalConfig {
   isFloating?: boolean;
   /** Origin session id this fork was spawned from (for traceability). */
   originSessionId?: string;
+  /**
+   * Share the new session with remote devices from its first broadcast. Set by
+   * the server only, when a remote device starts the session (AASC-28); never
+   * read from a request body.
+   */
+  remoteVisible?: boolean;
 }
 
 // ---------------------------------------------------------------------------

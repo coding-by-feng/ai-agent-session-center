@@ -18,6 +18,8 @@ export interface PairedPhone {
   createdAt: number;
   approvedAt: number | null;
   lastSeenAt: number | null;
+  /** What the phone may do on this Mac. `sessions-only` is the one set today (AASC-28). */
+  access?: 'sessions-only';
 }
 
 export interface PhonePairing {

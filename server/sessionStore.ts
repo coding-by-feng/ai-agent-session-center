@@ -1387,6 +1387,7 @@ export async function createTerminalSession(terminalId: string, config: Terminal
     if (config.originSessionId) session.originSessionId = config.originSessionId;
   }
   if (config.isFloating) session.isFloating = true;
+  if (config.remoteVisible) session.remoteVisible = true;
   attachPlanUsage(session);
   sessions.set(terminalId, session);
   invalidateSessionsCache();

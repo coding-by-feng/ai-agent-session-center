@@ -1225,6 +1225,11 @@ export function getTerminalSessionId(terminalId: string): string | null {
   return terminals.get(terminalId)?.sessionId ?? null;
 }
 
+/** Is this terminal a session's ops shell (a plain command prompt, no agent)? */
+export function isOpsTerminal(terminalId: string): boolean {
+  return terminals.get(terminalId)?.config.isOps === true;
+}
+
 /**
  * Forget a terminal's output so far: the toolbar's "Clear output". Refresh,
  * reconnect, a remount and every other device paint from this ring, so a clear
