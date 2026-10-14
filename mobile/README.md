@@ -9,7 +9,8 @@ Status (2026-10-15, AASC-17 + the TypeScript of AASC-19 and AASC-21): **foundati
 | Shell screens (pair, approve-wait, servers, offline) | Not started |
 | `DeviceVault` (Keychain / Keystore) plugin | Not started (needs Xcode / Android Studio) |
 | Native projects (`ios/`, `android/`) | Not generated: this Mac has no Xcode, CocoaPods or Android SDK |
-| Website: `/.well-known/apple-app-site-association`, `assetlinks.json`, `/pair` | Not done: needs the Apple Team ID and the Android signing-key SHA-256 |
+| Website: `/.well-known/apple-app-site-association`, `assetlinks.json`, `/pair` | Done on the website's `krt/aasc-17-pair` (not deployed): `/pair` page; the two link files are generated at build time once `APPLE_TEAM_ID` / `ANDROID_SHA256` are given |
+| Release flags (no web inspector, no debug logging) | Done: `AASC_RELEASE=1 npx cap sync`; checklist and steps in [RELEASE.md](RELEASE.md) (AASC-22) |
 | Trial on a real iPhone and Android phone | Not done |
 
 ### AASC-19 push notifications
@@ -31,6 +32,39 @@ Status (2026-10-15, AASC-17 + the TypeScript of AASC-19 and AASC-21): **foundati
 | M4 Biometric lock | `biometricLock.ts`: cold start, reboot, resume after N minutes (0/1/5/15/60, default 5) lock; never during an in-flight tap (max 30 s); clock change locks; step-up before kill, room kill-all, restart | `BiometricGate` prompt, vault items bound to biometrics, boot id, App `pause`/`resume`, settings screen |
 | M8 Haptics | `haptics.ts`: approval/input → warning, finished → success, interrupted → error (same transitions as the Mac's push rules); foreground only, not muted, not within 4 s of the phone's own action, 1.5 s global gap, 15 s per session | the Mac UI feeds session transitions and own actions through `nativeBridge`; `Haptics.notification` |
 | M7 Live Activity (optional) | `liveActivity.ts`: working / approval / input counts + one watched session with `statusSince` (elapsed drawn natively); start/update/end plan, updates ≤ 1 per minute, end at once | ActivityKit widget + `LiveActivity` plugin; Android ongoing notification |
+
+## Pairing guide
+
+Pairing links the app to one Mac. You can pair several Macs; each is a separate entry in the app.
+
+1. **On the Mac**, click the devices chip in AASC's top bar (it shows how many devices are connected)
+   and press **Pair a phone**. A QR code appears with a 2-minute countdown. Only the Mac's own
+   dashboard shows this button, never a browser on another device.
+2. **On the phone**, open the AASC app → **Pair with a Mac** and scan the code. Without the app
+   installed, the camera opens `aasc.work/pair`, which explains how to install it; the code stays on
+   the phone (it's after the `#` in the link and is never sent anywhere).
+3. **Check the code.** The phone shows a 6-digit code, and the same panel on the Mac asks
+   "Allow *phone name* (iPhone / Android)?" with a code. Press **Allow** only if the two codes
+   match. If they differ, someone else scanned your QR: press **Deny** and pair again.
+4. **Choose how to connect.** Tailscale is used by default. The home-network address is used only
+   if you allow it for that Mac (it's unencrypted, and the app marks it ⚠).
+5. **Notifications** (optional): after the Mac allows the phone, the app asks once whether it may
+   send notifications. You can change this later in the phone's settings.
+
+**Remove a phone:** on the Mac, open the devices panel → **Revoke…** next to the phone → **Revoke**.
+The phone loses access at once (and its notifications stop); the next time it opens, it wipes its
+credentials and returns to the pairing screen. From the phone, **Unpair** in the app does the same.
+
+**Lost phone:** revoke it on the Mac straight away. Nothing on the phone works after that.
+
+**Troubleshooting**
+
+| You see | Do |
+|---|---|
+| "The pairing code expired" | Codes last 2 minutes: press Pair a phone again |
+| Waiting for your Mac | Press Allow in the Mac's devices panel |
+| The app can't reach the Mac | Check Tailscale is on for both devices, or allow the home network for that Mac |
+| Sent back to the pairing screen | The phone was revoked, or the Mac's password changed: pair again |
 
 ## Native hooks
 
