@@ -17,7 +17,12 @@ import {
   removeWsClient,
   removeClientFromAllTerminals,
   getTerminalSessionId,
+  isOpsTerminal,
+  getForegroundProcess,
 } from './sshManager.js';
+import { isAgentProcessName } from './mobile/phoneProfile.js';
+import { bindRemoteClientId } from './clientBinding.js';
+import { isLineageAlive } from './authManager.js';
 import * as presence from './presenceManager.js';
 import { isLoopbackAddress } from './presenceManager.js';
 import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
@@ -37,6 +42,8 @@ interface WsClient extends WebSocket {
    *  once at connect from the SAME predicate as the auth gate and the device
    *  list, so all three agree on what "this machine" means. */
   _isLocal: boolean;
+  /** The paired phone this socket belongs to (AASC-15), so revoking it can close the socket. */
+  _deviceId: string | null;
   /** Last time we told this client it lacks control of a session — throttles the notice. */
   _lastDenyAt: Map<string, number>;
 }
@@ -46,6 +53,16 @@ export interface ClientIdentity {
   clientId: string;
   label: string;
   address: string;
+  /**
+   * Whether the connection is the Mac itself, decided by `isLocalRequest`
+   * (requestLocality.ts) on the upgrade request. The peer address alone is not
+   * enough: a tunnel on this machine connects from 127.0.0.1 too.
+   */
+  isLocal?: boolean;
+  /** The sign-in lineage of the token this socket authenticated with (remote devices). */
+  lineage?: string | null;
+  /** Set when the socket authenticated with a session a paired phone obtained (server/mobile). */
+  deviceId?: string | null;
 }
 
 /**
@@ -118,16 +135,33 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
   client._msgCount = 0;
   client._msgWindowStart = Date.now();
   client._clientId = identity?.clientId ?? '';
-  // An unknown address fails CLOSED (treated as remote), matching the auth
-  // gate: for a visibility boundary that is the correct direction.
-  client._isLocal = isLoopbackAddress(identity?.address ?? '');
+  // The upgrade handler decides locality with `isLocalRequest` and passes it
+  // in. Callers that only know an address (tests) fall back to the loopback
+  // check; an unknown address still fails CLOSED (treated as remote).
+  client._isLocal = identity?.isLocal ?? isLoopbackAddress(identity?.address ?? '');
   client._label = presence.sanitizeDeviceLabel(identity?.label ?? '');
+  client._deviceId = identity?.deviceId ?? null;
+  // A remote device must not borrow the desktop's id: that id passes the
+  // control check and would demote the desktop to "remote" in presence
+  // (AASC-27). It connects as an anonymous socket instead, which can watch but
+  // never type.
+  if (!client._isLocal && client._clientId && presence.getDevice(client._clientId)?.isLocal) {
+    log.warn('ws', 'Remote socket presented a local device id; connecting it anonymously');
+    client._clientId = '';
+  }
+  // Nor another remote device's id: the id belongs to the sign-in that first used it.
+  if (!client._isLocal && client._clientId
+      && !bindRemoteClientId(client._clientId, identity?.lineage ?? null, isLineageAlive)) {
+    log.warn('ws', 'Remote socket presented a device id owned by another sign-in; connecting it anonymously');
+    client._clientId = '';
+  }
   client._lastDenyAt = new Map();
   if (client._clientId) {
     presence.registerClient({
       clientId: client._clientId,
       label: client._label,
       address: identity?.address ?? '',
+      isLocal: client._isLocal,
     });
   }
   log.info('ws', `Client connected (total: ${clients.size})`);
@@ -194,6 +228,13 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
             // into one PTY interleaves their keystrokes into garbage, so a
             // spectator's input is dropped until it holds the session's baton.
             if (!holdsControl(client, msg.terminalId)) break;
+            // A paired phone types only into a running agent: every agent
+            // terminal is a login shell underneath, so after the agent exits the
+            // same keystrokes would be shell commands (AASC-28).
+            if (client._deviceId && !isAgentProcessName(getForegroundProcess(msg.terminalId))) {
+              noticeAgentNotRunning(client, msg.terminalId);
+              break;
+            }
             writeToTerminal(msg.terminalId, msg.data);
           }
           break;
@@ -276,6 +317,8 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
         case WS_TYPES.UPDATE_QUEUE_COUNT:
           if (typeof msg.sessionId === 'string' && typeof msg.count === 'number'
               && Number.isInteger(msg.count) && msg.count >= 0 && msg.count <= 10000) {
+            // A remote device may only touch a session it can see (AASC-29).
+            if (!client._isLocal && !canSeeSession(false, getSession(msg.sessionId))) break;
             const updated = updateQueueCount(msg.sessionId, msg.count);
             if (updated) {
               broadcast({ type: WS_TYPES.SESSION_UPDATE, session: updated });
@@ -288,6 +331,9 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
             const missed = getEventsSince(msg.sinceSeq);
             log.debug('ws', `Replaying ${missed.length} events since seq=${msg.sinceSeq}`);
             for (const evt of missed) {
+              // The replay buffer holds every session's updates; a remote device
+              // gets only those it could have received live (AASC-27).
+              if (!mayReplay(client, evt.data)) continue;
               client.send(JSON.stringify(evt.data));
             }
           }
@@ -402,6 +448,10 @@ function sessionIdForTerminal(terminalId: string): string | null {
  */
 function canSubscribeToTerminal(client: WsClient, terminalId: string): boolean {
   if (client._isLocal) return true;
+  // A paired phone never sees or types into an ops shell: it is a plain command
+  // prompt, the one thing the phone profile exists to keep out of reach (AASC-28).
+  // Typing goes through holdsControl, which asks this same question.
+  if (client._deviceId && isOpsTerminal(terminalId)) return false;
   const sessionId = sessionIdForTerminal(terminalId);
   if (!sessionId) return false;
   return canSeeSession(false, getSession(sessionId));
@@ -418,10 +468,17 @@ function canSubscribeToTerminal(client: WsClient, terminalId: string): boolean {
  * rather than looking broken.
  */
 function holdsControl(client: WsClient, terminalId: string): boolean {
-  // An unidentified socket (an old cached client, or a non-browser consumer)
-  // is not arbitrated: it writes freely, exactly as before this feature. It
-  // must NOT reach noteControlActivity, which would otherwise register '' as
-  // the holder and put a phantom device in the presence UI.
+  // Remote devices (AASC-27): an anonymous socket never types, and the session
+  // must still be shared NOW. Un-sharing doesn't wait for the device to
+  // resubscribe; every write re-checks.
+  if (!client._isLocal) {
+    if (!client._clientId) return false;
+    if (!canSubscribeToTerminal(client, terminalId)) return false;
+  }
+  // An unidentified LOCAL socket (an old cached client, or a non-browser
+  // consumer on this machine) is not arbitrated: it writes freely, exactly as
+  // before this feature. It must NOT reach noteControlActivity, which would
+  // otherwise register '' as the holder and put a phantom device in the UI.
   if (!client._clientId) return true;
 
   const sessionId = sessionIdForTerminal(terminalId);
@@ -446,9 +503,111 @@ function holdsControl(client: WsClient, terminalId: string): boolean {
   return false;
 }
 
+/** Tell a phone, at most every few seconds, why its keystrokes went nowhere. */
+function noticeAgentNotRunning(client: WsClient, terminalId: string): void {
+  const key = `agent:${terminalId}`;
+  const now = Date.now();
+  if (now - (client._lastDenyAt.get(key) ?? 0) < CONTROL_DENY_NOTICE_MS || client.readyState !== 1) return;
+  client._lastDenyAt.set(key, now);
+  try {
+    client.send(JSON.stringify({ type: 'terminal_error', terminalId, error: 'A phone can type only while the agent is running' }));
+  } catch { /* client vanished mid-send */ }
+}
+
+/**
+ * The presence a client may see. Remote devices don't learn which hidden
+ * sessions exist through the control-baton list (AASC-27).
+ */
+export function presenceFor(isLocal: boolean): ReturnType<typeof presence.presenceSnapshot> {
+  const snapshot = presence.presenceSnapshot();
+  if (isLocal) return snapshot;
+  return {
+    ...snapshot,
+    controllers: snapshot.controllers.filter((c) => canSeeSession(false, getSession(c.sessionId))),
+  };
+}
+
+/**
+ * Close every live socket of a paired phone (AASC-15: revoke must end its
+ * access within seconds, not when its session token next expires).
+ */
+export function disconnectDevice(deviceId: string): number {
+  let closed = 0;
+  for (const client of clients) {
+    if (client._deviceId === deviceId) {
+      // terminate(), not close(): ws keeps delivering incoming messages while a
+      // close handshake is pending (up to its 30 s timeout), so a client that
+      // ignores the close frame could keep typing after revocation.
+      client.terminate();
+      closed++;
+    }
+  }
+  return closed;
+}
+
+type BroadcastListener = (data: { type: string; [key: string]: unknown }) => void;
+const broadcastListeners = new Set<BroadcastListener>();
+
+/**
+ * Observe every outgoing broadcast (AASC-16: the push notifier watches
+ * session_update). A listener that throws is logged and never breaks the
+ * broadcast itself. Returns an unsubscribe function.
+ */
+export function onBroadcast(listener: BroadcastListener): () => void {
+  broadcastListeners.add(listener);
+  return () => { broadcastListeners.delete(listener); };
+}
+
 /** Push presence state to every client (device list, batons, writer). */
 export function broadcastPresence(): void {
-  broadcast({ type: WS_TYPES.PRESENCE_UPDATE, ...presence.presenceSnapshot() });
+  for (const client of clients) {
+    if (client.readyState !== 1) continue;
+    try {
+      client.send(JSON.stringify({ type: WS_TYPES.PRESENCE_UPDATE, ...presenceFor(client._isLocal) }));
+    } catch { /* client disconnected */ }
+  }
+}
+
+/** May this client receive a buffered event on replay? Mirrors the live broadcast rule, using current visibility. */
+function mayReplay(client: WsClient, data: unknown): boolean {
+  if (client._isLocal) return true;
+  if (!data || typeof data !== 'object') return true;
+  const subject = broadcastSubject(data as { type: string; [key: string]: unknown });
+  if (!subject) return true;
+  const sessionId = (subject as { sessionId?: unknown }).sessionId;
+  const live = typeof sessionId === 'string' ? getSession(sessionId) : null;
+  // Both the session as it was and as it is now must be visible: an event from
+  // while it was shared is not replayed after it was hidden.
+  return canSeeSession(false, subject) && canSeeSession(false, live ?? UNRESOLVED_SUBJECT);
+}
+
+/**
+ * A session stopped being shared: cut every remote device off it at once
+ * (AASC-27). Their terminal subscriptions end, and the session card goes away.
+ * Returns how many subscriptions were dropped.
+ */
+export function revokeRemoteSessionAccess(sessionId: string): number {
+  let dropped = 0;
+  for (const client of clients) {
+    if (client._isLocal) continue;
+    for (const terminalId of [...client._terminalIds]) {
+      if (sessionIdForTerminal(terminalId) !== sessionId) continue;
+      removeWsClient(terminalId, client);
+      client._terminalIds.delete(terminalId);
+      dropped++;
+      if (client.readyState === 1) {
+        try {
+          client.send(JSON.stringify({ type: WS_TYPES.TERMINAL_CLOSED, terminalId, reason: 'hidden' }));
+        } catch { /* client disconnected */ }
+      }
+    }
+    if (client.readyState === 1) {
+      try {
+        client.send(JSON.stringify({ type: WS_TYPES.SESSION_REMOVED, sessionId }));
+      } catch { /* client disconnected */ }
+    }
+  }
+  return dropped;
 }
 
 /**
@@ -488,6 +647,13 @@ export function broadcast(data: { type: string; [key: string]: unknown }): void 
 
   const critical = isCriticalBroadcast(data);
   broadcastToClients(data, critical);
+  for (const listener of broadcastListeners) {
+    try {
+      listener(data);
+    } catch (err) {
+      log.warn('ws', `Broadcast listener failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 }
 
 /**

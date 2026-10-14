@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { isNativeMobileApp } from '@/lib/platform';
 
 const TOKEN_KEY = 'auth_token';
 
@@ -25,6 +26,9 @@ function getStoredToken(): string | null {
 }
 
 function storeToken(token: string): void {
+  // The phone app keeps its credentials in the Keychain/Keystore, never in
+  // WebView storage; its session is the HttpOnly cookie (AASC-17).
+  if (isNativeMobileApp()) return;
   try {
     localStorage.setItem(TOKEN_KEY, token);
   } catch {

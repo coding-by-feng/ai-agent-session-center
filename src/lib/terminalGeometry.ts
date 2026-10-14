@@ -82,12 +82,14 @@ export function resolveRenderCols(
  * a desktop *browser* has no `electronAPI` but is perfectly entitled to drive
  * the PTY, and treating it as a phone would freeze its terminal geometry.
  */
-export function mayDrivePtyGeometry(isMobile: boolean): boolean {
-  return !isMobile;
+export function mayDrivePtyGeometry(isMobile: boolean, isNativeApp = false): boolean {
+  // The phone app never drives it, whatever its width: a phone in landscape
+  // or a tablet is wider than the mobile breakpoint (AASC-17).
+  return !isMobile && !isNativeApp;
 }
 
 /** The mode a device should start in. Phones pan (layout survives); everything
  *  else fits its container as it always has. */
-export function defaultWidthMode(isMobile: boolean): TerminalWidthMode {
-  return isMobile ? 'pan' : 'wrap';
+export function defaultWidthMode(isMobile: boolean, isNativeApp = false): TerminalWidthMode {
+  return isMobile || isNativeApp ? 'pan' : 'wrap';
 }

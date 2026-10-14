@@ -205,7 +205,7 @@
 }
 
 /* #72 — Reduce modal padding on small phones */
-@media (max-width: 480px) {
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
   .panel {
     padding: 12px;
     max-width: calc(100vw - 16px);
@@ -269,7 +269,7 @@
 }
 
 /* #71 — Form labels: min 12px on mobile */
-@media (max-width: 480px) {
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
   .sshField label {
     font-size: 12px;
   }

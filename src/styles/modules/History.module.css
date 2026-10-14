@@ -265,7 +265,7 @@
   .rowStatus { justify-self: end; }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
   .view { padding: 8px 16px; }
   .search { flex-basis: 100%; }
   /* Two filters to a line. Two classes beat NativeSelect's own

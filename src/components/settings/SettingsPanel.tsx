@@ -13,18 +13,21 @@ import ApiKeySettings from './ApiKeySettings';
 import TranslationSettings from './TranslationSettings';
 
 import ShortcutSettings from './ShortcutSettings';
+import { isNativeMobileApp } from '@/lib/platform';
 import headerStyles from '@/styles/modules/Header.module.css';
 import styles from '@/styles/modules/Settings.module.css';
 
 type SettingsTab = 'appearance' | 'sound' | 'hooks' | 'apikeys' | 'translation' | 'shortcuts' | 'advanced';
 
-const TABS: Array<{ id: SettingsTab; label: string }> = [
+// `hideInNativeApp`: HOOKS installs hooks into this Mac's CLI settings and
+// SHORTCUTS needs a hardware keyboard; neither is a phone setting (AASC-17).
+const TABS: Array<{ id: SettingsTab; label: string; hideInNativeApp?: boolean }> = [
   { id: 'appearance', label: 'APPEARANCE' },
   { id: 'sound', label: 'SOUND' },
-  { id: 'hooks', label: 'HOOKS' },
+  { id: 'hooks', label: 'HOOKS', hideInNativeApp: true },
   { id: 'apikeys', label: 'API KEYS' },
   { id: 'translation', label: 'TRANSLATION' },
-  { id: 'shortcuts', label: 'SHORTCUTS' },
+  { id: 'shortcuts', label: 'SHORTCUTS', hideInNativeApp: true },
   { id: 'advanced', label: 'ADVANCED' },
 ];
 
@@ -94,7 +97,7 @@ export default function SettingsPanel() {
 
         {/* Tab Navigation */}
         <div className={styles.tabs}>
-          {TABS.map((tab) => (
+          {TABS.filter((tab) => !(tab.hideInNativeApp && isNativeMobileApp())).map((tab) => (
             <button
               key={tab.id}
               className={`${styles.tab}${activeTab === tab.id ? ` ${styles.active}` : ''}`}

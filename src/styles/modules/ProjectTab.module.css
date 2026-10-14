@@ -1665,7 +1665,7 @@
 .welcomeHintDesktop { display: block; }
 .welcomeHintMobile { display: none; }
 
-@media (max-width: 480px) {
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
   .mobileTreeToggle {
     display: inline-flex;
   }

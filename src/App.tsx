@@ -20,9 +20,6 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useAuth } from '@/hooks/useAuth';
 import LoginScreen from '@/components/auth/LoginScreen';
 import { useSettingsInit } from '@/hooks/useSettingsInit';
-import { useWorkspaceAutoSave } from '@/hooks/useWorkspaceAutoSave';
-import { useWorkspaceAutoLoad } from '@/hooks/useWorkspaceAutoLoad';
-import { useGlobalQueueScheduler } from '@/hooks/useGlobalQueueScheduler';
 import { retryOnceUnlessRefused } from '@/lib/requestJson';
 import LiveView from '@/routes/LiveView';
 import TitleBar from '@/components/layout/TitleBar';
@@ -30,6 +27,10 @@ import SavingOverlay from '@/components/ui/SavingOverlay';
 import WorkspaceLoadingOverlay from '@/components/ui/WorkspaceLoadingOverlay';
 import RestorePickerModal from '@/components/modals/RestorePickerModal';
 import { useSessionStore } from '@/stores/sessionStore';
+import { isNativeMobileApp } from '@/lib/platform';
+import DesktopAutomationGate from '@/components/layout/DesktopAutomation';
+import NativeReauth from '@/components/auth/NativeReauth';
+import { useSessionDeepLink } from '@/hooks/useSessionDeepLink';
 import { useUiStore } from '@/stores/uiStore';
 import appLayout from '@/styles/modules/AppLayout.module.css';
 
@@ -114,9 +115,7 @@ function AppLayout() {
 function Dashboard({ token }: { token: string | null }) {
   useSettingsInit();
   useWebSocket(token);
-  useWorkspaceAutoSave();
-  useWorkspaceAutoLoad();
-  useGlobalQueueScheduler();
+  useSessionDeepLink();
 
   const [saving, setSaving] = useState(false);
   const [saveProgress, setSaveProgress] = useState(0);
@@ -164,6 +163,7 @@ function Dashboard({ token }: { token: string | null }) {
 
   return (
     <>
+      <DesktopAutomationGate />
       {saving && (
         <SavingOverlay
           progress={saveProgress}
@@ -217,6 +217,9 @@ function AuthGate() {
   }
 
   if (needsLogin) {
+    // The phone app never shows the password form: its shell re-exchanges the
+    // device token for a session and comes back (AASC-17).
+    if (isNativeMobileApp()) return <NativeReauth />;
     return <LoginScreen onLogin={login} />;
   }
 

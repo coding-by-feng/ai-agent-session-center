@@ -148,7 +148,7 @@
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
   .input {
     box-sizing: border-box;
     max-width: 100%;

@@ -2,7 +2,8 @@
 import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { isLoopbackAddress } from './presenceManager.js';
+import { isLocalRequest } from './requestLocality.js';
+import { bindRemoteClientId } from './clientBinding.js';
 import { canSeeSession, filterVisibleSessions, countHiddenSessions } from './sessionVisibility.js';
 
 // Express 5 types req.params as string | string[] and req.query similarly.
@@ -12,16 +13,17 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel, syncPlanUsage } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel, syncPlanUsage, getSessionIdByTerminalId } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
 import { getLocalIP } from './networkInfo.js';
-import { isPasswordEnabled } from './authManager.js';
-import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, maybeInjectUltracode, attachToTmuxPane, consumePendingLink, prefillTerminalOutput, setReplayBufferBytes } from './sshManager.js';
+import { isPasswordEnabled, getTokenLineage, isLineageAlive, extractToken } from './authManager.js';
+import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, maybeInjectUltracode, attachToTmuxPane, consumePendingLink, prefillTerminalOutput, setReplayBufferBytes, getTerminalSessionId } from './sshManager.js';
 import { terminateProcessTree } from './processMonitor.js';
 import { restartSessionTerminal, isSessionRestarting, holdSessionClosing } from './sessionRestart.js';
 import { checkTerminalCapacity } from './terminalCapacity.js';
 import { findLiveCodexPidPeers } from './sessionKillPolicy.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
+import { listKnownProjects } from './knownProjects.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
 import * as db from './db.js';
 import { saveNoteMedia, resolveNoteMedia, deleteNoteMediaForSession, MAX_MEDIA_BYTES } from './noteMedia.js';
@@ -52,10 +54,11 @@ const router = Router();
 // ---------------------------------------------------------------------------
 
 /** True when the request came from the machine running the server. Uses the
- *  same predicate as the auth gate and the device list — never a second
- *  hand-rolled comparison. An unknown address fails CLOSED (treated remote). */
+ *  same rule as the auth gate and the device list (`isLocalRequest`), which also
+ *  treats proxied and remote-listener requests as remote. An unknown address
+ *  fails CLOSED (treated remote). */
 function requestIsLocal(req: Request): boolean {
-  return isLoopbackAddress(req.ip || req.socket?.remoteAddress || '');
+  return isLocalRequest(req);
 }
 
 /**
@@ -70,6 +73,32 @@ function requestIsLocal(req: Request): boolean {
  * able to distinguish "no such session" from "hidden from you", or the status
  * code becomes an oracle for enumerating session ids.
  */
+/** The session that owns a terminal (PTY or ops shell), or null when it can't be attributed. */
+function sessionIdOfTerminal(terminalId: string): string | null {
+  return getTerminalSessionId(terminalId) ?? getSessionIdByTerminalId(terminalId);
+}
+
+/**
+ * The /terminals/:id family for remote devices (AASC-25): the same rule as
+ * TERMINAL_SUBSCRIBE on the live connection. A terminal reaches a remote device
+ * only through a session it can see; an unattributable terminal (an ops shell
+ * of no known session, a PTY whose first hook hasn't landed) fails closed. 404,
+ * never 403, so "hidden" and "no such terminal" can't be told apart.
+ */
+function requireVisibleTerminal(req: Request, res: Response, next: NextFunction): void {
+  if (requestIsLocal(req)) { next(); return; }
+  const sessionId = sessionIdOfTerminal(str(req.params.id));
+  if (sessionId && canSeeSession(false, getSession(sessionId))) { next(); return; }
+  log.warn('api', `Blocked remote ${req.method} ${req.path} — terminal of a hidden session`);
+  res.status(404).json({ error: 'Terminal not found' });
+}
+
+/** Desktop-only routes: invisible (404) to every remote device. */
+function requireLocalOnly(req: Request, res: Response, next: NextFunction): void {
+  if (requestIsLocal(req)) { next(); return; }
+  res.status(404).json({ error: 'Not found' });
+}
+
 function requireVisibleSession(req: Request, res: Response, next: NextFunction): void {
   if (requestIsLocal(req)) { next(); return; }
   const id = str(req.params.id);
@@ -101,7 +130,14 @@ function refuseWhileRestarting(sessionId: string, res: Response): boolean {
  * workspace restore.
  */
 function clientIdFromRequest(req: Request): string {
-  return str(req.headers['x-aasc-client-id']).slice(0, 128);
+  const clientId = str(req.headers['x-aasc-client-id']).slice(0, 128);
+  if (!clientId || requestIsLocal(req)) return clientId;
+  // A remote device can't borrow a local device's id (the desktop's), nor
+  // another remote device's: the id belongs to the sign-in that first used it
+  // (AASC-27). Either would pass the control check on someone else's behalf.
+  if (presence.getDevice(clientId)?.isLocal) return '';
+  if (!bindRemoteClientId(clientId, getTokenLineage(extractToken(req)), isLineageAlive)) return '';
+  return clientId;
 }
 
 function clientLabelFromRequest(req: Request): string {
@@ -1068,6 +1104,8 @@ router.post('/sessions/:id/fork', async (req: Request, res: Response) => {
         sessionTitle: newTitle,
         isFork: true,
         originSessionId: sessionId,
+        // A fork a remote device asks for is shared with it (AASC-28).
+        ...(requestIsLocal(req) ? {} : { remoteVisible: true }),
       });
 
       const isRemote = cfg.host && cfg.host !== 'localhost' && cfg.host !== '127.0.0.1';
@@ -1096,6 +1134,8 @@ router.post('/sessions/:id/fork', async (req: Request, res: Response) => {
         sessionTitle: newTitle,
         isFork: true,
         originSessionId: sessionId,
+        // A fork a remote device asks for is shared with it (AASC-28).
+        ...(requestIsLocal(req) ? {} : { remoteVisible: true }),
       });
 
       writeWhenReady(newTerminalId, `${forkCmd}\r`);
@@ -1140,6 +1180,8 @@ router.post('/sessions/:id/clone', async (req: Request, res: Response) => {
         sessionTitle: newTitle,
         isFork: true,
         originSessionId: sessionId,
+        // A fork a remote device asks for is shared with it (AASC-28).
+        ...(requestIsLocal(req) ? {} : { remoteVisible: true }),
       });
       const isRemote = cfg.host && cfg.host !== 'localhost' && cfg.host !== '127.0.0.1';
       let prefix = '';
@@ -1164,6 +1206,8 @@ router.post('/sessions/:id/clone', async (req: Request, res: Response) => {
         sessionTitle: newTitle,
         isFork: true,
         originSessionId: sessionId,
+        // A fork a remote device asks for is shared with it (AASC-28).
+        ...(requestIsLocal(req) ? {} : { remoteVisible: true }),
       });
       writeWhenReady(newTerminalId, `${cloneCmd}\r`);
       maybeInjectUltracode(newTerminalId, session.effortLevel, cloneCmd);
@@ -1564,6 +1608,18 @@ router.put('/sessions/:id/remote-visible', (req: Request, res: Response) => {
   if (!getSession(id)) { res.status(404).json({ error: 'Session not found' }); return; }
   const visible = req.body?.remoteVisible === true;
   setSessionRemoteVisible(id, visible);
+  // Un-sharing cuts remote devices off at once (AASC-27): their terminal
+  // subscriptions end and the card disappears, instead of streaming on until
+  // they happen to resubscribe. wsManager is loaded lazily (see broadcastPresence).
+  if (!visible) {
+    void (async () => {
+      try {
+        const ws = await import('./wsManager.js');
+        ws.revokeRemoteSessionAccess(id);
+        ws.broadcastPresence();
+      } catch { /* ignore */ }
+    })();
+  }
   res.json({ success: true, remoteVisible: visible });
 });
 
@@ -1776,12 +1832,16 @@ router.post('/terminals', async (req: Request, res: Response) => {
 
     // Deduplicate: if an active session with matching config already exists, return it
     // Skip deduplication when forceNew is explicitly requested (e.g. Quick session modal)
+    // A remote device is never handed a hidden session as "the one already running
+    // here": its id is not the device's to learn (AASC-28). It gets a new one.
+    const isLocalCaller = requestIsLocal(req);
+    const reusable = (s: Parameters<typeof canSeeSession>[1]): boolean => isLocalCaller || canSeeSession(false, s);
     if (!body.forceNew) {
       // Priority 1: exact match by originalSessionId (workspace snapshot restart)
       // This correctly distinguishes multiple sessions sharing the same project path.
       if (body.originalSessionId) {
         const byId = getSession(body.originalSessionId);
-        if (byId && byId.status !== SESSION_STATUS.ENDED && !byId.archived) {
+        if (byId && byId.status !== SESSION_STATUS.ENDED && !byId.archived && reusable(byId)) {
           log.info('api', `Deduplicated by originalSessionId — reusing session ${byId.sessionId} for ${resolvedHost}:${config.workingDir}`);
           res.json({ ok: true, terminalId: byId.sessionId, deduplicated: true, hasTerminal: !!byId.terminalId });
           return;
@@ -1794,7 +1854,7 @@ router.post('/terminals', async (req: Request, res: Response) => {
       // UUID (e.g. multiple Claude sessions in the same project directory).
       if (!body.originalSessionId) {
         const existing = findActiveSessionByConfig(config);
-        if (existing) {
+        if (existing && reusable(existing)) {
           log.info('api', `Deduplicated terminal creation — reusing session ${existing.sessionId} for ${resolvedHost}:${config.workingDir}`);
           res.json({ ok: true, terminalId: existing.sessionId, deduplicated: true, hasTerminal: !!existing.terminalId });
           return;
@@ -1860,7 +1920,10 @@ router.post('/terminals', async (req: Request, res: Response) => {
     // Resume imports keep the original config.command while spawning a transient
     // blank shell. Raw startup-command imports intentionally store command=''
     // and keep the full launch string in startupCommand.
-    await createTerminalSession(terminalId, config, opsTerminalId);
+    // A session a remote device starts is shared with remote devices from its
+    // first broadcast, or the device that asked for it could never see it
+    // (AASC-28). Only the new card: a device still can't unhide another one.
+    await createTerminalSession(terminalId, isLocalCaller ? config : { ...config, remoteVisible: true }, opsTerminalId);
 
     // The device that launched a session controls it. This is what makes the
     // "joining device is a spectator by default" rule fall out with no extra
@@ -1913,8 +1976,16 @@ router.post('/terminals', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/terminals', (_req: Request, res: Response) => {
-  res.json({ terminals: getTerminals() });
+router.get('/terminals', (req: Request, res: Response) => {
+  const all = getTerminals();
+  // A remote device lists only the terminals of sessions shared with it (AASC-25).
+  const terminals = requestIsLocal(req)
+    ? all
+    : all.filter((t) => {
+      const sessionId = sessionIdOfTerminal(t.terminalId);
+      return Boolean(sessionId) && canSeeSession(false, getSession(sessionId!));
+    });
+  res.json({ terminals });
 });
 
 // Register an externally-created terminal (e.g. Electron ptyHost) with the
@@ -1930,7 +2001,7 @@ const terminalRegisterSchema = z.object({
   source: z.string().optional(),
 });
 
-router.post('/terminals/register', async (req: Request, res: Response) => {
+router.post('/terminals/register', requireLocalOnly, async (req: Request, res: Response) => {
   const body = validateBody(terminalRegisterSchema, req.body, res);
   if (!body) return;
 
@@ -1954,7 +2025,7 @@ router.post('/terminals/register', async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/terminals/:id', (req: Request, res: Response) => {
+router.delete('/terminals/:id', requireVisibleTerminal, (req: Request, res: Response) => {
   closeTerminal(str(req.params.id));
   res.json({ ok: true });
 });
@@ -1962,7 +2033,7 @@ router.delete('/terminals/:id', (req: Request, res: Response) => {
 // Snapshot the ring-buffer output for a terminal. Used by the REVIEW tab to
 // capture floating-session output at close time, but useful for any consumer
 // that wants the current visible buffer without subscribing to the ws stream.
-router.get('/terminals/:id/output', async (req: Request, res: Response) => {
+router.get('/terminals/:id/output', requireVisibleTerminal, async (req: Request, res: Response) => {
   const { getTerminalOutputBuffer } = await import('./sshManager.js');
   const id = str(req.params.id);
   const base64 = getTerminalOutputBuffer(id);
@@ -2034,7 +2105,7 @@ router.post('/queue-images', (req: Request, res: Response) => {
 
 // Prefill a terminal's output ring buffer with saved data (base64).
 // Used during workspace import to restore previous terminal scrollback.
-router.post('/terminals/:id/prefill-output', (req: Request, res: Response) => {
+router.post('/terminals/:id/prefill-output', requireLocalOnly, (req: Request, res: Response) => {
   const terminalId = str(req.params.id);
   const { data } = req.body || {};
   if (!data || typeof data !== 'string') {
@@ -2049,8 +2120,19 @@ router.post('/terminals/:id/prefill-output', (req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
-router.post('/terminals/:id/write', (req: Request, res: Response) => {
+router.post('/terminals/:id/write', requireVisibleTerminal, (req: Request, res: Response) => {
   const terminalId = str(req.params.id);
+  // A remote device types only while it holds the session's control baton, the
+  // same rule as terminal_input on the live connection (AASC-25). Unlike a
+  // socket, an anonymous remote request is not arbitrated: it is refused.
+  if (!requestIsLocal(req)) {
+    const clientId = clientIdFromRequest(req);
+    const sessionId = sessionIdOfTerminal(terminalId);
+    if (!clientId || !sessionId || !presence.noteControlActivity(sessionId, clientId)) {
+      res.status(409).json({ error: 'Another device is driving this session', code: 'CONTROL_HELD' });
+      return;
+    }
+  }
   const { data } = req.body || {};
   if (!data || typeof data !== 'string') {
     res.status(400).json({ error: 'Missing or invalid "data" field' });
@@ -2073,9 +2155,17 @@ router.post('/terminals/:id/write', (req: Request, res: Response) => {
 // ── Team Endpoints ──
 
 // Get team config from ~/.claude/teams/{teamName}/config.json
+/**
+ * A team reaches a remote device only through its lead session (AASC-29): the
+ * config names every member, so a hidden team answers exactly like a missing one.
+ */
+function remoteMaySeeTeam(req: Request, team: { parentSessionId: string }): boolean {
+  return requestIsLocal(req) || canSeeSession(false, getSession(team.parentSessionId));
+}
+
 router.get('/teams/:teamId/config', (req: Request, res: Response) => {
   const team = getTeam(str(req.params.teamId));
-  if (!team) {
+  if (!team || !remoteMaySeeTeam(req, team)) {
     res.status(404).json({ error: 'Team not found' });
     return;
   }
@@ -2105,7 +2195,7 @@ router.post('/teams/:teamId/members/:sessionId/terminal', async (req: Request, r
 
   // Validate team exists
   const team = getTeam(teamId);
-  if (!team) {
+  if (!team || !remoteMaySeeTeam(req, team)) {
     res.status(404).json({ error: 'Team not found' });
     return;
   }
@@ -2119,7 +2209,7 @@ router.post('/teams/:teamId/members/:sessionId/terminal', async (req: Request, r
 
   // Get the member's session to find tmuxPaneId
   const session = getSession(sessionId);
-  if (!session) {
+  if (!session || (!requestIsLocal(req) && !canSeeSession(false, session))) {
     res.status(404).json({ error: 'Session not found' });
     return;
   }
@@ -2160,21 +2250,71 @@ router.post('/teams/:teamId/members/:sessionId/terminal', async (req: Request, r
  * Localhost is untouched: the desktop's History and Prompts views behave
  * exactly as before.
  */
-function requireLocalForHistory(req: Request, res: Response, next: NextFunction): void {
-  if (requestIsLocal(req)) { next(); return; }
-  const id = str(req.params.id) || str(req.query.sessionId);
-  // A single-session lookup is allowed when that session is visible.
-  if (id && canSeeSession(false, getSession(id))) { next(); return; }
-  log.warn('api', `Blocked remote ${req.method} ${req.path} — history is host-only`);
+function refuseHistory(req: Request, res: Response): void {
+  log.warn('api', `Blocked remote ${req.method} ${req.baseUrl}${req.path} — history is host-only`);
   res.status(403).json({
     error: 'Session history is only available on the host machine',
     code: 'HISTORY_HOST_ONLY',
   });
 }
 
-router.use('/db/sessions', requireLocalForHistory);
+/**
+ * Only the session a request READS decides, never one it names on the side
+ * (AASC-29). The old gate took `str(req.params.id) || str(req.query.sessionId)`,
+ * but `params.id` is always empty in a `router.use` mount, so any request that
+ * named a shared session in `?sessionId=` passed — and then listed, searched,
+ * opened or deleted whatever its path pointed at.
+ *
+ *   /db/sessions               every session          → host only
+ *   /db/sessions/:id[/…]       one session            → that session must be shared
+ *   /db/search, /db/projects   across every session   → host only
+ *   /db/prompts                the prompt trace       → only with ?session=<shared id>,
+ *                                                       the filter the handler applies
+ */
+function requireSharedHistory(sessionOf: (req: Request) => string): (req: Request, res: Response, next: NextFunction) => void {
+  return (req, res, next) => {
+    if (requestIsLocal(req)) { next(); return; }
+    const id = sessionOf(req);
+    if (id && canSeeSession(false, getSession(id))) { next(); return; }
+    refuseHistory(req, res);
+  };
+}
+
+function requireLocalForHistory(req: Request, res: Response, next: NextFunction): void {
+  if (requestIsLocal(req)) { next(); return; }
+  refuseHistory(req, res);
+}
+
+/** The session id in `/db/sessions/<id>/…`, relative to the mount; '' for the list itself. */
+function historyPathSessionId(req: Request): string {
+  const first = req.path.split('/').filter(Boolean)[0] ?? '';
+  try { return decodeURIComponent(first); } catch { return ''; }
+}
+
+router.use('/db/sessions', requireSharedHistory(historyPathSessionId));
+router.use('/db/prompts', requireSharedHistory((req) => str(req.query.session)));
 router.use('/db/search', requireLocalForHistory);
-router.use('/db/prompts', requireLocalForHistory);
+router.use('/db/projects', requireLocalForHistory);
+
+/**
+ * Notes and their media are addressed by their own ids, so the /sessions/:id
+ * and history gates never see a session. Resolve the owner first (AASC-29);
+ * 404 for a hidden owner, the same answer as an unknown id.
+ */
+function requireNoteOfSharedSession(req: Request, res: Response, next: NextFunction): void {
+  if (requestIsLocal(req)) { next(); return; }
+  const id = Number(str(req.params.id));
+  const owner = Number.isInteger(id) ? db.getNoteSessionId(id) : null;
+  if (owner && canSeeSession(false, getSession(owner))) { next(); return; }
+  res.status(404).json({ error: 'Note not found' });
+}
+
+function requireMediaOfSharedSession(req: Request, res: Response, next: NextFunction): void {
+  if (requestIsLocal(req)) { next(); return; }
+  const owner = db.getNoteMedia(str(req.params.id))?.session_id;
+  if (owner && canSeeSession(false, getSession(owner))) { next(); return; }
+  res.status(404).json({ error: 'Not found' });
+}
 
 
 // Search/list sessions from DB (used by history panel, replaces IndexedDB reads)
@@ -2301,7 +2441,7 @@ router.post('/db/sessions/:id/notes', (req: Request, res: Response) => {
   res.json(note);
 });
 
-router.put('/db/notes/:id', (req: Request, res: Response) => {
+router.put('/db/notes/:id', requireNoteOfSharedSession, (req: Request, res: Response) => {
   const body = validateBody(noteSchema, req.body, res);
   if (!body) return;
   const id = Number(str(req.params.id));
@@ -2317,7 +2457,7 @@ router.put('/db/notes/:id', (req: Request, res: Response) => {
   res.json(note);
 });
 
-router.delete('/db/notes/:id', (req: Request, res: Response) => {
+router.delete('/db/notes/:id', requireNoteOfSharedSession, (req: Request, res: Response) => {
   db.deleteNote(Number(str(req.params.id)));
   res.json({ ok: true });
 });
@@ -2344,7 +2484,7 @@ router.post('/db/sessions/:id/note-media', (req: Request, res: Response) => {
  * `<video>` seekable; streaming the whole file instead would force a full
  * download before the user could scrub.
  */
-router.get('/note-media/:id', (req: Request, res: Response) => {
+router.get('/note-media/:id', requireMediaOfSharedSession, (req: Request, res: Response) => {
   const media = resolveNoteMedia(str(req.params.id));
   if (!media) {
     res.status(404).json({ error: 'Not found' });
@@ -2375,58 +2515,8 @@ router.get('/sessions/history', (req: Request, res: Response) => {
 
 // ---- Known Claude Code projects (from ~/.claude/projects/) ----
 
-/**
- * Decode a Claude Code project directory name back to a real filesystem path.
- * Encoding: leading `-` = `/`, `--` = `.`, other `-` = `/` (but ambiguous
- * when folder names contain hyphens like `agent-manager`).
- * We resolve ambiguity by greedily matching against the actual filesystem.
- */
-function decodeProjectDir(encoded: string): string | null {
-  if (!encoded.startsWith('-')) return null;
-
-  // Replace `--` with a placeholder for `.` before splitting
-  const DOT = '\x00';
-  const prepared = encoded.slice(1).replace(/--/g, DOT);
-  const parts = prepared.split('-').map((p) => p.replaceAll(DOT, '.'));
-
-  // Greedily resolve: try longest segment match against filesystem first
-  function resolve(current: string, idx: number): string | null {
-    if (idx >= parts.length) return current;
-    for (let end = parts.length; end > idx; end--) {
-      const candidate = parts.slice(idx, end).join('-');
-      const fullPath = join(current, candidate);
-      if (existsSync(fullPath)) {
-        const result = resolve(fullPath, end);
-        if (result !== null) return result;
-      }
-    }
-    return null;
-  }
-
-  return resolve('/', 0);
-}
-
 router.get('/known-projects', (_req: Request, res: Response) => {
-  try {
-    const projectsDir = join(homedir(), '.claude', 'projects');
-    const entries = readdirSync(projectsDir, { withFileTypes: true });
-    const paths: string[] = [];
-
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      if (entry.name.includes('worktrees')) continue;
-
-      const decoded = decodeProjectDir(entry.name);
-      if (decoded && decoded !== '/') {
-        paths.push(decoded);
-      }
-    }
-
-    paths.sort();
-    res.json({ paths });
-  } catch {
-    res.json({ paths: [] });
-  }
+  res.json({ paths: listKnownProjects() });
 });
 
 // ---- File Browser (Project Tab) ----
@@ -3301,9 +3391,25 @@ router.post('/workspace/restore-claim/release', (req: Request, res: Response) =>
   res.json({ ok: true, released });
 });
 
-router.get('/presence', (_req: Request, res: Response) => {
-  res.json({ ok: true, data: presence.presenceSnapshot() });
+router.get('/presence', (req: Request, res: Response) => {
+  const snapshot = presence.presenceSnapshot();
+  // Remote devices don't learn hidden sessions' ids from the baton list (AASC-27).
+  const data = requestIsLocal(req)
+    ? snapshot
+    : { ...snapshot, controllers: snapshot.controllers.filter((c) => canSeeSession(false, getSession(c.sessionId))) };
+  res.json({ ok: true, data });
 });
+
+/**
+ * Control (baton) actions name a session. A remote device may only act on a
+ * session it can see: claiming a hidden session's baton would lock the desktop
+ * out of typing there (AASC-27). 404, like every other hidden-session route.
+ */
+function mayControlSession(req: Request, res: Response, sessionId: string): boolean {
+  if (requestIsLocal(req) || canSeeSession(false, getSession(sessionId))) return true;
+  res.status(404).json({ ok: false, error: 'Session not found' });
+  return false;
+}
 
 const ControlActionSchema = z.object({
   sessionId: z.string().min(1).max(200),
@@ -3317,6 +3423,7 @@ router.post('/presence/control/claim', (req: Request, res: Response) => {
     res.status(400).json({ ok: false, error: 'Invalid request' });
     return;
   }
+  if (!mayControlSession(req, res, parsed.data.sessionId)) return;
   const clientId = clientIdFromRequest(req);
   if (!clientId) {
     res.status(400).json({ ok: false, error: 'missing-client-id' });
@@ -3337,6 +3444,7 @@ router.post('/presence/control/release', (req: Request, res: Response) => {
     res.status(400).json({ ok: false, error: 'Invalid request' });
     return;
   }
+  if (!mayControlSession(req, res, parsed.data.sessionId)) return;
   const released = presence.releaseControl(parsed.data.sessionId, clientIdFromRequest(req));
   broadcastPresence();
   res.json({ ok: true, released });
@@ -3360,6 +3468,7 @@ router.post('/presence/control/request', (req: Request, res: Response) => {
     res.status(400).json({ ok: false, error: 'Invalid request' });
     return;
   }
+  if (!mayControlSession(req, res, parsed.data.sessionId)) return;
   const holder = presence.getController(parsed.data.sessionId);
   if (!holder) {
     res.json({ ok: false, error: 'session-is-free' });
@@ -3388,6 +3497,7 @@ router.post('/presence/control/grant', (req: Request, res: Response) => {
     return;
   }
   const { sessionId, toClientId } = parsed.data;
+  if (!mayControlSession(req, res, sessionId)) return;
   // Only the current holder may give it away; anyone else granting would be a
   // way to hand a session to a third device you don't control.
   const holder = presence.getController(sessionId);

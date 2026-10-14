@@ -43,6 +43,7 @@ import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { openTerminalPopupFallback } from '@/lib/popoutTerminalWindow';
 import { restartNeedsConfirm, restartConfirmMessage, requestSessionRestart } from '@/lib/restartSession';
 import { showToast } from '@/components/ui/ToastContainer';
+import { isNativeMobileApp } from '@/lib/platform';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 /**
@@ -272,7 +273,7 @@ const TerminalContent = memo(function TerminalContent({
             onClone={handleClone}
             onRestart={isSSH && terminalId && !session?.isFork ? handleRestart : undefined}
             restartPending={restartPendingFor === sessionId}
-            onPopOut={terminalId ? handlePopOut : undefined}
+            onPopOut={terminalId && !isNativeMobileApp() ? handlePopOut : undefined}
             projectPath={projectPath}
             originSessionId={sessionId}
           />
@@ -397,7 +398,7 @@ const OpsTerminalContent = memo(function OpsTerminalContent({
         ws={ws}
         showReconnect={false}
         onReconnect={handleReconnect}
-        onPopOut={handlePopOut}
+        onPopOut={isNativeMobileApp() ? undefined : handlePopOut}
         projectPath={projectPath}
       />
     </div>

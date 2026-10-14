@@ -33,3 +33,25 @@ export function getLocalIP(): string | null {
   }
   return null;
 }
+
+/** Tailscale hands out addresses from the CGNAT range 100.64.0.0/10. */
+export function isTailnetAddress(address: string): boolean {
+  const m = /^100\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(address);
+  if (!m) return false;
+  const second = Number(m[1]);
+  return second >= 64 && second <= 127;
+}
+
+/**
+ * This machine's Tailscale IPv4 address, or null when Tailscale isn't up.
+ * Phones reach the Mac over it from anywhere, WireGuard-encrypted (AASC-15 QR).
+ */
+export function getTailnetIP(): string | null {
+  for (const iface of Object.values(networkInterfaces())) {
+    if (!iface) continue;
+    for (const cfg of iface) {
+      if (cfg.family === 'IPv4' && !cfg.internal && isTailnetAddress(cfg.address)) return cfg.address;
+    }
+  }
+  return null;
+}

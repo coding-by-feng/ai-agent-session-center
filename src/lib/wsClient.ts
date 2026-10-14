@@ -1,4 +1,5 @@
 import type { ClientMessage, ServerMessage } from '@/types';
+import { isNativeMobileApp } from '@/lib/platform';
 import { getClientId, getClientLabel } from './deviceIdentity';
 
 type MessageHandler = (msg: ServerMessage) => void;
@@ -31,7 +32,9 @@ export class WsClient {
 
     const url = new URL(this.options.url, window.location.origin);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-    if (this.options.token) {
+    // Never in the phone app: its session is the HttpOnly cookie, and on the
+    // Cloudflare path a URL can end up in edge logs (AASC-17).
+    if (this.options.token && !isNativeMobileApp()) {
       url.searchParams.set('token', this.options.token);
     }
     // Identify this device to the server's presence layer. It has to ride on

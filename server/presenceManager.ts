@@ -159,7 +159,10 @@ export function registerClient(args: {
   clientId: string;
   label: string;
   address: string;
+  /** Decided by `isLocalRequest` (requestLocality.ts); falls back to the address alone. */
+  isLocal?: boolean;
 }): DevicePresence {
+  const isLocal = args.isLocal ?? isLoopbackAddress(args.address);
   const clientId = args.clientId;
   const label = sanitizeDeviceLabel(args.label);
   const at = now();
@@ -171,7 +174,7 @@ export function registerClient(args: {
       // A rename or a move to a new network takes effect on the next connect.
       label,
       address: args.address,
-      isLocal: isLoopbackAddress(args.address),
+      isLocal,
       connections: existing.connections + 1,
       lastSeenAt: at,
     };
@@ -183,7 +186,7 @@ export function registerClient(args: {
     clientId,
     label,
     address: args.address,
-    isLocal: isLoopbackAddress(args.address),
+    isLocal,
     connections: 1,
     connectedAt: at,
     lastSeenAt: at,

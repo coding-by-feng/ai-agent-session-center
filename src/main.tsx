@@ -1,4 +1,5 @@
 import { StrictMode, lazy, Suspense } from 'react';
+import { isNativeMobileApp } from '@/lib/platform';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 import App from '@/App';
@@ -37,6 +38,15 @@ window.addEventListener('keydown', (e) => {
 });
 
 const root = document.getElementById('root');
+
+// The phone app runs edge to edge; base.css pads the UI back inside the safe
+// area under body.native-app. Browsers keep their viewport untouched.
+if (isNativeMobileApp()) {
+  document.body.classList.add('native-app');
+  const viewport = document.querySelector('meta[name="viewport"]');
+  const content = viewport?.getAttribute('content') ?? '';
+  if (viewport && !content.includes('viewport-fit')) viewport.setAttribute('content', `${content}, viewport-fit=cover`);
+}
 if (!root) throw new Error('Root element not found');
 
 // Hydrate persisted queue items from IndexedDB BEFORE rendering <App> — or any

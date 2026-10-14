@@ -200,8 +200,10 @@ describe('authManager', () => {
       (config as Record<string, unknown>).passwordHash = null;
       try {
         const next = vi.fn();
+        // Host too: a request counts as the Mac only when it also names this
+        // machine (AASC-26), as every real request to localhost does.
         const req = {
-          headers: {},
+          headers: { host: 'localhost:3333' },
           ip: '127.0.0.1',
           socket: { remoteAddress: '127.0.0.1' },
         } as unknown as import('express').Request;

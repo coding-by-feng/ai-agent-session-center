@@ -170,7 +170,7 @@
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
   .dropdown {
     max-height: 160px;
   }

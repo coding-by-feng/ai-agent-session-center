@@ -7,9 +7,12 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { execFile } from 'child_process';
 import hookRouter from './hookRouter.js';
-import { handleConnection, stopHeartbeat, broadcast } from './wsManager.js';
-import { getAllSessions, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
-import { createTerminal, consumePendingLink, writeWhenReady } from './sshManager.js';
+import { handleConnection, stopHeartbeat, broadcast, disconnectDevice, onBroadcast } from './wsManager.js';
+import { createPushNotifier } from './push/pushNotifier.js';
+import { getPushSink } from './push/pushSink.js';
+import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
+import { getAllSessions, getSession, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
+import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal, getForegroundProcess } from './sshManager.js';
 import { WS_TYPES } from './constants.js';
 import { closeDb, markStaleSessionsEnded } from './db.js';
 import apiRouter, { hookRateLimitMiddleware } from './apiRouter.js';
@@ -20,14 +23,21 @@ import { config } from './serverConfig.js';
 import { reconstructPermissionFlags } from './config.js';
 import { ensureHooksInstalled } from './hookInstaller.js';
 import { resolvePort, killPortProcess } from './portManager.js';
-import { getLocalIP } from './networkInfo.js';
-import { isLoopbackAddress } from './presenceManager.js';
+import { getLocalIP, getTailnetIP } from './networkInfo.js';
+import { hostname } from 'os';
+import { createDeviceAuth, hashSecret } from './mobile/deviceAuth.js';
+import { sqliteMobileDeviceStore } from './mobile/deviceStore.js';
+import { createPhoneProfile } from './mobile/phoneProfile.js';
+import { listKnownProjects } from './knownProjects.js';
+import { createMobileRouter } from './mobile/mobileRouter.js';
+import { isLocalRequest } from './requestLocality.js';
+import { resolveRemoteListenerPort, startRemoteListener } from './remoteListener.js';
 import {
   isPasswordEnabled, verifyPassword, createToken, validateToken,
   removeToken, parseCookieToken, extractToken, authMiddleware,
   startTokenCleanup, stopTokenCleanup, checkLoginRateLimit,
   recordLoginAttempt, clearLoginAttempts, refreshToken, getTokenTTL,
-  localhostOnlyMiddleware, TOKEN_TTL_SECONDS,
+  localhostOnlyMiddleware, TOKEN_TTL_SECONDS, getTokenLineage, getTokenDeviceId, revokeTokensForDevice,
 } from './authManager.js';
 import { startNoteMediaSweeper } from './noteMedia.js';
 
@@ -177,6 +187,47 @@ export function startServer(port?: number): Promise<number> {
   // -- Hook endpoints (localhost only -- CLI hooks must work without login but are restricted to loopback) --
   app.use('/api/hooks', localhostOnlyMiddleware, hookRateLimitMiddleware, hookRouter);
 
+  // -- Push notifications (AASC-16) --
+  // Decisions are made here (this Mac knows session state); the backend sends.
+  const pushNotifier = createPushNotifier({
+    getSession,
+    canNotify: (session) => canSeeSession(false, session),
+    sink: getPushSink,
+    onError: (message) => log.warn('push', message),
+  });
+  onBroadcast((data) => pushNotifier.onBroadcast(data));
+
+  // -- Phone pairing (AASC-15) --
+  // Mounted before authMiddleware: /pair, /session and /unpair are the phone's
+  // own authentication, and the desktop routes use the RESOURCES local gate.
+  const deviceAuth = createDeviceAuth({
+    store: sqliteMobileDeviceStore,
+    // Changing the dashboard password revokes every paired phone on its next sign-in.
+    credentialEpoch: () => (config.passwordHash ? hashSecret(config.passwordHash).slice(0, 16) : null),
+    onRevoked: (device) => {
+      // End every session and live socket the phone holds. The backend half of
+      // the cascade (revoking its backend device) joins when the cloud
+      // connector lands; until then there is no backend device to revoke.
+      revokeTokensForDevice(device.id);
+      disconnectDevice(device.id);
+      log.info('mobile', `Phone access removed: ${device.label} (${device.platform})`);
+    },
+  });
+  app.use('/api/mobile', createMobileRouter({
+    deviceAuth,
+    isPasswordEnabled,
+    requireSession: authMiddleware,
+    createSessionToken: (deviceId) => createToken(deviceId),
+    sessionTtlSeconds: TOKEN_TTL_SECONDS,
+    pairingTarget: () => ({
+      name: hostname().replace(/\.local$/, ''),
+      port: PORT,
+      lan: getLocalIP(),
+      tailnet: getTailnetIP(),
+    }),
+    rateLimit: { check: checkLoginRateLimit, record: recordLoginAttempt, clear: clearLoginAttempts },
+  }));
+
   // -- Agent Resources (RESOURCES tab) --
   // Read-only catalog of ~/.claude, ~/.codex, ~/.agents and project resources.
   // Mounted before the generic /api router so it owns its prefix; the router
@@ -200,7 +251,22 @@ export function startServer(port?: number): Promise<number> {
   app.use('/api/resources', resourceErrorHandler);
 
   // -- Protected API routes --
-  app.use('/api', authMiddleware, apiRouter);
+  // A paired phone gets a narrower set than a password sign-in (AASC-28):
+  // shared sessions, a known project to launch in, read-only project files.
+  const phoneProfile = createPhoneProfile({
+    phoneOf: (req) => getTokenDeviceId(extractToken(req)),
+    // Local sessions only: an SSH session's project path names a folder on
+    // another machine, and must not unlock the same path on this disk.
+    sharedProjectPaths: () =>
+      Object.values(filterVisibleSessions(false, getAllSessions()))
+        .filter((s) => (s.sshHost || 'localhost') === 'localhost')
+        .map((s) => s.projectPath)
+        .filter(Boolean),
+    knownProjectPaths: listKnownProjects,
+    isOpsTerminal,
+    foregroundProcess: getForegroundProcess,
+  });
+  app.use('/api', authMiddleware, phoneProfile, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {
     log.debug('api', 'GET /api/sessions');
     res.json(getAllSessions());
@@ -247,7 +313,12 @@ export function startServer(port?: number): Promise<number> {
     // session's live content plus terminal write, so leaving it open when the
     // HTTP side is closed would defeat the whole thing.
     const wsAddress = req.socket?.remoteAddress ?? '';
-    const wsIsRemote = !isLoopbackAddress(wsAddress);
+    // One locality rule for every gate (requestLocality.ts): a loopback socket
+    // that carries proxy headers, or arrived on the remote-only listener, is a
+    // remote device.
+    const wsIsRemote = !isLocalRequest(req);
+    let wsLineage: string | null = null;
+    let wsDeviceId: string | null = null;
     if (isPasswordEnabled()) {
       // Prefer cookie-based auth (avoids token in URL query string)
       const token = parseCookieToken(req.headers.cookie) ?? extractToken(req);
@@ -256,6 +327,8 @@ export function startServer(port?: number): Promise<number> {
         ws.close(4001, 'Unauthorized');
         return;
       }
+      wsLineage = getTokenLineage(token);
+      wsDeviceId = getTokenDeviceId(token);
     } else if (wsIsRemote) {
       // No password configured: loopback still connects freely (the desktop
       // app), but a remote device is refused. 4003 "Forbidden" rather than
@@ -281,6 +354,9 @@ export function startServer(port?: number): Promise<number> {
       clientId,
       label,
       address: req.socket.remoteAddress ?? '',
+      isLocal: !wsIsRemote,
+      lineage: wsLineage,
+      deviceId: wsDeviceId,
     });
   });
 
@@ -289,6 +365,10 @@ export function startServer(port?: number): Promise<number> {
   });
 
   const PORT = port ?? resolvePort(args, config);
+  const REMOTE_LISTENER_PORT = resolveRemoteListenerPort(
+    process.env.AASC_REMOTE_LISTENER_PORT, config.remoteListenerPort, PORT,
+  );
+  let remoteServer: import('http').Server | null = null;
 
   /**
    * After snapshot restore, respawn PTY terminals for SSH sessions that
@@ -376,6 +456,11 @@ export function startServer(port?: number): Promise<number> {
   }
 
   function onReady(): void {
+    if (REMOTE_LISTENER_PORT !== null && !remoteServer) {
+      startRemoteListener(app, wss, REMOTE_LISTENER_PORT)
+        .then((srv) => { remoteServer = srv; })
+        .catch((err: Error) => log.warn('remote-listener', `Remote-only listener failed to start: ${err.message}`));
+    }
     const localIP = getLocalIP();
     log.info('server', 'AI Agent Session Center');
     log.info('server', `Local:   http://localhost:${PORT}`);
@@ -475,6 +560,7 @@ export function startServer(port?: number): Promise<number> {
     // Save final snapshot before exiting
     try { saveSnapshot(getMqOffset()); } catch { /* best effort */ }
     try { closeDb(); } catch { /* best effort */ }
+    try { remoteServer?.close(); } catch { /* best effort */ }
     return new Promise<void>((resolve) => {
       server.close(() => resolve());
       // Force resolve after 2s if server.close() hangs (open connections)

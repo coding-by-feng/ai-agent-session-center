@@ -1,0 +1,27 @@
+{
+  "name": "aasc-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AASC phone app shell (Capacitor). Separate from the desktop app's dependencies.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "shell:build": "vite build shell",
+    "sync": "cap sync",
+    "ios": "cap open ios",
+    "android": "cap open android"
+  },
+  "dependencies": {
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.5.3",
+    "@capacitor/haptics": "8.0.2",
+    "@capacitor/keyboard": "8.0.6",
+    "@capacitor/preferences": "8.0.1",
+    "@capacitor/push-notifications": "8.1.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.3",
+    "@capacitor/android": "8.5.3",
+    "@capacitor/ios": "8.5.3"
+  }
+}

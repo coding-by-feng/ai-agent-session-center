@@ -29,6 +29,14 @@ export default defineConfig({
         },
       },
       {
+        // The phone app's bundled shell (AASC-17): pure logic only, no DOM.
+        test: {
+          name: 'mobile',
+          environment: 'node',
+          include: ['mobile/shell/src/**/*.test.ts'],
+        },
+      },
+      {
         resolve: {
           alias: [{ find: '@', replacement: resolve(__dirname, 'src') }],
         },

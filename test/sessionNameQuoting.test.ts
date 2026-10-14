@@ -47,6 +47,12 @@ describe('appendSessionName — shell safety', () => {
     expect(appendSessionName('claude', 'say "hi"')).toBe('claude -n "say \\"hi\\""');
   });
 
+  it('neutralizes history expansion: an interactive shell expands ! even inside double quotes', () => {
+    const out = appendSessionName('claude', 'ship it!! then !rm');
+    expect(out).toBe('claude -n "ship it\uFF01\uFF01 then \uFF01rm"');
+    expect(out).not.toContain('!');
+  });
+
   it('leaves apostrophes alone — they are inert inside double quotes', () => {
     expect(appendSessionName('claude', "Kason's job")).toBe('claude -n "Kason\'s job"');
   });

@@ -177,7 +177,7 @@
 /* ---- Responsive (Mobile) ---- */
 
 /* #68 — Constrain dropdown width on small phones */
-@media (max-width: 480px) {
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
   /* No `left` here: the dropdown is fixed at --dd-left, already kept 8px inside the window. */
   .dropdown {
     max-width: calc(100vw - 32px);

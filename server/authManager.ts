@@ -1,7 +1,7 @@
 // authManager.ts — Password authentication with scrypt hashing and token sessions
 import { scryptSync, randomBytes, timingSafeEqual } from 'crypto';
 import { config } from './serverConfig.js';
-import { isLoopbackAddress } from './presenceManager.js';
+import { isLocalRequest } from './requestLocality.js';
 import log from './logger.js';
 import type { IncomingMessage } from 'http';
 import type { Request, Response, NextFunction } from 'express';
@@ -88,8 +88,13 @@ export function validatePasswordComplexity(password: string): PasswordValidation
 // Token store
 // ---------------------------------------------------------------------------
 
-// In-memory token store: Map<token, { createdAt: number }>
-const tokens = new Map<string, { createdAt: number }>();
+// In-memory token store: Map<token, { createdAt, lineage, deviceId? }>.
+// `lineage` survives refresh: a login and every token rotated from it share one,
+// so a remote device id can be tied to the sign-in that first used it
+// (clientBinding.ts, AASC-27) without breaking at the hourly refresh.
+// `deviceId` is set for sessions a paired phone obtained (server/mobile), so
+// revoking the phone can end every session it holds (`revokeTokensForDevice`).
+const tokens = new Map<string, { createdAt: number; lineage: string; deviceId?: string }>();
 
 /**
  * Hash a plaintext password with a random salt.
@@ -116,10 +121,56 @@ export function verifyPassword(password: string, stored: string): boolean {
 /**
  * Create a new auth token with 1h TTL.
  */
-export function createToken(): string {
+/** Live sessions one paired phone may hold (app + extensions); older ones are dropped. */
+const MAX_SESSIONS_PER_DEVICE = 4;
+
+export function createToken(deviceId?: string): string {
+  return issueToken(randomBytes(16).toString('hex'), deviceId);
+}
+
+function issueToken(lineage: string, deviceId?: string): string {
   const token = randomBytes(32).toString('hex');
-  tokens.set(token, { createdAt: Date.now() });
+  tokens.set(token, deviceId ? { createdAt: Date.now(), lineage, deviceId } : { createdAt: Date.now(), lineage });
+  if (deviceId) {
+    // Every sign-in mints a session; keep only the newest few per phone so
+    // repeated sign-ins can't pile up live tokens. Map order is insertion order.
+    const mine = [...tokens.entries()].filter(([, e]) => e.deviceId === deviceId);
+    for (const [old] of mine.slice(0, Math.max(0, mine.length - MAX_SESSIONS_PER_DEVICE))) tokens.delete(old);
+  }
   return token;
+}
+
+/** The sign-in a valid token descends from, or null. */
+export function getTokenLineage(token: string | null): string | null {
+  if (!token || !validateToken(token)) return null;
+  return tokens.get(token)?.lineage ?? null;
+}
+
+/** Does any valid token of this sign-in still exist? */
+export function isLineageAlive(lineage: string): boolean {
+  const now = Date.now();
+  for (const entry of tokens.values()) {
+    if (entry.lineage === lineage && now - entry.createdAt <= TOKEN_TTL_MS) return true;
+  }
+  return false;
+}
+
+/** The paired device a session token belongs to, or null for a password login. */
+export function getTokenDeviceId(token: string | null): string | null {
+  if (!token || !validateToken(token)) return null;
+  return tokens.get(token)?.deviceId ?? null;
+}
+
+/** End every session a paired device holds. Returns how many tokens were removed. */
+export function revokeTokensForDevice(deviceId: string): number {
+  let removed = 0;
+  for (const [token, entry] of tokens) {
+    if (entry.deviceId === deviceId) {
+      tokens.delete(token);
+      removed++;
+    }
+  }
+  return removed;
 }
 
 /**
@@ -128,8 +179,10 @@ export function createToken(): string {
  */
 export function refreshToken(oldToken: string | null): string | null {
   if (!oldToken || !validateToken(oldToken)) return null;
+  const entry = tokens.get(oldToken);
+  const lineage = entry?.lineage ?? randomBytes(16).toString('hex');
   tokens.delete(oldToken);
-  return createToken();
+  return issueToken(lineage, entry?.deviceId);
 }
 
 /**
@@ -225,15 +278,13 @@ export const REMOTE_REQUIRES_PASSWORD =
 /**
  * True when this request did NOT come from the machine running the server.
  *
- * Reuses `isLoopbackAddress` (presenceManager) rather than a second hand-rolled
- * string compare: that predicate already backs the 🖥/📱 device split in
- * production and handles `::1`, `::ffff:127.0.0.1` and `127.0.0.1`. An empty
- * address is treated as REMOTE — failing closed is the correct direction for a
- * security gate when the origin cannot be determined.
+ * Delegates to `isLocalRequest` (requestLocality.ts), the one rule every gate
+ * shares: loopback peer, main listener, and no proxy forwarding headers. A
+ * tunnel on this machine connects from 127.0.0.1, so the address alone would
+ * hand every tunnel visitor password-free access. An empty address is REMOTE.
  */
 function isRemoteRequest(req: Request): boolean {
-  const ip = req.ip || req.socket?.remoteAddress || '';
-  return !isLoopbackAddress(ip);
+  return !isLocalRequest(req);
 }
 
 /**
@@ -281,14 +332,14 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
  * Used to protect hook endpoints from external access.
  */
 export function localhostOnlyMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const ip = req.ip || req.socket?.remoteAddress || '';
-  // Allow localhost, IPv4 loopback, IPv6 loopback, and IPv4-mapped IPv6 loopback
-  const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip === 'localhost';
-  if (isLoopback) {
+  // Same rule as every other gate (it used to carry its own inline loopback
+  // compare). The hook script posts directly to localhost and never sends
+  // forwarding headers; a request relayed by a tunnel does.
+  if (isLocalRequest(req)) {
     next();
     return;
   }
-  log.debug('auth', `Blocked non-localhost hook request from ${ip}`);
+  log.debug('auth', `Blocked non-localhost hook request from ${req.ip || req.socket?.remoteAddress || 'unknown'}`);
   res.status(403).json({ error: 'Hook endpoint restricted to localhost' });
 }
 

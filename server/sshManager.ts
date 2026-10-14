@@ -1225,6 +1225,23 @@ export function getTerminalSessionId(terminalId: string): string | null {
   return terminals.get(terminalId)?.sessionId ?? null;
 }
 
+/** Is this terminal a session's ops shell (a plain command prompt, no agent)? */
+export function isOpsTerminal(terminalId: string): boolean {
+  return terminals.get(terminalId)?.config.isOps === true;
+}
+
+/**
+ * The terminal's foreground program as node-pty reports it (`zsh`, `claude`,
+ * `node`…), or null when unknown. A phone types only while it is the agent.
+ */
+export function getForegroundProcess(terminalId: string): string | null {
+  try {
+    return terminals.get(terminalId)?.pty.process ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Forget a terminal's output so far: the toolbar's "Clear output". Refresh,
  * reconnect, a remount and every other device paint from this ring, so a clear
