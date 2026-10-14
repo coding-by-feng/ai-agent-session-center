@@ -390,6 +390,15 @@
 .tabContent::-webkit-scrollbar, .tabScroll::-webkit-scrollbar { width: 4px; }
 .tabContent::-webkit-scrollbar-track, .tabScroll::-webkit-scrollbar-track { background: transparent; }
 .tabContent::-webkit-scrollbar-thumb, .tabScroll::-webkit-scrollbar-thumb { background: var(--bg-accent); border-radius: 2px; }
+/* A phone's terminal (AASC-18): a 360px screen is ~45 columns and a row of
+   eight 44px keys, so the tab gives up its side padding while TERMINAL or
+   COMMANDS is open (xterm keeps its own 2px). */
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
+  .tabContent:has(> .alwaysTabActive > .terminalWithQueue),
+  .tabContent:has(> .alwaysTabActive > .terminalSection) {
+    padding: 8px 0 0;
+  }
+}
 .tabEmpty { text-align: center; padding: 40px 20px; color: var(--text-secondary); font-size: 11px; letter-spacing: 1px; }
 /* Inline escape hatch inside an empty state (e.g. "clear search"). */
 .tabEmptyAction { background: none; border: none; padding: 0; font: inherit; letter-spacing: inherit; color: var(--accent-text, var(--accent-cyan)); text-decoration: underline; cursor: pointer; }
