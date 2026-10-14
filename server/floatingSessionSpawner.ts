@@ -119,7 +119,15 @@ function buildForkCommand(cli: 'claude' | 'codex', originSessionId: string, prom
  * Throws on bad input (missing origin, bad mode payload, prompt too large) — the
  * caller is responsible for surfacing the error to the client.
  */
-export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<SpawnFloatingResult> {
+export interface SpawnFloatingOptions {
+  /** Share the new session with remote devices: set when a remote device asked for it (AASC-20). */
+  remoteVisible?: boolean;
+}
+
+export async function spawnFloatingSession(
+  args: SpawnFloatingArgs,
+  options: SpawnFloatingOptions = {},
+): Promise<SpawnFloatingResult> {
   const origin = getSession(args.originSessionId);
   if (!origin) {
     throw new Error(`Origin session not found: ${args.originSessionId}`);
@@ -244,6 +252,7 @@ export async function spawnFloatingSession(args: SpawnFloatingArgs): Promise<Spa
     isFork: true,
     isFloating: true,
     originSessionId: args.originSessionId,
+    ...(options.remoteVisible ? { remoteVisible: true } : {}),
   });
 
   let prefix = '';

@@ -12,8 +12,8 @@ import { handleConnection, stopHeartbeat, broadcast, disconnectDevice, onBroadca
 import { createPushNotifier } from './push/pushNotifier.js';
 import { getPushSink } from './push/pushSink.js';
 import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
-import { getAllSessions, getSession, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
-import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal, getForegroundProcess } from './sshManager.js';
+import { getAllSessions, getSession, getSessionIdByTerminalId, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, startSessionRuntime, stopSessionRuntime, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
+import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal, getForegroundProcess, getTerminalSessionId } from './sshManager.js';
 import { WS_TYPES } from './constants.js';
 import { closeDb, markStaleSessionsEnded } from './db.js';
 import apiRouter, { hookRateLimitMiddleware } from './apiRouter.js';
@@ -318,6 +318,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
         .filter(Boolean),
     knownProjectPaths: listKnownProjects,
     isOpsTerminal,
+    isSharedSession: (sessionId) => canSeeSession(false, getSession(sessionId)),
+    sessionOfTerminal: (terminalId) => getTerminalSessionId(terminalId) ?? getSessionIdByTerminalId(terminalId),
     foregroundProcess: getForegroundProcess,
   });
   app.use('/api', authMiddleware, phoneProfile, apiRouter);

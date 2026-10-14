@@ -102,8 +102,59 @@ function requireLocalOnly(req: Request, res: Response, next: NextFunction): void
   res.status(404).json({ error: 'Not found' });
 }
 
+function remoteCanSeeSessionId(sessionId: unknown): boolean {
+  return typeof sessionId === 'string' && sessionId !== '' && canSeeSession(false, getSession(sessionId));
+}
+
+/**
+ * A remote device may start an AI popup (a floating fork) only from a session it
+ * can see (AASC-20). The fork resumes its parent's whole conversation, so a hidden
+ * parent here would hand the device that session's transcript. Two parents to
+ * check: the origin, and the terminal it was asked from (`spawnTerminalId`), whose
+ * session the spawner forks instead when it is set. 404 for either, like a hidden
+ * session anywhere under /sessions/:id.
+ */
+function requireVisibleFloatingOrigin(req: Request, res: Response, next: NextFunction): void {
+  if (requestIsLocal(req)) { next(); return; }
+  const body = (req.body ?? {}) as { originSessionId?: unknown; spawnTerminalId?: unknown };
+  const hostOk = body.spawnTerminalId === undefined
+    || (typeof body.spawnTerminalId === 'string' && remoteCanSeeSessionId(sessionIdOfTerminal(body.spawnTerminalId)));
+  if (remoteCanSeeSessionId(body.originSessionId) && hostOk) { next(); return; }
+  log.warn('api', `Blocked remote ${req.method} ${req.path} — AI popup from a hidden session`);
+  res.status(404).json({ error: 'Session not found' });
+}
+
+/**
+ * Fixed routes directly under /sessions/ — names, not session ids — each with the
+ * gate a remote device meets there. Without this the `/sessions/:id` gate below
+ * read them as ids, so every one 404'd for a remote device by accident: right for
+ * three of them, wrong for spawn-floating.
+ *   clear-all       kills every terminal                  → the Mac only
+ *   history         every persisted session, unfiltered   → the Mac only
+ *   resume-command  the `claude-last` shell helper        → the Mac only
+ *   spawn-floating  an AI popup                           → from a session the device can see
+ * Exact paths and methods only: anything below one of these names still meets the
+ * session-id check, which fails closed (no session is called "clear-all").
+ */
+const FIXED_SESSION_ROUTES: Readonly<Record<string, { method: string; gate: (req: Request, res: Response, next: NextFunction) => void }>> = {
+  'clear-all': { method: 'POST', gate: requireLocalOnly },
+  history: { method: 'GET', gate: requireLocalOnly },
+  'resume-command': { method: 'GET', gate: requireLocalOnly },
+  'spawn-floating': { method: 'POST', gate: requireVisibleFloatingOrigin },
+};
+
+function fixedSessionRoute(req: Request): ((req: Request, res: Response, next: NextFunction) => void) | null {
+  const id = str(req.params.id);
+  const fixed = Object.hasOwn(FIXED_SESSION_ROUTES, id) ? FIXED_SESSION_ROUTES[id] : undefined;
+  if (!fixed || req.method !== fixed.method) return null;
+  // `req.path` is what is left below `/sessions/<id>` in a router.use mount.
+  return req.path === '/' || req.path === '' ? fixed.gate : null;
+}
+
 function requireVisibleSession(req: Request, res: Response, next: NextFunction): void {
   if (requestIsLocal(req)) { next(); return; }
+  const fixedGate = fixedSessionRoute(req);
+  if (fixedGate) { fixedGate(req, res, next); return; }
   const id = str(req.params.id);
   if (canSeeSession(false, getSession(id))) { next(); return; }
   log.warn('api', `Blocked remote ${req.method} ${req.path} — session hidden`);
@@ -1265,7 +1316,10 @@ router.post('/sessions/spawn-floating', async (req: Request, res: Response) => {
   const body = validateBody(SpawnFloatingSchema, req.body, res);
   if (!body) return;
   try {
-    const result = await spawnFloatingSession(body);
+    // An AI popup a remote device asks for is shared with it, like a fork
+    // (AASC-28): the phone watches it in a sheet (AASC-20). The gate above
+    // already checked that the device can see the session it comes from.
+    const result = await spawnFloatingSession(body, { remoteVisible: !requestIsLocal(req) });
     res.json({ ok: true, ...result });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
