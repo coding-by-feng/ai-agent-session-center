@@ -8,9 +8,12 @@
  */
 import { Suspense, lazy, useState, useCallback, useEffect } from 'react';
 import { showToast } from '@/components/ui/ToastContainer';
+import { ConfirmSheet } from '@/components/ui/BottomSheet';
 import { useNotesStore, EMPTY_NOTES } from '@/stores/notesStore';
+import { useIsMobile } from '@/lib/platform';
 import NoteEditor from './NoteEditor';
 import styles from '@/styles/modules/DetailPanel.module.css';
+import phoneStyles from '@/styles/modules/PhoneExtras.module.css';
 
 // See NoteMarkdown's header: this boundary is what keeps the react-markdown
 // stack out of the eager entry chunk that DetailPanel (and so NotesTab) is in.
@@ -31,6 +34,10 @@ export default function NotesTab({ sessionId, projectPath }: NotesTabProps) {
   const notes = useNotesStore((s) => s.notes.get(sessionId) ?? EMPTY_NOTES);
   const [loadError, setLoadError] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  // A phone (AASC-20) confirms a delete in a sheet: a tap is easy to misfire.
+  const isPhone = useIsMobile();
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const cancelDelete = useCallback(() => setConfirmDeleteId(null), []);
 
   // #5: Load notes with error feedback. Used by the retry link; the mount load
   // has its own copy so it can ignore a response that arrives after the user
@@ -87,7 +94,22 @@ export default function NotesTab({ sessionId, projectPath }: NotesTabProps) {
   );
 
   return (
-    <div>
+    <div className={isPhone ? phoneStyles.phoneNotes : undefined}>
+      {isPhone && (
+        <ConfirmSheet
+          open={confirmDeleteId !== null}
+          title="Delete this note?"
+          message="It is deleted for every device. This cannot be undone."
+          confirmLabel="Delete note"
+          danger
+          onConfirm={() => {
+            const id = confirmDeleteId;
+            setConfirmDeleteId(null);
+            if (id !== null) void handleDelete(id);
+          }}
+          onCancel={cancelDelete}
+        />
+      )}
       {/* Compose area */}
       <div className={styles.notesCompose}>
         <NoteEditor
@@ -103,7 +125,7 @@ export default function NotesTab({ sessionId, projectPath }: NotesTabProps) {
         notes.map((note) => (
           <div key={note.id} className={styles.noteEntry}>
             <div className={styles.noteMeta}>
-              <span className={styles.noteTime}>
+              <span className={`${styles.noteTime}${isPhone ? ` ${phoneStyles.noteTime}` : ''}`}>
                 {formatTime(note.createdAt)}
                 {note.updatedAt > note.createdAt && (
                   <span className={styles.noteEdited}> · edited {formatTime(note.updatedAt)}</span>
@@ -112,15 +134,15 @@ export default function NotesTab({ sessionId, projectPath }: NotesTabProps) {
               {activeEditId !== note.id && (
                 <span className={styles.noteActions}>
                   <button
-                    className={styles.noteAction}
+                    className={`${styles.noteAction}${isPhone ? ` ${phoneStyles.noteBtn} ${phoneStyles.noteBtnPlain}` : ''}`}
                     onClick={() => setEditingId(note.id)}
                     title="Edit note"
                   >
                     EDIT
                   </button>
                   <button
-                    className={styles.noteDelete}
-                    onClick={() => handleDelete(note.id)}
+                    className={`${styles.noteDelete}${isPhone ? ` ${phoneStyles.noteBtn}` : ''}`}
+                    onClick={() => (isPhone ? setConfirmDeleteId(note.id) : handleDelete(note.id))}
                     title="Delete note"
                   >
                     DELETE

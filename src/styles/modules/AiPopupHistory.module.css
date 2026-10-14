@@ -253,3 +253,59 @@
   font-size: 9px;
   color: var(--text-secondary);
 }
+
+/* ---- On a phone (AASC-20): 44px targets, readable type, fields that don't zoom ----
+   Same query as MOBILE_MEDIA_QUERY (lib/platform.ts). New and resized text is
+   --text-primary: --text-secondary misses 4.5:1 on the card in several themes. */
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
+  .list { gap: 8px; padding: 8px; }
+  .empty { font-size: 14px; letter-spacing: 0; color: var(--text-primary); }
+  .emptyHint { display: block; margin-top: 8px; font-size: 13px; }
+
+  .favToggle {
+    flex: none;
+    width: 44px;
+    min-height: 44px;
+    padding: 0;
+    font-size: 20px;
+  }
+  .favToggle:hover { transform: none; }
+  .favToggle:active { transform: scale(0.92); }
+  .rowHeader { min-height: 44px; padding: 8px 8px 8px 0; }
+  .rowHeader:active { background: var(--bg-subtle); }
+  .favToggle:focus-visible,
+  .rowHeader:focus-visible,
+  .actionBtn:focus-visible {
+    outline: 2px solid var(--accent-cyan);
+    outline-offset: -2px;
+  }
+
+  .modeLabel, .aliasLabel { font-size: 13px; }
+  .langChip { font-size: 12px; color: var(--text-primary); }
+  .rowMeta { font-size: 12px; color: var(--text-primary); }
+  .rowSnippet { font-size: 13px; color: var(--text-primary); }
+  .expandIcon { font-size: 14px; color: var(--text-primary); padding-top: 0; }
+
+  .detail { padding: 8px; gap: 16px; }
+  .sectionLabel { font-size: 12px; color: var(--text-primary); }
+  .body { font-size: 13px; color: var(--text-primary); max-height: 50vh; }
+  /* 16px: iOS zooms the page into any field set smaller. */
+  .aliasInput, .notes { min-height: 44px; font-size: 16px; padding: 8px; }
+
+  /* The response's own tools (copy, raw ⇆ formatted) live in PopupResponse. */
+  .detail button { min-height: 44px; min-width: 44px; }
+
+  .actions { gap: 8px; }
+  .actionBtn { min-height: 44px; padding: 0 16px; font-size: 13px; color: var(--text-primary); }
+  .actionBtn:active { transform: scale(0.97); }
+  .danger { color: var(--accent-red, #ff3b6b); }
+  .timestamp { flex-basis: 100%; margin-left: 0; font-size: 12px; color: var(--text-primary); }
+
+  .runningChip { color: var(--accent-green); font-weight: 700; }
+  .openBtn {
+    display: inline-flex;
+    align-items: center;
+    border-color: var(--accent-cyan);
+    color: var(--text-primary);
+  }
+}

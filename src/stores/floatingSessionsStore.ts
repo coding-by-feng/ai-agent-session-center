@@ -62,11 +62,23 @@ interface FloatingSessionsState {
    */
   poppedOut: string[];
   setPoppedOut: (terminalId: string, on: boolean) => void;
+  /**
+   * The float a phone shows in its full-height sheet (AASC-20), or null when the
+   * sheet is down. A phone has no windows to float in: a popup opens straight
+   * into the sheet, hiding it keeps the session running (the header's ✦ button
+   * brings it back), and only "End" closes it. Points at a float that no longer
+   * exists once it closes, which reads as "sheet down".
+   */
+  phoneShown: string | null;
+  setPhoneShown: (terminalId: string | null) => void;
 }
 
 export const useFloatingSessionsStore = create<FloatingSessionsState>((set, get) => ({
   floats: [],
   poppedOut: [],
+  phoneShown: null,
+
+  setPhoneShown: (terminalId) => set({ phoneShown: terminalId }),
 
   setPoppedOut: (terminalId, on) => set((s) => ({
     poppedOut: on

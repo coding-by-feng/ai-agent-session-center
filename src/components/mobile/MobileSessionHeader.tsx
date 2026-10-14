@@ -33,6 +33,7 @@ import PlanUsageChip from '@/components/session/PlanUsageChip';
 import SessionRuntimeChip from '@/components/session/SessionRuntimeChip';
 import SheetAction, { SheetSection } from './SheetAction';
 import { ManageRoomsSheet, MoveToRoomSheet, RoomIcon } from './RoomSheets';
+import PhoneFloatsButton from './PhoneFloatsButton';
 import {
   BackIcon,
   BellIcon,
@@ -231,6 +232,7 @@ export default function MobileSessionHeader({ session, duration, onBack }: Mobil
             <RestartIcon />
           </button>
         )}
+        <PhoneFloatsButton sessionId={sessionId} />
         <button
           type="button"
           className={styles.iconBtn}

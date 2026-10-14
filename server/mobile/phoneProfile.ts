@@ -42,8 +42,9 @@ export type PhoneAccess = typeof PHONE_ACCESS;
  * - commands  the autocomplete catalog, for a shared project or none
  * - upload    an image upload, within the phone's per-minute budget
  * - launch    a known project folder and a CLI AASC launches, nothing else
+ * - origin    an AI popup: from a shared session, asked from a shared session's terminal
  */
-export type PhoneRule = 'allow' | 'terminal' | 'type' | 'files' | 'commands' | 'upload' | 'launch';
+export type PhoneRule = 'allow' | 'terminal' | 'type' | 'files' | 'commands' | 'upload' | 'launch' | 'origin';
 
 interface PhoneRoute {
   method: RegExp;
@@ -81,6 +82,10 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('PUT', '/sessions/:id/(queue|title|remark|muted|alerted|accent-color|character-model|ai-popup)', 'allow'),
   route('POST', '/sessions/:id/(queue/resume|kill|resume|restart-terminal|reconnect-terminal|fork|clone)', 'allow'),
   route('DELETE', '/sessions/:id', 'allow'),
+  // An AI popup (AASC-20): a floating fork of a shared session, started from its
+  // Conversation text. The API's own gate checks the same thing; this keeps the
+  // profile honest about what it lets through.
+  route('POST', '/sessions/spawn-floating', 'origin'),
   route('POST', '/queue-images', 'upload'),
   // Shared from the Mac (AASC-20): a paused append, the QUEUE badge record, saved prompts.
   route('POST', '/sessions/:id/queue/items', 'upload'), // may carry shared images
@@ -246,6 +251,26 @@ export function phoneLaunchRefusal(body: unknown, allowedDirs: readonly string[]
   return 'A phone can start sessions only in a known project folder';
 }
 
+// ── AI popups ────────────────────────────────────────────────────────────────
+
+/**
+ * Is this AI popup refused? It forks a session's conversation, so the session it
+ * comes from must be shared, and so must the session of the terminal it was asked
+ * from (`spawnTerminalId`), which the spawner forks instead when it is set.
+ */
+export function phoneFloatingRefusal(
+  body: unknown,
+  deps: Pick<PhoneProfileDeps, 'isSharedSession' | 'sessionOfTerminal'>,
+): boolean {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return true;
+  const { originSessionId, spawnTerminalId } = body as Record<string, unknown>;
+  if (typeof originSessionId !== 'string' || !originSessionId || !deps.isSharedSession(originSessionId)) return true;
+  if (spawnTerminalId === undefined) return false;
+  if (typeof spawnTerminalId !== 'string') return true;
+  const host = deps.sessionOfTerminal(spawnTerminalId);
+  return !host || !deps.isSharedSession(host);
+}
+
 // ── Middleware ───────────────────────────────────────────────────────────────
 
 export interface PhoneProfileDeps {
@@ -256,6 +281,10 @@ export interface PhoneProfileDeps {
   /** The quick-launch list (known project folders). */
   knownProjectPaths(): string[];
   isOpsTerminal(terminalId: string): boolean;
+  /** Is this session shared with remote devices right now? Unknown is not. */
+  isSharedSession(sessionId: string): boolean;
+  /** The session a terminal belongs to, or null when it can't be told. */
+  sessionOfTerminal(terminalId: string): string | null;
   /** The terminal's foreground program (node-pty's process name), or null when unknown. */
   foregroundProcess(terminalId: string): string | null;
   home?: string;
@@ -304,6 +333,8 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
       }
       case 'launch':
         return phoneLaunchRefusal(req.body, [...deps.knownProjectPaths(), ...deps.sharedProjectPaths()], home);
+      case 'origin':
+        return phoneFloatingRefusal(req.body, deps) ? 'not from a shared session' : null;
     }
   }
 

@@ -141,6 +141,19 @@ describe('AgentsTab', () => {
     vi.restoreAllMocks();
   });
 
+  it('stacks the agents top to bottom at a phone’s width (AASC-20)', () => {
+    // A 360px phone: the panel and the tab's own padding leave the diagram 344px.
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
+      { width: 344, height: 600, left: 0, right: 344, top: 0, bottom: 600, x: 0, y: 0, toJSON: () => ({}) } as DOMRect,
+    );
+    seed(makeSession('L', { subagents: [makeRun({ agentId: 'p' }), makeRun({ agentId: 'q' }), makeRun({ agentId: 'r' })] }));
+    render(<AgentsTab sessionId="L" />);
+    const rows = [...document.querySelectorAll('[data-cols]')];
+    expect(rows).toHaveLength(3);
+    expect(rows.every((r) => r.getAttribute('data-cols') === '1')).toBe(true);
+    vi.restoreAllMocks();
+  });
+
   it('renders nothing for an unknown session', () => {
     const { container } = render(<AgentsTab sessionId="missing" />);
     expect(container.textContent).toBe('');

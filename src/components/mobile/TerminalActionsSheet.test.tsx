@@ -65,6 +65,42 @@ describe('TerminalActionsSheet', () => {
     expect(screen.getByRole('button', { name: /Wrap long lines/ })).toHaveAttribute('aria-pressed', 'false');
   });
 
+  it('lists bookmarks; a row jumps (closing the sheet first), × removes it', () => {
+    const onJump = vi.fn();
+    const onRemove = vi.fn();
+    const list = [
+      { id: 'b2', line: 40, text: '● Bash(npm test)', createdAt: 2 },
+      { id: 'b1', line: 3, text: 'Done. The tests pass.', createdAt: 1 },
+    ];
+    const { props } = setup({ bookmarks: { list, onJump, onRemove } });
+    expect(screen.getByRole('region', { name: 'Bookmarks · 2' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Go to bookmark: Done. The tests pass.' }));
+    expect(props.onClose).toHaveBeenCalled();
+    expect(onJump).toHaveBeenCalledWith(list[1]);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove bookmark: ● Bash(npm test)' }));
+    expect(onRemove).toHaveBeenCalledWith('b2');
+  });
+
+  it('says how to make a bookmark when there are none', () => {
+    setup({ bookmarks: { list: [], onJump: vi.fn(), onRemove: vi.fn() } });
+    expect(screen.getByText('Long-press a line in the terminal to bookmark it.')).toBeTruthy();
+  });
+
+  it('reads the last answer aloud, and offers to stop while it reads', () => {
+    const onToggle = vi.fn();
+    const { props, rerender } = setup({ readAloud: { speaking: false, onToggle } });
+    fireEvent.click(screen.getByRole('button', { name: 'Read the last answer aloud' }));
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    expect(props.onClose).toHaveBeenCalled();
+    rerender(<TerminalActionsSheet {...props} readAloud={{ speaking: true, onToggle }} />);
+    expect(screen.getByRole('button', { name: 'Stop reading aloud' })).toBeTruthy();
+  });
+
+  it('has no full screen in a sheet that is already full height', () => {
+    setup({ onToggleFullscreen: undefined });
+    expect(screen.queryByRole('button', { name: 'Full screen' })).toBeNull();
+  });
+
   it('leaves out fork and clone when the terminal has none', () => {
     setup();
     expect(screen.queryByRole('button', { name: 'Fork session' })).toBeNull();

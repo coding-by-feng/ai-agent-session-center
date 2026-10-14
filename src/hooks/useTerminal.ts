@@ -22,6 +22,7 @@ import {
   type TerminalWidthMode,
 } from '@/lib/terminalGeometry';
 import { useIsMobile, useIsNativeMobileApp } from '@/lib/platform';
+import { logicalLineAt, locateBookmark, rowAtOffset } from '@/lib/terminalBookmarks';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -108,6 +109,12 @@ interface UseTerminalReturn {
    *  or null when there's no terminal, the point is outside the rendered rows,
    *  or that row has nothing worth speaking. */
   /** Full text of a buffer row, with soft-wrapped continuation rows merged into one logical line. */
+  /** The logical line under a point on screen (a phone's long-press bookmark,
+   *  AASC-20), or null off the rows or on a blank line. */
+  lineAtClientY: (clientY: number) => { line: number; text: string } | null;
+  /** Scroll to a bookmarked line, found by its text near where it was, and mark
+   *  it for a moment. False when the line is no longer in the scrollback. */
+  revealLine: (bookmark: { line: number; text: string }) => boolean;
   /** Get the current xterm text selection (if any). Returns null when no selection. */
   getXtermSelection: () => string | null;
   /** True when xterm currently has a non-empty selection. */
@@ -141,6 +148,8 @@ interface UseTerminalReturn {
  * safety net for any path that still outruns it.
  */
 const MAX_ACTIVE_CHUNKS = 4000;
+/** How long a revealed bookmark stays selected (AASC-20). */
+const REVEAL_MARK_MS = 1600;
 const HIDDEN_FLUSH_MS = 250;
 
 function mergeChunks(chunks: string[]): Uint8Array {
@@ -1759,6 +1768,32 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
+  const lineAtClientY = useCallback((clientY: number): { line: number; text: string } | null => {
+    const active = activeRef.current;
+    const screen = active?.term.element?.querySelector('.xterm-screen');
+    if (!active || !screen) return null;
+    const rect = screen.getBoundingClientRect();
+    const row = rowAtOffset(clientY - rect.top, rect.height, active.term.rows);
+    if (row === null) return null;
+    const buf = active.term.buffer.active;
+    return logicalLineAt(buf, buf.viewportY + row);
+  }, []);
+
+  const revealLine = useCallback((bookmark: { line: number; text: string }): boolean => {
+    const active = activeRef.current;
+    if (!active) return false;
+    const { term } = active;
+    const line = locateBookmark(term.buffer.active, bookmark);
+    if (line === null) return false;
+    // A third of the way down, so the lines that led up to it show too.
+    term.scrollToLine(Math.max(0, line - Math.floor(term.rows / 3)));
+    term.selectLines(line, line);
+    setTimeout(() => {
+      if (activeRef.current?.term === term) term.clearSelection();
+    }, REVEAL_MARK_MS);
+    return true;
+  }, []);
+
   const readRecentText = useCallback((options?: { lines?: number; sinceAbsLine?: number }): { text: string; absBottom: number } => {
     const active = activeRef.current;
     if (!active) return { text: '', absBottom: 0 };
@@ -1823,6 +1858,8 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
     autoScrollEnabled,
     toggleAutoScroll,
     readRecentText,
+    lineAtClientY,
+    revealLine,
     getXtermSelection: () => {
       const t = activeRef.current?.term;
       if (!t || !t.hasSelection()) return null;

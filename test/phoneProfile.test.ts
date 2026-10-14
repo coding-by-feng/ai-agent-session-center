@@ -47,7 +47,7 @@ import express from 'express';
 import { createServer, type Server } from 'http';
 import {
   phoneRuleFor, phoneLaunchRefusal, phoneMayRead, phoneProjectRoot, createPhoneProfile, isAgentProcessName,
-  PHONE_UPLOADS_PER_MINUTE,
+  phoneFloatingRefusal, PHONE_UPLOADS_PER_MINUTE,
 } from '../server/mobile/phoneProfile.js';
 
 // ── A home folder with a project, an unknown folder and secrets ─────────────────────────────────────────
@@ -118,6 +118,7 @@ describe('phoneRuleFor', () => {
     expect(phoneRuleFor('GET', '/files/read')).toBe('files');
     expect(phoneRuleFor('GET', '/files/resolve')).toBe('files');
     expect(phoneRuleFor('POST', '/terminals')).toBe('launch');
+    expect(phoneRuleFor('POST', '/sessions/spawn-floating')).toBe('origin');
   });
 
   it.each([
@@ -128,7 +129,8 @@ describe('phoneRuleFor', () => {
     ['POST', '/config/terminal-buffer'], ['POST', '/reset'], ['POST', '/hook-stats/reset'],
     ['POST', '/sessions/clear-all'], ['GET', '/ssh-keys'], ['POST', '/tmux-sessions'],
     ['POST', '/sessions/abc/reconnect-ops-terminal'], ['PUT', '/sessions/abc/remote-visible'],
-    ['PUT', '/sessions/abc/pinned'], ['POST', '/sessions/abc/summarize'], ['POST', '/sessions/spawn-floating'],
+    ['PUT', '/sessions/abc/pinned'], ['POST', '/sessions/abc/summarize'],
+    ['GET', '/sessions/history'], ['GET', '/sessions/resume-command'], ['GET', '/sessions/spawn-floating'],
     ['POST', '/terminals/register'], ['POST', '/terminals/t1/prefill-output'],
     ['GET', '/teams/x/config'], ['POST', '/teams/x/members/y/terminal'],
     ['GET', '/db/sessions'], ['GET', '/db/search'], ['GET', '/db/projects'], ['DELETE', '/db/sessions/abc'],
@@ -136,6 +138,35 @@ describe('phoneRuleFor', () => {
     ['GET', '/a-route-added-later'],
   ])('refuses a phone %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBeNull();
+  });
+});
+
+// ── AI popups (AASC-20) ──────────────────────────────────────────────────────────────────────────────────
+
+describe('phoneFloatingRefusal', () => {
+  const deps = {
+    isSharedSession: (id: string) => id === 'shared' || id === 'shared-float',
+    sessionOfTerminal: (id: string) => ({ 't-shared': 'shared', 't-float': 'shared-float', 't-hidden': 'hidden' } as Record<string, string>)[id] ?? null,
+  };
+
+  it('lets a phone ask from a shared session, or from a shared session’s terminal', () => {
+    expect(phoneFloatingRefusal({ originSessionId: 'shared', mode: 'explain-native' }, deps)).toBe(false);
+    expect(phoneFloatingRefusal({ originSessionId: 'shared', spawnTerminalId: 't-float' }, deps)).toBe(false);
+  });
+
+  it('refuses a hidden or unknown origin, a hidden or unknown host terminal, and a malformed body', () => {
+    for (const body of [
+      { originSessionId: 'hidden' },
+      { originSessionId: 'nope' },
+      { originSessionId: '' },
+      { originSessionId: 7 },
+      { originSessionId: 'shared', spawnTerminalId: 't-hidden' },
+      { originSessionId: 'shared', spawnTerminalId: 't-orphan' },
+      { originSessionId: 'shared', spawnTerminalId: 42 },
+      null, [], 'shared',
+    ]) {
+      expect(phoneFloatingRefusal(body, deps), JSON.stringify(body)).toBe(true);
+    }
   });
 });
 
@@ -238,6 +269,7 @@ beforeAll(async () => {
   store.setSessionRemoteVisible('ph-shared', true);
   pty.owner.set('t-shared', 'ph-shared');
   pty.owner.set('ops-shared', 'ph-shared');
+  pty.owner.set('t-hidden', 'ph-hidden');
 
   const app = express();
   app.use(express.json());
@@ -246,6 +278,8 @@ beforeAll(async () => {
     sharedProjectPaths: () => Object.values(filterVisibleSessions(false, store.getAllSessions())).map((s) => s.projectPath),
     knownProjectPaths: () => [project, other, launchDir, home],
     isOpsTerminal: (id) => id.startsWith('ops-'),
+    isSharedSession: (id) => store.getSession(id)?.remoteVisible === true,
+    sessionOfTerminal: (id) => pty.owner.get(id) ?? null,
     foregroundProcess: (id) => pty.fg.get(id) ?? null,
     home,
   }));
@@ -377,6 +411,40 @@ describe('a paired phone through the API', () => {
     const res = await call('POST', '/sessions/ph-shared/fork', PHONE, {});
     expect(res.status).toBe(200);
     expect(store.getSession(String(res.json.terminalId))?.remoteVisible).toBe(true);
+  });
+
+  it('starts an AI popup from a shared session, shared with it (AASC-20)', async () => {
+    const res = await call('POST', '/sessions/spawn-floating', PHONE, {
+      originSessionId: 'ph-shared', spawnTerminalId: 't-shared', mode: 'explain-native',
+      selection: 'what does this do', nativeLanguage: 'English', learningLanguage: 'English',
+    });
+    expect(res.status).toBe(200);
+    const id = String(res.json.terminalId);
+    expect(pty.created).toHaveLength(1);
+    expect(pty.created[0].command).toBe('');
+    expect(store.getSession(id)?.remoteVisible).toBe(true);
+    expect(store.getSession(id)?.isFloating).toBe(true);
+  });
+
+  it('never starts an AI popup from a hidden session or a hidden session’s terminal', async () => {
+    for (const body of [
+      { originSessionId: 'ph-hidden' },
+      { originSessionId: 'no-such-session' },
+      { originSessionId: 'ph-shared', spawnTerminalId: 't-hidden' },
+    ]) {
+      const res = await call('POST', '/sessions/spawn-floating', PHONE, {
+        ...body, mode: 'explain-native', selection: 'x', nativeLanguage: 'English', learningLanguage: 'English',
+      });
+      expect(res.status, JSON.stringify(body)).toBe(404);
+    }
+    expect(pty.created).toEqual([]);
+  });
+
+  it('still can’t reach the other fixed /sessions routes', async () => {
+    expect((await call('POST', '/sessions/clear-all', PHONE, {})).status).toBe(404);
+    expect((await call('GET', '/sessions/history', PHONE)).status).toBe(404);
+    expect((await call('GET', `/sessions/resume-command?${q({ path: project })}`, PHONE)).status).toBe(404);
+    expect(store.getSession('ph-shared')).toBeDefined();
   });
 
   it('has an upload budget per minute', async () => {

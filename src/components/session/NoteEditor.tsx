@@ -7,10 +7,18 @@
  * rendered as an unusable sliver with a clipped dropdown); a note editor
  * carrying a WRITE/PREVIEW toggle, paste-to-upload and attachment chips would
  * go the same way if it were reimplemented inline.
+ *
+ * On a phone (AASC-20) it also takes a photo: a camera button opens the camera
+ * through a plain file input (`capture="environment"`, no native plugin), and
+ * the shot goes through the same upload as a pasted image, scaled down first.
  */
 import { Suspense, lazy, useCallback, useRef, useState } from 'react';
 import { showToast } from '@/components/ui/ToastContainer';
 import { useNotesStore } from '@/stores/notesStore';
+import { useIsMobile } from '@/lib/platform';
+import { preparePhoto } from '@/lib/cameraPhoto';
+import { CameraIcon } from '@/components/mobile/phoneIcons';
+import phoneStyles from '@/styles/modules/PhoneExtras.module.css';
 import {
   fileToDataUrl,
   insertAtCaret,
@@ -45,7 +53,7 @@ export default function NoteEditor({
   sessionId,
   projectPath,
   initialText = '',
-  placeholder = 'Add a note...  (Markdown supported — paste or drop an image/video)',
+  placeholder,
   submitLabel = 'SAVE NOTE',
   busyLabel = 'SAVING...',
   onSubmit,
@@ -61,6 +69,11 @@ export default function NoteEditor({
   const [uploading, setUploading] = useState(0);
   const [dragging, setDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const cameraRef = useRef<HTMLInputElement | null>(null);
+  const isPhone = useIsMobile();
+  const shownPlaceholder = placeholder ?? (isPhone
+    ? 'Add a note… (Markdown supported — Photo adds a picture)'
+    : 'Add a note...  (Markdown supported — paste or drop an image/video)');
 
   const busy = saving || uploading > 0;
 
@@ -142,6 +155,19 @@ export default function NoteEditor({
     [attachFiles],
   );
 
+  // A photo from the camera (phone): scaled down, then the same upload as a paste.
+  const handlePhoto = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      // Clear it, so taking a photo of the same name again still fires a change.
+      e.target.value = '';
+      if (!file) return;
+      setMode('write');
+      await attachFiles([await preparePhoto(file)]);
+    },
+    [attachFiles],
+  );
+
   const handleSubmit = useCallback(async () => {
     const trimmed = text.trim();
     if (!trimmed || busy) return;
@@ -181,28 +207,51 @@ export default function NoteEditor({
       <div className={styles.noteEditorTabs}>
         <button
           type="button"
-          className={`${styles.noteEditorTab}${mode === 'write' ? ` ${styles.noteEditorTabActive}` : ''}`}
+          className={`${styles.noteEditorTab}${mode === 'write' ? ` ${styles.noteEditorTabActive}` : ''}${isPhone ? ` ${phoneStyles.noteBtn}` : ''}`}
           onClick={() => setMode('write')}
         >
           WRITE
         </button>
         <button
           type="button"
-          className={`${styles.noteEditorTab}${mode === 'preview' ? ` ${styles.noteEditorTabActive}` : ''}`}
+          className={`${styles.noteEditorTab}${mode === 'preview' ? ` ${styles.noteEditorTabActive}` : ''}${isPhone ? ` ${phoneStyles.noteBtn}` : ''}`}
           onClick={() => setMode('preview')}
           disabled={!text.trim()}
           title={text.trim() ? 'Preview rendered Markdown' : 'Nothing to preview yet'}
         >
           PREVIEW
         </button>
-        <span className={styles.noteEditorHint}>⌘⏎ save{onCancel ? ' · Esc cancel' : ''}</span>
+        {isPhone ? (
+          <>
+            <input
+              ref={cameraRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              hidden
+              onChange={(e) => void handlePhoto(e)}
+              data-testid="note-camera-input"
+            />
+            <button
+              type="button"
+              className={phoneStyles.cameraBtn}
+              onClick={() => cameraRef.current?.click()}
+              disabled={busy}
+            >
+              <CameraIcon />
+              Photo
+            </button>
+          </>
+        ) : (
+          <span className={styles.noteEditorHint}>⌘⏎ save{onCancel ? ' · Esc cancel' : ''}</span>
+        )}
       </div>
 
       {mode === 'write' ? (
         <textarea
           ref={textareaRef}
           className={`${styles.noteTextarea}${dragging ? ` ${styles.noteTextareaDrop}` : ''}`}
-          placeholder={placeholder}
+          placeholder={shownPlaceholder}
           rows={4}
           value={text}
           autoFocus={autoFocus}
@@ -236,12 +285,12 @@ export default function NoteEditor({
           </span>
         )}
         {onCancel && (
-          <button className={styles.ctrlBtn} onClick={onCancel} disabled={saving}>
+          <button className={`${styles.ctrlBtn}${isPhone ? ` ${phoneStyles.noteBtn} ${phoneStyles.noteBtnPlain}` : ''}`} onClick={onCancel} disabled={saving}>
             CANCEL
           </button>
         )}
         <button
-          className={`${styles.ctrlBtn} ${styles.saveNote}`}
+          className={`${styles.ctrlBtn} ${styles.saveNote}${isPhone ? ` ${phoneStyles.noteBtn}` : ''}`}
           onClick={handleSubmit}
           disabled={busy || !text.trim()}
         >
