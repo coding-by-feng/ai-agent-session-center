@@ -3,6 +3,7 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { isLocalRequest } from './requestLocality.js';
+import { bindRemoteClientId } from './clientBinding.js';
 import { canSeeSession, filterVisibleSessions, countHiddenSessions } from './sessionVisibility.js';
 
 // Express 5 types req.params as string | string[] and req.query similarly.
@@ -15,7 +16,7 @@ function str(val: unknown): string {
 import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel, getSessionIdByTerminalId } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
 import { getLocalIP } from './networkInfo.js';
-import { isPasswordEnabled } from './authManager.js';
+import { isPasswordEnabled, getTokenLineage, isLineageAlive, extractToken } from './authManager.js';
 import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, maybeInjectUltracode, attachToTmuxPane, consumePendingLink, prefillTerminalOutput, setReplayBufferBytes, getTerminalSessionId } from './sshManager.js';
 import { terminateProcessTree } from './processMonitor.js';
 import { restartSessionTerminal, isSessionRestarting, holdSessionClosing } from './sessionRestart.js';
@@ -129,9 +130,12 @@ function refuseWhileRestarting(sessionId: string, res: Response): boolean {
  */
 function clientIdFromRequest(req: Request): string {
   const clientId = str(req.headers['x-aasc-client-id']).slice(0, 128);
-  // A remote device can't borrow a local device's id (the desktop's): that id
-  // would pass the control check on the desktop's behalf (AASC-27).
-  if (clientId && !requestIsLocal(req) && presence.getDevice(clientId)?.isLocal) return '';
+  if (!clientId || requestIsLocal(req)) return clientId;
+  // A remote device can't borrow a local device's id (the desktop's), nor
+  // another remote device's: the id belongs to the sign-in that first used it
+  // (AASC-27). Either would pass the control check on someone else's behalf.
+  if (presence.getDevice(clientId)?.isLocal) return '';
+  if (!bindRemoteClientId(clientId, getTokenLineage(extractToken(req)), isLineageAlive)) return '';
   return clientId;
 }
 

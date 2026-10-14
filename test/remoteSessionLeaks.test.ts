@@ -39,6 +39,7 @@ class FakeSocket extends EventEmitter {
   of(type: string): Array<Record<string, unknown>> { return this.sent.filter((m) => m.type === type); }
 }
 
+let auth: typeof import('../server/authManager.js');
 let ws: typeof import('../server/wsManager.js');
 let store: typeof import('../server/sessionStore.js');
 let presence: typeof import('../server/presenceManager.js');
@@ -46,10 +47,12 @@ let WS_TYPES: typeof import('../server/constants.js').WS_TYPES;
 const sockets: FakeSocket[] = [];
 let n = 0;
 
-function connect(isLocal: boolean, clientId: string | null = `leak-${n++}`): FakeSocket {
+/** A remote socket is signed in; `token` picks its sign-in (a fresh one by default). */
+function connect(isLocal: boolean, clientId: string | null = `leak-${n++}`, token?: string): FakeSocket {
   const socket = new FakeSocket();
+  const lineage = isLocal ? null : auth.getTokenLineage(token ?? auth.createToken());
   ws.handleConnection(socket as never, {
-    clientId: clientId ?? '', label: isLocal ? 'Desktop' : 'Phone', address: isLocal ? '127.0.0.1' : '192.168.1.50', isLocal,
+    clientId: clientId ?? '', label: isLocal ? 'Desktop' : 'Phone', address: isLocal ? '127.0.0.1' : '192.168.1.50', isLocal, lineage,
   });
   sockets.push(socket);
   socket.sent.length = 0;
@@ -57,6 +60,7 @@ function connect(isLocal: boolean, clientId: string | null = `leak-${n++}`): Fak
 }
 
 beforeAll(async () => {
+  auth = await import('../server/authManager.js');
   ws = await import('../server/wsManager.js');
   store = await import('../server/sessionStore.js');
   presence = await import('../server/presenceManager.js');
@@ -149,6 +153,39 @@ describe('who may type', () => {
   });
 });
 
+describe('a device id belongs to the sign-in that first used it', () => {
+  it('another remote sign-in presenting the same id connects anonymously and can’t type', () => {
+    const tokenA = auth.createToken();
+    const phoneA = connect(false, 'phone-owned', tokenA);
+    phoneA.say({ type: 'terminal_subscribe', terminalId: 't-shared' });
+    phoneA.say({ type: 'terminal_input', terminalId: 't-shared', data: 'a' });
+    expect(pty.write).toHaveBeenCalledTimes(1);
+    phoneA.emit('close');
+    presence.releaseAllControls('phone-owned');
+    const phoneB = connect(false, 'phone-owned', auth.createToken());
+    phoneB.say({ type: 'terminal_subscribe', terminalId: 't-shared' });
+    phoneB.say({ type: 'terminal_input', terminalId: 't-shared', data: 'b' });
+    expect(pty.write).toHaveBeenCalledTimes(1);
+  });
+
+  it('survives the hourly token refresh, and passes to a new sign-in once the old one has expired', () => {
+    const first = auth.createToken();
+    connect(false, 'phone-refresh', first).emit('close');
+    const refreshed = auth.refreshToken(first)!; // same sign-in, new token
+    const again = connect(false, 'phone-refresh', refreshed);
+    again.say({ type: 'terminal_subscribe', terminalId: 't-shared' });
+    again.say({ type: 'terminal_input', terminalId: 't-shared', data: 'x' });
+    expect(pty.write).toHaveBeenCalledTimes(1);
+    again.emit('close');
+    presence.releaseAllControls('phone-refresh');
+    auth.removeToken(refreshed); // the old sign-in is gone (logged out / expired)
+    const fresh = connect(false, 'phone-refresh', auth.createToken());
+    fresh.say({ type: 'terminal_subscribe', terminalId: 't-shared' });
+    fresh.say({ type: 'terminal_input', terminalId: 't-shared', data: 'y' });
+    expect(pty.write).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('presence', () => {
   it('a remote device doesn’t see the batons of hidden sessions', () => {
     const local = connect(true, 'desk-p');
@@ -178,7 +215,9 @@ describe('presence routes over HTTP', () => {
     const post = (path: string, body: unknown, headers: Record<string, string>) => fetch(`http://127.0.0.1:${addr.port}/api${path}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body),
     });
-    const REMOTE = { 'X-Forwarded-For': '192.168.1.50' };
+    const tokenA = auth.createToken();
+    const tokenB = auth.createToken();
+    const REMOTE = { 'X-Forwarded-For': '192.168.1.50', Authorization: `Bearer ${tokenA}` };
     try {
       connect(true, 'desk-http');
       expect((await post('/presence/control/claim', { sessionId: 'leak-hidden' }, { ...REMOTE, 'X-AASC-Client-Id': 'phone-http' })).status).toBe(404);
@@ -187,6 +226,10 @@ describe('presence routes over HTTP', () => {
       presence.releaseAllControls('phone-http');
       const borrowed = await post('/presence/control/claim', { sessionId: 'leak-shared' }, { ...REMOTE, 'X-AASC-Client-Id': 'desk-http' });
       expect(borrowed.status).toBe(400); // the desktop's id is not accepted from a remote device
+      // Another remote sign-in can't use phone-http's id either.
+      const otherSignIn = await post('/presence/control/claim', { sessionId: 'leak-shared' },
+        { 'X-Forwarded-For': '192.168.1.51', Authorization: `Bearer ${tokenB}`, 'X-AASC-Client-Id': 'phone-http' });
+      expect(otherSignIn.status).toBe(400);
       // The desktop itself is unaffected.
       expect((await post('/presence/control/claim', { sessionId: 'leak-hidden' }, { 'X-AASC-Client-Id': 'desk-http' })).status).toBe(200);
       presence.releaseAllControls('desk-http');

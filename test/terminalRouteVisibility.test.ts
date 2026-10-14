@@ -40,11 +40,15 @@ let base = '';
 let store: typeof import('../server/sessionStore.js');
 let presence: typeof import('../server/presenceManager.js');
 
-const REMOTE = { 'X-Forwarded-For': '192.168.1.50' };
+const REMOTE: Record<string, string> = { 'X-Forwarded-For': '192.168.1.50' };
 
 beforeAll(async () => {
   store = await import('../server/sessionStore.js');
   presence = await import('../server/presenceManager.js');
+  // A remote device is always signed in (remote access needs a password), and
+  // its device id is tied to that sign-in (AASC-27).
+  const { createToken } = await import('../server/authManager.js');
+  REMOTE.Authorization = `Bearer ${createToken()}`;
   await store.createTerminalSession('tv-shared', { host: 'localhost', workingDir: '/tmp/term-vis/s', command: 'claude' });
   await store.createTerminalSession('tv-hidden', { host: 'localhost', workingDir: '/tmp/term-vis/h', command: 'claude' });
   store.setSessionRemoteVisible('tv-shared', true);

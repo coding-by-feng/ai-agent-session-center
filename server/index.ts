@@ -28,7 +28,7 @@ import {
   removeToken, parseCookieToken, extractToken, authMiddleware,
   startTokenCleanup, stopTokenCleanup, checkLoginRateLimit,
   recordLoginAttempt, clearLoginAttempts, refreshToken, getTokenTTL,
-  localhostOnlyMiddleware, TOKEN_TTL_SECONDS,
+  localhostOnlyMiddleware, TOKEN_TTL_SECONDS, getTokenLineage,
 } from './authManager.js';
 import { startNoteMediaSweeper } from './noteMedia.js';
 
@@ -243,6 +243,7 @@ export function startServer(port?: number): Promise<number> {
     // that carries proxy headers, or arrived on the remote-only listener, is a
     // remote device.
     const wsIsRemote = !isLocalRequest(req);
+    let wsLineage: string | null = null;
     if (isPasswordEnabled()) {
       // Prefer cookie-based auth (avoids token in URL query string)
       const token = parseCookieToken(req.headers.cookie) ?? extractToken(req);
@@ -251,6 +252,7 @@ export function startServer(port?: number): Promise<number> {
         ws.close(4001, 'Unauthorized');
         return;
       }
+      wsLineage = getTokenLineage(token);
     } else if (wsIsRemote) {
       // No password configured: loopback still connects freely (the desktop
       // app), but a remote device is refused. 4003 "Forbidden" rather than
@@ -277,6 +279,7 @@ export function startServer(port?: number): Promise<number> {
       label,
       address: req.socket.remoteAddress ?? '',
       isLocal: !wsIsRemote,
+      lineage: wsLineage,
     });
   });
 

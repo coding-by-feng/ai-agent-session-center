@@ -35,6 +35,7 @@ class FakeSocket extends EventEmitter {
   }
 }
 
+let auth: typeof import('../server/authManager.js');
 let ws: typeof import('../server/wsManager.js');
 let store: typeof import('../server/sessionStore.js');
 let presence: typeof import('../server/presenceManager.js');
@@ -45,7 +46,9 @@ let nextClient = 0;
 function connect(identity: { address: string; isLocal?: boolean }): { socket: FakeSocket; clientId: string } {
   const socket = new FakeSocket();
   const clientId = `tunnel-device-${nextClient++}`;
-  ws.handleConnection(socket as never, { clientId, label: 'test device', ...identity });
+  // A remote socket is always signed in, and its device id is tied to that sign-in (AASC-27).
+  const lineage = identity.isLocal ? null : auth.getTokenLineage(auth.createToken());
+  ws.handleConnection(socket as never, { clientId, label: 'test device', lineage, ...identity });
   connected.push(socket);
   return { socket, clientId };
 }
@@ -61,6 +64,7 @@ const queueUpdate = (sessionId: string) => ({
 });
 
 beforeAll(async () => {
+  auth = await import('../server/authManager.js');
   ws = await import('../server/wsManager.js');
   store = await import('../server/sessionStore.js');
   presence = await import('../server/presenceManager.js');

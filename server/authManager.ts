@@ -89,7 +89,10 @@ export function validatePasswordComplexity(password: string): PasswordValidation
 // ---------------------------------------------------------------------------
 
 // In-memory token store: Map<token, { createdAt: number }>
-const tokens = new Map<string, { createdAt: number }>();
+// `lineage` survives refresh: a login and every token rotated from it share one,
+// so a remote device id can be tied to the sign-in that first used it
+// (clientBinding.ts, AASC-27) without breaking at the hourly refresh.
+const tokens = new Map<string, { createdAt: number; lineage: string }>();
 
 /**
  * Hash a plaintext password with a random salt.
@@ -117,9 +120,28 @@ export function verifyPassword(password: string, stored: string): boolean {
  * Create a new auth token with 1h TTL.
  */
 export function createToken(): string {
+  return issueToken(randomBytes(16).toString('hex'));
+}
+
+function issueToken(lineage: string): string {
   const token = randomBytes(32).toString('hex');
-  tokens.set(token, { createdAt: Date.now() });
+  tokens.set(token, { createdAt: Date.now(), lineage });
   return token;
+}
+
+/** The sign-in a valid token descends from, or null. */
+export function getTokenLineage(token: string | null): string | null {
+  if (!token || !validateToken(token)) return null;
+  return tokens.get(token)?.lineage ?? null;
+}
+
+/** Does any valid token of this sign-in still exist? */
+export function isLineageAlive(lineage: string): boolean {
+  const now = Date.now();
+  for (const entry of tokens.values()) {
+    if (entry.lineage === lineage && now - entry.createdAt <= TOKEN_TTL_MS) return true;
+  }
+  return false;
 }
 
 /**
@@ -128,8 +150,9 @@ export function createToken(): string {
  */
 export function refreshToken(oldToken: string | null): string | null {
   if (!oldToken || !validateToken(oldToken)) return null;
+  const lineage = tokens.get(oldToken)?.lineage ?? randomBytes(16).toString('hex');
   tokens.delete(oldToken);
-  return createToken();
+  return issueToken(lineage);
 }
 
 /**

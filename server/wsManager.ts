@@ -18,6 +18,8 @@ import {
   removeClientFromAllTerminals,
   getTerminalSessionId,
 } from './sshManager.js';
+import { bindRemoteClientId } from './clientBinding.js';
+import { isLineageAlive } from './authManager.js';
 import * as presence from './presenceManager.js';
 import { isLoopbackAddress } from './presenceManager.js';
 import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
@@ -52,6 +54,8 @@ export interface ClientIdentity {
    * enough: a tunnel on this machine connects from 127.0.0.1 too.
    */
   isLocal?: boolean;
+  /** The sign-in lineage of the token this socket authenticated with (remote devices). */
+  lineage?: string | null;
 }
 
 /**
@@ -135,6 +139,12 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
   // never type.
   if (!client._isLocal && client._clientId && presence.getDevice(client._clientId)?.isLocal) {
     log.warn('ws', 'Remote socket presented a local device id; connecting it anonymously');
+    client._clientId = '';
+  }
+  // Nor another remote device's id: the id belongs to the sign-in that first used it.
+  if (!client._isLocal && client._clientId
+      && !bindRemoteClientId(client._clientId, identity?.lineage ?? null, isLineageAlive)) {
+    log.warn('ws', 'Remote socket presented a device id owned by another sign-in; connecting it anonymously');
     client._clientId = '';
   }
   client._lastDenyAt = new Map();
