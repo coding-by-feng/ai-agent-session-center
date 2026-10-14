@@ -91,6 +91,26 @@ describe('SettingsPanel', () => {
     expect(screen.getByText('Reset to Defaults')).toBeInTheDocument();
   });
 
+  it('offers keep-awake only in the desktop app, and saves the choice (AASC-16)', () => {
+    useUiStore.setState({ activeModal: 'settings' });
+    useSettingsStore.setState({ keepAwakeWhileWorking: false, persistSetting: vi.fn() } as never);
+    const { unmount } = render(<SettingsPanel />);
+    fireEvent.click(screen.getByText('ADVANCED'));
+    expect(screen.queryByText('Keep this Mac awake')).toBeNull();
+    unmount();
+    (window as unknown as { electronAPI?: unknown }).electronAPI = {};
+    try {
+      render(<SettingsPanel />);
+      fireEvent.click(screen.getByText('ADVANCED'));
+      expect(screen.getByText('Keep this Mac awake')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Keep awake while an agent is busy' }));
+      expect(useSettingsStore.getState().keepAwakeWhileWorking).toBe(true);
+      expect(useSettingsStore.getState().persistSetting).toHaveBeenCalledWith('keepAwakeWhileWorking', true);
+    } finally {
+      delete (window as unknown as { electronAPI?: unknown }).electronAPI;
+    }
+  });
+
   it('has all 5 tab buttons', () => {
     useUiStore.setState({ activeModal: 'settings' });
     render(<SettingsPanel />);
