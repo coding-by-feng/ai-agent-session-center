@@ -45,6 +45,7 @@ import { cloudJsonParser } from './cloud/router.js';
 import { createCloudConnection } from './cloud/connection.js';
 import { createEncryptedSecretStore, createFileSecretStore } from './cloud/secretStore.js';
 import { cloudStateBase } from './cloud/paths.js';
+import { aliasJsonParser } from './cloud/aliasRouter.js';
 import type { CloudConnector, SecretEncryption } from './cloud/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -113,8 +114,10 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   const server = createServer(app);
   const wss = new WebSocketServer({ server, maxPayload: 512 * 1024 }); // 512KB max WS message (supports large terminal pastes)
 
-  // Cloud's raw/decompressed 1 MB cap must precede the global parser: once that
-  // has consumed a body, the cloud routers' own parser never sees it.
+  // Cloud's raw/decompressed caps must precede the global parser: once that has
+  // consumed a body, the cloud routers' own parser never sees it. Aliases take
+  // small bodies (64 KB); notes batches and the rest up to 1 MB.
+  app.use('/api/resources/cloud/aliases', aliasJsonParser());
   app.use('/api/resources/cloud', cloudJsonParser());
   app.use(express.json({ limit: '50mb' }));
 
@@ -280,7 +283,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   app.use('/api/resources', authMiddleware, createResourceRouter({
     sessionProjectPaths: () =>
       Object.values(getAllSessions()).map((s) => s.projectPath).filter(Boolean),
-    ...(cloudSetup ? { cloud: cloudSetup.cloud } : {}),
+    ...(cloudSetup ? { cloud: cloudSetup.cloud, cloudAliasDirectory: cloudSetup.directory } : {}),
   }));
   // The global express.json() above parses bodies before the router runs, so a
   // malformed body never reaches the router's own handler — without this it

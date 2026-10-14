@@ -15,7 +15,7 @@ afterEach(async()=>{for(const c of cleanup.splice(0).reverse())await c();});
 async function setup(isLocalRequest?:()=>boolean){
  const dir=await realpath(await mkdtemp(join(tmpdir(),'aasc-cloud-route-')));cleanup.push(()=>rm(dir,{recursive:true,force:true}));
  const cloud=await createCloudConnection({directory:join(dir,'cloud'),secrets:createFileSecretStore(join(dir,'secrets'))});cleanup.push(()=>cloud.stop());
- const app=express();app.use('/api/resources/cloud',cloudJsonParser());app.use(express.json({limit:'50mb'}));app.use('/api/resources',createResourceRouter({sessionProjectPaths:()=>[],home:dir,cloud,isLocalRequest}));app.use('/api/resources',resourceErrorHandler);
+ const app=express();app.use('/api/resources/cloud',cloudJsonParser());app.use(express.json({limit:'50mb'}));app.use('/api/resources',createResourceRouter({sessionProjectPaths:()=>[],home:dir,cloud,cloudAliasDirectory:join(dir,'cloud'),isLocalRequest}));app.use('/api/resources',resourceErrorHandler);
  const server=await new Promise<ReturnType<typeof app.listen>>(r=>{const s=app.listen(0,'127.0.0.1',()=>r(s));});cleanup.push(()=>new Promise<void>(r=>{server.closeAllConnections();server.close(()=>r());}));
  return {url:`http://127.0.0.1:${(server.address() as {port:number}).port}/api/resources/cloud`,cloud,dir};
 }

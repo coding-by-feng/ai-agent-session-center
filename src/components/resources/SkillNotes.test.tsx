@@ -224,7 +224,7 @@ it('disables every note/alias editing control until the selected notes hydrate',
  expect(screen.getByLabelText('Add a tag')).toBeDisabled();expect(screen.getByLabelText('Abbreviation')).toBeDisabled();expect(screen.getByRole('checkbox')).toBeDisabled();expect(screen.getByText(/Loading saved notes/)).toBeInTheDocument();
 });
 
-describe('cloud CLI intent is saved as a note, not written locally', () => {
+describe('cloud CLI intent and local installation are separate', () => {
   const cloudIdentity = {
     backendOrigin: 'https://example.test',
     accountId: '11111111-1111-4111-8111-111111111111',
@@ -296,6 +296,38 @@ describe('cloud CLI intent is saved as a note, not written locally', () => {
     );
     expect(notes()['claude:retouch-ascii-review'].cli).toBe(true);
     expect(cloudCalls.some((c) => c.url === '/api/resources/aliases')).toBe(false);
+    expect(screen.getByText(/Local result/)).toBeInTheDocument();
+  });
+  it('device opt-in previews files before explicit reconcile', async () => {
+    render(<SkillNotes resource={res()} realNames={REAL} />);
+    await screen.findByRole('checkbox', { name: /Install cloud aliases on this device/ });
+    await userEvent.click(
+      screen.getByRole('checkbox', { name: /Install cloud aliases on this device/ }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Review alias for this device' }));
+    await screen.findByText('~/.claude/commands/rar.md');
+    expect(cloudCalls.some((c) => c.url.endsWith('/reconcile'))).toBe(false);
+    await userEvent.click(screen.getByRole('button', { name: 'Apply reviewed alias' }));
+    await screen.findByText(/Local result: installed/);
+    expect(cloudCalls.find((c) => c.url.endsWith('/preview'))?.body).toEqual({
+      keys: ['claude:retouch-ascii-review'],
+    });
+    expect(cloudCalls.find((c) => c.url.endsWith('/reconcile'))?.body).toEqual({
+      keys: ['claude:retouch-ascii-review'],
+      reviewId: '33333333-3333-4333-8333-333333333333',
+    });
+  });
+  it('active old account cannot review through the new available account', async () => {
+    useSkillNotesStore.setState({
+      connection: {
+        ...cloudIdentity,
+        accountId: '22222222-2222-4222-8222-222222222222',
+        generation: 2,
+      },
+    });
+    render(<SkillNotes resource={res()} realNames={REAL} />);
+    expect(screen.getByRole('button', { name: 'Review alias for this device' })).toBeDisabled();
+    expect(cloudCalls).toEqual([]);
   });
 });
 

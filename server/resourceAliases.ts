@@ -24,7 +24,9 @@
  * shadow it.
  */
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, rmdirSync, writeFileSync } from 'fs';
+import * as nativePath from 'path';
 import { dirname, join } from 'path';
+import type { ResourceSummary } from '../src/types/resources.js';
 import { homedir } from 'os';
 
 /** Written into every file AASC creates; its presence is the ownership test. */
@@ -61,6 +63,10 @@ export interface AliasDeps {
   home?: string;
   /** `agent:name` keys of every real skill and command (the catalog's). Omitted → not checked. */
   realNames?: ReadonlySet<string>;
+  /** Server-owned review: validate and report without writing. */
+  dryRun?: boolean;
+  /** Reviewed replacement retains paths also occupied by the new alias. */
+  preserveFiles?: ReadonlySet<string>;
 }
 
 interface AliasFile {
@@ -155,7 +161,7 @@ function inspect(abs: string): Existing {
     return { exists: false };
   }
   if (stat.isSymbolicLink()) return { exists: true, ours: false, symlink: true };
-  if (!stat.isFile()) return { exists: true, ours: false, symlink: false };
+  if (!stat.isFile() || stat.nlink !== 1) return { exists: true, ours: false, symlink: false };
   let text = '';
   try {
     text = readFileSync(abs, 'utf8');
@@ -163,6 +169,54 @@ function inspect(abs: string): Existing {
     return { exists: true, ours: false, symlink: false };
   }
   return { exists: true, ours: text.includes(ALIAS_MARKER), symlink: false };
+}
+
+/** Enumerate native descendants independently; win32 junctions cannot skip ancestors. */
+export function aliasParentPaths(abs: string, home: string, paths: Pick<typeof nativePath, 'relative' | 'dirname' | 'join'> = nativePath): string[] {
+  const parts = paths.relative(home, paths.dirname(abs)).split(/[\\/]/).filter(Boolean);
+  if (parts.some(part => part === '..') || parts.some(part => /^[A-Za-z]:/.test(part)))
+    throw new AliasError(409, 'Alias path is outside the trusted home.');
+  let current = home;
+  return parts.map(part => current = paths.join(current, part));
+}
+
+/** One catalog collision rule for cloud reconciliation and the legacy local route. */
+export function aliasCatalogRealNames(resources: readonly ResourceSummary[], requests: readonly AliasRequest[], home: string): Set<string> {
+  const owned = new Set<string>();
+  for (const req of requests) for (const file of aliasFilesFor(req.agent, req.kind, req.abbr, home)) {
+    try {
+      checkParents(file.abs, home);
+      const found = inspect(file.abs);
+      if (!found.exists || !found.ours) continue;
+      owned.add(`${file.cli}:command:${file.display}`);
+      if (file.ownDir) {
+        owned.add(`${file.cli}:skill:${file.display}`);
+        owned.add(`${file.cli}:skill:${file.display.slice(0, -'/SKILL.md'.length)}`);
+      }
+    } catch { /* unsafe/unowned resources remain collision candidates */ }
+  }
+  return new Set(resources.filter(r => (r.type === 'skill' || r.type === 'command') && !owned.has(`${r.agent}:${r.type}:${r.path}`)).map(r => `${r.agent}:${r.origin === 'plugin' && r.pluginName ? `${r.pluginName}:${r.name}` : r.name}`));
+}
+
+/** Refuse redirected parent directories as well as a linked final file. */
+function checkParents(abs: string, home: string): void {
+  const homeStat = lstatSync(home);
+  if (homeStat.isSymbolicLink() || !homeStat.isDirectory())
+    throw new AliasError(409, 'The CLI home is redirected.');
+  for (const parent of aliasParentPaths(abs, home)) {
+    let stat;
+    try {
+      stat = lstatSync(parent);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw new AliasError(409, 'An alias directory cannot be inspected.');
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory())
+      throw new AliasError(
+        409,
+        'An alias directory is a link or not a directory; AASC will not write through it.',
+      );
+  }
 }
 
 function writeAtomic(abs: string, text: string): void {
@@ -194,6 +248,7 @@ export async function createAlias(req: AliasRequest, deps: AliasDeps = {}): Prom
 
   // Check every file before writing any: all or nothing.
   const plan = files.map((file) => {
+    checkParents(file.abs, home);
     if (!existsSync(file.cliHome)) {
       throw new AliasError(409, `${file.cli === 'claude' ? 'Claude Code' : 'Codex'} is not set up on this machine (no ${file.cli === 'claude' ? '~/.claude' : '~/.codex'}).`);
     }
@@ -209,7 +264,7 @@ export async function createAlias(req: AliasRequest, deps: AliasDeps = {}): Prom
   });
 
   for (const { file, text, action } of plan) {
-    if (action !== 'unchanged') writeAtomic(file.abs, text);
+    if (!deps.dryRun && action !== 'unchanged') writeAtomic(file.abs, text);
   }
   return { files: plan.map(({ file, action }) => ({ path: file.display, action })) };
 }
@@ -222,12 +277,15 @@ export async function removeAlias(
   checkAbbr(req.abbr);
   const out: AliasResult['files'] = [];
   for (const file of aliasFilesFor(req.agent, req.kind, req.abbr, home)) {
+    if (deps.preserveFiles?.has(file.display)) { out.push({ path: file.display, action: 'unchanged' }); continue; }
+    checkParents(file.abs, home);
     const found = inspect(file.abs);
     if (!found.exists) {
       out.push({ path: file.display, action: 'absent' });
     } else if (!found.ours) {
       out.push({ path: file.display, action: 'kept' });
     } else {
+      if (deps.dryRun) { out.push({ path: file.display, action: 'removed' }); continue; }
       rmSync(file.abs, { force: true });
       if (file.ownDir) {
         try {

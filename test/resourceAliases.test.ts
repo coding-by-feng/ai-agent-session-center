@@ -154,3 +154,6 @@ describe('removeAlias', () => {
     await expect(removeAlias({ agent: 'claude', kind: 'skill', abbr: '../../x' }, { home })).rejects.toMatchObject({ status: 400 });
   });
 });
+
+it('I4: Windows native path walk checks every descendant',async()=>{const {win32}=await import('path');const {aliasParentPaths}=await import('../server/resourceAliases.js');expect(aliasParentPaths('C:\\Users\\fixture\\.codex\\skills\\rv\\SKILL.md','C:\\Users\\fixture',win32)).toEqual(['C:\\Users\\fixture\\.codex','C:\\Users\\fixture\\.codex\\skills','C:\\Users\\fixture\\.codex\\skills\\rv']);});
+it('I4: intermediate directory links/junctions refuse create and removal',async()=>{const outside=join(home,'outside');mkdirSync(join(outside,'rv'),{recursive:true});symlinkSync(outside,join(home,'.codex','skills'),'junction');writeFileSync(join(outside,'rv','SKILL.md'),`<!-- ${ALIAS_MARKER} -->\noriginal`);await expect(createAlias({...base,agent:'codex',abbr:'rv'},{home})).rejects.toBeInstanceOf(AliasError);await expect(removeAlias({agent:'codex',kind:'skill',abbr:'rv'},{home})).rejects.toBeInstanceOf(AliasError);expect(readFileSync(join(outside,'rv','SKILL.md'),'utf8')).toContain('original');});

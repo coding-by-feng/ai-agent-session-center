@@ -25,6 +25,7 @@ import {
   validateAbbr,
 } from '@/lib/skillNotes';
 import Button from '@/components/ui/Button';
+import CloudAliasControls from './CloudAliasControls';
 import IconButton from '@/components/ui/IconButton';
 import TextInput from '@/components/ui/TextInput';
 import styles from '@/styles/modules/SkillNotes.module.css';
@@ -93,6 +94,7 @@ function SkillNotesEditor({ resource, realNames }: SkillNotesProps) {
   const ready = useSkillNotesStore((s) => s.ready);
   const sync = useSkillNotesStore((s) => s.sync);
   const identity = useSkillNotesStore((s) => s.identity);
+  const connection = useSkillNotesStore((s) => s.connection);
   const syncMessage = useSkillNotesStore((s) => s.message);
   const historyReset = useSkillNotesStore((s) => s.historyReset);
   const { toggleFav, addTag, removeTag, setAbbr, setCli } = useSkillNotesStore.getState();
@@ -309,7 +311,7 @@ function SkillNotesEditor({ resource, realNames }: SkillNotesProps) {
               />
               <span>{identity ? 'Use this abbreviation as a CLI command on my devices' : `Also work inside ${cliName(resource.agent)} (${typedAs(resource.agent, kind, abbr).join(', ')})`}</span>
             </label>
-            {identity ? <p className={styles.hint}>Desired state: {cli ? 'CLI alias requested' : 'CLI alias off'}. Saved with your cloud notes; this device writes no command file for it.</p> : <p className={styles.hint}>
+            {identity ? <p className={styles.hint}>Desired state: {cli ? 'CLI alias requested' : 'CLI alias off'}. Installation is checked separately on each opted-in device.</p> : <p className={styles.hint}>
               Writes a small command file in ~/.{resource.agent === 'codex' ? 'codex' : resource.agent === 'claude' ? 'claude' : 'claude and ~/.codex'}.
               AASC only ever changes files it wrote itself.
             </p>}
@@ -323,6 +325,7 @@ function SkillNotesEditor({ resource, realNames }: SkillNotesProps) {
             {removedNote && <p className={styles.hint} role="status">{removedNote}</p>}
           </div>
         )}
+        {identity && <CloudAliasControls key={JSON.stringify([key,identity.backendOrigin,identity.accountId,identity.generation,connection?.backendOrigin,connection?.accountId,connection?.generation,ready])} noteKey={key} identity={identity} ready={ready}/>}
       </div>
     </section>
   );

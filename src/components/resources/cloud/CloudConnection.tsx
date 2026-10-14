@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import Button from '@/components/ui/Button';
 import Field from '@/components/ui/Field';
+import NativeSelect from '@/components/ui/NativeSelect';
 import TextInput from '@/components/ui/TextInput';
 import { cloudApi } from '@/lib/cloudApi';
 import type { CloudStatus } from '@/types/cloud';
 import { useSkillNotesStore, refreshNotesConnection } from '@/stores/skillNotesStore';
+import CloudAliasControls from '../CloudAliasControls';
 import { useCloudAction, useCloudSession, bindingKey } from './cloudSession';
 import styles from '@/styles/modules/CloudResources.module.css';
 export default function CloudConnection({ onStatus }: { onStatus: (s: CloudStatus) => void }) {
@@ -12,7 +14,8 @@ export default function CloudConnection({ onStatus }: { onStatus: (s: CloudStatu
     action = useCloudAction();
   const [url, setUrl] = useState(session.status.connection?.backendOrigin ?? ''),
     [name, setName] = useState(''),
-    [code, setCode] = useState('');
+    [code, setCode] = useState(''),
+    [aliasKey, setAliasKey] = useState('');
   const notes = useSkillNotesStore();
   const [noteError, setNoteError] = useState<string | null>(null),
     [noteBusy, setNoteBusy] = useState(false);
@@ -107,7 +110,7 @@ export default function CloudConnection({ onStatus }: { onStatus: (s: CloudStatu
         )}
       </section>
       <section className={styles.card}>
-        <h3>Notes</h3>
+        <h3>Notes and CLI aliases</h3>
         <p>
           Active notes:{' '}
           {notes.identity
@@ -223,6 +226,32 @@ export default function CloudConnection({ onStatus }: { onStatus: (s: CloudStatu
           <p role="alert" className={styles.error}>
             {noteError}
           </p>
+        )}
+        <p className={styles.hint}>
+          CLI intent is separate from installation on this device. Review the server-saved
+          abbreviation and target before Apply.
+        </p>
+        {notes.identity && (
+          <>
+            <Field label="Alias note">
+              <NativeSelect
+                value={aliasKey}
+                onChange={setAliasKey}
+                options={[
+                  { value: '', label: 'Choose a saved note' },
+                  ...Object.keys(notes.notes).map((k) => ({ value: k, label: k })),
+                ]}
+              />
+            </Field>
+            {aliasKey && (
+              <CloudAliasControls
+                key={`${aliasKey}:${bindingKey(notes.identity)}:${notes.selectionGeneration}`}
+                noteKey={aliasKey}
+                identity={notes.identity}
+                ready={notes.ready}
+              />
+            )}
+          </>
         )}
       </section>
     </div>

@@ -52,6 +52,7 @@ async function setup(remote = false) {
       sessionProjectPaths: () => [],
       home: dir,
       cloud,
+      cloudAliasDirectory: join(dir, 'cloud'),
       ...(remote ? { isLocalRequest: () => false } : {}),
     }),
   );
@@ -119,6 +120,7 @@ it('the paired-phone profile grants no cloud route', () => {
       '/resources/cloud/connect',
       '/resources/cloud/skill-notes',
       '/resources/cloud/skill-notes/batch',
+      '/resources/cloud/aliases/reconcile',
       '/cloud/skill-notes',
     ])
       expect(phoneRuleFor(method, path)).toBeNull();
