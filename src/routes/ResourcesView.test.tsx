@@ -49,12 +49,12 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('ResourcesView — shell', () => {
-  it('renders the title and the Library / Sources / Checks / Transfers / Devices sub-tabs', async () => {
+  it('renders the title and the Library / Sources / Checks / Transfers / Devices / Cloud sub-tabs', async () => {
     renderView();
     await ready();
     expect(screen.getByRole('heading', { name: /agent resources/i, level: 1 })).toBeInTheDocument();
     const tabs = within(screen.getByRole('tablist', { name: 'Resource sections' })).getAllByRole('tab');
-    expect(tabs.map((t) => t.textContent)).toEqual(['Library', 'Sources', 'Checks', 'Transfers', 'Devices']);
+    expect(tabs.map((t) => t.textContent)).toEqual(['Library', 'Sources', 'Checks', 'Transfers', 'Devices', 'Cloud']);
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
     // Sync is Phase C and Data is Phase D — not even as disabled tabs.
     expect(screen.queryByRole('tab', { name: /sync/i })).not.toBeInTheDocument();
@@ -578,4 +578,16 @@ describe('ResourcesView — shortcut commands', () => {
     fireEvent.click(within(detail()).getByRole('button', { name: 'tdd' }));
     await waitFor(() => expect(urlParams().get('id')).toBe('sk-claude-tdd'));
   });
+});
+
+it('the Cloud section shows the connection without touching Transfers', async () => {
+  const { cloudApi } = await import('@/lib/cloudApi');
+  const status = vi.spyOn(cloudApi, 'status').mockResolvedValue({ connection: null, state: 'disconnected', lastError: null });
+  renderView('/resources?section=cloud');
+  await ready();
+  expect(screen.getByRole('tab', { name: 'Cloud' })).toHaveAttribute('aria-selected', 'true');
+  expect(await screen.findByRole('heading', { name: 'Device connection' })).toBeInTheDocument();
+  expect(await screen.findByText(/Cloud · disconnected/)).toBeInTheDocument();
+  expect(status).toHaveBeenCalled();
+  status.mockRestore();
 });

@@ -7,6 +7,7 @@
  * agent-skills repo copy. Everything arrives through `/api/resources`
  * (src/lib/resourcesApi.ts). Uninstall moves resources into the local trash.
  * The separate TransferPanel and transfer API copy reviewed packages over SSH;
+ * the lazy CloudPanel holds the optional cloud connection and skill-notes sync;
  * neither path uses ProjectTab or `/api/files/*`.
  *
  * Catalog view state lives in the URL (`section`, `type`, `agent`, `scope`,
@@ -14,7 +15,7 @@
  * `/resources?project=<id>` opens a project's resources, and a Checks finding
  * opens the resource it is about.
  */
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigationType, useSearchParams } from 'react-router';
 import type { ResourceCatalog, ResourceProject, ResourceSummary, ResourceType, UninstallResult } from '@/types/resources';
 import {
@@ -63,13 +64,15 @@ import styles from '@/styles/modules/Resources.module.css';
 import noteStyles from '@/styles/modules/SkillNotes.module.css';
 import transferStyles from '@/styles/modules/ResourceTransfers.module.css';
 import TransferPanel from '@/components/resources/TransferPanel';
+
+const CloudPanel = lazy(() => import('@/components/resources/cloud/CloudPanel'));
 import { resourceIsSelected, withResourceSelection, type ResourceSelection } from '@/types/resourceTransfers';
 
 const POLL_MS = 750;
 /** How often "scanned 2m ago" is re-derived; it has minute resolution. */
 const AGE_TICK_MS = 30_000;
 const UNAVAILABLE_MESSAGE = 'Resources are available only on this machine — open AASC on the Mac that runs it.';
-const SECTION_LABELS: Record<ResourceSection, string> = { library: 'Library', sources: 'Sources', checks: 'Checks', transfers: 'Transfers', devices: 'Devices' };
+const SECTION_LABELS: Record<ResourceSection, string> = { library: 'Library', sources: 'Sources', checks: 'Checks', transfers: 'Transfers', devices: 'Devices', cloud: 'Cloud' };
 const NO_RESOURCES: ResourceSummary[] = [];
 const NO_PROJECTS: ResourceProject[] = [];
 /** Most tag chips the filter bar shows; the rest stay reachable by search. */
@@ -184,8 +187,14 @@ function SectionTabs({ baseId, section, onSelect }: {
   section: ResourceSection;
   onSelect: (section: ResourceSection) => void;
 }) {
+  const listRef = useRef<HTMLDivElement>(null);
+  // The row scrolls sideways at narrow widths (scrollbar hidden): keep the open tab in view.
+  useEffect(() => {
+    const tab = listRef.current?.querySelector<HTMLElement>('[aria-selected="true"]');
+    tab?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [section]);
   return (
-    <div className={styles.sectionTabs} role="tablist" aria-label="Resource sections">
+    <div ref={listRef} className={styles.sectionTabs} role="tablist" aria-label="Resource sections">
       {RESOURCE_SECTIONS.map((s) => (
         <button
           key={s}
@@ -501,6 +510,7 @@ export default function ResourcesView() {
         {!catalog && error && (
           <EmptyState fill tone="error" title={error} action={<Button onClick={reload}>Retry</Button>} />
         )}
+        {catalog && params.section === 'cloud' && <Suspense fallback={<EmptyState busy title="Loading Cloud…" />}><CloudPanel /></Suspense>}
         {catalog && (params.section === 'transfers' || params.section === 'devices') && <TransferPanel section={params.section} catalog={catalog} selection={transferSelection} onSelection={setTransferSelection} onDevices={() => updateParams({ section: 'devices' })} />}
         {catalog && params.section === 'sources' && (
           <SourcesPanel

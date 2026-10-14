@@ -1,10 +1,12 @@
+import 'fake-indexeddb/auto';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ResourceSummary } from '@/types/resources';
 import { buildResourceShortcuts } from '@/lib/commandShortcuts';
 import { useSkillNotesStore } from '@/stores/skillNotesStore';
 import ResourceList from './ResourceList';
+import { db } from '@/lib/db';
 
 function res(over: Partial<ResourceSummary> & { id: string }): ResourceSummary {
   return {
@@ -31,7 +33,13 @@ function renderList(resources: ResourceSummary[], onSelect = vi.fn()) {
 }
 
 describe('ResourceList — skill notes', () => {
-  beforeEach(() => { try { localStorage.clear(); } catch { /* ignore */ } useSkillNotesStore.setState({ notes: {} }); });
+  beforeEach(async () => {
+    localStorage.clear();
+    await useSkillNotesStore.getState().flush();
+    await Promise.all([db.skillNoteRecords.clear(), db.skillNoteOutbox.clear(), db.skillNoteSyncMeta.clear()]);
+    await useSkillNotesStore.getState().useLocalNotes();
+    expect(useSkillNotesStore.getState().ready).toBe(true);
+  });
 
   it('puts a favourite toggle beside each skill row, not inside the row button', async () => {
     const user = userEvent.setup();
@@ -39,7 +47,10 @@ describe('ResourceList — skill notes', () => {
     const heart = screen.getByRole('button', { name: 'Favourite tdd' });
     expect(heart.parentElement?.closest('button')).toBeNull();
     expect(heart.closest('li')).not.toBeNull();
-    await user.click(heart);
+    await act(async () => {
+      await user.click(heart);
+      await useSkillNotesStore.getState().flush();
+    });
     expect(onSelect).not.toHaveBeenCalled();
     expect(useSkillNotesStore.getState().notes['claude:tdd'].fav).toBe(true);
     expect(screen.getByRole('button', { name: 'Favourite tdd' }).getAttribute('aria-pressed')).toBe('true');

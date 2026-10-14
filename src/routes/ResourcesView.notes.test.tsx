@@ -1,28 +1,31 @@
 // ResourcesView.notes.test.tsx — favourites, tags and abbreviations in the Library:
 // the filter bar, search, the detail card, and "select visible" for a transfer.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { screen, within, fireEvent } from '@testing-library/react';
+import { screen, within, fireEvent, act } from '@testing-library/react';
 import { stubApi, renderView, urlParams, ready, rail, railButton, listRows, row, detail, LAZY } from '@/__tests__/fixtures/resourceCatalog';
 import { useSkillNotesStore } from '@/stores/skillNotesStore';
 
 const names = () => listRows().map((b) => b.textContent ?? '');
 
-beforeEach(() => {
+beforeEach(async () => {
+  // UI fixture represents an already-hydrated account/local projection.
+  await useSkillNotesStore.getState().flush();
   try { localStorage.clear(); } catch { /* ignore */ }
-  useSkillNotesStore.setState({
+  act(() => useSkillNotesStore.setState({
+    ready: true,
     notes: {
       'claude:tdd': { fav: true, tags: ['review', 'workflow'], abbr: 'td' },
       'codex:tdd': { fav: false, tags: ['ops'] },
       'claude:research': { fav: true, tags: [] },
       'claude:old-skill': { fav: false, tags: ['workflow'] },
     },
-  });
+  }));
   stubApi();
 });
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
-  useSkillNotesStore.setState({ notes: {} });
+  act(() => useSkillNotesStore.setState({ notes: {} }));
 });
 
 describe('ResourcesView — favourites and tags', () => {
