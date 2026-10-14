@@ -151,6 +151,32 @@
 .tab:hover { color: var(--text-primary); }
 .tab.active { color: var(--accent-text, var(--accent-cyan)); border-bottom-color: var(--accent-cyan); }
 
+/* The tab strip on a phone (AASC-18). Same query as MOBILE_MEDIA_QUERY: one tab
+   at a time (DetailTabs drops split/stacked/float there), 44px targets, and an
+   edge that has more tabs past it fades out — DetailTabs sets data-overflow-start
+   / -end from the strip's scroll position — so a cut-off tab reads as "scroll
+   for more", not as the end of the strip. */
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
+  /* Every tab's content: an 8px gutter, not 20px — on a 360px screen that is a
+     tenth of the width. Two classes: the base `.tabContent` rule comes later. */
+  .tabs ~ .tabContent { padding: 8px; }
+  .tab { min-height: 44px; }
+  .tab:active { color: var(--text-primary); background: var(--bg-subtle); }
+  .tab:focus-visible { outline: 2px solid var(--accent-text, var(--accent-cyan)); outline-offset: -2px; }
+  .tabs[data-overflow-end] {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+  }
+  .tabs[data-overflow-start] {
+    -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 48px), transparent);
+    mask-image: linear-gradient(to left, #000 calc(100% - 48px), transparent);
+  }
+  .tabs[data-overflow-start][data-overflow-end] {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent);
+  }
+}
+
 /* Count badge on the NOTES / QUEUE tabs — same accent pill as the session
    strip's queue-hint badge, so a count reads the same wherever it appears.
    Accent-coloured rather than `inherit` on purpose: the point is to be legible
@@ -447,6 +473,34 @@
 .convJumpLatest { margin-left: auto; background: none; border: 1px solid var(--border-subtle); color: var(--text-secondary); font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.8px; padding: 3px 9px; border-radius: 3px; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
 .convJumpLatest:hover:not(:disabled) { color: var(--accent-cyan, #00e5ff); border-color: var(--accent-cyan, #00e5ff); }
 .convJumpLatest:disabled { opacity: 0.35; cursor: default; }
+
+/* ---- The conversation toolbar on a phone (AASC-18) ----
+   Same query as MOBILE_MEDIA_QUERY. Three lines at 360px: role pills + latest,
+   the search box on its own (16px text: iOS zooms into smaller fields), then the
+   position, ▲▼ (ConversationView renders them on phones only) and Matches only.
+   Every control a 44px target. */
+.convSearchNav { display: inline-flex; gap: 8px; }
+.convSearchNavBtn { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 0; background: none; border: 1px solid var(--border-subtle); border-radius: 8px; color: var(--text-primary); font-size: 12px; cursor: pointer; transition: border-color 0.15s, background 0.15s, transform 0.15s; }
+.convSearchNavBtn:hover:not(:disabled) { border-color: var(--accent-cyan, #00e5ff); background: var(--bg-subtle); }
+.convSearchNavBtn:active:not(:disabled) { transform: scale(0.96); }
+.convSearchNavBtn:focus-visible { outline: 2px solid var(--accent-text, var(--accent-cyan)); outline-offset: 2px; }
+.convSearchNavBtn:disabled { opacity: 0.35; cursor: not-allowed; }
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
+  .convToolbar { gap: 8px; padding: 8px; }
+  .convFilterPills { order: 0; gap: 8px; }
+  .convFilterPill, .convJumpLatest { min-height: 44px; min-width: 44px; font-size: 11px; border-radius: 8px; }
+  .convJumpLatest { order: 1; }
+  .convSearch { order: 2; flex: 1 1 100%; min-height: 44px; padding: 0 0 0 8px; border-radius: 8px; }
+  .convSearchInput { font-size: 16px; }
+  .convSearchClear { width: 44px; height: 44px; padding: 0; font-size: 14px; color: var(--text-primary); }
+  .convSearchCount { order: 3; font-size: 12px; }
+  .convSearchNav { order: 4; }
+  .convMatchesOnly { order: 5; margin-left: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .convSearchNavBtn { transition: none; }
+  .convSearchNavBtn:active:not(:disabled) { transform: none; }
+}
 
 /* ---- Command chip (parsed slash command) ---- */
 .convCommand { border-left-color: var(--accent-purple, #aa66ff); }

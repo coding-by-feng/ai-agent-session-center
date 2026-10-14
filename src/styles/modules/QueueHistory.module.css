@@ -421,3 +421,143 @@
   flex-direction: column;
   gap: 2px;
 }
+
+/* ---- On a phone (AASC-18) ----------------------------------------------------
+   Same query as MOBILE_MEDIA_QUERY (src/lib/platform.ts). The sheet and its two
+   inner dialogs take the whole screen, header and footer pinned; every control is
+   a 44px target and the type/sort pickers share a line under the filter. The
+   rename pencil is shown, not hover-revealed. 16px fields: iOS zooms into smaller. */
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
+  .overlay,
+  .viewOverlay {
+    padding: 0;
+    align-items: stretch;
+  }
+  .panel,
+  .viewPanel {
+    max-width: none;
+    max-height: none;
+    height: 100%;
+    border: none;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .header {
+    min-height: 56px;
+    padding: 4px 8px 4px 16px;
+  }
+  .headerActions {
+    gap: 8px;
+  }
+  .headerIconBtn,
+  .closeBtn {
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+  }
+  .closeBtn {
+    font-size: 20px;
+  }
+  .targetStrip {
+    padding: 8px 16px;
+    font-size: 12px;
+  }
+  .controlsRow {
+    flex-wrap: wrap;
+    padding: 8px 16px;
+  }
+  .filterInput {
+    flex: 1 1 100%;
+    min-height: 44px;
+    font-size: 16px;
+    padding: 0 12px;
+  }
+  .controlSelect {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .body {
+    gap: 8px;
+    padding: 8px 16px;
+    overscroll-behavior: contain;
+  }
+  .row {
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 8px;
+  }
+  .rowAlias,
+  .rowAliasEmpty {
+    min-height: 44px;
+    font-size: 13px;
+    opacity: 1;
+    color: var(--text-primary);
+  }
+  .rowAlias {
+    color: var(--accent-text, var(--accent-cyan));
+  }
+  .rowAliasPencil {
+    opacity: 0.8;
+  }
+  .rowAliasInput {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .rowText {
+    font-size: 13px;
+  }
+  .rowMeta {
+    font-size: 11px;
+  }
+  .rowActions {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-top: 8px;
+  }
+  .btnGhost,
+  .btnPrimary,
+  .btnDanger {
+    flex: 1 1 0;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 12px;
+    border-radius: 8px;
+    font-size: 12px;
+  }
+  .footer {
+    padding: 8px 16px;
+    gap: 8px;
+  }
+  .footerRight {
+    gap: 8px;
+  }
+  .footer > .btnGhost {
+    flex: 0 0 auto;
+  }
+  .viewBody {
+    padding: 16px;
+  }
+  .viewText {
+    font-size: 13px;
+  }
+  .btnGhost:active,
+  .btnPrimary:active,
+  .btnDanger:active,
+  .headerIconBtn:active,
+  .closeBtn:active {
+    transform: scale(0.97);
+  }
+  .btnGhost:focus-visible,
+  .btnPrimary:focus-visible,
+  .btnDanger:focus-visible,
+  .headerIconBtn:focus-visible,
+  .closeBtn:focus-visible,
+  .rowAlias:focus-visible,
+  .rowAliasEmpty:focus-visible {
+    outline: 2px solid var(--accent-cyan);
+    outline-offset: 2px;
+  }
+}

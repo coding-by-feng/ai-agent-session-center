@@ -19,6 +19,7 @@ import { fetchTranscript, reconstructFromLogs, type ConversationEntry, type Syst
 import { transformEntries } from '@/lib/commandMessage';
 import { isQueueSent, readQueueSentLog } from '@/lib/queueSentLog';
 import { clipToMatch, matchesQuery, normalizeQuery } from '@/lib/textHighlight';
+import { useIsMobile } from '@/lib/platform';
 import LinkifiedText, { MarkedText } from './LinkifiedText';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
@@ -409,6 +410,11 @@ interface ConversationViewProps {
    *  counter reflects what is actually highlighted rather than re-deriving it
    *  from a different data set. */
   onMatchCountChange?: (count: number) => void;
+  /** The host's current match (0-based) and its step through the `.search-highlight`
+   *  rows — the panel find bar's ▲▼, which a phone has no keyboard to open. With
+   *  these, a phone's toolbar gets its own ▲▼ and "n/N" (AASC-18). */
+  searchMatchIndex?: number;
+  onSearchStep?: (direction: 'prev' | 'next') => void;
   projectPath?: string;
 }
 
@@ -422,8 +428,11 @@ export default function ConversationView({
   searchQuery,
   onSearchChange,
   onMatchCountChange,
+  searchMatchIndex,
+  onSearchStep,
   projectPath,
 }: ConversationViewProps) {
+  const isMobile = useIsMobile();
   const [entries, setEntries] = useState<ConversationEntry[]>([]);
   const [loading, setLoading] = useState(true);
   // Opens on the prompts a person wrote; harness rows stay one click away under ALL.
@@ -530,7 +539,7 @@ export default function ConversationView({
     <div ref={rootRef}>
       {/* Sticky toolbar — role filter + search + jump-to-latest.
           Wraps at narrow panel widths; the pills keep row 1. */}
-      <div className={styles.convToolbar}>
+      <div className={styles.convToolbar} data-conv-toolbar="">
         <div className={styles.convFilterPills}>
           {FILTERS.map((f) => (
             <button
@@ -581,10 +590,36 @@ export default function ConversationView({
               className={`${styles.convSearchCount}${matchCount === 0 ? ` ${styles.convSearchCountEmpty}` : ''}`}
               data-testid="conv-search-count"
             >
-              {matchCount === 0 ? 'No matches' : `${matchCount} match${matchCount === 1 ? '' : 'es'}`}
+              {matchCount === 0
+                ? 'No matches'
+                : isMobile && onSearchStep
+                  ? `${Math.min(searchMatchIndex ?? 0, matchCount - 1) + 1}/${matchCount}`
+                  : `${matchCount} match${matchCount === 1 ? '' : 'es'}`}
             </span>
+            {isMobile && onSearchStep && (
+              <span className={styles.convSearchNav}>
+                <button
+                  type="button"
+                  className={styles.convSearchNavBtn}
+                  onClick={() => onSearchStep('prev')}
+                  disabled={matchCount === 0}
+                  aria-label="Previous match"
+                >
+                  ▲
+                </button>
+                <button
+                  type="button"
+                  className={styles.convSearchNavBtn}
+                  onClick={() => onSearchStep('next')}
+                  disabled={matchCount === 0}
+                  aria-label="Next match"
+                >
+                  ▼
+                </button>
+              </span>
+            )}
             <button
-              className={`${styles.convFilterPill}${matchesOnly ? ` ${styles.convFilterPillActive}` : ''}`}
+              className={`${styles.convFilterPill} ${styles.convMatchesOnly}${matchesOnly ? ` ${styles.convFilterPillActive}` : ''}`}
               onClick={() => setMatchesOnly((v) => !v)}
               aria-pressed={matchesOnly}
               title={

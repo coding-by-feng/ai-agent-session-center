@@ -465,10 +465,13 @@ describe('QueueTab — collapse button', () => {
     expect(after[after.length - 1]).toBe(screen.getByRole('button', EXPAND));
   });
 
-  it('is offered on a phone too, where there is no float button', () => {
+  it('is not offered on a phone: there the QUEUE tab is the queue, never folded (AASC-18)', () => {
     platform.isMobile = true;
+    useUiStore.setState({ queuePanelCollapsed: true });
     render(strip());
-    expect(screen.getByRole('button', COLLAPSE)).toBeInTheDocument();
+    expect(screen.queryByRole('button', COLLAPSE)).toBeNull();
+    expect(screen.queryByRole('button', EXPAND)).toBeNull();
+    expect(panelRoots()[0].className).not.toMatch(/collapsed/);
   });
 });
 
@@ -493,6 +496,8 @@ describe('QueueTab — expanding a long prompt', () => {
 
   let harness: ReturnType<typeof installClipHarness>;
   beforeEach(() => {
+    // List and Card are desktop layouts (a phone has one): never inherit a phone from a test above.
+    platform.isMobile = false;
     harness = installClipHarness(200);
     localStorage.removeItem('queue-panel-collapsed');
     useQueueStore.setState({ queues: new Map([['s1', items as never]]), automation: new Map(), composeDrafts: new Map() });

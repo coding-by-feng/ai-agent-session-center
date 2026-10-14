@@ -206,4 +206,11 @@
 
 @media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
   .view { padding: 8px 16px; }
+  /* AASC-18: the prompt box takes the full width, Add sits under it at the
+     right; 16px text so iOS does not zoom the page into the field. */
+  .composeRow { flex-direction: column; align-items: stretch; gap: 8px; }
+  .composeActions { flex-direction: row; justify-content: flex-end; }
+  .compose .textarea { font-size: 16px; }
+  .composeActions > button { min-width: 88px; }
+  .actionsRow { gap: 8px; }
 }

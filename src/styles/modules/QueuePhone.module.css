@@ -1,0 +1,107 @@
+/* ============================================================
+   The prompt queue's phone-only pieces (AASC-18): the move sheet, a row's
+   "More" sheet and the hold-to-reorder hint. Rendered only under
+   `useIsMobile()`, so nothing here needs a media query. Targets are 44px,
+   spacing is on the 8px grid, new text is --text-primary.
+   ============================================================ */
+
+.sheetList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sheetItem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-card, transparent);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+.sheetItem:hover {
+  background: var(--bg-subtle);
+  border-color: var(--border-accent, var(--accent-cyan));
+}
+.sheetItem:active {
+  transform: scale(0.98);
+}
+.sheetItem:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+}
+
+.sheetItemTitle {
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.sheetItemSub {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.sheetNote {
+  margin: 8px 0 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+/* The prompt a sheet acts on, so the user knows which one it is. */
+.sheetPreview {
+  margin: 0 0 16px;
+  padding: 8px 12px;
+  border-left: 2px solid var(--accent-cyan);
+  border-radius: 4px;
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.sheetActions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sheetActions > * {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 44px;
+}
+
+.hint {
+  margin: 0 0 8px;
+  padding: 0 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheetItem { transition: none; }
+  .sheetItem:active { transform: none; }
+}

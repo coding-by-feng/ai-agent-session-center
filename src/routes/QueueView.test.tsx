@@ -34,6 +34,13 @@ vi.mock('@/lib/shortcutKeys', async (importOriginal) => ({
   },
 }));
 
+// A phone is a viewport, not a capability: the phone tests flip this.
+const phone = vi.hoisted(() => ({ isMobile: false }));
+vi.mock('@/lib/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/platform')>()),
+  useIsMobile: () => phone.isMobile,
+}));
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
@@ -534,5 +541,40 @@ describe('QueueView — design-rule guards', () => {
     // The two ends of one contract live in different files; neither lints.
     expect(read('../styles/modules/Queue.module.css')).toMatch(/content:\s*attr\(data-added\)/);
     expect(read('./QueueView.tsx')).toMatch(/data-added=\{added\}/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// On a phone (AASC-18): Remove asks first, Move is a bottom sheet.
+// ---------------------------------------------------------------------------
+
+describe('QueueView on a phone', () => {
+  beforeEach(() => { phone.isMobile = true; });
+  afterEach(() => { phone.isMobile = false; });
+
+  it('Remove asks first: Cancel keeps the prompt, Remove removes it', async () => {
+    const user = userEvent.setup();
+    seed({ a: [item(1, 'a', 'first prompt'), item(2, 'a', 'second prompt')] }, [session('a', 'alpha')]);
+    render(<QueueView />);
+    await user.click(screen.getByRole('button', { name: 'Remove prompt 1 from the queue' }));
+    const sheet = screen.getByRole('dialog', { name: 'Remove prompt 1?' });
+    expect(within(sheet).getByText(/first prompt/)).toBeInTheDocument();
+    await user.click(within(sheet).getByRole('button', { name: 'Cancel' }));
+    expect(queueOf('a').map((i) => i.text)).toEqual(['first prompt', 'second prompt']);
+    await user.click(screen.getByRole('button', { name: 'Remove prompt 1 from the queue' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Remove prompt 1?' })).getByRole('button', { name: 'Remove' }));
+    expect(queueOf('a').map((i) => i.text)).toEqual(['second prompt']);
+  });
+
+  it('Move picks the session from a sheet, not the desktop dropdown', async () => {
+    const user = userEvent.setup();
+    seed({ a: [item(1, 'a', 'first prompt')] }, [session('a', 'alpha'), session('b', 'beta')]);
+    render(<QueueView />);
+    await user.click(screen.getByRole('button', { name: 'Move prompt 1 to another session' }));
+    expect(screen.queryByRole('listbox')).toBeNull();
+    const sheet = screen.getByRole('dialog', { name: 'Move to another session' });
+    await user.click(within(sheet).getByRole('button', { name: /beta/ }));
+    expect(queueOf('a')).toEqual([]);
+    expect(queueOf('b').map((i) => i.text)).toEqual(['first prompt']);
   });
 });
