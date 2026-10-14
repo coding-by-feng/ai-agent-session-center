@@ -1013,6 +1013,7 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       clearApprovalTimer(session_id, session);
       const permTool = ('tool_name' in hookData ? hookData.tool_name : undefined) || session.pendingTool || 'Unknown';
       session.status = SESSION_STATUS.APPROVAL;
+      session.approvalSource = 'permission_request';
       session.animationState = ANIMATION_STATE.WAITING;
       session.waitingDetail = ('tool_input' in hookData && hookData.tool_input)
         ? `Approve ${permTool}: ${summarizeToolInput(hookData.tool_input as Record<string, unknown>, permTool)}`
@@ -1080,6 +1081,7 @@ export function handleEvent(hookData: HookPayload): HandleEventResult | null {
       ) {
         clearApprovalTimer(session_id, null); // stop the heuristic; keep pendingTool for the robot
         session.status = SESSION_STATUS.APPROVAL;
+        session.approvalSource = 'notification';
         session.animationState = ANIMATION_STATE.WAITING;
         session.waitingDetail = message || 'Approval needed';
       }

@@ -300,6 +300,12 @@ export interface Session {
    * auto-resume watchdog reads as "recovered". Absent on a healthy session.
    */
   interruption?: SessionInterruption | null;
+  /**
+   * How the session came to need approval (AASC-16 push): a PermissionRequest hook,
+   * a permission_prompt Notification, or the approval timeout guess. Live-only;
+   * never archived.
+   */
+  approvalSource?: 'permission_request' | 'notification' | 'timer' | null;
 
   /**
    * The CLI's plan limits (5-hour / weekly usage and when they reset), as last

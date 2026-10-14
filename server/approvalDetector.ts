@@ -173,6 +173,8 @@ export function startApprovalTimer(
 
         const waitingStatus = getWaitingStatus(target.pendingTool) || SESSION_STATUS.APPROVAL;
         target.status = waitingStatus as Session['status'];
+        // The least reliable signal: push waits it out before notifying (pushRules).
+        target.approvalSource = 'timer';
         target.animationState = ANIMATION_STATE.WAITING;
         target.waitingDetail = getWaitingLabel(target.pendingTool, target.pendingToolDetail || '');
         try {

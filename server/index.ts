@@ -7,8 +7,11 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { execFile } from 'child_process';
 import hookRouter from './hookRouter.js';
-import { handleConnection, stopHeartbeat, broadcast, disconnectDevice } from './wsManager.js';
-import { getAllSessions, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
+import { handleConnection, stopHeartbeat, broadcast, disconnectDevice, onBroadcast } from './wsManager.js';
+import { createPushNotifier } from './push/pushNotifier.js';
+import { getPushSink } from './push/pushSink.js';
+import { canSeeSession } from './sessionVisibility.js';
+import { getAllSessions, getSession, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
 import { createTerminal, consumePendingLink, writeWhenReady } from './sshManager.js';
 import { WS_TYPES } from './constants.js';
 import { closeDb, markStaleSessionsEnded } from './db.js';
@@ -181,6 +184,16 @@ export function startServer(port?: number): Promise<number> {
 
   // -- Hook endpoints (localhost only -- CLI hooks must work without login but are restricted to loopback) --
   app.use('/api/hooks', localhostOnlyMiddleware, hookRateLimitMiddleware, hookRouter);
+
+  // -- Push notifications (AASC-16) --
+  // Decisions are made here (this Mac knows session state); the backend sends.
+  const pushNotifier = createPushNotifier({
+    getSession,
+    canNotify: (session) => canSeeSession(false, session),
+    sink: getPushSink,
+    onError: (message) => log.warn('push', message),
+  });
+  onBroadcast((data) => pushNotifier.onBroadcast(data));
 
   // -- Phone pairing (AASC-15) --
   // Mounted before authMiddleware: /pair, /session and /unpair are the phone's

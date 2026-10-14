@@ -518,6 +518,19 @@ export function disconnectDevice(deviceId: string): number {
   return closed;
 }
 
+type BroadcastListener = (data: { type: string; [key: string]: unknown }) => void;
+const broadcastListeners = new Set<BroadcastListener>();
+
+/**
+ * Observe every outgoing broadcast (AASC-16: the push notifier watches
+ * session_update). A listener that throws is logged and never breaks the
+ * broadcast itself. Returns an unsubscribe function.
+ */
+export function onBroadcast(listener: BroadcastListener): () => void {
+  broadcastListeners.add(listener);
+  return () => { broadcastListeners.delete(listener); };
+}
+
 /** Push presence state to every client (device list, batons, writer). */
 export function broadcastPresence(): void {
   for (const client of clients) {
@@ -607,6 +620,13 @@ export function broadcast(data: { type: string; [key: string]: unknown }): void 
 
   const critical = isCriticalBroadcast(data);
   broadcastToClients(data, critical);
+  for (const listener of broadcastListeners) {
+    try {
+      listener(data);
+    } catch (err) {
+      log.warn('ws', `Broadcast listener failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 }
 
 /**
