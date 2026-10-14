@@ -31,6 +31,7 @@ import { sqliteMobileDeviceStore } from './mobile/deviceStore.js';
 import { createPhoneProfile } from './mobile/phoneProfile.js';
 import { listKnownProjects } from './knownProjects.js';
 import { createMobileRouter } from './mobile/mobileRouter.js';
+import { createPhoneCloudBridge } from './mobile/phoneCloudBridge.js';
 import { isLocalRequest } from './requestLocality.js';
 import { resolveRemoteListenerPort, startRemoteListener } from './remoteListener.js';
 import {
@@ -107,6 +108,8 @@ async function openCloudConnection(options: ServerOptions): Promise<{ cloud: Clo
 export async function startServer(port?: number, options: ServerOptions = {}): Promise<number> {
   const cloudSetup = await openCloudConnection(options);
   const cloud = cloudSetup?.cloud ?? null;
+  // Phone pairing and push through the cloud connection, when one is connected (AASC-15/16).
+  const phoneCloud = createPhoneCloudBridge({ cloud, warn: (message) => log.warn('mobile', message) });
   const args = process.argv.slice(2);
   const noOpen = args.includes('--no-open');
 
@@ -238,7 +241,8 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
   const pushNotifier = createPushNotifier({
     getSession,
     canNotify: (session) => canSeeSession(false, session),
-    sink: getPushSink,
+    // A test sink when one is set, else the cloud connection while it is connected.
+    sink: () => getPushSink() ?? phoneCloud.pushSink(),
     onError: (message) => log.warn('push', message),
   });
   onBroadcast((data) => pushNotifier.onBroadcast(data));
@@ -251,11 +255,11 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
     // Changing the dashboard password revokes every paired phone on its next sign-in.
     credentialEpoch: () => (config.passwordHash ? hashSecret(config.passwordHash).slice(0, 16) : null),
     onRevoked: (device) => {
-      // End every session and live socket the phone holds. The backend half of
-      // the cascade (revoking its backend device) joins when the cloud
-      // connector lands; until then there is no backend device to revoke.
+      // End every session and live socket the phone holds, then revoke the
+      // backend device it created from the QR's backend code (if any).
       revokeTokensForDevice(device.id);
       disconnectDevice(device.id);
+      void phoneCloud.revokeBackendPhone(device.beCodeRef);
       log.info('mobile', `Phone access removed: ${device.label} (${device.platform})`);
     },
   });
@@ -272,6 +276,7 @@ export async function startServer(port?: number, options: ServerOptions = {}): P
       tailnet: getTailnetIP(),
     }),
     rateLimit: { check: checkLoginRateLimit, record: recordLoginAttempt, clear: clearLoginAttempts },
+    mintBackendCode: () => phoneCloud.mintBackendCode(),
   }));
 
   // -- Agent Resources (RESOURCES tab) --

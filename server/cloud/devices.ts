@@ -118,3 +118,53 @@ export async function createPhonePairingCode(
   );
   return validResponse(PhonePairingCodeSchema, data, 'pairing code');
 }
+
+const BackendDeviceSchema = z.object({
+  id: z.string().min(1).max(128),
+  kind: z.string().nullable().optional(),
+  createdByCode: z.string().nullable().optional(),
+  revokedAt: z.string().nullable().optional(),
+});
+const DevicePageSchema = z.object({
+  devices: z.array(BackendDeviceSchema),
+  nextCursor: z.string().nullable(),
+});
+export type BackendDevice = z.infer<typeof BackendDeviceSchema>;
+
+/** One page of this account's backend devices (needs `devices:manage`). */
+export async function listBackendDevices(
+  client: CloudClient,
+  cursor?: string | null,
+  signal?: AbortSignal,
+): Promise<{ devices: BackendDevice[]; nextCursor: string | null }> {
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+  const data = await client.request<unknown>('GET', `/v1/devices${query}`, undefined, signal);
+  return validResponse(DevicePageSchema, data, 'device list');
+}
+
+/** Revoke one backend device (needs `devices:manage`). Revoking twice is fine. */
+export async function revokeBackendDevice(client: CloudClient, deviceId: string, signal?: AbortSignal): Promise<void> {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(deviceId)) throw new CloudError('invalid_input', 'Invalid device id.', 400);
+  await client.request<unknown>('DELETE', `/v1/devices/${deviceId}`, undefined, signal);
+}
+
+/**
+ * Find the backend device a phone created with the backend code `codeRef`
+ * (the pairing QR's backend half), or null. Pages through the list; the owner
+ * has few devices.
+ */
+export async function findDeviceByPairingCode(
+  client: CloudClient,
+  codeRef: string,
+  signal?: AbortSignal,
+): Promise<BackendDevice | null> {
+  let cursor: string | null = null;
+  for (let page = 0; page < 50; page++) {
+    const { devices, nextCursor } = await listBackendDevices(client, cursor, signal);
+    const hit = devices.find((d) => d.createdByCode === codeRef);
+    if (hit) return hit;
+    if (!nextCursor) return null;
+    cursor = nextCursor;
+  }
+  return null;
+}
