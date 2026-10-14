@@ -129,6 +129,14 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
   // check; an unknown address still fails CLOSED (treated as remote).
   client._isLocal = identity?.isLocal ?? isLoopbackAddress(identity?.address ?? '');
   client._label = presence.sanitizeDeviceLabel(identity?.label ?? '');
+  // A remote device must not borrow the desktop's id: that id passes the
+  // control check and would demote the desktop to "remote" in presence
+  // (AASC-27). It connects as an anonymous socket instead, which can watch but
+  // never type.
+  if (!client._isLocal && client._clientId && presence.getDevice(client._clientId)?.isLocal) {
+    log.warn('ws', 'Remote socket presented a local device id; connecting it anonymously');
+    client._clientId = '';
+  }
   client._lastDenyAt = new Map();
   if (client._clientId) {
     presence.registerClient({
@@ -296,6 +304,9 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
             const missed = getEventsSince(msg.sinceSeq);
             log.debug('ws', `Replaying ${missed.length} events since seq=${msg.sinceSeq}`);
             for (const evt of missed) {
+              // The replay buffer holds every session's updates; a remote device
+              // gets only those it could have received live (AASC-27).
+              if (!mayReplay(client, evt.data)) continue;
               client.send(JSON.stringify(evt.data));
             }
           }
@@ -426,10 +437,17 @@ function canSubscribeToTerminal(client: WsClient, terminalId: string): boolean {
  * rather than looking broken.
  */
 function holdsControl(client: WsClient, terminalId: string): boolean {
-  // An unidentified socket (an old cached client, or a non-browser consumer)
-  // is not arbitrated: it writes freely, exactly as before this feature. It
-  // must NOT reach noteControlActivity, which would otherwise register '' as
-  // the holder and put a phantom device in the presence UI.
+  // Remote devices (AASC-27): an anonymous socket never types, and the session
+  // must still be shared NOW. Un-sharing doesn't wait for the device to
+  // resubscribe; every write re-checks.
+  if (!client._isLocal) {
+    if (!client._clientId) return false;
+    if (!canSubscribeToTerminal(client, terminalId)) return false;
+  }
+  // An unidentified LOCAL socket (an old cached client, or a non-browser
+  // consumer on this machine) is not arbitrated: it writes freely, exactly as
+  // before this feature. It must NOT reach noteControlActivity, which would
+  // otherwise register '' as the holder and put a phantom device in the UI.
   if (!client._clientId) return true;
 
   const sessionId = sessionIdForTerminal(terminalId);
@@ -455,8 +473,68 @@ function holdsControl(client: WsClient, terminalId: string): boolean {
 }
 
 /** Push presence state to every client (device list, batons, writer). */
+/**
+ * The presence a client may see. Remote devices don't learn which hidden
+ * sessions exist through the control-baton list (AASC-27).
+ */
+export function presenceFor(isLocal: boolean): ReturnType<typeof presence.presenceSnapshot> {
+  const snapshot = presence.presenceSnapshot();
+  if (isLocal) return snapshot;
+  return {
+    ...snapshot,
+    controllers: snapshot.controllers.filter((c) => canSeeSession(false, getSession(c.sessionId))),
+  };
+}
+
 export function broadcastPresence(): void {
-  broadcast({ type: WS_TYPES.PRESENCE_UPDATE, ...presence.presenceSnapshot() });
+  for (const client of clients) {
+    if (client.readyState !== 1) continue;
+    try {
+      client.send(JSON.stringify({ type: WS_TYPES.PRESENCE_UPDATE, ...presenceFor(client._isLocal) }));
+    } catch { /* client disconnected */ }
+  }
+}
+
+/** May this client receive a buffered event on replay? Mirrors the live broadcast rule, using current visibility. */
+function mayReplay(client: WsClient, data: unknown): boolean {
+  if (client._isLocal) return true;
+  if (!data || typeof data !== 'object') return true;
+  const subject = broadcastSubject(data as { type: string; [key: string]: unknown });
+  if (!subject) return true;
+  const sessionId = (subject as { sessionId?: unknown }).sessionId;
+  const live = typeof sessionId === 'string' ? getSession(sessionId) : null;
+  // Both the session as it was and as it is now must be visible: an event from
+  // while it was shared is not replayed after it was hidden.
+  return canSeeSession(false, subject) && canSeeSession(false, live ?? UNRESOLVED_SUBJECT);
+}
+
+/**
+ * A session stopped being shared: cut every remote device off it at once
+ * (AASC-27). Their terminal subscriptions end, and the session card goes away.
+ * Returns how many subscriptions were dropped.
+ */
+export function revokeRemoteSessionAccess(sessionId: string): number {
+  let dropped = 0;
+  for (const client of clients) {
+    if (client._isLocal) continue;
+    for (const terminalId of [...client._terminalIds]) {
+      if (sessionIdForTerminal(terminalId) !== sessionId) continue;
+      removeWsClient(terminalId, client);
+      client._terminalIds.delete(terminalId);
+      dropped++;
+      if (client.readyState === 1) {
+        try {
+          client.send(JSON.stringify({ type: WS_TYPES.TERMINAL_CLOSED, terminalId, reason: 'hidden' }));
+        } catch { /* client disconnected */ }
+      }
+    }
+    if (client.readyState === 1) {
+      try {
+        client.send(JSON.stringify({ type: WS_TYPES.SESSION_REMOVED, sessionId }));
+      } catch { /* client disconnected */ }
+    }
+  }
+  return dropped;
 }
 
 /**

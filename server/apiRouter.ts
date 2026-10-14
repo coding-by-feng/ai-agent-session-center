@@ -128,7 +128,11 @@ function refuseWhileRestarting(sessionId: string, res: Response): boolean {
  * workspace restore.
  */
 function clientIdFromRequest(req: Request): string {
-  return str(req.headers['x-aasc-client-id']).slice(0, 128);
+  const clientId = str(req.headers['x-aasc-client-id']).slice(0, 128);
+  // A remote device can't borrow a local device's id (the desktop's): that id
+  // would pass the control check on the desktop's behalf (AASC-27).
+  if (clientId && !requestIsLocal(req) && presence.getDevice(clientId)?.isLocal) return '';
+  return clientId;
 }
 
 function clientLabelFromRequest(req: Request): string {
@@ -1587,6 +1591,18 @@ router.put('/sessions/:id/remote-visible', (req: Request, res: Response) => {
   if (!getSession(id)) { res.status(404).json({ error: 'Session not found' }); return; }
   const visible = req.body?.remoteVisible === true;
   setSessionRemoteVisible(id, visible);
+  // Un-sharing cuts remote devices off at once (AASC-27): their terminal
+  // subscriptions end and the card disappears, instead of streaming on until
+  // they happen to resubscribe. wsManager is loaded lazily (see broadcastPresence).
+  if (!visible) {
+    void (async () => {
+      try {
+        const ws = await import('./wsManager.js');
+        ws.revokeRemoteSessionAccess(id);
+        ws.broadcastPresence();
+      } catch { /* ignore */ }
+    })();
+  }
   res.json({ success: true, remoteVisible: visible });
 });
 
@@ -3321,9 +3337,25 @@ router.post('/workspace/restore-claim/release', (req: Request, res: Response) =>
   res.json({ ok: true, released });
 });
 
-router.get('/presence', (_req: Request, res: Response) => {
-  res.json({ ok: true, data: presence.presenceSnapshot() });
+router.get('/presence', (req: Request, res: Response) => {
+  const snapshot = presence.presenceSnapshot();
+  // Remote devices don't learn hidden sessions' ids from the baton list (AASC-27).
+  const data = requestIsLocal(req)
+    ? snapshot
+    : { ...snapshot, controllers: snapshot.controllers.filter((c) => canSeeSession(false, getSession(c.sessionId))) };
+  res.json({ ok: true, data });
 });
+
+/**
+ * Control (baton) actions name a session. A remote device may only act on a
+ * session it can see: claiming a hidden session's baton would lock the desktop
+ * out of typing there (AASC-27). 404, like every other hidden-session route.
+ */
+function mayControlSession(req: Request, res: Response, sessionId: string): boolean {
+  if (requestIsLocal(req) || canSeeSession(false, getSession(sessionId))) return true;
+  res.status(404).json({ ok: false, error: 'Session not found' });
+  return false;
+}
 
 const ControlActionSchema = z.object({
   sessionId: z.string().min(1).max(200),
@@ -3337,6 +3369,7 @@ router.post('/presence/control/claim', (req: Request, res: Response) => {
     res.status(400).json({ ok: false, error: 'Invalid request' });
     return;
   }
+  if (!mayControlSession(req, res, parsed.data.sessionId)) return;
   const clientId = clientIdFromRequest(req);
   if (!clientId) {
     res.status(400).json({ ok: false, error: 'missing-client-id' });
@@ -3357,6 +3390,7 @@ router.post('/presence/control/release', (req: Request, res: Response) => {
     res.status(400).json({ ok: false, error: 'Invalid request' });
     return;
   }
+  if (!mayControlSession(req, res, parsed.data.sessionId)) return;
   const released = presence.releaseControl(parsed.data.sessionId, clientIdFromRequest(req));
   broadcastPresence();
   res.json({ ok: true, released });
@@ -3380,6 +3414,7 @@ router.post('/presence/control/request', (req: Request, res: Response) => {
     res.status(400).json({ ok: false, error: 'Invalid request' });
     return;
   }
+  if (!mayControlSession(req, res, parsed.data.sessionId)) return;
   const holder = presence.getController(parsed.data.sessionId);
   if (!holder) {
     res.json({ ok: false, error: 'session-is-free' });
@@ -3408,6 +3443,7 @@ router.post('/presence/control/grant', (req: Request, res: Response) => {
     return;
   }
   const { sessionId, toClientId } = parsed.data;
+  if (!mayControlSession(req, res, sessionId)) return;
   // Only the current holder may give it away; anyone else granting would be a
   // way to hand a session to a third device you don't control.
   const holder = presence.getController(sessionId);
