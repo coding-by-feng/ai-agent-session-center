@@ -82,6 +82,12 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('POST', '/sessions/:id/(queue/resume|kill|resume|restart-terminal|reconnect-terminal|fork|clone)', 'allow'),
   route('DELETE', '/sessions/:id', 'allow'),
   route('POST', '/queue-images', 'upload'),
+  // Shared from the Mac (AASC-20): a paused append, the QUEUE badge record, saved prompts.
+  route('POST', '/sessions/:id/queue/items', 'allow'),
+  route('GET|POST', '/sessions/:id/queue/sent', 'allow'),
+  route('GET|POST', '/snippets', 'allow'),
+  route('PATCH|DELETE', '/snippets/:id', 'allow'),
+  route('POST', '/snippets/:id/use', 'allow'),
   // Notes and history of a shared session (the history and note gates check the owner).
   route('GET', '/db/sessions/:id', 'allow'),
   route('GET|POST', '/db/sessions/:id/notes', 'allow'),

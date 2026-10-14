@@ -16,7 +16,7 @@ vi.mock('@/lib/transcript', async (importOriginal) => {
 });
 
 import ConversationView from './ConversationView';
-import { recordQueueSent } from '@/lib/queueSentLog';
+import { useQueueSentStore } from '@/stores/queueSentStore';
 
 const T = 1_700_000_000_000;
 
@@ -91,7 +91,11 @@ describe('ConversationView default view', () => {
 
   it('marks the prompts the queue sent with a QUEUE badge, and only those', async () => {
     fetchTranscript.mockResolvedValue(HARNESS);
-    recordQueueSent({ text: 'including model select /raab', sentAt: T });
+    // The Mac's record for this session (AASC-20), as the store holds it after loading.
+    useQueueSentStore.setState({
+      load: async () => {},
+      bySession: new Map([['s1', [{ text: 'including model select /raab', sentAt: T }]]]),
+    });
     const { container } = renderView();
     await waitFor(() => expect(rowCount(container)).toBe(2));
     const badges = screen.getAllByText('QUEUE');

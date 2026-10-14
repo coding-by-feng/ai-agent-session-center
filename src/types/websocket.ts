@@ -185,7 +185,26 @@ export interface ControlRequestedMessage {
 }
 
 /** Union of all server-to-client messages */
+/** The prompt queue sent a prompt to this session (AASC-20): the CONVERSATION badge record. */
+export interface QueueSentMessage {
+  type: 'queue_sent';
+  sessionId: string;
+  /** The normalized head of the prompt (lib/queueSentLog.ts). */
+  text: string;
+  sentAt: number;
+}
+
+/** The saved-prompt library changed on the Mac (AASC-20): the whole list. */
+export interface SnippetsUpdateMessage {
+  type: 'snippets_update';
+  /** Newer lists replace older ones; a lower revision is a late broadcast. */
+  revision: number;
+  snippets: Array<{ id: number; text: string; label: string; useCount: number; lastUsedAt: number | null; createdAt: number }>;
+}
+
 export type ServerMessage =
+  | QueueSentMessage
+  | SnippetsUpdateMessage
   | SnapshotMessage
   | SessionUpdateMessage
   | SessionRemovedMessage

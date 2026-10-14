@@ -167,6 +167,10 @@ export const WS_TYPES = {
    *  full items + automation so a receiver needs no follow-up fetch, plus the
    *  originating device id so the sender can ignore its own echo. */
   QUEUE_UPDATE: 'queue_update',
+  /** The prompt queue sent a prompt (AASC-20): the CONVERSATION badge record, per session. */
+  QUEUE_SENT: 'queue_sent',
+  /** The saved-prompt library changed (AASC-20): the whole list with its revision. */
+  SNIPPETS_UPDATE: 'snippets_update',
   UPDATE_QUEUE_COUNT: 'update_queue_count',
   REPLAY: 'replay',
   CLEAR_BROWSER_DB: 'clearBrowserDb',

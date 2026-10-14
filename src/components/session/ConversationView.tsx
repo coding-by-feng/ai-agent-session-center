@@ -17,7 +17,8 @@ import type {
 } from '@/types';
 import { fetchTranscript, reconstructFromLogs, type ConversationEntry, type SystemKind } from '@/lib/transcript';
 import { transformEntries } from '@/lib/commandMessage';
-import { isQueueSent, readQueueSentLog } from '@/lib/queueSentLog';
+import { isQueueSent } from '@/lib/queueSentLog';
+import { useQueueSentStore } from '@/stores/queueSentStore';
 import { clipToMatch, matchesQuery, normalizeQuery } from '@/lib/textHighlight';
 import LinkifiedText, { MarkedText } from './LinkifiedText';
 import styles from '@/styles/modules/DetailPanel.module.css';
@@ -462,16 +463,21 @@ export default function ConversationView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
-  // Read once per transcript load: the badge only needs to be right when the rows are.
+  // The Mac's record of what the queue sent to this session (AASC-20): loaded per
+  // session, kept current by queue_sent broadcasts.
+  const queueSentLog = useQueueSentStore((s) => s.bySession.get(sessionId));
+  useEffect(() => {
+    void useQueueSentStore.getState().load(sessionId);
+  }, [sessionId]);
   const queueSentEntries = useMemo(() => {
-    const log = readQueueSentLog();
+    const log = queueSentLog ?? [];
     return new Set(
       entries.filter((e) => {
         const text = promptTextOf(e);
         return text !== null && isQueueSent(log, text, e.timestamp);
       }),
     );
-  }, [entries]);
+  }, [entries, queueSentLog]);
 
   // Role filter and search are ANDed. Both derive from `roleFiltered` so the
   // match count can never describe a different set than the one on screen.

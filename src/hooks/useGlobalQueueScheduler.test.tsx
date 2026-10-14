@@ -24,6 +24,7 @@ vi.mock('@/stores/presenceStore', async (importOriginal) => ({
   canControlSession: () => baton.mine,
 }));
 vi.mock('@/components/ui/ToastContainer', () => ({ showToast: vi.fn() }));
+vi.mock('@/stores/queueSentStore', () => ({ recordQueueSent: vi.fn() }));
 
 import { useGlobalQueueScheduler } from './useGlobalQueueScheduler';
 import { sendPromptToTerminal, pressEnterInTerminal, IMAGE_SUBMIT_ENTER_DELAY_MS } from '@/lib/terminalSend';
@@ -31,7 +32,7 @@ import { SUBMIT_GIVE_UP_GRACE_MS, SUBMIT_RETRY_AFTER_MS } from '@/lib/submitConf
 import { showToast } from '@/components/ui/ToastContainer';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useQueueStore, DEFAULT_AUTOMATION, type QueueItem } from '@/stores/queueStore';
-import { readQueueSentLog } from '@/lib/queueSentLog';
+import { recordQueueSent } from '@/stores/queueSentStore';
 import type { Session } from '@/types';
 
 const T0 = 1_800_000_000_000;
@@ -101,34 +102,34 @@ describe('useGlobalQueueScheduler — what counts as "turn finished"', () => {
     expect(send.mock.calls[0][1]).toBe('next prompt');
   });
 
-  it('records what it sent, so the CONVERSATION tab can badge it as queue-sent', async () => {
-    localStorage.clear();
+  it('records what it sent on the Mac, so every device can badge it as queue-sent', async () => {
+    vi.mocked(recordQueueSent).mockClear();
     setSession({ status: 'waiting' });
     queueOnce('next prompt');
     render(<Harness />);
     await advance(3000);
-    expect(readQueueSentLog()).toEqual([{ text: 'next prompt', sentAt: expect.any(Number) }]);
+    expect(recordQueueSent).toHaveBeenCalledWith('s1', { text: 'next prompt', sentAt: expect.any(Number) });
   });
 
   it('records nothing when the send failed', async () => {
-    localStorage.clear();
+    vi.mocked(recordQueueSent).mockClear();
     send.mockImplementation(async () => false);
     setSession({ status: 'waiting' });
     queueOnce('next prompt');
     render(<Harness />);
     await advance(3000);
-    expect(readQueueSentLog()).toEqual([]);
+    expect(recordQueueSent).not.toHaveBeenCalled();
   });
 
   it('records nothing with Auto-Enter off — the text was only typed, not sent', async () => {
-    localStorage.clear();
+    vi.mocked(recordQueueSent).mockClear();
     setSession({ status: 'waiting' });
     queueOnce('next prompt');
     useQueueStore.setState({ automation: new Map([['s1', { ...DEFAULT_AUTOMATION, autoEnter: false }]]) });
     render(<Harness />);
     await advance(3000);
     expect(send).toHaveBeenCalledTimes(1);
-    expect(readQueueSentLog()).toEqual([]);
+    expect(recordQueueSent).not.toHaveBeenCalled();
   });
 
   it('after an Esc-cancel (a real Stop), nothing sends', async () => {

@@ -16,6 +16,8 @@ import { onSessionEnded } from '@/lib/pinnedRespawn';
 import { migrateOriginSessionId } from '@/lib/translationLog';
 import type { Session, ServerMessage } from '@/types';
 import { handleEventSounds, checkAlarms } from '@/lib/alarmEngine';
+import { useQueueSentStore } from '@/stores/queueSentStore';
+import { usePromptSnippetStore, type PromptSnippet } from '@/stores/promptSnippetStore';
 
 export function useWebSocket(token: string | null): WsClient | null {
   const clientRef = useRef<WsClient | null>(null);
@@ -212,6 +214,29 @@ export function useWebSocket(token: string | null): WsClient | null {
               (m.automation ?? null) as QueueAutomationConfig | null,
               m.originClientId ?? null,
             );
+          }
+          break;
+        }
+
+        // The Mac's queue sent a prompt (AASC-20): the CONVERSATION badge record.
+        // Only sessions this device may see are sent here (broadcastSubject).
+        case 'queue_sent': {
+          const m = msg as unknown as { sessionId?: string; text?: string; sentAt?: number };
+          if (typeof m.sessionId === 'string' && typeof m.text === 'string' && typeof m.sentAt === 'number') {
+            useQueueSentStore.getState().add(m.sessionId, { text: m.text, sentAt: m.sentAt });
+          }
+          break;
+        }
+
+        // The saved-prompt library changed on the Mac (AASC-20): the whole list,
+        // kept only if its revision is newer than the one held.
+        case 'snippets_update': {
+          const m = msg as unknown as { revision?: number; snippets?: unknown };
+          if (typeof m.revision === 'number' && Array.isArray(m.snippets)) {
+            usePromptSnippetStore.getState().applyServerList({
+              revision: m.revision,
+              snippets: m.snippets as PromptSnippet[],
+            });
           }
           break;
         }

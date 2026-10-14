@@ -65,7 +65,7 @@ import {
   type StatusSeen,
 } from '@/lib/queueScheduler';
 import { sendPromptToTerminal, pressEnterInTerminal, submitDelayFor } from '@/lib/terminalSend';
-import { recordQueueSent } from '@/lib/queueSentLog';
+import { recordQueueSent } from '@/stores/queueSentStore';
 import { mayConfirmSubmit, retriesElapsed, submitRetryDecision, type PendingSubmit } from '@/lib/submitConfirm';
 import { isEffortCommand } from '@/lib/queueEffort';
 import { isModelCommand } from '@/lib/queueModel';
@@ -122,7 +122,7 @@ async function sendToTerminal(
   const sent = await sendPromptToTerminal(terminalId, textToSend, autoEnter, submitDelayFor(imageCount));
   // Lets the CONVERSATION tab badge this prompt as queue-sent (queueSentLog.ts).
   // With Auto-Enter off the text is only typed, not sent, so it is not recorded.
-  if (sent && autoEnter) recordQueueSent({ text: promptText, sentAt: Date.now() });
+  if (sent && autoEnter) recordQueueSent(item.sessionId, { text: promptText, sentAt: Date.now() });
   return sent;
 }
 

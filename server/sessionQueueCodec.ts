@@ -80,3 +80,32 @@ export function decodeQueueRow(row: SessionQueueRow | undefined | null): Session
     updatedAt: typeof row.updated_at === 'number' ? row.updated_at : 0,
   };
 }
+
+/**
+ * Append one prompt to a stored queue, PAUSED (AASC-20/21: "share to a session's
+ * queue" from the phone). The item is `disabled`, so the scheduler skips it until
+ * someone on a device that holds the session turns it on: text shared from
+ * another app must never run on its own.
+ *
+ * The id follows the client's scheme (a millisecond counter) and is unique in
+ * this queue; `position` puts it last.
+ */
+export function appendPausedItem(items: readonly unknown[], sessionId: string, text: string, now: number): unknown[] {
+  let maxId = 0;
+  let maxPosition = -1;
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue;
+    const rec = item as { id?: unknown; position?: unknown };
+    if (typeof rec.id === 'number' && Number.isFinite(rec.id)) maxId = Math.max(maxId, rec.id);
+    if (typeof rec.position === 'number' && Number.isFinite(rec.position)) maxPosition = Math.max(maxPosition, rec.position);
+  }
+  const added = {
+    id: Math.max(now, maxId + 1),
+    sessionId,
+    text,
+    position: Math.max(maxPosition + 1, items.length),
+    createdAt: now,
+    disabled: true,
+  };
+  return [...items, added];
+}
