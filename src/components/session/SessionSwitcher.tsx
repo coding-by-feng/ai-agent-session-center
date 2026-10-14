@@ -9,15 +9,13 @@ import { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import type { Session } from '@/types';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
-import { useRoomStore, type Room } from '@/stores/roomStore';
+import { useRoomStore } from '@/stores/roomStore';
 import { useLabelStore } from '@/stores/labelStore';
 import { useQueueStore } from '@/stores/queueStore';
 import { useRoomDragReorder } from '@/hooks/useRoomDragReorder';
 import type { RoomDragRect } from '@/lib/roomDragReorder';
-import { sortSessionsByActivity, numberedSessions } from '@/lib/sessionSort';
-import { pickRecentSessions, RECENT_TICK_MS, RECENT_WINDOW_MS } from '@/lib/recentSessions';
-import { groupSessionsByProject, type ProjectGroup } from '@/lib/projectGroups';
-import { ROOM_COLOR_PALETTE, roomColor } from '@/lib/roomColor';
+import { RECENT_WINDOW_MS } from '@/lib/recentSessions';
+import { useCompletionAttention, useSessionStrip } from '@/hooks/useSessionStrip';
 import LabelPicker, { LabelChip } from './LabelPicker';
 import PlanUsageChip from './PlanUsageChip';
 import SessionRuntimeChip from './SessionRuntimeChip';
@@ -49,23 +47,13 @@ import buttonStyles from '@/styles/modules/Button.module.css';
 import chipStyles from '@/styles/modules/Chip.module.css';
 import Tooltip from '@/components/ui/Tooltip';
 import { tooltips } from '@/lib/tooltips';
-import { justCompleted, completionStillApplies } from '@/lib/sessionAttention';
 import { STATUS_COLORS, STATUS_LEGEND } from '@/lib/sessionStatusStyle';
 import StatusGlyph from './StatusGlyph';
 import StatusBadge from './StatusBadge';
 import WorkdirLauncher from '@/components/layout/WorkdirLauncher';
 import { isPopoutWindow } from '@/lib/windowRole';
+import { useIsMobile } from '@/lib/platform';
 import styles from '@/styles/modules/DetailPanel.module.css';
-
-type TabRenderItem =
-  | { type: 'session'; session: Session }
-  | { type: 'room'; room: Room; sessions: Session[]; color: string }
-  // The built-in RECENT frame. Not a Room: nothing stores it, and it is not
-  // part of room reordering (visibleRoomIds keeps only type 'room').
-  | { type: 'recent'; sessions: Session[] }
-  // One project's frame (Projects view). Worked out from the sessions' paths,
-  // so, like RECENT, it is not a Room and takes no part in room reordering.
-  | { type: 'project'; group: ProjectGroup; color: string };
 
 const RECENT_FRAME_KEY = 'builtin:recent';
 const RECENT_FRAME_TITLE =
@@ -109,67 +97,17 @@ export default function SessionSwitcher({
   onClose,
   controls, model,
 }: Props) {
-  // Track sessions that finished work (transitioned to "waiting") but haven't been viewed
-  const [attentionIds, setAttentionIds] = useState<Set<string>>(new Set());
-  const prevStatusRef = useRef(new Map<string, string>());
-
-  useEffect(() => {
-    let changed = false;
-    const next = new Set(attentionIds);
-    sessions.forEach((s) => {
-      const prev = prevStatusRef.current.get(s.sessionId);
-      // Detect transition TO "waiting" from any non-terminal status.
-      // `idle` is included because Codex (legacy `notify`-only mode) jumps
-      // straight from idle to waiting on agent-turn-complete — no working/
-      // prompting intermediate — and we still want the red ! to appear.
-      if (justCompleted(prev, s.status)) {
-        // Don't mark the currently selected session
-        if (s.sessionId !== currentSession.sessionId) {
-          next.add(s.sessionId);
-          changed = true;
-        }
-      }
-      // The ✓ outranks the status glyph on the card, so it must not outlive the completion:
-      // a session that is busy again, needs approval, is resuming or has ended shows that
-      // instead — without waiting for a click. (`idle` keeps it: see sessionAttention.ts.)
-      if (next.has(s.sessionId) && !completionStillApplies(s.status)) {
-        next.delete(s.sessionId);
-        changed = true;
-      }
-      prevStatusRef.current.set(s.sessionId, s.status);
-    });
-    // A session that has left the store takes its flag and its remembered status with it, so it
-    // cannot come back later (a restore, a resume under the same id) wearing a stale ✓.
-    for (const id of [...next]) {
-      if (!sessions.has(id)) {
-        next.delete(id);
-        changed = true;
-      }
-    }
-    for (const id of [...prevStatusRef.current.keys()]) {
-      if (!sessions.has(id)) prevStatusRef.current.delete(id);
-    }
-    // Viewing a session acknowledges its completion. The strip click path
-    // clears it in handleSwitch, but a session can also become current via
-    // the sidebar, Cmd+N or Cmd+E — and since the current session is listed
-    // too, its stale ✓ would otherwise sit on the current card.
-    if (next.delete(currentSession.sessionId)) changed = true;
-    if (changed) setAttentionIds(next);
-  }, [sessions, currentSession.sessionId, attentionIds]);
+  // Sessions that finished work (transitioned to "waiting") but haven't been viewed
+  const [attentionIds, acknowledgeAttention] = useCompletionAttention(sessions, currentSession.sessionId);
 
   const handleSwitch = useCallback((id: string) => {
     // The current session is listed too. Re-selecting it would record it as
     // its own "previous session" (selectSession stores the outgoing id), which
     // silently breaks the switch-to-previous shortcut — so it is a no-op.
     if (id === currentSession.sessionId) return;
-    setAttentionIds((prev) => {
-      if (!prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
+    acknowledgeAttention(id);
     onSwitch(id);
-  }, [onSwitch, currentSession.sessionId]);
+  }, [onSwitch, currentSession.sessionId, acknowledgeAttention]);
   const cardDisplayMode = useUiStore((s) => s.cardDisplayMode);
   const toggleCardDisplayMode = useUiStore((s) => s.toggleCardDisplayMode);
   const navPosition = useUiStore((s) => s.navPosition);
@@ -186,14 +124,11 @@ export default function SessionSwitcher({
   const toggleRecentRoomCollapsed = useUiStore((s) => s.toggleRecentRoomCollapsed);
   const openRoomKill = useUiStore((s) => s.openRoomKill);
   const openModal = useUiStore((s) => s.openModal);
-  const sortByActivity = sessionSortMode === 'activity';
-  const projectView = sessionSortMode === 'project';
   // Vertical rail only when docked-left AND not maximized
   // (maximizing always collapses the nav to the slim top bar).
   const isVertical = navPosition === 'left' && !maximized;
   // Folded-to-a-sliver state only applies to the left rail.
   const isRailCollapsed = isVertical && navRailCollapsed;
-  const rooms = useRoomStore((s) => s.rooms);
   const toggleRoomCollapse = useRoomStore((s) => s.toggleCollapse);
   const setRoomListOrder = useRoomStore((s) => s.setListOrder);
 
@@ -203,55 +138,17 @@ export default function SessionSwitcher({
   // The room filter, the view switch, the status legend, density, dock and
   // maximize live in one labelled View menu (SessionViewMenu, AASC-11).
 
-  // Derive a stable content signature from `sessions`. The Map reference changes
-  // on every session update (pattern `new Map(...)`), but if the visible fields
-  // haven't changed the downstream memos don't need to rerun.  This moves the
-  // O(N) sort + filter off the hot path for ~95% of session-update events.
-  //
-  // `lastActivityAt` is only part of the signature in activity-sort mode: it
-  // ticks on every hook event, so including it always would defeat the gating
-  // above — but leaving it out in activity mode would freeze the list, since
-  // nothing else changes when a session merely stays busy.
-  const sessionsSignature = useMemo(() => {
-    const parts: string[] = [];
-    sessions.forEach((s) => {
-      const activity = sortByActivity ? `|${s.lastActivityAt ?? 0}` : '';
-      // projectPath and sshHost are what the Projects view groups by; a session
-      // whose directory changes (an SSH session follows its hook's cwd) has to
-      // move frames without waiting for some other field to change.
-      parts.push(`${s.sessionId}|${s.status}|${s.pinned ? 1 : 0}|${s.title ?? ''}|${s.projectName ?? ''}|${s.projectPath ?? ''}|${s.sshHost ?? ''}|${s.colorIndex ?? ''}|${s.accentColor ?? ''}|${s.terminalId ?? ''}${activity}`);
-    });
-    parts.sort();
-    return parts.join('\n');
-  }, [sessions, sortByActivity]);
-
-  // Build the globally indexed session list (all active, sorted). The current
-  // session stays IN it: dropping it (the strip began as a "switch to another
-  // session" list) also removed any room whose only session was the current
-  // one, so the room you were working in vanished from the rail.
-  const { sortedSessions, sessionIndexMap, currentIndex } = useMemo(() => {
-    // The badge numbers. numberedSessions is shared with Alt+⌘+1…9 and the
-    // "go to session #" box, so a number typed is the number shown here.
-    const allActive = numberedSessions(sessions.values());
-    // The index map is always built from the status ordering above, never from
-    // the activity ordering: these numbers are the session's identity in the
-    // strip (and in keyboard switching), so flat mode must reorder rows without
-    // renumbering them.
-    const indexMap = new Map<string, number>();
-    let curIdx = -1;
-    allActive.forEach((s, i) => {
-      indexMap.set(s.sessionId, i + 1);
-      if (s.sessionId === currentSession.sessionId) curIdx = i + 1;
-    });
-    return {
-      sortedSessions: sortByActivity ? sortSessionsByActivity(allActive) : allActive,
-      sessionIndexMap: indexMap,
-      currentIndex: curIdx,
-    };
-    // `sessionsSignature` covers field changes; `sessions` ref is intentionally
-    // excluded so unchanged-content re-renders skip the sort.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionsSignature, currentSession.sessionId, sortByActivity]);
+  const isMobile = useIsMobile();
+  // The list itself (numbers, room filter, RECENT, the view's frames) is
+  // useSessionStrip, shared with the phone's session drawer (AASC-18).
+  const {
+    sessionIndexMap,
+    currentIndex,
+    activeSessionIds,
+    availableRooms,
+    filteredSessions,
+    items: tabRenderItems,
+  } = useSessionStrip(sessions, currentSession.sessionId);
 
   // How to get back here from the keyboard: the user's own binding for "Switch to
   // session N" (1–9), else "Go to session by number". A string, so the selector is stable.
@@ -263,126 +160,6 @@ export default function SessionSwitcher({
       ? `${keyComboToString(combo)} switches here`
       : `${keyComboToString(combo)}, then ${currentIndex}, switches here`;
   });
-
-  // ---- Built-in RECENT frame (Rooms view only: each session is also listed in its own room) ----
-  // Membership depends on the clock as well as on updates: a session leaves
-  // RECENT when it has been quiet for the whole window, and no update arrives
-  // to say so. The tick re-checks once a minute.
-  const [recentNow, setRecentNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setRecentNow(Date.now()), RECENT_TICK_MS);
-    return () => clearInterval(timer);
-  }, []);
-  // The RECENT ids in order, as one string. It is rebuilt from the fresh
-  // `sessions` on every update and tick, but it only changes when a session
-  // joins, leaves or moves, so everything downstream stays put otherwise.
-  const recentIdsKey = useMemo(() => {
-    if (sessionSortMode !== 'room') return '';
-    const live = [...sessions.values()].filter((s) => s.status !== 'ended');
-    return pickRecentSessions(live, recentNow).map((s) => s.sessionId).join('\n');
-  }, [sessions, sessionSortMode, recentNow]);
-
-  // Rooms that have at least one session in the current active list
-  const activeSessionIds = useMemo(() => {
-    const ids = new Set<string>();
-    sessions.forEach((s) => { if (s.status !== 'ended') ids.add(s.sessionId); });
-    return ids;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionsSignature]);
-  const availableRooms = useMemo(
-    () => rooms.filter((r) => r.sessionIds.some((id) => activeSessionIds.has(id))),
-    [rooms, activeSessionIds],
-  );
-
-  // Apply the room filter to the tab strip. It treats the current session's
-  // card like any other; the header above the strip always shows it.
-  const filteredSessions = useMemo(() => {
-    if (selectedRoomIds.size === 0) return sortedSessions;
-    const allowedIds = new Set<string>();
-    for (const roomId of selectedRoomIds) {
-      const room = rooms.find((r) => r.id === roomId);
-      if (room) room.sessionIds.forEach((id) => allowedIds.add(id));
-    }
-    return sortedSessions.filter((s) => allowedIds.has(s.sessionId));
-  }, [sortedSessions, selectedRoomIds, rooms]);
-
-  // Group same-room sessions into a room-colored frame. Room frames appear in
-  // a stable order (sorted by roomIndex) so they don't shuffle when session
-  // statuses change. Orphan sessions (no room) render after room frames.
-  //
-  // Activity-sort mode skips grouping entirely: room frames would fight the
-  // ordering, since a room can only sit in one place while its sessions belong
-  // all over a recency-ranked list.
-  //
-  // The Projects view swaps the room frames for one frame per project
-  // directory. Rooms play no part in it (no room frames, no RECENT), though the
-  // room filter still narrows `filteredSessions` first. A session with no
-  // project path follows the frames as a plain card, like a room-less one does.
-  const tabRenderItems = useMemo((): TabRenderItem[] => {
-    if (sortByActivity) {
-      return filteredSessions.map((session) => ({ type: 'session', session }));
-    }
-
-    if (projectView) {
-      // Colours are resolved among ALL the strip's projects (`sortedSessions`), not only the ones the
-      // room filter lets through: otherwise filtering recolours projects that did not change.
-      const { groups, ungrouped } = groupSessionsByProject(
-        filteredSessions,
-        ROOM_COLOR_PALETTE.length,
-        sortedSessions,
-      );
-      return [
-        ...groups.map((group): TabRenderItem => ({ type: 'project', group, color: ROOM_COLOR_PALETTE[group.colorIndex] })),
-        ...ungrouped.map((session): TabRenderItem => ({ type: 'session', session })),
-      ];
-    }
-
-    const sessionToRoom = new Map<string, Room>();
-    for (const room of rooms) {
-      for (const sid of room.sessionIds) {
-        sessionToRoom.set(sid, room);
-      }
-    }
-
-    const items: TabRenderItem[] = [];
-
-    // RECENT goes first. Its sessions also stay in their own rooms below, and
-    // it takes them from filteredSessions, so the room filter narrows it too.
-    if (recentIdsKey) {
-      const shown = new Map(filteredSessions.map((s) => [s.sessionId, s]));
-      const recent = recentIdsKey.split('\n').flatMap((id) => {
-        const s = shown.get(id);
-        return s ? [s] : [];
-      });
-      if (recent.length > 0) items.push({ type: 'recent', sessions: recent });
-    }
-
-    // listOrder is the LIST's own order, independent of roomIndex (the 3D
-    // scene's world-space room slot — reordering here must never touch that,
-    // see Room.roomIndex's own comment). Falling back to roomIndex, then
-    // array order, means existing rooms keep today's visible order until the
-    // user actually drags/clicks a room for the first time.
-    const orderedRooms = [...rooms].sort(
-      (a, b) =>
-        (a.listOrder ?? a.roomIndex ?? Number.MAX_SAFE_INTEGER) -
-        (b.listOrder ?? b.roomIndex ?? Number.MAX_SAFE_INTEGER),
-    );
-
-    for (const room of orderedRooms) {
-      const roomSessions = filteredSessions.filter((s) =>
-        room.sessionIds.includes(s.sessionId),
-      );
-      if (roomSessions.length === 0) continue;
-      items.push({ type: 'room', room, sessions: roomSessions, color: roomColor(room) });
-    }
-
-    for (const session of filteredSessions) {
-      if (sessionToRoom.has(session.sessionId)) continue;
-      items.push({ type: 'session', session });
-    }
-
-    return items;
-  }, [filteredSessions, sortedSessions, rooms, sortByActivity, projectView, recentIdsKey]);
 
   // ---- Room reorder (drag + ▲/▼) — writes ONLY listOrder, never roomIndex ----
   // Scoped to rooms that actually render a frame right now (a room with no
@@ -516,23 +293,12 @@ export default function SessionSwitcher({
     }
   }, [remarkEditing]);
 
-  // Abandon an open editor when the user switches session — otherwise the draft
-  // for session A would commit onto session B.
-  useEffect(() => {
-    setRemarkEditing(false);
-  }, [currentSession.sessionId]);
-
   useEffect(() => {
     if (headerEditing && headerInputRef.current) {
       headerInputRef.current.focus();
       headerInputRef.current.select();
     }
   }, [headerEditing]);
-
-  // Exit edit mode if user switches sessions mid-edit
-  useEffect(() => {
-    setHeaderEditing(false);
-  }, [currentSession.sessionId]);
 
   // ---- Label picker (client-only session labels) ----
   const currentLabel = useLabelStore((s) => s.labels[currentSession.sessionId]);
@@ -546,6 +312,18 @@ export default function SessionSwitcher({
   }, []);
 
   const closeLabelPicker = useCallback(() => setLabelAnchor(null), []);
+
+  // A switch to another session abandons the open title and remark editors
+  // (session A's draft would otherwise commit onto session B) and closes the
+  // label picker. Adjusted while rendering, from the session last rendered: an
+  // effect per field did the same one render late.
+  const [shownSessionId, setShownSessionId] = useState(currentSession.sessionId);
+  if (shownSessionId !== currentSession.sessionId) {
+    setShownSessionId(currentSession.sessionId);
+    setRemarkEditing(false);
+    setHeaderEditing(false);
+    setLabelAnchor(null);
+  }
 
   // Same togglePin action the other-session tab cards below (their own
   // handlePinClick) and RobotListSidebar already use — one shared session.pinned.
@@ -565,11 +343,6 @@ export default function SessionSwitcher({
         /* ignore — session stays in-app */
       });
   }, [currentSession]);
-
-  // Close the picker if the user switches sessions while it is open.
-  useEffect(() => {
-    setLabelAnchor(null);
-  }, [currentSession.sessionId]);
 
   // ── Folded left rail: a thin strip with just the expand affordance + count ──
   if (isRailCollapsed) {
@@ -839,8 +612,9 @@ export default function SessionSwitcher({
         />
       )}
 
-      {/* ── Session tab strip ── (hidden when the panel is maximized) */}
-      {!maximized && filteredSessions.length > 0 && (
+      {/* ── Session tab strip ── (hidden when the panel is maximized, and on a
+          phone, where the session drawer lists the sessions: components/mobile/) */}
+      {!maximized && !isMobile && filteredSessions.length > 0 && (
         <div className={`${styles.sessionTabStrip}${roomDrag.draggingId ? ` ${styles.roomDragActive}` : ''}`}>
           {tabRenderItems.map((item) => {
             if (item.type === 'recent') {

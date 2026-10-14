@@ -2,6 +2,12 @@
  * NewSessionModal - Local terminal creation form.
  * Fields: working dir, command, session title, room, API key,
  * remote control, model, effort level, commands terminal.
+ *
+ * On a phone it fills the screen (Modal.module.css). In the phone app
+ * (AASC-18) it asks only for what a paired phone may send (server/mobile/
+ * phoneProfile.ts): a project folder, Claude or Codex, a title, the room, model
+ * and effort. The API key, Remote Control, the commands terminal and a
+ * free-form command are refused for a phone, so they are not offered.
  */
 import { useEffect, useState, useMemo } from 'react';
 import type {
@@ -11,6 +17,8 @@ import type {
 } from '@/types/api';
 import Modal from '@/components/ui/Modal';
 import Button from '@/components/ui/Button';
+import { CLI_LAUNCHERS } from '@/components/layout/cliLaunchers';
+import { isNativeMobileApp } from '@/lib/platform';
 import Combobox from '@/components/ui/Combobox';
 import Select from '@/components/ui/Select';
 import BrowseDirButton from '@/components/ui/BrowseDirButton';
@@ -95,8 +103,17 @@ export default function NewSessionModal() {
   const closeModal = useUiStore((s) => s.closeModal);
   const activeModal = useUiStore((s) => s.activeModal);
   const [saved] = useState(() => loadLastSession());
-  const [workingDir, setWorkingDir] = useState(saved.workingDir || '~');
-  const [command, setCommand] = useState(saved.command || '');
+  // The phone app: a CLI choice instead of a command, and no home-folder default
+  // (a phone may start a session only in a known project folder).
+  const [phoneApp] = useState(() => isNativeMobileApp());
+  const [workingDir, setWorkingDir] = useState(() => (
+    phoneApp && (!saved.workingDir || saved.workingDir === '~') ? '' : saved.workingDir || '~'
+  ));
+  const [command, setCommand] = useState(() => (
+    phoneApp
+      ? (CLI_LAUNCHERS.some((c) => c.command === saved.command) ? saved.command! : 'claude')
+      : saved.command || ''
+  ));
   const [apiKey, setApiKey] = useState('');
   const [sessionTitle, setSessionTitle] = useState('');
   const [roomId, setRoomId] = useState('');
@@ -205,7 +222,7 @@ export default function NewSessionModal() {
     const body: CreateTerminalRequest = {
       workingDir: workingDir || '~',
       command: command || undefined,
-      apiKey: apiKey || undefined,
+      apiKey: (!phoneApp && apiKey) || undefined,
       sessionTitle: sessionTitle || undefined,
       effortLevel: isClaudeCommand ? effortLevel || undefined : undefined,
       model: isClaudeCommand
@@ -213,9 +230,9 @@ export default function NewSessionModal() {
         : isCodexCommand
           ? codexModel || undefined
           : undefined,
-      enableOpsTerminal: enableOpsTerminal || undefined,
+      enableOpsTerminal: (!phoneApp && enableOpsTerminal) || undefined,
       remoteControlName:
-        isClaudeCommand && enableRemoteControl && effectiveRemoteControlName
+        !phoneApp && isClaudeCommand && enableRemoteControl && effectiveRemoteControlName
           ? effectiveRemoteControlName
           : undefined,
       forceNew: true,
@@ -242,7 +259,7 @@ export default function NewSessionModal() {
           codexModel: codexModel || undefined,
           effortLevel: effortLevel || undefined,
         });
-        saveRemoteControlSettings({
+        if (!phoneApp) saveRemoteControlSettings({
           enabled: enableRemoteControl,
           autoEnable: autoEnableRemoteControl,
           lastName: remoteControlNameTouched ? remoteControlName : undefined,
@@ -278,7 +295,7 @@ export default function NewSessionModal() {
               value={workingDir}
               onChange={setWorkingDir}
               items={workdirHistory}
-              placeholder="~"
+              placeholder={phoneApp ? 'Choose a project folder' : '~'}
               className={styles.workdirCombo}
             />
             <BrowseDirButton onPick={setWorkingDir} defaultPath={workingDir} />
@@ -288,7 +305,19 @@ export default function NewSessionModal() {
           )}
         </div>
 
-        {/* Command */}
+        {/* Command — in the phone app, Claude or Codex (all a phone may start) */}
+        {phoneApp ? (
+          <div className={styles.sshField}>
+            <span className={styles.phoneFieldLabel} id="new-session-cli">CLI</span>
+            <div className={styles.cliChoice} role="group" aria-labelledby="new-session-cli">
+              {CLI_LAUNCHERS.map(({ command: cli, label, Icon }) => (
+                <Button key={cli} pressed={command === cli} icon={<Icon size={16} />} onClick={() => setCommand(cli)}>
+                  {label}
+                </Button>
+              ))}
+            </div>
+          </div>
+        ) : (
         <div className={styles.sshField}>
           <label>
             Command <span className={styles.sshFieldRequired}>*</span> <span className={styles.sshFieldHint}>(runs in directory)</span>
@@ -303,6 +332,7 @@ export default function NewSessionModal() {
             <span className={styles.sshFieldError}>Required</span>
           )}
         </div>
+        )}
 
         {/* Session title */}
         <div className={styles.sshField}>
@@ -324,7 +354,8 @@ export default function NewSessionModal() {
           />
         </div>
 
-        {/* API key */}
+        {/* API key (not from the phone app: a phone may not set one) */}
+        {!phoneApp && (
         <div className={styles.sshField}>
           <label>
             API Key <span className={styles.sshFieldHint}>(override {apiKeyEnvName})</span>
@@ -336,9 +367,10 @@ export default function NewSessionModal() {
             placeholder="Optional"
           />
         </div>
+        )}
 
-        {/* Remote control (Claude only) */}
-        {isClaudeCommand && (
+        {/* Remote control (Claude only; not from the phone app) */}
+        {!phoneApp && isClaudeCommand && (
           <div className={styles.sshField}>
             <label className={styles.opsCheckboxRow} style={{ marginBottom: 4 }}>
               <input
@@ -438,7 +470,8 @@ export default function NewSessionModal() {
           </div>
         )}
 
-        {/* Ops terminal checkbox */}
+        {/* Ops terminal checkbox (a phone may not open a plain shell) */}
+        {!phoneApp && (
         <label className={styles.opsCheckboxRow}>
           <input
             type="checkbox"
@@ -450,6 +483,7 @@ export default function NewSessionModal() {
             <span className={styles.opsCheckboxHint}>Extra shell tab for manual commands</span>
           </div>
         </label>
+        )}
       </div>
 
       <div className={styles.newSessionFooter}>

@@ -1,0 +1,106 @@
+/* QuickLaunchSheet — "New session" on a phone (AASC-18): a project per row, a
+   Claude and a Codex chip on each, then the full form. Inside a BottomSheet,
+   which scrolls its body. New text is --text-primary (4.5:1 in every theme);
+   the folder path is smaller (12px), not dimmer: --text-secondary misses 4.5:1
+   in several themes (see LiveBoard.module.css). */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+
+.lead {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 8px 8px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle-strong);
+  border-radius: 8px;
+}
+
+.project {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.path {
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chips {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* The kit's Button is 44px tall on a coarse pointer; the brand mark is the
+   chip's anchor, the word says which CLI. */
+.chip {
+  min-height: 44px;
+  min-width: 44px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+}
+
+.empty {
+  margin: 0;
+  padding: 16px 0;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 8px;
+}
+.footer > * { min-height: 44px; }
+
+/* The narrowest phones: the chips drop under the project name rather than
+   squeezing it to a few letters. */
+@media (max-width: 380px) {
+  .row {
+    flex-wrap: wrap;
+  }
+  .chips {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}

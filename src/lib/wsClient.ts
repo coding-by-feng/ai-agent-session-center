@@ -112,6 +112,24 @@ export class WsClient {
     return this.ws;
   }
 
+  /**
+   * Connect now instead of at the next back-off step (the phone's pull to
+   * refresh, AASC-18). Only once the old socket is fully closed: a no-op while
+   * it is open or connecting (never drops a working connection) and while it is
+   * closing (its onclose schedules the reconnect; connecting now as well would
+   * leave two sockets).
+   */
+  reconnectNow(): void {
+    if (this.disposed) return;
+    if (this.ws && this.ws.readyState !== WebSocket.CLOSED) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectAttempt = 0;
+    this.connect();
+  }
+
   getLastSeq(): number {
     return this.lastSeq;
   }

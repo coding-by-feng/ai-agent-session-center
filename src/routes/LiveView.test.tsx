@@ -1,10 +1,10 @@
 // LiveView.test.tsx — the separate AGENTS list on the LIVE page.
 //
 // On desktop it duplicated the session panel's own rail, so it is gone there:
-// the LIVE tab opens the panel instead (see NavBar.live.test.tsx). On a phone
-// (useIsMobile, ≤480px) the same list goes full-bleed and is the phone's
-// session list, so it stays. The rule lives inside RobotListSidebar, so the
-// 3D scene (which mounts it too) follows the same rule without its own check.
+// the LIVE tab opens the panel instead (see NavBar.live.test.tsx). The rule
+// lives inside RobotListSidebar, so the 3D scene (which mounts it too) follows
+// the same rule without its own check. A phone's LIVE page no longer mounts it
+// at all: it is PhoneLive's card list (AASC-18).
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
 import type { Session } from '@/types';
@@ -71,13 +71,26 @@ describe('the AGENTS list on the LIVE page', () => {
     expect(container.querySelector('[class*="flatRoot"]')).not.toBeNull();
   });
 
-  it('phone LIVE page (3D off): the list replaces the label, as before, and there is no board', () => {
+  // AASC-18: a phone's LIVE page is one column of the board's cards (PhoneLive),
+  // without the desktop HUD or the old AGENTS list.
+  it('phone LIVE page: the card list, no AGENTS list, no HUD, no desktop "no sessions" card', () => {
     phoneWidth(true);
     render(<LiveView />);
-    expect(screen.getByText(/Agents \(2\)/i)).toBeInTheDocument();
-    expect(screen.getByText(/3D Scene Paused/i).className).toMatch(/scenePausedHasSidebar/);
-    expect(screen.queryByRole('heading', { name: /Sessions \(/i })).toBeNull();
+    expect(screen.getByTestId('phone-live')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Sessions \(2\)/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Agents \(/i)).toBeNull();
+    expect(screen.queryByText(/Units Online/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: '3D scene' })).toBeNull();
+    expect(screen.queryByText(/3D Scene Paused/i)).toBeNull();
     expect(screen.queryByRole('heading', { name: /No agent sessions yet/i })).toBeNull();
+  });
+
+  it('phone LIVE page: never the 3D scene, even with 3D switched on', () => {
+    phoneWidth(true);
+    useSettingsStore.setState({ scene3dEnabled: true } as never);
+    render(<LiveView />);
+    expect(screen.queryByTestId('scene')).toBeNull();
+    expect(screen.getByTestId('phone-live')).toBeInTheDocument();
   });
 });
 

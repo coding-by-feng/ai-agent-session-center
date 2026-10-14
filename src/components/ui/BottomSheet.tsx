@@ -29,6 +29,13 @@ export interface BottomSheetProps {
 
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
+/**
+ * The open sheets, oldest first. A sheet can open over another (a confirm over
+ * the session drawer): only the top one answers Escape and traps Tab, or one
+ * Escape would close both.
+ */
+const openSheets: HTMLElement[] = [];
+
 export default function BottomSheet({ open, onClose, title, children, hideTitle, fullHeight }: BottomSheetProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -40,8 +47,10 @@ export default function BottomSheet({ open, onClose, title, children, hideTitle,
     const focusables = () => Array.from(panel?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])
       .filter((el) => !(el as HTMLButtonElement).disabled);
     (focusables()[0] ?? panel)?.focus();
+    if (panel) openSheets.push(panel);
 
     function onKey(e: KeyboardEvent) {
+      if (panel && openSheets[openSheets.length - 1] !== panel) return;
       if (e.key === 'Escape') {
         e.stopPropagation();
         onClose();
@@ -66,6 +75,8 @@ export default function BottomSheet({ open, onClose, title, children, hideTitle,
     document.addEventListener('keydown', onKey, true);
     return () => {
       document.removeEventListener('keydown', onKey, true);
+      const at = panel ? openSheets.indexOf(panel) : -1;
+      if (at !== -1) openSheets.splice(at, 1);
       opener?.focus?.();
     };
   }, [open, onClose]);
