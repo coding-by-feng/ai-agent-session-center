@@ -108,3 +108,58 @@ describe('NewSessionModal Codex model picker', () => {
     expect(body).not.toHaveProperty('effortLevel');
   });
 });
+
+// AASC-18: in the phone app the form asks only for what a paired phone may send
+// (server/mobile/phoneProfile.ts): a project folder, Claude or Codex, a title,
+// a room, model and effort.
+describe('NewSessionModal in the phone app', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useRoomStore.setState({ rooms: [] });
+    useSessionStore.setState({ sessions: new Map(), selectedSessionId: null });
+    vi.stubGlobal('navigator', { ...navigator, userAgent: 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 AASC-Mobile/1 (ios)' });
+  });
+
+  afterEach(() => {
+    useUiStore.setState({ activeModal: null });
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('offers Claude or Codex instead of a command, and none of the fields a phone may not set', () => {
+    useUiStore.setState({ activeModal: 'new-session' });
+    render(<NewSessionModal />);
+    expect(screen.getByRole('button', { name: 'Claude' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Codex' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByText(/API Key/i)).toBeNull();
+    expect(screen.queryByText(/Commands Terminal/i)).toBeNull();
+    expect(screen.queryByText(/Enable Remote Control/i)).toBeNull();
+    expect(screen.queryByPlaceholderText('e.g. claude')).toBeNull();
+  });
+
+  it('starts with no folder (never the home folder) and sends only the allowed fields', async () => {
+    const fetchMock = vi.fn((url: string, options?: RequestInit) => {
+      if (url === '/api/terminals' && options?.method === 'POST') {
+        return Promise.resolve({ ok: true, json: async () => ({ ok: true, terminalId: 'term-phone' }) } as Response);
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ models: [], stale: false }) } as Response);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    localStorage.setItem('lastSession', JSON.stringify({ workingDir: '~', command: 'claude --resume x' }));
+    useUiStore.setState({ activeModal: 'new-session' });
+    render(<NewSessionModal />);
+
+    expect(screen.getByText('CREATE').closest('button')).toBeDisabled();
+    fireEvent.change(screen.getByPlaceholderText('Choose a project folder'), { target: { value: '/w/app' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Codex' }));
+    fireEvent.click(screen.getByText('CREATE'));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/terminals', expect.objectContaining({ method: 'POST' })));
+    const call = fetchMock.mock.calls.find(([url]) => url === '/api/terminals');
+    const body = JSON.parse(String(call?.[1]?.body)) as Record<string, unknown>;
+    expect(body.workingDir).toBe('/w/app');
+    expect(body.command).toBe('codex');
+    const allowed = new Set(['workingDir', 'command', 'forceNew', 'requireExistingDir', 'sessionTitle', 'label', 'model', 'effortLevel']);
+    expect(Object.keys(body).filter((k) => !allowed.has(k))).toEqual([]);
+  });
+});

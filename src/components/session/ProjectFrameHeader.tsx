@@ -36,13 +36,10 @@
 import { useCallback, useRef, useState } from 'react';
 import { CLI_LAUNCHERS, type CliCommand } from '@/components/layout/cliLaunchers';
 import { getClientId } from '@/lib/deviceIdentity';
-import { launchBlocker, launchSession } from '@/lib/launchSession';
+import { launchBlocker } from '@/lib/launchSession';
 import type { ProjectGroup } from '@/lib/projectGroups';
-import { roomForNewProjectSession } from '@/lib/projectLaunchRoom';
-import { isPopoutWindow } from '@/lib/windowRole';
+import { launchInProjectGroup } from '@/lib/projectLaunch';
 import { isLocalDevice, usePresenceStore } from '@/stores/presenceStore';
-import { useRoomStore } from '@/stores/roomStore';
-import { useUiStore } from '@/stores/uiStore';
 import { FrameCollapseIcon } from './SessionFrameIcons';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
@@ -77,28 +74,13 @@ export default function ProjectFrameHeader({ group, collapsed, onToggleCollapse 
       inFlight.current = true;
       setPending(command);
       try {
-        const result = await launchSession({
-          workingDir: group.launchPath,
-          command,
-          forceNew: true,
-          requireExistingDir: true,
-        });
-        // A pop-out's copy of the room list was read when it opened and may be hours
-        // old; writing it back would undo the main window's edits (see useWebSocket).
-        if (result.ok && result.terminalId && !result.deduplicated && !isPopoutWindow()) {
-          const roomId = roomForNewProjectSession(
-            group.sessions.map((s) => s.sessionId),
-            useRoomStore.getState().rooms,
-            useUiStore.getState().selectedRoomIds,
-          );
-          if (roomId) useRoomStore.getState().addSession(roomId, result.terminalId);
-        }
+        await launchInProjectGroup(group, command);
       } finally {
         inFlight.current = false;
         setPending(null);
       }
     },
-    [group.launchPath, group.sessions],
+    [group],
   );
 
   return (

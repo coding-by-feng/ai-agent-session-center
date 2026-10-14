@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 import DetailPanel from './DetailPanel';
@@ -258,5 +258,42 @@ describe('DetailPanel', () => {
       expect(screen.getByRole('separator', DIVIDER)).toBeInTheDocument();
       expect(queueRow().style.height).toBe(dragged);
     });
+  });
+});
+
+// AASC-18: on a phone the session strip gives way to the Sessions drawer and the
+// swipe between sessions; the desktop panel is unchanged.
+describe('DetailPanel on a phone', () => {
+  const phone = (isPhone: boolean) => vi.stubGlobal('matchMedia', vi.fn((query: string) => ({
+    matches: isPhone && query.includes('max-width: 480px'),
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  })));
+
+  beforeEach(() => {
+    useSessionStore.setState({
+      sessions: new Map([
+        ['sess-1', makeSession()],
+        ['sess-2', makeSession({ sessionId: 'sess-2', title: 'Other task', status: 'idle' })],
+      ]),
+      selectedSessionId: 'sess-1',
+    });
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('desktop: the strip, and no Sessions drawer button', () => {
+    phone(false);
+    const { container } = render(<DetailPanel />);
+    expect(container.querySelector('[class*="sessionTabStrip"]')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: /^Sessions/ })).toBeNull();
+  });
+
+  it('phone: a Sessions drawer button and previous / next instead of the strip', () => {
+    phone(true);
+    const { container } = render(<DetailPanel />);
+    expect(container.querySelector('[class*="sessionTabStrip"]')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /^Sessions/ }));
+    expect(screen.getByTestId('session-drawer')).toBeInTheDocument();
   });
 });

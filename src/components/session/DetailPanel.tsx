@@ -44,6 +44,7 @@ import { openTerminalPopupFallback } from '@/lib/popoutTerminalWindow';
 import { restartNeedsConfirm, restartConfirmMessage, requestSessionRestart } from '@/lib/restartSession';
 import { showToast } from '@/components/ui/ToastContainer';
 import { isNativeMobileApp, useIsMobile } from '@/lib/platform';
+import PhoneSessionHeader from '@/components/mobile/PhoneSessionHeader';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 /**
@@ -522,6 +523,7 @@ export default function DetailPanel() {
   const navPosition = useUiStore((s) => s.navPosition);
   const maximized = useUiStore((s) => s.maximized);
   const setMaximized = useUiStore((s) => s.setMaximized);
+  const isMobile = useIsMobile();
 
   const session: Session | undefined = selectedSessionId
     ? sessions.get(selectedSessionId)
@@ -817,7 +819,10 @@ export default function DetailPanel() {
     <div className={styles.detailOverlay} style={!session ? { display: 'none' } : undefined}>
       <ResizablePanel fullscreen>
         <div className={`${styles.panelInner}${navLeft ? ` ${styles.panelInnerLeft}` : ''}`}>
-        {/* Compact top bar — title, status, model, controls all in one row */}
+        {/* Compact top bar — title, status, model, controls all in one row.
+            On a phone, wrapped with the session drawer button and the swipe
+            between sessions (components/mobile, AASC-18). */}
+        <PhoneSessionHeader enabled={isMobile} currentSession={displaySession} sessions={sessions} onSwitch={selectSession}>
         <SessionSwitcher
           currentSession={displaySession}
           sessions={sessions}
@@ -833,6 +838,7 @@ export default function DetailPanel() {
             />
           }
         />
+        </PhoneSessionHeader>
 
         {/* Tabs and content */}
         <div className={styles.mainCol}>

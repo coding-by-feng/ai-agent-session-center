@@ -1,19 +1,23 @@
 /**
  * LiveView — Main dashboard view showing active sessions in 3D Cyberdrome.
  * When 3D is disabled, shows a flat view instead to save CPU/GPU: on desktop
- * a board of session cards (or a "no sessions yet" card), on phones the agent
- * list sidebar. On desktop the LIVE tab and the board's cards open the
- * session panel (lib/liveSession.ts), whose rail lists the sessions.
+ * a board of session cards (or a "no sessions yet" card). On desktop the LIVE
+ * tab and the board's cards open the session panel (lib/liveSession.ts), whose
+ * rail lists the sessions.
+ *
+ * A phone (useIsMobile) never gets the 3D scene or its HUD (units online,
+ * sound, 3D, rooms): its LIVE page is PhoneLive, one column of the board's
+ * cards with pull to refresh (AASC-18).
  */
 import { lazy, Suspense, Component, useEffect, useMemo, useState } from 'react';
 import { isNativeMobileApp } from '@/lib/platform';
 import type { ReactNode, ErrorInfo } from 'react';
 import type { Session } from '@/types';
 import { useSettingsStore } from '@/stores/settingsStore';
-import RobotListSidebar from '@/components/3d/RobotListSidebar';
 import SceneOverlay from '@/components/3d/SceneOverlay';
 import LiveBoard from '@/components/live/LiveBoard';
 import LiveEmptyState from '@/components/live/LiveEmptyState';
+import PhoneLive from '@/components/mobile/PhoneLive';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useWsStore } from '@/stores/wsStore';
 import { useLiveFlatState, useSceneEmptyState } from '@/hooks/useLiveBoard';
@@ -127,44 +131,35 @@ function SceneEmptyCard() {
 }
 
 /**
- * Flat view shown when 3D is disabled (the default) — no WebGL.
- *
- * Desktop: the session board, or the "no sessions yet" card (lib/liveBoard.ts
- * decides, and waits for the first snapshot so neither flashes). Phone: the
- * agent list (RobotListSidebar) is the page, as before.
+ * Flat view shown when 3D is disabled (the default) — no WebGL. Desktop only
+ * (a phone gets PhoneLive): the session board, or the "no sessions yet" card
+ * (lib/liveBoard.ts decides, and waits for the first snapshot so neither
+ * flashes), with the HUD over it.
  */
 function FlatView() {
   const sessions = useSessionStore((s) => s.sessions);
   const activeCount = Array.from(sessions.values()).filter(
     (s) => s.status !== 'ended',
   ).length;
-  // Board and empty state are not a phone workflow — the phone's own list is
-  // the page there — so they are unmounted, not hidden (lib/platform.ts, rule 3).
-  const isMobile = useIsMobile();
-  // RobotListSidebar renders null with zero sessions (`hasAnySessions` in that
-  // file). The mobile rule below hides this placeholder ONLY when the sidebar
-  // has content to replace it with — hiding it unconditionally would leave a
-  // phone with no active sessions looking at a blank page.
-  const sidebarShown = isMobile && sessions.size > 0;
 
   return (
     <div className={styles.flatRoot}>
-      {isMobile ? (
-        <div className={`${styles.scenePaused} ${sidebarShown ? styles.scenePausedHasSidebar : ''}`}>
-          3D Scene Paused
-        </div>
-      ) : (
-        <DesktopFlatContent sessions={sessions} />
-      )}
+      <DesktopFlatContent sessions={sessions} />
       <SceneOverlay sessionCount={activeCount} />
-      <RobotListSidebar />
     </div>
   );
 }
 
 export default function LiveView() {
-  // The phone app always shows the board: the 3D scene is excluded there (GPU, battery, bundle).
-  const scene3dEnabled = useSettingsStore((s) => s.scene3dEnabled) && !isNativeMobileApp();
+  // A phone never gets the 3D scene (GPU, battery, bundle), in the app or a
+  // phone browser: its LIVE page is the card list. Unmounted, not hidden
+  // (lib/platform.ts, rule 3).
+  const isMobile = useIsMobile();
+  const scene3dEnabled = useSettingsStore((s) => s.scene3dEnabled) && !isNativeMobileApp() && !isMobile;
+
+  if (isMobile) {
+    return <PhoneLive />;
+  }
 
   if (!scene3dEnabled) {
     return (

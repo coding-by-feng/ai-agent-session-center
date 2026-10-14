@@ -21,6 +21,36 @@
   background: var(--bg-primary, #0a0a1a);
 }
 
+/* The phone's LIVE list (AASC-18): the page around it scrolls (pull to refresh
+   lives there), so the board is plain flow, one column, with the phone's 16px
+   gutter. No HUD to keep clear of: the phone has none. */
+.boardPhone {
+  padding: 8px 16px 24px;
+  background: var(--bg-primary, #0a0a1a);
+}
+.boardPhone .grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+.boardPhone .header {
+  margin: 0 0 8px;
+}
+.boardPhone .card {
+  min-height: 0;
+}
+.boardPhone .title,
+.boardPhone .note {
+  font-size: 14px;
+}
+
+/* The phone page's buttons, at the far end of the heading's row (the filters wrap under). */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
 /* ---- Header: "SESSIONS (3)" + filters ---- */
 
 .header {

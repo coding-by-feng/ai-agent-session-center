@@ -1,10 +1,13 @@
 /**
  * GlobalSearchModal — search across all sessions' prompts, responses, and tool logs.
- * Triggered by Cmd+Shift+F (macOS) / Ctrl+Shift+F (other).
+ * Triggered by Cmd+Shift+F (macOS) / Ctrl+Shift+F (other), and on a phone by
+ * the search buttons on LIVE and in the session drawer (AASC-18), where it
+ * fills the screen and has a Close button (no Esc key, no outside to tap).
  */
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useUiStore } from '@/stores/uiStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useIsMobile } from '@/lib/platform';
 import type { Session } from '@/types/session';
 import styles from '@/styles/modules/GlobalSearchModal.module.css';
 
@@ -122,6 +125,7 @@ export default function GlobalSearchModal() {
   const selectSession = useSessionStore((s) => s.selectSession);
 
   const isOpen = activeModal === 'global-search';
+  const isMobile = useIsMobile();
 
   const [query, setQuery] = useState('');
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -169,7 +173,7 @@ export default function GlobalSearchModal() {
 
   return (
     <div className={styles.overlay} onClick={closeModal}>
-      <div className={styles.panel} onClick={(e) => e.stopPropagation()}>
+      <div className={styles.panel} onClick={(e) => e.stopPropagation()} data-testid="global-search">
         {/* Search input */}
         <div className={styles.inputRow}>
           <span className={styles.searchIcon}>&#128269;</span>
@@ -184,6 +188,11 @@ export default function GlobalSearchModal() {
           />
           {query && (
             <span className={styles.hitCount}>{hits.length} hit{hits.length !== 1 ? 's' : ''}</span>
+          )}
+          {isMobile && (
+            <button type="button" className={styles.closeBtn} onClick={closeModal} aria-label="Close search">
+              ×
+            </button>
           )}
         </div>
 

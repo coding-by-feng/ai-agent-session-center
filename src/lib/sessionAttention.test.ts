@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { justCompleted, completionStillApplies } from './sessionAttention';
+import { justCompleted, completionStillApplies, nextCompletionAttention } from './sessionAttention';
 
 describe('justCompleted', () => {
   it.each(['working', 'prompting', 'approval', 'input', 'idle', 'connecting'])(
@@ -49,5 +49,32 @@ describe('completionStillApplies', () => {
 
   it('an unknown status does not keep a stale flag alive', () => {
     expect(completionStillApplies('something-new')).toBe(false);
+  });
+});
+
+describe('nextCompletionAttention (the ✓ set, shared by the strip and the phone drawer)', () => {
+  const list = (entries: Record<string, string>) =>
+    new Map(Object.entries(entries).map(([id, status]) => [id, { status }]));
+
+  it('raises the ✓ on a session that just finished while another is open', () => {
+    const next = nextCompletionAttention(new Set(), list({ a: 'working', b: 'idle' }), list({ a: 'waiting', b: 'idle' }), 'b');
+    expect([...next]).toEqual(['a']);
+  });
+
+  it('never on the open session, and viewing a session clears its ✓', () => {
+    const raised = nextCompletionAttention(new Set(), list({ a: 'working' }), list({ a: 'waiting' }), 'a');
+    expect(raised.size).toBe(0);
+    const cleared = nextCompletionAttention(new Set(['a']), list({ a: 'waiting' }), list({ a: 'waiting' }), 'a');
+    expect(cleared.size).toBe(0);
+  });
+
+  it('drops the ✓ when the session moves on or leaves the list', () => {
+    const busy = nextCompletionAttention(new Set(['a', 'b']), list({ a: 'waiting', b: 'waiting' }), list({ a: 'working' }), 'x');
+    expect(busy.size).toBe(0);
+  });
+
+  it('returns the same set when nothing changed', () => {
+    const ids = new Set(['a']);
+    expect(nextCompletionAttention(ids, list({ a: 'idle' }), list({ a: 'idle' }), 'x')).toBe(ids);
   });
 });

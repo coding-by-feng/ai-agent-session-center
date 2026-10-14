@@ -174,3 +174,41 @@
   font-size: 10px;
   color: var(--text-secondary);
 }
+
+/* ---- Phone (AASC-18): the whole screen, a Close button, 44px rows ---- */
+.closeBtn {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  margin: -8px -8px -8px 0;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-primary);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.closeBtn:hover { background: var(--bg-subtle); }
+.closeBtn:active { background: var(--bg-subtle-strong); }
+.closeBtn:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: -2px; }
+
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
+  .overlay {
+    padding: 0;
+    align-items: stretch;
+  }
+  .panel {
+    width: 100%;
+    max-height: none;
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .input { font-size: 16px; min-height: 44px; }
+  .hitRow { min-height: 44px; }
+  /* Arrow keys, Enter and Esc: a phone has none of them. */
+  .footer { display: none; }
+}

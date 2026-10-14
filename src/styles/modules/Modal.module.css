@@ -286,3 +286,30 @@
 @media (pointer: coarse) {
   .opsCheckboxRow { min-height: 44px; }
 }
+
+/* ---- New session on a phone: a full-screen form (AASC-18) ----
+   `.panel.newSessionPanel` outranks the 480px rules above. The body scrolls
+   between the fixed title and the footer, which stays within thumb reach above
+   the home indicator. */
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
+  .panel.newSessionPanel {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    padding: calc(8px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
+    box-shadow: none;
+  }
+  .newSessionPanel .newSessionBody { gap: 16px; }
+  .newSessionPanel .newSessionFooter { margin-top: 8px; padding-top: 16px; }
+  .newSessionPanel .newSessionFooter > button { flex: 1 1 0; min-height: 44px; }
+}
+
+/* The phone app's CLI choice (Claude / Codex) in the new-session form. */
+.phoneFieldLabel { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-primary); }
+.cliChoice { display: flex; gap: 8px; }
+.cliChoice > button { flex: 1 1 0; min-height: 44px; text-transform: none; letter-spacing: 0; font-size: 14px; }

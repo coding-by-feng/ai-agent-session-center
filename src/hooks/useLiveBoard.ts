@@ -11,7 +11,7 @@ import { useWsStore } from '@/stores/wsStore';
 import { BOARD_TICK_MS, liveFlatState, type FlatState } from '@/lib/liveBoard';
 import { shouldShowLiveHint } from '@/lib/liveHint';
 import { isListedSession, isSceneRobotSession } from '@/lib/sessionSort';
-import { useIsMobile } from '@/lib/platform';
+import { isNativeMobileApp, useIsMobile } from '@/lib/platform';
 import type { Session } from '@/types';
 
 function countWhere(sessions: ReadonlyMap<string, Session>, keep: (s: Session) => boolean): number {
@@ -47,7 +47,10 @@ export function useLiveFlatState(): FlatState {
   const listedCount = useSessionStore((s) => countListed(s.sessions));
   const snapshotReceived = useWsStore((s) => s.snapshotReceived);
   // A restore running, or not yet decided (the first snapshot of a fresh server is empty).
-  const restoring = useUiStore((s) => s.workspaceLoad.active || s.workspaceRestorePending);
+  // The phone app never restores a workspace (DesktopAutomation is the desktop's
+  // job, AASC-17), so nothing is ever pending there: without this, a phone with
+  // no sessions said "Loading…" for ever (AASC-18).
+  const restoring = useUiStore((s) => s.workspaceLoad.active || (s.workspaceRestorePending && !isNativeMobileApp()));
   return liveFlatState({ snapshotReceived, restoring, listedCount });
 }
 

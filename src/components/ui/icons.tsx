@@ -331,6 +331,73 @@ export function MinimizeIcon(props: IconProps) {
   );
 }
 
+// ---- Phone navigation (AASC-18) ------------------------------------------------------
+
+/** Magnifier — search every session's prompts, replies and tool calls. */
+export function SearchIcon(props: IconProps) {
+  return (
+    <svg {...svg(14, '0 0 14 14', props)}>
+      <circle cx="6" cy="6" r="3.8" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M8.9 8.9l3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Two arrows chasing round — fetch the session list again (the phone's pull to
+ *  refresh, as a button). Not ResumeIcon's single arrow (resume a session) or the
+ *  terminal's replay. */
+export function RefreshListIcon(props: IconProps) {
+  return (
+    <svg {...svg(14, '0 0 14 14', props)}>
+      <path d="M11.6 5.6A4.8 4.8 0 0 0 3 4.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M3 1.9v2.6h2.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M2.4 8.4A4.8 4.8 0 0 0 11 9.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M11 12.1V9.5H8.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Three stacked cards — the phone's session drawer (the list of sessions).
+ *  Not the queue badge's three bare lines. */
+export function SessionListIcon(props: IconProps) {
+  return (
+    <svg {...svg(14, '0 0 14 14', props)}>
+      <rect x="2" y="2" width="10" height="3" rx="1" stroke="currentColor" strokeWidth="1.2" />
+      <rect x="2" y="6.5" width="10" height="3" rx="1" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M2.5 12h9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Single chevron left — the previous session in the list. Not the rail's double chevron. */
+export function PrevSessionIcon(props: IconProps) {
+  return (
+    <svg {...svg(14, '0 0 14 14', props)}>
+      <polyline points="8.5 3 4.5 7 8.5 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Single chevron right — the next session in the list. */
+export function NextSessionIcon(props: IconProps) {
+  return (
+    <svg {...svg(14, '0 0 14 14', props)}>
+      <polyline points="5.5 3 9.5 7 5.5 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Three dots — more actions for one row (label, remark, fork, clone). */
+export function MoreActionsIcon(props: IconProps) {
+  return (
+    <svg {...svg(14, '0 0 14 14', props)} fill="currentColor">
+      <circle cx="3" cy="7" r="1.3" />
+      <circle cx="7" cy="7" r="1.3" />
+      <circle cx="11" cy="7" r="1.3" />
+    </svg>
+  );
+}
+
 // ---- Session strip (room frames, cards) ----------------------------------------------
 
 /** Six-dot grip — drag to reorder a room. Visual only; the hit box is the span. */

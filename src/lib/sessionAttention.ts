@@ -27,3 +27,37 @@ export function justCompleted(prev: string | undefined, status: string): boolean
 export function completionStillApplies(status: string): boolean {
   return status === 'waiting' || status === 'idle';
 }
+
+/**
+ * The ✓ set after the session list changed from `prev` to `next` while `currentId`
+ * is open: raise it on a session (not the open one) that just finished a turn,
+ * drop it where it no longer applies, where the session left the list, and on
+ * the open session (viewing it acknowledges it). Returns `ids` itself when
+ * nothing changed, so a caller can skip a re-render.
+ */
+export function nextCompletionAttention(
+  ids: ReadonlySet<string>,
+  prev: ReadonlyMap<string, { status: string }>,
+  next: ReadonlyMap<string, { status: string }>,
+  currentId: string,
+): ReadonlySet<string> {
+  const out = new Set(ids);
+  let changed = false;
+  next.forEach((s, id) => {
+    if (id !== currentId && justCompleted(prev.get(id)?.status, s.status) && !out.has(id)) {
+      out.add(id);
+      changed = true;
+    }
+    if (out.has(id) && !completionStillApplies(s.status)) {
+      out.delete(id);
+      changed = true;
+    }
+  });
+  for (const id of [...out]) {
+    if (!next.has(id) || id === currentId) {
+      out.delete(id);
+      changed = true;
+    }
+  }
+  return changed ? out : ids;
+}

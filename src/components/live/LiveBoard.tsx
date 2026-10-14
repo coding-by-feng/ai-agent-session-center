@@ -8,10 +8,11 @@
  * and statuses through the rail's own names, colours and icons. A card also
  * carries its room (the strip's colour for it), a note (the user's remark, else
  * the last prompt a person typed) and how long a quiet session has been quiet.
- * Desktop only: a phone gets RobotListSidebar, and LiveView does not mount this
- * there.
+ * On a phone it is the LIVE page's list too (`variant="phone"`, AASC-18): one
+ * column inside the phone page's own scroller (components/mobile/PhoneLive),
+ * which puts its search / new / refresh buttons in the header (`actions`).
  */
-import { useCallback, useId, useMemo, useRef, useState, type CSSProperties, type FocusEvent } from 'react';
+import { useCallback, useId, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type ReactNode } from 'react';
 import type { Session } from '@/types';
 import {
   BOARD_FILTERS,
@@ -47,6 +48,10 @@ const NO_MATCH_TEXT: Record<BoardFilter, string> = {
 interface LiveBoardProps {
   /** Already in board order (`boardSessions`). */
   sessions: Session[];
+  /** 'phone': one column, scrolled by the page around it (AASC-18). */
+  variant?: 'desktop' | 'phone';
+  /** Buttons at the end of the header row (the phone page's search / new / refresh). */
+  actions?: ReactNode;
 }
 
 interface BoardCardProps {
@@ -121,7 +126,7 @@ function BoardCard({ session, room, now, onOpen }: BoardCardProps) {
   );
 }
 
-export default function LiveBoard({ sessions }: LiveBoardProps) {
+export default function LiveBoard({ sessions, variant = 'desktop', actions }: LiveBoardProps) {
   const headingId = useId();
   const [filter, setFilter] = useState<BoardFilter>('all');
   const counts = useMemo(() => boardCounts(sessions), [sessions]);
@@ -155,13 +160,14 @@ export default function LiveBoard({ sessions }: LiveBoardProps) {
   }, [dismiss]);
 
   return (
-    <section className={styles.board} aria-labelledby={headingId}>
+    <section className={variant === 'phone' ? styles.boardPhone : styles.board} aria-labelledby={headingId}>
       {hint.visible && <LiveHintCallout onDismiss={dismiss} />}
 
       <header className={styles.header}>
         <h2 id={headingId} className={styles.heading}>
           Sessions <span className={styles.headingCount}>({sessions.length})</span>
         </h2>
+        {actions && <div className={styles.actions}>{actions}</div>}
         <div className={styles.filters} role="group" aria-label="Show sessions">
           {BOARD_FILTERS.map(({ id, label }) => (
             <button
