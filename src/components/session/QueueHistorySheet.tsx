@@ -15,6 +15,7 @@
  * doesn't fight the existing Modal store used by other panels.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { QueueItem, QueueItemType } from '@/stores/queueStore';
 import { useQueueHistoryStore, type QueueHistoryEntry } from '@/stores/queueHistoryStore';
 import { useSessionStore } from '@/stores/sessionStore';
@@ -28,6 +29,8 @@ import {
   type ImportError,
 } from '@/lib/queueHistoryExport';
 import { showToast } from '@/components/ui/ToastContainer';
+import { ConfirmSheet } from '@/components/ui/BottomSheet';
+import { useIsMobile } from '@/lib/platform';
 import QueueItemEditModal from './QueueItemEditModal';
 import styles from '@/styles/modules/QueueHistory.module.css';
 
@@ -79,21 +82,26 @@ export default function QueueHistorySheet({
 
   const [viewEntry, setViewEntry] = useState<QueueHistoryEntry | null>(null);
   const [editEntry, setEditEntry] = useState<QueueHistoryEntry | null>(null);
+  /** On a phone (AASC-18) the sheet is full screen and portaled, and Remove asks first. */
+  const isMobile = useIsMobile();
+  const [removing, setRemoving] = useState<QueueHistoryEntry | null>(null);
 
   const overlayRef = useRef<HTMLDivElement>(null);
 
-  // ESC closes the topmost layer first (view → edit → sheet)
+  // ESC closes the topmost layer first (confirm → view → edit → sheet); the
+  // confirmation sheet handles its own Escape.
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
       if (e.key !== 'Escape') return;
+      if (removing) return;
       if (editEntry) { setEditEntry(null); return; }
       if (viewEntry) { setViewEntry(null); return; }
       onClose();
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [open, viewEntry, editEntry, onClose]);
+  }, [open, viewEntry, editEntry, removing, onClose]);
 
   const handleOverlayClick = useCallback(
     (e: React.MouseEvent) => {
@@ -228,11 +236,12 @@ export default function QueueHistorySheet({
 
   if (!open) return null;
 
-  return (
+  const sheet = (
     <div
       ref={overlayRef}
       className={styles.overlay}
       onClick={handleOverlayClick}
+      data-queue-history=""
     >
       <div className={styles.panel} role="dialog" aria-modal="true">
         <div className={styles.header}>
@@ -314,7 +323,9 @@ export default function QueueHistorySheet({
         <div className={styles.body}>
           {entries.length === 0 ? (
             <div className={styles.empty}>
-              No saved items yet. Click the ★ next to a queue item to save it for later.
+              {isMobile
+                ? 'No saved items yet. Open ⋯ on a queue item and choose Save to history.'
+                : 'No saved items yet. Click the ★ next to a queue item to save it for later.'}
             </div>
           ) : visible.length === 0 ? (
             <div className={styles.empty}>No entries match the current filter.</div>
@@ -326,7 +337,7 @@ export default function QueueHistorySheet({
                 onView={() => setViewEntry(entry)}
                 onEdit={() => setEditEntry(entry)}
                 onApply={() => handleApply(entry)}
-                onRemove={() => handleRemove(entry)}
+                onRemove={() => (isMobile ? setRemoving(entry) : handleRemove(entry))}
                 onSetAlias={(alias) => { void setAlias(entry.id, alias); }}
               />
             ))
@@ -388,8 +399,25 @@ export default function QueueHistorySheet({
           onConfirm={() => { void handleConfirmImport(); }}
         />
       )}
+
+      {isMobile && (
+        <ConfirmSheet
+          open={removing !== null}
+          title="Remove from history?"
+          message={`“${removing?.alias || (removing?.item.text ?? '').slice(0, 120)}” is no longer offered to apply. Queued copies stay.`}
+          confirmLabel="Remove"
+          danger
+          onCancel={() => setRemoving(null)}
+          onConfirm={() => {
+            if (removing) void handleRemove(removing);
+            setRemoving(null);
+          }}
+        />
+      )}
     </div>
   );
+
+  return isMobile ? createPortal(sheet, document.body) : sheet;
 }
 
 function importErrorMessage(err: ImportError): string {
@@ -529,7 +557,12 @@ function HistoryRow({
         <button className={styles.btnPrimary} onClick={onApply} title="Add to current session's queue">
           + Apply
         </button>
-        <button className={styles.btnDanger} onClick={onRemove} title="Remove from history">
+        <button
+          className={styles.btnDanger}
+          onClick={onRemove}
+          title="Remove from history"
+          aria-label="Remove from history"
+        >
           🗑
         </button>
       </div>

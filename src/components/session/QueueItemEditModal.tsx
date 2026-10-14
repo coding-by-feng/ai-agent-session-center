@@ -24,6 +24,7 @@
  * QueueTab can carry per-item state in its own component scope.
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import type {
   QueueItem,
   ChainStep,
@@ -47,6 +48,8 @@ import { detectCli } from '@/lib/cliDetect';
 import { usePromptSnippetStore } from '@/stores/promptSnippetStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { showToast } from '@/components/ui/ToastContainer';
+import { ConfirmSheet } from '@/components/ui/BottomSheet';
+import { useIsMobile } from '@/lib/platform';
 import styles from '@/styles/modules/Terminal.module.css';
 
 interface QueueItemEditModalProps {
@@ -146,6 +149,10 @@ export default function QueueItemEditModal({
 
   const overlayRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  /** On a phone the editor takes the whole screen (AASC-18), is portaled out of
+   *  the panel so no ancestor can clip it, and "Delete item" asks first. */
+  const isMobile = useIsMobile();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   /** Which snippet picker is open, and where it inserts. `null` = none.
    *  `target` is 'main' for the MAIN prompt, or a chain side, in which case the
@@ -288,14 +295,14 @@ export default function QueueItemEditModal({
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
-        if (snippetPicker || effortPicker || modelPicker) return;
+        if (snippetPicker || effortPicker || modelPicker || confirmingDelete) return;
         e.stopPropagation();
         onClose();
       }
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose, snippetPicker, effortPicker, modelPicker]);
+  }, [onClose, snippetPicker, effortPicker, modelPicker, confirmingDelete]);
 
   const handleOverlayClick = useCallback(
     (e: React.MouseEvent) => {
@@ -551,9 +558,14 @@ export default function QueueItemEditModal({
     </div>
   );
 
-  return (
-    <div ref={overlayRef} className={styles.chainModalOverlay} onClick={handleOverlayClick}>
-      <div className={styles.chainModalPanel} role="dialog" aria-modal="true">
+  const editor = (
+    <div
+      ref={overlayRef}
+      className={`${styles.chainModalOverlay}${isMobile ? ` ${styles.chainModalPhone}` : ''}`}
+      onClick={handleOverlayClick}
+      data-queue-edit={isMobile ? 'fullscreen' : 'dialog'}
+    >
+      <div className={styles.chainModalPanel} role="dialog" aria-modal="true" aria-label={title}>
         <div className={styles.chainModalHeader}>
           <h3>{title}</h3>
           <button className={styles.chainCloseBtn} onClick={onClose} aria-label="Close">
@@ -795,7 +807,10 @@ export default function QueueItemEditModal({
         </div>
 
         <div className={styles.chainModalFooter}>
-          <button className={`${styles.chainBtn} ${styles.chainBtnDanger}`} onClick={onDelete}>
+          <button
+            className={`${styles.chainBtn} ${styles.chainBtnDanger}`}
+            onClick={isMobile ? () => setConfirmingDelete(true) : onDelete}
+          >
             Delete item
           </button>
           <div className={styles.chainModalFooterRight}>
@@ -855,6 +870,22 @@ export default function QueueItemEditModal({
           onClose={() => setModelPicker(null)}
         />
       )}
+      {isMobile && (
+        <ConfirmSheet
+          open={confirmingDelete}
+          title="Delete this prompt?"
+          message="It leaves the queue on every device, with its before and after steps."
+          confirmLabel="Delete"
+          danger
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={() => {
+            setConfirmingDelete(false);
+            onDelete();
+          }}
+        />
+      )}
     </div>
   );
+
+  return isMobile ? createPortal(editor, document.body) : editor;
 }

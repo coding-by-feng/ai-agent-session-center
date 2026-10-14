@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act, fireEvent } from '@testing-library/react';
-import { useQueueDragReorder, HOLD_MS, MOVE_CANCEL_PX } from './useQueueDragReorder';
+import { useQueueDragReorder, edgeScrollStep, HOLD_MS, MOVE_CANCEL_PX, EDGE_PX } from './useQueueDragReorder';
 import type { DragRect } from '@/lib/queueDragReorder';
 
 /** Three cards side by side, 100 wide, 10 apart. */
@@ -152,5 +152,132 @@ describe('useQueueDragReorder', () => {
     act(() => { vi.advanceTimersByTime(100); });
     act(() => { movePointer(50 + MOVE_CANCEL_PX + 5, 25); }); // cancels before hold completes
     expect(handle.getAttribute('title')).toBe('Press and hold, then drag to reorder');
+  });
+});
+
+/**
+ * AASC-18: on a phone the rows are `touch-action: pan-y`, so a swipe that starts
+ * on a row belongs to the browser (it scrolls the queue) — the hook must leave
+ * that touch alone — while a row that HAS lifted must stop the scroll, which only
+ * a non-passive touchmove listener on the list (`scrollGuardRef`) can do.
+ * Real pointer and touch events, a vertical list of three rows.
+ */
+describe('useQueueDragReorder — touch: a swipe scrolls, a hold drags', () => {
+  const ROWS: DragRect[] = [
+    { id: 1, left: 0, right: 300, top: 0, bottom: 80 },
+    { id: 2, left: 0, right: 300, top: 88, bottom: 168 },
+    { id: 3, left: 0, right: 300, top: 176, bottom: 256 },
+  ];
+
+  function ListHarness({ onReorder }: { onReorder: (ids: number[]) => void }) {
+    const { draggingId, onPointerDown, scrollGuardRef } = useQueueDragReorder([1, 2, 3], () => ROWS, onReorder);
+    return (
+      <div data-testid="list" ref={scrollGuardRef}>
+        {[1, 2, 3].map((id) => (
+          <div
+            key={id}
+            data-testid={`row-${id}`}
+            data-dragging={draggingId === id}
+            onPointerDown={(e) => onPointerDown(e, id)}
+          >
+            row {id}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  /** A finger's move as the browser delivers it: the touchmove (which the browser
+   *  will turn into a scroll unless it is cancelled), then the pointermove. */
+  function fingerMove(target: Element, x: number, y: number): Event {
+    const tm = new Event('touchmove', { bubbles: true, cancelable: true });
+    fireEvent(target, tm);
+    movePointer(x, y);
+    return tm;
+  }
+
+  it('a quick swipe on a row leaves the touch to the browser and lifts nothing', () => {
+    const onReorder = vi.fn();
+    render(<ListHarness onReorder={onReorder} />);
+    const row = screen.getByTestId('row-3');
+    press(row, 150, 200);
+    const moves: Event[] = [];
+    act(() => {
+      for (let i = 1; i <= 6; i++) moves.push(fingerMove(row, 150, 200 - i * 12));
+    });
+    act(() => { vi.advanceTimersByTime(HOLD_MS * 2); });
+    expect(moves.every((m) => !m.defaultPrevented)).toBe(true);
+    expect(screen.getByTestId('row-3').dataset.dragging).toBe('false');
+    act(() => { release(); });
+    expect(onReorder).not.toHaveBeenCalled();
+  });
+
+  it('the browser taking the gesture for a scroll (pointercancel) cancels a pending hold', () => {
+    const onReorder = vi.fn();
+    render(<ListHarness onReorder={onReorder} />);
+    press(screen.getByTestId('row-2'), 150, 120);
+    act(() => { fireEvent(window, new Event('pointercancel')); });
+    act(() => { vi.advanceTimersByTime(HOLD_MS * 2); });
+    expect(screen.getByTestId('row-2').dataset.dragging).toBe('false');
+  });
+
+  it('after a press and hold, the list cancels the touch scroll and the row follows the finger', () => {
+    const onReorder = vi.fn();
+    render(<ListHarness onReorder={onReorder} />);
+    const row = screen.getByTestId('row-3');
+    press(row, 150, 200);
+    act(() => { vi.advanceTimersByTime(HOLD_MS); });
+    expect(row.dataset.dragging).toBe('true');
+    const moves: Event[] = [];
+    // Up past the top half of row 1, in steps, as a finger travels.
+    act(() => {
+      for (let y = 190; y >= 10; y -= 20) moves.push(fingerMove(row, 150, y));
+    });
+    expect(moves.every((m) => m.defaultPrevented)).toBe(true);
+    act(() => { release(); });
+    expect(onReorder).toHaveBeenCalledWith([3, 1, 2]);
+  });
+
+  it('a touch that drags nowhere after lifting leaves the order alone and stops guarding', () => {
+    const onReorder = vi.fn();
+    render(<ListHarness onReorder={onReorder} />);
+    const row = screen.getByTestId('row-1');
+    press(row, 150, 40);
+    act(() => { vi.advanceTimersByTime(HOLD_MS); });
+    act(() => { release(); });
+    expect(onReorder).not.toHaveBeenCalled();
+    // Released: the next swipe scrolls again.
+    const tm = new Event('touchmove', { bubbles: true, cancelable: true });
+    fireEvent(row, tm);
+    expect(tm.defaultPrevented).toBe(false);
+  });
+
+  it('a long press does not open the context menu (image / text callout)', () => {
+    render(<ListHarness onReorder={vi.fn()} />);
+    const row = screen.getByTestId('row-2');
+    press(row, 150, 120);
+    const menu = new Event('contextmenu', { bubbles: true, cancelable: true });
+    fireEvent(row, menu);
+    expect(menu.defaultPrevented).toBe(true);
+    act(() => { release(); });
+    // Not mid-press: a context menu is the browser's business again.
+    const later = new Event('contextmenu', { bubbles: true, cancelable: true });
+    fireEvent(row, later);
+    expect(later.defaultPrevented).toBe(false);
+  });
+});
+
+describe('edgeScrollStep — auto-scroll near the scroller\'s edges during a touch drag', () => {
+  it('is 0 away from both edges', () => {
+    expect(edgeScrollStep(300, 100, 600)).toBe(0);
+  });
+  it('scrolls up near the top and down near the bottom, faster closer to the edge', () => {
+    expect(edgeScrollStep(100 + EDGE_PX - 1, 100, 600)).toBeLessThan(0);
+    expect(edgeScrollStep(100, 100, 600)).toBeLessThan(edgeScrollStep(100 + EDGE_PX / 2, 100, 600));
+    expect(edgeScrollStep(600 - EDGE_PX + 1, 100, 600)).toBeGreaterThan(0);
+    expect(edgeScrollStep(600, 100, 600)).toBeGreaterThan(edgeScrollStep(600 - EDGE_PX / 2, 100, 600));
+  });
+  it('is capped past the edge', () => {
+    expect(edgeScrollStep(-500, 100, 600)).toBe(edgeScrollStep(100, 100, 600));
   });
 });

@@ -43,7 +43,7 @@ import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { openTerminalPopupFallback } from '@/lib/popoutTerminalWindow';
 import { restartNeedsConfirm, restartConfirmMessage, requestSessionRestart } from '@/lib/restartSession';
 import { showToast } from '@/components/ui/ToastContainer';
-import { isNativeMobileApp } from '@/lib/platform';
+import { isNativeMobileApp, useIsMobile } from '@/lib/platform';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
 /**
@@ -137,6 +137,9 @@ const TerminalContent = memo(function TerminalContent({
   // goes, since there is nothing to resize. Without this the row kept its height
   // and the header sat over ~220px of nothing.
   const queueCollapsed = useUiStore((s) => s.queuePanelCollapsed);
+  // A phone shows one tab at a time: the queue lives in its QUEUE tab, and the
+  // terminal keeps the whole height (AASC-18).
+  const isMobile = useIsMobile();
 
   const handleResizeStart = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
@@ -282,7 +285,7 @@ const TerminalContent = memo(function TerminalContent({
       {/* Draggable divider between the terminal and the always-on queue
           strip. Pointer events (not mouse) so it is grabbable on a phone,
           same reason as the queue's drag-reorder. */}
-      {!queueCollapsed && (
+      {!queueCollapsed && !isMobile && (
         <div
           className={`${styles.queueResizer}${resizingQueue ? ` ${styles.queueResizerActive}` : ''}`}
           onPointerDown={handleResizeStart}
@@ -293,7 +296,7 @@ const TerminalContent = memo(function TerminalContent({
           title="Drag to resize the queue — double-click to reset"
         />
       )}
-      <div className={styles.bottomRow} style={queueCollapsed ? undefined : { height: queueHeight }}>
+      {!isMobile && <div className={styles.bottomRow} style={queueCollapsed ? undefined : { height: queueHeight }}>
         {/* `fullHeight` makes the panel fill the height the divider produced
             rather than the old hard-coded 250px cap. It is the same mechanism
             the QUEUE tab uses — the class is defined in Terminal.module.css,
@@ -304,7 +307,7 @@ const TerminalContent = memo(function TerminalContent({
           terminalId={terminalId}
           fullHeight
         />
-      </div>
+      </div>}
     </div>
   );
 });
@@ -855,6 +858,8 @@ export default function DetailPanel() {
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
               onMatchCountChange={setConvMatchCount}
+              searchMatchIndex={searchMatchIndex}
+              onSearchStep={navigateMatch}
               projectPath={displaySession.projectPath}
             />
           }

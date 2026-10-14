@@ -280,3 +280,26 @@
   .log th:nth-child(2) { width: 96px; }
   .log th:nth-child(3) { width: 80px; }
 }
+
+/* The activity log on a phone (AASC-18). Same query as MOBILE_MEDIA_QUERY. A row
+   is a 44px target and its toggle button fills it (the row's own click does the
+   work; the button is the keyboard and screen-reader way in), the text is a size
+   up, and an opened detail scrolls inside half the screen at most. */
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
+  .log { font-size: 12px; }
+  .log td { height: 44px; padding-block: 0; }
+  .logOpenable td { padding-block: 0; }
+  .log .logToggle { min-height: 44px; }
+  .logOpenable:active td { background: var(--bg-subtle); }
+  .logDetail { margin: 4px 0 8px; padding: 8px; }
+  .log .logDetailCell { height: auto; }
+  .logDetailText { font-size: 12px; max-height: 50vh; }
+}
+/* A phone held sideways keeps the time column (the panel is wider than 480px):
+   at the phone's 12px it needs 80px for HH:MM:SS. Only there — under 480px the
+   container rule above zeroes the column, and this must not bring it back. */
+@media (max-height: 480px) and (pointer: coarse) {
+  @container agents (min-width: 481px) {
+    .log th:nth-child(1) { width: 80px; }
+  }
+}

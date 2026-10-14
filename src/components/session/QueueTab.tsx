@@ -60,7 +60,11 @@ import QueueMovePicker, { MOVE_TRIGGER_ATTR, type QueueMoveTarget } from './Queu
 import QueueItemText from './QueueItemText';
 import QueueHistorySheet from './QueueHistorySheet';
 import LoopExcludeWindowsModal from './LoopExcludeWindowsModal';
+import QueueMoveSheet from './QueueMoveSheet';
+import BottomSheet, { ConfirmSheet } from '@/components/ui/BottomSheet';
+import Button from '@/components/ui/Button';
 import styles from '@/styles/modules/Terminal.module.css';
+import phoneStyles from '@/styles/modules/QueuePhone.module.css';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -80,6 +84,14 @@ function formatClampDisplay(hhmm: string | undefined): string {
 
 /** Stable empty array — prevents useSyncExternalStore infinite loop from `?? []` */
 const EMPTY_QUEUE: QueueItem[] = [];
+
+/** A prompt as a sheet quotes it: the first line-ish, so the user knows which one. */
+const PREVIEW_CHARS = 160;
+function promptPreview(item: QueueItem): string {
+  const text = item.text.trim();
+  if (!text) return item.images?.length ? `${item.images.length} image${item.images.length === 1 ? '' : 's'}` : '(empty prompt)';
+  return text.length > PREVIEW_CHARS ? `${text.slice(0, PREVIEW_CHARS)}…` : text;
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -280,11 +292,20 @@ export default function QueueTab({
   // terminal gets the height) and both docked mounts must agree — see uiStore.
   const dockedCollapsed = useUiStore((s) => s.queuePanelCollapsed);
   const setDockedCollapsed = useUiStore((s) => s.setQueuePanelCollapsed);
-  // The float window is the whole window: collapsing it would leave a bare header.
-  const collapsed = floating ? false : dockedCollapsed;
   const isMobile = useIsMobile();
+  // The float window is the whole window: collapsing it would leave a bare header.
+  // On a phone the QUEUE tab is the queue's only home (no strip under the
+  // terminal, AASC-18), so it is never folded either — the stored flag belongs
+  // to the docked strip of a desktop window.
+  const fixedOpen = floating || isMobile;
+  const collapsed = fixedOpen ? false : dockedCollapsed;
   /** A float is a desktop-window workflow: not offered inside the float itself, nor on a phone. */
   const canFloat = !floating && !isMobile;
+  /** List and Card are a desktop density choice; a phone has one layout (list rows, actions always shown). */
+  const viewMode = isMobile ? 'list' : queueViewMode;
+  /** Phone: the row whose "More" sheet is open, and the row waiting on a delete confirmation. */
+  const [moreItemId, setMoreItemId] = useState<number | null>(null);
+  const [deleteItemId, setDeleteItemId] = useState<number | null>(null);
   /** Open this session's queue in its own window (see lib/queuePopout.ts). Once a
    *  window is up it shows the queue, so the docked panel folds to its header and
    *  gives its height back; both stay live views of one queue. Nothing folds when
@@ -360,6 +381,8 @@ export default function QueueTab({
     setChainEditId(null);
     setMovingItemId(null);
     setSnippetAnchor(null);
+    setMoreItemId(null);
+    setDeleteItemId(null);
   }, [sessionId]);
 
   // Notify parent of queue count changes
@@ -828,41 +851,49 @@ export default function QueueTab({
   // `.queueActions` already wraps rather than overflowing at narrow widths
   // (see the comment at its List-mode use site), so Card mode reuses it
   // unchanged rather than growing a second, condensed action set.
+  // On a phone the row shows its actions all the time, on their own line, so it
+  // carries the frequent ones only: SEND|⚡ NOW, EDIT, MOVE, DEL and a "More"
+  // sheet with ▲ ▼ and ★ (a long press is the phone's way to reorder). DEL asks
+  // first — a stray tap must not cost a prompt. Same handlers as the desktop row.
   const renderItemActions = (item: QueueItem, idx: number) => (
     <>
       <div className={styles.queueActions}>
-        <button
-          className={`${styles.queueActionBtn} ${styles.queueReorder}`}
-          onClick={() => handleMove(item, -1)}
-          disabled={idx === 0}
-          title="Move up"
-          aria-label="Move up"
-        >
-          ▲
-        </button>
-        <button
-          className={`${styles.queueActionBtn} ${styles.queueReorder}`}
-          onClick={() => handleMove(item, 1)}
-          disabled={idx === items.length - 1}
-          title="Move down"
-          aria-label="Move down"
-        >
-          ▼
-        </button>
-        <button
-          className={`${styles.queueFavBtn}${item.historyId != null ? ` ${styles.queueFavBtnOn}` : ''}`}
-          onClick={() => {
-            void handleToggleFavorite(item);
-          }}
-          title={
-            item.historyId != null
-              ? 'Saved to history — click to remove'
-              : 'Save to history — reuse this in other sessions later'
-          }
-          aria-label="Toggle favorite"
-        >
-          {item.historyId != null ? '★' : '☆'}
-        </button>
+        {!isMobile && (
+          <>
+            <button
+              className={`${styles.queueActionBtn} ${styles.queueReorder}`}
+              onClick={() => handleMove(item, -1)}
+              disabled={idx === 0}
+              title="Move up"
+              aria-label="Move up"
+            >
+              ▲
+            </button>
+            <button
+              className={`${styles.queueActionBtn} ${styles.queueReorder}`}
+              onClick={() => handleMove(item, 1)}
+              disabled={idx === items.length - 1}
+              title="Move down"
+              aria-label="Move down"
+            >
+              ▼
+            </button>
+            <button
+              className={`${styles.queueFavBtn}${item.historyId != null ? ` ${styles.queueFavBtnOn}` : ''}`}
+              onClick={() => {
+                void handleToggleFavorite(item);
+              }}
+              title={
+                item.historyId != null
+                  ? 'Saved to history — click to remove'
+                  : 'Save to history — reuse this in other sessions later'
+              }
+              aria-label="Toggle favorite"
+            >
+              {item.historyId != null ? '★' : '☆'}
+            </button>
+          </>
+        )}
         {/* A chained 'once' gets ⚡ NOW, not SEND: SEND flattens the item to a
             single item.text write and removes it, which would silently drop
             the configured chain. */}
@@ -930,15 +961,31 @@ export default function QueueTab({
         </button>
         <button
           className={`${styles.queueActionBtn} ${styles.queueDelete}`}
-          onClick={() => remove(sessionId, item.id)}
+          onClick={() => (isMobile ? setDeleteItemId(item.id) : remove(sessionId, item.id))}
           title="Remove"
+          aria-label={isMobile ? `Delete prompt ${idx + 1}` : undefined}
         >
           DEL
         </button>
+        {isMobile && (
+          <button
+            type="button"
+            className={`${styles.queueActionBtn} ${styles.queueMore}`}
+            onClick={() => setMoreItemId(item.id)}
+            aria-haspopup="dialog"
+            aria-label={`More for prompt ${idx + 1}`}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <circle cx="5" cy="12" r="2" />
+              <circle cx="12" cy="12" r="2" />
+              <circle cx="19" cy="12" r="2" />
+            </svg>
+          </button>
+        )}
       </div>
 
-      {/* Move-to picker */}
-      {movingItemId === item.id && (
+      {/* Move-to picker (the phone's is one sheet for the whole list, below) */}
+      {!isMobile && movingItemId === item.id && (
         <QueueMovePicker
           anchor={moveAnchor}
           targets={moveTargets}
@@ -948,6 +995,18 @@ export default function QueueTab({
       )}
     </>
   );
+
+  // ---- Phone sheets: More (▲ ▼ ★) and the delete confirmation ----
+  const moreIdx = moreItemId === null ? -1 : items.findIndex((i) => i.id === moreItemId);
+  const moreItem = moreIdx >= 0 ? items[moreIdx] : null;
+  const deleteIdx = deleteItemId === null ? -1 : items.findIndex((i) => i.id === deleteItemId);
+  const deleteItem = deleteIdx >= 0 ? items[deleteIdx] : null;
+  const closeMore = useCallback(() => setMoreItemId(null), []);
+  const cancelDelete = useCallback(() => setDeleteItemId(null), []);
+  const moveToTop = (item: QueueItem) => {
+    const rest = items.filter((i) => i.id !== item.id).map((i) => i.id);
+    reorder(sessionId, [item.id, ...rest]);
+  };
 
   // The header's label: shared by the docked toggle (a button) and the float window's
   // static copy of it.
@@ -984,14 +1043,16 @@ export default function QueueTab({
 
   return (
     <div
-      className={`${styles.queuePanel}${collapsed ? ` ${styles.collapsed}` : ''}${fullHeight ? ` ${styles.queuePanelFull}` : ''}`}
+      className={`${styles.queuePanel}${collapsed ? ` ${styles.collapsed}` : ''}${fullHeight ? ` ${styles.queuePanelFull}` : ''}${isMobile ? ` ${styles.queuePanelPhone}` : ''}`}
+      data-queue-panel=""
     >
       {/* Toggle header */}
       <div className={styles.queueHeader}>
-        {floating ? (
-          // The float window is the whole window: there is nothing to collapse, so
-          // its header is a label — not a disabled button, which assistive tech
-          // would announce as "dimmed" for something with nothing to act on.
+        {fixedOpen ? (
+          // The float window is the whole window, and on a phone the QUEUE tab is the
+          // queue's only home: there is nothing to collapse, so the header is a label —
+          // not a disabled button, which assistive tech would announce as "dimmed" for
+          // something with nothing to act on.
           <div className={`${styles.queueToggle} ${styles.queueToggleStatic}`}>{queueLabel}</div>
         ) : (
           <button
@@ -1004,7 +1065,7 @@ export default function QueueTab({
           </button>
         )}
         <button
-          className={styles.queueHistoryBtn}
+          className={`${styles.queueHistoryBtn}${isMobile ? ` ${styles.queuePhoneControl}` : ''}`}
           onClick={(e) => {
             e.stopPropagation();
             setHistoryOpen(true);
@@ -1014,6 +1075,7 @@ export default function QueueTab({
               ? `Queue history (${historyCount} saved)`
               : 'Queue history — save items to reuse them across sessions'
           }
+          aria-label={isMobile ? `Queue history${historyCount > 0 ? `, ${historyCount} saved` : ''}` : undefined}
         >
           <svg
             width="14"
@@ -1028,12 +1090,16 @@ export default function QueueTab({
             <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
             <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
           </svg>
+          {isMobile && <span className={styles.queuePhoneControlLabel}>History</span>}
           {historyCount > 0 && <span className={styles.queueHistoryBadge}>{historyCount}</span>}
         </button>
         {/* Icon shows the DESTINATION view (grid glyph while in List mode,
             list glyph while in Card mode) — same "click to switch to X"
-            convention as the rest of the header's icon buttons. */}
-        <button
+            convention as the rest of the header's icon buttons. Not on a
+            phone, which has one layout; there the two switches take a line of
+            their own under the count and History. */}
+        {isMobile && <span className={styles.queuePhoneBreak} aria-hidden="true" />}
+        {!isMobile && <button
           className={styles.queueHistoryBtn}
           onClick={(e) => {
             e.stopPropagation();
@@ -1074,9 +1140,10 @@ export default function QueueTab({
               <line x1="4" y1="18" x2="20" y2="18" />
             </svg>
           )}
-        </button>
+        </button>}
         <button
-          className={`${styles.autoEnterToggle} ${autoEnter ? styles.autoEnterOn : ''}`}
+          className={`${styles.autoEnterToggle} ${autoEnter ? styles.autoEnterOn : ''}${isMobile ? ` ${styles.queuePhoneControl}` : ''}`}
+          aria-pressed={isMobile ? autoEnter : undefined}
           onClick={(e) => {
             e.stopPropagation();
             const next = !autoEnter;
@@ -1118,9 +1185,15 @@ export default function QueueTab({
             <polyline points="9 10 4 15 9 20" />
             <path d="M20 4v7a4 4 0 0 1-4 4H4" />
           </svg>
+          {isMobile && (
+            <span className={styles.queuePhoneControlLabel}>
+              Auto-Enter <span className={styles.queuePhoneControlState}>{autoEnter ? 'on' : 'off'}</span>
+            </span>
+          )}
         </button>
         <button
-          className={`${styles.autoSendToggle} ${autoSend ? styles.autoSendOn : ''}`}
+          className={`${styles.autoSendToggle} ${autoSend ? styles.autoSendOn : ''}${isMobile ? ` ${styles.queuePhoneControl}` : ''}`}
+          aria-pressed={isMobile ? autoSend : undefined}
           onClick={(e) => {
             e.stopPropagation();
             const next = !autoSend;
@@ -1146,14 +1219,20 @@ export default function QueueTab({
             <line x1="22" y1="2" x2="11" y2="13" />
             <polygon points="22 2 15 22 11 13 2 9 22 2" />
           </svg>
+          {isMobile && (
+            <span className={styles.queuePhoneControlLabel}>
+              Auto-send <span className={styles.queuePhoneControlState}>{autoSend ? 'on' : 'off'}</span>
+            </span>
+          )}
         </button>
         {/* Detach and collapse are ACTIONS on the panel, not more toggles: a
             hairline sets them apart. Neither is offered inside the float window
             (it already is the float, and it is the whole window). Detach's glyph
             is the shared window-with-arrow family (the PROJECT tab's float
             button); it is not offered on a phone either (a second window is not
-            a phone workflow — see lib/platform.ts, rule 3). */}
-        {!floating && <span className={styles.queueHeaderDivider} aria-hidden="true" />}
+            a phone workflow — see lib/platform.ts, rule 3), and nor is collapse
+            (the phone's QUEUE tab is never folded — see `fixedOpen`). */}
+        {!fixedOpen && <span className={styles.queueHeaderDivider} aria-hidden="true" />}
         {canFloat && (
           <Tooltip {...tooltips.floatQueue}>
             <button
@@ -1175,7 +1254,7 @@ export default function QueueTab({
             its header, up brings it back — not the ▶ triangle, which is the
             label's own state marker, and not UnfoldIcon, which already means
             "show this whole prompt" in the rows below. */}
-        {!floating && (
+        {!fixedOpen && (
           <Tooltip {...collapseTip}>
             <button
               type="button"
@@ -1207,7 +1286,7 @@ export default function QueueTab({
       </div>
 
       {/* Body */}
-      <div className={styles.queueBody}>
+      <div className={styles.queueBody} data-queue-body="">
         {/* Auto-send-off warning: shown whenever Auto-send is OFF so the user
             always sees WHY the Loop/Schedule pills are disabled — even before
             they've added any timed items. The wording shifts based on whether
@@ -1266,7 +1345,11 @@ export default function QueueTab({
         >
           <AutocompleteTextarea
             className={styles.queueTextarea}
-            placeholder="Add a prompt to the queue... (/ for commands, @ for files, Cmd+V for images)"
+            placeholder={
+              isMobile
+                ? 'Add a prompt to the queue… (/ commands, @ files)'
+                : 'Add a prompt to the queue... (/ for commands, @ for files, Cmd+V for images)'
+            }
             rows={2}
             value={composeText}
             onChange={setComposeText}
@@ -1444,8 +1527,11 @@ export default function QueueTab({
             why cards don't get a drag handle). Both share every per-item
             handler and the extracted renderItemMeta/renderItemActions, so
             they can never disagree about what a given item's state means. */}
-        {queueViewMode === 'list' ? (
-          <div className={styles.queueList}>
+        {isMobile && items.length > 1 && (
+          <p className={phoneStyles.hint}>Press and hold a prompt to drag it to a new place.</p>
+        )}
+        {viewMode === 'list' ? (
+          <div className={styles.queueList} ref={drag.scrollGuardRef}>
             {items.length === 0
               ? null
               : items.map((item, idx) => (
@@ -1454,6 +1540,7 @@ export default function QueueTab({
                     ref={(el) => registerItemEl(item.id, el)}
                     className={`${styles.queueItem}${drag.draggingId === item.id ? ` ${styles.dragging}` : ''}${drag.insertIndex === idx ? ` ${styles.dropBefore}` : ''}${drag.insertIndex === idx + 1 && idx === items.length - 1 ? ` ${styles.dropAfter}` : ''}${item.disabled ? ` ${styles.queueItemDisabled}` : ''}${expandedIds.has(item.id) ? ` ${styles.queueItemExpanded}` : ''}`}
                     onPointerDown={(e) => drag.onPointerDown(e, item.id)}
+                    data-queue-item={item.id}
                   >
                     <span
                       className={styles.queueDragHandle}
@@ -1528,7 +1615,7 @@ export default function QueueTab({
                 ))}
           </div>
         ) : (
-          <div className={styles.queueCardGrid}>
+          <div className={styles.queueCardGrid} ref={drag.scrollGuardRef}>
             {items.length === 0
               ? null
               : items.map((item, idx) => (
@@ -1537,6 +1624,7 @@ export default function QueueTab({
                     ref={(el) => registerItemEl(item.id, el)}
                     className={`${styles.queueCard}${drag.draggingId === item.id ? ` ${styles.dragging}` : ''}${drag.insertIndex === idx ? ` ${styles.dropBefore}` : ''}${drag.insertIndex === idx + 1 && idx === items.length - 1 ? ` ${styles.dropAfter}` : ''}${item.disabled ? ` ${styles.queueItemDisabled}` : ''}`}
                     onPointerDown={(e) => drag.onPointerDown(e, item.id)}
+                    data-queue-item={item.id}
                   >
                     {/* Press-and-hold to drag (useQueueDragReorder). Cards used
                       to have no drag at all on the grounds that a wrapping grid
@@ -1751,6 +1839,55 @@ export default function QueueTab({
         currentSessionId={sessionId}
         currentSessionTitle={currentSessionTitle}
       />
+      {isMobile && (
+        <>
+          <QueueMoveSheet
+            open={movingItemId !== null}
+            targets={moveTargets}
+            onSelect={handleMoveConfirm}
+            onClose={closeMovePicker}
+          />
+          <BottomSheet open={moreItem !== null} onClose={closeMore} title={`Prompt ${moreIdx + 1}`}>
+            {moreItem && (
+              <>
+                <p className={phoneStyles.sheetPreview}>{promptPreview(moreItem)}</p>
+                <div className={phoneStyles.sheetActions}>
+                  <Button onClick={() => moveToTop(moreItem)} disabled={moreIdx === 0}>⤒ Move to top</Button>
+                  <Button onClick={() => handleMove(moreItem, -1)} disabled={moreIdx === 0}>▲ Move up</Button>
+                  <Button onClick={() => handleMove(moreItem, 1)} disabled={moreIdx === items.length - 1}>
+                    ▼ Move down
+                  </Button>
+                  <Button
+                    pressed={moreItem.historyId != null}
+                    onClick={() => { void handleToggleFavorite(moreItem); }}
+                  >
+                    {moreItem.historyId != null ? '★ Saved to history' : '☆ Save to history'}
+                  </Button>
+                </div>
+              </>
+            )}
+          </BottomSheet>
+          <ConfirmSheet
+            open={deleteItem !== null}
+            title={`Delete prompt ${deleteIdx + 1}?`}
+            message={
+              deleteItem && (
+                <>
+                  <span className={phoneStyles.sheetPreview}>{promptPreview(deleteItem)}</span>
+                  It leaves this session&apos;s queue on every device.
+                </>
+              )
+            }
+            confirmLabel="Delete"
+            danger
+            onCancel={cancelDelete}
+            onConfirm={() => {
+              if (deleteItem) remove(sessionId, deleteItem.id);
+              setDeleteItemId(null);
+            }}
+          />
+        </>
+      )}
     </div>
   );
 }

@@ -28,6 +28,9 @@ import QueueMovePicker, {
   MOVE_TRIGGER_ATTR,
   type QueueMoveTarget,
 } from '@/components/session/QueueMovePicker';
+import QueueMoveSheet from '@/components/session/QueueMoveSheet';
+import { ConfirmSheet } from '@/components/ui/BottomSheet';
+import { useIsMobile } from '@/lib/platform';
 import type { Session } from '@/types';
 import styles from '@/styles/modules/Queue.module.css';
 
@@ -113,6 +116,8 @@ interface QueueRowProps {
 
 function QueueRow({ item, position, sessionId, move, onRemove }: QueueRowProps) {
   const moveOpen = move.itemId === item.id;
+  // A phone picks the target from a bottom sheet the view renders (AASC-18).
+  const isMobile = useIsMobile();
   const added = formatAdded(item.createdAt);
   return (
     <tr>
@@ -146,7 +151,7 @@ function QueueRow({ item, position, sessionId, move, onRemove }: QueueRowProps) 
             <TrashIcon />
           </IconButton>
         </div>
-        {moveOpen && (
+        {moveOpen && !isMobile && (
           <QueueMovePicker
             anchor={move.anchor}
             targets={move.targets}
@@ -249,6 +254,25 @@ export default function QueueView() {
       remove(sessionId, itemId);
     },
     [focusPastRow, remove],
+  );
+
+  // On a phone Remove asks first (AASC-18): a stray tap must not cost a prompt.
+  const isMobile = useIsMobile();
+  const [pendingRemove, setPendingRemove] = useState<
+    { sessionId: string; itemId: number; position: number; text: string; row: Element | null } | null
+  >(null);
+  const requestRemove = useCallback(
+    (sessionId: string, itemId: number, row: Element | null) => {
+      if (!isMobile) {
+        handleRemove(sessionId, itemId, row);
+        return;
+      }
+      const items = queues.get(sessionId) ?? [];
+      const idx = items.findIndex((i) => i.id === itemId);
+      if (idx < 0) return;
+      setPendingRemove({ sessionId, itemId, position: idx + 1, text: items[idx].text, row });
+    },
+    [isMobile, handleRemove, queues],
   );
 
   // Sessions that have at least one queued prompt.
@@ -392,11 +416,34 @@ export default function QueueView() {
               session={sessions.get(sid)}
               items={queues.get(sid) ?? []}
               move={move}
-              onRemove={handleRemove}
+              onRemove={requestRemove}
             />
           ))
         )}
       </div>
+
+      {isMobile && (
+        <>
+          <QueueMoveSheet
+            open={moving !== null}
+            targets={move.targets}
+            onSelect={move.confirm}
+            onClose={move.close}
+          />
+          <ConfirmSheet
+            open={pendingRemove !== null}
+            title={`Remove prompt ${pendingRemove?.position ?? ''}?`}
+            message={pendingRemove ? `“${pendingRemove.text.length > 160 ? `${pendingRemove.text.slice(0, 160)}…` : pendingRemove.text}” leaves the queue on every device.` : ''}
+            confirmLabel="Remove"
+            danger
+            onCancel={() => setPendingRemove(null)}
+            onConfirm={() => {
+              if (pendingRemove) handleRemove(pendingRemove.sessionId, pendingRemove.itemId, pendingRemove.row);
+              setPendingRemove(null);
+            }}
+          />
+        </>
+      )}
     </div>
   );
 }

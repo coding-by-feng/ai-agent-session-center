@@ -1548,6 +1548,454 @@
   background: rgba(255, 184, 108, 0.08);
 }
 
+/* ---- The queue on a phone (AASC-18) -----------------------------------------
+   `.queuePanelPhone` is set by QueueTab under useIsMobile() (the same media
+   query as MOBILE_MEDIA_QUERY), so these rules and the component's phone branch
+   can never disagree. The QUEUE tab is the queue's only home on a phone. Three
+   rules drive everything below:
+   1. Nothing is revealed by :hover. On touch, :hover applies at touchstart and
+      the click resolves against the reflowed layout (a tap once DELETED a
+      prompt), so a row shows its actions all the time, on their own line, and
+      no hover rule changes a size or a position.
+   2. Every control is a 44px target, on the 8px grid.
+   3. A swipe on a row scrolls the queue (`touch-action: pan-y`); a press and
+      hold lifts it (useQueueDragReorder's scroll guard stops the scroll once
+      it has). The desktop rows are `touch-action: none`. */
+/* The QUEUE tab's panel fills its tab exactly (`height: 100%`): no top margin, or
+   the tab itself gets a few pixels of its own scroll. */
+.queuePanel.queuePanelPhone {
+  margin-top: 0;
+  border-top: none;
+}
+.queuePanelPhone .queueHeader {
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 0 8px;
+}
+.queuePanelPhone .queueToggleStatic {
+  flex: 1 1 auto;
+  min-height: 44px;
+  padding: 0;
+  font-size: 12px;
+  color: var(--text-primary, #e0e0e0);
+}
+/* Line one: the count and History; line two: the two switches. A phone held
+   sideways has the width for one line, and needs the height. */
+.queuePhoneBreak {
+  flex-basis: 100%;
+  height: 0;
+}
+@media (min-width: 481px) {
+  .queuePhoneBreak {
+    display: none;
+  }
+}
+.queuePanelPhone .queueToggleStatic:hover {
+  color: var(--text-primary, #e0e0e0);
+}
+/* History / Auto-Enter / Auto-send: labelled pills, the state in words. */
+.queuePanelPhone .queuePhoneControl {
+  width: auto;
+  height: auto;
+  min-width: 44px;
+  min-height: 44px;
+  gap: 8px;
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary, #e0e0e0);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  opacity: 1;
+  transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+.queuePanelPhone .queuePhoneControl::after {
+  content: none;
+}
+.queuePanelPhone .queuePhoneControl:hover {
+  background: var(--bg-subtle);
+}
+.queuePanelPhone .queuePhoneControl:active {
+  transform: scale(0.97);
+}
+.queuePanelPhone .queuePhoneControl[aria-pressed='true'] {
+  border-color: color-mix(in srgb, var(--accent-cyan, #00e5ff) 60%, transparent);
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 12%, transparent);
+}
+.queuePanelPhone .queuePhoneControl[aria-pressed='true'] svg {
+  color: var(--accent-text, var(--accent-cyan));
+}
+.queuePanelPhone .queuePhoneControl svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+.queuePhoneControlLabel {
+  white-space: nowrap;
+  letter-spacing: 0;
+}
+.queuePhoneControlState {
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.queuePanelPhone .queueHistoryBadge {
+  position: static;
+  font-size: 11px;
+  padding: 2px 6px;
+}
+.queuePanelPhone .queueBody {
+  padding: 0 0 16px;
+}
+.queuePanelPhone .queueAutoSendBanner {
+  flex-wrap: wrap;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+}
+.queuePanelPhone .queueAutoSendBannerBtn {
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: 12px;
+}
+/* Compose: the box gets the whole width; 16px text, because iOS zooms the page
+   into any smaller field on focus. Its four buttons take line two. */
+.queuePanelPhone .queueCompose {
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.queuePanelPhone .queueTextarea {
+  flex: 1 1 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  font-size: 16px;
+  line-height: 1.4;
+  transition: min-height 150ms ease;
+}
+/* One line at rest so the list starts higher up the screen; room to write once focused. */
+.queuePanelPhone .queueTextarea:focus,
+.queuePanelPhone .queueTextarea:not(:placeholder-shown) {
+  min-height: 88px;
+}
+.queuePanelPhone .queueComposeActions {
+  flex: 1 1 100%;
+  align-items: center;
+  gap: 8px;
+  margin-left: 0;
+}
+.queuePanelPhone .queueComposeActions .toolbarBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+.queuePanelPhone .queueComposeActions .toolbarBtn svg {
+  width: 16px;
+  height: 16px;
+}
+.queuePanelPhone .queueComposeActions .queueAddBtn {
+  margin-left: auto;
+  min-width: 88px;
+}
+.queuePanelPhone .queueAutomationRow {
+  gap: 8px;
+  padding: 0 0 8px;
+  font-size: 12px;
+}
+.queuePanelPhone .queueTypePill,
+.queuePanelPhone .queueStatusToggle {
+  min-height: 44px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+.queuePanelPhone .queueIntervalInput,
+.queuePanelPhone .queueIntervalUnit,
+.queuePanelPhone .queueScheduleInput {
+  min-height: 44px;
+  font-size: 16px;
+}
+.queuePanelPhone .queueIntervalInput {
+  width: 72px;
+}
+.queuePanelPhone .queueComposeImages {
+  gap: 8px;
+}
+.queuePanelPhone .queueImageThumb {
+  width: 88px;
+  height: 88px;
+  border-radius: 8px;
+}
+/* The remove control is a 44px corner tab of the thumbnail, not a 14px dot. */
+.queuePanelPhone .queueImageRemove {
+  top: 0;
+  right: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 0 8px 0 8px;
+  font-size: 14px;
+}
+.queuePanelPhone .queueStatusRow {
+  gap: 8px;
+  padding: 8px 0 0;
+  font-size: 12px;
+}
+.queuePanelPhone .queueStatusRow > span {
+  flex: 1 1 100%;
+  white-space: normal;
+}
+/* Rows: [grip] [on/off] [#] [unfold] text (two lines) / meta / actions. */
+.queuePanelPhone .queueList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.queuePanelPhone .queueItem {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-bottom: 0;
+  padding: 4px 8px 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  touch-action: pan-y;
+  -webkit-touch-callout: none;
+}
+.queuePanelPhone .queueItem > .queueTextCol,
+.queuePanelPhone .queueItem:hover > .queueTextCol {
+  flex: 1 1 0;
+  align-self: center;
+  min-width: 0;
+}
+.queuePanelPhone .queueItem .queueText:not(.queueTextExpanded) {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.queuePanelPhone .queueItem .queueText {
+  font-size: 13px;
+  line-height: 1.45;
+}
+.queuePanelPhone .queueExpandBtn,
+.queuePanelPhone .queueToggleBtn {
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  border-radius: 8px;
+}
+.queuePanelPhone .queueToggleBtn svg,
+.queuePanelPhone .queueExpandBtn svg {
+  width: 16px;
+  height: 16px;
+}
+.queuePanelPhone .queueDragHandle {
+  opacity: 0.8;
+  padding: 0 2px;
+}
+.queuePanelPhone .queuePos {
+  min-width: 16px;
+  font-size: 12px;
+  color: var(--text-primary, #e0e0e0);
+}
+.queuePanelPhone .queueItemMeta {
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 11px;
+}
+.queuePanelPhone .queueItemMeta .queueNextFire,
+.queuePanelPhone .queueItemMeta .queueTypeChip {
+  font-size: 11px;
+}
+.queuePanelPhone .queueItemThumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 4px;
+}
+.queuePanelPhone .queueItem .queueActions,
+.queuePanelPhone .queueItem:hover .queueActions {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-left: 0;
+}
+.queuePanelPhone .queueActionBtn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  transition: background 150ms ease, transform 150ms ease;
+}
+.queuePanelPhone .queueActionBtn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.queuePanelPhone .queueActionBtn:focus-visible,
+.queuePanelPhone .queueToggleBtn:focus-visible,
+.queuePanelPhone .queueTypePill:focus-visible,
+.queuePanelPhone .queueStatusToggle:focus-visible,
+.queuePanelPhone .queuePhoneControl:focus-visible,
+.queuePanelPhone .queueComposeActions .toolbarBtn:focus-visible {
+  outline: 2px solid var(--accent-text, var(--accent-cyan));
+  outline-offset: 2px;
+}
+/* The row's "More" sheet: ⤒ ▲ ▼ ★. Last, at the end of the line. */
+.queueMore {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary, #e0e0e0);
+}
+.queuePanelPhone .queueActions .queueMore {
+  margin-left: auto;
+}
+.queueMore:hover {
+  background: var(--bg-subtle);
+}
+.queuePanelPhone .queueItem.dragging {
+  opacity: 0.5;
+  transform: scale(0.98);
+}
+@media (prefers-reduced-motion: reduce) {
+  .queuePanelPhone .queuePhoneControl,
+  .queuePanelPhone .queueActionBtn,
+  .queuePanelPhone .queueTextarea {
+    transition: none;
+  }
+  .queuePanelPhone .queuePhoneControl:active,
+  .queuePanelPhone .queueActionBtn:active:not(:disabled),
+  .queuePanelPhone .queueItem.dragging {
+    transform: none;
+  }
+}
+
+/* QueueItemEditModal on a phone: the whole screen, header and footer pinned,
+   the body scrolls between them; 16px fields (no iOS focus zoom); 44px targets;
+   a chain step's text gets its own line, its four buttons the next. */
+/* Two classes: `.chainModalOverlay` is defined further down and would win a tie. */
+.chainModalOverlay.chainModalPhone {
+  padding: 0;
+  align-items: stretch;
+}
+.chainModalPhone .chainModalPanel {
+  max-width: none;
+  max-height: none;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.chainModalPhone .chainModalHeader {
+  min-height: 56px;
+  padding: 4px 8px 4px 16px;
+}
+.chainModalPhone .chainCloseBtn {
+  width: 44px;
+  height: 44px;
+  font-size: 20px;
+}
+.chainModalPhone .chainModalBody {
+  flex: 1;
+  min-height: 0;
+  gap: 16px;
+  padding: 16px;
+  overscroll-behavior: contain;
+}
+.chainModalPhone .chainMainTextarea,
+.chainModalPhone .chainStepTextarea {
+  font-size: 16px;
+}
+.chainModalPhone .chainMainTextarea {
+  min-height: 132px;
+}
+.chainModalPhone .chainStepRow {
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 0 8px;
+}
+.chainModalPhone .chainStepTextarea {
+  flex: 1 1 calc(100% - 26px);
+  min-height: 44px;
+}
+.chainModalPhone .chainStepRow .chainStepBtn:first-of-type {
+  margin-left: auto;
+}
+.chainModalPhone .chainStepBtn,
+.chainModalPhone .chainAddBtn,
+.chainModalPhone .chainBtn,
+.chainModalPhone .queueTypePill,
+.chainModalPhone .queueEditImageRow .toolbarBtn {
+  min-width: 44px;
+  min-height: 44px;
+  font-size: 12px;
+}
+.chainModalPhone .chainStepBtn,
+.chainModalPhone .queueEditImageRow .toolbarBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+}
+.chainModalPhone .chainSectionActions,
+.chainModalPhone .chainPickerGroup {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chainModalPhone .queueIntervalInput,
+.chainModalPhone .queueIntervalUnit,
+.chainModalPhone .queueScheduleInput,
+.chainModalPhone .excludeWindowInput {
+  min-height: 44px;
+  font-size: 16px;
+}
+/* Every native picker in the editor (interval unit, the 12-hour daily-start
+   picker's hour / minute / AM-PM) at a finger's size. */
+.chainModalPhone select {
+  min-width: 44px;
+  min-height: 44px;
+  font-size: 16px;
+}
+.chainModalPhone .chainTypeRow,
+.chainModalPhone .queueIntervalGroup {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chainModalPhone .queueImageThumb {
+  width: 88px;
+  height: 88px;
+}
+.chainModalPhone .queueImageRemove {
+  top: 0;
+  right: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 0 3px 0 8px;
+  font-size: 14px;
+}
+.chainModalPhone .chainModalFooter {
+  gap: 8px;
+  padding: 8px 16px;
+}
+.chainModalPhone .chainModalFooterRight {
+  gap: 8px;
+}
+.chainModalPhone .chainBtn {
+  padding: 0 16px;
+  border-radius: 8px;
+}
+
 /* ---- Item edit inline type controls ---- */
 .queueEditTypeRow {
   display: flex;
