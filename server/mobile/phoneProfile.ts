@@ -83,7 +83,7 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('DELETE', '/sessions/:id', 'allow'),
   route('POST', '/queue-images', 'upload'),
   // Shared from the Mac (AASC-20): a paused append, the QUEUE badge record, saved prompts.
-  route('POST', '/sessions/:id/queue/items', 'allow'),
+  route('POST', '/sessions/:id/queue/items', 'upload'), // may carry shared images
   route('GET|POST', '/sessions/:id/queue/sent', 'allow'),
   route('GET|POST', '/snippets', 'allow'),
   route('PATCH|DELETE', '/snippets/:id', 'allow'),

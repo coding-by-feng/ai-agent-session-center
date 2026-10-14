@@ -1,6 +1,6 @@
 // shareToQueue.test.ts — AASC-21 M5: shared text lands in a session's queue, paused.
 import { describe, it, expect, vi } from 'vitest';
-import { prepareSharedText, shareTargets, postSharedText, shareToQueue, SHARE_MAX_BYTES, SHARE_MESSAGES } from './shareToQueue';
+import { prepareSharedText, prepareSharedImages, shareTargets, postSharedText, shareToQueue, SHARE_MAX_BYTES, SHARE_MESSAGES, SHARE_IMAGE_MAX_CHARS } from './shareToQueue';
 import type { HttpRequest, HttpRequester } from './http';
 import type { SessionLite } from './sessions';
 import type { SessionResult } from './pairingClient';
@@ -113,5 +113,41 @@ describe('shareToQueue', () => {
     const out = await shareToQueue('hi', 'abc', { http: fakeHttp(), origin: ORIGIN, signIn: async () => result });
     expect(out.status).toBe(status);
     expect(out.message).toMatch(/Nothing was added|Pair again/);
+  });
+});
+
+describe('shared images (AASC-21 M5)', () => {
+  const ok = async (): Promise<SessionResult> => ({ status: 'ok', token: 'sess' });
+  const PNG = { name: 'shot.png', mimeType: 'image/png', base64: 'iVBORw0KGgo=' };
+
+  it('sends images alone or with text, as data URLs with clean names', async () => {
+    const http = fakeHttp();
+    expect((await shareToQueue('', 'abc', { http, origin: ORIGIN, signIn: ok }, [{ ...PNG, name: 'a/../b.png' }])).status).toBe('added');
+    expect(http.calls[0].body).toEqual({ images: [{ name: 'a..b.png', dataUrl: 'data:image/png;base64,iVBORw0KGgo=' }] });
+    await shareToQueue('look at this', 'abc', { http, origin: ORIGIN, signIn: ok }, [PNG]);
+    expect(http.calls[1].body).toMatchObject({ text: 'look at this', images: [{ name: 'shot.png' }] });
+  });
+
+  it('refuses what the Mac would refuse, before the network', async () => {
+    const http = fakeHttp();
+    for (const images of [
+      [{ ...PNG, mimeType: 'image/svg+xml' }],
+      [{ ...PNG, mimeType: 'image/heic' }],
+      [{ ...PNG, base64: 'not base64!' }],
+      Array.from({ length: 5 }, () => PNG),
+      [{ ...PNG, base64: 'A'.repeat(SHARE_IMAGE_MAX_CHARS) }],
+    ]) {
+      const out = await shareToQueue('hi', 'abc', { http, origin: ORIGIN, signIn: ok }, images);
+      expect(out.status).toBe('invalid');
+      expect(out.message).toMatch(/Nothing was added/);
+    }
+    expect(http.calls).toHaveLength(0);
+  });
+
+  it('names an unnamed image and checks the total size', () => {
+    const named = prepareSharedImages([{ mimeType: 'image/jpeg', base64: 'AAAA' }]);
+    expect(named).toEqual({ ok: true, images: [{ name: 'shared-image-1', dataUrl: 'data:image/jpeg;base64,AAAA' }] });
+    const big = 'A'.repeat(2_500_000);
+    expect(prepareSharedImages([1, 2, 3].map(() => ({ mimeType: 'image/png', base64: big })))).toMatchObject({ ok: false });
   });
 });

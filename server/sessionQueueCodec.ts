@@ -90,7 +90,13 @@ export function decodeQueueRow(row: SessionQueueRow | undefined | null): Session
  * The id follows the client's scheme (a millisecond counter) and is unique in
  * this queue; `position` puts it last.
  */
-export function appendPausedItem(items: readonly unknown[], sessionId: string, text: string, now: number): unknown[] {
+export function appendPausedItem(
+  items: readonly unknown[],
+  sessionId: string,
+  text: string,
+  now: number,
+  images: ReadonlyArray<{ name: string; dataUrl: string }> = [],
+): unknown[] {
   let maxId = 0;
   let maxPosition = -1;
   for (const item of items) {
@@ -106,6 +112,8 @@ export function appendPausedItem(items: readonly unknown[], sessionId: string, t
     position: Math.max(maxPosition + 1, items.length),
     createdAt: now,
     disabled: true,
+    // The queue's own attachment shape (QueueImageAttachment), uploaded when the item is sent.
+    ...(images.length > 0 ? { images: images.map(({ name, dataUrl }) => ({ name, dataUrl })) } : {}),
   };
   return [...items, added];
 }

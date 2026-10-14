@@ -211,6 +211,21 @@ describe('through the API router', () => {
     expect((await call(base, 'POST', '/sessions/sh-shared/queue/items', { text: '   ' }, REMOTE)).status).toBe(400);
   });
 
+  it('appends shared images (paused), and refuses anything that isn’t a readable image', async () => {
+    mem.queues.set('sh-shared', { items: [], automation: null });
+    const png = 'data:image/png;base64,iVBORw0KGgo=';
+    const res = await call(base, 'POST', '/sessions/sh-shared/queue/items', { images: [{ name: 'shot/../1.png', dataUrl: png }] }, REMOTE);
+    expect(res.status).toBe(200);
+    expect(mem.queues.get('sh-shared')!.items[0]).toMatchObject({ text: '', disabled: true, images: [{ name: 'shot..1.png', dataUrl: png }] });
+    for (const images of [
+      [{ name: 'x', dataUrl: 'data:image/svg+xml;base64,PHN2Zz4=' }],
+      [{ name: 'x', dataUrl: 'data:text/html;base64,PGI+' }],
+      Array.from({ length: 5 }, () => ({ name: 'x', dataUrl: png })),
+    ]) {
+      expect((await call(base, 'POST', '/sessions/sh-shared/queue/items', { images }, REMOTE)).status).toBe(400);
+    }
+  });
+
   it('a queue_sent broadcast never reaches a device the session is hidden from', async () => {
     const ws = await import('../server/wsManager.js');
     class FakeSocket extends EventEmitter {

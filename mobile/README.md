@@ -46,7 +46,7 @@ Everything below is an interface in `shell/src`; the native layer (or a thin Cap
 | Push taps | `addListener('pushNotificationActionPerformed', a)` → `parsePush(a.notification)` → `openFromTap(...)` | Capacitor keeps the tap until a listener exists, so a cold start still gets it; the listener must live in the page that is loaded (shell, or the Mac UI forwarding to the shell) |
 | `TapDeps.signIn` (`notificationTap.ts`) | `openSession` + `CapacitorCookies.setCookie({ url: origin, key: 'auth_token', value })` | The tap outcome never carries the token |
 | Android channels | `PushNotifications.createChannel(c)` for each of `ANDROID_CHANNELS` at startup | Importance is frozen once a channel exists: a change needs a new id (and the backend's `FCM_CHANNELS`) |
-| iOS categories | `UNNotificationCategory(identifier:, actions: [], intentIdentifiers: [], hiddenPreviewsBodyPlaceholder:, options: [])` for each of `IOS_CATEGORIES` | Effective only once the backend sends `category` (see Decisions) |
+| iOS categories | `UNNotificationCategory(identifier:, actions: [], intentIdentifiers: [], hiddenPreviewsBodyPlaceholder:, options: [])` for each of `IOS_CATEGORIES` | The backend sends `category` (see Decisions) |
 | `ViewState` (`foregroundPolicy.ts`) | The Mac UI's `src/lib/nativeBridge.ts` reports `{ serverId, sessionId }` on every selection change | Not in `src/` yet |
 | In-app toast | The Mac UI's `ToastContainer` through `nativeBridge`, or the shell's own when no Mac page is loaded | Tapping it calls `openFromTap` with the same arrival |
 | `ShareInbox` (`shareToQueue.ts` caller) | iOS Share Extension writes `{ text }` to the app group under `aasc.share.pending` and opens the app; Android `ACTION_SEND` (`text/plain`) delivers `EXTRA_TEXT` to the main activity | The extension never talks to a Mac; the app picks the session and calls `shareToQueue` |
@@ -57,14 +57,17 @@ Everything below is an interface in `shell/src`; the native layer (or a thin Cap
 | Haptics (`haptics.ts`) | `@capacitor/haptics` `Haptics.notification({ type: NotificationType.Warning \| Success \| Error })` | The Mac UI calls it through `nativeBridge` with `decideHaptic`'s answer |
 | `LiveActivity` (`liveActivity.ts`, optional) | ActivityKit `Activity.request / update / end` with `LiveActivityState` as the content state; Android ongoing notification + `Chronometer` from `watched.statusSince` | Follows `planLiveActivity`; push-driven updates need the backend's live-activity tokens (not built) |
 
-## Decisions needed
+## Decisions (taken 2026-10-15, on the recommendations)
 
-1. **Which Mac sent a push.** The backend payload has `kind` + `sessionRef` only. With two Macs the tap guesses (last-seen owner, then last Mac used, up to 3 tries). Proposal: the backend adds `aasc.mac` / `data.mac` (the notifying device id, which it already knows from the caller's auth), and the pairing link carries `mac=<macDeviceId>` (plan 07 §3) so `PairedServer.id` can match it. `parsePush` already reads `mac`.
-2. **iOS categories.** The backend's APNs payload sets no `category`, so the generic hidden-preview placeholders only apply to local notifications until it does (`"category": "AASC_<KIND>"`).
-3. **Interrupted importance.** Built as default (as the brief and the backend's iOS level `active` say); KRT AASC-19 and plan 07 §6 say high. One constant in `pushChannels.ts`, but decide before the first Android install: channel importance can't be raised later without a new channel id.
-4. **Widget while the app is closed.** JS doesn't run in the background, so push-driven widget updates (`applyPushToWidget`) need a native notification extension: iOS Notification Service Extension, and on Android a data-only FCM message (a notification message in the background never reaches app code). Until then the widget refreshes whenever the app is opened, and shows `updatedAt`.
-5. **Shared images.** KRT AASC-21 includes images (location stripped). `POST /api/sessions/:id/queue/items` takes text only, so images need a Mac route (or `queue-images` + an item that references it) first.
-6. **Over-long shared text is refused, not cut** (a prompt cut in the middle can mean something else). Say if you'd rather cut it and flag the cut.
+1. **Which Mac sent a push: done.** The backend adds `aasc.mac` / `data.mac` (the asking Mac's backend device id); the
+   pairing link carries it as `md=`; a paired Mac keeps it as `PairedServer.backendDeviceId`, and a tap goes to that Mac only.
+2. **iOS categories: done.** The backend sends `aps.category = AASC_<KIND>` (no actions).
+3. **Interrupted is high importance**, as the plan and AASC-19 say (decided before any Android install).
+4. **Widget while the app is closed: open.** Push-driven updates need a native notification extension (iOS) and
+   data-only FCM messages (Android). Until then the widget refreshes when the app opens.
+5. **Shared images: done.** `POST /api/sessions/:id/queue/items` takes `images` (PNG, JPEG, WebP, GIF; at most 4,
+   about 2 MB each, 6 MB together), lands paused like text; the native layer converts HEIC to JPEG and strips location.
+6. **Over-long shared text is refused, not cut** (a prompt cut in the middle can mean something else).
 
 ## What's needed from you before the next step
 

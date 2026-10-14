@@ -1576,9 +1576,18 @@ router.put('/sessions/:id/queue', async (req: Request, res: Response) => {
  */
 // ---- Shared from the Mac (AASC-20): appended items, sent-prompt records, saved prompts ----
 
+/** Images a shared item may carry: what Claude and Codex read, at most 4 of about 2 MB each. */
+const SHARED_IMAGE_DATA_URL = /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
 const queueAppendSchema = z.object({
-  text: z.string().max(64 * 1024).transform((s) => s.trim()).pipe(z.string().min(1)),
-});
+  text: z.string().max(64 * 1024).transform((s) => s.trim()).optional(),
+  images: z.array(z.object({
+    name: z.string().max(120).transform((s) => s.replace(/[\x00-\x1F\x7F/\\]/g, '').trim() || 'shared-image'),
+    dataUrl: z.string().max(2_900_000).regex(SHARED_IMAGE_DATA_URL),
+  })).max(4).optional(),
+})
+  .refine((b) => Boolean(b.text) || Boolean(b.images?.length), { message: 'Share some text or an image' })
+  // The whole queue syncs as one payload (MAX_QUEUE_PAYLOAD_BYTES): leave room for the rest of it.
+  .refine((b) => (b.images ?? []).reduce((n, i) => n + i.dataUrl.length, 0) <= 6_000_000, { message: 'The images are too large together' });
 
 /**
  * Add one prompt to a session's queue, PAUSED (`disabled`): text shared from
@@ -1591,7 +1600,7 @@ router.post('/sessions/:id/queue/items', async (req: Request, res: Response) => 
   const body = validateBody(queueAppendSchema, req.body, res);
   if (!body) return;
   const current = db.getSessionQueue(sessionId);
-  const items = appendPausedItem(current?.items ?? [], sessionId, body.text, Date.now());
+  const items = appendPausedItem(current?.items ?? [], sessionId, body.text ?? '', Date.now(), body.images ?? []);
   if (JSON.stringify(items).length > MAX_QUEUE_PAYLOAD_BYTES) {
     res.status(413).json({ success: false, error: 'This queue is full; remove some items first' });
     return;
