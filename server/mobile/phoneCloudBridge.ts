@@ -66,7 +66,8 @@ export function createPhoneCloudBridge(deps: PhoneCloudBridgeDeps): PhoneCloudBr
           scopes: [...PHONE_BACKEND_SCOPES],
           ttlSeconds: BACKEND_CODE_TTL_SECONDS,
         });
-        return { host, code: code.code, codeRef: code.codeRef };
+        const macDeviceId = cloud.status().connection?.deviceId;
+        return { host, code: code.code, codeRef: code.codeRef, ...(macDeviceId ? { macDeviceId } : {}) };
       } catch (err) {
         deps.warn(`Phone pairing continues without a backend code: ${reason(err)}`);
         return null;

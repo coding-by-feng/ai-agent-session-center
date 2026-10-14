@@ -38,7 +38,7 @@ describe('mintBackendCode', () => {
     const { cloud, calls } = fakeCloud('connected', () => CODE);
     const warn = vi.fn();
     const code = await createPhoneCloudBridge({ cloud, warn }).mintBackendCode();
-    expect(code).toEqual({ host: 'api.example.test', code: CODE.code, codeRef: CODE.codeRef });
+    expect(code).toEqual({ host: 'api.example.test', code: CODE.code, codeRef: CODE.codeRef, macDeviceId: 'mac' });
     expect(calls).toEqual([{ method: 'POST', path: '/v1/devices/pairing-codes', body: { kind: 'phone', scopes: [...PHONE_BACKEND_SCOPES], ttlSeconds: 600 } }]);
     expect(PHONE_BACKEND_SCOPES).toEqual(['push:register']);
   });

@@ -264,4 +264,13 @@ describe('buildPairingLink', () => {
     expect(params.has('lan')).toBe(false);
     expect(link).not.toContain('ref1'); // the code reference is the Mac's own bookkeeping
   });
+
+  it('names this Mac’s backend device so a phone with several Macs knows who sent a notification', () => {
+    const link = buildPairingLink({ name: 'Mac', port: 3333, lan: null, tailnet: null }, 'MACCODE234',
+      { host: 'api.aasc.work', code: 'backendcode', codeRef: 'ref1', macDeviceId: 'mac-device-1' });
+    expect(new URLSearchParams(link.split('#')[1]).get('md')).toBe('mac-device-1');
+    const odd = buildPairingLink({ name: 'Mac', port: 3333, lan: null, tailnet: null }, 'MACCODE234',
+      { host: 'api.aasc.work', code: 'backendcode', codeRef: 'ref1', macDeviceId: 'bad id&x=1' });
+    expect(new URLSearchParams(odd.split('#')[1]).has('md')).toBe(false);
+  });
 });

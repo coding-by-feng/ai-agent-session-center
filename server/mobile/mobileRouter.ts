@@ -38,6 +38,12 @@ export interface BackendPhoneCode {
   host: string;
   code: string;
   codeRef: string;
+  /**
+   * This Mac's own backend device id. Every notification the Mac asks the
+   * backend to send carries it, so a phone paired with several Macs knows
+   * which one a tap belongs to.
+   */
+  macDeviceId?: string;
 }
 
 export interface MobileRouterDeps {
@@ -88,6 +94,7 @@ export function buildPairingLink(target: PairingTarget, macCode: string, backend
   if (backend) {
     params.set('be', backend.host);
     params.set('bc', backend.code);
+    if (backend.macDeviceId && /^[A-Za-z0-9_-]{1,64}$/.test(backend.macDeviceId)) params.set('md', backend.macDeviceId);
   }
   return `${PAIRING_LINK_BASE}#${params.toString()}`;
 }
