@@ -6,6 +6,7 @@
  * session panel (lib/liveSession.ts), whose rail lists the sessions.
  */
 import { lazy, Suspense, Component, useEffect, useMemo, useState } from 'react';
+import { isNativeMobileApp } from '@/lib/platform';
 import type { ReactNode, ErrorInfo } from 'react';
 import type { Session } from '@/types';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -162,7 +163,8 @@ function FlatView() {
 }
 
 export default function LiveView() {
-  const scene3dEnabled = useSettingsStore((s) => s.scene3dEnabled);
+  // The phone app always shows the board: the 3D scene is excluded there (GPU, battery, bundle).
+  const scene3dEnabled = useSettingsStore((s) => s.scene3dEnabled) && !isNativeMobileApp();
 
   if (!scene3dEnabled) {
     return (

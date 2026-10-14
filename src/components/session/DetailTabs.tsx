@@ -6,6 +6,7 @@
  * Terminal (left) + Project (right) side-by-side with a draggable divider.
  */
 import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
+import { isNativeMobileApp } from '@/lib/platform';
 import { createPortal } from 'react-dom';
 import styles from '@/styles/modules/DetailPanel.module.css';
 import Tooltip from '@/components/ui/Tooltip';
@@ -407,8 +408,10 @@ export default function DetailTabs({
   }, [sessionId]);
 
   // Only offer split on wide panels (uses CSS too, but this prevents stale state)
+  // Never in the phone app: a landscape phone is wider than the threshold but
+  // still shows one tab at a time (AASC-17).
   const panelWideEnough =
-    typeof window !== 'undefined' && window.innerWidth >= SPLIT_MIN_WIDTH;
+    typeof window !== 'undefined' && window.innerWidth >= SPLIT_MIN_WIDTH && !isNativeMobileApp();
 
   const handleTabClick = useCallback(
     (tabId: string) => {

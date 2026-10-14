@@ -9,6 +9,7 @@ import { useWsStore } from '@/stores/wsStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { getClientId } from '@/lib/deviceIdentity';
 import { isPopoutWindow } from '@/lib/windowRole';
+import { isNativeMobileApp } from '@/lib/platform';
 import { db, migrateSessionId, persistSessionUpdate, deleteSessionChildrenBatch } from '@/lib/db';
 import { isImportInProgress } from '@/lib/workspaceSnapshot';
 import { onSessionEnded } from '@/lib/pinnedRespawn';
@@ -30,6 +31,7 @@ export function useWebSocket(token: string | null): WsClient | null {
     // was read at boot and may be hours stale, and the migration writes it back
     // over the main window's edits). Sounds and alarms still run in each window.
     const popout = isPopoutWindow();
+    const nativeApp = isNativeMobileApp();
 
     function handleMessage(msg: ServerMessage): void {
       switch (msg.type) {
@@ -129,7 +131,8 @@ export function useWebSocket(token: string | null): WsClient | null {
           // A deliberate kill is already unpinned server-side, so it never gets
           // here as pinned. onSessionEnded is a no-op otherwise. Not in a pop-out:
           // the main window owns respawning (see `popout` above).
-          if (!popout && session.status === 'ended' && prevStatus && prevStatus !== 'ended') {
+          // Nor in the phone app: respawning belongs to the desktop (AASC-17).
+          if (!popout && !nativeApp && session.status === 'ended' && prevStatus && prevStatus !== 'ended') {
             onSessionEnded(session);
           }
 

@@ -42,7 +42,13 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
  */
 export const MOBILE_BREAKPOINT = 480;
 
-export const MOBILE_MEDIA_QUERY = `(max-width: ${MOBILE_BREAKPOINT}px)`;
+/**
+ * A phone in landscape is ~844px wide but short, and still a touch device: it
+ * gets the phone layout too (AASC-17). `pointer: coarse` keeps short desktop
+ * windows out of it.
+ */
+export const MOBILE_MEDIA_QUERY =
+  `(max-width: ${MOBILE_BREAKPOINT}px), (max-height: ${MOBILE_BREAKPOINT}px) and (pointer: coarse)`;
 
 /**
  * True on a phone-sized viewport. Use to UNMOUNT things that shouldn't exist
@@ -68,4 +74,54 @@ export function useIsDesktopApp(): boolean {
  */
 export function isDesktopApp(): boolean {
   return typeof window !== 'undefined' && !!window.electronAPI;
+}
+
+// ---------------------------------------------------------------------------
+// The AASC phone app (AASC-17)
+// ---------------------------------------------------------------------------
+
+/**
+ * The native shell (Capacitor) appends `AASC-Mobile/<version> (<platform>)` to
+ * its WebView user agent. A CAPABILITY check like {@link useIsDesktopApp}: the
+ * app has a shell to re-authenticate through and no desktop automation to run.
+ * The user agent is spoofable, so this only ever shapes UX; the server never
+ * authorizes on it.
+ */
+export const NATIVE_APP_UA_TOKEN = 'AASC-Mobile/';
+
+export type NativePlatform = 'ios' | 'android';
+
+/** Which phone platform the app runs on, or null outside the app. */
+export function nativeAppPlatform(userAgent?: string): NativePlatform | null {
+  const ua = userAgent ?? (typeof navigator === 'undefined' ? '' : navigator.userAgent);
+  const at = ua.indexOf(NATIVE_APP_UA_TOKEN);
+  if (at < 0) return null;
+  return /\(android\)/i.test(ua.slice(at)) ? 'android' : 'ios';
+}
+
+/** True inside the AASC phone app. Constant for the page's lifetime. */
+export function isNativeMobileApp(userAgent?: string): boolean {
+  return nativeAppPlatform(userAgent) !== null;
+}
+
+/** Hook form of {@link isNativeMobileApp}; no subscription needed, it never changes. */
+export function useIsNativeMobileApp(): boolean {
+  return isNativeMobileApp();
+}
+
+/** Where the bundled shell lives inside the app (Capacitor's default origins). */
+const SHELL_ORIGINS: Record<NativePlatform, string> = {
+  ios: 'capacitor://localhost',
+  android: 'https://localhost',
+};
+
+/**
+ * The shell page that re-exchanges the phone's device token for a session and
+ * comes back to `back` (a path on this server). Null outside the app.
+ */
+export function nativeShellReauthUrl(back: string, userAgent?: string): string | null {
+  const platform = nativeAppPlatform(userAgent);
+  if (!platform) return null;
+  const path = back.startsWith('/') ? back : '/';
+  return `${SHELL_ORIGINS[platform]}/?reauth=1&back=${encodeURIComponent(path)}`;
 }

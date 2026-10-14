@@ -21,7 +21,7 @@ import {
   defaultWidthMode,
   type TerminalWidthMode,
 } from '@/lib/terminalGeometry';
-import { useIsMobile } from '@/lib/platform';
+import { useIsMobile, useIsNativeMobileApp } from '@/lib/platform';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -512,26 +512,27 @@ export function useTerminal({ ws, themeName = 'auto', projectPath }: UseTerminal
   // container as before. Held in a ref because the FitAddon is installed once
   // per terminal but these values change afterwards (mode toggle, PTY resize).
   const isMobile = useIsMobile();
+  const nativeApp = useIsNativeMobileApp();
   const widthRulesRef = useRef<WidthRules>({
-    mode: defaultWidthMode(isMobile),
+    mode: defaultWidthMode(isMobile, nativeApp),
     ptyCols: null,
-    mayDrivePty: mayDrivePtyGeometry(isMobile),
+    mayDrivePty: mayDrivePtyGeometry(isMobile, nativeApp),
   });
   // Mirrored into state so the toolbar button can render the current mode;
   // the ref stays the source of truth for the fit wrapper, which runs outside
   // React's render cycle.
   const [widthMode, setWidthModeState] = useState<TerminalWidthMode>(
-    () => defaultWidthMode(isMobile),
+    () => defaultWidthMode(isMobile, nativeApp),
   );
 
   // Keep the device rule current across an orientation change or a resized
   // desktop window crossing the breakpoint. Applied as an effect rather than
   // at render because it mutates module state shared by every terminal.
   useEffect(() => {
-    const mayDrive = mayDrivePtyGeometry(isMobile);
+    const mayDrive = mayDrivePtyGeometry(isMobile, nativeApp);
     widthRulesRef.current.mayDrivePty = mayDrive;
     setDeviceMayDrivePty(mayDrive);
-  }, [isMobile]);
+  }, [isMobile, nativeApp]);
   const pendingOutputRef = useRef<Map<string, string[]>>(new Map());
   const pendingOutputTtlRef = useRef<Map<string, number>>(new Map());
   /** Saved scroll offsets (lines above bottom) per terminalId — restored after session switch */

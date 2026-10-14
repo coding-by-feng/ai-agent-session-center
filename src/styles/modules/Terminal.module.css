@@ -2041,7 +2041,7 @@
 
 /* ---- Responsive ---- */
 
-@media (max-width: 480px) {
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
   /* Every pixel of padding is a lost column on a phone; 2px still visually
      separates the text from the container edge. */
   .container :global(.xterm) {

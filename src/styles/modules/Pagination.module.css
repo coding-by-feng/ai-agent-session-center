@@ -22,7 +22,7 @@
   white-space: nowrap;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
   .pages { display: none; }
   .info { display: inline; }
 }

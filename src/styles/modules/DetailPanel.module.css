@@ -2323,7 +2323,7 @@
 }
 
 /* Further reduce button sizes on very small screens */
-@media (max-width: 480px) {
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
   .ctrlBar {
     gap: 3px;
   }

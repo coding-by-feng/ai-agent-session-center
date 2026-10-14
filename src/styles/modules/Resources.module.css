@@ -706,7 +706,7 @@
    than animated, for the reason ProjectTab gives: a stalled slide leaves the
    pane "open" but parked off-screen. */
 
-@media (max-width: 480px) {
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
   .view { padding: 8px 16px; }
   .titleRow { flex-wrap: wrap; row-gap: 8px; }
   .sectionTabs { order: 3; flex-basis: 100%; }

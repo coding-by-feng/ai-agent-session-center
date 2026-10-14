@@ -191,7 +191,7 @@
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
   .container {
     width: calc(100vw - 16px);
   }

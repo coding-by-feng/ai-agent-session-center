@@ -110,6 +110,15 @@ body {
   height: 100%;
 }
 
+/* The phone app (AASC-17): main.tsx sets viewport-fit=cover there, so the page
+   runs under the notch, Dynamic Island and home indicator. Keep the UI inside
+   the safe area. Browsers never get the class, so nothing changes for them. */
+body.native-app #root {
+  box-sizing: border-box;
+  padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0)
+    env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
+}
+
 /* Scanline overlay on the whole viewport */
 body::after {
   content: '';
