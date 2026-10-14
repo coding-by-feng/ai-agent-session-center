@@ -3,7 +3,7 @@
  * Uses the useTerminal hook for lifecycle management.
  * Ported from public/js/terminalManager.js.
  */
-import { useEffect, useRef, useState, useCallback, memo } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTerminal } from '@/hooks/useTerminal';
 import TerminalToolbar from './TerminalToolbar';
@@ -18,8 +18,15 @@ import { useIsMobile } from '@/lib/platform';
 import PhoneTerminalInput from '@/components/mobile/PhoneTerminalInput';
 import TerminalActionsSheet from '@/components/mobile/TerminalActionsSheet';
 import { ExitFullscreenIcon } from '@/components/mobile/phoneIcons';
+import { useTerminalBookmarks } from '@/hooks/useTerminalBookmarks';
+import { useLongPress, type LongPressPoint } from '@/hooks/useLongPress';
+import { useReadAloud } from '@/hooks/useReadAloud';
+import { bookmarkLabel, type TerminalBookmark } from '@/lib/terminalBookmarks';
+import { fetchLatestAnswer } from '@/lib/latestAnswer';
+import { showToast } from '@/components/ui/ToastContainer';
 import styles from '@/styles/modules/Terminal.module.css';
 import phoneStyles from '@/styles/modules/PhoneSession.module.css';
+import phoneExtras from '@/styles/modules/PhoneExtras.module.css';
 import '@xterm/xterm/css/xterm.css';
 
 interface TerminalContainerProps {
@@ -50,6 +57,9 @@ interface TerminalContainerProps {
    *  terminal's OWN session. Not `originSessionId`, which a floating fork sets to
    *  its root. Omitted (an ops shell, a fork): no banner, the server still gates. */
   controlSessionId?: string | null;
+  /** Hosted in a phone's full-height sheet (a floating fork, AASC-20): no full
+   *  screen, the sheet already is one. */
+  inSheet?: boolean;
 }
 
 const DEFAULT_MIN_HEIGHT = '200px';
@@ -71,6 +81,7 @@ export default memo(function TerminalContainer({
   onPopOut,
   originSessionId,
   controlSessionId,
+  inSheet = false,
 }: TerminalContainerProps) {
   const [themeName, setThemeName] = useState<string>(() => {
     try {
@@ -115,6 +126,8 @@ export default memo(function TerminalContainer({
     autoScrollEnabled,
     toggleAutoScroll,
     readRecentText,
+    lineAtClientY,
+    revealLine,
     getXtermSelection,
     hasXtermSelection,
   } = useTerminal({ ws, themeName, projectPath });
@@ -272,6 +285,41 @@ export default memo(function TerminalContainer({
   const toggleWrapMode = useCallback(() => {
     setWidthMode(widthMode === 'pan' ? 'wrap' : 'pan');
   }, [widthMode, setWidthMode]);
+
+  // ---- Phone bookmarks (AASC-20): long-press a line, list + jump in the sheet ----
+  const { bookmarks, add: addBookmark, remove: removeBookmark } = useTerminalBookmarks(isPhone ? terminalId : null);
+  const bookmarkAt = useCallback(({ clientY }: LongPressPoint) => {
+    const hit = lineAtClientY(clientY);
+    if (!hit || !addBookmark(hit.line, hit.text)) {
+      showToast('Long-press a line with text on it to bookmark it', 'info', 2500);
+      return;
+    }
+    navigator.vibrate?.(10);
+    showToast(`Bookmarked: ${bookmarkLabel(hit.text, 48)}`, 'success', 2500);
+  }, [lineAtClientY, addBookmark]);
+  useLongPress({
+    enabled: isPhone && !!terminalId,
+    targets: [containerRef, fsContainerRef],
+    selector: '.xterm-screen',
+    onLongPress: bookmarkAt,
+  });
+  const jumpToBookmark = useCallback((bookmark: TerminalBookmark) => {
+    if (!revealLine(bookmark)) showToast('That line is no longer in the terminal’s scrollback', 'info', 3000);
+  }, [revealLine]);
+  const phoneBookmarks = useMemo(
+    () => ({ list: bookmarks, onJump: jumpToBookmark, onRemove: removeBookmark }),
+    [bookmarks, jumpToBookmark, removeBookmark],
+  );
+
+  // ---- Read the last answer aloud (AASC-20): the terminal's own session ----
+  const answerSessionId = controlSessionId ?? null;
+  const { speaking, toggle: toggleReadAloud } = useReadAloud(`terminal:${terminalId ?? ''}`);
+  const readAloud = useMemo(() => (answerSessionId && terminalId ? {
+    speaking,
+    onToggle: () => toggleReadAloud(
+      () => fetchLatestAnswer(answerSessionId, useSessionStore.getState().sessions.get(answerSessionId)?.responseLog),
+    ),
+  } : undefined), [answerSessionId, terminalId, speaking, toggleReadAloud]);
 
   // Listen for terminal WS messages
   useEffect(() => {
@@ -477,7 +525,7 @@ export default memo(function TerminalContainer({
         <div className={styles.terminalRow}>
           <div
             ref={containerRef}
-            className={`${styles.container} ${widthMode === 'pan' ? styles.panMode : ''}`}
+            className={`${styles.container} ${widthMode === 'pan' ? styles.panMode : ''}${isPhone ? ` ${phoneExtras.touchSurface}` : ''}`}
             style={{ minHeight: isPhone ? PHONE_MIN_HEIGHT : DEFAULT_MIN_HEIGHT }}
           />
         </div>
@@ -518,7 +566,7 @@ export default memo(function TerminalContainer({
           widthMode={widthMode}
           onToggleWidthMode={toggleWrapMode}
           isFullscreen={isFullscreen}
-          onToggleFullscreen={toggleFullscreen}
+          onToggleFullscreen={inSheet ? undefined : toggleFullscreen}
           onRefresh={refreshOutput}
           onClear={clearOutput}
           // Only as the toolbar offers it: reconnecting starts the agent again in
@@ -526,6 +574,8 @@ export default memo(function TerminalContainer({
           onReconnect={showReconnect || terminalIsClosed ? onReconnect : undefined}
           onFork={onFork}
           onClone={onClone}
+          bookmarks={phoneBookmarks}
+          readAloud={readAloud}
         />
       )}
       {/* Fullscreen overlay — always mounted, toggled via display.
@@ -575,7 +625,7 @@ export default memo(function TerminalContainer({
                                     />}
           </div>
           <div className={styles.fullscreenArea}>
-            <div ref={fsContainerRef} className={styles.fullscreenContainer} />
+            <div ref={fsContainerRef} className={`${styles.fullscreenContainer}${isPhone ? ` ${phoneExtras.touchSurface}` : ''}`} />
             <div className={styles.mobileScrollOverlay}>
               <button
                 className={styles.mobileScrollBtn}

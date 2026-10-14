@@ -303,3 +303,29 @@
     .log th:nth-child(1) { width: 80px; }
   }
 }
+
+/* The diagram on a phone (AASC-20). Same query as MOBILE_MEDIA_QUERY. Under
+   480px the cards already stack in one column (columnsFor), so it reads top to
+   bottom; this makes it readable there: a size up, every line --text-primary
+   (--text-secondary misses 4.5:1 in several themes; hierarchy is weight and
+   size), and the description gets a third line. Cards ellipsize, so nothing
+   should be wider than the panel; if something ever is, it scrolls inside the
+   diagram and never moves the page. */
+@media (max-width: 480px), (max-height: 480px) and (pointer: coarse) {
+  .root { gap: 16px; padding: 16px 8px; font-size: 13px; }
+  .legend { font-size: 12px; color: var(--text-primary); }
+  .counts { flex-basis: 100%; margin-left: 0; }
+  .diagram {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    /* Room for the focus ring and shadows of the edge cards. */
+    padding-bottom: 4px;
+  }
+  .card { max-width: none; padding: 8px 12px; }
+  .state { font-size: 12px; }
+  .cardRole,
+  .cardMeta { font-size: 12px; color: var(--text-primary); }
+  .cardDesc { -webkit-line-clamp: 3; font-size: 12px; color: var(--text-primary); }
+  .cardTool { font-size: 12px; }
+  .note { font-size: 13px; color: var(--text-primary); }
+}

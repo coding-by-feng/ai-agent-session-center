@@ -36,6 +36,9 @@
   height: calc(100dvh - 24px - env(safe-area-inset-top, 0px));
 }
 
+.flush { max-width: none; padding-inline: 0; }
+.flush .header { padding-inline: 16px; }
+
 .grabber {
   align-self: center;
   width: 40px;
@@ -59,6 +62,14 @@
   font-weight: 600;
   color: var(--text-primary);
   overflow-wrap: anywhere;
+}
+
+.headerAction {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 
 .close {

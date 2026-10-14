@@ -21,6 +21,10 @@ import { isQueueSent } from '@/lib/queueSentLog';
 import { useQueueSentStore } from '@/stores/queueSentStore';
 import { clipToMatch, matchesQuery, normalizeQuery } from '@/lib/textHighlight';
 import { useIsMobile } from '@/lib/platform';
+import { lastAssistantText, lastResponseText } from '@/lib/latestAnswer';
+import { SELECTABLE_ATTR } from '@/hooks/useSelectionIn';
+import ReadAloudButton from '@/components/mobile/ReadAloudButton';
+import PhoneConversationAi from '@/components/mobile/PhoneConversationAi';
 import LinkifiedText, { MarkedText } from './LinkifiedText';
 import styles from '@/styles/modules/DetailPanel.module.css';
 
@@ -218,7 +222,7 @@ function EntryRow({
           <span className={styles.convTime}>{time}</span>
           <CopyButton text={entry.text} />
         </div>
-        <div className={styles.convText}>
+        <div className={styles.convText} data-ai-context="">
           <LinkifiedText text={entry.text} projectPath={projectPath} highlight={query} />
         </div>
       </div>
@@ -233,7 +237,7 @@ function EntryRow({
           <span className={styles.convTime}>{time}</span>
           <CopyButton text={entry.text} />
         </div>
-        <div className={styles.convText}>
+        <div className={styles.convText} data-ai-context="">
           <LinkifiedText text={entry.text} projectPath={projectPath} highlight={query} />
         </div>
       </div>
@@ -541,8 +545,12 @@ export default function ConversationView({
     bottomRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
   }, []);
 
+  // A phone selects text to ask the AI popup about it (AASC-20); the attribute
+  // scopes that selection to this session's view.
+  const selectableAttr = isMobile ? { [SELECTABLE_ATTR]: sessionId } : undefined;
+
   return (
-    <div ref={rootRef}>
+    <div ref={rootRef} {...selectableAttr}>
       {/* Sticky toolbar — role filter + search + jump-to-latest.
           Wraps at narrow panel widths; the pills keep row 1. */}
       <div className={styles.convToolbar} data-conv-toolbar="">
@@ -647,7 +655,17 @@ export default function ConversationView({
         >
           &#8595; latest
         </button>
+
+        {isMobile && (
+          <ReadAloudButton
+            speakKey={`conversation:${sessionId}`}
+            source={() => lastAssistantText(entries) || lastResponseText(responses)}
+            label="Read last answer"
+          />
+        )}
       </div>
+
+      {isMobile && <PhoneConversationAi sessionId={sessionId} />}
 
       {/* Previous sessions (only in the All view) */}
       {showPrev &&

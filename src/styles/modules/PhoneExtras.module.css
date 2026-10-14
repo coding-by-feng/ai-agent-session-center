@@ -1,0 +1,387 @@
+/* ============================================================
+   PhoneExtras — a session's extras on a phone (AASC-20):
+   terminal bookmarks, read aloud, AI popups from the
+   Conversation text, the fork sheet, notes from the camera.
+   Mounted only under useIsMobile(), like PhoneSession.module.css,
+   so nothing here needs a media query of its own. Every control
+   is a 44px target at least, on the 8px grid; text is
+   --text-primary (the 4.5:1 rule), with five states.
+   ============================================================ */
+
+/* ---------- shared control face ---------- */
+
+.speakBtn,
+.bookmarkRemove,
+.askBtn,
+.modeBtn,
+.floatChip,
+.floatsBtn,
+.cameraBtn,
+.openFloatBtn {
+  font-family: inherit;
+  color: var(--text-primary);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+
+.speakBtn:focus-visible,
+.bookmarkRemove:focus-visible,
+.askBtn:focus-visible,
+.modeBtn:focus-visible,
+.floatChip:focus-visible,
+.floatsBtn:focus-visible,
+.cameraBtn:focus-visible,
+.openFloatBtn:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+}
+
+.speakBtn:disabled,
+.askBtn:disabled,
+.modeBtn:disabled,
+.cameraBtn:disabled,
+.openFloatBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .speakBtn, .bookmarkRemove, .askBtn, .modeBtn, .floatChip, .floatsBtn, .cameraBtn, .openFloatBtn { transition: none; }
+}
+
+/* ---------- terminal: a long-press bookmarks a line ---------- */
+
+/* No callout or text selection under a held finger: the hold is ours. */
+.touchSurface {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.sheetHint {
+  padding: 8px;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--text-primary);
+}
+
+.bookmarkRow {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.bookmarkJump {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.bookmarkText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 4px 0;
+}
+
+.bookmarkLine {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.bookmarkMeta {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-primary);
+  opacity: 0.8;
+}
+
+.bookmarkRemove {
+  flex: none;
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  font-size: 22px;
+  line-height: 1;
+}
+.bookmarkRemove:hover { background: var(--bg-subtle); }
+.bookmarkRemove:active { background: var(--bg-subtle-strong); transform: scale(0.96); }
+
+/* ---------- read aloud ---------- */
+
+.speakBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-subtle-strong, var(--border-subtle));
+  border-radius: 8px;
+  background: var(--bg-card);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.speakBtn:hover:not(:disabled) { background: var(--bg-subtle); }
+.speakBtn:active:not(:disabled) { background: var(--bg-subtle-strong); transform: scale(0.97); }
+.speakBtn[aria-pressed='true'] {
+  border-color: var(--accent-cyan);
+  background: color-mix(in srgb, var(--accent-cyan) 16%, var(--bg-card));
+}
+
+/* ---------- the fork sheet: an AI popup at full height ---------- */
+
+.floatBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+}
+
+.floatBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-width: 0;
+  padding: 0 16px;
+}
+
+/* More than one popup: one swipeable line of chips, never a page overflow. */
+.floatChips {
+  display: flex;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+.floatChips::-webkit-scrollbar { display: none; }
+
+.floatChip {
+  flex: none;
+  max-width: 200px;
+  min-height: 44px;
+  padding: 0 12px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border: 1px solid var(--border-subtle-strong, var(--border-subtle));
+  border-radius: 22px;
+  background: var(--bg-card);
+  font-size: 13px;
+}
+.floatChip:hover { background: var(--bg-subtle); }
+.floatChip:active { background: var(--bg-subtle-strong); transform: scale(0.97); }
+.floatChip[aria-pressed='true'] {
+  border-color: var(--accent-cyan);
+  background: color-mix(in srgb, var(--accent-cyan) 16%, var(--bg-card));
+  font-weight: 700;
+}
+
+.floatEnd { min-height: 44px; }
+
+/* The terminal takes the rest; its own key bar and compose box sit at the bottom. */
+.floatTerminal {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ---------- the header's ✦ button: popups running ---------- */
+
+.floatsBtn { position: relative; color: var(--accent-text, var(--accent-cyan)); }
+.floatsCount {
+  position: absolute;
+  top: 4px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  /* The tab strip's count badge, solid enough to read over the glyph. */
+  background: color-mix(in srgb, var(--accent-cyan, #00e5ff) 28%, var(--bg-panel));
+  color: var(--accent-text, var(--accent-cyan));
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
+/* ---------- AI popup from the Conversation text ---------- */
+
+/* Rises while text is selected: at the bottom, clear of the system's menu at the
+   selection. Portaled to <body>, under the sheets (10020) and over the page. */
+.askBar {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 10010;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 608px;
+  margin: 0 auto;
+  padding: 8px 8px 8px 16px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-accent);
+  border-radius: 12px;
+  background: var(--bg-panel);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  color: var(--text-primary);
+  animation: ask-rise 160ms ease-out;
+}
+
+.askPreview {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 14px;
+}
+
+.askBtn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--accent-cyan);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-cyan) 22%, var(--bg-card));
+  font-size: 14px;
+  font-weight: 700;
+}
+.askBtn:hover { background: color-mix(in srgb, var(--accent-cyan) 32%, var(--bg-card)); }
+.askBtn:active { transform: scale(0.96); }
+
+@keyframes ask-rise { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .askBar { animation: none; } }
+
+.aiSheet { display: flex; flex-direction: column; gap: 16px; padding-bottom: 8px; }
+
+.aiQuote {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  margin: 0;
+  padding: 8px 12px;
+  overflow: hidden;
+  border-left: 3px solid var(--accent-cyan);
+  border-radius: 4px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+.aiGroup { display: flex; flex-direction: column; gap: 8px; }
+
+.aiHeading {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.aiGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(136px, 1fr)); gap: 8px; }
+
+.modeBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 1px solid var(--border-subtle-strong, var(--border-subtle));
+  border-radius: 8px;
+  background: var(--bg-card);
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.modeBtn:hover:not(:disabled) { background: var(--bg-subtle); }
+.modeBtn:active:not(:disabled) { background: var(--bg-subtle-strong); transform: scale(0.98); }
+
+.aiCustom {
+  width: 100%;
+  min-height: 72px;
+  padding: 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-subtle-strong, var(--border-subtle));
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: inherit;
+  /* 16px: iOS zooms the page into any field set smaller. */
+  font-size: 16px;
+  line-height: 20px;
+  resize: vertical;
+}
+.aiCustom:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 1px; }
+.aiCustom::placeholder { color: var(--text-primary); opacity: 0.7; }
+
+.aiRun {
+  border-color: var(--accent-cyan);
+  background: color-mix(in srgb, var(--accent-cyan) 18%, var(--bg-card));
+  font-weight: 700;
+}
+
+.aiError {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent-red) 60%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-red) 10%, var(--bg-panel));
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- notes: 44px controls, a camera button ---------- */
+
+/* The NOTES tab's own controls are desktop-sized (DetailPanel.module.css): on a
+   phone every button in it is a 44px target, and fields don't zoom on focus. */
+.phoneNotes button { min-height: 44px; min-width: 44px; }
+.phoneNotes textarea { font-size: 16px; }
+.phoneNotes .noteBtn { padding: 0 12px; font-size: 13px; }
+.phoneNotes .noteBtnPlain { color: var(--text-primary); }
+.phoneNotes .noteTime { font-size: 12px; color: var(--text-primary); }
+.phoneNotes .noteBtn:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: -2px; }
+
+.cameraBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--accent-cyan);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-cyan) 14%, var(--bg-card));
+  font-size: 14px;
+  font-weight: 700;
+}
+.cameraBtn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-cyan) 24%, var(--bg-card)); }
+.cameraBtn:active:not(:disabled) { transform: scale(0.97); }

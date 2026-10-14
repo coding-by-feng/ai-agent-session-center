@@ -8,10 +8,15 @@
  * rendered. The rest stay in the store with their PTYs alive server-side, so
  * switching back to their origin session re-mounts them and the terminal buffer
  * is replayed on re-attach (see useTerminal.attach).
+ *
+ * On a phone (AASC-20) there are no windows to float: the same floats show one
+ * at a time in a full-height sheet (PhoneFloatingSheet) instead of panels.
  */
 import { useEffect } from 'react';
 import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import { useSessionStore } from '@/stores/sessionStore';
+import { useIsMobile } from '@/lib/platform';
+import PhoneFloatingSheet from '@/components/mobile/PhoneFloatingSheet';
 import FloatingTerminalPanel from './FloatingTerminalPanel';
 
 export default function FloatingTerminalRoot() {
@@ -21,6 +26,7 @@ export default function FloatingTerminalRoot() {
   const setPoppedOut = useFloatingSessionsStore((s) => s.setPoppedOut);
   const captureNow = useFloatingSessionsStore((s) => s.captureNow);
   const selectedSessionId = useSessionStore((s) => s.selectedSessionId);
+  const isPhone = useIsMobile();
 
   // Re-dock a float (show its in-app panel again) when its popped-out native
   // window is closed.
@@ -54,6 +60,8 @@ export default function FloatingTerminalRoot() {
   const visible = selectedSessionId
     ? floats.filter((f) => f.originSessionId === selectedSessionId && !poppedOut.includes(f.terminalId))
     : [];
+
+  if (isPhone) return <PhoneFloatingSheet floats={visible} />;
 
   return (
     <>

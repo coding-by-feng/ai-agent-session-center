@@ -25,6 +25,10 @@ export interface BottomSheetProps {
   hideTitle?: boolean;
   /** Fill the screen height (a full-screen form) instead of fitting the content. */
   fullHeight?: boolean;
+  /** A control beside the close button (a full-height sheet's main action, e.g. "End"). */
+  headerAction?: ReactNode;
+  /** The body runs edge to edge (a terminal's key bar needs the full width); the header keeps its gutter. */
+  flush?: boolean;
 }
 
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -36,7 +40,7 @@ const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabi
  */
 const openSheets: HTMLElement[] = [];
 
-export default function BottomSheet({ open, onClose, title, children, hideTitle, fullHeight }: BottomSheetProps) {
+export default function BottomSheet({ open, onClose, title, children, hideTitle, fullHeight, headerAction, flush }: BottomSheetProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
@@ -95,11 +99,12 @@ export default function BottomSheet({ open, onClose, title, children, hideTitle,
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className={`${styles.sheet}${fullHeight ? ` ${styles.full}` : ''}`}
+        className={`${styles.sheet}${fullHeight ? ` ${styles.full}` : ''}${flush ? ` ${styles.flush}` : ''}`}
       >
         <div className={styles.grabber} aria-hidden="true" />
         <div className={`${styles.header}${hideTitle ? ` ${styles.srOnly}` : ''}`}>
           <h2 id={titleId} className={styles.title}>{title}</h2>
+          {!hideTitle && headerAction && <div className={styles.headerAction}>{headerAction}</div>}
           {!hideTitle && (
             <button type="button" className={styles.close} onClick={onClose} aria-label="Close">×</button>
           )}

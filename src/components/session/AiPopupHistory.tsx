@@ -3,8 +3,15 @@
  * explain / vocab) sub-sessions spawned FROM the current session. Filtered by
  * originSessionId. Mirrors the expandable-row UI from ReviewView (favorite ★,
  * alias, notes, archive, delete, copy response).
+ *
+ * On a phone (AASC-20) every control is a 44px target, delete confirms in a
+ * sheet instead of `confirm()`, and a popup that is still running gets an Open
+ * button that brings it back up in its full-height sheet.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { ConfirmSheet } from '@/components/ui/BottomSheet';
+import { useIsMobile } from '@/lib/platform';
+import { useFloatingSessionsStore } from '@/stores/floatingSessionsStore';
 import {
   listByOriginSession,
   setArchived,
@@ -63,6 +70,11 @@ interface AiPopupHistoryProps {
 export default function AiPopupHistory({ sessionId }: AiPopupHistoryProps) {
   const [rows, setRows] = useState<DbTranslationLog[]>([]);
   const [expandedUuid, setExpandedUuid] = useState<string | null>(null);
+  const isPhone = useIsMobile();
+  /** A phone's delete waits on a confirm sheet; this is the row it would delete. */
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const liveFloats = useFloatingSessionsStore((s) => s.floats);
+  const showOnPhone = useFloatingSessionsStore((s) => s.setPhoneShown);
 
   const reload = useCallback(() => {
     let cancelled = false;
@@ -84,15 +96,27 @@ export default function AiPopupHistory({ sessionId }: AiPopupHistoryProps) {
     [reload],
   );
 
-  const handleDelete = useCallback(
+  const removeRow = useCallback(
     async (uuid: string) => {
-      if (!confirm('Delete this AI popup record? This cannot be undone.')) return;
       await deleteLog(uuid);
       if (expandedUuid === uuid) setExpandedUuid(null);
       reload();
     },
     [expandedUuid, reload],
   );
+
+  const handleDelete = useCallback(
+    async (uuid: string) => {
+      if (isPhone) {
+        setConfirmDelete(uuid);
+        return;
+      }
+      if (!confirm('Delete this AI popup record? This cannot be undone.')) return;
+      await removeRow(uuid);
+    },
+    [isPhone, removeRow],
+  );
+  const cancelDelete = useCallback(() => setConfirmDelete(null), []);
 
   const handleNotesChange = useCallback(
     async (uuid: string, value: string) => {
@@ -119,15 +143,36 @@ export default function AiPopupHistory({ sessionId }: AiPopupHistoryProps) {
   );
 
   if (rows.length === 0) {
-    return <div className={styles.empty}>No AI popups from this session yet</div>;
+    return (
+      <div className={styles.empty}>
+        No AI popups from this session yet
+        {isPhone && <span className={styles.emptyHint}>Select text in CONVERSATION and tap Ask AI.</span>}
+      </div>
+    );
   }
 
   return (
     <div className={styles.list}>
+      {isPhone && (
+        <ConfirmSheet
+          open={confirmDelete !== null}
+          title="Delete this AI popup record?"
+          message="Its source, response and notes are deleted from this device. This cannot be undone."
+          confirmLabel="Delete"
+          danger
+          onConfirm={() => {
+            const uuid = confirmDelete;
+            setConfirmDelete(null);
+            if (uuid) void removeRow(uuid);
+          }}
+          onCancel={cancelDelete}
+        />
+      )}
       {rows.map((row) => {
         const expanded = expandedUuid === row.uuid;
         const sourceText =
           row.mode === 'translate-file' ? row.fileContent || row.filePath : row.selection;
+        const running = isPhone && liveFloats.some((f) => f.terminalId === row.floatTerminalId);
         return (
           <div key={row.uuid} className={`${styles.row}${expanded ? ` ${styles.rowExpanded}` : ''}`}>
             <div className={styles.rowHeaderWrap}>
@@ -160,6 +205,7 @@ export default function AiPopupHistory({ sessionId }: AiPopupHistoryProps) {
                   </div>
                   <div className={styles.rowMeta}>
                     <span>{relativeTime(row.createdAt)}</span>
+                    {running && <span className={styles.runningChip}>● running</span>}
                   </div>
                   <div className={styles.rowSnippet}>
                     {(sourceText || '(no source captured)').slice(0, 180)}
@@ -207,6 +253,15 @@ export default function AiPopupHistory({ sessionId }: AiPopupHistoryProps) {
                 </div>
 
                 <div className={styles.actions}>
+                  {running && (
+                    <button
+                      type="button"
+                      className={`${styles.actionBtn} ${styles.openBtn}`}
+                      onClick={() => showOnPhone(row.floatTerminalId)}
+                    >
+                      Open
+                    </button>
+                  )}
                   <button
                     type="button"
                     className={styles.actionBtn}

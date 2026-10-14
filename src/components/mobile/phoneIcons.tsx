@@ -72,6 +72,28 @@ export const SpeakerIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const StopIcon = (p: IconProps) => <Svg {...p}><rect x="6" y="6" width="12" height="12" rx="1" /></Svg>;
+
+export const BookmarkIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+  </Svg>
+);
+
+export const SparkIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" />
+    <path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" />
+  </Svg>
+);
+
+export const CameraIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+    <circle cx="12" cy="13" r="4" />
+  </Svg>
+);
+
 export const HandIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M18 11V6a2 2 0 0 0-4 0v5" />

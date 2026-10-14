@@ -3,11 +3,16 @@
  * toolbar itself is not drawn there, its 27px buttons are this sheet's 48px rows,
  * opened from the button beside the compose box. Clear output asks first: it
  * empties the screen and the replay on every device.
+ *
+ * AASC-20 adds the phone's own: the terminal's bookmarks (long-press a line to
+ * make one) and reading the last answer aloud.
  */
 import { useCallback, useState } from 'react';
 import BottomSheet, { ConfirmSheet } from '@/components/ui/BottomSheet';
 import type { TerminalWidthMode } from '@/lib/terminalGeometry';
+import type { TerminalBookmark } from '@/lib/terminalBookmarks';
 import SheetAction, { SheetSection } from './SheetAction';
+import TerminalBookmarksSection from './TerminalBookmarksSection';
 import {
   CloneIcon,
   EraseIcon,
@@ -17,6 +22,8 @@ import {
   PasteIcon,
   ReconnectIcon,
   RefreshIcon,
+  SpeakerIcon,
+  StopIcon,
   ToBottomIcon,
   WrapIcon,
 } from './phoneIcons';
@@ -31,12 +38,25 @@ export interface TerminalActionsSheetProps {
   widthMode: TerminalWidthMode;
   onToggleWidthMode: () => void;
   isFullscreen: boolean;
-  onToggleFullscreen: () => void;
+  /** Omitted where full screen means nothing: a terminal already in a full-height sheet. */
+  onToggleFullscreen?: () => void;
   onRefresh: () => void;
   onClear: () => void;
   onReconnect?: () => void;
   onFork?: () => void;
   onClone?: () => void;
+  /** This terminal's bookmarks (AASC-20); omitted, no Bookmarks section. */
+  bookmarks?: {
+    list: readonly TerminalBookmark[];
+    onJump: (bookmark: TerminalBookmark) => void;
+    onRemove: (id: string) => void;
+  };
+  /** Read the session's last answer aloud (AASC-20); omitted, no row. Owned by
+   *  the terminal, not this sheet: reading goes on after the sheet closes. */
+  readAloud?: {
+    speaking: boolean;
+    onToggle: () => void;
+  };
 }
 
 export default function TerminalActionsSheet(props: TerminalActionsSheetProps) {
@@ -68,12 +88,28 @@ export default function TerminalActionsSheet(props: TerminalActionsSheetProps) {
             pressed={props.widthMode === 'wrap'}
             onClick={run(props.onToggleWidthMode)}
           />
-          <SheetAction
-            icon={<FullscreenIcon />}
-            label={props.isFullscreen ? 'Leave full screen' : 'Full screen'}
-            onClick={run(props.onToggleFullscreen)}
-          />
+          {props.onToggleFullscreen && (
+            <SheetAction
+              icon={<FullscreenIcon />}
+              label={props.isFullscreen ? 'Leave full screen' : 'Full screen'}
+              onClick={run(props.onToggleFullscreen)}
+            />
+          )}
+          {props.readAloud && (
+            <SheetAction
+              icon={props.readAloud.speaking ? <StopIcon /> : <SpeakerIcon />}
+              label={props.readAloud.speaking ? 'Stop reading aloud' : 'Read the last answer aloud'}
+              onClick={run(props.readAloud.onToggle)}
+            />
+          )}
         </SheetSection>
+        {props.bookmarks && (
+          <TerminalBookmarksSection
+            bookmarks={props.bookmarks.list}
+            onJump={(b) => run(() => props.bookmarks!.onJump(b))()}
+            onRemove={props.bookmarks.onRemove}
+          />
+        )}
         <SheetSection title="Input">
           <SheetAction icon={<PasteIcon />} label="Paste clipboard" onClick={run(props.onPaste)} />
         </SheetSection>
