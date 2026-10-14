@@ -1,6 +1,6 @@
 process.env.ELECTRON = '1'
 
-import { app, BrowserWindow, shell, Menu, ipcMain, screen, dialog } from 'electron'
+import { app, BrowserWindow, shell, Menu, ipcMain, screen, dialog, safeStorage } from 'electron'
 import path from 'path'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { setupTray } from './tray.js'
@@ -544,12 +544,20 @@ app.whenReady().then(async () => {
       // server-bundle.cjs is a CJS bundle produced by esbuild (npm run build:server)
       const serverPath = path.join(PROJECT_ROOT, 'dist', 'server-bundle.cjs')
       const serverModule = require(serverPath) as {
-        startServer: (port?: number) => Promise<number>
+        startServer: (port?: number, options?: { cloudEncryption: { isAvailable(): boolean; encrypt(value: string): Buffer; decrypt(value: Buffer): string } }) => Promise<number>
         shutdownServer: () => Promise<void>
       }
       serverShutdown = serverModule.shutdownServer
       sendLoadingUpdate(win, 30, 'Starting server')
-      const port = await serverModule.startServer()
+      // The cloud device token is encrypted with the OS keychain. Linux's
+      // 'basic_text' backend is plain obfuscation, so it counts as unavailable.
+      const port = await serverModule.startServer(undefined, {
+        cloudEncryption: {
+          isAvailable: () => safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text'),
+          encrypt: (value) => safeStorage.encryptString(value),
+          decrypt: (value) => safeStorage.decryptString(value),
+        },
+      })
       process.env.SERVER_PORT = String(port)
       sendLoadingUpdate(win, 95, 'Loading app')
       restoreLogs()

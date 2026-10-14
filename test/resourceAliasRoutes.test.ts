@@ -52,6 +52,8 @@ beforeAll(async () => {
   put('.claude/skills/retouch-ascii-review/SKILL.md', '---\nname: retouch-ascii-review\ndescription: Retouch then sketch\n---\nBody\n');
   put('.claude/skills/plan/SKILL.md', '---\nname: plan\ndescription: Plan\n---\nBody\n');
   put('.codex/config.toml', '');
+  put('.codex/skills/retouch-ascii-review/SKILL.md', '---\nname: retouch-ascii-review\ndescription: Target\n---\nBody\n');
+  put('.agents/skills/shared-target/SKILL.md', '---\nname: shared-target\ndescription: Shared target\n---\nBody\n');
   const app = express();
   app.use('/api/resources', createResourceRouter({
     sessionProjectPaths: () => [],
@@ -148,5 +150,18 @@ describe('DELETE /aliases', () => {
 
   it('validates the abbreviation (no path escapes)', async () => {
     expect((await del({ agent: 'claude', kind: 'skill', abbr: '../../etc' })).status).toBe(400);
+  });
+});
+
+ describe('I1 legacy package-directory rescan', () => {
+  it.each(['codex', 'shared'] as const)('keeps an owned %s skill alias reusable after an actual scan', async (agent) => {
+    const request = { agent, kind: 'skill', target: agent === 'shared' ? 'shared-target' : body.target, abbr: agent === 'shared' ? 'sha' : 'cda' };
+    expect((await post('/aliases', request)).status).toBe(200);
+    await post('/scan', {});
+    await new Promise(r => setTimeout(r, 100));
+    await scanned();
+    const repeated = await post('/aliases', request);
+    expect(repeated.status).toBe(200);
+    expect(repeated.json.data.files.every((f: {action:string}) => f.action === 'unchanged')).toBe(true);
   });
 });

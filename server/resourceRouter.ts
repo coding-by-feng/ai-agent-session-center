@@ -1,5 +1,5 @@
 /**
- * resourceRouter — `/api/resources`, the local RESOURCES catalog and transfer API.
+ * resourceRouter — `/api/resources`, the local RESOURCES catalog, transfer and cloud API.
  *
  * Mounted by the integrator as
  *   app.use('/api/resources', authMiddleware, createResourceRouter({...}))
@@ -11,6 +11,10 @@
  * you". A remote client never sees this machine's skills, MCP servers or
  * settings, and never starts a scan of its disk. "Local" is more than a
  * loopback socket — see `isLocalResourceRequest` (DNS rebinding).
+ *
+ * The optional cloud connector (`deps.cloud`) mounts under `/cloud` behind the
+ * same gate: connection status/actions, skill-notes sync and cloud aliases. A
+ * remote device or a paired phone never reaches any of it.
  *
  * Every input is Zod-validated; every answer is `{ success, data | error }`;
  * no route ever sends a stack trace. index.ts parses JSON globally BEFORE this
@@ -26,14 +30,25 @@ import { isLocalRequest } from './requestLocality.js';
 import { PathSafetyError } from './fsSafe.js';
 import { createResourceCatalog, ResourceLookupError } from './resourceCatalog.js';
 import { TRASH_ID_RE, TrashError } from './resourceUninstall.js';
-import { ABBR_RE, TARGET_RE, AliasError, aliasFilesFor, createAlias, removeAlias } from './resourceAliases.js';
+import { ABBR_RE, TARGET_RE, AliasError, aliasCatalogRealNames, createAlias, removeAlias } from './resourceAliases.js';
 import log from './logger.js';
 import { createTransferRouter } from './resourceTransfers/router.js';
 import type { TransferServiceDeps } from './resourceTransfers/service.js';
 import { createSyncRouter } from './projectSync/router.js';
 import { createSyncService, type SyncServiceDeps } from './projectSync/service.js';
+import { createCloudRouter } from './cloud/router.js';
+import { createNotesRouter, notesErrorHandler } from './cloud/notesRouter.js';
+import { createCloudAliases, type CloudAliasesService } from './cloud/aliases.js';
+import { createCloudAliasesRouter } from './cloud/aliasRouter.js';
+import type { CloudConnector } from './cloud/types.js';
 
 export interface ResourceRouterDeps {
+  /** Optional server-owned cloud connector; the device token never reaches the renderer. */
+  cloud?: CloudConnector;
+  /** Private directory for cloud alias state. Required with `cloud`. */
+  cloudAliasDirectory?: string;
+  /** Hands the lazily created cloud alias service to its owner (a later verified-install retry). */
+  onCloudAliasesReady?: (getCloudAliases: () => Promise<CloudAliasesService>) => void;
   /** Project paths of sessions AASC knows about → evidence 'aasc-session'. */
   sessionProjectPaths: () => string[];
   /** Tests override; default `isLocalResourceRequest`. */
@@ -172,6 +187,8 @@ export function resourceErrorHandler(err: unknown, req: Request, res: Response, 
     return;
   }
   if (!isLocalResourceRequest(req)) return fail(res, 404, 'Not found');
+  // Notes sync reads machine codes (`batch_too_large` halves the batch), not prose.
+  if (String(req.path ?? '').startsWith('/cloud/skill-notes')) return notesErrorHandler(err, req, res, next);
   respondToError(res, err, homedir());
 }
 
@@ -193,6 +210,19 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
     }
     fail(res, 404, 'Not found');
   });
+  if (deps.cloud) {
+    const cloud = deps.cloud;
+    const directory = deps.cloudAliasDirectory;
+    if (!directory) throw new Error('cloudAliasDirectory is required with a cloud connector');
+    let cloudAliases: Promise<CloudAliasesService> | undefined;
+    const getCloudAliases = () =>
+      (cloudAliases ??= createCloudAliases({ cloud, home, directory, catalog: () => catalog.getOrStartCatalog() }));
+    deps.onCloudAliasesReady?.(getCloudAliases);
+    // Specific prefixes first: the generic connection router answers every other /cloud path.
+    router.use('/cloud/skill-notes', createNotesRouter(cloud));
+    router.use('/cloud/aliases', createCloudAliasesRouter(getCloudAliases, isSameOriginWrite));
+    router.use('/cloud', createCloudRouter(cloud, isSameOriginWrite));
+  }
   router.use(json({ limit: '64kb' }));
   const { eagerLoad, ...syncDeps } = deps.sync ?? {};
   const sync = createSyncService({
@@ -317,19 +347,12 @@ export function createResourceRouter(deps: ResourceRouterDeps): Router {
       if (current.resources.length === 0) {
         return fail(res, 409, current.state === 'ready' ? 'The catalog is empty.' : 'The first scan is still running; try again in a moment.');
       }
-      const own = new Set(
-        (['claude', 'codex', 'shared'] as const)
-          .flatMap((agent) => aliasFilesFor(agent, body.kind, body.abbr, home))
-          .map((f) => f.display),
+      // One collision rule for this route and cloud alias reconciliation.
+      const realNames = aliasCatalogRealNames(current.resources, [body], home);
+      const targetFound = current.resources.some((r) =>
+        r.agent === body.agent && r.type === body.kind &&
+        (r.origin === 'plugin' && r.pluginName ? `${r.pluginName}:${r.name}` : r.name) === body.target,
       );
-      const realNames = new Set<string>();
-      let targetFound = false;
-      for (const r of current.resources) {
-        if ((r.type !== 'skill' && r.type !== 'command') || own.has(r.path)) continue;
-        const name = r.origin === 'plugin' && r.pluginName ? `${r.pluginName}:${r.name}` : r.name;
-        realNames.add(`${r.agent}:${name}`);
-        if (r.agent === body.agent && r.type === body.kind && name === body.target) targetFound = true;
-      }
       // 409, not 404: the client reads a 404 on /api/resources as "not available on this machine".
       if (!targetFound) return fail(res, 409, 'That skill or command is not in the catalog. Rescan and try again.');
       res.json({ success: true, data: await createAlias(body, { home, realNames }) });

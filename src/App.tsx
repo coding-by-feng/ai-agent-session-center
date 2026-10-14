@@ -18,6 +18,7 @@ import FloatingTerminalRoot from '@/components/session/FloatingTerminalRoot';
 import FileOpenChooser from '@/components/session/FileOpenChooser';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useAuth } from '@/hooks/useAuth';
+import { startNotesSync } from '@/stores/skillNotesStore';
 import LoginScreen from '@/components/auth/LoginScreen';
 import { useSettingsInit } from '@/hooks/useSettingsInit';
 import { retryOnceUnlessRefused } from '@/lib/requestJson';
@@ -113,6 +114,8 @@ function AppLayout() {
 }
 
 function Dashboard({ token }: { token: string | null }) {
+  // Skill-notes sync follows the Mac's cloud connection; the phone app can't reach it.
+  useEffect(() => (isNativeMobileApp() ? undefined : startNotesSync()), []);
   useSettingsInit();
   useWebSocket(token);
   useSessionDeepLink();

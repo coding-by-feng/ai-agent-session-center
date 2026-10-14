@@ -108,7 +108,7 @@ export function findingLabel(code: FindingCode): string {
 // URL state
 // ---------------------------------------------------------------------------
 
-export const RESOURCE_SECTIONS = ['library', 'sources', 'checks', 'transfers', 'projects', 'devices'] as const;
+export const RESOURCE_SECTIONS = ['library', 'sources', 'checks', 'transfers', 'projects', 'devices', 'cloud'] as const;
 export type ResourceSection = (typeof RESOURCE_SECTIONS)[number];
 
 export type AgentFilter = 'all' | ResourceAgent;

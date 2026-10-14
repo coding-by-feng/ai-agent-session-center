@@ -1,19 +1,23 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useSkillNotesStore, loadSkillNotes } from './skillNotesStore';
+import 'fake-indexeddb/auto';
+import { DashboardDb } from '@/lib/db';
+import { createNotesRepository } from '@/lib/skillNotesOutbox';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { createSkillNotesStore, loadSkillNotes } from './skillNotesStore';
 import { STORAGE_KEY } from '@/lib/skillNotes';
 
-const reset = () => {
-  try { localStorage.clear(); } catch { /* ignore */ }
-  useSkillNotesStore.setState({ notes: {} });
-};
+let useSkillNotesStore:ReturnType<typeof createSkillNotesStore>;
+let database:DashboardDb;
+const reset=async()=>{localStorage.clear();database=new DashboardDb(crypto.randomUUID());useSkillNotesStore=createSkillNotesStore({repository:createNotesRepository(database),initialNotes:{}});await useSkillNotesStore.getState().flush();};
+afterEach(async()=>{await useSkillNotesStore.getState().flush();useSkillNotesStore.getState().stop();database.close();await database.delete();});
 
 describe('skillNotesStore', () => {
   beforeEach(reset);
 
-  it('toggles a favourite and persists it', () => {
+  it('toggles a favourite and persists it', async () => {
     useSkillNotesStore.getState().toggleFav('claude:x');
     expect(useSkillNotesStore.getState().notes['claude:x'].fav).toBe(true);
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).notes['claude:x'].fav).toBe(true);
+    await useSkillNotesStore.getState().flush();
+    expect((await database.skillNoteRecords.toArray())[0].projected.value.fav).toBe(true);
     useSkillNotesStore.getState().toggleFav('claude:x');
     expect(useSkillNotesStore.getState().notes).toEqual({});
   });
@@ -52,10 +56,10 @@ describe('skillNotesStore', () => {
     expect(loadSkillNotes()).toEqual({});
   });
 
-  it('follows a change made in another window (storage event)', () => {
+  it('ignores legacy storage events after durable migration)', () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ v: 1, notes: { 'claude:z': { fav: true, tags: [] } } }));
     window.dispatchEvent(new StorageEvent('storage', { key: STORAGE_KEY }));
-    expect(useSkillNotesStore.getState().notes['claude:z'].fav).toBe(true);
+    expect(useSkillNotesStore.getState().notes['claude:z']).toBeUndefined();
   });
 
   it('keeps working in memory when storage throws', () => {

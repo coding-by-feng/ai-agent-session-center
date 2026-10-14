@@ -5,6 +5,7 @@ import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { mkdir, realpath } from 'fs/promises';
 import { execFile } from 'child_process';
 import hookRouter from './hookRouter.js';
 import { handleConnection, stopHeartbeat, broadcast, disconnectDevice, onBroadcast } from './wsManager.js';
@@ -30,6 +31,7 @@ import { sqliteMobileDeviceStore } from './mobile/deviceStore.js';
 import { createPhoneProfile } from './mobile/phoneProfile.js';
 import { listKnownProjects } from './knownProjects.js';
 import { createMobileRouter } from './mobile/mobileRouter.js';
+import { createPhoneCloudBridge } from './mobile/phoneCloudBridge.js';
 import { isLocalRequest } from './requestLocality.js';
 import { resolveRemoteListenerPort, startRemoteListener } from './remoteListener.js';
 import {
@@ -40,6 +42,12 @@ import {
   localhostOnlyMiddleware, TOKEN_TTL_SECONDS, getTokenLineage, getTokenDeviceId, revokeTokensForDevice,
 } from './authManager.js';
 import { startNoteMediaSweeper } from './noteMedia.js';
+import { cloudJsonParser } from './cloud/router.js';
+import { createCloudConnection } from './cloud/connection.js';
+import { createEncryptedSecretStore, createFileSecretStore } from './cloud/secretStore.js';
+import { cloudStateBase } from './cloud/paths.js';
+import { aliasJsonParser } from './cloud/aliasRouter.js';
+import type { CloudConnector, SecretEncryption } from './cloud/types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -65,7 +73,43 @@ export async function shutdownServer(): Promise<void> {
   if (_shutdownFn) await _shutdownFn();
 }
 
-export function startServer(port?: number): Promise<number> {
+export interface ServerOptions {
+  /** Electron's safeStorage (OS keychain). Without it the device token sits in a 0600 file. */
+  cloudEncryption?: SecretEncryption;
+}
+
+/**
+ * The optional AASC cloud connection (skill-notes sync, cloud aliases). It is
+ * off until the user pairs this Mac, makes no request on startup, and its
+ * device token lives only in `<base>/cloud/secrets`, never inside a project
+ * tree (see cloud/paths.ts; encrypted when Electron provides safeStorage). A
+ * storage failure leaves the dashboard running without cloud routes rather
+ * than failing the whole server.
+ */
+async function openCloudConnection(options: ServerOptions): Promise<{ cloud: CloudConnector; directory: string } | null> {
+  try {
+    const base = cloudStateBase();
+    await mkdir(base, { recursive: true, mode: 0o700 });
+    const directory = join(await realpath(base), 'cloud');
+    const secretsDir = join(directory, 'secrets');
+    const cloud = await createCloudConnection({
+      directory,
+      secrets: options.cloudEncryption
+        ? createEncryptedSecretStore(secretsDir, options.cloudEncryption)
+        : createFileSecretStore(secretsDir),
+    });
+    return { cloud, directory };
+  } catch (err) {
+    log.warn('cloud', `Cloud connection unavailable: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
+export async function startServer(port?: number, options: ServerOptions = {}): Promise<number> {
+  const cloudSetup = await openCloudConnection(options);
+  const cloud = cloudSetup?.cloud ?? null;
+  // Phone pairing and push through the cloud connection, when one is connected (AASC-15/16).
+  const phoneCloud = createPhoneCloudBridge({ cloud, warn: (message) => log.warn('mobile', message) });
   const args = process.argv.slice(2);
   const noOpen = args.includes('--no-open');
 
@@ -73,6 +117,11 @@ export function startServer(port?: number): Promise<number> {
   const server = createServer(app);
   const wss = new WebSocketServer({ server, maxPayload: 512 * 1024 }); // 512KB max WS message (supports large terminal pastes)
 
+  // Cloud's raw/decompressed caps must precede the global parser: once that has
+  // consumed a body, the cloud routers' own parser never sees it. Aliases take
+  // small bodies (64 KB); notes batches and the rest up to 1 MB.
+  app.use('/api/resources/cloud/aliases', aliasJsonParser());
+  app.use('/api/resources/cloud', cloudJsonParser());
   app.use(express.json({ limit: '50mb' }));
 
   // -- Security headers --
@@ -192,7 +241,8 @@ export function startServer(port?: number): Promise<number> {
   const pushNotifier = createPushNotifier({
     getSession,
     canNotify: (session) => canSeeSession(false, session),
-    sink: getPushSink,
+    // A test sink when one is set, else the cloud connection while it is connected.
+    sink: () => getPushSink() ?? phoneCloud.pushSink(),
     onError: (message) => log.warn('push', message),
   });
   onBroadcast((data) => pushNotifier.onBroadcast(data));
@@ -205,11 +255,11 @@ export function startServer(port?: number): Promise<number> {
     // Changing the dashboard password revokes every paired phone on its next sign-in.
     credentialEpoch: () => (config.passwordHash ? hashSecret(config.passwordHash).slice(0, 16) : null),
     onRevoked: (device) => {
-      // End every session and live socket the phone holds. The backend half of
-      // the cascade (revoking its backend device) joins when the cloud
-      // connector lands; until then there is no backend device to revoke.
+      // End every session and live socket the phone holds, then revoke the
+      // backend device it created from the QR's backend code (if any).
       revokeTokensForDevice(device.id);
       disconnectDevice(device.id);
+      void phoneCloud.revokeBackendPhone(device.beCodeRef);
       log.info('mobile', `Phone access removed: ${device.label} (${device.platform})`);
     },
   });
@@ -226,12 +276,15 @@ export function startServer(port?: number): Promise<number> {
       tailnet: getTailnetIP(),
     }),
     rateLimit: { check: checkLoginRateLimit, record: recordLoginAttempt, clear: clearLoginAttempts },
+    mintBackendCode: () => phoneCloud.mintBackendCode(),
   }));
 
   // -- Agent Resources (RESOURCES tab) --
   // Read-only catalog of ~/.claude, ~/.codex, ~/.agents and project resources.
   // Mounted before the generic /api router so it owns its prefix; the router
-  // itself answers loopback requests only (404 for every other device).
+  // itself answers loopback requests only (404 for every other device). The
+  // cloud connection's routes live under it (/api/resources/cloud/*) for that
+  // reason: a remote device or paired phone never reaches them.
   app.use('/api/resources', authMiddleware, createResourceRouter({
     sessionProjectPaths: () =>
       Object.values(getAllSessions()).map((s) => s.projectPath).filter(Boolean),
@@ -244,6 +297,7 @@ export function startServer(port?: number): Promise<number> {
           .map((s) => s.projectPath)
           .filter(Boolean),
     },
+    ...(cloudSetup ? { cloud: cloudSetup.cloud, cloudAliasDirectory: cloudSetup.directory } : {}),
   }));
   // The global express.json() above parses bodies before the router runs, so a
   // malformed body never reaches the router's own handler — without this it
@@ -546,26 +600,41 @@ export function startServer(port?: number): Promise<number> {
 
   // Graceful shutdown — save state, close resources, then exit.
   // Returns a promise so Electron can await full cleanup before quitting.
-  let shutdownComplete = false;
+  // Every caller (SIGTERM, SIGINT, Electron's quit) shares ONE shutdown promise.
+  let shutdownPromise: Promise<void> | null = null;
   function gracefulShutdown(signal: string): Promise<void> {
-    if (shutdownComplete) return Promise.resolve();
-    shutdownComplete = true;
-    log.info('server', `Received ${signal}, shutting down...`);
-    stopPeriodicSave();
-    stopPlanUsage();
-    stopSessionRuntime();
-    stopHeartbeat();
-    stopMqReader();
-    stopTokenCleanup();
-    // Save final snapshot before exiting
-    try { saveSnapshot(getMqOffset()); } catch { /* best effort */ }
-    try { closeDb(); } catch { /* best effort */ }
-    try { remoteServer?.close(); } catch { /* best effort */ }
-    return new Promise<void>((resolve) => {
-      server.close(() => resolve());
-      // Force resolve after 2s if server.close() hangs (open connections)
-      setTimeout(() => resolve(), 2000);
+    if (shutdownPromise) return shutdownPromise;
+    // Published before cleanup begins, so a reentrant caller waits for the same work.
+    shutdownPromise = Promise.resolve().then(async () => {
+      log.info('server', `Received ${signal}, shutting down...`);
+      // Abort in-flight cloud requests; the saved connection is kept for next start.
+      const cloudStopped = cloud ? cloud.stop() : Promise.resolve();
+      stopPeriodicSave();
+      stopPlanUsage();
+      stopSessionRuntime();
+      stopHeartbeat();
+      stopMqReader();
+      stopTokenCleanup();
+      // Save final snapshot before exiting
+      try { saveSnapshot(getMqOffset()); } catch { /* best effort */ }
+      try { remoteServer?.close(); } catch { /* best effort */ }
+      const httpClosed = new Promise<void>((resolve) => {
+        // Force-close after 2s if server.close() hangs (open connections).
+        const timer = setTimeout(() => {
+          log.warn('server', 'HTTP shutdown exceeded 2s; closing open connections.');
+          server.closeAllConnections();
+          resolve();
+        }, 2000);
+        server.close(() => { clearTimeout(timer); resolve(); });
+      });
+      const results = await Promise.allSettled([cloudStopped, httpClosed]);
+      try { closeDb(); } catch { /* best effort */ }
+      // Never reject: SIGTERM/SIGINT exit in .then(), and Electron's quit awaits this.
+      for (const r of results) {
+        if (r.status === 'rejected') log.warn('server', 'A shutdown step failed; continuing.');
+      }
     });
+    return shutdownPromise;
   }
 
   // Expose shutdown for Electron to call directly (avoids SIGTERM race)

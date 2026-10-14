@@ -1,0 +1,109 @@
+/* RESOURCES → Cloud: connection, notes sync and cloud alias review (CloudPanel). */
+.panel {
+  width: 100%;
+  min-width: 0;
+  overflow: auto;
+  padding: 16px;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.panel h3 {
+  font-size: 16px;
+}
+.panel h4 {
+  font-size: 14px;
+  margin: 0 0 6px;
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.card {
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-card);
+  padding: 16px;
+  margin: 8px 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.form {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.form label {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.form input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.panel label:has(> select) {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+}
+.panel label > select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.hint {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.error {
+  color: var(--text-primary);
+  border-left: 3px solid var(--danger-color, #c04444);
+  padding: 8px;
+  background: var(--bg-subtle);
+  overflow-wrap: anywhere;
+}
+.banner {
+  padding: 8px 12px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+/* The panel's one-line status: text, then its action, wrapping on a phone. */
+.statusBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.statusBar > p {
+  flex-basis: 100%;
+  margin: 0;
+}
+@media (max-width: 480px) {
+  .panel {
+    padding: 8px;
+  }
+  .card {
+    padding: 8px;
+  }
+  .toolbar > * {
+    max-width: 100%;
+  }
+}

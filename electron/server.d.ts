@@ -3,9 +3,9 @@
 // These declarations prevent TypeScript from following into server/ files.
 
 declare module '../../server/index.js' {
-  export function startServer(port?: number): Promise<number>
+  export function startServer(port?: number, options?: { cloudEncryption?: { isAvailable(): boolean; encrypt(value: string): Buffer; decrypt(value: Buffer): string } }): Promise<number>
 }
 
 declare module '../server/index.js' {
-  export function startServer(port?: number): Promise<number>
+  export function startServer(port?: number, options?: { cloudEncryption?: { isAvailable(): boolean; encrypt(value: string): Buffer; decrypt(value: Buffer): string } }): Promise<number>
 }

@@ -9,7 +9,7 @@
  * Claude Code / Codex" switch, which asks the server to write (or remove) a
  * small command file (server/resourceAliases.ts) and shows exactly which.
  */
-import { useId, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useId, useMemo, useState, type FormEvent } from 'react';
 import type { ResourceSummary } from '@/types/resources';
 import { createAliasCommand, errorMessage, removeAliasCommand, type AliasFileResult } from '@/lib/resourcesApi';
 import { useSkillNotesStore } from '@/stores/skillNotesStore';
@@ -25,6 +25,7 @@ import {
   validateAbbr,
 } from '@/lib/skillNotes';
 import Button from '@/components/ui/Button';
+import CloudAliasControls from './CloudAliasControls';
 import IconButton from '@/components/ui/IconButton';
 import TextInput from '@/components/ui/TextInput';
 import styles from '@/styles/modules/SkillNotes.module.css';
@@ -34,6 +35,7 @@ export function FavToggle({ resource }: { resource: ResourceSummary }) {
   const key = resourceNoteKey(resource);
   const fav = useSkillNotesStore((s) => s.notes[key]?.fav ?? false);
   const toggleFav = useSkillNotesStore((s) => s.toggleFav);
+  const ready = useSkillNotesStore((s) => s.ready);
   if (!isNotable(resource)) return null;
   return (
     <IconButton
@@ -42,6 +44,7 @@ export function FavToggle({ resource }: { resource: ResourceSummary }) {
       ariaLabel={`Favourite ${resource.name}`}
       tone="warning"
       size="sm"
+      disabled={!ready}
       pressed={fav}
       tooltip={false}
       onClick={() => toggleFav(key)}
@@ -73,12 +76,27 @@ interface SkillNotesProps {
   realNames: ReadonlySet<string>;
 }
 
-export default function SkillNotes({ resource, realNames }: SkillNotesProps) {
+/** Selection/readiness boundaries remount only the small notes editor, not the detail pane. */
+export default function SkillNotes(props: SkillNotesProps) {
+  const ready = useSkillNotesStore(s => s.ready);
+  const generation = useSkillNotesStore(s => s.selectionGeneration);
+  const identity = useSkillNotesStore(s => s.identity);
+  const scope = identity ? [identity.backendOrigin, identity.accountId, identity.profileId, identity.generation] : null;
+  return <SkillNotesEditor key={JSON.stringify([resourceNoteKey(props.resource), scope, generation, ready])} {...props}/>;
+}
+
+function SkillNotesEditor({ resource, realNames }: SkillNotesProps) {
   const key = resourceNoteKey(resource);
   const headingId = useId();
   const listId = useId();
   const cliId = useId();
   const notes = useSkillNotesStore((s) => s.notes);
+  const ready = useSkillNotesStore((s) => s.ready);
+  const sync = useSkillNotesStore((s) => s.sync);
+  const identity = useSkillNotesStore((s) => s.identity);
+  const connection = useSkillNotesStore((s) => s.connection);
+  const syncMessage = useSkillNotesStore((s) => s.message);
+  const historyReset = useSkillNotesStore((s) => s.historyReset);
   const { toggleFav, addTag, removeTag, setAbbr, setCli } = useSkillNotesStore.getState();
   const own = notes[key];
   const merged = noteForResource(notes, resource);
@@ -86,7 +104,17 @@ export default function SkillNotes({ resource, realNames }: SkillNotesProps) {
   const abbr = own?.abbr ?? '';
   const cli = own?.cli === true;
   const [tagDraft, setTagDraft] = useState('');
-  const [abbrDraft, setAbbrDraft] = useState(abbr);
+  const [abbrEdit, setAbbrEdit] = useState({ value: abbr, dirty: false });
+  const abbrDraft = abbrEdit.dirty ? abbrEdit.value : abbr;
+  const setAbbrDraft = (value: string, dirty = false) => setAbbrEdit({ value, dirty });
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const selectionScope = (value: typeof identity) => JSON.stringify(value ? [value.backendOrigin, value.accountId, value.profileId, value.generation] : null);
+  const captureSelection = () => {
+    const generation = useSkillNotesStore.getState().selectionGeneration;
+    const scope = selectionScope(identity);
+    return () => { const current = useSkillNotesStore.getState(); return mounted.current && current.ready && current.selectionGeneration === generation && selectionScope(current.identity) === scope; };
+  };
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [files, setFiles] = useState<AliasFileResult[] | null>(null);
@@ -110,21 +138,25 @@ export default function SkillNotes({ resource, realNames }: SkillNotesProps) {
   };
 
   /** Run one server call with the busy flag; returns false (and shows why) on failure. */
-  const run = async <T,>(call: () => Promise<T>): Promise<T | null> => {
+  const run = async <T,>(call: () => Promise<T>, current: () => boolean): Promise<T | null> => {
+    if (!current()) return null;
     setBusy(true);
     setError(null);
     try {
-      return await call();
+      const result = await call();
+      return current() ? result : null;
     } catch (err) {
-      setError(errorMessage(err));
+      if (current()) setError(errorMessage(err));
       return null;
     } finally {
-      setBusy(false);
+      if (current()) setBusy(false);
     }
   };
 
   const submitAbbr = async (e: FormEvent) => {
     e.preventDefault();
+    const current = captureSelection();
+    if (!current()) return;
     const check = validateAbbr(abbrDraft, key, notes, realNames);
     if (!check.ok) {
       setError(check.error);
@@ -132,13 +164,14 @@ export default function SkillNotes({ resource, realNames }: SkillNotesProps) {
     }
     setError(null);
     setRemovedNote(null);
-    if (cli && check.value !== abbr) {
+    if (!identity && cli && check.value !== abbr) {
       // Move the command: create the new one first, so a refusal leaves the old one working.
-      const made = await run(() => createAliasCommand(aliasInput(check.value)));
-      if (!made) return;
+      const made = await run(() => createAliasCommand(aliasInput(check.value)), current);
+      if (!made || !current()) return;
       setAbbr(key, check.value, realNames);
       setFiles(made.files);
-      await removeAliasCommand({ agent: resource.agent, kind, abbr }).catch(() => undefined);
+      if (current()) await removeAliasCommand({ agent: resource.agent, kind, abbr }).catch(() => undefined);
+      if (!current()) return;
     } else {
       setAbbr(key, check.value, realNames);
     }
@@ -146,10 +179,12 @@ export default function SkillNotes({ resource, realNames }: SkillNotesProps) {
   };
 
   const clearAbbr = async () => {
+    const current = captureSelection();
+    if (!current()) return;
     setRemovedNote(null);
-    if (cli) {
-      const gone = await run(() => removeAliasCommand({ agent: resource.agent, kind, abbr }));
-      if (!gone) return;
+    if (!identity && cli) {
+      const gone = await run(() => removeAliasCommand({ agent: resource.agent, kind, abbr }), current);
+      if (!gone || !current()) return;
     }
     setAbbr(key, '', realNames);
     setAbbrDraft('');
@@ -158,15 +193,18 @@ export default function SkillNotes({ resource, realNames }: SkillNotesProps) {
   };
 
   const toggleCli = async (on: boolean) => {
+    const current = captureSelection();
+    if (!current()) return;
     setRemovedNote(null);
+    if (identity) { setCli(key, on); return; }
     if (on) {
-      const made = await run(() => createAliasCommand(aliasInput(abbr)));
-      if (!made) return;
+      const made = await run(() => createAliasCommand(aliasInput(abbr)), current);
+      if (!made || !current()) return;
       setCli(key, true);
       setFiles(made.files);
     } else {
-      const gone = await run(() => removeAliasCommand({ agent: resource.agent, kind, abbr }));
-      if (!gone) return;
+      const gone = await run(() => removeAliasCommand({ agent: resource.agent, kind, abbr }), current);
+      if (!gone || !current()) return;
       setCli(key, false);
       setFiles(null);
       const kept = gone.files.filter((f) => f.action === 'kept');
@@ -181,14 +219,21 @@ export default function SkillNotes({ resource, realNames }: SkillNotesProps) {
   return (
     <section className={styles.card} aria-labelledby={headingId}>
       <h3 id={headingId} className={styles.heading}>
-        My notes <span className={styles.scope}>· this browser only</span>
+        My notes <span className={styles.scope}>· {identity ? 'cloud account · saved on this device' : 'local notes'}</span>
       </h3>
+
+      {historyReset && <p role="status" className={styles.hint}>Server note history was resynchronized. Pending edits were preserved for review.</p>}
+      {!ready && sync.state !== 'error' && <p role="status" className={styles.hint}>Loading saved notes. Editing will be available when the active notes finish loading.</p>}
+      {!sync.durable && (ready || syncMessage) && <p role="status" className={styles.hint}>{syncMessage ?? 'Saving notes on this device…'}</p>}
+      {sync.durable && identity && <p role="status" className={styles.hint}>{sync.pending} pending · {sync.conflicts} need review{sync.state === 'off' || sync.state === 'offline' ? ' · offline' : ''}</p>}
+      {sync.durable && syncMessage && <p role="alert" className={styles.error}>{syncMessage}</p>}
 
       <div className={styles.row}>
         <IconButton
           label="Favourite"
           ariaLabel={`Favourite ${resource.name}`}
           tone="warning"
+          disabled={!ready}
           pressed={own?.fav ?? false}
           tooltip={false}
           onClick={() => toggleFav(key)}
@@ -208,7 +253,7 @@ export default function SkillNotes({ resource, realNames }: SkillNotesProps) {
             {tags.map((t) => (
               <li key={t} className={styles.tag}>
                 <span>{t}</span>
-                <button type="button" className={styles.tagRemove} aria-label={`Remove tag ${t}`} onClick={() => removeTag(key, t)}>
+                <button type="button" disabled={!ready} className={styles.tagRemove} aria-label={`Remove tag ${t}`} onClick={() => removeTag(key, t)}>
                   <span aria-hidden="true">×</span>
                 </button>
               </li>
@@ -222,13 +267,13 @@ export default function SkillNotes({ resource, realNames }: SkillNotesProps) {
             value={tagDraft}
             maxLength={MAX_TAG_CHARS}
             placeholder={tags.length >= MAX_TAGS ? `At most ${MAX_TAGS} tags` : 'Add a tag…'}
-            disabled={tags.length >= MAX_TAGS}
+            disabled={!ready || tags.length >= MAX_TAGS}
             onChange={(e) => setTagDraft(e.target.value)}
           />
           <datalist id={listId}>
             {suggestions.map((t) => <option key={t} value={t} />)}
           </datalist>
-          <Button type="submit" size="sm" disabled={!tagDraft.trim() || tags.length >= MAX_TAGS}>Add</Button>
+          <Button type="submit" size="sm" disabled={!ready || !tagDraft.trim() || tags.length >= MAX_TAGS}>Add</Button>
         </form>
       </div>
 
@@ -244,11 +289,11 @@ export default function SkillNotes({ resource, realNames }: SkillNotesProps) {
             placeholder="e.g. rar"
             autoCapitalize="none"
             spellCheck={false}
-            disabled={busy}
-            onChange={(e) => { setAbbrDraft(e.target.value); setError(null); }}
+            disabled={!ready || busy}
+            onChange={(e) => { setAbbrDraft(e.target.value, e.target.value !== abbr); setError(null); }}
           />
-          <Button type="submit" size="sm" disabled={busy || abbrDraft.trim().toLowerCase() === abbr}>Save abbreviation</Button>
-          {abbr && <Button size="sm" disabled={busy} onClick={() => void clearAbbr()}>Clear abbreviation</Button>}
+          <Button type="submit" size="sm" disabled={!ready || busy || abbrDraft.trim().toLowerCase() === abbr}>Save abbreviation</Button>
+          {abbr && <Button size="sm" disabled={!ready || busy} onClick={() => void clearAbbr()}>Clear abbreviation</Button>}
         </form>
         {error && <p role="alert" className={styles.error}>{error}</p>}
         <p className={styles.hint}>
@@ -261,15 +306,15 @@ export default function SkillNotes({ resource, realNames }: SkillNotesProps) {
                 id={cliId}
                 type="checkbox"
                 checked={cli}
-                disabled={busy}
+                disabled={!ready || busy}
                 onChange={(e) => void toggleCli(e.target.checked)}
               />
-              <span>{`Also work inside ${cliName(resource.agent)} (${typedAs(resource.agent, kind, abbr).join(', ')})`}</span>
+              <span>{identity ? 'Use this abbreviation as a CLI command on my devices' : `Also work inside ${cliName(resource.agent)} (${typedAs(resource.agent, kind, abbr).join(', ')})`}</span>
             </label>
-            <p className={styles.hint}>
+            {identity ? <p className={styles.hint}>Desired state: {cli ? 'CLI alias requested' : 'CLI alias off'}. Installation is checked separately on each opted-in device.</p> : <p className={styles.hint}>
               Writes a small command file in ~/.{resource.agent === 'codex' ? 'codex' : resource.agent === 'claude' ? 'claude' : 'claude and ~/.codex'}.
               AASC only ever changes files it wrote itself.
-            </p>
+            </p>}
             {files && files.length > 0 && (
               <ul className={styles.fileList} aria-label="Command files">
                 {files.map((f) => (
@@ -280,6 +325,7 @@ export default function SkillNotes({ resource, realNames }: SkillNotesProps) {
             {removedNote && <p className={styles.hint} role="status">{removedNote}</p>}
           </div>
         )}
+        {identity && <CloudAliasControls key={JSON.stringify([key,identity.backendOrigin,identity.accountId,identity.generation,connection?.backendOrigin,connection?.accountId,connection?.generation,ready])} noteKey={key} identity={identity} ready={ready}/>}
       </div>
     </section>
   );
