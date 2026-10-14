@@ -198,15 +198,18 @@ describe('DevicePresenceChip — network URL for phone usage', () => {
     // screen.getByRole('button') becomes ambiguous.
     const trigger = screen.getByRole('button');
 
+    // Only /api/config is cached here; the phone-pairing section (local
+    // devices) polls /api/mobile/devices on its own and is not counted.
+    const configCalls = () => fetchMock.mock.calls.filter(([url]) => url === '/api/config').length;
     fireEvent.click(trigger); // open
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(configCalls()).toBe(1));
     fireEvent.click(trigger); // close
     fireEvent.click(trigger); // reopen
 
     await waitFor(() => {
       expect(screen.getByText(/^http:\/\/192\.168\.6\.42:/)).toBeInTheDocument();
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(configCalls()).toBe(1);
   });
 
   it('copying writes the URL to the clipboard', async () => {

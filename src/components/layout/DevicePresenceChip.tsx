@@ -27,14 +27,18 @@
  * hence the 10000+ band shared with Tooltip (10000) and SelectionPopup (10050),
  * not the small value it would "deserve" as a NavBar child.
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { usePresenceStore } from '@/stores/presenceStore';
+import { usePresenceStore, isLocalDevice } from '@/stores/presenceStore';
 import type { ControlHolderView } from '@/types';
 import { getClientId } from '@/lib/deviceIdentity';
 import { releaseAllControls } from '@/lib/presenceClient';
 import { showToast } from '@/components/ui/ToastContainer';
 import styles from '@/styles/modules/DevicePresence.module.css';
+
+// Lazy: the pairing section carries a QR encoder, and this chip sits in the
+// eager header chunk. It only loads when a local user opens the panel.
+const PhonePairing = lazy(() => import('@/components/layout/PhonePairing'));
 
 /** Gap kept between the panel and the viewport edge. */
 const VIEWPORT_PAD = 8;
@@ -200,6 +204,9 @@ export default function DevicePresenceChip() {
   };
 
   const myControlled = drivingCount(controllers, myId);
+  // Pairing answers the AASC page on this machine only; a remote device would
+  // get 404s, so the section isn't offered there.
+  const canPairPhones = isLocalDevice(devices, myId);
 
   return (
     <>
@@ -298,6 +305,12 @@ export default function DevicePresenceChip() {
                 ⚠ Other devices are blocked until you set a password.
                 Run <code>npm run set-password</code> on this machine to allow them.
               </p>
+            )}
+
+            {canPairPhones && (
+              <Suspense fallback={null}>
+                <PhonePairing />
+              </Suspense>
             )}
           </div>,
           document.body,

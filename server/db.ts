@@ -895,3 +895,57 @@ export function loadResourceTransferState(): string | null {
 export function saveResourceTransferState(body: string): void {
   db.prepare('INSERT INTO resource_transfer_state (id, body) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET body = excluded.body').run(body);
 }
+
+// Paired phones (AASC-15). Only the SHA-256 of each device token is stored; the
+// token itself is shown to the phone once. Rows are kept after revocation (status
+// 'revoked') so the desktop can tell a revoked phone from an unknown one.
+db.exec(`CREATE TABLE IF NOT EXISTS mobile_devices (
+  id TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  platform TEXT NOT NULL CHECK (platform IN ('ios','android')),
+  token_hash TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK (status IN ('pending','active','revoked')),
+  confirm_code TEXT NOT NULL,
+  be_code_ref TEXT,
+  created_at INTEGER NOT NULL,
+  approved_at INTEGER,
+  last_seen_at INTEGER,
+  revoked_at INTEGER
+)`);
+
+export interface MobileDeviceRow {
+  id: string;
+  label: string;
+  platform: 'ios' | 'android';
+  token_hash: string;
+  status: 'pending' | 'active' | 'revoked';
+  confirm_code: string;
+  be_code_ref: string | null;
+  created_at: number;
+  approved_at: number | null;
+  last_seen_at: number | null;
+  revoked_at: number | null;
+}
+
+export function insertMobileDevice(row: MobileDeviceRow): void {
+  db.prepare(`INSERT INTO mobile_devices (id, label, platform, token_hash, status, confirm_code, be_code_ref,
+    created_at, approved_at, last_seen_at, revoked_at) VALUES (@id, @label, @platform, @token_hash, @status,
+    @confirm_code, @be_code_ref, @created_at, @approved_at, @last_seen_at, @revoked_at)`).run(row);
+}
+export function getMobileDevice(id: string): MobileDeviceRow | null {
+  return (db.prepare('SELECT * FROM mobile_devices WHERE id = ?').get(id) as MobileDeviceRow | undefined) ?? null;
+}
+export function updateMobileDevice(id: string, patch: Partial<Pick<MobileDeviceRow,
+  'status' | 'approved_at' | 'last_seen_at' | 'revoked_at'>>): void {
+  const allowed = new Set(['status', 'approved_at', 'last_seen_at', 'revoked_at']);
+  const keys = (Object.keys(patch) as Array<keyof typeof patch>).filter((k) => allowed.has(k));
+  if (keys.length === 0) return;
+  const sets = keys.map((k) => `${k} = @${k}`).join(', ');
+  db.prepare(`UPDATE mobile_devices SET ${sets} WHERE id = @id`).run({ ...patch, id });
+}
+export function listMobileDevices(): MobileDeviceRow[] {
+  return db.prepare("SELECT * FROM mobile_devices WHERE status != 'revoked' ORDER BY created_at").all() as MobileDeviceRow[];
+}
+export function deleteMobileDevice(id: string): void {
+  db.prepare('DELETE FROM mobile_devices WHERE id = ?').run(id);
+}

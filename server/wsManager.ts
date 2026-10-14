@@ -39,6 +39,8 @@ interface WsClient extends WebSocket {
    *  once at connect from the SAME predicate as the auth gate and the device
    *  list, so all three agree on what "this machine" means. */
   _isLocal: boolean;
+  /** The paired phone this socket belongs to (AASC-15), so revoking it can close the socket. */
+  _deviceId: string | null;
   /** Last time we told this client it lacks control of a session — throttles the notice. */
   _lastDenyAt: Map<string, number>;
 }
@@ -56,6 +58,8 @@ export interface ClientIdentity {
   isLocal?: boolean;
   /** The sign-in lineage of the token this socket authenticated with (remote devices). */
   lineage?: string | null;
+  /** Set when the socket authenticated with a session a paired phone obtained (server/mobile). */
+  deviceId?: string | null;
 }
 
 /**
@@ -133,6 +137,7 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
   // check; an unknown address still fails CLOSED (treated as remote).
   client._isLocal = identity?.isLocal ?? isLoopbackAddress(identity?.address ?? '');
   client._label = presence.sanitizeDeviceLabel(identity?.label ?? '');
+  client._deviceId = identity?.deviceId ?? null;
   // A remote device must not borrow the desktop's id: that id passes the
   // control check and would demote the desktop to "remote" in presence
   // (AASC-27). It connects as an anonymous socket instead, which can watch but
@@ -482,7 +487,6 @@ function holdsControl(client: WsClient, terminalId: string): boolean {
   return false;
 }
 
-/** Push presence state to every client (device list, batons, writer). */
 /**
  * The presence a client may see. Remote devices don't learn which hidden
  * sessions exist through the control-baton list (AASC-27).
@@ -496,6 +500,22 @@ export function presenceFor(isLocal: boolean): ReturnType<typeof presence.presen
   };
 }
 
+/**
+ * Close every live socket of a paired phone (AASC-15: revoke must end its
+ * access within seconds, not when its session token next expires).
+ */
+export function disconnectDevice(deviceId: string): number {
+  let closed = 0;
+  for (const client of clients) {
+    if (client._deviceId === deviceId) {
+      client.close(4001, 'Device revoked');
+      closed++;
+    }
+  }
+  return closed;
+}
+
+/** Push presence state to every client (device list, batons, writer). */
 export function broadcastPresence(): void {
   for (const client of clients) {
     if (client.readyState !== 1) continue;

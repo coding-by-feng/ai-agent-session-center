@@ -88,11 +88,13 @@ export function validatePasswordComplexity(password: string): PasswordValidation
 // Token store
 // ---------------------------------------------------------------------------
 
-// In-memory token store: Map<token, { createdAt: number }>
+// In-memory token store: Map<token, { createdAt, lineage, deviceId? }>.
 // `lineage` survives refresh: a login and every token rotated from it share one,
 // so a remote device id can be tied to the sign-in that first used it
 // (clientBinding.ts, AASC-27) without breaking at the hourly refresh.
-const tokens = new Map<string, { createdAt: number; lineage: string }>();
+// `deviceId` is set for sessions a paired phone obtained (server/mobile), so
+// revoking the phone can end every session it holds (`revokeTokensForDevice`).
+const tokens = new Map<string, { createdAt: number; lineage: string; deviceId?: string }>();
 
 /**
  * Hash a plaintext password with a random salt.
@@ -119,13 +121,13 @@ export function verifyPassword(password: string, stored: string): boolean {
 /**
  * Create a new auth token with 1h TTL.
  */
-export function createToken(): string {
-  return issueToken(randomBytes(16).toString('hex'));
+export function createToken(deviceId?: string): string {
+  return issueToken(randomBytes(16).toString('hex'), deviceId);
 }
 
-function issueToken(lineage: string): string {
+function issueToken(lineage: string, deviceId?: string): string {
   const token = randomBytes(32).toString('hex');
-  tokens.set(token, { createdAt: Date.now(), lineage });
+  tokens.set(token, deviceId ? { createdAt: Date.now(), lineage, deviceId } : { createdAt: Date.now(), lineage });
   return token;
 }
 
@@ -144,15 +146,34 @@ export function isLineageAlive(lineage: string): boolean {
   return false;
 }
 
+/** The paired device a session token belongs to, or null for a password login. */
+export function getTokenDeviceId(token: string | null): string | null {
+  if (!token || !validateToken(token)) return null;
+  return tokens.get(token)?.deviceId ?? null;
+}
+
+/** End every session a paired device holds. Returns how many tokens were removed. */
+export function revokeTokensForDevice(deviceId: string): number {
+  let removed = 0;
+  for (const [token, entry] of tokens) {
+    if (entry.deviceId === deviceId) {
+      tokens.delete(token);
+      removed++;
+    }
+  }
+  return removed;
+}
+
 /**
  * Refresh an existing valid token: revoke the old one, return a new one.
  * Returns null if the old token is invalid/expired.
  */
 export function refreshToken(oldToken: string | null): string | null {
   if (!oldToken || !validateToken(oldToken)) return null;
-  const lineage = tokens.get(oldToken)?.lineage ?? randomBytes(16).toString('hex');
+  const entry = tokens.get(oldToken);
+  const lineage = entry?.lineage ?? randomBytes(16).toString('hex');
   tokens.delete(oldToken);
-  return issueToken(lineage);
+  return issueToken(lineage, entry?.deviceId);
 }
 
 /**

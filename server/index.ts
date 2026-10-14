@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { execFile } from 'child_process';
 import hookRouter from './hookRouter.js';
-import { handleConnection, stopHeartbeat, broadcast } from './wsManager.js';
+import { handleConnection, stopHeartbeat, broadcast, disconnectDevice } from './wsManager.js';
 import { getAllSessions, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
 import { createTerminal, consumePendingLink, writeWhenReady } from './sshManager.js';
 import { WS_TYPES } from './constants.js';
@@ -20,7 +20,11 @@ import { config } from './serverConfig.js';
 import { reconstructPermissionFlags } from './config.js';
 import { ensureHooksInstalled } from './hookInstaller.js';
 import { resolvePort, killPortProcess } from './portManager.js';
-import { getLocalIP } from './networkInfo.js';
+import { getLocalIP, getTailnetIP } from './networkInfo.js';
+import { hostname } from 'os';
+import { createDeviceAuth } from './mobile/deviceAuth.js';
+import { sqliteMobileDeviceStore } from './mobile/deviceStore.js';
+import { createMobileRouter } from './mobile/mobileRouter.js';
 import { isLocalRequest } from './requestLocality.js';
 import { resolveRemoteListenerPort, startRemoteListener } from './remoteListener.js';
 import {
@@ -28,7 +32,7 @@ import {
   removeToken, parseCookieToken, extractToken, authMiddleware,
   startTokenCleanup, stopTokenCleanup, checkLoginRateLimit,
   recordLoginAttempt, clearLoginAttempts, refreshToken, getTokenTTL,
-  localhostOnlyMiddleware, TOKEN_TTL_SECONDS, getTokenLineage,
+  localhostOnlyMiddleware, TOKEN_TTL_SECONDS, getTokenLineage, getTokenDeviceId, revokeTokensForDevice,
 } from './authManager.js';
 import { startNoteMediaSweeper } from './noteMedia.js';
 
@@ -178,6 +182,34 @@ export function startServer(port?: number): Promise<number> {
   // -- Hook endpoints (localhost only -- CLI hooks must work without login but are restricted to loopback) --
   app.use('/api/hooks', localhostOnlyMiddleware, hookRateLimitMiddleware, hookRouter);
 
+  // -- Phone pairing (AASC-15) --
+  // Mounted before authMiddleware: /pair, /session and /unpair are the phone's
+  // own authentication, and the desktop routes use the RESOURCES local gate.
+  const deviceAuth = createDeviceAuth({
+    store: sqliteMobileDeviceStore,
+    onRevoked: (device) => {
+      // End every session and live socket the phone holds. The backend half of
+      // the cascade (revoking its backend device) joins when the cloud
+      // connector lands; until then there is no backend device to revoke.
+      revokeTokensForDevice(device.id);
+      disconnectDevice(device.id);
+      log.info('mobile', `Phone access removed: ${device.label} (${device.platform})`);
+    },
+  });
+  app.use('/api/mobile', createMobileRouter({
+    deviceAuth,
+    isPasswordEnabled,
+    createSessionToken: (deviceId) => createToken(deviceId),
+    sessionTtlSeconds: TOKEN_TTL_SECONDS,
+    pairingTarget: () => ({
+      name: hostname().replace(/\.local$/, ''),
+      port: PORT,
+      lan: getLocalIP(),
+      tailnet: getTailnetIP(),
+    }),
+    rateLimit: { check: checkLoginRateLimit, record: recordLoginAttempt, clear: clearLoginAttempts },
+  }));
+
   // -- Agent Resources (RESOURCES tab) --
   // Read-only catalog of ~/.claude, ~/.codex, ~/.agents and project resources.
   // Mounted before the generic /api router so it owns its prefix; the router
@@ -244,6 +276,7 @@ export function startServer(port?: number): Promise<number> {
     // remote device.
     const wsIsRemote = !isLocalRequest(req);
     let wsLineage: string | null = null;
+    let wsDeviceId: string | null = null;
     if (isPasswordEnabled()) {
       // Prefer cookie-based auth (avoids token in URL query string)
       const token = parseCookieToken(req.headers.cookie) ?? extractToken(req);
@@ -253,6 +286,7 @@ export function startServer(port?: number): Promise<number> {
         return;
       }
       wsLineage = getTokenLineage(token);
+      wsDeviceId = getTokenDeviceId(token);
     } else if (wsIsRemote) {
       // No password configured: loopback still connects freely (the desktop
       // app), but a remote device is refused. 4003 "Forbidden" rather than
@@ -280,6 +314,7 @@ export function startServer(port?: number): Promise<number> {
       address: req.socket.remoteAddress ?? '',
       isLocal: !wsIsRemote,
       lineage: wsLineage,
+      deviceId: wsDeviceId,
     });
   });
 
