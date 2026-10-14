@@ -45,23 +45,6 @@ export interface ResourceRouterDeps {
   transfers?: Omit<TransferServiceDeps, 'catalog'>;
 }
 
-/** Names a browser uses for this machine. A rebinding page's Host is ITS own name, re-resolved to 127.0.0.1. */
-const LOOPBACK_HOSTNAMES: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]']);
-
-/** Hostname of a Host header (`name`, `name:port`, `[v6]:port`), lowercased; null when malformed. */
-function hostHeaderName(host: string | undefined): string | null {
-  const m = /^(\[[0-9a-f:.]+\]|[^:[\]\s]+)(?::\d{1,5})?$/i.exec(host ?? '');
-  return m ? m[1].toLowerCase() : null;
-}
-
-function isLoopbackOrigin(origin: string): boolean {
-  try {
-    return LOOPBACK_HOSTNAMES.has(new URL(origin).hostname.toLowerCase());
-  } catch {
-    return false; // `null` (sandboxed frame, file://) or garbage
-  }
-}
-
 /**
  * The default local gate. A loopback SOCKET is not enough on its own: a
  * DNS-rebinding page (`attacker.example`, re-resolved to 127.0.0.1) talks to
@@ -70,12 +53,9 @@ function isLoopbackOrigin(origin: string): boolean {
  * Host it names, its Origin and its Sec-Fetch-Site — all four must pass.
  */
 export function isLocalResourceRequest(req: Request): boolean {
-  if (!isLocalRequest({ socket: req.socket, headers: req.headers })) return false;
-  const host = hostHeaderName(req.headers.host);
-  if (!host || !LOOPBACK_HOSTNAMES.has(host)) return false;
-  const origin = req.headers.origin;
-  if (origin !== undefined && !isLoopbackOrigin(origin)) return false;
-  return String(req.headers['sec-fetch-site'] ?? '').toLowerCase() !== 'cross-site';
+  // isLocalRequest now carries the Host / Origin / Sec-Fetch-Site checks this
+  // gate introduced (AASC-26), so every local gate shares them.
+  return isLocalRequest({ socket: req.socket, headers: req.headers });
 }
 
 /**

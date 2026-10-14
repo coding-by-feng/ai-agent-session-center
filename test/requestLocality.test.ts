@@ -261,3 +261,46 @@ describe('markRemoteOnlyServer', () => {
     await new Promise<void>((r) => plain.close(() => r()));
   });
 });
+
+// ── AASC-26: a web page must not pass as the Mac ─────────────────────────────────────────────────────
+describe('isLocalRequest also needs the request to name this machine', () => {
+  it.each([
+    ['localhost', 'localhost:3333'],
+    ['127.0.0.1', '127.0.0.1:3333'],
+    ['[::1]', '[::1]:3333'],
+    ['no port', 'localhost'],
+  ])('accepts Host %s', (_label, host) => {
+    expect(isLocalRequest({ ip: '127.0.0.1', headers: { host } })).toBe(true);
+  });
+
+  it('refuses a DNS-rebinding page: loopback socket, foreign Host', () => {
+    expect(isLocalRequest({ ip: '127.0.0.1', headers: { host: 'attacker.example:3333' } })).toBe(false);
+  });
+
+  it('refuses a request with no Host at all (fails closed)', () => {
+    expect(isLocalRequest({ ip: '127.0.0.1', headers: {} })).toBe(false);
+  });
+
+  it('refuses a cross-site page posting a form to localhost', () => {
+    expect(isLocalRequest({ ip: '127.0.0.1', headers: { host: 'localhost:3333', origin: 'https://evil.example' } })).toBe(false);
+    expect(isLocalRequest({ ip: '127.0.0.1', headers: { host: 'localhost:3333', 'sec-fetch-site': 'cross-site' } })).toBe(false);
+    expect(isLocalRequest({ ip: '127.0.0.1', headers: { host: 'localhost:3333', origin: 'null' } })).toBe(false);
+  });
+
+  it('keeps the desktop app, the Vite dev server and the hook script local', () => {
+    // Electron / the dashboard tab
+    expect(isLocalRequest({ ip: '::1', headers: { host: 'localhost:3334', origin: 'http://localhost:3334', 'sec-fetch-site': 'same-origin' } })).toBe(true);
+    // Vite dev proxy: the page is on another localhost port
+    expect(isLocalRequest({ ip: '127.0.0.1', headers: { host: 'localhost:3333', origin: 'http://localhost:5173', 'sec-fetch-site': 'same-site' } })).toBe(true);
+    // curl from the hook script: no Origin, no Sec-Fetch-*
+    expect(isLocalRequest({ ip: '127.0.0.1', headers: { host: 'localhost:3333', 'user-agent': 'curl/8' } })).toBe(true);
+  });
+
+  it('a cross-site form post is refused by the auth gate when no password is set', () => {
+    const next = vi.fn() as unknown as NextFunction;
+    const res = mkRes();
+    authMiddleware(mkReq('127.0.0.1', { origin: 'https://evil.example' }), res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(403);
+  });
+});

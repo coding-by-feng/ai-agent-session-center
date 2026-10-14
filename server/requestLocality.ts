@@ -10,9 +10,17 @@
 // A request is local only when ALL of these hold:
 //   1. it did not arrive on the remote-only listener (see remoteListener.ts),
 //   2. it carries no proxy forwarding header,
-//   3. its peer address is loopback.
-// Anything else — including an unknown or empty address — is remote. Failing
-// closed is the right direction for a security gate.
+//   3. its peer address is loopback,
+//   4. it names this machine in Host (localhost / 127.0.0.1 / [::1]),
+//   5. any Origin it carries is one of those too, and
+//   6. the browser doesn't mark it cross-site.
+// 4–6 (AASC-26) stop a web page from passing as the Mac: a DNS-rebinding page
+// (its own domain re-resolved to 127.0.0.1) has a loopback socket but names its
+// own host, and a cross-site form post carries the foreign Origin. A forward
+// that adds no headers AND rewrites Host to loopback is indistinguishable from
+// the Mac: point such forwards at the remote-only listener.
+// Anything else — including an unknown or empty address or Host — is remote.
+// Failing closed is the right direction for a security gate.
 
 import type { IncomingHttpHeaders, Server } from 'http';
 import type { Socket } from 'net';
@@ -60,6 +68,33 @@ export function hasForwardingHeaders(headers: IncomingHttpHeaders | undefined): 
   return FORWARDING_HEADERS.some((name) => headers[name] !== undefined);
 }
 
+/** Names a browser uses for this machine. A rebinding page's Host is ITS own name, re-resolved to 127.0.0.1. */
+export const LOOPBACK_HOSTNAMES: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** Hostname of a Host header (`name`, `name:port`, `[v6]:port`), lowercased; null when malformed. */
+export function hostHeaderName(host: string | undefined): string | null {
+  const m = /^(\[[0-9a-f:.]+\]|[^:[\]\s]+)(?::\d{1,5})?$/i.exec(host ?? '');
+  return m ? m[1].toLowerCase() : null;
+}
+
+export function isLoopbackOrigin(origin: string): boolean {
+  try {
+    return LOOPBACK_HOSTNAMES.has(new URL(origin).hostname.toLowerCase());
+  } catch {
+    return false; // `null` (sandboxed frame, file://) or garbage
+  }
+}
+
+/** Host, Origin and Sec-Fetch-Site all say "a page or tool on this machine, talking to itself". */
+export function namesThisMachine(headers: IncomingHttpHeaders | undefined): boolean {
+  if (!headers) return false;
+  const host = hostHeaderName(typeof headers.host === 'string' ? headers.host : undefined);
+  if (!host || !LOOPBACK_HOSTNAMES.has(host)) return false;
+  const origin = headers.origin;
+  if (origin !== undefined && !isLoopbackOrigin(String(origin))) return false;
+  return String(headers['sec-fetch-site'] ?? '').toLowerCase() !== 'cross-site';
+}
+
 /** The fields this module reads, so Express requests, upgrade requests and test doubles all fit. */
 export interface LocalityRequest {
   ip?: string;
@@ -72,5 +107,6 @@ export function isLocalRequest(req: LocalityRequest): boolean {
   const socket = req.socket as Socket | undefined;
   if (socket && remoteOnlySockets.has(socket)) return false;
   if (hasForwardingHeaders(req.headers)) return false;
-  return isLoopbackAddress(req.ip || socket?.remoteAddress || '');
+  if (!isLoopbackAddress(req.ip || socket?.remoteAddress || '')) return false;
+  return namesThisMachine(req.headers);
 }

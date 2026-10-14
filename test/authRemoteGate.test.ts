@@ -34,7 +34,8 @@ function mkReq(ip: string, headers: Record<string, string> = {}): Request {
   return {
     ip,
     socket: { remoteAddress: ip },
-    headers,
+    // Every real request names a host; the Mac's own requests name localhost (AASC-26).
+    headers: { host: 'localhost:3333', ...headers },
     method: 'GET',
     originalUrl: '/api/sessions',
     cookies: undefined,
