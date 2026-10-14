@@ -18,7 +18,9 @@ const config: CapacitorConfig = {
   plugins: {
     CapacitorHttp: { enabled: false }, // the loaded UI keeps its own fetch; the shell calls native HTTP itself
     Keyboard: { resize: 'native' },
-    PushNotifications: { presentationOptions: ['badge', 'sound', 'alert'] },
+    // No system banner while the app is open: shell/src/foregroundPolicy.ts shows an
+    // in-app toast instead, or nothing when the user is already on that session (AASC-19).
+    PushNotifications: { presentationOptions: [] },
   },
 };
 

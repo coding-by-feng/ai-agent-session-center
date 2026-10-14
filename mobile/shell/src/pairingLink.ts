@@ -22,6 +22,11 @@ const BACKEND_CODE = /^[A-Za-z0-9_-]{16,64}$/;
 /** The backend must live under aasc.work; a QR can't point the phone anywhere else. */
 const BACKEND_HOST = /^(?:[a-z0-9-]+\.)*aasc\.work$/;
 
+/** Checked again before every backend call: a stored host must still be under aasc.work. */
+export function isBackendHost(host: string | null | undefined): boolean {
+  return typeof host === 'string' && BACKEND_HOST.test(host);
+}
+
 function ipv4(raw: string | null): number[] | null {
   if (!raw) return null;
   const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(raw);

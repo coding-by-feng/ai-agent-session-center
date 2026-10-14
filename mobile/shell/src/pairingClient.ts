@@ -8,6 +8,7 @@
 // single-use server nonce with HMAC-SHA256(key = SHA-256(token), nonce), so a
 // sniffed exchange on the home network can't be replayed.
 import type { PairingLink } from './pairingLink.js';
+import { field } from './http.js';
 
 export interface HttpResponse {
   status: number;
@@ -33,15 +34,6 @@ export type SessionResult =
   | { status: 'revoked' }
   | { status: 'unreachable' }
   | { status: 'error'; message: string };
-
-function field(data: unknown, path: string[]): unknown {
-  let cur: unknown = data;
-  for (const key of path) {
-    if (!cur || typeof cur !== 'object') return undefined;
-    cur = (cur as Record<string, unknown>)[key];
-  }
-  return cur;
-}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
