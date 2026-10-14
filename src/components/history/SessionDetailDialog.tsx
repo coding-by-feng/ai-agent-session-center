@@ -98,7 +98,7 @@ export default function SessionDetailDialog({ modalId, sessionId, listed, onClos
   );
 }
 
-function SessionDetailBody({ detail, now }: { detail: SessionDetailResponse; now: number }) {
+export function SessionDetailBody({ detail, now }: { detail: SessionDetailResponse; now: number }) {
   const [activeTab, setActiveTab] = useState('conversation');
   // Each Copy button is described by its entry's role and time ("Copy message,
   // Prompt 14:02"), so a screen-reader list of buttons is not N identical names.

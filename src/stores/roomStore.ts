@@ -22,6 +22,11 @@ export interface Room {
    *  existing rooms don't visibly reshuffle until the user actually
    *  reorders one for the first time. Never read by anything 3D. */
   listOrder?: number;
+  /** A colour the user picked (one of ROOM_COLOR_PALETTE, lib/roomColor.ts),
+   *  overriding the slot colour `roomIndex` gives. Undefined = the slot
+   *  colour. Picking a colour never touches `roomIndex`, so it can never move
+   *  the room in the 3D scene. */
+  color?: string;
 }
 
 const STORAGE_KEY = 'session-rooms';
@@ -58,6 +63,8 @@ interface RoomState {
   /** List-view display order only — see `Room.listOrder`. Never touches
    *  `roomIndex`, so this can never move a room in the 3D scene. */
   setListOrder: (roomId: string, listOrder: number | undefined) => void;
+  /** The room's own colour (a ROOM_COLOR_PALETTE entry); undefined = its slot colour. */
+  setRoomColor: (roomId: string, color: string | undefined) => void;
   migrateSession: (oldSessionId: string, newSessionId: string) => void;
   getRoomForSession: (sessionId: string) => Room | undefined;
   loadFromStorage: () => void;
@@ -180,6 +187,19 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       const rooms = state.rooms.map((r) =>
         r.id === roomId ? { ...r, listOrder } : r,
       );
+      saveToLocalStorage(rooms);
+      return { rooms };
+    }),
+
+  setRoomColor: (roomId, color) =>
+    set((state) => {
+      const rooms = state.rooms.map((r) => {
+        if (r.id !== roomId) return r;
+        const next: Room = { ...r, color };
+        // Back to the slot colour: no `color` key at all, as before one was picked.
+        if (color === undefined) delete next.color;
+        return next;
+      });
       saveToLocalStorage(rooms);
       return { rooms };
     }),

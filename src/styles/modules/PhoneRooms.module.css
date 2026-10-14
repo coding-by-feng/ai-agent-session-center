@@ -1,0 +1,235 @@
+/* PhoneRooms — the phone's "Move to room" and rooms sheets (AASC-20,
+   components/mobile/RoomSheets.tsx). Phone only. Every control is at least
+   44x44; a room's colour is always beside its name (the colour is never the
+   only thing that tells two rooms apart). */
+
+.sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 8px;
+}
+
+.lead {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.note {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.swatch,
+.swatchNone {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+}
+.swatch {
+  background: var(--swatch);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text-primary) 25%, transparent);
+}
+.swatchNone { border: 2px dashed var(--border-subtle-strong); }
+
+/* ---- Move to room: one-of-n rows ------------------------------------------ */
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+.option:hover { background: var(--bg-subtle); }
+.option:active { background: var(--bg-subtle-strong); }
+.option:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: -2px; }
+.option:disabled { opacity: 0.5; cursor: not-allowed; }
+.option[aria-pressed='true'] { border-color: var(--border-accent-strong); background: var(--bg-accent); }
+
+.optionName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionState {
+  flex: none;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+/* The current room says so in a word and a tick, not only the fill. */
+.option[aria-pressed='true'] .optionState::before {
+  content: '✓ ';
+  content: '✓ ' / '';
+}
+
+.inlineForm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.inlineForm > button { flex: none; min-height: 44px; }
+/* Two classes: beat FormControl's .control height and size in any load order.
+   16px: iOS zooms the page into a smaller field on focus. */
+.inlineForm .grow {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  font-size: 16px;
+}
+
+.alignStart { align-self: flex-start; min-height: 44px; }
+
+/* ---- Manage rooms: one card per room -------------------------------------- */
+
+.rooms {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.room {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border-subtle-strong);
+  border-left: 4px solid var(--room-color, var(--border-subtle-strong));
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+
+.roomHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.roomName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roomCount {
+  flex: none;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.roomActions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.roomActions > button { min-height: 44px; }
+
+.palette {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.paletteSwatch {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: inset 0 0 0 4px var(--bg-card);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 150ms ease, border-color 150ms ease;
+}
+.paletteSwatch:hover { border-color: var(--border-accent-strong); }
+.paletteSwatch:active { transform: scale(0.94); }
+.paletteSwatch:focus-visible { outline: 2px solid var(--accent-cyan); outline-offset: 2px; }
+.paletteSwatch:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Picked: a ring in the text colour, so it shows on every swatch and theme. */
+.paletteSwatch[aria-pressed='true'] { border-color: var(--text-primary); }
+
+.paletteDefault { min-height: 44px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .option,
+  .paletteSwatch { transition: none; }
+  .paletteSwatch:active { transform: none; }
+}
+
+/* ---- The room section of a session's actions sheet ------------------------ */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sectionHeading {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.current {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.sectionButtons {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+.sectionButtons > button { min-height: 44px; }

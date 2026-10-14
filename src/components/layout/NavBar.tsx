@@ -35,9 +35,9 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { to: '/', label: 'LIVE' },
-  // Agenda is a planning surface built around a wide multi-column task board;
-  // it is not a phone workflow, and it is the first thing to crowd the nav row.
-  { to: '/agenda', label: 'AGENDA', desktopOnly: true },
+  // On a phone AGENDA is its own one-column view (PhoneAgenda, AASC-20); it was
+  // desktop-only until then. The phone's nav row scrolls sideways.
+  { to: '/agenda', label: 'AGENDA' },
   { to: '/history', label: 'HISTORY' },
   { to: '/prompts', label: 'PROMPTS' },
   { to: '/queue', label: 'QUEUE' },

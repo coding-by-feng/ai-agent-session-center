@@ -36,85 +36,21 @@ import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { uniqueProjectOptions } from '@/lib/projectOptions';
 import { canRetry, readJson } from '@/lib/requestJson';
 import { clipToMatch, normalizeQuery, splitHighlight } from '@/lib/textHighlight';
-import type { DistinctProject, PromptKind, PromptSearchResponse, PromptTraceRow } from '@/types';
+import type { DistinctProject, PromptSearchResponse, PromptTraceRow } from '@/types';
+import { useIsMobile } from '@/lib/platform';
+import {
+  INITIAL_PROMPT_FILTERS as INITIAL_FILTERS,
+  PROMPTS_PAGE_SIZE as PAGE_SIZE,
+  PROMPT_CLAMP_CHARS as CLAMP_CHARS,
+  PROMPT_KINDS as KINDS,
+  buildPromptParams as buildParams,
+  formatPromptClock as formatClock,
+  formatPromptExact as formatExact,
+  groupPromptsByDay as groupByDay,
+  type PromptFilters as Filters,
+} from '@/lib/promptTraceQuery';
+import PhonePrompts from '@/components/mobile/views/PhonePrompts';
 import styles from '@/styles/modules/Prompts.module.css';
-
-const PAGE_SIZE = 50;
-/** Longer prompts render clamped with a "show all" toggle. */
-const CLAMP_CHARS = 320;
-
-interface Filters {
-  query: string;
-  project: string;
-  kind: PromptKind;
-  dateFrom: string;
-  dateTo: string;
-  page: number;
-}
-
-const INITIAL_FILTERS: Filters = {
-  query: '',
-  project: '',
-  kind: 'mine',
-  dateFrom: '',
-  dateTo: '',
-  page: 1,
-};
-
-const KINDS: { key: PromptKind; label: string; title: string }[] = [
-  { key: 'mine', label: 'Mine', title: 'Everything you sent — prose and commands' },
-  { key: 'cmd', label: '/Cmd', title: 'Slash commands and Codex $skill invocations' },
-  { key: 'agent', label: 'Agent', title: 'Harness-injected turns you never typed (task notifications, reminders)' },
-  { key: 'all', label: 'All', title: 'Every recorded row, unfiltered' },
-];
-
-function buildParams(filters: Filters): string {
-  const params = new URLSearchParams();
-  if (filters.query) params.set('query', filters.query);
-  if (filters.project) params.set('project', filters.project);
-  if (filters.kind) params.set('kind', filters.kind);
-  // Both ends LOCAL time. `new Date('YYYY-MM-DD')` is UTC midnight: at GMT+13
-  // "From Oct 1" silently dropped Oct 1's prompts before 13:00.
-  if (filters.dateFrom) params.set('dateFrom', String(new Date(`${filters.dateFrom}T00:00:00`).getTime()));
-  if (filters.dateTo) params.set('dateTo', String(new Date(`${filters.dateTo}T23:59:59`).getTime()));
-  params.set('page', String(filters.page));
-  params.set('pageSize', String(PAGE_SIZE));
-  return params.toString();
-}
-
-/** "Wed, Oct 7" — the year is implied for the current year, named for any other. */
-function formatDayKey(ts: number): string {
-  const date = new Date(ts);
-  const sameYear = date.getFullYear() === new Date().getFullYear();
-  return date.toLocaleDateString('en-US', {
-    weekday: 'short', day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }),
-  });
-}
-
-// `hourCycle: 'h23'`, not `hour12: false`: en-US + hour12:false prints midnight
-// as "24:05" on engines that still map it to h24.
-function formatClock(ts: number): string {
-  return new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-}
-
-/** The seconds the minutes-only clock drops, kept for the row's hover title. */
-function formatExact(ts: number): string {
-  return new Date(ts).toLocaleTimeString('en-US', {
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-  });
-}
-
-/** Group consecutive rows by calendar day, preserving server order. */
-function groupByDay(prompts: PromptTraceRow[]): { day: string; rows: PromptTraceRow[] }[] {
-  const groups: { day: string; rows: PromptTraceRow[] }[] = [];
-  for (const row of prompts) {
-    const day = formatDayKey(row.timestamp);
-    const last = groups[groups.length - 1];
-    if (last && last.day === day) last.rows.push(row);
-    else groups.push({ day, rows: [row] });
-  }
-  return groups;
-}
 
 function Highlighted({ text, query }: { text: string; query: string }) {
   if (!query) return <>{text}</>;
@@ -280,7 +216,15 @@ function PromptRow({
 // View
 // ---------------------------------------------------------------------------
 
+/**
+ * The PROMPTS tab. A phone gets its own one-column view (PhonePrompts,
+ * AASC-20), which also keeps a remote device to one shared session's trace.
+ */
 export default function PromptsView() {
+  return useIsMobile() ? <PhonePrompts /> : <DesktopPrompts />;
+}
+
+function DesktopPrompts() {
   const navigate = useNavigate();
   const [filters, setFilters] = useState<Filters>(INITIAL_FILTERS);
   // The ids only, compared shallowly: reading the sessions Map re-rendered the

@@ -39,3 +39,13 @@ describe('roomColor', () => {
     expect(roomColor({ roomIndex: -1 })).toBe(ROOM_COLOR_PALETTE[7]);
   });
 });
+
+describe('roomColor — a picked colour (AASC-20)', () => {
+  it('uses the colour the user picked over the slot colour', () => {
+    expect(roomColor({ roomIndex: 0, color: ROOM_COLOR_PALETTE[5] })).toBe(ROOM_COLOR_PALETTE[5]);
+  });
+
+  it('ignores a picked value that is not a palette entry (rooms arrive from other devices)', () => {
+    expect(roomColor({ roomIndex: 2, color: 'red; background: url(x)' })).toBe(ROOM_COLOR_PALETTE[2]);
+  });
+});

@@ -8,7 +8,11 @@ interface AgendaState {
 
   fetchTasks: () => Promise<void>;
   createTask: (data: Omit<AgendaTask, 'id' | 'completed' | 'completedAt' | 'createdAt' | 'updatedAt'>) => Promise<void>;
-  updateTask: (id: string, data: Partial<Pick<AgendaTask, 'title' | 'description' | 'priority' | 'tags' | 'dueDate'>>) => Promise<void>;
+  /** `dueDate: null` clears the date (the server's update schema takes null to mean "none"). */
+  updateTask: (
+    id: string,
+    data: Partial<Pick<AgendaTask, 'title' | 'description' | 'priority' | 'tags'>> & { dueDate?: string | null },
+  ) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   toggleTask: (id: string) => Promise<void>;
   setFilter: (partial: Partial<AgendaFilter>) => void;
@@ -109,6 +113,7 @@ export const useAgendaStore = create<AgendaState>((set, get) => ({
     const updated: AgendaTask = {
       ...prev,
       ...data,
+      dueDate: data.dueDate === null ? undefined : (data.dueDate ?? prev.dueDate),
       updatedAt: new Date().toISOString(),
     };
     set((state) => {

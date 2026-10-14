@@ -1,6 +1,7 @@
 /**
  * SessionActionsSheet — one session's touch actions on a phone (AASC-18), from
- * its row in the session drawer: its label, its remark, and fork / clone.
+ * its row in the session drawer: its label, its remark, its room (AASC-20:
+ * move it, manage rooms), and fork / clone.
  *
  * The desktop does these from the header's tag and note icons (a cursor-placed
  * label popover, an inline one-line editor) and the terminal toolbar; on a
@@ -20,6 +21,7 @@ import { copySession, type CopyKind } from '@/lib/sessionCopy';
 import { detectCli } from '@/lib/cliDetect';
 import { sessionDisplayTitle } from '@/lib/sessionDisplayTitle';
 import { ROOM_COLOR_PALETTE } from '@/lib/roomColor';
+import { RoomSection } from './RoomSheets';
 import styles from '@/styles/modules/SessionDrawer.module.css';
 
 /** The longest remark the header's own editor accepts. */
@@ -176,6 +178,7 @@ export default function SessionActionsSheet({ sessionId, onClose, onOpened }: Se
         <div key={session.sessionId} className={styles.actions}>
           <LabelSection sessionId={session.sessionId} />
           <RemarkSection sessionId={session.sessionId} remark={session.remark ?? ''} />
+          <RoomSection sessionId={session.sessionId} />
           <CopySection
             sessionId={session.sessionId}
             forkable={cli === 'claude' || cli === 'codex'}

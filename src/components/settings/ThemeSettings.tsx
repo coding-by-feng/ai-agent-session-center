@@ -2,7 +2,16 @@ import { useSettingsStore, THEMES, type ThemeName } from '@/stores/settingsStore
 import { ROBOT_MODEL_TYPES, getModelLabel, getModelDescription, type RobotModelType } from '@/lib/robotModelMeta';
 import styles from '@/styles/modules/Settings.module.css';
 
-export default function ThemeSettings() {
+interface ThemeSettingsProps {
+  /**
+   * The phone's Appearance (AASC-20): theme, font size and scanlines only. The
+   * 3D character model and its animation have no phone meaning (a phone never
+   * shows the Cyberdrome).
+   */
+  phone?: boolean;
+}
+
+export default function ThemeSettings({ phone = false }: ThemeSettingsProps) {
   const themeName = useSettingsStore((s) => s.themeName);
   const fontSize = useSettingsStore((s) => s.fontSize);
   const scanlineEnabled = useSettingsStore((s) => s.scanlineEnabled);
@@ -41,6 +50,7 @@ export default function ThemeSettings() {
       </div>
 
       {/* Character Model Picker */}
+      {!phone && (
       <div className={styles.section}>
         <h4>3D Character Model</h4>
         <p style={{ fontSize: '10px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
@@ -92,6 +102,7 @@ export default function ThemeSettings() {
           })}
         </div>
       </div>
+      )}
 
       {/* Font Size */}
       <div className={styles.section}>
@@ -137,6 +148,7 @@ export default function ThemeSettings() {
       </div>
 
       {/* Animation Controls */}
+      {!phone && (
       <div className={styles.section}>
         <h4>Animation</h4>
         <label style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px', display: 'block' }}>
@@ -171,6 +183,7 @@ export default function ThemeSettings() {
           <span style={{ minWidth: '40px', textAlign: 'right' }}>{animationSpeed}%</span>
         </div>
       </div>
+      )}
     </div>
   );
 }
