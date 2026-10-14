@@ -24,6 +24,9 @@ import { checkTerminalCapacity } from './terminalCapacity.js';
 import { findLiveCodexPidPeers } from './sessionKillPolicy.js';
 import { getTeam, readTeamConfig } from './teamManager.js';
 import { listKnownProjects } from './knownProjects.js';
+import { appendPausedItem } from './sessionQueueCodec.js';
+import { createQueueSentRouter, sqliteQueueSentStore, type QueueSentStore } from './queueSent.js';
+import { createPromptSnippetRouter, sqliteSnippetStore, type PromptSnippetStore } from './promptSnippets.js';
 import { getStats as getHookStats, resetStats as resetHookStats } from './hookStats.js';
 import * as db from './db.js';
 import { saveNoteMedia, resolveNoteMedia, deleteNoteMediaForSession, MAX_MEDIA_BYTES } from './noteMedia.js';
@@ -1571,6 +1574,70 @@ router.put('/sessions/:id/queue', async (req: Request, res: Response) => {
  * explicit "carry on" for when they don't want to type one. Lives under
  * /sessions/:id so the remote-visibility gate applies (a hidden session 404s).
  */
+// ---- Shared from the Mac (AASC-20): appended items, sent-prompt records, saved prompts ----
+
+/** Images a shared item may carry: what Claude and Codex read, at most 4 of about 2 MB each. */
+const SHARED_IMAGE_DATA_URL = /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/;
+const queueAppendSchema = z.object({
+  text: z.string().max(64 * 1024).transform((s) => s.trim()).optional(),
+  images: z.array(z.object({
+    name: z.string().max(120).transform((s) => s.replace(/[\x00-\x1F\x7F/\\]/g, '').trim() || 'shared-image'),
+    dataUrl: z.string().max(2_900_000).regex(SHARED_IMAGE_DATA_URL),
+  })).max(4).optional(),
+})
+  .refine((b) => Boolean(b.text) || Boolean(b.images?.length), { message: 'Share some text or an image' })
+  // The whole queue syncs as one payload (MAX_QUEUE_PAYLOAD_BYTES): leave room for the rest of it.
+  .refine((b) => (b.images ?? []).reduce((n, i) => n + i.dataUrl.length, 0) <= 6_000_000, { message: 'The images are too large together' });
+
+/**
+ * Add one prompt to a session's queue, PAUSED (`disabled`): text shared from
+ * another app (the phone's share sheet) must never run on its own. A whole-queue
+ * PUT would race the device that holds the queue; this reads, appends and writes
+ * in one synchronous step, then broadcasts like the PUT does.
+ */
+router.post('/sessions/:id/queue/items', async (req: Request, res: Response) => {
+  const sessionId = str(req.params.id);
+  const body = validateBody(queueAppendSchema, req.body, res);
+  if (!body) return;
+  const current = db.getSessionQueue(sessionId);
+  const items = appendPausedItem(current?.items ?? [], sessionId, body.text ?? '', Date.now(), body.images ?? []);
+  if (JSON.stringify(items).length > MAX_QUEUE_PAYLOAD_BYTES) {
+    res.status(413).json({ success: false, error: 'This queue is full; remove some items first' });
+    return;
+  }
+  const record = db.upsertSessionQueue(sessionId, items, current?.automation ?? null);
+  const { broadcast } = await import('./wsManager.js');
+  broadcast({
+    type: WS_TYPES.QUEUE_UPDATE,
+    sessionId,
+    items: record.items,
+    automation: record.automation,
+    updatedAt: record.updatedAt,
+    originClientId: null,
+  });
+  res.json({ ok: true, updatedAt: record.updatedAt });
+});
+
+// Opened on first use: tests mock db.js without the handle, and nothing should
+// touch SQLite at import time.
+let queueSentStore: QueueSentStore | null = null;
+let snippetStore: PromptSnippetStore | null = null;
+
+router.use(createQueueSentRouter({
+  store: () => (queueSentStore ??= sqliteQueueSentStore(db.dbHandle())),
+  resolveSessionId: (id) => resolveSessionId(id) ?? id,
+  broadcast: (msg) => {
+    void import('./wsManager.js').then(({ broadcast }) => broadcast({ type: WS_TYPES.QUEUE_SENT, ...msg }));
+  },
+}));
+
+router.use(createPromptSnippetRouter({
+  store: () => (snippetStore ??= sqliteSnippetStore(db.dbHandle())),
+  broadcast: (list) => {
+    void import('./wsManager.js').then(({ broadcast }) => broadcast({ type: WS_TYPES.SNIPPETS_UPDATE, ...list }));
+  },
+}));
+
 router.post('/sessions/:id/queue/resume', (req: Request, res: Response) => {
   const id = str(req.params.id);
   if (!getSession(id)) { res.status(404).json({ error: 'Session not found' }); return; }

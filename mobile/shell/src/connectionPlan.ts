@@ -15,6 +15,8 @@ export interface PairedServer {
   tailnet: string | null;
   /** The user allowed unencrypted home-network connections to this Mac. */
   lanAllowed: boolean;
+  /** This Mac's backend device id from the pairing link (`md`), which every push it sends carries. */
+  backendDeviceId?: string | null;
 }
 
 export interface Candidate {

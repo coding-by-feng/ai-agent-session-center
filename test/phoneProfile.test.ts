@@ -102,6 +102,8 @@ describe('phoneRuleFor', () => {
     ['POST', '/sessions/abc/kill'], ['POST', '/sessions/abc/fork'], ['POST', '/sessions/abc/queue/resume'],
     ['PUT', '/sessions/abc/title'], ['GET', '/db/sessions/abc'], ['POST', '/db/sessions/abc/notes'],
     ['PUT', '/db/notes/4'], ['GET', '/note-media/abc'], ['GET', '/agenda'],
+    ['GET', '/sessions/abc/queue/sent'], ['POST', '/sessions/abc/queue/sent'],
+    ['GET', '/snippets'], ['POST', '/snippets'], ['PATCH', '/snippets/3'], ['DELETE', '/snippets/3'], ['POST', '/snippets/3/use'],
   ])('lets a phone %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBe('allow');
   });
@@ -111,6 +113,7 @@ describe('phoneRuleFor', () => {
     expect(phoneRuleFor('POST', '/terminals/t1/write')).toBe('type');
     expect(phoneRuleFor('GET', '/commands')).toBe('commands');
     expect(phoneRuleFor('POST', '/queue-images')).toBe('upload');
+    expect(phoneRuleFor('POST', '/sessions/abc/queue/items')).toBe('upload');
     expect(phoneRuleFor('POST', '/db/sessions/abc/note-media')).toBe('upload');
     expect(phoneRuleFor('GET', '/files/read')).toBe('files');
     expect(phoneRuleFor('GET', '/files/resolve')).toBe('files');
@@ -129,6 +132,7 @@ describe('phoneRuleFor', () => {
     ['POST', '/terminals/register'], ['POST', '/terminals/t1/prefill-output'],
     ['GET', '/teams/x/config'], ['POST', '/teams/x/members/y/terminal'],
     ['GET', '/db/sessions'], ['GET', '/db/search'], ['GET', '/db/projects'], ['DELETE', '/db/sessions/abc'],
+    ['POST', '/snippets/import'],
     ['GET', '/a-route-added-later'],
   ])('refuses a phone %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBeNull();

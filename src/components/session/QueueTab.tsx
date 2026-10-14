@@ -35,7 +35,7 @@ import {
 } from '@/lib/queueScheduler';
 import { parseHHMM } from '@/lib/timePicker';
 import { sendPromptToTerminal, submitDelayFor } from '@/lib/terminalSend';
-import { recordQueueSent } from '@/lib/queueSentLog';
+import { recordQueueSent } from '@/stores/queueSentStore';
 import { useSessionStore } from '@/stores/sessionStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useQueueHistoryStore } from '@/stores/queueHistoryStore';
@@ -433,7 +433,7 @@ export default function QueueTab({
         return false;
       }
       // Same record as the scheduler's sends, so the CONVERSATION tab badges "send now" too.
-      if (autoEnter) recordQueueSent({ text: item.text.replace(/\\n/g, '\n'), sentAt: Date.now() });
+      if (autoEnter) recordQueueSent(item.sessionId, { text: item.text.replace(/\\n/g, '\n'), sentAt: Date.now() });
       return true;
     },
     [terminalId, uploadImages, autoEnter],

@@ -1,9 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   appendQueueSent,
   isQueueSent,
-  readQueueSentLog,
-  recordQueueSent,
   QUEUE_SENT_CAP,
   type QueueSent,
 } from './queueSentLog';
@@ -66,29 +64,5 @@ describe('isQueueSent', () => {
 
   it('matches a queued slash command recorded as "name args"', () => {
     expect(isQueueSent([{ text: '/effort high', sentAt: T }], '/effort high', T + 500)).toBe(true);
-  });
-});
-
-describe('recordQueueSent / readQueueSentLog', () => {
-  beforeEach(() => {
-    localStorage.clear();
-  });
-
-  it('persists records so a reload still knows which prompts the queue sent', () => {
-    recordQueueSent({ text: 'hello', sentAt: T });
-    expect(readQueueSentLog()).toEqual([{ text: 'hello', sentAt: T }]);
-  });
-
-  it('normalizes hand-edited records on read, and drops malformed ones', () => {
-    localStorage.setItem(
-      'aasc.queueSentLog.v1',
-      JSON.stringify([{ text: '  two\n words ', sentAt: T }, { text: 1, sentAt: T }, 'junk']),
-    );
-    expect(readQueueSentLog()).toEqual([{ text: 'two words', sentAt: T }]);
-  });
-
-  it('reads an empty log from corrupt storage instead of throwing', () => {
-    localStorage.setItem('aasc.queueSentLog.v1', '{not json');
-    expect(readQueueSentLog()).toEqual([]);
   });
 });

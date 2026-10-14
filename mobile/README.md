@@ -1,6 +1,6 @@
 # AASC phone app (Android + iOS)
 
-Status (2026-10-15, AASC-17): **foundation only, not built into an app yet.**
+Status (2026-10-15, AASC-17 + the TypeScript of AASC-19 and AASC-21): **foundation only, not built into an app yet.**
 
 | Part | State |
 |---|---|
@@ -11,6 +11,63 @@ Status (2026-10-15, AASC-17): **foundation only, not built into an app yet.**
 | Native projects (`ios/`, `android/`) | Not generated: this Mac has no Xcode, CocoaPods or Android SDK |
 | Website: `/.well-known/apple-app-site-association`, `assetlinks.json`, `/pair` | Not done: needs the Apple Team ID and the Android signing-key SHA-256 |
 | Trial on a real iPhone and Android phone | Not done |
+
+### AASC-19 push notifications
+
+| Part | TypeScript (done, tested) | Native glue (remaining) |
+|---|---|---|
+| Permission + registration | `pushRegistration.ts`: never prompts at first launch; asks once after the Mac approves the pairing, again only from settings; re-sends the token on every launch and on rotation (`PUT /v1/push/targets/self`, backend Bearer token); `DELETE` on unpair; UI states incl. denied, no backend, `push_unconfigured`, revoked | `PushPlatform` + `KeyValueStore` + `HttpRequester`; APNs environment from the entitlement; Push / Remote notifications / Time Sensitive capabilities; `POST_NOTIFICATIONS` (Android 13+); Firebase `google-services.json` |
+| Payload | `pushPayload.ts`: reads the APNs `aasc` dict and the FCM data map; generic mode → generic text | none |
+| Presentation | `pushChannels.ts`: Android channels (ids = backend `FCM_CHANNELS`, approval/input high, finished/interrupted default, lock screen private); iOS thread id, interruption level, categories (no actions) | `createChannel` ×4 at startup; register the iOS categories (`UNUserNotificationCenter.setNotificationCategories`) |
+| Tap | `notificationTap.ts`: picks the Mac, signs in, checks the session is still listed, deep-links `?session=…&tab=terminal` (approval/input) or `conversation` (finished/interrupted); gone/hidden → LIVE + message; offline / pending / revoked → shell screens | deliver taps (cold start included); set the session cookie before navigating |
+| Foreground | `foregroundPolicy.ts`: nothing when the user is on that session, otherwise an in-app toast; `capacitor.config.ts` turns the system banner off in the foreground | the loaded UI reports the session it shows, and shows the toast |
+
+### AASC-21 extras
+
+| Part | TypeScript (done, tested) | Native glue (remaining) |
+|---|---|---|
+| M5 Share to queue | `shareToQueue.ts`: cleans shared text (line endings, terminal escapes, control, bidi and invisible tag/zero-width characters an agent would still read; trimmed), refuses over 64 KB instead of cutting; lists shared, non-ended sessions (last used first); `POST /api/sessions/:id/queue/items` lands **paused** and says so ("Added paused — turn it on in the queue to send"); 404 not shared, 413 queue full, offline, pending, unpaired — each says nothing was added | iOS Share Extension / Android `ACTION_SEND` hand the text to the app (`ShareInbox`); the target picker screen; images (KRT scope, EXIF stripped) need an image route on the Mac first |
+| M6 Widget | `widgetModel.ts`: sessions → "N sessions need you" (approval + input, muted excluded), most urgent title (32 characters, none in generic mode), `updatedAt`; push → model reducer; JSON for the widget under `aasc.widget.v1` (≤ 16 KB) | WidgetKit / Glance widget that only renders `headline`, `top.title`, `top.label`, `updatedAt`; `WidgetStore` write + timeline reload |
+| M4 Biometric lock | `biometricLock.ts`: cold start, reboot, resume after N minutes (0/1/5/15/60, default 5) lock; never during an in-flight tap (max 30 s); clock change locks; step-up before kill, room kill-all, restart | `BiometricGate` prompt, vault items bound to biometrics, boot id, App `pause`/`resume`, settings screen |
+| M8 Haptics | `haptics.ts`: approval/input → warning, finished → success, interrupted → error (same transitions as the Mac's push rules); foreground only, not muted, not within 4 s of the phone's own action, 1.5 s global gap, 15 s per session | the Mac UI feeds session transitions and own actions through `nativeBridge`; `Haptics.notification` |
+| M7 Live Activity (optional) | `liveActivity.ts`: working / approval / input counts + one watched session with `statusSince` (elapsed drawn natively); start/update/end plan, updates ≤ 1 per minute, end at once | ActivityKit widget + `LiveActivity` plugin; Android ongoing notification |
+
+## Native hooks
+
+Everything below is an interface in `shell/src`; the native layer (or a thin Capacitor wrapper) implements it, and the TS modules only ever call these.
+
+| Interface (file) | Implemented with | Notes |
+|---|---|---|
+| `PushPlatform` (`pushRegistration.ts`) | `@capacitor/push-notifications`: `checkPermissions`, `requestPermissions`, `register`, `unregister`, `addListener('registration' \| 'registrationError')`; `Capacitor.getPlatform()` | `environment()`: iOS reads the `aps-environment` entitlement (debug = `sandbox`, TestFlight/App Store = `production`), Android returns `production` |
+| `KeyValueStore` (`pushRegistration.ts`) | `@capacitor/preferences` `get`/`set` | Non-secret only (the "asked once" flag, session→Mac hints) |
+| `HttpRequester` (`http.ts`) | `CapacitorHttp.request({ method, url, headers, data })` | Native HTTP: no CORS, no WebView cookies. Send the headers as given (JSON calls carry `Content-Type: application/json`: Android writes no body without it); omit `data` when `body` is absent (the backend's DELETE refuses a body). The pairing `HttpClient.post` must set the JSON content type itself |
+| `BackendCredential` source (`pushRegistration.ts`) | `DeviceVault` | One per Mac pairing that carried a backend code |
+| Push arrivals | `addListener('pushNotificationReceived', n)` → `parsePush(n)` → `decideForeground(...)` | Foreground only; the system banner is off (`presentationOptions: []`) |
+| Push taps | `addListener('pushNotificationActionPerformed', a)` → `parsePush(a.notification)` → `openFromTap(...)` | Capacitor keeps the tap until a listener exists, so a cold start still gets it; the listener must live in the page that is loaded (shell, or the Mac UI forwarding to the shell) |
+| `TapDeps.signIn` (`notificationTap.ts`) | `openSession` + `CapacitorCookies.setCookie({ url: origin, key: 'auth_token', value })` | The tap outcome never carries the token |
+| Android channels | `PushNotifications.createChannel(c)` for each of `ANDROID_CHANNELS` at startup | Importance is frozen once a channel exists: a change needs a new id (and the backend's `FCM_CHANNELS`) |
+| iOS categories | `UNNotificationCategory(identifier:, actions: [], intentIdentifiers: [], hiddenPreviewsBodyPlaceholder:, options: [])` for each of `IOS_CATEGORIES` | The backend sends `category` (see Decisions) |
+| `ViewState` (`foregroundPolicy.ts`) | The Mac UI's `src/lib/nativeBridge.ts` reports `{ serverId, sessionId }` on every selection change | Not in `src/` yet |
+| In-app toast | The Mac UI's `ToastContainer` through `nativeBridge`, or the shell's own when no Mac page is loaded | Tapping it calls `openFromTap` with the same arrival |
+| `ShareInbox` (`shareToQueue.ts` caller) | iOS Share Extension writes `{ text }` to the app group under `aasc.share.pending` and opens the app; Android `ACTION_SEND` (`text/plain`) delivers `EXTRA_TEXT` to the main activity | The extension never talks to a Mac; the app picks the session and calls `shareToQueue` |
+| `WidgetStore` (`widgetModel.ts`) | iOS `UserDefaults(suiteName: "group.work.aasc.mobile").set(json, forKey: "aasc.widget.v1")` + `WidgetCenter.shared.reloadAllTimelines()`; Android `getSharedPreferences("aasc_widget")` + `AppWidgetManager` update | Writes `serializeWidgetModel(...)`; the widget parses and renders, no logic of its own |
+| `BiometricGate` (`biometricLock.ts`) | iOS `LAContext.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics)`; Android `BiometricPrompt` | Called when `decideLock` says lock, and when `needsStepUp` says so |
+| Boot id (`biometricLock.ts`) | iOS `sysctl kern.boottime`; Android `Settings.Global.BOOT_COUNT` | Any value that changes on every reboot |
+| App lifecycle (`biometricLock.ts`) | `@capacitor/app` `addListener('pause' \| 'resume')` (not `appStateChange`: the biometric prompt itself bounces it) | `pause` → `onBackground`; `resume` → `decideLock('resume', …)` |
+| Haptics (`haptics.ts`) | `@capacitor/haptics` `Haptics.notification({ type: NotificationType.Warning \| Success \| Error })` | The Mac UI calls it through `nativeBridge` with `decideHaptic`'s answer |
+| `LiveActivity` (`liveActivity.ts`, optional) | ActivityKit `Activity.request / update / end` with `LiveActivityState` as the content state; Android ongoing notification + `Chronometer` from `watched.statusSince` | Follows `planLiveActivity`; push-driven updates need the backend's live-activity tokens (not built) |
+
+## Decisions (taken 2026-10-15, on the recommendations)
+
+1. **Which Mac sent a push: done.** The backend adds `aasc.mac` / `data.mac` (the asking Mac's backend device id); the
+   pairing link carries it as `md=`; a paired Mac keeps it as `PairedServer.backendDeviceId`, and a tap goes to that Mac only.
+2. **iOS categories: done.** The backend sends `aps.category = AASC_<KIND>` (no actions).
+3. **Interrupted is high importance**, as the plan and AASC-19 say (decided before any Android install).
+4. **Widget while the app is closed: open.** Push-driven updates need a native notification extension (iOS) and
+   data-only FCM messages (Android). Until then the widget refreshes when the app opens.
+5. **Shared images: done.** `POST /api/sessions/:id/queue/items` takes `images` (PNG, JPEG, WebP, GIF; at most 4,
+   about 2 MB each, 6 MB together), lands paused like text; the native layer converts HEIC to JPEG and strips location.
+6. **Over-long shared text is refused, not cut** (a prompt cut in the middle can mean something else).
 
 ## What's needed from you before the next step
 
@@ -29,4 +86,4 @@ npm run shell:build && npm run sync
 npm run ios      # or: npm run android
 ```
 
-Tests for the shell logic run with the main suite (`npx vitest run --project mobile`).
+Tests for the shell logic run with the main suite (`npx vitest run --project mobile`); the shell's types: `npx tsc --noEmit -p mobile/tsconfig.json` (not part of `typecheck:all`).

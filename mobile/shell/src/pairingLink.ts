@@ -13,14 +13,22 @@ export interface PairingLink {
   macCode: string;
   backendHost: string | null;
   backendCode: string | null;
+  /** The Mac's own backend device id (`md`): every push it asks for names it (aasc.mac). */
+  macDeviceId: string | null;
 }
 
 const LINK_ORIGIN = 'https://aasc.work';
 const LINK_PATH = '/pair';
 const MAC_CODE = /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{10}$/;
 const BACKEND_CODE = /^[A-Za-z0-9_-]{16,64}$/;
+const MAC_DEVICE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 /** The backend must live under aasc.work; a QR can't point the phone anywhere else. */
 const BACKEND_HOST = /^(?:[a-z0-9-]+\.)*aasc\.work$/;
+
+/** Checked again before every backend call: a stored host must still be under aasc.work. */
+export function isBackendHost(host: string | null | undefined): boolean {
+  return typeof host === 'string' && BACKEND_HOST.test(host);
+}
 
 function ipv4(raw: string | null): number[] | null {
   if (!raw) return null;
@@ -70,6 +78,7 @@ export function parsePairingLink(input: string): PairingLink | null {
   const macCode = p.get('mc') ?? '';
   const backendHost = p.get('be');
   const backendCode = p.get('bc');
+  const macDeviceId = p.get('md');
 
   if (!name) return null;
   if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
@@ -90,5 +99,7 @@ export function parsePairingLink(input: string): PairingLink | null {
     macCode,
     backendHost,
     backendCode,
+    // Only with a backend code (it names the Mac's backend device); anything malformed is ignored.
+    macDeviceId: backendHost !== null && macDeviceId !== null && MAC_DEVICE_ID.test(macDeviceId) ? macDeviceId : null,
   };
 }

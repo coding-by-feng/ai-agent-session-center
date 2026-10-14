@@ -1,82 +1,121 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 /**
- * In-memory stand-in for the `promptSnippets` Dexie table. Only the four calls
- * the store makes are implemented — enough to assert the store's own rules
- * (dedupe, ordering, counters) without booting IndexedDB.
+ * The saved-prompt library is kept on the Mac (AASC-20). A small fake of the
+ * Mac's /api/snippets routes stands in for the server, so these tests assert
+ * the store's own rules (trim, dedupe, ordering, counters, revisions, the
+ * one-time import) without a network.
  */
-interface FakeRow {
+interface ServerSnippet {
   id: number;
   text: string;
   label: string;
   useCount: number;
-  lastUsedAt?: number;
+  lastUsedAt: number | null;
   createdAt: number;
 }
 
-const rows = new Map<number, FakeRow>();
-let nextId = 1;
-/** Set to make the next write throw, for the failure-path assertions. */
-let failWrites = false;
-
-const table = {
-  add: vi.fn(async (row: Omit<FakeRow, 'id'>) => {
-    if (failWrites) throw new Error('write failed');
-    const id = nextId++;
-    rows.set(id, { ...row, id });
-    return id;
-  }),
-  update: vi.fn(async (id: number, patch: Partial<FakeRow>) => {
-    if (failWrites) throw new Error('write failed');
-    const current = rows.get(id);
-    if (!current) return 0;
-    rows.set(id, { ...current, ...patch });
-    return 1;
-  }),
-  delete: vi.fn(async (id: number) => {
-    if (failWrites) throw new Error('write failed');
-    rows.delete(id);
-  }),
-  orderBy: vi.fn(() => ({
-    reverse: () => ({
-      toArray: async () => {
-        if (failWrites) throw new Error('read failed');
-        return [...rows.values()].sort((a, b) => b.createdAt - a.createdAt);
-      },
-    }),
-  })),
+const server = {
+  rows: new Map<number, ServerSnippet>(),
+  nextId: 1,
+  revision: 100,
+  clock: 1_000,
+  /** Set to make every request fail, for the offline paths. */
+  down: false,
+  imports: [] as unknown[],
 };
 
-vi.mock('@/lib/db', () => ({ db: { promptSnippets: table } }));
-
-const { usePromptSnippetStore } = await import('./promptSnippetStore');
-
-function reset() {
-  rows.clear();
-  nextId = 1;
-  failWrites = false;
-  vi.clearAllMocks();
-  usePromptSnippetStore.setState({ snippets: [], loaded: false });
+function list() {
+  return {
+    revision: server.revision,
+    snippets: [...server.rows.values()].sort((a, b) => b.createdAt - a.createdAt || b.id - a.id),
+  };
 }
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+}
+
+const fetchMock = vi.fn(async (url: string, init?: RequestInit): Promise<Response> => {
+  if (server.down) throw new Error('offline');
+  const method = init?.method ?? 'GET';
+  const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
+  const changed = () => { server.revision++; return list(); };
+  if (url === '/api/snippets' && method === 'GET') return json(list());
+  if (url === '/api/snippets' && method === 'POST') {
+    const text = String(body.text);
+    const hit = [...server.rows.values()].find((r) => r.text === text);
+    if (hit) return json({ id: hit.id, duplicate: true, ...list() });
+    const id = server.nextId++;
+    server.rows.set(id, { id, text, label: String(body.label ?? ''), useCount: 0, lastUsedAt: null, createdAt: server.clock++ });
+    return json({ id, duplicate: false, ...changed() });
+  }
+  if (url === '/api/snippets/import' && method === 'POST') {
+    server.imports.push(body.snippets);
+    for (const s of body.snippets as ServerSnippet[]) {
+      if ([...server.rows.values()].some((r) => r.text === s.text)) continue;
+      const id = server.nextId++;
+      server.rows.set(id, { ...s, id });
+    }
+    return json({ added: 1, ...changed() });
+  }
+  const m = url.match(/^\/api\/snippets\/(\d+)(\/use)?$/);
+  if (m) {
+    const id = Number(m[1]);
+    const row = server.rows.get(id);
+    if (method === 'DELETE') { server.rows.delete(id); return json(changed()); }
+    if (!row) return json({ error: 'No such saved prompt' }, 404);
+    if (m[2]) server.rows.set(id, { ...row, useCount: row.useCount + 1, lastUsedAt: server.clock++ });
+    else server.rows.set(id, { ...row, label: String(body.label) });
+    return json(changed());
+  }
+  return json({ error: 'unknown' }, 404);
+});
+
+/** This browser's IndexedDB library from before the move to the Mac. */
+const localRows: Array<{ id: number; text: string; label: string; useCount: number; lastUsedAt?: number; createdAt: number }> = [];
+vi.mock('@/lib/db', () => ({
+  db: {
+    promptSnippets: {
+      orderBy: () => ({ reverse: () => ({ toArray: async () => [...localRows].sort((a, b) => b.createdAt - a.createdAt) }) }),
+    },
+  },
+}));
+
+const { usePromptSnippetStore, SNIPPETS_IMPORTED_KEY } = await import('./promptSnippetStore');
 
 const store = () => usePromptSnippetStore.getState();
 
-describe('promptSnippetStore', () => {
-  beforeEach(reset);
+beforeEach(() => {
+  server.rows.clear();
+  server.nextId = 1;
+  server.revision = 100;
+  server.down = false;
+  server.imports = [];
+  localRows.length = 0;
+  localStorage.clear();
+  fetchMock.mockClear();
+  vi.stubGlobal('fetch', fetchMock);
+  usePromptSnippetStore.setState({ snippets: [], loaded: false, revision: 0 });
+});
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe('promptSnippetStore (kept on the Mac)', () => {
   describe('save', () => {
     it('keeps a snippet and returns its id', async () => {
-      const result = await store().save('/compact');
-      expect(result.duplicate).toBe(false);
-      expect(result.id).toBe(1);
-      expect(store().snippets).toHaveLength(1);
-      expect(store().snippets[0].text).toBe('/compact');
+      const result = await store().save('run the tests');
+      expect(result).toEqual({ id: 1, duplicate: false });
+      expect(store().snippets.map((s) => s.text)).toEqual(['run the tests']);
     });
 
-    it('stores the text trimmed', async () => {
-      await store().save('  /compact \n ');
-      expect(store().snippets[0].text).toBe('/compact');
-      expect(rows.get(1)?.text).toBe('/compact');
+    it('sends the text trimmed and a label trimmed, defaulting to an empty string', async () => {
+      await store().save('  spaced  ', '  name  ');
+      await store().save('unnamed');
+      expect(store().snippets.find((s) => s.text === 'spaced')?.label).toBe('name');
+      expect(store().snippets.find((s) => s.text === 'unnamed')?.label).toBe('');
     });
 
     it('puts the newest snippet first so it is visible without scrolling', async () => {
@@ -85,164 +124,110 @@ describe('promptSnippetStore', () => {
       expect(store().snippets.map((s) => s.text)).toEqual(['second', 'first']);
     });
 
-    it('is a no-op for blank text and writes nothing', async () => {
-      const result = await store().save('   \n ');
-      expect(result).toEqual({ id: null, duplicate: false });
-      expect(store().snippets).toHaveLength(0);
-      expect(table.add).not.toHaveBeenCalled();
+    it('is a no-op for blank text and never calls the Mac', async () => {
+      expect(await store().save('   ')).toEqual({ id: null, duplicate: false });
+      expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    // Regression guard: 🔖 doesn't move, so hitting it twice on the same box is
-    // easy. Without dedupe that silently builds a library of identical rows.
-    it('does not re-add an exact duplicate', async () => {
-      const first = await store().save('/compact');
-      const second = await store().save('/compact');
-      expect(second).toEqual({ id: first.id, duplicate: true });
-      expect(store().snippets).toHaveLength(1);
-      expect(table.add).toHaveBeenCalledTimes(1);
+    it('does not re-add an exact duplicate, across whitespace-only differences', async () => {
+      await store().save('same');
+      fetchMock.mockClear();
+      expect(await store().save('  same ')).toEqual({ id: 1, duplicate: true });
+      expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('dedupes across whitespace-only differences', async () => {
-      await store().save('/compact');
-      const again = await store().save('\n  /compact  ');
-      expect(again.duplicate).toBe(true);
-      expect(store().snippets).toHaveLength(1);
-    });
-
-    it('treats different text as a new snippet', async () => {
-      await store().save('/compact');
-      await store().save('/context');
-      expect(store().snippets).toHaveLength(2);
-    });
-
-    it('stores an optional label, trimmed', async () => {
-      await store().save('/compact', '  compact run  ');
-      expect(store().snippets[0].label).toBe('compact run');
-    });
-
-    it('defaults label to an empty string, never undefined', async () => {
-      await store().save('/compact');
-      expect(store().snippets[0].label).toBe('');
-    });
-
-    it('reports failure without touching in-memory state when the write throws', async () => {
-      failWrites = true;
-      const result = await store().save('/compact');
-      expect(result).toEqual({ id: null, duplicate: false });
-      expect(store().snippets).toHaveLength(0);
+    it('reports failure without touching the list when the Mac can’t be reached', async () => {
+      server.down = true;
+      expect(await store().save('lost')).toEqual({ id: null, duplicate: false });
+      expect(store().snippets).toEqual([]);
     });
   });
 
   describe('hasText', () => {
-    it('is true only for an exact (trimmed) match', async () => {
-      await store().save('/compact');
-      expect(store().hasText('/compact')).toBe(true);
-      expect(store().hasText('  /compact ')).toBe(true);
-      expect(store().hasText('/compac')).toBe(false);
-      expect(store().hasText('/COMPACT')).toBe(false);
-    });
-
-    it('is false for blank text, so an empty box never shows a filled bookmark', async () => {
-      await store().save('/compact');
-      expect(store().hasText('')).toBe(false);
+    it('is true only for an exact (trimmed) match, and false for blank text', async () => {
+      await store().save('exact');
+      expect(store().hasText(' exact ')).toBe(true);
+      expect(store().hasText('exac')).toBe(false);
       expect(store().hasText('   ')).toBe(false);
     });
   });
 
-  describe('touch', () => {
-    it('increments useCount and stamps lastUsedAt', async () => {
-      const { id } = await store().save('/compact');
-      await store().touch(id!);
-      const snippet = store().snippets[0];
-      expect(snippet.useCount).toBe(1);
-      expect(snippet.lastUsedAt).toBeTypeOf('number');
-      expect(rows.get(id!)?.useCount).toBe(1);
-    });
-
-    it('accumulates across repeated inserts', async () => {
-      const { id } = await store().save('/compact');
+  describe('touch, setLabel, remove', () => {
+    it('counts uses on the Mac', async () => {
+      const { id } = await store().save('used');
       await store().touch(id!);
       await store().touch(id!);
-      await store().touch(id!);
-      expect(store().snippets[0].useCount).toBe(3);
+      expect(store().snippets[0]).toMatchObject({ useCount: 2 });
+      expect(store().snippets[0].lastUsedAt).not.toBeNull();
     });
 
-    it('ignores an unknown id', async () => {
-      await store().touch(999);
-      expect(table.update).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('setLabel', () => {
-    it('renames a snippet', async () => {
-      const { id } = await store().save('/compact');
-      await store().setLabel(id!, 'compact run');
-      expect(store().snippets[0].label).toBe('compact run');
+    it('ignores an unknown id without calling the Mac', async () => {
+      await store().touch(99);
+      await store().setLabel(99, 'x');
+      expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('clears the name back to an empty string on blank input', async () => {
-      const { id } = await store().save('/compact', 'compact run');
+    it('renames, clears a name, and skips a redundant rename', async () => {
+      const { id } = await store().save('named', 'old');
+      await store().setLabel(id!, '  new ');
+      expect(store().snippets[0].label).toBe('new');
+      fetchMock.mockClear();
+      await store().setLabel(id!, 'new');
+      expect(fetchMock).not.toHaveBeenCalled();
       await store().setLabel(id!, '   ');
       expect(store().snippets[0].label).toBe('');
     });
 
-    it('skips a redundant write when the label is unchanged', async () => {
-      const { id } = await store().save('/compact', 'compact run');
-      await store().setLabel(id!, 'compact run');
-      expect(table.update).not.toHaveBeenCalled();
+    it('forgets a snippet at once and leaves the others', async () => {
+      const a = await store().save('a');
+      await store().save('b');
+      await store().remove(a.id!);
+      expect(store().snippets.map((s) => s.text)).toEqual(['b']);
     });
   });
 
-  describe('remove', () => {
-    it('forgets a snippet', async () => {
-      const { id } = await store().save('/compact');
-      await store().remove(id!);
-      expect(store().snippets).toHaveLength(0);
-      expect(rows.has(id!)).toBe(false);
-    });
-
-    it('leaves other snippets alone', async () => {
-      const first = await store().save('/compact');
-      await store().save('/context');
-      await store().remove(first.id!);
-      expect(store().snippets.map((s) => s.text)).toEqual(['/context']);
-    });
-
-    // A failed delete still drops the row from memory: leaving a snippet the
-    // user just forgot on screen is worse than a stale DB row, and the next
-    // load reconciles.
-    it('drops from memory even when the delete throws', async () => {
-      const { id } = await store().save('/compact');
-      failWrites = true;
-      await store().remove(id!);
-      expect(store().snippets).toHaveLength(0);
+  describe('revisions', () => {
+    it('keeps the newest list: a late broadcast never rolls it back', async () => {
+      await store().save('newer');
+      const held = store().revision;
+      store().applyServerList({ revision: held - 1, snippets: [] });
+      expect(store().snippets.map((s) => s.text)).toEqual(['newer']);
+      store().applyServerList({ revision: held + 1, snippets: [] });
+      expect(store().snippets).toEqual([]);
     });
   });
 
   describe('loadFromDb', () => {
-    it('hydrates newest-first and flips loaded', async () => {
-      rows.set(1, { id: 1, text: 'older', label: '', useCount: 2, createdAt: 100 });
-      rows.set(2, { id: 2, text: 'newer', label: 'n', useCount: 0, createdAt: 200 });
+    it('loads the Mac’s library', async () => {
+      server.rows.set(7, { id: 7, text: 'from the mac', label: '', useCount: 0, lastUsedAt: null, createdAt: 5 });
       await store().loadFromDb();
       expect(store().loaded).toBe(true);
-      expect(store().snippets.map((s) => s.text)).toEqual(['newer', 'older']);
+      expect(store().snippets.map((s) => s.text)).toEqual(['from the mac']);
     });
 
-    it('backfills a missing label / useCount from an older row', async () => {
-      rows.set(1, { id: 1, text: 'x', createdAt: 100 } as FakeRow);
+    it('imports this browser’s old library once, then never again', async () => {
+      localRows.push({ id: 1, text: ' old browser prompt ', label: 'b', useCount: 4, createdAt: 2 });
       await store().loadFromDb();
-      expect(store().snippets[0].label).toBe('');
-      expect(store().snippets[0].useCount).toBe(0);
-      expect(store().snippets[0].lastUsedAt).toBeNull();
+      expect(server.imports).toEqual([[{ text: 'old browser prompt', label: 'b', useCount: 4, lastUsedAt: null, createdAt: 2 }]]);
+      expect(store().snippets.map((s) => s.text)).toEqual(['old browser prompt']);
+      expect(localStorage.getItem(SNIPPETS_IMPORTED_KEY)).toBe('1');
+      await store().loadFromDb();
+      expect(server.imports).toHaveLength(1);
     });
 
-    // Matching the other stores: a failed hydrate must still flip `loaded` so
-    // the picker renders an empty library instead of hanging.
-    it('flips loaded even when the read throws', async () => {
-      failWrites = true;
+    it('marks an empty browser library as imported without calling the import', async () => {
+      await store().loadFromDb();
+      expect(server.imports).toEqual([]);
+      expect(localStorage.getItem(SNIPPETS_IMPORTED_KEY)).toBe('1');
+    });
+
+    it('shows this browser’s library while the Mac can’t be reached, and imports nothing', async () => {
+      localRows.push({ id: 3, text: 'offline copy', label: '', useCount: 0, createdAt: 1 });
+      server.down = true;
       await store().loadFromDb();
       expect(store().loaded).toBe(true);
-      expect(store().snippets).toEqual([]);
+      expect(store().snippets.map((s) => s.text)).toEqual(['offline copy']);
+      expect(localStorage.getItem(SNIPPETS_IMPORTED_KEY)).toBeNull();
     });
   });
 });

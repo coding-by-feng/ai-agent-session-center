@@ -670,7 +670,8 @@ export function broadcast(data: { type: string; [key: string]: unknown }): void 
  */
 function broadcastSubject(data: { type: string; [key: string]: unknown }):
   { remoteVisible?: boolean | null } | null {
-  if (data.type === WS_TYPES.QUEUE_UPDATE) {
+  // queue_sent carries the head of a sent prompt (AASC-20): the same rule.
+  if (data.type === WS_TYPES.QUEUE_UPDATE || data.type === WS_TYPES.QUEUE_SENT) {
     const sessionId = typeof data.sessionId === 'string' ? data.sessionId : '';
     // A session that cannot be resolved (removed, archived, an id nobody has heard of, a
     // malformed message) is not visible to a remote client: for a visibility gate the
