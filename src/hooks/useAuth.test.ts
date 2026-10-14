@@ -178,3 +178,49 @@ describe('useAuth — silent refresh keeps a cookie-only session alive', () => {
     expect(result.current.needsLogin).toBe(true);
   });
 });
+
+describe('useAuth — the phone app keeps no token in web storage (AASC-22)', () => {
+  const APP_UA = 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Mobile/15E148 AASC-Mobile/1 (ios)';
+
+  function loginServer() {
+    return vi.fn(async (url: string) => {
+      if (String(url).includes('/api/auth/status')) {
+        return new Response(JSON.stringify({ passwordRequired: true, authenticated: false }));
+      }
+      if (String(url).includes('/api/auth/login')) {
+        return new Response(JSON.stringify({ success: true, token: 'session-token', expiresIn: 3600 }));
+      }
+      return new Response('{}');
+    });
+  }
+
+  async function logIn() {
+    const { renderHook, act } = await import('@testing-library/react');
+    const { useAuth } = await import('./useAuth');
+    vi.stubGlobal('fetch', loginServer());
+    const { result } = renderHook(() => useAuth());
+    await act(async () => { await result.current.login('pw'); });
+    return result;
+  }
+
+  beforeEach(() => {
+    clearLocalStorage();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('logs in inside the app without writing the token to localStorage', async () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(APP_UA);
+    const result = await logIn();
+    expect(result.current.needsLogin).toBe(false);
+    expect(localStorage.getItem('auth_token')).toBeNull();
+  });
+
+  it('still stores it in a browser (the desktop behaviour is unchanged)', async () => {
+    await logIn();
+    expect(localStorage.getItem('auth_token')).toBe('session-token');
+  });
+});
