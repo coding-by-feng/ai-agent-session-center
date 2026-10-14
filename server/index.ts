@@ -12,7 +12,7 @@ import { createPushNotifier } from './push/pushNotifier.js';
 import { getPushSink } from './push/pushSink.js';
 import { canSeeSession, filterVisibleSessions } from './sessionVisibility.js';
 import { getAllSessions, getSession, loadSnapshot, saveSnapshot, startPeriodicSave, stopPeriodicSave, startPlanUsage, stopPlanUsage, getSessionsForRespawn, reconnectSessionTerminal } from './sessionStore.js';
-import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal } from './sshManager.js';
+import { createTerminal, consumePendingLink, writeWhenReady, isOpsTerminal, getForegroundProcess } from './sshManager.js';
 import { WS_TYPES } from './constants.js';
 import { closeDb, markStaleSessionsEnded } from './db.js';
 import apiRouter, { hookRateLimitMiddleware } from './apiRouter.js';
@@ -246,10 +246,16 @@ export function startServer(port?: number): Promise<number> {
   // shared sessions, a known project to launch in, read-only project files.
   const phoneProfile = createPhoneProfile({
     phoneOf: (req) => getTokenDeviceId(extractToken(req)),
+    // Local sessions only: an SSH session's project path names a folder on
+    // another machine, and must not unlock the same path on this disk.
     sharedProjectPaths: () =>
-      Object.values(filterVisibleSessions(false, getAllSessions())).map((s) => s.projectPath).filter(Boolean),
+      Object.values(filterVisibleSessions(false, getAllSessions()))
+        .filter((s) => (s.sshHost || 'localhost') === 'localhost')
+        .map((s) => s.projectPath)
+        .filter(Boolean),
     knownProjectPaths: listKnownProjects,
     isOpsTerminal,
+    foregroundProcess: getForegroundProcess,
   });
   app.use('/api', authMiddleware, phoneProfile, apiRouter);
   app.get('/api/sessions', authMiddleware, (_req, res) => {

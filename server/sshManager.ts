@@ -1231,6 +1231,18 @@ export function isOpsTerminal(terminalId: string): boolean {
 }
 
 /**
+ * The terminal's foreground program as node-pty reports it (`zsh`, `claude`,
+ * `node`…), or null when unknown. A phone types only while it is the agent.
+ */
+export function getForegroundProcess(terminalId: string): string | null {
+  try {
+    return terminals.get(terminalId)?.pty.process ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Forget a terminal's output so far: the toolbar's "Clear output". Refresh,
  * reconnect, a remount and every other device paint from this ring, so a clear
  * that only blanked one screen would come straight back. Nothing is written to

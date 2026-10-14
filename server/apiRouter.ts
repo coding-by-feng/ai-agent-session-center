@@ -1100,6 +1100,8 @@ router.post('/sessions/:id/fork', async (req: Request, res: Response) => {
         sessionTitle: newTitle,
         isFork: true,
         originSessionId: sessionId,
+        // A fork a remote device asks for is shared with it (AASC-28).
+        ...(requestIsLocal(req) ? {} : { remoteVisible: true }),
       });
 
       const isRemote = cfg.host && cfg.host !== 'localhost' && cfg.host !== '127.0.0.1';
@@ -1128,6 +1130,8 @@ router.post('/sessions/:id/fork', async (req: Request, res: Response) => {
         sessionTitle: newTitle,
         isFork: true,
         originSessionId: sessionId,
+        // A fork a remote device asks for is shared with it (AASC-28).
+        ...(requestIsLocal(req) ? {} : { remoteVisible: true }),
       });
 
       writeWhenReady(newTerminalId, `${forkCmd}\r`);
@@ -1172,6 +1176,8 @@ router.post('/sessions/:id/clone', async (req: Request, res: Response) => {
         sessionTitle: newTitle,
         isFork: true,
         originSessionId: sessionId,
+        // A fork a remote device asks for is shared with it (AASC-28).
+        ...(requestIsLocal(req) ? {} : { remoteVisible: true }),
       });
       const isRemote = cfg.host && cfg.host !== 'localhost' && cfg.host !== '127.0.0.1';
       let prefix = '';
@@ -1196,6 +1202,8 @@ router.post('/sessions/:id/clone', async (req: Request, res: Response) => {
         sessionTitle: newTitle,
         isFork: true,
         originSessionId: sessionId,
+        // A fork a remote device asks for is shared with it (AASC-28).
+        ...(requestIsLocal(req) ? {} : { remoteVisible: true }),
       });
       writeWhenReady(newTerminalId, `${cloneCmd}\r`);
       maybeInjectUltracode(newTerminalId, session.effortLevel, cloneCmd);

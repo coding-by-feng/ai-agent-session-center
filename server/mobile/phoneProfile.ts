@@ -12,9 +12,16 @@
 // authMiddleware, before the API router; the routes' own visibility and baton
 // checks still run after it.
 //
-// What this does NOT contain: a phone that drives an agent can ask the agent to
-// do anything the agent may do. That is the agent's permission mode. This
-// profile limits what the dashboard itself does on a phone's behalf.
+// A phone types into an agent terminal only while the agent itself is the
+// terminal's foreground program: every agent terminal is a login shell with the
+// CLI typed into it, so once the agent exits the same keystrokes would reach the
+// shell. (A phone that never holds a terminal gets no keystrokes at all.)
+//
+// What this does NOT contain: driving an agent is driving everything the agent
+// can do. Claude Code's `!` prefix runs a shell command straight from the prompt,
+// and the agent itself acts within its own permission mode. The profile limits
+// what the DASHBOARD does on a phone's behalf; what reaches the agent's prompt is
+// the agent's business. See AASC-28 for the open decision on `!` from phones.
 
 import { realpathSync } from 'fs';
 import { homedir } from 'os';
@@ -30,10 +37,13 @@ export type PhoneAccess = typeof PHONE_ACCESS;
  * How a phone request is judged:
  * - allow     the route's own visibility and baton checks are enough
  * - terminal  never an ops shell (a plain command prompt)
+ * - type      a terminal write: not an ops shell, and the agent must be in the foreground
  * - files     read-only, inside a shared session's project
+ * - commands  the autocomplete catalog, for a shared project or none
+ * - upload    an image upload, within the phone's per-minute budget
  * - launch    a known project folder and a CLI AASC launches, nothing else
  */
-export type PhoneRule = 'allow' | 'terminal' | 'files' | 'launch';
+export type PhoneRule = 'allow' | 'terminal' | 'type' | 'files' | 'commands' | 'upload' | 'launch';
 
 interface PhoneRoute {
   method: RegExp;
@@ -58,7 +68,7 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('GET', '/queues', 'allow'),
   route('GET', '/terminals', 'allow'),
   route('GET', '/known-projects', 'allow'),
-  route('GET', '/commands', 'allow'),
+  route('GET', '/commands', 'commands'),
   route('GET', '/codex/models', 'allow'),
   route('GET', '/presence', 'allow'),
   route('POST', '/presence/control/(claim|release|release-all|request|grant)', 'allow'),
@@ -71,17 +81,17 @@ export const PHONE_ROUTES: readonly PhoneRoute[] = [
   route('PUT', '/sessions/:id/(queue|title|remark|muted|alerted|accent-color|character-model|ai-popup)', 'allow'),
   route('POST', '/sessions/:id/(queue/resume|kill|resume|restart-terminal|reconnect-terminal|fork|clone)', 'allow'),
   route('DELETE', '/sessions/:id', 'allow'),
-  route('POST', '/queue-images', 'allow'),
+  route('POST', '/queue-images', 'upload'),
   // Notes and history of a shared session (the history and note gates check the owner).
   route('GET', '/db/sessions/:id', 'allow'),
   route('GET|POST', '/db/sessions/:id/notes', 'allow'),
-  route('POST', '/db/sessions/:id/note-media', 'allow'),
+  route('POST', '/db/sessions/:id/note-media', 'upload'),
   route('PUT|DELETE', '/db/notes/:id', 'allow'),
   route('GET', '/note-media/:id', 'allow'),
   route('GET', '/db/prompts', 'allow'),
   // Terminals of shared sessions, never an ops shell.
   route('GET', '/terminals/:id/output', 'terminal'),
-  route('POST', '/terminals/:id/write', 'terminal'),
+  route('POST', '/terminals/:id/write', 'type'),
   route('DELETE', '/terminals/:id', 'terminal'),
   // Starting a session.
   route('POST', '/terminals', 'launch'),
@@ -97,14 +107,25 @@ export function phoneRuleFor(method: string, path: string): PhoneRule | null {
 
 // ── Files ────────────────────────────────────────────────────────────────────
 
-/** Never read by a phone, wherever they sit: keys, cloud and registry credentials. */
-const SECRET_NAMES = new Set([
-  '.ssh', '.gnupg', '.aws', '.azure', '.kube', '.docker', '.netrc', '.git-credentials', '.npmrc', '.pypirc', 'Keychains',
+/**
+ * Never read by a phone, wherever they sit. Compared lower-cased: on a
+ * case-insensitive disk `.AWS` is `.aws`. Agent and tool config folders are on
+ * the list too: `~/.codex/auth.json` and `~/.config/gh/hosts.yml` hold tokens.
+ */
+const SECRET_SEGMENTS = new Set([
+  '.ssh', '.gnupg', '.aws', '.azure', '.gcloud', '.kube', '.docker', '.netrc', '.git-credentials', '.npmrc', '.pypirc',
+  '.password-store', 'keychains', '.claude', '.codex', '.config', '.git',
 ]);
+
+/** Secret-looking file names: env files, keys and certificates, credential files. */
+const SECRET_FILE_RE = /^(?:\.env(?:\..*)?|id_(?:rsa|dsa|ecdsa|ed25519)(?:\..*)?|credentials(?:\.json)?|.*\.(?:pem|key|p12|pfx|jks|keystore|ppk))$/;
+
+/** Folders that are secret only directly under the home folder (a project may well be called "library"). */
+const HOME_SECRET_SEGMENTS = new Set(['library']);
 
 function realOrNull(p: string): string | null {
   try {
-    return realpathSync(p);
+    return realpathSync.native(p);
   } catch {
     return null;
   }
@@ -114,17 +135,23 @@ function inside(child: string, root: string): boolean {
   return child === root || child.startsWith(root.endsWith(sep) ? root : root + sep);
 }
 
+/** Does a path under the home folder pass through anything a phone may never read? */
+function touchesSecret(pathInHome: string): boolean {
+  const segments = pathInHome.split(sep).filter(Boolean).map((s) => s.toLowerCase());
+  if (segments.length > 0 && HOME_SECRET_SEGMENTS.has(segments[0])) return true;
+  return segments.some((s) => SECRET_SEGMENTS.has(s) || SECRET_FILE_RE.test(s));
+}
+
 /**
- * Where a project lives on disk, or null when it is too broad to serve to a
- * phone: `/`, the home folder or anything above it would expose ~/.ssh and every
- * other project.
+ * Where a project lives on disk, or null when a phone may not use it: it must
+ * sit strictly inside the home folder (never `/`, the home folder itself, `/tmp`
+ * or another volume) and never in a secrets or agent-config folder.
  */
 export function phoneProjectRoot(projectPath: string, home: string): string | null {
   const real = realOrNull(projectPath);
-  if (!real) return null;
-  const realHome = realOrNull(home) ?? home;
-  if (real === sep || inside(realHome, real)) return null;
-  return real;
+  const realHome = realOrNull(home);
+  if (!real || !realHome || real === realHome || !inside(real, realHome)) return null;
+  return touchesSecret(relative(realHome, real)) ? null : real;
 }
 
 /** The real path a request points at; a missing file resolves through its folder. */
@@ -138,18 +165,31 @@ function realTarget(p: string): string | null {
 /**
  * May a phone read `target` (absolute)? Only inside a shared session's project,
  * after links are followed (a link in the project to ~/.ssh is still ~/.ssh),
- * and never inside a secrets folder.
+ * and never a secrets folder or secret-looking file.
  */
 export function phoneMayRead(target: string, sharedProjects: readonly string[], home: string): boolean {
   if (!isAbsolute(target)) return false;
   const real = realTarget(resolve(target));
-  if (!real) return false;
+  const realHome = realOrNull(home);
+  if (!real || !realHome || !inside(real, realHome) || touchesSecret(relative(realHome, real))) return false;
   return sharedProjects.some((projectPath) => {
     const root = phoneProjectRoot(projectPath, home);
-    if (!root || !inside(real, root)) return false;
-    return !relative(root, real).split(sep).some((segment) => SECRET_NAMES.has(segment));
+    return root !== null && inside(real, root);
   });
 }
+
+// ── Typing ───────────────────────────────────────────────────────────────────
+
+/** Foreground programs that are an agent, not a shell (node-pty reports the process name). */
+const AGENT_PROCESS_NAMES = new Set(['claude', 'codex', 'gemini', 'node']);
+
+/** Is this terminal's foreground program an agent? Unknown (null) is not. */
+export function isAgentProcessName(name: string | null | undefined): boolean {
+  return typeof name === 'string' && AGENT_PROCESS_NAMES.has(name.toLowerCase());
+}
+
+/** Uploads (queue images, note media) one phone may make per minute. */
+export const PHONE_UPLOADS_PER_MINUTE = 20;
 
 const one = (v: unknown): string => (Array.isArray(v) ? String(v[0] ?? '') : typeof v === 'string' ? v : '');
 
@@ -160,6 +200,8 @@ function expandHome(p: string, home: string): string {
 
 /** The paths a project-tab request reads: its root and the file or folder in it. */
 function filesTargets(req: Request, home: string): string[] | null {
+  // A glob can make ripgrep include hidden folders the denylist protects.
+  if (req.query.glob !== undefined) return null;
   if (req.path.startsWith('/files/resolve')) {
     const raw = one(req.query.path).trim();
     return raw ? [expandHome(raw, home)] : null;
@@ -208,22 +250,47 @@ export interface PhoneProfileDeps {
   /** The quick-launch list (known project folders). */
   knownProjectPaths(): string[];
   isOpsTerminal(terminalId: string): boolean;
+  /** The terminal's foreground program (node-pty's process name), or null when unknown. */
+  foregroundProcess(terminalId: string): string | null;
   home?: string;
+  now?: () => number;
 }
 
 const NOT_FOUND = { error: 'Not found', code: 'PHONE_NOT_ALLOWED' } as const;
 
 export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
   const home = deps.home ?? homedir();
+  const now = deps.now ?? Date.now;
+  const uploads = new Map<string, { windowStart: number; count: number }>();
 
-  function refusal(rule: PhoneRule, req: Request): string | null {
+  function overUploadBudget(phone: string): boolean {
+    const t = now();
+    const bucket = uploads.get(phone);
+    if (!bucket || t - bucket.windowStart >= 60_000) {
+      uploads.set(phone, { windowStart: t, count: 1 });
+      return false;
+    }
+    bucket.count++;
+    return bucket.count > PHONE_UPLOADS_PER_MINUTE;
+  }
+
+  function refusal(rule: PhoneRule, req: Request, phone: string): string | null {
     switch (rule) {
       case 'allow':
         return null;
-      case 'terminal': {
+      case 'terminal':
+      case 'type': {
         const id = decodeURIComponent(req.path.split('/')[2] ?? '');
-        return deps.isOpsTerminal(id) ? 'an ops shell' : null;
+        if (deps.isOpsTerminal(id)) return 'an ops shell';
+        if (rule === 'type' && !isAgentProcessName(deps.foregroundProcess(id))) return 'the agent is not running';
+        return null;
       }
+      case 'commands': {
+        const projectPath = one(req.query.projectPath);
+        return !projectPath || phoneMayRead(projectPath, deps.sharedProjectPaths(), home) ? null : 'outside shared projects';
+      }
+      case 'upload':
+        return overUploadBudget(phone) ? 'too many uploads' : null;
       case 'files': {
         const targets = filesTargets(req, home);
         const shared = deps.sharedProjectPaths();
@@ -243,7 +310,7 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
     const rule = phoneRuleFor(req.method, req.path);
     let reason: string | null;
     try {
-      reason = rule ? refusal(rule, req) : 'not open to phones';
+      reason = rule ? refusal(rule, req, phone) : 'not open to phones';
     } catch {
       reason = 'malformed request';
     }
@@ -252,10 +319,19 @@ export function createPhoneProfile(deps: PhoneProfileDeps): RequestHandler {
       return;
     }
     log.warn('mobile', `Paired phone ${phone.slice(0, 8)} refused: ${req.method} ${req.path} (${rule === 'launch' ? 'launch' : reason})`);
-    // A launch says why, so the phone can show it. Everything else answers like
-    // a missing route, so a refused path can't be told from one that isn't there.
+    // A launch says why, so the phone can show it; so does typing while the agent
+    // isn't running, and an upload over budget. Everything else answers like a
+    // missing route, so a refused path can't be told from one that isn't there.
     if (rule === 'launch') {
       res.status(403).json({ ok: false, error: reason, code: 'PHONE_NOT_ALLOWED' });
+      return;
+    }
+    if (rule === 'type' && reason === 'the agent is not running') {
+      res.status(409).json({ error: 'A phone can type only while the agent is running', code: 'AGENT_NOT_RUNNING' });
+      return;
+    }
+    if (rule === 'upload') {
+      res.status(429).json({ error: 'Too many uploads from this phone; try again in a minute', code: 'PHONE_RATE_LIMITED' });
       return;
     }
     res.status(404).json(NOT_FOUND);

@@ -562,6 +562,10 @@ const CONTROL_CHARS_RE = /[\x00-\x1F\x7F]+/g;
 function quoteSessionTitle(sessionTitle: string): string {
   const escaped = sessionTitle
     .replace(CONTROL_CHARS_RE, ' ')
+    // An interactive zsh or bash expands `!` history references even inside
+    // double quotes, and no escape works the same in both. The title is a
+    // display name, so the full-width ！ stands in (titles are phone-editable).
+    .replace(/!/g, '\uFF01')
     .replace(/[\\$`"]/g, (c) => `\\${c}`);
   return `"${escaped}"`;
 }

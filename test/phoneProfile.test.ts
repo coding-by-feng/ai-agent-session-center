@@ -19,6 +19,7 @@ vi.mock('../server/db.js', () => ({
 const pty = vi.hoisted(() => ({
   owner: new Map<string, string>(),
   created: [] as Array<{ command: string; workingDir: string }>,
+  fg: new Map<string, string>(),
   write: vi.fn(),
   n: 0,
 }));
@@ -38,12 +39,16 @@ vi.mock('../server/sshManager.js', async (importOriginal) => {
     writeToTerminal: pty.write,
     getTerminalSessionId: (id: string) => pty.owner.get(id) ?? null,
     isOpsTerminal: (id: string) => id.startsWith('ops-'),
+    getForegroundProcess: (id: string) => pty.fg.get(id) ?? null,
   };
 });
 
 import express from 'express';
 import { createServer, type Server } from 'http';
-import { phoneRuleFor, phoneLaunchRefusal, phoneMayRead, phoneProjectRoot, createPhoneProfile } from '../server/mobile/phoneProfile.js';
+import {
+  phoneRuleFor, phoneLaunchRefusal, phoneMayRead, phoneProjectRoot, createPhoneProfile, isAgentProcessName,
+  PHONE_UPLOADS_PER_MINUTE,
+} from '../server/mobile/phoneProfile.js';
 
 // ── A home folder with a project, an unknown folder and secrets ─────────────────────────────────────────
 
@@ -52,6 +57,7 @@ let home = '';
 let project = '';
 let other = '';
 let launchDir = '';
+let outside = '';
 
 beforeAll(() => {
   tmp = realpathSync(mkdtempSync(join(tmpdir(), 'aasc-phone-')));
@@ -68,6 +74,19 @@ beforeAll(() => {
   mkdirSync(other, { recursive: true });
   launchDir = join(home, 'launch');
   mkdirSync(launchDir, { recursive: true });
+  // Secret-looking files inside a project, agent config folders, a project
+  // literally called "library", and a folder outside the home folder.
+  writeFileSync(join(project, '.env'), 'TOKEN=1');
+  writeFileSync(join(project, 'server.pem'), 'KEY');
+  writeFileSync(join(project, 'id_ed25519'), 'KEY');
+  mkdirSync(join(project, '.git'), { recursive: true });
+  writeFileSync(join(project, '.git', 'config'), '[remote] url = https://token@host');
+  mkdirSync(join(home, '.codex', 'proj'), { recursive: true });
+  writeFileSync(join(home, '.codex', 'auth.json'), '{}');
+  mkdirSync(join(home, 'Library', 'proj'), { recursive: true });
+  mkdirSync(join(home, 'code', 'library'), { recursive: true });
+  outside = join(tmp, 'outside');
+  mkdirSync(outside, { recursive: true });
 });
 
 afterAll(() => {
@@ -82,13 +101,17 @@ describe('phoneRuleFor', () => {
     ['POST', '/presence/control/claim'], ['GET', '/sessions/abc/transcript'], ['PUT', '/sessions/abc/queue'],
     ['POST', '/sessions/abc/kill'], ['POST', '/sessions/abc/fork'], ['POST', '/sessions/abc/queue/resume'],
     ['PUT', '/sessions/abc/title'], ['GET', '/db/sessions/abc'], ['POST', '/db/sessions/abc/notes'],
-    ['PUT', '/db/notes/4'], ['GET', '/note-media/abc'], ['POST', '/queue-images'], ['GET', '/agenda'],
+    ['PUT', '/db/notes/4'], ['GET', '/note-media/abc'], ['GET', '/agenda'],
   ])('lets a phone %s %s', (method, path) => {
     expect(phoneRuleFor(method, path)).toBe('allow');
   });
 
-  it('checks terminals, files and launches before letting them through', () => {
-    expect(phoneRuleFor('POST', '/terminals/t1/write')).toBe('terminal');
+  it('checks terminals, typing, files, commands, uploads and launches before letting them through', () => {
+    expect(phoneRuleFor('GET', '/terminals/t1/output')).toBe('terminal');
+    expect(phoneRuleFor('POST', '/terminals/t1/write')).toBe('type');
+    expect(phoneRuleFor('GET', '/commands')).toBe('commands');
+    expect(phoneRuleFor('POST', '/queue-images')).toBe('upload');
+    expect(phoneRuleFor('POST', '/db/sessions/abc/note-media')).toBe('upload');
     expect(phoneRuleFor('GET', '/files/read')).toBe('files');
     expect(phoneRuleFor('GET', '/files/resolve')).toBe('files');
     expect(phoneRuleFor('POST', '/terminals')).toBe('launch');
@@ -138,6 +161,14 @@ describe('phoneLaunchRefusal', () => {
     expect(phoneLaunchRefusal({ workingDir: project, command: 'claude --dangerously-skip-permissions' }, allowed(), home)).toMatch(/only claude or codex/);
   });
 
+  it('refuses folders outside the home folder or in agent config, even when listed', () => {
+    const listed = [outside, join(home, '.codex', 'proj'), join(home, 'Library', 'proj')];
+    for (const dir of listed) {
+      expect(phoneLaunchRefusal({ workingDir: dir, command: 'claude' }, listed, home), dir).toMatch(/known project/);
+    }
+    expect(phoneLaunchRefusal({ workingDir: join(home, 'code', 'library'), command: 'claude' }, [join(home, 'code', 'library')], home)).toBeNull();
+  });
+
   it('refuses a folder outside the list, and the home folder even when listed', () => {
     expect(phoneLaunchRefusal({ workingDir: other, command: 'claude' }, allowed(), home)).toMatch(/known project/);
     expect(phoneLaunchRefusal({ workingDir: home, command: 'claude' }, allowed(), home)).toMatch(/known project/);
@@ -157,6 +188,23 @@ describe('phoneMayRead', () => {
     expect(phoneMayRead(join(project, 'keys', 'id_ed25519'), [project], home)).toBe(false);
     expect(phoneMayRead(join(project, '.aws', 'credentials'), [project], home)).toBe(false);
     expect(phoneMayRead('relative/path', [project], home)).toBe(false);
+  });
+
+  it('ignores case when it checks secrets folders', () => {
+    expect(phoneMayRead(join(project, '.AWS', 'credentials'), [project], home)).toBe(false);
+    expect(phoneMayRead(join(project, '.Aws'), [project], home)).toBe(false);
+  });
+
+  it('never reads env files, keys, certificates or git internals', () => {
+    for (const name of ['.env', '.env.local', 'server.pem', 'id_ed25519', 'deploy.key', join('.git', 'config')]) {
+      expect(phoneMayRead(join(project, name), [project], home), name).toBe(false);
+    }
+  });
+
+  it('never serves a shared project outside the home folder or inside agent config', () => {
+    expect(phoneMayRead(join(outside, 'x.txt'), [outside], home)).toBe(false);
+    expect(phoneMayRead(join(home, '.codex', 'auth.json'), [join(home, '.codex')], home)).toBe(false);
+    expect(phoneMayRead(join(home, '.codex', 'proj', 'a.md'), [join(home, '.codex', 'proj')], home)).toBe(false);
   });
 
   it('serves nothing from a session that runs in the home folder or at /', () => {
@@ -194,6 +242,7 @@ beforeAll(async () => {
     sharedProjectPaths: () => Object.values(filterVisibleSessions(false, store.getAllSessions())).map((s) => s.projectPath),
     knownProjectPaths: () => [project, other, launchDir, home],
     isOpsTerminal: (id) => id.startsWith('ops-'),
+    foregroundProcess: (id) => pty.fg.get(id) ?? null,
     home,
   }));
   const { default: apiRouter } = await import('../server/apiRouter.js');
@@ -211,6 +260,7 @@ afterAll(async () => {
 beforeEach(() => {
   pty.created.length = 0;
   pty.write.mockClear();
+  pty.fg.clear();
 });
 
 async function call(method: string, path: string, headers: Record<string, string>, body?: unknown) {
@@ -294,7 +344,49 @@ describe('a paired phone through the API', () => {
     expect(res.json.terminalId).not.toBe('ph-hidden');
   });
 
+  it('types only while the agent is the terminal’s foreground program', async () => {
+    const presence = await import('../server/presenceManager.js');
+    presence.releaseAllControls('ipad-ws');
+    pty.fg.set('t-shared', 'zsh'); // the agent exited: this is the login shell underneath
+    const shell = await call('POST', '/terminals/t-shared/write', PHONE, { data: 'cat ~/.ssh/id_ed25519\r' });
+    expect(shell.status).toBe(409);
+    expect(shell.json.code).toBe('AGENT_NOT_RUNNING');
+    pty.fg.delete('t-shared'); // unknown counts as not running
+    expect((await call('POST', '/terminals/t-shared/write', PHONE, { data: 'x' })).status).toBe(409);
+    expect(pty.write).not.toHaveBeenCalled();
+    pty.fg.set('t-shared', 'claude');
+    expect((await call('POST', '/terminals/t-shared/write', PHONE, { data: 'hi' })).status).toBe(200);
+    expect(pty.write).toHaveBeenCalledWith('t-shared', 'hi');
+  });
+
+  it('reads the autocomplete catalog only for a shared project', async () => {
+    expect((await call('GET', `/commands?${q({ cli: 'claude', projectPath: join(home, 'code', 'library') })}`, PHONE)).status).toBe(404);
+    expect((await call('GET', `/commands?${q({ cli: 'claude', projectPath: project })}`, PHONE)).json.code).not.toBe('PHONE_NOT_ALLOWED');
+  });
+
+  it('can’t widen a search with a glob', async () => {
+    const res = await call('GET', `/files/grep?${q({ root: project, q: 'KEY', glob: '.aws/**' })}`, PHONE);
+    expect(res.status).toBe(404);
+  });
+
+  it('sees the forks it asks for', async () => {
+    const res = await call('POST', '/sessions/ph-shared/fork', PHONE, {});
+    expect(res.status).toBe(200);
+    expect(store.getSession(String(res.json.terminalId))?.remoteVisible).toBe(true);
+  });
+
+  it('has an upload budget per minute', async () => {
+    const codes: number[] = [];
+    for (let i = 0; i <= PHONE_UPLOADS_PER_MINUTE; i++) {
+      codes.push((await call('POST', '/queue-images', PHONE, { images: [] })).status);
+    }
+    expect(codes.slice(0, PHONE_UPLOADS_PER_MINUTE).every((c) => c === 200)).toBe(true);
+    expect(codes[PHONE_UPLOADS_PER_MINUTE]).toBe(429);
+  });
+
   it('can’t type into or watch an ops shell, but drives the agent terminal', async () => {
+    pty.fg.set('t-shared', 'claude');
+    pty.fg.set('ops-shared', 'zsh');
     expect((await call('POST', '/terminals/ops-shared/write', PHONE, { data: 'cat ~/.ssh/id_ed25519\r' })).status).toBe(404);
     expect((await call('GET', '/terminals/ops-shared/output', PHONE)).status).toBe(404);
     expect(pty.write).not.toHaveBeenCalled();
@@ -326,6 +418,13 @@ class FakeSocket extends EventEmitter {
   say(msg: Record<string, unknown>): void { this.emit('message', Buffer.from(JSON.stringify(msg))); }
 }
 
+describe('isAgentProcessName', () => {
+  it('knows the agents and treats shells and unknowns as not running', () => {
+    expect(['claude', 'codex', 'node', 'Claude'].every(isAgentProcessName)).toBe(true);
+    expect(['zsh', 'bash', 'sh', 'vim', 'ssh', 'tmux', '', null, undefined].some(isAgentProcessName)).toBe(false);
+  });
+});
+
 describe('ops shells on the live connection', () => {
   it('a phone can’t subscribe or type to an ops shell; a password sign-in still can', async () => {
     const ws = await import('../server/wsManager.js');
@@ -344,5 +443,23 @@ describe('ops shells on the live connection', () => {
     expect(pty.write).toHaveBeenCalledWith('ops-shared', 'id\r');
     phone.emit('close');
     ipad.emit('close');
+  });
+
+  it('a phone types into the agent terminal only while the agent runs, and is told why not', async () => {
+    const ws = await import('../server/wsManager.js');
+    const presence = await import('../server/presenceManager.js');
+    presence.releaseAllControls('ipad-ws');
+    presence.releaseAllControls('phone-a');
+    const phone = new FakeSocket();
+    ws.handleConnection(phone as never, { clientId: 'phone-ws2', label: 'Phone', address: '192.168.1.60', isLocal: false, lineage: 'lp2', deviceId: 'dev-phone-a' });
+    phone.say({ type: 'terminal_subscribe', terminalId: 't-shared' });
+    pty.fg.set('t-shared', 'zsh');
+    phone.say({ type: 'terminal_input', terminalId: 't-shared', data: 'rm -rf ~\r' });
+    expect(pty.write).not.toHaveBeenCalled();
+    expect(phone.sent.some((m) => m.type === 'terminal_error' && /only while the agent is running/.test(String(m.error)))).toBe(true);
+    pty.fg.set('t-shared', 'claude');
+    phone.say({ type: 'terminal_input', terminalId: 't-shared', data: 'hello' });
+    expect(pty.write).toHaveBeenCalledWith('t-shared', 'hello');
+    phone.emit('close');
   });
 });

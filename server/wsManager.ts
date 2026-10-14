@@ -18,7 +18,9 @@ import {
   removeClientFromAllTerminals,
   getTerminalSessionId,
   isOpsTerminal,
+  getForegroundProcess,
 } from './sshManager.js';
+import { isAgentProcessName } from './mobile/phoneProfile.js';
 import { bindRemoteClientId } from './clientBinding.js';
 import { isLineageAlive } from './authManager.js';
 import * as presence from './presenceManager.js';
@@ -226,6 +228,13 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
             // into one PTY interleaves their keystrokes into garbage, so a
             // spectator's input is dropped until it holds the session's baton.
             if (!holdsControl(client, msg.terminalId)) break;
+            // A paired phone types only into a running agent: every agent
+            // terminal is a login shell underneath, so after the agent exits the
+            // same keystrokes would be shell commands (AASC-28).
+            if (client._deviceId && !isAgentProcessName(getForegroundProcess(msg.terminalId))) {
+              noticeAgentNotRunning(client, msg.terminalId);
+              break;
+            }
             writeToTerminal(msg.terminalId, msg.data);
           }
           break;
@@ -492,6 +501,17 @@ function holdsControl(client: WsClient, terminalId: string): boolean {
     } catch { /* client vanished mid-send */ }
   }
   return false;
+}
+
+/** Tell a phone, at most every few seconds, why its keystrokes went nowhere. */
+function noticeAgentNotRunning(client: WsClient, terminalId: string): void {
+  const key = `agent:${terminalId}`;
+  const now = Date.now();
+  if (now - (client._lastDenyAt.get(key) ?? 0) < CONTROL_DENY_NOTICE_MS || client.readyState !== 1) return;
+  client._lastDenyAt.set(key, now);
+  try {
+    client.send(JSON.stringify({ type: 'terminal_error', terminalId, error: 'A phone can type only while the agent is running' }));
+  } catch { /* client vanished mid-send */ }
 }
 
 /**
