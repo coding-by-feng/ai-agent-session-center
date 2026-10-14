@@ -48,6 +48,9 @@ describe('tab and path', () => {
 describe('which Mac', () => {
   it('trusts a Mac named by the payload and never guesses another', () => {
     expect(tapServerOrder(tap('approval', 'sess-1', 'mac-b'), [MAC_A, MAC_B], NO_HINTS)).toEqual([MAC_B]);
+    // The push names the Mac by its backend device id from the pairing link.
+    const withBackendId = { ...MAC_A, backendDeviceId: 'be-dev-a' };
+    expect(tapServerOrder(tap('approval', 'sess-1', 'be-dev-a'), [withBackendId, MAC_B], NO_HINTS)).toEqual([withBackendId]);
   });
 
   it('prefers where the session was last seen, then the last Mac used', () => {

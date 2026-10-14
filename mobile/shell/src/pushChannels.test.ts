@@ -16,9 +16,9 @@ describe('Android channels', () => {
     for (const kind of KINDS) expect(androidChannelFor(kind)).toBe(BACKEND_FCM_CHANNELS[kind]);
   });
 
-  it('makes approval and input high importance, finished and interrupted default', () => {
+  it('makes approval, input and interrupted high importance, finished default (the plan and AASC-19)', () => {
     const importance = Object.fromEntries(ANDROID_CHANNELS.map((c) => [c.id, c.importance]));
-    expect(importance).toEqual({ approval: 4, input: 4, finished: 3, interrupted: 3 });
+    expect(importance).toEqual({ approval: 4, input: 4, finished: 3, interrupted: 4 });
   });
 
   it('hides content on the lock screen and names every channel', () => {

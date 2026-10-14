@@ -68,7 +68,11 @@ export function ownerOf(owners: SessionOwners, sessionRef: string): string | nul
 /** The Macs to try, most likely first. */
 export function tapServerOrder(arrival: PushArrival, servers: readonly PairedServer[], hints: TapHints): PairedServer[] {
   const byId = new Map(servers.map((s) => [s.id, s]));
-  const named = arrival.macRef ? byId.get(arrival.macRef) : undefined;
+  // The push names the Mac by its backend device id (from the pairing link); a
+  // server stored before that id existed can still match by its own id.
+  const named = arrival.macRef
+    ? servers.find((s) => s.backendDeviceId === arrival.macRef) ?? byId.get(arrival.macRef)
+    : undefined;
   if (named) return [named]; // the payload said which Mac: never guess another
   const order: PairedServer[] = [];
   const add = (s: PairedServer | undefined) => {

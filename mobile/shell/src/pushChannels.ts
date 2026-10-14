@@ -30,7 +30,7 @@ export const ANDROID_CHANNELS: readonly AndroidChannel[] = [
   { id: 'approval', name: 'Approval needed', description: 'A session is waiting for you to allow a tool', importance: 4, visibility: 0, vibration: true, lights: true },
   { id: 'input', name: 'Waiting for input', description: 'A session asked you a question', importance: 4, visibility: 0, vibration: true, lights: true },
   { id: 'finished', name: 'Finished', description: 'A session finished its turn', importance: 3, visibility: 0, vibration: false, lights: false },
-  { id: 'interrupted', name: 'Interrupted', description: 'A session stopped on an error (overload, rate limit, network)', importance: 3, visibility: 0, vibration: true, lights: false },
+  { id: 'interrupted', name: 'Interrupted', description: 'A session stopped on an error (overload, rate limit, network)', importance: 4, visibility: 0, vibration: true, lights: false },
 ];
 
 /** = the backend's FCM_CHANNELS. */

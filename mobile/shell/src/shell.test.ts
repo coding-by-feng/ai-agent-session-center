@@ -12,7 +12,7 @@ describe('parsePairingLink', () => {
   it('reads the link the desktop shows', () => {
     expect(parsePairingLink(GOOD)).toEqual({
       version: 2, name: 'Kason-MBP', lan: '192.168.1.20', tailnet: '100.101.102.103', port: 3333,
-      macCode: 'K7Q2M9XPZT', backendHost: null, backendCode: null,
+      macCode: 'K7Q2M9XPZT', backendHost: null, backendCode: null, macDeviceId: null,
     });
   });
 
@@ -20,6 +20,13 @@ describe('parsePairingLink', () => {
     const link = parsePairingLink(`${GOOD}&be=api.aasc.work&bc=abcdefghijklmnopqrstuv`);
     expect(link?.backendHost).toBe('api.aasc.work');
     expect(link?.backendCode).toBe('abcdefghijklmnopqrstuv');
+  });
+
+  it('reads the Mac’s backend device id only with a backend code, and ignores a malformed one', () => {
+    const withBackend = `${GOOD}&be=api.aasc.work&bc=abcdefghijklmnopqrstuv`;
+    expect(parsePairingLink(`${withBackend}&md=3f2c1d5e-8a4b`)?.macDeviceId).toBe('3f2c1d5e-8a4b');
+    expect(parsePairingLink(`${withBackend}&md=bad%20id`)?.macDeviceId).toBeNull();
+    expect(parsePairingLink(`${GOOD}&md=3f2c1d5e-8a4b`)?.macDeviceId).toBeNull();
   });
 
   it.each([
