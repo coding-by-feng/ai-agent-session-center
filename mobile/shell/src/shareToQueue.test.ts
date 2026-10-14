@@ -118,12 +118,19 @@ describe('shareToQueue', () => {
 
 describe('shared images (AASC-21 M5)', () => {
   const ok = async (): Promise<SessionResult> => ({ status: 'ok', token: 'sess' });
-  const PNG = { name: 'shot.png', mimeType: 'image/png', base64: 'iVBORw0KGgo=' };
+  // A minimal well-formed PNG (signature, IHDR, IEND): only real images get through.
+  const pngBytes = Uint8Array.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, ...new Array(13).fill(1), 0, 0, 0, 0,
+    0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0, 0, 0, 0,
+  ]);
+  const PNG_B64 = btoa(String.fromCharCode(...pngBytes));
+  const PNG = { name: 'shot.png', mimeType: 'image/png', base64: PNG_B64 };
 
   it('sends images alone or with text, as data URLs with clean names', async () => {
     const http = fakeHttp();
     expect((await shareToQueue('', 'abc', { http, origin: ORIGIN, signIn: ok }, [{ ...PNG, name: 'a/../b.png' }])).status).toBe('added');
-    expect(http.calls[0].body).toEqual({ images: [{ name: 'a..b.png', dataUrl: 'data:image/png;base64,iVBORw0KGgo=' }] });
+    expect(http.calls[0].body).toEqual({ images: [{ name: 'a..b.png', dataUrl: `data:image/png;base64,${PNG_B64}` }] });
     await shareToQueue('look at this', 'abc', { http, origin: ORIGIN, signIn: ok }, [PNG]);
     expect(http.calls[1].body).toMatchObject({ text: 'look at this', images: [{ name: 'shot.png' }] });
   });
@@ -145,8 +152,9 @@ describe('shared images (AASC-21 M5)', () => {
   });
 
   it('names an unnamed image and checks the total size', () => {
-    const named = prepareSharedImages([{ mimeType: 'image/jpeg', base64: 'AAAA' }]);
-    expect(named).toEqual({ ok: true, images: [{ name: 'shared-image-1', dataUrl: 'data:image/jpeg;base64,AAAA' }] });
+    const named = prepareSharedImages([{ mimeType: 'image/png', base64: PNG_B64 }]);
+    expect(named).toEqual({ ok: true, images: [{ name: 'shared-image-1', dataUrl: `data:image/png;base64,${PNG_B64}` }] });
+    expect(prepareSharedImages([{ mimeType: 'image/jpeg', base64: 'AAAA' }])).toMatchObject({ ok: false });
     const big = 'A'.repeat(2_500_000);
     expect(prepareSharedImages([1, 2, 3].map(() => ({ mimeType: 'image/png', base64: big })))).toMatchObject({ ok: false });
   });
