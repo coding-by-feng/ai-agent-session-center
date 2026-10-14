@@ -12,6 +12,7 @@ import type { SessionResult } from './pairingClient.js';
 import { jsonHeaders, type HttpRequester } from './http.js';
 import { SESSION_REF, type SessionLite, type SessionStatus } from './sessions.js';
 import { cleanMultiline } from './text.js';
+import { stripImageMetadata, base64ToBytes, bytesToBase64, type StrippableType } from './imageMetadata';
 
 /** The Mac's limit is 64 * 1024 UTF-16 units; 64 KB of UTF-8 is never more than that. */
 export const SHARE_MAX_BYTES = 64 * 1024;
@@ -30,14 +31,18 @@ export const SHARE_MESSAGES = {
 export const SHARE_MAX_IMAGES = 4;
 export const SHARE_IMAGE_MAX_CHARS = 2_900_000;
 export const SHARE_IMAGES_MAX_CHARS = 6_000_000;
-const SHARE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+const SHARE_IMAGE_TYPES = new Set<StrippableType>(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
 export interface SharedImage {
   name: string;
   dataUrl: string;
 }
 
-/** An image from the share sheet. The native layer converts HEIC to JPEG before handing it over. */
+/**
+ * An image from the share sheet. The native layer converts HEIC to JPEG before
+ * handing it over; location and other metadata are removed here, so that
+ * doesn't depend on the platform.
+ */
 export interface IncomingImage {
   name?: string | null;
   mimeType: string;
@@ -55,10 +60,14 @@ export function prepareSharedImages(raw: readonly IncomingImage[] | null | undef
   const images: SharedImage[] = [];
   let total = 0;
   for (const [i, img] of list.entries()) {
-    if (!SHARE_IMAGE_TYPES.has(img.mimeType) || !/^[A-Za-z0-9+/]+={0,2}$/.test(img.base64)) {
+    if (!SHARE_IMAGE_TYPES.has(img.mimeType as StrippableType) || !/^[A-Za-z0-9+/]+={0,2}$/.test(img.base64)) {
       return { ok: false, message: 'Only PNG, JPEG, WebP and GIF images can be added. Nothing was added.' };
     }
-    const dataUrl = `data:${img.mimeType};base64,${img.base64}`;
+    // Over the size limit before decoding: don't spend memory on what will be refused anyway.
+    if (img.base64.length > SHARE_IMAGE_MAX_CHARS) return { ok: false, message: 'An image is larger than about 2 MB. Nothing was added.' };
+    const clean = stripImageMetadata(base64ToBytes(img.base64), img.mimeType as StrippableType);
+    if (!clean) return { ok: false, message: "An image couldn't be read. Nothing was added." };
+    const dataUrl = `data:${img.mimeType};base64,${bytesToBase64(clean)}`;
     if (dataUrl.length > SHARE_IMAGE_MAX_CHARS) return { ok: false, message: 'An image is larger than about 2 MB. Nothing was added.' };
     total += dataUrl.length;
     const name = (img.name ?? '').replace(/[\x00-\x1F\x7F/\\]/g, '').trim().slice(0, 120) || `shared-image-${i + 1}`;
