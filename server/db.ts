@@ -523,6 +523,12 @@ export function deleteNote(id: number): void {
   stmts.deleteNote.run(id);
 }
 
+/** The session a note belongs to, or null for an unknown id. */
+export function getNoteSessionId(id: number): string | null {
+  const row = stmts.getNoteById.get(id) as DbNoteRow | undefined;
+  return row?.session_id ?? null;
+}
+
 // ---- Note media (metadata only — bytes live on disk, see noteMedia.ts) ----
 
 export interface DbNoteMediaRow {

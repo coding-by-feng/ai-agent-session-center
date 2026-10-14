@@ -307,6 +307,8 @@ export function handleConnection(ws: WebSocket, identity?: ClientIdentity): void
         case WS_TYPES.UPDATE_QUEUE_COUNT:
           if (typeof msg.sessionId === 'string' && typeof msg.count === 'number'
               && Number.isInteger(msg.count) && msg.count >= 0 && msg.count <= 10000) {
+            // A remote device may only touch a session it can see (AASC-29).
+            if (!client._isLocal && !canSeeSession(false, getSession(msg.sessionId))) break;
             const updated = updateQueueCount(msg.sessionId, msg.count);
             if (updated) {
               broadcast({ type: WS_TYPES.SESSION_UPDATE, session: updated });

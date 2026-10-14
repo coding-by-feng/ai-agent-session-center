@@ -2135,9 +2135,17 @@ router.post('/terminals/:id/write', requireVisibleTerminal, (req: Request, res: 
 // ── Team Endpoints ──
 
 // Get team config from ~/.claude/teams/{teamName}/config.json
+/**
+ * A team reaches a remote device only through its lead session (AASC-29): the
+ * config names every member, so a hidden team answers exactly like a missing one.
+ */
+function remoteMaySeeTeam(req: Request, team: { parentSessionId: string }): boolean {
+  return requestIsLocal(req) || canSeeSession(false, getSession(team.parentSessionId));
+}
+
 router.get('/teams/:teamId/config', (req: Request, res: Response) => {
   const team = getTeam(str(req.params.teamId));
-  if (!team) {
+  if (!team || !remoteMaySeeTeam(req, team)) {
     res.status(404).json({ error: 'Team not found' });
     return;
   }
@@ -2167,7 +2175,7 @@ router.post('/teams/:teamId/members/:sessionId/terminal', async (req: Request, r
 
   // Validate team exists
   const team = getTeam(teamId);
-  if (!team) {
+  if (!team || !remoteMaySeeTeam(req, team)) {
     res.status(404).json({ error: 'Team not found' });
     return;
   }
@@ -2181,7 +2189,7 @@ router.post('/teams/:teamId/members/:sessionId/terminal', async (req: Request, r
 
   // Get the member's session to find tmuxPaneId
   const session = getSession(sessionId);
-  if (!session) {
+  if (!session || (!requestIsLocal(req) && !canSeeSession(false, session))) {
     res.status(404).json({ error: 'Session not found' });
     return;
   }
@@ -2222,21 +2230,71 @@ router.post('/teams/:teamId/members/:sessionId/terminal', async (req: Request, r
  * Localhost is untouched: the desktop's History and Prompts views behave
  * exactly as before.
  */
-function requireLocalForHistory(req: Request, res: Response, next: NextFunction): void {
-  if (requestIsLocal(req)) { next(); return; }
-  const id = str(req.params.id) || str(req.query.sessionId);
-  // A single-session lookup is allowed when that session is visible.
-  if (id && canSeeSession(false, getSession(id))) { next(); return; }
-  log.warn('api', `Blocked remote ${req.method} ${req.path} — history is host-only`);
+function refuseHistory(req: Request, res: Response): void {
+  log.warn('api', `Blocked remote ${req.method} ${req.baseUrl}${req.path} — history is host-only`);
   res.status(403).json({
     error: 'Session history is only available on the host machine',
     code: 'HISTORY_HOST_ONLY',
   });
 }
 
-router.use('/db/sessions', requireLocalForHistory);
+/**
+ * Only the session a request READS decides, never one it names on the side
+ * (AASC-29). The old gate took `str(req.params.id) || str(req.query.sessionId)`,
+ * but `params.id` is always empty in a `router.use` mount, so any request that
+ * named a shared session in `?sessionId=` passed — and then listed, searched,
+ * opened or deleted whatever its path pointed at.
+ *
+ *   /db/sessions               every session          → host only
+ *   /db/sessions/:id[/…]       one session            → that session must be shared
+ *   /db/search, /db/projects   across every session   → host only
+ *   /db/prompts                the prompt trace       → only with ?session=<shared id>,
+ *                                                       the filter the handler applies
+ */
+function requireSharedHistory(sessionOf: (req: Request) => string): (req: Request, res: Response, next: NextFunction) => void {
+  return (req, res, next) => {
+    if (requestIsLocal(req)) { next(); return; }
+    const id = sessionOf(req);
+    if (id && canSeeSession(false, getSession(id))) { next(); return; }
+    refuseHistory(req, res);
+  };
+}
+
+function requireLocalForHistory(req: Request, res: Response, next: NextFunction): void {
+  if (requestIsLocal(req)) { next(); return; }
+  refuseHistory(req, res);
+}
+
+/** The session id in `/db/sessions/<id>/…`, relative to the mount; '' for the list itself. */
+function historyPathSessionId(req: Request): string {
+  const first = req.path.split('/').filter(Boolean)[0] ?? '';
+  try { return decodeURIComponent(first); } catch { return ''; }
+}
+
+router.use('/db/sessions', requireSharedHistory(historyPathSessionId));
+router.use('/db/prompts', requireSharedHistory((req) => str(req.query.session)));
 router.use('/db/search', requireLocalForHistory);
-router.use('/db/prompts', requireLocalForHistory);
+router.use('/db/projects', requireLocalForHistory);
+
+/**
+ * Notes and their media are addressed by their own ids, so the /sessions/:id
+ * and history gates never see a session. Resolve the owner first (AASC-29);
+ * 404 for a hidden owner, the same answer as an unknown id.
+ */
+function requireNoteOfSharedSession(req: Request, res: Response, next: NextFunction): void {
+  if (requestIsLocal(req)) { next(); return; }
+  const id = Number(str(req.params.id));
+  const owner = Number.isInteger(id) ? db.getNoteSessionId(id) : null;
+  if (owner && canSeeSession(false, getSession(owner))) { next(); return; }
+  res.status(404).json({ error: 'Note not found' });
+}
+
+function requireMediaOfSharedSession(req: Request, res: Response, next: NextFunction): void {
+  if (requestIsLocal(req)) { next(); return; }
+  const owner = db.getNoteMedia(str(req.params.id))?.session_id;
+  if (owner && canSeeSession(false, getSession(owner))) { next(); return; }
+  res.status(404).json({ error: 'Not found' });
+}
 
 
 // Search/list sessions from DB (used by history panel, replaces IndexedDB reads)
@@ -2341,7 +2399,7 @@ router.post('/db/sessions/:id/notes', (req: Request, res: Response) => {
   res.json(note);
 });
 
-router.put('/db/notes/:id', (req: Request, res: Response) => {
+router.put('/db/notes/:id', requireNoteOfSharedSession, (req: Request, res: Response) => {
   const body = validateBody(noteSchema, req.body, res);
   if (!body) return;
   const id = Number(str(req.params.id));
@@ -2357,7 +2415,7 @@ router.put('/db/notes/:id', (req: Request, res: Response) => {
   res.json(note);
 });
 
-router.delete('/db/notes/:id', (req: Request, res: Response) => {
+router.delete('/db/notes/:id', requireNoteOfSharedSession, (req: Request, res: Response) => {
   db.deleteNote(Number(str(req.params.id)));
   res.json({ ok: true });
 });
@@ -2384,7 +2442,7 @@ router.post('/db/sessions/:id/note-media', (req: Request, res: Response) => {
  * `<video>` seekable; streaming the whole file instead would force a full
  * download before the user could scrub.
  */
-router.get('/note-media/:id', (req: Request, res: Response) => {
+router.get('/note-media/:id', requireMediaOfSharedSession, (req: Request, res: Response) => {
   const media = resolveNoteMedia(str(req.params.id));
   if (!media) {
     res.status(404).json({ error: 'Not found' });
