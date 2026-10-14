@@ -12,11 +12,11 @@ function str(val: unknown): string {
   if (Array.isArray(val)) return String(val[0] ?? '');
   return val != null ? String(val) : '';
 }
-import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel } from './sessionStore.js';
+import { findClaudeProcess, killSession, archiveSession, setSessionTitle, setSessionRemark, setSessionPinned, setSessionRemoteVisible, setSessionAiPopupEnabled, setSessionMuted, setSessionAlerted, setSessionAccentColor, setSessionCharacterModel, setSummary, getSession, getAllSessions, detectSessionSource, createTerminalSession, findActiveSessionByConfig, deleteSessionFromMemory, clearAllSessions, resumeSession, reconnectSessionTerminal, reconnectOpsTerminal, registerSessionAlias, resolveSessionId, resumeQueueAfterCancel, getSessionIdByTerminalId } from './sessionStore.js';
 import { config as serverConfig } from './serverConfig.js';
 import { getLocalIP } from './networkInfo.js';
 import { isPasswordEnabled } from './authManager.js';
-import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, maybeInjectUltracode, attachToTmuxPane, consumePendingLink, prefillTerminalOutput, setReplayBufferBytes } from './sshManager.js';
+import { createTerminal, closeTerminal, getTerminals, listSshKeys, listTmuxSessions, writeToTerminal, writeWhenReady, maybeInjectUltracode, attachToTmuxPane, consumePendingLink, prefillTerminalOutput, setReplayBufferBytes, getTerminalSessionId } from './sshManager.js';
 import { terminateProcessTree } from './processMonitor.js';
 import { restartSessionTerminal, isSessionRestarting, holdSessionClosing } from './sessionRestart.js';
 import { checkTerminalCapacity } from './terminalCapacity.js';
@@ -71,6 +71,32 @@ function requestIsLocal(req: Request): boolean {
  * able to distinguish "no such session" from "hidden from you", or the status
  * code becomes an oracle for enumerating session ids.
  */
+/** The session that owns a terminal (PTY or ops shell), or null when it can't be attributed. */
+function sessionIdOfTerminal(terminalId: string): string | null {
+  return getTerminalSessionId(terminalId) ?? getSessionIdByTerminalId(terminalId);
+}
+
+/**
+ * The /terminals/:id family for remote devices (AASC-25): the same rule as
+ * TERMINAL_SUBSCRIBE on the live connection. A terminal reaches a remote device
+ * only through a session it can see; an unattributable terminal (an ops shell
+ * of no known session, a PTY whose first hook hasn't landed) fails closed. 404,
+ * never 403, so "hidden" and "no such terminal" can't be told apart.
+ */
+function requireVisibleTerminal(req: Request, res: Response, next: NextFunction): void {
+  if (requestIsLocal(req)) { next(); return; }
+  const sessionId = sessionIdOfTerminal(str(req.params.id));
+  if (sessionId && canSeeSession(false, getSession(sessionId))) { next(); return; }
+  log.warn('api', `Blocked remote ${req.method} ${req.path} — terminal of a hidden session`);
+  res.status(404).json({ error: 'Terminal not found' });
+}
+
+/** Desktop-only routes: invisible (404) to every remote device. */
+function requireLocalOnly(req: Request, res: Response, next: NextFunction): void {
+  if (requestIsLocal(req)) { next(); return; }
+  res.status(404).json({ error: 'Not found' });
+}
+
 function requireVisibleSession(req: Request, res: Response, next: NextFunction): void {
   if (requestIsLocal(req)) { next(); return; }
   const id = str(req.params.id);
@@ -1910,8 +1936,16 @@ router.post('/terminals', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/terminals', (_req: Request, res: Response) => {
-  res.json({ terminals: getTerminals() });
+router.get('/terminals', (req: Request, res: Response) => {
+  const all = getTerminals();
+  // A remote device lists only the terminals of sessions shared with it (AASC-25).
+  const terminals = requestIsLocal(req)
+    ? all
+    : all.filter((t) => {
+      const sessionId = sessionIdOfTerminal(t.terminalId);
+      return Boolean(sessionId) && canSeeSession(false, getSession(sessionId!));
+    });
+  res.json({ terminals });
 });
 
 // Register an externally-created terminal (e.g. Electron ptyHost) with the
@@ -1927,7 +1961,7 @@ const terminalRegisterSchema = z.object({
   source: z.string().optional(),
 });
 
-router.post('/terminals/register', async (req: Request, res: Response) => {
+router.post('/terminals/register', requireLocalOnly, async (req: Request, res: Response) => {
   const body = validateBody(terminalRegisterSchema, req.body, res);
   if (!body) return;
 
@@ -1951,7 +1985,7 @@ router.post('/terminals/register', async (req: Request, res: Response) => {
   }
 });
 
-router.delete('/terminals/:id', (req: Request, res: Response) => {
+router.delete('/terminals/:id', requireVisibleTerminal, (req: Request, res: Response) => {
   closeTerminal(str(req.params.id));
   res.json({ ok: true });
 });
@@ -1959,7 +1993,7 @@ router.delete('/terminals/:id', (req: Request, res: Response) => {
 // Snapshot the ring-buffer output for a terminal. Used by the REVIEW tab to
 // capture floating-session output at close time, but useful for any consumer
 // that wants the current visible buffer without subscribing to the ws stream.
-router.get('/terminals/:id/output', async (req: Request, res: Response) => {
+router.get('/terminals/:id/output', requireVisibleTerminal, async (req: Request, res: Response) => {
   const { getTerminalOutputBuffer } = await import('./sshManager.js');
   const id = str(req.params.id);
   const base64 = getTerminalOutputBuffer(id);
@@ -2031,7 +2065,7 @@ router.post('/queue-images', (req: Request, res: Response) => {
 
 // Prefill a terminal's output ring buffer with saved data (base64).
 // Used during workspace import to restore previous terminal scrollback.
-router.post('/terminals/:id/prefill-output', (req: Request, res: Response) => {
+router.post('/terminals/:id/prefill-output', requireLocalOnly, (req: Request, res: Response) => {
   const terminalId = str(req.params.id);
   const { data } = req.body || {};
   if (!data || typeof data !== 'string') {
@@ -2046,8 +2080,19 @@ router.post('/terminals/:id/prefill-output', (req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
-router.post('/terminals/:id/write', (req: Request, res: Response) => {
+router.post('/terminals/:id/write', requireVisibleTerminal, (req: Request, res: Response) => {
   const terminalId = str(req.params.id);
+  // A remote device types only while it holds the session's control baton, the
+  // same rule as terminal_input on the live connection (AASC-25). Unlike a
+  // socket, an anonymous remote request is not arbitrated: it is refused.
+  if (!requestIsLocal(req)) {
+    const clientId = clientIdFromRequest(req);
+    const sessionId = sessionIdOfTerminal(terminalId);
+    if (!clientId || !sessionId || !presence.noteControlActivity(sessionId, clientId)) {
+      res.status(409).json({ error: 'Another device is driving this session', code: 'CONTROL_HELD' });
+      return;
+    }
+  }
   const { data } = req.body || {};
   if (!data || typeof data !== 'string') {
     res.status(400).json({ error: 'Missing or invalid "data" field' });
